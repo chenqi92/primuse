@@ -1,0 +1,50 @@
+{
+  "$schema": "https://developers.cloudflare.com/workers/wrangler/config-schema.json",
+  "name": "primuse-share-relay",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-09-02",
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "share.soundisle.com",
+      "custom_domain": true
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA_BUCKET",
+      "bucket_name": "primuse-share-relay"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "PUBLIC_RATE_LIMITER",
+      "namespace_id": "74001",
+      "simple": {
+        "limit": 600,
+        "period": 60
+      }
+    }
+  ],
+  "vars": {
+    "PUBLIC_BASE_URL": "https://share.soundisle.com",
+    "CHUNK_SIZE_BYTES": "8388608",
+    "MAX_FILE_BYTES": "21474836480",
+    "MAX_TTL_SECONDS": "2592000",
+    "UPLOAD_TTL_SECONDS": "86400"
+  },
+  "secrets": {
+    "required": [
+      "ADMIN_TOKEN",
+      "MASTER_KEY"
+    ]
+  },
+  "triggers": {
+    "crons": [
+      "*/5 * * * *"
+    ]
+  },
+  "observability": {
+    "enabled": false
+  }
+}
