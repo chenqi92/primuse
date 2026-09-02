@@ -329,7 +329,8 @@ actor UPnPSource: SongScanningConnector {
                         objectID: selection.objectID,
                         rootLocation: rootLocation,
                         folderComponents: [],
-                        state: state
+                        state: state,
+                        onObservation: { continuation.yield($0) }
                     )
                     for candidate in state.candidates.values.sorted(by: {
                         $0.scannedSong.song.id < $1.scannedSong.song.id
@@ -350,7 +351,8 @@ actor UPnPSource: SongScanningConnector {
         objectID: String,
         rootLocation: ConnectorLibraryFolderLocation,
         folderComponents: [ConnectorLibraryFolderComponent],
-        state: UPnPScanState
+        state: UPnPScanState,
+        onObservation: @Sendable (ConnectorScannedSong) -> Void
     ) async throws {
         let containerKey = "\(serverID)\u{1F}\(objectID)"
         guard state.visitedContainers.insert(containerKey).inserted else { return }
@@ -377,6 +379,7 @@ actor UPnPSource: SongScanningConnector {
                 seenPages: &seenPages
             )
 
+            var childContainers: [UPnPNode] = []
             for node in page.nodes {
                 state.visitedNodeCount += 1
                 guard state.visitedNodeCount <= Self.maximumCatalogNodes else {
@@ -384,24 +387,12 @@ actor UPnPSource: SongScanningConnector {
                 }
                 switch node.kind {
                 case .container:
-                    try Task.checkCancellation()
-                    try await scanContainer(
-                        serverID: serverID,
-                        objectID: node.objectID,
-                        rootLocation: rootLocation,
-                        folderComponents: folderComponents + [
-                            ConnectorLibraryFolderComponent(
-                                stableID: "container:\(node.objectID)",
-                                displayName: node.title
-                            ),
-                        ],
-                        state: state
-                    )
+                    childContainers.append(node)
                 case .item:
                     guard let song = buildSong(serverID: serverID, node: node) else {
                         continue
                     }
-                    state.consider(
+                    let observed = state.consider(
                         resourceURL: song.filePath,
                         candidate: UPnPScanCandidate(
                             scannedSong: ConnectorScannedSong(
@@ -417,7 +408,41 @@ actor UPnPSource: SongScanningConnector {
                             folderComponents: folderComponents
                         )
                     )
+                    if observed {
+                        onObservation(
+                            ConnectorScannedSong(
+                                song: song,
+                                displayName: song.title,
+                                titleMetadataInspected: false,
+                                folderLocation: ConnectorLibraryFolderLocation(
+                                    rootStableID: rootLocation.rootStableID,
+                                    rootDisplayName: rootLocation.rootDisplayName,
+                                    components: folderComponents
+                                )
+                            )
+                        )
+                    }
                 }
+            }
+
+            // Publish the validated page's direct songs before descending into
+            // child containers. A server with a deep first branch otherwise
+            // keeps usable root songs invisible until that subtree finishes.
+            for child in childContainers {
+                try Task.checkCancellation()
+                try await scanContainer(
+                    serverID: serverID,
+                    objectID: child.objectID,
+                    rootLocation: rootLocation,
+                    folderComponents: folderComponents + [
+                        ConnectorLibraryFolderComponent(
+                            stableID: "container:\(child.objectID)",
+                            displayName: child.title
+                        ),
+                    ],
+                    state: state,
+                    onObservation: onObservation
+                )
             }
 
             guard let nextStartIndex = nextStartIndex(
@@ -1169,15 +1194,17 @@ private final class UPnPScanState: @unchecked Sendable {
     var candidates: [String: UPnPScanCandidate] = [:]
     var visitedNodeCount = 0
 
-    func consider(resourceURL: String, candidate: UPnPScanCandidate) {
+    @discardableResult
+    func consider(resourceURL: String, candidate: UPnPScanCandidate) -> Bool {
         if let existing = candidates[resourceURL],
            !UPnPCanonicalFolderPlacementPolicy.prefers(
                candidate: candidate.folderComponents,
                over: existing.folderComponents
            ) {
-            return
+            return false
         }
         candidates[resourceURL] = candidate
+        return true
     }
 }
 

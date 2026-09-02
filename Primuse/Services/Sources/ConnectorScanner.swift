@@ -52,6 +52,10 @@ actor ConnectorScanner {
         /// source that hasn't gained any files. Drives the in-progress
         /// "新增 N 首" label so users can tell a no-op scan from a real one.
         var addedCount: Int
+        /// New or refreshed rows observed during this run. Unlike addedCount,
+        /// this advances when a server updates metadata for an existing song
+        /// and lets ScanService publish that change before the full walk ends.
+        var mutationCount: Int = 0
         var totalCount: Int
         var currentFile: String
         var songs: [Song]
@@ -279,7 +283,7 @@ actor ConnectorScanner {
                     ? oldEntry?.songIDs.first
                     : nil
                 let songID = preferredID ?? generatedSongID(for: item)
-                let incoming = await buildBareSong(from: item, songID: songID)
+                let incoming = buildBareSong(from: item, songID: songID)
                 if var old = preferredID.flatMap({ id in existingSongs.first { $0.id == id } }) {
                     if !songContentChanged(existing: old, incoming: incoming) {
                         old.filePath = item.path
@@ -403,6 +407,7 @@ actor ConnectorScanner {
                     let initialCount = max(existingSongs.count, startingCount)
                     var scannedCount = totalCount > 0 ? min(initialCount, totalCount) : initialCount
                     var addedCount = 0
+                    var mutationCount = 0
                     let usableResumeState = resumeState?.isUsable == true ? resumeState : nil
                     var encounteredSongIDs = usableResumeState?.encounteredSongIDs ?? []
                     let identityBaseline = identityIndex.merging(
@@ -472,6 +477,7 @@ actor ConnectorScanner {
                                             ScanUpdate(
                                                 scannedCount: scannedCount,
                                                 addedCount: addedCount,
+                                                mutationCount: mutationCount,
                                                 totalCount: totalCount,
                                                 currentFile: scannedSong.displayName,
                                                 songs: allSongs
@@ -492,6 +498,7 @@ actor ConnectorScanner {
                                                    let idx = allSongIndexByID[scannedSong.song.id] {
                                                     allSongs[idx] = refreshed
                                                     existingByID[scannedSong.song.id] = refreshed
+                                                    mutationCount += 1
                                                 }
                                             }
                                             continue
@@ -508,11 +515,13 @@ actor ConnectorScanner {
                                             allSongs[idx] = replacement
                                         }
                                         existingByID[scannedSong.song.id] = replacement
+                                        mutationCount += 1
                                         continue
                                     }
 
                                     scannedCount += 1
                                     addedCount += 1
+                                    mutationCount += 1
                                     allSongs.append(scannedSong.song)
                                     allSongIndexByID[scannedSong.song.id] = allSongs.count - 1
                                     existingByID[scannedSong.song.id] = scannedSong.song
@@ -521,12 +530,13 @@ actor ConnectorScanner {
                                     // thousands of tracks faster than the UI can
                                     // persist a full snapshot. Coalesce progress
                                     // just like the generic file scanner below.
-                                    if addedCount % Self.progressYieldStride == 0 {
+                                    if mutationCount.isMultiple(of: Self.progressYieldStride) {
                                         lastProgressYieldAt = Date()
                                         continuation.yield(
                                             ScanUpdate(
                                                 scannedCount: scannedCount,
                                                 addedCount: addedCount,
+                                                mutationCount: mutationCount,
                                                 totalCount: totalCount,
                                                 currentFile: scannedSong.displayName,
                                                 songs: allSongs
@@ -568,6 +578,7 @@ actor ConnectorScanner {
                             ScanUpdate(
                                 scannedCount: scannedCount,
                                 addedCount: addedCount,
+                                mutationCount: mutationCount,
                                 totalCount: totalCount,
                                 currentFile: "",
                                 songs: allSongs
@@ -882,7 +893,7 @@ actor ConnectorScanner {
                                         }
                                         continue
                                     }
-                                    let refreshed = await buildBareSong(from: item, songID: songID)
+                                    let refreshed = buildBareSong(from: item, songID: songID)
                                     if let idx = allSongIndexByID[songID] {
                                         var replacement = refreshed
                                         replacement.dateAdded = existing.dateAdded
@@ -896,7 +907,7 @@ actor ConnectorScanner {
                                     continue
                                 }
 
-                                let newSong = await buildBareSong(from: item, songID: songID)
+                                let newSong = buildBareSong(from: item, songID: songID)
                                 allSongs.append(newSong)
                                 allSongIndexByID[songID] = allSongs.count - 1
                                 existingByID[songID] = newSong
@@ -1411,25 +1422,13 @@ actor ConnectorScanner {
         return refs
     }
 
-    /// Build a Song with no descriptive metadata extraction. A verified
-    /// standalone DTS core receives a provisional size-based duration because
-    /// its total length cannot be recovered from a bounded prefix; complete
-    /// playback or an explicit reread remains authoritative.
-    private func buildBareSong(from item: RemoteFileItem, songID: String) async -> Song {
+    /// Build a Song with no audio-byte reads. DTS carried in a `.wav` file is
+    /// identified by the shared metadata pass, or by the mandatory remote WAV
+    /// probe immediately before playback; reading the same 256 KB here made
+    /// every new WAV pay for the header twice.
+    private func buildBareSong(from item: RemoteFileItem, songID: String) -> Song {
         let ext = (item.name as NSString).pathExtension.lowercased()
-        var format = AudioFormat.from(fileExtension: ext) ?? .mp3
-        // DTS-CD commonly uses a .wav container even though its payload is a
-        // DTS bitstream. Mark it before playback so remote URLs take the safe
-        // full-download DTS path instead of being rendered as PCM noise.
-        if ext == "wav",
-           let prefix = try? await connector.fetchMetadataRange(
-               path: item.path,
-               offset: 0,
-               length: 256 * 1024
-           ),
-           FFmpegAudioDecoder.dataContainsDTSSync(prefix) {
-            format = .dts
-        }
+        let format = AudioFormat.from(fileExtension: ext) ?? .mp3
         let fileBaseName = sourceTitle(from: item)
         let provisionalDuration = format == .dts
             ? AudioDurationPolicy.provisionalStandaloneDTSDuration(

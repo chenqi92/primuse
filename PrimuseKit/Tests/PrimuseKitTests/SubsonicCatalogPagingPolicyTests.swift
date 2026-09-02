@@ -3,6 +3,14 @@ import Testing
 @testable import PrimuseKit
 
 struct SubsonicCatalogPagingPolicyTests {
+    @Test func everySubsonicFamilyMemberUsesTheSharedPagedRoute() {
+        #expect(MusicSourceType.subsonic.isSubsonicFamily)
+        #expect(MusicSourceType.navidrome.isSubsonicFamily)
+        #expect(MusicSourceType.airsonic.isSubsonicFamily)
+        #expect(MusicSourceType.gonic.isSubsonicFamily)
+        #expect(!MusicSourceType.plex.isSubsonicFamily)
+    }
+
     @Test func weakServerRevisionNeverAuthorizesMissingSongDeletion() {
         #expect(!SubsonicCatalogPagingPolicy.authorizesMissingSongDeletion)
     }
@@ -71,6 +79,32 @@ struct SubsonicCatalogPagingPolicyTests {
         }
 
         #expect(requestedOffsets == [0, 500])
+    }
+
+    @Test func exactEightThousandSnapshotDoesNotRepeatVerifiedEmptyPage() {
+        var requestedOffsets: [Int] = []
+        var offset = 0
+        for receivedCount in Array(repeating: 500, count: 16) + [0] {
+            requestedOffsets.append(offset)
+            guard let next = SubsonicCatalogPagingPolicy.nextOffset(
+                currentOffset: offset,
+                receivedCount: receivedCount
+            ) else {
+                let terminalOffset = SubsonicCatalogPagingPolicy.terminalVerificationOffset(
+                    currentOffset: offset,
+                    receivedCount: receivedCount,
+                    nextOffset: nil
+                )
+                #expect(!SubsonicCatalogPagingPolicy.needsTerminalProbe(
+                    terminalOffset: terminalOffset,
+                    observedEmptyTerminalOffset: receivedCount == 0 ? offset : nil
+                ))
+                break
+            }
+            offset = next
+        }
+
+        #expect(requestedOffsets == Array(stride(from: 0, through: 8_000, by: 500)))
     }
 
     @Test func legacyAlbumWalkUsesBoundedConcurrencyAndWideSafetyLimits() {

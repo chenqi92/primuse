@@ -637,8 +637,17 @@ final class AppServices {
             },
             bareOnlySourceIDs: {
                 Set(store.sources.filter {
-                    $0.isEnabled && $0.type == .local
+                    $0.isEnabled && ($0.type == .local || $0.type == .synology)
                 }.map(\.id))
+            },
+            offlineReadableSourceIDs: {
+                #if os(iOS)
+                Set(store.sources.filter {
+                    $0.isEnabled && LocalImportService.isManagedSource($0)
+                }.map(\.id))
+                #else
+                []
+                #endif
             },
             manuallyReadableSourceIDs: {
                 Set(store.sources.filter {

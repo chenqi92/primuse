@@ -338,7 +338,7 @@ final class ScanService {
         // durable recovery marker until the fresh preparing checkpoint replaces
         // it. This closes the relaunch window between detecting an interrupted
         // song/topology commit and recording the corrective deep scan.
-        let supportsAtomicCatalogResume = source.type == .navidrome
+        let supportsAtomicCatalogResume = source.type.isSubsonicFamily
         let checkpoint = mode == .deep
             || (requiresAtomicCatalogCommit && !supportsAtomicCatalogResume)
             ? nil
@@ -800,6 +800,7 @@ final class ScanService {
     ///   has a checkpoint, so backfill can keep running in the background.
     func scheduleBackgroundResumeIfNeeded(
         backfillPending: Bool = false,
+        backfillRequiresNetworkConnectivity: Bool = true,
         scrapePending: Bool = false,
         localImportPending: Bool = false,
         sourceStore: SourcesStore? = nil
@@ -821,8 +822,13 @@ final class ScanService {
                     && (checkpoints[sourceID]?.canAutomaticallyResume(at: now) ?? true)) else {
                 return false
             }
-            guard let type = sourceStore?.source(id: sourceID)?.type else { return true }
-            return type != .baiduPan && type != .local
+            guard let source = sourceStore?.source(id: sourceID) else { return true }
+            guard source.type != .baiduPan else { return false }
+            #if os(iOS)
+            return !LocalImportService.isManagedSource(source)
+            #else
+            return source.type != .local
+            #endif
         }
         let periodicDate = sourceStore.flatMap { nextPeriodicSyncDate(sourceStore: $0) }
         guard hasScanWork || backfillPending || scrapePending
@@ -840,7 +846,8 @@ final class ScanService {
         // An interrupted iOS local import can finish entirely from the app
         // sandbox. Do not make that recovery wait for network availability
         // when it is the only reason for this background request.
-        request.requiresNetworkConnectivity = hasNetworkScanWork || backfillPending
+        request.requiresNetworkConnectivity = hasNetworkScanWork
+            || (backfillPending && backfillRequiresNetworkConnectivity)
             || scrapePending || periodicDate != nil
         request.requiresExternalPower = false
         let immediateWork = hasScanWork || backfillPending || scrapePending
@@ -1343,11 +1350,11 @@ final class ScanService {
         }
 
         var activeCheckpoint = checkpoint
-        // Navidrome deletion authority is earned only by the durable paged
-        // path. Any compatibility fallback (including an unavailable staging
-        // database) is merge-only and cannot prune the live library.
-        var allowsAuthoritativeCatalogPrune = source.type != .navidrome
-        if source.type == .navidrome,
+        // Offset-based Subsonic catalogues do not expose a sufficiently strong
+        // immutable revision for deletions. Every family member may still use
+        // the durable paged path and publish merge-only page observations.
+        var allowsAuthoritativeCatalogPrune = !source.type.isSubsonicFamily
+        if source.type.isSubsonicFamily,
            let pagedConnector = connector as? any ResumablePagedSongCatalogConnector,
            let pagedCatalogStore {
             let handled = await scanPagedServerCatalog(
@@ -1769,7 +1776,7 @@ final class ScanService {
 
         do {
             var lastSongs: [Song] = []
-            var lastIncrementalUpdate = 0
+            var lastIncrementalMutation = 0
             var lastFlushAt = Date()
             var lastProgressPublishedAt = Date.distantPast
             for try await update in stream {
@@ -1829,15 +1836,18 @@ final class ScanService {
                     )
                 }
 
-                // Flush 阈值: 每 flushBatchSize 首 *新增* 一次, 或者距上次 flush
+                // Flush 阈值: 每 flushBatchSize 首新增/更新一次, 或者距上次 flush
                 // 超过 flushInterval 也强制 flush。原本是每 10 首一次, 1w 首库
                 // 时 1000 次 rebuildIndex / persistSnapshot 把 main actor 卡到
                 // 用户能感觉到。
-                let pendingDelta = update.addedCount - lastIncrementalUpdate
+                // 通用文件连接器仍以 addedCount 表示新增；服务器连接器则用
+                // mutationCount 同时覆盖新增和元数据更新。取较大值可兼容两种协议。
+                let observedMutationCount = max(update.mutationCount, update.addedCount)
+                let pendingDelta = observedMutationCount - lastIncrementalMutation
                 let timeSinceFlush = Date().timeIntervalSince(lastFlushAt)
                 let shouldFlushIncrementally = pendingDelta >= Self.flushBatchSize
                     || (pendingDelta > 0 && timeSinceFlush >= Self.flushInterval)
-                if !requiresAtomicCatalogCommit, shouldFlushIncrementally {
+                if shouldFlushIncrementally {
                     // 中间 flush ── lastSongs 是当前累积的部分扫描结果, 还没
                     // 扫到的歌会被 addSongs 临时移除, 下次 flush 又补回。
                     // 这种"伪移除"不该触发缓存清理, 否则扫描中用户的本地
@@ -1850,7 +1860,7 @@ final class ScanService {
                     )
                     let acceptedCount = library.songs.filter { $0.sourceID == source.id }.count
                     sourceStore.updateLocal(source.id) { $0.songCount = acceptedCount }
-                    if update.resumeState == nil {
+                    if update.resumeState == nil, !requiresAtomicCatalogCommit {
                         persistCheckpoint(
                             sourceID: source.id,
                             directories: directories,
@@ -1861,7 +1871,7 @@ final class ScanService {
                             resolvedDirectories: effectiveDirectories
                         )
                     }
-                    lastIncrementalUpdate = update.addedCount
+                    lastIncrementalMutation = observedMutationCount
                     lastFlushAt = Date()
                 }
             }
@@ -2119,6 +2129,7 @@ final class ScanService {
                 var terminalProbeOffset = stageSnapshot.nextOffset == nil
                     ? stageSnapshot.stagedItemCount
                     : nil
+                var observedEmptyTerminalOffset: Int?
                 while let offset = stageSnapshot.nextOffset {
                     try checkScanCommitFence(
                         sourceID: source.id,
@@ -2222,6 +2233,9 @@ final class ScanService {
                         sourceStore: sourceStore
                     )
                     stageSnapshot = updatedStageSnapshot
+                    if page.itemIDs.isEmpty, page.songs.isEmpty, page.nextOffset == nil {
+                        observedEmptyTerminalOffset = offset
+                    }
                     terminalProbeOffset = SubsonicCatalogPagingPolicy
                         .terminalVerificationOffset(
                             currentOffset: offset,
@@ -2251,6 +2265,23 @@ final class ScanService {
                         directoryState: directoryState,
                         subsonicCatalogState: nextState
                     )
+                    // The page is durable and has passed duplicate/offset
+                    // validation. Publish it as merge-only observation; only
+                    // the terminal staged snapshot may reconcile hierarchy or
+                    // remove rows.
+                    if !stagedPageSongs.isEmpty {
+                        library.addSongs(
+                            stagedPageSongs,
+                            affectedSourceIDs: Set([source.id]),
+                            notifyRemovals: false,
+                            pruneMissingSongs: false,
+                            mergeServerCatalogRows: true
+                        )
+                        let acceptedCount = library.songs.lazy.filter {
+                            $0.sourceID == source.id
+                        }.count
+                        sourceStore.updateLocal(source.id) { $0.songCount = acceptedCount }
+                    }
                     publishScanProgress(
                         sourceID: source.id,
                         scannedCount: stageSnapshot.stagedSongCount,
@@ -2262,7 +2293,10 @@ final class ScanService {
                 }
 
                 let finalRevisionBeforePage = try await connector.stableSongCatalogRevision()
-                if let terminalProbeOffset {
+                if SubsonicCatalogPagingPolicy.needsTerminalProbe(
+                    terminalOffset: terminalProbeOffset,
+                    observedEmptyTerminalOffset: observedEmptyTerminalOffset
+                ), let terminalProbeOffset {
                     let terminalProbe = try await connector.songCatalogPage(
                         from: catalogPath,
                         offset: terminalProbeOffset
@@ -2782,7 +2816,7 @@ final class ScanService {
         }
         var catalogSongs = songs
         let commitsCatalogSnapshot: Bool
-        if let authoritativeSongIDs, source?.type == .navidrome {
+        if let authoritativeSongIDs, source?.type.isSubsonicFamily == true {
             let librarySongsSnapshot = library.songs
             let existingIDs = await Task.detached(priority: .utility) {
                 Set(
@@ -2792,7 +2826,7 @@ final class ScanService {
                 )
             }.value
             commitsCatalogSnapshot = !songs.isEmpty || existingIDs != authoritativeSongIDs
-        } else if source?.type == .navidrome {
+        } else if source?.type.isSubsonicFamily == true {
             let existingSongs = library.songs.filter { $0.sourceID == sourceID }
             let prepared = await Task.detached(priority: .utility) {
                 let merged = ServerSongCatalogMergePolicy.mergedSnapshot(
@@ -2843,7 +2877,7 @@ final class ScanService {
                 affectedSourceIDs: Set([sourceID]),
                 pruneMissingSongs: pruneMissingSongs,
                 authoritativeIncomingIDs: authoritativeSongIDs,
-                mergeServerCatalogRows: source?.type == .navidrome
+                mergeServerCatalogRows: source?.type.isSubsonicFamily == true
             )
         }
         // A previous attempt may have updated live memory but failed both its

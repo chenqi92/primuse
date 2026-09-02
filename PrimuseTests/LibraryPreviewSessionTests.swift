@@ -128,6 +128,55 @@ final class LibraryPreviewSessionTests: XCTestCase {
         XCTAssertNotNil(library.song(id: missingFromFallback.id))
     }
 
+    func testProgressiveServerPagesAreVisibleWithoutPruningEarlierRows() throws {
+        let storageDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "PrimuseProgressiveServerPageTests-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: storageDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: storageDirectory) }
+
+        let library = MusicLibrary(storageDirectory: storageDirectory)
+        let existing = Song(
+            id: "existing",
+            title: "Existing",
+            fileFormat: .mp3,
+            filePath: "/songs/existing.mp3",
+            sourceID: "source"
+        )
+        let firstPage = Song(
+            id: "page-one",
+            title: "Page One",
+            fileFormat: .flac,
+            filePath: "/songs/page-one.flac",
+            sourceID: "source"
+        )
+        library.addSongs([existing], affectedSourceIDs: ["source"])
+
+        library.addSongs(
+            [firstPage],
+            affectedSourceIDs: ["source"],
+            notifyRemovals: false,
+            pruneMissingSongs: false,
+            mergeServerCatalogRows: true
+        )
+        library.addSongs(
+            [firstPage],
+            affectedSourceIDs: ["source"],
+            notifyRemovals: false,
+            pruneMissingSongs: false,
+            mergeServerCatalogRows: true
+        )
+
+        XCTAssertNotNil(library.song(id: existing.id))
+        XCTAssertNotNil(library.song(id: firstPage.id))
+        XCTAssertEqual(library.songs.filter { $0.sourceID == "source" }.count, 2)
+    }
+
     func testFormatAndCueReplacementSurvivesBareRowMergeAndPublishesContentChange() throws {
         let storageDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(

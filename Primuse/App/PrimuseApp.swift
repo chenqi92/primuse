@@ -120,6 +120,7 @@ private enum BackgroundScanResumeTask {
                 }
                 scanService.scheduleBackgroundResumeIfNeeded(
                     backfillPending: backfill.hasPendingWork,
+                    backfillRequiresNetworkConnectivity: backfill.backgroundWakeRequiresNetworkConnectivity,
                     scrapePending: scraper.hasPendingBackgroundContinuation,
                     localImportPending: LocalImportService.hasPendingScan,
                     sourceStore: services.sourcesStore
@@ -169,6 +170,7 @@ private enum BackgroundScanResumeTask {
             // automatically renew the BGProcessing request for a later wake.
             scanService.scheduleBackgroundResumeIfNeeded(
                 backfillPending: backfill.hasPendingWork,
+                backfillRequiresNetworkConnectivity: backfill.backgroundWakeRequiresNetworkConnectivity,
                 scrapePending: scraper.hasPendingBackgroundContinuation,
                 localImportPending: LocalImportService.hasPendingScan,
                 sourceStore: services.sourcesStore
@@ -1194,6 +1196,7 @@ struct PrimuseApp: App {
                     // scans, scrape checkpoint replay, indexing and backfill.
                     scanService.scheduleBackgroundResumeIfNeeded(
                         backfillPending: metadataBackfill.hasPendingWork,
+                        backfillRequiresNetworkConnectivity: metadataBackfill.backgroundWakeRequiresNetworkConnectivity,
                         scrapePending: scraperService.hasPendingBackgroundContinuation,
                         localImportPending: LocalImportService.hasPendingScan,
                         sourceStore: sourcesStore
@@ -1394,6 +1397,7 @@ struct PrimuseApp: App {
                         // on macOS — BGTaskScheduler doesn't exist there.)
                         scanService.scheduleBackgroundResumeIfNeeded(
                             backfillPending: metadataBackfill.hasPendingWork,
+                            backfillRequiresNetworkConnectivity: metadataBackfill.backgroundWakeRequiresNetworkConnectivity,
                             scrapePending: scraperService.hasPendingBackgroundContinuation,
                             localImportPending: LocalImportService.hasPendingScan,
                             sourceStore: sourcesStore
@@ -1420,6 +1424,7 @@ struct PrimuseApp: App {
                                 }
                                 scanService.scheduleBackgroundResumeIfNeeded(
                                     backfillPending: metadataBackfill.hasPendingWork,
+                                    backfillRequiresNetworkConnectivity: metadataBackfill.backgroundWakeRequiresNetworkConnectivity,
                                     scrapePending: scraperService.hasPendingBackgroundContinuation,
                                     localImportPending: LocalImportService.hasPendingScan,
                                     sourceStore: sourcesStore
@@ -1456,6 +1461,7 @@ struct PrimuseApp: App {
                                 .sceneDidEnterBackground(library: musicLibrary)
                             scanService.scheduleBackgroundResumeIfNeeded(
                                 backfillPending: metadataBackfill.hasPendingWork,
+                                backfillRequiresNetworkConnectivity: metadataBackfill.backgroundWakeRequiresNetworkConnectivity,
                                 scrapePending: scraperService.hasPendingBackgroundContinuation,
                                 localImportPending: LocalImportService.hasPendingScan,
                                 sourceStore: sourcesStore
@@ -1481,12 +1487,14 @@ struct PrimuseApp: App {
                         AppServices.shared.spotlightIndex.suspendSynchronization()
                         AppServices.shared.lyricsTextBackfill.stop()
                         metadataBackfill.stop()
-                        if !metadataBackfill.resumeUserInitiatedIfNeeded() {
+                        if !metadataBackfill.resumeUserInitiatedIfNeeded(),
+                           !metadataBackfill.resumeAutomaticDeviceLocalIfNeeded() {
                             metadataBackfill.setExecutionMode(.standard)
                         }
                         musicLibrary.suspendPendingIdentityResolution()
                         scanService.scheduleBackgroundResumeIfNeeded(
                             backfillPending: metadataBackfill.hasPendingWork,
+                            backfillRequiresNetworkConnectivity: metadataBackfill.backgroundWakeRequiresNetworkConnectivity,
                             scrapePending: scraperService.hasPendingBackgroundContinuation,
                             localImportPending: LocalImportService.hasPendingScan,
                             sourceStore: sourcesStore
@@ -1533,6 +1541,7 @@ struct PrimuseApp: App {
                     }
                     scanService.scheduleBackgroundResumeIfNeeded(
                         backfillPending: metadataBackfill.hasPendingWork,
+                        backfillRequiresNetworkConnectivity: metadataBackfill.backgroundWakeRequiresNetworkConnectivity,
                         scrapePending: scraperService.hasPendingBackgroundContinuation,
                         localImportPending: LocalImportService.hasPendingScan,
                         sourceStore: sourcesStore

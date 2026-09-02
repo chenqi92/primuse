@@ -75,6 +75,16 @@ public enum SourceCatalogSnapshotPolicy {
     }
 }
 
+/// Stable identity for Synology File Station rows. Dedicated and generic
+/// scanners must use the same value so an in-flight metadata result cannot be
+/// applied after a same-path, same-size file was replaced.
+public enum SynologyFileRevisionPolicy {
+    public static func revision(size: Int64, modifiedDate: Date?) -> String? {
+        guard let modifiedDate else { return nil }
+        return "synology:\(size):\(Int64(modifiedDate.timeIntervalSince1970))"
+    }
+}
+
 /// Reconciles a full-metadata server row with device-local enrichment. A
 /// stable remote file refreshes only missing/suspicious server fields, keeping
 /// lyrics, replay gain, pinyin and sidecar caches intact. A real content

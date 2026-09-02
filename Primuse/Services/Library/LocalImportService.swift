@@ -37,6 +37,18 @@ enum LocalImportService {
         UserDefaults.standard.string(forKey: sourceIDKey)
     }
 
+    /// Distinguishes audio copied into Primuse's sandbox from `.local`
+    /// references backed by security-scoped File Provider URLs. Only the
+    /// former is guaranteed to remain readable without network connectivity.
+    static func isManagedSource(_ source: MusicSource) -> Bool {
+        DeviceLocalSourcePolicy.isManagedCopy(
+            isLocalSource: source.type == .local,
+            sourceID: source.id,
+            persistedImportSourceID: existingSourceID,
+            basePath: source.basePath
+        )
+    }
+
     static var hasPendingScan: Bool {
         UserDefaults.standard.bool(forKey: pendingScanKey)
     }

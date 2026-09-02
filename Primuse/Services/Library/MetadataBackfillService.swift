@@ -173,6 +173,9 @@ final class MetadataBackfillService {
     /// be swept again merely because their optional artwork/title inspection
     /// markers predate the shared backfill pipeline.
     private let bareOnlySourceIDs: () -> Set<String>
+    /// Sources whose bytes live in the app sandbox and remain readable while
+    /// Wi-Fi-only blocks connector and File Provider traffic.
+    private let offlineReadableSourceIDs: () -> Set<String>
     private let manuallyReadableSourceIDs: () -> Set<String>
     private let metadataService = MetadataService()
     private let failedURL: URL
@@ -254,6 +257,10 @@ final class MetadataBackfillService {
     /// drains or the user taps Pause. Background execution never inherits the
     /// unbounded foreground profile.
     private(set) var userInitiatedSourceID: String?
+    /// Automatic foreground intent for the iOS sandbox import source. It
+    /// survives an active/inactive transition so a large import resumes from
+    /// the next bounded snapshot instead of stopping after the first 24 rows.
+    private var automaticDeviceLocalSourceID: String?
     /// Source lifecycle notifications can arrive from the view, CloudKit and
     /// the global cleanup coordinator almost simultaneously. Coalesce them so
     /// removing several large sources scans the library once instead of once
@@ -289,12 +296,14 @@ final class MetadataBackfillService {
         sourceManager: SourceManager,
         backfillableSourceIDs: @escaping () -> Set<String> = { [] },
         bareOnlySourceIDs: @escaping () -> Set<String> = { [] },
+        offlineReadableSourceIDs: @escaping () -> Set<String> = { [] },
         manuallyReadableSourceIDs: (() -> Set<String>)? = nil
     ) {
         self.library = library
         self.sourceManager = sourceManager
         self.backfillableSourceIDs = backfillableSourceIDs
         self.bareOnlySourceIDs = bareOnlySourceIDs
+        self.offlineReadableSourceIDs = offlineReadableSourceIDs
         self.manuallyReadableSourceIDs = manuallyReadableSourceIDs ?? backfillableSourceIDs
         let appSupport = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
         let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
@@ -967,21 +976,30 @@ final class MetadataBackfillService {
         )
         guard cachedRemainingCount > 0 else { return }
 
-        // Cellular gate. Backfill on a 2200-song cloud library is ~550MB —
-        // enough to be a problem on metered connections. Instead of silently
-        // deferring, surface a prompt (pausedForCellular) when there's actually
-        // work to do, so the user can opt into 5G/4G if they need it.
-        if shouldBlockForCellular() {
+        // Cellular gate. Backfill on a 2200-song cloud library is ~550MB, but
+        // the managed iOS import source reads only sandbox files. When both
+        // kinds are pending, drain the offline rows first and defer only the
+        // connector/File Provider rows.
+        let networkBlocked = shouldBlockForCellular()
+        let allowedSourceIDs = MetadataBackfillNetworkPolicy.allowedSourceIDs(
+            networkIsBlocked: networkBlocked,
+            offlineReadableSourceIDs: offlineReadableSourceIDs()
+        )
+        if networkBlocked, allowedSourceIDs?.isEmpty != false {
             updateWaitingForWiFiState(presentPrompt: true)
             plog("📥 Backfill: deferred (cellular + Wi-Fi-only); pendingWork=\(hasPendingWork) prompt=\(pausedForCellular)")
             return
         }
-        isWaitingForWiFi = false
+        isWaitingForWiFi = networkBlocked && hasPendingNetworkReadableWork
         setCellularPromptPresented(false)
 
         let limits = MetadataBackfillExecutionPolicy.limits(for: executionMode)
-        let needsBackfill = pickNextBatch(limit: limits.snapshotLimit)
+        let needsBackfill = pickNextBatch(
+            limit: limits.snapshotLimit,
+            allowedSourceIDs: allowedSourceIDs
+        )
         guard !needsBackfill.isEmpty else {
+            updateWaitingForWiFiState(presentPrompt: networkBlocked)
             // Either every song has metadata OR every bare song is in
             // failedSongIDs. Surface both numbers so a "spinner stuck"
             // report can be triaged from the log without app-side
@@ -1023,12 +1041,24 @@ final class MetadataBackfillService {
                 if self.executionMode == .foregroundAfterSourceScan {
                     self.setExecutionMode(.standard)
                 }
+                if self.executionMode == .foregroundDeviceLocal,
+                   let sourceID = self.automaticDeviceLocalSourceID,
+                   self.remainingCount(forSource: sourceID) == 0 {
+                    self.automaticDeviceLocalSourceID = nil
+                    self.setExecutionMode(.standard)
+                }
                 if self.executionMode == .userInitiated,
                    let sourceID = self.userInitiatedSourceID,
                    self.remainingCount(forSource: sourceID) == 0 {
                     self.userInitiatedSourceID = nil
                     self.setExecutionMode(.standard)
                 }
+                #if os(iOS)
+                if self.executionMode == .standard,
+                   UIApplication.shared.applicationState == .active {
+                    _ = self.resumeAutomaticDeviceLocalIfNeeded()
+                }
+                #endif
                 // 完成通知 ── 处理 >= 5 首才发, 避免每次 worker 短跑都打扰用户。
                 // hasPendingWork == false 表示当前没遗留 ── 队列全清才算"完成"。
                 // postIfEnabled 内部会检查用户在设置页是否开了开关 + 系统是否已授权,
@@ -1163,6 +1193,29 @@ final class MetadataBackfillService {
         return true
     }
 
+    /// Resumes an interrupted sandbox import only while the app is active.
+    /// Background callbacks replace this mode with their one-snapshot profile,
+    /// so preserving the marker does not make background work unbounded.
+    @discardableResult
+    func resumeAutomaticDeviceLocalIfNeeded() -> Bool {
+        guard let sourceID = automaticDeviceLocalSourceID,
+              offlineReadableSourceIDs().contains(sourceID),
+              backfillableSourceIDs().contains(sourceID),
+              !library.disabledSourceIDs.contains(sourceID) else {
+            automaticDeviceLocalSourceID = nil
+            return false
+        }
+        refreshRemainingCounts(force: true)
+        guard remainingCount(forSource: sourceID) > 0 else {
+            automaticDeviceLocalSourceID = nil
+            setExecutionMode(.standard)
+            return false
+        }
+        setExecutionMode(.foregroundDeviceLocal)
+        start()
+        return true
+    }
+
     /// Re-evaluate active work after a source was enabled or disabled. Only
     /// that source's transient circuit-breaker state is reset; changing one
     /// connector must not silently grant fresh retries to every other source.
@@ -1173,6 +1226,12 @@ final class MetadataBackfillService {
            (!backfillableSourceIDs().contains(sourceID)
                 || library.disabledSourceIDs.contains(sourceID)) {
             userInitiatedSourceID = nil
+            setExecutionMode(.standard)
+        }
+        if automaticDeviceLocalSourceID == sourceID,
+           (!offlineReadableSourceIDs().contains(sourceID)
+                || library.disabledSourceIDs.contains(sourceID)) {
+            automaticDeviceLocalSourceID = nil
             setExecutionMode(.standard)
         }
         let songIDs = Set(library.songs.lazy.filter {
@@ -1234,11 +1293,17 @@ final class MetadataBackfillService {
 
         #if os(iOS)
         if UIApplication.shared.applicationState == .active {
-            setExecutionMode(
-                userInitiatedSourceID == sourceID
-                    ? .userInitiated
-                    : .foregroundAfterSourceScan
-            )
+            if offlineReadableSourceIDs().contains(sourceID) {
+                automaticDeviceLocalSourceID = sourceID
+            }
+            if userInitiatedSourceID == sourceID {
+                setExecutionMode(.userInitiated)
+            } else if userInitiatedSourceID == nil,
+                      automaticDeviceLocalSourceID == sourceID {
+                setExecutionMode(.foregroundDeviceLocal)
+            } else if userInitiatedSourceID == nil {
+                setExecutionMode(.foregroundAfterSourceScan)
+            }
             refreshQueue(startImmediately: true)
         } else {
             refreshQueue(startImmediately: Self.canRunAutomaticMaintenance)
@@ -1297,6 +1362,11 @@ final class MetadataBackfillService {
             userInitiatedSourceID = nil
             setExecutionMode(.standard)
         }
+        if let activeSourceID = automaticDeviceLocalSourceID,
+           sourceIDs.contains(activeSourceID) {
+            automaticDeviceLocalSourceID = nil
+            setExecutionMode(.standard)
+        }
 
         let songIDs = Set(library.songs.lazy.filter {
             sourceIDs.contains($0.sourceID)
@@ -1338,6 +1408,9 @@ final class MetadataBackfillService {
         guard hasPendingWork || !sessionNetworkParkedIDs.isEmpty else { return }
         guard NetworkMonitor.shared.isReachable, !shouldBlockForCellular() else {
             updateWaitingForWiFiState(presentPrompt: true)
+            if startImmediately, hasPendingOfflineReadableWork, worker == nil {
+                start()
+            }
             return
         }
         resumeNetworkParkedWork()
@@ -1573,7 +1646,7 @@ final class MetadataBackfillService {
             guard sourceIDs.contains(song.sourceID) else { continue }
 
             let workReasons = Self.workReasons(
-                restrictToBareRows: bareOnlyIDs.contains(song.sourceID),
+                restrictToBareRows: self.restrictsToBareRows(song, sourceIDs: bareOnlyIDs),
                 duration: song.duration,
                 format: song.fileFormat,
                 hasCoverArt: !(song.coverArtFileName?.isEmpty ?? true),
@@ -2103,14 +2176,17 @@ final class MetadataBackfillService {
         var lastSnapshotIDs: Set<String> = []
         var completedSnapshotPasses = 0
         while !Task.isCancelled {
-            let blockedByCellular = await MainActor.run { [self] in shouldBlockForCellular() }
-            if blockedByCellular {
-                plog("📥 Backfill: pausing (cellular detected mid-flight)")
-                break
+            let (limits, allowedSourceIDs) = await MainActor.run { [self] in
+                let limits = MetadataBackfillExecutionPolicy.limits(for: executionMode)
+                let allowedSourceIDs = MetadataBackfillNetworkPolicy.allowedSourceIDs(
+                    networkIsBlocked: shouldBlockForCellular(),
+                    offlineReadableSourceIDs: offlineReadableSourceIDs()
+                )
+                return (limits, allowedSourceIDs)
             }
-
-            let limits = await MainActor.run { [self] in
-                MetadataBackfillExecutionPolicy.limits(for: executionMode)
+            if allowedSourceIDs?.isEmpty == true {
+                plog("📥 Backfill: pausing network rows (cellular detected mid-flight)")
+                break
             }
             if let snapshotPassLimit = limits.snapshotPassLimit,
                completedSnapshotPasses >= snapshotPassLimit {
@@ -2118,7 +2194,10 @@ final class MetadataBackfillService {
             }
 
             let snapshot = await MainActor.run { [self] in
-                return pickNextBatch(limit: limits.snapshotLimit)
+                return pickNextBatch(
+                    limit: limits.snapshotLimit,
+                    allowedSourceIDs: allowedSourceIDs
+                )
             }
             if snapshot.isEmpty { break }
 
@@ -2174,7 +2253,8 @@ final class MetadataBackfillService {
         for (_, sourceSongs) in songsBySource {
             guard !Task.isCancelled else { return }
             guard let representative = sourceSongs.first else { continue }
-            guard isStillEligible(representative) else { continue }
+            guard isStillEligible(representative),
+                  canDispatchUnderCurrentNetworkPolicy(representative) else { continue }
             if let connector = try? await sourceManager.connectorForSong(representative) {
                 let paths = sourceSongs.map(\.filePath)
                 await connector.prefetchMetadata(paths: paths)
@@ -2190,7 +2270,8 @@ final class MetadataBackfillService {
         func nextEligibleSong() -> Song? {
             while let candidate = iterator.next() {
                 if !manuallyReadingSongIDs.contains(candidate.id),
-                   isStillEligible(candidate) {
+                   isStillEligible(candidate),
+                   canDispatchUnderCurrentNetworkPolicy(candidate) {
                     return candidate
                 }
             }
@@ -2222,7 +2303,6 @@ final class MetadataBackfillService {
             // Seed: background profiles deliberately launch one task only.
             for _ in 0..<initialLimits.workerCount {
                 guard let song = nextEligibleSong() else { break }
-                if shouldBlockForCellular() { return }
                 addTask(for: song, to: &group)
             }
 
@@ -2415,11 +2495,6 @@ final class MetadataBackfillService {
 
                 // Cellular check between songs ── 切到 cellular 后停止派发新
                 // task, 已 in-flight 的让它们自然完成 (next 仍会 yield)。
-                if shouldBlockForCellular() {
-                    plog("📥 Backfill: cellular detected, stop dispatching new tasks")
-                    continue
-                }
-
                 // 派发下一首给空闲 worker。
                 if let next = nextEligibleSong() {
                     addTask(for: next, to: &group)
@@ -2453,13 +2528,53 @@ final class MetadataBackfillService {
         return wifiOnly && !cellularAllowedThisSession && !NetworkMonitor.shared.isOnUnmeteredNetwork
     }
 
+    private func canDispatchUnderCurrentNetworkPolicy(_ song: Song) -> Bool {
+        !shouldBlockForCellular() || offlineReadableSourceIDs().contains(song.sourceID)
+    }
+
+    private var hasPendingOfflineReadableWork: Bool {
+        let offlineIDs = offlineReadableSourceIDs()
+        return remainingCountBySourceID.contains { sourceID, count in
+            count > 0 && offlineIDs.contains(sourceID)
+        }
+    }
+
+    private var hasPendingNetworkReadableWork: Bool {
+        let offlineIDs = offlineReadableSourceIDs()
+        return remainingCountBySourceID.contains { sourceID, count in
+            count > 0 && !offlineIDs.contains(sourceID)
+        }
+    }
+
+    /// A mixed queue can wake without network and drain sandbox rows first.
+    /// Once only connector/File Provider work remains, the next request asks
+    /// BGTaskScheduler for network connectivity.
+    var backgroundWakeRequiresNetworkConnectivity: Bool {
+        if queueNeedsRefresh
+            || reconciledQueueGeneration != queueMutationGeneration {
+            refreshRemainingCounts(force: true)
+        }
+        let pendingSourceIDs = Set(remainingCountBySourceID.compactMap { sourceID, count in
+            count > 0 ? sourceID : nil
+        })
+        return MetadataBackfillNetworkPolicy.backgroundWakeRequiresNetwork(
+            hasPendingWork: hasPendingWork,
+            pendingSourceIDs: pendingSourceIDs,
+            offlineReadableSourceIDs: offlineReadableSourceIDs()
+        )
+    }
+
     private func updateWaitingForWiFiState(presentPrompt: Bool) {
-        let waiting = hasPendingWork && shouldBlockForCellular()
+        let waiting = hasPendingNetworkReadableWork && shouldBlockForCellular()
         if isWaitingForWiFi != waiting {
             isWaitingForWiFi = waiting
         }
         if presentPrompt {
-            setCellularPromptPresented(waiting && !cellularPromptDismissedThisSession)
+            let shouldPresent = waiting
+                && !hasPendingOfflineReadableWork
+                && !isRunning
+                && !cellularPromptDismissedThisSession
+            setCellularPromptPresented(shouldPresent)
         } else if !waiting {
             setCellularPromptPresented(false)
         }
@@ -3439,8 +3554,18 @@ final class MetadataBackfillService {
             }
     }
 
+    private func restrictsToBareRows(
+        _ song: Song,
+        sourceIDs: Set<String>? = nil
+    ) -> Bool {
+        MetadataBackfillEligibilityPolicy.restrictsToBareRows(
+            sourceUsesBareInventory: (sourceIDs ?? bareOnlySourceIDs()).contains(song.sourceID),
+            isStreamDescriptor: song.isStreamDescriptor
+        )
+    }
+
     private func mergeSong(bare: Song, metadata: MetadataService.SongMetadata) -> Song {
-        let isBareOnlySource = bareOnlySourceIDs().contains(bare.sourceID)
+        let isBareOnlySource = restrictsToBareRows(bare)
         let identity = resolvedIdentity(for: bare, metadata: metadata)
         let mergedTitle = identity.title.value ?? bare.title
         let mergedArtist = identity.artist.value ?? bare.artistName
@@ -3546,7 +3671,10 @@ final class MetadataBackfillService {
     /// extraction would produce (duration, bitRate). Songs in the failure
     /// set are skipped. Limited to a batch so the queue doesn't grow
     /// unbounded for huge libraries.
-    private func pickNextBatch(limit: Int) -> [Song] {
+    private func pickNextBatch(
+        limit: Int,
+        allowedSourceIDs: Set<String>? = nil
+    ) -> [Song] {
         let sourceIDs = backfillableSourceIDs()
         let bareOnlyIDs = bareOnlySourceIDs()
         let failedIDs = failedSongIDs
@@ -3561,12 +3689,22 @@ final class MetadataBackfillService {
         let artistCheckedSnapshot = artistCheckedIDs
         let incompleteSnapshot = incompleteSongIDs
         let manuallyReadingSnapshot = manuallyReadingSongIDs
-        let scopedSourceID = executionMode == .userInitiated
-            ? userInitiatedSourceID
-            : nil
+        let scopedSourceID: String?
+        switch executionMode {
+        case .userInitiated:
+            scopedSourceID = userInitiatedSourceID
+        case .foregroundDeviceLocal:
+            scopedSourceID = automaticDeviceLocalSourceID
+        default:
+            scopedSourceID = nil
+        }
         let songs = library.songs
         let candidates = songs.lazy.filter { song in
             if let scopedSourceID, song.sourceID != scopedSourceID { return false }
+            if let allowedSourceIDs,
+               !allowedSourceIDs.contains(song.sourceID) {
+                return false
+            }
             guard !manuallyReadingSnapshot.contains(song.id) else { return false }
             guard !failedIDs.contains(song.id) else { return false }
             guard !sourceIssueIDs.contains(song.id) else { return false }
@@ -3581,7 +3719,7 @@ final class MetadataBackfillService {
             guard sourceIDs.contains(song.sourceID) else { return false }
             return Self.needsBackfill(
                 song,
-                restrictToBareRows: bareOnlyIDs.contains(song.sourceID),
+                restrictToBareRows: self.restrictsToBareRows(song, sourceIDs: bareOnlyIDs),
                 artworkGivenUpIDs: artworkGivenUpSnapshot,
                 titleCheckedIDs: titleCheckedSnapshot,
                 incompleteSongIDs: incompleteSnapshot,
@@ -3635,7 +3773,7 @@ final class MetadataBackfillService {
     private func needsBackfill(_ song: Song) -> Bool {
         Self.needsBackfill(
             song,
-            restrictToBareRows: bareOnlySourceIDs().contains(song.sourceID),
+            restrictToBareRows: restrictsToBareRows(song),
             artworkGivenUpIDs: artworkGivenUpIDs,
             titleCheckedIDs: titleCheckedIDs,
             incompleteSongIDs: incompleteSongIDs,
@@ -3646,7 +3784,7 @@ final class MetadataBackfillService {
 
     private func workReasons(for song: Song) -> MetadataBackfillWorkReasons {
         Self.workReasons(
-            restrictToBareRows: bareOnlySourceIDs().contains(song.sourceID),
+            restrictToBareRows: restrictsToBareRows(song),
             duration: song.duration,
             format: song.fileFormat,
             hasCoverArt: !(song.coverArtFileName?.isEmpty ?? true),

@@ -290,7 +290,10 @@ actor SynologyScanner {
                         count += 1
                         if let index = existingByID[song.id] {
                             song.dateAdded = allSongs[index].dateAdded
-                            allSongs[index] = song
+                            allSongs[index] = SongUserMetadataPolicy.preservingUserEdits(
+                                from: allSongs[index],
+                                in: song
+                            )
                         } else {
                             allSongs.append(song)
                         }
@@ -381,6 +384,12 @@ actor SynologyScanner {
                         if existing.lastModified == nil, let remoteMtime = item.modifiedTime {
                             allSongs[idx].lastModified = remoteMtime
                         }
+                        if !isSTRM, allSongs[idx].revision == nil {
+                            allSongs[idx].revision = SynologyFileRevisionPolicy.revision(
+                                size: item.size,
+                                modifiedDate: item.modifiedTime
+                            )
+                        }
                         if let coverRef, allSongs[idx].coverArtFileName != coverRef {
                             allSongs[idx].coverArtFileName = coverRef
                         }
@@ -425,10 +434,10 @@ actor SynologyScanner {
                 if isSTRM {
                     guard let parsed = await extractSTRMSong(item: item) else { continue }
                     song = parsed
+                    pendingMetadataInspectedSongIDs.insert(song.id)
                 } else {
-                    song = await extractSongMetadata(item: item, ext: ext)
+                    song = buildBareSong(item: item, ext: ext)
                 }
-                pendingMetadataInspectedSongIDs.insert(song.id)
 
                 // Priority: sidecar path > embedded/cached > nil。原地覆盖这两个
                 // 字段即可, 不要用部分 init 重建 —— 那会把 lastModified/revision/
@@ -447,7 +456,10 @@ actor SynologyScanner {
                 if let idx = existingByPath[item.path] {
                     // 覆盖文件 id 基于路径不变, 原地替换旧条目; 保留原 dateAdded 不刷新排序。
                     song.dateAdded = allSongs[idx].dateAdded
-                    allSongs[idx] = song
+                    allSongs[idx] = SongUserMetadataPolicy.preservingUserEdits(
+                        from: allSongs[idx],
+                        in: song
+                    )
                 } else {
                     allSongs.append(song)
                 }
@@ -467,6 +479,47 @@ actor SynologyScanner {
         return childDirectories
     }
 
+    /// Build the authoritative inventory row without downloading audio bytes.
+    /// The shared metadata backfill service owns bounded header/tail reads, so
+    /// a large NAS directory becomes visible at listing speed instead of one
+    /// serial metadata request per file. CUE and STRM descriptors stay on their
+    /// specialized paths because their virtual identity depends on contents.
+    private func buildBareSong(item: SynologyAPI.FileItem, ext: String) -> Song {
+        let fileBaseName = (item.name as NSString).deletingPathExtension
+        let title = MediaMetadataTextRepair.fileNameTitle(from: item.name) ?? fileBaseName
+        let artist = MediaMetadataTextRepair.fileNameArtist(from: item.name)
+        let parentDir = (item.path as NSString).deletingLastPathComponent
+        let folderName = (parentDir as NSString).lastPathComponent
+        let genericFolders: Set<String> = [
+            "music", "音乐", "songs", "audio", "media", "downloads"
+        ]
+        let album = genericFolders.contains(folderName.lowercased()) ? nil : folderName
+        var song = makeSong(
+            id: generateID(sourceID: sourceID, path: item.path),
+            title: title,
+            artist: artist,
+            album: album,
+            albumArtist: nil,
+            trackNumber: nil,
+            duration: 0,
+            format: AudioFormat.from(fileExtension: ext) ?? .mp3,
+            path: item.path,
+            size: item.size,
+            year: nil,
+            genre: nil,
+            sampleRate: nil,
+            bitRate: nil,
+            bitDepth: nil,
+            coverArtFileName: nil
+        )
+        song.lastModified = item.modifiedTime
+        song.revision = SynologyFileRevisionPolicy.revision(
+            size: item.size,
+            modifiedDate: item.modifiedTime
+        )
+        return song
+    }
+
     private func recordSyncItem(
         _ item: SynologyAPI.FileItem,
         parentPath: String,
@@ -483,7 +536,10 @@ actor SynologyScanner {
             songIDs: songIDs,
             size: item.size,
             modifiedDate: item.modifiedTime,
-            revision: nil
+            revision: SynologyFileRevisionPolicy.revision(
+                size: item.size,
+                modifiedDate: item.modifiedTime
+            )
         )
     }
 
@@ -557,9 +613,14 @@ actor SynologyScanner {
         from item: SynologyAPI.FileItem,
         descriptors: [CueTrackDescriptor]
     ) async -> [Song] {
-        let physical = await extractSongMetadata(
+        var physical = await extractSongMetadata(
             item: item,
             ext: (item.name as NSString).pathExtension.lowercased()
+        )
+        physical.lastModified = item.modifiedTime
+        physical.revision = SynologyFileRevisionPolicy.revision(
+            size: item.size,
+            modifiedDate: item.modifiedTime
         )
         return descriptors.compactMap { descriptor in
             guard let start = descriptor.track.startTime else { return nil }
@@ -695,11 +756,18 @@ actor SynologyScanner {
             lastModified: item.modifiedTime,
             coverArtFileName: coverRef,
             lyricsFileName: lyricsRef,
-            mvPath: item.path
+            mvPath: item.path,
+            revision: SynologyFileRevisionPolicy.revision(
+                size: item.size,
+                modifiedDate: item.modifiedTime
+            )
         )
         if let idx = existingByPath[item.path] {
             song.dateAdded = allSongs[idx].dateAdded
-            allSongs[idx] = song
+            allSongs[idx] = SongUserMetadataPolicy.preservingUserEdits(
+                from: allSongs[idx],
+                in: song
+            )
         } else {
             allSongs.append(song)
         }

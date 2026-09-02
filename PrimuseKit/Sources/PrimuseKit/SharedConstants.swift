@@ -2767,6 +2767,16 @@ public enum MetadataBackfillEligibilityPolicy {
         .wav, .aiff, .aif,
     ]
 
+    /// Bare inventory sources normally stop after the first bounded metadata
+    /// read. STRM rows are descriptors rather than audio files, so they keep
+    /// their existing enrichment path instead of inheriting that shortcut.
+    public static func restrictsToBareRows(
+        sourceUsesBareInventory: Bool,
+        isStreamDescriptor: Bool
+    ) -> Bool {
+        sourceUsesBareInventory && !isStreamDescriptor
+    }
+
     public static func reasons(
         duration: TimeInterval,
         format: AudioFormat,
@@ -2844,6 +2854,10 @@ public enum MetadataBackfillExecutionMode: Sendable, Equatable {
     /// active. Per-song failures are recorded and skipped instead of ending the
     /// source job.
     case userInitiated
+    /// The iOS Files importer has already copied audio into the app sandbox.
+    /// Keep consuming bounded snapshots while the scene remains active; this
+    /// work is fully offline and must not inherit cloud-source network gates.
+    case foregroundDeviceLocal
     /// A source scan just committed new bare rows while the iOS scene is
     /// interactive. Process one small serial pass so newly-added songs do not
     /// remain stuck at "reading details", then leave any large remainder to
@@ -2896,6 +2910,13 @@ public enum MetadataBackfillExecutionPolicy {
                 interRequestDelay: 0.35,
                 flushInterval: 10
             )
+        case .foregroundDeviceLocal:
+            MetadataBackfillExecutionLimits(
+                workerCount: 1,
+                snapshotLimit: 96,
+                interRequestDelay: 0.05,
+                flushInterval: 5
+            )
         case .foregroundAfterSourceScan:
             MetadataBackfillExecutionLimits(
                 workerCount: 1,
@@ -2921,6 +2942,47 @@ public enum MetadataBackfillExecutionPolicy {
                 snapshotPassLimit: 1
             )
         }
+    }
+}
+
+public enum DeviceLocalSourcePolicy {
+    /// Only the dedicated iOS import source is guaranteed to live in the app
+    /// sandbox. Other `.local` sources may be security-scoped File Provider
+    /// references and can require network materialization.
+    public static func isManagedCopy(
+        isLocalSource: Bool,
+        sourceID: String,
+        persistedImportSourceID: String?,
+        basePath: String?
+    ) -> Bool {
+        guard isLocalSource,
+              sourceID == persistedImportSourceID,
+              let basePath else {
+            return false
+        }
+        let url = URL(fileURLWithPath: basePath)
+        return url.lastPathComponent == "LocalMusic"
+            || url.path.contains("/Documents/LocalMusic")
+    }
+}
+
+public enum MetadataBackfillNetworkPolicy {
+    public static func allowedSourceIDs(
+        networkIsBlocked: Bool,
+        offlineReadableSourceIDs: Set<String>
+    ) -> Set<String>? {
+        networkIsBlocked ? offlineReadableSourceIDs : nil
+    }
+
+    /// Mixed work should wake without requiring network so sandbox rows can
+    /// drain. A later request requires network after only remote rows remain.
+    public static func backgroundWakeRequiresNetwork(
+        hasPendingWork: Bool,
+        pendingSourceIDs: Set<String>,
+        offlineReadableSourceIDs: Set<String>
+    ) -> Bool {
+        hasPendingWork
+            && pendingSourceIDs.isDisjoint(with: offlineReadableSourceIDs)
     }
 }
 

@@ -110,6 +110,14 @@ public enum SubsonicCatalogPagingPolicy {
         return currentOffset + max(0, receivedCount)
     }
 
+    public static func needsTerminalProbe(
+        terminalOffset: Int?,
+        observedEmptyTerminalOffset: Int?
+    ) -> Bool {
+        guard let terminalOffset else { return false }
+        return terminalOffset != observedEmptyTerminalOffset
+    }
+
     public static func isWithinAlbumLimit(_ count: Int) -> Bool {
         count <= maximumAlbumCount
     }

@@ -78,6 +78,34 @@ struct SourceCatalogSnapshotPolicyTests {
     }
 }
 
+struct SynologyFileRevisionPolicyTests {
+    @Test func dedicatedAndConnectorScansShareStableRevision() {
+        let modified = Date(timeIntervalSince1970: 1_780_000_000.875)
+
+        #expect(SynologyFileRevisionPolicy.revision(
+            size: 12_345,
+            modifiedDate: modified
+        ) == "synology:12345:1780000000")
+        #expect(SynologyFileRevisionPolicy.revision(
+            size: 12_345,
+            modifiedDate: nil
+        ) == nil)
+    }
+
+    @Test func sameSizeReplacementChangesRevisionWhenMtimeChanges() {
+        let first = SynologyFileRevisionPolicy.revision(
+            size: 12_345,
+            modifiedDate: Date(timeIntervalSince1970: 1_780_000_000)
+        )
+        let replacement = SynologyFileRevisionPolicy.revision(
+            size: 12_345,
+            modifiedDate: Date(timeIntervalSince1970: 1_780_000_001)
+        )
+
+        #expect(first != replacement)
+    }
+}
+
 struct ServerSongCatalogMergePolicyTests {
     @Test func stableServerRowsPreserveDeviceEnrichmentAndProviderDerivedIDs() {
         var existing = song(revision: "r1")

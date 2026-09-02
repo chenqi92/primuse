@@ -187,7 +187,10 @@ actor SynologySource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
                 isDirectory: $0.isDirectory,
                 size: $0.size,
                 modifiedDate: $0.modifiedTime,
-                revision: Self.fileRevision(size: $0.size, modifiedDate: $0.modifiedTime)
+                revision: SynologyFileRevisionPolicy.revision(
+                    size: $0.size,
+                    modifiedDate: $0.modifiedTime
+                )
             )
         }
     }
@@ -520,11 +523,6 @@ actor SynologySource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     func deleteFile(at path: String) async throws {
         try await connect()
         try await api.deleteFile(path: path)
-    }
-
-    private nonisolated static func fileRevision(size: Int64, modifiedDate: Date?) -> String? {
-        guard let modifiedDate else { return nil }
-        return "synology:\(size):\(Int64(modifiedDate.timeIntervalSince1970))"
     }
 
     /// 在 HTTP 200 的 Range 响应里识别 Synology JSON 错误包。仅当确信是
