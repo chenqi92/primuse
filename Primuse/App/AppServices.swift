@@ -841,9 +841,9 @@ final class AppServices {
 
         let pruneThreshold = RecoverableDeletionPolicy.pruneThreshold()
         musicLibrary.prunePlaylists(deletedBefore: pruneThreshold)
-        let sourcePruneResults = sourcesStore.pruneSources(deletedBefore: pruneThreshold)
+        let sourcePruneResults = await sourcesStore.pruneSources(deletedBefore: pruneThreshold)
         let sourcePruneFailures = sourcePruneResults.filter {
-            $0.value == .credentialCleanupFailed || $0.value == .deletionLedgerPersistFailed
+            $0.value != .deleted && $0.value != .sourceNotFound
         }
         if !sourcePruneFailures.isEmpty {
             plog("⏳ Source prune retained \(sourcePruneFailures.count) tombstone(s) for durable cleanup retry")

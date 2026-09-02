@@ -1,12 +1,45 @@
 import Foundation
 import PrimuseKit
 
+private actor SourceCredentialPurgeExecutor {
+    static let shared = SourceCredentialPurgeExecutor()
+
+    func purge(_ source: MusicSource) -> Bool {
+        #if os(iOS) || os(macOS)
+        let requiredStores = SourcePermanentDeletionPolicy.requiredCredentialStores(
+            for: source.type,
+            authType: source.authType
+        )
+        let passwordDeleted = !requiredStores.contains(.password)
+            || KeychainService.deletePassword(for: source.id)
+        let fnConnectAccessCodeDeleted = source.type != .fnMusic
+            || KeychainService.deletePassword(
+                for: FnMusicAPIProtocol.fnConnectAccessCodeAccount(sourceID: source.id)
+            )
+        let cloudCredentialsDeleted = !requiredStores.contains(.cloudCredentials)
+            || CloudTokenManager.deleteStoredCredentials(for: source.id)
+        guard SourcePermanentDeletionPolicy.canRemoveTombstone(
+            requiredStores: requiredStores,
+            passwordDeleted: passwordDeleted,
+            cloudCredentialsDeleted: cloudCredentialsDeleted
+        ), fnConnectAccessCodeDeleted else { return false }
+        LocalBookmarkStore.remove(sourceID: source.id)
+        CloudDirectoryNameStore.deleteAll(for: source.id)
+        #endif
+        return true
+    }
+}
+
 @MainActor
 @Observable
 final class SourcesStore {
+    typealias CredentialPurger = @Sendable (MusicSource) async -> Bool
+
     enum PermanentDeleteResult: Equatable {
         case deleted
         case sourceNotFound
+        case sourceChanged
+        case alreadyInProgress
         case credentialCleanupFailed
         case deletionLedgerPersistFailed
     }
@@ -36,6 +69,10 @@ final class SourcesStore {
     /// deletion surface a retry target in Recently Deleted.
     private(set) var permanentDeletionFailureIDs: Set<String> = []
 
+    /// Sources whose durable tombstone has been recorded and whose credentials
+    /// are currently being removed away from the main actor.
+    private(set) var permanentDeletionInProgressIDs: Set<String> = []
+
     /// CloudAccount entities owning OAuth-typed mounts. Persisted to a
     /// sibling JSON file (`cloudAccounts.json`). Stage 2 keeps this
     /// internal — UI doesn't read from it yet; stage 4 will wire OAuth
@@ -50,6 +87,7 @@ final class SourcesStore {
     private let accountsURL: URL
     private let sourceDeletionsURL: URL
     private let sourceDataWriter: (Data, URL) throws -> Void
+    private let credentialPurger: CredentialPurger
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
@@ -58,7 +96,8 @@ final class SourcesStore {
         storageDirectoryURL: URL? = nil,
         sourceDataWriter: @escaping (Data, URL) throws -> Void = { data, url in
             try data.write(to: url, options: .atomic)
-        }
+        },
+        credentialPurger: CredentialPurger? = nil
     ) {
         // tvOS 只允许写 Caches / tmp;须与 LibrarySnapshotSync / MusicLibrary 同目录。
         let directory: URL
@@ -78,6 +117,9 @@ final class SourcesStore {
         self.accountsURL = directory.appendingPathComponent("cloudAccounts.json")
         self.sourceDeletionsURL = directory.appendingPathComponent(MusicSourceDeletionRecord.fileName)
         self.sourceDataWriter = sourceDataWriter
+        self.credentialPurger = credentialPurger ?? { source in
+            await SourceCredentialPurgeExecutor.shared.purge(source)
+        }
         self.allSources = []
         self.allAccounts = []
         self.sourceDeletionRecords = []
@@ -309,7 +351,8 @@ final class SourcesStore {
 
     /// Restore a soft-deleted source from the recycle bin.
     func restore(id: String) {
-        guard let index = allSources.firstIndex(where: { $0.id == id }) else { return }
+        guard !permanentDeletionInProgressIDs.contains(id),
+              let index = allSources.firstIndex(where: { $0.id == id }) else { return }
         permanentDeletionFailureIDs.remove(id)
         let restoredAt = Date()
         allSources[index].isDeleted = false
@@ -323,39 +366,61 @@ final class SourcesStore {
 
     /// Permanently remove a source (manual purge or 30-day prune).
     @discardableResult
-    func permanentlyDelete(id: String) -> PermanentDeleteResult {
+    func permanentlyDelete(id: String) async -> PermanentDeleteResult {
+        guard !permanentDeletionInProgressIDs.contains(id) else {
+            return .alreadyInProgress
+        }
         guard let index = allSources.firstIndex(where: { $0.id == id }) else {
             permanentDeletionFailureIDs.remove(id)
             return .sourceNotFound
         }
         let tombstone = allSources[index]
+        guard tombstone.isDeleted else { return .sourceChanged }
         guard recordSourceDeletion(tombstone: tombstone) else {
             permanentDeletionFailureIDs.insert(id)
             plog("⛔ Source permanent delete deferred: deletion ledger persist failed id=\(id.prefix(8))…")
             return .deletionLedgerPersistFailed
         }
 
-        // Irreversible credential / token cleanup belongs here, not on a view
-        // observer: both the manual "delete forever" action and the launch-time
-        // 30-day prune funnel through permanentlyDelete, whereas the
-        // .primuseSourceDidDelete listener only fires while a Sources view is
-        // mounted — pruning at launch (or deleting from another window) would
-        // otherwise orphan Keychain passwords, OAuth tokens and cached
-        // directory names. These removals key off the source id alone, are
-        // no-ops for non-cloud sources, and are idempotent, so the remaining
-        // view-layer listener (which still wipes song records / source caches
-        // it owns the instances for) can re-run them harmlessly.
-        // Keep the soft-deleted row until every persisted credential is gone.
-        // If Keychain is locked or otherwise unavailable, the tombstone remains
-        // in Recently Deleted and the user (or next prune pass) can retry.
-        guard purgeCredentials(for: allSources[index]) else {
+        permanentDeletionFailureIDs.remove(id)
+        permanentDeletionInProgressIDs.insert(id)
+        defer { permanentDeletionInProgressIDs.remove(id) }
+
+        // Security.framework calls are synchronous IPC and can wait on
+        // securityd / iCloud Keychain. Always enter the injected purger from a
+        // detached task so neither manual purge nor startup pruning can block
+        // the main actor. The default purger is additionally serialized by its
+        // own actor to avoid concurrent mutations of the same credential store.
+        let purge = credentialPurger
+        let credentialsDeleted = await Task.detached(priority: .utility) {
+            await purge(tombstone)
+        }.value
+
+        // The await above permits cloud reconciliation and other source updates.
+        // Only commit the removal if this is still the exact tombstone for which
+        // credential cleanup began. In-progress user restores are rejected by
+        // restore(id:), while this check protects remote restores and replacement
+        // records that reuse the same source ID.
+        guard let currentIndex = allSources.firstIndex(where: { $0.id == id }) else {
+            permanentDeletionFailureIDs.remove(id)
+            return .sourceNotFound
+        }
+        let current = allSources[currentIndex]
+        guard current.isDeleted,
+              current.deletedAt == tombstone.deletedAt,
+              current.modifiedAt == tombstone.modifiedAt else {
+            permanentDeletionFailureIDs.remove(id)
+            return .sourceChanged
+        }
+
+        guard credentialsDeleted else {
             permanentDeletionFailureIDs.insert(id)
             plog("⛔ Source permanent delete deferred: credential cleanup failed id=\(id.prefix(8))…")
             return .credentialCleanupFailed
         }
 
         permanentDeletionFailureIDs.remove(id)
-        allSources.remove(at: index)
+        allSources.remove(at: currentIndex)
         persist()
         NotificationCenter.default.post(
             name: .primuseSourceDidDelete,
@@ -370,53 +435,28 @@ final class SourcesStore {
     /// leaves that source visible in Recently Deleted and does not block the
     /// remaining independent sources.
     @discardableResult
-    func permanentlyDelete(ids: Set<String>) -> [String: PermanentDeleteResult] {
-        Dictionary(uniqueKeysWithValues: ids.sorted().map { id in
-            (id, permanentlyDelete(id: id))
-        })
-    }
+    func permanentlyDelete(ids: Set<String>) async -> [String: PermanentDeleteResult] {
+        await withTaskGroup(of: (String, PermanentDeleteResult).self) { group in
+            for id in ids.sorted() {
+                group.addTask { [self] in
+                    (id, await permanentlyDelete(id: id))
+                }
+            }
 
-    /// Tear down the persisted secrets and per-source storage owned outside the
-    /// source row itself: Keychain passwords, cloud OAuth tokens + app
-    /// credentials, security-scoped bookmarks and cloud directory
-    /// display names. Idempotent and safe to call for any source type.
-    private func purgeCredentials(for source: MusicSource) -> Bool {
-        // KeychainService / CloudTokenManager / CloudDirectoryNameStore 仅存在于
-        // iOS/macOS app target;tvOS 共享本文件但用 TVCredentialStore,无这些凭据存储。
-        #if os(iOS) || os(macOS)
-        let requiredStores = SourcePermanentDeletionPolicy.requiredCredentialStores(
-            for: source.type,
-            authType: source.authType
-        )
-        let passwordDeleted = !requiredStores.contains(.password)
-            || KeychainService.deletePassword(for: source.id)
-        let fnConnectAccessCodeDeleted = source.type != .fnMusic
-            || KeychainService.deletePassword(
-                for: FnMusicAPIProtocol.fnConnectAccessCodeAccount(sourceID: source.id)
-            )
-        let cloudCredentialsDeleted = !requiredStores.contains(.cloudCredentials)
-            || CloudTokenManager.deleteStoredCredentials(for: source.id)
-        guard SourcePermanentDeletionPolicy.canRemoveTombstone(
-            requiredStores: requiredStores,
-            passwordDeleted: passwordDeleted,
-            cloudCredentialsDeleted: cloudCredentialsDeleted
-        ), fnConnectAccessCodeDeleted else { return false }
-        LocalBookmarkStore.remove(sourceID: source.id)
-        CloudDirectoryNameStore.deleteAll(for: source.id)
-        #endif
-        return true
+            var results: [String: PermanentDeleteResult] = [:]
+            for await (id, result) in group {
+                results[id] = result
+            }
+            return results
+        }
     }
 
     /// Sweep soft-deleted sources older than `threshold` and remove them for
     /// good. Called on launch with a 30-day threshold.
     @discardableResult
-    func pruneSources(deletedBefore threshold: Date) -> [String: PermanentDeleteResult] {
+    func pruneSources(deletedBefore threshold: Date) async -> [String: PermanentDeleteResult] {
         let toPrune = allSources.filter { $0.isDeleted && ($0.deletedAt ?? .distantFuture) < threshold }
-        var results: [String: PermanentDeleteResult] = [:]
-        for source in toPrune {
-            results[source.id] = permanentlyDelete(id: source.id)
-        }
-        return results
+        return await permanentlyDelete(ids: Set(toPrune.map(\.id)))
     }
 
     /// Apply a remote delete event as a tombstone. The notification keeps

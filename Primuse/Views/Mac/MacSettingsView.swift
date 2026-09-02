@@ -5345,6 +5345,7 @@ private struct MacSTDeletedView: View {
     @State private var showClearAllConfirmation = false
     @State private var pendingPurgePlan: RecentlyDeletedPurgePlan?
     @State private var clearAllFailureCount = 0
+    @State private var isClearingAll = false
 
     private var purgePlan: RecentlyDeletedPurgePlan {
         let _ = configsTick
@@ -5372,11 +5373,19 @@ private struct MacSTDeletedView: View {
             if !purgePlan.isEmpty {
                 HStack {
                     Spacer()
-                    Button("clear_all", role: .destructive) {
-                        pendingPurgePlan = purgePlan
-                        showClearAllConfirmation = true
+                    if isClearingAll {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Button("clear_all", role: .destructive) {
+                            pendingPurgePlan = purgePlan
+                            showClearAllConfirmation = true
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(!sourcesStore.permanentDeletionInProgressIDs.isDisjoint(
+                            with: purgePlan.sourceIDs
+                        ))
                     }
-                    .buttonStyle(.bordered)
                 }
                 .padding(.bottom, 12)
             }
@@ -5459,6 +5468,7 @@ private struct MacSTDeletedView: View {
                              hint: Lz("ST-09 · Includes Connection Credentials")) {
                     MacSTGroup {
                         ForEach(Array(sources.enumerated()), id: \.element.id) { index, s in
+                            let isDeleting = sourcesStore.permanentDeletionInProgressIDs.contains(s.id)
                             MacDeletedRealRow(
                                 title: s.name,
                                 sub: sourcesStore.permanentDeletionFailureIDs.contains(s.id)
@@ -5466,8 +5476,11 @@ private struct MacSTDeletedView: View {
                                     : deletedAtText(s.deletedAt),
                                 icon: s.type.iconName,
                                 divider: index != 0,
+                                isBusy: isDeleting,
                                 restore: { sourcesStore.restore(id: s.id) },
-                                purge:   { sourcesStore.permanentlyDelete(id: s.id) }
+                                purge: {
+                                    Task { await sourcesStore.permanentlyDelete(id: s.id) }
+                                }
                             )
                         }
                     }
@@ -5506,7 +5519,7 @@ private struct MacSTDeletedView: View {
         ) {
             Button("clear_all", role: .destructive) {
                 if let pendingPurgePlan {
-                    clearAll(pendingPurgePlan)
+                    Task { await clearAll(pendingPurgePlan) }
                 }
                 pendingPurgePlan = nil
             }
@@ -5541,18 +5554,22 @@ private struct MacSTDeletedView: View {
                       f.localizedString(for: date, relativeTo: Date()))
     }
 
-    private func clearAll(_ plan: RecentlyDeletedPurgePlan) {
-        guard !plan.isEmpty else { return }
+    @MainActor
+    private func clearAll(_ plan: RecentlyDeletedPurgePlan) async {
+        guard !plan.isEmpty, !isClearingAll else { return }
+        isClearingAll = true
+        defer { isClearingAll = false }
+
         library.permanentlyDeletePlaylists(ids: plan.playlistIDs)
         library.permanentlyDeleteSmartPlaylists(ids: plan.smartPlaylistIDs)
-        let sourceResults = sourcesStore.permanentlyDelete(ids: plan.sourceIDs)
         let deletedConfigIDs = ScraperConfigStore.shared.permanentlyDelete(
             ids: plan.scraperConfigurationIDs
         )
         configsTick &+= 1
+        let sourceResults = await sourcesStore.permanentlyDelete(ids: plan.sourceIDs)
 
         clearAllFailureCount = sourceResults.values.filter {
-            $0 == .credentialCleanupFailed || $0 == .deletionLedgerPersistFailed
+            $0 != .deleted && $0 != .sourceNotFound
         }.count
             + library.recentlyDeletedPlaylists.filter {
                 plan.playlistIDs.contains($0.id)
@@ -5569,6 +5586,7 @@ private struct MacDeletedRealRow: View {
     let sub: String
     let icon: String
     let divider: Bool
+    var isBusy = false
     let restore: () -> Void
     let purge: (() -> Void)?
 
@@ -5598,9 +5616,15 @@ private struct MacDeletedRealRow: View {
                 }
 
                 Spacer()
+                if isBusy {
+                    ProgressView()
+                        .controlSize(.small)
+                }
                 MacSTButton(title: "restore", action: restore)
+                    .disabled(isBusy)
                 if let purge {
                     MacSTButton(title: "delete_forever", destructive: true, action: purge)
+                        .disabled(isBusy)
                 }
             }
             .padding(.horizontal, 14)

@@ -440,6 +440,210 @@ final class SourcesStoreDurabilityTests: XCTestCase {
     }
 }
 
+@MainActor
+final class SourcePermanentDeletionTests: XCTestCase {
+    func testCredentialCleanupKeepsMainActorResponsiveAndRejectsRestoreAndDuplicateDelete() async throws {
+        let fileManager = FileManager.default
+        let storageDirectoryURL = temporaryDirectory(fileManager: fileManager)
+        defer { try? fileManager.removeItem(at: storageDirectoryURL) }
+
+        let purger = ControlledSourceCredentialPurger()
+        let source = deletedSource(id: "controlled-purge")
+        let store = SourcesStore(
+            fileManager: fileManager,
+            storageDirectoryURL: storageDirectoryURL,
+            credentialPurger: { source in await purger.purge(source) }
+        )
+        try store.addDurably(source)
+
+        let deletion = Task { await store.permanentlyDelete(id: source.id) }
+        await purger.waitUntilStarted()
+
+        XCTAssertTrue(store.permanentDeletionInProgressIDs.contains(source.id))
+        XCTAssertEqual(store.source(id: source.id)?.isDeleted, true)
+
+        store.restore(id: source.id)
+        XCTAssertEqual(store.source(id: source.id)?.isDeleted, true)
+
+        let duplicateResult = await store.permanentlyDelete(id: source.id)
+        XCTAssertEqual(duplicateResult, .alreadyInProgress)
+
+        let mainActorHeartbeat = Task { @MainActor in true }
+        let mainActorResponded = await mainActorHeartbeat.value
+        XCTAssertTrue(mainActorResponded)
+
+        await purger.finish(with: true)
+        let result = await deletion.value
+
+        XCTAssertEqual(result, .deleted)
+        XCTAssertNil(store.source(id: source.id))
+        XCTAssertFalse(store.permanentDeletionInProgressIDs.contains(source.id))
+        XCTAssertNotNil(store.sourceDeletionRecord(id: source.id))
+    }
+
+    func testCredentialCleanupFailureRetainsRetryableTombstoneThenSucceeds() async throws {
+        let fileManager = FileManager.default
+        let storageDirectoryURL = temporaryDirectory(fileManager: fileManager)
+        defer { try? fileManager.removeItem(at: storageDirectoryURL) }
+
+        let purger = SequencedSourceCredentialPurger(results: [false, true])
+        let source = deletedSource(id: "retry-purge")
+        let store = SourcesStore(
+            fileManager: fileManager,
+            storageDirectoryURL: storageDirectoryURL,
+            credentialPurger: { source in await purger.purge(source) }
+        )
+        try store.addDurably(source)
+
+        let failedResult = await store.permanentlyDelete(id: source.id)
+        XCTAssertEqual(failedResult, .credentialCleanupFailed)
+        XCTAssertEqual(store.source(id: source.id)?.isDeleted, true)
+        XCTAssertTrue(store.permanentDeletionFailureIDs.contains(source.id))
+        XCTAssertFalse(store.permanentDeletionInProgressIDs.contains(source.id))
+
+        let retryResult = await store.permanentlyDelete(id: source.id)
+        XCTAssertEqual(retryResult, .deleted)
+        XCTAssertNil(store.source(id: source.id))
+        XCTAssertFalse(store.permanentDeletionFailureIDs.contains(source.id))
+    }
+
+    func testChangedTombstoneIsNotRemovedAfterCredentialCleanupCompletes() async throws {
+        let fileManager = FileManager.default
+        let storageDirectoryURL = temporaryDirectory(fileManager: fileManager)
+        defer { try? fileManager.removeItem(at: storageDirectoryURL) }
+
+        let purger = ControlledSourceCredentialPurger()
+        let source = deletedSource(id: "changed-tombstone")
+        let store = SourcesStore(
+            fileManager: fileManager,
+            storageDirectoryURL: storageDirectoryURL,
+            credentialPurger: { source in await purger.purge(source) }
+        )
+        try store.addDurably(source)
+
+        let deletion = Task { await store.permanentlyDelete(id: source.id) }
+        await purger.waitUntilStarted()
+        store.updateLocal(source.id) {
+            $0.deletedAt = ($0.deletedAt ?? Date()).addingTimeInterval(1)
+        }
+        await purger.finish(with: true)
+
+        let result = await deletion.value
+        XCTAssertEqual(result, .sourceChanged)
+        XCTAssertNotNil(store.source(id: source.id))
+        XCTAssertFalse(store.permanentDeletionFailureIDs.contains(source.id))
+        XCTAssertFalse(store.permanentDeletionInProgressIDs.contains(source.id))
+    }
+
+    func testBatchDeletionReportsIndependentSuccessAndFailureWithoutRemoteWork() async throws {
+        let fileManager = FileManager.default
+        let storageDirectoryURL = temporaryDirectory(fileManager: fileManager)
+        defer { try? fileManager.removeItem(at: storageDirectoryURL) }
+
+        let successfulID = "batch-success"
+        let failedID = "batch-failure"
+        let purger = RecordingSourceCredentialPurger(failedIDs: [failedID])
+        let store = SourcesStore(
+            fileManager: fileManager,
+            storageDirectoryURL: storageDirectoryURL,
+            credentialPurger: { source in await purger.purge(source) }
+        )
+        try store.addDurably(deletedSource(id: successfulID))
+        try store.addDurably(deletedSource(id: failedID))
+
+        let results = await store.permanentlyDelete(ids: [successfulID, failedID])
+        let purgedIDs = await purger.purgedIDs()
+
+        XCTAssertEqual(results[successfulID], .deleted)
+        XCTAssertEqual(results[failedID], .credentialCleanupFailed)
+        XCTAssertNil(store.source(id: successfulID))
+        XCTAssertEqual(store.source(id: failedID)?.isDeleted, true)
+        XCTAssertEqual(purgedIDs, [successfulID, failedID])
+        XCTAssertTrue(store.permanentDeletionInProgressIDs.isEmpty)
+    }
+
+    private func temporaryDirectory(fileManager: FileManager) -> URL {
+        fileManager.temporaryDirectory.appendingPathComponent(
+            "PrimuseTVTests-\(UUID().uuidString)",
+            isDirectory: true
+        )
+    }
+
+    private func deletedSource(id: String) -> MusicSource {
+        let deletedAt = Date(timeIntervalSince1970: 2_000_000)
+        return MusicSource(
+            id: id,
+            name: id,
+            type: .googleDrive,
+            authType: .oauth,
+            modifiedAt: deletedAt,
+            isDeleted: true,
+            deletedAt: deletedAt
+        )
+    }
+}
+
+private actor ControlledSourceCredentialPurger {
+    private var started = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var resultContinuation: CheckedContinuation<Bool, Never>?
+
+    func purge(_ source: MusicSource) async -> Bool {
+        _ = source.id
+        started = true
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        return await withCheckedContinuation { continuation in
+            resultContinuation = continuation
+        }
+    }
+
+    func waitUntilStarted() async {
+        guard !started else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func finish(with result: Bool) {
+        resultContinuation?.resume(returning: result)
+        resultContinuation = nil
+    }
+
+}
+
+private actor SequencedSourceCredentialPurger {
+    private var results: [Bool]
+
+    init(results: [Bool]) {
+        self.results = results
+    }
+
+    func purge(_ source: MusicSource) -> Bool {
+        _ = source.id
+        return results.isEmpty ? true : results.removeFirst()
+    }
+}
+
+private actor RecordingSourceCredentialPurger {
+    private let failedIDs: Set<String>
+    private var recordedIDs: Set<String> = []
+
+    init(failedIDs: Set<String>) {
+        self.failedIDs = failedIDs
+    }
+
+    func purge(_ source: MusicSource) -> Bool {
+        recordedIDs.insert(source.id)
+        return !failedIDs.contains(source.id)
+    }
+
+    func purgedIDs() -> Set<String> {
+        recordedIDs
+    }
+}
+
 private enum SourcesStoreDurabilityTestError: Error, Equatable {
     case injectedWriteFailure
 }

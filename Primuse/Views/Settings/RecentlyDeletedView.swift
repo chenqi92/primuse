@@ -8,6 +8,7 @@ struct RecentlyDeletedView: View {
     @State private var showClearAllConfirmation = false
     @State private var pendingPurgePlan: RecentlyDeletedPurgePlan?
     @State private var clearAllFailureCount = 0
+    @State private var isClearingAll = false
 
     private var purgePlan: RecentlyDeletedPurgePlan {
         let _ = configsTick
@@ -38,9 +39,17 @@ struct RecentlyDeletedView: View {
         .toolbar {
             if !purgePlan.isEmpty {
                 ToolbarItem(placement: .primaryAction) {
-                    Button("clear_all", role: .destructive) {
-                        pendingPurgePlan = purgePlan
-                        showClearAllConfirmation = true
+                    if isClearingAll {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Button("clear_all", role: .destructive) {
+                            pendingPurgePlan = purgePlan
+                            showClearAllConfirmation = true
+                        }
+                        .disabled(!sourcesStore.permanentDeletionInProgressIDs.isDisjoint(
+                            with: purgePlan.sourceIDs
+                        ))
                     }
                 }
             }
@@ -52,7 +61,7 @@ struct RecentlyDeletedView: View {
         ) {
             Button("clear_all", role: .destructive) {
                 if let pendingPurgePlan {
-                    clearAll(pendingPurgePlan)
+                    Task { await clearAll(pendingPurgePlan) }
                 }
                 pendingPurgePlan = nil
             }
@@ -156,6 +165,7 @@ struct RecentlyDeletedView: View {
         if !items.isEmpty {
             Section {
                 ForEach(items) { source in
+                    let isDeleting = sourcesStore.permanentDeletionInProgressIDs.contains(source.id)
                     row(
                         title: source.name,
                         deletedAt: source.deletedAt,
@@ -163,8 +173,11 @@ struct RecentlyDeletedView: View {
                         statusMessage: sourcesStore.permanentDeletionFailureIDs.contains(source.id)
                             ? "\(String(localized: "status_unavailable")) · \(String(localized: "retry"))"
                             : nil,
+                        isBusy: isDeleting,
                         restore: { sourcesStore.restore(id: source.id) },
-                        purge: { sourcesStore.permanentlyDelete(id: source.id) }
+                        purge: {
+                            Task { await sourcesStore.permanentlyDelete(id: source.id) }
+                        }
                     )
                 }
             } header: {
@@ -207,6 +220,7 @@ struct RecentlyDeletedView: View {
         deletedAt: Date?,
         systemImage: String,
         statusMessage: String? = nil,
+        isBusy: Bool = false,
         restore: @escaping () -> Void,
         purge: @escaping () -> Void
     ) -> some View {
@@ -228,6 +242,10 @@ struct RecentlyDeletedView: View {
                 }
             }
             Spacer()
+            if isBusy {
+                ProgressView()
+                    .controlSize(.small)
+            }
             // macOS 没法 swipe,inline 给两个按钮(恢复 / 彻底删除)。
             // iOS 维持 swipeActions,行内不再插按钮以免和滑动冲突。
             #if os(macOS)
@@ -239,6 +257,7 @@ struct RecentlyDeletedView: View {
             }
             .buttonStyle(.borderless)
             .help(Text("restore"))
+            .disabled(isBusy)
 
             Button(role: .destructive) {
                 purge()
@@ -248,6 +267,7 @@ struct RecentlyDeletedView: View {
             }
             .buttonStyle(.borderless)
             .help(Text("delete_permanently"))
+            .disabled(isBusy)
             #endif
         }
         #if os(iOS)
@@ -255,10 +275,12 @@ struct RecentlyDeletedView: View {
             Button(role: .destructive) { purge() } label: {
                 Label("delete_permanently", systemImage: "trash.fill")
             }
+            .disabled(isBusy)
             Button { restore() } label: {
                 Label("restore", systemImage: "arrow.uturn.backward")
             }
             .tint(.blue)
+            .disabled(isBusy)
         }
         #endif
     }
@@ -303,18 +325,22 @@ struct RecentlyDeletedView: View {
         return String(format: NSLocalizedString("auto_remove_in_n_days", comment: ""), days)
     }
 
-    private func clearAll(_ plan: RecentlyDeletedPurgePlan) {
-        guard !plan.isEmpty else { return }
+    @MainActor
+    private func clearAll(_ plan: RecentlyDeletedPurgePlan) async {
+        guard !plan.isEmpty, !isClearingAll else { return }
+        isClearingAll = true
+        defer { isClearingAll = false }
+
         library.permanentlyDeletePlaylists(ids: plan.playlistIDs)
         library.permanentlyDeleteSmartPlaylists(ids: plan.smartPlaylistIDs)
-        let sourceResults = sourcesStore.permanentlyDelete(ids: plan.sourceIDs)
         let deletedConfigIDs = ScraperConfigStore.shared.permanentlyDelete(
             ids: plan.scraperConfigurationIDs
         )
         configsTick &+= 1
+        let sourceResults = await sourcesStore.permanentlyDelete(ids: plan.sourceIDs)
 
         let failedSourceCount = sourceResults.values.filter {
-            $0 == .credentialCleanupFailed || $0 == .deletionLedgerPersistFailed
+            $0 != .deleted && $0 != .sourceNotFound
         }.count
         let failedPlaylistCount = library.recentlyDeletedPlaylists.filter {
             plan.playlistIDs.contains($0.id)
