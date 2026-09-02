@@ -26,7 +26,7 @@ import Testing
     #expect(trackPath == "/daoliyu/tracks/trk_123.flac")
     #expect(DaoLiYuAPIProtocol.trackID(from: trackPath) == "trk_123")
     #expect(DaoLiYuAPIProtocol.streamURL(serverBaseURL: base, trackID: "trk_123")?.path
-        == "/music/api/tracks/trk_123/stream")
+        == "/music/api/tracks/trk_123/download")
 }
 
 @Test func daoLiYuTrackBuildsStableSongFromVNextPayload() throws {
@@ -105,8 +105,11 @@ import Testing
     let total = try await client.validateConnection()
     #expect(total >= 1)
 
-    let page = try await client.trackPage(skip: 0, take: 1)
-    let track = try #require(page.tracks.first)
+    let page = try await client.trackPage(skip: 0, take: min(max(total, 1), 500))
+    let track = try #require(
+        page.tracks.first(where: { $0.fileExtension?.lowercased() != "mp3" })
+            ?? page.tracks.first
+    )
     let base = try #require(DaoLiYuAPIProtocol.serverBaseURL(
         host: host,
         port: url.port,
@@ -118,6 +121,98 @@ import Testing
     #expect(prefix.count == 2)
 
     let resolved = try await client.resolvedStream(trackPath: song.filePath)
-    #expect(resolved.url.path.hasSuffix("/api/tracks/\(track.id)/stream"))
+    #expect(resolved.url.path.hasSuffix("/api/tracks/\(track.id)/download"))
     #expect(resolved.headers["Authorization"]?.hasPrefix("Bearer ") == true)
+}
+
+@Test func daoLiYuClientUsesOriginalDownloadRouteForRangeAndCache() async throws {
+    let recorder = DaoLiYuRequestRecorder()
+    let temporaryURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("daoliyu-original-download.flac")
+    let transport = DaoLiYuRequestTransport(
+        data: { request in
+            let path = try #require(request.url?.path)
+            await recorder.recordData(path)
+            let url = try #require(request.url)
+            switch path {
+            case "/api/auth/login":
+                return (
+                    Data(#"{"token":"TOKEN"}"#.utf8),
+                    try #require(HTTPURLResponse(
+                        url: url,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    ))
+                )
+            case "/api/tracks/trk_123/download":
+                return (
+                    Data([0x66, 0x4C]),
+                    try #require(HTTPURLResponse(
+                        url: url,
+                        statusCode: 206,
+                        httpVersion: nil,
+                        headerFields: [
+                            "Content-Range": "bytes 0-1/2",
+                            "Content-Length": "2",
+                        ]
+                    ))
+                )
+            default:
+                throw URLError(.badServerResponse)
+            }
+        },
+        download: { request in
+            let path = try #require(request.url?.path)
+            await recorder.recordDownload(path)
+            let url = try #require(request.url)
+            return (
+                temporaryURL,
+                try #require(HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "audio/flac"]
+                ))
+            )
+        }
+    )
+    let client = DaoLiYuServiceClient(
+        sourceID: "source-1",
+        host: "music.example.com",
+        port: nil,
+        useSSL: true,
+        basePath: nil,
+        username: "qa@example.com",
+        password: "password",
+        transport: transport
+    )
+    let trackPath = DaoLiYuAPIProtocol.trackPath(id: "trk_123", fileExtension: "flac")
+
+    let prefix = try await client.fetchRange(trackPath: trackPath, offset: 0, length: 2)
+    let downloadedURL = try await client.downloadTrack(trackPath: trackPath)
+    let requests = await recorder.snapshot()
+
+    #expect(prefix == Data([0x66, 0x4C]))
+    #expect(downloadedURL == temporaryURL)
+    #expect(requests.data.contains("/api/tracks/trk_123/download"))
+    #expect(requests.download == ["/api/tracks/trk_123/download"])
+    #expect(!requests.data.contains(where: { $0.hasSuffix("/stream") }))
+}
+
+private actor DaoLiYuRequestRecorder {
+    private var dataPaths: [String] = []
+    private var downloadPaths: [String] = []
+
+    func recordData(_ path: String) {
+        dataPaths.append(path)
+    }
+
+    func recordDownload(_ path: String) {
+        downloadPaths.append(path)
+    }
+
+    func snapshot() -> (data: [String], download: [String]) {
+        (dataPaths, downloadPaths)
+    }
 }

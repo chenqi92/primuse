@@ -383,7 +383,7 @@ public actor DaoLiYuServiceClient {
 
         for attempt in 0...1 {
             let request = try await authenticatedRequest(
-                path: "/tracks/\(Self.encodedPathComponent(id))/stream",
+                path: "/tracks/\(Self.encodedPathComponent(id))/download",
                 headers: [
                     "Range": rangeValue,
                     "Accept-Encoding": "identity",
@@ -424,7 +424,7 @@ public actor DaoLiYuServiceClient {
         }
         for attempt in 0...1 {
             let request = try await authenticatedRequest(
-                path: "/tracks/\(Self.encodedPathComponent(id))/stream"
+                path: "/tracks/\(Self.encodedPathComponent(id))/download"
             )
             let (temporaryURL, response) = try await transport.download(for: request)
             guard let http = response as? HTTPURLResponse else {

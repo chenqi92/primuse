@@ -3,7 +3,7 @@ import Foundation
 /// 道理鱼 vNext 原生 API 的共享 URL/引用约定。
 ///
 /// 曲目在 Primuse 中使用不含服务器文件路径的合成引用，播放时始终回到
-/// `/api/tracks/{id}/stream` 并附带 Bearer token。
+/// `/api/tracks/{id}/download` 并附带 Bearer token。
 public enum DaoLiYuAPIProtocol {
     public static let apiPath = "/api"
 
@@ -61,7 +61,9 @@ public enum DaoLiYuAPIProtocol {
     public static func streamURL(serverBaseURL: URL, trackID: String) -> URL? {
         endpointURL(
             serverBaseURL: serverBaseURL,
-            path: "/tracks/\(encodedPathComponent(trackID))/stream"
+            // `/stream` may transparently transcode lossless and DTS tracks to MP3,
+            // while `/download` preserves the original bytes and supports Range.
+            path: "/tracks/\(encodedPathComponent(trackID))/download"
         )
     }
 
