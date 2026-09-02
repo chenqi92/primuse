@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import worker, { cleanupExpiredShares, testing } from "../src/index.mjs";
@@ -144,10 +145,183 @@ test("password protection and revocation preserve the public capability boundary
   assert.equal(bucket.raw(`data/${creation.shareID}.bin`), null);
 
   const afterRevoke = await fetchRelay(env, context, publicPath, { method: "HEAD" });
-  assert.equal(afterRevoke.status, 404);
+  assert.equal(afterRevoke.status, 410);
   const metadata = JSON.parse(utf8Decoder.decode(bucket.raw(`metadata/${creation.shareID}.json`)));
   assert.ok(metadata.revokedAt);
   assert.ok(metadata.dataDeletedAt);
+});
+
+test("browser share page exposes only allowed actions and import tickets are one-time", {
+  timeout: 60_000,
+}, async () => {
+  const bucket = new MemoryBucket();
+  const env = makeEnvironment(bucket);
+  const context = new TestContext();
+  const media = utf8.encode("designed-share-media".repeat(4096));
+  const creation = await createAndUpload({
+    bucket,
+    env,
+    context,
+    media,
+    fileName: "陈默寻 - 夜航西飞.flac",
+    contentType: "audio/flac",
+    title: "夜航西飞 <Live>",
+    artist: "陈默寻",
+    album: "潮汐纪年",
+    audioFormat: "FLAC",
+    quality: "24bit/96kHz",
+    allowPlayback: true,
+    allowDownload: false,
+    allowImport: true,
+  });
+  await context.flush();
+  const publicPath = new URL(creation.publicURL).pathname;
+
+  const page = await fetchRelay(env, context, publicPath, {
+    headers: { Accept: "text/html", "Sec-Fetch-Mode": "navigate" },
+  });
+  assert.equal(page.status, 200);
+  assert.match(page.headers.get("Content-Type"), /^text\/html/);
+  assert.match(page.headers.get("Content-Security-Policy"), /default-src 'none'/);
+  const html = await page.text();
+  assert.match(html, /夜航西飞 &lt;Live&gt;/);
+  assert.match(html, /陈默寻 · 《潮汐纪年》/);
+  assert.match(html, /data-download hidden/);
+  assert.match(html, new RegExp(`data-file-size="${media.byteLength}"`));
+  assert.doesNotMatch(html, /<audio[^>]+src=/);
+
+  const playable = await fetchRelay(env, context, `${publicPath}/media`, {
+    headers: { Range: "bytes=20-79" },
+  });
+  assert.equal(playable.status, 206);
+  assert.deepEqual(new Uint8Array(await playable.arrayBuffer()), media.slice(20, 80));
+
+  const forbiddenDownload = await fetchRelay(env, context, `${publicPath}/download`);
+  assert.equal(forbiddenDownload.status, 403);
+
+  const ticketResponse = await fetchRelay(env, context, `${publicPath}/import`, {
+    method: "POST",
+    headers: { Origin: "https://share.soundisle.com", Accept: "application/json" },
+  });
+  assert.equal(ticketResponse.status, 201);
+  const ticket = await ticketResponse.json();
+  const importPath = new URL(ticket.importURL).pathname;
+  const imported = await fetchRelay(env, context, importPath);
+  assert.equal(imported.status, 200);
+  assert.match(imported.headers.get("Content-Disposition"), /^attachment;/);
+  assert.deepEqual(new Uint8Array(await imported.arrayBuffer()), media);
+  await context.flush();
+  const reused = await fetchRelay(env, context, importPath);
+  assert.equal(reused.status, 410);
+});
+
+test("opening an expired browser share schedules encrypted media cleanup", {
+  timeout: 60_000,
+}, async () => {
+  const bucket = new MemoryBucket();
+  const env = makeEnvironment(bucket);
+  const context = new TestContext();
+  const media = utf8.encode("expired-browser-media".repeat(2048));
+  const creation = await createAndUpload({
+    bucket,
+    env,
+    context,
+    media,
+    fileName: "expired.flac",
+    contentType: "audio/flac",
+  });
+  await context.flush();
+
+  const metadataKey = `metadata/${creation.shareID}.json`;
+  const metadata = JSON.parse(utf8Decoder.decode(bucket.raw(metadataKey)));
+  metadata.createdAt = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+  metadata.expiresAt = new Date(Date.now() - 1_000).toISOString();
+  await bucket.put(metadataKey, JSON.stringify(metadata), {
+    httpMetadata: { contentType: "application/json" },
+  });
+
+  const publicPath = new URL(creation.publicURL).pathname;
+  const page = await fetchRelay(env, context, publicPath, {
+    headers: { Accept: "text/html", "Sec-Fetch-Mode": "navigate" },
+  });
+  assert.equal(page.status, 410);
+  await context.flush();
+  assert.equal(bucket.raw(`data/${creation.shareID}.bin`), null);
+  const cleanedMetadata = JSON.parse(utf8Decoder.decode(bucket.raw(metadataKey)));
+  assert.ok(cleanedMetadata.dataDeletedAt);
+});
+
+test("password browser flow uses a signed session cookie without disclosing metadata", {
+  timeout: 60_000,
+}, async () => {
+  const bucket = new MemoryBucket();
+  const env = makeEnvironment(bucket);
+  const context = new TestContext();
+  const media = utf8.encode("private-browser-media".repeat(2048));
+  const creation = await createAndUpload({
+    bucket,
+    env,
+    context,
+    media,
+    fileName: "私密歌曲.mp3",
+    contentType: "audio/mpeg",
+    password: "海屋2026",
+    title: "不可提前泄露的标题",
+  });
+  const publicPath = new URL(creation.publicURL).pathname;
+
+  const locked = await fetchRelay(env, context, publicPath, {
+    headers: { Accept: "text/html", "Sec-Fetch-Mode": "navigate" },
+  });
+  assert.equal(locked.status, 200);
+  const lockedHTML = await locked.text();
+  assert.match(lockedHTML, /受密码保护/);
+  assert.doesNotMatch(lockedHTML, /不可提前泄露|私密歌曲/);
+  assert.equal(locked.headers.get("WWW-Authenticate"), null);
+
+  const wrong = await fetchRelay(env, context, `${publicPath}/auth`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Origin: "https://share.soundisle.com",
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({ password: "wrong" }),
+  });
+  assert.equal(wrong.status, 401);
+  assert.equal(wrong.headers.get("WWW-Authenticate"), null);
+
+  const unlocked = await fetchRelay(env, context, `${publicPath}/auth`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Origin: "https://share.soundisle.com",
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({ password: "海屋2026" }),
+  });
+  assert.equal(unlocked.status, 200);
+  const cookie = unlocked.headers.get("Set-Cookie");
+  assert.match(cookie, /HttpOnly/);
+  assert.match(cookie, /SameSite=Strict/);
+  assert.equal(cookie.includes("海屋2026"), false);
+
+  const session = cookie.split(";", 1)[0];
+  const privatePage = await fetchRelay(env, context, publicPath, {
+    headers: {
+      Accept: "text/html",
+      "Sec-Fetch-Mode": "navigate",
+      Cookie: session,
+    },
+  });
+  assert.equal(privatePage.status, 200);
+  assert.match(await privatePage.text(), /不可提前泄露的标题/);
+
+  const privateMedia = await fetchRelay(env, context, `${publicPath}/media`, {
+    headers: { Cookie: session },
+  });
+  assert.equal(privateMedia.status, 200);
+  assert.deepEqual(new Uint8Array(await privateMedia.arrayBuffer()), media);
 });
 
 test("scheduled cleanup removes expired encrypted media and abandoned multipart uploads", {
@@ -231,6 +405,7 @@ async function createAndUpload({
   contentType,
   password = "",
   expiresAt = new Date(Date.now() + 60 * 60 * 1000),
+  ...presentation
 }) {
   const creation = await createOnly(env, context, {
     fileName,
@@ -238,6 +413,7 @@ async function createAndUpload({
     size: media.byteLength,
     expiresAt: expiresAt.toISOString(),
     password,
+    ...presentation,
   });
   for (let index = 0, offset = 0; offset < media.byteLength; index += 1, offset += creation.chunkSize) {
     const end = Math.min(offset + creation.chunkSize, media.byteLength);
@@ -286,7 +462,9 @@ function fetchRelay(env, context, path, init = {}) {
 function makeEnvironment(bucket, overrides = {}) {
   return {
     MEDIA_BUCKET: bucket,
+    ASSETS: new MemoryAssets(),
     PUBLIC_RATE_LIMITER: { limit: async () => ({ success: true }) },
+    PASSWORD_RATE_LIMITER: { limit: async () => ({ success: true }) },
     ADMIN_TOKEN: TEST_ADMIN_TOKEN,
     MASTER_KEY: Buffer.alloc(32, 0x42).toString("base64"),
     PUBLIC_BASE_URL: "https://share.soundisle.com",
@@ -296,6 +474,25 @@ function makeEnvironment(bucket, overrides = {}) {
     UPLOAD_TTL_SECONDS: String(60 * 60),
     ...overrides,
   };
+}
+
+class MemoryAssets {
+  async fetch(request) {
+    const name = new URL(request.url).pathname.slice(1);
+    try {
+      const data = await readFile(new URL(`../../web/${name}`, import.meta.url));
+      const contentType = name.endsWith(".html")
+        ? "text/html; charset=utf-8"
+        : name.endsWith(".css")
+          ? "text/css; charset=utf-8"
+          : name.endsWith(".js")
+            ? "text/javascript; charset=utf-8"
+            : "application/octet-stream";
+      return new Response(data, { status: 200, headers: { "Content-Type": contentType } });
+    } catch {
+      return new Response(null, { status: 404 });
+    }
+  }
 }
 
 function basicAuthorization(username, password) {

@@ -6,7 +6,10 @@ const MINIMUM_MULTIPART_CHUNK_SIZE = 5 * 1024 * 1024;
 const MAXIMUM_CHUNK_SIZE = 32 * 1024 * 1024;
 const MAXIMUM_MULTIPART_PARTS = 10_000;
 const MAXIMUM_JSON_BYTES = 64 * 1024;
+const MAXIMUM_FORM_BYTES = 2 * 1024;
 const PASSWORD_ITERATIONS = 210_000;
+const SHARE_SESSION_SECONDS = 30 * 60;
+const IMPORT_TICKET_SECONDS = 10 * 60;
 const AES_GCM_NONCE_BYTES = 12;
 const AES_GCM_TAG_BYTES = 16;
 const ENCRYPTED_CHUNK_OVERHEAD = AES_GCM_NONCE_BYTES + AES_GCM_TAG_BYTES;
@@ -90,7 +93,42 @@ async function routeRequest(request, env, context) {
     if (request.method !== "GET" && request.method !== "HEAD") {
       throw new RelayError(405, "method_not_allowed", { Allow: "GET, HEAD" });
     }
-    return servePublicShare(request, env, context, configuration, match[1]);
+    if (prefersHTML(request)) {
+      return serveSharePage(request, env, context, configuration, match[1]);
+    }
+    return servePublicShare(request, env, context, configuration, match[1], false);
+  }
+
+  match = url.pathname.match(/^\/s\/([A-Za-z0-9_-]{16,128})\/auth$/);
+  if (match) {
+    requireMethod(request, "POST");
+    return authenticateShare(request, env, configuration, match[1]);
+  }
+
+  match = url.pathname.match(/^\/s\/([A-Za-z0-9_-]{16,128})\/(media|download)$/);
+  if (match) {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      throw new RelayError(405, "method_not_allowed", { Allow: "GET, HEAD" });
+    }
+    return servePublicShare(request, env, context, configuration, match[1], match[2] === "download");
+  }
+
+  match = url.pathname.match(/^\/s\/([A-Za-z0-9_-]{16,128})\/import$/);
+  if (match) {
+    requireMethod(request, "POST");
+    return createImportTicket(request, env, configuration, match[1]);
+  }
+
+  match = url.pathname.match(/^\/i\/([A-Za-z0-9_-]{16,128})$/);
+  if (match) {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      throw new RelayError(405, "method_not_allowed", { Allow: "GET, HEAD" });
+    }
+    return consumeImportTicket(request, env, context, configuration, match[1]);
+  }
+
+  if (url.pathname === "/share.html" || url.pathname === "/password.html" || url.pathname === "/unavailable.html") {
+    throw new RelayError(404, "not_found");
   }
 
   throw new RelayError(404, "not_found");
@@ -99,6 +137,9 @@ async function routeRequest(request, env, context) {
 function loadConfiguration(env) {
   if (!env?.MEDIA_BUCKET || typeof env.MEDIA_BUCKET.get !== "function") {
     throw new Error("MEDIA_BUCKET is unavailable");
+  }
+  if (!env?.ASSETS || typeof env.ASSETS.fetch !== "function") {
+    throw new Error("ASSETS is unavailable");
   }
   if (typeof env.ADMIN_TOKEN !== "string" || textEncoder.encode(env.ADMIN_TOKEN).byteLength < 32) {
     throw new Error("ADMIN_TOKEN is invalid");
@@ -161,6 +202,23 @@ async function createUpload(request, env, configuration) {
   if (typeof password !== "string" || textEncoder.encode(password).byteLength > 128) {
     throw new RelayError(400, "invalid_password");
   }
+  const title = sanitizeDisplayText(input.title, 160);
+  const artist = sanitizeDisplayText(input.artist, 160);
+  const album = sanitizeDisplayText(input.album, 160);
+  const audioFormat = sanitizeDisplayText(input.audioFormat, 32);
+  const quality = sanitizeDisplayText(input.quality, 80);
+  if ([title, artist, album, audioFormat, quality].some((value) => value.includes("\u0000"))) {
+    throw new RelayError(400, "invalid_media");
+  }
+  const durationSeconds = input.durationSeconds == null ? 0 : input.durationSeconds;
+  if (!Number.isFinite(durationSeconds) || durationSeconds < 0 || durationSeconds > 7 * 24 * 60 * 60) {
+    throw new RelayError(400, "invalid_media");
+  }
+  for (const permission of [input.allowPlayback, input.allowDownload, input.allowImport]) {
+    if (permission != null && typeof permission !== "boolean") {
+      throw new RelayError(400, "invalid_permissions");
+    }
+  }
 
   const now = new Date();
   const expiresAt = input.expiresAt == null || input.expiresAt === ""
@@ -184,7 +242,7 @@ async function createUpload(request, env, configuration) {
   });
 
   const metadata = {
-    version: 1,
+    version: 2,
     id,
     publicTokenHash: await tokenHash(publicToken),
     controlHash: await tokenHash(uploadToken),
@@ -201,6 +259,15 @@ async function createUpload(request, env, configuration) {
     etag: `"${randomToken(18)}"`,
     passwordSalt: null,
     passwordHash: null,
+    title,
+    artist,
+    album,
+    audioFormat,
+    quality,
+    durationSeconds,
+    allowPlayback: input.allowPlayback ?? true,
+    allowDownload: input.allowDownload ?? true,
+    allowImport: input.allowImport ?? true,
     dataKey,
     uploadId: multipartUpload.uploadId,
   };
@@ -393,7 +460,7 @@ async function revokeShare(request, env, context, configuration, shareID) {
   return new Response(null, { status: 204 });
 }
 
-async function servePublicShare(request, env, context, configuration, publicToken) {
+async function servePublicShare(request, env, context, configuration, publicToken, attachment) {
   if (env.PUBLIC_RATE_LIMITER?.limit) {
     const peer = request.headers.get("CF-Connecting-IP") ?? "unknown";
     const result = await env.PUBLIC_RATE_LIMITER.limit({ key: `primuse-share-relay:${peer}` });
@@ -404,64 +471,77 @@ async function servePublicShare(request, env, context, configuration, publicToke
 
   const loaded = await loadMetadataByPublicToken(configuration.bucket, publicToken, configuration);
   if (!loaded || !isComplete(loaded.metadata) || isRevoked(loaded.metadata)) {
-    throw new RelayError(404, "not_found");
+    throw new RelayError(410, "unavailable");
   }
   if (Date.parse(loaded.metadata.expiresAt) <= Date.now() || loaded.metadata.dataDeletedAt) {
     scheduleCleanup(context, env, loaded.metadata);
-    throw new RelayError(410, "expired");
+    throw new RelayError(410, "unavailable");
   }
-  if (loaded.metadata.passwordHash && !(await verifyPassword(request, loaded.metadata))) {
+  if (
+    loaded.metadata.passwordHash &&
+    !(await verifyPassword(request, loaded.metadata)) &&
+    !(await verifyShareSession(request, configuration, publicToken, loaded.metadata))
+  ) {
     throw new RelayError(401, "password_required", {
       "WWW-Authenticate": 'Basic realm="Primuse Share", charset="UTF-8"',
     });
   }
+  if (attachment && !metadataPermission(loaded.metadata.allowDownload, true)) {
+    throw new RelayError(403, "download_disabled");
+  }
+  if (!attachment && !metadataPermission(loaded.metadata.allowPlayback, true)) {
+    throw new RelayError(403, "playback_disabled");
+  }
+  return serveMetadataMedia(request, configuration, loaded.metadata, attachment);
+}
 
+async function serveMetadataMedia(request, configuration, metadata, attachment) {
   const headers = new Headers({
     "Accept-Ranges": "bytes",
     "Cache-Control": "private, no-store, max-age=0",
-    "Content-Type": loaded.metadata.contentType,
-    "Content-Disposition": contentDisposition(loaded.metadata.fileName),
-    ETag: loaded.metadata.etag,
-    "Last-Modified": new Date(loaded.metadata.completedAt).toUTCString(),
+    "Content-Type": metadata.contentType,
+    "Content-Disposition": contentDisposition(metadata.fileName, attachment),
+    ETag: metadata.etag,
+    "Last-Modified": new Date(metadata.completedAt).toUTCString(),
   });
-  if (request.headers.get("If-None-Match") === loaded.metadata.etag && !request.headers.has("Range")) {
+  if (request.headers.get("If-None-Match") === metadata.etag && !request.headers.has("Range")) {
     return new Response(null, { status: 304, headers });
   }
 
-  let requested = requestedRange(request.headers.get("Range"), loaded.metadata.size);
-  if (request.headers.has("If-Range") && request.headers.get("If-Range") !== loaded.metadata.etag) {
-    requested = { start: 0, end: loaded.metadata.size - 1, partial: false };
+  let requested = requestedRange(request.headers.get("Range"), metadata.size);
+  if (request.headers.has("If-Range") && request.headers.get("If-Range") !== metadata.etag) {
+    requested = { start: 0, end: metadata.size - 1, partial: false };
   }
   if (!requested) {
     throw new RelayError(416, "invalid_range", {
-      "Content-Range": `bytes */${loaded.metadata.size}`,
+      "Content-Range": `bytes */${metadata.size}`,
     });
   }
   headers.set("Content-Length", String(requested.end - requested.start + 1));
   if (requested.partial) {
-    headers.set("Content-Range", `bytes ${requested.start}-${requested.end}/${loaded.metadata.size}`);
+    headers.set("Content-Range", `bytes ${requested.start}-${requested.end}/${metadata.size}`);
   }
 
-  const expectedPartCount = Math.ceil(loaded.metadata.size / loaded.metadata.chunkSize);
-  const expectedEncryptedSize = loaded.metadata.size + expectedPartCount * ENCRYPTED_CHUNK_OVERHEAD;
+  const expectedPartCount = Math.ceil(metadata.size / metadata.chunkSize);
+  const expectedEncryptedSize = metadata.size + expectedPartCount * ENCRYPTED_CHUNK_OVERHEAD;
   if (request.method === "HEAD") {
-    const object = await configuration.bucket.head(loaded.metadata.dataKey);
+    const object = await configuration.bucket.head(metadata.dataKey);
     if (!object || object.size !== expectedEncryptedSize) {
       throw new RelayError(503, "storage_unavailable", { "Retry-After": "2" });
     }
     return new Response(null, { status: requested.partial ? 206 : 200, headers });
   }
 
-  const firstChunk = Math.floor(requested.start / loaded.metadata.chunkSize);
-  const lastChunk = Math.floor(requested.end / loaded.metadata.chunkSize);
-  const encryptedStart = firstChunk * (loaded.metadata.chunkSize + ENCRYPTED_CHUNK_OVERHEAD);
+  const firstChunk = Math.floor(requested.start / metadata.chunkSize);
+  const lastChunk = Math.floor(requested.end / metadata.chunkSize);
+  const encryptedStart = firstChunk * (metadata.chunkSize + ENCRYPTED_CHUNK_OVERHEAD);
   const lastPlaintextLength = Math.min(
-    loaded.metadata.chunkSize,
-    loaded.metadata.size - lastChunk * loaded.metadata.chunkSize,
+    metadata.chunkSize,
+    metadata.size - lastChunk * metadata.chunkSize,
   );
-  const encryptedEnd = lastChunk * (loaded.metadata.chunkSize + ENCRYPTED_CHUNK_OVERHEAD)
+  const encryptedEnd = lastChunk * (metadata.chunkSize + ENCRYPTED_CHUNK_OVERHEAD)
     + lastPlaintextLength + ENCRYPTED_CHUNK_OVERHEAD;
-  const object = await configuration.bucket.get(loaded.metadata.dataKey, {
+  const object = await configuration.bucket.get(metadata.dataKey, {
     range: { offset: encryptedStart, length: encryptedEnd - encryptedStart },
   });
   if (!object?.body) {
@@ -471,13 +551,408 @@ async function servePublicShare(request, env, context, configuration, publicToke
   const body = decryptedRangeStream(
     object.body,
     key,
-    loaded.metadata,
+    metadata,
     requested.start,
     requested.end,
     firstChunk,
     lastChunk,
   );
   return new Response(body, { status: requested.partial ? 206 : 200, headers });
+}
+
+function prefersHTML(request) {
+  if (request.method !== "GET" || request.headers.has("Range")) {
+    return false;
+  }
+  return request.headers.get("Sec-Fetch-Mode") === "navigate"
+    || (request.headers.get("Accept") ?? "").toLowerCase().includes("text/html");
+}
+
+async function serveSharePage(request, env, context, configuration, publicToken) {
+  if (!(await publicRateLimitAllows(request, env))) {
+    return templateResponse(request, env, "unavailable.html", 429);
+  }
+  const loaded = await loadMetadataByPublicToken(configuration.bucket, publicToken, configuration);
+  if (!activeShare(loaded?.metadata)) {
+    if (cleanupDue(loaded?.metadata)) {
+      scheduleCleanup(context, env, loaded.metadata);
+    }
+    return templateResponse(request, env, "unavailable.html", 410);
+  }
+  if (
+    loaded.metadata.passwordHash &&
+    !(await verifyPassword(request, loaded.metadata)) &&
+    !(await verifyShareSession(request, configuration, publicToken, loaded.metadata))
+  ) {
+    return passwordPage(request, env, configuration, publicToken, 200);
+  }
+  return unlockedSharePage(request, env, configuration, publicToken, loaded.metadata);
+}
+
+function cleanupDue(metadata, now = Date.now()) {
+  if (!metadata || metadata.dataDeletedAt || isRevoked(metadata)) {
+    return Boolean(metadata && !metadata.dataDeletedAt && isRevoked(metadata));
+  }
+  const cleanupAt = Date.parse(isComplete(metadata) ? metadata.expiresAt : metadata.uploadExpiresAt);
+  return Number.isFinite(cleanupAt) && cleanupAt <= now;
+}
+
+async function publicRateLimitAllows(request, env) {
+  if (!env.PUBLIC_RATE_LIMITER?.limit) {
+    return true;
+  }
+  const peer = request.headers.get("CF-Connecting-IP") ?? "unknown";
+  const result = await env.PUBLIC_RATE_LIMITER.limit({ key: `primuse-share-relay:${peer}` });
+  return result.success;
+}
+
+function activeShare(metadata) {
+  return Boolean(
+    metadata &&
+    isComplete(metadata) &&
+    !isRevoked(metadata) &&
+    Date.parse(metadata.expiresAt) > Date.now() &&
+    !metadata.dataDeletedAt,
+  );
+}
+
+async function unlockedSharePage(request, env, configuration, publicToken, metadata) {
+  const title = metadata.title || metadata.fileName.replace(/\.[^.]+$/, "") || "未命名音乐";
+  let artistAlbum = metadata.artist || "";
+  if (metadata.album) {
+    artistAlbum += `${artistAlbum ? " · " : ""}《${metadata.album}》`;
+  }
+  artistAlbum ||= "来自 Primuse 的音乐分享";
+  const audioFormat = (metadata.audioFormat || metadata.fileName.split(".").at(-1) || "").toUpperCase();
+  const size = humanFileSize(metadata.size);
+  const technical = [audioFormat, metadata.quality, size].filter(Boolean).join(" · ");
+  const playback = metadataPermission(metadata.allowPlayback, true);
+  const download = metadataPermission(metadata.allowDownload, true);
+  const allowImport = metadataPermission(metadata.allowImport, true);
+  const permissionNote = [];
+  if (!download) permissionNote.push("分享者未开放下载");
+  if (allowImport) permissionNote.push("导入使用一次性短期凭证，不含密码");
+  const base = `${configuration.publicBaseURL}/s/${publicToken}`;
+  return templateResponse(request, env, "share.html", 200, {
+    TITLE: title,
+    SOCIAL_DESCRIPTION: `${artistAlbum} · ${technical}`,
+    COVER_URL: `${configuration.publicBaseURL}/fallback-cover.webp?v=20260903.3`,
+    COVER_PATH: "/fallback-cover.webp?v=20260903.3",
+    CANONICAL_URL: base,
+    MEDIA_PATH: `/s/${publicToken}/media`,
+    DOWNLOAD_PATH: `/s/${publicToken}/download`,
+    IMPORT_PATH: `/s/${publicToken}/import`,
+    FILE_NAME: metadata.fileName,
+    FILE_SIZE_BYTES: String(metadata.size),
+    SIZE: size,
+    ACCESS_LABEL: metadata.passwordHash ? "已通过密码验证" : "持有链接即可访问",
+    EXPIRES_ISO: metadata.expiresAt,
+    EXPIRES_LABEL: `有效至 ${new Date(metadata.expiresAt).toISOString().slice(0, 16).replace("T", " ")} UTC`,
+    SESSION_HIDDEN: metadata.passwordHash ? "" : "hidden",
+    ARTIST_ALBUM: artistAlbum,
+    FORMAT: audioFormat,
+    QUALITY: metadata.quality || "",
+    FORMAT_HIDDEN: hiddenUnless(Boolean(audioFormat)),
+    QUALITY_HIDDEN: hiddenUnless(Boolean(metadata.quality)),
+    PLAYBACK_HIDDEN: hiddenUnless(playback),
+    IMPORT_HIDDEN: hiddenUnless(allowImport),
+    DOWNLOAD_HIDDEN: hiddenUnless(download),
+    PLAYBACK_PERMISSION_CLASS: deniedUnless(playback),
+    DOWNLOAD_PERMISSION_CLASS: deniedUnless(download),
+    IMPORT_PERMISSION_CLASS: deniedUnless(allowImport),
+    PERMISSION_NOTE: permissionNote.join(" · "),
+  });
+}
+
+function hiddenUnless(value) {
+  return value ? "" : "hidden";
+}
+
+function deniedUnless(value) {
+  return value ? "allowed" : "denied";
+}
+
+function humanFileSize(bytes) {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return unit === 0 ? `${bytes} B` : `${value.toFixed(1)} ${units[unit]}`;
+}
+
+async function passwordPage(request, env, configuration, publicToken, status, options = {}) {
+  return templateResponse(request, env, "password.html", status, {
+    AUTH_PATH: `/s/${publicToken}/auth`,
+    RETRY_AFTER: options.retryAfter ? String(options.retryAfter) : "",
+    ERROR_CLASS: options.error ? "error" : "",
+    MESSAGE_CLASS: options.error ? "error" : "",
+    MESSAGE: options.message ?? "",
+  }, options.retryAfter ? { "Retry-After": String(options.retryAfter) } : {});
+}
+
+async function templateResponse(request, env, name, status, values = {}, extraHeaders = {}) {
+  const assetURL = new URL(`/${name}`, request.url);
+  const source = await env.ASSETS.fetch(new Request(assetURL));
+  if (!source.ok) {
+    throw new RelayError(500, "template_unavailable");
+  }
+  let page = await source.text();
+  for (const [key, value] of Object.entries(values)) {
+    page = page.replaceAll(`{{${key}}}`, escapeHTML(String(value)));
+  }
+  if (page.includes("{{")) {
+    throw new RelayError(500, "template_invalid");
+  }
+  return new Response(page, {
+    status,
+    headers: {
+      "Cache-Control": "private, no-store, max-age=0",
+      "Content-Type": "text/html; charset=utf-8",
+      "Content-Security-Policy": "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+      "Cross-Origin-Opener-Policy": "same-origin",
+      ...extraHeaders,
+    },
+  });
+}
+
+function escapeHTML(value) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  })[character]);
+}
+
+async function authenticateShare(request, env, configuration, publicToken) {
+  const loaded = await loadMetadataByPublicToken(configuration.bucket, publicToken, configuration);
+  if (!activeShare(loaded?.metadata)) {
+    return authenticationFailure(request, env, configuration, publicToken, 410, "unavailable");
+  }
+  if (!sameOriginRequest(request, configuration.publicBaseURL)) {
+    return authenticationFailure(request, env, configuration, publicToken, 403, "invalid_origin");
+  }
+  const password = await passwordFromForm(request);
+  if (loaded.metadata.passwordHash && env.PASSWORD_RATE_LIMITER?.limit) {
+    const peer = request.headers.get("CF-Connecting-IP") ?? "unknown";
+    const key = await tokenHash(`${loaded.metadata.publicTokenHash}:${peer}`);
+    const result = await env.PASSWORD_RATE_LIMITER.limit({ key: `primuse-password:${key}` });
+    if (!result.success) {
+      return authenticationFailure(request, env, configuration, publicToken, 429, "rate_limited", 60);
+    }
+  }
+  if (loaded.metadata.passwordHash && !(await verifyPasswordValue(password, loaded.metadata))) {
+    return authenticationFailure(request, env, configuration, publicToken, 401, "password_required");
+  }
+  const headers = new Headers({ "Cache-Control": "no-store" });
+  if (loaded.metadata.passwordHash) {
+    headers.set("Set-Cookie", await shareSessionCookie(configuration, publicToken, loaded.metadata));
+  }
+  if ((request.headers.get("Accept") ?? "").toLowerCase().includes("application/json")) {
+    headers.set("Content-Type", "application/json; charset=utf-8");
+    return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
+  }
+  headers.set("Location", `${configuration.publicBaseURL}/s/${publicToken}`);
+  return new Response(null, { status: 303, headers });
+}
+
+async function authenticationFailure(
+  request,
+  env,
+  configuration,
+  publicToken,
+  status,
+  code,
+  retryAfter = 0,
+) {
+  if ((request.headers.get("Accept") ?? "").toLowerCase().includes("application/json")) {
+    return problemResponse(status, code, retryAfter ? { "Retry-After": String(retryAfter) } : {});
+  }
+  if (status === 410) {
+    return templateResponse(request, env, "unavailable.html", 410);
+  }
+  const message = status === 429
+    ? "尝试次数过多，请稍后重试。"
+    : "密码不正确，请检查后重试。";
+  return passwordPage(request, env, configuration, publicToken, status, {
+    error: true,
+    message,
+    retryAfter,
+  });
+}
+
+async function passwordFromForm(request) {
+  const declaredLength = Number(request.headers.get("Content-Length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAXIMUM_FORM_BYTES) {
+    throw new RelayError(400, "invalid_password");
+  }
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (bytes.byteLength > MAXIMUM_FORM_BYTES) {
+    throw new RelayError(400, "invalid_password");
+  }
+  const password = new URLSearchParams(textDecoder.decode(bytes)).get("password") ?? "";
+  if (textEncoder.encode(password).byteLength > 128) {
+    throw new RelayError(400, "invalid_password");
+  }
+  return password;
+}
+
+function sameOriginRequest(request, publicBaseURL) {
+  const origin = request.headers.get("Origin");
+  return !origin || origin === publicBaseURL;
+}
+
+function shareCookieName(metadata) {
+  return `primuse_share_${metadata.publicTokenHash.slice(0, 16)}`;
+}
+
+async function sessionSignature(configuration, publicToken, metadata, expiresUnix) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    configuration.masterKey,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const payload = `${metadata.id}\n${await tokenHash(publicToken)}\n${metadata.passwordHash}\n${expiresUnix}`;
+  return bytesToBase64(new Uint8Array(await crypto.subtle.sign("HMAC", key, textEncoder.encode(payload))), true);
+}
+
+async function shareSessionCookie(configuration, publicToken, metadata) {
+  const expiresAt = Math.min(
+    Date.now() + SHARE_SESSION_SECONDS * 1000,
+    Date.parse(metadata.expiresAt),
+  );
+  const expiresUnix = Math.floor(expiresAt / 1000);
+  const signature = await sessionSignature(configuration, publicToken, metadata, expiresUnix);
+  return `${shareCookieName(metadata)}=${expiresUnix}.${signature}; Path=/s/${publicToken}; Max-Age=${Math.max(1, expiresUnix - Math.floor(Date.now() / 1000))}; Expires=${new Date(expiresUnix * 1000).toUTCString()}; Secure; HttpOnly; SameSite=Strict`;
+}
+
+async function verifyShareSession(request, configuration, publicToken, metadata) {
+  const cookies = request.headers.get("Cookie") ?? "";
+  const expectedName = `${shareCookieName(metadata)}=`;
+  const raw = cookies.split(";").map((value) => value.trim()).find((value) => value.startsWith(expectedName));
+  if (!raw) return false;
+  const parts = raw.slice(expectedName.length).split(".");
+  if (parts.length !== 2) return false;
+  const expiresUnix = Number(parts[0]);
+  const now = Date.now();
+  if (
+    !Number.isSafeInteger(expiresUnix) ||
+    expiresUnix * 1000 <= now ||
+    expiresUnix * 1000 > now + (SHARE_SESSION_SECONDS + 60) * 1000 ||
+    expiresUnix * 1000 > Date.parse(metadata.expiresAt)
+  ) {
+    return false;
+  }
+  return constantTimeStringEqual(
+    parts[1],
+    await sessionSignature(configuration, publicToken, metadata, expiresUnix),
+  );
+}
+
+async function createImportTicket(request, env, configuration, publicToken) {
+  if (!sameOriginRequest(request, configuration.publicBaseURL)) {
+    throw new RelayError(403, "invalid_origin");
+  }
+  const loaded = await loadMetadataByPublicToken(configuration.bucket, publicToken, configuration);
+  if (!activeShare(loaded?.metadata)) {
+    throw new RelayError(410, "unavailable");
+  }
+  if (!metadataPermission(loaded.metadata.allowImport, true)) {
+    throw new RelayError(403, "import_disabled");
+  }
+  if (
+    loaded.metadata.passwordHash &&
+    !(await verifyShareSession(request, configuration, publicToken, loaded.metadata))
+  ) {
+    throw new RelayError(401, "password_required");
+  }
+  const token = randomToken(32);
+  const expiresAt = new Date(Math.min(
+    Date.now() + IMPORT_TICKET_SECONDS * 1000,
+    Date.parse(loaded.metadata.expiresAt),
+  ));
+  const ticket = {
+    version: 1,
+    shareID: loaded.metadata.id,
+    expiresAt: expiresAt.toISOString(),
+    usedAt: null,
+  };
+  await putImportTicket(configuration.bucket, await tokenHash(token), ticket);
+  return jsonResponse({
+    importURL: `${configuration.publicBaseURL}/i/${token}`,
+    expiresAt: ticket.expiresAt,
+  }, 201);
+}
+
+async function consumeImportTicket(request, env, context, configuration, token) {
+  if (!(await publicRateLimitAllows(request, env))) {
+    throw new RelayError(429, "rate_limited", { "Retry-After": "60" });
+  }
+  const key = importTicketObjectKey(await tokenHash(token));
+  const loadedTicket = await getJSON(configuration.bucket, key);
+  if (!validImportTicket(loadedTicket?.value) || loadedTicket.value.usedAt || Date.parse(loadedTicket.value.expiresAt) <= Date.now()) {
+    throw new RelayError(410, "unavailable");
+  }
+  const loaded = await loadMetadataByID(configuration.bucket, loadedTicket.value.shareID, configuration);
+  if (!activeShare(loaded?.metadata) || !metadataPermission(loaded.metadata.allowImport, true)) {
+    throw new RelayError(410, "unavailable");
+  }
+  if (request.method === "GET") {
+    const usedTicket = { ...loadedTicket.value, usedAt: new Date().toISOString() };
+    const stored = await putImportTicket(
+      configuration.bucket,
+      await tokenHash(token),
+      usedTicket,
+      loadedTicket.object.etag,
+    );
+    if (!stored) {
+      throw new RelayError(410, "unavailable");
+    }
+    context?.waitUntil?.(cleanupExpiredImportTickets(configuration.bucket, new Date()));
+  }
+  return serveMetadataMedia(request, configuration, loaded.metadata, true);
+}
+
+function validImportTicket(ticket) {
+  return Boolean(
+    ticket &&
+    ticket.version === 1 &&
+    TOKEN_PATTERN.test(ticket.shareID) &&
+    Number.isFinite(Date.parse(ticket.expiresAt)) &&
+    (ticket.usedAt == null || Number.isFinite(Date.parse(ticket.usedAt))),
+  );
+}
+
+function metadataPermission(value, fallback) {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+async function putImportTicket(bucket, hash, ticket, etag) {
+  const options = {
+    httpMetadata: { contentType: "application/json" },
+    customMetadata: {
+      expiresAt: String(Date.parse(ticket.expiresAt)),
+      used: ticket.usedAt ? "true" : "false",
+    },
+  };
+  if (etag) options.onlyIf = { etagMatches: etag };
+  return bucket.put(importTicketObjectKey(hash), JSON.stringify(ticket), options);
+}
+
+function importTicketObjectKey(hash) {
+  return `import-tickets/${hash}.json`;
+}
+
+async function cleanupExpiredImportTickets(bucket, now) {
+  const result = await bucket.list({ prefix: "import-tickets/", limit: 1000, include: ["customMetadata"] });
+  const keys = result.objects
+    .filter((object) => object.customMetadata?.used === "true"
+      || Number(object.customMetadata?.expiresAt) <= now.getTime())
+    .slice(0, 100)
+    .map((object) => object.key);
+  if (keys.length > 0) await bucket.delete(keys);
 }
 
 function decryptedRangeStream(source, key, metadata, start, end, firstChunk, lastChunk) {
@@ -610,6 +1085,10 @@ async function verifyPassword(request, metadata) {
   if (password == null) {
     return false;
   }
+  return verifyPasswordValue(password, metadata);
+}
+
+async function verifyPasswordValue(password, metadata) {
   const salt = decodeBase64(metadata.passwordSalt);
   const expected = decodeBase64(metadata.passwordHash);
   if (salt.byteLength !== 16 || expected.byteLength !== 32) {
@@ -662,7 +1141,7 @@ async function loadMetadataByID(bucket, shareID, configuration) {
 function validMetadata(metadata, shareID, configuration) {
   if (
     !metadata ||
-    metadata.version !== 1 ||
+    (metadata.version !== 1 && metadata.version !== 2) ||
     metadata.id !== shareID ||
     !TOKEN_PATTERN.test(metadata.id) ||
     !SHA256_PATTERN.test(metadata.publicTokenHash) ||
@@ -685,6 +1164,23 @@ function validMetadata(metadata, shareID, configuration) {
     !/^"[A-Za-z0-9_-]{16,128}"$/.test(metadata.etag)
   ) {
     return false;
+  }
+  if (metadata.version === 2) {
+    if (
+      sanitizeDisplayText(metadata.title, 160) !== metadata.title ||
+      sanitizeDisplayText(metadata.artist, 160) !== metadata.artist ||
+      sanitizeDisplayText(metadata.album, 160) !== metadata.album ||
+      sanitizeDisplayText(metadata.audioFormat, 32) !== metadata.audioFormat ||
+      sanitizeDisplayText(metadata.quality, 80) !== metadata.quality ||
+      !Number.isFinite(metadata.durationSeconds) ||
+      metadata.durationSeconds < 0 ||
+      metadata.durationSeconds > 7 * 24 * 60 * 60 ||
+      typeof metadata.allowPlayback !== "boolean" ||
+      typeof metadata.allowDownload !== "boolean" ||
+      typeof metadata.allowImport !== "boolean"
+    ) {
+      return false;
+    }
   }
   const createdAt = Date.parse(metadata.createdAt);
   const expiresAt = Date.parse(metadata.expiresAt);
@@ -868,6 +1364,7 @@ export async function cleanupExpiredShares(env, now = new Date(), shard = null) 
     await cleanupShareData(configuration.bucket, loaded.metadata);
     await markDataDeleted(configuration, shareID);
   }
+  await cleanupExpiredImportTickets(configuration.bucket, now);
 }
 
 function requestedRange(header, total) {
@@ -945,7 +1442,17 @@ function sanitizeContentType(value) {
   return "application/octet-stream";
 }
 
-function contentDisposition(fileName) {
+function sanitizeDisplayText(value, maximumCharacters) {
+  if (value == null) {
+    return "";
+  }
+  if (typeof value !== "string") {
+    return "\u0000";
+  }
+  return [...value.trim().replace(/[\p{Cc}]/gu, "")].slice(0, maximumCharacters).join("");
+}
+
+function contentDisposition(fileName, attachment = false) {
   let ascii = [...fileName].map((character) => {
     const codePoint = character.codePointAt(0);
     return codePoint >= 0x20 && codePoint <= 0x7e && character !== '"' && character !== "\\"
@@ -957,7 +1464,7 @@ function contentDisposition(fileName) {
   }
   const encoded = encodeURIComponent(fileName).replace(/[!'()*]/g, (character) =>
     `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
-  return `inline; filename="${ascii}"; filename*=UTF-8''${encoded}`;
+  return `${attachment ? "attachment" : "inline"}; filename="${ascii}"; filename*=UTF-8''${encoded}`;
 }
 
 async function decodeJSONRequest(request) {

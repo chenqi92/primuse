@@ -1002,6 +1002,8 @@ struct PrimuseApp: App {
     @State private var deepLinkAddSource = false
     /// Apple TV 局域网扫码(primuse://pair)解析出的端点,触发「直传到 Apple TV」sheet。
     @State private var pairTarget: PairTarget?
+    /// 分享页签发的一次性导入凭证，仅在本地内存中保留。
+    @State private var mediaRelayImportRequest: MediaRelayImportRequest?
 
     init() {
         let services = AppServices.shared
@@ -1334,6 +1336,10 @@ struct PrimuseApp: App {
                 }
                 .onOpenURL { url in
                     plog("🔗 onOpenURL: scheme=\(url.scheme ?? "?") host=\(url.host ?? "?")")
+                    if let request = MediaRelayImportRequest(url: url) {
+                        mediaRelayImportRequest = request
+                        return
+                    }
                     // Apple TV 二维码:primuse://add-source → 手机扫码后弹「发送到 Apple TV」
                     // (把已有曲库/源/凭据发过去;也可在其中新建源)。
                     if url.scheme == "primuse", url.host == "add-source" {
@@ -1586,6 +1592,9 @@ struct PrimuseApp: App {
                     SendToTVSheet(lanTarget: target.link)
                         .environment(musicLibrary)
                         .environment(sourcesStore)
+                }
+                .sheet(item: $mediaRelayImportRequest) { request in
+                    MediaRelayImportSheet(request: request)
                 }
             }
         }

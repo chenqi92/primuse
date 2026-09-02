@@ -7,7 +7,20 @@
 | Docker | 自有 Linux 主机或 NAS | 持久化 Docker Volume | 需要完全控制成本、日志与数据位置 |
 | Cloudflare Worker | Cloudflare 边缘网络 | 私有 R2 Bucket | 需要公网域名、全球接入和免运维证书 |
 
-两套服务提供相同的创建、分片上传、播放、Range、密码保护和撤销接口，但存储布局不同，不能直接共用数据目录。生产环境只应为 Primuse 配置其中一个 API 地址。
+两套服务提供相同的创建、分片上传、浏览器分享页、播放、Range、下载、一次性导入、密码保护和撤销接口，但存储布局不同，不能直接共用数据目录。生产环境只应为 Primuse 配置其中一个 API 地址。
+
+## 分享页与接口约定
+
+公开地址统一为 `https://<域名>/s/<不可枚举令牌>`。浏览器导航会看到完整的 Primuse 分享页，而不是 JSON：
+
+- 显示封面、歌曲、艺术家、专辑、格式、音质、大小和有效期；旧版上传缺少展示字段时会使用文件名与安全默认值。
+- 播放器按需请求 `/s/<令牌>/media`，支持 `HEAD`、完整读取和标准单段 `Range`。
+- “下载原文件”使用 `/s/<令牌>/download`，仅在分享者开放下载权限时出现。
+- “用 Primuse 打开”先由同源 `POST /s/<令牌>/import` 签发 10 分钟、仅可使用一次的 `/i/<短期令牌>`，再通过 `primuse://import-share?...` 交给 App。短期令牌不包含分享密码。
+- 分享、复制链接、二维码保存、隐私说明和大文件下载确认均在页面内完成；二维码在浏览器本地生成，只编码规范化分享页地址。
+- 不存在、已过期和已撤销的分享统一返回 HTTP 410 页面，不向访问者透露具体状态或歌曲信息。
+
+兼容性方面，旧客户端直接请求 `/s/<令牌>`（非浏览器导航或带 `Range`）时仍可读取媒体；新客户端应优先使用显式的 `/media` 路径。网页及静态资源均返回禁止索引和收紧的安全响应头。
 
 ## 安全约定
 
@@ -45,13 +58,13 @@ PRIMUSE_RELAY_ADMIN_TOKEN=<openssl rand -hex 32 的结果>
 docker.io/kkape/primuse-share-relay
 ```
 
-当前公开发布版本为 `2026.09.02`，`latest` 指向同一份 amd64/arm64 多架构清单：
+包含完整分享页的公开发布版本为 `2026.09.03`，`latest` 指向同一份 amd64/arm64 多架构清单：
 
 ```bash
-docker pull docker.io/kkape/primuse-share-relay:2026.09.02
+docker pull docker.io/kkape/primuse-share-relay:2026.09.03
 ```
 
-版本清单摘要为 `sha256:1042d4b31cbe49e452e9911bf2d05d87bbb9814886aee3effd35b1a22559de74`。生产部署建议固定 `2026.09.02` 或该摘要。
+生产部署建议固定 `2026.09.03`，并在拉取后用 `docker buildx imagetools inspect` 记录当前清单摘要；不要长期跟随 `latest`。
 
 若由本仓库内置 Caddy 负责 HTTPS，服务器需开放 TCP 80、TCP/UDP 443，并让域名解析到该服务器：
 
@@ -134,7 +147,9 @@ docker buildx imagetools inspect "$IMAGE:$VERSION"
 - 私有 R2 Bucket：`primuse-share-relay`
 - Custom Domain：`share.soundisle.com`
 - Worker 源码与配置：`ShareRelay/cloudflare/`
+- 静态分享页资源：`ShareRelay/web/`，通过 Workers Static Assets 的 `ASSETS` binding 提供
 - 公开请求限流：每个 Cloudflare 边缘位置、每个来源 IP 每分钟 600 次
+- 密码尝试限流：每个分享与来源 IP 每分钟 5 次
 - 清理任务：每 5 分钟扫描一个随机 ID 分片，过期链接立即拒绝访问，密文异步清理
 
 上传块在 Worker 内使用 `AES-256-GCM` 加密，然后通过 R2 Multipart Upload 合并成一个私有对象。播放时 Worker 只读取所需的密文区间并逐块解密，因此完整播放和跨块 Range 都不会为每个媒体块分别发起 R2 请求。R2 不设置公开域名，所有读取必须经过 Worker 的能力令牌和状态校验。
@@ -143,10 +158,11 @@ Cloudflare Workers Free 的单次 CPU 时间较紧，密码校验还包含 210,0
 
 ### 1. 验证本地实现
 
-无需安装 JavaScript 依赖即可运行单元测试：
+无需安装 JavaScript 依赖即可运行单元测试，并检查分享页脚本：
 
 ```bash
 cd ShareRelay
+node --check web/share.js
 node --check cloudflare/src/index.mjs
 node --test cloudflare/test/index.test.mjs
 ```
@@ -195,7 +211,7 @@ unset ADMIN_TOKEN MASTER_KEY
 npx wrangler@4.128.0 deploy --strict
 ```
 
-`wrangler.jsonc` 使用 Worker Custom Domain。Cloudflare 会为 `share.soundisle.com` 自动创建 DNS 记录并签发证书；该主机名不能同时存在 CNAME，也不能同时绑定其他 Worker。若主机名已被占用，应先查清现有用途，不要直接覆盖。
+`wrangler.jsonc` 使用 Worker Custom Domain，并把 `ShareRelay/web/` 作为静态资源目录。Cloudflare 会为 `share.soundisle.com` 自动创建 DNS 记录并签发证书；该主机名不能同时存在 CNAME，也不能同时绑定其他 Worker。若主机名已被占用，应先查清现有用途，不要直接覆盖。
 
 验证部署：
 
@@ -221,7 +237,7 @@ security find-generic-password \
   -w | pbcopy
 ```
 
-至少完成一次真实小文件的创建、上传、Range 播放和撤销测试，再把服务交给其他用户。
+至少完成一次真实小文件的创建、上传、网页播放、Range、密码解锁、下载权限、一次性导入和撤销测试，再把服务交给其他用户。
 
 ### 5. 运维边界
 
@@ -241,16 +257,18 @@ Primuse 当前不通过局域网广播或 `.well-known` 自动发现媒体中继
 1. 在歌曲行或正在播放页打开“更多”菜单。
 2. 当来源服务器没有原生安全分享能力时，选择“通过私有中继创建链接”。若来源本身支持 Navidrome 等原生分享，界面会优先显示来源服务器的分享入口。
 3. 将中继 API 地址填写为 `https://share.soundisle.com`，粘贴 `ADMIN_TOKEN`。
-4. 选择过期时间；访问密码留空或填写后，点“创建可播放链接”。
-5. Primuse 会通过歌曲所属连接器按 Range 读取原始媒体、分块上传到中继，并保存生成链接与撤销令牌。API 地址和管理员令牌保存在设备钥匙圈中，之后无需重复填写。
+4. 选择“公开”或“密码保护”、过期时间，并分别开放“在线播放”“下载原文件”“导入 Primuse”；至少需要开放一项操作。
+5. 点“创建分享链接”。Primuse 会通过歌曲所属连接器按 Range 读取原始媒体、分块上传到中继，并保存生成链接与撤销令牌。API 地址和管理员令牌保存在设备钥匙圈中，之后无需重复填写。
+6. 成功页可复制链接、调用系统分享、显示二维码或撤销分享。接收者在 Safari 打开链接即可试听；点击“用 Primuse 打开”时，网页会把一次性导入凭证交回已安装的 App，App 校验 HTTPS 公网地址、文件类型和大小后导入“本地音乐”并启动曲库扫描。
 
 支持已知文件大小、可按范围读取的本地与网络音乐源。Apple Music DRM 内容、流描述文件、虚拟 CUE 曲目、文件大小未知的项目以及尚未开放读取 API 的来源不会出现中继分享入口。
 
 公开与私密行为与 Navidrome 的可选密码分享相近，但这里没有用户账号或好友 ACL：
 
-- **访问密码留空**：生成不可枚举的能力链接；任何拿到完整链接的人都能播放，但它不会被服务列出，也不会暴露来源 URL 或 NAS 凭据。
-- **填写访问密码**：链接仍可转发，但访问者还必须通过 HTTP Basic Auth 输入该密码；中继只保存 PBKDF2 哈希，Primuse 不保存明文密码。
-- 两种链接都受过期时间控制，并可在“已管理的链接”中随时撤销；到期或撤销后立即拒绝新的播放请求。
+- **公开**：生成不可枚举的能力链接；任何拿到完整链接的人都能使用分享者开放的操作，但服务不会列出链接，也不会暴露来源 URL 或 NAS 凭据。
+- **密码保护**：链接仍可转发，但浏览器先显示不含歌曲元数据的密码页。验证成功后签发 30 分钟的 `HttpOnly`、`SameSite=Strict` 会话 Cookie；中继只保存 PBKDF2 哈希，Primuse 不保存明文密码。旧媒体客户端仍可通过 HTTP Basic Auth 访问允许的媒体接口。
+- **操作权限**：播放、下载、导入互相独立。关闭下载不会阻止按需在线播放；导入始终需要同源页面签发的一次性短期凭证。
+- 两种访问模式都受过期时间控制，并可在“已管理的链接”中随时撤销；到期或撤销后立即拒绝新的页面、播放、下载和导入请求。
 
 因此，“私密”指“随机链接加访问密码”，不是“仅指定 Primuse/Navidrome 用户可见”。如需按账号、群组或登录状态授权，需要另外接入身份系统，不能只依赖当前分享 API。
 

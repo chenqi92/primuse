@@ -1,3 +1,6 @@
+import CoreImage
+import CoreImage.CIFilterBuiltins
+import Foundation
 import PrimuseKit
 import SwiftUI
 
@@ -425,6 +428,15 @@ private struct MediaRelayCreateRequest: Encodable {
     let size: Int64
     let expiresAt: String
     let password: String?
+    let title: String
+    let artist: String?
+    let album: String?
+    let audioFormat: String
+    let quality: String?
+    let durationSeconds: Double
+    let allowPlayback: Bool
+    let allowDownload: Bool
+    let allowImport: Bool
 }
 
 private struct MediaRelayCreateResponse: Decodable, Sendable {
@@ -478,14 +490,32 @@ private struct MediaRelayClient: @unchecked Sendable {
         contentType: String,
         size: Int64,
         expiresAt: Date,
-        password: String?
+        password: String?,
+        title: String,
+        artist: String?,
+        album: String?,
+        audioFormat: String,
+        quality: String?,
+        durationSeconds: Double,
+        allowPlayback: Bool,
+        allowDownload: Bool,
+        allowImport: Bool
     ) async throws -> MediaRelayCreateResponse {
         let body = try JSONEncoder().encode(MediaRelayCreateRequest(
             fileName: fileName,
             contentType: contentType,
             size: size,
             expiresAt: Self.dateString(expiresAt),
-            password: password?.isEmpty == false ? password : nil
+            password: password?.isEmpty == false ? password : nil,
+            title: title,
+            artist: artist,
+            album: album,
+            audioFormat: audioFormat,
+            quality: quality,
+            durationSeconds: durationSeconds,
+            allowPlayback: allowPlayback,
+            allowDownload: allowDownload,
+            allowImport: allowImport
         ))
         let data = try await perform(
             method: "POST",
@@ -644,6 +674,10 @@ private struct MediaRelayShareRecord: Codable, Identifiable, Sendable {
     let controlToken: String
     let createdAt: Date
     let expiresAt: Date
+    let passwordProtected: Bool?
+    let allowsPlayback: Bool?
+    let allowsDownload: Bool?
+    let allowsImport: Bool?
     var isComplete: Bool
 
     var id: String { shareID }
@@ -731,6 +765,13 @@ private enum MediaRelayShareRegistry {
 }
 
 struct MediaRelayShareSheet: View {
+    private enum AccessMode: String, CaseIterable, Identifiable {
+        case publicAccess
+        case password
+
+        var id: String { rawValue }
+    }
+
     @Environment(\.dismiss) private var dismiss
     @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
@@ -741,7 +782,11 @@ struct MediaRelayShareSheet: View {
 
     @State private var endpoint = ""
     @State private var adminToken = ""
+    @State private var accessMode: AccessMode = .publicAccess
     @State private var password = ""
+    @State private var allowsPlayback = true
+    @State private var allowsDownload = false
+    @State private var allowsImport = true
     @State private var expirationDate: Date
     @State private var progress = 0.0
     @State private var uploadedBytes: Int64 = 0
@@ -869,13 +914,32 @@ struct MediaRelayShareSheet: View {
                 selection: $expirationDate,
                 in: minimumExpirationDate...maximumExpirationDate
             )
-            SecureField("relay_share_password_placeholder", text: $password)
-                .textContentType(.newPassword)
-                .privacySensitive()
-                .accessibilityLabel(Text("relay_share_password"))
-            Text("relay_share_password_footer")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+
+            Picker("relay_share_access_mode", selection: $accessMode) {
+                Text("relay_share_access_public").tag(AccessMode.publicAccess)
+                Text("relay_share_access_password").tag(AccessMode.password)
+            }
+            .pickerStyle(.segmented)
+
+            if accessMode == .password {
+                SecureField("relay_share_password_placeholder", text: $password)
+                    .textContentType(.newPassword)
+                    .privacySensitive()
+                    .accessibilityLabel(Text("relay_share_password"))
+                Text("relay_share_password_footer")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Toggle("relay_share_allow_playback", isOn: $allowsPlayback)
+            Toggle("relay_share_allow_download", isOn: $allowsDownload)
+            Toggle("relay_share_allow_import", isOn: $allowsImport)
+
+            if !allowsPlayback && !allowsDownload && !allowsImport {
+                Label("relay_share_no_actions_warning", systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+            }
         }
     }
 
@@ -908,6 +972,8 @@ struct MediaRelayShareSheet: View {
                     || !isSupported
                     || endpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     || adminToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || (accessMode == .password && password.isEmpty)
+                    || (!allowsPlayback && !allowsDownload && !allowsImport)
             )
             .accessibilityHint(Text("relay_share_create_hint"))
         }
@@ -923,9 +989,30 @@ struct MediaRelayShareSheet: View {
                 .privacySensitive()
                 .accessibilityLabel(Text("server_share_public_link"))
             if let url = record.publicURL {
+                MediaRelayQRCodeView(value: record.publicURLString)
+                    .frame(width: 172, height: 172)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityLabel(Text("relay_share_qr_accessibility"))
+
                 Link(destination: url) {
                     Label("server_share_open_link", systemImage: "arrow.up.right.square")
                 }
+            }
+            LabeledContent("relay_share_access_mode") {
+                if record.passwordProtected == true {
+                    Text("relay_share_access_password")
+                } else {
+                    Text("relay_share_access_public")
+                }
+            }
+            if record.allowsPlayback == true {
+                Label("relay_share_allow_playback", systemImage: "play.circle")
+            }
+            if record.allowsDownload == true {
+                Label("relay_share_allow_download", systemImage: "arrow.down.circle")
+            }
+            if record.allowsImport == true {
+                Label("relay_share_allow_import", systemImage: "square.and.arrow.down")
             }
             ShareLink(item: record.publicURLString, subject: Text(verbatim: record.title)) {
                 Label("server_share_system_share", systemImage: "square.and.arrow.up")
@@ -1021,7 +1108,16 @@ struct MediaRelayShareSheet: View {
                 contentType: MediaRelaySourcePolicy.contentType(for: song.fileFormat),
                 size: song.fileSize,
                 expiresAt: expirationDate,
-                password: password
+                password: accessMode == .password ? password : nil,
+                title: song.title,
+                artist: song.artistName,
+                album: song.albumTitle,
+                audioFormat: song.fileFormat.displayName,
+                quality: qualityDescription,
+                durationSeconds: max(0, song.duration),
+                allowPlayback: allowsPlayback,
+                allowDownload: allowsDownload,
+                allowImport: allowsImport
             )
             guard let decodedExpiration = ISO8601DateFormatter().date(
                 from: creation.expiresAt
@@ -1036,6 +1132,10 @@ struct MediaRelayShareSheet: View {
                 controlToken: creation.uploadToken,
                 createdAt: Date(),
                 expiresAt: decodedExpiration,
+                passwordProtected: accessMode == .password,
+                allowsPlayback: allowsPlayback,
+                allowsDownload: allowsDownload,
+                allowsImport: allowsImport,
                 isComplete: false
             )
             pendingRecord = record
@@ -1100,6 +1200,21 @@ struct MediaRelayShareSheet: View {
         }
     }
 
+    private var qualityDescription: String? {
+        var components: [String] = []
+        if let bitDepth = song.bitDepth, bitDepth > 0 {
+            components.append("\(bitDepth)-bit")
+        }
+        if let sampleRate = song.sampleRate, sampleRate > 0 {
+            let kilohertz = Double(sampleRate) / 1_000
+            components.append(kilohertz.formatted(.number.precision(.fractionLength(0...1))) + " kHz")
+        }
+        if components.isEmpty, let bitRate = song.bitRate, bitRate > 0 {
+            components.append("\(bitRate) kbps")
+        }
+        return components.isEmpty ? nil : components.joined(separator: " / ")
+    }
+
     @MainActor
     private func revoke(_ record: MediaRelayShareRecord) async {
         guard revokingShareID == nil else { return }
@@ -1120,6 +1235,402 @@ struct MediaRelayShareSheet: View {
             }
             records = MediaRelayShareRegistry.records()
         } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct MediaRelayQRCodeView: View {
+    let value: String
+
+    var body: some View {
+        ZStack {
+            Color.white
+            if let image = Self.makeQRCode(value) {
+                Image(decorative: image, scale: 1)
+                    .resizable()
+                    .interpolation(.none)
+                    .padding(12)
+            } else {
+                Image(systemName: "qrcode")
+                    .font(.system(size: 64))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private static func makeQRCode(_ value: String) -> CGImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(value.utf8)
+        filter.correctionLevel = "M"
+        guard let output = filter.outputImage else { return nil }
+        let scale = max(1, floor(768 / output.extent.width))
+        let scaled = output.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        return CIContext(options: [.useSoftwareRenderer: false]).createCGImage(
+            scaled,
+            from: scaled.extent
+        )
+    }
+}
+
+struct MediaRelayImportRequest: Identifiable, Equatable {
+    let importURL: URL
+
+    var id: String { importURL.absoluteString }
+
+    init?(url: URL) {
+        guard let deepLink = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              deepLink.scheme?.lowercased() == "primuse",
+              deepLink.host?.lowercased() == "import-share",
+              deepLink.user == nil,
+              deepLink.password == nil,
+              deepLink.fragment == nil,
+              deepLink.path.isEmpty || deepLink.path == "/",
+              deepLink.queryItems?.count == 1,
+              let rawImportURL = deepLink.queryItems?.first(where: {
+                  $0.name == "url"
+              })?.value,
+              deepLink.queryItems?.filter({ $0.name == "url" }).count == 1,
+              let importURL = URL(string: rawImportURL),
+              let target = URLComponents(
+                  url: importURL,
+                  resolvingAgainstBaseURL: false
+              ),
+              target.scheme?.lowercased() == "https",
+              target.user == nil,
+              target.password == nil,
+              target.query == nil,
+              target.fragment == nil else {
+            return nil
+        }
+        let path = target.path.split(separator: "/", omittingEmptySubsequences: true)
+        guard path.count == 2,
+              path[0] == "i",
+              MediaRelayConfigurationPolicy.isOpaqueIdentifier(String(path[1])),
+              (try? ServerMediaShare.validatePublicURL(importURL.absoluteString)) != nil else {
+            return nil
+        }
+        self.importURL = importURL
+    }
+}
+
+private enum MediaRelayImportError: LocalizedError {
+    case invalidResponse
+    case unsupportedFile
+    case fileTooLarge
+    case emptyFile
+    case localImportFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidResponse:
+            String(localized: "relay_import_error_response")
+        case .unsupportedFile:
+            String(localized: "relay_import_error_format")
+        case .fileTooLarge:
+            String(localized: "relay_import_error_too_large")
+        case .emptyFile:
+            String(localized: "relay_import_error_empty")
+        case .localImportFailed:
+            String(localized: "relay_import_error_copy")
+        }
+    }
+}
+
+enum MediaRelayImportPolicy {
+    static let maximumFileSize: Int64 = 20 * 1024 * 1024 * 1024
+    static let minimumFileSize: Int64 = 1_024
+
+    static func validatedFileName(_ suggestedName: String?) throws -> String {
+        guard var name = suggestedName?.precomposedStringWithCanonicalMapping,
+              !name.isEmpty else {
+            throw MediaRelayImportError.unsupportedFile
+        }
+        name = name.replacingOccurrences(of: "\\", with: "_")
+        name = name.replacingOccurrences(of: "/", with: "_")
+        name = String(name.unicodeScalars.filter {
+            !CharacterSet.controlCharacters.contains($0)
+        })
+        name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard name != ".", name != "..", !name.hasPrefix(".") else {
+            throw MediaRelayImportError.unsupportedFile
+        }
+        let fileExtension = URL(fileURLWithPath: name).pathExtension.lowercased()
+        guard PrimuseConstants.supportedAudioExtensions.contains(fileExtension) else {
+            throw MediaRelayImportError.unsupportedFile
+        }
+        if name.count > 180 {
+            let suffix = "." + fileExtension
+            name = String(name.prefix(max(1, 180 - suffix.count))) + suffix
+        }
+        return name
+    }
+}
+
+struct MediaRelayImportSheet: View {
+    private enum Phase: Equatable {
+        case ready
+        case downloading
+        case copying(Double?)
+        case scanning
+        case finished
+    }
+
+    private static let downloadSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.timeoutIntervalForRequest = 120
+        configuration.timeoutIntervalForResource = 60 * 60
+        return URLSession(
+            configuration: configuration,
+            delegate: MediaRelayNoRedirectDelegate(),
+            delegateQueue: nil
+        )
+    }()
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(MusicLibrary.self) private var musicLibrary
+    @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(SourceManager.self) private var sourceManager
+    @Environment(ScanService.self) private var scanService
+    @Environment(MusicScraperService.self) private var scraperService
+
+    let request: MediaRelayImportRequest
+
+    @State private var phase: Phase = .ready
+    @State private var downloadedBytes: Int64 = 0
+    @State private var ticketConsumed = false
+    @State private var errorMessage: String?
+    @State private var importTask: Task<Void, Never>?
+
+    private var isWorking: Bool {
+        switch phase {
+        case .downloading, .copying, .scanning:
+            true
+        case .ready, .finished:
+            false
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Label {
+                        Text(verbatim: request.importURL.host ?? "")
+                    } icon: {
+                        Image(systemName: "link.badge.plus")
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    Text("relay_import_ticket_note")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("relay_import_source")
+                }
+
+                Section {
+                    phaseView
+                } header: {
+                    Text("relay_import_status")
+                }
+
+                Section {
+                    if phase == .finished || ticketConsumed {
+                        Button("done") { dismiss() }
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Button {
+                            importTask?.cancel()
+                            errorMessage = nil
+                            importTask = Task { await downloadAndImport() }
+                        } label: {
+                            HStack {
+                                Spacer()
+                                Label("relay_import_action", systemImage: "square.and.arrow.down")
+                                Spacer()
+                            }
+                        }
+                        .disabled(isWorking)
+                    }
+                }
+            }
+            .navigationTitle("relay_import_title")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("cancel") { dismiss() }
+                        .disabled(isWorking)
+                }
+            }
+        }
+        .interactiveDismissDisabled(isWorking)
+        .onDisappear {
+            importTask?.cancel()
+            importTask = nil
+        }
+        .alert(
+            "relay_import_error_title",
+            isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )
+        ) {
+            Button("done", role: .cancel) { errorMessage = nil }
+        } message: {
+            Text(errorMessage ?? "")
+        }
+    }
+
+    @ViewBuilder
+    private var phaseView: some View {
+        switch phase {
+        case .ready:
+            if ticketConsumed {
+                Label("relay_import_ticket_consumed", systemImage: "arrow.uturn.backward.circle")
+                    .foregroundStyle(.secondary)
+            } else {
+                Label("relay_import_ready", systemImage: "music.note")
+            }
+        case .downloading:
+            VStack(alignment: .leading, spacing: 8) {
+                ProgressView()
+                Text("relay_import_downloading")
+                if downloadedBytes > 0 {
+                    Text(ByteCountFormatter.string(
+                        fromByteCount: downloadedBytes,
+                        countStyle: .file
+                    ))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
+        case .copying(let progress):
+            VStack(alignment: .leading, spacing: 8) {
+                if let progress {
+                    ProgressView(value: progress)
+                } else {
+                    ProgressView()
+                }
+                Text("relay_import_copying")
+            }
+        case .scanning:
+            HStack(spacing: 12) {
+                ProgressView()
+                Text("relay_import_scanning")
+            }
+        case .finished:
+            Label("relay_import_finished", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        }
+    }
+
+    @MainActor
+    private func downloadAndImport() async {
+        phase = .downloading
+        downloadedBytes = 0
+
+        let stagingDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseShareImport", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: stagingDirectory) }
+
+        do {
+            var urlRequest = URLRequest(url: request.importURL)
+            urlRequest.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+            urlRequest.setValue("audio/*, application/octet-stream", forHTTPHeaderField: "Accept")
+            urlRequest.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+            // Import tickets are intentionally single-use. Once the request is sent,
+            // a retry must start from the original share page to obtain a fresh ticket.
+            ticketConsumed = true
+            let (temporaryURL, response) = try await Self.downloadSession.download(for: urlRequest)
+            try Task.checkCancellation()
+
+            guard let http = response as? HTTPURLResponse,
+                  http.statusCode == 200 else {
+                throw MediaRelayImportError.invalidResponse
+            }
+            let mediaType = (http.mimeType ?? "").lowercased()
+            guard mediaType.isEmpty
+                    || mediaType.hasPrefix("audio/")
+                    || mediaType == "application/octet-stream"
+                    || mediaType == "application/ogg"
+                    || mediaType == "video/mp4" else {
+                throw MediaRelayImportError.unsupportedFile
+            }
+            if response.expectedContentLength > MediaRelayImportPolicy.maximumFileSize {
+                throw MediaRelayImportError.fileTooLarge
+            }
+            let resourceValues = try temporaryURL.resourceValues(forKeys: [.fileSizeKey])
+            let size = Int64(resourceValues.fileSize ?? 0)
+            guard size >= MediaRelayImportPolicy.minimumFileSize else {
+                throw MediaRelayImportError.emptyFile
+            }
+            guard size <= MediaRelayImportPolicy.maximumFileSize else {
+                throw MediaRelayImportError.fileTooLarge
+            }
+            downloadedBytes = size
+
+            let fileName = try MediaRelayImportPolicy.validatedFileName(
+                response.suggestedFilename
+            )
+            try FileManager.default.createDirectory(
+                at: stagingDirectory,
+                withIntermediateDirectories: true
+            )
+            let stagedURL = stagingDirectory.appendingPathComponent(
+                fileName,
+                isDirectory: false
+            )
+            try FileManager.default.moveItem(at: temporaryURL, to: stagedURL)
+
+            phase = .copying(nil)
+            let session = LocalImportService.copySession(
+                [stagedURL],
+                cleanupPickedCopies: true
+            )
+            var finalResult: LocalImportService.CopyResult?
+            await withTaskCancellationHandler {
+                for await event in session.events {
+                    switch event {
+                    case .progress(let progress):
+                        phase = .copying(progress.fraction)
+                    case .finished(let result):
+                        finalResult = result
+                    }
+                }
+            } onCancel: {
+                session.cancel()
+            }
+            try Task.checkCancellation()
+            guard let finalResult, finalResult.copied > 0 else {
+                throw MediaRelayImportError.localImportFailed
+            }
+
+            phase = .scanning
+            let localSource = sourcesStore.source(id: LocalImportService.sourceID)
+                ?? LocalImportService.makeSource(
+                    name: String(localized: "local_import_source_name")
+                )
+            if sourcesStore.source(id: localSource.id) == nil {
+                try sourcesStore.addDurably(localSource)
+            }
+            _ = scanService.scanSource(
+                localSource,
+                sourceManager: sourceManager,
+                library: musicLibrary,
+                sourceStore: sourcesStore,
+                scraperService: scraperService
+            )
+            phase = .finished
+        } catch is CancellationError {
+            phase = .ready
+        } catch {
+            phase = .ready
             errorMessage = error.localizedDescription
         }
     }

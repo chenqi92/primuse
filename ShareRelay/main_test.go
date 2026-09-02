@@ -133,7 +133,7 @@ func TestPasswordProtectionAndRevocation(t *testing.T) {
 	revoke.Body.Close()
 
 	afterRevoke := performRequest(t, http.MethodHead, endpoint.URL+publicPath, nil, nil)
-	if afterRevoke.StatusCode != http.StatusNotFound {
+	if afterRevoke.StatusCode != http.StatusGone {
 		t.Fatalf("revoked share status = %d", afterRevoke.StatusCode)
 	}
 	afterRevoke.Body.Close()
@@ -162,6 +162,180 @@ func TestPasswordProtectionAndRevocation(t *testing.T) {
 		t.Fatalf("administrator revoke status = %d", adminRevoke.StatusCode)
 	}
 	adminRevoke.Body.Close()
+}
+
+func TestBrowserPagePermissionsAndOneTimeImport(t *testing.T) {
+	fixedNow := time.Date(2026, 9, 2, 9, 30, 0, 0, time.UTC)
+	configuration := testConfig(t)
+	server := mustRelayServer(t, configuration, fixedNow)
+	endpoint := httptest.NewServer(server.routes())
+	defer endpoint.Close()
+
+	media := bytes.Repeat([]byte("designed-share-media"), 2_048)
+	allowPlayback, allowDownload, allowImport := true, false, true
+	creation := createAndUploadWithRequest(t, endpoint.URL, server, media, createUploadRequest{
+		FileName:        "陈默寻 - 夜航西飞.flac",
+		ContentType:     "audio/flac",
+		Size:            int64(len(media)),
+		ExpiresAt:       fixedNow.Add(time.Hour).Format(time.RFC3339),
+		Title:           "夜航西飞 <Live>",
+		Artist:          "陈默寻",
+		Album:           "潮汐纪年",
+		AudioFormat:     "FLAC",
+		Quality:         "24bit/96kHz",
+		DurationSeconds: 242,
+		AllowPlayback:   &allowPlayback,
+		AllowDownload:   &allowDownload,
+		AllowImport:     &allowImport,
+	})
+	publicPath := mustPublicPath(t, creation.PublicURL)
+
+	page := performRequest(t, http.MethodGet, endpoint.URL+publicPath, nil, map[string]string{
+		"Accept":         "text/html",
+		"Sec-Fetch-Mode": "navigate",
+	})
+	pageBody, _ := io.ReadAll(page.Body)
+	page.Body.Close()
+	if page.StatusCode != http.StatusOK || !strings.Contains(page.Header.Get("Content-Type"), "text/html") {
+		t.Fatalf("page status=%d content-type=%q", page.StatusCode, page.Header.Get("Content-Type"))
+	}
+	pageHTML := string(pageBody)
+	for _, expected := range []string{
+		"夜航西飞 &lt;Live&gt;",
+		"陈默寻 · 《潮汐纪年》",
+		"data-download hidden",
+		`data-media-url="` + publicPath + `/media"`,
+		`data-download-url="` + publicPath + `/download"`,
+		`data-import-url="` + publicPath + `/import"`,
+		`data-file-size="` + strconv.FormatInt(int64(len(media)), 10) + `"`,
+	} {
+		if !strings.Contains(pageHTML, expected) {
+			t.Fatalf("share page missing %q", expected)
+		}
+	}
+	if strings.Contains(pageHTML, "<audio src=") {
+		t.Fatal("share page eagerly loads audio")
+	}
+
+	icon := performRequest(t, http.MethodGet, endpoint.URL+"/icons/play.svg", nil, nil)
+	iconBody, _ := io.ReadAll(icon.Body)
+	icon.Body.Close()
+	if icon.StatusCode != http.StatusOK || icon.Header.Get("Content-Type") != "image/svg+xml" ||
+		!bytes.Contains(iconBody, []byte("<svg")) {
+		t.Fatalf("icon status=%d content-type=%q", icon.StatusCode, icon.Header.Get("Content-Type"))
+	}
+	unknownIcon := performRequest(t, http.MethodGet, endpoint.URL+"/icons/LICENSE.txt", nil, nil)
+	if unknownIcon.StatusCode != http.StatusNotFound {
+		t.Fatalf("unexpected icon asset status = %d", unknownIcon.StatusCode)
+	}
+	unknownIcon.Body.Close()
+
+	playable := performRequest(t, http.MethodGet, endpoint.URL+publicPath+"/media", nil, map[string]string{
+		"Range": "bytes=20-79",
+	})
+	assertResponseBytes(t, playable, http.StatusPartialContent, media[20:80])
+
+	forbiddenDownload := performRequest(t, http.MethodGet, endpoint.URL+publicPath+"/download", nil, nil)
+	if forbiddenDownload.StatusCode != http.StatusForbidden {
+		t.Fatalf("download status = %d", forbiddenDownload.StatusCode)
+	}
+	forbiddenDownload.Body.Close()
+
+	ticketResponse := performRequest(t, http.MethodPost, endpoint.URL+publicPath+"/import", nil, map[string]string{
+		"Accept": "application/json",
+	})
+	if ticketResponse.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(ticketResponse.Body)
+		t.Fatalf("ticket status=%d body=%s", ticketResponse.StatusCode, body)
+	}
+	var ticket struct {
+		ImportURL string `json:"importURL"`
+	}
+	if err := json.NewDecoder(ticketResponse.Body).Decode(&ticket); err != nil {
+		t.Fatal(err)
+	}
+	ticketResponse.Body.Close()
+	importPath := mustImportPath(t, ticket.ImportURL)
+	imported := performRequest(t, http.MethodGet, endpoint.URL+importPath, nil, nil)
+	if !strings.HasPrefix(imported.Header.Get("Content-Disposition"), "attachment;") {
+		t.Fatalf("import disposition = %q", imported.Header.Get("Content-Disposition"))
+	}
+	assertResponseBytes(t, imported, http.StatusOK, media)
+	reused := performRequest(t, http.MethodGet, endpoint.URL+importPath, nil, nil)
+	if reused.StatusCode != http.StatusGone {
+		t.Fatalf("reused ticket status = %d", reused.StatusCode)
+	}
+	reused.Body.Close()
+}
+
+func TestPasswordBrowserSessionDoesNotDiscloseMetadata(t *testing.T) {
+	fixedNow := time.Date(2026, 9, 2, 9, 45, 0, 0, time.UTC)
+	configuration := testConfig(t)
+	server := mustRelayServer(t, configuration, fixedNow)
+	endpoint := httptest.NewServer(server.routes())
+	defer endpoint.Close()
+
+	media := bytes.Repeat([]byte("private-browser-media"), 1_024)
+	creation := createAndUploadWithRequest(t, endpoint.URL, server, media, createUploadRequest{
+		FileName:    "私密歌曲.mp3",
+		ContentType: "audio/mpeg",
+		Size:        int64(len(media)),
+		ExpiresAt:   fixedNow.Add(time.Hour).Format(time.RFC3339),
+		Password:    "海屋2026",
+		Title:       "不可提前泄露的标题",
+	})
+	publicPath := mustPublicPath(t, creation.PublicURL)
+
+	locked := performRequest(t, http.MethodGet, endpoint.URL+publicPath, nil, map[string]string{
+		"Accept":         "text/html",
+		"Sec-Fetch-Mode": "navigate",
+	})
+	lockedBody, _ := io.ReadAll(locked.Body)
+	locked.Body.Close()
+	if locked.StatusCode != http.StatusOK || strings.Contains(string(lockedBody), "不可提前泄露") || strings.Contains(string(lockedBody), "私密歌曲") {
+		t.Fatalf("locked page leaked metadata or failed: status=%d", locked.StatusCode)
+	}
+	if locked.Header.Get("WWW-Authenticate") != "" {
+		t.Fatal("browser password page triggered Basic authentication")
+	}
+
+	wrong := performRequest(t, http.MethodPost, endpoint.URL+publicPath+"/auth", []byte("password=wrong"), map[string]string{
+		"Accept":       "application/json",
+		"Content-Type": "application/x-www-form-urlencoded",
+	})
+	if wrong.StatusCode != http.StatusUnauthorized || wrong.Header.Get("WWW-Authenticate") != "" {
+		t.Fatalf("wrong password status=%d auth=%q", wrong.StatusCode, wrong.Header.Get("WWW-Authenticate"))
+	}
+	wrong.Body.Close()
+
+	correctBody := url.Values{"password": {"海屋2026"}}.Encode()
+	unlocked := performRequest(t, http.MethodPost, endpoint.URL+publicPath+"/auth", []byte(correctBody), map[string]string{
+		"Accept":       "application/json",
+		"Content-Type": "application/x-www-form-urlencoded",
+	})
+	if unlocked.StatusCode != http.StatusOK {
+		t.Fatalf("unlock status = %d", unlocked.StatusCode)
+	}
+	cookie := unlocked.Header.Get("Set-Cookie")
+	unlocked.Body.Close()
+	if !strings.Contains(cookie, "HttpOnly") || !strings.Contains(cookie, "SameSite=Strict") || strings.Contains(cookie, "海屋2026") {
+		t.Fatalf("unsafe session cookie %q", cookie)
+	}
+	session := strings.SplitN(cookie, ";", 2)[0]
+	privatePage := performRequest(t, http.MethodGet, endpoint.URL+publicPath, nil, map[string]string{
+		"Accept":         "text/html",
+		"Sec-Fetch-Mode": "navigate",
+		"Cookie":         session,
+	})
+	privateBody, _ := io.ReadAll(privatePage.Body)
+	privatePage.Body.Close()
+	if privatePage.StatusCode != http.StatusOK || !strings.Contains(string(privateBody), "不可提前泄露的标题") {
+		t.Fatalf("private page status=%d", privatePage.StatusCode)
+	}
+	privateMedia := performRequest(t, http.MethodGet, endpoint.URL+publicPath+"/media", nil, map[string]string{
+		"Cookie": session,
+	})
+	assertResponseBytes(t, privateMedia, http.StatusOK, media)
 }
 
 func TestPublicRateLimitAndConfigurationGuards(t *testing.T) {
@@ -279,10 +453,21 @@ func createAndUpload(
 	expiresAt time.Time,
 ) createUploadResponse {
 	t.Helper()
-	requestBody, _ := json.Marshal(createUploadRequest{
+	return createAndUploadWithRequest(t, baseURL, server, media, createUploadRequest{
 		FileName: fileName, ContentType: contentType, Size: int64(len(media)),
 		ExpiresAt: expiresAt.Format(time.RFC3339), Password: password,
 	})
+}
+
+func createAndUploadWithRequest(
+	t *testing.T,
+	baseURL string,
+	server *relayServer,
+	media []byte,
+	request createUploadRequest,
+) createUploadResponse {
+	t.Helper()
+	requestBody, _ := json.Marshal(request)
 	response := performRequest(t, http.MethodPost, baseURL+"/v1/uploads", requestBody, map[string]string{
 		"Authorization": "Bearer " + testAdminToken,
 		"Content-Type":  "application/json",
@@ -356,6 +541,15 @@ func mustPublicPath(t *testing.T, raw string) string {
 	parsed, err := url.Parse(raw)
 	if err != nil || !strings.HasPrefix(parsed.Path, "/s/") {
 		t.Fatalf("invalid public URL %q", raw)
+	}
+	return parsed.Path
+}
+
+func mustImportPath(t *testing.T, raw string) string {
+	t.Helper()
+	parsed, err := url.Parse(raw)
+	if err != nil || !strings.HasPrefix(parsed.Path, "/i/") {
+		t.Fatalf("invalid import URL %q", raw)
 	}
 	return parsed.Path
 }

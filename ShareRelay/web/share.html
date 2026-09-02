@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta property="og:type" content="music.song">
+  <meta property="og:title" content="{{TITLE}}">
+  <meta property="og:description" content="{{SOCIAL_DESCRIPTION}}">
+  <meta property="og:image" content="{{COVER_URL}}">
+  <meta property="og:url" content="{{CANONICAL_URL}}">
+  <title>{{TITLE}} · Primuse 音乐分享</title>
+  <link rel="icon" href="/fallback-cover.webp?v=20260903.3" type="image/webp">
+  <link rel="stylesheet" href="/share.css?v=20260903.3">
+  <script src="/share.js?v=20260903.3" defer></script>
+</head>
+<body
+  class="share-page"
+  data-canonical-url="{{CANONICAL_URL}}"
+  data-media-url="{{MEDIA_PATH}}"
+  data-download-url="{{DOWNLOAD_PATH}}"
+  data-import-url="{{IMPORT_PATH}}"
+  data-app-store-url="https://apps.apple.com/cn/app/%E7%8C%BF%E9%9F%B3/id6761675450"
+  data-file-name="{{FILE_NAME}}"
+  data-file-size="{{FILE_SIZE_BYTES}}"
+  data-title="{{TITLE}}"
+>
+  <div class="ambient ambient-coral" aria-hidden="true"></div>
+  <div class="ambient ambient-mint" aria-hidden="true"></div>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="https://apps.apple.com/cn/app/%E7%8C%BF%E9%9F%B3/id6761675450" aria-label="在 App Store 获取 Primuse">
+        <img class="brand-mark" src="/fallback-cover.webp?v=20260903.3" alt="">
+        <strong>Primuse</strong>
+      </a>
+      <span class="header-divider" aria-hidden="true"></span>
+      <span class="header-copy">来自 Primuse 的音乐分享</span>
+      <span class="header-spacer"></span>
+      <a class="header-download" href="https://apps.apple.com/cn/app/%E7%8C%BF%E9%9F%B3/id6761675450">获取 Primuse</a>
+      <button class="icon-button menu-button" type="button" aria-label="更多操作" aria-expanded="false" data-menu-button>
+        <img class="ui-icon" src="/icons/more-horiz.svg" alt="" aria-hidden="true">
+      </button>
+      <div class="action-menu" hidden data-action-menu>
+        <button type="button" data-copy>复制链接</button>
+        <button type="button" data-share>系统分享</button>
+        <button type="button" data-show-qr>显示二维码</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="share-main">
+    <section class="artwork-column" aria-label="歌曲封面">
+      <div class="artwork-stage" data-spins="false">
+        <img class="vinyl" src="/fallback-cover.webp?v=20260903.3" alt="" aria-hidden="true">
+        <img class="cover" src="{{COVER_PATH}}" alt="《{{TITLE}}》封面">
+      </div>
+    </section>
+
+    <section class="details-column">
+      <div class="share-badges desktop-share-badges">
+        <span class="badge badge-access">{{ACCESS_LABEL}}</span>
+        <time class="badge badge-expiry" datetime="{{EXPIRES_ISO}}" data-expiry>{{EXPIRES_LABEL}}</time>
+      </div>
+
+      <div class="session-notice" {{SESSION_HIDDEN}}>
+        <img class="ui-icon" src="/icons/lock.svg" alt="" aria-hidden="true">
+        已通过密码验证 · 本次会话有效 30 分钟
+      </div>
+
+      <h1>{{TITLE}}</h1>
+      <p class="artist-album">{{ARTIST_ALBUM}}</p>
+      <p class="technical" aria-label="音频信息">
+        <span {{FORMAT_HIDDEN}}>{{FORMAT}}</span>
+        <span {{QUALITY_HIDDEN}}>{{QUALITY}}</span>
+        <span>{{SIZE}}</span>
+        <span class="mobile-access badge badge-access">{{ACCESS_LABEL}}</span>
+      </p>
+      <time class="mobile-expiry" datetime="{{EXPIRES_ISO}}" data-expiry>{{EXPIRES_LABEL}}</time>
+
+      <div class="player" {{PLAYBACK_HIDDEN}}>
+        <audio preload="metadata" data-audio></audio>
+        <button class="play-button" type="button" aria-label="播放" data-play>
+          <img class="ui-icon play-icon" src="/icons/play.svg" alt="" aria-hidden="true">
+          <img class="ui-icon pause-icon" src="/icons/pause.svg" alt="" aria-hidden="true">
+          <span class="spinner" aria-hidden="true"></span>
+        </button>
+        <div class="timeline-wrap">
+          <input class="timeline" type="range" min="0" max="1000" value="0" aria-label="播放进度" data-timeline>
+          <div class="time-row"><span data-current-time>0:00</span><span data-duration>--:--</span></div>
+          <p class="player-message" role="status" aria-live="polite" hidden data-player-message></p>
+        </div>
+        <div class="volume-wrap">
+          <button class="volume-button" type="button" aria-label="静音" data-mute>
+            <img class="ui-icon" src="/icons/sound-high.svg" alt="" aria-hidden="true">
+          </button>
+          <input type="range" min="0" max="1" step="0.01" value="0.7" aria-label="音量" data-volume>
+        </div>
+      </div>
+
+      <div class="permission-list" aria-label="分享权限">
+        <span class="permission {{PLAYBACK_PERMISSION_CLASS}}">在线播放</span>
+        <span class="permission {{DOWNLOAD_PERMISSION_CLASS}}">下载原文件</span>
+        <span class="permission {{IMPORT_PERMISSION_CLASS}}">导入 Primuse</span>
+      </div>
+
+      <div class="action-tray">
+        <div class="primary-actions">
+          <button class="primary-button" type="button" data-open-primuse {{IMPORT_HIDDEN}}>用 Primuse 打开</button>
+          <button class="secondary-button download-button" type="button" data-download {{DOWNLOAD_HIDDEN}}>下载原文件 · {{SIZE}}</button>
+        </div>
+
+        <div class="secondary-actions">
+          <button type="button" data-share>
+            <img class="ui-icon" src="/icons/share-ios.svg" alt="" aria-hidden="true">分享
+          </button>
+          <button type="button" data-copy>
+            <img class="ui-icon" src="/icons/link.svg" alt="" aria-hidden="true">复制链接
+          </button>
+          <button type="button" data-show-qr>
+            <img class="ui-icon" src="/icons/qr-code.svg" alt="" aria-hidden="true">显示二维码
+          </button>
+          <span class="keyboard-help">SPACE 播放/暂停 · ← → 15s · ESC 关闭</span>
+        </div>
+      </div>
+      <p class="permission-note">{{PERMISSION_NOTE}}</p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <span>由 Primuse 提供分享服务</span>
+      <button type="button" data-privacy>隐私说明</button>
+      <a href="https://github.com/chenqi92/primuse/issues/new" rel="noreferrer">举报与反馈</a>
+      <span class="footer-spacer"></span>
+      <span>请仅下载你有权使用的内容。</span>
+    </div>
+  </footer>
+
+  <div class="toast" role="status" aria-live="polite" hidden data-toast></div>
+
+  <dialog class="sheet-dialog qr-dialog" data-qr-dialog aria-labelledby="qr-title">
+    <form method="dialog" class="dialog-card">
+      <button class="dialog-close" value="cancel" aria-label="关闭二维码"><img class="ui-icon" src="/icons/xmark.svg" alt="" aria-hidden="true"></button>
+      <p class="eyebrow">SCAN TO LISTEN</p>
+      <h2 id="qr-title">扫码打开这条分享</h2>
+      <p class="qr-subtitle">用手机相机或微信扫一扫</p>
+      <div class="qr-layout">
+        <div class="qr-code-column">
+          <div class="qr-frame"><canvas width="1024" height="1024" role="img" aria-label="当前分享链接二维码" data-qr-canvas></canvas></div>
+          <p class="qr-host" data-qr-host>share.soundisle.com</p>
+        </div>
+        <div class="qr-details">
+          <p class="dialog-copy">二维码仅包含规范化分享页地址，不含音频地址、密钥或密码。</p>
+          <div class="dialog-actions">
+            <button class="primary-button" type="button" data-save-qr>保存二维码</button>
+            <button class="secondary-button" type="button" data-copy>复制链接</button>
+            <button class="quiet-button qr-print" type="button" data-print-qr>打印</button>
+          </div>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="sheet-dialog install-dialog" data-install-dialog aria-labelledby="install-title">
+    <form method="dialog" class="dialog-card">
+      <button class="dialog-close" value="cancel" aria-label="关闭"><img class="ui-icon" src="/icons/xmark.svg" alt="" aria-hidden="true"></button>
+      <img class="app-icon" src="/fallback-cover.webp?v=20260903.3" alt="">
+      <h2 id="install-title">还没有安装 Primuse</h2>
+      <p class="dialog-copy">安装后再打开这条链接即可直接导入；也可以先复制导入链接，稍后在 App 内粘贴。</p>
+      <div class="dialog-actions vertical">
+        <a class="primary-button link-button" href="https://apps.apple.com/cn/app/%E7%8C%BF%E9%9F%B3/id6761675450">获取 Primuse</a>
+        <button class="secondary-button" type="button" data-copy-import>复制导入链接</button>
+        <button class="quiet-button" value="cancel">继续在网页试听</button>
+      </div>
+      <p class="fine-print">导入链接使用一次性短期凭证（10 分钟有效），不包含访问密码。</p>
+    </form>
+  </dialog>
+
+  <dialog class="sheet-dialog confirm-dialog" data-download-dialog aria-labelledby="download-title">
+    <form method="dialog" class="dialog-card compact-card">
+      <h2 id="download-title">这个文件约 {{SIZE}}</h2>
+      <p class="dialog-copy">大文件建议在 Wi-Fi 环境下载。文件名：{{FILE_NAME}}</p>
+      <div class="dialog-actions">
+        <button class="primary-button" type="button" data-confirm-download>继续下载</button>
+        <button class="secondary-button" value="cancel">取消</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="sheet-dialog privacy-dialog" data-privacy-dialog aria-labelledby="privacy-title">
+    <form method="dialog" class="dialog-card compact-card">
+      <h2 id="privacy-title">隐私说明</h2>
+      <p class="dialog-copy">分享链接不会被页面索引。音频仅在播放、下载或导入时从当前服务读取；密码不会写入链接或二维码。请只把链接交给你信任的人。</p>
+      <button class="secondary-button full-button" value="cancel">知道了</button>
+    </form>
+  </dialog>
+</body>
+</html>

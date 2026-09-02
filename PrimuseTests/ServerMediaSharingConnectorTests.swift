@@ -8,7 +8,7 @@ final class ServerMediaSharingConnectorTests: XCTestCase {
     func testCapabilityAndCreateShareUseStandardParametersAndExactPublicURL() async throws {
         let host = "share-success.invalid"
         let exactURL = "https://public.example/music/share/exact%2Fid?ref=a%20b"
-        ServerMediaShareURLProtocol.configure(
+        configureURLProtocol(
             host: host,
             mode: .success(publicURL: exactURL)
         )
@@ -50,7 +50,7 @@ final class ServerMediaSharingConnectorTests: XCTestCase {
             ("share-501.invalid", ServerMediaShareURLProtocol.Mode.http501),
             ("share-disabled.invalid", .sharingDisabled),
         ] {
-            ServerMediaShareURLProtocol.configure(host: host, mode: mode)
+            configureURLProtocol(host: host, mode: mode)
             let (source, session) = makeSource(host: host)
             defer { session.invalidateAndCancel() }
 
@@ -61,14 +61,14 @@ final class ServerMediaSharingConnectorTests: XCTestCase {
 
     func testPermissionAndAuthenticationRemainDistinct() async throws {
         let permissionHost = "share-permission.invalid"
-        ServerMediaShareURLProtocol.configure(host: permissionHost, mode: .permissionDenied)
+        configureURLProtocol(host: permissionHost, mode: .permissionDenied)
         let (permissionSource, permissionSession) = makeSource(host: permissionHost)
         defer { permissionSession.invalidateAndCancel() }
         let permissionAvailability = try await permissionSource.serverMediaSharingAvailability()
         XCTAssertEqual(permissionAvailability, .permissionDenied)
 
         let authHost = "share-auth.invalid"
-        ServerMediaShareURLProtocol.configure(host: authHost, mode: .authenticationFailed)
+        configureURLProtocol(host: authHost, mode: .authenticationFailed)
         let (authSource, authSession) = makeSource(host: authHost)
         defer { authSession.invalidateAndCancel() }
         do {
@@ -83,7 +83,7 @@ final class ServerMediaSharingConnectorTests: XCTestCase {
 
     func testCreateShareMapsHTTP501ToUnsupported() async throws {
         let host = "share-create-501.invalid"
-        ServerMediaShareURLProtocol.configure(host: host, mode: .createHTTP501)
+        configureURLProtocol(host: host, mode: .createHTTP501)
         let (source, session) = makeSource(host: host)
         defer { session.invalidateAndCancel() }
         let request = try ServerMediaShareRequest(itemIDs: ["song-1"])
@@ -98,9 +98,9 @@ final class ServerMediaSharingConnectorTests: XCTestCase {
 
     func testIPv6HostPortAndBasePathSurviveRequestConstruction() async throws {
         let host = "share-base-path.invalid"
-        ServerMediaShareURLProtocol.configure(
+        configureURLProtocol(
             host: host,
-            mode: .success(publicURL: "https://[2001:db8::88]:4533/public/share/abc")
+            mode: .success(publicURL: "https://[2606:4700:4700::1111]:4533/public/share/abc")
         )
         let (source, session) = makeSource(
             host: host,
@@ -132,7 +132,7 @@ final class ServerMediaSharingConnectorTests: XCTestCase {
 
     func testUnsafeServerResponseIsRejectedInsteadOfShared() async throws {
         let host = "share-unsafe.invalid"
-        ServerMediaShareURLProtocol.configure(
+        configureURLProtocol(
             host: host,
             mode: .success(
                 publicURL: "https://music.example/rest/stream.view?id=1&u=user&t=token&s=salt"
@@ -153,7 +153,7 @@ final class ServerMediaSharingConnectorTests: XCTestCase {
 
     func testCapabilityProbeHonorsTaskCancellation() async throws {
         let host = "share-cancel.invalid"
-        ServerMediaShareURLProtocol.configure(host: host, mode: .delayedCapability)
+        configureURLProtocol(host: host, mode: .delayedCapability)
         let (source, session) = makeSource(host: host)
         defer { session.invalidateAndCancel() }
 
@@ -191,6 +191,49 @@ final class ServerMediaSharingConnectorTests: XCTestCase {
             session
         )
     }
+
+    private func configureURLProtocol(host: String, mode: ServerMediaShareURLProtocol.Mode) {
+        ServerMediaShareURLProtocol.configure(host: host, mode: mode)
+        addTeardownBlock {
+            ServerMediaShareURLProtocol.reset(host: host)
+        }
+    }
+}
+
+extension ServerMediaSharingConnectorTests {
+    func testMediaRelayImportDeepLinkRequiresSafeOneTimeEndpoint() throws {
+        let ticket = String(repeating: "a", count: 32)
+        let importURL = "https://share.example.com/i/\(ticket)"
+        let encoded = try XCTUnwrap(importURL.addingPercentEncoding(
+            withAllowedCharacters: .urlQueryAllowed
+        ))
+        let request = try XCTUnwrap(MediaRelayImportRequest(
+            url: try XCTUnwrap(URL(string: "primuse://import-share?url=\(encoded)"))
+        ))
+        XCTAssertEqual(request.importURL.absoluteString, importURL)
+
+        for rawValue in [
+            "primuse://import-share?url=http%3A%2F%2Fshare.example.com%2Fi%2F\(ticket)",
+            "primuse://import-share?url=https%3A%2F%2Fshare.example.com%2Fs%2F\(ticket)",
+            "primuse://import-share?url=https%3A%2F%2Fshare.example.com%2Fi%2Fshort",
+            "primuse://import-share?url=https%3A%2F%2F127.0.0.1%2Fi%2F\(ticket)",
+            "primuse://import-share?url=https%3A%2F%2Fshare.example.com%2Fi%2F\(ticket)%3Fcopy%3D1",
+            "primuse://import-share?url=\(encoded)&source=browser",
+            "primuse://pair?url=\(encoded)",
+        ] {
+            XCTAssertNil(MediaRelayImportRequest(url: try XCTUnwrap(URL(string: rawValue))))
+        }
+    }
+
+    func testMediaRelayImportFileNameValidation() throws {
+        XCTAssertEqual(
+            try MediaRelayImportPolicy.validatedFileName("Night/Drive.FLAC"),
+            "Night_Drive.FLAC"
+        )
+        XCTAssertThrowsError(try MediaRelayImportPolicy.validatedFileName("index.html"))
+        XCTAssertThrowsError(try MediaRelayImportPolicy.validatedFileName(".secret.mp3"))
+        XCTAssertThrowsError(try MediaRelayImportPolicy.validatedFileName(nil))
+    }
 }
 
 private final class ServerMediaShareURLProtocol: URLProtocol, @unchecked Sendable {
@@ -223,6 +266,12 @@ private final class ServerMediaShareURLProtocol: URLProtocol, @unchecked Sendabl
         lock.lock()
         defer { lock.unlock() }
         return states[normalizedHost(host)]?.requests ?? []
+    }
+
+    static func reset(host: String) {
+        lock.lock()
+        states.removeValue(forKey: normalizedHost(host))
+        lock.unlock()
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }

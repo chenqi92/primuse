@@ -73,17 +73,35 @@ type shareMetadata struct {
 	ETag            string    `json:"etag"`
 	PasswordSalt    string    `json:"passwordSalt,omitempty"`
 	PasswordHash    string    `json:"passwordHash,omitempty"`
+	Title           string    `json:"title,omitempty"`
+	Artist          string    `json:"artist,omitempty"`
+	Album           string    `json:"album,omitempty"`
+	AudioFormat     string    `json:"audioFormat,omitempty"`
+	Quality         string    `json:"quality,omitempty"`
+	DurationSeconds float64   `json:"durationSeconds,omitempty"`
+	AllowPlayback   *bool     `json:"allowPlayback,omitempty"`
+	AllowDownload   *bool     `json:"allowDownload,omitempty"`
+	AllowImport     *bool     `json:"allowImport,omitempty"`
 }
 
 func (m *shareMetadata) complete() bool { return !m.CompletedAt.IsZero() }
 func (m *shareMetadata) revoked() bool  { return !m.RevokedAt.IsZero() }
 
 type createUploadRequest struct {
-	FileName    string `json:"fileName"`
-	ContentType string `json:"contentType"`
-	Size        int64  `json:"size"`
-	ExpiresAt   string `json:"expiresAt,omitempty"`
-	Password    string `json:"password,omitempty"`
+	FileName        string  `json:"fileName"`
+	ContentType     string  `json:"contentType"`
+	Size            int64   `json:"size"`
+	ExpiresAt       string  `json:"expiresAt,omitempty"`
+	Password        string  `json:"password,omitempty"`
+	Title           string  `json:"title,omitempty"`
+	Artist          string  `json:"artist,omitempty"`
+	Album           string  `json:"album,omitempty"`
+	AudioFormat     string  `json:"audioFormat,omitempty"`
+	Quality         string  `json:"quality,omitempty"`
+	DurationSeconds float64 `json:"durationSeconds,omitempty"`
+	AllowPlayback   *bool   `json:"allowPlayback,omitempty"`
+	AllowDownload   *bool   `json:"allowDownload,omitempty"`
+	AllowImport     *bool   `json:"allowImport,omitempty"`
 }
 
 type createUploadResponse struct {
@@ -114,6 +132,7 @@ type relayServer struct {
 	rateMu      sync.Mutex
 	rateWindows map[string]*rateWindow
 	rateCleaned time.Time
+	ticketMu    sync.Mutex
 }
 
 type rateWindow struct {
@@ -313,7 +332,11 @@ func newRelayServer(c config) (*relayServer, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, directory := range []string{filepath.Join(c.dataDirectory, "metadata"), filepath.Join(c.dataDirectory, "chunks")} {
+	for _, directory := range []string{
+		filepath.Join(c.dataDirectory, "metadata"),
+		filepath.Join(c.dataDirectory, "chunks"),
+		filepath.Join(c.dataDirectory, "tickets"),
+	} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			return nil, err
 		}
@@ -338,12 +361,25 @@ func newRelayServer(c config) (*relayServer, error) {
 func (s *relayServer) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealth)
+	mux.HandleFunc("HEAD /healthz", s.handleHealth)
 	mux.HandleFunc("POST /v1/uploads", s.handleCreateUpload)
 	mux.HandleFunc("PUT /v1/uploads/{id}/chunks/{index}", s.handleUploadChunk)
 	mux.HandleFunc("POST /v1/uploads/{id}/complete", s.handleCompleteUpload)
 	mux.HandleFunc("DELETE /v1/shares/{id}", s.handleRevokeShare)
 	mux.HandleFunc("GET /s/{token}", s.handlePublicShare)
 	mux.HandleFunc("HEAD /s/{token}", s.handlePublicShare)
+	mux.HandleFunc("POST /s/{token}/auth", s.handleShareAuthentication)
+	mux.HandleFunc("GET /s/{token}/media", s.handleShareMedia)
+	mux.HandleFunc("HEAD /s/{token}/media", s.handleShareMedia)
+	mux.HandleFunc("GET /s/{token}/download", s.handleShareDownload)
+	mux.HandleFunc("HEAD /s/{token}/download", s.handleShareDownload)
+	mux.HandleFunc("POST /s/{token}/import", s.handleCreateImportTicket)
+	mux.HandleFunc("GET /i/{token}", s.handleImportTicket)
+	mux.HandleFunc("HEAD /i/{token}", s.handleImportTicket)
+	mux.HandleFunc("GET /share.css", s.handleWebAsset)
+	mux.HandleFunc("GET /share.js", s.handleWebAsset)
+	mux.HandleFunc("GET /fallback-cover.webp", s.handleWebAsset)
+	mux.HandleFunc("GET /icons/{name}", s.handleWebAsset)
 	return s.securityHeaders(s.requestLog(mux))
 }
 
@@ -352,6 +388,7 @@ func (s *relayServer) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		w.Header().Set("X-Robots-Tag", "noindex, nofollow, noarchive")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -397,12 +434,21 @@ func (s *relayServer) handleCreateUpload(w http.ResponseWriter, r *http.Request)
 	}
 	request.FileName = sanitizeFileName(request.FileName)
 	request.ContentType = sanitizeContentType(request.ContentType)
+	request.Title = sanitizeDisplayText(request.Title, 160)
+	request.Artist = sanitizeDisplayText(request.Artist, 160)
+	request.Album = sanitizeDisplayText(request.Album, 160)
+	request.AudioFormat = sanitizeDisplayText(request.AudioFormat, 32)
+	request.Quality = sanitizeDisplayText(request.Quality, 80)
 	if request.FileName == "" || request.Size <= 0 || request.Size > s.configuration.maximumFileSize {
 		writeProblem(w, http.StatusBadRequest, "invalid_media")
 		return
 	}
 	if len(request.Password) > 128 {
 		writeProblem(w, http.StatusBadRequest, "invalid_password")
+		return
+	}
+	if request.DurationSeconds < 0 || request.DurationSeconds > 7*24*60*60 {
+		writeProblem(w, http.StatusBadRequest, "invalid_media")
 		return
 	}
 
@@ -443,7 +489,7 @@ func (s *relayServer) handleCreateUpload(w http.ResponseWriter, r *http.Request)
 	}
 
 	metadata := &shareMetadata{
-		Version:         1,
+		Version:         2,
 		ID:              id,
 		PublicTokenHash: tokenHash(publicToken),
 		ControlHash:     tokenHash(uploadToken),
@@ -455,6 +501,15 @@ func (s *relayServer) handleCreateUpload(w http.ResponseWriter, r *http.Request)
 		ExpiresAt:       expiresAt,
 		UploadExpiresAt: now.Add(s.configuration.uploadTTL),
 		ETag:            `"` + etagToken + `"`,
+		Title:           request.Title,
+		Artist:          request.Artist,
+		Album:           request.Album,
+		AudioFormat:     request.AudioFormat,
+		Quality:         request.Quality,
+		DurationSeconds: request.DurationSeconds,
+		AllowPlayback:   boolPointerOrDefault(request.AllowPlayback, true),
+		AllowDownload:   boolPointerOrDefault(request.AllowDownload, true),
+		AllowImport:     boolPointerOrDefault(request.AllowImport, true),
 	}
 	if request.Password != "" {
 		salt := make([]byte, 16)
@@ -601,6 +656,22 @@ func (s *relayServer) handleRevokeShare(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *relayServer) handlePublicShare(w http.ResponseWriter, r *http.Request) {
+	if prefersHTML(r) {
+		s.handleSharePage(w, r)
+		return
+	}
+	s.servePublicMedia(w, r, false)
+}
+
+func (s *relayServer) handleShareMedia(w http.ResponseWriter, r *http.Request) {
+	s.servePublicMedia(w, r, false)
+}
+
+func (s *relayServer) handleShareDownload(w http.ResponseWriter, r *http.Request) {
+	s.servePublicMedia(w, r, true)
+}
+
+func (s *relayServer) servePublicMedia(w http.ResponseWriter, r *http.Request, attachment bool) {
 	if !s.allowPublicRequest(r) {
 		w.Header().Set("Retry-After", "60")
 		writeProblem(w, http.StatusTooManyRequests, "rate_limited")
@@ -613,30 +684,42 @@ func (s *relayServer) handlePublicShare(w http.ResponseWriter, r *http.Request) 
 
 	metadata := s.metadataByPublicToken(r.PathValue("token"))
 	if metadata == nil {
-		writeProblem(w, http.StatusNotFound, "not_found")
+		writeProblem(w, http.StatusGone, "unavailable")
 		return
 	}
 	shareLock := s.lockForShare(metadata.ID)
 	shareLock.RLock()
 	defer shareLock.RUnlock()
 	if !metadata.complete() || metadata.revoked() {
-		writeProblem(w, http.StatusNotFound, "not_found")
+		writeProblem(w, http.StatusGone, "unavailable")
 		return
 	}
 	if !metadata.ExpiresAt.After(s.now()) || !metadata.DataDeletedAt.IsZero() {
-		writeProblem(w, http.StatusGone, "expired")
+		writeProblem(w, http.StatusGone, "unavailable")
 		return
 	}
-	if metadata.PasswordHash != "" && !verifyPassword(metadata, r) {
+	if metadata.PasswordHash != "" && !verifyPassword(metadata, r) && !s.verifyShareSession(metadata, r.PathValue("token"), r) {
 		w.Header().Set("WWW-Authenticate", `Basic realm="Primuse Share", charset="UTF-8"`)
 		writeProblem(w, http.StatusUnauthorized, "password_required")
 		return
 	}
+	if attachment && !metadataPermission(metadata.AllowDownload, true) {
+		writeProblem(w, http.StatusForbidden, "download_disabled")
+		return
+	}
+	if !attachment && !metadataPermission(metadata.AllowPlayback, true) {
+		writeProblem(w, http.StatusForbidden, "playback_disabled")
+		return
+	}
+	s.serveMetadataMedia(w, r, metadata, attachment)
+}
+
+func (s *relayServer) serveMetadataMedia(w http.ResponseWriter, r *http.Request, metadata *shareMetadata, attachment bool) {
 
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Cache-Control", "private, no-store, max-age=0")
 	w.Header().Set("Content-Type", metadata.ContentType)
-	w.Header().Set("Content-Disposition", contentDisposition(metadata.FileName))
+	w.Header().Set("Content-Disposition", contentDispositionMode(metadata.FileName, attachment))
 	w.Header().Set("ETag", metadata.ETag)
 	w.Header().Set("Last-Modified", metadata.CompletedAt.UTC().Format(http.TimeFormat))
 	if r.Header.Get("If-None-Match") == metadata.ETag && r.Header.Get("Range") == "" {
@@ -745,7 +828,7 @@ func (s *relayServer) loadMetadata() error {
 }
 
 func (s *relayServer) validateLoadedMetadata(entry os.DirEntry, metadata *shareMetadata) error {
-	if entry.Type()&os.ModeType != 0 || metadata.Version != 1 ||
+	if entry.Type()&os.ModeType != 0 || (metadata.Version != 1 && metadata.Version != 2) ||
 		!validOpaqueID(metadata.ID) || entry.Name() != metadata.ID+".json" ||
 		!validSHA256Hex(metadata.PublicTokenHash) || !validSHA256Hex(metadata.ControlHash) ||
 		metadata.PublicTokenHash == metadata.ControlHash ||
@@ -756,6 +839,14 @@ func (s *relayServer) validateLoadedMetadata(entry os.DirEntry, metadata *shareM
 		metadata.CreatedAt.IsZero() || !metadata.ExpiresAt.After(metadata.CreatedAt) ||
 		!metadata.UploadExpiresAt.After(metadata.CreatedAt) || !validETag(metadata.ETag) {
 		return errors.New("unsafe or inconsistent fields")
+	}
+	if metadata.Version == 2 && (sanitizeDisplayText(metadata.Title, 160) != metadata.Title ||
+		sanitizeDisplayText(metadata.Artist, 160) != metadata.Artist ||
+		sanitizeDisplayText(metadata.Album, 160) != metadata.Album ||
+		sanitizeDisplayText(metadata.AudioFormat, 32) != metadata.AudioFormat ||
+		sanitizeDisplayText(metadata.Quality, 80) != metadata.Quality ||
+		metadata.DurationSeconds < 0 || metadata.DurationSeconds > 7*24*60*60) {
+		return errors.New("invalid presentation fields")
 	}
 	if metadata.PasswordSalt == "" && metadata.PasswordHash == "" {
 		return nil
@@ -930,6 +1021,7 @@ func (s *relayServer) cleanupExpired() {
 		_ = s.persistMetadata(metadata)
 		shareLock.Unlock()
 	}
+	s.cleanupExpiredImportTickets(now)
 }
 
 func (s *relayServer) cleanupLoop(registerShutdown func(func())) {
@@ -1025,6 +1117,10 @@ func sanitizeContentType(value string) string {
 }
 
 func contentDisposition(fileName string) string {
+	return contentDispositionMode(fileName, false)
+}
+
+func contentDispositionMode(fileName string, attachment bool) string {
 	ascii := strings.Map(func(r rune) rune {
 		if r < 0x20 || r > 0x7e || r == '"' || r == '\\' {
 			return '_'
@@ -1034,7 +1130,11 @@ func contentDisposition(fileName string) string {
 	if strings.Trim(ascii, "_") == "" {
 		ascii = "media"
 	}
-	return fmt.Sprintf("inline; filename=\"%s\"; filename*=UTF-8''%s", ascii, url.PathEscape(fileName))
+	disposition := "inline"
+	if attachment {
+		disposition = "attachment"
+	}
+	return fmt.Sprintf("%s; filename=\"%s\"; filename*=UTF-8''%s", disposition, ascii, url.PathEscape(fileName))
 }
 
 func bearerToken(r *http.Request) string {
