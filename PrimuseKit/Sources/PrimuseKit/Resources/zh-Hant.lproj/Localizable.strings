@@ -679,3 +679,4 @@
 "serverShare.error.invalidExpiration" = "所選到期時間無法安全傳送到伺服器。";
 "serverShare.error.unsafeURL" = "伺服器傳回的連結疑似播放串流網址或包含帳戶憑證。";
 "serverShare.error.malformedResponse" = "伺服器未傳回有效的公開媒體連結。";
+"metadata.rangeRead.error.suffixUnsupported" = "此伺服器不支援讀取中繼資料所需的檔案尾端範圍。";

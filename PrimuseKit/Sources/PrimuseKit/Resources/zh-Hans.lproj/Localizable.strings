@@ -679,3 +679,4 @@
 "serverShare.error.invalidExpiration" = "所选过期时间无法安全发送到服务器。";
 "serverShare.error.unsafeURL" = "服务器返回的链接疑似播放流地址或包含账户凭据。";
 "serverShare.error.malformedResponse" = "服务器未返回有效的公开媒体链接。";
+"metadata.rangeRead.error.suffixUnsupported" = "此服务器不支持读取元数据所需的文件尾部范围。";

@@ -682,3 +682,4 @@
 "serverShare.error.invalidExpiration" = "La date d’expiration choisie ne peut pas être envoyée au serveur en toute sécurité.";
 "serverShare.error.unsafeURL" = "Le serveur a renvoyé un lien de flux ou un lien contenant des identifiants de compte.";
 "serverShare.error.malformedResponse" = "Le serveur n’a pas renvoyé de lien multimédia public valide.";
+"metadata.rangeRead.error.suffixUnsupported" = "Ce serveur ne permet pas la lecture limitée de la fin du fichier nécessaire aux métadonnées.";

@@ -547,7 +547,7 @@ public enum MetadataRangeReadError: Error, LocalizedError, Sendable, Equatable {
     public var errorDescription: String? {
         switch self {
         case .suffixRangeUnsupported:
-            return "The remote endpoint does not support bounded metadata suffix reads"
+            return String(localized: "metadata.rangeRead.error.suffixUnsupported", bundle: Bundle.primuseKit)
         }
     }
 }

@@ -682,3 +682,4 @@
 "serverShare.error.invalidExpiration" = "선택한 만료 날짜를 서버에 안전하게 보낼 수 없습니다.";
 "serverShare.error.unsafeURL" = "서버가 스트림 URL 또는 계정 자격 증명이 포함된 링크를 반환했습니다.";
 "serverShare.error.malformedResponse" = "서버가 유효한 공개 미디어 링크를 반환하지 않았습니다.";
+"metadata.rangeRead.error.suffixUnsupported" = "이 서버는 메타데이터에 필요한 파일 끝부분의 범위 읽기를 지원하지 않습니다.";

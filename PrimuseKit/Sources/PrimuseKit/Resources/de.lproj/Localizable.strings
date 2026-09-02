@@ -682,3 +682,4 @@
 "serverShare.error.invalidExpiration" = "Das gewählte Ablaufdatum kann nicht sicher an den Server gesendet werden.";
 "serverShare.error.unsafeURL" = "Der Server hat einen Stream-Link oder einen Link mit Zugangsdaten zurückgegeben.";
 "serverShare.error.malformedResponse" = "Der Server hat keinen gültigen öffentlichen Medienlink zurückgegeben.";
+"metadata.rangeRead.error.suffixUnsupported" = "Dieser Server unterstützt den für Metadaten erforderlichen begrenzten Lesezugriff am Dateiende nicht.";

@@ -680,3 +680,4 @@
 "serverShare.error.invalidExpiration" = "The selected expiration date cannot be sent to the server.";
 "serverShare.error.unsafeURL" = "The server returned a link that looks like a stream URL or contains account credentials.";
 "serverShare.error.malformedResponse" = "The server did not return a valid public media link.";
+"metadata.rangeRead.error.suffixUnsupported" = "This server cannot provide the bounded file-tail read needed for metadata.";
