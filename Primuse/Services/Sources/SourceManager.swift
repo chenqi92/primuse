@@ -2273,8 +2273,13 @@ final class SourceManager {
             guard let self,
                   let sourceIDs = note.userInfo?["ids"] as? [String],
                   !sourceIDs.isEmpty else { return }
+            let currentScopeFingerprints = note.userInfo?["scopeFingerprints"]
+                as? [String: String]
             MainActor.assumeIsolated {
-                self.audioCacheSourceConfigurationsDidChange(Set(sourceIDs))
+                self.classifySourceConfigurationChanges(
+                    Set(sourceIDs),
+                    currentScopeFingerprints: currentScopeFingerprints
+                )
             }
         }
 
@@ -4332,6 +4337,32 @@ final class SourceManager {
                 self.scheduleAudioCacheScopeValidation(for: source.id)
             }
         }
+    }
+
+    private func classifySourceConfigurationChanges(
+        _ sourceIDs: Set<String>,
+        currentScopeFingerprints: [String: String]?
+    ) {
+        var securityScopeChanges = Set<String>()
+        for sourceID in sourceIDs {
+            let previousFingerprint = requiredConnectorScopeFingerprints[sourceID]
+                ?? connectorScopeFingerprints[sourceID]
+                ?? sidecarConnectorScopeFingerprints[sourceID]
+                ?? recordedAudioCacheScopeSignatures[sourceID]
+            let currentFingerprint = currentScopeFingerprints?[sourceID]
+            switch SourceConfigurationInvalidationPolicy.action(
+                previousScopeFingerprint: previousFingerprint,
+                currentScopeFingerprint: currentFingerprint
+            ) {
+            case .ignoreNonSecurityChange:
+                plog("🛡️ Source row update kept active transport source=\(sourceID.prefix(8)) scope=unchanged")
+            case .invalidateSecurityScope:
+                securityScopeChanges.insert(sourceID)
+            }
+        }
+
+        guard !securityScopeChanges.isEmpty else { return }
+        audioCacheSourceConfigurationsDidChange(securityScopeChanges)
     }
 
     private func audioCacheSourceConfigurationsDidChange(

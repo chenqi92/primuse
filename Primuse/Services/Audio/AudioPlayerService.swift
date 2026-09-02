@@ -1252,7 +1252,9 @@ final class AudioPlayerService {
             }
             MainActor.assumeIsolated {
                 guard let self, self.currentSong?.sourceID == sourceID else { return }
-                self.stop()
+                self.suspendPlaybackPreservingSelection(
+                    reason: "source-security-scope-change"
+                )
             }
         }
         #if os(iOS)
@@ -3520,7 +3522,27 @@ final class AudioPlayerService {
                 markMusicVideoAudioFallbackIfNeeded(playID: id)
             }
         } catch {
-            guard playID == id else { return }
+            let action = PlaybackPipelineFailurePolicy.action(
+                requestIsCurrent: playID == id,
+                errorIsCancellation: OperationCancellationPolicy.isCancellation(error)
+            )
+            switch action {
+            case .discardStaleResult:
+                return
+            case .preserveCurrentItem:
+                plog("🛡️ Playback URL resolution cancelled; preserving current item '\(song.title)'")
+                invalidateAutomaticAdvance(reason: "playback-resolution-cancelled")
+                isLoading = false
+                isPlaying = false
+                hasPreparedLocalPlayback = false
+                pendingRecoveryTime = currentTime
+                needsPlaybackRecovery = currentTime > 0
+                updateNowPlayingInfo()
+                updatePlaybackState()
+                return
+            case .advanceAfterFailure:
+                break
+            }
             plog("Playback URL resolution error: \(error)")
             showPlaybackError(String(localized: "playback_error_connection"))
             isLoading = false
@@ -6638,6 +6660,50 @@ final class AudioPlayerService {
         AudioSessionManager.shared.deactivate()
     }
 
+    /// Stops an invalid or security-fenced transport without erasing the
+    /// user's selected item or queue. A later Play rebuilds this item (or seeks
+    /// back to the preserved position) with a fresh request generation.
+    private func suspendPlaybackPreservingSelection(reason: String) {
+        guard currentSong != nil else { return }
+        registerPauseOrStopIntent()
+        playID = UUID()
+        resetDecodedBufferHealth(resetRecoveryAttempts: true)
+        beginPlaybackErrorScope()
+        prefetchTask?.cancel()
+        prefetchTask = nil
+        sourceManager?.cancelBackgroundAudioCaching(keeping: [])
+        let deferredStreamingDownloadSongID = retireStreamingDownloadPreparation()
+        if let currentSong, currentSong.id != deferredStreamingDownloadSongID {
+            sourceManager?.finalizeStreamingSession(for: currentSong)
+        }
+        stopTimeUpdater()
+        syncPlaybackProgressFromEngine()
+        pendingRecoveryTime = currentTime
+        decodingTask?.cancel()
+        decodingTask = nil
+        cancelGaplessTasks()
+        cancelCrossfadeAttempt(
+            finishingCommittedTransition: true,
+            completionMode: .preserveCachedProgress
+        )
+        audioEngine.stopPlayback()
+        hasPreparedLocalPlayback = false
+        audioEngine.resetPlayerVolume()
+        stopMusicVideoPlayback(clearPlayer: true)
+        sourceManager?.cancelMusicVideoDownloads(keeping: nil)
+        isPlaying = false
+        isLoading = false
+        isAtTrackEnd = false
+        needsPlaybackRecovery = pendingRecoveryTime > 0
+        pendingRecoveryIsColdSessionRestore = false
+        ScrobbleService.shared.handlePlaybackStopped()
+        PlayHistoryStore.shared.endSession()
+        updateNowPlayingInfo()
+        updatePlaybackState()
+        AudioSessionManager.shared.deactivate()
+        plog("⏸️ Playback suspended with current item preserved reason=\(reason)")
+    }
+
     /// 跟 stop() 的差别: 保留 currentSong / queue / currentIndex / duration,
     /// 只清引擎 + 标 isAtTrackEnd = true。给 handleTrackEnd .off 用 ——
     /// 用户搜出来一首歌 (queue 只有一首) 播完时不要把 UI 一下子全清掉
@@ -9336,12 +9402,11 @@ final class AudioPlayerService {
     ///   current song. Calling `next()` from there would either loop the
     ///   broken file forever (single-song queue) or jump to a different
     ///   track and silently violate repeat-one (multi-song queue). So
-    ///   we stop and let the user see the error toast that the caller
-    ///   already raised.
+    ///   we suspend the transport and let the user see the error toast that
+    ///   the caller already raised, while preserving the selected item.
     /// - Otherwise advance if there's a real successor; if not (last
-    ///   track failed, repeat-off), stop so the player exits the
-    ///   half-broken loading/streaming state cleanly instead of
-    ///   leaving the engine wedged with currentSong still set.
+    ///   track failed, repeat-off), suspend the broken transport while keeping
+    ///   the current item and queue available for an explicit retry.
     private func autoAdvanceAfterFailure(
         skippingSourceID failedSourceID: String? = nil,
         trigger: String = #function
@@ -9378,7 +9443,7 @@ final class AudioPlayerService {
             return
         }
         if repeatMode == .one {
-            stop()
+            suspendPlaybackPreservingSelection(reason: "repeat-one-playback-failure")
             return
         }
 
@@ -9396,8 +9461,8 @@ final class AudioPlayerService {
 
         consecutiveFailureAdvanceCount += 1
         guard consecutiveFailureAdvanceCount <= Self.maxConsecutiveFailureAdvances else {
-            plog("⏹️ Stopped after \(Self.maxConsecutiveFailureAdvances) consecutive playback failures")
-            stop()
+            plog("⏸️ Suspended after \(Self.maxConsecutiveFailureAdvances) consecutive playback failures")
+            suspendPlaybackPreservingSelection(reason: "consecutive-playback-failures")
             return
         }
 
@@ -9409,8 +9474,8 @@ final class AudioPlayerService {
                     candidateSourceID: candidate.sourceID
                   ) {
                 guard skippedCount < queueEntries.count else {
-                    plog("⏹️ No playable provider remains after source-wide failure")
-                    stop()
+                    plog("⏸️ No playable provider remains after source-wide failure")
+                    suspendPlaybackPreservingSelection(reason: "source-wide-playback-failure")
                     return
                 }
                 advanceToNextIndex()
@@ -9436,7 +9501,7 @@ final class AudioPlayerService {
                 callerLine: 0
             )
         } else {
-            stop()
+            suspendPlaybackPreservingSelection(reason: "queue-tail-playback-failure")
         }
     }
 

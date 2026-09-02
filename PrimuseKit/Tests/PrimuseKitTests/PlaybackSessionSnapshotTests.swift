@@ -64,6 +64,24 @@ struct PlaybackSessionSnapshotTests {
         #expect(!plan.shouldStartPlayback)
     }
 
+    @Test("Natural queue tail preserves the player selection and full queue")
+    func naturalQueueTailRemainsRestorable() throws {
+        var snapshot = makeSnapshot()
+        snapshot.currentTime = snapshot.duration
+        snapshot.isAtTrackEnd = true
+
+        let plan = try #require(PlaybackSessionRestorationPolicy.plan(
+            snapshot: snapshot,
+            availableSongIDs: Set(snapshot.queueSongIDs)
+        ))
+
+        #expect(plan.queueSongIDs == snapshot.queueSongIDs)
+        #expect(plan.currentIndex == snapshot.currentIndex)
+        #expect(plan.queueSongIDs[plan.currentIndex] == snapshot.currentSongID)
+        #expect(plan.isAtTrackEnd)
+        #expect(!plan.shouldStartPlayback)
+    }
+
     @Test("Near-start launch jitter restarts instead of exact-seek recovery")
     func nearStartProgressRestartsFromBeginning() throws {
         var snapshot = makeSnapshot()

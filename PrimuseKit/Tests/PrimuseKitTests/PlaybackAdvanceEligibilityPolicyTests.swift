@@ -126,6 +126,37 @@ struct PlaybackAdvanceEligibilityPolicyTests {
         ) == .accepted)
     }
 
+    @Test("A large mixed-provider gapless queue keeps handing off after refill")
+    func repeatedGaplessHandoffsKeepTheNextBoundaryEligible() throws {
+        let itemIDs = (0..<12_000).map { index in
+            let provider = index.isMultiple(of: 2) ? "navidrome" : "webdav-dts"
+            return "\(provider)-\(index)"
+        }
+        var gate = PlaybackAdvanceEligibilityPolicy()
+        var currentItemID = try #require(itemIDs.first)
+        var currentTicket = gate.beginTransport(itemID: currentItemID)
+
+        for nextItemID in itemIDs.dropFirst() {
+            let successor = try #require(gate.prepareSuccessor(itemID: nextItemID))
+            #expect(gate.handoff(
+                from: currentTicket,
+                to: successor,
+                currentItemID: currentItemID,
+                playbackIsIntended: true,
+                transportIsActive: true
+            ) == .accepted)
+            currentItemID = nextItemID
+            currentTicket = successor
+        }
+
+        #expect(gate.consume(
+            currentTicket,
+            currentItemID: currentItemID,
+            playbackIsIntended: true,
+            transportIsActive: true
+        ) == .accepted)
+    }
+
     @Test("Denied interruption end never creates a replacement transport")
     func deniedEndDoesNotResume() {
         var resume = PlaybackInterruptionResumePolicy()

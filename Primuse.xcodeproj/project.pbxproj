@@ -576,6 +576,7 @@
 		9D5390F04D31B3CB4EAAAFC2 /* ScrobbleProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74A342EFF9101DE4480355B9 /* ScrobbleProvider.swift */; };
 		9D603241B5052785AD417424 /* FTPByteReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 986B24BF4F85684EE7B21FCE /* FTPByteReader.swift */; };
 		9DDF813005BEC7D6D53E4BB7 /* ITunesScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1254C88A6F33F2A3A73C2CA /* ITunesScraper.swift */; };
+		9DE386E8BC9B78E852269E73 /* PlaybackPipelineFailurePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05047D65CA70A65F239E5F1A /* PlaybackPipelineFailurePolicy.swift */; };
 		9EE94977CFC4B561D0559C97 /* TianyiCloudAPIProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1F7BC83F45C23C5FEECE7C3 /* TianyiCloudAPIProtocol.swift */; };
 		9EF475BC087A3FAE66D9BBD0 /* LibraryWatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06F450E1573013F6EC1F48E6 /* LibraryWatchView.swift */; };
 		9FDEDBFD536FF5692980CD5F /* BatchAddToPlaylistSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06924D96CB41F49216C2FF95 /* BatchAddToPlaylistSheet.swift */; };
@@ -1119,6 +1120,7 @@
 		03BB71DD4DCCE64B2CD1B622 /* CrossfadePlaybackClockPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossfadePlaybackClockPolicy.swift; sourceTree = "<group>"; };
 		03F527F89BB056AD3BB3E532 /* LocalImportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalImportService.swift; sourceTree = "<group>"; };
 		041E51884E571993062DF610 /* MacTrustedDomainsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacTrustedDomainsView.swift; sourceTree = "<group>"; };
+		05047D65CA70A65F239E5F1A /* PlaybackPipelineFailurePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackPipelineFailurePolicy.swift; sourceTree = "<group>"; };
 		050D42F39CEE8830909BFA20 /* MacLibraryHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLibraryHeader.swift; sourceTree = "<group>"; };
 		057DEC08E8DF0DA7DDE5DFDA /* AudioQualityBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioQualityBadge.swift; sourceTree = "<group>"; };
 		06924D96CB41F49216C2FF95 /* BatchAddToPlaylistSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchAddToPlaylistSheet.swift; sourceTree = "<group>"; };
@@ -2074,6 +2076,7 @@
 				46216CC6E08859637C9847D0 /* OpenSubsonicLyrics.swift */,
 				1CEBA275253A5F2B114FAAC9 /* OperationCancellationPolicy.swift */,
 				30CDB6D275E3286404C77238 /* PlaybackClockSafetyPolicy.swift */,
+				05047D65CA70A65F239E5F1A /* PlaybackPipelineFailurePolicy.swift */,
 				4B0DFA16D66837EFF0DB5E43 /* PlaybackSessionSnapshot.swift */,
 				4B4D61F000626BCDD16F85D3 /* PlayerOverlayDismissalState.swift */,
 				7A6E761F8B6C6057418F1EFC /* QueueBatchRemovalPolicy.swift */,
@@ -3505,6 +3508,7 @@
 				86647F6C5324A24DEEFB727E /* OperationCancellationPolicy.swift in Sources */,
 				F7AF165E4C4ABC46FAECC7C0 /* PinyinTransformer.swift in Sources */,
 				0FC58044231DBA9E5D7A8091 /* PlaybackClockSafetyPolicy.swift in Sources */,
+				9DE386E8BC9B78E852269E73 /* PlaybackPipelineFailurePolicy.swift in Sources */,
 				532B9F831AAAFA2A2AEFE6E3 /* PlaybackSessionSnapshot.swift in Sources */,
 				574266CAE3D7A5B6DE1E1103 /* PlaybackState.swift in Sources */,
 				5B521BD011A5D1EDD5FF4CC4 /* PlayerOverlayDismissalState.swift in Sources */,

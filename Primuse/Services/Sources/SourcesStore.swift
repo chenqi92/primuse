@@ -602,10 +602,24 @@ final class SourcesStore {
     }
 
     private func notifyChanged(_ ids: [String]) {
+        let scopeFingerprints: [String: String] = Dictionary(
+            uniqueKeysWithValues: ids.compactMap { sourceID in
+                guard let source = allSources.first(where: {
+                    $0.id == sourceID && !$0.isDeleted
+                }) else { return nil }
+                return (
+                    sourceID,
+                    MusicSourceSecurityRevision.scopedFingerprint(for: source)
+                )
+            }
+        )
         NotificationCenter.default.post(
             name: .primuseSourcesDidChange,
             object: nil,
-            userInfo: ["ids": ids]
+            userInfo: [
+                "ids": ids,
+                "scopeFingerprints": scopeFingerprints,
+            ]
         )
     }
 
