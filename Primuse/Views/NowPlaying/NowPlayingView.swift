@@ -457,6 +457,8 @@ struct NowPlayingView: View {
     @State private var scrapeTargetSong: Song?
     @State private var showAddToPlaylist = false
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
+    @State private var serverMediaRelayFallbackSong: Song?
+    @State private var relayShareSong: Song?
     @State private var showCastPicker = false
     @State private var showSongInfo = false
     @State private var showSleepTimer = false
@@ -502,6 +504,7 @@ struct NowPlayingView: View {
             || scrapeTargetSong != nil
             || showAddToPlaylist
             || serverMediaShareTarget != nil
+            || relayShareSong != nil
             || showSongInfo
             || showTagEditor
             || lyricsEditorTargetSong != nil
@@ -623,6 +626,12 @@ struct NowPlayingView: View {
             songs: [song],
             source: source
         )
+    }
+
+    private var currentSongCanCreateRelayShare: Bool {
+        guard let song = player.currentSong,
+              let source = sourcesStore.source(id: song.sourceID) else { return false }
+        return MediaRelaySourcePolicy.supports(song: song, sourceType: source.type)
     }
 
     private var currentArtistDisplayName: String {
@@ -1200,8 +1209,16 @@ struct NowPlayingView: View {
                     .presentationDragIndicator(.visible)
             }
         }
-        .sheet(item: $serverMediaShareTarget) { target in
-            ServerMediaShareSheet(target: target)
+        .sheet(item: $serverMediaShareTarget, onDismiss: {
+            serverMediaRelayFallbackSong = nil
+        }) { target in
+            ServerMediaShareSheet(
+                target: target,
+                relaySong: serverMediaRelayFallbackSong
+            )
+        }
+        .sheet(item: $relayShareSong) { song in
+            MediaRelayShareSheet(song: song)
         }
         .sheet(isPresented: $showSongInfo) {
             if let song = player.currentSong {
@@ -2702,7 +2719,8 @@ struct NowPlayingView: View {
             artistID: currentArtist?.id,
             canOpenAlbum: canOpenCurrentAlbum,
             canOpenArtist: currentArtist != nil && onOpenArtist != nil,
-            canCreateServerShare: currentSongServerShareTarget != nil,
+            canCreateServerShare: currentSongServerShareTarget != nil
+                || currentSongCanCreateRelayShare,
             shareText: player.currentSong.map {
                 "\($0.title) - \(library.artistDisplayName(for: $0) ?? "")"
             },
@@ -2749,7 +2767,14 @@ struct NowPlayingView: View {
                 openURL(url)
             },
             onCreateServerShare: {
-                serverMediaShareTarget = currentSongServerShareTarget
+                if let target = currentSongServerShareTarget {
+                    serverMediaRelayFallbackSong = currentSongCanCreateRelayShare
+                        ? player.currentSong
+                        : nil
+                    serverMediaShareTarget = target
+                } else if currentSongCanCreateRelayShare {
+                    relayShareSong = player.currentSong
+                }
             },
             onShowCastPicker: { showCastPicker = true },
             onToggleLyricsTranslation: {
@@ -4895,7 +4920,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                 if snapshot.canCreateServerShare {
                     Button(action: onCreateServerShare) {
                         Label(
-                            String(localized: "server_share_action"),
+                            String(localized: "media_share_action"),
                             systemImage: "link.badge.plus"
                         )
                     }

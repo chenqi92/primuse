@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#endif
 
 public enum ServerMediaShareSelectionKind: String, Codable, Hashable, Sendable {
     case song
@@ -156,6 +159,184 @@ public enum ServerMediaShareTargetPolicy {
         let itemID = (fileName as NSString).deletingPathExtension
         guard !itemID.isEmpty, itemID != ".", itemID != ".." else { return nil }
         return itemID
+    }
+}
+
+/// The relay receives media bytes only. A source URL, connector credential,
+/// signed download URL, or local path is never part of its request model.
+public enum MediaRelaySourcePolicy {
+    public static func supports(song: Song, sourceType: MusicSourceType) -> Bool {
+        guard song.fileSize > 0,
+              song.cueSheetPath?.isEmpty != false,
+              !song.isStreamDescriptor,
+              sourceType != .appleMusic,
+              !sourceType.isAwaitingPublicAPI else {
+            return false
+        }
+        return true
+    }
+
+    public static func suggestedFileName(for song: Song) -> String {
+        let cleanedTitle = song.title
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .unicodeScalars
+            .map { scalar -> Character in
+                if CharacterSet.controlCharacters.contains(scalar)
+                    || scalar == "/" || scalar == "\\" || scalar == ":" {
+                    return "_"
+                }
+                return Character(String(scalar))
+            }
+        var title = String(cleanedTitle)
+        if title.isEmpty || title == "." || title == ".." {
+            title = "Primuse Media"
+        }
+        title = String(title.prefix(160))
+        return "\(title).\(song.fileFormat.rawValue)"
+    }
+
+    public static func contentType(for format: AudioFormat) -> String {
+        switch format {
+        case .mp3: return "audio/mpeg"
+        case .aac: return "audio/aac"
+        case .m4a, .mp4, .alac: return "audio/mp4"
+        case .m4v: return "video/x-m4v"
+        case .mov: return "video/quicktime"
+        case .flac: return "audio/flac"
+        case .wav: return "audio/wav"
+        case .aiff, .aif: return "audio/aiff"
+        case .au: return "audio/basic"
+        case .caf: return "audio/x-caf"
+        case .ape: return "audio/ape"
+        case .dsf: return "audio/dsf"
+        case .dff: return "audio/dff"
+        case .ogg: return "audio/ogg"
+        case .opus: return "audio/opus"
+        case .wma: return "audio/x-ms-wma"
+        case .wv: return "audio/wavpack"
+        case .dts: return "audio/vnd.dts"
+        case .ac3: return "audio/ac3"
+        case .eac3: return "audio/eac3"
+        case .mlp: return "audio/vnd.dolby.mlp"
+        case .truehd: return "audio/true-hd"
+        case .amr: return "audio/amr"
+        case .atrac: return "audio/atrac"
+        case .tak: return "audio/x-tak"
+        case .tta: return "audio/x-tta"
+        case .mpc: return "audio/musepack"
+        case .shn: return "audio/x-shorten"
+        case .speex: return "audio/speex"
+        case .qoa: return "audio/qoa"
+        }
+    }
+}
+
+public enum PublicShareURLPolicy {
+    public static func validatePublicHost(_ rawHost: String) throws {
+        var host = rawHost.lowercased()
+            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        while host.hasSuffix(".") { host.removeLast() }
+        guard !host.isEmpty,
+              !host.contains("%"),
+              host != "localhost",
+              !host.hasSuffix(".localhost"),
+              !host.hasSuffix(".local"),
+              !host.hasSuffix(".lan"),
+              !host.hasSuffix(".internal"),
+              !host.hasSuffix(".home.arpa") else {
+            throw ServerMediaSharingError.unsafePublicURL
+        }
+
+        #if canImport(Darwin)
+        var ipv4 = in_addr()
+        if host.withCString({ inet_pton(AF_INET, $0, &ipv4) }) == 1 {
+            let value = UInt32(bigEndian: ipv4.s_addr)
+            guard isPublicIPv4(value) else {
+                throw ServerMediaSharingError.unsafePublicURL
+            }
+            return
+        }
+
+        var ipv6 = in6_addr()
+        if host.withCString({ inet_pton(AF_INET6, $0, &ipv6) }) == 1 {
+            let bytes = withUnsafeBytes(of: ipv6) { Array($0) }
+            guard isPublicIPv6(bytes) else {
+                throw ServerMediaSharingError.unsafePublicURL
+            }
+            return
+        }
+        #endif
+
+        // Reject single-label intranet names and alternate numeric forms such
+        // as 2130706433, 0177.0.0.1, or 0x7f000001.
+        if !host.contains(".") || isAlternateNumericHost(host) {
+            throw ServerMediaSharingError.unsafePublicURL
+        }
+    }
+
+    private static func isAlternateNumericHost(_ host: String) -> Bool {
+        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard !labels.isEmpty else { return false }
+        return labels.allSatisfy { label in
+            if label.hasPrefix("0x") {
+                let digits = label.dropFirst(2)
+                return !digits.isEmpty && digits.unicodeScalars.allSatisfy {
+                    CharacterSet(charactersIn: "0123456789abcdef").contains($0)
+                }
+            }
+            return !label.isEmpty && label.unicodeScalars.allSatisfy {
+                CharacterSet.decimalDigits.contains($0)
+            }
+        }
+    }
+
+    private static func isPublicIPv4(_ value: UInt32) -> Bool {
+        let first = UInt8((value >> 24) & 0xff)
+        let second = UInt8((value >> 16) & 0xff)
+        let third = UInt8((value >> 8) & 0xff)
+        switch first {
+        case 0, 10, 127:
+            return false
+        case 100:
+            return !(64...127).contains(second)
+        case 169:
+            return second != 254
+        case 172:
+            return !(16...31).contains(second)
+        case 192:
+            if second == 168 || second == 0 || (second == 88 && third == 99) {
+                return false
+            }
+            return true
+        case 198:
+            return !(18...19).contains(second) && !(second == 51 && third == 100)
+        case 203:
+            return !(second == 0 && third == 113)
+        case 224...255:
+            return false
+        default:
+            return true
+        }
+    }
+
+    private static func isPublicIPv6(_ bytes: [UInt8]) -> Bool {
+        guard bytes.count == 16 else { return false }
+        if bytes.allSatisfy({ $0 == 0 }) { return false }
+        if bytes.dropLast().allSatisfy({ $0 == 0 }) && bytes.last == 1 { return false }
+        if bytes[0] & 0xfe == 0xfc { return false }
+        if bytes[0] == 0xfe && bytes[1] & 0xc0 == 0x80 { return false }
+        if bytes[0] == 0xff { return false }
+        if bytes[0] == 0x20, bytes[1] == 0x01, bytes[2] == 0x0d, bytes[3] == 0xb8 {
+            return false
+        }
+        if bytes[0...9].allSatisfy({ $0 == 0 }), bytes[10] == 0xff, bytes[11] == 0xff {
+            let value = UInt32(bytes[12]) << 24
+                | UInt32(bytes[13]) << 16
+                | UInt32(bytes[14]) << 8
+                | UInt32(bytes[15])
+            return isPublicIPv4(value)
+        }
+        return true
     }
 }
 
@@ -411,14 +592,16 @@ public struct ServerMediaShare: Decodable, Equatable, Hashable, Sendable {
               }),
               let components = URLComponents(string: rawValue),
               let scheme = components.scheme?.lowercased(),
-              scheme == "http" || scheme == "https",
+              scheme == "https",
               let host = components.host,
               !host.isEmpty,
               components.user == nil,
               components.password == nil,
+              components.fragment == nil,
               components.url != nil else {
             throw ServerMediaSharingError.unsafePublicURL
         }
+        try PublicShareURLPolicy.validatePublicHost(host)
 
         let pathComponents = components.path
             .split(separator: "/", omittingEmptySubsequences: true)
@@ -432,8 +615,13 @@ public struct ServerMediaShare: Decodable, Equatable, Hashable, Sendable {
 
         let queryNames = Set((components.queryItems ?? []).map { $0.name.lowercased() })
         let alwaysSensitive: Set<String> = [
-            "password", "authorization", "access_token", "api_key", "apikey",
+            "password", "authorization", "access_token", "refresh_token",
+            "oauth_token", "api_key", "apikey", "auth_token", "signature",
+            "sig", "sid", "_sid", "x-plex-token", "x-emby-token",
         ]
+        let hasSignedCloudQuery = queryNames.contains(where: {
+            $0.hasPrefix("x-amz-") || $0.hasPrefix("x-goog-")
+        })
         let hasSubsonicPassword = queryNames.contains("p")
         let hasSubsonicTokenPair = queryNames.contains("t") && queryNames.contains("s")
         let hasSubsonicUserAuth = queryNames.contains("u")
@@ -441,7 +629,8 @@ public struct ServerMediaShare: Decodable, Equatable, Hashable, Sendable {
         guard queryNames.isDisjoint(with: alwaysSensitive),
               !hasSubsonicPassword,
               !hasSubsonicTokenPair,
-              !hasSubsonicUserAuth else {
+              !hasSubsonicUserAuth,
+              !hasSignedCloudQuery else {
             throw ServerMediaSharingError.unsafePublicURL
         }
     }

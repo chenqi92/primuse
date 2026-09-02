@@ -81,7 +81,7 @@ struct ServerMediaSharingTests {
               "share": {
                 "_attributes": {
                   "id": 77,
-                  "url": "http://[2001:db8::77]:4533/music/share/legacy",
+                  "url": "https://[2606:4700:4700::1111]:4533/music/share/legacy",
                   "visitCount": "2"
                 }
               }
@@ -92,29 +92,101 @@ struct ServerMediaSharingTests {
 
         let share = try #require(response.shares?.values.first)
         #expect(share.id == "77")
-        #expect(share.publicURLString == "http://[2001:db8::77]:4533/music/share/legacy")
-        #expect(share.publicURL.host == "[2001:db8::77]" || share.publicURL.host == "2001:db8::77")
+        #expect(share.publicURLString == "https://[2606:4700:4700::1111]:4533/music/share/legacy")
+        #expect(share.publicURL.host == "[2606:4700:4700::1111]" || share.publicURL.host == "2606:4700:4700::1111")
         #expect(share.visitCount == 2)
     }
 
     @Test("Public URL validation rejects streams and credential leaks")
     func validatesPublicURLs() throws {
         try ServerMediaShare.validatePublicURL(
-            "https://[2001:db8::8]:4533/music/share/public-id?token=public-capability"
+            "https://[2606:4700:4700::1111]:4533/music/share/public-id?token=public-capability"
         )
 
         let rejected = [
             "ftp://music.example/share/id",
+            "http://music.example/share/id",
             "https://user:password@music.example/share/id",
             "https://music.example/rest/stream.view?id=song&t=token&s=salt&u=user",
             "https://music.example/share/id?p=enc:70617373&u=user",
             "https://music.example/share/id?access_token=secret",
+            "https://music.example/share/id?X-Plex-Token=secret",
+            "https://music.example/share/id?X-Amz-Signature=secret",
         ]
         for value in rejected {
             #expect(throws: ServerMediaSharingError.unsafePublicURL) {
                 try ServerMediaShare.validatePublicURL(value)
             }
         }
+    }
+
+    @Test("Public links reject local, private, link-local, carrier NAT, and documentation hosts")
+    func rejectsNonPublicHosts() {
+        let rejected = [
+            "https://localhost/share/id",
+            "https://nas/share/id",
+            "https://music.local/share/id",
+            "https://nas.home.arpa/share/id",
+            "https://127.0.0.1/share/id",
+            "https://10.0.0.8/share/id",
+            "https://100.64.0.1/share/id",
+            "https://169.254.1.1/share/id",
+            "https://172.31.255.1/share/id",
+            "https://192.168.50.23/share/id",
+            "https://198.18.0.1/share/id",
+            "https://192.0.2.1/share/id",
+            "https://198.51.100.1/share/id",
+            "https://203.0.113.1/share/id",
+            "https://0x7f000001/share/id",
+            "https://0x7f.0.0.1/share/id",
+            "https://[::1]/share/id",
+            "https://[fe80::1]/share/id",
+            "https://[fd00::1]/share/id",
+            "https://[2001:db8::1]/share/id",
+            "https://[::ffff:127.0.0.1]/share/id",
+        ]
+        for value in rejected {
+            #expect(throws: ServerMediaSharingError.unsafePublicURL) {
+                try ServerMediaShare.validatePublicURL(value)
+            }
+        }
+
+        #expect(throws: Never.self) {
+            try ServerMediaShare.validatePublicURL("https://8.8.8.8/share/id")
+        }
+        #expect(throws: Never.self) {
+            try ServerMediaShare.validatePublicURL(
+                "https://[2606:4700:4700::1111]/share/id"
+            )
+        }
+    }
+
+    @Test("Relay policy exports bytes only for concrete non-DRM physical songs")
+    func relaySourceBoundaryAndMetadata() {
+        var concrete = Song(
+            id: "song",
+            title: "  夜航/Live:\n  ",
+            fileFormat: .flac,
+            filePath: "/private/NAS/account-token/original.flac",
+            sourceID: "source",
+            fileSize: 4_096
+        )
+        #expect(MediaRelaySourcePolicy.supports(song: concrete, sourceType: .smb))
+        #expect(MediaRelaySourcePolicy.supports(song: concrete, sourceType: .oneDrive))
+        #expect(MediaRelaySourcePolicy.suggestedFileName(for: concrete) == "夜航_Live_.flac")
+        #expect(!MediaRelaySourcePolicy.suggestedFileName(for: concrete).contains("account-token"))
+        #expect(MediaRelaySourcePolicy.contentType(for: .flac) == "audio/flac")
+
+        #expect(!MediaRelaySourcePolicy.supports(song: concrete, sourceType: .appleMusic))
+        #expect(!MediaRelaySourcePolicy.supports(song: concrete, sourceType: .ugreen))
+        concrete.fileSize = 0
+        #expect(!MediaRelaySourcePolicy.supports(song: concrete, sourceType: .local))
+        concrete.fileSize = 4_096
+        concrete.cueSheetPath = "/album.cue"
+        #expect(!MediaRelaySourcePolicy.supports(song: concrete, sourceType: .nfs))
+        concrete.cueSheetPath = nil
+        concrete.filePath = "/private/source-link.strm"
+        #expect(!MediaRelaySourcePolicy.supports(song: concrete, sourceType: .local))
     }
 
     @Test("Unsafe URL in a decoded response preserves the security error")

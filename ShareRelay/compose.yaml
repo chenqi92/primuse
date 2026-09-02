@@ -1,0 +1,66 @@
+services:
+  relay:
+    image: "${PRIMUSE_RELAY_IMAGE:-primuse-share-relay:latest}"
+    build:
+      context: .
+    restart: unless-stopped
+    env_file:
+      - relay.env
+    ports:
+      - "${PRIMUSE_RELAY_BIND_ADDRESS:-127.0.0.1}:${PRIMUSE_RELAY_HOST_PORT:-8787}:8787"
+    volumes:
+      - relay_data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=0700
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8787/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - relay_ingress
+      - relay_backend
+
+  caddy:
+    image: caddy:2.10-alpine
+    profiles: ["public"]
+    restart: unless-stopped
+    environment:
+      PRIMUSE_RELAY_DOMAIN: "${PRIMUSE_RELAY_DOMAIN:-}"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=0700
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    networks:
+      - relay_frontend
+      - relay_backend
+
+volumes:
+  relay_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  relay_ingress:
+  relay_frontend:
+  relay_backend:
+    internal: true

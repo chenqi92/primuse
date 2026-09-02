@@ -21,6 +21,7 @@ DerivedData/
 design/
 ScraperConfigs/**
 Config/Secrets.local.xcconfig
+/ShareRelay/relay.env
 
 # Local secret backups / legacy per-developer secret files
 Primuse/Services/Scrobble/AppSecrets.local.swift*

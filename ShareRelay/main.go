@@ -1,0 +1,1160 @@
+package main
+
+import (
+	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
+	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"mime"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+	"unicode"
+)
+
+const (
+	defaultChunkSize       = int64(4 * 1024 * 1024)
+	defaultMaximumFileSize = int64(20 * 1024 * 1024 * 1024)
+	defaultMaximumTTL      = 30 * 24 * time.Hour
+	defaultUploadTTL       = 24 * time.Hour
+	passwordIterations     = 210_000
+	maximumJSONBytes       = int64(64 * 1024)
+)
+
+type config struct {
+	listenAddress           string
+	dataDirectory           string
+	publicBaseURL           string
+	adminToken              string
+	masterKey               []byte
+	chunkSize               int64
+	maximumFileSize         int64
+	maximumTTL              time.Duration
+	uploadTTL               time.Duration
+	publicRequestsPerMinute int
+	maximumPublicStreams    int
+	maximumUploads          int
+}
+
+type shareMetadata struct {
+	Version         int       `json:"version"`
+	ID              string    `json:"id"`
+	PublicTokenHash string    `json:"publicTokenHash"`
+	ControlHash     string    `json:"controlHash"`
+	FileName        string    `json:"fileName"`
+	ContentType     string    `json:"contentType"`
+	Size            int64     `json:"size"`
+	ChunkSize       int64     `json:"chunkSize"`
+	CreatedAt       time.Time `json:"createdAt"`
+	ExpiresAt       time.Time `json:"expiresAt"`
+	UploadExpiresAt time.Time `json:"uploadExpiresAt"`
+	CompletedAt     time.Time `json:"completedAt,omitempty"`
+	RevokedAt       time.Time `json:"revokedAt,omitempty"`
+	DataDeletedAt   time.Time `json:"dataDeletedAt,omitempty"`
+	ETag            string    `json:"etag"`
+	PasswordSalt    string    `json:"passwordSalt,omitempty"`
+	PasswordHash    string    `json:"passwordHash,omitempty"`
+}
+
+func (m *shareMetadata) complete() bool { return !m.CompletedAt.IsZero() }
+func (m *shareMetadata) revoked() bool  { return !m.RevokedAt.IsZero() }
+
+type createUploadRequest struct {
+	FileName    string `json:"fileName"`
+	ContentType string `json:"contentType"`
+	Size        int64  `json:"size"`
+	ExpiresAt   string `json:"expiresAt,omitempty"`
+	Password    string `json:"password,omitempty"`
+}
+
+type createUploadResponse struct {
+	ShareID     string `json:"shareID"`
+	UploadToken string `json:"uploadToken"`
+	PublicURL   string `json:"publicURL"`
+	ChunkSize   int64  `json:"chunkSize"`
+	ExpiresAt   string `json:"expiresAt"`
+}
+
+type completeUploadResponse struct {
+	ShareID   string `json:"shareID"`
+	ExpiresAt string `json:"expiresAt"`
+}
+
+type relayServer struct {
+	configuration config
+	block         cipher.AEAD
+	now           func() time.Time
+
+	mu           sync.RWMutex
+	byID         map[string]*shareMetadata
+	byPublicHash map[string]*shareMetadata
+	shareLocks   map[string]*sync.RWMutex
+
+	publicSlots chan struct{}
+	uploadSlots chan struct{}
+	rateMu      sync.Mutex
+	rateWindows map[string]*rateWindow
+	rateCleaned time.Time
+}
+
+type rateWindow struct {
+	startedAt time.Time
+	count     int
+}
+
+func main() {
+	configuration, err := loadConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
+	server, err := newRelayServer(configuration)
+	if err != nil {
+		log.Fatal(err)
+	}
+	server.cleanupExpired()
+
+	httpServer := &http.Server{
+		Addr:              configuration.listenAddress,
+		Handler:           server.routes(),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       2 * time.Minute,
+		IdleTimeout:       90 * time.Second,
+		MaxHeaderBytes:    32 * 1024,
+	}
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-stop
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		_ = httpServer.Shutdown(ctx)
+	}()
+	go server.cleanupLoop(httpServer.RegisterOnShutdown)
+
+	log.Printf("Primuse Share Relay listening on %s", configuration.listenAddress)
+	err = httpServer.ListenAndServe()
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
+	}
+}
+
+func loadConfig() (config, error) {
+	c := config{
+		listenAddress:           envOrDefault("PRIMUSE_RELAY_LISTEN_ADDR", ":8787"),
+		dataDirectory:           envOrDefault("PRIMUSE_RELAY_DATA_DIR", "/data"),
+		publicBaseURL:           strings.TrimRight(os.Getenv("PRIMUSE_RELAY_PUBLIC_BASE_URL"), "/"),
+		adminToken:              os.Getenv("PRIMUSE_RELAY_ADMIN_TOKEN"),
+		chunkSize:               envInt64("PRIMUSE_RELAY_CHUNK_SIZE", defaultChunkSize),
+		maximumFileSize:         envInt64("PRIMUSE_RELAY_MAX_FILE_BYTES", defaultMaximumFileSize),
+		maximumTTL:              time.Duration(envInt64("PRIMUSE_RELAY_MAX_TTL_SECONDS", int64(defaultMaximumTTL/time.Second))) * time.Second,
+		uploadTTL:               time.Duration(envInt64("PRIMUSE_RELAY_UPLOAD_TTL_SECONDS", int64(defaultUploadTTL/time.Second))) * time.Second,
+		publicRequestsPerMinute: int(envInt64("PRIMUSE_RELAY_PUBLIC_REQUESTS_PER_MINUTE", 600)),
+		maximumPublicStreams:    int(envInt64("PRIMUSE_RELAY_MAX_PUBLIC_STREAMS", 32)),
+		maximumUploads:          int(envInt64("PRIMUSE_RELAY_MAX_UPLOADS", 4)),
+	}
+	key, err := base64.StdEncoding.DecodeString(os.Getenv("PRIMUSE_RELAY_MASTER_KEY"))
+	if err != nil || len(key) != 32 {
+		return config{}, errors.New("PRIMUSE_RELAY_MASTER_KEY must be a base64-encoded 32-byte key")
+	}
+	c.masterKey = key
+	if len(c.adminToken) < 32 {
+		return config{}, errors.New("PRIMUSE_RELAY_ADMIN_TOKEN must contain at least 32 characters")
+	}
+	if err := validatePublicBaseURL(c.publicBaseURL, os.Getenv("PRIMUSE_RELAY_ALLOW_INSECURE_PUBLIC_URL") == "true"); err != nil {
+		return config{}, err
+	}
+	if c.chunkSize < 256*1024 || c.chunkSize > 32*1024*1024 {
+		return config{}, errors.New("PRIMUSE_RELAY_CHUNK_SIZE must be between 256 KiB and 32 MiB")
+	}
+	if c.maximumFileSize <= 0 || c.maximumTTL <= 0 || c.uploadTTL <= 0 ||
+		c.publicRequestsPerMinute <= 0 || c.maximumPublicStreams <= 0 || c.maximumUploads <= 0 {
+		return config{}, errors.New("relay limits must be positive")
+	}
+	return c, nil
+}
+
+func envOrDefault(name, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func envInt64(name string, fallback int64) int64 {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func validatePublicBaseURL(raw string, allowInsecure bool) error {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return errors.New("PRIMUSE_RELAY_PUBLIC_BASE_URL must be an absolute URL without credentials, query, or fragment")
+	}
+	if parsed.Scheme != "https" && !(allowInsecure && parsed.Scheme == "http") {
+		return errors.New("PRIMUSE_RELAY_PUBLIC_BASE_URL must use HTTPS")
+	}
+	if !isPublicHost(parsed.Hostname()) {
+		return errors.New("PRIMUSE_RELAY_PUBLIC_BASE_URL must use a public host")
+	}
+	return nil
+}
+
+func isPublicHost(rawHost string) bool {
+	host := strings.ToLower(strings.TrimSuffix(rawHost, "."))
+	if host == "" || strings.Contains(host, "%") || host == "localhost" ||
+		strings.HasSuffix(host, ".localhost") || strings.HasSuffix(host, ".local") ||
+		strings.HasSuffix(host, ".lan") || strings.HasSuffix(host, ".internal") ||
+		strings.HasSuffix(host, ".home.arpa") {
+		return false
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if ipv4 := ip.To4(); ipv4 != nil {
+			return isPublicIPv4(ipv4)
+		}
+		return ip.IsGlobalUnicast() && !ip.IsPrivate() &&
+			!(len(ip) == net.IPv6len && ip[0] == 0x20 && ip[1] == 0x01 && ip[2] == 0x0d && ip[3] == 0xb8)
+	}
+	return strings.Contains(host, ".") && !isAlternateNumericHost(host)
+}
+
+func isAlternateNumericHost(host string) bool {
+	labels := strings.Split(host, ".")
+	if len(labels) == 0 {
+		return false
+	}
+	for _, label := range labels {
+		if label == "" {
+			return true
+		}
+		digits := label
+		isDigit := func(r rune) bool { return r >= '0' && r <= '9' }
+		if strings.HasPrefix(label, "0x") {
+			digits = strings.TrimPrefix(label, "0x")
+			isDigit = func(r rune) bool {
+				return r >= '0' && r <= '9' || r >= 'a' && r <= 'f'
+			}
+		}
+		if digits == "" {
+			return false
+		}
+		for _, r := range digits {
+			if !isDigit(r) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func isPublicIPv4(ip net.IP) bool {
+	first, second, third := ip[0], ip[1], ip[2]
+	if first >= 224 {
+		return false
+	}
+	switch first {
+	case 0, 10, 127:
+		return false
+	case 100:
+		return second < 64 || second > 127
+	case 169:
+		return second != 254
+	case 172:
+		return second < 16 || second > 31
+	case 192:
+		if second == 0 || second == 168 || (second == 88 && third == 99) {
+			return false
+		}
+		return true
+	case 198:
+		if second == 18 || second == 19 || second == 51 && third == 100 {
+			return false
+		}
+		return true
+	case 203:
+		return !(second == 0 && third == 113)
+	default:
+		return true
+	}
+}
+
+func newRelayServer(c config) (*relayServer, error) {
+	block, err := aes.NewCipher(c.masterKey)
+	if err != nil {
+		return nil, err
+	}
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	for _, directory := range []string{filepath.Join(c.dataDirectory, "metadata"), filepath.Join(c.dataDirectory, "chunks")} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			return nil, err
+		}
+	}
+	s := &relayServer{
+		configuration: c,
+		block:         aead,
+		now:           time.Now,
+		byID:          make(map[string]*shareMetadata),
+		byPublicHash:  make(map[string]*shareMetadata),
+		shareLocks:    make(map[string]*sync.RWMutex),
+		publicSlots:   make(chan struct{}, c.maximumPublicStreams),
+		uploadSlots:   make(chan struct{}, c.maximumUploads),
+		rateWindows:   make(map[string]*rateWindow),
+	}
+	if err := s.loadMetadata(); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+func (s *relayServer) routes() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", s.handleHealth)
+	mux.HandleFunc("POST /v1/uploads", s.handleCreateUpload)
+	mux.HandleFunc("PUT /v1/uploads/{id}/chunks/{index}", s.handleUploadChunk)
+	mux.HandleFunc("POST /v1/uploads/{id}/complete", s.handleCompleteUpload)
+	mux.HandleFunc("DELETE /v1/shares/{id}", s.handleRevokeShare)
+	mux.HandleFunc("GET /s/{token}", s.handlePublicShare)
+	mux.HandleFunc("HEAD /s/{token}", s.handlePublicShare)
+	return s.securityHeaders(s.requestLog(mux))
+}
+
+func (s *relayServer) securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		next.ServeHTTP(w, r)
+	})
+}
+
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusWriter) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (s *relayServer) requestLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started := s.now()
+		wrapped := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(wrapped, r)
+		// Deliberately omit the path, query, headers, filenames, and peer address.
+		log.Printf("request method=%s status=%d duration_ms=%d", r.Method, wrapped.status, s.now().Sub(started).Milliseconds())
+	})
+}
+
+func (s *relayServer) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *relayServer) handleCreateUpload(w http.ResponseWriter, r *http.Request) {
+	if !constantTokenEqual(bearerToken(r), s.configuration.adminToken) {
+		writeProblem(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if !s.acquire(s.uploadSlots, w) {
+		return
+	}
+	defer s.release(s.uploadSlots)
+
+	var request createUploadRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		return
+	}
+	request.FileName = sanitizeFileName(request.FileName)
+	request.ContentType = sanitizeContentType(request.ContentType)
+	if request.FileName == "" || request.Size <= 0 || request.Size > s.configuration.maximumFileSize {
+		writeProblem(w, http.StatusBadRequest, "invalid_media")
+		return
+	}
+	if len(request.Password) > 128 {
+		writeProblem(w, http.StatusBadRequest, "invalid_password")
+		return
+	}
+
+	now := s.now().UTC()
+	expiresAt := now.Add(7 * 24 * time.Hour)
+	if request.ExpiresAt != "" {
+		parsed, err := time.Parse(time.RFC3339, request.ExpiresAt)
+		if err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_expiration")
+			return
+		}
+		expiresAt = parsed.UTC()
+	}
+	if !expiresAt.After(now) || expiresAt.After(now.Add(s.configuration.maximumTTL)) {
+		writeProblem(w, http.StatusBadRequest, "invalid_expiration")
+		return
+	}
+
+	id, err := randomToken(18)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "entropy_unavailable")
+		return
+	}
+	publicToken, err := randomToken(32)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "entropy_unavailable")
+		return
+	}
+	uploadToken, err := randomToken(32)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "entropy_unavailable")
+		return
+	}
+	etagToken, err := randomToken(18)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "entropy_unavailable")
+		return
+	}
+
+	metadata := &shareMetadata{
+		Version:         1,
+		ID:              id,
+		PublicTokenHash: tokenHash(publicToken),
+		ControlHash:     tokenHash(uploadToken),
+		FileName:        request.FileName,
+		ContentType:     request.ContentType,
+		Size:            request.Size,
+		ChunkSize:       s.configuration.chunkSize,
+		CreatedAt:       now,
+		ExpiresAt:       expiresAt,
+		UploadExpiresAt: now.Add(s.configuration.uploadTTL),
+		ETag:            `"` + etagToken + `"`,
+	}
+	if request.Password != "" {
+		salt := make([]byte, 16)
+		if _, err := rand.Read(salt); err != nil {
+			writeProblem(w, http.StatusInternalServerError, "entropy_unavailable")
+			return
+		}
+		metadata.PasswordSalt = base64.RawStdEncoding.EncodeToString(salt)
+		metadata.PasswordHash = base64.RawStdEncoding.EncodeToString(pbkdf2SHA256([]byte(request.Password), salt, passwordIterations, 32))
+	}
+	if err := s.persistMetadata(metadata); err != nil {
+		writeProblem(w, http.StatusInternalServerError, "storage_unavailable")
+		return
+	}
+	s.mu.Lock()
+	s.byID[metadata.ID] = metadata
+	s.byPublicHash[metadata.PublicTokenHash] = metadata
+	s.shareLocks[metadata.ID] = &sync.RWMutex{}
+	s.mu.Unlock()
+
+	writeJSON(w, http.StatusCreated, createUploadResponse{
+		ShareID:     id,
+		UploadToken: uploadToken,
+		PublicURL:   s.configuration.publicBaseURL + "/s/" + publicToken,
+		ChunkSize:   metadata.ChunkSize,
+		ExpiresAt:   expiresAt.Format(time.RFC3339),
+	})
+}
+
+func (s *relayServer) handleUploadChunk(w http.ResponseWriter, r *http.Request) {
+	if !s.acquire(s.uploadSlots, w) {
+		return
+	}
+	defer s.release(s.uploadSlots)
+
+	metadata := s.metadataByID(r.PathValue("id"))
+	if metadata == nil || !s.authorizeControl(metadata, r) {
+		writeProblem(w, http.StatusNotFound, "not_found")
+		return
+	}
+	shareLock := s.lockForShare(metadata.ID)
+	shareLock.Lock()
+	defer shareLock.Unlock()
+	if metadata.complete() || metadata.revoked() || !metadata.UploadExpiresAt.After(s.now()) {
+		writeProblem(w, http.StatusConflict, "upload_closed")
+		return
+	}
+	index, err := strconv.ParseInt(r.PathValue("index"), 10, 64)
+	if err != nil || index < 0 {
+		writeProblem(w, http.StatusBadRequest, "invalid_chunk")
+		return
+	}
+	expectedStart := index * metadata.ChunkSize
+	if expectedStart >= metadata.Size {
+		writeProblem(w, http.StatusBadRequest, "invalid_chunk")
+		return
+	}
+	expectedLength := min64(metadata.ChunkSize, metadata.Size-expectedStart)
+	start, end, total, ok := parseContentRange(r.Header.Get("Content-Range"))
+	if !ok || start != expectedStart || end-start+1 != expectedLength || total != metadata.Size {
+		writeProblem(w, http.StatusBadRequest, "invalid_content_range")
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, expectedLength))
+	if err != nil || int64(len(body)) != expectedLength {
+		writeProblem(w, http.StatusBadRequest, "invalid_chunk_size")
+		return
+	}
+	encrypted, err := s.encryptChunk(metadata, index, body)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "encryption_failed")
+		return
+	}
+	if err := s.persistChunk(metadata.ID, index, encrypted); err != nil {
+		writeProblem(w, http.StatusInternalServerError, "storage_unavailable")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *relayServer) handleCompleteUpload(w http.ResponseWriter, r *http.Request) {
+	if !s.acquire(s.uploadSlots, w) {
+		return
+	}
+	defer s.release(s.uploadSlots)
+
+	metadata := s.metadataByID(r.PathValue("id"))
+	if metadata == nil || !s.authorizeControl(metadata, r) {
+		writeProblem(w, http.StatusNotFound, "not_found")
+		return
+	}
+	shareLock := s.lockForShare(metadata.ID)
+	shareLock.Lock()
+	defer shareLock.Unlock()
+	if metadata.revoked() || !metadata.UploadExpiresAt.After(s.now()) {
+		writeProblem(w, http.StatusConflict, "upload_closed")
+		return
+	}
+	if !metadata.complete() {
+		chunkCount := (metadata.Size + metadata.ChunkSize - 1) / metadata.ChunkSize
+		for index := int64(0); index < chunkCount; index++ {
+			expectedPlaintext := min64(metadata.ChunkSize, metadata.Size-index*metadata.ChunkSize)
+			info, err := os.Stat(s.chunkPath(metadata.ID, index))
+			if err != nil || info.Size() != expectedPlaintext+int64(s.block.NonceSize()+s.block.Overhead()) {
+				writeProblem(w, http.StatusConflict, "missing_chunk")
+				return
+			}
+		}
+		metadata.CompletedAt = s.now().UTC()
+		if err := s.persistMetadata(metadata); err != nil {
+			metadata.CompletedAt = time.Time{}
+			writeProblem(w, http.StatusInternalServerError, "storage_unavailable")
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, completeUploadResponse{
+		ShareID:   metadata.ID,
+		ExpiresAt: metadata.ExpiresAt.Format(time.RFC3339),
+	})
+}
+
+func (s *relayServer) handleRevokeShare(w http.ResponseWriter, r *http.Request) {
+	metadata := s.metadataByID(r.PathValue("id"))
+	if metadata == nil || (!s.authorizeControl(metadata, r) &&
+		!constantTokenEqual(bearerToken(r), s.configuration.adminToken)) {
+		writeProblem(w, http.StatusNotFound, "not_found")
+		return
+	}
+	shareLock := s.lockForShare(metadata.ID)
+	shareLock.Lock()
+	defer shareLock.Unlock()
+	if !metadata.revoked() {
+		metadata.RevokedAt = s.now().UTC()
+		if err := s.persistMetadata(metadata); err != nil {
+			metadata.RevokedAt = time.Time{}
+			writeProblem(w, http.StatusInternalServerError, "storage_unavailable")
+			return
+		}
+		_ = os.RemoveAll(filepath.Join(s.configuration.dataDirectory, "chunks", metadata.ID))
+		metadata.DataDeletedAt = s.now().UTC()
+		_ = s.persistMetadata(metadata)
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *relayServer) handlePublicShare(w http.ResponseWriter, r *http.Request) {
+	if !s.allowPublicRequest(r) {
+		w.Header().Set("Retry-After", "60")
+		writeProblem(w, http.StatusTooManyRequests, "rate_limited")
+		return
+	}
+	if !s.acquire(s.publicSlots, w) {
+		return
+	}
+	defer s.release(s.publicSlots)
+
+	metadata := s.metadataByPublicToken(r.PathValue("token"))
+	if metadata == nil {
+		writeProblem(w, http.StatusNotFound, "not_found")
+		return
+	}
+	shareLock := s.lockForShare(metadata.ID)
+	shareLock.RLock()
+	defer shareLock.RUnlock()
+	if !metadata.complete() || metadata.revoked() {
+		writeProblem(w, http.StatusNotFound, "not_found")
+		return
+	}
+	if !metadata.ExpiresAt.After(s.now()) || !metadata.DataDeletedAt.IsZero() {
+		writeProblem(w, http.StatusGone, "expired")
+		return
+	}
+	if metadata.PasswordHash != "" && !verifyPassword(metadata, r) {
+		w.Header().Set("WWW-Authenticate", `Basic realm="Primuse Share", charset="UTF-8"`)
+		writeProblem(w, http.StatusUnauthorized, "password_required")
+		return
+	}
+
+	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("Cache-Control", "private, no-store, max-age=0")
+	w.Header().Set("Content-Type", metadata.ContentType)
+	w.Header().Set("Content-Disposition", contentDisposition(metadata.FileName))
+	w.Header().Set("ETag", metadata.ETag)
+	w.Header().Set("Last-Modified", metadata.CompletedAt.UTC().Format(http.TimeFormat))
+	if r.Header.Get("If-None-Match") == metadata.ETag && r.Header.Get("Range") == "" {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	start, end, partial, valid := requestedRange(r.Header.Get("Range"), metadata.Size)
+	if r.Header.Get("If-Range") != "" && r.Header.Get("If-Range") != metadata.ETag {
+		start, end, partial, valid = 0, metadata.Size-1, false, true
+	}
+	if !valid {
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", metadata.Size))
+		writeProblem(w, http.StatusRequestedRangeNotSatisfiable, "invalid_range")
+		return
+	}
+	w.Header().Set("Content-Length", strconv.FormatInt(end-start+1, 10))
+	if partial {
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, metadata.Size))
+		w.WriteHeader(http.StatusPartialContent)
+	}
+	if r.Method == http.MethodHead {
+		return
+	}
+	if err := s.writeRange(w, r.Context(), metadata, start, end); err != nil {
+		return
+	}
+}
+
+func (s *relayServer) writeRange(w io.Writer, ctx context.Context, metadata *shareMetadata, start, end int64) error {
+	firstChunk := start / metadata.ChunkSize
+	lastChunk := end / metadata.ChunkSize
+	for index := firstChunk; index <= lastChunk; index++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		encrypted, err := os.ReadFile(s.chunkPath(metadata.ID, index))
+		if err != nil {
+			return err
+		}
+		plaintext, err := s.decryptChunk(metadata, index, encrypted)
+		if err != nil {
+			return err
+		}
+		chunkStart := index * metadata.ChunkSize
+		lower := max64(start-chunkStart, 0)
+		upper := min64(end-chunkStart+1, int64(len(plaintext)))
+		if lower >= upper {
+			continue
+		}
+		if _, err := w.Write(plaintext[lower:upper]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *relayServer) encryptChunk(metadata *shareMetadata, index int64, plaintext []byte) ([]byte, error) {
+	nonce := make([]byte, s.block.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, err
+	}
+	aad := []byte(metadata.ID + ":" + strconv.FormatInt(index, 10))
+	return s.block.Seal(nonce, nonce, plaintext, aad), nil
+}
+
+func (s *relayServer) decryptChunk(metadata *shareMetadata, index int64, encrypted []byte) ([]byte, error) {
+	if len(encrypted) < s.block.NonceSize()+s.block.Overhead() {
+		return nil, errors.New("truncated encrypted chunk")
+	}
+	nonce := encrypted[:s.block.NonceSize()]
+	ciphertext := encrypted[s.block.NonceSize():]
+	aad := []byte(metadata.ID + ":" + strconv.FormatInt(index, 10))
+	return s.block.Open(nil, nonce, ciphertext, aad)
+}
+
+func (s *relayServer) loadMetadata() error {
+	entries, err := os.ReadDir(filepath.Join(s.configuration.dataDirectory, "metadata"))
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(s.configuration.dataDirectory, "metadata", entry.Name()))
+		if err != nil {
+			return err
+		}
+		var metadata shareMetadata
+		if err := json.Unmarshal(data, &metadata); err != nil {
+			return fmt.Errorf("invalid relay metadata file %s", entry.Name())
+		}
+		if err := s.validateLoadedMetadata(entry, &metadata); err != nil {
+			return fmt.Errorf("invalid relay metadata file %s: %w", entry.Name(), err)
+		}
+		if _, duplicate := s.byPublicHash[metadata.PublicTokenHash]; duplicate {
+			return fmt.Errorf("duplicate relay public token hash in %s", entry.Name())
+		}
+		copy := metadata
+		s.byID[copy.ID] = &copy
+		s.byPublicHash[copy.PublicTokenHash] = &copy
+		s.shareLocks[copy.ID] = &sync.RWMutex{}
+	}
+	return nil
+}
+
+func (s *relayServer) validateLoadedMetadata(entry os.DirEntry, metadata *shareMetadata) error {
+	if entry.Type()&os.ModeType != 0 || metadata.Version != 1 ||
+		!validOpaqueID(metadata.ID) || entry.Name() != metadata.ID+".json" ||
+		!validSHA256Hex(metadata.PublicTokenHash) || !validSHA256Hex(metadata.ControlHash) ||
+		metadata.PublicTokenHash == metadata.ControlHash ||
+		metadata.FileName == "" || sanitizeFileName(metadata.FileName) != metadata.FileName ||
+		sanitizeContentType(metadata.ContentType) != metadata.ContentType ||
+		metadata.Size <= 0 || metadata.Size > s.configuration.maximumFileSize ||
+		metadata.ChunkSize < 256*1024 || metadata.ChunkSize > 32*1024*1024 ||
+		metadata.CreatedAt.IsZero() || !metadata.ExpiresAt.After(metadata.CreatedAt) ||
+		!metadata.UploadExpiresAt.After(metadata.CreatedAt) || !validETag(metadata.ETag) {
+		return errors.New("unsafe or inconsistent fields")
+	}
+	if metadata.PasswordSalt == "" && metadata.PasswordHash == "" {
+		return nil
+	}
+	salt, saltError := base64.RawStdEncoding.DecodeString(metadata.PasswordSalt)
+	hash, hashError := base64.RawStdEncoding.DecodeString(metadata.PasswordHash)
+	if saltError != nil || hashError != nil || len(salt) != 16 || len(hash) != 32 {
+		return errors.New("invalid password verifier")
+	}
+	return nil
+}
+
+func validSHA256Hex(value string) bool {
+	if len(value) != sha256.Size*2 || value != strings.ToLower(value) {
+		return false
+	}
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == sha256.Size
+}
+
+func validETag(value string) bool {
+	return len(value) > 2 && value[0] == '"' && value[len(value)-1] == '"' &&
+		validOpaqueID(value[1:len(value)-1])
+}
+
+func (s *relayServer) persistMetadata(metadata *shareMetadata) error {
+	data, err := json.Marshal(metadata)
+	if err != nil {
+		return err
+	}
+	return atomicWrite(filepath.Join(s.configuration.dataDirectory, "metadata", metadata.ID+".json"), data, 0o600)
+}
+
+func (s *relayServer) persistChunk(id string, index int64, data []byte) error {
+	directory := filepath.Join(s.configuration.dataDirectory, "chunks", id)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return err
+	}
+	return atomicWrite(s.chunkPath(id, index), data, 0o600)
+}
+
+func (s *relayServer) chunkPath(id string, index int64) string {
+	return filepath.Join(s.configuration.dataDirectory, "chunks", id, strconv.FormatInt(index, 10)+".bin")
+}
+
+func atomicWrite(path string, data []byte, mode os.FileMode) error {
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".relay-*")
+	if err != nil {
+		return err
+	}
+	temporaryName := temporary.Name()
+	defer os.Remove(temporaryName)
+	if err := temporary.Chmod(mode); err != nil {
+		temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(data); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporaryName, path)
+}
+
+func (s *relayServer) metadataByID(id string) *shareMetadata {
+	if !validOpaqueID(id) {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.byID[id]
+}
+
+func (s *relayServer) metadataByPublicToken(token string) *shareMetadata {
+	if !validOpaqueID(token) {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.byPublicHash[tokenHash(token)]
+}
+
+func (s *relayServer) lockForShare(id string) *sync.RWMutex {
+	s.mu.RLock()
+	lock := s.shareLocks[id]
+	s.mu.RUnlock()
+	if lock != nil {
+		return lock
+	}
+	// Only persisted, validated IDs reach this fallback. It protects startup
+	// recovery if a future metadata migration inserts an entry in two phases.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if lock = s.shareLocks[id]; lock == nil {
+		lock = &sync.RWMutex{}
+		s.shareLocks[id] = lock
+	}
+	return lock
+}
+
+func (s *relayServer) authorizeControl(metadata *shareMetadata, r *http.Request) bool {
+	return constantTokenHashEqual(tokenHash(bearerToken(r)), metadata.ControlHash)
+}
+
+func (s *relayServer) acquire(slots chan struct{}, w http.ResponseWriter) bool {
+	select {
+	case slots <- struct{}{}:
+		return true
+	default:
+		w.Header().Set("Retry-After", "2")
+		writeProblem(w, http.StatusServiceUnavailable, "busy")
+		return false
+	}
+}
+
+func (s *relayServer) release(slots chan struct{}) { <-slots }
+
+func (s *relayServer) allowPublicRequest(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	now := s.now()
+	s.rateMu.Lock()
+	defer s.rateMu.Unlock()
+	if s.rateCleaned.IsZero() || now.Sub(s.rateCleaned) >= time.Minute {
+		for peer, candidate := range s.rateWindows {
+			if now.Sub(candidate.startedAt) >= time.Minute {
+				delete(s.rateWindows, peer)
+			}
+		}
+		s.rateCleaned = now
+	}
+	window := s.rateWindows[host]
+	if window == nil || now.Sub(window.startedAt) >= time.Minute {
+		s.rateWindows[host] = &rateWindow{startedAt: now, count: 1}
+		return true
+	}
+	if window.count >= s.configuration.publicRequestsPerMinute {
+		return false
+	}
+	window.count++
+	return true
+}
+
+func (s *relayServer) cleanupExpired() {
+	now := s.now().UTC()
+	s.mu.RLock()
+	allMetadata := make([]*shareMetadata, 0, len(s.byID))
+	for _, metadata := range s.byID {
+		allMetadata = append(allMetadata, metadata)
+	}
+	s.mu.RUnlock()
+	for _, metadata := range allMetadata {
+		shareLock := s.lockForShare(metadata.ID)
+		shareLock.Lock()
+		shouldDelete := metadata.revoked() ||
+			(metadata.complete() && !metadata.ExpiresAt.After(now)) ||
+			(!metadata.complete() && !metadata.UploadExpiresAt.After(now))
+		if !shouldDelete || !metadata.DataDeletedAt.IsZero() {
+			shareLock.Unlock()
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(s.configuration.dataDirectory, "chunks", metadata.ID))
+		metadata.DataDeletedAt = now
+		_ = s.persistMetadata(metadata)
+		shareLock.Unlock()
+	}
+}
+
+func (s *relayServer) cleanupLoop(registerShutdown func(func())) {
+	ticker := time.NewTicker(time.Hour)
+	registerShutdown(ticker.Stop)
+	for range ticker.C {
+		s.cleanupExpired()
+	}
+}
+
+func requestedRange(header string, total int64) (start, end int64, partial, valid bool) {
+	if total <= 0 {
+		return 0, 0, false, false
+	}
+	if header == "" {
+		return 0, total - 1, false, true
+	}
+	if !strings.HasPrefix(header, "bytes=") || strings.Contains(header, ",") {
+		return 0, 0, false, false
+	}
+	parts := strings.SplitN(strings.TrimPrefix(header, "bytes="), "-", 2)
+	if len(parts) != 2 {
+		return 0, 0, false, false
+	}
+	if parts[0] == "" {
+		suffix, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil || suffix <= 0 {
+			return 0, 0, false, false
+		}
+		if suffix > total {
+			suffix = total
+		}
+		return total - suffix, total - 1, true, true
+	}
+	start, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || start < 0 || start >= total {
+		return 0, 0, false, false
+	}
+	end = total - 1
+	if parts[1] != "" {
+		end, err = strconv.ParseInt(parts[1], 10, 64)
+		if err != nil || end < start {
+			return 0, 0, false, false
+		}
+		if end >= total {
+			end = total - 1
+		}
+	}
+	return start, end, true, true
+}
+
+func parseContentRange(value string) (start, end, total int64, ok bool) {
+	if !strings.HasPrefix(value, "bytes ") {
+		return 0, 0, 0, false
+	}
+	parts := strings.SplitN(strings.TrimPrefix(value, "bytes "), "/", 2)
+	if len(parts) != 2 {
+		return 0, 0, 0, false
+	}
+	bounds := strings.SplitN(parts[0], "-", 2)
+	if len(bounds) != 2 {
+		return 0, 0, 0, false
+	}
+	start, err1 := strconv.ParseInt(bounds[0], 10, 64)
+	end, err2 := strconv.ParseInt(bounds[1], 10, 64)
+	total, err3 := strconv.ParseInt(parts[1], 10, 64)
+	return start, end, total, err1 == nil && err2 == nil && err3 == nil && start >= 0 && end >= start && total > end
+}
+
+func sanitizeFileName(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || r == '/' || r == '\\' || r == ':' {
+			return '_'
+		}
+		return r
+	}, value)
+	if len([]rune(value)) > 180 {
+		value = string([]rune(value)[:180])
+	}
+	if value == "." || value == ".." {
+		return ""
+	}
+	return value
+}
+
+func sanitizeContentType(value string) string {
+	mediaType, _, err := mime.ParseMediaType(value)
+	if err != nil || (!strings.HasPrefix(mediaType, "audio/") && !strings.HasPrefix(mediaType, "video/") && mediaType != "application/octet-stream") {
+		return "application/octet-stream"
+	}
+	return mediaType
+}
+
+func contentDisposition(fileName string) string {
+	ascii := strings.Map(func(r rune) rune {
+		if r < 0x20 || r > 0x7e || r == '"' || r == '\\' {
+			return '_'
+		}
+		return r
+	}, fileName)
+	if strings.Trim(ascii, "_") == "" {
+		ascii = "media"
+	}
+	return fmt.Sprintf("inline; filename=\"%s\"; filename*=UTF-8''%s", ascii, url.PathEscape(fileName))
+}
+
+func bearerToken(r *http.Request) string {
+	const prefix = "Bearer "
+	value := r.Header.Get("Authorization")
+	if !strings.HasPrefix(value, prefix) {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(value, prefix))
+}
+
+func verifyPassword(metadata *shareMetadata, r *http.Request) bool {
+	_, password, ok := r.BasicAuth()
+	if !ok {
+		return false
+	}
+	salt, err1 := base64.RawStdEncoding.DecodeString(metadata.PasswordSalt)
+	expected, err2 := base64.RawStdEncoding.DecodeString(metadata.PasswordHash)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	actual := pbkdf2SHA256([]byte(password), salt, passwordIterations, len(expected))
+	return subtle.ConstantTimeCompare(actual, expected) == 1
+}
+
+func pbkdf2SHA256(password, salt []byte, iterations, keyLength int) []byte {
+	hashLength := sha256.Size
+	blocks := (keyLength + hashLength - 1) / hashLength
+	result := make([]byte, 0, blocks*hashLength)
+	for block := 1; block <= blocks; block++ {
+		mac := hmac.New(sha256.New, password)
+		mac.Write(salt)
+		var counter [4]byte
+		binary.BigEndian.PutUint32(counter[:], uint32(block))
+		mac.Write(counter[:])
+		u := mac.Sum(nil)
+		t := append([]byte(nil), u...)
+		for iteration := 1; iteration < iterations; iteration++ {
+			mac = hmac.New(sha256.New, password)
+			mac.Write(u)
+			u = mac.Sum(nil)
+			for index := range t {
+				t[index] ^= u[index]
+			}
+		}
+		result = append(result, t...)
+	}
+	return result[:keyLength]
+}
+
+func randomToken(byteCount int) (string, error) {
+	data := make([]byte, byteCount)
+	if _, err := rand.Read(data); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(data), nil
+}
+
+func tokenHash(value string) string {
+	digest := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(digest[:])
+}
+
+func constantTokenEqual(lhs, rhs string) bool {
+	lhsHash := sha256.Sum256([]byte(lhs))
+	rhsHash := sha256.Sum256([]byte(rhs))
+	return subtle.ConstantTimeCompare(lhsHash[:], rhsHash[:]) == 1
+}
+
+func constantTokenHashEqual(lhsHash, rhsHash string) bool {
+	return subtle.ConstantTimeCompare([]byte(lhsHash), []byte(rhsHash)) == 1
+}
+
+func validOpaqueID(value string) bool {
+	if len(value) < 16 || len(value) > 128 {
+		return false
+	}
+	for _, r := range value {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+func decodeJSON(w http.ResponseWriter, r *http.Request, target any) error {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maximumJSONBytes))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_json")
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeProblem(w, http.StatusBadRequest, "invalid_json")
+		return errors.New("multiple JSON values")
+	}
+	return nil
+}
+
+func writeJSON(w http.ResponseWriter, status int, value any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
+}
+
+func writeProblem(w http.ResponseWriter, status int, code string) {
+	writeJSON(w, status, map[string]string{"error": code})
+}
+
+func min64(lhs, rhs int64) int64 {
+	if lhs < rhs {
+		return lhs
+	}
+	return rhs
+}
+
+func max64(lhs, rhs int64) int64 {
+	if lhs > rhs {
+		return lhs
+	}
+	return rhs
+}

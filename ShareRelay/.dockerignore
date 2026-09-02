@@ -1,0 +1,4 @@
+relay.env
+relay-data/
+*.test
+.git

@@ -1,0 +1,4 @@
+{$PRIMUSE_RELAY_DOMAIN} {
+    # Access logs stay disabled: the capability token is part of the request path.
+    reverse_proxy relay:8787
+}

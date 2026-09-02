@@ -29,6 +29,7 @@ struct SongRowView: View {
     var sourceIconName: String? = nil
     var canDeleteSourceFile = false
     var serverMediaShareTarget: ServerMediaShareTarget? = nil
+    var canCreateRelayShare = false
 
     /// 非 nil 时由外层列表接管长按，直接进入多选并选中这一行。
     var selection: SongSelectionModel? = nil
@@ -53,6 +54,7 @@ struct SongRowView: View {
     @State private var sourceCheckMessage: String?
     @State private var tagReadMessage: String?
     @State private var presentedServerMediaShareTarget: ServerMediaShareTarget?
+    @State private var presentedRelayShareSong: Song?
 
     /// "Metadata still pending" — cloud Phase-A songs whose `duration` (and
     /// usually cover/artist) hasn't been backfilled yet. Drives a soft dim +
@@ -243,6 +245,15 @@ struct SongRowView: View {
                                     systemImage: "link.badge.plus"
                                 )
                             }
+                        } else if canCreateRelayShare {
+                            Button {
+                                presentedRelayShareSong = song
+                            } label: {
+                                Label(
+                                    String(localized: "relay_share_action"),
+                                    systemImage: "link.badge.plus"
+                                )
+                            }
                         }
 
                         ShareLink(item: "\(song.title) - \(library.artistDisplayName(for: song) ?? "")") {
@@ -375,6 +386,15 @@ struct SongRowView: View {
                             systemImage: "link.badge.plus"
                         )
                     }
+                } else if canCreateRelayShare {
+                    Button {
+                        presentedRelayShareSong = song
+                    } label: {
+                        Label(
+                            String(localized: "relay_share_action"),
+                            systemImage: "link.badge.plus"
+                        )
+                    }
                 }
 
                 ShareLink(item: "\(song.title) - \(library.artistDisplayName(for: song) ?? "")") {
@@ -432,7 +452,13 @@ struct SongRowView: View {
                 .presentationDragIndicator(.visible)
         }
         .sheet(item: $presentedServerMediaShareTarget) { target in
-            ServerMediaShareSheet(target: target)
+            ServerMediaShareSheet(
+                target: target,
+                relaySong: canCreateRelayShare ? song : nil
+            )
+        }
+        .sheet(item: $presentedRelayShareSong) { relaySong in
+            MediaRelayShareSheet(song: relaySong)
         }
         .similarSongsPanel(isPresented: $showSimilarSongs, seed: song)
         .sheet(isPresented: $showSongInfo) {
@@ -1475,6 +1501,7 @@ extension SongRowView {
         var detailsState: SongDetailsState
         var canDeleteSourceFile: Bool
         var serverMediaShareTarget: ServerMediaShareTarget?
+        var canCreateRelayShare: Bool
     }
 
     static func context(
@@ -1502,7 +1529,10 @@ extension SongRowView {
             canDeleteSourceFile: SourceFileDeletionPolicy.shouldShowDeleteAction(
                 for: source?.type
             ),
-            serverMediaShareTarget: serverMediaShareTarget
+            serverMediaShareTarget: serverMediaShareTarget,
+            canCreateRelayShare: source.map {
+                MediaRelaySourcePolicy.supports(song: song, sourceType: $0.type)
+            } ?? false
         )
     }
 
@@ -1524,5 +1554,6 @@ extension SongRowView {
         self.detailsState = context.detailsState
         self.canDeleteSourceFile = context.canDeleteSourceFile
         self.serverMediaShareTarget = context.serverMediaShareTarget
+        self.canCreateRelayShare = context.canCreateRelayShare
     }
 }
