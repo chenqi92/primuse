@@ -1,6 +1,7 @@
 #if os(tvOS)
 import SwiftUI
 import PrimuseKit
+import UIKit
 
 enum TVImmersiveDirectionalInput: Equatable, Sendable {
     case left
@@ -88,6 +89,61 @@ struct TVImmersivePresentationActivity: Equatable, Sendable {
 enum TVImmersiveChromeMotionPolicy {
     static func duration(_ standardDuration: TimeInterval, reduceMotion: Bool) -> TimeInterval {
         reduceMotion ? 0.01 : standardDuration
+    }
+}
+
+enum TVImmersiveScreenWakePolicy {
+    static func shouldHoldLease(isMounted: Bool, sceneIsActive: Bool) -> Bool {
+        isMounted && sceneIsActive
+    }
+}
+
+@MainActor
+private enum TVImmersiveScreenWakeCoordinator {
+    private static var owners: Set<UUID> = []
+
+    static func update(ownerID: UUID, shouldHold: Bool) {
+        owners = NowPlayingInteractionPolicy.updatedScreenWakeOwners(
+            owners,
+            ownerID: ownerID,
+            shouldHold: shouldHold
+        )
+        let shouldDisableIdleTimer = !owners.isEmpty
+        guard UIApplication.shared.isIdleTimerDisabled != shouldDisableIdleTimer else { return }
+        UIApplication.shared.isIdleTimerDisabled = shouldDisableIdleTimer
+    }
+}
+
+private struct TVImmersiveScreenWakeLeaseModifier: ViewModifier {
+    let isMounted: Bool
+
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var ownerID = UUID()
+
+    private var shouldHoldLease: Bool {
+        TVImmersiveScreenWakePolicy.shouldHoldLease(
+            isMounted: isMounted,
+            sceneIsActive: scenePhase == .active
+        )
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                TVImmersiveScreenWakeCoordinator.update(
+                    ownerID: ownerID,
+                    shouldHold: shouldHoldLease
+                )
+            }
+            .onChange(of: shouldHoldLease) { _, shouldHold in
+                TVImmersiveScreenWakeCoordinator.update(
+                    ownerID: ownerID,
+                    shouldHold: shouldHold
+                )
+            }
+            .onDisappear {
+                TVImmersiveScreenWakeCoordinator.update(ownerID: ownerID, shouldHold: false)
+            }
     }
 }
 
@@ -209,6 +265,9 @@ struct TVImmersivePlayerView: View {
             )
         }
         .ignoresSafeArea()
+        .modifier(TVImmersiveScreenWakeLeaseModifier(
+            isMounted: presentationActivity.isMounted
+        ))
         .onExitCommand {
             if showsModePicker {
                 if effect == .native {

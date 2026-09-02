@@ -986,6 +986,37 @@ final class TVImmersivePresentationActivityTests: XCTestCase {
     }
 }
 
+final class TVImmersiveScreenWakePolicyTests: XCTestCase {
+    func testActiveImmersivePresentationKeepsDisplayAwake() {
+        XCTAssertTrue(TVImmersiveScreenWakePolicy.shouldHoldLease(
+            isMounted: true,
+            sceneIsActive: true
+        ))
+    }
+
+    func testInactiveOrDismissedPresentationReleasesDisplayWakeLease() {
+        XCTAssertFalse(TVImmersiveScreenWakePolicy.shouldHoldLease(
+            isMounted: false,
+            sceneIsActive: true
+        ))
+        XCTAssertFalse(TVImmersiveScreenWakePolicy.shouldHoldLease(
+            isMounted: true,
+            sceneIsActive: false
+        ))
+    }
+
+    func testQueueCoverKeepsImmersiveDisplayWakeLease() {
+        var activity = TVImmersivePresentationActivity()
+        activity.handle(.appeared)
+        activity.handle(.queuePresented)
+
+        XCTAssertTrue(TVImmersiveScreenWakePolicy.shouldHoldLease(
+            isMounted: activity.isMounted,
+            sceneIsActive: true
+        ))
+    }
+}
+
 final class TVTrackNavigationAvailabilityTests: XCTestCase {
     func testEmptyQueueDisablesRemotePreviousAndNext() {
         XCTAssertEqual(
