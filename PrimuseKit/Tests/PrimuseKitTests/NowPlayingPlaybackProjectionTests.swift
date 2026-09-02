@@ -291,6 +291,53 @@ struct BluetoothPlaybackRecoveryPolicyTests {
     }
 }
 
+@Suite("AirPlay return focus recovery policy")
+struct AirPlayReturnFocusRecoveryPolicyTests {
+    @Test("Active local playback reacquires focus after returning from AirPlay")
+    func activeAirPlayReturnReacquiresFocus() {
+        #expect(shouldReacquire())
+    }
+
+    @Test("A physical AirPlay route loss keeps pause-on-disconnect behavior")
+    func routeLossDoesNotReacquireFocus() {
+        #expect(!shouldReacquire(reasonIsOldDeviceUnavailable: true))
+    }
+
+    @Test("Unrelated routes and paused playback never acquire phone audio")
+    func unrelatedOrInactivePlaybackDoesNotReacquireFocus() {
+        #expect(!shouldReacquire(previousRouteWasAirPlay: false))
+        #expect(!shouldReacquire(currentRouteIsBuiltIn: false))
+        #expect(!shouldReacquire(playbackWasActive: false))
+        #expect(!shouldReacquire(playbackIsIntended: false))
+    }
+
+    @Test("System interruption and non-local transports remain authoritative")
+    func otherOwnersDoNotReacquireFocus() {
+        #expect(!shouldReacquire(isAwaitingInterruptionEnd: true))
+        #expect(!shouldReacquire(supportsLocalPipelineRecovery: false))
+    }
+
+    private func shouldReacquire(
+        previousRouteWasAirPlay: Bool = true,
+        currentRouteIsBuiltIn: Bool = true,
+        reasonIsOldDeviceUnavailable: Bool = false,
+        playbackWasActive: Bool = true,
+        playbackIsIntended: Bool = true,
+        isAwaitingInterruptionEnd: Bool = false,
+        supportsLocalPipelineRecovery: Bool = true
+    ) -> Bool {
+        AirPlayReturnFocusRecoveryPolicy.shouldReacquire(
+            previousRouteWasAirPlay: previousRouteWasAirPlay,
+            currentRouteIsBuiltIn: currentRouteIsBuiltIn,
+            reasonIsOldDeviceUnavailable: reasonIsOldDeviceUnavailable,
+            playbackWasActive: playbackWasActive,
+            playbackIsIntended: playbackIsIntended,
+            isAwaitingInterruptionEnd: isAwaitingInterruptionEnd,
+            supportsLocalPipelineRecovery: supportsLocalPipelineRecovery
+        )
+    }
+}
+
 @Suite("Remote Play command policy")
 struct RemotePlayCommandPolicyTests {
     @Test("A repeated Play command accepts one in-flight playback request")

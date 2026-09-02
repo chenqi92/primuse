@@ -21,8 +21,23 @@ final class AudioSessionManager {
 #if os(iOS)
 
     @discardableResult
-    func activatePlaybackSession() -> Bool {
+    func activatePlaybackSession(reacquiringLocalRouteFocus: Bool = false) -> Bool {
         let session = AVAudioSession.sharedInstance()
+        if reacquiringLocalRouteFocus {
+            do {
+                // While long-form audio is routed to AirPlay, another app may
+                // keep owning the phone's output. Returning to the built-in
+                // route does not reactivate an already-active session, so make
+                // the non-mixable playback category arbitrate again. The
+                // caller stops every local render object before requesting
+                // this transition; do not notify the other app during the
+                // intentionally brief inactive interval.
+                try session.setActive(false)
+            } catch {
+                plog("Failed to release audio session before local route recovery: \(error)")
+                return false
+            }
+        }
         do {
             try configurePlaybackSession(session)
             try session.setActive(true)
@@ -121,6 +136,12 @@ final class AudioSessionManager {
         }
     }
 
+    var outputRouteIsBuiltIn: Bool {
+        AVAudioSession.sharedInstance().currentRoute.outputs.contains {
+            $0.portType == .builtInSpeaker || $0.portType == .builtInReceiver
+        }
+    }
+
     /// Foreground interruption recovery must never activate Primuse's
     /// non-mixable playback session while another app is still producing audio.
     var otherAudioIsPlaying: Bool {
@@ -184,11 +205,12 @@ final class AudioSessionManager {
     // need explicit setup. These no-op stubs let the iOS-shaped call sites
     // stay platform-agnostic.
     @discardableResult
-    func activatePlaybackSession() -> Bool { true }
+    func activatePlaybackSession(reacquiringLocalRouteFocus: Bool = false) -> Bool { true }
     func prepareForPlayback() {}
     func deactivate() {}
     var outputRouteIsBluetoothHFP: Bool { false }
     var outputRouteIsBluetooth: Bool { false }
+    var outputRouteIsBuiltIn: Bool { false }
     var otherAudioIsPlaying: Bool { false }
 #endif
 }

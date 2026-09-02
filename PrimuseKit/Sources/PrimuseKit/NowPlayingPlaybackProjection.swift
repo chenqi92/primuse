@@ -365,6 +365,30 @@ public enum BluetoothPlaybackRecoveryPolicy {
     }
 }
 
+/// Reacquires the phone's non-mixable playback focus only for an intentional
+/// AirPlay-to-built-in route transition. A physical route loss keeps the
+/// existing pause-on-disconnect behavior, and inactive or system-owned
+/// transports must never be started by a route notification.
+public enum AirPlayReturnFocusRecoveryPolicy {
+    public static func shouldReacquire(
+        previousRouteWasAirPlay: Bool,
+        currentRouteIsBuiltIn: Bool,
+        reasonIsOldDeviceUnavailable: Bool,
+        playbackWasActive: Bool,
+        playbackIsIntended: Bool,
+        isAwaitingInterruptionEnd: Bool,
+        supportsLocalPipelineRecovery: Bool
+    ) -> Bool {
+        previousRouteWasAirPlay
+            && currentRouteIsBuiltIn
+            && !reasonIsOldDeviceUnavailable
+            && playbackWasActive
+            && playbackIsIntended
+            && !isAwaitingInterruptionEnd
+            && supportsLocalPipelineRecovery
+    }
+}
+
 public enum RemotePlayCommandAction: Equatable, Sendable {
     case noActionableItem
     case alreadyPlaying

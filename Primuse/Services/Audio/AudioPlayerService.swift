@@ -1081,6 +1081,11 @@ final class AudioPlayerService {
         var rebuildPlayID: UUID?
     }
     private var configurationRecoveryOwnerPlayID: UUID?
+    /// The AirPlay-return rebuild deliberately toggles AVAudioSession inactive
+    /// and active while retaining one play generation. Both transitions may
+    /// emit engine configuration notifications; absorb them only while that
+    /// generation still targets the built-in route.
+    private var localRouteFocusRecoveryOwnerPlayID: UUID?
     private var configurationRecoveryActivityEvidence: ConfigurationRecoveryActivityEvidence?
     private var configurationRecoveryTask: Task<Void, Never>?
     /// A hardware-configuration candidate that may recover only after a short
@@ -1409,10 +1414,19 @@ final class AudioPlayerService {
     /// Negotiates the render graph before decoder creation. DoP is only used
     /// when a DSP-free graph is selected and the output reports the exact DoP
     /// carrier sample rate. Unsupported routes safely fall back to PCM.
-    private func configureOutputPipeline(for song: Song, url: URL) async throws -> DSDPlaybackMode {
+    private func configureOutputPipeline(
+        for song: Song,
+        url: URL,
+        reacquiringLocalRouteFocus: Bool = false
+    ) async throws -> DSDPlaybackMode {
         let settings = playbackSettings.snapshot()
         let isLocalDSD = url.isFileURL && nativeDecoder.isDSD(url)
-        _ = AudioSessionManager.shared.activatePlaybackSession()
+        let sessionActivated = AudioSessionManager.shared.activatePlaybackSession(
+            reacquiringLocalRouteFocus: reacquiringLocalRouteFocus
+        )
+        if reacquiringLocalRouteFocus, !sessionActivated {
+            throw AudioDecoderError.decodingFailed("local audio focus unavailable")
+        }
 
         if isLocalDSD,
            settings.outputMode == .highFidelity,
@@ -1719,6 +1733,15 @@ final class AudioPlayerService {
                   (self.pendingMusicVideoPlayID == nil
                     || self.pendingMusicVideoPlayID != self.playID),
                   !self.isMusicVideoPlaybackActive else { return }
+            if self.localRouteFocusRecoveryOwnerPlayID == self.playID {
+                if AudioSessionManager.shared.outputRouteIsBuiltIn {
+                    plog("🔧 Audio engine configuration change absorbed by local route focus recovery")
+                    return
+                }
+                // The route changed again before recovery completed. Let the
+                // ordinary configuration pipeline rebuild for the new output.
+                self.localRouteFocusRecoveryOwnerPlayID = nil
+            }
             // The graph rebuild below can itself enqueue a configuration
             // notification. Suppress only that explicitly-owned rebuild,
             // never every notification that happens to arrive while loading.
@@ -1873,17 +1896,34 @@ final class AudioPlayerService {
                     || $0.portType == .bluetoothHFP
                     || $0.portType == .bluetoothLE
             } ?? false
-            let currentRouteIsBluetooth = AVAudioSession.sharedInstance()
-                .currentRoute.outputs.contains {
+            let previousRouteWasAirPlay = (
+                note.userInfo?[AVAudioSessionRouteChangePreviousRouteKey]
+                    as? AVAudioSessionRouteDescription
+            )?.outputs.contains { $0.portType == .airPlay } ?? false
+            let currentOutputs = AVAudioSession.sharedInstance().currentRoute.outputs
+            let currentRouteIsBluetooth = currentOutputs.contains {
                     $0.portType == .bluetoothA2DP
                         || $0.portType == .bluetoothHFP
                         || $0.portType == .bluetoothLE
-                }
+            }
+            let currentRouteIsBuiltIn = currentOutputs.contains {
+                $0.portType == .builtInSpeaker || $0.portType == .builtInReceiver
+            }
+            let routeChangeTime = Date()
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 let reason = reasonValue.flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
                 plog("🔀 Audio route changed reason=\(String(describing: reason)) raw=\(reasonValue.map(String.init) ?? "nil")")
                 let reasonIsOldDeviceUnavailable = reason == .oldDeviceUnavailable
+                if self.recoverLocalAudioFocusAfterAirPlayReturn(
+                    previousRouteWasAirPlay: previousRouteWasAirPlay,
+                    currentRouteIsBuiltIn: currentRouteIsBuiltIn,
+                    reasonIsOldDeviceUnavailable: reasonIsOldDeviceUnavailable,
+                    at: routeChangeTime
+                ) {
+                    self.forceAudioOnlyIfNeeded()
+                    return
+                }
                 if BluetoothPlaybackRecoveryPolicy.shouldPauseForRouteLoss(
                     reasonIsOldDeviceUnavailable: reasonIsOldDeviceUnavailable,
                     previousRouteWasBluetooth: previousRouteWasBluetooth,
@@ -1904,6 +1944,63 @@ final class AudioPlayerService {
                 self.forceAudioOnlyIfNeeded()
             }
         }
+    }
+
+    /// An active long-form session stays active while its output moves from
+    /// AirPlay back to the phone. Because activation did not change, iOS does
+    /// not run non-mixable focus arbitration again and another app that was
+    /// using the built-in output can remain audible. Rebuild the local graph
+    /// at the same position and explicitly reacquire the session once the
+    /// complete engine has stopped.
+    @discardableResult
+    private func recoverLocalAudioFocusAfterAirPlayReturn(
+        previousRouteWasAirPlay: Bool,
+        currentRouteIsBuiltIn: Bool,
+        reasonIsOldDeviceUnavailable: Bool,
+        at routeChangeTime: Date
+    ) -> Bool {
+        guard let song = currentSong else { return false }
+        let appleMusic = AppServices.shared.appleMusic
+        let supportsLocalPipelineRecovery = !isAppleMusicMode
+            && activeAppleMusicRequestID == nil
+            && appleMusic.activePlaybackRequestID == nil
+            && !isLiveRadio
+            && !isCastingMode
+            && (pendingMusicVideoPlayID == nil || pendingMusicVideoPlayID != playID)
+            && !isMusicVideoPlaybackActive
+        let playbackWasActive = isPlaybackActuallyActive
+            || lastPublishedPlaybackWasActive
+            || hasConfigurationRecoveryActivityEvidence
+
+        guard AirPlayReturnFocusRecoveryPolicy.shouldReacquire(
+            previousRouteWasAirPlay: previousRouteWasAirPlay,
+            currentRouteIsBuiltIn: currentRouteIsBuiltIn,
+            reasonIsOldDeviceUnavailable: reasonIsOldDeviceUnavailable,
+            playbackWasActive: playbackWasActive,
+            playbackIsIntended: interruptionResumePolicy.playbackIsIntended,
+            isAwaitingInterruptionEnd: interruptionResumePolicy.isAwaitingInterruptionEnd,
+            supportsLocalPipelineRecovery: supportsLocalPipelineRecovery
+        ) else { return false }
+
+        let frozenProgress = configurationRecoveryPendingSongID == song.id
+            ? pendingRecoveryTime
+            : interpolatedTime(at: routeChangeTime)
+        cancelPendingConfigurationRecovery()
+        configurationRecoveryActivityEvidence = .init(
+            itemID: song.id,
+            rebuildPlayID: nil
+        )
+        pendingRecoveryTime = frozenProgress
+        needsPlaybackRecovery = true
+        plog("📱 AirPlay returned to built-in output — reacquiring local playback focus")
+        seek(
+            to: frozenProgress,
+            startPlaying: true,
+            isRecovery: true,
+            isConfigurationRecovery: true,
+            reacquiringLocalRouteFocus: true
+        )
+        return true
     }
 
     /// 输出设备消失 —— 车机熄火 / 拔耳机 / 蓝牙断开都归这一类。
@@ -6846,7 +6943,8 @@ final class AudioPlayerService {
         startPlaying: Bool? = nil,
         isRecovery: Bool = false,
         isConfigurationRecovery: Bool = false,
-        isColdSessionRestore: Bool = false
+        isColdSessionRestore: Bool = false,
+        reacquiringLocalRouteFocus: Bool = false
     ) {
         guard !isLiveRadio else { return }
         if isAppleMusicMode {
@@ -6992,6 +7090,9 @@ final class AudioPlayerService {
                 configurationRecoveryActivityEvidence?.rebuildPlayID = id
             }
         }
+        if reacquiringLocalRouteFocus {
+            localRouteFocusRecoveryOwnerPlayID = id
+        }
         let seekAdvanceTicket = beginAutomaticAdvanceTransport(
             itemID: song.id,
             reason: isRecovery ? "recovery-rebuild" : "seek-rebuild"
@@ -7005,7 +7106,14 @@ final class AudioPlayerService {
         decodingTask = nil
         cancelGaplessTasks()
         cancelCrossfadeAttempt()
-        audioEngine.stopPlayback()
+        if reacquiringLocalRouteFocus {
+            // AVAudioSession cannot safely deactivate while any local render
+            // object is running. A player-node stop is insufficient because
+            // the output unit remains active.
+            audioEngine.stop()
+        } else {
+            audioEngine.stopPlayback()
+        }
         hasPreparedLocalPlayback = false
 
         // Restore state that stopPlayback clears
@@ -7027,6 +7135,9 @@ final class AudioPlayerService {
                    configurationRecoveryActivityEvidence?.rebuildPlayID == id {
                     configurationRecoveryActivityEvidence = nil
                 }
+                if localRouteFocusRecoveryOwnerPlayID == id {
+                    localRouteFocusRecoveryOwnerPlayID = nil
+                }
             }
             do {
                 let sourceStreamEpoch = CloudPlaybackSource.streamEpochTicket(
@@ -7037,7 +7148,11 @@ final class AudioPlayerService {
                 let resolvedDecoderKind = await decoderKind(for: song, url: url)
                 guard !Task.isCancelled, playID == id else { return }
                 activeDecoderKind = resolvedDecoderKind
-                activeDSDPlaybackMode = try await configureOutputPipeline(for: song, url: url)
+                activeDSDPlaybackMode = try await configureOutputPipeline(
+                    for: song,
+                    url: url,
+                    reacquiringLocalRouteFocus: reacquiringLocalRouteFocus
+                )
                 guard !Task.isCancelled, playID == id else { return }
                 applySpatialAudioSettings()
                 applyPlaybackRate()
