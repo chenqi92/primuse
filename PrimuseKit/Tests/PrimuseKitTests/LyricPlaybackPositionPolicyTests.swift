@@ -197,6 +197,36 @@ struct LyricPlaybackPositionPolicyTests {
         #expect(presentation.lyricLineID == "second")
     }
 
+    @Test("Now Playing metadata advances one synchronized lyric at a time")
+    func nowPlayingMetadataAdvancesWithPlayback() {
+        let lyrics = [
+            LyricLine(id: "first", timestamp: 0, text: "First", isSynchronized: true),
+            LyricLine(id: "second", timestamp: 12, text: "Second", isSynchronized: true),
+        ]
+
+        let first = NowPlayingLyricsMetadataPolicy.presentation(
+            canonicalTitle: "Song",
+            artistName: "Artist",
+            lyrics: lyrics,
+            playbackTime: 3,
+            isEnabled: true,
+            isLiveStream: false
+        )
+        let second = NowPlayingLyricsMetadataPolicy.presentation(
+            canonicalTitle: "Song",
+            artistName: "Artist",
+            lyrics: lyrics,
+            playbackTime: 15,
+            isEnabled: true,
+            isLiveStream: false
+        )
+
+        #expect(first.title == "First")
+        #expect(first.lyricLineID == "first")
+        #expect(second.title == "Second")
+        #expect(second.lyricLineID == "second")
+    }
+
     @Test("Now Playing metadata keeps the song title before the first lyric")
     func nowPlayingMetadataWaitsForFirstLyric() {
         let lyrics = [
@@ -256,5 +286,54 @@ struct LyricPlaybackPositionPolicyTests {
             #expect(presentation.artist == "Artist")
             #expect(presentation.lyricLineID == nil)
         }
+    }
+
+    @Test("Missing lyrics preserve canonical Now Playing metadata")
+    func missingNowPlayingLyricsPreserveCanonicalMetadata() {
+        let presentation = NowPlayingLyricsMetadataPolicy.presentation(
+            canonicalTitle: "Song",
+            artistName: "Artist",
+            lyrics: [],
+            playbackTime: 10,
+            isEnabled: true,
+            isLiveStream: false
+        )
+
+        #expect(presentation.title == "Song")
+        #expect(presentation.artist == "Artist")
+        #expect(presentation.lyricLineID == nil)
+    }
+
+    @Test("Empty system lyrics retry transient failures with a bounded backoff")
+    func emptySystemLyricsUseBoundedRetry() {
+        #expect(NowPlayingLyricsLoadRetryPolicy.delay(
+            afterEmptyResultCount: 1,
+            hasDemand: true,
+            isLiveStream: false
+        ) == 2)
+        #expect(NowPlayingLyricsLoadRetryPolicy.delay(
+            afterEmptyResultCount: 2,
+            hasDemand: true,
+            isLiveStream: false
+        ) == 10)
+        #expect(NowPlayingLyricsLoadRetryPolicy.delay(
+            afterEmptyResultCount: 3,
+            hasDemand: true,
+            isLiveStream: false
+        ) == nil)
+    }
+
+    @Test("System lyrics do not retry without demand or for live streams")
+    func unsupportedSystemLyricsDoNotRetry() {
+        #expect(NowPlayingLyricsLoadRetryPolicy.delay(
+            afterEmptyResultCount: 1,
+            hasDemand: false,
+            isLiveStream: false
+        ) == nil)
+        #expect(NowPlayingLyricsLoadRetryPolicy.delay(
+            afterEmptyResultCount: 1,
+            hasDemand: true,
+            isLiveStream: true
+        ) == nil)
     }
 }

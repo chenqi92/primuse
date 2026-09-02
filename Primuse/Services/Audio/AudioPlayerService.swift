@@ -7452,6 +7452,9 @@ final class AudioPlayerService {
     }
 
     func handleAppDidBecomeActive() {
+        #if os(iOS)
+        retryEmptySystemLyricsAfterForegroundingIfNeeded()
+        #endif
         if interruptionResumePolicy.isAwaitingInterruptionEnd {
             scheduleAppActivationInterruptionRecovery()
         }
@@ -9681,6 +9684,9 @@ final class AudioPlayerService {
 
     #if os(iOS)
     @ObservationIgnored private var systemLyricsLoadTask: Task<Void, Never>?
+    @ObservationIgnored private var systemLyricsRetryTask: Task<Void, Never>?
+    @ObservationIgnored private var systemLyricsLoadGeneration: UInt64 = 0
+    @ObservationIgnored private var systemLyricsEmptyResultCount = 0
     @ObservationIgnored private var systemLyricsSongID: String?
     @ObservationIgnored private var systemLyrics: [LyricLine] = []
     @ObservationIgnored private var lastPublishedLockScreenLyricsPresentation:
@@ -9736,10 +9742,7 @@ final class AudioPlayerService {
         guard widgetLyricsSharingEnabled else {
             clearWidgetLyricsSnapshotIfNeeded()
             if !playbackSettings.lockScreenLyricsEnabled {
-                systemLyricsLoadTask?.cancel()
-                systemLyricsLoadTask = nil
-                systemLyricsSongID = nil
-                systemLyrics = []
+                resetSystemLyricsState()
             }
             return
         }
@@ -9780,10 +9783,7 @@ final class AudioPlayerService {
             } else {
                 self.clearWidgetLyricsSnapshotIfNeeded()
                 if !self.playbackSettings.lockScreenLyricsEnabled {
-                    self.systemLyricsLoadTask?.cancel()
-                    self.systemLyricsLoadTask = nil
-                    self.systemLyricsSongID = nil
-                    self.systemLyrics = []
+                    self.resetSystemLyricsState()
                 }
             }
         }
@@ -9792,6 +9792,10 @@ final class AudioPlayerService {
     private func resetSystemLyricsState() {
         systemLyricsLoadTask?.cancel()
         systemLyricsLoadTask = nil
+        systemLyricsRetryTask?.cancel()
+        systemLyricsRetryTask = nil
+        systemLyricsLoadGeneration &+= 1
+        systemLyricsEmptyResultCount = 0
         systemLyricsSongID = nil
         systemLyrics = []
         lastPublishedLockScreenLyricsPresentation = nil
@@ -9802,8 +9806,11 @@ final class AudioPlayerService {
         guard shouldLoadLyricsForSystemSurfaces,
               !isLiveRadio,
               let song else { return }
+        guard systemLyricsLoadTask == nil,
+              systemLyricsRetryTask == nil else { return }
 
         let expectedSongID = song.id
+        let expectedGeneration = systemLyricsLoadGeneration
         let capturedSourceManager = sourceManager
         systemLyricsLoadTask = Task { @MainActor [weak self, capturedSourceManager] in
             let lyrics: [LyricLine]
@@ -9831,6 +9838,7 @@ final class AudioPlayerService {
             }
             guard !Task.isCancelled,
                   let self,
+                  self.systemLyricsLoadGeneration == expectedGeneration,
                   self.shouldLoadLyricsForSystemSurfaces,
                   !self.isLiveRadio,
                   self.currentSong?.id == expectedSongID else { return }
@@ -9838,9 +9846,60 @@ final class AudioPlayerService {
             self.systemLyricsLoadTask = nil
             self.systemLyricsSongID = expectedSongID
             self.systemLyrics = lyrics
+            if lyrics.isEmpty {
+                self.scheduleSystemLyricsRetryIfNeeded(
+                    forSongID: expectedSongID,
+                    generation: expectedGeneration
+                )
+            } else {
+                self.systemLyricsEmptyResultCount = 0
+            }
             self.publishLockScreenLyricsIfNeeded()
             self.publishWidgetLyricsIfNeeded()
         }
+    }
+
+    private func scheduleSystemLyricsRetryIfNeeded(
+        forSongID songID: String,
+        generation: UInt64
+    ) {
+        systemLyricsEmptyResultCount += 1
+        guard let delay = NowPlayingLyricsLoadRetryPolicy.delay(
+            afterEmptyResultCount: systemLyricsEmptyResultCount,
+            hasDemand: shouldLoadLyricsForSystemSurfaces,
+            isLiveStream: isLiveRadio
+        ) else { return }
+
+        systemLyricsRetryTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+            guard let self,
+                  self.systemLyricsLoadGeneration == generation,
+                  self.shouldLoadLyricsForSystemSurfaces,
+                  !self.isLiveRadio,
+                  self.currentSong?.id == songID else { return }
+            self.systemLyricsRetryTask = nil
+            self.systemLyricsSongID = nil
+            self.systemLyrics = []
+            self.loadLyricsForSystemSurfacesIfNeeded(for: self.currentSong)
+        }
+    }
+
+    private func retryEmptySystemLyricsAfterForegroundingIfNeeded() {
+        guard shouldLoadLyricsForSystemSurfaces,
+              !isLiveRadio,
+              systemLyricsLoadTask == nil,
+              systemLyricsRetryTask == nil,
+              let song = currentSong,
+              systemLyricsSongID == song.id,
+              systemLyrics.isEmpty else { return }
+
+        systemLyricsEmptyResultCount = 0
+        systemLyricsSongID = nil
+        loadLyricsForSystemSurfacesIfNeeded(for: song)
     }
 
     private func lockScreenLyricsPresentation() -> NowPlayingLyricsMetadataPresentation {
@@ -9870,21 +9929,35 @@ final class AudioPlayerService {
     }
 
     private func observeLockScreenLyricsChanges() {
-        NotificationCenter.default.addObserver(
+        let center = NotificationCenter.default
+        center.addObserver(
             forName: .primuseLyricsDidChange,
             object: nil,
             queue: .main
         ) { [weak self] notification in
             guard let songID = notification.object as? String else { return }
             Task { @MainActor [weak self] in
-                guard let self,
-                      self.shouldLoadLyricsForSystemSurfaces,
-                      self.currentSong?.id == songID else { return }
-                self.resetSystemLyricsState()
-                self.updateNowPlayingInfo()
-                self.loadLyricsForSystemSurfacesIfNeeded(for: self.currentSong)
+                self?.reloadSystemLyricsIfCurrent(songID: songID)
             }
         }
+        center.addObserver(
+            forName: .primuseLyricsDidCache,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let songID = notification.userInfo?["songID"] as? String else { return }
+            Task { @MainActor [weak self] in
+                self?.reloadSystemLyricsIfCurrent(songID: songID)
+            }
+        }
+    }
+
+    private func reloadSystemLyricsIfCurrent(songID: String) {
+        guard shouldLoadLyricsForSystemSurfaces,
+              currentSong?.id == songID else { return }
+        resetSystemLyricsState()
+        updateNowPlayingInfo()
+        loadLyricsForSystemSurfacesIfNeeded(for: currentSong)
     }
 
     private func publishWidgetLyricsIfNeeded(coverImageName: String? = nil) {

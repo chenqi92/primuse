@@ -244,3 +244,22 @@ public enum NowPlayingLyricsMetadataPolicy {
         )
     }
 }
+
+public enum NowPlayingLyricsLoadRetryPolicy {
+    // Keep transient recovery bounded: a cache write notification or foreground
+    // transition can trigger another load without repeatedly scraping a song that
+    // genuinely has no lyrics.
+    private static let retryDelays: [TimeInterval] = [2, 10]
+
+    public static func delay(
+        afterEmptyResultCount emptyResultCount: Int,
+        hasDemand: Bool,
+        isLiveStream: Bool
+    ) -> TimeInterval? {
+        guard hasDemand,
+              !isLiveStream,
+              emptyResultCount > 0,
+              retryDelays.indices.contains(emptyResultCount - 1) else { return nil }
+        return retryDelays[emptyResultCount - 1]
+    }
+}
