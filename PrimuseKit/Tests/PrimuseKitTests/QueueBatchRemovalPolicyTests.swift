@@ -3,6 +3,54 @@ import Testing
 
 @Suite("Queue batch removal")
 struct QueueBatchRemovalPolicyTests {
+    @Test("Presentation revisions never mutate active playback")
+    func presentationChangesAreIgnored() {
+        let action = PlaybackLibraryMutationPolicy.action(
+            queueSongIDs: ["a", "b"],
+            currentSongID: "b",
+            isLiveRadio: false,
+            event: .presentationChanged
+        )
+
+        #expect(action == .ignore)
+    }
+
+    @Test("Authoritative removal forwards only active song IDs")
+    func authoritativeRemovalFiltersToActivePlayback() {
+        let action = PlaybackLibraryMutationPolicy.action(
+            queueSongIDs: ["a", "b", "c"],
+            currentSongID: "b",
+            isLiveRadio: false,
+            event: .songsRemoved(["outside", "b", "c"])
+        )
+
+        #expect(action == .removeSongs(["b", "c"]))
+    }
+
+    @Test("Unrelated authoritative removal leaves playback untouched")
+    func unrelatedAuthoritativeRemovalIsIgnored() {
+        let action = PlaybackLibraryMutationPolicy.action(
+            queueSongIDs: ["a", "b"],
+            currentSongID: "b",
+            isLiveRadio: false,
+            event: .songsRemoved(["outside"])
+        )
+
+        #expect(action == .ignore)
+    }
+
+    @Test("Library removals never prune a live radio session")
+    func liveRadioRemovalIsIgnored() {
+        let action = PlaybackLibraryMutationPolicy.action(
+            queueSongIDs: ["radio"],
+            currentSongID: "radio",
+            isLiveRadio: true,
+            event: .songsRemoved(["radio"])
+        )
+
+        #expect(action == .ignore)
+    }
+
     @Test("Unrelated removals leave the queue untouched")
     func unrelatedRemovalIsUnchanged() {
         let plan = QueueBatchRemovalPolicy.plan(

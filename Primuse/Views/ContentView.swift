@@ -403,6 +403,8 @@ struct ContentView: View {
     @State private var showNowPlaying = false
     @State private var nowPlayingPresentationID = UUID()
     @State private var batchSelectionActive = false
+    @State private var pendingPlaybackRemovalIDs: Set<String> = []
+    @State private var isReconcilingPlaybackRemovals = false
     @State private var libraryDeepLink: LibraryDeepLink?
     @State private var minimalLibrarySection: LibrarySection?
     @State private var minimalDetailScopes: Set<MinimalNavigationDetailScope> = []
@@ -752,11 +754,12 @@ struct ContentView: View {
         .onPreferenceChange(SongBatchSelectionActivePreferenceKey.self) { isActive in
             batchSelectionActive = isActive
         }
-        // 隔离资料库批次更新观察。直接把 searchRevision 的 onChange 挂在
-        // ContentView 上会让整个 TabView 在后台扫描/回填时反复重算。
+        // Visibility and search revisions are presentation signals, not proof
+        // that a song was durably removed. Only the library's authoritative
+        // removal event is allowed to mutate active playback.
         .background {
-            CurrentSongLibraryObserver {
-                stopIfCurrentSongRemoved()
+            AuthoritativeSongRemovalObserver { songIDs in
+                enqueuePlaybackReconciliation(removing: songIDs)
             }
         }
         // 跨年自动弹年度报告 ── 每次 ContentView 进入 (app 启动 / 切前台后
@@ -917,14 +920,44 @@ struct ContentView: View {
         showNowPlaying = true
     }
 
-    /// 当前播放的歌已不在可见库里 (被删 / 源停用 / 重扫描时换了 ID) 时,
-    /// 停止播放并清队列。player 继续持有失效的 Song 会让后续 seek / 下一首
-    /// 指向已不存在的源文件。
-    private func stopIfCurrentSongRemoved() {
-        guard let cs = player.currentSong else { return }
-        guard !player.isLiveRadio else { return }
-        if !library.containsVisibleSong(id: cs.id) {
-            player.stop(); player.clearQueue(); showNowPlaying = false
+    /// Serialize authoritative removal bursts so an awaited replacement start
+    /// cannot race a second library deletion. Partial scans and visibility
+    /// rebuilds never enter this path.
+    @MainActor
+    private func enqueuePlaybackReconciliation(removing songIDs: Set<String>) {
+        let action = PlaybackLibraryMutationPolicy.action(
+            queueSongIDs: player.queue.map(\.id),
+            currentSongID: player.currentSong?.id,
+            isLiveRadio: player.isLiveRadio,
+            event: .songsRemoved(songIDs)
+        )
+        guard case let .removeSongs(relevantSongIDs) = action else { return }
+
+        pendingPlaybackRemovalIDs.formUnion(relevantSongIDs)
+        guard !isReconcilingPlaybackRemovals else { return }
+        isReconcilingPlaybackRemovals = true
+
+        Task { @MainActor in
+            defer { isReconcilingPlaybackRemovals = false }
+            while !pendingPlaybackRemovalIDs.isEmpty {
+                let pendingIDs = pendingPlaybackRemovalIDs
+                pendingPlaybackRemovalIDs.removeAll(keepingCapacity: true)
+
+                let refreshedAction = PlaybackLibraryMutationPolicy.action(
+                    queueSongIDs: player.queue.map(\.id),
+                    currentSongID: player.currentSong?.id,
+                    isLiveRadio: player.isLiveRadio,
+                    event: .songsRemoved(pendingIDs)
+                )
+                guard case let .removeSongs(stillRelevantIDs) = refreshedAction else {
+                    continue
+                }
+                await player.prepareQueueForRemovingSongs(withIDs: stillRelevantIDs)
+            }
+
+            if player.currentSong == nil {
+                showNowPlaying = false
+            }
         }
     }
 
@@ -1581,23 +1614,19 @@ private struct MinimalTopNavigationBar: View {
     }
 }
 
-/// Keeps high-frequency library revision tracking out of `ContentView`'s
-/// observation scope. The callback only mutates the root when the playing song
-/// really disappeared; ordinary scan batches leave the tab hierarchy intact.
-private struct CurrentSongLibraryObserver: View {
-    @Environment(MusicLibrary.self) private var library
-    let onLibraryChange: () -> Void
+/// Bridges the library's durable removal contract into playback without
+/// observing transient visible-library snapshots.
+private struct AuthoritativeSongRemovalObserver: View {
+    let onSongsRemoved: @MainActor (Set<String>) -> Void
 
     var body: some View {
         Color.clear
             .frame(width: 0, height: 0)
-            // Source enable/disable rebuilds the visible cache without always
-            // bumping searchRevision, so retain both signals.
-            .onChange(of: library.visibleSongs.count) { _, _ in
-                onLibraryChange()
-            }
-            .onChange(of: library.searchRevision) { _, _ in
-                onLibraryChange()
+            .onReceive(NotificationCenter.default.publisher(for: .primuseSongsRemoved)) { note in
+                let removedSongs = (note.userInfo?["songs"] as? [PrimuseKit.Song]) ?? []
+                let removedSongIDs = Set(removedSongs.map(\.id))
+                guard !removedSongIDs.isEmpty else { return }
+                onSongsRemoved(removedSongIDs)
             }
     }
 }

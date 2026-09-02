@@ -1,5 +1,45 @@
 import Foundation
 
+public enum PlaybackLibraryMutationEvent: Equatable, Sendable {
+    /// A filtered/searchable view of the library changed. This is never proof
+    /// that a song or its source was durably removed.
+    case presentationChanged
+    /// The library confirmed that these song records were removed.
+    case songsRemoved(Set<String>)
+}
+
+public enum PlaybackLibraryMutationAction: Equatable, Sendable {
+    case ignore
+    case removeSongs(Set<String>)
+}
+
+/// Separates transient library presentation updates from durable mutations.
+/// Playback may only prune its queue after an authoritative removal event, and
+/// only for IDs that are still active when the event is handled.
+public enum PlaybackLibraryMutationPolicy {
+    public static func action(
+        queueSongIDs: [String],
+        currentSongID: String?,
+        isLiveRadio: Bool,
+        event: PlaybackLibraryMutationEvent
+    ) -> PlaybackLibraryMutationAction {
+        guard !isLiveRadio else { return .ignore }
+
+        switch event {
+        case .presentationChanged:
+            return .ignore
+        case let .songsRemoved(removedSongIDs):
+            guard !removedSongIDs.isEmpty else { return .ignore }
+            var activeSongIDs = Set(queueSongIDs)
+            if let currentSongID {
+                activeSongIDs.insert(currentSongID)
+            }
+            let relevantSongIDs = removedSongIDs.intersection(activeSongIDs)
+            return relevantSongIDs.isEmpty ? .ignore : .removeSongs(relevantSongIDs)
+        }
+    }
+}
+
 public struct QueueBatchRemovalPlan: Equatable, Sendable {
     public enum Action: Equatable, Sendable {
         case unchanged
