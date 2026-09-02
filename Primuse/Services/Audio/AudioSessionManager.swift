@@ -24,7 +24,7 @@ final class AudioSessionManager {
     func activatePlaybackSession() -> Bool {
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playback, mode: .default, options: [])
+            try configurePlaybackSession(session)
             try session.setActive(true)
             return true
         } catch {
@@ -44,7 +44,7 @@ final class AudioSessionManager {
         // session until playback actually starts. Activating this non-mixable
         // category while idle would interrupt audio from other apps.
         do {
-            try session.setCategory(.playback, mode: .default, options: [])
+            try configurePlaybackSession(session)
         } catch {
             plog("Failed to configure audio session: \(error)")
         }
@@ -63,6 +63,18 @@ final class AudioSessionManager {
             selector: #selector(handleConfigurationChange(_:)),
             name: .AVAudioEngineConfigurationChange,
             object: nil
+        )
+    }
+
+    private func configurePlaybackSession(_ session: AVAudioSession) throws {
+        // Long-form audio lets AirPlay own this app's route independently from
+        // the device's default output, so other apps can keep using the phone.
+        // It deliberately stays non-mixable on the selected route.
+        try session.setCategory(
+            .playback,
+            mode: .default,
+            policy: .longFormAudio,
+            options: []
         )
     }
 

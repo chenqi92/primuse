@@ -225,11 +225,14 @@ final class DLNARendererService {
         syncKeepAliveState()
     }
 
-    /// 根据 (DLNA running, keepAlive 开关, 真歌是否在播) 三个状态调度
-    /// AudioEngine 的 silence keepAlive。真歌在播时不开 (主路径已撑 session,
-    /// 没必要双管齐下); 真歌停了再开。
+    /// 根据 (DLNA running, keepAlive 开关, 真歌是否在播, 是否正向外投送) 调度
+    /// AudioEngine 的 silence keepAlive。向外投送时远端设备已经接管播放,本机
+    /// 不应再用静音音流占用 audio session。
     private func syncKeepAliveState() {
-        let shouldKeepAlive = isRunning && keepAliveInBackground && !player.isPlaying
+        let shouldKeepAlive = isRunning
+            && keepAliveInBackground
+            && !player.isPlaying
+            && !player.isCastingMode
         if shouldKeepAlive {
             player.audioEngine.startSilenceKeepAlive()
         } else {
@@ -291,6 +294,7 @@ final class DLNARendererService {
                 _ = player.isPlaying
                 _ = player.currentSong?.id
                 _ = player.isAtTrackEnd
+                _ = player.isCastingMode
                 _ = player.audioEngine.volume
                 _ = rendererMuted
                 _ = lastNonMutedVolume
@@ -310,8 +314,7 @@ final class DLNARendererService {
             logEvent(.control, "AVTransport: auto next → \(next.title)")
             playTransportItem(next)
         }
-        // 真歌 play/pause 状态变了, 重新评估要不要开静音保活 (真歌在播时关掉
-        // 省电, 真歌停了再撑住 session 让 NWListener 在后台不挂)。
+        // 真歌 play/pause 或投送状态变了,重新评估要不要开静音保活。
         syncKeepAliveState()
         notifyAllSubscribers()
     }

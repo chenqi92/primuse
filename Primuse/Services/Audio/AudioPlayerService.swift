@@ -6336,10 +6336,15 @@ final class AudioPlayerService {
         decodingTask?.cancel(); decodingTask = nil
         cancelGaplessTasks()
         cancelCrossfadeAttempt()
-        audioEngine.stopPlayback()
+        // A stopped player node can leave AVAudioEngine's output unit running.
+        // Stop the complete local render path before yielding the session so
+        // playback on the remote renderer does not occupy this device's audio.
+        audioEngine.stopSilenceKeepAlive()
+        audioEngine.stop()
         hasPreparedLocalPlayback = false
         stopMusicVideoPlayback(clearPlayer: true)
         isPlaying = false
+        AudioSessionManager.shared.deactivate()
         updateNowPlayingInfo()
         updatePlaybackState()
 
