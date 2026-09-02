@@ -30,10 +30,9 @@ extension MetadataReadCompletionKind {
 }
 
 /// Fills in metadata for songs that were added by ConnectorScanner in
-/// "bare-song" mode (cloud sources only download a few hundred KB during
-/// scan). This runs continuously in the background, fetching just the file
-/// header via HTTP Range, extracting tags, and replacing the song in the
-/// library with a fully-populated copy.
+/// "bare-song" mode. File-oriented remote sources and local references read
+/// only bounded metadata ranges here instead of blocking catalogue discovery
+/// on one complete metadata parse per song.
 ///
 /// Lifecycle:
 /// - A real library/source mutation marks the durable queue dirty. iOS runs it
@@ -169,6 +168,11 @@ final class MetadataBackfillService {
     private let library: MusicLibrary
     private let sourceManager: SourceManager
     private let backfillableSourceIDs: () -> Set<String>
+    /// Local discovery deliberately creates duration-less rows. Once that
+    /// initial detail read succeeds, older fully-populated local rows must not
+    /// be swept again merely because their optional artwork/title inspection
+    /// markers predate the shared backfill pipeline.
+    private let bareOnlySourceIDs: () -> Set<String>
     private let manuallyReadableSourceIDs: () -> Set<String>
     private let metadataService = MetadataService()
     private let failedURL: URL
@@ -284,11 +288,13 @@ final class MetadataBackfillService {
         library: MusicLibrary,
         sourceManager: SourceManager,
         backfillableSourceIDs: @escaping () -> Set<String> = { [] },
+        bareOnlySourceIDs: @escaping () -> Set<String> = { [] },
         manuallyReadableSourceIDs: (() -> Set<String>)? = nil
     ) {
         self.library = library
         self.sourceManager = sourceManager
         self.backfillableSourceIDs = backfillableSourceIDs
+        self.bareOnlySourceIDs = bareOnlySourceIDs
         self.manuallyReadableSourceIDs = manuallyReadableSourceIDs ?? backfillableSourceIDs
         let appSupport = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
         let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
@@ -1533,6 +1539,7 @@ final class MetadataBackfillService {
                     >= Self.remainingCountRefreshInterval else { return }
         lastRemainingCountRefreshAt = now
         let sourceIDs = backfillableSourceIDs()
+        let bareOnlyIDs = bareOnlySourceIDs()
         let songs = library.songs
         let failedIDs = failedSongIDs
         let incompleteIDs = incompleteSongIDs
@@ -1565,7 +1572,8 @@ final class MetadataBackfillService {
         for song in songs {
             guard sourceIDs.contains(song.sourceID) else { continue }
 
-            let workReasons = MetadataBackfillEligibilityPolicy.reasons(
+            let workReasons = Self.workReasons(
+                restrictToBareRows: bareOnlyIDs.contains(song.sourceID),
                 duration: song.duration,
                 format: song.fileFormat,
                 hasCoverArt: !(song.coverArtFileName?.isEmpty ?? true),
@@ -3151,7 +3159,7 @@ final class MetadataBackfillService {
         // keep their authoritative decoder duration instead.
         let hasVerifiedDTSCore = metadata.detectedFileSignature == .dts
             || metadata.detectedFileSignature == .dtsInWave
-        if song.fileFormat == .dts,
+        if (song.fileFormat == .dts || song.fileFormat == .wav),
            (!metadata.duration.isFinite || metadata.duration <= 0),
            hasVerifiedDTSCore,
            let estimated = AudioDurationPolicy.provisionalStandaloneDTSDuration(
@@ -3432,6 +3440,7 @@ final class MetadataBackfillService {
     }
 
     private func mergeSong(bare: Song, metadata: MetadataService.SongMetadata) -> Song {
+        let isBareOnlySource = bareOnlySourceIDs().contains(bare.sourceID)
         let identity = resolvedIdentity(for: bare, metadata: metadata)
         let mergedTitle = identity.title.value ?? bare.title
         let mergedArtist = identity.artist.value ?? bare.artistName
@@ -3463,15 +3472,22 @@ final class MetadataBackfillService {
         }
 
         // Embedded assets are the first objective source. Verified sidecars
-        // fill only missing embedded fields; CUE virtual-track references stay
-        // authoritative for their own track identity and assets.
-        let coverRef = bare.isCueTrack
+        // fill only missing embedded fields; CUE and local inventory references
+        // stay authoritative because they already identify the exact sibling.
+        let coverRef = bare.isCueTrack || isBareOnlySource
             ? (bare.coverArtFileName ?? metadata.coverArtFileName)
             : (metadata.coverArtFileName ?? bare.coverArtFileName)
-        let lyricsRef = bare.isCueTrack
+        let lyricsRef = bare.isCueTrack || isBareOnlySource
             ? (bare.lyricsFileName ?? metadata.lyricsFileName)
             : (metadata.lyricsFileName ?? bare.lyricsFileName)
         let mvRef = bare.mvPath ?? metadata.mvPath
+        let mergedFormat: AudioFormat = if bare.fileFormat == .wav,
+                                             metadata.detectedFileSignature == .dts
+                                                || metadata.detectedFileSignature == .dtsInWave {
+            .dts
+        } else {
+            bare.fileFormat
+        }
 
         let mergedDuration: TimeInterval = if bare.isCueTrack,
                                               let start = bare.cueStartTime {
@@ -3492,7 +3508,7 @@ final class MetadataBackfillService {
             trackNumber: bare.isCueTrack ? bare.trackNumber : (metadata.trackNumber ?? bare.trackNumber),
             discNumber: metadata.discNumber ?? bare.discNumber,
             duration: mergedDuration,
-            fileFormat: bare.fileFormat,
+            fileFormat: mergedFormat,
             filePath: bare.filePath,
             sourceID: bare.sourceID,
             fileSize: bare.fileSize,
@@ -3532,6 +3548,7 @@ final class MetadataBackfillService {
     /// unbounded for huge libraries.
     private func pickNextBatch(limit: Int) -> [Song] {
         let sourceIDs = backfillableSourceIDs()
+        let bareOnlyIDs = bareOnlySourceIDs()
         let failedIDs = failedSongIDs
         let sourceIssueIDs = sourceIssueSongIDs
         let sessionGivenUpSnapshot = sessionGivenUpIDs
@@ -3564,6 +3581,7 @@ final class MetadataBackfillService {
             guard sourceIDs.contains(song.sourceID) else { return false }
             return Self.needsBackfill(
                 song,
+                restrictToBareRows: bareOnlyIDs.contains(song.sourceID),
                 artworkGivenUpIDs: artworkGivenUpSnapshot,
                 titleCheckedIDs: titleCheckedSnapshot,
                 incompleteSongIDs: incompleteSnapshot,
@@ -3617,6 +3635,7 @@ final class MetadataBackfillService {
     private func needsBackfill(_ song: Song) -> Bool {
         Self.needsBackfill(
             song,
+            restrictToBareRows: bareOnlySourceIDs().contains(song.sourceID),
             artworkGivenUpIDs: artworkGivenUpIDs,
             titleCheckedIDs: titleCheckedIDs,
             incompleteSongIDs: incompleteSongIDs,
@@ -3626,7 +3645,8 @@ final class MetadataBackfillService {
     }
 
     private func workReasons(for song: Song) -> MetadataBackfillWorkReasons {
-        MetadataBackfillEligibilityPolicy.reasons(
+        Self.workReasons(
+            restrictToBareRows: bareOnlySourceIDs().contains(song.sourceID),
             duration: song.duration,
             format: song.fileFormat,
             hasCoverArt: !(song.coverArtFileName?.isEmpty ?? true),
@@ -3643,13 +3663,15 @@ final class MetadataBackfillService {
 
     private static func needsBackfill(
         _ song: Song,
+        restrictToBareRows: Bool,
         artworkGivenUpIDs: Set<String>,
         titleCheckedIDs: Set<String>,
         incompleteSongIDs: Set<String>,
         albumArtistCheckedIDs: Set<String>,
         artistCheckedIDs: Set<String>
     ) -> Bool {
-        MetadataBackfillEligibilityPolicy.needsBackfill(
+        !workReasons(
+            restrictToBareRows: restrictToBareRows,
             duration: song.duration,
             format: song.fileFormat,
             hasCoverArt: !(song.coverArtFileName?.isEmpty ?? true),
@@ -3661,6 +3683,36 @@ final class MetadataBackfillService {
             albumArtistChecked: albumArtistCheckedIDs.contains(song.id),
             hasArtist: !(song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
             artistChecked: artistCheckedIDs.contains(song.id)
+        ).isEmpty
+    }
+
+    private static func workReasons(
+        restrictToBareRows: Bool,
+        duration: TimeInterval,
+        format: AudioFormat,
+        hasCoverArt: Bool,
+        artworkGivenUp: Bool,
+        titleChecked: Bool,
+        durationInspectionComplete: Bool,
+        hasAlbumTitle: Bool,
+        hasAlbumArtist: Bool,
+        albumArtistChecked: Bool,
+        hasArtist: Bool,
+        artistChecked: Bool
+    ) -> MetadataBackfillWorkReasons {
+        return MetadataBackfillEligibilityPolicy.reasons(
+            duration: duration,
+            format: format,
+            hasCoverArt: hasCoverArt,
+            artworkGivenUp: artworkGivenUp,
+            titleChecked: titleChecked,
+            restrictToBareRows: restrictToBareRows,
+            durationInspectionComplete: durationInspectionComplete,
+            hasAlbumTitle: hasAlbumTitle,
+            hasAlbumArtist: hasAlbumArtist,
+            albumArtistChecked: albumArtistChecked,
+            hasArtist: hasArtist,
+            artistChecked: artistChecked
         )
     }
 

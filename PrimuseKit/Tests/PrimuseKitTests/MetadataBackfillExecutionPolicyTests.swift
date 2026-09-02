@@ -3,6 +3,40 @@ import Testing
 
 @Suite("Metadata backfill execution")
 struct MetadataBackfillExecutionPolicyTests {
+    @Test("Bare-only sources stop after their initial detail read")
+    func bareOnlyEligibility() {
+        let pending = MetadataBackfillEligibilityPolicy.reasons(
+            duration: 0,
+            format: .flac,
+            hasCoverArt: false,
+            artworkGivenUp: false,
+            titleChecked: false,
+            restrictToBareRows: true
+        )
+        let completed = MetadataBackfillEligibilityPolicy.reasons(
+            duration: 180,
+            format: .flac,
+            hasCoverArt: false,
+            artworkGivenUp: false,
+            titleChecked: false,
+            restrictToBareRows: true
+        )
+        let terminalIncomplete = MetadataBackfillEligibilityPolicy.reasons(
+            duration: 0,
+            format: .dts,
+            hasCoverArt: false,
+            artworkGivenUp: false,
+            titleChecked: false,
+            restrictToBareRows: true,
+            durationInspectionComplete: true
+        )
+
+        #expect(pending.contains(.duration))
+        #expect(pending.contains(.title))
+        #expect(completed.isEmpty)
+        #expect(terminalIncomplete.isEmpty)
+    }
+
     @Test("Background work is serial, throttled, and bounded per wake")
     func boundedBackgroundLimits() {
         let standard = MetadataBackfillExecutionPolicy.limits(for: .standard)

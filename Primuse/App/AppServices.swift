@@ -631,7 +631,13 @@ final class AppServices {
             sourceManager: manager,
             backfillableSourceIDs: {
                 Set(store.sources.filter {
-                    $0.isEnabled && $0.type.supportsEmbeddedMetadataBackfill
+                    $0.isEnabled
+                        && ($0.type.supportsEmbeddedMetadataBackfill || $0.type == .local)
+                }.map(\.id))
+            },
+            bareOnlySourceIDs: {
+                Set(store.sources.filter {
+                    $0.isEnabled && $0.type == .local
                 }.map(\.id))
             },
             manuallyReadableSourceIDs: {

@@ -2773,6 +2773,7 @@ public enum MetadataBackfillEligibilityPolicy {
         hasCoverArt: Bool,
         artworkGivenUp: Bool,
         titleChecked: Bool,
+        restrictToBareRows: Bool = false,
         durationInspectionComplete: Bool = false,
         hasAlbumTitle: Bool = false,
         hasAlbumArtist: Bool = true,
@@ -2780,6 +2781,9 @@ public enum MetadataBackfillEligibilityPolicy {
         hasArtist: Bool = true,
         artistChecked: Bool = true
     ) -> MetadataBackfillWorkReasons {
+        if restrictToBareRows, duration > 0 || durationInspectionComplete {
+            return []
+        }
         var reasons: MetadataBackfillWorkReasons = []
         if duration <= 0 && !durationInspectionComplete {
             reasons.insert(.duration)
@@ -2805,6 +2809,7 @@ public enum MetadataBackfillEligibilityPolicy {
         hasCoverArt: Bool,
         artworkGivenUp: Bool,
         titleChecked: Bool,
+        restrictToBareRows: Bool = false,
         durationInspectionComplete: Bool = false,
         hasAlbumTitle: Bool = false,
         hasAlbumArtist: Bool = true,
@@ -2818,6 +2823,7 @@ public enum MetadataBackfillEligibilityPolicy {
             hasCoverArt: hasCoverArt,
             artworkGivenUp: artworkGivenUp,
             titleChecked: titleChecked,
+            restrictToBareRows: restrictToBareRows,
             durationInspectionComplete: durationInspectionComplete,
             hasAlbumTitle: hasAlbumTitle,
             hasAlbumArtist: hasAlbumArtist,

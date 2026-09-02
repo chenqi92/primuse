@@ -56,7 +56,8 @@ actor MetadataService {
         allowOnlineFetch: Bool = true,
         trustedSource: Bool = true,
         fallbackTitle: String? = nil,
-        forceOnlineRefresh: Bool = false
+        forceOnlineRefresh: Bool = false,
+        discoverSidecars: Bool = true
     ) async -> SongMetadata {
         // 1. Read embedded metadata
         let embedded = await FileMetadataReader.read(from: url)
@@ -127,7 +128,8 @@ actor MetadataService {
         )
 
         // 2. Verified sidecars fill fields absent from embedded metadata.
-        if result.coverArtData == nil,
+        if discoverSidecars,
+           result.coverArtData == nil,
            let coverURL = SidecarMetadataLoader.findCoverArt(for: url) {
             result.coverArtFileName = coverURL.lastPathComponent
             if let data = try? Data(contentsOf: coverURL) {
@@ -136,7 +138,8 @@ actor MetadataService {
             }
         }
 
-        if embedded.lyricsText == nil,
+        if discoverSidecars,
+           embedded.lyricsText == nil,
            let lyricsURL = SidecarMetadataLoader.findLyrics(for: url) {
             result.lyricsFileName = lyricsURL.lastPathComponent
             result.lyrics = try? LyricsParser.parse(from: lyricsURL)
@@ -145,7 +148,8 @@ actor MetadataService {
             }
         }
 
-        if let mvURL = SidecarMetadataLoader.findMusicVideo(for: url) {
+        if discoverSidecars,
+           let mvURL = SidecarMetadataLoader.findMusicVideo(for: url) {
             result.mvPath = mvURL.lastPathComponent
             result.hasVerifiedSidecarMetadata = true
         }

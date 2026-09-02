@@ -334,7 +334,20 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             uniquingKeysWith: { first, _ in first }
         )
         let titleRepairKey = Self.metadataTitleRepairKey(sourceID: sourceID, path: path)
-        let shouldRepairFileNameTitles = !UserDefaults.standard.bool(forKey: titleRepairKey)
+        // Finish a new or previously interrupted import before running the
+        // one-time legacy-title repair. Otherwise every already-committed row
+        // is parsed again before discovery can reach the still-missing files.
+        let hasUnseenRegularFiles = inventory.items.contains { item in
+            let ext = (item.name as NSString).pathExtension.lowercased()
+            guard !PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext),
+                  cueTracksByAudioPath[item.path]?.isEmpty != false else {
+                return false
+            }
+            let id = Self.generateID(sourceID: sourceID, path: item.path)
+            return existingByID[id] == nil
+        }
+        let shouldRepairFileNameTitles = !hasUnseenRegularFiles
+            && !UserDefaults.standard.bool(forKey: titleRepairKey)
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -419,7 +432,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                             ))
                             continue
                         }
-                        if let scanned = try await self.buildScannedSong(from: item) {
+                        if let scanned = self.buildBareScannedSong(from: item) {
                             continuation.yield(scanned)
                         }
                     }
@@ -539,80 +552,38 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         )
     }
 
-    private func buildScannedSong(from item: RemoteFileItem) async throws -> ConnectorScannedSong? {
+    /// Keep discovery limited to the directory inventory. Reading tags and
+    /// duration here made a local source fundamentally slower than every
+    /// file-oriented remote source, especially when a macOS folder lives on
+    /// an SMB-mounted volume. The shared metadata backfill pipeline performs
+    /// the bounded, concurrent header reads after these rows are committed.
+    private func buildBareScannedSong(from item: RemoteFileItem) -> ConnectorScannedSong? {
         guard item.size >= Self.minimumReadableAudioBytes else {
             plog("📥 LocalFileSource: skipping tiny local audio '\(item.name)' size=\(item.size)B")
             return nil
         }
 
-        let fileURL = try await localURL(for: item.path)
         let songID = Self.generateID(sourceID: sourceID, path: item.path)
-        let originalBaseName = ((item.name as NSString).lastPathComponent as NSString).deletingPathExtension
-        let metadata = await metadataService.loadMetadata(
-            for: fileURL,
-            cacheKey: songID,
-            allowOnlineFetch: false,
-            fallbackTitle: originalBaseName
-        )
-
-        // 独立 MV 允许 duration=0(播放时 AVPlayer 回填), 音频解析不出时长
-        // 才按不可读跳过。
-        let ext = (item.name as NSString).pathExtension
-        let isStandaloneVideo = PrimuseConstants.supportedMusicVideoExtensions.contains(ext.lowercased())
-        // A malformed WAV must fail as one item, not terminate the source's
-        // AsyncThrowingStream and discard the rest of a large import.
-        let isDTSWAV = ext.caseInsensitiveCompare("wav") == .orderedSame
-            ? (try? await ffmpegDecoder.canDecodeAsync(url: fileURL)) ?? false
-            : false
-        let isDTS = ext.caseInsensitiveCompare("dts") == .orderedSame || isDTSWAV
-        let declaredFormat = isDTS ? AudioFormat.dts : (AudioFormat.from(fileExtension: ext) ?? .mp3)
-        let needsFFmpegProbe = isDTS
-            || metadata.duration <= 0
-            || FileFormatRouter.decoder(for: declaredFormat) is FFmpegAudioDecoder
-            || Self.ffmpegMetadataProbeExtensions.contains(ext.lowercased())
-        let ffmpegInfo = needsFFmpegProbe ? try? await ffmpegDecoder.fileInfo(for: fileURL) : nil
-        let duration = Self.preferredPositive(ffmpegInfo?.duration, fallback: metadata.duration)
-        guard isStandaloneVideo || duration > 0 else {
-            plog("📥 LocalFileSource: skipping unreadable local audio '\(item.name)' size=\(item.size)B")
-            return nil
-        }
-
-        let format: AudioFormat = declaredFormat
+        let ext = (item.name as NSString).pathExtension.lowercased()
+        let baseName = ((item.name as NSString).lastPathComponent as NSString)
+            .deletingPathExtension
+        let title = MediaMetadataTextRepair.fileNameTitle(from: baseName) ?? baseName
+        let format = AudioFormat.from(fileExtension: ext) ?? .mp3
+        let isStandaloneVideo = PrimuseConstants.supportedMusicVideoExtensions.contains(ext)
         let song = Song(
             id: songID,
-            title: metadata.title,
-            albumTitle: metadata.albumTitle,
-            artistName: metadata.artist,
-            sourceArtistNames: metadata.sourceArtistNames,
-            albumArtistName: metadata.albumArtist,
-            trackNumber: metadata.trackNumber,
-            discNumber: metadata.discNumber,
-            duration: duration,
+            title: title,
+            duration: 0,
             fileFormat: format,
             filePath: item.path,
             sourceID: sourceID,
             fileSize: item.size,
-            bitRate: ffmpegInfo?.bitRate ?? metadata.bitRate,
-            sampleRate: Self.preferredPositiveInt(
-                ffmpegInfo.map { Int($0.sampleRate) },
-                fallback: metadata.sampleRate
-            ),
-            bitDepth: Self.preferredPositiveInt(
-                ffmpegInfo?.bitDepth,
-                fallback: metadata.bitDepth
-            ),
-            genre: metadata.genre,
-            year: metadata.year,
             lastModified: item.modifiedDate,
-            coverArtFileName: item.sidecarHints?.coverPath ?? metadata.coverArtFileName,
-            lyricsFileName: item.sidecarHints?.lyricsPath ?? metadata.lyricsFileName,
+            coverArtFileName: item.sidecarHints?.coverPath,
+            lyricsFileName: item.sidecarHints?.lyricsPath,
             mvPath: isStandaloneVideo
                 ? item.path
-                : item.sidecarHints?.mvPath ?? sidecarPath(nextTo: item.path, named: metadata.mvPath),
-            replayGainTrackGain: metadata.replayGainTrackGain,
-            replayGainTrackPeak: metadata.replayGainTrackPeak,
-            replayGainAlbumGain: metadata.replayGainAlbumGain,
-            replayGainAlbumPeak: metadata.replayGainAlbumPeak,
+                : item.sidecarHints?.mvPath,
             revision: item.revision
         )
         return ConnectorScannedSong(
@@ -633,7 +604,8 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             for: fileURL,
             cacheKey: existing.id,
             allowOnlineFetch: false,
-            fallbackTitle: originalBaseName
+            fallbackTitle: originalBaseName,
+            discoverSidecars: false
         )
         var refreshed = existing
         if refreshed.revision == nil { refreshed.revision = item.revision }
@@ -778,7 +750,8 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             for: fileURL,
             cacheKey: physicalID,
             allowOnlineFetch: false,
-            fallbackTitle: fallbackTitle
+            fallbackTitle: fallbackTitle,
+            discoverSidecars: false
         )
         let ext = fileURL.pathExtension.lowercased()
         let needsFFmpegProbe = Self.ffmpegMetadataProbeExtensions.contains(ext) || descriptors.contains {
