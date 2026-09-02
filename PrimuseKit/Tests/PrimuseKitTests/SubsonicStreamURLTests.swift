@@ -110,6 +110,148 @@ import Testing
     }
 }
 
+@Test func subsonicLyricsClientLoadsOpenSubsonicLyrics() async throws {
+    let host = "navidrome-lyrics.example.com"
+    let session = subsonicLyricsTestSession(host: host) { request in
+        switch request.url?.lastPathComponent {
+        case "ping.view":
+            return (200, Data(#"{"subsonic-response":{"status":"ok","type":"navidrome","openSubsonic":true}}"#.utf8))
+        case "getLyricsBySongId.view":
+            return (200, Data(#"{"subsonic-response":{"status":"ok","lyricsList":{"structuredLyrics":[{"kind":"main","synced":true,"line":[{"start":1000,"value":"Cold cache line"}]}]}}}"#.utf8))
+        default:
+            return (404, Data())
+        }
+    }
+    defer { SubsonicLyricsURLProtocol.reset(host: host) }
+    let source = MusicSource(
+        name: "Navidrome",
+        type: .navidrome,
+        host: host,
+        port: 443,
+        useSsl: true,
+        username: "listener"
+    )
+
+    let result = await SubsonicLyricsClient(session: session).readLyrics(
+        forSongPath: "/songs/song-42.flac",
+        source: source,
+        credential: SourceCredential(password: "secret")
+    )
+
+    guard case .content(let text) = result else {
+        Issue.record("Expected OpenSubsonic lyrics, got \(result)")
+        return
+    }
+    let line = try #require(LyricsContentParser.parseText(text).first)
+    #expect(line.text == "Cold cache line")
+    #expect(line.timestamp == 1)
+    let requests = SubsonicLyricsURLProtocol.requests(host: host)
+    #expect(requests.map { $0.url?.lastPathComponent } == ["ping.view", "getLyricsBySongId.view"])
+    let lyricsQuery = Dictionary(uniqueKeysWithValues:
+        (URLComponents(url: try #require(requests.last?.url), resolvingAgainstBaseURL: false)?.queryItems ?? [])
+            .map { ($0.name, $0.value ?? "") })
+    #expect(lyricsQuery["id"] == "song-42")
+    #expect(lyricsQuery["enhanced"] == "true")
+    #expect(lyricsQuery["t"] == SubsonicStreamResolver.md5Hex("secret" + (lyricsQuery["s"] ?? "")))
+}
+
+@Test func subsonicLyricsClientLoadsAirsonicLegacyLyrics() async throws {
+    let host = "airsonic-lyrics.example.com"
+    let session = subsonicLyricsTestSession(host: host) { request in
+        switch request.url?.lastPathComponent {
+        case "ping.view":
+            return (200, Data(#"{"subsonic-response":{"status":"ok","type":"airsonic","openSubsonic":false}}"#.utf8))
+        case "getSong.view":
+            return (200, Data(#"{"subsonic-response":{"status":"ok","song":{"title":"Legacy Song","artist":"Singer"}}}"#.utf8))
+        case "getLyrics.view":
+            return (200, Data(#"{"subsonic-response":{"status":"ok","lyrics":{"value":"Line one\nLine two"}}}"#.utf8))
+        default:
+            return (404, Data())
+        }
+    }
+    defer { SubsonicLyricsURLProtocol.reset(host: host) }
+    let source = MusicSource(
+        name: "Airsonic",
+        type: .airsonic,
+        host: host,
+        port: 443,
+        useSsl: true,
+        username: "listener"
+    )
+
+    let result = await SubsonicLyricsClient(session: session).readLyrics(
+        forSongPath: "/songs/legacy-7.mp3",
+        source: source,
+        credential: SourceCredential(password: "p")
+    )
+
+    #expect(result == .content("Line one\nLine two"))
+    let requests = SubsonicLyricsURLProtocol.requests(host: host)
+    #expect(requests.map { $0.url?.lastPathComponent } == ["ping.view", "getSong.view", "getLyrics.view"])
+    let lyricsQuery = Dictionary(uniqueKeysWithValues:
+        (URLComponents(url: try #require(requests.last?.url), resolvingAgainstBaseURL: false)?.queryItems ?? [])
+            .map { ($0.name, $0.value ?? "") })
+    #expect(lyricsQuery["title"] == "Legacy Song")
+    #expect(lyricsQuery["artist"] == "Singer")
+    #expect(lyricsQuery["p"] == "enc:70")
+    #expect(lyricsQuery["v"] == "1.15.0")
+    #expect(lyricsQuery["t"] == nil)
+}
+
+@Test func subsonicLyricsClientRetriesCompatibleAuthenticationAndBasicLyrics() async throws {
+    let host = "fallback-lyrics.example.com"
+    let session = subsonicLyricsTestSession(host: host) { request in
+        let query = Dictionary(uniqueKeysWithValues:
+            (URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+                .map { ($0.name, $0.value ?? "") })
+        switch request.url?.lastPathComponent {
+        case "ping.view" where query["p"] == nil:
+            return (200, Data(#"{"subsonic-response":{"status":"failed","error":{"code":41,"message":"token unsupported"}}}"#.utf8))
+        case "ping.view":
+            return (200, Data(#"{"subsonic-response":{"status":"ok","openSubsonic":true}}"#.utf8))
+        case "getLyricsBySongId.view" where query["enhanced"] == "true":
+            return (200, Data(#"{"subsonic-response":{"status":"failed","error":{"code":0,"message":"unknown parameter"}}}"#.utf8))
+        case "getLyricsBySongId.view":
+            return (200, Data(#"{"subsonic-response":{"status":"ok","lyricsList":{"structuredLyrics":[{"kind":"main","synced":true,"line":[{"start":2500,"value":"Fallback line"}]}]}}}"#.utf8))
+        default:
+            return (404, Data())
+        }
+    }
+    defer { SubsonicLyricsURLProtocol.reset(host: host) }
+    let source = MusicSource(
+        name: "Compatible server",
+        type: .navidrome,
+        host: host,
+        port: 443,
+        useSsl: true,
+        username: "listener"
+    )
+
+    let result = await SubsonicLyricsClient(session: session).readLyrics(
+        forSongPath: "/songs/fallback.flac",
+        source: source,
+        credential: SourceCredential(password: "p")
+    )
+
+    guard case .content(let text) = result else {
+        Issue.record("Expected fallback lyrics, got \(result)")
+        return
+    }
+    #expect(LyricsContentParser.parseText(text).first?.text == "Fallback line")
+    let requests = SubsonicLyricsURLProtocol.requests(host: host)
+    #expect(requests.map { $0.url?.lastPathComponent } == [
+        "ping.view",
+        "ping.view",
+        "getLyricsBySongId.view",
+        "getLyricsBySongId.view",
+    ])
+    let finalQuery = Dictionary(uniqueKeysWithValues:
+        (URLComponents(url: try #require(requests.last?.url), resolvingAgainstBaseURL: false)?.queryItems ?? [])
+            .map { ($0.name, $0.value ?? "") })
+    #expect(finalQuery["p"] == "enc:70")
+    #expect(finalQuery["enhanced"] == nil)
+}
+
 // MARK: - 注册表
 
 @Test func registryUnsupportedType() async {
@@ -126,4 +268,78 @@ import Testing
     let supported = await reg.supportedTypes
     #expect(supported.isSuperset(of: [.subsonic, .navidrome, .airsonic, .gonic]))
     #expect(!supported.contains(.appleMusicLibrary))
+}
+
+private func subsonicLyricsTestSession(
+    host: String,
+    handler: @escaping SubsonicLyricsURLProtocol.Handler
+) -> URLSession {
+    SubsonicLyricsURLProtocol.configure(host: host, handler: handler)
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [SubsonicLyricsURLProtocol.self]
+    return URLSession(configuration: configuration)
+}
+
+private final class SubsonicLyricsURLProtocol: URLProtocol, @unchecked Sendable {
+    typealias Handler = @Sendable (URLRequest) -> (statusCode: Int, body: Data)
+
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var handlers: [String: Handler] = [:]
+    nonisolated(unsafe) private static var capturedRequests: [String: [URLRequest]] = [:]
+
+    static func configure(host: String, handler: @escaping Handler) {
+        lock.lock()
+        handlers[host] = handler
+        capturedRequests[host] = []
+        lock.unlock()
+    }
+
+    static func reset(host: String) {
+        lock.lock()
+        handlers[host] = nil
+        capturedRequests[host] = nil
+        lock.unlock()
+    }
+
+    static func requests(host: String) -> [URLRequest] {
+        lock.lock()
+        let snapshot = capturedRequests[host] ?? []
+        lock.unlock()
+        return snapshot
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let host = request.url?.host else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        Self.lock.lock()
+        Self.capturedRequests[host, default: []].append(request)
+        let handler = Self.handlers[host]
+        Self.lock.unlock()
+
+        guard let handler, let url = request.url else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        let result = handler(request)
+        guard let response = HTTPURLResponse(
+                url: url,
+                statusCode: result.statusCode,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "application/json"]
+              ) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: result.body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }

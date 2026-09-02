@@ -44,6 +44,20 @@ private enum TVDecodedDownloadError: Error, LocalizedError, Sendable {
     }
 }
 
+enum TVLyricsLoadingStrategy: Equatable, Sendable {
+    case fnMusicService
+    case subsonicServer
+    case sourceFile
+}
+
+enum TVLyricsLoadingPolicy {
+    static func strategy(for sourceType: MusicSourceType) -> TVLyricsLoadingStrategy {
+        if sourceType == .fnMusic { return .fnMusicService }
+        if sourceType.isSubsonicFamily { return .subsonicServer }
+        return .sourceFile
+    }
+}
+
 /// 串起 TVStore(持有真实 Song/MusicSource)↔ StreamResolver ↔ TVAudioEngine。
 /// 把真实歌曲解析成网络流 URL 并交给 AVPlayer;解析失败转成可展示的 TVPlaybackIssue。
 @MainActor
@@ -652,9 +666,9 @@ final class TVPlaybackCoordinator {
 
     // MARK: 歌词
 
-    /// 加载歌词:先本地缓存(随快照同步下来的 / 之前抓过的),飞牛音乐再读取服务端首选歌词，
-    /// 其它来源直接读同目录的 `.lrc` sidecar。`lyricsFileName` 指向源里的歌词文件
-    /// (NAS 是 `.lrc` 真实路径,云盘是 item ID),复用 stream resolver 解出下载地址即可。
+    /// 加载歌词:先本地缓存(随快照同步下来的 / 之前抓过的),再按源能力读取服务端歌词
+    /// 或源内 `.lrc` sidecar。`lyricsFileName` 指向源里的歌词文件(NAS 是 `.lrc`
+    /// 真实路径,云盘是 item ID),复用 stream resolver 解出下载地址即可。
     private func loadLyrics(song: Song, source: MusicSource,
                             credential: SourceCredential?, requestID: UUID) {
         Task { [weak self, weak store, song, source, credential] in
@@ -671,34 +685,20 @@ final class TVPlaybackCoordinator {
             }
             guard self.isCurrent(requestID, store: store) else { return }
 
-            if source.type == .fnMusic {
+            switch TVLyricsLoadingPolicy.strategy(for: source.type) {
+            case .fnMusicService:
                 guard let client = store.fnMusicClient(for: source.id) else { return }
                 do {
                     guard let text = try await client.preferredLyrics(trackPath: song.filePath),
                           !text.isEmpty else { return }
                     try self.ensureCurrent(requestID, store: store)
-                    let lines = LyricsParser.parseText(text)
-                    guard !lines.isEmpty else { return }
-                    let wrote = await MetadataAssetStore.shared.cacheLyrics(
-                        lines,
-                        forSongID: songID,
-                        force: false
+                    try await self.cacheAndApplyServerLyrics(
+                        text,
+                        song: song,
+                        requestID: requestID,
+                        store: store,
+                        logSource: "Feiniu Music"
                     )
-                    try self.ensureCurrent(requestID, store: store)
-                    if wrote {
-                        store.applyLyrics(
-                            Self.toTVLyrics(lines, duration: song.duration),
-                            forSongID: songID
-                        )
-                        plog("🎬 TV Feiniu Music lyrics loaded \(lines.count) lines for '\(song.title)'")
-                    } else if let preserved = await MetadataAssetStore.shared.cachedLyrics(forSongID: songID),
-                              !preserved.isEmpty {
-                        try self.ensureCurrent(requestID, store: store)
-                        store.applyLyrics(
-                            Self.toTVLyrics(preserved, duration: song.duration),
-                            forSongID: songID
-                        )
-                    }
                 } catch is CancellationError {
                     return
                 } catch {
@@ -706,6 +706,37 @@ final class TVPlaybackCoordinator {
                     plog("🎬 TV Feiniu Music lyrics fetch failed '\(song.title)': \(error)")
                 }
                 return
+            case .subsonicServer:
+                let result = await self.readSubsonicServerLyrics(
+                    for: song.filePath,
+                    source: source,
+                    credential: credential
+                )
+                guard self.isCurrent(requestID, store: store) else { return }
+                switch result {
+                case .content(let text):
+                    do {
+                        try await self.cacheAndApplyServerLyrics(
+                            text,
+                            song: song,
+                            requestID: requestID,
+                            store: store,
+                            logSource: source.type.displayName
+                        )
+                    } catch is CancellationError {
+                        return
+                    } catch {
+                        guard self.isCurrent(requestID, store: store) else { return }
+                        plog("🎬 TV Subsonic lyrics apply failed '\(song.title)': \(error)")
+                    }
+                case .absent:
+                    break
+                case .unavailable:
+                    plog("🎬 TV Subsonic lyrics unavailable for '\(song.title)'")
+                }
+                return
+            case .sourceFile:
+                break
             }
 
             // 歌词文件路径:① song.lyricsFileName 指向的源内 .lrc(.json 是本机缓存名,已查过);
@@ -747,6 +778,71 @@ final class TVPlaybackCoordinator {
                 plog("🎬 TV source-lyrics fetch failed '\(song.title)': \(error)")
             }
         }
+    }
+
+    private func cacheAndApplyServerLyrics(
+        _ text: String,
+        song: Song,
+        requestID: UUID,
+        store: TVStore,
+        logSource: String
+    ) async throws {
+        let lines = LyricsParser.parseText(text)
+        guard !lines.isEmpty else { return }
+        let wrote = await MetadataAssetStore.shared.cacheLyrics(
+            lines,
+            forSongID: song.id,
+            force: false
+        )
+        try ensureCurrent(requestID, store: store)
+        if wrote {
+            store.applyLyrics(
+                Self.toTVLyrics(lines, duration: song.duration),
+                forSongID: song.id
+            )
+            plog("🎬 TV \(logSource) lyrics loaded \(lines.count) lines for '\(song.title)'")
+        } else if let preserved = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id),
+                  !preserved.isEmpty {
+            try ensureCurrent(requestID, store: store)
+            store.applyLyrics(
+                Self.toTVLyrics(preserved, duration: song.duration),
+                forSongID: song.id
+            )
+        }
+    }
+
+    private func readSubsonicServerLyrics(
+        for path: String,
+        source: MusicSource,
+        credential: SourceCredential?
+    ) async -> SubsonicLyricsReadResult {
+        let runtime = SourceConnectionRuntime.shared
+        let candidates = await runtime.orderedCandidates(for: source)
+        if candidates.isEmpty {
+            return await SubsonicLyricsClient(session: Self.lyricsSession).readLyrics(
+                forSongPath: path,
+                source: source,
+                credential: credential
+            )
+        }
+
+        for candidate in candidates {
+            guard !Task.isCancelled else { return .unavailable }
+            let routedSource = source.applyingConnectionCandidate(candidate)
+            let result = await SubsonicLyricsClient(session: Self.lyricsSession).readLyrics(
+                forSongPath: path,
+                source: routedSource,
+                credential: credential
+            )
+            switch result {
+            case .content(_), .absent:
+                await runtime.record(candidate.kind, for: source.id)
+                return result
+            case .unavailable:
+                continue
+            }
+        }
+        return .unavailable
     }
 
     /// 取歌词文本:协议直连源用 reader 直读小文件;HTTP/云盘走 StreamResolver 解 URL 下载。

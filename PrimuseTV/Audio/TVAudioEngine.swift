@@ -30,11 +30,13 @@ enum TVPlaybackRoutingAction: Equatable, Sendable {
 }
 
 enum TVPlaybackCommandOwner: Equatable, Sendable {
+    case swiftUIForeground
     case mediaRemoteCommandCenter
 }
 
 enum TVPlaybackCommandRoutingPolicy {
-    static let globalOwner: TVPlaybackCommandOwner = .mediaRemoteCommandCenter
+    static let foregroundOwner: TVPlaybackCommandOwner = .swiftUIForeground
+    static let externalOwner: TVPlaybackCommandOwner = .mediaRemoteCommandCenter
 
     static func action(for input: TVPlaybackInput) -> TVPlaybackRoutingAction {
         switch input {

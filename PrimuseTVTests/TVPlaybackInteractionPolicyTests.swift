@@ -175,11 +175,36 @@ final class TVPlaybackCommandRoutingPolicyTests: XCTestCase {
         XCTAssertFalse(routedActions.contains(.none))
     }
 
-    func testMediaRemoteCommandCenterIsTheGlobalPlaybackCommandOwner() {
+    func testForegroundAndExternalPlaybackCommandsUseTheirNativeOwners() {
         XCTAssertEqual(
-            TVPlaybackCommandRoutingPolicy.globalOwner,
+            TVPlaybackCommandRoutingPolicy.foregroundOwner,
+            .swiftUIForeground
+        )
+        XCTAssertEqual(
+            TVPlaybackCommandRoutingPolicy.externalOwner,
             .mediaRemoteCommandCenter
         )
+    }
+}
+
+final class TVLyricsLoadingPolicyTests: XCTestCase {
+    func testSubsonicFamilyLoadsLyricsFromServerAPI() {
+        for sourceType in [
+            MusicSourceType.subsonic,
+            .navidrome,
+            .airsonic,
+            .gonic,
+        ] {
+            XCTAssertEqual(
+                TVLyricsLoadingPolicy.strategy(for: sourceType),
+                .subsonicServer
+            )
+        }
+    }
+
+    func testOtherLyricsSourcesKeepTheirExistingRoutes() {
+        XCTAssertEqual(TVLyricsLoadingPolicy.strategy(for: .fnMusic), .fnMusicService)
+        XCTAssertEqual(TVLyricsLoadingPolicy.strategy(for: .smb), .sourceFile)
     }
 }
 

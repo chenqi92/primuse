@@ -180,6 +180,10 @@ struct TVRoot: View {
             .modifier(TVReturnToTabsModifier(enabled: !isTabBarFocused) {
                 returnFocusToTabs()
             })
+            .onPlayPauseCommand {
+                guard store.hasNowPlaying else { return }
+                store.togglePlayPause()
+            }
             .alert(
                 PMString("ext.tv.certificate.title"),
                 isPresented: Binding(

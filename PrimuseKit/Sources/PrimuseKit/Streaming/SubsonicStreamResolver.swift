@@ -168,3 +168,268 @@ public struct SubsonicStreamResolver: StreamResolver {
         (0..<16).map { _ in String(format: "%02x", UInt8.random(in: 0...255)) }.joined()
     }
 }
+
+public enum SubsonicLyricsReadResult: Equatable, Sendable {
+    case content(String)
+    case absent
+    case unavailable
+}
+
+/// Lightweight Subsonic lyrics reader shared by clients that only need the
+/// protocol document and should not depend on the full library connector.
+public struct SubsonicLyricsClient: @unchecked Sendable {
+    private struct RequestContext: Sendable {
+        let baseURL: URL
+        let username: String
+        let password: String
+        let salt: String
+        let token: String
+        let apiVersion: String
+        var usesEncodedPassword: Bool
+
+        var authQueryItems: [URLQueryItem] {
+            var items = [URLQueryItem(name: "u", value: username)]
+            if usesEncodedPassword {
+                items.append(URLQueryItem(
+                    name: "p",
+                    value: "enc:\(SubsonicStreamResolver.hexEncoded(password))"
+                ))
+            } else {
+                items.append(URLQueryItem(name: "t", value: token))
+                items.append(URLQueryItem(name: "s", value: salt))
+            }
+            items.append(URLQueryItem(name: "v", value: apiVersion))
+            items.append(URLQueryItem(name: "c", value: SubsonicStreamResolver.clientName))
+            items.append(URLQueryItem(name: "f", value: "json"))
+            return items
+        }
+    }
+
+    private enum RequestError: Error {
+        case invalidURL
+        case httpStatus(Int)
+        case server(Int)
+    }
+
+    private struct APIError: Decodable {
+        let code: Int
+        let message: String?
+    }
+
+    private protocol ResponsePayload: Decodable {
+        var status: String { get }
+        var error: APIError? { get }
+    }
+
+    private struct Envelope<Payload: Decodable>: Decodable {
+        let response: Payload
+
+        enum CodingKeys: String, CodingKey {
+            case response = "subsonic-response"
+        }
+    }
+
+    private struct PingPayload: ResponsePayload {
+        let status: String
+        let error: APIError?
+        let type: String?
+        let openSubsonic: Bool?
+    }
+
+    private struct LyricsPayload: ResponsePayload {
+        let status: String
+        let error: APIError?
+        let lyricsList: LyricsList?
+    }
+
+    private struct LyricsList: Decodable {
+        let structuredLyrics: [OpenSubsonicLyricsConverter.Track]?
+    }
+
+    private struct SongPayload: ResponsePayload {
+        let status: String
+        let error: APIError?
+        let song: SongIdentity?
+    }
+
+    private struct SongIdentity: Decodable {
+        let title: String?
+        let artist: String?
+        let displayArtist: String?
+    }
+
+    private struct LegacyLyricsPayload: ResponsePayload {
+        let status: String
+        let error: APIError?
+        let lyrics: LegacyLyrics?
+    }
+
+    private struct LegacyLyrics: Decodable {
+        let value: String?
+    }
+
+    private let session: URLSession
+
+    public init(session: URLSession = .shared) {
+        self.session = session
+    }
+
+    public func readLyrics(
+        forSongPath path: String,
+        source: MusicSource,
+        credential: SourceCredential?
+    ) async -> SubsonicLyricsReadResult {
+        guard source.type.isSubsonicFamily,
+              let password = credential?.password,
+              !password.isEmpty else {
+            return .unavailable
+        }
+        let username = credential?.username.flatMap { $0.isEmpty ? nil : $0 }
+            ?? source.username
+            ?? ""
+        guard !username.isEmpty,
+              let baseURL = SubsonicStreamResolver.makeBaseURL(
+                host: source.host ?? "",
+                port: source.port,
+                useSsl: source.useSsl,
+                basePath: source.basePath
+              ),
+              let songID = SubsonicStreamResolver.songID(from: path) else {
+            return .unavailable
+        }
+
+        let salt = SubsonicStreamResolver.randomSalt()
+        var context = RequestContext(
+            baseURL: baseURL,
+            username: username,
+            password: password,
+            salt: salt,
+            token: SubsonicStreamResolver.md5Hex(password + salt),
+            apiVersion: source.type == .airsonic
+                ? SubsonicStreamResolver.airsonicAPIVersion
+                : SubsonicStreamResolver.apiVersion,
+            usesEncodedPassword: source.type == .airsonic || source.type == .subsonic
+        )
+
+        do {
+            let ping: PingPayload
+            do {
+                ping = try await request("ping", context: context)
+            } catch let error as RequestError {
+                guard case .server(let code) = error,
+                      SubsonicResponseCompatibility.shouldRetryWithEncodedPassword(
+                        errorCode: code,
+                        alreadyUsingEncodedPassword: context.usesEncodedPassword
+                      ) else {
+                    throw error
+                }
+                context.usesEncodedPassword = true
+                ping = try await request("ping", context: context)
+            }
+
+            let text: String?
+            if ping.openSubsonic == true {
+                text = try await modernLyrics(songID: songID, context: context)
+            } else {
+                text = try await legacyLyrics(songID: songID, context: context)
+            }
+            guard let text,
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return .absent
+            }
+            return .content(text)
+        } catch {
+            return .unavailable
+        }
+    }
+
+    private func modernLyrics(songID: String, context: RequestContext) async throws -> String? {
+        let payload: LyricsPayload
+        do {
+            payload = try await request(
+                "getLyricsBySongId",
+                query: [
+                    URLQueryItem(name: "id", value: songID),
+                    URLQueryItem(name: "enhanced", value: "true"),
+                ],
+                context: context
+            )
+        } catch {
+            try Task.checkCancellation()
+            payload = try await request(
+                "getLyricsBySongId",
+                query: [URLQueryItem(name: "id", value: songID)],
+                context: context
+            )
+        }
+        guard let tracks = payload.lyricsList?.structuredLyrics else { return nil }
+        return OpenSubsonicLyricsConverter.text(from: tracks)
+    }
+
+    private func legacyLyrics(songID: String, context: RequestContext) async throws -> String? {
+        let song: SongPayload = try await request(
+            "getSong",
+            query: [URLQueryItem(name: "id", value: songID)],
+            context: context
+        )
+        guard let title = cleaned(song.song?.title) else { return nil }
+        var query = [URLQueryItem(name: "title", value: title)]
+        if let artist = cleaned(song.song?.artist) ?? cleaned(song.song?.displayArtist) {
+            query.append(URLQueryItem(name: "artist", value: artist))
+        }
+        let lyrics: LegacyLyricsPayload = try await request(
+            "getLyrics",
+            query: query,
+            context: context
+        )
+        return cleaned(lyrics.lyrics?.value)
+    }
+
+    private func request<Payload: ResponsePayload>(
+        _ method: String,
+        query: [URLQueryItem] = [],
+        context: RequestContext
+    ) async throws -> Payload {
+        guard let url = requestURL(method, query: query, context: context) else {
+            throw RequestError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.setValue("Primuse/1.0", forHTTPHeaderField: "User-Agent")
+        let (data, response) = try await StreamResolverHTTPTransport.data(
+            for: request,
+            session: session,
+            maximumBytes: 4 * 1_024 * 1_024
+        )
+        if let response = response as? HTTPURLResponse,
+           !(200...299).contains(response.statusCode) {
+            throw RequestError.httpStatus(response.statusCode)
+        }
+        let normalized = try SubsonicResponseCompatibility.normalizedJSONData(data)
+        let payload = try JSONDecoder().decode(Envelope<Payload>.self, from: normalized).response
+        guard payload.status.caseInsensitiveCompare("ok") == .orderedSame else {
+            throw RequestError.server(payload.error?.code ?? -1)
+        }
+        return payload
+    }
+
+    private func requestURL(
+        _ method: String,
+        query: [URLQueryItem],
+        context: RequestContext
+    ) -> URL? {
+        var url = context.baseURL
+        url.appendPathComponent("rest")
+        url.appendPathComponent("\(method).view")
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        components.queryItems = context.authQueryItems + query
+        return FormSafeQueryURLBuilder.url(from: components)
+    }
+
+    private func cleaned(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
