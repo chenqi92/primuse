@@ -640,6 +640,7 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject {
         private weak var window: NSWindow?
+        private var notificationRelay: MainActorNotificationRelay?
         private var repairScheduled = false
         private var repairGeneration = 0
         private var isApplyingRepair = false
@@ -663,6 +664,10 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
         }
 
         private func observeNotifications(from window: NSWindow) {
+            let relay = MainActorNotificationRelay { [weak self] delivery in
+                self?.handleWindowNotification(delivery)
+            }
+            notificationRelay = relay
             let names: [Notification.Name] = [
                 NSWindow.didUpdateNotification,
                 NSWindow.willEnterFullScreenNotification,
@@ -675,8 +680,8 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
             ]
             names.forEach { name in
                 NotificationCenter.default.addObserver(
-                    self,
-                    selector: #selector(handleWindowNotification(_:)),
+                    relay,
+                    selector: #selector(MainActorNotificationRelay.receive(_:)),
                     name: name,
                     object: window
                 )
@@ -684,7 +689,10 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
         }
 
         private func stopObserving() {
-            NotificationCenter.default.removeObserver(self)
+            if let notificationRelay {
+                NotificationCenter.default.removeObserver(notificationRelay)
+            }
+            notificationRelay = nil
             if let window {
                 PMStandardWindowButtonAlignment.setSuspended(false, in: window)
             }
@@ -725,10 +733,12 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
             repairScheduled = false
         }
 
-        @objc private func handleWindowNotification(_ notification: Notification) {
-            guard let window, (notification.object as? NSWindow) === window else { return }
+        private func handleWindowNotification(_ delivery: MainActorNotificationDelivery) {
+            guard let window,
+                  delivery.objectIdentifier == ObjectIdentifier(window)
+            else { return }
 
-            switch notification.name {
+            switch delivery.name {
             case NSWindow.willEnterFullScreenNotification,
                  NSWindow.willExitFullScreenNotification:
                 isFullScreenTransitioning = true
@@ -760,7 +770,9 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
         }
 
         deinit {
-            NotificationCenter.default.removeObserver(self)
+            if let notificationRelay {
+                NotificationCenter.default.removeObserver(notificationRelay)
+            }
         }
     }
 }

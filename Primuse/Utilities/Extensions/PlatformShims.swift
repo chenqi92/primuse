@@ -1,7 +1,41 @@
 // Cross-platform aliases so the same source compiles on iOS and macOS.
 // Prefer these in shared code; reach for UIKit/AppKit only inside `#if`.
 
+import Foundation
 import SwiftUI
+
+// MARK: - Objective-C notification isolation
+
+/// Sendable subset of `Notification` that can cross from an Objective-C
+/// callback into an actor without carrying its non-Sendable payload.
+struct MainActorNotificationDelivery: Sendable {
+    let name: Notification.Name
+    let objectIdentifier: ObjectIdentifier?
+
+    nonisolated init(_ notification: Notification) {
+        name = notification.name
+        objectIdentifier = (notification.object as AnyObject?).map(ObjectIdentifier.init)
+    }
+}
+
+/// Objective-C notification selectors execute on the posting context and do
+/// not inherit Swift actor isolation. This relay keeps that entry point
+/// nonisolated, then forwards only Sendable values to the main actor.
+final class MainActorNotificationRelay: NSObject, @unchecked Sendable {
+    private let handler: @MainActor @Sendable (MainActorNotificationDelivery) -> Void
+
+    init(handler: @escaping @MainActor @Sendable (MainActorNotificationDelivery) -> Void) {
+        self.handler = handler
+        super.init()
+    }
+
+    @objc func receive(_ notification: Notification) {
+        let delivery = MainActorNotificationDelivery(notification)
+        DispatchQueue.main.async { [handler, delivery] in
+            handler(delivery)
+        }
+    }
+}
 
 #if os(iOS)
 import UIKit

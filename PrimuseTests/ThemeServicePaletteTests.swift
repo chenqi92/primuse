@@ -140,3 +140,34 @@ final class ThemeServicePaletteTests: XCTestCase {
         return min(distance, 1 - distance)
     }
 }
+
+@MainActor
+final class MainActorNotificationRelayTests: XCTestCase {
+    func testSelectorDeliveryFromBackgroundQueueHopsToMainActor() async {
+        let name = Notification.Name("MainActorNotificationRelayTests.delivery")
+        let subject = NotificationRelayTestSubject()
+        let delivered = expectation(description: "notification delivered on main actor")
+        let relay = MainActorNotificationRelay { delivery in
+            MainActor.assertIsolated()
+            XCTAssertEqual(delivery.name, name)
+            XCTAssertEqual(delivery.objectIdentifier, ObjectIdentifier(subject))
+            delivered.fulfill()
+        }
+
+        NotificationCenter.default.addObserver(
+            relay,
+            selector: #selector(MainActorNotificationRelay.receive(_:)),
+            name: name,
+            object: subject
+        )
+        defer { NotificationCenter.default.removeObserver(relay) }
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            NotificationCenter.default.post(name: name, object: subject)
+        }
+
+        await fulfillment(of: [delivered], timeout: 2)
+    }
+}
+
+private final class NotificationRelayTestSubject: NSObject, @unchecked Sendable {}
