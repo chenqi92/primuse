@@ -719,7 +719,12 @@ protocol MusicSourceConnector: Sendable {
     /// Fetches a bounded byte window for tag, duration, CUE, or format
     /// inspection. Playback keeps using `fetchRange`, whose response validation
     /// must remain strict enough for sparse-cache writes.
-    func fetchMetadataRange(path: String, offset: Int64, length: Int64) async throws -> Data
+    func fetchMetadataRange(
+        path: String,
+        offset: Int64,
+        length: Int64,
+        intent: MetadataRangeReadIntent
+    ) async throws -> Data
 
     /// 批量预热下载链接 / 元数据。给定一组 path, connector 提前 batch 拿
     /// (并 cache) 后续 fetchRange 需要的 dlink / CDN URL / 鉴权信息。
@@ -984,7 +989,25 @@ extension MusicSourceConnector {
         try await fetchRange(path: path, offset: offset, length: length)
     }
 
-    func fetchMetadataRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+    func fetchMetadataRange(
+        path: String,
+        offset: Int64,
+        length: Int64
+    ) async throws -> Data {
+        try await fetchMetadataRange(
+            path: path,
+            offset: offset,
+            length: length,
+            intent: .bulkBounded
+        )
+    }
+
+    func fetchMetadataRange(
+        path: String,
+        offset: Int64,
+        length: Int64,
+        intent: MetadataRangeReadIntent
+    ) async throws -> Data {
         try await fetchRange(
             path: path,
             offset: offset,
@@ -1079,8 +1102,24 @@ protocol OpenListSTRMResolvingConnector: MusicSourceConnector {
     func fetchOpenListSTRMMetadataRange(
         for reference: String,
         offset: Int64,
-        length: Int64
+        length: Int64,
+        intent: MetadataRangeReadIntent
     ) async throws -> Data
+}
+
+extension OpenListSTRMResolvingConnector {
+    func fetchOpenListSTRMMetadataRange(
+        for reference: String,
+        offset: Int64,
+        length: Int64
+    ) async throws -> Data {
+        try await fetchOpenListSTRMMetadataRange(
+            for: reference,
+            offset: offset,
+            length: length,
+            intent: .bulkBounded
+        )
+    }
 }
 
 /// Lets local and mounted-file connectors compare cheap fingerprints before

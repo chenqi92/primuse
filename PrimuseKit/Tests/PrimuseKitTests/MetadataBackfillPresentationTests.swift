@@ -152,6 +152,81 @@ struct MetadataBackfillPresentationTests {
         ))
     }
 
+    @Test("Lightweight status projection filters and sorts without Song values")
+    func statusProjectionFiltersAndSortsStableRows() {
+        let rows = [
+            makeDisplayItem(id: "pending-b", title: "Beta", state: .pendingInspection),
+            makeDisplayItem(id: "retry", title: "Zulu", state: .retryPending),
+            makeDisplayItem(id: "source", title: "Alpha", state: .sourceUnavailable),
+            makeDisplayItem(id: "pending-a", title: "Alpha", state: .pendingInspection),
+            makeDisplayItem(
+                id: "artist-match",
+                title: "No title match",
+                artist: "Needle Artist",
+                state: .fileUnavailable
+            ),
+        ]
+
+        let all = MetadataBackfillStatusProjectionPolicy.project(
+            rows,
+            filter: .all,
+            query: ""
+        )
+        #expect(all.map(\.songID) == [
+            "source", "artist-match", "retry", "pending-a", "pending-b",
+        ])
+
+        let artistSearch = MetadataBackfillStatusProjectionPolicy.project(
+            rows,
+            filter: .sourceProblem,
+            query: " needle "
+        )
+        #expect(artistSearch.map(\.songID) == ["artist-match"])
+    }
+
+    @Test("Search projects the complete source before the first display page")
+    func statusSearchCoversRowsBeyondInitialPage() {
+        let rows = (0..<1_000).map { index in
+            makeDisplayItem(
+                id: "song-\(index)",
+                title: index == 999 ? "Deep Needle" : "Track \(index)",
+                state: .pendingInspection
+            )
+        }
+
+        let projected = MetadataBackfillStatusProjectionPolicy.project(
+            rows,
+            filter: .all,
+            query: "needle"
+        )
+
+        #expect(projected.map(\.songID) == ["song-999"])
+        #expect(!rows.prefix(MetadataBackfillStatusPaginationPolicy.defaultPageSize)
+            .contains { $0.songID == "song-999" })
+    }
+
+    @Test("Status pages grow in bounded increments and clamp to the result count")
+    func statusPaginationIsBounded() {
+        #expect(MetadataBackfillStatusPaginationPolicy.initialVisibleCount(
+            totalCount: 1_000,
+            pageSize: 128
+        ) == 128)
+        #expect(MetadataBackfillStatusPaginationPolicy.nextVisibleCount(
+            currentCount: 128,
+            totalCount: 1_000,
+            pageSize: 128
+        ) == 256)
+        #expect(MetadataBackfillStatusPaginationPolicy.nextVisibleCount(
+            currentCount: 990,
+            totalCount: 1_000,
+            pageSize: 128
+        ) == 1_000)
+        #expect(MetadataBackfillStatusPaginationPolicy.initialVisibleCount(
+            totalCount: -1,
+            pageSize: 0
+        ) == 0)
+    }
+
     private func resolve(
         needsInspection: Bool = true,
         hasUnreadableTags: Bool = false,
@@ -171,6 +246,26 @@ struct MetadataBackfillPresentationTests {
             isSourceUnavailable: isSourceUnavailable,
             isStalled: isStalled,
             isWaitingForWiFi: isWaitingForWiFi
+        )
+    }
+
+    private func makeDisplayItem(
+        id: String,
+        title: String,
+        artist: String? = nil,
+        state: MetadataBackfillItemState
+    ) -> MetadataBackfillStatusDisplayItem {
+        MetadataBackfillStatusDisplayItem(
+            songID: id,
+            title: title,
+            artistName: artist,
+            filePath: "/music/\(id).flac",
+            fileFormat: "FLAC",
+            hasMissingDuration: false,
+            state: state,
+            workReasons: [.artwork],
+            diagnostic: nil,
+            attemptCount: 0
         )
     }
 }

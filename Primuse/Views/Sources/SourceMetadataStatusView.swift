@@ -53,25 +53,20 @@ struct SourceMetadataStatusView: View {
 
     let source: MusicSource
 
-    @State private var items: [MetadataBackfillStatusItem] = []
+    @State private var sourceItems: [MetadataBackfillStatusDisplayItem] = []
+    @State private var projectedItems: [MetadataBackfillStatusDisplayItem] = []
+    @State private var visibleItemCount = 0
     @State private var selectedFilter: MetadataBackfillStatusFilter = .all
     @State private var searchText = ""
+    @State private var debouncedSearchText = ""
+    @State private var projectionGeneration: UInt64 = 0
+    @State private var projectionTask: Task<Void, Never>?
+    @State private var searchDebounceTask: Task<Void, Never>?
+    @State private var isProjecting = false
     @State private var resultMessage: String?
 
     private var summary: MetadataBackfillSourceSummary {
         backfill.sourceStatusSummary(forSource: source.id)
-    }
-
-    private var filteredItems: [MetadataBackfillStatusItem] {
-        items.filter { item in
-            guard selectedFilter.includes(item.state) else { return false }
-            let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !query.isEmpty else { return true }
-            return item.song.title.localizedCaseInsensitiveContains(query)
-                || item.song.filePath.localizedCaseInsensitiveContains(query)
-                || (item.song.artistName?.localizedCaseInsensitiveContains(query) ?? false)
-                || item.song.fileFormat.rawValue.localizedCaseInsensitiveContains(query)
-        }
     }
 
     private var usesTwoColumnLayout: Bool {
@@ -92,12 +87,17 @@ struct SourceMetadataStatusView: View {
         }
         .navigationTitle("metadata_status_title")
         .task(id: backfill.statusRevision) {
-            // Failure records can arrive in a burst. Coalesce their observable
-            // revisions so a large source is filtered and sorted once after the
-            // burst instead of once per completed Range request.
-            try? await Task.sleep(for: .milliseconds(300))
-            guard !Task.isCancelled else { return }
-            reload(force: items.isEmpty)
+            reload(force: !backfill.hasStatusDisplaySnapshot(forSource: source.id))
+        }
+        .onChange(of: selectedFilter) { _, _ in
+            scheduleProjection(resetVisibleWindow: true)
+        }
+        .onChange(of: searchText) { _, newValue in
+            scheduleSearchProjection(for: newValue)
+        }
+        .onDisappear {
+            searchDebounceTask?.cancel()
+            projectionTask?.cancel()
         }
         .alert(
             "metadata_status_result_title",
@@ -183,7 +183,11 @@ struct SourceMetadataStatusView: View {
 
     @ViewBuilder
     private var resultRows: some View {
-        if filteredItems.isEmpty {
+        if isProjecting, projectedItems.isEmpty {
+            ProgressView()
+                .frame(maxWidth: .infinity, minHeight: 220)
+                .listRowSeparator(.hidden)
+        } else if projectedItems.isEmpty {
             ContentUnavailableView(
                 "metadata_status_empty",
                 systemImage: "checkmark.circle",
@@ -192,7 +196,7 @@ struct SourceMetadataStatusView: View {
             .frame(maxWidth: .infinity, minHeight: 220)
             .listRowSeparator(.hidden)
         } else {
-            ForEach(filteredItems) { item in
+            ForEach(projectedItems.prefix(visibleItemCount)) { item in
                 if usesTwoColumnLayout {
                     statusRow(item)
                         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
@@ -200,6 +204,16 @@ struct SourceMetadataStatusView: View {
                     compactStatusRow(item)
                         .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
                 }
+            }
+
+            if visibleItemCount < projectedItems.count {
+                ProgressView()
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .listRowSeparator(.hidden)
+                    .id("metadata-status-page-\(visibleItemCount)")
+                    .onAppear {
+                        loadNextPage()
+                    }
             }
         }
     }
@@ -398,7 +412,7 @@ struct SourceMetadataStatusView: View {
                     if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text(String(
                             format: String(localized: "metadata_status_list_count_format"),
-                            filteredItems.count
+                            projectedItems.count
                         ))
                         .font(.caption2.weight(.medium))
                         .foregroundStyle(.secondary)
@@ -597,7 +611,7 @@ struct SourceMetadataStatusView: View {
                 Spacer(minLength: 8)
                 Text(String(
                     format: String(localized: "metadata_status_list_count_format"),
-                    filteredItems.count
+                    projectedItems.count
                 ))
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
@@ -655,7 +669,7 @@ struct SourceMetadataStatusView: View {
         .accessibilityIdentifier("metadata-status-filter-\(filter.rawValue)")
     }
 
-    private func statusRow(_ item: MetadataBackfillStatusItem) -> some View {
+    private func statusRow(_ item: MetadataBackfillStatusDisplayItem) -> some View {
         Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 7) {
             GridRow(alignment: .top) {
                 Image(systemName: stateIcon(item.state))
@@ -663,10 +677,10 @@ struct SourceMetadataStatusView: View {
                     .frame(width: 20)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(item.song.title)
+                    Text(item.title)
                         .font(.body.weight(.semibold))
                         .lineLimit(2)
-                    if let artist = item.song.artistName, !artist.isEmpty {
+                    if let artist = item.artistName, !artist.isEmpty {
                         Text(artist)
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -681,12 +695,12 @@ struct SourceMetadataStatusView: View {
             GridRow {
                 Color.clear
                     .frame(width: 20, height: 1)
-                Text(displayPath(for: item.song))
+                Text(displayPath(for: item.filePath))
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .help(displayPath(for: item.song))
+                    .help(displayPath(for: item.filePath))
                     .textSelection(.enabled)
                     .environment(\.layoutDirection, .leftToRight)
                     .gridCellColumns(2)
@@ -719,7 +733,10 @@ struct SourceMetadataStatusView: View {
                 }
             }
 
-            if backfill.canRereadTags(for: item.song) {
+            if backfill.canRereadTags(
+                songID: item.songID,
+                expectedSourceID: source.id
+            ) {
                 GridRow {
                     Color.clear
                         .frame(width: 20, height: 1)
@@ -735,15 +752,15 @@ struct SourceMetadataStatusView: View {
         .accessibilityElement(children: .contain)
     }
 
-    private func compactStatusRow(_ item: MetadataBackfillStatusItem) -> some View {
+    private func compactStatusRow(_ item: MetadataBackfillStatusDisplayItem) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .center, spacing: 7) {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(item.song.title)
+                    Text(item.title)
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(2)
                         .layoutPriority(1)
-                    if let artist = item.song.artistName, !artist.isEmpty {
+                    if let artist = item.artistName, !artist.isEmpty {
                         Text(artist)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
@@ -755,12 +772,12 @@ struct SourceMetadataStatusView: View {
                 compactStateBadge(item.state)
             }
 
-            Text(displayPath(for: item.song))
+            Text(displayPath(for: item.filePath))
                 .font(.system(.caption2, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .help(displayPath(for: item.song))
+                .help(displayPath(for: item.filePath))
                 .textSelection(.enabled)
                 .environment(\.layoutDirection, .leftToRight)
 
@@ -774,7 +791,10 @@ struct SourceMetadataStatusView: View {
                         isFailure: item.state.isFailure
                     )
 
-                    if backfill.canRereadTags(for: item.song) {
+                    if backfill.canRereadTags(
+                        songID: item.songID,
+                        expectedSourceID: source.id
+                    ) {
                         compactRereadButton(item)
                     }
                 }
@@ -782,7 +802,10 @@ struct SourceMetadataStatusView: View {
                 HStack(alignment: .top, spacing: 4) {
                     compactFallbackText(fallback, isFailure: item.state.isFailure)
 
-                    if backfill.canRereadTags(for: item.song) {
+                    if backfill.canRereadTags(
+                        songID: item.songID,
+                        expectedSourceID: source.id
+                    ) {
                         compactRereadButton(item)
                     }
                 }
@@ -818,12 +841,12 @@ struct SourceMetadataStatusView: View {
             .fixedSize(horizontal: true, vertical: false)
     }
 
-    private func metadataLine(_ item: MetadataBackfillStatusItem) -> some View {
+    private func metadataLine(_ item: MetadataBackfillStatusDisplayItem) -> some View {
         let reasons = workReasonText(displayWorkReasons(for: item))
         let highlightsUnavailableFields = item.state == .playableIncomplete
         return ViewThatFits(in: .horizontal) {
             HStack(spacing: 8) {
-                formatBadge(item.song.fileFormat.rawValue.uppercased())
+                formatBadge(item.fileFormat)
                 if !reasons.isEmpty {
                     Text(reasons)
                         .font(.caption2.weight(highlightsUnavailableFields ? .semibold : .regular))
@@ -836,7 +859,7 @@ struct SourceMetadataStatusView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
-                    formatBadge(item.song.fileFormat.rawValue.uppercased())
+                    formatBadge(item.fileFormat)
                     attemptText(item.attemptCount)
                 }
                 if !reasons.isEmpty {
@@ -957,8 +980,8 @@ struct SourceMetadataStatusView: View {
         .help(text)
     }
 
-    private func rereadButton(_ item: MetadataBackfillStatusItem) -> some View {
-        let isReading = backfill.isRereadingTags(songID: item.song.id)
+    private func rereadButton(_ item: MetadataBackfillStatusDisplayItem) -> some View {
+        let isReading = backfill.isRereadingTags(songID: item.songID)
         let title = isReading
             ? String(localized: "reread_song_tags_in_progress")
             : String(localized: "reread_song_tags")
@@ -980,8 +1003,8 @@ struct SourceMetadataStatusView: View {
         .disabled(isReading)
     }
 
-    private func compactRereadButton(_ item: MetadataBackfillStatusItem) -> some View {
-        let isReading = backfill.isRereadingTags(songID: item.song.id)
+    private func compactRereadButton(_ item: MetadataBackfillStatusDisplayItem) -> some View {
+        let isReading = backfill.isRereadingTags(songID: item.songID)
         let title = isReading
             ? String(localized: "reread_song_tags_in_progress")
             : String(localized: "reread_song_tags")
@@ -1010,8 +1033,8 @@ struct SourceMetadataStatusView: View {
         .accessibilityLabel(Text(title))
     }
 
-    private func displayPath(for song: Song) -> String {
-        let redacted = MetadataBackfillDisplayRedactionPolicy.redact(song.filePath)
+    private func displayPath(for filePath: String) -> String {
+        let redacted = MetadataBackfillDisplayRedactionPolicy.redact(filePath)
         let path: String
         if let components = URLComponents(string: redacted),
            let scheme = components.scheme,
@@ -1038,7 +1061,66 @@ struct SourceMetadataStatusView: View {
 
     private func reload(force: Bool) {
         if force { backfill.refreshStatusSnapshot() }
-        items = backfill.statusItems(forSource: source.id)
+        sourceItems = backfill.statusDisplayItems(forSource: source.id)
+        scheduleProjection(resetVisibleWindow: false)
+    }
+
+    private func scheduleSearchProjection(for value: String) {
+        searchDebounceTask?.cancel()
+        let query = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        searchDebounceTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            debouncedSearchText = query
+            scheduleProjection(resetVisibleWindow: true)
+        }
+    }
+
+    private func scheduleProjection(resetVisibleWindow: Bool) {
+        projectionTask?.cancel()
+        projectionGeneration = projectionGeneration == .max ? 1 : projectionGeneration + 1
+        let generation = projectionGeneration
+        let snapshot = sourceItems
+        let filter = selectedFilter
+        let query = debouncedSearchText
+        let previousVisibleCount = visibleItemCount
+        isProjecting = true
+
+        let worker = Task.detached(priority: .userInitiated) {
+            MetadataBackfillStatusProjectionPolicy.project(
+                snapshot,
+                filter: filter,
+                query: query
+            )
+        }
+        projectionTask = Task { @MainActor in
+            let projection = await withTaskCancellationHandler {
+                await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+            guard !Task.isCancelled, projectionGeneration == generation else { return }
+            projectedItems = projection
+            let initialCount = MetadataBackfillStatusPaginationPolicy.initialVisibleCount(
+                totalCount: projection.count
+            )
+            if resetVisibleWindow {
+                visibleItemCount = initialCount
+            } else {
+                visibleItemCount = min(
+                    projection.count,
+                    max(initialCount, previousVisibleCount)
+                )
+            }
+            isProjecting = false
+        }
+    }
+
+    private func loadNextPage() {
+        visibleItemCount = MetadataBackfillStatusPaginationPolicy.nextVisibleCount(
+            currentCount: visibleItemCount,
+            totalCount: projectedItems.count
+        )
     }
 
     private func performPrimaryAction() {
@@ -1071,9 +1153,12 @@ struct SourceMetadataStatusView: View {
         reload(force: true)
     }
 
-    private func reread(_ item: MetadataBackfillStatusItem) {
+    private func reread(_ item: MetadataBackfillStatusDisplayItem) {
         Task {
-            let result = await backfill.rereadTags(songID: item.song.id)
+            let result = await backfill.rereadTags(
+                songID: item.songID,
+                expectedSourceID: source.id
+            )
             switch result {
             case .completed(let kind):
                 resultMessage = kind.localizedRereadResult
@@ -1084,8 +1169,8 @@ struct SourceMetadataStatusView: View {
             case .failed(let reason):
                 resultMessage = String(
                     format: String(localized: "reread_song_tags_failed_detail_format"),
-                    URL(fileURLWithPath: item.song.filePath).lastPathComponent,
-                    item.song.fileFormat.rawValue.uppercased(),
+                    URL(fileURLWithPath: item.filePath).lastPathComponent,
+                    item.fileFormat,
                     source.name,
                     MetadataBackfillDisplayRedactionPolicy.redact(reason)
                 )
@@ -1141,13 +1226,13 @@ struct SourceMetadataStatusView: View {
     }
 
     private func displayWorkReasons(
-        for item: MetadataBackfillStatusItem
+        for item: MetadataBackfillStatusDisplayItem
     ) -> MetadataBackfillWorkReasons {
         var reasons = item.workReasons
         // `playableIncomplete` closes the duration inspection leg to avoid an
         // endless retry loop, but the missing duration still explains the row
         // to the user and therefore remains visible as a confirmed red field.
-        if item.state == .playableIncomplete, item.song.duration <= 0 {
+        if item.state == .playableIncomplete, item.hasMissingDuration {
             reasons.insert(.duration)
         }
         return reasons

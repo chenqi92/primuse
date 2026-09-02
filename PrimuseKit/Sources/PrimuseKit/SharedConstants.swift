@@ -534,6 +534,50 @@ public enum HTTPByteRangeResponsePolicy {
     }
 }
 
+/// Describes whether a metadata read must stay transport-bounded or may perform
+/// one explicit complete-file fallback for a single user-selected song.
+public enum MetadataRangeReadIntent: Sendable, Equatable {
+    case bulkBounded
+    case explicitSingleFileCompleteFallback
+}
+
+public enum MetadataRangeReadError: Error, LocalizedError, Sendable, Equatable {
+    case suffixRangeUnsupported
+
+    public var errorDescription: String? {
+        switch self {
+        case .suffixRangeUnsupported:
+            return "The remote endpoint does not support bounded metadata suffix reads"
+        }
+    }
+}
+
+/// A connector owns one cache instance per source. Recording both the original
+/// and final endpoint prevents redirects from repeating known-unsupported
+/// suffix probes while keeping unrelated endpoints independent.
+public struct MetadataSuffixRangeCapabilityCache: Sendable {
+    private var unsupportedEndpointKeys: Set<String> = []
+
+    public init() {}
+
+    public func isUnsupported(endpointKey: String?) -> Bool {
+        guard let endpointKey else { return false }
+        return unsupportedEndpointKeys.contains(endpointKey)
+    }
+
+    public mutating func recordUnsupported(
+        requestedEndpointKey: String?,
+        finalEndpointKey: String?
+    ) {
+        if let requestedEndpointKey {
+            unsupportedEndpointKeys.insert(requestedEndpointKey)
+        }
+        if let finalEndpointKey {
+            unsupportedEndpointKeys.insert(finalEndpointKey)
+        }
+    }
+}
+
 /// Extracts a metadata-only byte window when a WebDAV proxy ignores `Range`
 /// and returns the complete resource with HTTP 200.
 ///
@@ -542,6 +586,42 @@ public enum HTTPByteRangeResponsePolicy {
 /// different — they only need a bounded head or tail slice and never place the
 /// result at an arbitrary offset in the playback cache.
 public enum WholeResourceMetadataRangePolicy {
+    public enum ResponseDisposition: Sendable, Equatable {
+        case consumeBoundedPrefix
+        case rejectSuffixWithoutConsuming
+        case useCompleteFileFallback
+    }
+
+    public static func responseDisposition(
+        requestedOffset: Int64,
+        intent: MetadataRangeReadIntent
+    ) -> ResponseDisposition {
+        guard requestedOffset < 0 else { return .consumeBoundedPrefix }
+        switch intent {
+        case .bulkBounded:
+            return .rejectSuffixWithoutConsuming
+        case .explicitSingleFileCompleteFallback:
+            return .useCompleteFileFallback
+        }
+    }
+
+    /// Limits the initial Range probe when an endpoint responds with HTTP 200.
+    /// Suffix probes intentionally accept zero body bytes: callers can reject
+    /// bulk work immediately or start one separately cached complete download.
+    public static func wholeResponsePrefixLimit(
+        requestedOffset: Int64,
+        requestedLength: Int64
+    ) -> Int? {
+        guard requestedOffset >= 0,
+              let end = SafeByteRange.exclusiveEnd(
+                  offset: requestedOffset,
+                  length: requestedLength
+              ) else {
+            return requestedOffset < 0 ? 0 : nil
+        }
+        return Int(clamping: end)
+    }
+
     public static func sliceRange(
         bodyLength: Int,
         requestedOffset: Int64,

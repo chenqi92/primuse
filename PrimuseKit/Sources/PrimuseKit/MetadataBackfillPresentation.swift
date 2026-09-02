@@ -64,6 +64,109 @@ public enum MetadataBackfillStatusFilter: String, CaseIterable, Identifiable, Se
     }
 }
 
+/// A status-row projection that deliberately excludes heavyweight `Song`
+/// fields such as lyrics and artwork. The source detail screen can safely
+/// move filtering and sorting of these values off the main actor.
+public struct MetadataBackfillStatusDisplayItem: Identifiable, Equatable, Sendable {
+    public let songID: String
+    public let title: String
+    public let artistName: String?
+    public let filePath: String
+    public let fileFormat: String
+    public let hasMissingDuration: Bool
+    public let state: MetadataBackfillItemState
+    public let workReasons: MetadataBackfillWorkReasons
+    public let diagnostic: MetadataBackfillDiagnosticRecord?
+    public let attemptCount: Int
+
+    public var id: String { songID }
+
+    public init(
+        songID: String,
+        title: String,
+        artistName: String?,
+        filePath: String,
+        fileFormat: String,
+        hasMissingDuration: Bool,
+        state: MetadataBackfillItemState,
+        workReasons: MetadataBackfillWorkReasons,
+        diagnostic: MetadataBackfillDiagnosticRecord?,
+        attemptCount: Int
+    ) {
+        self.songID = songID
+        self.title = title
+        self.artistName = artistName
+        self.filePath = filePath
+        self.fileFormat = fileFormat
+        self.hasMissingDuration = hasMissingDuration
+        self.state = state
+        self.workReasons = workReasons
+        self.diagnostic = diagnostic
+        self.attemptCount = max(0, attemptCount)
+    }
+}
+
+public enum MetadataBackfillStatusProjectionPolicy {
+    public static func project(
+        _ items: [MetadataBackfillStatusDisplayItem],
+        filter: MetadataBackfillStatusFilter,
+        query: String
+    ) -> [MetadataBackfillStatusDisplayItem] {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return items
+            .filter { item in
+                guard filter.includes(item.state) else { return false }
+                guard !normalizedQuery.isEmpty else { return true }
+                return item.title.localizedCaseInsensitiveContains(normalizedQuery)
+                    || item.filePath.localizedCaseInsensitiveContains(normalizedQuery)
+                    || (item.artistName?.localizedCaseInsensitiveContains(normalizedQuery) ?? false)
+                    || item.fileFormat.localizedCaseInsensitiveContains(normalizedQuery)
+            }
+            .sorted { lhs, rhs in
+                let leftPriority = sortPriority(lhs.state)
+                let rightPriority = sortPriority(rhs.state)
+                if leftPriority != rightPriority { return leftPriority < rightPriority }
+                let titleOrder = lhs.title.localizedStandardCompare(rhs.title)
+                if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
+                let pathOrder = lhs.filePath.localizedStandardCompare(rhs.filePath)
+                if pathOrder != .orderedSame { return pathOrder == .orderedAscending }
+                return lhs.songID < rhs.songID
+            }
+    }
+
+    private static func sortPriority(_ state: MetadataBackfillItemState) -> Int {
+        switch state {
+        case .sourceUnavailable, .fileUnavailable: 0
+        case .retryPending, .stalled: 1
+        case .unreadableTags: 2
+        case .waitingForWiFi: 3
+        case .pendingInspection: 4
+        case .playableIncomplete: 5
+        }
+    }
+}
+
+public enum MetadataBackfillStatusPaginationPolicy {
+    public static let defaultPageSize = 160
+
+    public static func initialVisibleCount(
+        totalCount: Int,
+        pageSize: Int = defaultPageSize
+    ) -> Int {
+        min(max(0, totalCount), max(1, pageSize))
+    }
+
+    public static func nextVisibleCount(
+        currentCount: Int,
+        totalCount: Int,
+        pageSize: Int = defaultPageSize
+    ) -> Int {
+        let boundedTotal = max(0, totalCount)
+        let boundedCurrent = min(max(0, currentCount), boundedTotal)
+        return min(boundedTotal, boundedCurrent + max(1, pageSize))
+    }
+}
+
 public enum MetadataBackfillDisplayRedactionPolicy {
     public static func redact(_ value: String) -> String {
         var result = value

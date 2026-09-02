@@ -18,6 +18,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
     private var usesTrustedURLSession = false
     private var connectTask: Task<Void, Error>?
     private var didLogWholeResourceMetadataFallback = false
+    private var metadataSuffixRangeCapabilityCache = MetadataSuffixRangeCapabilityCache()
+    private var completeMetadataFallbackTasks: [String: Task<URL, Error>] = [:]
     private let cacheDirectory: URL
 
     /// 长生命周期 session, 让 fetchRange 复用 HTTP keep-alive 连接,
@@ -198,6 +200,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
     func disconnect() async {
         connectTask?.cancel()
         connectTask = nil
+        completeMetadataFallbackTasks.values.forEach { $0.cancel() }
+        completeMetadataFallbackTasks.removeAll()
         provider?.session.invalidateAndCancel()
         provider = nil
         usesTrustedURLSession = false
@@ -530,7 +534,12 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         )
     }
 
-    func fetchMetadataRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+    func fetchMetadataRange(
+        path: String,
+        offset: Int64,
+        length: Int64,
+        intent: MetadataRangeReadIntent
+    ) async throws -> Data {
         guard let rangeHeader = SafeByteRange.httpHeader(offset: offset, length: length) else {
             return Data()
         }
@@ -539,7 +548,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
             request: request,
             mediaPath: path,
             offset: offset,
-            length: length
+            length: length,
+            intent: intent
         )
     }
 
@@ -547,20 +557,28 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         request: URLRequest,
         mediaPath path: String,
         offset: Int64,
-        length: Int64
+        length: Int64,
+        intent: MetadataRangeReadIntent
     ) async throws -> Data {
+        if offset < 0 {
+            return try await fetchMetadataSuffix(
+                request: request,
+                mediaPath: path,
+                offset: offset,
+                length: length,
+                intent: intent
+            )
+        }
         if let url = request.url, TrustedHTTPTransport.requiresPlainSocket(for: url) {
             let requestedBodyBytes = Int(clamping: max(length, 0))
             let maximumRangedBodyBytes = requestedBodyBytes > Int.max - 64 * 1024
                 ? Int.max
                 : requestedBodyBytes + 64 * 1024
-            let wholeResponsePrefixLimit: Int? = {
-                guard offset >= 0,
-                      let end = SafeByteRange.exclusiveEnd(offset: offset, length: length) else {
-                    return nil
-                }
-                return Int(clamping: end)
-            }()
+            let wholeResponsePrefixLimit = WholeResourceMetadataRangePolicy
+                .wholeResponsePrefixLimit(
+                    requestedOffset: offset,
+                    requestedLength: length
+                )
             let (temporaryURL, response) = try await TrustedHTTPTransport.download(
                 for: request,
                 session: rangeSession,
@@ -642,6 +660,214 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         }
     }
 
+    private func fetchMetadataSuffix(
+        request: URLRequest,
+        mediaPath path: String,
+        offset: Int64,
+        length: Int64,
+        intent: MetadataRangeReadIntent
+    ) async throws -> Data {
+        if let cachedURL = cachedCompleteMetadataFallbackURL(for: path),
+           intent == .explicitSingleFileCompleteFallback {
+            return try boundedMetadataSlice(cachedURL, offset: offset, length: length)
+        }
+
+        if metadataSuffixRangeIsKnownUnsupported(for: request.url) {
+            switch intent {
+            case .bulkBounded:
+                throw MetadataRangeReadError.suffixRangeUnsupported
+            case .explicitSingleFileCompleteFallback:
+                let completeURL = try await completeMetadataFallbackURL(
+                    request: request,
+                    mediaPath: path
+                )
+                return try boundedMetadataSlice(completeURL, offset: offset, length: length)
+            }
+        }
+
+        let requestedBodyBytes = Int(clamping: max(length, 0))
+        let maximumRangedBodyBytes = requestedBodyBytes > Int.max - 64 * 1024
+            ? Int.max
+            : requestedBodyBytes + 64 * 1024
+        let (temporaryURL, response) = try await downloadFollowingMediaRedirects(
+            for: request,
+            maximumBytes: maximumRangedBodyBytes,
+            wholeResponsePrefixLimit: 0
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryURL) }
+        guard let http = response as? HTTPURLResponse else {
+            throw SourceError.connectionFailed("Invalid WebDAV metadata response")
+        }
+        switch http.statusCode {
+        case 206:
+            let bodyLength = try temporaryResponseBodyLength(at: temporaryURL)
+            let responsePrefix = try boundedMetadataSlice(
+                temporaryURL,
+                offset: 0,
+                length: min(bodyLength, 4 * 1024)
+            )
+            try rejectNonMediaResponseIfNeeded(http, data: responsePrefix, path: path)
+            guard HTTPByteRangeResponsePolicy.validatedTotalLength(
+                contentRange: http.value(forHTTPHeaderField: "Content-Range"),
+                contentLength: http.value(forHTTPHeaderField: "Content-Length").flatMap(Int64.init),
+                bodyLength: Int(clamping: bodyLength),
+                requestedOffset: offset,
+                requestedLength: length
+            ) != nil else {
+                throw SourceError.connectionFailed("Invalid WebDAV Content-Range response")
+            }
+            return try boundedMetadataSlice(temporaryURL, offset: 0, length: length)
+        case 200:
+            rememberUnsupportedMetadataSuffixRange(
+                requestedURL: request.url,
+                responseURL: response.url
+            )
+            switch WholeResourceMetadataRangePolicy.responseDisposition(
+                requestedOffset: offset,
+                intent: intent
+            ) {
+            case .consumeBoundedPrefix:
+                assertionFailure("A suffix request cannot consume a response prefix")
+                throw MetadataRangeReadError.suffixRangeUnsupported
+            case .rejectSuffixWithoutConsuming:
+                throw MetadataRangeReadError.suffixRangeUnsupported
+            case .useCompleteFileFallback:
+                let completeURL = try await completeMetadataFallbackURL(
+                    request: request,
+                    mediaPath: path
+                )
+                return try boundedMetadataSlice(completeURL, offset: offset, length: length)
+            }
+        default:
+            throw SourceError.connectionFailed("WebDAV metadata request failed: HTTP \(http.statusCode)")
+        }
+    }
+
+    private func metadataSuffixRangeIsKnownUnsupported(for url: URL?) -> Bool {
+        metadataSuffixRangeCapabilityCache.isUnsupported(
+            endpointKey: metadataEndpointKey(for: url)
+        )
+    }
+
+    private func rememberUnsupportedMetadataSuffixRange(
+        requestedURL: URL?,
+        responseURL: URL?
+    ) {
+        metadataSuffixRangeCapabilityCache.recordUnsupported(
+            requestedEndpointKey: metadataEndpointKey(for: requestedURL),
+            finalEndpointKey: metadataEndpointKey(for: responseURL)
+        )
+        if !didLogWholeResourceMetadataFallback {
+            didLogWholeResourceMetadataFallback = true
+            plog("WebDAV metadata fallback: endpoint ignored a suffix Range; bulk reads will stop before consuming the response body")
+        }
+    }
+
+    private func metadataEndpointKey(for url: URL?) -> String? {
+        guard let url, let endpoint = NetworkEndpointIdentity(url: url) else { return nil }
+        return endpoint.key
+    }
+
+    private func cachedCompleteMetadataFallbackURL(for path: String) -> URL? {
+        let url = completeMetadataFallbackCacheURL(for: path)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
+    }
+
+    private func completeMetadataFallbackCacheURL(for path: String) -> URL {
+        // Reuse the connector's canonical complete-file cache. An explicit
+        // reread may follow a suffix probe with `localURL(for:)`; sharing the
+        // destination guarantees that path does not download the same file a
+        // second time during the complete metadata parse.
+        cacheDirectory.appendingPathComponent(Self.cacheFileName(for: path))
+    }
+
+    private func completeMetadataFallbackURL(
+        request: URLRequest,
+        mediaPath path: String
+    ) async throws -> URL {
+        if let cachedURL = cachedCompleteMetadataFallbackURL(for: path) {
+            return cachedURL
+        }
+        if let task = completeMetadataFallbackTasks[path] {
+            return try await awaitCompleteMetadataFallbackTask(task)
+        }
+
+        var completeRequest = request
+        completeRequest.setValue(nil, forHTTPHeaderField: "Range")
+        let task = Task { [weak self] in
+            guard let self else { throw CancellationError() }
+            return try await self.downloadCompleteMetadataFallback(
+                request: completeRequest,
+                mediaPath: path
+            )
+        }
+        completeMetadataFallbackTasks[path] = task
+        do {
+            let url = try await awaitCompleteMetadataFallbackTask(task)
+            completeMetadataFallbackTasks.removeValue(forKey: path)
+            return url
+        } catch {
+            completeMetadataFallbackTasks.removeValue(forKey: path)
+            throw error
+        }
+    }
+
+    private func awaitCompleteMetadataFallbackTask(
+        _ task: Task<URL, Error>
+    ) async throws -> URL {
+        try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    private func downloadCompleteMetadataFallback(
+        request: URLRequest,
+        mediaPath path: String
+    ) async throws -> URL {
+        let (downloadedURL, response) = try await downloadFollowingMediaRedirects(for: request)
+        var shouldRemoveDownload = true
+        defer {
+            if shouldRemoveDownload {
+                try? FileManager.default.removeItem(at: downloadedURL)
+            }
+        }
+        guard let http = response as? HTTPURLResponse,
+              http.statusCode == 200 else {
+            if let status = (response as? HTTPURLResponse)?.statusCode,
+               status == 401 || status == 403 {
+                throw SourceError.authenticationFailed
+            }
+            throw SourceError.connectionFailed(
+                "WebDAV complete metadata fallback failed: HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)"
+            )
+        }
+        let bodyLength = try temporaryResponseBodyLength(at: downloadedURL)
+        let responsePrefix = try boundedMetadataSlice(
+            downloadedURL,
+            offset: 0,
+            length: min(bodyLength, 4 * 1024)
+        )
+        try rejectNonMediaResponseIfNeeded(http, data: responsePrefix, path: path)
+
+        let cacheURL = completeMetadataFallbackCacheURL(for: path)
+        if FileManager.default.fileExists(atPath: cacheURL.path) {
+            return cacheURL
+        }
+        do {
+            try FileManager.default.moveItem(at: downloadedURL, to: cacheURL)
+            shouldRemoveDownload = false
+            return cacheURL
+        } catch {
+            if FileManager.default.fileExists(atPath: cacheURL.path) {
+                return cacheURL
+            }
+            throw error
+        }
+    }
+
     private func dataFollowingMediaRedirects(
         for request: URLRequest,
         maxBytes: Int
@@ -682,13 +908,15 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
 
     private func downloadFollowingMediaRedirects(
         for request: URLRequest,
-        maximumBytes: Int? = nil
+        maximumBytes: Int? = nil,
+        wholeResponsePrefixLimit: Int? = nil
     ) async throws -> (URL, URLResponse) {
         for attempt in 0..<HTTPMediaRedirectRetryPolicy.maximumAttempts {
             let initial = try await TrustedHTTPTransport.download(
                 for: request,
                 session: rangeSession,
-                maximumRangedBodyBytes: maximumBytes
+                maximumRangedBodyBytes: maximumBytes,
+                wholeResponsePrefixLimit: wholeResponsePrefixLimit
             )
             guard let redirected = redirectedMediaRequest(
                 from: request,
@@ -701,7 +929,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
                 let result = try await TrustedHTTPTransport.download(
                     for: redirected,
                     session: redirectedMediaSession,
-                    maximumRangedBodyBytes: maximumBytes
+                    maximumRangedBodyBytes: maximumBytes,
+                    wholeResponsePrefixLimit: wholeResponsePrefixLimit
                 )
                 if attempt + 1 < HTTPMediaRedirectRetryPolicy.maximumAttempts,
                    let http = result.1 as? HTTPURLResponse,
@@ -1157,6 +1386,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
     }
 
     private func invalidateLocalCache(for path: String) {
+        completeMetadataFallbackTasks.removeValue(forKey: path)?.cancel()
         try? FileManager.default.removeItem(
             at: cacheDirectory.appendingPathComponent(Self.cacheFileName(for: path))
         )
@@ -1353,7 +1583,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
     func fetchOpenListSTRMMetadataRange(
         for reference: String,
         offset: Int64,
-        length: Int64
+        length: Int64,
+        intent: MetadataRangeReadIntent
     ) async throws -> Data {
         guard let remoteURL = try openListSTRMURL(for: reference) else {
             throw SourceError.fileNotFound(reference)
@@ -1366,7 +1597,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
             request: request,
             mediaPath: reference,
             offset: offset,
-            length: length
+            length: length,
+            intent: intent
         )
     }
 

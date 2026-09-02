@@ -1660,9 +1660,19 @@ private extension RoutedConnectorProxy {
         }
     }
 
-    func fetchMetadataRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+    func fetchMetadataRange(
+        path: String,
+        offset: Int64,
+        length: Int64,
+        intent: MetadataRangeReadIntent
+    ) async throws -> Data {
         try await routing.withRead {
-            try await $0.fetchMetadataRange(path: path, offset: offset, length: length)
+            try await $0.fetchMetadataRange(
+                path: path,
+                offset: offset,
+                length: length,
+                intent: intent
+            )
         }
     }
 
@@ -1737,7 +1747,8 @@ private struct RoutedMusicSourceConnector: RoutedConnectorProxy, OpenListSTRMRes
     func fetchOpenListSTRMMetadataRange(
         for reference: String,
         offset: Int64,
-        length: Int64
+        length: Int64,
+        intent: MetadataRangeReadIntent
     ) async throws -> Data {
         try await routing.withRead { connector in
             guard let resolver = connector as? any OpenListSTRMResolvingConnector else {
@@ -1746,7 +1757,8 @@ private struct RoutedMusicSourceConnector: RoutedConnectorProxy, OpenListSTRMRes
             return try await resolver.fetchOpenListSTRMMetadataRange(
                 for: reference,
                 offset: offset,
-                length: length
+                length: length,
+                intent: intent
             )
         }
     }
@@ -8134,14 +8146,16 @@ final class SourceManager {
     func fetchMetadataRange(
         for song: Song,
         offset: Int64,
-        length: Int64
+        length: Int64,
+        intent: MetadataRangeReadIntent = .bulkBounded
     ) async throws -> Data {
         let connector = try await connectorForSong(song)
         guard song.isStreamDescriptor else {
             return try await connector.fetchMetadataRange(
                 path: song.filePath,
                 offset: offset,
-                length: length
+                length: length,
+                intent: intent
             )
         }
         switch try await resolveSTRMTarget(for: song, connector: connector) {
@@ -8149,7 +8163,8 @@ final class SourceManager {
             return try await connector.fetchMetadataRange(
                 path: path,
                 offset: offset,
-                length: length
+                length: length,
+                intent: intent
             )
         case .openListSourcePath(let path, _):
             guard let webDAV = connector as? any OpenListSTRMResolvingConnector else {
@@ -8158,13 +8173,15 @@ final class SourceManager {
             return try await webDAV.fetchOpenListSTRMMetadataRange(
                 for: path,
                 offset: offset,
-                length: length
+                length: length,
+                intent: intent
             )
         case .remote(let url):
             return try await Self.fetchRemoteMetadataRange(
                 url: url,
                 offset: offset,
-                length: length
+                length: length,
+                intent: intent
             )
         }
     }
@@ -8172,7 +8189,8 @@ final class SourceManager {
     private nonisolated static func fetchRemoteMetadataRange(
         url: URL,
         offset: Int64,
-        length: Int64
+        length: Int64,
+        intent: MetadataRangeReadIntent
     ) async throws -> Data {
         guard let range = SafeByteRange.httpHeader(offset: offset, length: length) else {
             return Data()
@@ -8191,9 +8209,20 @@ final class SourceManager {
             delegateQueue: nil
         )
         defer { session.finishTasksAndInvalidate() }
+        let requestedBodyBytes = Int(clamping: max(length, 0))
+        let maximumRangedBodyBytes = requestedBodyBytes > Int.max - 64 * 1024
+            ? Int.max
+            : requestedBodyBytes + 64 * 1024
+        let wholeResponsePrefixLimit = WholeResourceMetadataRangePolicy
+            .wholeResponsePrefixLimit(
+                requestedOffset: offset,
+                requestedLength: length
+            )
         let (temporaryURL, response) = try await TrustedHTTPTransport.download(
             for: request,
-            session: session
+            session: session,
+            maximumRangedBodyBytes: maximumRangedBodyBytes,
+            wholeResponsePrefixLimit: wholeResponsePrefixLimit
         )
         defer { try? FileManager.default.removeItem(at: temporaryURL) }
         guard let http = response as? HTTPURLResponse else {
@@ -8217,14 +8246,36 @@ final class SourceManager {
             }
             return data
         case 200:
-            // Some OpenList/proxy targets ignore Range. Metadata reads may
-            // consume the response as a bounded head/tail window, while the
-            // playback path keeps its strict random-access validation.
-            return try boundedRemoteMetadataSlice(
-                temporaryURL,
-                offset: offset,
-                length: length
-            )
+            switch WholeResourceMetadataRangePolicy.responseDisposition(
+                requestedOffset: offset,
+                intent: intent
+            ) {
+            case .consumeBoundedPrefix:
+                return try boundedRemoteMetadataSlice(
+                    temporaryURL,
+                    offset: offset,
+                    length: length
+                )
+            case .rejectSuffixWithoutConsuming:
+                throw MetadataRangeReadError.suffixRangeUnsupported
+            case .useCompleteFileFallback:
+                var wholeRequest = request
+                wholeRequest.setValue(nil, forHTTPHeaderField: "Range")
+                let (completeURL, completeResponse) = try await TrustedHTTPTransport.download(
+                    for: wholeRequest,
+                    session: session
+                )
+                defer { try? FileManager.default.removeItem(at: completeURL) }
+                guard let completeHTTP = completeResponse as? HTTPURLResponse,
+                      completeHTTP.statusCode == 200 else {
+                    throw SourceError.connectionFailed("STRM complete metadata fallback failed")
+                }
+                return try boundedRemoteMetadataSlice(
+                    completeURL,
+                    offset: offset,
+                    length: length
+                )
+            }
         default:
             throw SourceError.connectionFailed("STRM metadata range failed: HTTP \(http.statusCode)")
         }

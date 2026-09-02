@@ -29,16 +29,6 @@ extension MetadataReadCompletionKind {
     }
 }
 
-struct MetadataBackfillStatusItem: Identifiable, Sendable {
-    let song: Song
-    let state: MetadataBackfillItemState
-    let workReasons: MetadataBackfillWorkReasons
-    let diagnostic: MetadataBackfillDiagnosticRecord?
-    let attemptCount: Int
-
-    var id: String { song.id }
-}
-
 /// Fills in metadata for songs that were added by ConnectorScanner in
 /// "bare-song" mode (cloud sources only download a few hundred KB during
 /// scan). This runs continuously in the background, fetching just the file
@@ -230,6 +220,12 @@ final class MetadataBackfillService {
     private(set) var statusCountBySourceID: [String: Int] = [:]
     private(set) var sourceStatusSummaries: [String: MetadataBackfillSourceSummary] = [:]
     private(set) var statusRevision: Int = 0
+    /// Lightweight row values are prepared during the existing queue-summary
+    /// pass. Opening a source detail can reuse that snapshot instead of doing a
+    /// second complete-library pass or copying lyrics-bearing `Song` values.
+    @ObservationIgnored private var statusDisplayItemsBySourceID: [
+        String: [MetadataBackfillStatusDisplayItem]
+    ] = [:]
     /// Sources represented by the worker's current fixed snapshot. Per-source
     /// cards use this rather than the global worker flag, so an idle source does
     /// not show a spinner while another provider is being processed.
@@ -267,6 +263,7 @@ final class MetadataBackfillService {
     /// file replacement run off the main actor.
     private var statePersistenceTask: Task<Void, Never>?
     private var statePersistenceGeneration: Int = 0
+    private static let statePersistenceDebounce: Duration = .seconds(5)
     /// Bumped on every `start()` / `stop()`. The worker captures its own
     /// generation and uses it to decide whether the cleanup at end-of-Task
     /// should clear shared state — without this, a cancelled-but-still-
@@ -1012,6 +1009,9 @@ final class MetadataBackfillService {
                 self.activeSourceIDs.removeAll()
                 self.pendingCount = 0
                 self.refreshRemainingCounts(force: true)
+                if self.statePersistenceTask != nil {
+                    self.scheduleStatePersistence(immediate: true)
+                }
                 self.updateWaitingForWiFiState(presentPrompt: true)
                 self.endBackgroundTaskIfHeld()
                 if self.executionMode == .foregroundAfterSourceScan {
@@ -1491,48 +1491,14 @@ final class MetadataBackfillService {
         sourceStatusSummaries[sourceID] ?? MetadataBackfillSourceSummary()
     }
 
-    func statusItems(forSource sourceID: String) -> [MetadataBackfillStatusItem] {
-        library.songs.compactMap { song in
-            guard song.sourceID == sourceID else { return nil }
-            let reasons = workReasons(for: song)
-            guard let state = statusState(for: song, needsInspection: !reasons.isEmpty) else {
-                return nil
-            }
-            let diagnostic = diagnosticRecords[song.id]
-            let attemptCount = max(
-                diagnostic?.attemptCount ?? 0,
-                max(
-                    transientFailureCounts[song.id] ?? 0,
-                    sourceTransientFailureCounts[sourceID] ?? 0
-                )
-            )
-            return MetadataBackfillStatusItem(
-                song: song,
-                state: state,
-                workReasons: reasons,
-                diagnostic: diagnostic,
-                attemptCount: attemptCount
-            )
-        }
-        .sorted { lhs, rhs in
-            let leftPriority = Self.statusSortPriority(lhs.state)
-            let rightPriority = Self.statusSortPriority(rhs.state)
-            if leftPriority != rightPriority { return leftPriority < rightPriority }
-            let titleOrder = lhs.song.title.localizedStandardCompare(rhs.song.title)
-            if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
-            return lhs.song.filePath.localizedStandardCompare(rhs.song.filePath) == .orderedAscending
-        }
+    func statusDisplayItems(
+        forSource sourceID: String
+    ) -> [MetadataBackfillStatusDisplayItem] {
+        statusDisplayItemsBySourceID[sourceID] ?? []
     }
 
-    private static func statusSortPriority(_ state: MetadataBackfillItemState) -> Int {
-        switch state {
-        case .sourceUnavailable, .fileUnavailable: 0
-        case .retryPending, .stalled: 1
-        case .unreadableTags: 2
-        case .waitingForWiFi: 3
-        case .pendingInspection: 4
-        case .playableIncomplete: 5
-        }
+    func hasStatusDisplaySnapshot(forSource sourceID: String) -> Bool {
+        statusDisplayItemsBySourceID[sourceID] != nil
     }
 
     private func statusState(
@@ -1583,10 +1549,15 @@ final class MetadataBackfillService {
         var deferredBySource: [String: Int] = [:]
         var statusBySource: [String: Int] = [:]
         var summaries: [String: MetadataBackfillSourceSummary] = [:]
+        var displayItemsBySource: [String: [MetadataBackfillStatusDisplayItem]] = [:]
         bySource.reserveCapacity(sourceIDs.count)
         deferredBySource.reserveCapacity(sourceIDs.count)
         statusBySource.reserveCapacity(sourceIDs.count)
         summaries.reserveCapacity(sourceIDs.count)
+        displayItemsBySource.reserveCapacity(sourceIDs.count)
+        for sourceID in sourceIDs {
+            displayItemsBySource[sourceID] = []
+        }
         var total = 0
         var deferredTotal = 0
         var statusTotal = 0
@@ -1594,14 +1565,20 @@ final class MetadataBackfillService {
         for song in songs {
             guard sourceIDs.contains(song.sourceID) else { continue }
 
-            let stillNeedsDetails = Self.needsBackfill(
-                song,
-                artworkGivenUpIDs: artworkGivenUpSnapshot,
-                titleCheckedIDs: titleCheckedSnapshot,
-                incompleteSongIDs: incompleteIDs,
-                albumArtistCheckedIDs: albumArtistCheckedSnapshot,
-                artistCheckedIDs: artistCheckedSnapshot
+            let workReasons = MetadataBackfillEligibilityPolicy.reasons(
+                duration: song.duration,
+                format: song.fileFormat,
+                hasCoverArt: !(song.coverArtFileName?.isEmpty ?? true),
+                artworkGivenUp: artworkGivenUpSnapshot.contains(song.id),
+                titleChecked: titleCheckedSnapshot.contains(song.id),
+                durationInspectionComplete: incompleteIDs.contains(song.id),
+                hasAlbumTitle: !(song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+                hasAlbumArtist: !(song.albumArtistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+                albumArtistChecked: albumArtistCheckedSnapshot.contains(song.id),
+                hasArtist: !(song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+                artistChecked: artistCheckedSnapshot.contains(song.id)
             )
+            let stillNeedsDetails = !workReasons.isEmpty
             let hasTerminalOrSourceFailure = failedIDs.contains(song.id)
                 || sourceIssueIDs.contains(song.id)
             let automaticRetriesExhausted = Self.automaticRetriesExhausted(
@@ -1621,6 +1598,27 @@ final class MetadataBackfillService {
             if let itemState = statusState(for: song, needsInspection: stillNeedsDetails) {
                 summaries[song.sourceID, default: MetadataBackfillSourceSummary()]
                     .record(itemState)
+                let diagnostic = diagnosticRecords[song.id]
+                displayItemsBySource[song.sourceID, default: []].append(
+                    MetadataBackfillStatusDisplayItem(
+                        songID: song.id,
+                        title: song.title,
+                        artistName: song.artistName,
+                        filePath: song.filePath,
+                        fileFormat: song.fileFormat.rawValue.uppercased(),
+                        hasMissingDuration: song.duration <= 0,
+                        state: itemState,
+                        workReasons: workReasons,
+                        diagnostic: diagnostic,
+                        attemptCount: max(
+                            diagnostic?.attemptCount ?? 0,
+                            max(
+                                retryCountSnapshot[song.id] ?? 0,
+                                sourceRetryCountSnapshot[song.sourceID] ?? 0
+                            )
+                        )
+                    )
+                )
             }
 
             let hasFailed = hasTerminalOrSourceFailure
@@ -1670,6 +1668,10 @@ final class MetadataBackfillService {
         }
         if sourceStatusSummaries != summaries {
             sourceStatusSummaries = summaries
+            presentationChanged = true
+        }
+        if statusDisplayItemsBySourceID != displayItemsBySource {
+            statusDisplayItemsBySourceID = displayItemsBySource
             presentationChanged = true
         }
         if presentationChanged {
@@ -1759,13 +1761,11 @@ final class MetadataBackfillService {
         )
         guard diagnosticRecords[songID] != record else { return }
         diagnosticRecords[songID] = record
-        statusRevision = statusRevision == .max ? 1 : statusRevision + 1
         saveDiagnostics()
     }
 
     private func clearDiagnostic(songID: String) {
         guard diagnosticRecords.removeValue(forKey: songID) != nil else { return }
-        statusRevision = statusRevision == .max ? 1 : statusRevision + 1
         saveDiagnostics()
     }
 
@@ -1843,6 +1843,14 @@ final class MetadataBackfillService {
             && !library.disabledSourceIDs.contains(song.sourceID)
     }
 
+    func canRereadTags(songID: String, expectedSourceID: String) -> Bool {
+        guard let song = library.song(id: songID),
+              song.sourceID == expectedSourceID else {
+            return false
+        }
+        return canRereadTags(for: song)
+    }
+
     func isRereadingTags(songID: String) -> Bool {
         manuallyReadingSongIDs.contains(songID)
     }
@@ -1851,8 +1859,13 @@ final class MetadataBackfillService {
     /// reuse the bounded Range parser; local sources read their real file URL.
     /// This deliberately bypasses the whole-library queue so the action cannot
     /// disappear behind an older fixed snapshot.
-    func rereadTags(songID: String) async -> SingleSongTagReadResult {
-        guard let song = library.song(id: songID), canRereadTags(for: song) else {
+    func rereadTags(
+        songID: String,
+        expectedSourceID: String? = nil
+    ) async -> SingleSongTagReadResult {
+        guard let song = library.song(id: songID),
+              expectedSourceID == nil || song.sourceID == expectedSourceID,
+              canRereadTags(for: song) else {
             return .unsupported
         }
         guard manuallyReadingSongIDs.insert(songID).inserted else {
@@ -2742,11 +2755,15 @@ final class MetadataBackfillService {
         // what made backfill 10x slower than it needed to be — every song
         // re-paid the list+filemetas dlink cost AND was prone to 31034
         // rate-limit storms because the throttle state didn't carry over.
+        let rangeReadIntent: MetadataRangeReadIntent = isExplicitReread
+            ? .explicitSingleFileCompleteFallback
+            : .bulkBounded
         let fetchStarted = Date()
         let headData = try await sourceManager.fetchMetadataRange(
             for: song,
             offset: 0,
-            length: Self.headBytes
+            length: Self.headBytes,
+            intent: rangeReadIntent
         )
         let fetchElapsed = Date().timeIntervalSince(fetchStarted)
 
@@ -2792,7 +2809,8 @@ final class MetadataBackfillService {
                     let expandedHead = try await sourceManager.fetchMetadataRange(
                         for: song,
                         offset: 0,
-                        length: Int64(expandedByteCount)
+                        length: Int64(expandedByteCount),
+                        intent: rangeReadIntent
                     )
                     metadataInputData = expandedHead
                     metadata = await extractMetadata(
@@ -2826,7 +2844,8 @@ final class MetadataBackfillService {
                 let expandedHead = try await sourceManager.fetchMetadataRange(
                     for: song,
                     offset: 0,
-                    length: Int64(expandedByteCount)
+                    length: Int64(expandedByteCount),
+                    intent: rangeReadIntent
                 )
                 guard expandedHead.count > metadataInputData.count else {
                     throw SourceError.connectionFailed("FLAC metadata range did not expand")
@@ -2855,7 +2874,8 @@ final class MetadataBackfillService {
                 let expandedHead = try await sourceManager.fetchMetadataRange(
                     for: song,
                     offset: 0,
-                    length: Int64(expandedByteCount)
+                    length: Int64(expandedByteCount),
+                    intent: rangeReadIntent
                 )
                 guard expandedHead.count > metadataInputData.count else {
                     throw SourceError.connectionFailed("container metadata range did not expand")
@@ -2890,48 +2910,132 @@ final class MetadataBackfillService {
                 || needsArtistInspection
                 || (Self.needsEmbeddedArtworkBackfill(song)
                     && metadata.coverArtFileName == nil))
+        var suffixMetadataUnavailable = false
         if metadataLooksMissing(metadata)
             || needsSecondaryArtistRange
             || needsSecondaryArtworkRange
             || needsSecondaryTagRange {
-            if tailStrategy == .isoBaseMedia {
-                var readContainerTail = false
-                for tailSize in RemoteMetadataReadPolicy.containerTailReadSizes(fileSize: song.fileSize) {
+            do {
+                if tailStrategy == .isoBaseMedia {
+                    var readContainerTail = false
+                    for tailSize in RemoteMetadataReadPolicy.containerTailReadSizes(fileSize: song.fileSize) {
+                        do {
+                            let tailData = try await sourceManager.fetchMetadataRange(
+                                for: song,
+                                offset: -Int64(tailSize),
+                                length: Int64(tailSize),
+                                intent: rangeReadIntent
+                            )
+                            guard !tailData.isEmpty else { continue }
+                            readContainerTail = true
+                            metadata = await extractMetadata(
+                                from: metadataInputData,
+                                containerTailData: tailData,
+                                song: song,
+                                cacheKey: song.id
+                            )
+                            let foundArtist = metadata.artist?
+                                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                            let foundArtwork = metadata.coverArtFileName != nil
+                            if !metadataLooksMissing(metadata)
+                                && (!needsSecondaryArtistRange || foundArtist)
+                                && (!needsSecondaryArtworkRange || foundArtwork) {
+                                break
+                            }
+                        } catch MetadataRangeReadError.suffixRangeUnsupported {
+                            throw MetadataRangeReadError.suffixRangeUnsupported
+                        } catch {
+                            if needsSecondaryArtistRange || needsSecondaryArtworkRange { throw error }
+                        }
+                    }
+                    if needsSecondaryArtistRange, readContainerTail {
+                        artistInspectionCompleted = true
+                    }
+                } else if tailStrategy == .mp3ID3 {
                     do {
                         let tailData = try await sourceManager.fetchMetadataRange(
                             for: song,
-                            offset: -Int64(tailSize),
-                            length: Int64(tailSize)
+                            offset: -Self.fallbackTailBytes,
+                            length: Self.fallbackTailBytes,
+                            intent: rangeReadIntent
                         )
-                        guard !tailData.isEmpty else { continue }
-                        readContainerTail = true
                         metadata = await extractMetadata(
                             from: metadataInputData,
-                            containerTailData: tailData,
+                            id3TailData: tailData,
                             song: song,
                             cacheKey: song.id
                         )
-                        let foundArtist = metadata.artist?
-                            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                        let foundArtwork = metadata.coverArtFileName != nil
-                        if !metadataLooksMissing(metadata)
-                            && (!needsSecondaryArtistRange || foundArtist)
-                            && (!needsSecondaryArtworkRange || foundArtwork) {
-                            break
-                        }
+                        if needsSecondaryArtistRange { artistInspectionCompleted = true }
+                    } catch MetadataRangeReadError.suffixRangeUnsupported {
+                        throw MetadataRangeReadError.suffixRangeUnsupported
                     } catch {
-                        if needsSecondaryArtistRange || needsSecondaryArtworkRange { throw error }
+                        if needsSecondaryArtistRange { throw error }
                     }
-                }
-                if needsSecondaryArtistRange, readContainerTail {
-                    artistInspectionCompleted = true
-                }
-            } else if tailStrategy == .mp3ID3 {
-                do {
+                } else if tailStrategy == .apeV2 {
+                    var tailData = try await sourceManager.fetchMetadataRange(
+                        for: song,
+                        offset: -Self.fallbackTailBytes,
+                        length: Self.fallbackTailBytes,
+                        intent: rangeReadIntent
+                    )
+                    if let expanded = EmbeddedTagMetadataParser.expandedTailReadSize(
+                        fileSize: song.fileSize,
+                        currentData: tailData,
+                        fileExtension: parserExtension
+                    ), expanded > tailData.count {
+                        tailData = try await sourceManager.fetchMetadataRange(
+                            for: song,
+                            offset: -Int64(expanded),
+                            length: Int64(expanded),
+                            intent: rangeReadIntent
+                        )
+                    }
+                    metadata = await extractMetadata(
+                        from: metadataInputData,
+                        id3TailData: tailData,
+                        song: song,
+                        cacheKey: song.id
+                    )
+                    if needsArtistInspection { artistInspectionCompleted = true }
+                } else if tailStrategy == .dsfOffset,
+                          let offset = EmbeddedTagMetadataParser.dsfMetadataOffset(in: metadataInputData),
+                          offset < song.fileSize {
+                    let header = try await sourceManager.fetchMetadataRange(
+                        for: song,
+                        offset: offset,
+                        length: 10,
+                        intent: rangeReadIntent
+                    )
+                    let declared = EmbeddedTagMetadataParser.id3TagByteCount(in: header) ?? header.count
+                    let available = max(0, song.fileSize - offset)
+                    let byteCount = min(
+                        Int64(RemoteMetadataReadPolicy.maximumHeadByteCount),
+                        min(available, Int64(declared))
+                    )
+                    let tagData: Data
+                    if byteCount > Int64(header.count) {
+                        tagData = try await sourceManager.fetchMetadataRange(
+                            for: song,
+                            offset: offset,
+                            length: byteCount,
+                            intent: rangeReadIntent
+                        )
+                    } else {
+                        tagData = header
+                    }
+                    metadata = await extractMetadata(
+                        from: metadataInputData,
+                        id3TailData: tagData,
+                        song: song,
+                        cacheKey: song.id
+                    )
+                    if needsArtistInspection { artistInspectionCompleted = true }
+                } else if tailStrategy == .containerID3 {
                     let tailData = try await sourceManager.fetchMetadataRange(
                         for: song,
                         offset: -Self.fallbackTailBytes,
-                        length: Self.fallbackTailBytes
+                        length: Self.fallbackTailBytes,
+                        intent: rangeReadIntent
                     )
                     metadata = await extractMetadata(
                         from: metadataInputData,
@@ -2939,102 +3043,47 @@ final class MetadataBackfillService {
                         song: song,
                         cacheKey: song.id
                     )
-                    if needsSecondaryArtistRange { artistInspectionCompleted = true }
-                } catch {
-                    if needsSecondaryArtistRange { throw error }
-                }
-            } else if tailStrategy == .apeV2 {
-                var tailData = try await sourceManager.fetchMetadataRange(
-                    for: song,
-                    offset: -Self.fallbackTailBytes,
-                    length: Self.fallbackTailBytes
-                )
-                if let expanded = EmbeddedTagMetadataParser.expandedTailReadSize(
-                    fileSize: song.fileSize,
-                    currentData: tailData,
-                    fileExtension: parserExtension
-                ), expanded > tailData.count {
-                    tailData = try await sourceManager.fetchMetadataRange(
+                    if needsArtistInspection { artistInspectionCompleted = true }
+                } else if tailStrategy == .genericEOF {
+                    var tailData = try await sourceManager.fetchMetadataRange(
                         for: song,
-                        offset: -Int64(expanded),
-                        length: Int64(expanded)
+                        offset: -Self.fallbackTailBytes,
+                        length: Self.fallbackTailBytes,
+                        intent: rangeReadIntent
                     )
-                }
-                metadata = await extractMetadata(
-                    from: metadataInputData,
-                    id3TailData: tailData,
-                    song: song,
-                    cacheKey: song.id
-                )
-                if needsArtistInspection { artistInspectionCompleted = true }
-            } else if tailStrategy == .dsfOffset,
-                      let offset = EmbeddedTagMetadataParser.dsfMetadataOffset(in: metadataInputData),
-                      offset < song.fileSize {
-                let header = try await sourceManager.fetchMetadataRange(
-                    for: song,
-                    offset: offset,
-                    length: 10
-                )
-                let declared = EmbeddedTagMetadataParser.id3TagByteCount(in: header) ?? header.count
-                let available = max(0, song.fileSize - offset)
-                let byteCount = min(
-                    Int64(RemoteMetadataReadPolicy.maximumHeadByteCount),
-                    min(available, Int64(declared))
-                )
-                let tagData: Data
-                if byteCount > Int64(header.count) {
-                    tagData = try await sourceManager.fetchMetadataRange(
-                        for: song,
-                        offset: offset,
-                        length: byteCount
+                    if let expanded = EmbeddedTagMetadataParser.expandedTailReadSize(
+                        fileSize: song.fileSize,
+                        currentData: tailData,
+                        fileExtension: parserExtension
+                    ), expanded > tailData.count {
+                        tailData = try await sourceManager.fetchMetadataRange(
+                            for: song,
+                            offset: -Int64(expanded),
+                            length: Int64(expanded),
+                            intent: rangeReadIntent
+                        )
+                    }
+                    metadata = await extractMetadata(
+                        from: metadataInputData,
+                        id3TailData: tailData,
+                        song: song,
+                        cacheKey: song.id
                     )
-                } else {
-                    tagData = header
+                    if needsArtistInspection { artistInspectionCompleted = true }
                 }
-                metadata = await extractMetadata(
-                    from: metadataInputData,
-                    id3TailData: tagData,
-                    song: song,
-                    cacheKey: song.id
-                )
-                if needsArtistInspection { artistInspectionCompleted = true }
-            } else if tailStrategy == .containerID3 {
-                let tailData = try await sourceManager.fetchMetadataRange(
-                    for: song,
-                    offset: -Self.fallbackTailBytes,
-                    length: Self.fallbackTailBytes
-                )
-                metadata = await extractMetadata(
-                    from: metadataInputData,
-                    id3TailData: tailData,
-                    song: song,
-                    cacheKey: song.id
-                )
-                if needsArtistInspection { artistInspectionCompleted = true }
-            } else if tailStrategy == .genericEOF {
-                var tailData = try await sourceManager.fetchMetadataRange(
-                    for: song,
-                    offset: -Self.fallbackTailBytes,
-                    length: Self.fallbackTailBytes
-                )
-                if let expanded = EmbeddedTagMetadataParser.expandedTailReadSize(
-                    fileSize: song.fileSize,
-                    currentData: tailData,
-                    fileExtension: parserExtension
-                ), expanded > tailData.count {
-                    tailData = try await sourceManager.fetchMetadataRange(
-                        for: song,
-                        offset: -Int64(expanded),
-                        length: Int64(expanded)
-                    )
+            } catch MetadataRangeReadError.suffixRangeUnsupported {
+                if isExplicitReread {
+                    throw MetadataRangeReadError.suffixRangeUnsupported
                 }
-                metadata = await extractMetadata(
-                    from: metadataInputData,
-                    id3TailData: tailData,
-                    song: song,
-                    cacheKey: song.id
-                )
-                if needsArtistInspection { artistInspectionCompleted = true }
+                suffixMetadataUnavailable = true
+                if needsArtistInspection {
+                    artistInspectionCompleted = true
+                }
+                // Some WebDAV gateways ignore suffix Range requests and start
+                // streaming the complete media object. Background scans keep
+                // the already-read head metadata and skip the optional tail;
+                // an explicit single-song reread may use the bounded complete-
+                // file fallback selected by `rangeReadIntent` above.
             }
         }
 
@@ -3137,7 +3186,10 @@ final class MetadataBackfillService {
                         localized: "reread_song_tags_failure_requires_complete_technical_read"
                     ),
                     titleInspected: true,
-                    artistInspected: artistInspectionCompleted
+                    artistInspected: artistInspectionCompleted,
+                    artworkGivenUp: suffixMetadataUnavailable
+                        && Self.needsEmbeddedArtworkBackfill(song)
+                        && metadata.coverArtFileName == nil
                 )
             }
             if song.isStreamDescriptor || song.fileFormat.requiresFFmpeg {
@@ -3151,7 +3203,10 @@ final class MetadataBackfillService {
                         localized: "reread_song_tags_failure_requires_complete_technical_read"
                     ),
                     titleInspected: true,
-                    artistInspected: artistInspectionCompleted
+                    artistInspected: artistInspectionCompleted,
+                    artworkGivenUp: suffixMetadataUnavailable
+                        && Self.needsEmbeddedArtworkBackfill(song)
+                        && metadata.coverArtFileName == nil
                 )
             }
             plog("⚠️ Backfill: '\(song.title)' bytes were read but details parsing failed")
@@ -3785,59 +3840,66 @@ final class MetadataBackfillService {
     }
 
     private func scheduleStatePersistence(immediate: Bool = false) {
-        // Set snapshots are copy-on-write, so capturing them here is cheap.
-        // Conversion to arrays, JSON encoding, and disk writes happen later on
-        // a utility executor. Repeated per-song updates collapse into one write.
-        let failed = failedSongIDs
-        let incomplete = incompleteSongIDs
-        let sourceIssues = sourceIssueSongIDs
-        let artworkGivenUp = artworkGivenUpIDs
-        let titleChecked = titleCheckedIDs
-        let albumArtistChecked = albumArtistCheckedIDs
-        let artistChecked = artistCheckedIDs
-        let deferredRetries = deferredRetrySongIDs
-        let diagnostics = diagnosticRecords
-        let retryCounts = transientFailureCounts
-        let sourceRetryCounts = sourceTransientFailureCounts
-        let failedURL = failedURL
-        let incompleteURL = incompleteURL
-        let sourceIssueURL = sourceIssueURL
-        let artworkURL = artworkGivenUpURL
-        let titleURL = titleCheckedURL
-        let albumArtistURL = albumArtistCheckedURL
-        let artistURL = artistCheckedURL
-        let deferredRetryURL = deferredRetryURL
-        let diagnosticsURL = diagnosticsURL
-        let retryCountsURL = retryCountsURL
-        let sourceRetryCountsURL = sourceRetryCountsURL
-
         let previous = statePersistenceTask
         previous?.cancel()
         statePersistenceGeneration = statePersistenceGeneration == .max
             ? 1
             : statePersistenceGeneration + 1
         let generation = statePersistenceGeneration
-        statePersistenceTask = Task.detached(priority: .utility) { [weak self] in
+        statePersistenceTask = Task { @MainActor [weak self] in
             _ = await previous?.value
             if !immediate {
-                try? await Task.sleep(for: .milliseconds(500))
+                try? await Task.sleep(for: Self.statePersistenceDebounce)
             }
-            guard !Task.isCancelled else { return }
-            Self.writeIDSet(failed, to: failedURL)
-            Self.writeIDSet(incomplete, to: incompleteURL)
-            Self.writeIDSet(sourceIssues, to: sourceIssueURL)
-            Self.writeIDSet(artworkGivenUp, to: artworkURL)
-            Self.writeIDSet(titleChecked, to: titleURL)
-            Self.writeIDSet(albumArtistChecked, to: albumArtistURL)
-            Self.writeIDSet(artistChecked, to: artistURL)
-            Self.writeIDSet(deferredRetries, to: deferredRetryURL)
-            Self.writeDiagnostics(diagnostics, to: diagnosticsURL)
-            Self.writeRetryCounts(retryCounts, to: retryCountsURL)
-            Self.writeRetryCounts(sourceRetryCounts, to: sourceRetryCountsURL)
-            await MainActor.run { [weak self] in
-                guard let self, self.statePersistenceGeneration == generation else { return }
-                self.statePersistenceTask = nil
+            guard let self,
+                  !Task.isCancelled,
+                  self.statePersistenceGeneration == generation else {
+                return
             }
+
+            // Snapshot only after the debounce. Capturing every growing set on
+            // every song kept old copy-on-write buffers alive and forced the
+            // next mutation to copy them, which amplified CPU, memory, and disk
+            // work during large WebDAV scans.
+            let failed = self.failedSongIDs
+            let incomplete = self.incompleteSongIDs
+            let sourceIssues = self.sourceIssueSongIDs
+            let artworkGivenUp = self.artworkGivenUpIDs
+            let titleChecked = self.titleCheckedIDs
+            let albumArtistChecked = self.albumArtistCheckedIDs
+            let artistChecked = self.artistCheckedIDs
+            let deferredRetries = self.deferredRetrySongIDs
+            let diagnostics = self.diagnosticRecords
+            let retryCounts = self.transientFailureCounts
+            let sourceRetryCounts = self.sourceTransientFailureCounts
+            let failedURL = self.failedURL
+            let incompleteURL = self.incompleteURL
+            let sourceIssueURL = self.sourceIssueURL
+            let artworkURL = self.artworkGivenUpURL
+            let titleURL = self.titleCheckedURL
+            let albumArtistURL = self.albumArtistCheckedURL
+            let artistURL = self.artistCheckedURL
+            let deferredRetryURL = self.deferredRetryURL
+            let diagnosticsURL = self.diagnosticsURL
+            let retryCountsURL = self.retryCountsURL
+            let sourceRetryCountsURL = self.sourceRetryCountsURL
+
+            await Task.detached(priority: .utility) {
+                Self.writeIDSet(failed, to: failedURL)
+                Self.writeIDSet(incomplete, to: incompleteURL)
+                Self.writeIDSet(sourceIssues, to: sourceIssueURL)
+                Self.writeIDSet(artworkGivenUp, to: artworkURL)
+                Self.writeIDSet(titleChecked, to: titleURL)
+                Self.writeIDSet(albumArtistChecked, to: albumArtistURL)
+                Self.writeIDSet(artistChecked, to: artistURL)
+                Self.writeIDSet(deferredRetries, to: deferredRetryURL)
+                Self.writeDiagnostics(diagnostics, to: diagnosticsURL)
+                Self.writeRetryCounts(retryCounts, to: retryCountsURL)
+                Self.writeRetryCounts(sourceRetryCounts, to: sourceRetryCountsURL)
+            }.value
+
+            guard self.statePersistenceGeneration == generation else { return }
+            self.statePersistenceTask = nil
         }
     }
 

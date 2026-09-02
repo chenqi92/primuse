@@ -73,6 +73,48 @@ struct HTTPByteRangeResponsePolicyTests {
 
 @Suite("Whole-resource metadata range policy")
 struct WholeResourceMetadataRangePolicyTests {
+    @Test("Unsupported suffix capability is cached for requested and final endpoints")
+    func cachesUnsupportedSuffixEndpoints() {
+        var cache = MetadataSuffixRangeCapabilityCache()
+        cache.recordUnsupported(
+            requestedEndpointKey: "https://dav.example:443",
+            finalEndpointKey: "https://cdn.example:443"
+        )
+
+        #expect(cache.isUnsupported(endpointKey: "https://dav.example:443"))
+        #expect(cache.isUnsupported(endpointKey: "https://cdn.example:443"))
+        #expect(!cache.isUnsupported(endpointKey: "https://other.example:443"))
+        #expect(!cache.isUnsupported(endpointKey: nil))
+    }
+
+    @Test("Bulk suffix probes reject a whole response without consuming its body")
+    func rejectsBulkSuffixWithoutConsuming() {
+        #expect(WholeResourceMetadataRangePolicy.responseDisposition(
+            requestedOffset: -256,
+            intent: .bulkBounded
+        ) == .rejectSuffixWithoutConsuming)
+        #expect(WholeResourceMetadataRangePolicy.wholeResponsePrefixLimit(
+            requestedOffset: -256,
+            requestedLength: 256
+        ) == 0)
+    }
+
+    @Test("Explicit single-file suffix reads may use one complete fallback")
+    func allowsExplicitCompleteFallback() {
+        #expect(WholeResourceMetadataRangePolicy.responseDisposition(
+            requestedOffset: -256,
+            intent: .explicitSingleFileCompleteFallback
+        ) == .useCompleteFileFallback)
+        #expect(WholeResourceMetadataRangePolicy.responseDisposition(
+            requestedOffset: 0,
+            intent: .explicitSingleFileCompleteFallback
+        ) == .consumeBoundedPrefix)
+        #expect(WholeResourceMetadataRangePolicy.wholeResponsePrefixLimit(
+            requestedOffset: 1024,
+            requestedLength: 2048
+        ) == 3072)
+    }
+
     @Test("Head and suffix metadata windows are sliced from a complete response")
     func slicesMetadataWindows() {
         #expect(WholeResourceMetadataRangePolicy.sliceRange(
