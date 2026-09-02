@@ -654,6 +654,7 @@
 
 // MARK: - Playback Errors
 "playback_error_connection" = "Cannot connect to source";
+"playback_error_source_disabled" = "This music source is disabled";
 "playback_error_decode" = "Cannot play this track";
 "playback_error_format" = "Unsupported audio format";
 "playback_error_apple_music_generic" = "Apple Music playback failed. Check your subscription or network.";

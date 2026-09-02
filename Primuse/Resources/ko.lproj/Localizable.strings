@@ -846,6 +846,7 @@
 "add" = "추가";
 "security" = "보안";
 "playback_error_connection" = "소스에 연결할 수 없습니다";
+"playback_error_source_disabled" = "이 음악 소스는 비활성화되어 있습니다";
 "playback_error_decode" = "이 곡을 재생할 수 없습니다";
 "playback_error_format" = "지원되지 않는 오디오 포맷";
 "playback_error_apple_music_generic" = "Apple Music 재생에 실패했습니다. 구독 또는 네트워크를 확인하세요.";

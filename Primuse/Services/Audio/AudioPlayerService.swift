@@ -3354,6 +3354,11 @@ final class AudioPlayerService {
     }
 
     func play(song: Song, caller: String = #fileID, callerLine: Int = #line) async {
+        guard isSongAvailableForNewPlayback(song) else {
+            plog("⛔ Playback ignored for disabled source id=\(song.sourceID.prefix(8))… song=\(song.id.prefix(8))…")
+            showPlaybackError(String(localized: "playback_error_source_disabled"))
+            return
+        }
         registerPlayIntent()
         if isLiveRadio {
             stopRadioTransport(clearSelection: true)
@@ -5477,42 +5482,11 @@ final class AudioPlayerService {
         var seenIDs = Set<String>()
         if let cur = currentSong { seenIDs.insert(cur.id) }
 
-        if shuffleEnabled {
-            var localPending: [Int]? = nil
-            for offset in 1...count {
-                let pos = shufflePosition + offset
-                let song: Song?
-                if pos < shuffledIndices.count {
-                    song = queue[shuffledIndices[pos]]
-                } else if repeatMode == .all {
-                    let pending = localPending ?? preparedNextShuffleRound()
-                    localPending = pending
-                    let pos2 = pos - shuffledIndices.count
-                    song = pos2 < pending.count ? queue[pending[pos2]] : nil
-                } else {
-                    song = nil
-                }
-                if let s = song, !seenIDs.contains(s.id) {
-                    result.append(s)
-                    seenIDs.insert(s.id)
-                }
-            }
-        } else {
-            for offset in 1...count {
-                let raw = currentIndex + offset
-                let idx: Int?
-                if raw < queue.count {
-                    idx = raw
-                } else if repeatMode == .all {
-                    idx = raw % queue.count
-                } else {
-                    idx = nil
-                }
-                if let i = idx, !seenIDs.contains(queue[i].id) {
-                    result.append(queue[i])
-                    seenIDs.insert(queue[i].id)
-                }
-            }
+        for target in upcomingQueueTraversalTargets(maximumCount: count) {
+            let song = queueEntries[target.queueIndex].song
+            guard seenIDs.insert(song.id).inserted else { continue }
+            result.append(song)
+            if result.count == count { break }
         }
         return result
     }
@@ -6788,16 +6762,24 @@ final class AudioPlayerService {
         if queue.count == 1, shuffleEnabled, repeatMode == .off {
             _ = extendExhaustedShuffleFromLibrary()
         }
+        // A manual next skips past repeat-one when there is another queue
+        // entry, matching the existing transport controls. A true one-song
+        // repeat-one queue may still intentionally restart itself.
+        let respectsRepeatOne = queue.count == 1
+        let successor = nextQueueTraversalTarget(
+            respectsRepeatOne: respectsRepeatOne,
+            wrapsAtEnd: queue.count > 1 || repeatMode == .all
+        )
         guard ManualQueueAdvancePolicy.shouldAdvance(
             queueCount: queue.count,
             repeatMode: repeatMode,
             shuffleEnabled: shuffleEnabled,
-            hasSuccessor: nextSongInQueue() != nil
-        ) else {
-            plog("⏭️ next: no successor in repeat-off single-song queue; keeping current playback")
+            hasSuccessor: successor != nil
+        ), let successor else {
+            plog("⏭️ next: no enabled successor; keeping current playback")
             return false
         }
-        advanceToNextIndex()
+        applyQueueTraversalTarget(successor)
         // 跳过相邻同 title+artist 的"重复歌曲" —— NAS 上同一首歌有多个版本
         // (mp3 + flac, 不同目录) scan 后是不同 song.id, 但用户看就是同一首,
         // 自动 next 跳到 "下一首是自己" 体验很怪。最多跳 1 次, 防止整个
@@ -6813,7 +6795,12 @@ final class AudioPlayerService {
                 context: context
             ) {
                 plog("⏭️ next: skipping duplicate '\(candidate.title)' (same title+artist as current)")
-                advanceToNextIndex()
+                if let following = nextQueueTraversalTarget(
+                    respectsRepeatOne: respectsRepeatOne,
+                    wrapsAtEnd: queue.count > 1 || repeatMode == .all
+                ) {
+                    applyQueueTraversalTarget(following)
+                }
             }
         }
         await play(song: queue[currentIndex])
@@ -6845,20 +6832,8 @@ final class AudioPlayerService {
             seek(to: 0)
             return true
         }
-        if shuffleEnabled {
-            if shuffledIndices.isEmpty {
-                currentIndex = 0
-            } else {
-                // 先把 shufflePosition 夹回合法区间再回退: 队列增删 / playFromQueue
-                // 未命中 firstIndex 等情况会让 shufflePosition 与 shuffledIndices 失同步,
-                // 直接下标可能越界崩溃。
-                let clamped = min(max(0, shufflePosition), shuffledIndices.count - 1)
-                shufflePosition = max(0, clamped - 1)
-                currentIndex = shuffledIndices[shufflePosition]
-            }
-        } else {
-            currentIndex = currentIndex > 0 ? currentIndex - 1 : queue.count - 1
-        }
+        guard let predecessor = previousQueueTraversalTarget() else { return false }
+        applyQueueTraversalTarget(predecessor)
         await play(song: queue[currentIndex])
         return true
     }
@@ -7571,6 +7546,20 @@ final class AudioPlayerService {
         persistPlaybackSession()
     }
 
+    /// Re-evaluate prepared queue work after an enable/disable state arrives
+    /// from this device or CloudKit. The durable queue is intentionally not
+    /// filtered: re-enabling a source makes its existing entries playable
+    /// again without rebuilding the user's order.
+    func sourceAvailabilityDidChange(for sourceIDs: Set<String>) {
+        guard !sourceIDs.isEmpty,
+              currentSong.map({ sourceIDs.contains($0.sourceID) }) == true
+                || queueEntries.contains(where: { sourceIDs.contains($0.song.sourceID) }) else {
+            return
+        }
+        invalidatePreparedQueueSuccessor()
+        prefetchNextSong()
+    }
+
     /// Append songs to the end of the current queue without interrupting the
     /// current track. Used by macOS list-level "add all to queue" actions.
     func appendToQueue(_ songs: [Song]) {
@@ -7891,6 +7880,11 @@ final class AudioPlayerService {
     /// round's order untouched so Up Next stays stable.
     func playFromQueue(at index: Int) async {
         guard queueEntries.indices.contains(index) else { return }
+        let song = queueEntries[index].song
+        guard isSongAvailableForNewPlayback(song) else {
+            showPlaybackError(String(localized: "playback_error_source_disabled"))
+            return
+        }
 
         // Apple Music mode owns its own queue/order via the system player —
         // route through `play(song:)` and let the mirror keep state in sync,
@@ -7908,7 +7902,6 @@ final class AudioPlayerService {
 
         currentIndex = index
         persistPlaybackSession()
-        let song = queueEntries[index].song
         await play(song: song)
     }
 
@@ -9374,7 +9367,13 @@ final class AudioPlayerService {
         }
         switch repeatMode {
         case .one:
-            if let song = currentSong { await play(song: song) }
+            if let song = currentSong, isSongAvailableForNewPlayback(song) {
+                await play(song: song)
+            } else if advanceToNextIndex(respectsRepeatOne: false) {
+                await play(song: queueEntries[currentIndex].song)
+            } else {
+                stopAtTrackEnd()
+            }
         case .all:
             await next(caller: "auto:\(trigger)", callerLine: 0)
         case .off:
@@ -9572,66 +9571,238 @@ final class AudioPlayerService {
         return true
     }
 
-    private func nextQueueEntryInQueue() -> QueueEntry? {
-        guard !queueEntries.isEmpty else { return nil }
+    private struct QueueTraversalTarget {
+        let queueIndex: Int
+        let shufflePosition: Int?
+        let pendingShuffleRound: [Int]?
+    }
 
-        if repeatMode == .one {
-            guard queueEntries.indices.contains(currentIndex) else { return nil }
-            return queueEntries[currentIndex]
-        }
+    /// Disabling a source hides it without deleting its songs. Queue entries
+    /// therefore stay durable but cannot begin a new transport until the
+    /// source is enabled again. A player created without a library (previews
+    /// and isolated tests) retains its historical permissive behavior.
+    private func isSongAvailableForNewPlayback(_ song: Song) -> Bool {
+        guard let library else { return true }
+        return !library.disabledSourceIDs.contains(song.sourceID)
+    }
 
-        if shuffleEnabled {
-            let nextPos = shufflePosition + 1
-            if nextPos < shuffledIndices.count {
-                let index = shuffledIndices[nextPos]
-                return queueEntries.indices.contains(index) ? queueEntries[index] : nil
-            } else if repeatMode == .all {
-                // Wrap: read the pre-generated next round (lazily built
-                // here so the prefetch path and the real advance path
-                // pick the SAME song — without this they'd disagree
-                // because `advanceToNextIndex` reshuffles fresh and
-                // we'd prewarm a completely different track).
-                let pending = preparedNextShuffleRound()
-                guard let firstIndex = pending.first else { return queueEntries.first }
-                return queueEntries.indices.contains(firstIndex) ? queueEntries[firstIndex] : nil
-            } else {
-                return nil
-            }
-        }
-
-        let nextIndex = currentIndex + 1
-        if queueEntries.indices.contains(nextIndex) {
-            return queueEntries[nextIndex]
-        } else if repeatMode == .all {
-            return queueEntries.first
-        }
-        return nil
+    private func nextQueueEntryInQueue(
+        respectsRepeatOne: Bool = true
+    ) -> QueueEntry? {
+        guard let target = nextQueueTraversalTarget(
+            respectsRepeatOne: respectsRepeatOne
+        ) else { return nil }
+        return queueEntries[target.queueIndex]
     }
 
     private func nextSongInQueue() -> Song? {
         nextQueueEntryInQueue()?.song
     }
 
-    private func advanceToNextIndex() {
-        guard !queueEntries.isEmpty else { return }
-        if shuffleEnabled {
-            let nextPos = shufflePosition + 1
-            if nextPos < shuffledIndices.count {
-                shufflePosition = nextPos
-                currentIndex = shuffledIndices[shufflePosition]
-            } else {
-                // End of round. Adopt the pre-generated next round
-                // (built earlier by `nextSongInQueue` for prefetch) so
-                // the actual track played matches what was prewarmed.
-                let pending = preparedNextShuffleRound()
-                pendingNextShuffleIndices = nil
-                shuffledIndices = pending
-                shufflePosition = 0
-                currentIndex = shuffledIndices.isEmpty ? 0 : shuffledIndices[0]
-            }
-        } else {
-            currentIndex = (currentIndex + 1) % queueEntries.count
+    private func nextQueueTraversalTarget(
+        respectsRepeatOne: Bool = true,
+        wrapsAtEnd: Bool? = nil
+    ) -> QueueTraversalTarget? {
+        upcomingQueueTraversalTargets(
+            maximumCount: 1,
+            respectsRepeatOne: respectsRepeatOne,
+            wrapsAtEnd: wrapsAtEnd
+        ).first
+    }
+
+    /// Returns enabled successors in exactly the order that advance will
+    /// adopt. Disabled entries are only filtered from traversal, never from
+    /// `queueEntries`, so CloudKit re-enablement restores them in place.
+    private func upcomingQueueTraversalTargets(
+        maximumCount: Int,
+        respectsRepeatOne: Bool = true,
+        wrapsAtEnd: Bool? = nil
+    ) -> [QueueTraversalTarget] {
+        guard !queueEntries.isEmpty, maximumCount > 0 else { return [] }
+        let shouldWrapAtEnd = wrapsAtEnd ?? (repeatMode == .all)
+
+        let isAvailable: (Int) -> Bool = { [self] index in
+            queueEntries.indices.contains(index)
+                && isSongAvailableForNewPlayback(queueEntries[index].song)
         }
+
+        if respectsRepeatOne, repeatMode == .one {
+            guard isAvailable(currentIndex) else { return [] }
+            let position = shuffleEnabled
+                ? shuffledIndices.firstIndex(of: currentIndex)
+                : nil
+            return [QueueTraversalTarget(
+                queueIndex: currentIndex,
+                shufflePosition: position,
+                pendingShuffleRound: nil
+            )]
+        }
+
+        var result: [QueueTraversalTarget] = []
+        result.reserveCapacity(maximumCount)
+
+        if shuffleEnabled {
+            let anchorPosition = shuffledIndices.firstIndex(of: currentIndex)
+                ?? min(max(shufflePosition, -1), shuffledIndices.count - 1)
+            var cursor = anchorPosition
+            while result.count < maximumCount,
+                  let position = QueueTraversalPolicy.nextAvailableTraversalPosition(
+                    in: shuffledIndices,
+                    queueCount: queueEntries.count,
+                    after: cursor,
+                    isAvailable: isAvailable
+                  ) {
+                result.append(QueueTraversalTarget(
+                    queueIndex: shuffledIndices[position],
+                    shufflePosition: position,
+                    pendingShuffleRound: nil
+                ))
+                cursor = position
+            }
+
+            if result.count < maximumCount, shouldWrapAtEnd {
+                let pending = preparedNextShuffleRound()
+                var pendingCursor = -1
+                while result.count < maximumCount,
+                      let position = QueueTraversalPolicy.nextAvailableTraversalPosition(
+                        in: pending,
+                        queueCount: queueEntries.count,
+                        after: pendingCursor,
+                        isAvailable: isAvailable
+                      ) {
+                    result.append(QueueTraversalTarget(
+                        queueIndex: pending[position],
+                        shufflePosition: position,
+                        pendingShuffleRound: pending
+                    ))
+                    pendingCursor = position
+                }
+            }
+            return result
+        }
+
+        var cursor = currentIndex
+        while result.count < maximumCount,
+              let index = QueueTraversalPolicy.nextAvailableIndex(
+                queueCount: queueEntries.count,
+                after: cursor,
+                wraps: false,
+                isAvailable: isAvailable
+              ) {
+            result.append(QueueTraversalTarget(
+                queueIndex: index,
+                shufflePosition: nil,
+                pendingShuffleRound: nil
+            ))
+            cursor = index
+        }
+
+        if result.count < maximumCount, shouldWrapAtEnd, currentIndex >= 0 {
+            let wrapEnd = min(currentIndex, queueEntries.count - 1)
+            if wrapEnd >= 0 {
+                for index in 0...wrapEnd where isAvailable(index) {
+                    result.append(QueueTraversalTarget(
+                        queueIndex: index,
+                        shufflePosition: nil,
+                        pendingShuffleRound: nil
+                    ))
+                    if result.count == maximumCount { break }
+                }
+            }
+        }
+        return result
+    }
+
+    private func previousQueueTraversalTarget() -> QueueTraversalTarget? {
+        guard !queueEntries.isEmpty else { return nil }
+        let isAvailable: (Int) -> Bool = { [self] index in
+            queueEntries.indices.contains(index)
+                && isSongAvailableForNewPlayback(queueEntries[index].song)
+        }
+
+        if shuffleEnabled {
+            let anchorPosition = shuffledIndices.firstIndex(of: currentIndex)
+                ?? min(max(shufflePosition, 0), max(0, shuffledIndices.count - 1))
+            if let position = QueueTraversalPolicy.previousAvailableTraversalPosition(
+                in: shuffledIndices,
+                queueCount: queueEntries.count,
+                before: anchorPosition,
+                isAvailable: isAvailable
+            ) {
+                return QueueTraversalTarget(
+                    queueIndex: shuffledIndices[position],
+                    shufflePosition: position,
+                    pendingShuffleRound: nil
+                )
+            }
+            guard isAvailable(currentIndex) else { return nil }
+            return QueueTraversalTarget(
+                queueIndex: currentIndex,
+                shufflePosition: shuffledIndices.firstIndex(of: currentIndex),
+                pendingShuffleRound: nil
+            )
+        }
+
+        if let index = QueueTraversalPolicy.previousAvailableIndex(
+            before: currentIndex,
+            isAvailable: isAvailable
+        ) {
+            return QueueTraversalTarget(
+                queueIndex: index,
+                shufflePosition: nil,
+                pendingShuffleRound: nil
+            )
+        }
+
+        if currentIndex + 1 < queueEntries.count {
+            for index in stride(
+                from: queueEntries.count - 1,
+                through: currentIndex + 1,
+                by: -1
+            ) where isAvailable(index) {
+                return QueueTraversalTarget(
+                    queueIndex: index,
+                    shufflePosition: nil,
+                    pendingShuffleRound: nil
+                )
+            }
+        }
+
+        guard isAvailable(currentIndex) else { return nil }
+        return QueueTraversalTarget(
+            queueIndex: currentIndex,
+            shufflePosition: nil,
+            pendingShuffleRound: nil
+        )
+    }
+
+    private func applyQueueTraversalTarget(_ target: QueueTraversalTarget) {
+        guard queueEntries.indices.contains(target.queueIndex) else { return }
+        if let pending = target.pendingShuffleRound,
+           let position = target.shufflePosition,
+           pending.indices.contains(position),
+           pending[position] == target.queueIndex {
+            pendingNextShuffleIndices = nil
+            shuffledIndices = pending
+            shufflePosition = position
+        } else if shuffleEnabled,
+                  let position = target.shufflePosition,
+                  shuffledIndices.indices.contains(position),
+                  shuffledIndices[position] == target.queueIndex {
+            shufflePosition = position
+        }
+        currentIndex = target.queueIndex
+    }
+
+    @discardableResult
+    private func advanceToNextIndex(
+        respectsRepeatOne: Bool = true
+    ) -> Bool {
+        guard let target = nextQueueTraversalTarget(
+            respectsRepeatOne: respectsRepeatOne
+        ) else { return false }
+        applyQueueTraversalTarget(target)
+        return true
     }
 
     private func rebuildShuffleOrder() {

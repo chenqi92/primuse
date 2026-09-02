@@ -987,6 +987,15 @@ final class AppServices {
         let nc = NotificationCenter.default
 
         sourceLifecycleObserverTokens.append(
+            nc.addObserver(forName: .primuseSourcesDidChange, object: nil, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                MainActor.assumeIsolated {
+                    self.reconcileDisabledSourceIDs()
+                }
+            }
+        )
+
+        sourceLifecycleObserverTokens.append(
             nc.addObserver(forName: .primuseSourceDidSoftDelete, object: nil, queue: .main) { [weak self] note in
                 guard let self, let id = note.userInfo?["id"] as? String else { return }
                 let capturedTombstone = note.userInfo?["source"] as? MusicSource
@@ -1041,6 +1050,24 @@ final class AppServices {
                     self.acknowledgeSourceTombstoneUpload(sourceID: id)
                 }
             }
+        )
+    }
+
+    /// Source enablement is synced independently from the library snapshot.
+    /// Keep the in-memory visibility projection current on every device while
+    /// leaving the canonical playback queue intact. The player only discards
+    /// prepared successors whose source availability changed; audible current
+    /// playback is deliberately preserved.
+    private func reconcileDisabledSourceIDs() {
+        let previous = musicLibrary.disabledSourceIDs
+        let current = Set(
+            sourcesStore.sources.lazy.filter { !$0.isEnabled }.map(\.id)
+        )
+        guard previous != current else { return }
+
+        musicLibrary.updateDisabledSourceIDs(current)
+        playerService.sourceAvailabilityDidChange(
+            for: previous.symmetricDifference(current)
         )
     }
 

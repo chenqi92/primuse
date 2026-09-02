@@ -846,6 +846,7 @@
 "add" = "Ajouter";
 "security" = "Sécurité";
 "playback_error_connection" = "Connexion à la source impossible";
+"playback_error_source_disabled" = "Cette source musicale est désactivée";
 "playback_error_decode" = "Lecture de ce morceau impossible";
 "playback_error_format" = "Format audio non pris en charge";
 "playback_error_apple_music_generic" = "Échec de la lecture Apple Music. Vérifiez votre abonnement ou votre réseau.";

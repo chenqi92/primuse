@@ -614,6 +614,7 @@
 "add" = "加入";
 "security" = "安全性";
 "playback_error_connection" = "無法連線到來源";
+"playback_error_source_disabled" = "該音樂來源已停用";
 "playback_error_decode" = "無法播放此曲目";
 "playback_error_format" = "不支援的音訊格式";
 "playback_error_apple_music_generic" = "Apple Music 播放失敗，請檢查訂閱狀態或網路";

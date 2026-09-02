@@ -458,6 +458,53 @@ struct QueueTraversalPolicyTests {
 
         #expect(previous == 0)
     }
+
+    @Test("Remote source disable skips its queue entries and re-enable restores them")
+    func remoteSourceAvailabilityKeepsCanonicalQueue() {
+        let sourceIDs = ["local", "remote", "local"]
+        let canonicalQueue = sourceIDs
+        var disabledSourceIDs: Set<String> = ["remote"]
+
+        let skipped = QueueTraversalPolicy.nextAvailableIndex(
+            queueCount: sourceIDs.count,
+            after: 0,
+            wraps: false,
+            isAvailable: { !disabledSourceIDs.contains(sourceIDs[$0]) }
+        )
+        #expect(skipped == 2)
+
+        disabledSourceIDs.remove("remote")
+        let restored = QueueTraversalPolicy.nextAvailableIndex(
+            queueCount: sourceIDs.count,
+            after: 0,
+            wraps: false,
+            isAvailable: { !disabledSourceIDs.contains(sourceIDs[$0]) }
+        )
+        #expect(restored == 1)
+        #expect(sourceIDs == canonicalQueue)
+    }
+
+    @Test("Shuffle traversal skips unavailable and stale positions")
+    func shuffleTraversalSkipsUnavailablePositions() {
+        let order = [3, 9, 1, 4, 0, 2]
+        let available = Set([0, 4])
+
+        let next = QueueTraversalPolicy.nextAvailableTraversalPosition(
+            in: order,
+            queueCount: 5,
+            after: 0,
+            isAvailable: available.contains
+        )
+        #expect(next == 3)
+
+        let previous = QueueTraversalPolicy.previousAvailableTraversalPosition(
+            in: order,
+            queueCount: 5,
+            before: 5,
+            isAvailable: available.contains
+        )
+        #expect(previous == 4)
+    }
 }
 
 @Suite("Source failure queue advance")

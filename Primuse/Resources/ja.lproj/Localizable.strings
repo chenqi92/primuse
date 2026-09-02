@@ -847,6 +847,7 @@
 "add" = "追加";
 "security" = "セキュリティ";
 "playback_error_connection" = "ソースに接続できません";
+"playback_error_source_disabled" = "この音楽ソースは無効です";
 "playback_error_decode" = "この曲を再生できません";
 "playback_error_format" = "サポートされていないオーディオフォーマット";
 "playback_error_apple_music_generic" = "Apple Music の再生に失敗しました。サブスクリプションの状況またはネットワークを確認してください。";

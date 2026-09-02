@@ -4769,6 +4769,43 @@ public enum QueueTraversalPolicy {
         }
         return nil
     }
+
+    /// Finds a playable position in an arbitrary traversal order (for
+    /// example a managed shuffle round). Invalid queue indices are ignored so
+    /// a stale presentation snapshot cannot escape into playback.
+    public static func nextAvailableTraversalPosition(
+        in traversalIndices: [Int],
+        queueCount: Int,
+        after currentPosition: Int,
+        isAvailable: (Int) -> Bool
+    ) -> Int? {
+        guard queueCount > 0 else { return nil }
+        let start = max(0, currentPosition + 1)
+        guard start < traversalIndices.count else { return nil }
+        for position in start..<traversalIndices.count {
+            let queueIndex = traversalIndices[position]
+            guard (0..<queueCount).contains(queueIndex) else { continue }
+            if isAvailable(queueIndex) { return position }
+        }
+        return nil
+    }
+
+    public static func previousAvailableTraversalPosition(
+        in traversalIndices: [Int],
+        queueCount: Int,
+        before currentPosition: Int,
+        isAvailable: (Int) -> Bool
+    ) -> Int? {
+        guard queueCount > 0, currentPosition > 0 else { return nil }
+        let start = min(currentPosition - 1, traversalIndices.count - 1)
+        guard start >= 0 else { return nil }
+        for position in stride(from: start, through: 0, by: -1) {
+            let queueIndex = traversalIndices[position]
+            guard (0..<queueCount).contains(queueIndex) else { continue }
+            if isAvailable(queueIndex) { return position }
+        }
+        return nil
+    }
 }
 
 /// Rejects asynchronous playback work after another selection supersedes it.

@@ -846,6 +846,7 @@
 "add" = "Hinzufügen";
 "security" = "Sicherheit";
 "playback_error_connection" = "Keine Verbindung zur Quelle möglich";
+"playback_error_source_disabled" = "Diese Musikquelle ist deaktiviert";
 "playback_error_decode" = "Dieser Titel kann nicht wiedergegeben werden";
 "playback_error_format" = "Nicht unterstütztes Audioformat";
 "playback_error_apple_music_generic" = "Apple Music-Wiedergabe fehlgeschlagen. Überprüfe dein Abo oder dein Netzwerk.";

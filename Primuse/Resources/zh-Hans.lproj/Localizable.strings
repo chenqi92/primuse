@@ -655,6 +655,7 @@
 
 // MARK: - Playback Errors
 "playback_error_connection" = "无法连接到来源";
+"playback_error_source_disabled" = "该音乐源已停用";
 "playback_error_decode" = "无法播放此曲目";
 "playback_error_format" = "不支持的音频格式";
 "playback_error_apple_music_generic" = "Apple Music 播放失败,请检查订阅状态或网络";
