@@ -54,6 +54,55 @@ final class TVContentFocusRoutingTests: XCTestCase {
 
 @MainActor
 final class TVTabFocusSelectionPolicyTests: XCTestCase {
+    func testEnteringTabBarFromContentRedirectsOtherTabToActiveTab() {
+        XCTAssertEqual(
+            TVTabBarEntryFocusPolicy.correctedTarget(
+                previous: nil,
+                focused: .tab(.home),
+                active: .sources
+            ),
+            .tab(.sources)
+        )
+    }
+
+    func testEnteringTabBarFromContentRedirectsSettingsToActiveTab() {
+        XCTAssertEqual(
+            TVTabBarEntryFocusPolicy.correctedTarget(
+                previous: nil,
+                focused: .settings,
+                active: .library
+            ),
+            .tab(.library)
+        )
+    }
+
+    func testFocusAlreadyInsideTabBarKeepsHorizontalNavigation() {
+        XCTAssertNil(
+            TVTabBarEntryFocusPolicy.correctedTarget(
+                previous: .tab(.library),
+                focused: .tab(.nowPlaying),
+                active: .library
+            )
+        )
+        XCTAssertNil(
+            TVTabBarEntryFocusPolicy.correctedTarget(
+                previous: .tab(.search),
+                focused: .settings,
+                active: .search
+            )
+        )
+    }
+
+    func testEnteringCurrentTabNeedsNoCorrection() {
+        XCTAssertNil(
+            TVTabBarEntryFocusPolicy.correctedTarget(
+                previous: nil,
+                focused: .tab(.playlists),
+                active: .playlists
+            )
+        )
+    }
+
     func testModalPresentationSuppressesFocusDrivenTabSelection() {
         XCTAssertNil(
             TVTabFocusSelectionPolicy.selection(

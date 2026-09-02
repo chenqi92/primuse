@@ -448,6 +448,34 @@ enum TVTabFocusSelectionPolicy {
     }
 }
 
+enum TVTabBarFocusTarget: Hashable {
+    case tab(TVRoot.Tab)
+    case settings
+
+    var tab: TVRoot.Tab? {
+        switch self {
+        case let .tab(tab): return tab
+        case .settings: return nil
+        }
+    }
+}
+
+/// tvOS 会按几何位置选择顶部栏入口；首次进入时收束到当前 tab，栏内横移不受影响。
+enum TVTabBarEntryFocusPolicy {
+    static func correctedTarget(
+        previous: TVTabBarFocusTarget?,
+        focused: TVTabBarFocusTarget?,
+        active: TVRoot.Tab
+    ) -> TVTabBarFocusTarget? {
+        guard previous == nil,
+              let focused,
+              focused != .tab(active) else {
+            return nil
+        }
+        return .tab(active)
+    }
+}
+
 // MARK: - 顶部 tab bar
 
 struct TVTabBar: View {
@@ -458,7 +486,8 @@ struct TVTabBar: View {
     var allowsFocusDrivenSelection = true
     var onFocusChanged: (Bool) -> Void
     var onSettings: () -> Void
-    @FocusState private var focusedTab: TVRoot.Tab?
+    @FocusState private var focusedTarget: TVTabBarFocusTarget?
+    @State private var pendingProgrammaticFocusTarget: TVTabBarFocusTarget?
 
     private let tabs: [(TVRoot.Tab, String)] = [
         (.home, PMString("ext.tv.nav.home")), (.library, PMString("ext.tv.nav.library")),
@@ -514,11 +543,11 @@ struct TVTabBar: View {
                     TVTabItem(
                         label: item.1,
                         isActive: item.0 == active,
-                        isFocused: item.0 == focusedTab
+                        isFocused: focusedTarget == .tab(item.0)
                     ) {
                         onSelect(item.0)
                     }
-                    .focused($focusedTab, equals: item.0)
+                    .focused($focusedTarget, equals: .tab(item.0))
                     .onMoveCommand { direction in
                         if direction == .down {
                             onContentDown(item.0)
@@ -527,36 +556,49 @@ struct TVTabBar: View {
                 }
             }
             .focusSection()
-            .onChange(of: focusedTab) { _, focused in
-                onFocusChanged(focused != nil)
-                if let selection = TVTabFocusSelectionPolicy.selection(
-                    focused: focused,
-                    active: active,
-                    allowsFocusDrivenSelection: allowsFocusDrivenSelection
-                ) {
-                    onSelect(selection)
-                }
-            }
-            .onChange(of: focusRequest) {
-                focusedTab = active
-            }
-            .onAppear {
-                #if DEBUG
-                if let debugFocusTab { focusedTab = debugFocusTab }
-                #endif
-            }
 
             Spacer(minLength: 0)
 
             // 设置入口(原账户头像改为设置按钮)
-            TVFocusButton(radius: 28, scale: 1.08, lift: 0, action: onSettings) { focused in
-                Image(systemName: "gearshape.fill")
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(focused ? TVColor.onBrand : TVColor.text)
-                    .frame(width: 56, height: 56)
-                    .background(focused ? AnyShapeStyle(TVColor.brand)
-                                        : AnyShapeStyle(TVColor.surfaceStrong), in: Circle())
+            TVSettingsButton(
+                isFocused: focusedTarget == .settings,
+                action: onSettings
+            )
+            .focused($focusedTarget, equals: .settings)
+        }
+        .onChange(of: focusedTarget) { previous, focused in
+            onFocusChanged(focused != nil)
+            let bypassesEntryCorrection = focused != nil
+                && focused == pendingProgrammaticFocusTarget
+            pendingProgrammaticFocusTarget = nil
+            if !bypassesEntryCorrection,
+               let corrected = TVTabBarEntryFocusPolicy.correctedTarget(
+                previous: previous,
+                focused: focused,
+                active: active
+            ) {
+                focusedTarget = corrected
+                return
             }
+            if let selection = TVTabFocusSelectionPolicy.selection(
+                focused: focused?.tab,
+                active: active,
+                allowsFocusDrivenSelection: allowsFocusDrivenSelection
+            ) {
+                onSelect(selection)
+            }
+        }
+        .onChange(of: focusRequest) {
+            focusedTarget = .tab(active)
+        }
+        .onAppear {
+            #if DEBUG
+            if let debugFocusTab {
+                let target = TVTabBarFocusTarget.tab(debugFocusTab)
+                pendingProgrammaticFocusTarget = target
+                focusedTarget = target
+            }
+            #endif
         }
         .padding(.horizontal, TVSpace.pageH)
         .frame(height: 110)
@@ -566,6 +608,25 @@ struct TVTabBar: View {
                            startPoint: .top, endPoint: .bottom)
         )
         .focusSection()
+    }
+}
+
+private struct TVSettingsButton: View {
+    let isFocused: Bool
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "gearshape.fill")
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(isFocused ? TVColor.onBrand : TVColor.text)
+                .frame(width: 56, height: 56)
+                .background(isFocused ? AnyShapeStyle(TVColor.brand)
+                                      : AnyShapeStyle(TVColor.surfaceStrong), in: Circle())
+                .tvFocusRing(isFocused, radius: 28, scale: 1.08, lift: 0)
+        }
+        .buttonStyle(TVBareButtonStyle())
+        .focusEffectDisabled()
     }
 }
 
