@@ -40,6 +40,7 @@ targets:
       - path: Primuse/Services/Library/LibraryDatabase.swift
       - path: Primuse/Services/Library/PlayHistoryStore.swift
       - path: Primuse/Services/Sources/SourcesStore.swift
+      - path: Primuse/Services/Sources/MusicSourceSecurityRevision.swift
       - path: Primuse/Services/Metadata/MetadataAssetStore.swift
       - path: Primuse/Services/Metadata/FileMetadataReader.swift
       - path: Primuse/Services/Cloud/LibrarySnapshotSync.swift
