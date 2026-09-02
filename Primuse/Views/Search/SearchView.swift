@@ -80,6 +80,8 @@ struct SearchView: View {
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(AppleMusicService.self) private var appleMusic
     @Environment(MusicIntelligenceService.self) private var intelligence
+    @AppStorage(AppleMusicFeatureSettings.catalogSearchEnabledKey)
+    private var appleMusicCatalogSearchEnabled = true
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
     #endif
@@ -142,6 +144,17 @@ struct SearchView: View {
         }
     }
 
+    private var appleMusicSearchEnabled: Bool {
+        AppleMusicCatalogSearchAvailabilityPolicy.isEnabled(
+            catalogSearchEnabled: appleMusicCatalogSearchEnabled,
+            disabledSourceIDs: library.disabledSourceIDs
+        )
+    }
+
+    private var visibleAppleMusicSearchResults: [MusicKit.Song] {
+        appleMusicSearchEnabled ? appleMusic.searchResults : []
+    }
+
     /// 结果分组各自截断过（iOS 每组 40，macOS 歌词 3 / 其余 6），"全选"只圈
     /// 用户真正看得到的那些。Apple Music 在线结果不是本地曲库条目，不参与多选。
     private var selectableSongIDs: [String] {
@@ -202,7 +215,14 @@ struct SearchView: View {
         }
         .onChange(of: searchText) { _, newValue in
             performSearch(query: newValue)
-            appleMusic.search(query: newValue)
+            performAppleMusicSearch(query: newValue)
+        }
+        .onChange(of: appleMusicSearchEnabled) { _, isEnabled in
+            if isEnabled {
+                performAppleMusicSearch(query: searchText)
+            } else {
+                appleMusic.clearCatalogSearchResults()
+            }
         }
         .background {
             SearchLibraryRevisionObserver {
@@ -247,7 +267,7 @@ struct SearchView: View {
             } else if searchResults.isEmpty
                         && matchingAlbums.isEmpty
                         && visibleSemanticResults.isEmpty
-                        && appleMusic.searchResults.isEmpty
+                        && visibleAppleMusicSearchResults.isEmpty
                         && !semanticSearchFeedback.isVisible {
                 if isSearching || renderedQuery != searchText {
                     searchingPlaceholder
@@ -292,7 +312,9 @@ struct SearchView: View {
                     .foregroundStyle(PMColor.brand)
 
                 if searchText.isEmpty {
-                    Text("search_placeholder_universal")
+                    Text(appleMusicSearchEnabled
+                         ? String(localized: "search_placeholder_universal")
+                         : String(localized: "search_prompt"))
                         .font(.system(size: 14))
                         .foregroundStyle(PMColor.textFaint)
                 } else {
@@ -304,7 +326,9 @@ struct SearchView: View {
 
                 Spacer()
 
-                Text("search_scope_local_apple_music")
+                Text(appleMusicSearchEnabled
+                     ? String(localized: "search_scope_local_apple_music")
+                     : String(localized: "search_chip_local"))
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(PMColor.textMuted)
                     .padding(.horizontal, 9)
@@ -334,7 +358,9 @@ struct SearchView: View {
                     format: String(localized: "search_lyrics_hits_format"),
                     searchResults.filter { $0.matchKind == .lyrics }.count
                 ), active: false)
-                chipText("Apple Music · \(appleMusic.searchResults.count)", active: false)
+                if appleMusicSearchEnabled {
+                    chipText("Apple Music · \(visibleAppleMusicSearchResults.count)", active: false)
+                }
                 Spacer()
             }
         }
@@ -360,7 +386,7 @@ struct SearchView: View {
         } else if searchResults.isEmpty
                     && matchingAlbums.isEmpty
                     && visibleSemanticResults.isEmpty
-                    && appleMusic.searchResults.isEmpty
+                    && visibleAppleMusicSearchResults.isEmpty
                     && !semanticSearchFeedback.isVisible {
             if isSearching || renderedQuery != searchText {
                 macSearchingPlaceholder
@@ -433,7 +459,9 @@ struct SearchView: View {
 
                 VStack(alignment: .leading, spacing: 24) {
                     macAlbumsSection
-                    macAppleMusicSection
+                    if appleMusicSearchEnabled {
+                        macAppleMusicSection
+                    }
                     macRecentSearchInlineSection
                 }
             }
@@ -538,7 +566,7 @@ struct SearchView: View {
                     .pmRowBackground(cornerRadius: 6)
             }
 
-            ForEach(appleMusic.searchResults.prefix(5), id: \.id) { song in
+            ForEach(visibleAppleMusicSearchResults.prefix(5), id: \.id) { song in
                 Button {
                     Task { await appleMusic.play(song) }
                 } label: {
@@ -914,7 +942,7 @@ struct SearchView: View {
             + visibleSemanticResults.count
             + matchingAlbums.count
             + matchingArtistCount
-            + appleMusic.searchResults.count
+            + visibleAppleMusicSearchResults.count
     }
 
     /// 从搜索结果歌曲里反推 distinct 艺术家数 — 没有专用 artist search 结果时
@@ -942,7 +970,7 @@ struct SearchView: View {
         case .denied, .restricted:
             return String(localized: "apple_music_notice_denied")
         case .authorized:
-            guard AppleMusicFeatureSettings.catalogSearchEnabled else {
+            guard appleMusicSearchEnabled else {
                 return String(localized: "search_apple_music_catalog_disabled")
             }
             if appleMusic.isSearching {
@@ -953,7 +981,7 @@ struct SearchView: View {
             }
             return String(
                 format: String(localized: "search_apple_music_synced_results_format"),
-                appleMusic.searchResults.count
+                visibleAppleMusicSearchResults.count
             )
         }
     }
@@ -1092,9 +1120,11 @@ struct SearchView: View {
             songSection(kind: .fuzzy, titleKey: "search_section_fuzzy")
             semanticSongSection
 
-            // Apple Music — 即使没结果也显示 section 标题, 让用户一眼看到
+            // Apple Music 启用时即使没结果也显示 section 标题, 让用户一眼看到
             // "为什么没有 Apple Music 推荐" (未授权 / 搜索失败 / 真没结果)。
-            appleMusicSection
+            if appleMusicSearchEnabled {
+                appleMusicSection
+            }
         }
         .listStyle(.plain)
     }
@@ -1118,14 +1148,14 @@ struct SearchView: View {
                 } else if let err = appleMusic.lastSearchError {
                     Label(err, systemImage: "exclamationmark.triangle")
                         .font(.caption).foregroundStyle(.red)
-                } else if appleMusic.searchResults.isEmpty {
+                } else if visibleAppleMusicSearchResults.isEmpty {
                     if appleMusic.lastSearchHitCount == 0 {
                         Label("apple_music_notice_no_results", systemImage: "magnifyingglass")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     // hitCount == -1 表示还没搜过, 不显示状态 (避免空 section)
                 } else {
-                    ForEach(appleMusic.searchResults, id: \.id) { song in
+                    ForEach(visibleAppleMusicSearchResults, id: \.id) { song in
                         appleMusicRow(song)
                     }
                 }
@@ -1317,7 +1347,15 @@ struct SearchView: View {
     private func resumeSearchIfNeeded() {
         guard !searchText.isEmpty, !isSearching, renderedQuery != searchText else { return }
         performSearch(query: searchText)
-        appleMusic.search(query: searchText)
+        performAppleMusicSearch(query: searchText)
+    }
+
+    private func performAppleMusicSearch(query: String) {
+        guard appleMusicSearchEnabled else {
+            appleMusic.clearCatalogSearchResults()
+            return
+        }
+        appleMusic.search(query: query)
     }
 
     private func performSearch(query: String) {

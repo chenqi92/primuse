@@ -176,7 +176,9 @@ final class AppleMusicService {
         }
         searchTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(200))
-            guard !Task.isCancelled, let self else { return }
+            guard !Task.isCancelled,
+                  AppleMusicFeatureSettings.catalogSearchEnabled,
+                  let self else { return }
             await self.runSearch(term: trimmed)
         }
     }
@@ -191,13 +193,17 @@ final class AppleMusicService {
     }
 
     private func runSearch(term: String) async {
+        guard AppleMusicFeatureSettings.catalogSearchEnabled else {
+            clearCatalogSearchResults()
+            return
+        }
         isSearching = true
         defer { isSearching = false }
         do {
             var request = MusicCatalogSearchRequest(term: term, types: [MusicKit.Song.self])
             request.limit = 25
             let response = try await request.response()
-            if !Task.isCancelled {
+            if !Task.isCancelled, AppleMusicFeatureSettings.catalogSearchEnabled {
                 self.searchResults = Array(response.songs)
                 self.lastSearchError = nil
                 self.lastSearchHitCount = response.songs.count
@@ -207,7 +213,7 @@ final class AppleMusicService {
             // user 继续打字,旧 query 失效,沉默丢弃
         } catch {
             plog("⚠️Apple Music search failed for '\(term)': \(error.localizedDescription)")
-            if !Task.isCancelled {
+            if !Task.isCancelled, AppleMusicFeatureSettings.catalogSearchEnabled {
                 self.searchResults = []
                 self.lastSearchError = error.localizedDescription
                 self.lastSearchHitCount = -1

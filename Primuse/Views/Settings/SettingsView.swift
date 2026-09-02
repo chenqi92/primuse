@@ -14,17 +14,6 @@ struct SettingsView: View {
     #if os(iOS)
     @AppStorage(AppNavigationMode.storageKey)
     private var navigationModeRawValue = AppNavigationMode.standard.rawValue
-
-    private var minimalModeEnabled: Binding<Bool> {
-        Binding(
-            get: { AppNavigationMode.resolve(navigationModeRawValue) == .minimal },
-            set: { isEnabled in
-                navigationModeRawValue = (isEnabled
-                    ? AppNavigationMode.minimal
-                    : AppNavigationMode.standard).rawValue
-            }
-        )
-    }
     #endif
 
     init(scraperSettingsRoute: Binding<ScraperSettingsRouteState> = .constant(.init())) {
@@ -34,16 +23,6 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
-                #if os(iOS)
-                Section {
-                    Toggle(isOn: minimalModeEnabled) {
-                        Label("minimal_mode_title", systemImage: "rectangle.topthird.inset.filled")
-                    }
-                } header: {
-                    Text("navigation_mode_title")
-                }
-                #endif
-
                 Section("library") {
                     NavigationLink {
                         SourcesContentView()

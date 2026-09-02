@@ -35,9 +35,22 @@ enum IOSAppearancePreference: String, CaseIterable, Sendable {
 struct AppearanceSettingsView: View {
     @AppStorage(AppThemePreferences.iOSAppearanceKey)
     private var appearanceRawValue = IOSAppearancePreference.system.rawValue
+    @AppStorage(AppNavigationMode.storageKey)
+    private var navigationModeRawValue = AppNavigationMode.standard.rawValue
 
     private var selection: IOSAppearancePreference {
         IOSAppearancePreference(rawValue: appearanceRawValue) ?? .system
+    }
+
+    private var minimalModeEnabled: Binding<Bool> {
+        Binding(
+            get: { AppNavigationMode.resolve(navigationModeRawValue) == .minimal },
+            set: { isEnabled in
+                navigationModeRawValue = (isEnabled
+                    ? AppNavigationMode.minimal
+                    : AppNavigationMode.standard).rawValue
+            }
+        )
     }
 
     var body: some View {
@@ -66,6 +79,16 @@ struct AppearanceSettingsView: View {
                     .buttonStyle(.plain)
                     .accessibilityAddTraits(selection == option ? [.isButton, .isSelected] : .isButton)
                 }
+            }
+
+            Section {
+                Toggle(isOn: minimalModeEnabled) {
+                    Label("minimal_mode_title", systemImage: "rectangle.topthird.inset.filled")
+                }
+            } header: {
+                Text("navigation_mode_title")
+            } footer: {
+                Text("minimal_mode_description")
             }
         }
         .navigationTitle("appearance")
