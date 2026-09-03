@@ -431,6 +431,58 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         XCTAssertTrue(
             request.value(forHTTPHeaderField: "Accept")?.contains("application/x-ndjson") == true
         )
+        XCTAssertEqual(request.timeoutInterval, 60)
+    }
+
+    func testRecommendationStreamRetriesOneBusyResponseAfterReset() async throws {
+        let host = "primuse-relay-recommendation-stream-retry.invalid"
+        let items = (0..<12).map { index in
+            ["song_id": "song-\(index)", "reason": "Reason \(index)"]
+        }
+        let completion = try String(
+            decoding: JSONSerialization.data(withJSONObject: [
+                "type": "complete",
+                "data": ["items": items],
+            ]),
+            as: UTF8.self
+        ) + "\n"
+        PrimuseRelayURLProtocol.configure(
+            host: host,
+            featureStatusCode: 429,
+            featureBody: #"{"error":{"code":"concurrency_limited"}}"#,
+            featureContentType: "application/x-ndjson; charset=utf-8",
+            transientFeatureFailures: 1,
+            recoveredFeatureBody: completion
+        )
+        let credentials = TestPrimuseRelayCredentialStore(
+            credential: PrimuseAIRelayCredential(
+                keyID: "test-app-attest-key",
+                installationID: "test-installation"
+            )
+        )
+        let (client, session, _, _) = makeClient(
+            host: host,
+            credentials: credentials,
+            transientRetryDelay: .zero
+        )
+        defer { session.invalidateAndCancel() }
+
+        var events: [AIRecommendationStreamEvent] = []
+        for try await event in await client.recommendationEvents(recommendationRequest()) {
+            events.append(event)
+        }
+
+        XCTAssertEqual(events.first, .reset)
+        guard case .completed(let plan)? = events.last else {
+            return XCTFail("Expected a completed recommendation plan")
+        }
+        XCTAssertEqual(plan.selections.count, 12)
+        XCTAssertEqual(
+            PrimuseRelayURLProtocol.requests(host: host)
+                .filter { $0.url?.path == "/v1/recommendations" }
+                .count,
+            2
+        )
     }
 
     func testSemanticStreamRecoversRejectedCredentialBeforePublishingCompletion() async throws {
@@ -909,7 +961,8 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         host: String,
         attestor: TestPrimuseAppAttestor = TestPrimuseAppAttestor(),
         storeKitProvider: TestPrimuseStoreKitEnrollmentProvider = TestPrimuseStoreKitEnrollmentProvider(),
-        credentials: TestPrimuseRelayCredentialStore = TestPrimuseRelayCredentialStore()
+        credentials: TestPrimuseRelayCredentialStore = TestPrimuseRelayCredentialStore(),
+        transientRetryDelay: Duration = .seconds(1)
     ) -> (
         PrimuseAIRelayClient,
         URLSession,
@@ -924,7 +977,8 @@ final class PrimuseAIRelayClientTests: XCTestCase {
             session: session,
             attestor: attestor,
             storeKitEnrollmentProvider: storeKitProvider,
-            credentialStore: credentials
+            credentialStore: credentials,
+            transientRetryDelay: transientRetryDelay
         )
         return (client, session, attestor, credentials)
     }

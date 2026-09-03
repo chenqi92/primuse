@@ -1758,13 +1758,8 @@ final class AIRecommendationViewModel {
         isStreaming = false
         switch outcome {
         case .unavailable:
-            if appending {
-                orderedSongIDs = startingSongIDs
-                reasonsBySongID = startingReasons
-            } else {
-                orderedSongIDs = []
-                reasonsBySongID = [:]
-            }
+            orderedSongIDs = startingSongIDs
+            reasonsBySongID = startingReasons
             feedback = .localFallback(
                 providerName: nil,
                 fallbackDepth: 0,
@@ -1804,13 +1799,8 @@ final class AIRecommendationViewModel {
             )
             return true
         case .empty(let providerName, let fallbackDepth):
-            if appending {
-                orderedSongIDs = startingSongIDs
-                reasonsBySongID = startingReasons
-            } else {
-                orderedSongIDs = []
-                reasonsBySongID = [:]
-            }
+            orderedSongIDs = startingSongIDs
+            reasonsBySongID = startingReasons
             feedback = .localFallback(
                 providerName: providerName,
                 fallbackDepth: fallbackDepth,
@@ -1818,13 +1808,8 @@ final class AIRecommendationViewModel {
             )
             return false
         case .failed(let reason):
-            if appending {
-                orderedSongIDs = startingSongIDs
-                reasonsBySongID = startingReasons
-            } else {
-                orderedSongIDs = []
-                reasonsBySongID = [:]
-            }
+            orderedSongIDs = startingSongIDs
+            reasonsBySongID = startingReasons
             feedback = .localFallback(
                 providerName: nil,
                 fallbackDepth: 0,

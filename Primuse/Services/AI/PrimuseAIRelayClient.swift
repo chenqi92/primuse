@@ -297,12 +297,14 @@ actor PrimuseAIRelayClient {
 
     private static let appID = "primuse"
     private static let maximumResponseBytes = 1_048_576
+    private static let requestIdleTimeout: TimeInterval = 60
 
     private let baseURL: URL
     private let session: URLSession
     private let attestor: any PrimuseAppAttesting
     private let storeKitEnrollmentProvider: any PrimuseStoreKitEnrollmentProviding
     private let credentialStore: any PrimuseAIRelayCredentialStoring
+    private let transientRetryDelay: Duration
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
@@ -311,7 +313,8 @@ actor PrimuseAIRelayClient {
         session: URLSession = PrimuseAIRelayClient.makeSession(),
         attestor: any PrimuseAppAttesting = SystemPrimuseAppAttestor(),
         storeKitEnrollmentProvider: any PrimuseStoreKitEnrollmentProviding = SystemPrimuseStoreKitEnrollmentProvider(),
-        credentialStore: any PrimuseAIRelayCredentialStoring = KeychainPrimuseAIRelayCredentialStore()
+        credentialStore: any PrimuseAIRelayCredentialStoring = KeychainPrimuseAIRelayCredentialStore(),
+        transientRetryDelay: Duration = .seconds(1)
     ) {
         precondition(baseURL.scheme?.lowercased() == "https")
         self.baseURL = baseURL
@@ -319,6 +322,7 @@ actor PrimuseAIRelayClient {
         self.attestor = attestor
         self.storeKitEnrollmentProvider = storeKitEnrollmentProvider
         self.credentialStore = credentialStore
+        self.transientRetryDelay = transientRetryDelay
         encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         decoder = JSONDecoder()
@@ -614,6 +618,7 @@ actor PrimuseAIRelayClient {
         canRecoverLocalAppAttestCredential: Bool = true,
         canRecoverServerCredential: Bool = true,
         canRetryFreshProof: Bool = true,
+        canRetryTransientFailure: Bool = true,
         emit: (FeatureWireEvent<Progress, Output>) -> Void
     ) async throws {
         do {
@@ -641,6 +646,7 @@ actor PrimuseAIRelayClient {
                     canRecoverLocalAppAttestCredential: false,
                     canRecoverServerCredential: canRecoverServerCredential,
                     canRetryFreshProof: canRetryFreshProof,
+                    canRetryTransientFailure: canRetryTransientFailure,
                     emit: emit
                 )
             }
@@ -656,6 +662,7 @@ actor PrimuseAIRelayClient {
                     canRecoverLocalAppAttestCredential: canRecoverLocalAppAttestCredential,
                     canRecoverServerCredential: false,
                     canRetryFreshProof: canRetryFreshProof,
+                    canRetryTransientFailure: canRetryTransientFailure,
                     emit: emit
                 )
             }
@@ -670,6 +677,24 @@ actor PrimuseAIRelayClient {
                     canRecoverLocalAppAttestCredential: canRecoverLocalAppAttestCredential,
                     canRecoverServerCredential: canRecoverServerCredential,
                     canRetryFreshProof: false,
+                    canRetryTransientFailure: canRetryTransientFailure,
+                    emit: emit
+                )
+            }
+            if canRetryTransientFailure,
+               Self.shouldRetryTransientStream(after: error) {
+                emit(.reset)
+                try await Task.sleep(for: transientRetryDelay)
+                return try await performStreamingFeature(
+                    path: path,
+                    purpose: purpose,
+                    input: input,
+                    output: output,
+                    progress: progress,
+                    canRecoverLocalAppAttestCredential: canRecoverLocalAppAttestCredential,
+                    canRecoverServerCredential: canRecoverServerCredential,
+                    canRetryFreshProof: canRetryFreshProof,
+                    canRetryTransientFailure: false,
                     emit: emit
                 )
             }
@@ -1122,7 +1147,7 @@ actor PrimuseAIRelayClient {
         var request = URLRequest(
             url: url,
             cachePolicy: .reloadIgnoringLocalCacheData,
-            timeoutInterval: 20
+            timeoutInterval: Self.requestIdleTimeout
         )
         request.httpMethod = "POST"
         request.httpBody = body
@@ -1209,6 +1234,14 @@ actor PrimuseAIRelayClient {
         ].contains(code)
     }
 
+    private nonisolated static func shouldRetryTransientStream(after error: Error) -> Bool {
+        guard let relayError = error as? PrimuseAIRelayError,
+              case .requestFailed(_, let code) = relayError else {
+            return false
+        }
+        return code == "concurrency_limited" || code == "upstreams_busy"
+    }
+
     private nonisolated static func safeDiagnosticCode(
         _ rawCode: String?,
         statusCode: Int
@@ -1231,8 +1264,7 @@ actor PrimuseAIRelayClient {
 
     private nonisolated static func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 20
-        configuration.timeoutIntervalForResource = 30
+        configuration.timeoutIntervalForRequest = requestIdleTimeout
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.urlCache = nil
         configuration.httpCookieStorage = nil
