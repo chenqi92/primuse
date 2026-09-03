@@ -2,7 +2,7 @@
 "cache_sync_subtitle" = "将已有音频缓存直接发送到另一台 Primuse 设备";
 "cache_sync_refresh" = "重新检测";
 "cache_sync_close" = "关闭";
-"cache_sync_local_cache" = "这台 Mac 可同步的缓存";
+"cache_sync_local_cache" = "这台设备可同步的缓存";
 "cache_sync_inventory_format" = "%d 个缓存文件 · %@";
 "cache_sync_preparing_inventory" = "正在检查完整缓存文件…";
 "cache_sync_receiver_ready" = "可被发现";
@@ -30,3 +30,15 @@
 "cache_sync_error_discovery" = "附近设备检测失败，请检查“本地网络”权限后重试。";
 "cache_sync_error_connection" = "无法与这台设备比较缓存，请让两端 Primuse 保持打开后重试。";
 "cache_sync_error_transfer" = "缓存同步已中断；目标设备上已经校验完成的文件会保留。";
+"cache_sync_local_device" = "本机";
+"cache_sync_device_status" = "设备状态";
+"cache_sync_local_network_footer" = "缓存文件仅通过局域网直传；同步过程不会从媒体服务器重新下载音频。";
+"cache_sync_missing_on_target" = "目标设备缺少";
+"cache_sync_test_three" = "先试传最多 3 个文件";
+"cache_sync_sync_all" = "同步全部缺失缓存";
+"cache_sync_test_three_footer" = "建议先试传最多 3 个缺失文件，确认连接正常后再同步其余缓存。";
+"cache_sync_keep_foreground" = "传输完成前，请让两台设备保持唤醒，并让 Primuse 停留在此页面。";
+"cache_sync_retry" = "重试";
+"cache_sync_confirm_all_title" = "同步全部缺失缓存？";
+"cache_sync_confirm_all_message_format" = "将 %d 个缺失文件（%@）直接发送到所选设备。";
+"cache_sync_test_transferred_titles" = "本次试传的文件";

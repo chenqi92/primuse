@@ -2,7 +2,7 @@
 "cache_sync_subtitle" = "將現有音訊快取直接傳送到另一台 Primuse 裝置";
 "cache_sync_refresh" = "重新偵測";
 "cache_sync_close" = "關閉";
-"cache_sync_local_cache" = "這台 Mac 可同步的快取";
+"cache_sync_local_cache" = "這台裝置可同步的快取";
 "cache_sync_inventory_format" = "%d 個快取檔案 · %@";
 "cache_sync_preparing_inventory" = "正在檢查完整快取檔案…";
 "cache_sync_receiver_ready" = "可被偵測";
@@ -30,3 +30,15 @@
 "cache_sync_error_discovery" = "附近裝置偵測失敗，請檢查「本機網路」權限後重試。";
 "cache_sync_error_connection" = "無法與這台裝置比較快取，請讓兩端 Primuse 保持開啟後重試。";
 "cache_sync_error_transfer" = "快取同步已中斷；目標裝置上已完成驗證的檔案會保留。";
+"cache_sync_local_device" = "本機";
+"cache_sync_device_status" = "裝置狀態";
+"cache_sync_local_network_footer" = "快取檔案只會透過區域網路直接傳送；同步過程不會從媒體伺服器重新下載音訊。";
+"cache_sync_missing_on_target" = "目標裝置缺少";
+"cache_sync_test_three" = "先試傳最多 3 個檔案";
+"cache_sync_sync_all" = "同步所有缺少的快取";
+"cache_sync_test_three_footer" = "建議先試傳最多 3 個缺少的檔案，確認連線正常後再同步其餘快取。";
+"cache_sync_keep_foreground" = "傳輸完成前，請讓兩台裝置保持喚醒，並讓 Primuse 停留在此頁面。";
+"cache_sync_retry" = "重試";
+"cache_sync_confirm_all_title" = "同步所有缺少的快取？";
+"cache_sync_confirm_all_message_format" = "將 %d 個缺少的檔案（%@）直接傳送到所選裝置。";
+"cache_sync_test_transferred_titles" = "本次試傳的檔案";

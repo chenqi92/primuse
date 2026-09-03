@@ -2,7 +2,7 @@
 "cache_sync_subtitle" = "既存の音声キャッシュを別の Primuse デバイスへ直接送信します";
 "cache_sync_refresh" = "もう一度検出";
 "cache_sync_close" = "閉じる";
-"cache_sync_local_cache" = "この Mac で利用可能なキャッシュ";
+"cache_sync_local_cache" = "このデバイスで利用可能なキャッシュ";
 "cache_sync_inventory_format" = "%d 個のキャッシュファイル · %@";
 "cache_sync_preparing_inventory" = "完全なキャッシュファイルを確認しています…";
 "cache_sync_receiver_ready" = "検出可能";
@@ -30,3 +30,15 @@
 "cache_sync_error_discovery" = "近くのデバイスを検出できませんでした。ローカルネットワークの権限を確認して、もう一度お試しください。";
 "cache_sync_error_connection" = "このデバイスとキャッシュを比較できませんでした。両方のデバイスで Primuse を開いたまま、もう一度お試しください。";
 "cache_sync_error_transfer" = "キャッシュ同期が中断されました。送信先で確認済みのファイルは保持されています。";
+"cache_sync_local_device" = "このデバイス";
+"cache_sync_device_status" = "デバイスの状態";
+"cache_sync_local_network_footer" = "キャッシュファイルはローカルネットワーク経由で直接送信されます。Primuse がメディアサーバーから再ダウンロードすることはありません。";
+"cache_sync_missing_on_target" = "送信先で不足";
+"cache_sync_test_three" = "最大 3 ファイルでテスト";
+"cache_sync_sync_all" = "不足分をすべて同期";
+"cache_sync_test_three_footer" = "最初に不足ファイルを最大 3 件送信して接続を確認し、その後に残りを同期してください。";
+"cache_sync_keep_foreground" = "転送が完了するまで Primuse をこの画面で開き、両方のデバイスをスリープさせないでください。";
+"cache_sync_retry" = "再試行";
+"cache_sync_confirm_all_title" = "不足しているキャッシュをすべて同期しますか？";
+"cache_sync_confirm_all_message_format" = "不足している %d ファイル（%@）を選択したデバイスへ直接送信します。";
+"cache_sync_test_transferred_titles" = "今回のテストで転送したファイル";

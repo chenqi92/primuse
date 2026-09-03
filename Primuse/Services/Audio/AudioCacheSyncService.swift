@@ -75,6 +75,7 @@ struct AudioCacheSyncTransferCompletion: Equatable, Sendable {
     let transferredFileCount: Int
     let failedFileCount: Int
     let transferredByteCount: Int64
+    let transferredTitles: [String]
 }
 
 enum AudioCacheSyncOperation: Equatable, Sendable {
@@ -122,6 +123,15 @@ enum AudioCacheSyncPolicy {
         let maximumResult = catalogByteCount.addingReportingOverflow(4 * 1_024)
         let maximum = maximumResult.overflow ? Int64.max : maximumResult.partialValue
         return transferredByteCount >= minimum && transferredByteCount <= maximum
+    }
+
+    static func limitedItemIDs(
+        _ itemIDs: [String],
+        maximumCount: Int?
+    ) -> [String] {
+        guard let maximumCount else { return itemIDs }
+        guard maximumCount > 0 else { return [] }
+        return Array(itemIDs.prefix(maximumCount))
     }
 }
 
@@ -413,7 +423,7 @@ final class AudioCacheSyncService {
         }
     }
 
-    func sync(to peerID: String) {
+    func sync(to peerID: String, maximumFileCount: Int? = nil) {
         guard operation == .idle,
               let endpoint = endpointByPeerID[peerID],
               let publicKey = publicKeyByPeerID[peerID] else { return }
@@ -427,10 +437,26 @@ final class AudioCacheSyncService {
         transferProgress = nil
         operationTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let manifest = await self.buildLocalManifest()
+            let fullManifest = await self.buildLocalManifest()
             guard !Task.isCancelled, self.activeOperationID == operationID else { return }
-            self.localInventory = manifest.summary
+            self.localInventory = fullManifest.summary
             do {
+                let manifest: AudioCacheSyncLocalManifest
+                if maximumFileCount != nil {
+                    let currentPlan = try await Self.requestPlan(
+                        endpoint: endpoint,
+                        receiverPublicKey: publicKey,
+                        manifest: fullManifest,
+                        action: .inspect
+                    )
+                    manifest = Self.transferManifest(
+                        fullManifest,
+                        missingItemIDs: currentPlan.missingItemIDs,
+                        maximumFileCount: maximumFileCount
+                    )
+                } else {
+                    manifest = fullManifest
+                }
                 let outcome = try await Self.transfer(
                     endpoint: endpoint,
                     receiverPublicKey: publicKey,
@@ -444,18 +470,37 @@ final class AudioCacheSyncService {
                     )
                 }
                 guard !Task.isCancelled, self.activeOperationID == operationID else { return }
-                self.peerPlans[peerID] = AudioCacheSyncPeerPlan(
-                    peerID: peerID,
-                    missingFileCount: outcome.plan.missingFileCount,
-                    missingByteCount: outcome.plan.missingByteCount,
-                    alreadyPresentCount: outcome.plan.alreadyPresentCount,
-                    rejectedCount: outcome.plan.rejectedCount
-                )
+                if maximumFileCount != nil,
+                   let refreshedWirePlan = try? await Self.requestPlan(
+                       endpoint: endpoint,
+                       receiverPublicKey: publicKey,
+                       manifest: fullManifest,
+                       action: .inspect
+                   ) {
+                    self.peerPlans[peerID] = Self.peerPlan(
+                        peerID: peerID,
+                        wirePlan: refreshedWirePlan,
+                        manifest: fullManifest
+                    )
+                } else {
+                    self.peerPlans[peerID] = AudioCacheSyncPeerPlan(
+                        peerID: peerID,
+                        missingFileCount: outcome.plan.missingFileCount,
+                        missingByteCount: outcome.plan.missingByteCount,
+                        alreadyPresentCount: outcome.plan.alreadyPresentCount,
+                        rejectedCount: outcome.plan.rejectedCount
+                    )
+                }
                 self.lastCompletion = AudioCacheSyncTransferCompletion(
                     peerID: peerID,
                     transferredFileCount: outcome.summary.transferredFileCount,
                     failedFileCount: outcome.summary.failedFileCount,
-                    transferredByteCount: outcome.summary.transferredByteCount
+                    transferredByteCount: outcome.summary.transferredByteCount,
+                    transferredTitles: maximumFileCount == nil
+                        ? []
+                        : outcome.transferredItemIDs.compactMap {
+                            manifest.filesByID[$0]?.title
+                        }
                 )
                 self.transferProgress = nil
                 self.operation = .idle
@@ -896,6 +941,21 @@ final class AudioCacheSyncService {
         )
     }
 
+    private static func transferManifest(
+        _ manifest: AudioCacheSyncLocalManifest,
+        missingItemIDs: [String],
+        maximumFileCount: Int?
+    ) -> AudioCacheSyncLocalManifest {
+        let selectedIDs = AudioCacheSyncPolicy.limitedItemIDs(
+            missingItemIDs,
+            maximumCount: maximumFileCount
+        )
+        let filesByID = manifest.filesByID
+        return AudioCacheSyncLocalManifest(
+            files: selectedIDs.compactMap { filesByID[$0] }
+        )
+    }
+
     private static func requestPlan(
         endpoint: NWEndpoint,
         receiverPublicKey: Data,
@@ -925,7 +985,11 @@ final class AudioCacheSyncService {
         receiverPublicKey: Data,
         manifest: AudioCacheSyncLocalManifest,
         progress: @escaping @Sendable (AudioCacheSyncNetworkProgress) async -> Void
-    ) async throws -> (plan: AudioCacheSyncPeerPlan, summary: AudioCacheSyncWireTransferSummary) {
+    ) async throws -> (
+        plan: AudioCacheSyncPeerPlan,
+        summary: AudioCacheSyncWireTransferSummary,
+        transferredItemIDs: [String]
+    ) {
         let socket = AudioCacheSyncSocket(connection: NWConnection(to: endpoint, using: .tcp))
         return try await withTaskCancellationHandler {
             defer { socket.cancel() }
@@ -947,6 +1011,7 @@ final class AudioCacheSyncService {
             var completed = 0
             var failed = 0
             var sentBytes: Int64 = 0
+            var transferredItemIDs: [String] = []
 
             await progress(AudioCacheSyncNetworkProgress(
                 completedFileCount: 0,
@@ -1053,6 +1118,7 @@ final class AudioCacheSyncService {
                     let result = try await session.receiveJSON(AudioCacheSyncWireFileResult.self)
                     if result.itemID == itemID, result.succeeded {
                         completed += 1
+                        transferredItemIDs.append(itemID)
                     } else {
                         failed += 1
                     }
@@ -1081,7 +1147,7 @@ final class AudioCacheSyncService {
                 alreadyPresentCount: wirePlan.alreadyPresentCount + summary.transferredFileCount,
                 rejectedCount: wirePlan.rejectedCount
             )
-            return (finalizedPlan, summary)
+            return (finalizedPlan, summary, transferredItemIDs)
         } onCancel: {
             socket.cancel()
         }

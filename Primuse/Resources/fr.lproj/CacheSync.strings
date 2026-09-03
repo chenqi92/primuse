@@ -2,7 +2,7 @@
 "cache_sync_subtitle" = "Envoyer le cache audio existant directement vers un autre appareil Primuse";
 "cache_sync_refresh" = "Détecter à nouveau";
 "cache_sync_close" = "Fermer";
-"cache_sync_local_cache" = "Cache disponible sur ce Mac";
+"cache_sync_local_cache" = "Cache disponible sur cet appareil";
 "cache_sync_inventory_format" = "%d fichiers en cache · %@";
 "cache_sync_preparing_inventory" = "Vérification des fichiers complets…";
 "cache_sync_receiver_ready" = "Détectable";
@@ -30,3 +30,15 @@
 "cache_sync_error_discovery" = "Échec de la détection. Vérifiez l’autorisation Réseau local.";
 "cache_sync_error_connection" = "Impossible de comparer les caches. Gardez Primuse ouvert sur les deux appareils.";
 "cache_sync_error_transfer" = "Synchronisation interrompue. Les fichiers déjà vérifiés sont conservés.";
+"cache_sync_local_device" = "Cet appareil";
+"cache_sync_device_status" = "État de l’appareil";
+"cache_sync_local_network_footer" = "Les fichiers en cache sont envoyés directement sur le réseau local. Primuse ne les retélécharge pas depuis le serveur multimédia.";
+"cache_sync_missing_on_target" = "Manquant sur la cible";
+"cache_sync_test_three" = "Tester avec 3 fichiers maximum";
+"cache_sync_sync_all" = "Tout synchroniser";
+"cache_sync_test_three_footer" = "Commencez par trois fichiers manquants maximum pour vérifier la connexion, puis synchronisez le reste.";
+"cache_sync_keep_foreground" = "Gardez Primuse ouvert sur cet écran et les deux appareils actifs jusqu’à la fin du transfert.";
+"cache_sync_retry" = "Réessayer";
+"cache_sync_confirm_all_title" = "Synchroniser tout le cache manquant ?";
+"cache_sync_confirm_all_message_format" = "Envoyer directement %d fichiers manquants (%@) vers l’appareil sélectionné.";
+"cache_sync_test_transferred_titles" = "Fichiers transférés pendant ce test";
