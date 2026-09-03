@@ -122,6 +122,8 @@ IDENTICAL_VALUE_GLOBAL_ALLOWLIST = %w[
   fullscreen_effect_collection_native
   fullscreen_effect_native
   fullscreen_effect_vinyl
+  immersive_demo_album
+  immersive_demo_title
   local_import_failure_item_format
   relay_import_status
   relay_share_format
