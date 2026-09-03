@@ -3018,6 +3018,29 @@ public enum DirectPCMOutputSampleRatePolicy {
             && abs(requestedSampleRate - actualHardwareSampleRate) < matchTolerance
     }
 
+    /// Wireless routes negotiate their own clock and can change it while the
+    /// stream is active. Writing their nominal rate from the app can trigger a
+    /// second hardware reconfiguration and leave an existing audio graph with
+    /// stale formats. Wired outputs may opt in only when Core Audio confirms
+    /// the request is settable and supported.
+    public static func shouldRequestNominalSampleRateChange(
+        requestedSampleRate: Double,
+        currentHardwareSampleRate: Double,
+        propertyIsSettable: Bool,
+        requestedRateIsSupported: Bool?,
+        isSystemManagedWirelessOutput: Bool
+    ) -> Bool {
+        !isSystemManagedWirelessOutput
+            && propertyIsSettable
+            && requestedRateIsSupported != false
+            && isValid(requestedSampleRate)
+            && isValid(currentHardwareSampleRate)
+            && !hardwareMatches(
+                requestedSampleRate: requestedSampleRate,
+                actualHardwareSampleRate: currentHardwareSampleRate
+            )
+    }
+
     public static func bufferMatchesGraph(
         bufferSampleRate: Double,
         bufferChannelCount: UInt32,

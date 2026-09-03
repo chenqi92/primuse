@@ -139,6 +139,18 @@ final class AudioSessionManager {
         }
     }
 
+    /// Bluetooth and AirPlay devices negotiate their own transport clock.
+    /// The app should render at the rate they report instead of repeatedly
+    /// requesting a new hardware rate for each track.
+    var outputRouteIsSystemManagedWireless: Bool {
+        AVAudioSession.sharedInstance().currentRoute.outputs.contains {
+            $0.portType == .airPlay
+                || $0.portType == .bluetoothA2DP
+                || $0.portType == .bluetoothHFP
+                || $0.portType == .bluetoothLE
+        }
+    }
+
     var outputRouteIsBuiltIn: Bool {
         AVAudioSession.sharedInstance().currentRoute.outputs.contains {
             $0.portType == .builtInSpeaker || $0.portType == .builtInReceiver
@@ -204,15 +216,35 @@ final class AudioSessionManager {
     }
 
 #else
-    // macOS has no AVAudioSession — Core Audio routes/interruptions don't
-    // need explicit setup. These no-op stubs let the iOS-shaped call sites
-    // stay platform-agnostic.
+    // macOS has no AVAudioSession, but AVAudioEngine still stops and
+    // uninitializes itself when the output device changes sample rate or
+    // channel layout. Observe that event so the player can rebuild the graph
+    // after the hardware has settled.
     @discardableResult
     func activatePlaybackSession(reacquiringLocalRouteFocus: Bool = false) -> Bool { true }
-    func prepareForPlayback() {}
+    func prepareForPlayback() {
+        guard !isConfigured else { return }
+        isConfigured = true
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleConfigurationChange(_:)),
+            name: .AVAudioEngineConfigurationChange,
+            object: nil
+        )
+    }
+
+    @objc private nonisolated func handleConfigurationChange(_ notification: Notification) {
+        let eventTime = Date()
+        Task { @MainActor [weak self] in
+            plog("🔧 Audio engine configuration changed")
+            self?.onConfigurationChange?(eventTime)
+        }
+    }
+
     func deactivate() {}
     var outputRouteIsBluetoothHFP: Bool { false }
     var outputRouteIsBluetooth: Bool { false }
+    var outputRouteIsSystemManagedWireless: Bool { false }
     var outputRouteIsBuiltIn: Bool { false }
     var otherAudioIsPlaying: Bool { false }
 #endif

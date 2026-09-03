@@ -1788,6 +1788,7 @@ final class AudioPlayerService {
                 plog("🔧 Audio engine configuration change absorbed by active configuration recovery")
                 return
             }
+            self.audioEngine.markHardwareConfigurationChanged()
             let carriedConfigurationActivity = self.hasConfigurationRecoveryActivityEvidence
             let shouldAutoResume = (
                 self.isPlaying || self.isLoading || carriedConfigurationActivity

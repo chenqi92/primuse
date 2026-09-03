@@ -45,6 +45,23 @@ public enum AudioConfigurationRecoveryPolicy {
     }
 }
 
+/// Tracks whether a hardware change invalidated the formats captured by the
+/// current AVAudioEngine graph. The flag is cleared only after a replacement
+/// graph is built successfully, so a failed attempt remains recoverable.
+public struct AudioHardwareConfigurationRecoveryState: Equatable, Sendable {
+    public private(set) var requiresGraphRebuild = false
+
+    public init() {}
+
+    public mutating func configurationChanged() {
+        requiresGraphRebuild = true
+    }
+
+    public mutating func graphRebuiltSuccessfully() {
+        requiresGraphRebuild = false
+    }
+}
+
 public enum DecodedBufferHealthAction: Equatable, Sendable {
     case none
     case rebuildPipeline

@@ -64,4 +64,42 @@ struct DirectPCMOutputSampleRatePolicyTests {
             graphChannelCount: 2
         ))
     }
+
+    @Test("Wireless routes keep the sample rate negotiated by the system")
+    func wirelessRoutesDoNotChangeNominalRate() {
+        for requestedRateIsSupported in [true, false, nil] as [Bool?] {
+            #expect(!DirectPCMOutputSampleRatePolicy.shouldRequestNominalSampleRateChange(
+                requestedSampleRate: 44_100,
+                currentHardwareSampleRate: 48_000,
+                propertyIsSettable: true,
+                requestedRateIsSupported: requestedRateIsSupported,
+                isSystemManagedWirelessOutput: true
+            ))
+        }
+    }
+
+    @Test("A wired route changes only to a confirmed valid rate")
+    func wiredRouteChangeValidation() {
+        #expect(DirectPCMOutputSampleRatePolicy.shouldRequestNominalSampleRateChange(
+            requestedSampleRate: 96_000,
+            currentHardwareSampleRate: 48_000,
+            propertyIsSettable: true,
+            requestedRateIsSupported: true,
+            isSystemManagedWirelessOutput: false
+        ))
+        #expect(!DirectPCMOutputSampleRatePolicy.shouldRequestNominalSampleRateChange(
+            requestedSampleRate: 96_000,
+            currentHardwareSampleRate: 48_000,
+            propertyIsSettable: true,
+            requestedRateIsSupported: false,
+            isSystemManagedWirelessOutput: false
+        ))
+        #expect(!DirectPCMOutputSampleRatePolicy.shouldRequestNominalSampleRateChange(
+            requestedSampleRate: 48_000,
+            currentHardwareSampleRate: 48_000,
+            propertyIsSettable: true,
+            requestedRateIsSupported: true,
+            isSystemManagedWirelessOutput: false
+        ))
+    }
 }

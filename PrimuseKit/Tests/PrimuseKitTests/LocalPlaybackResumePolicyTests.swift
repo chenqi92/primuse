@@ -19,6 +19,21 @@ struct LocalPlaybackResumePolicyTests {
         ))
     }
 
+    @Test("A hardware change remains pending until graph replacement succeeds")
+    func tracksHardwareGraphReplacement() {
+        var state = AudioHardwareConfigurationRecoveryState()
+        #expect(!state.requiresGraphRebuild)
+
+        state.configurationChanged()
+        #expect(state.requiresGraphRebuild)
+
+        // A failed rebuild does not acknowledge the pending change.
+        #expect(state.requiresGraphRebuild)
+
+        state.graphRebuiltSuccessfully()
+        #expect(!state.requiresGraphRebuild)
+    }
+
     @Test("A sustained empty decoded queue rebuilds the active pipeline")
     func rebuildsAfterSustainedUnderflow() {
         #expect(DecodedBufferHealthPolicy.action(

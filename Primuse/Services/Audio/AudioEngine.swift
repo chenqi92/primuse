@@ -33,6 +33,11 @@ final class AudioEngine {
     private var playerTimeline = PlaybackTimelineTracker()
     private var crossfadePlayerTimeline = PlaybackTimelineTracker()
     private var directSourceFormat: AVAudioFormat?
+    private var hardwareConfigurationRecoveryState = AudioHardwareConfigurationRecoveryState()
+    #if os(macOS)
+    /// A pinned route must be applied to AUHAL before graph formats are read.
+    private var pendingGraphOutputDeviceID: AudioDeviceID?
+    #endif
     private var headphoneMotionManager: CMHeadphoneMotionManager?
     private var transportFadeTask: Task<Void, Never>?
     private var transportFadeRestoreVolume: Float?
@@ -74,23 +79,32 @@ final class AudioEngine {
             default: true
             }
         }()
-        guard self.outputMode != outputMode || formatChanged || !isSetUp else { return }
+        guard self.outputMode != outputMode
+                || formatChanged
+                || !isSetUp
+                || hardwareConfigurationRecoveryState.requiresGraphRebuild else { return }
 
         #if os(macOS)
-        let previousDevice = currentOutputDeviceID
         let wasFollowingSystem = followsSystemOutput
+        let previousDevice = wasFollowingSystem ? nil : currentOutputDeviceID
         #endif
 
         tearDownGraph()
         self.outputMode = outputMode
         self.directSourceFormat = normalizedDirectFormat
-        try setUp()
-
         #if os(macOS)
-        if !wasFollowingSystem, let previousDevice {
-            try? setOutputDevice(deviceID: previousDevice)
-        }
+        pendingGraphOutputDeviceID = previousDevice
+        defer { pendingGraphOutputDeviceID = nil }
         #endif
+        try setUp()
+        hardwareConfigurationRecoveryState.graphRebuiltSuccessfully()
+    }
+
+    /// Called from the player after AVAudioEngine reports a hardware change.
+    /// The actual teardown happens later in `configure`, never on the engine's
+    /// internal notification queue.
+    func markHardwareConfigurationChanged() {
+        hardwareConfigurationRecoveryState.configurationChanged()
     }
 
     private func tearDownGraph() {
@@ -127,6 +141,12 @@ final class AudioEngine {
         let eng = AVAudioEngine()
         let playerA = AVAudioPlayerNode()
         let playerB = AVAudioPlayerNode()
+
+        #if os(macOS)
+        if let pendingGraphOutputDeviceID {
+            try Self.applyOutputDevice(pendingGraphOutputDeviceID, to: eng)
+        }
+        #endif
 
         if outputMode == .highFidelity {
             eng.attach(playerA)
@@ -270,19 +290,47 @@ final class AudioEngine {
             return currentHardwareSampleRate
         }
         #if os(iOS)
-        _ = AudioSessionManager.shared.setPreferredSampleRate(targetHz)
-        return AVAudioSession.sharedInstance().sampleRate
+        let session = AVAudioSession.sharedInstance()
+        let currentRate = session.sampleRate
+        if DirectPCMOutputSampleRatePolicy.shouldRequestNominalSampleRateChange(
+            requestedSampleRate: targetHz,
+            currentHardwareSampleRate: currentRate,
+            propertyIsSettable: true,
+            requestedRateIsSupported: nil,
+            isSystemManagedWirelessOutput: AudioSessionManager.shared
+                .outputRouteIsSystemManagedWireless
+        ) {
+            _ = AudioSessionManager.shared.setPreferredSampleRate(targetHz)
+        }
+        return session.sampleRate
         #elseif os(macOS)
         guard let deviceID = currentOutputDeviceID ?? Self.systemDefaultOutputDeviceID() else {
             return 0
         }
+        let currentRate = Self.nominalSampleRate(deviceID: deviceID)
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyNominalSampleRate,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
         var settable = DarwinBoolean(false)
-        if AudioObjectIsPropertySettable(deviceID, &address, &settable) == noErr, settable.boolValue {
+        let propertyIsSettable = AudioObjectIsPropertySettable(
+            deviceID, &address, &settable
+        ) == noErr && settable.boolValue
+        let shouldRequestChange = DirectPCMOutputSampleRatePolicy
+            .shouldRequestNominalSampleRateChange(
+                requestedSampleRate: targetHz,
+                currentHardwareSampleRate: currentRate,
+                propertyIsSettable: propertyIsSettable,
+                requestedRateIsSupported: Self.availableNominalSampleRates(deviceID: deviceID)?
+                    .contains { range in
+                        targetHz >= range.mMinimum && targetHz <= range.mMaximum
+                    },
+                isSystemManagedWirelessOutput: Self.isSystemManagedWirelessOutput(
+                    deviceID: deviceID
+                )
+            )
+        if shouldRequestChange {
             var rate = targetHz
             let status = AudioObjectSetPropertyData(
                 deviceID, &address, 0, nil,
@@ -362,16 +410,53 @@ final class AudioEngine {
         return status == noErr ? rate : 0
     }
 
-    /// 把这个 app 的音频输出切到指定的 Core Audio 设备。系统默认输出
-    /// 不变 —— 这只影响 Primuse 自己。设备 ID 来自 AudioOutputDeviceManager,
-    /// 通常对应内置扬声器、AirPlay 接收器(HomePod / Apple TV)、蓝牙
-    /// 耳机等。设备拔掉后会自动回退到系统默认。
-    func setOutputDevice(deviceID: AudioDeviceID) throws {
-        try setUp()
-        guard let engine else { return }
-        let outputUnit = engine.outputNode.audioUnit
-        guard let outputUnit else { return }
+    private static func availableNominalSampleRates(
+        deviceID: AudioDeviceID
+    ) -> [AudioValueRange]? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyAvailableNominalSampleRates,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var dataSize: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(
+            deviceID, &address, 0, nil, &dataSize
+        ) == noErr, dataSize >= MemoryLayout<AudioValueRange>.size else {
+            return nil
+        }
+        var ranges = [AudioValueRange](
+            repeating: AudioValueRange(mMinimum: 0, mMaximum: 0),
+            count: Int(dataSize) / MemoryLayout<AudioValueRange>.size
+        )
+        let status = ranges.withUnsafeMutableBytes { bytes in
+            AudioObjectGetPropertyData(
+                deviceID, &address, 0, nil, &dataSize, bytes.baseAddress!
+            )
+        }
+        return status == noErr ? ranges : nil
+    }
 
+    private static func isSystemManagedWirelessOutput(deviceID: AudioDeviceID) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var transport: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(
+            deviceID, &address, 0, nil, &size, &transport
+        ) == noErr else { return false }
+        return transport == kAudioDeviceTransportTypeAirPlay
+            || transport == kAudioDeviceTransportTypeBluetooth
+            || transport == kAudioDeviceTransportTypeBluetoothLE
+    }
+
+    private static func applyOutputDevice(
+        _ deviceID: AudioDeviceID,
+        to engine: AVAudioEngine
+    ) throws {
+        guard let outputUnit = engine.outputNode.audioUnit else { return }
         var id = deviceID
         let status = AudioUnitSetProperty(
             outputUnit,
@@ -389,8 +474,19 @@ final class AudioEngine {
                 )
             ])
         }
+    }
+
+    /// 把这个 app 的音频输出切到指定的 Core Audio 设备。系统默认输出
+    /// 不变 —— 这只影响 Primuse 自己。设备 ID 来自 AudioOutputDeviceManager,
+    /// 通常对应内置扬声器、AirPlay 接收器(HomePod / Apple TV)、蓝牙
+    /// 耳机等。设备拔掉后会自动回退到系统默认。
+    func setOutputDevice(deviceID: AudioDeviceID) throws {
+        try setUp()
+        guard let engine else { return }
+        try Self.applyOutputDevice(deviceID, to: engine)
         // 显式钉到了某设备, 退出跟随系统状态并持久化。
         UserDefaults.standard.set(false, forKey: Self.followsSystemKey)
+        markHardwareConfigurationChanged()
     }
 
     /// 让 Primuse 回到「跟随系统默认输出」—— 用户之前用 picker 钉死过某台设备
@@ -434,6 +530,7 @@ final class AudioEngine {
                 )
             ])
         }
+        markHardwareConfigurationChanged()
     }
 
     /// 用户上次是否选了「跟随系统」。默认 true(从未显式钉过设备就是跟随)。
