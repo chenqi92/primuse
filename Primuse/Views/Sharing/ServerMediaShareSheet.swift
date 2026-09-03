@@ -1,5 +1,6 @@
 import CoreImage
 import CoreImage.CIFilterBuiltins
+import CryptoKit
 import Foundation
 import PrimuseKit
 import SwiftUI
@@ -758,17 +759,18 @@ private enum MediaRelayConfigurationPolicy {
 }
 
 private struct MediaRelayCreateRequest: Encodable {
-    let fileName: String
-    let contentType: String
+    let encryptionMode: String?
+    let fileName: String?
+    let contentType: String?
     let size: Int64
     let expiresAt: String?
     let password: String?
-    let title: String
+    let title: String?
     let artist: String?
     let album: String?
-    let audioFormat: String
+    let audioFormat: String?
     let quality: String?
-    let durationSeconds: Double
+    let durationSeconds: Double?
     let allowPlayback: Bool
     let allowDownload: Bool
     let allowImport: Bool
@@ -784,12 +786,208 @@ private struct MediaRelayCreateResponse: Decodable, Sendable {
     let expiresAt: String?
     let permanent: Bool
     let accessCode: String?
+    let encryptionMode: String?
 }
 
 private struct MediaRelayCompleteResponse: Decodable {
     let shareID: String
     let expiresAt: String?
     let permanent: Bool
+}
+
+private enum MediaRelayClientEncryptionPolicy: String, Decodable {
+    case required
+    case optional
+    case disabled
+
+    var usesClientEncryption: Bool { self != .disabled }
+}
+
+private struct MediaRelayCapabilities: Decodable {
+    let protocolVersion: Int
+    let clientSideEncryption: MediaRelayClientEncryptionPolicy
+    let supportedEncryptionModes: [String]
+}
+
+private struct MediaRelayEncryptedManifest: Codable, Sendable {
+    let version: Int
+    let fileName: String
+    let contentType: String
+    let size: Int64
+    let chunkSize: Int64
+    let title: String
+    let artist: String?
+    let album: String?
+    let audioFormat: String
+    let quality: String?
+    let durationSeconds: Double
+}
+
+private enum MediaRelayEncryptedManifestPolicy {
+    static func make(
+        song: Song,
+        chunkSize: Int64,
+        quality: String?
+    ) throws -> MediaRelayEncryptedManifest {
+        let suggestedName = MediaRelaySourcePolicy.suggestedFileName(for: song)
+        let fileName = try normalizedFileName(suggestedName)
+        let fallbackTitle = URL(fileURLWithPath: fileName).deletingPathExtension().lastPathComponent
+        let title = normalizedText(song.title, maximumUTF16Length: 160)
+            ?? normalizedText(fallbackTitle, maximumUTF16Length: 160)
+            ?? "Shared music"
+        let duration = song.duration.isFinite
+            ? min(max(0, song.duration), 7 * 24 * 60 * 60)
+            : 0
+        return MediaRelayEncryptedManifest(
+            version: 1,
+            fileName: fileName,
+            contentType: MediaRelaySourcePolicy.contentType(for: song.fileFormat),
+            size: song.fileSize,
+            chunkSize: chunkSize,
+            title: title,
+            artist: normalizedText(song.artistName, maximumUTF16Length: 160),
+            album: normalizedText(song.albumTitle, maximumUTF16Length: 160),
+            audioFormat: normalizedText(
+                song.fileFormat.displayName,
+                maximumUTF16Length: 32
+            ) ?? "",
+            quality: normalizedText(quality, maximumUTF16Length: 80),
+            durationSeconds: duration
+        )
+    }
+
+    private static func normalizedFileName(_ value: String) throws -> String {
+        let validated = try MediaRelayImportPolicy.validatedFileName(value)
+        guard validated.utf16.count > 180 else { return validated }
+        let url = URL(fileURLWithPath: validated)
+        let suffix = "." + url.pathExtension
+        let stem = url.deletingPathExtension().lastPathComponent
+        return clampedUTF16(stem, maximum: 180 - suffix.utf16.count) + suffix
+    }
+
+    private static func normalizedText(
+        _ value: String?,
+        maximumUTF16Length: Int
+    ) -> String? {
+        guard let value else { return nil }
+        let normalized = value.precomposedStringWithCanonicalMapping
+        let withoutControls = String(normalized.unicodeScalars.filter {
+            !CharacterSet.controlCharacters.contains($0)
+        })
+        let trimmed = withoutControls.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return clampedUTF16(trimmed, maximum: maximumUTF16Length)
+    }
+
+    private static func clampedUTF16(_ value: String, maximum: Int) -> String {
+        var result = value
+        while result.utf16.count > maximum, !result.isEmpty {
+            result.removeLast()
+        }
+        return result
+    }
+}
+
+private struct MediaRelayE2EE: Sendable {
+    static let mode = "client-aes-256-gcm-chunks-v1"
+    private static let aadPrefix = "primuse-share-e2ee-v1"
+
+    let keyData: Data
+
+    init() {
+        let key = SymmetricKey(size: .bits256)
+        keyData = key.withUnsafeBytes { Data($0) }
+    }
+
+    init(keyToken: String) throws {
+        guard let decoded = Self.decodeBase64URL(keyToken), decoded.count == 32 else {
+            throw MediaRelayShareError.invalidResponse
+        }
+        keyData = decoded
+    }
+
+    var keyToken: String {
+        keyData.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    func encryptedManifest(_ manifest: MediaRelayEncryptedManifest, shareID: String) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try encrypt(
+            encoder.encode(manifest),
+            additionalData: "\(Self.aadPrefix):\(shareID):manifest"
+        )
+    }
+
+    func encryptedChunk(_ plaintext: Data, shareID: String, index: Int64) throws -> Data {
+        try encrypt(
+            plaintext,
+            additionalData: "\(Self.aadPrefix):\(shareID):chunk:\(index):\(plaintext.count)"
+        )
+    }
+
+    func decryptedManifest(_ encrypted: Data, shareID: String) throws -> MediaRelayEncryptedManifest {
+        let plaintext = try decrypt(
+            encrypted,
+            additionalData: "\(Self.aadPrefix):\(shareID):manifest"
+        )
+        return try JSONDecoder().decode(MediaRelayEncryptedManifest.self, from: plaintext)
+    }
+
+    func decryptedChunk(
+        _ encrypted: Data,
+        shareID: String,
+        index: Int64,
+        plaintextLength: Int64
+    ) throws -> Data {
+        try decrypt(
+            encrypted,
+            additionalData: "\(Self.aadPrefix):\(shareID):chunk:\(index):\(plaintextLength)"
+        )
+    }
+
+    private func encrypt(_ plaintext: Data, additionalData: String) throws -> Data {
+        let sealed = try AES.GCM.seal(
+            plaintext,
+            using: SymmetricKey(data: keyData),
+            authenticating: Data(additionalData.utf8)
+        )
+        guard let combined = sealed.combined else {
+            throw MediaRelayShareError.invalidResponse
+        }
+        return combined
+    }
+
+    private func decrypt(_ encrypted: Data, additionalData: String) throws -> Data {
+        let sealed = try AES.GCM.SealedBox(combined: encrypted)
+        return try AES.GCM.open(
+            sealed,
+            using: SymmetricKey(data: keyData),
+            authenticating: Data(additionalData.utf8)
+        )
+    }
+
+    static func decodeBase64URL(_ value: String) -> Data? {
+        guard !value.isEmpty,
+              value.unicodeScalars.allSatisfy({
+                  let codePoint = $0.value
+                  return (48...57).contains(codePoint)
+                      || (65...90).contains(codePoint)
+                      || (97...122).contains(codePoint)
+                      || codePoint == 45
+                      || codePoint == 95
+              }) else {
+            return nil
+        }
+        var normalized = value
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        normalized += String(repeating: "=", count: (4 - normalized.count % 4) % 4)
+        return Data(base64Encoded: normalized)
+    }
 }
 
 private final class MediaRelayNoRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
@@ -825,6 +1023,33 @@ private struct MediaRelayClient: @unchecked Sendable {
     let baseURL: URL
     let adminToken: String
 
+    func clientEncryptionPolicy() async throws -> MediaRelayClientEncryptionPolicy {
+        let data: Data
+        do {
+            data = try await perform(
+                method: "GET",
+                pathComponents: [".well-known", "primuse-share"],
+                bearerToken: adminToken,
+                expectedStatus: 200
+            )
+        } catch MediaRelayShareError.serverRejected(let statusCode)
+            where statusCode == 404 && !isOfficialSoundIsleService {
+            return .disabled
+        }
+        let capabilities = try JSONDecoder().decode(MediaRelayCapabilities.self, from: data)
+        guard capabilities.protocolVersion >= 4,
+              !capabilities.clientSideEncryption.usesClientEncryption
+                || capabilities.supportedEncryptionModes.contains(MediaRelayE2EE.mode),
+              !isOfficialSoundIsleService || capabilities.clientSideEncryption == .required else {
+            throw MediaRelayShareError.invalidResponse
+        }
+        return capabilities.clientSideEncryption
+    }
+
+    private var isOfficialSoundIsleService: Bool {
+        baseURL.host?.lowercased() == "share.soundisle.com"
+    }
+
     func createUpload(
         fileName: String,
         contentType: String,
@@ -841,20 +1066,22 @@ private struct MediaRelayClient: @unchecked Sendable {
         allowDownload: Bool,
         allowImport: Bool,
         linkType: String,
-        shortCodeLength: Int?
+        shortCodeLength: Int?,
+        usesClientEncryption: Bool
     ) async throws -> MediaRelayCreateResponse {
         let body = try JSONEncoder().encode(MediaRelayCreateRequest(
-            fileName: fileName,
-            contentType: contentType,
+            encryptionMode: usesClientEncryption ? MediaRelayE2EE.mode : nil,
+            fileName: usesClientEncryption ? nil : fileName,
+            contentType: usesClientEncryption ? nil : contentType,
             size: size,
             expiresAt: expiresAt.map(Self.dateString),
             password: password?.isEmpty == false ? password : nil,
-            title: title,
-            artist: artist,
-            album: album,
-            audioFormat: audioFormat,
-            quality: quality,
-            durationSeconds: durationSeconds,
+            title: usesClientEncryption ? nil : title,
+            artist: usesClientEncryption ? nil : artist,
+            album: usesClientEncryption ? nil : album,
+            audioFormat: usesClientEncryption ? nil : audioFormat,
+            quality: usesClientEncryption ? nil : quality,
+            durationSeconds: usesClientEncryption ? nil : durationSeconds,
             allowPlayback: allowPlayback,
             allowDownload: allowDownload,
             allowImport: allowImport,
@@ -878,6 +1105,13 @@ private struct MediaRelayClient: @unchecked Sendable {
                     throw MediaRelayShareError.invalidResponse
                 }
             } else if response.accessCode != nil {
+                throw MediaRelayShareError.invalidResponse
+            }
+            if usesClientEncryption {
+                guard response.encryptionMode == MediaRelayE2EE.mode else {
+                    throw MediaRelayShareError.invalidResponse
+                }
+            } else if response.encryptionMode != nil {
                 throw MediaRelayShareError.invalidResponse
             }
             guard MediaRelayConfigurationPolicy.isOpaqueIdentifier(response.shareID),
@@ -929,15 +1163,31 @@ private struct MediaRelayClient: @unchecked Sendable {
         }
     }
 
+    func uploadManifest(
+        shareID: String,
+        uploadToken: String,
+        data: Data
+    ) async throws {
+        _ = try await perform(
+            method: "PUT",
+            pathComponents: ["v1", "uploads", shareID, "manifest"],
+            bearerToken: uploadToken,
+            contentType: "application/octet-stream",
+            body: data,
+            expectedStatus: 204
+        )
+    }
+
     func uploadChunk(
         shareID: String,
         uploadToken: String,
         index: Int64,
         offset: Int64,
         totalSize: Int64,
+        plaintextLength: Int64,
         data: Data
     ) async throws {
-        let end = offset + Int64(data.count) - 1
+        let end = offset + plaintextLength - 1
         _ = try await perform(
             method: "PUT",
             pathComponents: ["v1", "uploads", shareID, "chunks", String(index)],
@@ -1067,6 +1317,9 @@ private struct MediaRelayShareRecord: Codable, Identifiable, Sendable {
     var publicURL: URL? { URL(string: publicURLString) }
     var isPermanent: Bool { permanent == true }
     var hasValidLifetime: Bool { isPermanent ? expiresAt == nil : expiresAt != nil }
+    var usesClientEncryption: Bool {
+        URLComponents(string: publicURLString)?.fragment?.hasPrefix("k=") == true
+    }
 }
 
 @MainActor
@@ -1433,6 +1686,11 @@ struct MediaRelayShareSheet: View {
                         .textSelection(.enabled)
                         .accessibilityLabel(Text("relay_share_access_code"))
                 }
+                if record.usesClientEncryption {
+                    Text("relay_share_access_code_key_footer")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
             LabeledContent("relay_share_access_mode") {
                 if record.passwordProtected == true {
@@ -1558,6 +1816,8 @@ struct MediaRelayShareSheet: View {
             try MediaRelaySettingsStore.save(endpoint: baseURL.absoluteString, token: trimmedToken)
             let relayClient = MediaRelayClient(baseURL: baseURL, adminToken: trimmedToken)
             client = relayClient
+            let encryptionPolicy = try await relayClient.clientEncryptionPolicy()
+            let e2ee = encryptionPolicy.usesClientEncryption ? MediaRelayE2EE() : nil
 
             let creation = try await relayClient.createUpload(
                 fileName: MediaRelaySourcePolicy.suggestedFileName(for: song),
@@ -1575,15 +1835,29 @@ struct MediaRelayShareSheet: View {
                 allowDownload: allowsDownload,
                 allowImport: allowsImport,
                 linkType: publicLinkStyle.rawValue,
-                shortCodeLength: publicLinkStyle == .shortCode ? shortCodeLength : nil
+                shortCodeLength: publicLinkStyle == .shortCode ? shortCodeLength : nil,
+                usesClientEncryption: e2ee != nil
             )
             let decodedExpiration = creation.expiresAt.flatMap {
                 ISO8601DateFormatter().date(from: $0)
             }
+            let publicURLString: String
+            if let e2ee {
+                guard var components = URLComponents(string: creation.publicURL) else {
+                    throw MediaRelayShareError.invalidResponse
+                }
+                components.fragment = "k=\(e2ee.keyToken)"
+                guard let protectedURL = components.url else {
+                    throw MediaRelayShareError.invalidResponse
+                }
+                publicURLString = protectedURL.absoluteString
+            } else {
+                publicURLString = creation.publicURL
+            }
             var record = MediaRelayShareRecord(
                 shareID: creation.shareID,
                 title: song.title,
-                publicURLString: creation.publicURL,
+                publicURLString: publicURLString,
                 apiBaseURLString: baseURL.absoluteString,
                 controlToken: creation.uploadToken,
                 createdAt: Date(),
@@ -1600,6 +1874,19 @@ struct MediaRelayShareSheet: View {
             try MediaRelayShareRegistry.save(record)
             records = MediaRelayShareRegistry.records()
 
+            if let e2ee {
+                let manifest = try MediaRelayEncryptedManifestPolicy.make(
+                    song: song,
+                    chunkSize: creation.chunkSize,
+                    quality: qualityDescription
+                )
+                try await relayClient.uploadManifest(
+                    shareID: creation.shareID,
+                    uploadToken: creation.uploadToken,
+                    data: try e2ee.encryptedManifest(manifest, shareID: creation.shareID)
+                )
+            }
+
             let connector = try await sourceManager.connectorForSong(song)
             var offset: Int64 = 0
             var chunkIndex: Int64 = 0
@@ -1615,13 +1902,19 @@ struct MediaRelayShareSheet: View {
                 guard data.count == Int(length) else {
                     throw MediaRelayShareError.shortSourceRead
                 }
+                let uploadData = try e2ee?.encryptedChunk(
+                    data,
+                    shareID: creation.shareID,
+                    index: chunkIndex
+                ) ?? data
                 try await relayClient.uploadChunk(
                     shareID: creation.shareID,
                     uploadToken: creation.uploadToken,
                     index: chunkIndex,
                     offset: offset,
                     totalSize: song.fileSize,
-                    data: data
+                    plaintextLength: length,
+                    data: uploadData
                 )
                 offset += length
                 chunkIndex += 1
@@ -1735,8 +2028,9 @@ private struct MediaRelayQRCodeView: View {
 
 struct MediaRelayImportRequest: Identifiable, Equatable {
     let importURL: URL
+    let keyToken: String?
 
-    var id: String { importURL.absoluteString }
+    var id: String { importURL.absoluteString + (keyToken == nil ? "" : "#encrypted") }
 
     init?(url: URL) {
         guard let deepLink = URLComponents(url: url, resolvingAgainstBaseURL: false),
@@ -1759,18 +2053,34 @@ struct MediaRelayImportRequest: Identifiable, Equatable {
               target.scheme?.lowercased() == "https",
               target.user == nil,
               target.password == nil,
-              target.query == nil,
-              target.fragment == nil else {
+              target.query == nil else {
             return nil
         }
+        let keyToken: String?
+        if let fragment = target.fragment {
+            guard fragment.hasPrefix("k="), !fragment.dropFirst(2).contains("&") else {
+                return nil
+            }
+            let candidate = String(fragment.dropFirst(2))
+            guard (try? MediaRelayE2EE(keyToken: candidate)) != nil else {
+                return nil
+            }
+            keyToken = candidate
+        } else {
+            keyToken = nil
+        }
+        var requestTarget = target
+        requestTarget.fragment = nil
+        guard let requestURL = requestTarget.url else { return nil }
         let path = target.path.split(separator: "/", omittingEmptySubsequences: true)
         guard path.count == 2,
               path[0] == "i",
               MediaRelayConfigurationPolicy.isOpaqueIdentifier(String(path[1])),
-              (try? ServerMediaShare.validatePublicURL(importURL.absoluteString)) != nil else {
+              (try? ServerMediaShare.validatePublicURL(requestURL.absoluteString)) != nil else {
             return nil
         }
-        self.importURL = importURL
+        self.importURL = requestURL
+        self.keyToken = keyToken
     }
 }
 
@@ -2001,7 +2311,10 @@ struct MediaRelayImportSheet: View {
         do {
             var urlRequest = URLRequest(url: request.importURL)
             urlRequest.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-            urlRequest.setValue("audio/*, application/octet-stream", forHTTPHeaderField: "Accept")
+            urlRequest.setValue(
+                "audio/*, application/octet-stream, application/vnd.primuse.encrypted-media",
+                forHTTPHeaderField: "Accept"
+            )
             urlRequest.setValue("no-store", forHTTPHeaderField: "Cache-Control")
             // Import tickets are intentionally single-use. Once the request is sent,
             // a retry must start from the original share page to obtain a fresh ticket.
@@ -2013,39 +2326,86 @@ struct MediaRelayImportSheet: View {
                   http.statusCode == 200 else {
                 throw MediaRelayImportError.invalidResponse
             }
-            let mediaType = (http.mimeType ?? "").lowercased()
-            guard mediaType.isEmpty
-                    || mediaType.hasPrefix("audio/")
-                    || mediaType == "application/octet-stream"
-                    || mediaType == "application/ogg"
-                    || mediaType == "video/mp4" else {
-                throw MediaRelayImportError.unsupportedFile
-            }
-            if response.expectedContentLength > MediaRelayImportPolicy.maximumFileSize {
-                throw MediaRelayImportError.fileTooLarge
-            }
             let resourceValues = try temporaryURL.resourceValues(forKeys: [.fileSizeKey])
-            let size = Int64(resourceValues.fileSize ?? 0)
-            guard size >= MediaRelayImportPolicy.minimumFileSize else {
-                throw MediaRelayImportError.emptyFile
-            }
-            guard size <= MediaRelayImportPolicy.maximumFileSize else {
-                throw MediaRelayImportError.fileTooLarge
-            }
-            downloadedBytes = size
-
-            let fileName = try MediaRelayImportPolicy.validatedFileName(
-                response.suggestedFilename
-            )
+            let downloadedSize = Int64(resourceValues.fileSize ?? 0)
             try FileManager.default.createDirectory(
                 at: stagingDirectory,
                 withIntermediateDirectories: true
             )
-            let stagedURL = stagingDirectory.appendingPathComponent(
-                fileName,
-                isDirectory: false
+            let responseEncryptionMode = http.value(
+                forHTTPHeaderField: "X-Primuse-Encryption-Mode"
             )
-            try FileManager.default.moveItem(at: temporaryURL, to: stagedURL)
+            let stagedURL: URL
+            if responseEncryptionMode == MediaRelayE2EE.mode {
+                guard let keyToken = request.keyToken,
+                    let shareID = http.value(forHTTPHeaderField: "X-Primuse-Share-ID"),
+                    MediaRelayConfigurationPolicy.isOpaqueIdentifier(shareID),
+                    let plaintextSizeValue = http.value(forHTTPHeaderField: "X-Primuse-Plaintext-Size"),
+                    let plaintextSize = Int64(plaintextSizeValue),
+                    let chunkSizeValue = http.value(forHTTPHeaderField: "X-Primuse-Chunk-Size"),
+                    let chunkSize = Int64(chunkSizeValue),
+                    let manifestValue = http.value(forHTTPHeaderField: "X-Primuse-Encrypted-Manifest"),
+                    let encryptedManifest = MediaRelayE2EE.decodeBase64URL(manifestValue) else {
+                    throw MediaRelayImportError.invalidResponse
+                }
+                guard plaintextSize >= MediaRelayImportPolicy.minimumFileSize else {
+                    throw MediaRelayImportError.emptyFile
+                }
+                guard plaintextSize <= MediaRelayImportPolicy.maximumFileSize else {
+                    throw MediaRelayImportError.fileTooLarge
+                }
+                guard (256 * 1024...32 * 1024 * 1024).contains(chunkSize) else {
+                    throw MediaRelayImportError.invalidResponse
+                }
+                let crypto = try MediaRelayE2EE(keyToken: keyToken)
+                let manifest = try crypto.decryptedManifest(
+                    encryptedManifest,
+                    shareID: shareID
+                )
+                guard manifest.version == 1,
+                    manifest.size == plaintextSize,
+                    manifest.chunkSize == chunkSize else {
+                    throw MediaRelayImportError.invalidResponse
+                }
+                let fileName = try MediaRelayImportPolicy.validatedFileName(manifest.fileName)
+                let chunkCount = (plaintextSize + chunkSize - 1) / chunkSize
+                let expectedEncryptedSize = plaintextSize + chunkCount * 28
+                guard downloadedSize == expectedEncryptedSize else {
+                    throw MediaRelayImportError.invalidResponse
+                }
+                stagedURL = stagingDirectory.appendingPathComponent(fileName, isDirectory: false)
+                try await Self.decryptDownloadedMedia(
+                    from: temporaryURL,
+                    to: stagedURL,
+                    crypto: crypto,
+                    shareID: shareID,
+                    plaintextSize: plaintextSize,
+                    chunkSize: chunkSize
+                )
+                downloadedBytes = plaintextSize
+            } else {
+                guard request.keyToken == nil else {
+                    throw MediaRelayImportError.invalidResponse
+                }
+                let mediaType = (http.mimeType ?? "").lowercased()
+                guard mediaType.isEmpty
+                        || mediaType.hasPrefix("audio/")
+                        || mediaType == "application/octet-stream"
+                        || mediaType == "application/ogg"
+                        || mediaType == "video/mp4" else {
+                    throw MediaRelayImportError.unsupportedFile
+                }
+                guard downloadedSize >= MediaRelayImportPolicy.minimumFileSize else {
+                    throw MediaRelayImportError.emptyFile
+                }
+                guard downloadedSize <= MediaRelayImportPolicy.maximumFileSize else {
+                    throw MediaRelayImportError.fileTooLarge
+                }
+                let fileName = try MediaRelayImportPolicy.validatedFileName(response.suggestedFilename)
+                stagedURL = stagingDirectory.appendingPathComponent(fileName, isDirectory: false)
+                try FileManager.default.moveItem(at: temporaryURL, to: stagedURL)
+                downloadedBytes = downloadedSize
+            }
 
             phase = .copying(nil)
             let session = LocalImportService.copySession(
@@ -2092,5 +2452,50 @@ struct MediaRelayImportSheet: View {
             phase = .ready
             errorMessage = error.localizedDescription
         }
+    }
+
+    private static func decryptDownloadedMedia(
+        from encryptedURL: URL,
+        to outputURL: URL,
+        crypto: MediaRelayE2EE,
+        shareID: String,
+        plaintextSize: Int64,
+        chunkSize: Int64
+    ) async throws {
+        try await Task.detached(priority: .utility) {
+            guard FileManager.default.createFile(atPath: outputURL.path, contents: nil) else {
+                throw MediaRelayImportError.localImportFailed
+            }
+            let input = try FileHandle(forReadingFrom: encryptedURL)
+            let output = try FileHandle(forWritingTo: outputURL)
+            defer {
+                try? input.close()
+                try? output.close()
+            }
+            let chunkCount = (plaintextSize + chunkSize - 1) / chunkSize
+            for index in 0..<chunkCount {
+                try Task.checkCancellation()
+                let plaintextLength = min(chunkSize, plaintextSize - index * chunkSize)
+                let encryptedLength = plaintextLength + 28
+                guard let encrypted = try input.read(upToCount: Int(encryptedLength)),
+                    encrypted.count == Int(encryptedLength) else {
+                    throw MediaRelayImportError.invalidResponse
+                }
+                let plaintext = try crypto.decryptedChunk(
+                    encrypted,
+                    shareID: shareID,
+                    index: index,
+                    plaintextLength: plaintextLength
+                )
+                guard plaintext.count == Int(plaintextLength) else {
+                    throw MediaRelayImportError.invalidResponse
+                }
+                try output.write(contentsOf: plaintext)
+            }
+            if let trailing = try input.read(upToCount: 1), !trailing.isEmpty {
+                throw MediaRelayImportError.invalidResponse
+            }
+            try output.synchronize()
+        }.value
     }
 }

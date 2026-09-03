@@ -2,6 +2,10 @@ package main
 
 import (
 	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,6 +21,215 @@ import (
 )
 
 const testAdminToken = "test-admin-token-with-more-than-thirty-two-characters"
+
+func TestClientEncryptionCanBeDisabledForSelfHostedCompatibility(t *testing.T) {
+	configuration := testConfig(t)
+	configuration.e2eePolicy = e2eePolicyDisabled
+	server := mustRelayServer(t, configuration, time.Date(2026, 9, 3, 4, 0, 0, 0, time.UTC))
+	endpoint := httptest.NewServer(server.routes())
+	defer endpoint.Close()
+
+	createBody, _ := json.Marshal(createUploadRequest{
+		EncryptionMode: clientEncryptionMode,
+		Size:           16,
+		LinkType:       "permanent",
+	})
+	response := performRequest(t, http.MethodPost, endpoint.URL+"/v1/uploads", createBody, map[string]string{
+		"Authorization": "Bearer " + testAdminToken,
+		"Content-Type":  "application/json",
+	})
+	defer response.Body.Close()
+	var problem map[string]string
+	if response.StatusCode != http.StatusBadRequest || json.NewDecoder(response.Body).Decode(&problem) != nil ||
+		problem["error"] != "client_encryption_disabled" {
+		t.Fatalf("unexpected disabled-policy response: status=%d problem=%#v", response.StatusCode, problem)
+	}
+}
+
+func TestClientEncryptedUploadKeepsKeysAndMetadataOffServer(t *testing.T) {
+	fixedNow := time.Date(2026, 9, 3, 4, 0, 0, 0, time.UTC)
+	configuration := testConfig(t)
+	configuration.e2eePolicy = e2eePolicyRequired
+	configuration.chunkSize = 256 * 1024
+	server := mustRelayServer(t, configuration, fixedNow)
+	endpoint := httptest.NewServer(server.routes())
+	defer endpoint.Close()
+
+	capabilities := performRequest(t, http.MethodGet, endpoint.URL+"/.well-known/primuse-share", nil, nil)
+	var capabilityPayload map[string]any
+	if capabilities.StatusCode != http.StatusOK || json.NewDecoder(capabilities.Body).Decode(&capabilityPayload) != nil {
+		t.Fatalf("invalid capabilities response: %d", capabilities.StatusCode)
+	}
+	capabilities.Body.Close()
+	if capabilityPayload["clientSideEncryption"] != e2eePolicyRequired {
+		t.Fatalf("unexpected E2EE policy: %#v", capabilityPayload)
+	}
+
+	legacyBody, _ := json.Marshal(createUploadRequest{
+		FileName: "plaintext.mp3", ContentType: "audio/mpeg", Size: 16,
+	})
+	legacy := performRequest(t, http.MethodPost, endpoint.URL+"/v1/uploads", legacyBody, map[string]string{
+		"Authorization": "Bearer " + testAdminToken,
+		"Content-Type":  "application/json",
+	})
+	if legacy.StatusCode != http.StatusBadRequest {
+		t.Fatalf("legacy create status=%d", legacy.StatusCode)
+	}
+	legacy.Body.Close()
+
+	mediaLength := int(configuration.chunkSize) + 137
+	media := bytes.Repeat([]byte("client-encrypted-audio"), mediaLength/22+1)[:mediaLength]
+	createBody, _ := json.Marshal(createUploadRequest{
+		EncryptionMode: clientEncryptionMode,
+		Size:           int64(len(media)),
+		ExpiresAt:      fixedNow.Add(time.Hour).Format(time.RFC3339),
+		AllowPlayback:  boolPointerOrDefault(nil, true),
+		AllowDownload:  boolPointerOrDefault(nil, true),
+		AllowImport:    boolPointerOrDefault(nil, true),
+		LinkType:       "long",
+	})
+	created := performRequest(t, http.MethodPost, endpoint.URL+"/v1/uploads", createBody, map[string]string{
+		"Authorization": "Bearer " + testAdminToken,
+		"Content-Type":  "application/json",
+	})
+	if created.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(created.Body)
+		t.Fatalf("create status=%d body=%s", created.StatusCode, body)
+	}
+	var creation createUploadResponse
+	if err := json.NewDecoder(created.Body).Decode(&creation); err != nil {
+		t.Fatal(err)
+	}
+	created.Body.Close()
+	if creation.EncryptionMode != clientEncryptionMode {
+		t.Fatalf("missing encryption mode: %#v", creation)
+	}
+
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatal(err)
+	}
+	manifest := map[string]any{
+		"version": 1, "fileName": "陈默寻 - 夜航西飞.flac", "contentType": "audio/flac",
+		"size": len(media), "chunkSize": creation.ChunkSize, "title": "夜航西飞",
+		"artist": "陈默寻", "album": "潮汐纪年", "audioFormat": "FLAC",
+		"quality": "24-bit / 96 kHz", "durationSeconds": 243.5,
+	}
+	manifestPlaintext, _ := json.Marshal(manifest)
+	manifestCiphertext := clientEncrypt(t, key, manifestPlaintext, creation.ShareID+":manifest")
+	manifestUpload := performRequest(t, http.MethodPut, endpoint.URL+"/v1/uploads/"+creation.ShareID+"/manifest", manifestCiphertext, map[string]string{
+		"Authorization": "Bearer " + creation.UploadToken,
+		"Content-Type":  "application/octet-stream",
+	})
+	if manifestUpload.StatusCode != http.StatusNoContent {
+		t.Fatalf("manifest upload status=%d", manifestUpload.StatusCode)
+	}
+	manifestUpload.Body.Close()
+
+	for index, offset := int64(0), int64(0); offset < int64(len(media)); index, offset = index+1, offset+creation.ChunkSize {
+		end := min64(offset+creation.ChunkSize, int64(len(media)))
+		plaintext := media[offset:end]
+		aad := fmt.Sprintf("%s:chunk:%d:%d", creation.ShareID, index, len(plaintext))
+		ciphertext := clientEncrypt(t, key, plaintext, aad)
+		upload := performRequest(t, http.MethodPut, endpoint.URL+"/v1/uploads/"+creation.ShareID+"/chunks/"+strconv.FormatInt(index, 10), ciphertext, map[string]string{
+			"Authorization": "Bearer " + creation.UploadToken,
+			"Content-Type":  "application/octet-stream",
+			"Content-Range": fmt.Sprintf("bytes %d-%d/%d", offset, end-1, len(media)),
+		})
+		if upload.StatusCode != http.StatusNoContent {
+			t.Fatalf("chunk upload status=%d", upload.StatusCode)
+		}
+		upload.Body.Close()
+	}
+	complete := performRequest(t, http.MethodPost, endpoint.URL+"/v1/uploads/"+creation.ShareID+"/complete", nil, map[string]string{
+		"Authorization": "Bearer " + creation.UploadToken,
+	})
+	if complete.StatusCode != http.StatusOK {
+		t.Fatalf("complete status=%d", complete.StatusCode)
+	}
+	complete.Body.Close()
+
+	publicPath := mustPublicPath(t, creation.PublicURL)
+	page := performRequest(t, http.MethodGet, endpoint.URL+publicPath, nil, map[string]string{
+		"Accept":         "text/html",
+		"Sec-Fetch-Mode": "navigate",
+	})
+	pageBody, _ := io.ReadAll(page.Body)
+	page.Body.Close()
+	if page.StatusCode != http.StatusOK || !bytes.Contains(pageBody, []byte("在此设备解密")) ||
+		bytes.Contains(pageBody, []byte("夜航西飞")) || bytes.Contains(pageBody, []byte("陈默寻")) {
+		t.Fatalf("encrypted page disclosed metadata or omitted decrypt UI")
+	}
+
+	publicManifest := performRequest(t, http.MethodGet, endpoint.URL+publicPath+"/manifest", nil, nil)
+	manifestBody, _ := io.ReadAll(publicManifest.Body)
+	publicManifest.Body.Close()
+	if publicManifest.StatusCode != http.StatusOK || publicManifest.Header.Get("X-Primuse-Share-ID") != creation.ShareID {
+		t.Fatalf("manifest status=%d headers=%#v", publicManifest.StatusCode, publicManifest.Header)
+	}
+	if !bytes.Equal(clientDecrypt(t, key, manifestBody, creation.ShareID+":manifest"), manifestPlaintext) {
+		t.Fatal("manifest did not decrypt to the original payload")
+	}
+
+	var reconstructed []byte
+	for index, offset := int64(0), int64(0); offset < int64(len(media)); index, offset = index+1, offset+creation.ChunkSize {
+		plaintextLength := min64(creation.ChunkSize, int64(len(media))-offset)
+		publicChunk := performRequest(t, http.MethodGet, endpoint.URL+publicPath+"/chunks/"+strconv.FormatInt(index, 10), nil, nil)
+		chunkBody, _ := io.ReadAll(publicChunk.Body)
+		publicChunk.Body.Close()
+		if publicChunk.StatusCode != http.StatusOK {
+			t.Fatalf("encrypted public chunk %d status=%d", index, publicChunk.StatusCode)
+		}
+		reconstructed = append(reconstructed, clientDecrypt(
+			t,
+			key,
+			chunkBody,
+			fmt.Sprintf("%s:chunk:%d:%d", creation.ShareID, index, plaintextLength),
+		)...)
+	}
+	if !bytes.Equal(reconstructed, media) {
+		t.Fatal("encrypted public chunks did not reconstruct the media")
+	}
+	legacyMedia := performRequest(t, http.MethodGet, endpoint.URL+publicPath+"/media", nil, nil)
+	if legacyMedia.StatusCode != http.StatusConflict {
+		t.Fatalf("legacy media status=%d", legacyMedia.StatusCode)
+	}
+	legacyMedia.Body.Close()
+	importTicket := performRequest(t, http.MethodPost, endpoint.URL+publicPath+"/import", nil, map[string]string{
+		"Accept": "application/json",
+	})
+	var ticketPayload map[string]string
+	if importTicket.StatusCode != http.StatusCreated || json.NewDecoder(importTicket.Body).Decode(&ticketPayload) != nil {
+		t.Fatalf("import ticket status=%d", importTicket.StatusCode)
+	}
+	importTicket.Body.Close()
+	imported := performRequest(t, http.MethodGet, endpoint.URL+mustImportPath(t, ticketPayload["importURL"]), nil, nil)
+	importedBody, _ := io.ReadAll(imported.Body)
+	imported.Body.Close()
+	encodedManifest := imported.Header.Get("X-Primuse-Encrypted-Manifest")
+	importedManifest, decodeError := base64.RawURLEncoding.DecodeString(encodedManifest)
+	if imported.StatusCode != http.StatusOK || decodeError != nil || !bytes.Equal(importedManifest, manifestCiphertext) ||
+		!bytes.Equal(clientDecryptMedia(
+			t,
+			key,
+			importedBody,
+			creation.ShareID,
+			int64(len(media)),
+			creation.ChunkSize,
+		), media) {
+		t.Fatal("encrypted import response is invalid")
+	}
+
+	metadataBytes, err := os.ReadFile(filepath.Join(configuration.dataDirectory, "metadata", creation.ShareID+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"夜航西飞", "陈默寻", "潮汐纪年", ".flac"} {
+		if bytes.Contains(metadataBytes, []byte(secret)) {
+			t.Fatalf("plaintext metadata persisted: %s", secret)
+		}
+	}
+}
 
 func TestEncryptedUploadSupportsHeadRangeSeekRestartExpiryAndSecretBoundary(t *testing.T) {
 	fixedNow := time.Date(2026, 9, 2, 8, 0, 0, 0, time.UTC)
@@ -274,7 +487,7 @@ func TestBrowserPagePermissionsAndOneTimeImport(t *testing.T) {
 	for _, expected := range []string{
 		"夜航西飞 &lt;Live&gt;",
 		"陈默寻 · 《潮汐纪年》",
-		"data-download hidden",
+		"data-protected-action=\"download\" hidden",
 		`data-media-url="` + publicPath + `/media"`,
 		`data-download-url="` + publicPath + `/download"`,
 		`data-import-url="` + publicPath + `/import"`,
@@ -593,6 +806,7 @@ func testConfig(t *testing.T) config {
 		shortCodeMaximumTTL:            24 * time.Hour,
 		maximumPublicStreams:           8,
 		maximumUploads:                 2,
+		e2eePolicy:                     e2eePolicyOptional,
 	}
 }
 
@@ -695,6 +909,80 @@ func performRequest(t *testing.T, method, rawURL string, body []byte, headers ma
 		t.Fatal(err)
 	}
 	return response
+}
+
+func clientEncrypt(t *testing.T, key, plaintext []byte, aadSuffix string) []byte {
+	t.Helper()
+	aead := clientAEAD(t, key)
+	nonce := make([]byte, aead.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		t.Fatal(err)
+	}
+	return aead.Seal(nonce, nonce, plaintext, []byte("primuse-share-e2ee-v1:"+aadSuffix))
+}
+
+func clientDecrypt(t *testing.T, key, encrypted []byte, aadSuffix string) []byte {
+	t.Helper()
+	aead := clientAEAD(t, key)
+	if len(encrypted) <= aead.NonceSize()+aead.Overhead() {
+		t.Fatal("truncated client-encrypted envelope")
+	}
+	plaintext, err := aead.Open(
+		nil,
+		encrypted[:aead.NonceSize()],
+		encrypted[aead.NonceSize():],
+		[]byte("primuse-share-e2ee-v1:"+aadSuffix),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return plaintext
+}
+
+func clientDecryptMedia(
+	t *testing.T,
+	key []byte,
+	encrypted []byte,
+	shareID string,
+	plaintextSize int64,
+	chunkSize int64,
+) []byte {
+	t.Helper()
+	aead := clientAEAD(t, key)
+	encryptedOffset := int64(0)
+	plaintext := make([]byte, 0, plaintextSize)
+	for index, offset := int64(0), int64(0); offset < plaintextSize; index, offset = index+1, offset+chunkSize {
+		plaintextLength := min64(chunkSize, plaintextSize-offset)
+		encryptedLength := plaintextLength + int64(aead.NonceSize()+aead.Overhead())
+		end := encryptedOffset + encryptedLength
+		if end > int64(len(encrypted)) {
+			t.Fatal("truncated client-encrypted media")
+		}
+		plaintext = append(plaintext, clientDecrypt(
+			t,
+			key,
+			encrypted[encryptedOffset:end],
+			fmt.Sprintf("%s:chunk:%d:%d", shareID, index, plaintextLength),
+		)...)
+		encryptedOffset = end
+	}
+	if encryptedOffset != int64(len(encrypted)) {
+		t.Fatal("client-encrypted media has trailing bytes")
+	}
+	return plaintext
+}
+
+func clientAEAD(t *testing.T, key []byte) cipher.AEAD {
+	t.Helper()
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return aead
 }
 
 func assertResponseBytes(t *testing.T, response *http.Response, expectedStatus int, expected []byte) {

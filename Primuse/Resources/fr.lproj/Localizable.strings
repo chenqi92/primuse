@@ -3505,10 +3505,11 @@
 "relay_share_managed" = "Liens gérés";
 "relay_share_pending_cleanup" = "Téléversement incomplet";
 "relay_share_security" = "Périmètre de sécurité";
-"relay_share_security_bytes" = "Seuls les octets du média et les métadonnées d’affichage quittent cet appareil";
-"relay_share_security_range" = "Les destinataires bénéficient de HEAD et de la navigation par plages d’octets";
-"relay_share_security_storage" = "Les blocs sont chiffrés au repos ; les partages temporaires sont supprimés à l’expiration et tous les partages à la révocation";
-"relay_share_security_footer" = "Les URL source, cookies, jetons OAuth, sessions NAS et URL de téléchargement signées ne sont jamais envoyés au relais. Une fois le téléversement terminé, le lien reste disponible si la source est temporairement hors ligne.";
+"relay_share_security_bytes" = "L’audio et les informations du morceau sont chiffrés de bout en bout avant l’envoi lorsque le relais le permet";
+"relay_share_security_range" = "La clé de partage reste après #k= dans le lien et n’est pas envoyée dans les requêtes HTTP";
+"relay_share_security_storage" = "Avec le chiffrement côté client, le relais ne stocke que du contenu chiffré ; le navigateur et Primuse déchiffrent localement";
+"relay_share_security_footer" = "Les URL source, cookies, jetons OAuth, sessions NAS et URL de téléchargement signées ne sont jamais envoyés au relais. SoundIsle Cloud exige le chiffrement côté client ; un relais auto-hébergé peut le désactiver explicitement pour compatibilité.";
+"relay_share_access_code_key_footer" = "Un partage chiffré nécessite toujours le lien complet ou sa clé de déchiffrement séparée ; le code court seul ne permet pas de le déchiffrer.";
 "relay_share_error_unsupported" = "Ce morceau ne peut pas être exporté de façon sûre.";
 "relay_share_error_configuration" = "Saisissez une URL d’API de relais HTTPS et un jeton valides.";
 "relay_share_error_keychain" = "Le secret du relais n’a pas pu être stocké de façon sûre dans le trousseau.";

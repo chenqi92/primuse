@@ -3609,10 +3609,11 @@
 "relay_share_managed" = "已管理的链接";
 "relay_share_pending_cleanup" = "未完成的上传";
 "relay_share_security" = "安全边界";
-"relay_share_security_bytes" = "只有媒体字节和展示元数据会离开本机";
-"relay_share_security_range" = "接收者可使用 HEAD 和字节范围拖动播放";
-"relay_share_security_storage" = "中继分块会静态加密；临时分享过期时删除，所有分享撤销时删除";
-"relay_share_security_footer" = "来源 URL、Cookie、OAuth 令牌、NAS 会话和签名下载地址绝不会发送给中继。上传完成后，即使原始来源暂时离线，链接仍可使用。";
+"relay_share_security_bytes" = "中继支持时，音频与歌曲信息会在上传前完成端到端加密";
+"relay_share_security_range" = "每条分享的密钥只在链接 #k= 之后，不会随 HTTP 请求发送";
+"relay_share_security_storage" = "客户端加密时，中继只保存密文，由浏览器或 Primuse 在本机解密";
+"relay_share_security_footer" = "来源 URL、Cookie、OAuth 令牌、NAS 会话和签名下载地址绝不会发送给中继。SoundIsle 云服务强制客户端加密；自建中继可为兼容旧方案而明确关闭。";
+"relay_share_access_code_key_footer" = "加密分享仍需发送完整链接或单独提供解密密钥；短码本身无法解密。";
 "relay_share_error_unsupported" = "这首歌无法安全导出。";
 "relay_share_error_configuration" = "请输入有效的 HTTPS 中继 API 地址和令牌。";
 "relay_share_error_keychain" = "无法将中继密钥安全保存到钥匙串。";

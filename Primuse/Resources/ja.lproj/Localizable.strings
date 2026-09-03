@@ -3506,10 +3506,11 @@
 "relay_share_managed" = "管理中のリンク";
 "relay_share_pending_cleanup" = "未完了のアップロード";
 "relay_share_security" = "セキュリティ境界";
-"relay_share_security_bytes" = "メディアデータと表示用メタデータだけがこのデバイスから送信されます";
-"relay_share_security_range" = "受信者は HEAD とバイト範囲シークを利用できます";
-"relay_share_security_storage" = "リレーのチャンクは保存時に暗号化され、一時共有は期限切れ時に、すべての共有は取り消し時に削除されます";
-"relay_share_security_footer" = "ソース URL、Cookie、OAuth トークン、NAS セッション、署名付きダウンロード URL はリレーに送信されません。アップロード完了後は元のソースが一時的にオフラインでもリンクを利用できます。";
+"relay_share_security_bytes" = "リレーが対応している場合、音声と曲情報はアップロード前にエンドツーエンド暗号化されます";
+"relay_share_security_range" = "共有ごとの鍵はリンクの #k= 以降にのみ含まれ、HTTP リクエストには送信されません";
+"relay_share_security_storage" = "クライアント暗号化では、リレーは暗号文のみを保存し、ブラウザと Primuse が端末上で復号します";
+"relay_share_security_footer" = "ソース URL、Cookie、OAuth トークン、NAS セッション、署名付きダウンロード URL はリレーに送信されません。SoundIsle Cloud ではクライアント暗号化が必須です。セルフホスト型リレーでは、互換性のため明示的に無効化できます。";
+"relay_share_access_code_key_footer" = "暗号化された共有には、完全なリンクまたは別途共有された復号鍵が必要です。短いコードだけでは復号できません。";
 "relay_share_error_unsupported" = "この曲は安全に書き出せません。";
 "relay_share_error_configuration" = "有効な HTTPS リレー API URL とトークンを入力してください。";
 "relay_share_error_keychain" = "リレーの秘密情報をキーチェーンへ安全に保存できませんでした。";

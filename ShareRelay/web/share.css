@@ -337,6 +337,167 @@ button[hidden],
   filter: brightness(0) saturate(100%) invert(80%) sepia(22%) saturate(746%) hue-rotate(123deg) brightness(93%) contrast(90%);
 }
 
+.decryption-card {
+  margin: 0 0 22px;
+  padding: 18px;
+  border: 1px solid rgba(114, 207, 192, 0.25);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(114, 207, 192, 0.11), rgba(18, 27, 36, 0.9));
+  box-shadow: inset 0 1px 0 rgba(245, 242, 235, 0.04);
+}
+
+.decryption-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.decryption-lock {
+  width: 42px;
+  height: 42px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(114, 207, 192, 0.28);
+  border-radius: 50%;
+  background: rgba(114, 207, 192, 0.1);
+}
+
+.decryption-lock .ui-icon {
+  width: 19px;
+  height: 19px;
+  filter: brightness(0) saturate(100%) invert(80%) sepia(22%) saturate(746%) hue-rotate(123deg) brightness(93%) contrast(90%);
+}
+
+.decryption-heading .eyebrow {
+  margin: 0 0 3px;
+  color: var(--mint);
+  font-size: 9.5px;
+  letter-spacing: 1.1px;
+}
+
+.decryption-heading h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.decryption-state {
+  margin-left: auto;
+  color: var(--mint);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.decryption-copy {
+  margin: 12px 0 0;
+  color: var(--secondary);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.key-form {
+  margin-top: 14px;
+}
+
+.key-form > label {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--secondary);
+  font-size: 11.5px;
+  font-weight: 550;
+}
+
+.key-field {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(245, 242, 235, 0.16);
+  border-radius: 9px;
+  background: rgba(9, 16, 24, 0.72);
+}
+
+.key-field:focus-within {
+  border-color: rgba(114, 207, 192, 0.5);
+  box-shadow: 0 0 0 3px rgba(114, 207, 192, 0.08);
+}
+
+.key-field input {
+  min-width: 0;
+  height: 46px;
+  flex: 1;
+  padding: 0 13px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+}
+
+.key-field button {
+  min-width: 74px;
+  height: 38px;
+  margin-right: 4px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--mint);
+  color: var(--bg);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.key-field button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.decryption-progress {
+  margin-top: 14px;
+}
+
+.decryption-progress > div {
+  margin-bottom: 7px;
+  display: flex;
+  justify-content: space-between;
+  color: var(--secondary);
+  font-size: 11.5px;
+}
+
+.decryption-progress progress {
+  width: 100%;
+  height: 5px;
+  display: block;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(245, 242, 235, 0.1);
+  accent-color: var(--mint);
+}
+
+.decryption-progress progress::-webkit-progress-bar { background: rgba(245, 242, 235, 0.1); }
+.decryption-progress progress::-webkit-progress-value { background: var(--mint); }
+.decryption-progress progress::-moz-progress-bar { background: var(--mint); }
+
+.decryption-card[data-state="ready"] {
+  padding: 12px 14px;
+  background: rgba(114, 207, 192, 0.08);
+}
+
+.decryption-card[data-state="ready"] .decryption-lock {
+  width: 34px;
+  height: 34px;
+}
+
+.decryption-card[data-state="ready"] .decryption-copy,
+.decryption-card[data-state="ready"] .key-form,
+.decryption-card[data-state="ready"] .decryption-progress {
+  display: none;
+}
+
 .details-column h1 {
   max-width: 100%;
   margin: 22px 0 0;
@@ -368,8 +529,12 @@ button[hidden],
   font-weight: 550;
 }
 
-.technical span + span::before {
-  content: " · ";
+@media (min-width: 681px) {
+  .technical [data-audio-format]:not([hidden]) ~ [data-audio-quality]:not([hidden])::before,
+  .technical [data-audio-format]:not([hidden]) ~ [data-file-size-label]::before,
+  .technical [data-audio-quality]:not([hidden]) ~ [data-file-size-label]::before {
+    content: " · ";
+  }
 }
 
 .mobile-access,
@@ -1092,6 +1257,16 @@ input[type="range"]::-moz-range-thumb {
   .session-notice {
     order: 0;
     margin-bottom: 14px;
+  }
+
+  .decryption-card {
+    order: 0;
+    margin-bottom: 16px;
+    padding: 16px;
+  }
+
+  .decryption-state {
+    display: none;
   }
 
   .details-column h1 {

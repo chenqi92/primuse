@@ -3482,10 +3482,11 @@
 "relay_share_managed" = "已管理的連結";
 "relay_share_pending_cleanup" = "未完成的上傳";
 "relay_share_security" = "安全邊界";
-"relay_share_security_bytes" = "只有媒體位元組和顯示中繼資料會離開本機";
-"relay_share_security_range" = "接收者可使用 HEAD 和位元組範圍拖曳播放";
-"relay_share_security_storage" = "中繼分塊會靜態加密；臨時分享到期時刪除，所有分享撤銷時刪除";
-"relay_share_security_footer" = "來源 URL、Cookie、OAuth 權杖、NAS 工作階段和簽章下載網址絕不會傳送給中繼。上傳完成後，即使原始來源暫時離線，連結仍可使用。";
+"relay_share_security_bytes" = "中繼支援時，音訊與歌曲資訊會在上傳前完成端對端加密";
+"relay_share_security_range" = "每個分享的密鑰只位於連結 #k= 之後，不會隨 HTTP 請求傳送";
+"relay_share_security_storage" = "使用客戶端加密時，中繼只儲存密文，由瀏覽器或 Primuse 在本機解密";
+"relay_share_security_footer" = "來源 URL、Cookie、OAuth 權杖、NAS 工作階段和簽章下載網址絕不會傳送給中繼。SoundIsle 雲端服務強制客戶端加密；自建中繼可為相容舊方案而明確關閉。";
+"relay_share_access_code_key_footer" = "加密分享仍需傳送完整連結或另行提供解密密鑰；短碼本身無法解密。";
 "relay_share_error_unsupported" = "這首歌無法安全匯出。";
 "relay_share_error_configuration" = "請輸入有效的 HTTPS 中繼 API 網址和權杖。";
 "relay_share_error_keychain" = "無法將中繼密鑰安全儲存至鑰匙圈。";

@@ -6,8 +6,185 @@ import worker, { cleanupExpiredShares, testing } from "../src/index.mjs";
 
 const TEST_ADMIN_TOKEN = "test-admin-token-with-more-than-thirty-two-characters";
 const TEST_CHUNK_SIZE = 5 * 1024 * 1024;
+const CLIENT_ENCRYPTION_MODE = "client-aes-256-gcm-chunks-v1";
 const utf8 = new TextEncoder();
 const utf8Decoder = new TextDecoder();
+
+test("self-hosted policy can explicitly disable client encryption", async () => {
+  const env = makeEnvironment(new MemoryBucket(), { E2EE_POLICY: "disabled" });
+  const context = new TestContext();
+  const capabilities = await fetchRelay(env, context, "/.well-known/primuse-share");
+  assert.equal((await capabilities.json()).clientSideEncryption, "disabled");
+  const response = await fetchRelay(env, context, "/v1/uploads", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${TEST_ADMIN_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      encryptionMode: CLIENT_ENCRYPTION_MODE,
+      size: 16,
+      linkType: "permanent",
+    }),
+  });
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).error, "client_encryption_disabled");
+});
+
+test("official E2EE uploads keep keys and presentation metadata off the server", {
+  timeout: 60_000,
+}, async () => {
+  const bucket = new MemoryBucket();
+  const env = makeEnvironment(bucket, { E2EE_POLICY: "required" });
+  const context = new TestContext();
+  const media = new Uint8Array(TEST_CHUNK_SIZE + 137);
+  for (let index = 0; index < media.length; index += 1) media[index] = index % 251;
+  const key = crypto.getRandomValues(new Uint8Array(32));
+  const manifest = {
+    version: 1,
+    fileName: "陈默寻 - 夜航西飞.flac",
+    contentType: "audio/flac",
+    size: media.byteLength,
+    chunkSize: TEST_CHUNK_SIZE,
+    title: "夜航西飞",
+    artist: "陈默寻",
+    album: "潮汐纪年",
+    audioFormat: "FLAC",
+    quality: "24-bit / 96 kHz",
+    durationSeconds: 243.5,
+  };
+
+  const capabilities = await fetchRelay(env, context, "/.well-known/primuse-share");
+  assert.equal(capabilities.status, 200);
+  assert.deepEqual(await capabilities.json(), {
+    protocolVersion: 4,
+    clientSideEncryption: "required",
+    supportedEncryptionModes: [CLIENT_ENCRYPTION_MODE],
+  });
+  const legacyRejected = await fetchRelay(env, context, "/v1/uploads", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${TEST_ADMIN_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ fileName: "plaintext.mp3", contentType: "audio/mpeg", size: 16 }),
+  });
+  assert.equal(legacyRejected.status, 400);
+  assert.equal((await legacyRejected.json()).error, "encryption_required");
+
+  const creation = await createOnly(env, context, {
+    encryptionMode: CLIENT_ENCRYPTION_MODE,
+    size: media.byteLength,
+    expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    allowPlayback: true,
+    allowDownload: true,
+    allowImport: true,
+    linkType: "long",
+  });
+  assert.equal(creation.encryptionMode, CLIENT_ENCRYPTION_MODE);
+  assert.equal(new URL(creation.publicURL).hash, "");
+
+  const encryptedManifest = await encryptEnvelope(
+    key,
+    utf8.encode(JSON.stringify(manifest)),
+    `primuse-share-e2ee-v1:${creation.shareID}:manifest`,
+  );
+  const manifestUpload = await fetchRelay(env, context, `/v1/uploads/${creation.shareID}/manifest`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${creation.uploadToken}`,
+      "Content-Type": "application/octet-stream",
+    },
+    body: encryptedManifest,
+  });
+  assert.equal(manifestUpload.status, 204);
+
+  for (let index = 0, offset = 0; offset < media.byteLength; index += 1, offset += creation.chunkSize) {
+    const end = Math.min(offset + creation.chunkSize, media.byteLength);
+    const plaintext = media.slice(offset, end);
+    const encrypted = await encryptEnvelope(
+      key,
+      plaintext,
+      `primuse-share-e2ee-v1:${creation.shareID}:chunk:${index}:${plaintext.byteLength}`,
+    );
+    const response = await fetchRelay(env, context, `/v1/uploads/${creation.shareID}/chunks/${index}`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${creation.uploadToken}`,
+        "Content-Type": "application/octet-stream",
+        "Content-Range": `bytes ${offset}-${end - 1}/${media.byteLength}`,
+      },
+      body: encrypted,
+    });
+    assert.equal(response.status, 204);
+  }
+  const completion = await fetchRelay(env, context, `/v1/uploads/${creation.shareID}/complete`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${creation.uploadToken}` },
+  });
+  assert.equal(completion.status, 200);
+  const publicPath = new URL(creation.publicURL).pathname;
+
+  const page = await fetchRelay(env, context, publicPath, {
+    headers: { Accept: "text/html", "Sec-Fetch-Mode": "navigate" },
+  });
+  assert.equal(page.status, 200);
+  assert.match(page.headers.get("Content-Security-Policy"), /media-src 'self' blob:/);
+  const html = await page.text();
+  assert.match(html, /data-encryption-mode="client-aes-256-gcm-chunks-v1"/);
+  assert.match(html, /在此设备解密/);
+  assert.doesNotMatch(html, /夜航西飞|陈默寻|潮汐纪年/);
+
+  const manifestResponse = await fetchRelay(env, context, `${publicPath}/manifest`);
+  assert.equal(manifestResponse.status, 200);
+  assert.equal(manifestResponse.headers.get("X-Primuse-Share-ID"), creation.shareID);
+  const decryptedManifest = await decryptEnvelope(
+    key,
+    new Uint8Array(await manifestResponse.arrayBuffer()),
+    `primuse-share-e2ee-v1:${creation.shareID}:manifest`,
+  );
+  assert.deepEqual(JSON.parse(utf8Decoder.decode(decryptedManifest)), manifest);
+
+  const reconstructed = [];
+  for (let index = 0, offset = 0; offset < media.byteLength; index += 1, offset += creation.chunkSize) {
+    const plaintextLength = Math.min(creation.chunkSize, media.byteLength - offset);
+    const encryptedChunk = await fetchRelay(env, context, `${publicPath}/chunks/${index}`);
+    assert.equal(encryptedChunk.status, 200);
+    reconstructed.push(await decryptEnvelope(
+      key,
+      new Uint8Array(await encryptedChunk.arrayBuffer()),
+      `primuse-share-e2ee-v1:${creation.shareID}:chunk:${index}:${plaintextLength}`,
+    ));
+  }
+  assert.deepEqual(concatenate(reconstructed), media);
+  assert.equal((await fetchRelay(env, context, `${publicPath}/media`)).status, 409);
+
+  const ticketResponse = await fetchRelay(env, context, `${publicPath}/import`, {
+    method: "POST",
+    headers: { Origin: "https://share.soundisle.com", Accept: "application/json" },
+  });
+  assert.equal(ticketResponse.status, 201);
+  const ticket = await ticketResponse.json();
+  const imported = await fetchRelay(env, context, new URL(ticket.importURL).pathname);
+  assert.equal(imported.status, 200);
+  assert.equal(imported.headers.get("Content-Type"), "application/vnd.primuse.encrypted-media");
+  assert.equal(imported.headers.get("X-Primuse-Share-ID"), creation.shareID);
+  const importedCiphertext = new Uint8Array(await imported.arrayBuffer());
+  const importedPlaintext = await decryptChunkedMedia(
+    key,
+    importedCiphertext,
+    creation.shareID,
+    media.byteLength,
+    creation.chunkSize,
+  );
+  assert.deepEqual(importedPlaintext, media);
+
+  const persisted = bucket.textForPrefixes(["metadata/", "indexes/", "parts/"]);
+  for (const secret of [manifest.fileName, manifest.title, manifest.artist, manifest.album]) {
+    assert.equal(persisted.includes(secret), false);
+  }
+  assert.equal(Buffer.from(bucket.raw(`data/${creation.shareID}.bin`)).includes(Buffer.from(media)), false);
+});
 
 test("encrypted multipart upload supports full reads, ranges, validators, and secret boundaries", {
   timeout: 60_000,
@@ -284,7 +461,7 @@ test("browser share page exposes only allowed actions and import tickets are one
   const html = await page.text();
   assert.match(html, /夜航西飞 &lt;Live&gt;/);
   assert.match(html, /陈默寻 · 《潮汐纪年》/);
-  assert.match(html, /data-download hidden/);
+  assert.match(html, /data-protected-action="download" hidden/);
   assert.match(html, new RegExp(`data-file-size="${media.byteLength}"`));
   assert.doesNotMatch(html, /<audio[^>]+src=/);
 
@@ -618,6 +795,47 @@ test("configuration, authentication, media validation, and range parsing fail cl
   assert.equal(testing.sanitizeContentType("text/html"), "application/octet-stream");
 });
 
+async function encryptEnvelope(keyBytes, plaintext, additionalData) {
+  const key = await crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, ["encrypt"]);
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = new Uint8Array(await crypto.subtle.encrypt({
+    name: "AES-GCM",
+    iv: nonce,
+    additionalData: utf8.encode(additionalData),
+    tagLength: 128,
+  }, key, plaintext));
+  return concatenate([nonce, ciphertext]);
+}
+
+async function decryptEnvelope(keyBytes, encrypted, additionalData) {
+  const key = await crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, ["decrypt"]);
+  return new Uint8Array(await crypto.subtle.decrypt({
+    name: "AES-GCM",
+    iv: encrypted.subarray(0, 12),
+    additionalData: utf8.encode(additionalData),
+    tagLength: 128,
+  }, key, encrypted.subarray(12)));
+}
+
+async function decryptChunkedMedia(keyBytes, encrypted, shareID, plaintextSize, chunkSize) {
+  const chunks = [];
+  let encryptedOffset = 0;
+  for (let index = 0, offset = 0; offset < plaintextSize; index += 1, offset += chunkSize) {
+    const plaintextLength = Math.min(chunkSize, plaintextSize - offset);
+    const encryptedLength = plaintextLength + 28;
+    const end = encryptedOffset + encryptedLength;
+    assert.ok(end <= encrypted.byteLength, "encrypted import is truncated");
+    chunks.push(await decryptEnvelope(
+      keyBytes,
+      encrypted.subarray(encryptedOffset, end),
+      `primuse-share-e2ee-v1:${shareID}:chunk:${index}:${plaintextLength}`,
+    ));
+    encryptedOffset = end;
+  }
+  assert.equal(encryptedOffset, encrypted.byteLength, "encrypted import has trailing bytes");
+  return concatenate(chunks);
+}
+
 async function createAndUpload({
   env,
   context,
@@ -703,6 +921,7 @@ function makeEnvironment(bucket, overrides = {}) {
     MAX_FILE_BYTES: String(64 * 1024 * 1024),
     MAX_TTL_SECONDS: String(24 * 60 * 60),
     UPLOAD_TTL_SECONDS: String(60 * 60),
+    E2EE_POLICY: "optional",
     ...overrides,
   };
 }

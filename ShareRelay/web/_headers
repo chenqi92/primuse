@@ -4,7 +4,7 @@
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   X-Robots-Tag: noindex, nofollow, noarchive
   Cross-Origin-Opener-Policy: same-origin
-  Content-Security-Policy: default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data: blob:; media-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'
 
 /share.css
   Cache-Control: public, max-age=3600, must-revalidate

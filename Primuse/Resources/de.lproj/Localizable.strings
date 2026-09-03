@@ -3505,10 +3505,11 @@
 "relay_share_managed" = "Verwaltete Links";
 "relay_share_pending_cleanup" = "Unvollständiger Upload";
 "relay_share_security" = "Sicherheitsgrenze";
-"relay_share_security_bytes" = "Nur Mediendaten und Anzeigemetadaten verlassen dieses Gerät";
-"relay_share_security_range" = "Empfänger erhalten HEAD- und Byte-Range-Suche";
-"relay_share_security_storage" = "Relay-Blöcke sind ruhend verschlüsselt; temporäre Freigaben werden bei Ablauf und alle Freigaben bei Widerruf gelöscht";
-"relay_share_security_footer" = "Quell-URLs, Cookies, OAuth-Tokens, NAS-Sitzungen und signierte Download-URLs werden nie an den Relay gesendet. Nach dem Upload funktioniert der Link auch bei vorübergehendem Ausfall der Originalquelle.";
+"relay_share_security_bytes" = "Audio- und Titeldaten werden vor dem Upload Ende-zu-Ende verschlüsselt, wenn der Relay dies unterstützt";
+"relay_share_security_range" = "Der Freigabeschlüssel bleibt nach #k= im Link und wird nicht in HTTP-Anfragen gesendet";
+"relay_share_security_storage" = "Bei Client-Verschlüsselung speichert der Relay nur Chiffretext; Browser und Primuse entschlüsseln lokal";
+"relay_share_security_footer" = "Quell-URLs, Cookies, OAuth-Tokens, NAS-Sitzungen und signierte Download-URLs werden nie an den Relay gesendet. SoundIsle Cloud erfordert Client-Verschlüsselung; ein selbst gehosteter Relay kann sie zur Kompatibilität ausdrücklich deaktivieren.";
+"relay_share_access_code_key_footer" = "Eine verschlüsselte Freigabe benötigt weiterhin den vollständigen Link oder den separaten Entschlüsselungsschlüssel; der Kurzcode allein kann sie nicht entschlüsseln.";
 "relay_share_error_unsupported" = "Dieser Titel kann nicht sicher exportiert werden.";
 "relay_share_error_configuration" = "Gib eine gültige HTTPS-Relay-API-URL und ein Token ein.";
 "relay_share_error_keychain" = "Das Relay-Geheimnis konnte nicht sicher im Schlüsselbund gespeichert werden.";

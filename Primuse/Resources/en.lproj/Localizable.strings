@@ -3292,10 +3292,11 @@
 "relay_share_managed" = "Managed Links";
 "relay_share_pending_cleanup" = "Incomplete upload";
 "relay_share_security" = "Security Boundary";
-"relay_share_security_bytes" = "Only media bytes and display metadata leave this device";
-"relay_share_security_range" = "Recipients get HEAD and byte-range seeking";
-"relay_share_security_storage" = "Relay chunks are encrypted at rest; temporary shares are deleted at expiry and all shares at revocation";
-"relay_share_security_footer" = "Source URLs, cookies, OAuth tokens, NAS sessions, and signed download URLs are never sent to the relay. Completed links continue to work if the original source is temporarily offline.";
+"relay_share_security_bytes" = "Audio and song details are end-to-end encrypted before upload when the relay supports it";
+"relay_share_security_range" = "The per-share key stays after #k= in the link and is not sent in HTTP requests";
+"relay_share_security_storage" = "With client encryption, the relay stores only ciphertext; browsers and Primuse decrypt locally";
+"relay_share_security_footer" = "Source URLs, cookies, OAuth tokens, NAS sessions, and signed download URLs are never sent to the relay. SoundIsle Cloud requires client encryption; a self-hosted relay can explicitly disable it for compatibility.";
+"relay_share_access_code_key_footer" = "An encrypted share still needs the full link or its separate decryption key; the short code alone cannot decrypt it.";
 "relay_share_error_unsupported" = "This song cannot be exported safely.";
 "relay_share_error_configuration" = "Enter a valid HTTPS relay API URL and token.";
 "relay_share_error_keychain" = "The relay secret could not be stored securely in Keychain.";

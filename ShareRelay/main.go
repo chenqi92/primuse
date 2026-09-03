@@ -41,6 +41,11 @@ const (
 	maximumJSONBytes       = int64(64 * 1024)
 	defaultShortCodeTTL    = 24 * time.Hour
 	shortCodeRetryLimit    = 16
+	clientEncryptionMode   = "client-aes-256-gcm-chunks-v1"
+	maximumManifestBytes   = int64(8 * 1024)
+	e2eePolicyRequired     = "required"
+	e2eePolicyOptional     = "optional"
+	e2eePolicyDisabled     = "disabled"
 )
 
 type config struct {
@@ -61,6 +66,7 @@ type config struct {
 	shortCodeMaximumTTL            time.Duration
 	maximumPublicStreams           int
 	maximumUploads                 int
+	e2eePolicy                     string
 }
 
 type shareMetadata struct {
@@ -92,6 +98,7 @@ type shareMetadata struct {
 	AllowImport     *bool      `json:"allowImport,omitempty"`
 	ShortCode       bool       `json:"shortCode,omitempty"`
 	Permanent       bool       `json:"permanent"`
+	EncryptionMode  string     `json:"encryptionMode,omitempty"`
 }
 
 func (m *shareMetadata) complete() bool { return !m.CompletedAt.IsZero() }
@@ -109,6 +116,7 @@ func formattedExpiration(expiresAt *time.Time) *string {
 }
 
 type createUploadRequest struct {
+	EncryptionMode  string  `json:"encryptionMode,omitempty"`
 	FileName        string  `json:"fileName"`
 	ContentType     string  `json:"contentType"`
 	Size            int64   `json:"size"`
@@ -128,13 +136,14 @@ type createUploadRequest struct {
 }
 
 type createUploadResponse struct {
-	ShareID     string  `json:"shareID"`
-	UploadToken string  `json:"uploadToken"`
-	PublicURL   string  `json:"publicURL"`
-	ChunkSize   int64   `json:"chunkSize"`
-	ExpiresAt   *string `json:"expiresAt,omitempty"`
-	Permanent   bool    `json:"permanent"`
-	AccessCode  string  `json:"accessCode,omitempty"`
+	ShareID        string  `json:"shareID"`
+	UploadToken    string  `json:"uploadToken"`
+	PublicURL      string  `json:"publicURL"`
+	ChunkSize      int64   `json:"chunkSize"`
+	ExpiresAt      *string `json:"expiresAt,omitempty"`
+	Permanent      bool    `json:"permanent"`
+	AccessCode     string  `json:"accessCode,omitempty"`
+	EncryptionMode string  `json:"encryptionMode,omitempty"`
 }
 
 type completeUploadResponse struct {
@@ -222,6 +231,7 @@ func loadConfig() (config, error) {
 		shortCodeMaximumTTL:            time.Duration(envInt64("PRIMUSE_RELAY_SHORT_CODE_MAX_TTL_SECONDS", int64(defaultShortCodeTTL/time.Second))) * time.Second,
 		maximumPublicStreams:           int(envInt64("PRIMUSE_RELAY_MAX_PUBLIC_STREAMS", 32)),
 		maximumUploads:                 int(envInt64("PRIMUSE_RELAY_MAX_UPLOADS", 4)),
+		e2eePolicy:                     envOrDefault("PRIMUSE_RELAY_E2EE_POLICY", e2eePolicyRequired),
 	}
 	key, err := base64.StdEncoding.DecodeString(os.Getenv("PRIMUSE_RELAY_MASTER_KEY"))
 	if err != nil || len(key) != 32 {
@@ -244,6 +254,9 @@ func loadConfig() (config, error) {
 		c.shortCodeMaximumTTL <= 0 || c.shortCodeMaximumTTL > c.maximumTTL ||
 		c.maximumPublicStreams <= 0 || c.maximumUploads <= 0 {
 		return config{}, errors.New("relay limits must be positive")
+	}
+	if c.e2eePolicy != e2eePolicyRequired && c.e2eePolicy != e2eePolicyOptional && c.e2eePolicy != e2eePolicyDisabled {
+		return config{}, errors.New("PRIMUSE_RELAY_E2EE_POLICY must be required, optional, or disabled")
 	}
 	return c, nil
 }
@@ -371,6 +384,7 @@ func newRelayServer(c config) (*relayServer, error) {
 	for _, directory := range []string{
 		filepath.Join(c.dataDirectory, "metadata"),
 		filepath.Join(c.dataDirectory, "chunks"),
+		filepath.Join(c.dataDirectory, "manifests"),
 		filepath.Join(c.dataDirectory, "tickets"),
 		filepath.Join(c.dataDirectory, "short-code-reservations"),
 	} {
@@ -400,13 +414,20 @@ func (s *relayServer) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("HEAD /healthz", s.handleHealth)
+	mux.HandleFunc("GET /.well-known/primuse-share", s.handleCapabilities)
+	mux.HandleFunc("HEAD /.well-known/primuse-share", s.handleCapabilities)
 	mux.HandleFunc("POST /v1/uploads", s.handleCreateUpload)
+	mux.HandleFunc("PUT /v1/uploads/{id}/manifest", s.handleUploadManifest)
 	mux.HandleFunc("PUT /v1/uploads/{id}/chunks/{index}", s.handleUploadChunk)
 	mux.HandleFunc("POST /v1/uploads/{id}/complete", s.handleCompleteUpload)
 	mux.HandleFunc("DELETE /v1/shares/{id}", s.handleRevokeShare)
 	mux.HandleFunc("GET /s/{token}", s.handlePublicShare)
 	mux.HandleFunc("HEAD /s/{token}", s.handlePublicShare)
 	mux.HandleFunc("POST /s/{token}/auth", s.handleShareAuthentication)
+	mux.HandleFunc("GET /s/{token}/manifest", s.handleEncryptedManifest)
+	mux.HandleFunc("HEAD /s/{token}/manifest", s.handleEncryptedManifest)
+	mux.HandleFunc("GET /s/{token}/chunks/{index}", s.handleEncryptedChunk)
+	mux.HandleFunc("HEAD /s/{token}/chunks/{index}", s.handleEncryptedChunk)
 	mux.HandleFunc("GET /s/{token}/media", s.handleShareMedia)
 	mux.HandleFunc("HEAD /s/{token}/media", s.handleShareMedia)
 	mux.HandleFunc("GET /s/{token}/download", s.handleShareDownload)
@@ -456,6 +477,20 @@ func (s *relayServer) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+func (s *relayServer) handleCapabilities(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if r.Method == http.MethodHead {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"protocolVersion":          4,
+		"clientSideEncryption":     s.configuration.e2eePolicy,
+		"supportedEncryptionModes": []string{clientEncryptionMode},
+	})
+}
+
 func (s *relayServer) handleCreateUpload(w http.ResponseWriter, r *http.Request) {
 	if !constantTokenEqual(bearerToken(r), s.configuration.adminToken) {
 		writeProblem(w, http.StatusUnauthorized, "unauthorized")
@@ -470,14 +505,38 @@ func (s *relayServer) handleCreateUpload(w http.ResponseWriter, r *http.Request)
 	if err := decodeJSON(w, r, &request); err != nil {
 		return
 	}
-	request.FileName = sanitizeFileName(request.FileName)
-	request.ContentType = sanitizeContentType(request.ContentType)
-	request.Title = sanitizeDisplayText(request.Title, 160)
-	request.Artist = sanitizeDisplayText(request.Artist, 160)
-	request.Album = sanitizeDisplayText(request.Album, 160)
-	request.AudioFormat = sanitizeDisplayText(request.AudioFormat, 32)
-	request.Quality = sanitizeDisplayText(request.Quality, 80)
-	if request.FileName == "" || request.Size <= 0 || request.Size > s.configuration.maximumFileSize {
+	usesClientEncryption := request.EncryptionMode == clientEncryptionMode
+	if request.EncryptionMode != "" && !usesClientEncryption {
+		writeProblem(w, http.StatusBadRequest, "unsupported_encryption_mode")
+		return
+	}
+	if s.configuration.e2eePolicy == e2eePolicyRequired && !usesClientEncryption {
+		writeProblem(w, http.StatusBadRequest, "encryption_required")
+		return
+	}
+	if s.configuration.e2eePolicy == e2eePolicyDisabled && usesClientEncryption {
+		writeProblem(w, http.StatusBadRequest, "client_encryption_disabled")
+		return
+	}
+	if usesClientEncryption {
+		request.FileName = ""
+		request.ContentType = "application/octet-stream"
+		request.Title = ""
+		request.Artist = ""
+		request.Album = ""
+		request.AudioFormat = ""
+		request.Quality = ""
+		request.DurationSeconds = 0
+	} else {
+		request.FileName = sanitizeFileName(request.FileName)
+		request.ContentType = sanitizeContentType(request.ContentType)
+		request.Title = sanitizeDisplayText(request.Title, 160)
+		request.Artist = sanitizeDisplayText(request.Artist, 160)
+		request.Album = sanitizeDisplayText(request.Album, 160)
+		request.AudioFormat = sanitizeDisplayText(request.AudioFormat, 32)
+		request.Quality = sanitizeDisplayText(request.Quality, 80)
+	}
+	if (!usesClientEncryption && request.FileName == "") || request.Size <= 0 || request.Size > s.configuration.maximumFileSize {
 		writeProblem(w, http.StatusBadRequest, "invalid_media")
 		return
 	}
@@ -576,8 +635,12 @@ func (s *relayServer) handleCreateUpload(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	metadataVersion := 3
+	if usesClientEncryption {
+		metadataVersion = 4
+	}
 	metadata := &shareMetadata{
-		Version:         3,
+		Version:         metadataVersion,
 		ID:              id,
 		PublicTokenHash: tokenHash(publicToken),
 		ControlHash:     tokenHash(uploadToken),
@@ -600,6 +663,7 @@ func (s *relayServer) handleCreateUpload(w http.ResponseWriter, r *http.Request)
 		AllowImport:     boolPointerOrDefault(request.AllowImport, true),
 		ShortCode:       shortCode,
 		Permanent:       permanent,
+		EncryptionMode:  request.EncryptionMode,
 	}
 	if request.Password != "" {
 		salt := make([]byte, 16)
@@ -627,17 +691,52 @@ func (s *relayServer) handleCreateUpload(w http.ResponseWriter, r *http.Request)
 	s.mu.Unlock()
 
 	response := createUploadResponse{
-		ShareID:     id,
-		UploadToken: uploadToken,
-		PublicURL:   s.configuration.publicBaseURL + "/s/" + publicToken,
-		ChunkSize:   metadata.ChunkSize,
-		ExpiresAt:   formattedExpiration(expiresAt),
-		Permanent:   permanent,
+		ShareID:        id,
+		UploadToken:    uploadToken,
+		PublicURL:      s.configuration.publicBaseURL + "/s/" + publicToken,
+		ChunkSize:      metadata.ChunkSize,
+		ExpiresAt:      formattedExpiration(expiresAt),
+		Permanent:      permanent,
+		EncryptionMode: request.EncryptionMode,
 	}
 	if shortCode {
 		response.AccessCode = publicToken
 	}
 	writeJSON(w, http.StatusCreated, response)
+}
+
+func (s *relayServer) handleUploadManifest(w http.ResponseWriter, r *http.Request) {
+	if !s.acquire(s.uploadSlots, w) {
+		return
+	}
+	defer s.release(s.uploadSlots)
+
+	metadata := s.metadataByID(r.PathValue("id"))
+	if metadata == nil || !s.authorizeControl(metadata, r) {
+		writeProblem(w, http.StatusNotFound, "not_found")
+		return
+	}
+	shareLock := s.lockForShare(metadata.ID)
+	shareLock.Lock()
+	defer shareLock.Unlock()
+	if metadata.EncryptionMode != clientEncryptionMode {
+		writeProblem(w, http.StatusConflict, "manifest_not_supported")
+		return
+	}
+	if metadata.complete() || metadata.revoked() || !metadata.UploadExpiresAt.After(s.now()) {
+		writeProblem(w, http.StatusConflict, "upload_closed")
+		return
+	}
+	manifest, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maximumManifestBytes+1))
+	if err != nil || int64(len(manifest)) <= int64(s.block.NonceSize()+s.block.Overhead()) || int64(len(manifest)) > maximumManifestBytes {
+		writeProblem(w, http.StatusBadRequest, "invalid_manifest")
+		return
+	}
+	if err := atomicWrite(s.manifestPath(metadata.ID), manifest, 0o600); err != nil {
+		writeProblem(w, http.StatusInternalServerError, "storage_unavailable")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *relayServer) handleUploadChunk(w http.ResponseWriter, r *http.Request) {
@@ -674,15 +773,22 @@ func (s *relayServer) handleUploadChunk(w http.ResponseWriter, r *http.Request) 
 		writeProblem(w, http.StatusBadRequest, "invalid_content_range")
 		return
 	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, expectedLength))
-	if err != nil || int64(len(body)) != expectedLength {
+	expectedBodyLength := expectedLength
+	if metadata.EncryptionMode == clientEncryptionMode {
+		expectedBodyLength += int64(s.block.NonceSize() + s.block.Overhead())
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, expectedBodyLength))
+	if err != nil || int64(len(body)) != expectedBodyLength {
 		writeProblem(w, http.StatusBadRequest, "invalid_chunk_size")
 		return
 	}
-	encrypted, err := s.encryptChunk(metadata, index, body)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "encryption_failed")
-		return
+	encrypted := body
+	if metadata.EncryptionMode != clientEncryptionMode {
+		encrypted, err = s.encryptChunk(metadata, index, body)
+		if err != nil {
+			writeProblem(w, http.StatusInternalServerError, "encryption_failed")
+			return
+		}
 	}
 	if err := s.persistChunk(metadata.ID, index, encrypted); err != nil {
 		writeProblem(w, http.StatusInternalServerError, "storage_unavailable")
@@ -710,6 +816,13 @@ func (s *relayServer) handleCompleteUpload(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if !metadata.complete() {
+		if metadata.EncryptionMode == clientEncryptionMode {
+			info, err := os.Stat(s.manifestPath(metadata.ID))
+			if err != nil || info.Size() <= int64(s.block.NonceSize()+s.block.Overhead()) || info.Size() > maximumManifestBytes {
+				writeProblem(w, http.StatusConflict, "missing_manifest")
+				return
+			}
+		}
 		chunkCount := (metadata.Size + metadata.ChunkSize - 1) / metadata.ChunkSize
 		for index := int64(0); index < chunkCount; index++ {
 			expectedPlaintext := min64(metadata.ChunkSize, metadata.Size-index*metadata.ChunkSize)
@@ -751,6 +864,7 @@ func (s *relayServer) handleRevokeShare(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		_ = os.RemoveAll(filepath.Join(s.configuration.dataDirectory, "chunks", metadata.ID))
+		_ = os.Remove(s.manifestPath(metadata.ID))
 		metadata.DataDeletedAt = s.now().UTC()
 		_ = s.persistMetadata(metadata)
 		s.deactivateShortCode(metadata)
@@ -772,6 +886,115 @@ func (s *relayServer) handleShareMedia(w http.ResponseWriter, r *http.Request) {
 
 func (s *relayServer) handleShareDownload(w http.ResponseWriter, r *http.Request) {
 	s.servePublicMedia(w, r, true)
+}
+
+func (s *relayServer) handleEncryptedManifest(w http.ResponseWriter, r *http.Request) {
+	metadata, unlock := s.authorizedEncryptedShare(w, r)
+	if metadata == nil {
+		return
+	}
+	defer unlock()
+	manifest, err := os.ReadFile(s.manifestPath(metadata.ID))
+	if err != nil || int64(len(manifest)) <= int64(s.block.NonceSize()+s.block.Overhead()) || int64(len(manifest)) > maximumManifestBytes {
+		writeProblem(w, http.StatusServiceUnavailable, "storage_unavailable")
+		return
+	}
+	w.Header().Set("Cache-Control", "private, no-store, max-age=0")
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.Itoa(len(manifest)))
+	w.Header().Set("X-Primuse-Encryption-Mode", clientEncryptionMode)
+	w.Header().Set("X-Primuse-Share-ID", metadata.ID)
+	w.Header().Set("X-Primuse-Plaintext-Size", strconv.FormatInt(metadata.Size, 10))
+	w.Header().Set("X-Primuse-Chunk-Size", strconv.FormatInt(metadata.ChunkSize, 10))
+	if r.Method == http.MethodHead {
+		return
+	}
+	_, _ = w.Write(manifest)
+}
+
+func (s *relayServer) handleEncryptedChunk(w http.ResponseWriter, r *http.Request) {
+	metadata, unlock := s.authorizedEncryptedShare(w, r)
+	if metadata == nil {
+		return
+	}
+	defer unlock()
+	if !metadataPermission(metadata.AllowPlayback, true) &&
+		!metadataPermission(metadata.AllowDownload, true) &&
+		!metadataPermission(metadata.AllowImport, true) {
+		writeProblem(w, http.StatusForbidden, "media_access_disabled")
+		return
+	}
+	index, err := strconv.ParseInt(r.PathValue("index"), 10, 64)
+	chunkCount := (metadata.Size + metadata.ChunkSize - 1) / metadata.ChunkSize
+	if err != nil || index < 0 || index >= chunkCount {
+		writeProblem(w, http.StatusNotFound, "not_found")
+		return
+	}
+	expectedPlaintext := min64(metadata.ChunkSize, metadata.Size-index*metadata.ChunkSize)
+	expectedEncrypted := expectedPlaintext + int64(s.block.NonceSize()+s.block.Overhead())
+	chunk, err := os.ReadFile(s.chunkPath(metadata.ID, index))
+	if err != nil || int64(len(chunk)) != expectedEncrypted {
+		writeProblem(w, http.StatusServiceUnavailable, "storage_unavailable")
+		return
+	}
+	w.Header().Set("Cache-Control", "private, no-store, max-age=0")
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.Itoa(len(chunk)))
+	w.Header().Set("X-Primuse-Chunk-Index", strconv.FormatInt(index, 10))
+	if r.Method == http.MethodHead {
+		return
+	}
+	_, _ = w.Write(chunk)
+}
+
+func (s *relayServer) authorizedEncryptedShare(w http.ResponseWriter, r *http.Request) (*shareMetadata, func()) {
+	if !s.allowPublicRequest(r) {
+		w.Header().Set("Retry-After", "60")
+		writeProblem(w, http.StatusTooManyRequests, "rate_limited")
+		return nil, func() {}
+	}
+	if !s.acquire(s.publicSlots, w) {
+		return nil, func() {}
+	}
+	releaseSlot := true
+	release := func() {
+		if releaseSlot {
+			s.release(s.publicSlots)
+			releaseSlot = false
+		}
+	}
+	metadata := s.metadataByPublicToken(r.PathValue("token"))
+	if metadata == nil {
+		release()
+		s.recordShortCodeFailure(r, r.PathValue("token"))
+		writeProblem(w, http.StatusGone, "unavailable")
+		return nil, func() {}
+	}
+	shareLock := s.lockForShare(metadata.ID)
+	shareLock.RLock()
+	if !s.shareIsActive(metadata) {
+		shareLock.RUnlock()
+		release()
+		writeProblem(w, http.StatusGone, "unavailable")
+		return nil, func() {}
+	}
+	if metadata.EncryptionMode != clientEncryptionMode {
+		shareLock.RUnlock()
+		release()
+		writeProblem(w, http.StatusConflict, "client_decryption_not_available")
+		return nil, func() {}
+	}
+	if metadata.PasswordHash != "" && !verifyPassword(metadata, r) && !s.verifyShareSession(metadata, r.PathValue("token"), r) {
+		shareLock.RUnlock()
+		release()
+		w.Header().Set("WWW-Authenticate", `Basic realm="Primuse Share", charset="UTF-8"`)
+		writeProblem(w, http.StatusUnauthorized, "password_required")
+		return nil, func() {}
+	}
+	return metadata, func() {
+		shareLock.RUnlock()
+		release()
+	}
 }
 
 func (s *relayServer) servePublicMedia(w http.ResponseWriter, r *http.Request, attachment bool) {
@@ -816,6 +1039,10 @@ func (s *relayServer) servePublicMedia(w http.ResponseWriter, r *http.Request, a
 	}
 	if !attachment && !metadataPermission(metadata.AllowPlayback, true) {
 		writeProblem(w, http.StatusForbidden, "playback_disabled")
+		return
+	}
+	if metadata.EncryptionMode == clientEncryptionMode {
+		writeProblem(w, http.StatusConflict, "client_decryption_required")
 		return
 	}
 	s.serveMetadataMedia(w, r, metadata, attachment)
@@ -935,17 +1162,27 @@ func (s *relayServer) loadMetadata() error {
 }
 
 func (s *relayServer) validateLoadedMetadata(entry os.DirEntry, metadata *shareMetadata) error {
-	if entry.Type()&os.ModeType != 0 || (metadata.Version != 1 && metadata.Version != 2 && metadata.Version != 3) ||
+	if entry.Type()&os.ModeType != 0 || (metadata.Version != 1 && metadata.Version != 2 && metadata.Version != 3 && metadata.Version != 4) ||
 		!validOpaqueID(metadata.ID) || entry.Name() != metadata.ID+".json" ||
 		!validSHA256Hex(metadata.PublicTokenHash) || !validSHA256Hex(metadata.ControlHash) ||
 		metadata.PublicTokenHash == metadata.ControlHash ||
-		metadata.FileName == "" || sanitizeFileName(metadata.FileName) != metadata.FileName ||
-		sanitizeContentType(metadata.ContentType) != metadata.ContentType ||
 		metadata.Size <= 0 || metadata.Size > s.configuration.maximumFileSize ||
 		metadata.ChunkSize < 256*1024 || metadata.ChunkSize > 32*1024*1024 ||
 		metadata.CreatedAt.IsZero() ||
 		!metadata.UploadExpiresAt.After(metadata.CreatedAt) || !validETag(metadata.ETag) {
 		return errors.New("unsafe or inconsistent fields")
+	}
+	if metadata.Version == 4 {
+		if metadata.EncryptionMode != clientEncryptionMode || metadata.FileName != "" ||
+			metadata.ContentType != "application/octet-stream" || metadata.Title != "" ||
+			metadata.Artist != "" || metadata.Album != "" || metadata.AudioFormat != "" ||
+			metadata.Quality != "" || metadata.DurationSeconds != 0 {
+			return errors.New("encrypted metadata exposes presentation fields")
+		}
+	} else if metadata.EncryptionMode != "" || metadata.FileName == "" ||
+		sanitizeFileName(metadata.FileName) != metadata.FileName ||
+		sanitizeContentType(metadata.ContentType) != metadata.ContentType {
+		return errors.New("invalid legacy media fields")
 	}
 	if metadata.Version < 3 && metadata.Permanent {
 		return errors.New("legacy metadata cannot be permanent")
@@ -960,13 +1197,17 @@ func (s *relayServer) validateLoadedMetadata(entry os.DirEntry, metadata *shareM
 	if metadata.ShortCode && metadata.ExpiresAt.Sub(metadata.CreatedAt) > s.configuration.shortCodeMaximumTTL {
 		return errors.New("short code expiration exceeds configured maximum")
 	}
-	if metadata.Version >= 2 && (sanitizeDisplayText(metadata.Title, 160) != metadata.Title ||
+	if metadata.Version >= 2 && metadata.Version < 4 && (sanitizeDisplayText(metadata.Title, 160) != metadata.Title ||
 		sanitizeDisplayText(metadata.Artist, 160) != metadata.Artist ||
 		sanitizeDisplayText(metadata.Album, 160) != metadata.Album ||
 		sanitizeDisplayText(metadata.AudioFormat, 32) != metadata.AudioFormat ||
 		sanitizeDisplayText(metadata.Quality, 80) != metadata.Quality ||
 		metadata.DurationSeconds < 0 || metadata.DurationSeconds > 7*24*60*60) {
 		return errors.New("invalid presentation fields")
+	}
+	if metadata.Version >= 2 && (metadata.AllowPlayback == nil ||
+		metadata.AllowDownload == nil || metadata.AllowImport == nil) {
+		return errors.New("missing permission fields")
 	}
 	if metadata.PasswordSalt == "" && metadata.PasswordHash == "" {
 		return nil
@@ -1071,6 +1312,10 @@ func (s *relayServer) deactivateShortCode(metadata *shareMetadata) {
 
 func (s *relayServer) chunkPath(id string, index int64) string {
 	return filepath.Join(s.configuration.dataDirectory, "chunks", id, strconv.FormatInt(index, 10)+".bin")
+}
+
+func (s *relayServer) manifestPath(id string) string {
+	return filepath.Join(s.configuration.dataDirectory, "manifests", id+".bin")
 }
 
 func atomicWrite(path string, data []byte, mode os.FileMode) error {
@@ -1265,6 +1510,7 @@ func (s *relayServer) cleanupExpired() {
 			continue
 		}
 		_ = os.RemoveAll(filepath.Join(s.configuration.dataDirectory, "chunks", metadata.ID))
+		_ = os.Remove(s.manifestPath(metadata.ID))
 		metadata.DataDeletedAt = now
 		_ = s.persistMetadata(metadata)
 		s.deactivateShortCode(metadata)

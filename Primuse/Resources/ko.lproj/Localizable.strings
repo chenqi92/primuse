@@ -3505,10 +3505,11 @@
 "relay_share_managed" = "관리 중인 링크";
 "relay_share_pending_cleanup" = "완료되지 않은 업로드";
 "relay_share_security" = "보안 경계";
-"relay_share_security_bytes" = "미디어 바이트와 표시 메타데이터만 이 기기를 떠납니다";
-"relay_share_security_range" = "수신자는 HEAD 및 바이트 범위 탐색을 사용할 수 있습니다";
-"relay_share_security_storage" = "릴레이 청크는 저장 시 암호화되며 임시 공유는 만료 시, 모든 공유는 취소 시 삭제됩니다";
-"relay_share_security_footer" = "소스 URL, 쿠키, OAuth 토큰, NAS 세션 및 서명된 다운로드 URL은 릴레이로 전송되지 않습니다. 업로드가 완료되면 원본 소스가 일시적으로 오프라인이어도 링크가 작동합니다.";
+"relay_share_security_bytes" = "릴레이가 지원하면 오디오와 곡 정보는 업로드 전에 종단 간 암호화됩니다";
+"relay_share_security_range" = "공유별 키는 링크의 #k= 뒤에만 있으며 HTTP 요청으로 전송되지 않습니다";
+"relay_share_security_storage" = "클라이언트 암호화 시 릴레이는 암호문만 저장하고 브라우저와 Primuse가 로컬에서 복호화합니다";
+"relay_share_security_footer" = "소스 URL, 쿠키, OAuth 토큰, NAS 세션 및 서명된 다운로드 URL은 릴레이로 전송되지 않습니다. SoundIsle Cloud는 클라이언트 암호화를 요구하며, 자체 호스팅 릴레이는 호환성을 위해 명시적으로 비활성화할 수 있습니다.";
+"relay_share_access_code_key_footer" = "암호화된 공유에는 전체 링크 또는 별도의 복호화 키가 필요하며, 짧은 코드만으로는 복호화할 수 없습니다.";
 "relay_share_error_unsupported" = "이 노래는 안전하게 내보낼 수 없습니다.";
 "relay_share_error_configuration" = "유효한 HTTPS 릴레이 API URL과 토큰을 입력하십시오.";
 "relay_share_error_keychain" = "릴레이 비밀을 키체인에 안전하게 저장할 수 없습니다.";

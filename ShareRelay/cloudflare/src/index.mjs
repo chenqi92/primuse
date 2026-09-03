@@ -15,6 +15,9 @@ const IMPORT_TICKET_SECONDS = 10 * 60;
 const AES_GCM_NONCE_BYTES = 12;
 const AES_GCM_TAG_BYTES = 16;
 const ENCRYPTED_CHUNK_OVERHEAD = AES_GCM_NONCE_BYTES + AES_GCM_TAG_BYTES;
+const CLIENT_ENCRYPTION_MODE = "client-aes-256-gcm-chunks-v1";
+const MAXIMUM_MANIFEST_BYTES = 8 * 1024;
+const E2EE_POLICIES = new Set(["required", "optional", "disabled"]);
 const CLEANUP_BATCH_SIZE = 2;
 const CLEANUP_SCAN_PAGE_LIMIT = 10;
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
@@ -69,12 +72,28 @@ async function routeRequest(request, env, context) {
   }
 
   const configuration = loadConfiguration(env);
+  if (url.pathname === "/.well-known/primuse-share") {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      throw new RelayError(405, "method_not_allowed", { Allow: "GET, HEAD" });
+    }
+    return jsonResponse({
+      protocolVersion: 4,
+      clientSideEncryption: configuration.e2eePolicy,
+      supportedEncryptionModes: [CLIENT_ENCRYPTION_MODE],
+    }, 200, request.method === "HEAD");
+  }
   if (url.pathname === "/v1/uploads") {
     requireMethod(request, "POST");
     return createUpload(request, env, configuration);
   }
 
-  let match = url.pathname.match(/^\/v1\/uploads\/([A-Za-z0-9_-]{16,128})\/chunks\/(\d+)$/);
+  let match = url.pathname.match(/^\/v1\/uploads\/([A-Za-z0-9_-]{16,128})\/manifest$/);
+  if (match) {
+    requireMethod(request, "PUT");
+    return uploadManifest(request, configuration, match[1]);
+  }
+
+  match = url.pathname.match(/^\/v1\/uploads\/([A-Za-z0-9_-]{16,128})\/chunks\/(\d+)$/);
   if (match) {
     requireMethod(request, "PUT");
     return uploadChunk(request, env, context, configuration, match[1], match[2]);
@@ -115,6 +134,22 @@ async function routeRequest(request, env, context) {
       throw new RelayError(405, "method_not_allowed", { Allow: "GET, HEAD" });
     }
     return servePublicShare(request, env, context, configuration, match[1], match[2] === "download");
+  }
+
+  match = url.pathname.match(/^\/s\/((?:[A-Za-z0-9_-]{16,128}|[0-9]{4,6}))\/manifest$/);
+  if (match) {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      throw new RelayError(405, "method_not_allowed", { Allow: "GET, HEAD" });
+    }
+    return serveEncryptedManifest(request, env, context, configuration, match[1]);
+  }
+
+  match = url.pathname.match(/^\/s\/((?:[A-Za-z0-9_-]{16,128}|[0-9]{4,6}))\/chunks\/(\d+)$/);
+  if (match) {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      throw new RelayError(405, "method_not_allowed", { Allow: "GET, HEAD" });
+    }
+    return serveEncryptedChunk(request, env, context, configuration, match[1], match[2]);
   }
 
   match = url.pathname.match(/^\/s\/((?:[A-Za-z0-9_-]{16,128}|[0-9]{4,6}))\/import$/);
@@ -180,6 +215,10 @@ function loadConfiguration(env) {
   if (shortCodeMaximumTTLSeconds > maximumTTLSeconds) {
     throw new Error("SHORT_CODE_MAX_TTL_SECONDS exceeds MAX_TTL_SECONDS");
   }
+  const e2eePolicy = env.E2EE_POLICY ?? "required";
+  if (!E2EE_POLICIES.has(e2eePolicy)) {
+    throw new Error("E2EE_POLICY is invalid");
+  }
 
   return {
     bucket: env.MEDIA_BUCKET,
@@ -191,6 +230,7 @@ function loadConfiguration(env) {
     maximumTTLMilliseconds: maximumTTLSeconds * 1000,
     uploadTTLMilliseconds: uploadTTLSeconds * 1000,
     shortCodeMaximumTTLMilliseconds: shortCodeMaximumTTLSeconds * 1000,
+    e2eePolicy,
   };
 }
 
@@ -199,10 +239,21 @@ async function createUpload(request, env, configuration) {
     throw new RelayError(401, "unauthorized");
   }
   const input = await decodeJSONRequest(request);
-  const fileName = sanitizeFileName(input.fileName);
-  const contentType = sanitizeContentType(input.contentType);
+  const encryptionMode = input.encryptionMode == null ? "" : input.encryptionMode;
+  if (typeof encryptionMode !== "string" || (encryptionMode && encryptionMode !== CLIENT_ENCRYPTION_MODE)) {
+    throw new RelayError(400, "unsupported_encryption_mode");
+  }
+  const usesClientEncryption = encryptionMode === CLIENT_ENCRYPTION_MODE;
+  if (configuration.e2eePolicy === "required" && !usesClientEncryption) {
+    throw new RelayError(400, "encryption_required");
+  }
+  if (configuration.e2eePolicy === "disabled" && usesClientEncryption) {
+    throw new RelayError(400, "client_encryption_disabled");
+  }
+  const fileName = usesClientEncryption ? "" : sanitizeFileName(input.fileName);
+  const contentType = usesClientEncryption ? "application/octet-stream" : sanitizeContentType(input.contentType);
   if (
-    !fileName ||
+    (!usesClientEncryption && !fileName) ||
     !Number.isSafeInteger(input.size) ||
     input.size <= 0 ||
     input.size > configuration.maximumFileSize ||
@@ -214,15 +265,15 @@ async function createUpload(request, env, configuration) {
   if (typeof password !== "string" || textEncoder.encode(password).byteLength > 128) {
     throw new RelayError(400, "invalid_password");
   }
-  const title = sanitizeDisplayText(input.title, 160);
-  const artist = sanitizeDisplayText(input.artist, 160);
-  const album = sanitizeDisplayText(input.album, 160);
-  const audioFormat = sanitizeDisplayText(input.audioFormat, 32);
-  const quality = sanitizeDisplayText(input.quality, 80);
+  const title = usesClientEncryption ? "" : sanitizeDisplayText(input.title, 160);
+  const artist = usesClientEncryption ? "" : sanitizeDisplayText(input.artist, 160);
+  const album = usesClientEncryption ? "" : sanitizeDisplayText(input.album, 160);
+  const audioFormat = usesClientEncryption ? "" : sanitizeDisplayText(input.audioFormat, 32);
+  const quality = usesClientEncryption ? "" : sanitizeDisplayText(input.quality, 80);
   if ([title, artist, album, audioFormat, quality].some((value) => value.includes("\u0000"))) {
     throw new RelayError(400, "invalid_media");
   }
-  const durationSeconds = input.durationSeconds == null ? 0 : input.durationSeconds;
+  const durationSeconds = usesClientEncryption ? 0 : (input.durationSeconds == null ? 0 : input.durationSeconds);
   if (!Number.isFinite(durationSeconds) || durationSeconds < 0 || durationSeconds > 7 * 24 * 60 * 60) {
     throw new RelayError(400, "invalid_media");
   }
@@ -279,7 +330,10 @@ async function createUpload(request, env, configuration) {
   try {
     multipartUpload = await configuration.bucket.createMultipartUpload(dataKey, {
       httpMetadata: { contentType: "application/octet-stream" },
-      customMetadata: { shareID: id, format: "aes-256-gcm-chunks-v1" },
+      customMetadata: {
+        shareID: id,
+        format: usesClientEncryption ? CLIENT_ENCRYPTION_MODE : "aes-256-gcm-chunks-v1",
+      },
     });
   } catch (error) {
     if (usesShortCode) {
@@ -289,7 +343,7 @@ async function createUpload(request, env, configuration) {
   }
 
   const metadata = {
-    version: 3,
+    version: usesClientEncryption ? 4 : 3,
     id,
     publicTokenHash: await tokenHash(publicToken),
     controlHash: await tokenHash(uploadToken),
@@ -319,6 +373,7 @@ async function createUpload(request, env, configuration) {
     permanent,
     dataKey,
     uploadId: multipartUpload.uploadId,
+    encryptionMode,
   };
   if (password) {
     const salt = crypto.getRandomValues(new Uint8Array(16));
@@ -336,6 +391,7 @@ async function createUpload(request, env, configuration) {
       multipartUpload.abort(),
       configuration.bucket.delete(metadataObjectKey(id)),
       configuration.bucket.delete(publicIndexKey(metadata.publicTokenHash)),
+      configuration.bucket.delete(manifestObjectKey(id)),
     ]);
     throw error;
   }
@@ -348,7 +404,34 @@ async function createUpload(request, env, configuration) {
     permanent: metadata.permanent,
     ...(metadata.expiresAt ? { expiresAt: metadata.expiresAt } : {}),
     ...(usesShortCode ? { accessCode: publicToken } : {}),
+    ...(usesClientEncryption ? { encryptionMode } : {}),
   }, 201);
+}
+
+async function uploadManifest(request, configuration, shareID) {
+  const loaded = await loadMetadataByID(configuration.bucket, shareID, configuration);
+  if (!loaded || !(await controlTokenMatches(request, loaded.metadata))) {
+    throw new RelayError(404, "not_found");
+  }
+  if (loaded.metadata.encryptionMode !== CLIENT_ENCRYPTION_MODE) {
+    throw new RelayError(409, "manifest_not_supported");
+  }
+  if (isUploadClosed(loaded.metadata, Date.now())) {
+    throw new RelayError(409, "upload_closed");
+  }
+  const declaredLength = Number(request.headers.get("Content-Length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAXIMUM_MANIFEST_BYTES) {
+    throw new RelayError(400, "invalid_manifest");
+  }
+  const manifest = new Uint8Array(await request.arrayBuffer());
+  if (manifest.byteLength <= ENCRYPTED_CHUNK_OVERHEAD || manifest.byteLength > MAXIMUM_MANIFEST_BYTES) {
+    throw new RelayError(400, "invalid_manifest");
+  }
+  await configuration.bucket.put(manifestObjectKey(shareID), manifest, {
+    httpMetadata: { contentType: "application/octet-stream" },
+    customMetadata: { shareID, format: CLIENT_ENCRYPTION_MODE },
+  });
+  return new Response(null, { status: 204 });
 }
 
 async function uploadChunk(request, env, context, configuration, shareID, rawIndex) {
@@ -383,16 +466,22 @@ async function uploadChunk(request, env, context, configuration, shareID, rawInd
     throw new RelayError(400, "invalid_content_range");
   }
   const declaredLength = Number(request.headers.get("Content-Length"));
-  if (Number.isFinite(declaredLength) && declaredLength > expectedLength) {
+  const expectedBodyLength = expectedLength + (
+    loaded.metadata.encryptionMode === CLIENT_ENCRYPTION_MODE ? ENCRYPTED_CHUNK_OVERHEAD : 0
+  );
+  if (Number.isFinite(declaredLength) && declaredLength > expectedBodyLength) {
     throw new RelayError(400, "invalid_chunk_size");
   }
-  const plaintext = new Uint8Array(await request.arrayBuffer());
-  if (plaintext.byteLength !== expectedLength) {
+  const body = new Uint8Array(await request.arrayBuffer());
+  if (body.byteLength !== expectedBodyLength) {
     throw new RelayError(400, "invalid_chunk_size");
   }
 
-  const key = await importMasterKey(configuration.masterKey);
-  const encrypted = await encryptChunk(key, loaded.metadata.id, index, plaintext);
+  let encrypted = body;
+  if (loaded.metadata.encryptionMode !== CLIENT_ENCRYPTION_MODE) {
+    const key = await importMasterKey(configuration.masterKey);
+    encrypted = await encryptChunk(key, loaded.metadata.id, index, body);
+  }
   const upload = configuration.bucket.resumeMultipartUpload(
     loaded.metadata.dataKey,
     loaded.metadata.uploadId,
@@ -423,6 +512,13 @@ async function completeUpload(request, env, context, configuration, shareID) {
     throw new RelayError(409, "upload_closed");
   }
 
+  if (loaded.metadata.encryptionMode === CLIENT_ENCRYPTION_MODE) {
+    const manifest = await configuration.bucket.head(manifestObjectKey(shareID));
+    if (!manifest || manifest.size <= ENCRYPTED_CHUNK_OVERHEAD || manifest.size > MAXIMUM_MANIFEST_BYTES) {
+      throw new RelayError(409, "missing_manifest");
+    }
+  }
+
   const expectedPartCount = Math.ceil(loaded.metadata.size / loaded.metadata.chunkSize);
   const expectedEncryptedSize = loaded.metadata.size + expectedPartCount * ENCRYPTED_CHUNK_OVERHEAD;
   let completedObject = await configuration.bucket.head(loaded.metadata.dataKey);
@@ -450,7 +546,7 @@ async function completeUpload(request, env, context, configuration, shareID) {
 
   loaded = await markUploadCompleted(configuration, request, shareID);
   if (!loaded) {
-    await configuration.bucket.delete(dataObjectKey(shareID));
+    await configuration.bucket.delete([dataObjectKey(shareID), manifestObjectKey(shareID)]);
     throw new RelayError(409, "upload_closed");
   }
   context?.waitUntil?.(deletePartRecords(configuration.bucket, shareID));
@@ -548,7 +644,102 @@ async function servePublicShare(request, env, context, configuration, publicToke
   if (!attachment && !metadataPermission(loaded.metadata.allowPlayback, true)) {
     throw new RelayError(403, "playback_disabled");
   }
+  if (loaded.metadata.encryptionMode === CLIENT_ENCRYPTION_MODE) {
+    throw new RelayError(409, "client_decryption_required");
+  }
   return serveMetadataMedia(request, configuration, loaded.metadata, attachment);
+}
+
+async function serveEncryptedManifest(request, env, context, configuration, publicToken) {
+  const metadata = await authorizedEncryptedMetadata(request, env, context, configuration, publicToken);
+  const object = await configuration.bucket.get(manifestObjectKey(metadata.id));
+  if (!object?.body || object.size <= ENCRYPTED_CHUNK_OVERHEAD || object.size > MAXIMUM_MANIFEST_BYTES) {
+    throw new RelayError(503, "storage_unavailable", { "Retry-After": "2" });
+  }
+  const headers = encryptedEnvelopeHeaders(metadata);
+  headers.set("Content-Length", String(object.size));
+  if (request.method === "HEAD") {
+    return new Response(null, { status: 200, headers });
+  }
+  return new Response(object.body, { status: 200, headers });
+}
+
+async function serveEncryptedChunk(request, env, context, configuration, publicToken, rawIndex) {
+  const metadata = await authorizedEncryptedMetadata(request, env, context, configuration, publicToken);
+  if (
+    !metadataPermission(metadata.allowPlayback, true) &&
+    !metadataPermission(metadata.allowDownload, true) &&
+    !metadataPermission(metadata.allowImport, true)
+  ) {
+    throw new RelayError(403, "media_access_disabled");
+  }
+  const index = Number(rawIndex);
+  const chunkCount = Math.ceil(metadata.size / metadata.chunkSize);
+  if (!Number.isSafeInteger(index) || index < 0 || index >= chunkCount) {
+    throw new RelayError(404, "not_found");
+  }
+  const plaintextLength = Math.min(metadata.chunkSize, metadata.size - index * metadata.chunkSize);
+  const encryptedLength = plaintextLength + ENCRYPTED_CHUNK_OVERHEAD;
+  const encryptedOffset = index * (metadata.chunkSize + ENCRYPTED_CHUNK_OVERHEAD);
+  const expectedObjectSize = metadata.size + chunkCount * ENCRYPTED_CHUNK_OVERHEAD;
+  const head = await configuration.bucket.head(metadata.dataKey);
+  if (!head || head.size !== expectedObjectSize) {
+    throw new RelayError(503, "storage_unavailable", { "Retry-After": "2" });
+  }
+  const headers = new Headers({
+    "Cache-Control": "private, no-store, max-age=0",
+    "Content-Type": "application/octet-stream",
+    "Content-Length": String(encryptedLength),
+    "X-Primuse-Chunk-Index": String(index),
+  });
+  if (request.method === "HEAD") {
+    return new Response(null, { status: 200, headers });
+  }
+  const object = await configuration.bucket.get(metadata.dataKey, {
+    range: { offset: encryptedOffset, length: encryptedLength },
+  });
+  if (!object?.body || object.range?.length !== encryptedLength) {
+    throw new RelayError(503, "storage_unavailable", { "Retry-After": "2" });
+  }
+  return new Response(object.body, { status: 200, headers });
+}
+
+async function authorizedEncryptedMetadata(request, env, context, configuration, publicToken) {
+  if (!(await publicRateLimitAllows(request, env, publicToken))) {
+    throw new RelayError(429, "rate_limited", { "Retry-After": "60" });
+  }
+  const loaded = await loadMetadataByPublicToken(configuration.bucket, publicToken, configuration);
+  if (!loaded || !activeShare(loaded.metadata)) {
+    if (!(await shortCodeFailureAllows(request, env, publicToken))) {
+      throw new RelayError(429, "rate_limited", { "Retry-After": "60" });
+    }
+    if (cleanupDue(loaded?.metadata)) scheduleCleanup(context, env, loaded.metadata);
+    throw new RelayError(410, "unavailable");
+  }
+  if (loaded.metadata.encryptionMode !== CLIENT_ENCRYPTION_MODE) {
+    throw new RelayError(409, "client_decryption_not_available");
+  }
+  if (
+    loaded.metadata.passwordHash &&
+    !(await verifyPassword(request, loaded.metadata)) &&
+    !(await verifyShareSession(request, configuration, publicToken, loaded.metadata))
+  ) {
+    throw new RelayError(401, "password_required", {
+      "WWW-Authenticate": 'Basic realm="Primuse Share", charset="UTF-8"',
+    });
+  }
+  return loaded.metadata;
+}
+
+function encryptedEnvelopeHeaders(metadata) {
+  return new Headers({
+    "Cache-Control": "private, no-store, max-age=0",
+    "Content-Type": "application/octet-stream",
+    "X-Primuse-Encryption-Mode": CLIENT_ENCRYPTION_MODE,
+    "X-Primuse-Share-ID": metadata.id,
+    "X-Primuse-Plaintext-Size": String(metadata.size),
+    "X-Primuse-Chunk-Size": String(metadata.chunkSize),
+  });
 }
 
 async function serveMetadataMedia(request, configuration, metadata, attachment) {
@@ -704,15 +895,22 @@ function activeShare(metadata, now = Date.now()) {
 }
 
 async function unlockedSharePage(request, env, configuration, publicToken, metadata) {
-  const title = metadata.title || metadata.fileName.replace(/\.[^.]+$/, "") || "未命名音乐";
+  const clientEncrypted = metadata.encryptionMode === CLIENT_ENCRYPTION_MODE;
+  let title = metadata.title || metadata.fileName.replace(/\.[^.]+$/, "") || "未命名音乐";
   let artistAlbum = metadata.artist || "";
   if (metadata.album) {
     artistAlbum += `${artistAlbum ? " · " : ""}《${metadata.album}》`;
   }
   artistAlbum ||= "来自 Primuse 的音乐分享";
-  const audioFormat = (metadata.audioFormat || metadata.fileName.split(".").at(-1) || "").toUpperCase();
+  let audioFormat = (metadata.audioFormat || metadata.fileName.split(".").at(-1) || "").toUpperCase();
   const size = humanFileSize(metadata.size);
-  const technical = [audioFormat, metadata.quality, size].filter(Boolean).join(" · ");
+  let technical = [audioFormat, metadata.quality, size].filter(Boolean).join(" · ");
+  if (clientEncrypted) {
+    title = "加密音乐分享";
+    artistAlbum = "输入密钥后，歌曲信息将在当前设备解密";
+    audioFormat = "";
+    technical = `端到端加密 · ${size}`;
+  }
   const playback = metadataPermission(metadata.allowPlayback, true);
   const download = metadataPermission(metadata.allowDownload, true);
   const allowImport = metadataPermission(metadata.allowImport, true);
@@ -724,6 +922,7 @@ async function unlockedSharePage(request, env, configuration, publicToken, metad
     ? "永久有效（直到分享者撤销）"
     : `有效至 ${new Date(metadata.expiresAt).toISOString().slice(0, 16).replace("T", " ")} UTC`;
   const base = `${configuration.publicBaseURL}/s/${publicToken}`;
+  const protectedHidden = clientEncrypted;
   return templateResponse(request, env, "share.html", 200, {
     TITLE: title,
     SOCIAL_DESCRIPTION: `${artistAlbum} · ${technical}`,
@@ -733,10 +932,16 @@ async function unlockedSharePage(request, env, configuration, publicToken, metad
     MEDIA_PATH: `/s/${publicToken}/media`,
     DOWNLOAD_PATH: `/s/${publicToken}/download`,
     IMPORT_PATH: `/s/${publicToken}/import`,
+    MANIFEST_PATH: clientEncrypted ? `/s/${publicToken}/manifest` : "",
+    CHUNK_BASE_PATH: clientEncrypted ? `/s/${publicToken}/chunks` : "",
+    ENCRYPTION_MODE: metadata.encryptionMode || "",
     FILE_NAME: metadata.fileName,
     FILE_SIZE_BYTES: String(metadata.size),
     SIZE: size,
-    ACCESS_LABEL: metadata.passwordHash ? "已通过密码验证" : "持有链接即可访问",
+    ALLOW_PLAYBACK: String(playback),
+    ALLOW_DOWNLOAD: String(download),
+    ALLOW_IMPORT: String(allowImport),
+    ACCESS_LABEL: clientEncrypted ? "端到端加密" : metadata.passwordHash ? "已通过密码验证" : "持有链接即可访问",
     EXPIRES_ISO: expiresISO,
     EXPIRES_LABEL: expiresLabel,
     SESSION_HIDDEN: metadata.passwordHash ? "" : "hidden",
@@ -745,13 +950,20 @@ async function unlockedSharePage(request, env, configuration, publicToken, metad
     QUALITY: metadata.quality || "",
     FORMAT_HIDDEN: hiddenUnless(Boolean(audioFormat)),
     QUALITY_HIDDEN: hiddenUnless(Boolean(metadata.quality)),
-    PLAYBACK_HIDDEN: hiddenUnless(playback),
-    IMPORT_HIDDEN: hiddenUnless(allowImport),
-    DOWNLOAD_HIDDEN: hiddenUnless(download),
+    PLAYBACK_HIDDEN: hiddenUnless(playback && !protectedHidden),
+    IMPORT_HIDDEN: hiddenUnless(allowImport && !protectedHidden),
+    DOWNLOAD_HIDDEN: hiddenUnless(download && !protectedHidden),
+    DECRYPTION_HIDDEN: hiddenUnless(clientEncrypted),
     PLAYBACK_PERMISSION_CLASS: deniedUnless(playback),
     DOWNLOAD_PERMISSION_CLASS: deniedUnless(download),
     IMPORT_PERMISSION_CLASS: deniedUnless(allowImport),
     PERMISSION_NOTE: permissionNote.join(" · "),
+    QR_DESCRIPTION: clientEncrypted
+      ? "二维码包含完整分享链接和 URL 片段中的解密密钥；密钥不会发送给服务器。请只交给你信任的人。"
+      : "二维码仅包含规范化分享页地址，不含音频地址、密钥或密码。",
+    PRIVACY_DESCRIPTION: clientEncrypted
+      ? "歌曲、文件名和音频在上传前已加密。解密密钥只存在于 URL 片段，并在当前设备本地解密；浏览器不会把该片段发送给服务器。"
+      : "分享链接不会被页面索引。音频仅在播放、下载或导入时从当前服务读取；密码不会写入链接或二维码。请只把链接交给你信任的人。",
   });
 }
 
@@ -802,7 +1014,7 @@ async function templateResponse(request, env, name, status, values = {}, extraHe
     headers: {
       "Cache-Control": "private, no-store, max-age=0",
       "Content-Type": "text/html; charset=utf-8",
-      "Content-Security-Policy": "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+      "Content-Security-Policy": "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
       "Cross-Origin-Opener-Policy": "same-origin",
       ...extraHeaders,
     },
@@ -1016,7 +1228,39 @@ async function consumeImportTicket(request, env, context, configuration, token) 
     }
     context?.waitUntil?.(cleanupExpiredImportTickets(configuration.bucket, new Date()));
   }
+  if (loaded.metadata.encryptionMode === CLIENT_ENCRYPTION_MODE) {
+    return serveEncryptedImport(request, configuration, loaded.metadata);
+  }
   return serveMetadataMedia(request, configuration, loaded.metadata, true);
+}
+
+async function serveEncryptedImport(request, configuration, metadata) {
+  const [manifest, dataHead] = await Promise.all([
+    configuration.bucket.get(manifestObjectKey(metadata.id)),
+    configuration.bucket.head(metadata.dataKey),
+  ]);
+  const chunkCount = Math.ceil(metadata.size / metadata.chunkSize);
+  const expectedEncryptedSize = metadata.size + chunkCount * ENCRYPTED_CHUNK_OVERHEAD;
+  if (
+    !manifest || manifest.size <= ENCRYPTED_CHUNK_OVERHEAD || manifest.size > MAXIMUM_MANIFEST_BYTES ||
+    !dataHead || dataHead.size !== expectedEncryptedSize
+  ) {
+    throw new RelayError(503, "storage_unavailable", { "Retry-After": "2" });
+  }
+  const manifestBytes = new Uint8Array(await manifest.arrayBuffer());
+  const headers = encryptedEnvelopeHeaders(metadata);
+  headers.set("Content-Type", "application/vnd.primuse.encrypted-media");
+  headers.set("Content-Disposition", 'attachment; filename="primuse-share.enc"');
+  headers.set("Content-Length", String(expectedEncryptedSize));
+  headers.set("X-Primuse-Encrypted-Manifest", bytesToBase64(manifestBytes, true));
+  if (request.method === "HEAD") {
+    return new Response(null, { status: 200, headers });
+  }
+  const data = await configuration.bucket.get(metadata.dataKey);
+  if (!data?.body || data.size !== expectedEncryptedSize) {
+    throw new RelayError(503, "storage_unavailable", { "Retry-After": "2" });
+  }
+  return new Response(data.body, { status: 200, headers });
 }
 
 function validImportTicket(ticket) {
@@ -1245,15 +1489,12 @@ async function loadMetadataByID(bucket, shareID, configuration) {
 function validMetadata(metadata, shareID, configuration) {
   if (
     !metadata ||
-    (metadata.version !== 1 && metadata.version !== 2 && metadata.version !== 3) ||
+    (metadata.version !== 1 && metadata.version !== 2 && metadata.version !== 3 && metadata.version !== 4) ||
     metadata.id !== shareID ||
     !TOKEN_PATTERN.test(metadata.id) ||
     !SHA256_PATTERN.test(metadata.publicTokenHash) ||
     !SHA256_PATTERN.test(metadata.controlHash) ||
     constantTimeStringEqual(metadata.publicTokenHash, metadata.controlHash) ||
-    !metadata.fileName ||
-    sanitizeFileName(metadata.fileName) !== metadata.fileName ||
-    sanitizeContentType(metadata.contentType) !== metadata.contentType ||
     !Number.isSafeInteger(metadata.size) ||
     metadata.size <= 0 ||
     metadata.size > configuration.maximumFileSize ||
@@ -1269,7 +1510,25 @@ function validMetadata(metadata, shareID, configuration) {
   ) {
     return false;
   }
-  if (metadata.version >= 2) {
+  if (metadata.version === 4) {
+    if (
+      metadata.encryptionMode !== CLIENT_ENCRYPTION_MODE ||
+      metadata.fileName !== "" ||
+      metadata.contentType !== "application/octet-stream" ||
+      metadata.title !== "" || metadata.artist !== "" || metadata.album !== "" ||
+      metadata.audioFormat !== "" || metadata.quality !== "" || metadata.durationSeconds !== 0
+    ) {
+      return false;
+    }
+  } else if (
+    (metadata.encryptionMode ?? "") !== "" ||
+    !metadata.fileName ||
+    sanitizeFileName(metadata.fileName) !== metadata.fileName ||
+    sanitizeContentType(metadata.contentType) !== metadata.contentType
+  ) {
+    return false;
+  }
+  if (metadata.version >= 2 && metadata.version < 4) {
     if (
       sanitizeDisplayText(metadata.title, 160) !== metadata.title ||
       sanitizeDisplayText(metadata.artist, 160) !== metadata.artist ||
@@ -1288,6 +1547,16 @@ function validMetadata(metadata, shareID, configuration) {
     ) {
       return false;
     }
+  }
+  if (metadata.version >= 2 && (
+    typeof metadata.allowPlayback !== "boolean" ||
+    typeof metadata.allowDownload !== "boolean" ||
+    typeof metadata.allowImport !== "boolean" ||
+    (metadata.shortCode != null && typeof metadata.shortCode !== "boolean") ||
+    (metadata.version >= 3 && typeof metadata.permanent !== "boolean") ||
+    (metadata.version < 3 && metadata.permanent != null)
+  )) {
+    return false;
   }
   const createdAt = Date.parse(metadata.createdAt);
   const uploadExpiresAt = Date.parse(metadata.uploadExpiresAt);
@@ -1411,7 +1680,10 @@ async function cleanupShareData(bucket, metadata) {
   if (!isComplete(metadata) && metadata.uploadId) {
     await bucket.resumeMultipartUpload(metadata.dataKey, metadata.uploadId).abort().catch(() => {});
   }
-  await bucket.delete(metadata.dataKey).catch(() => {});
+  await Promise.allSettled([
+    bucket.delete(metadata.dataKey),
+    bucket.delete(manifestObjectKey(metadata.id)),
+  ]);
   if (metadata.shortCode === true) {
     await bucket.delete(publicIndexKey(metadata.publicTokenHash)).catch(() => {});
   }
@@ -1687,6 +1959,10 @@ function publicIndexKey(hash) {
 
 function dataObjectKey(shareID) {
   return `data/${shareID}.bin`;
+}
+
+function manifestObjectKey(shareID) {
+  return `manifests/${shareID}.bin`;
 }
 
 function partRecordPrefix(shareID) {

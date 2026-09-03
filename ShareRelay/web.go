@@ -155,6 +155,7 @@ func (s *relayServer) shareIsActive(metadata *shareMetadata) bool {
 }
 
 func (s *relayServer) renderSharePage(w http.ResponseWriter, publicToken string, metadata *shareMetadata) {
+	clientEncrypted := metadata.EncryptionMode == clientEncryptionMode
 	title := metadata.Title
 	if title == "" {
 		title = strings.TrimSuffix(metadata.FileName, filepath.Ext(metadata.FileName))
@@ -187,6 +188,12 @@ func (s *relayServer) renderSharePage(w http.ResponseWriter, publicToken string,
 	}
 	size := humanFileSize(metadata.Size)
 	technicalParts = append(technicalParts, size)
+	if clientEncrypted {
+		title = "加密音乐分享"
+		artistAlbum = "输入密钥后，歌曲信息将在当前设备解密"
+		format = ""
+		technicalParts = []string{"端到端加密", size}
+	}
 
 	playback := metadataPermission(metadata.AllowPlayback, true)
 	download := metadataPermission(metadata.AllowDownload, true)
@@ -205,6 +212,13 @@ func (s *relayServer) renderSharePage(w http.ResponseWriter, publicToken string,
 		expiresLabel = "有效至 " + metadata.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC")
 	}
 	base := s.configuration.publicBaseURL + "/s/" + publicToken
+	protectedHidden := clientEncrypted
+	qrDescription := "二维码仅包含规范化分享页地址，不含音频地址、密钥或密码。"
+	privacyDescription := "分享链接不会被页面索引。音频仅在播放、下载或导入时从当前服务读取；密码不会写入链接或二维码。请只把链接交给你信任的人。"
+	if clientEncrypted {
+		qrDescription = "二维码包含完整分享链接和 URL 片段中的解密密钥；密钥不会发送给服务器。请只交给你信任的人。"
+		privacyDescription = "歌曲、文件名和音频在上传前已加密。解密密钥只存在于 URL 片段，并在当前设备本地解密；浏览器不会把该片段发送给服务器。"
+	}
 	values := map[string]string{
 		"TITLE":                     title,
 		"SOCIAL_DESCRIPTION":        artistAlbum + " · " + strings.Join(technicalParts, " · "),
@@ -214,10 +228,16 @@ func (s *relayServer) renderSharePage(w http.ResponseWriter, publicToken string,
 		"MEDIA_PATH":                "/s/" + publicToken + "/media",
 		"DOWNLOAD_PATH":             "/s/" + publicToken + "/download",
 		"IMPORT_PATH":               "/s/" + publicToken + "/import",
+		"MANIFEST_PATH":             map[bool]string{true: "/s/" + publicToken + "/manifest", false: ""}[clientEncrypted],
+		"CHUNK_BASE_PATH":           map[bool]string{true: "/s/" + publicToken + "/chunks", false: ""}[clientEncrypted],
+		"ENCRYPTION_MODE":           metadata.EncryptionMode,
 		"FILE_NAME":                 metadata.FileName,
 		"FILE_SIZE_BYTES":           strconv.FormatInt(metadata.Size, 10),
 		"SIZE":                      size,
-		"ACCESS_LABEL":              map[bool]string{true: "已通过密码验证", false: "持有链接即可访问"}[metadata.PasswordHash != ""],
+		"ALLOW_PLAYBACK":            strconv.FormatBool(playback),
+		"ALLOW_DOWNLOAD":            strconv.FormatBool(download),
+		"ALLOW_IMPORT":              strconv.FormatBool(allowImport),
+		"ACCESS_LABEL":              map[bool]string{true: "端到端加密", false: map[bool]string{true: "已通过密码验证", false: "持有链接即可访问"}[metadata.PasswordHash != ""]}[clientEncrypted],
 		"EXPIRES_ISO":               expiresISO,
 		"EXPIRES_LABEL":             expiresLabel,
 		"SESSION_HIDDEN":            map[bool]string{true: "", false: "hidden"}[metadata.PasswordHash != ""],
@@ -226,13 +246,16 @@ func (s *relayServer) renderSharePage(w http.ResponseWriter, publicToken string,
 		"QUALITY":                   metadata.Quality,
 		"FORMAT_HIDDEN":             hiddenUnless(format != ""),
 		"QUALITY_HIDDEN":            hiddenUnless(metadata.Quality != ""),
-		"PLAYBACK_HIDDEN":           hiddenUnless(playback),
-		"IMPORT_HIDDEN":             hiddenUnless(allowImport),
-		"DOWNLOAD_HIDDEN":           hiddenUnless(download),
+		"PLAYBACK_HIDDEN":           hiddenUnless(playback && !protectedHidden),
+		"IMPORT_HIDDEN":             hiddenUnless(allowImport && !protectedHidden),
+		"DOWNLOAD_HIDDEN":           hiddenUnless(download && !protectedHidden),
+		"DECRYPTION_HIDDEN":         hiddenUnless(clientEncrypted),
 		"PLAYBACK_PERMISSION_CLASS": deniedUnless(playback),
 		"DOWNLOAD_PERMISSION_CLASS": deniedUnless(download),
 		"IMPORT_PERMISSION_CLASS":   deniedUnless(allowImport),
 		"PERMISSION_NOTE":           strings.Join(noteParts, " · "),
+		"QR_DESCRIPTION":            qrDescription,
+		"PRIVACY_DESCRIPTION":       privacyDescription,
 	}
 	s.writeTemplate(w, "share.html", http.StatusOK, values)
 }
@@ -303,7 +326,7 @@ func (s *relayServer) writeTemplate(w http.ResponseWriter, name string, status i
 	}
 	w.Header().Set("Cache-Control", "private, no-store, max-age=0")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
 	w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
 	w.Header().Set("Content-Length", strconv.Itoa(len(page)))
 	w.WriteHeader(status)
@@ -578,7 +601,43 @@ func (s *relayServer) handleImportTicket(w http.ResponseWriter, r *http.Request)
 		writeProblem(w, http.StatusGone, "unavailable")
 		return
 	}
+	if metadata.EncryptionMode == clientEncryptionMode {
+		s.serveEncryptedImport(w, r, metadata)
+		return
+	}
 	s.serveMetadataMedia(w, r, metadata, true)
+}
+
+func (s *relayServer) serveEncryptedImport(w http.ResponseWriter, r *http.Request, metadata *shareMetadata) {
+	manifest, err := os.ReadFile(s.manifestPath(metadata.ID))
+	if err != nil || int64(len(manifest)) <= int64(s.block.NonceSize()+s.block.Overhead()) || int64(len(manifest)) > maximumManifestBytes {
+		writeProblem(w, http.StatusServiceUnavailable, "storage_unavailable")
+		return
+	}
+	chunkCount := (metadata.Size + metadata.ChunkSize - 1) / metadata.ChunkSize
+	encryptedSize := metadata.Size + chunkCount*int64(s.block.NonceSize()+s.block.Overhead())
+	w.Header().Set("Cache-Control", "private, no-store, max-age=0")
+	w.Header().Set("Content-Type", "application/vnd.primuse.encrypted-media")
+	w.Header().Set("Content-Disposition", `attachment; filename="primuse-share.enc"`)
+	w.Header().Set("Content-Length", strconv.FormatInt(encryptedSize, 10))
+	w.Header().Set("X-Primuse-Encryption-Mode", clientEncryptionMode)
+	w.Header().Set("X-Primuse-Share-ID", metadata.ID)
+	w.Header().Set("X-Primuse-Plaintext-Size", strconv.FormatInt(metadata.Size, 10))
+	w.Header().Set("X-Primuse-Chunk-Size", strconv.FormatInt(metadata.ChunkSize, 10))
+	w.Header().Set("X-Primuse-Encrypted-Manifest", base64.RawURLEncoding.EncodeToString(manifest))
+	if r.Method == http.MethodHead {
+		return
+	}
+	for index := int64(0); index < chunkCount; index++ {
+		chunk, readError := os.ReadFile(s.chunkPath(metadata.ID, index))
+		expectedPlaintext := min64(metadata.ChunkSize, metadata.Size-index*metadata.ChunkSize)
+		if readError != nil || int64(len(chunk)) != expectedPlaintext+int64(s.block.NonceSize()+s.block.Overhead()) {
+			return
+		}
+		if _, writeError := w.Write(chunk); writeError != nil {
+			return
+		}
+	}
 }
 
 func (s *relayServer) importTicketPath(token string) string {

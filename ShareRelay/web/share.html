@@ -12,8 +12,8 @@
   <meta property="og:url" content="{{CANONICAL_URL}}">
   <title>{{TITLE}} · Primuse 音乐分享</title>
   <link rel="icon" href="/fallback-cover.webp?v=20260903.3" type="image/webp">
-  <link rel="stylesheet" href="/share.css?v=20260903.3">
-  <script src="/share.js?v=20260903.3" defer></script>
+  <link rel="stylesheet" href="/share.css?v=20260903.5">
+  <script src="/share.js?v=20260903.5" defer></script>
 </head>
 <body
   class="share-page"
@@ -21,6 +21,12 @@
   data-media-url="{{MEDIA_PATH}}"
   data-download-url="{{DOWNLOAD_PATH}}"
   data-import-url="{{IMPORT_PATH}}"
+  data-manifest-url="{{MANIFEST_PATH}}"
+  data-chunk-base-url="{{CHUNK_BASE_PATH}}"
+  data-encryption-mode="{{ENCRYPTION_MODE}}"
+  data-allow-playback="{{ALLOW_PLAYBACK}}"
+  data-allow-download="{{ALLOW_DOWNLOAD}}"
+  data-allow-import="{{ALLOW_IMPORT}}"
   data-app-store-url="https://apps.apple.com/cn/app/%E7%8C%BF%E9%9F%B3/id6761675450"
   data-file-name="{{FILE_NAME}}"
   data-file-size="{{FILE_SIZE_BYTES}}"
@@ -69,17 +75,41 @@
         已通过密码验证 · 本次会话有效 30 分钟
       </div>
 
-      <h1>{{TITLE}}</h1>
-      <p class="artist-album">{{ARTIST_ALBUM}}</p>
+      <section class="decryption-card" data-decryption-card data-state="locked" {{DECRYPTION_HIDDEN}}>
+        <div class="decryption-heading">
+          <div class="decryption-lock" aria-hidden="true"><img class="ui-icon" src="/icons/lock.svg" alt=""></div>
+          <div>
+            <p class="eyebrow">END-TO-END ENCRYPTED</p>
+            <h2 data-decryption-title>在此设备解密</h2>
+          </div>
+          <span class="decryption-state" data-decryption-state>等待密钥</span>
+        </div>
+        <p class="decryption-copy" data-decryption-copy>粘贴分享者提供的密钥或完整链接。密钥只在当前设备用于解密，不会随 HTTP 请求发送到服务器。</p>
+        <form class="key-form" data-key-form>
+          <label for="share-key">解密密钥</label>
+          <div class="key-field">
+            <input id="share-key" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="粘贴密钥或完整分享链接" required data-key-input>
+            <button type="submit" data-key-submit>解密</button>
+          </div>
+          <p class="form-message" role="status" aria-live="polite" data-key-message>如果链接已经包含密钥，这里会自动解密。</p>
+        </form>
+        <div class="decryption-progress" hidden data-decryption-progress>
+          <div><span data-decryption-progress-label>正在本地解密…</span><span data-decryption-progress-value>0%</span></div>
+          <progress max="1" value="0" data-decryption-progress-bar></progress>
+        </div>
+      </section>
+
+      <h1 data-track-title>{{TITLE}}</h1>
+      <p class="artist-album" data-artist-album>{{ARTIST_ALBUM}}</p>
       <p class="technical" aria-label="音频信息">
-        <span {{FORMAT_HIDDEN}}>{{FORMAT}}</span>
-        <span {{QUALITY_HIDDEN}}>{{QUALITY}}</span>
-        <span>{{SIZE}}</span>
+        <span data-audio-format {{FORMAT_HIDDEN}}>{{FORMAT}}</span>
+        <span data-audio-quality {{QUALITY_HIDDEN}}>{{QUALITY}}</span>
+        <span data-file-size-label>{{SIZE}}</span>
         <span class="mobile-access badge badge-access">{{ACCESS_LABEL}}</span>
       </p>
       <time class="mobile-expiry" datetime="{{EXPIRES_ISO}}" data-expiry>{{EXPIRES_LABEL}}</time>
 
-      <div class="player" {{PLAYBACK_HIDDEN}}>
+      <div class="player" data-protected-action="playback" {{PLAYBACK_HIDDEN}}>
         <audio preload="metadata" data-audio></audio>
         <button class="play-button" type="button" aria-label="播放" data-play>
           <img class="ui-icon play-icon" src="/icons/play.svg" alt="" aria-hidden="true">
@@ -107,8 +137,8 @@
 
       <div class="action-tray">
         <div class="primary-actions">
-          <button class="primary-button" type="button" data-open-primuse {{IMPORT_HIDDEN}}>用 Primuse 打开</button>
-          <button class="secondary-button download-button" type="button" data-download {{DOWNLOAD_HIDDEN}}>下载原文件 · {{SIZE}}</button>
+          <button class="primary-button" type="button" data-open-primuse data-protected-action="import" {{IMPORT_HIDDEN}}>用 Primuse 打开</button>
+          <button class="secondary-button download-button" type="button" data-download data-protected-action="download" {{DOWNLOAD_HIDDEN}}>下载原文件 · <span data-download-size>{{SIZE}}</span></button>
         </div>
 
         <div class="secondary-actions">
@@ -152,7 +182,7 @@
           <p class="qr-host" data-qr-host>share.soundisle.com</p>
         </div>
         <div class="qr-details">
-          <p class="dialog-copy">二维码仅包含规范化分享页地址，不含音频地址、密钥或密码。</p>
+          <p class="dialog-copy">{{QR_DESCRIPTION}}</p>
           <div class="dialog-actions">
             <button class="primary-button" type="button" data-save-qr>保存二维码</button>
             <button class="secondary-button" type="button" data-copy>复制链接</button>
@@ -180,8 +210,8 @@
 
   <dialog class="sheet-dialog confirm-dialog" data-download-dialog aria-labelledby="download-title">
     <form method="dialog" class="dialog-card compact-card">
-      <h2 id="download-title">这个文件约 {{SIZE}}</h2>
-      <p class="dialog-copy">大文件建议在 Wi-Fi 环境下载。文件名：{{FILE_NAME}}</p>
+      <h2 id="download-title">这个文件约 <span data-download-size>{{SIZE}}</span></h2>
+      <p class="dialog-copy">大文件建议在 Wi-Fi 环境下载。文件名：<span data-download-file-name>{{FILE_NAME}}</span></p>
       <div class="dialog-actions">
         <button class="primary-button" type="button" data-confirm-download>继续下载</button>
         <button class="secondary-button" value="cancel">取消</button>
@@ -192,7 +222,7 @@
   <dialog class="sheet-dialog privacy-dialog" data-privacy-dialog aria-labelledby="privacy-title">
     <form method="dialog" class="dialog-card compact-card">
       <h2 id="privacy-title">隐私说明</h2>
-      <p class="dialog-copy">分享链接不会被页面索引。音频仅在播放、下载或导入时从当前服务读取；密码不会写入链接或二维码。请只把链接交给你信任的人。</p>
+      <p class="dialog-copy">{{PRIVACY_DESCRIPTION}}</p>
       <button class="secondary-button full-button" value="cancel">知道了</button>
     </form>
   </dialog>
