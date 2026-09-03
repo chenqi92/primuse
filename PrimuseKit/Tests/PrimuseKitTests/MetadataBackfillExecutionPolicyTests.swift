@@ -63,7 +63,7 @@ struct MetadataBackfillExecutionPolicyTests {
         #expect(foreground.workerCount == 1)
         #expect(foreground.snapshotLimit <= background.snapshotLimit)
         #expect(foreground.interRequestDelay >= background.interRequestDelay)
-        #expect(foreground.snapshotPassLimit == 1)
+        #expect(foreground.snapshotPassLimit == nil)
         #expect(background.workerCount == 1)
         #expect(background.snapshotPassLimit == 1)
         #expect(playback.workerCount == 1)
@@ -71,6 +71,56 @@ struct MetadataBackfillExecutionPolicyTests {
         #expect(playback.interRequestDelay > background.interRequestDelay)
         #expect(playback.flushInterval >= background.flushInterval)
         #expect(playback.snapshotPassLimit == 1)
+    }
+
+    @Test("Foreground source scans continue beyond the first snapshot")
+    func foregroundSourceScanDrainsLargeQueues() {
+        let limits = MetadataBackfillExecutionPolicy.limits(
+            for: .foregroundAfterSourceScan
+        )
+        var remaining = 241
+        var processed = 0
+        var passes = 0
+
+        while remaining > 0,
+              limits.snapshotPassLimit.map({ passes < $0 }) ?? true {
+            let batch = min(remaining, limits.snapshotLimit)
+            remaining -= batch
+            processed += batch
+            passes += 1
+        }
+
+        #expect(processed == 241)
+        #expect(remaining == 0)
+        #expect(passes > 1)
+    }
+
+    @Test("High-performance scan reading increases foreground throughput only")
+    func highPerformanceScanReadingIsForegroundOnly() {
+        let gentle = MetadataBackfillExecutionPolicy.limits(
+            for: .foregroundAfterSourceScan
+        )
+        let fast = MetadataBackfillExecutionPolicy.limits(
+            for: .foregroundAfterSourceScan,
+            highPerformanceAfterScanEnabled: true
+        )
+        let fastLocal = MetadataBackfillExecutionPolicy.limits(
+            for: .foregroundDeviceLocal,
+            highPerformanceAfterScanEnabled: true
+        )
+        let background = MetadataBackfillExecutionPolicy.limits(
+            for: .background,
+            highPerformanceAfterScanEnabled: true
+        )
+
+        #expect(fast.workerCount > gentle.workerCount)
+        #expect(fast.snapshotLimit > gentle.snapshotLimit)
+        #expect(fast.interRequestDelay == 0)
+        #expect(fast.snapshotPassLimit == nil)
+        #expect(fastLocal == fast)
+        #expect(background.workerCount == 1)
+        #expect(background.snapshotLimit == 24)
+        #expect(background.snapshotPassLimit == 1)
     }
 
     @Test("Foreground sandbox imports continue beyond the first snapshot")

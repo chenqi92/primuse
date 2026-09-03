@@ -854,6 +854,12 @@
 "clear_metadata" = "Effacer les pochettes et les paroles";
 "clear_metadata_confirm" = "Cette action supprimera toutes les pochettes et paroles mises en cache. Elles seront récupérées à nouveau depuis vos sources musicales si nécessaire.";
 "storage_management" = "Stockage";
+"metadata_backfill_performance" = "Performances de lecture des tags";
+"metadata_backfill_fast_mode" = "Lecture haute performance des tags";
+"metadata_backfill_fast_mode_footer" = "Par défaut, les tags sont lus en douceur par petits lots séquentiels. Une fois activé, un scan au premier plan utilise jusqu’à 3 lectures simultanées sans temporisation, au risque d’augmenter la chauffe, la batterie, le trafic réseau et les saccades.";
+"metadata_backfill_fast_mode_warning_title" = "Activer la lecture haute performance ?";
+"metadata_backfill_fast_mode_warning_message" = "À activer uniquement si l’appareil et le serveur musical supportent des requêtes simultanées prolongées. Le réglage s’applique au scan actuel ou suivant au premier plan ; la lecture en arrière-plan reste protégée.";
+"metadata_backfill_fast_mode_confirm" = "Mon appareil le supporte";
 "audio_cache" = "Cache audio";
 "image_cache" = "Cache des images";
 "cover_art_lyrics" = "Pochettes et paroles";

@@ -2877,9 +2877,9 @@ public enum MetadataBackfillExecutionMode: Sendable, Equatable {
     /// work is fully offline and must not inherit cloud-source network gates.
     case foregroundDeviceLocal
     /// A source scan just committed new bare rows while the iOS scene is
-    /// interactive. Process one small serial pass so newly-added songs do not
-    /// remain stuck at "reading details", then leave any large remainder to
-    /// background maintenance.
+    /// interactive. Continue through small serial snapshots while the app stays
+    /// active so the scan naturally finishes reading tags without monopolizing
+    /// the network or competing with playback.
     case foregroundAfterSourceScan
     /// A BGProcessing wake processes one throttled snapshot. If songs remain,
     /// the app schedules another wake instead of monopolizing the current one.
@@ -2910,10 +2910,31 @@ public struct MetadataBackfillExecutionLimits: Sendable, Equatable {
 }
 
 public enum MetadataBackfillExecutionPolicy {
+    /// Local, per-device preference. It is intentionally not synchronized:
+    /// users may opt a capable Mac or iPhone into the aggressive profile
+    /// without forcing the same thermal/network trade-off on every device.
+    public static let highPerformanceAfterScanDefaultsKey =
+        "primuse.metadataBackfill.highPerformanceAfterScan"
+
     public static func limits(
-        for mode: MetadataBackfillExecutionMode
+        for mode: MetadataBackfillExecutionMode,
+        highPerformanceAfterScanEnabled: Bool = false
     ) -> MetadataBackfillExecutionLimits {
-        switch mode {
+        if highPerformanceAfterScanEnabled {
+            switch mode {
+            case .foregroundDeviceLocal, .foregroundAfterSourceScan:
+                return MetadataBackfillExecutionLimits(
+                    workerCount: 3,
+                    snapshotLimit: 500,
+                    interRequestDelay: 0,
+                    flushInterval: 5
+                )
+            default:
+                break
+            }
+        }
+
+        return switch mode {
         case .standard:
             MetadataBackfillExecutionLimits(
                 workerCount: 3,
@@ -2940,8 +2961,7 @@ public enum MetadataBackfillExecutionPolicy {
                 workerCount: 1,
                 snapshotLimit: 24,
                 interRequestDelay: 0.75,
-                flushInterval: 15,
-                snapshotPassLimit: 1
+                flushInterval: 15
             )
         case .background:
             MetadataBackfillExecutionLimits(

@@ -37,8 +37,8 @@ extension MetadataReadCompletionKind {
 /// Lifecycle:
 /// - A real library/source mutation marks the durable queue dirty. iOS runs it
 ///   primarily in background/BGProcessing windows. A completed foreground
-///   source scan gets one small serial pass so new rows can surface metadata
-///   without restarting whole-library foreground maintenance.
+///   source scan drains small serial snapshots while the app stays active so
+///   new rows receive metadata without restarting aggressive maintenance.
 /// - The standard worker can use a small bounded amount of concurrency. iOS
 ///   background profiles deliberately trade throughput for smooth playback.
 /// - Failed songs (corrupt / missing / decoder rejected) are recorded so we
@@ -252,6 +252,14 @@ final class MetadataBackfillService {
 
     private var worker: Task<Void, Never>?
     private var executionMode: MetadataBackfillExecutionMode = .standard
+    private var executionLimits: MetadataBackfillExecutionLimits {
+        MetadataBackfillExecutionPolicy.limits(
+            for: executionMode,
+            highPerformanceAfterScanEnabled: UserDefaults.standard.bool(
+                forKey: MetadataBackfillExecutionPolicy.highPerformanceAfterScanDefaultsKey
+            )
+        )
+    }
     /// Session-scoped explicit user intent. Scene transitions may suspend the
     /// worker, but returning active resumes this source until its normal queue
     /// drains or the user taps Pause. Background execution never inherits the
@@ -993,7 +1001,7 @@ final class MetadataBackfillService {
         isWaitingForWiFi = networkBlocked && hasPendingNetworkReadableWork
         setCellularPromptPresented(false)
 
-        let limits = MetadataBackfillExecutionPolicy.limits(for: executionMode)
+        let limits = executionLimits
         let needsBackfill = pickNextBatch(
             limit: limits.snapshotLimit,
             allowedSourceIDs: allowedSourceIDs
@@ -1262,7 +1270,8 @@ final class MetadataBackfillService {
     /// may also have committed brand-new bare rows. If an older outage exhausted
     /// the source-wide backfill circuit breaker, grant the unresolved rows one
     /// fresh bounded retry budget. Every successful scan with eligible rows
-    /// refreshes the queue; an active iOS scene runs only one gentle pass.
+    /// refreshes the queue; an active iOS scene keeps running gentle serial
+    /// snapshots until the eligible queue drains or the scene changes.
     func sourceScanSucceeded(forSourceID sourceID: String) {
         let retryableSongIDs = Set(library.songs.lazy.filter { [self] song in
             song.sourceID == sourceID
@@ -1309,6 +1318,11 @@ final class MetadataBackfillService {
             refreshQueue(startImmediately: Self.canRunAutomaticMaintenance)
         }
         #else
+        if userInitiatedSourceID == sourceID {
+            setExecutionMode(.userInitiated)
+        } else {
+            setExecutionMode(.foregroundAfterSourceScan)
+        }
         refreshQueue()
         #endif
     }
@@ -2194,7 +2208,7 @@ final class MetadataBackfillService {
         var completedSnapshotPasses = 0
         while !Task.isCancelled {
             let (limits, allowedSourceIDs) = await MainActor.run { [self] in
-                let limits = MetadataBackfillExecutionPolicy.limits(for: executionMode)
+                let limits = executionLimits
                 let allowedSourceIDs = MetadataBackfillNetworkPolicy.allowedSourceIDs(
                     networkIsBlocked: shouldBlockForCellular(),
                     offlineReadableSourceIDs: offlineReadableSourceIDs()
@@ -2295,7 +2309,7 @@ final class MetadataBackfillService {
             return nil
         }
         func addTask(for song: Song, to group: inout TaskGroup<(song: Song, outcome: BackfillOutcome)>) {
-            let limits = MetadataBackfillExecutionPolicy.limits(for: executionMode)
+            let limits = executionLimits
             let delay = limits.interRequestDelay
             let priority: TaskPriority = executionMode == .backgroundDuringPlayback
                 ? .background
@@ -2316,7 +2330,7 @@ final class MetadataBackfillService {
         }
         await withTaskGroup(of: (song: Song, outcome: BackfillOutcome).self) { group in
             defer { group.cancelAll() }
-            let initialLimits = MetadataBackfillExecutionPolicy.limits(for: executionMode)
+            let initialLimits = executionLimits
             // Seed: background profiles deliberately launch one task only.
             for _ in 0..<initialLimits.workerCount {
                 guard let song = nextEligibleSong() else { break }
@@ -2484,9 +2498,7 @@ final class MetadataBackfillService {
 
                 // Flush when the batch is full OR the interval has elapsed。
                 // 在 main actor 上, library.replaceSongs 调一次即可。
-                let flushInterval = MetadataBackfillExecutionPolicy
-                    .limits(for: executionMode)
-                    .flushInterval
+                let flushInterval = executionLimits.flushInterval
                 let shouldFlush = pendingFlush.count >= Self.flushBatchSize
                     || Date().timeIntervalSince(lastFlushAt) >= flushInterval
                 if shouldFlush, !pendingFlush.isEmpty {

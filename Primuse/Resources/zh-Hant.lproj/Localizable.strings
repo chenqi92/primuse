@@ -622,6 +622,12 @@
 "clear_metadata" = "清除封面與歌詞";
 "clear_metadata_confirm" = "將刪除所有已快取的封面和歌詞。需要時會從音樂來源重新取得。";
 "storage_management" = "儲存空間管理";
+"metadata_backfill_performance" = "標籤讀取效能";
+"metadata_backfill_fast_mode" = "高效能讀取標籤";
+"metadata_backfill_fast_mode_footer" = "預設關閉，以單執行緒小批次溫和讀取標籤。開啟後，前景掃描最多使用 3 路並行且不限制請求間隔，可能增加發熱、耗電、網路流量與介面卡頓。";
+"metadata_backfill_fast_mode_warning_title" = "開啟高效能標籤讀取？";
+"metadata_backfill_fast_mode_warning_message" = "僅在你的裝置和音樂伺服器能承受持續並行請求時開啟。它會在目前或下一次前景掃描中生效；背景播放仍保留降載保護。";
+"metadata_backfill_fast_mode_confirm" = "我的裝置撐得住";
 "audio_cache" = "音訊快取";
 "image_cache" = "圖片快取";
 "cover_art_lyrics" = "封面與歌詞";

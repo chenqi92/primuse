@@ -854,6 +854,12 @@
 "clear_metadata" = "커버 아트 및 가사 지우기";
 "clear_metadata_confirm" = "캐시된 모든 커버 아트와 가사를 삭제합니다. 필요할 때 음악 소스에서 다시 가져옵니다.";
 "storage_management" = "저장 공간";
+"metadata_backfill_performance" = "태그 읽기 성능";
+"metadata_backfill_fast_mode" = "고성능 태그 읽기";
+"metadata_backfill_fast_mode_footer" = "기본값은 작은 묶음을 한 번에 하나씩 부드럽게 읽습니다. 켜면 전면 스캔에서 지연 없이 최대 3개를 동시에 읽어 발열, 배터리 사용량, 네트워크 트래픽 및 화면 끊김이 증가할 수 있습니다.";
+"metadata_backfill_fast_mode_warning_title" = "고성능 태그 읽기를 켤까요?";
+"metadata_backfill_fast_mode_warning_message" = "기기와 음악 서버가 지속적인 동시 요청을 감당할 수 있을 때만 켜세요. 현재 또는 다음 전면 스캔부터 적용되며 백그라운드 재생 보호는 유지됩니다.";
+"metadata_backfill_fast_mode_confirm" = "내 기기는 감당할 수 있음";
 "audio_cache" = "오디오 캐시";
 "image_cache" = "이미지 캐시";
 "cover_art_lyrics" = "커버 아트 및 가사";

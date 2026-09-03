@@ -10,7 +10,7 @@ import PrimuseKit
 /// The window chrome, sidebar, and every ST-* page use the same custom row
 /// system as the design instead of embedding the older grouped Forms.
 enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
-    case playback, equalizer, effects, keyboard, theme
+    case playback, storage, equalizer, effects, keyboard, theme
     case scrape, artists, lyrics, appleMusic, intelligence, widgets, cloud, deleted, ssl, about
 
     var id: String { rawValue }
@@ -18,6 +18,7 @@ enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .playback: return Lz("Playback")
+        case .storage: return String(localized: "storage_management")
         case .equalizer: return Lz("Equalizer")
         case .effects: return Lz("Audio Effects")
         case .keyboard: return String(localized: "keyboard_shortcuts_title")
@@ -38,6 +39,7 @@ enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .playback: return "play.circle"
+        case .storage: return "internaldrive"
         case .equalizer: return "slider.horizontal.3"
         case .effects: return "waveform.badge.plus"
         case .keyboard: return "keyboard"
@@ -58,6 +60,7 @@ enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
     var spec: String {
         switch self {
         case .playback: return "ST-01"
+        case .storage: return "ST-16"
         case .equalizer: return "ST-02"
         case .effects: return "ST-03"
         case .keyboard: return "ST-13"
@@ -238,6 +241,8 @@ struct MacSettingsView: View {
         switch tab {
         case .playback:
             MacSTPlaybackView()
+        case .storage:
+            MacSTStorageView()
         case .equalizer:
             MacSTEqualizerView()
         case .effects:
@@ -267,6 +272,92 @@ struct MacSettingsView: View {
         case .about:
             MacSTAboutView()
         }
+    }
+}
+
+// MARK: - ST-16 Storage
+
+private struct MacSTStorageView: View {
+    @Environment(PlaybackSettingsStore.self) private var playbackSettings
+    @Environment(SourceManager.self) private var sourceManager
+    @AppStorage(MetadataBackfillExecutionPolicy.highPerformanceAfterScanDefaultsKey)
+    private var highPerformanceTagReading = false
+    @State private var showsHighPerformanceTagReadingWarning = false
+
+    var body: some View {
+        @Bindable var settings = playbackSettings
+
+        VStack(alignment: .leading, spacing: 0) {
+            MacSTSection(
+                String(localized: "metadata_backfill_performance"),
+                hint: String(localized: "metadata_backfill_fast_mode_footer")
+            ) {
+                MacSTGroup {
+                    MacSTRow(
+                        String(localized: "metadata_backfill_fast_mode"),
+                        divider: false
+                    ) {
+                        MacSTToggle(isOn: highPerformanceTagReadingBinding)
+                    }
+                }
+            }
+
+            MacSTSection(String(localized: "cache")) {
+                MacSTGroup {
+                    MacSTRow(
+                        String(localized: "audio_cache_enabled"),
+                        divider: false
+                    ) {
+                        MacSTToggle(isOn: $settings.audioCacheEnabled)
+                    }
+                    MacSTRow(String(localized: "audio_cache_limit")) {
+                        MacSTPicker(
+                            selection: $settings.audioCacheLimitBytes,
+                            options: AudioCacheLimitPolicy.options(
+                                including: settings.audioCacheLimitBytes
+                            ).map { ($0, audioCacheLimitLabel($0)) },
+                            width: 120
+                        )
+                        MacSTButton(title: String(localized: "clear_cache")) {
+                            Task { await sourceManager.clearAudioCache() }
+                        }
+                    }
+                }
+            }
+        }
+        .alert(
+            String(localized: "metadata_backfill_fast_mode_warning_title"),
+            isPresented: $showsHighPerformanceTagReadingWarning
+        ) {
+            Button(String(localized: "cancel"), role: .cancel) {}
+            Button(String(localized: "metadata_backfill_fast_mode_confirm")) {
+                highPerformanceTagReading = true
+            }
+        } message: {
+            Text(String(localized: "metadata_backfill_fast_mode_warning_message"))
+        }
+    }
+
+    private var highPerformanceTagReadingBinding: Binding<Bool> {
+        Binding(
+            get: { highPerformanceTagReading },
+            set: { enabled in
+                if enabled {
+                    showsHighPerformanceTagReadingWarning = true
+                } else {
+                    highPerformanceTagReading = false
+                }
+            }
+        )
+    }
+
+    private func audioCacheLimitLabel(_ bytes: Int64) -> String {
+        guard bytes != AudioCacheLimitPolicy.unlimitedBytes else {
+            return String(localized: "smart_limit_placeholder")
+        }
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .binary
+        return formatter.string(fromByteCount: bytes)
     }
 }
 

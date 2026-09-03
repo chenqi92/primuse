@@ -662,6 +662,12 @@
 "clear_metadata" = "Clear Cover Art & Lyrics";
 "clear_metadata_confirm" = "This will delete all cached cover art and lyrics. They will be re-fetched from your music sources when needed.";
 "storage_management" = "Storage";
+"metadata_backfill_performance" = "Tag Reading Performance";
+"metadata_backfill_fast_mode" = "High-Performance Tag Reading";
+"metadata_backfill_fast_mode_footer" = "Off by default, tags are read gently in small serial batches. When enabled, foreground scans use up to 3 concurrent reads without throttling, which can increase heat, battery use, network traffic, and interface stutter.";
+"metadata_backfill_fast_mode_warning_title" = "Enable High-Performance Tag Reading?";
+"metadata_backfill_fast_mode_warning_message" = "Use this only if your device and music server can handle sustained concurrent requests. It takes effect during the current or next foreground scan; background playback remains protected.";
+"metadata_backfill_fast_mode_confirm" = "My Device Can Handle It";
 "audio_cache" = "Audio Cache";
 "image_cache" = "Image Cache";
 "cover_art_lyrics" = "Cover Art & Lyrics";

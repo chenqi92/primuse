@@ -662,6 +662,12 @@
 "clear_metadata" = "清除封面与歌词";
 "clear_metadata_confirm" = "将删除所有已缓存的封面和歌词。需要时会从音乐源重新获取。";
 "storage_management" = "存储管理";
+"metadata_backfill_performance" = "标签读取性能";
+"metadata_backfill_fast_mode" = "高性能读取标签";
+"metadata_backfill_fast_mode_footer" = "默认关闭，以单线程小批次温和读取标签。开启后，前台扫描最多使用 3 路并发且不做请求节流，可能增加发热、耗电、网络流量和界面卡顿。";
+"metadata_backfill_fast_mode_warning_title" = "开启高性能标签读取？";
+"metadata_backfill_fast_mode_warning_message" = "仅当你的设备和音乐服务器能够承受持续并发请求时开启。它会在当前或下一次前台扫描中生效；后台播放仍保留降载保护。";
+"metadata_backfill_fast_mode_confirm" = "我的设备扛得住";
 "audio_cache" = "音频缓存";
 "image_cache" = "图片缓存";
 "cover_art_lyrics" = "封面与歌词";

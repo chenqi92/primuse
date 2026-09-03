@@ -854,6 +854,12 @@
 "clear_metadata" = "Cover und Liedtexte löschen";
 "clear_metadata_confirm" = "Dadurch werden alle zwischengespeicherten Cover und Liedtexte gelöscht. Sie werden bei Bedarf erneut aus deinen Musikquellen abgerufen.";
 "storage_management" = "Speicher";
+"metadata_backfill_performance" = "Leistung beim Tag-Lesen";
+"metadata_backfill_fast_mode" = "Tags mit hoher Leistung lesen";
+"metadata_backfill_fast_mode_footer" = "Standardmäßig werden Tags schonend in kleinen seriellen Gruppen gelesen. Aktiviert nutzt ein Scan im Vordergrund bis zu 3 parallele Lesevorgänge ohne Drosselung. Das kann Wärme, Akkuverbrauch, Datenverkehr und Ruckler erhöhen.";
+"metadata_backfill_fast_mode_warning_title" = "Tag-Lesen mit hoher Leistung aktivieren?";
+"metadata_backfill_fast_mode_warning_message" = "Nur aktivieren, wenn Gerät und Musikserver dauerhafte parallele Anfragen bewältigen. Die Einstellung gilt für den aktuellen oder nächsten Scan im Vordergrund; die Wiedergabe im Hintergrund bleibt geschützt.";
+"metadata_backfill_fast_mode_confirm" = "Mein Gerät schafft das";
 "audio_cache" = "Audio-Cache";
 "image_cache" = "Bild-Cache";
 "cover_art_lyrics" = "Cover & Liedtexte";
