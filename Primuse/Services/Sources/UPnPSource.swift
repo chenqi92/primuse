@@ -1553,7 +1553,7 @@ private final class DIDLParserDelegate: NSObject, XMLParserDelegate {
             currentResource = nil
         case "container", "item":
             if node.title.isEmpty {
-                node.title = "Unknown"
+                node.title = String(localized: "upnp_unknown_item")
             }
             let selectedResource = selectBestResource(from: node.resources)
             nodes.append(

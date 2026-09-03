@@ -29,7 +29,7 @@ final class AudioOutputDeviceManager {
         var typeLabel: String {
             if isAirPlay { return "AirPlay" }
             if isBluetooth { return "Bluetooth" }
-            if isBuiltIn { return "Built-in" }
+            if isBuiltIn { return String(localized: "audio_output_type_builtin") }
             return "Core Audio"
         }
 
@@ -105,7 +105,11 @@ final class AudioOutputDeviceManager {
         return ids.compactMap { id -> Device? in
             // 只保留有 output stream 的设备(过滤 mic / aggregate input)。
             guard hasOutputStreams(deviceID: id) else { return nil }
-            let name = readString(id: id, selector: kAudioObjectPropertyName) ?? "Device \(id)"
+            let name = readString(id: id, selector: kAudioObjectPropertyName)
+                ?? String(
+                    format: String(localized: "audio_output_device_fallback %@"),
+                    String(id)
+                )
             let transport = readUInt32(id: id, selector: kAudioDevicePropertyTransportType) ?? 0
             let nominalSampleRate = readDouble(id: id, selector: kAudioDevicePropertyNominalSampleRate)
             return Device(

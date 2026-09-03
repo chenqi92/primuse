@@ -867,7 +867,7 @@ private struct MacMiniPlayerProgress: View {
             if player.isLiveRadio {
                 HStack(spacing: 7) {
                     Circle().fill(.red).frame(width: 7, height: 7)
-                    Text("LIVE").fontWeight(.bold)
+                    Text("live_badge").fontWeight(.bold)
                     Spacer()
                     Text(formatTime(player.currentTime))
                 }

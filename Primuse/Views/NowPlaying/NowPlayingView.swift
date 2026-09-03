@@ -1465,7 +1465,7 @@ struct NowPlayingView: View {
                     Circle()
                         .fill(.red)
                         .frame(width: 8, height: 8)
-                    Text("LIVE")
+                    Text("live_badge")
                         .font(.caption.weight(.bold))
                     if player.currentTime > 0 {
                         Text("·")
@@ -2559,7 +2559,9 @@ struct NowPlayingView: View {
             }
             .disabled(player.currentSong == nil || player.isLoading)
             .padding(.trailing, trailing)
-            .accessibilityLabel(Text(player.isMusicVideoModeEnabled ? "Disable MV" : "Enable MV"))
+            .accessibilityLabel(
+                Text(player.isMusicVideoModeEnabled ? "a11y_disable_music_video" : "a11y_enable_music_video")
+            )
         }
     }
 
@@ -6922,7 +6924,7 @@ fileprivate struct PlaybackProgressBar: View {
             if player.isLiveRadio {
                 HStack(spacing: 7) {
                     Circle().fill(.red).frame(width: 7, height: 7)
-                    Text("LIVE").fontWeight(.bold)
+                    Text("live_badge").fontWeight(.bold)
                     Spacer()
                     Text(player.currentTime.formattedDuration).monospacedDigit()
                 }

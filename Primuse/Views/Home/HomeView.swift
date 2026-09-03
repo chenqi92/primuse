@@ -566,7 +566,7 @@ struct HomeView: View {
                             Circle()
                                 .fill(.red)
                                 .frame(width: 7, height: 7)
-                            Text("LIVE")
+                            Text("live_badge")
                                 .font(.caption2.weight(.bold))
                                 .tracking(0.8)
                         } else {
@@ -877,7 +877,7 @@ struct HomeView: View {
                     .aspectRatio(1, contentMode: .fill)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .overlay(alignment: .topLeading) {
-                        Text(isPlaying ? "LIVE" : String(localized: "radio_title"))
+                        Text(isPlaying ? String(localized: "live_badge") : String(localized: "radio_title"))
                             .font(.system(size: 9.5, weight: .bold))
                             .tracking(0.8)
                             .foregroundStyle(isPlaying ? .white : .white.opacity(0.85))

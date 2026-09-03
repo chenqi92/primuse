@@ -680,7 +680,10 @@ actor SFTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         // (认证必败 + 明文私钥泄露给远端)。直接报错引导用户转成 OpenSSH 格式。
         if trimmedKey.contains("BEGIN RSA PRIVATE KEY") || trimmedKey.contains("BEGIN PRIVATE KEY") {
             throw SourceConnectionTerminalError(
-                message: "Unsupported SSH key format. Please convert to OpenSSH format: ssh-keygen -p -m RFC4716 -f <keyfile>"
+                message: String(
+                    format: String(localized: "source_ssh_key_format_unsupported"),
+                    "ssh-keygen -p -m RFC4716 -f <keyfile>"
+                )
             )
         }
 
@@ -693,7 +696,9 @@ actor SFTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
             let privateKey = try Curve25519.Signing.PrivateKey(sshEd25519: trimmedKey)
             return .ed25519(username: username, privateKey: privateKey)
         default:
-            throw SourceConnectionTerminalError(message: "Unsupported SSH key type")
+            throw SourceConnectionTerminalError(
+                message: String(localized: "source_ssh_key_type_unsupported")
+            )
         }
     }
 }

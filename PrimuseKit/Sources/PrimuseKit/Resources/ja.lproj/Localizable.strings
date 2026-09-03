@@ -59,6 +59,7 @@
 "ext.widget.stats.last30Days"              = "過去 30 日間";
 "ext.widget.stats.plays"                   = "回再生";
 "ext.widget.stats.totalTime"               = "合計時間";
+"ext.widget.stats.hoursFormat"             = "%d時間";
 "ext.widget.stats.topThisMonth"            = "今月よく聴いた曲";
 
 "ext.widget.sources.displayName"           = "音楽ソース";
@@ -175,16 +176,16 @@
 "ext.tv.immersive.style.lyrics"            = "Lyrics";
 "ext.tv.immersive.style.cover"             = "Artwork";
 "ext.tv.immersive.style.visualizer"        = "Visualizer";
-"ext.tv.immersive.style.lightField"        = "Light field";
+"ext.tv.immersive.style.lightField"        = "光のフィールド";
 "ext.tv.immersive.style.typography"        = "Typography";
-"ext.tv.immersive.style.deepField"         = "Deep Field";
-"ext.tv.immersive.style.ambientBloom"      = "Ambient Bloom";
-"ext.tv.immersive.style.lyricStage"        = "Lyric Stage";
+"ext.tv.immersive.style.deepField"         = "深層フィールド";
+"ext.tv.immersive.style.ambientBloom"      = "アンビエントブルーム";
+"ext.tv.immersive.style.lyricStage"        = "歌詞ステージ";
 "ext.tv.immersive.style.spectrum"          = "Spectrum";
 "ext.tv.immersive.style.vinyl"             = "Vinyl";
-"ext.tv.immersive.timelineDisclosure"      = "Timeline-driven · not live levels";
-"ext.tv.immersive.lyricsHint"              = "Swipe up for lyrics";
-"ext.tv.immersive.holdForQueue"            = "Hold for queue";
+"ext.tv.immersive.timelineDisclosure"      = "タイムライン連動 · ライブ音量ではありません";
+"ext.tv.immersive.lyricsHint"              = "上にスワイプして歌詞を表示";
+"ext.tv.immersive.holdForQueue"            = "長押しでキューを表示";
 
 // tvOS — Queue
 "ext.tv.queue.nowPlaying"                  = "再生中";
@@ -598,11 +599,11 @@
 "source_connection_public_hint" = "公開アドレスとリバースプロキシは同じ直接接続方式で、個別のポートと任意のパス接頭辞を使用できます。";
 "source_connection_path_prefix" = "パス接頭辞（任意）";
 "source_connection_no_route" = "使用可能な接続アドレスが設定されていません";
-"rate_on_app_store" = "Leave a nice review";
+"rate_on_app_store" = "App Store で評価する";
 
 // MARK: - Immersive playback effects
-"fullscreen_effect_native" = "Original";
-"fullscreen_effect_native_subtitle" = "Familiar player layout and controls";
+"fullscreen_effect_native" = "オリジナル";
+"fullscreen_effect_native_subtitle" = "使い慣れたプレーヤーの配置と操作";
 "fullscreen_effect_collection_native" = "標準";
 "fullscreen_effect_collection_cover_reactive" = "アートワーク連動";
 "fullscreen_effect_collection_scene_motion" = "モーションシーン";
@@ -633,9 +634,9 @@
 "fullscreen_effect_live_waveform" = "ライブ波形";
 "fullscreen_effect_live_waveform_subtitle" = "横方向のスペクトラムが再生音声をリアルタイムで追います";
 "fullscreen_effect_live_waveform_motion" = "ライブスペクトラム · 無音時は静止";
-"immersive_demo_title" = "Tidal Memory";
-"immersive_demo_artist" = "Liuchuan";
-"immersive_demo_album" = "Night Voyage";
+"immersive_demo_title" = "潮汐の記憶";
+"immersive_demo_artist" = "柳川";
+"immersive_demo_album" = "夜航";
 "immersive_lyrics_motion_title" = "イマーシブ文字モーション";
 "immersive_lyrics_motion_subtitle" = "曲名ウォールの緩やかな移動と横方向の歌詞マーキーを制御し、オフにすると文字が静止します。";
 "local_import_insufficient_space" = "空き容量が不足しています（必要：%lld バイト、利用可能：%lld バイト）。";
@@ -683,3 +684,17 @@
 "serverShare.error.unsafeURL" = "サーバーからストリーム URL またはアカウント認証情報を含むリンクが返されました。";
 "serverShare.error.malformedResponse" = "サーバーから有効な公開メディアリンクが返されませんでした。";
 "metadata.rangeRead.error.suffixUnsupported" = "このサーバーは、メタデータ取得に必要なファイル末尾の範囲読み取りに対応していません。";
+"ext.widget.live" = "ライブ";
+"ext.widget.wrapped.brand" = "PRIMUSE WRAPPED";
+"audio.quality.lossless" = "ロスレス";
+"audio.quality.standard" = "標準";
+"ftp.encryption.none" = "なし";
+"ftp.encryption.implicitTLS" = "暗黙的 TLS（FTPS）";
+"ftp.encryption.explicitTLS" = "明示的 TLS（FTPES）";
+"nfs.version.auto" = "自動";
+"radio.streamFormat.automatic" = "自動";
+"src.subtitle.sftp" = "SSH · 鍵認証";
+"src.subtitle.upnp" = "自動検出";
+"src.subtitle.jellyfin" = "オープンソース";
+"src.subtitle.emby" = "メディアサーバー";
+"src.subtitle.plex" = "Plex メディアサーバー";

@@ -5585,7 +5585,7 @@ final class SourceManager {
             let deferred = Task<OfflineDownloadTransferResult, Never> {
                 .failed(
                     kind: .transient,
-                    message: "Waiting for a background cache transfer to finish"
+                    message: String(localized: "offline_wait_background_transfer")
                 )
             }
             return OfflineDownloadTaskHandle(
@@ -5604,7 +5604,7 @@ final class SourceManager {
                 let deferred = Task<OfflineDownloadTransferResult, Never> {
                     .failed(
                         kind: .transient,
-                        message: "Waiting for an incompatible cache transfer to finish"
+                        message: String(localized: "offline_wait_incompatible_transfer")
                     )
                 }
                 return OfflineDownloadTaskHandle(
@@ -6503,7 +6503,10 @@ final class SourceManager {
 
     private nonisolated static func sourceNotFoundDeletionResult(for song: Song) -> SongFileDeletionResult {
         var result = SongFileDeletionResult()
-        result.failedPaths.append(.init(path: song.filePath, message: "Source not found"))
+        result.failedPaths.append(.init(
+            path: song.filePath,
+            message: String(localized: "source_unavailable")
+        ))
         return result
     }
 

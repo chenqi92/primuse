@@ -779,7 +779,10 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             )
             let song = Song(
                 id: trackID,
-                title: descriptor.track.title ?? String(format: "Track %02d", descriptor.track.number),
+                title: descriptor.track.title ?? String(
+                    format: String(localized: "cue_track_title_format"),
+                    descriptor.track.number
+                ),
                 albumID: album.map {
                     Self.generateID(sourceID: "album", path: "\(albumArtist ?? ""):\($0)")
                 },

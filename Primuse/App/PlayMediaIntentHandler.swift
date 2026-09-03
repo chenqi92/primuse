@@ -881,9 +881,7 @@ struct PrimuseShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: PrimusePlayPauseIntent(),
             phrases: [
-                "用 \(.applicationName) 播放",
-                "用 \(.applicationName) 暂停",
-                "Toggle \(.applicationName)",
+                "Play or pause in \(.applicationName)",
             ],
             shortTitle: "Play / Pause",
             systemImageName: "play.fill"
@@ -891,8 +889,7 @@ struct PrimuseShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: PrimuseNextIntent(),
             phrases: [
-                "用 \(.applicationName) 下一首",
-                "Next track in \(.applicationName)",
+                "Play the next track in \(.applicationName)",
             ],
             shortTitle: "Next",
             systemImageName: "forward.fill"
@@ -900,8 +897,7 @@ struct PrimuseShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: PrimusePreviousIntent(),
             phrases: [
-                "用 \(.applicationName) 上一首",
-                "Previous track in \(.applicationName)",
+                "Play the previous track in \(.applicationName)",
             ],
             shortTitle: "Previous",
             systemImageName: "backward.fill"
@@ -909,7 +905,6 @@ struct PrimuseShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: PrimuseShuffleAllIntent(),
             phrases: [
-                "用 \(.applicationName) 随机播放",
                 "Shuffle \(.applicationName)",
             ],
             shortTitle: "Shuffle",
@@ -918,7 +913,6 @@ struct PrimuseShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: PrimusePlaySongIntent(),
             phrases: [
-                "用 \(.applicationName) 播放歌曲",
                 "Play a song in \(.applicationName)",
             ],
             shortTitle: "Play Song",
@@ -927,7 +921,6 @@ struct PrimuseShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: PrimusePlayPlaylistIntent(),
             phrases: [
-                "用 \(.applicationName) 播放歌单",
                 "Play a playlist in \(.applicationName)",
             ],
             shortTitle: "Play Playlist",
@@ -936,7 +929,6 @@ struct PrimuseShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: PrimuseResumePlaybackIntent(),
             phrases: [
-                "用 \(.applicationName) 继续播放",
                 "Resume \(.applicationName)",
             ],
             shortTitle: "Resume",
@@ -945,16 +937,7 @@ struct PrimuseShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: PrimusePlayRadioIntent(),
             phrases: [
-                "用 \(.applicationName) 播放电台",
-                "用 \(.applicationName) 播放 \(\.$station)",
-                "用 \(.applicationName) 播放电台 \(\.$station)",
-                "用 \(.applicationName) 播放電台 \(\.$station)",
-                "Play radio in \(.applicationName)",
                 "Play \(\.$station) in \(.applicationName)",
-                "Spiele \(\.$station) in \(.applicationName)",
-                "Écouter \(\.$station) dans \(.applicationName)",
-                "\(.applicationName)에서 \(\.$station) 재생",
-                "\(.applicationName)で\(\.$station)ラジオをかけて",
             ],
             shortTitle: "Play Radio",
             systemImageName: "radio"
@@ -962,7 +945,6 @@ struct PrimuseShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: PrimusePlaySongRadioIntent(),
             phrases: [
-                "用 \(.applicationName) 播放相似歌曲",
                 "Play similar songs in \(.applicationName)",
             ],
             shortTitle: "Similar Songs",
@@ -971,7 +953,6 @@ struct PrimuseShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: PrimuseScrapeCurrentSongIntent(),
             phrases: [
-                "用 \(.applicationName) 刮削当前歌曲",
                 "Scrape the current song in \(.applicationName)",
             ],
             shortTitle: "Scrape Song",

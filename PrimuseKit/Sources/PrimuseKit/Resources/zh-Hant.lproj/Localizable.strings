@@ -56,6 +56,7 @@
 "ext.widget.stats.last30Days"              = "過去 30 天";
 "ext.widget.stats.plays"                   = "首播放";
 "ext.widget.stats.totalTime"               = "總時長";
+"ext.widget.stats.hoursFormat"             = "%d 小時";
 "ext.widget.stats.topThisMonth"            = "本月最常聽";
 
 "ext.widget.sources.displayName"           = "音樂來源";
@@ -680,3 +681,17 @@
 "serverShare.error.unsafeURL" = "伺服器傳回的連結疑似播放串流網址或包含帳戶憑證。";
 "serverShare.error.malformedResponse" = "伺服器未傳回有效的公開媒體連結。";
 "metadata.rangeRead.error.suffixUnsupported" = "此伺服器不支援讀取中繼資料所需的檔案尾端範圍。";
+"ext.widget.live" = "直播";
+"ext.widget.wrapped.brand" = "PRIMUSE 年度回顧";
+"audio.quality.lossless" = "無損";
+"audio.quality.standard" = "標準";
+"ftp.encryption.none" = "無";
+"ftp.encryption.implicitTLS" = "隱式 TLS（FTPS）";
+"ftp.encryption.explicitTLS" = "顯式 TLS（FTPES）";
+"nfs.version.auto" = "自動";
+"radio.streamFormat.automatic" = "自動";
+"src.subtitle.sftp" = "SSH · 金鑰驗證";
+"src.subtitle.upnp" = "自動探索";
+"src.subtitle.jellyfin" = "開源";
+"src.subtitle.emby" = "媒體伺服器";
+"src.subtitle.plex" = "Plex 媒體伺服器";

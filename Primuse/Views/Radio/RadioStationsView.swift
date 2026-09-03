@@ -430,7 +430,7 @@ private struct RadioStationCard: View {
                                 Circle()
                                     .fill(.red)
                                     .frame(width: 6, height: 6)
-                                Text("LIVE")
+                                Text("live_badge")
                                     .font(.system(size: 9.5, weight: .bold))
                                     .tracking(0.8)
                                     .foregroundStyle(Color.accentColor)

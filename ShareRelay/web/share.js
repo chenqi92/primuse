@@ -1,6 +1,14 @@
-(() => {
+(async () => {
   "use strict";
 
+  const i18n = await window.PrimuseI18nReady.catch(() => ({
+    locale: "en",
+    t: (key, replacements = {}) => Object.entries(replacements).reduce(
+      (value, [name, replacement]) => value.replaceAll(`{${name}}`, String(replacement)),
+      key,
+    ),
+  }));
+  const t = i18n.t;
   const body = document.body;
   const canonicalURL = body.dataset.canonicalUrl;
   const mediaURL = body.dataset.mediaUrl;
@@ -12,7 +20,7 @@
   const clientEncryptionMode = "client-aes-256-gcm-chunks-v1";
   const usesClientEncryption = encryptionMode === clientEncryptionMode;
   let fileSize = Number(body.dataset.fileSize || 0);
-  let title = body.dataset.title || "Primuse 音乐分享";
+  let title = body.dataset.title || t("MUSIC_SHARE");
   let activeKeyToken = "";
   let encryptedDetails = null;
   let decryptedMediaPromise = null;
@@ -29,7 +37,7 @@
   for (const expiry of all("time[data-expiry]")) {
     const date = new Date(expiry.dateTime);
     if (!Number.isNaN(date.valueOf())) {
-      expiry.textContent = new Intl.DateTimeFormat("zh-CN", {
+      expiry.textContent = new Intl.DateTimeFormat(i18n.locale, {
         year: "numeric",
         month: "long",
         day: "numeric",
@@ -49,7 +57,7 @@
     toastTimer = window.setTimeout(() => { toast.hidden = true; }, 2200);
   }
 
-  async function copyText(value, successMessage = "链接已复制") {
+  async function copyText(value, successMessage = t("LINK_COPIED")) {
     try {
       await navigator.clipboard.writeText(value);
     } catch {
@@ -96,7 +104,7 @@
       if (usesClientEncryption && !activeKeyToken) {
         decryptionCard?.scrollIntoView({ behavior: "smooth", block: "center" });
         keyInput?.focus();
-        showToast("请先输入解密密钥");
+        showToast(t("ENTER_DECRYPT_KEY"));
         return;
       }
       void copyText(currentShareURL());
@@ -108,18 +116,18 @@
       if (usesClientEncryption && !activeKeyToken) {
         decryptionCard?.scrollIntoView({ behavior: "smooth", block: "center" });
         keyInput?.focus();
-        showToast("请先输入解密密钥");
+        showToast(t("ENTER_DECRYPT_KEY"));
         return;
       }
       if (navigator.share) {
         try {
-          await navigator.share({ title, text: `来自 Primuse 的音乐分享：${title}`, url: currentShareURL() });
+          await navigator.share({ title, text: t("SHARE_TEXT", { title }), url: currentShareURL() });
           return;
         } catch (error) {
           if (error?.name === "AbortError") return;
         }
       }
-      await copyText(currentShareURL(), "当前浏览器不支持系统分享，链接已复制");
+      await copyText(currentShareURL(), t("SHARE_FALLBACK_COPIED"));
     });
   }
 
@@ -254,8 +262,8 @@
     body.dataset.title = manifest.title;
     body.dataset.fileName = manifest.fileName;
     body.dataset.fileSize = String(manifest.size);
-    const artistAlbum = [manifest.artist, manifest.album ? `《${manifest.album}》` : ""].filter(Boolean).join(" · ")
-      || "来自 Primuse 的音乐分享";
+    const artistAlbum = [manifest.artist, manifest.album || ""].filter(Boolean).join(" · ")
+      || t("SHARED_FROM_PRIMUSE");
     const sizeLabel = humanFileSize(manifest.size);
     const titleNode = one("[data-track-title]");
     const artistNode = one("[data-artist-album]");
@@ -268,19 +276,19 @@
     for (const node of all("[data-file-size-label], [data-download-size]")) node.textContent = sizeLabel;
     for (const node of all("[data-download-file-name]")) node.textContent = manifest.fileName;
     const cover = one(".cover");
-    if (cover) cover.alt = `《${manifest.title}》封面`;
+    if (cover) cover.alt = t("COVER_ALT", { title: manifest.title });
     if (body.dataset.allowPlayback === "true") one('[data-protected-action="playback"]')?.removeAttribute("hidden");
     if (body.dataset.allowDownload === "true") one('[data-protected-action="download"]')?.removeAttribute("hidden");
     if (body.dataset.allowImport === "true") one('[data-protected-action="import"]')?.removeAttribute("hidden");
-    document.title = `${manifest.title} · Primuse 音乐分享`;
+    document.title = `${manifest.title} · ${t("MUSIC_SHARE")}`;
     if (decryptionCard) decryptionCard.dataset.state = "ready";
-    if (decryptionTitle) decryptionTitle.textContent = "已在此设备解密";
-    if (decryptionState) decryptionState.textContent = "密钥未上传";
-    if (decryptionCopy) decryptionCopy.textContent = "歌曲信息与音频只在当前设备解密。";
+    if (decryptionTitle) decryptionTitle.textContent = t("DECRYPTED_HERE");
+    if (decryptionState) decryptionState.textContent = t("KEY_NOT_UPLOADED");
+    if (decryptionCopy) decryptionCopy.textContent = t("DECRYPTED_LOCAL_ONLY");
     if (keyInput) keyInput.value = "";
   }
 
-  function setDecryptionProgress(fraction, label = "正在本地解密…") {
+  function setDecryptionProgress(fraction, label = t("DECRYPTING")) {
     const normalized = Math.max(0, Math.min(1, fraction));
     if (decryptionProgress) decryptionProgress.hidden = false;
     if (decryptionProgressBar) decryptionProgressBar.value = normalized;
@@ -290,16 +298,16 @@
 
   function showKeyError(error) {
     const messages = {
-      missing_key: "请输入解密密钥或完整分享链接。",
-      invalid_key: "密钥格式不正确，请向分享者确认。",
-      wrong_share: "这条完整链接不属于当前分享。",
-      crypto_unavailable: "当前浏览器不支持安全的本地解密，请更新浏览器。",
+      missing_key: t("KEY_MISSING"),
+      invalid_key: t("KEY_INVALID"),
+      wrong_share: t("KEY_WRONG_SHARE"),
+      crypto_unavailable: t("CRYPTO_UNAVAILABLE"),
     };
     if (keyMessage) {
-      keyMessage.textContent = messages[error?.message] || "无法解密。密钥可能不正确，或分享数据已损坏。";
+      keyMessage.textContent = messages[error?.message] || t("DECRYPT_FAILED");
       keyMessage.className = "form-message error";
     }
-    if (decryptionState) decryptionState.textContent = "解密失败";
+    if (decryptionState) decryptionState.textContent = t("DECRYPT_FAILED");
     if (decryptionProgress) decryptionProgress.hidden = true;
   }
 
@@ -307,8 +315,8 @@
     if (!usesClientEncryption || !manifestURL) return;
     const token = keyTokenFromValue(rawKey);
     if (keySubmit) keySubmit.disabled = true;
-    if (decryptionState) decryptionState.textContent = "验证中";
-    if (keyMessage) { keyMessage.textContent = "正在获取加密信息并在本地验证密钥…"; keyMessage.className = "form-message"; }
+    if (decryptionState) decryptionState.textContent = t("VERIFYING");
+    if (keyMessage) { keyMessage.textContent = t("FETCHING_ENCRYPTED"); keyMessage.className = "form-message"; }
     try {
       const key = await importDecryptionKey(token);
       const response = await fetch(manifestURL, { credentials: "same-origin", cache: "no-store" });
@@ -373,8 +381,8 @@
   function setPlayerState(state) {
     if (!playButton) return;
     playButton.dataset.state = state;
-    const labels = { idle: "播放", loading: "正在加载", playing: "暂停", paused: "播放" };
-    playButton.setAttribute("aria-label", labels[state] || "播放");
+    const labels = { idle: t("PLAY"), loading: t("LOADING"), playing: t("PAUSE"), paused: t("PLAY") };
+    playButton.setAttribute("aria-label", labels[state] || t("PLAY"));
     if (artworkStage) artworkStage.dataset.spins = String(state === "playing");
   }
 
@@ -399,7 +407,7 @@
       const { key, shareID, manifest } = encryptedDetails;
       const chunkCount = Math.ceil(manifest.size / manifest.chunkSize);
       const chunks = [];
-      setDecryptionProgress(0, "正在下载并本地解密音频…");
+      setDecryptionProgress(0, t("DOWNLOADING_DECRYPTING"));
       for (let index = 0; index < chunkCount; index += 1) {
         const expectedLength = Math.min(manifest.chunkSize, manifest.size - index * manifest.chunkSize);
         const response = await fetch(`${chunkBaseURL}/${index}`, {
@@ -416,12 +424,12 @@
         );
         if (plaintext.byteLength !== expectedLength) throw new Error("invalid_envelope");
         chunks.push(plaintext);
-        setDecryptionProgress((index + 1) / chunkCount, "正在下载并本地解密音频…");
+        setDecryptionProgress((index + 1) / chunkCount, t("DOWNLOADING_DECRYPTING"));
       }
       const blob = new Blob(chunks, { type: manifest.contentType });
       const objectURL = URL.createObjectURL(blob);
       decryptedMedia = { blob, objectURL };
-      setDecryptionProgress(1, "音频已在此设备解密");
+      setDecryptionProgress(1, t("AUDIO_DECRYPTED"));
       window.setTimeout(() => { if (decryptionProgress) decryptionProgress.hidden = true; }, 900);
       return decryptedMedia;
     })();
@@ -444,8 +452,8 @@
           : mediaURL;
       } catch (error) {
         showPlayerError(error?.message === "missing_key"
-          ? "请先输入解密密钥。"
-          : "本地解密失败，请检查网络或重新输入密钥。");
+          ? t("PLAYBACK_KEY_REQUIRED")
+          : t("PLAYBACK_DECRYPT_FAILED"));
         return;
       }
       audio.load();
@@ -456,7 +464,7 @@
         setPlayerState("loading");
         await audio.play();
       } catch {
-        showPlayerError("暂时无法播放。你可以稍后重试，或下载原文件。");
+        showPlayerError(t("PLAYBACK_UNAVAILABLE"));
       }
     } else {
       audio.pause();
@@ -483,8 +491,8 @@
   audio?.addEventListener("error", () => {
     const code = audio.error?.code;
     const message = code === 4
-      ? "当前浏览器不支持这个音频格式，可下载原文件或用 Primuse 打开。"
-      : "音频加载失败，请检查网络后重试。";
+      ? t("AUDIO_FORMAT_UNSUPPORTED")
+      : t("AUDIO_LOAD_FAILED");
     showPlayerError(message);
   });
 
@@ -503,7 +511,7 @@
   muteButton?.addEventListener("click", () => {
     if (!audio) return;
     audio.muted = !audio.muted;
-    muteButton.setAttribute("aria-label", audio.muted ? "取消静音" : "静音");
+    muteButton.setAttribute("aria-label", audio.muted ? t("UNMUTE") : t("MUTE"));
     muteButton.style.opacity = audio.muted ? "0.5" : "1";
   });
 
@@ -534,7 +542,7 @@
     try {
       if (usesClientEncryption) targetURL = (await ensureDecryptedMedia()).objectURL;
     } catch (error) {
-      showToast(error?.message === "missing_key" ? "请先输入解密密钥" : "本地解密失败，请稍后重试");
+      showToast(error?.message === "missing_key" ? t("ENTER_DECRYPT_KEY") : t("PLAYBACK_DECRYPT_FAILED"));
       return;
     }
     const anchor = document.createElement("a");
@@ -586,7 +594,7 @@
   const installDialog = one("[data-install-dialog]");
   one("[data-open-primuse]")?.addEventListener("click", async () => {
     if (/MicroMessenger/i.test(navigator.userAgent)) {
-      await copyText(currentShareURL(), "链接已复制，请在系统浏览器中打开");
+      await copyText(currentShareURL(), t("SYSTEM_BROWSER_COPIED"));
       return;
     }
     try {
@@ -600,14 +608,14 @@
         if (!hidden && !document.hidden) openDialog(installDialog);
       }, 1200);
     } catch {
-      showToast("暂时无法创建导入凭证，请稍后重试");
+      showToast(t("IMPORT_CREATE_FAILED"));
     }
   });
   one("[data-copy-import]")?.addEventListener("click", async () => {
     try {
-      await copyText(await requestImportURL(), "导入链接已复制，10 分钟内有效");
+      await copyText(await requestImportURL(), t("IMPORT_LINK_COPIED"));
     } catch {
-      showToast("暂时无法创建导入凭证，请稍后重试");
+      showToast(t("IMPORT_CREATE_FAILED"));
     }
   });
 
@@ -626,7 +634,7 @@
         if (usesClientEncryption && !activeKeyToken) {
           decryptionCard?.scrollIntoView({ behavior: "smooth", block: "center" });
           keyInput?.focus();
-          showToast("请先输入解密密钥");
+          showToast(t("ENTER_DECRYPT_KEY"));
           return;
         }
         if (!qrReady) {
@@ -635,7 +643,7 @@
         }
         openDialog(qrDialog);
       } catch {
-        showToast("二维码生成失败，请改用复制链接");
+        showToast(t("QR_FAILED"));
       }
     });
   }
@@ -659,8 +667,8 @@
     if (!passwordInput) return;
     const revealing = passwordInput.type === "password";
     passwordInput.type = revealing ? "text" : "password";
-    event.currentTarget.textContent = revealing ? "隐藏" : "显示";
-    event.currentTarget.setAttribute("aria-label", revealing ? "隐藏密码" : "显示密码");
+    event.currentTarget.textContent = revealing ? t("HIDE") : t("SHOW");
+    event.currentTarget.setAttribute("aria-label", revealing ? t("HIDE_PASSWORD") : t("SHOW_PASSWORD"));
   });
 
   function setRetryCountdown(seconds) {
@@ -672,11 +680,11 @@
     const tick = () => {
       const minutes = Math.floor(remaining / 60);
       const rest = String(remaining % 60).padStart(2, "0");
-      passwordMessage.textContent = `尝试次数过多，请在 ${minutes}:${rest} 后重试。`;
+      passwordMessage.textContent = t("RETRY_COUNTDOWN", { time: `${minutes}:${rest}` });
       if (remaining <= 0) {
         retryCountdownActive = false;
         unlockButton.disabled = false;
-        passwordMessage.textContent = "可以重新尝试。";
+        passwordMessage.textContent = t("RETRY_READY");
         passwordMessage.className = "form-message";
         return;
       }
@@ -692,7 +700,7 @@
     if (!passwordInput?.value || unlockButton?.disabled) return;
     unlockButton.dataset.loading = "true";
     unlockButton.disabled = true;
-    if (unlockLabel) unlockLabel.textContent = "验证中…";
+    if (unlockLabel) unlockLabel.textContent = t("VERIFYING_ELLIPSIS");
     try {
       const response = await fetch(passwordForm.action, {
         method: "POST",
@@ -711,17 +719,17 @@
         setRetryCountdown(response.headers.get("Retry-After") || 60);
         return;
       }
-      passwordMessage.textContent = "密码不正确，请检查后重试。";
+      passwordMessage.textContent = t("PASSWORD_INCORRECT");
       passwordMessage.className = "form-message error";
       one(".password-field")?.classList.add("error");
       window.setTimeout(() => one(".password-field")?.classList.remove("error"), 360);
     } catch {
-      passwordMessage.textContent = "网络似乎断开了，请检查连接后重试。";
+      passwordMessage.textContent = t("NETWORK_ERROR");
       passwordMessage.className = "form-message error";
     } finally {
       unlockButton.dataset.loading = "false";
       if (!retryCountdownActive) unlockButton.disabled = false;
-      if (unlockLabel) unlockLabel.textContent = "解锁";
+      if (unlockLabel) unlockLabel.textContent = t("UNLOCK");
     }
   });
 

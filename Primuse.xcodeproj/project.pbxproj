@@ -100,6 +100,8 @@
 		18D9115DD587058F8DADE067 /* PrimuseWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0079EF685D04AD5701F7F80F /* PrimuseWatchApp.swift */; };
 		18EF7BC5C1B706CD5A3E761F /* CloudDriveStreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CE02EE3CFE1DFDF66C66B7B /* CloudDriveStreamResolver.swift */; };
 		193463D65D5D8855FB50984D /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 449E8C72C7990DCAAE0C289F /* Localizable.strings */; };
+		A19C8D4E7F3B245690D1AE02 /* AppShortcuts.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A19C8D4E7F3B245690D1AE01 /* AppShortcuts.xcstrings */; };
+		A19C8D4E7F3B245690D1AE03 /* AppShortcuts.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A19C8D4E7F3B245690D1AE01 /* AppShortcuts.xcstrings */; };
 		195625F2567DFD42CB036420 /* AppleMusicNowPlayingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCADF5909EF82CB7F02FB896 /* AppleMusicNowPlayingView.swift */; };
 		19741E9B55DE0BA9BE5F2FDB /* CloudSyncChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD05C51C265711C2B7239F9B /* CloudSyncChannel.swift */; };
 		197EEABCE5FD3B3DA3DB3BC3 /* AudioDecoderProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF62F5046D29F993786AE489 /* AudioDecoderProtocol.swift */; };
@@ -1128,6 +1130,7 @@
 		0039D9169F515627C5A4C159 /* CueSheetParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueSheetParser.swift; sourceTree = "<group>"; };
 		0079EF685D04AD5701F7F80F /* PrimuseWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimuseWatchApp.swift; sourceTree = "<group>"; };
 		01172E16CDCAFAA08507C813 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/CacheSync.strings"; sourceTree = "<group>"; };
+		A19C8D4E7F3B245690D1AE01 /* AppShortcuts.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = AppShortcuts.xcstrings; sourceTree = "<group>"; };
 		0151590C869EF8F0A71F4937 /* MusicSourceSecurityRevision.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicSourceSecurityRevision.swift; sourceTree = "<group>"; };
 		0187D5AA8EC6AB3F8B14ECA6 /* LocalBookmarkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalBookmarkStore.swift; sourceTree = "<group>"; };
 		01A3E8F6656778B940F633F3 /* TVQueueView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVQueueView.swift; sourceTree = "<group>"; };
@@ -2997,6 +3000,7 @@
 		FEAF04550B50BF324578C523 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				A19C8D4E7F3B245690D1AE01 /* AppShortcuts.xcstrings */,
 				39A4D0ED31C0B72DF438476C /* CacheSync.strings */,
 				60849A3BA068DBB563EFA62E /* InfoPlist.strings */,
 				26DD8E7908AD9D808A2CD73D /* Localizable.strings */,
@@ -3338,6 +3342,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A19C8D4E7F3B245690D1AE02 /* AppShortcuts.xcstrings in Resources */,
 				BE4C8ABADBEDEAA6AFB57A3C /* AppIntentVocabulary.plist in Resources */,
 				A5C2B802243EEA2162C949F1 /* Assets.xcassets in Resources */,
 				D2C82F5DDEB0A2AC13DB8759 /* CacheSync.strings in Resources */,
@@ -3352,6 +3357,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A19C8D4E7F3B245690D1AE03 /* AppShortcuts.xcstrings in Resources */,
 				5B6CB118CEB161FBC2A9C0CF /* Assets.xcassets in Resources */,
 				4654C1707DDE9C0213BBF316 /* CacheSync.strings in Resources */,
 				8C69F7C755CFCD9F9A7E4E77 /* EQPresets.json in Resources */,

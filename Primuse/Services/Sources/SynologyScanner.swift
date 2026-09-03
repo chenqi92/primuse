@@ -640,7 +640,10 @@ actor SynologyScanner {
                 path: "\(item.path)#cue:\(descriptor.cuePath)#track:\(descriptor.track.number)"
             )
             song.title = descriptor.track.title
-                ?? String(format: "Track %02d", descriptor.track.number)
+                ?? String(
+                    format: String(localized: "cue_track_title_format"),
+                    descriptor.track.number
+                )
             song.artistName = artist
             song.sourceArtistNames = descriptor.track.performer == nil
                 && descriptor.albumPerformer == nil

@@ -4057,7 +4057,7 @@ private struct MacWidgetStatsPreview: View {
                         Text(Lz("Tracks Played"))
                             .font(.system(size: 10))
                             .foregroundStyle(.black.opacity(0.52))
-                        Text("17h")
+                        Text(String(format: String(localized: "widget_preview_hours_format"), 17))
                             .font(.system(size: 18, weight: .semibold, design: .monospaced))
                             .padding(.top, 8)
                         Text(Lz("Total Duration"))
@@ -4148,7 +4148,7 @@ private struct MacWidgetWrappedPreview: View {
             ZStack {
                 LinearGradient(colors: [PMColor.brand, Color(red: 0.16, green: 0.11, blue: 0.22), Color.black], startPoint: .topLeading, endPoint: .bottomTrailing)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("PRIMUSE WRAPPED")
+                    Text(Lz("yearly_wrapped_brand"))
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.70))
                     Text(Lz("Your 2026\n847 hours listened"))
@@ -6526,8 +6526,8 @@ private enum MacLogFilter: CaseIterable, Equatable {
     var title: String {
         switch self {
         case .all: return Lz("All")
-        case .warn: return "WARN"
-        case .error: return "ERROR"
+        case .warn: return String(localized: "log_filter_warning")
+        case .error: return String(localized: "log_filter_error")
         }
     }
 

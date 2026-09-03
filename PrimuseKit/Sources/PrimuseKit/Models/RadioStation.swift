@@ -51,7 +51,7 @@ public enum RadioStreamFormat: String, Codable, CaseIterable, Sendable, Hashable
 
     public var displayName: String {
         switch self {
-        case .automatic: return "Auto"
+        case .automatic: return PMString("radio.streamFormat.automatic")
         case .mp3: return "MP3"
         case .aac: return "AAC"
         case .flac: return "FLAC"

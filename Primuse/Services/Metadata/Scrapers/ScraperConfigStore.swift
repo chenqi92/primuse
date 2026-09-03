@@ -18,7 +18,7 @@ struct ScraperImportSummary: Sendable {
 
     var sourceDescription: String {
         if let sourceHost { return sourceHost }
-        return "Pasted JSON"
+        return String(localized: "scraper_source_pasted_json")
     }
 }
 

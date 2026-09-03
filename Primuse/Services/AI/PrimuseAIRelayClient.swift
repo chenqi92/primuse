@@ -1128,6 +1128,10 @@ actor PrimuseAIRelayClient {
         request.httpBody = body
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+        let preferredLanguages = Locale.preferredLanguages.prefix(10).joined(separator: ", ")
+        if !preferredLanguages.isEmpty {
+            request.setValue(preferredLanguages, forHTTPHeaderField: "Accept-Language")
+        }
         return request
     }
 

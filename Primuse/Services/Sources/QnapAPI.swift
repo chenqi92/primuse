@@ -99,7 +99,11 @@ actor QnapAPI {
                 return LoginResult(success: true, sid: sid, needs2FA: false)
             }
             if text.contains("need_otp") { return LoginResult(success: false, needs2FA: true) }
-            return LoginResult(success: false, needs2FA: false, errorMessage: "Login failed")
+            return LoginResult(
+                success: false,
+                needs2FA: false,
+                errorMessage: String(localized: "auth_login_failed")
+            )
         } catch {
             return LoginResult(
                 success: false,

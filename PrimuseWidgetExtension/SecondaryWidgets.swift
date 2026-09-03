@@ -443,7 +443,7 @@ struct StatsWidgetView: View {
                         Text(PMString("ext.widget.stats.plays"))
                             .font(.system(size: 10))
                             .foregroundStyle(WidgetDesign.tertiaryText)
-                        Text("\(snap.totalHours)h")
+                        Text(PMString("ext.widget.stats.hoursFormat", snap.totalHours))
                             .font(.system(size: 18, weight: .semibold, design: .rounded))
                             .foregroundStyle(WidgetDesign.strongText)
                             .padding(.top, 8)
@@ -650,7 +650,7 @@ struct WrappedWidgetView: View {
             )
             if let snap = entry.snapshot {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("PRIMUSE WRAPPED")
+                    Text(verbatim: PMString("ext.widget.wrapped.brand"))
                         .font(.system(size: 10, weight: .semibold))
                         .tracking(1.2)
                         .foregroundStyle(.white.opacity(0.72))
@@ -672,7 +672,7 @@ struct WrappedWidgetView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             } else {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("PRIMUSE WRAPPED")
+                    Text(verbatim: PMString("ext.widget.wrapped.brand"))
                         .font(.system(size: 10, weight: .semibold))
                         .tracking(1.2)
                         .foregroundStyle(.white.opacity(0.72))

@@ -159,7 +159,7 @@ struct PlaylistImportView: View {
             Spacer()
 
             if preview != nil {
-                Text("READY")
+                Text("playlist_import_ready_badge")
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(PMColor.textFaint)
             }
@@ -515,9 +515,9 @@ struct PlaylistImportView: View {
 
     private func matchKindText(_ kind: PlaylistImporter.ImportEntry.MatchKind) -> String {
         switch kind {
-        case .songID: return "ID"
-        case .basename: return "PATH"
-        case .fuzzy: return "FUZZY"
+        case .songID: return String(localized: "playlist_import_match_id")
+        case .basename: return String(localized: "playlist_import_match_path")
+        case .fuzzy: return String(localized: "playlist_import_match_fuzzy")
         }
     }
     #endif
@@ -1437,7 +1437,7 @@ struct LyricsFormatConverterView: View {
                         : PMColor.brand.opacity(0.13),
                     in: .circle
                 )
-            Text("LIVE")
+            Text("live_badge")
                 .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
                 .foregroundStyle(PMColor.textFaint)
             Spacer()
@@ -1792,7 +1792,7 @@ private enum MacLyricsDetectedFormat {
         case .elrc: "ELRC"
         case .ttml: "TTML"
         case .plain: "TXT"
-        case .invalid: "INVALID"
+        case .invalid: String(localized: "lyrics_converter_format_invalid")
         }
     }
 

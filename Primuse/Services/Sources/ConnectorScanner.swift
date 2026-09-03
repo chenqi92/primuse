@@ -1220,7 +1220,10 @@ actor ConnectorScanner {
             } else {
                 nil
             }
-            let fallbackTitle = String(format: "Track %02d", descriptor.track.number)
+            let fallbackTitle = String(
+                format: String(localized: "cue_track_title_format"),
+                descriptor.track.number
+            )
             let itemIdentity = SourceSongIdentityMaterialPolicy.itemIdentity(
                 path: item.path,
                 providerID: item.providerID,

@@ -383,7 +383,10 @@ final class AudioEngine {
         )
         if status != noErr {
             throw NSError(domain: NSOSStatusErrorDomain, code: Int(status), userInfo: [
-                NSLocalizedDescriptionKey: "Failed to set output device (status=\(status))"
+                NSLocalizedDescriptionKey: String(
+                    format: String(localized: "audio_output_error_set_device %d"),
+                    status
+                )
             ])
         }
         // 显式钉到了某设备, 退出跟随系统状态并持久化。
@@ -425,7 +428,10 @@ final class AudioEngine {
         )
         if status != noErr {
             throw NSError(domain: NSOSStatusErrorDomain, code: Int(status), userInfo: [
-                NSLocalizedDescriptionKey: "Failed to follow system output (status=\(status))"
+                NSLocalizedDescriptionKey: String(
+                    format: String(localized: "audio_output_error_follow_system %d"),
+                    status
+                )
             ])
         }
     }

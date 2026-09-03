@@ -59,6 +59,7 @@
 "ext.widget.stats.last30Days"              = "최근 30일";
 "ext.widget.stats.plays"                   = "회 재생";
 "ext.widget.stats.totalTime"               = "총 재생 시간";
+"ext.widget.stats.hoursFormat"             = "%d시간";
 "ext.widget.stats.topThisMonth"            = "이번 달 최다 감상";
 
 "ext.widget.sources.displayName"           = "음악 소스";
@@ -633,9 +634,9 @@
 "fullscreen_effect_live_waveform" = "실시간 파형";
 "fullscreen_effect_live_waveform_subtitle" = "가로 스펙트럼이 재생 오디오를 실시간으로 따릅니다";
 "fullscreen_effect_live_waveform_motion" = "실시간 스펙트럼 · 무음일 때 정지";
-"immersive_demo_title" = "Tidal Memory";
+"immersive_demo_title" = "밀물의 기억";
 "immersive_demo_artist" = "Liuchuan";
-"immersive_demo_album" = "Night Voyage";
+"immersive_demo_album" = "밤의 항해";
 "immersive_lyrics_motion_title" = "몰입형 문자 모션";
 "immersive_lyrics_motion_subtitle" = "곡명 벽의 느린 이동과 가로 가사 흐름을 제어하며 끄면 문자가 정지합니다.";
 "local_import_insufficient_space" = "사용 가능한 공간이 부족합니다(필요: %lld바이트, 사용 가능: %lld바이트).";
@@ -683,3 +684,17 @@
 "serverShare.error.unsafeURL" = "서버가 스트림 URL 또는 계정 자격 증명이 포함된 링크를 반환했습니다.";
 "serverShare.error.malformedResponse" = "서버가 유효한 공개 미디어 링크를 반환하지 않았습니다.";
 "metadata.rangeRead.error.suffixUnsupported" = "이 서버는 메타데이터에 필요한 파일 끝부분의 범위 읽기를 지원하지 않습니다.";
+"ext.widget.live" = "라이브";
+"ext.widget.wrapped.brand" = "PRIMUSE WRAPPED";
+"audio.quality.lossless" = "무손실";
+"audio.quality.standard" = "표준";
+"ftp.encryption.none" = "없음";
+"ftp.encryption.implicitTLS" = "암시적 TLS(FTPS)";
+"ftp.encryption.explicitTLS" = "명시적 TLS(FTPES)";
+"nfs.version.auto" = "자동";
+"radio.streamFormat.automatic" = "자동";
+"src.subtitle.sftp" = "SSH · 키 인증";
+"src.subtitle.upnp" = "자동 검색";
+"src.subtitle.jellyfin" = "오픈 소스";
+"src.subtitle.emby" = "미디어 서버";
+"src.subtitle.plex" = "Plex 미디어 서버";

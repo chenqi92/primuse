@@ -1392,7 +1392,7 @@ struct TagEditorView: View {
 
     private func lyricsFormatLabel(_ format: LyricsFormat?) -> String {
         switch format {
-        case .plain: return "Plain"
+        case .plain: return String(localized: "lyrics_format_plain_short")
         case .lineLevel: return "LRC"
         case .wordLevel: return "ELRC"
         case nil: return String(localized: "tag_editor_lyrics_format_empty")

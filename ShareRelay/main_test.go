@@ -156,7 +156,7 @@ func TestClientEncryptedUploadKeepsKeysAndMetadataOffServer(t *testing.T) {
 	})
 	pageBody, _ := io.ReadAll(page.Body)
 	page.Body.Close()
-	if page.StatusCode != http.StatusOK || !bytes.Contains(pageBody, []byte("在此设备解密")) ||
+	if page.StatusCode != http.StatusOK || !bytes.Contains(pageBody, []byte("Decrypt on this device")) ||
 		bytes.Contains(pageBody, []byte("夜航西飞")) || bytes.Contains(pageBody, []byte("陈默寻")) {
 		t.Fatalf("encrypted page disclosed metadata or omitted decrypt UI")
 	}
@@ -427,7 +427,7 @@ func TestPermanentShareSurvivesRestartAndFarFutureUntilRevoked(t *testing.T) {
 	})
 	pageBody, _ := io.ReadAll(page.Body)
 	page.Body.Close()
-	if page.StatusCode != http.StatusOK || !strings.Contains(string(pageBody), "永久有效（直到分享者撤销）") {
+	if page.StatusCode != http.StatusOK || !strings.Contains(string(pageBody), "Available until revoked") {
 		t.Fatalf("permanent page status=%d body=%s", page.StatusCode, pageBody)
 	}
 
@@ -486,7 +486,7 @@ func TestBrowserPagePermissionsAndOneTimeImport(t *testing.T) {
 	pageHTML := string(pageBody)
 	for _, expected := range []string{
 		"夜航西飞 &lt;Live&gt;",
-		"陈默寻 · 《潮汐纪年》",
+		"陈默寻 · 潮汐纪年",
 		"data-protected-action=\"download\" hidden",
 		`data-media-url="` + publicPath + `/media"`,
 		`data-download-url="` + publicPath + `/download"`,

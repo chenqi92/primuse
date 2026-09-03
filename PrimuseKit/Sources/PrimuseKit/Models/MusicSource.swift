@@ -460,12 +460,12 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .webdav: return "HTTPS/HTTP"
         case .smb: return "SMB2/3, CIFS"
         case .ftp: return "FTP/FTPS/FTPES"
-        case .sftp: return "SSH, Key Auth"
+        case .sftp: return PMString("src.subtitle.sftp")
         case .nfs: return "NFSv3/v4"
-        case .upnp: return "Auto Discovery"
-        case .jellyfin: return "Open Source"
-        case .emby: return "Media Server"
-        case .plex: return "Plex Media"
+        case .upnp: return PMString("src.subtitle.upnp")
+        case .jellyfin: return PMString("src.subtitle.jellyfin")
+        case .emby: return PMString("src.subtitle.emby")
+        case .plex: return PMString("src.subtitle.plex")
         case .subsonic: return "Subsonic / OpenSubsonic"
         case .navidrome: return "Navidrome"
         case .airsonic: return "Airsonic / Airsonic-Advanced"
@@ -591,9 +591,9 @@ public enum FTPEncryption: String, Codable, Sendable, CaseIterable {
 
     public var displayName: String {
         switch self {
-        case .none: return "None"
-        case .implicitTLS: return "Implicit TLS (FTPS)"
-        case .explicitTLS: return "Explicit TLS (FTPES)"
+        case .none: return PMString("ftp.encryption.none")
+        case .implicitTLS: return PMString("ftp.encryption.implicitTLS")
+        case .explicitTLS: return PMString("ftp.encryption.explicitTLS")
         }
     }
 }
@@ -605,7 +605,7 @@ public enum NFSVersion: String, Codable, Sendable, CaseIterable {
 
     public var displayName: String {
         switch self {
-        case .auto: return "Auto"
+        case .auto: return PMString("nfs.version.auto")
         case .v3: return "NFSv3"
         case .v4: return "NFSv4"
         }

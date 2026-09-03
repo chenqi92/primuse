@@ -57,8 +57,8 @@ enum WatchLoc {
         "ext.watch.queue.empty.title": "Queue is empty",
         "ext.watch.queue.empty.subtitle": "Play a song on your iPhone and the queue shows up here",
         "ext.watch.queue.truncationNotice": "Showing first %d of %d songs",
-        "ext.watch.radio.live": "LIVE",
-        "ext.watch.radio.stop": "Stop",
+        "ext.watch.radio.live": "ライブ",
+        "ext.watch.radio.stop": "停止",
     ]
 
     static let zhHans: [String: String] = [

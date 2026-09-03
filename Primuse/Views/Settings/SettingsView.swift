@@ -1509,7 +1509,12 @@ struct PlaybackSettingsView: View {
                              : "crossfade_duration")
                             .font(.caption)
                         Slider(value: $settings.crossfadeDuration, in: 1...12, step: 1) {
-                            Text("\(settings.crossfadeDuration.finiteInt())s")
+                            Text(
+                                String(
+                                    format: String(localized: "stats_seconds_format"),
+                                    settings.crossfadeDuration.finiteInt()
+                                )
+                            )
                         }
                         Text("\(settings.crossfadeDuration.finiteInt()) \(String(localized: "seconds"))")
                             .font(.caption2)
@@ -2513,7 +2518,7 @@ struct FamilySharingSettingsView: View {
             let share = try await sync.enableFamilySharing()
             guard let container = sync.containerForSharingController() else {
                 throw NSError(domain: "Primuse.Cloud", code: -1,
-                              userInfo: [NSLocalizedDescriptionKey: "CloudKit unavailable"])
+                              userInfo: [NSLocalizedDescriptionKey: String(localized: "cloudkit_unavailable")])
             }
             pendingShare = share
             pendingContainer = container
@@ -2534,7 +2539,7 @@ struct FamilySharingSettingsView: View {
             let share = try await sync.enableFamilySharing()
             guard let container = sync.containerForSharingController() else {
                 throw NSError(domain: "Primuse.Cloud", code: -1,
-                              userInfo: [NSLocalizedDescriptionKey: "CloudKit unavailable"])
+                              userInfo: [NSLocalizedDescriptionKey: String(localized: "cloudkit_unavailable")])
             }
             pendingShare = share
             pendingContainer = container

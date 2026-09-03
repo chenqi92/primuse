@@ -132,7 +132,7 @@ test("official E2EE uploads keep keys and presentation metadata off the server",
   assert.match(page.headers.get("Content-Security-Policy"), /media-src 'self' blob:/);
   const html = await page.text();
   assert.match(html, /data-encryption-mode="client-aes-256-gcm-chunks-v1"/);
-  assert.match(html, /在此设备解密/);
+  assert.match(html, /Decrypt on this device/);
   assert.doesNotMatch(html, /夜航西飞|陈默寻|潮汐纪年/);
 
   const manifestResponse = await fetchRelay(env, context, `${publicPath}/manifest`);
@@ -401,7 +401,7 @@ test("permanent secure links survive future cleanup and fresh worker contexts un
     },
   });
   assert.equal(page.status, 200);
-  assert.match(await page.text(), /永久有效（直到分享者撤销）/);
+  assert.match(await page.text(), /Available until revoked/);
   const playable = await fetchRelay(restartedEnv, restartedContext, `${publicPath}/media`, {
     headers: { Authorization: basicAuthorization("listener", password) },
   });
@@ -460,7 +460,7 @@ test("browser share page exposes only allowed actions and import tickets are one
   assert.match(page.headers.get("Content-Security-Policy"), /default-src 'none'/);
   const html = await page.text();
   assert.match(html, /夜航西飞 &lt;Live&gt;/);
-  assert.match(html, /陈默寻 · 《潮汐纪年》/);
+  assert.match(html, /陈默寻 · 潮汐纪年/);
   assert.match(html, /data-protected-action="download" hidden/);
   assert.match(html, new RegExp(`data-file-size="${media.byteLength}"`));
   assert.doesNotMatch(html, /<audio[^>]+src=/);
@@ -545,16 +545,19 @@ test("password browser flow uses a signed session cookie without disclosing meta
   });
   const publicPath = new URL(creation.publicURL).pathname;
 
-  const locked = await fetchRelay(env, context, publicPath, {
+  const localizedPublicPath = `${publicPath}?lang=zh-Hans`;
+  const locked = await fetchRelay(env, context, localizedPublicPath, {
     headers: { Accept: "text/html", "Sec-Fetch-Mode": "navigate" },
   });
   assert.equal(locked.status, 200);
   const lockedHTML = await locked.text();
+  assert.equal(locked.headers.get("Content-Language"), "zh-Hans");
   assert.match(lockedHTML, /受密码保护/);
+  assert.ok(lockedHTML.includes(`data-auth-url="${publicPath}/auth?lang=zh-Hans"`));
   assert.doesNotMatch(lockedHTML, /不可提前泄露|私密歌曲/);
   assert.equal(locked.headers.get("WWW-Authenticate"), null);
 
-  const wrong = await fetchRelay(env, context, `${publicPath}/auth`, {
+  const wrong = await fetchRelay(env, context, `${publicPath}/auth?lang=zh-Hans`, {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -566,16 +569,17 @@ test("password browser flow uses a signed session cookie without disclosing meta
   assert.equal(wrong.status, 401);
   assert.equal(wrong.headers.get("WWW-Authenticate"), null);
 
-  const unlocked = await fetchRelay(env, context, `${publicPath}/auth`, {
+  const unlocked = await fetchRelay(env, context, `${publicPath}/auth?lang=zh-Hans`, {
     method: "POST",
     headers: {
-      Accept: "application/json",
+      Accept: "text/html",
       Origin: "https://share.soundisle.com",
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: new URLSearchParams({ password: "海屋2026" }),
   });
-  assert.equal(unlocked.status, 200);
+  assert.equal(unlocked.status, 303);
+  assert.equal(unlocked.headers.get("Location"), `${creation.publicURL}?lang=zh-Hans`);
   const cookie = unlocked.headers.get("Set-Cookie");
   assert.match(cookie, /HttpOnly/);
   assert.match(cookie, /SameSite=Strict/);
@@ -793,6 +797,52 @@ test("configuration, authentication, media validation, and range parsing fail cl
   assert.equal(testing.parseContentRange("bytes 5-10/10"), null);
   assert.equal(testing.sanitizeFileName("  ../bad:name  "), ".._bad_name");
   assert.equal(testing.sanitizeContentType("text/html"), "application/octet-stream");
+});
+
+test("browser pages negotiate every supported locale from one complete catalog", async () => {
+  const catalog = JSON.parse(await readFile(new URL("../../web/i18n.json", import.meta.url), "utf8"));
+  const locales = ["en", "de", "fr", "ja", "ko", "zh-Hans", "zh-Hant"];
+  assert.equal(new Set(catalog.keys).size, catalog.keys.length);
+  const musicShareIndex = catalog.keys.indexOf("MUSIC_SHARE");
+  assert.notEqual(musicShareIndex, -1);
+
+  const env = makeEnvironment(new MemoryBucket());
+  const context = new TestContext();
+  const missingToken = "A".repeat(32);
+  for (const locale of locales) {
+    assert.equal(catalog.locales[locale].length, catalog.keys.length);
+    assert.ok(catalog.locales[locale].every((value, index) => (
+      String(value).trim() || ["FILE_ABOUT_SUFFIX", "LARGE_FILE_SUFFIX"].includes(catalog.keys[index])
+    )));
+    const response = await fetchRelay(env, context, `/s/${missingToken}?lang=${locale}`, {
+      headers: { Accept: "text/html", "Sec-Fetch-Mode": "navigate" },
+    });
+    assert.equal(response.status, 410);
+    assert.equal(response.headers.get("Content-Language"), locale);
+    assert.match(response.headers.get("Vary"), /Accept-Language/i);
+    const html = await response.text();
+    assert.match(html, new RegExp(`<html lang="${locale}">`));
+    assert.ok(html.includes(catalog.locales[locale][musicShareIndex]));
+    assert.equal(html.includes("{{"), false);
+  }
+
+  const weighted = await fetchRelay(env, context, `/s/${missingToken}`, {
+    headers: {
+      Accept: "text/html",
+      "Sec-Fetch-Mode": "navigate",
+      "Accept-Language": "ja;q=0.4, fr-FR;q=0.9",
+    },
+  });
+  assert.equal(weighted.headers.get("Content-Language"), "fr");
+
+  const explicit = await fetchRelay(env, context, `/s/${missingToken}?lang=de-DE`, {
+    headers: {
+      Accept: "text/html",
+      "Sec-Fetch-Mode": "navigate",
+      "Accept-Language": "zh-CN",
+    },
+  });
+  assert.equal(explicit.headers.get("Content-Language"), "de");
 });
 
 async function encryptEnvelope(keyBytes, plaintext, additionalData) {

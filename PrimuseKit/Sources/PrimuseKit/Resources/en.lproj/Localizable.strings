@@ -57,6 +57,7 @@
 "ext.widget.stats.last30Days"              = "Last 30 days";
 "ext.widget.stats.plays"                   = "plays";
 "ext.widget.stats.totalTime"               = "total time";
+"ext.widget.stats.hoursFormat"             = "%d h";
 "ext.widget.stats.topThisMonth"            = "Top this month";
 
 "ext.widget.sources.displayName"           = "Music Sources";
@@ -681,3 +682,17 @@
 "serverShare.error.unsafeURL" = "The server returned a link that looks like a stream URL or contains account credentials.";
 "serverShare.error.malformedResponse" = "The server did not return a valid public media link.";
 "metadata.rangeRead.error.suffixUnsupported" = "This server cannot provide the bounded file-tail read needed for metadata.";
+"ext.widget.live" = "LIVE";
+"ext.widget.wrapped.brand" = "PRIMUSE WRAPPED";
+"audio.quality.lossless" = "Lossless";
+"audio.quality.standard" = "Standard";
+"ftp.encryption.none" = "None";
+"ftp.encryption.implicitTLS" = "Implicit TLS (FTPS)";
+"ftp.encryption.explicitTLS" = "Explicit TLS (FTPES)";
+"nfs.version.auto" = "Automatic";
+"radio.streamFormat.automatic" = "Automatic";
+"src.subtitle.sftp" = "SSH · Key authentication";
+"src.subtitle.upnp" = "Automatic discovery";
+"src.subtitle.jellyfin" = "Open source";
+"src.subtitle.emby" = "Media server";
+"src.subtitle.plex" = "Plex media server";

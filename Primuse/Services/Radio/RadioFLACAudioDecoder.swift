@@ -68,7 +68,7 @@ final class RadioFLACAudioDecoder: Sendable {
                                 ) else {
                                     throw Self.error(
                                         code: 1,
-                                        message: "Unable to configure live FLAC audio conversion."
+                                        message: String(localized: "radio_flac_error_configure")
                                     )
                                 }
                                 converter = newConverter
@@ -77,7 +77,7 @@ final class RadioFLACAudioDecoder: Sendable {
                             guard let converter else {
                                 throw Self.error(
                                     code: 1,
-                                    message: "Unable to configure live FLAC audio conversion."
+                                    message: String(localized: "radio_flac_error_configure")
                                 )
                             }
                             outputBuffer = try Self.convert(
@@ -122,7 +122,10 @@ final class RadioFLACAudioDecoder: Sendable {
             pcmFormat: outputFormat,
             frameCapacity: max(1, capacity)
         ) else {
-            throw error(code: 2, message: "Unable to allocate live FLAC audio output.")
+            throw error(
+                code: 2,
+                message: String(localized: "radio_flac_error_allocate")
+            )
         }
 
         let input = RadioFLACConverterInput(source)
@@ -137,7 +140,10 @@ final class RadioFLACAudioDecoder: Sendable {
         }
         if let conversionError { throw conversionError }
         if status == .error {
-            throw error(code: 3, message: "Unable to convert live FLAC audio.")
+            throw error(
+                code: 3,
+                message: String(localized: "radio_flac_error_convert")
+            )
         }
         return output
     }

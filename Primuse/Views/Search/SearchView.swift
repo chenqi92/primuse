@@ -543,7 +543,7 @@ struct SearchView: View {
     @ViewBuilder
     private var macAppleMusicSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            macSectionLabelText("Apple Music · Catalog")
+            macSectionLabel("search_apple_music_catalog_section")
             HStack(spacing: 10) {
                 Image(systemName: "applelogo")
                     .font(.system(size: 12, weight: .semibold))

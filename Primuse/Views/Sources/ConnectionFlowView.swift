@@ -756,7 +756,7 @@ struct ConnectionFlowView: View {
             }
 
             pendingPasswordCandidate = nil
-            errorMessage = result.errorMessage ?? "Unknown error"
+            errorMessage = result.errorMessage ?? String(localized: "unknown_error")
             withAnimation { step = .failed }
         }
     }

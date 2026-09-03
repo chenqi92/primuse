@@ -13,6 +13,11 @@ REQUIRED_SIRI_INTENTS = %w[
   INSearchForMediaIntent
 ].freeze
 REQUIRED_SIRI_EXAMPLE_COUNT = 7
+APP_SHORTCUTS_CATALOG = ROOT / "Primuse/Resources/AppShortcuts.xcstrings"
+APP_SHORTCUT_SOURCE_PATHS = [
+  ROOT / "Primuse/App/PlayMediaIntentHandler.swift",
+  ROOT / "Primuse/Services/Intents/PrimuseAppIntents.swift"
+].freeze
 
 REQUIRED_APP_LOCALIZATION_KEYS = [
   "ai_error_missing_openai_platform_key",
@@ -25,9 +30,20 @@ REQUIRED_APP_LOCALIZATION_KEYS = [
   "ai_primuse_relay_ready",
   "ai_primuse_relay_section",
   "ai_primuse_relay_unsupported",
+  "audio_output_error_follow_system %d",
+  "audio_output_error_set_device %d",
   "insecure_http_continue",
   "insecure_http_warning_message %@",
-  "insecure_http_warning_title"
+  "insecure_http_warning_title",
+  "radio_flac_error_allocate",
+  "radio_flac_error_configure",
+  "radio_flac_error_convert",
+  "radio_live_error_no_frames",
+  "radio_live_error_output",
+  "offline_wait_background_transfer",
+  "offline_wait_incompatible_transfer",
+  "source_unavailable",
+  "upnp_unknown_item"
 ].freeze
 
 OPENAI_ACCOUNT_BOUNDARY_KEY = "ai_openai_platform_billing_footer"
@@ -44,6 +60,7 @@ OPENAI_ACCOUNT_BOUNDARY_BILLING_MARKERS = {
 
 RESOURCE_GROUPS = [
   ["Primuse Localizable.strings", ROOT / "Primuse/Resources", "Localizable.strings", false],
+  ["Primuse CacheSync.strings", ROOT / "Primuse/Resources", "CacheSync.strings", true],
   ["PrimuseKit Localizable.strings", ROOT / "PrimuseKit/Sources/PrimuseKit/Resources", "Localizable.strings", true],
   ["Primuse InfoPlist.strings", ROOT / "Primuse/Resources", "InfoPlist.strings", true],
   ["Widget InfoPlist.strings", ROOT / "PrimuseWidgetExtension/Resources", "InfoPlist.strings", true],
@@ -52,8 +69,23 @@ RESOURCE_GROUPS = [
 ].freeze
 
 IDENTICAL_VALUE_PREFIXES = %w[
+  artwork_
+  baidu_snapshot_
+  cache_sync_
+  cloud_account_
+  fullscreen_effect_
   home_
+  local_import_
+  lock_screen_
+  metadata_writeback_
+  relay_import_
+  relay_share_
+  reread_song_tags
+  server_favorite_
+  song_details_
   tag_editor_lyrics_
+  tag_editor_metadata_writeback_
+  tag_editor_writeback_
   drime_
   cloud_permission_
   fnmusic_
@@ -68,6 +100,16 @@ IDENTICAL_VALUE_KEYS = %w[
   shuffle_all
   sidebar_all_songs
   sidebar_liked_songs
+  immersive_demo_title
+  immersive_demo_album
+  ssh_key
+  spatial_audio
+  stats_hours_minutes_format
+  ext.tv.immersive.style.lightField
+  ext.tv.immersive.style.deepField
+  ext.tv.immersive.style.ambientBloom
+  ext.tv.immersive.style.lyricStage
+  ext.tv.sources.form.host
   ext.tv.radio.play
   ext.tv.radio.stop
   ext.tv.radio.stationCount
@@ -76,7 +118,61 @@ IDENTICAL_VALUE_KEYS = %w[
 ].freeze
 
 IDENTICAL_VALUE_GLOBAL_ALLOWLIST = %w[
+  fullscreen_effect_cover_flow
+  fullscreen_effect_collection_native
+  fullscreen_effect_native
+  fullscreen_effect_vinyl
+  local_import_failure_item_format
+  relay_import_status
+  relay_share_format
+  relay_share_endpoint_placeholder
   radio_batch_entry_file
+].freeze
+
+VERBATIM_SWIFTUI_LITERALS = %w[
+  A-
+  A+
+  AM
+  Apple
+  ConfigurableScraper
+  Esc
+  Google
+  HTTP
+  Last.fm
+  ListenBrainz
+  MV
+  S3
+  Siri
+  music.example.local
+  us-east-1
+].freeze
+
+FORBIDDEN_VISIBLE_LITERALS = [
+  /\bText\([^\n]*(?:"LIVE"|"READY")/,
+  /\b(?:return|\?)\s*"LIVE"/,
+  /\baccessibilityLabel\([^\n]*"(?:Disable MV|Enable MV)"/,
+  /\bText\(\s*"SIRI REMOTE"/,
+  /\bText\(\s*"PRIMUSE WRAPPED"/,
+  /\bText\(\s*"17h"/,
+  /\bText\([^\n]*totalHours\)h"/,
+  /\bText\([^\n]*crossfadeDuration[^\n]*\)s"/,
+  /\bText\(\s*verbatim:\s*"d"/,
+  /\bmacSectionLabelText\(\s*"Apple Music · Catalog"/,
+  /\baccessibilityLabel:\s*String\s*=\s*"Volume"/,
+  /\bcase\s+\.[^:]+:\s*(?:return\s+)?"(?:Lossless|Standard|None|Implicit TLS \(FTPS\)|Explicit TLS \(FTPES\)|Auto|Plain|INVALID|WARN|ERROR)"/,
+  /\breturn\s+"(?:SSH, Key Auth|Auto Discovery|Open Source|Media Server|Plex Media|Built-in)"/,
+  /\?\?\s*"Device \\\([^)]*\)"/,
+  /\b(?:TextField|SecureField|Section|MacSTRow|MacSTSection)\(\s*"(?:Region|Bucket|Access Key|Secret Key|Client ID \/ App Key|Client Secret(?: \(optional\))?|User token|API Secret|Local Folder)"/,
+  /\b(?:errorMessage\s*=|return)\s*[^\n]*"(?:Unknown error|Pasted JSON|Shared music|NFS Exports|CloudKit unavailable)"/,
+  /\berrorMessage:\s*"Login failed"/,
+  /\bmessage:\s*"Unsupported SSH key/,
+  /\bString\(format:\s*"Track %02d"/,
+  /\bmessage:\s*"(?:Unable to configure live FLAC audio conversion\.|Unable to allocate live FLAC audio output\.|Unable to convert live FLAC audio\.)"/,
+  /NSLocalizedDescriptionKey:\s*"(?:Unable to configure live audio output\.|The radio stream returned no audio frames\.)"/,
+  /\bnode\.title\s*=\s*"Unknown"/,
+  /NSLocalizedDescriptionKey:\s*"Failed to (?:set output device|follow system output)/,
+  /\bmessage:\s*"Waiting for (?:a background|an incompatible) cache transfer to finish"/,
+  /\bmessage:\s*"Source not found"/
 ].freeze
 
 JAPANESE_TRANSLATION_REQUIRED_PREFIXES = %w[
@@ -151,12 +247,6 @@ PMSTRING_SOURCE_ROOTS = %w[
 ].freeze
 
 HAN_LITERAL_ALLOWLIST = {
-  "Primuse/Services/Intents/PrimuseAppIntents.swift" => [
-    /用 .*applicationName/
-  ],
-  "Primuse/App/PlayMediaIntentHandler.swift" => [
-    /用 .*applicationName/
-  ],
   "PrimuseKit/Sources/PrimuseKit/LyricsTextTools.swift" => [
     /作词|作曲|编曲|填词|制作人|混音|母带|和声|吉他|贝斯|鼓|键盘|弦乐|录音|出品|发行|策划|统筹|演唱|原唱|翻唱/
   ],
@@ -231,6 +321,15 @@ def load_strings(path)
   JSON.parse(output)
 end
 
+def duplicate_string_keys(path)
+  keys = Hash.new { |entries, key| entries[key] = [] }
+  path.readlines.each_with_index do |line, index|
+    match = line.match(/^\s*"((?:\\.|[^"\\])*)"\s*=/)
+    keys[match[1]] << index + 1 if match
+  end
+  keys.select { |_key, lines| lines.length > 1 }
+end
+
 def localization_paths(root, file_name)
   SUPPORTED_LOCALES.to_h do |locale|
     [locale, root / "#{locale}.lproj" / file_name]
@@ -254,6 +353,11 @@ def check_resource_group(name, root, file_name, exact_english_parity, failures)
   end
 
   values = paths.transform_values { |path| load_strings(path) }
+  paths.each do |locale, path|
+    duplicate_string_keys(path).each do |key, lines|
+      failures << "#{name} #{locale}: duplicate key #{key.inspect} on lines #{lines.join(', ')}"
+    end
+  end
   union = values.values.reduce(Set.new) { |keys, dictionary| keys | dictionary.keys.to_set }
 
   values.each do |locale, dictionary|
@@ -341,6 +445,76 @@ def check_siri_vocabulary(failures)
       end
     end
   end
+end
+
+def app_shortcut_source_keys
+  APP_SHORTCUT_SOURCE_PATHS.each_with_object(Set.new) do |path, keys|
+    source = path.read
+    source.scan(/phrases:\s*\[(.*?)\]/m).each do |(body)|
+      body.scan(/"((?:\\.|[^"\\])*)"/).each do |(phrase)|
+        next unless phrase.include?("\\(.applicationName)")
+
+        key = phrase
+          .gsub("\\(.applicationName)", "${applicationName}")
+          .gsub(/\\\(\\\.\$([a-zA-Z0-9_]+)\)/, '${\1}')
+        keys << key
+      end
+    end
+  end
+end
+
+def check_app_shortcuts_catalog(failures)
+  unless APP_SHORTCUTS_CATALOG.file?
+    failures << "App Shortcuts: missing Primuse/Resources/AppShortcuts.xcstrings"
+    return
+  end
+
+  catalog = JSON.parse(APP_SHORTCUTS_CATALOG.read)
+  strings = catalog["strings"]
+  unless catalog["sourceLanguage"] == "en" && strings.is_a?(Hash)
+    failures << "App Shortcuts: catalog must use English as its source language"
+    return
+  end
+
+  source_keys = app_shortcut_source_keys
+  catalog_keys = strings.keys.to_set
+  missing = source_keys - catalog_keys
+  stale = catalog_keys - source_keys
+  failures << "App Shortcuts: missing source phrases: #{missing.to_a.sort.join(', ')}" unless missing.empty?
+  failures << "App Shortcuts: stale catalog phrases: #{stale.to_a.sort.join(', ')}" unless stale.empty?
+
+  strings.each do |key, entry|
+    localizations = entry["localizations"]
+    unless localizations.is_a?(Hash)
+      failures << "App Shortcuts #{key.inspect}: missing localizations"
+      next
+    end
+
+    missing_locales = SUPPORTED_LOCALES.reject { |locale| localizations.key?(locale) }
+    unless missing_locales.empty?
+      failures << "App Shortcuts #{key.inspect}: missing locales: #{missing_locales.join(', ')}"
+    end
+
+    source_tokens = key.scan(/\$\{([a-zA-Z0-9_]+)\}/).flatten.to_set
+    SUPPORTED_LOCALES.each do |locale|
+      values = localizations.dig(locale, "stringSet", "values")
+      unless values.is_a?(Array) && values.all? { |value| value.is_a?(String) && !value.strip.empty? }
+        failures << "App Shortcuts #{key.inspect} #{locale}: phrase set must not be empty"
+        next
+      end
+
+      translated_tokens = values.flat_map { |value| value.scan(/\$\{([a-zA-Z0-9_]+)\}/).flatten }.to_set
+      unknown_tokens = translated_tokens - source_tokens
+      missing_tokens = source_tokens - translated_tokens
+      failures << "App Shortcuts #{key.inspect} #{locale}: unknown tokens: #{unknown_tokens.to_a.sort.join(', ')}" unless unknown_tokens.empty?
+      failures << "App Shortcuts #{key.inspect} #{locale}: missing tokens: #{missing_tokens.to_a.sort.join(', ')}" unless missing_tokens.empty?
+      unless values.all? { |value| value.include?("${applicationName}") }
+        failures << "App Shortcuts #{key.inspect} #{locale}: every phrase must include ${applicationName}"
+      end
+    end
+  end
+rescue JSON::ParserError => error
+  failures << "App Shortcuts: invalid catalog JSON: #{error.message}"
 end
 
 def localized_error_literals(path)
@@ -434,11 +608,18 @@ def check_app_source_localization_coverage(dictionaries, failures)
 
   explicit_patterns = [
     /\bLz\(\s*"((?:\\.|[^"\\])*)"/,
-    /\bString\(\s*localized:\s*"((?:\\.|[^"\\])*)"/
+    /\bString\(\s*localized:\s*"((?:\\.|[^"\\])*)"/,
+    /\bLocalizedStringResource\s*=\s*"((?:\\.|[^"\\])*)"/,
+    /\bIntentDescription\(\s*"((?:\\.|[^"\\])*)"/,
+    /\bIntentDialog\(\s*"((?:\\.|[^"\\])*)"/,
+    /\bTypeDisplayRepresentation\(\s*name:\s*"((?:\\.|[^"\\])*)"/,
+    /@Parameter\(\s*title:\s*"((?:\\.|[^"\\])*)"/,
+    /@Parameter\([^\n]*\bdescription:\s*"((?:\\.|[^"\\])*)"/,
+    /\bshortTitle:\s*"((?:\\.|[^"\\])*)"/
   ].freeze
   localized_literal_pattern = /\A[a-z][a-z0-9_.]*\z/
   opaque_key_pattern = /\A[a-z0-9]+(?:[_.][a-z0-9]+)+\z/
-  swiftui_key_pattern = /\b(?:Text|Toggle|Picker|Button|Label)\(\s*"((?:\\.|[^"\\])*)"/
+  swiftui_key_pattern = /\b(?:Text|Toggle|Picker|Button|Label|Section|TextField|SecureField|NavigationLink|GroupBox|ContentUnavailableView)\(\s*"((?:\\.|[^"\\])*)"/
   mac_component_pattern = /\b(?:MacSTRow|MacSTSection)\(\s*"((?:\\.|[^"\\])*)"/
   mac_button_pattern = /\bMacSTButton\(\s*title:\s*"((?:\\.|[^"\\])*)"/
 
@@ -452,9 +633,23 @@ def check_app_source_localization_coverage(dictionaries, failures)
     end
 
     source_literal_matches(path, swiftui_key_pattern).each do |key, line|
-      next unless key.match?(localized_literal_pattern)
+      next if VERBATIM_SWIFTUI_LITERALS.include?(key)
+      next if key.empty? || key.include?("\\(")
+      next if key.start_with?("http") || key.start_with?("©")
+      next if key.match?(/\A[\s·#—─]+\z/)
+      next if key.match?(/\A[+\-]?\d[\d,.]*(?:\.\d+)?\s*(?:dB|x|×|kHz)?\z/)
 
-      required = key.match?(opaque_key_pattern) ? SUPPORTED_LOCALES : NON_ENGLISH_LOCALES
+      unless key.match?(localized_literal_pattern) || dictionaries.values.any? { |dictionary| dictionary.key?(key) }
+        failures << "#{path.relative_path_from(ROOT)}:#{line}: " \
+                    "user-facing SwiftUI literal is not localized: #{key.inspect}"
+        next
+      end
+
+      required = if key.match?(localized_literal_pattern) && key.match?(opaque_key_pattern)
+                   SUPPORTED_LOCALES
+                 else
+                   NON_ENGLISH_LOCALES
+                 end
       usages[key][:locales].merge(required)
       usages[key][:locations] << "#{path.relative_path_from(ROOT)}:#{line}"
     end
@@ -476,6 +671,23 @@ def check_app_source_localization_coverage(dictionaries, failures)
 
     failures << "Primuse source localization key #{key.inspect}: missing locales: " \
                 "#{missing.join(', ')} (#{usage[:locations].to_a.sort.first})"
+  end
+end
+
+def check_forbidden_visible_literals(failures)
+  PMSTRING_SOURCE_ROOTS.each do |relative_root|
+    (ROOT / relative_root).glob("**/*.swift").sort.each do |path|
+      path.readlines.each_with_index do |line, index|
+        next if line.lstrip.start_with?("//") || line.include?("plog(")
+
+        FORBIDDEN_VISIBLE_LITERALS.each do |pattern|
+          next unless line.match?(pattern)
+
+          failures << "#{path.relative_path_from(ROOT)}:#{index + 1}: " \
+                      "user-facing literal must use a localization key: #{line.strip}"
+        end
+      end
+    end
   end
 end
 
@@ -505,10 +717,12 @@ RESOURCE_GROUPS.each do |name, root, file_name, exact_english_parity|
   check_resource_group(name, root, file_name, exact_english_parity, failures)
 end
 check_siri_vocabulary(failures)
+check_app_shortcuts_catalog(failures)
 
 app_localizations = localization_paths(ROOT / "Primuse/Resources", "Localizable.strings")
   .transform_values { |path| load_strings(path) }
 check_app_source_localization_coverage(app_localizations, failures)
+check_forbidden_visible_literals(failures)
 
 app_localizations.each do |locale, dictionary|
   value = dictionary[OPENAI_ACCOUNT_BOUNDARY_KEY]

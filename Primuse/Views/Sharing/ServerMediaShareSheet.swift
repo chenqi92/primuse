@@ -834,7 +834,7 @@ private enum MediaRelayEncryptedManifestPolicy {
         let fallbackTitle = URL(fileURLWithPath: fileName).deletingPathExtension().lastPathComponent
         let title = normalizedText(song.title, maximumUTF16Length: 160)
             ?? normalizedText(fallbackTitle, maximumUTF16Length: 160)
-            ?? "Shared music"
+            ?? String(localized: "shared_music")
         let duration = song.duration.isFinite
             ? min(max(0, song.duration), 7 * 24 * 60 * 60)
             : 0

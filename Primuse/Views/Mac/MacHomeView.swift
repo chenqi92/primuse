@@ -802,7 +802,7 @@ struct MacHomeView: View {
         HStack(spacing: 5) {
             if isPlaying {
                 Circle().fill(.red).frame(width: 6, height: 6)
-                Text("LIVE")
+                Text("live_badge")
             } else {
                 Image(systemName: "radio")
                     .font(.system(size: 9, weight: .semibold))

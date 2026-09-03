@@ -635,11 +635,11 @@ struct AddSourceView: View {
             }
         case .s3:
             macSection("S3") {
-                macTextRow("Region", text: $basePath)
-                macTextRow("Bucket", text: $shareName, focus: .shareName)
-                macTextRow("Access Key", text: $username, focus: .username)
-                macCustomRow("Secret Key") {
-                    RevealableSecureField(title: "Secret Key", text: $password)
+                macTextRow("s3_region", text: $basePath)
+                macTextRow("s3_bucket", text: $shareName, focus: .shareName)
+                macTextRow("s3_access_key", text: $username, focus: .username)
+                macCustomRow("s3_secret_key") {
+                    RevealableSecureField(title: "s3_secret_key", text: $password)
                         .focused($focusedField, equals: .password)
                         .frame(maxWidth: 280)
                 }
@@ -657,9 +657,9 @@ struct AddSourceView: View {
         case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115, .pan123:
             if !BuiltInCloudCredentials.hasBuiltIn(for: sourceType) {
                 macSection("cloud_oauth_config") {
-                    macTextRow("Client ID / App Key", text: $username, focus: .username)
-                    macCustomRow("Client Secret") {
-                        RevealableSecureField(title: "Client Secret (optional)", text: $password)
+                    macTextRow("cloud_client_id_or_app_key", text: $username, focus: .username)
+                    macCustomRow("cloud_client_secret") {
+                        RevealableSecureField(title: "cloud_client_secret_optional", text: $password)
                             .focused($focusedField, equals: .password)
                             .frame(maxWidth: 280)
                     }
@@ -1142,18 +1142,18 @@ struct AddSourceView: View {
             }
         case .s3:
             Section("S3") {
-                TextField("Region", text: $basePath, prompt: Text("us-east-1"))
+                TextField("s3_region", text: $basePath, prompt: Text("us-east-1"))
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
-                TextField("Bucket", text: $shareName)
+                TextField("s3_bucket", text: $shareName)
                     .focused($focusedField, equals: .shareName)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
-                TextField("Access Key", text: $username)
+                TextField("s3_access_key", text: $username)
                     .focused($focusedField, equals: .username)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
-                RevealableSecureField(title: "Secret Key", text: $password)
+                RevealableSecureField(title: "s3_secret_key", text: $password)
                     .focused($focusedField, equals: .password)
             }
         case .drime:
@@ -1172,11 +1172,11 @@ struct AddSourceView: View {
         case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115, .pan123:
             if !BuiltInCloudCredentials.hasBuiltIn(for: sourceType) {
                 Section("cloud_oauth_config") {
-                    TextField("Client ID / App Key", text: $username)
+                    TextField("cloud_client_id_or_app_key", text: $username)
                         .focused($focusedField, equals: .username)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
-                    RevealableSecureField(title: "Client Secret (optional)", text: $password)
+                    RevealableSecureField(title: "cloud_client_secret_optional", text: $password)
                         .focused($focusedField, equals: .password)
                     Label("cloud_oauth_hint", systemImage: "info.circle")
                         .font(.caption)

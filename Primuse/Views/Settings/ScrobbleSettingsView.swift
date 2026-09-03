@@ -272,7 +272,7 @@ struct ScrobbleSettingsView: View {
 
             if settings.enabledProviders.contains(.listenBrainz) {
                 VStack(alignment: .leading, spacing: 10) {
-                    SecureField("User token", text: $listenBrainzToken)
+                    SecureField("scrobble_user_token", text: $listenBrainzToken)
                         .textFieldStyle(.plain)
                         .font(.system(size: 12.5, design: .monospaced))
                         .padding(.horizontal, 10)
@@ -384,11 +384,11 @@ struct ScrobbleSettingsView: View {
                             Text("scrobble_lastfm_advanced_hint")
                                 .font(.system(size: 11.5))
                                 .foregroundStyle(PMColor.textFaint)
-                            macSecretField("API Key", text: $lastFmAPIKey)
+                            macSecretField("api_key", text: $lastFmAPIKey)
                                 .onChange(of: lastFmAPIKey) { _, newVal in
                                     saveLastFmAPIKey(newVal)
                                 }
-                            macSecretField("API Secret", text: $lastFmAPISecret)
+                            macSecretField("scrobble_api_secret", text: $lastFmAPISecret)
                                 .onChange(of: lastFmAPISecret) { _, newVal in
                                     saveLastFmAPISecret(newVal)
                                 }
@@ -413,7 +413,7 @@ struct ScrobbleSettingsView: View {
     private var macRulesCard: some View {
         VStack(spacing: 0) {
             macRow(icon: "timer", title: String(localized: "scrobble_mac_rules_title"), subtitle: String(localized: "scrobble_mac_rules_subtitle")) {
-                Text("50% · 4m")
+                Text("scrobble_mac_rules_value")
                     .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
                     .foregroundStyle(PMColor.textMuted)
                     .padding(.horizontal, 9)
@@ -601,7 +601,7 @@ struct ScrobbleSettingsView: View {
         .buttonStyle(.plain)
     }
 
-    private func macSecretField(_ title: String, text: Binding<String>) -> some View {
+    private func macSecretField(_ title: LocalizedStringKey, text: Binding<String>) -> some View {
         SecureField(title, text: text)
             .textFieldStyle(.plain)
             .font(.system(size: 12.5, design: .monospaced))

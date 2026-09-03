@@ -348,7 +348,11 @@ final class TVAudioEngine {
                     throw NSError(
                         domain: "com.welape.yuanyin.tv-radio",
                         code: 1,
-                        userInfo: [NSLocalizedDescriptionKey: "Unable to configure live audio output."]
+                        userInfo: [
+                            NSLocalizedDescriptionKey: String(
+                                localized: "radio_live_error_output"
+                            )
+                        ]
                     )
                 }
                 let stream = self.radioFLACDecoder.decode(
@@ -361,7 +365,11 @@ final class TVAudioEngine {
                     throw NSError(
                         domain: "com.welape.yuanyin.tv-radio",
                         code: 2,
-                        userInfo: [NSLocalizedDescriptionKey: "The radio stream returned no audio frames."]
+                        userInfo: [
+                            NSLocalizedDescriptionKey: String(
+                                localized: "radio_live_error_no_frames"
+                            )
+                        ]
                     )
                 }
                 guard !Task.isCancelled,

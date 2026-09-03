@@ -377,7 +377,7 @@ private struct MacBottomBarProgress: View {
                 Circle()
                     .fill(isActive ? Color.red : PMColor.textFaint)
                     .frame(width: 6, height: 6)
-                Text(isBuffering ? "radio_buffering" : "LIVE")
+                Text(isBuffering ? String(localized: "radio_buffering") : String(localized: "live_badge"))
                     .font(.system(size: 10, weight: .bold))
                     .tracking(0.8)
                     .foregroundStyle(isActive ? PMColor.brand : PMColor.textMuted)

@@ -1321,9 +1321,6 @@ input[type="range"]::-moz-range-thumb {
     line-height: 1.5;
   }
 
-  .mobile-expiry::after {
-    content: " · 到期后链接自动失效";
-  }
 
   .player {
     order: 5;

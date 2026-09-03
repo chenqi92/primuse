@@ -56,6 +56,7 @@
 "ext.widget.stats.last30Days"              = "过去 30 天";
 "ext.widget.stats.plays"                   = "首播放";
 "ext.widget.stats.totalTime"               = "总时长";
+"ext.widget.stats.hoursFormat"             = "%d 小时";
 "ext.widget.stats.topThisMonth"            = "本月最常听";
 
 "ext.widget.sources.displayName"           = "音乐源";
@@ -680,3 +681,17 @@
 "serverShare.error.unsafeURL" = "服务器返回的链接疑似播放流地址或包含账户凭据。";
 "serverShare.error.malformedResponse" = "服务器未返回有效的公开媒体链接。";
 "metadata.rangeRead.error.suffixUnsupported" = "此服务器不支持读取元数据所需的文件尾部范围。";
+"ext.widget.live" = "直播";
+"ext.widget.wrapped.brand" = "PRIMUSE 年度回顾";
+"audio.quality.lossless" = "无损";
+"audio.quality.standard" = "标准";
+"ftp.encryption.none" = "无";
+"ftp.encryption.implicitTLS" = "隐式 TLS（FTPS）";
+"ftp.encryption.explicitTLS" = "显式 TLS（FTPES）";
+"nfs.version.auto" = "自动";
+"radio.streamFormat.automatic" = "自动";
+"src.subtitle.sftp" = "SSH · 密钥认证";
+"src.subtitle.upnp" = "自动发现";
+"src.subtitle.jellyfin" = "开源";
+"src.subtitle.emby" = "媒体服务器";
+"src.subtitle.plex" = "Plex 媒体服务器";

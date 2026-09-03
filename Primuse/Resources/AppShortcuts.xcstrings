@@ -1,0 +1,208 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Play or pause in ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : { "stringSet" : { "state" : "translated", "values" : [
+          "Wiedergabe in ${applicationName} starten",
+          "${applicationName} pausieren",
+          "Wiedergabe in ${applicationName} starten oder pausieren"
+        ] } },
+        "en" : { "stringSet" : { "state" : "translated", "values" : [
+          "Play in ${applicationName}",
+          "Pause ${applicationName}",
+          "Play or pause in ${applicationName}"
+        ] } },
+        "fr" : { "stringSet" : { "state" : "translated", "values" : [
+          "Lire dans ${applicationName}",
+          "Mettre ${applicationName} en pause",
+          "Lire ou mettre en pause dans ${applicationName}"
+        ] } },
+        "ja" : { "stringSet" : { "state" : "translated", "values" : [
+          "${applicationName}で再生",
+          "${applicationName}を一時停止",
+          "${applicationName}で再生または一時停止"
+        ] } },
+        "ko" : { "stringSet" : { "state" : "translated", "values" : [
+          "${applicationName}에서 재생",
+          "${applicationName} 일시 정지",
+          "${applicationName}에서 재생 또는 일시 정지"
+        ] } },
+        "zh-Hans" : { "stringSet" : { "state" : "translated", "values" : [
+          "用 ${applicationName} 播放",
+          "用 ${applicationName} 暂停",
+          "用 ${applicationName} 播放或暂停"
+        ] } },
+        "zh-Hant" : { "stringSet" : { "state" : "translated", "values" : [
+          "用 ${applicationName} 播放",
+          "用 ${applicationName} 暫停",
+          "用 ${applicationName} 播放或暫停"
+        ] } }
+      }
+    },
+    "Play the next track in ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : { "stringSet" : { "state" : "translated", "values" : [ "Nächsten Titel in ${applicationName} abspielen" ] } },
+        "en" : { "stringSet" : { "state" : "translated", "values" : [ "Play the next track in ${applicationName}" ] } },
+        "fr" : { "stringSet" : { "state" : "translated", "values" : [ "Lire le morceau suivant dans ${applicationName}" ] } },
+        "ja" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}で次の曲を再生" ] } },
+        "ko" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}에서 다음 곡 재생" ] } },
+        "zh-Hans" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 播放下一首" ] } },
+        "zh-Hant" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 播放下一首" ] } }
+      }
+    },
+    "Play the previous track in ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : { "stringSet" : { "state" : "translated", "values" : [ "Vorherigen Titel in ${applicationName} abspielen" ] } },
+        "en" : { "stringSet" : { "state" : "translated", "values" : [ "Play the previous track in ${applicationName}" ] } },
+        "fr" : { "stringSet" : { "state" : "translated", "values" : [ "Lire le morceau précédent dans ${applicationName}" ] } },
+        "ja" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}で前の曲を再生" ] } },
+        "ko" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}에서 이전 곡 재생" ] } },
+        "zh-Hans" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 播放上一首" ] } },
+        "zh-Hant" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 播放上一首" ] } }
+      }
+    },
+    "Shuffle ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName} zufällig wiedergeben" ] } },
+        "en" : { "stringSet" : { "state" : "translated", "values" : [ "Shuffle ${applicationName}" ] } },
+        "fr" : { "stringSet" : { "state" : "translated", "values" : [ "Lecture aléatoire dans ${applicationName}" ] } },
+        "ja" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}をシャッフル再生" ] } },
+        "ko" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}에서 임의 재생" ] } },
+        "zh-Hans" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 随机播放" ] } },
+        "zh-Hant" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 隨機播放" ] } }
+      }
+    },
+    "Play a song in ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : { "stringSet" : { "state" : "translated", "values" : [ "Einen Titel in ${applicationName} abspielen" ] } },
+        "en" : { "stringSet" : { "state" : "translated", "values" : [ "Play a song in ${applicationName}" ] } },
+        "fr" : { "stringSet" : { "state" : "translated", "values" : [ "Lire un morceau dans ${applicationName}" ] } },
+        "ja" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}で曲を再生" ] } },
+        "ko" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}에서 곡 재생" ] } },
+        "zh-Hans" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 播放歌曲" ] } },
+        "zh-Hant" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 播放歌曲" ] } }
+      }
+    },
+    "Play a playlist in ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : { "stringSet" : { "state" : "translated", "values" : [ "Eine Playlist in ${applicationName} abspielen" ] } },
+        "en" : { "stringSet" : { "state" : "translated", "values" : [ "Play a playlist in ${applicationName}" ] } },
+        "fr" : { "stringSet" : { "state" : "translated", "values" : [ "Lire une playlist dans ${applicationName}" ] } },
+        "ja" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}でプレイリストを再生" ] } },
+        "ko" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}에서 플레이리스트 재생" ] } },
+        "zh-Hans" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 播放歌单" ] } },
+        "zh-Hant" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 播放播放清單" ] } }
+      }
+    },
+    "Resume ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName} fortsetzen" ] } },
+        "en" : { "stringSet" : { "state" : "translated", "values" : [ "Resume ${applicationName}" ] } },
+        "fr" : { "stringSet" : { "state" : "translated", "values" : [ "Reprendre la lecture dans ${applicationName}" ] } },
+        "ja" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}の再生を再開" ] } },
+        "ko" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName} 재생 재개" ] } },
+        "zh-Hans" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 继续播放" ] } },
+        "zh-Hant" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 繼續播放" ] } }
+      }
+    },
+    "Play ${station} in ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : { "stringSet" : { "state" : "translated", "values" : [
+          "${station} in ${applicationName} abspielen",
+          "Radio in ${applicationName} abspielen"
+        ] } },
+        "en" : { "stringSet" : { "state" : "translated", "values" : [
+          "Play ${station} in ${applicationName}",
+          "Play radio in ${applicationName}"
+        ] } },
+        "fr" : { "stringSet" : { "state" : "translated", "values" : [
+          "Écouter ${station} dans ${applicationName}",
+          "Écouter la radio dans ${applicationName}"
+        ] } },
+        "ja" : { "stringSet" : { "state" : "translated", "values" : [
+          "${applicationName}で${station}を再生",
+          "${applicationName}でラジオを再生"
+        ] } },
+        "ko" : { "stringSet" : { "state" : "translated", "values" : [
+          "${applicationName}에서 ${station} 재생",
+          "${applicationName}에서 라디오 재생"
+        ] } },
+        "zh-Hans" : { "stringSet" : { "state" : "translated", "values" : [
+          "用 ${applicationName} 播放 ${station}",
+          "用 ${applicationName} 播放电台"
+        ] } },
+        "zh-Hant" : { "stringSet" : { "state" : "translated", "values" : [
+          "用 ${applicationName} 播放 ${station}",
+          "用 ${applicationName} 播放電台"
+        ] } }
+      }
+    },
+    "Play similar songs in ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : { "stringSet" : { "state" : "translated", "values" : [ "Ähnliche Titel in ${applicationName} abspielen" ] } },
+        "en" : { "stringSet" : { "state" : "translated", "values" : [ "Play similar songs in ${applicationName}" ] } },
+        "fr" : { "stringSet" : { "state" : "translated", "values" : [ "Lire des morceaux similaires dans ${applicationName}" ] } },
+        "ja" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}で似ている曲を再生" ] } },
+        "ko" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}에서 비슷한 곡 재생" ] } },
+        "zh-Hans" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 播放相似歌曲" ] } },
+        "zh-Hant" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 播放相似歌曲" ] } }
+      }
+    },
+    "Search for ${station} radio in ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : { "stringSet" : { "state" : "translated", "values" : [
+          "In ${applicationName} nach dem Radiosender ${station} suchen",
+          "Radio in ${applicationName} suchen"
+        ] } },
+        "en" : { "stringSet" : { "state" : "translated", "values" : [
+          "Search for ${station} radio in ${applicationName}",
+          "Search radio in ${applicationName}"
+        ] } },
+        "fr" : { "stringSet" : { "state" : "translated", "values" : [
+          "Rechercher la radio ${station} dans ${applicationName}",
+          "Rechercher une radio dans ${applicationName}"
+        ] } },
+        "ja" : { "stringSet" : { "state" : "translated", "values" : [
+          "${applicationName}で${station}ラジオを検索",
+          "${applicationName}でラジオを検索"
+        ] } },
+        "ko" : { "stringSet" : { "state" : "translated", "values" : [
+          "${applicationName}에서 ${station} 라디오 검색",
+          "${applicationName}에서 라디오 검색"
+        ] } },
+        "zh-Hans" : { "stringSet" : { "state" : "translated", "values" : [
+          "用 ${applicationName} 搜索电台 ${station}",
+          "用 ${applicationName} 搜索电台"
+        ] } },
+        "zh-Hant" : { "stringSet" : { "state" : "translated", "values" : [
+          "用 ${applicationName} 搜尋電台 ${station}",
+          "用 ${applicationName} 搜尋電台"
+        ] } }
+      }
+    },
+    "Scrape the current song in ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : { "stringSet" : { "state" : "translated", "values" : [ "Metadaten des aktuellen Titels in ${applicationName} abrufen" ] } },
+        "en" : { "stringSet" : { "state" : "translated", "values" : [ "Scrape the current song in ${applicationName}" ] } },
+        "fr" : { "stringSet" : { "state" : "translated", "values" : [ "Récupérer les métadonnées du morceau actuel dans ${applicationName}" ] } },
+        "ja" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}で現在の曲のメタデータを取得" ] } },
+        "ko" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}에서 현재 곡의 메타데이터 가져오기" ] } },
+        "zh-Hans" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 补全当前歌曲信息" ] } },
+        "zh-Hant" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 補齊目前歌曲資訊" ] } }
+      }
+    }
+  },
+  "version" : "1.1"
+}

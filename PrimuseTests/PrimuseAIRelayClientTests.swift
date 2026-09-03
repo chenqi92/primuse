@@ -70,6 +70,9 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         )
         XCTAssertEqual(feature.value(forHTTPHeaderField: "X-Primuse-Assertion"), "AwQ")
         XCTAssertEqual(feature.value(forHTTPHeaderField: "Cache-Control"), "no-store")
+        XCTAssertFalse(
+            feature.value(forHTTPHeaderField: "Accept-Language")?.isEmpty ?? true
+        )
 
         let attestorSnapshot = await attestor.snapshot()
         XCTAssertEqual(attestorSnapshot.generateKeyCount, 1)

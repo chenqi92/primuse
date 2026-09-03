@@ -27,6 +27,106 @@ const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 const cleanupShardAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+const PRIMUSE_APP_STORE_URL = "https://apps.apple.com/app/id6761675450";
+const SUPPORTED_WEB_LOCALES = new Set(["en", "de", "fr", "ja", "ko", "zh-Hans", "zh-Hant"]);
+
+function normalizeWebLocale(value) {
+  const normalized = String(value ?? "").trim().replaceAll("_", "-").toLowerCase();
+  if (!normalized || normalized === "*") return "";
+  if (
+    normalized === "zh-hant"
+    || normalized.startsWith("zh-hant-")
+    || /^zh-(tw|hk|mo)(?:-|$)/.test(normalized)
+  ) {
+    return "zh-Hant";
+  }
+  if (
+    normalized === "zh"
+    || normalized === "zh-hans"
+    || normalized.startsWith("zh-hans-")
+    || /^zh-(cn|sg|my)(?:-|$)/.test(normalized)
+  ) {
+    return "zh-Hans";
+  }
+  const base = normalized.split("-", 1)[0];
+  return SUPPORTED_WEB_LOCALES.has(base) ? base : "";
+}
+
+function requestWebLocale(request) {
+  const url = new URL(request.url);
+  const explicit = normalizeWebLocale(url.searchParams.get("lang"));
+  if (explicit) return explicit;
+  const preferences = (request.headers.get("Accept-Language") ?? "")
+    .split(",")
+    .map((entry, index) => {
+      const [language, ...parameters] = entry.split(";");
+      const locale = normalizeWebLocale(language);
+      let quality = 1;
+      for (const parameter of parameters) {
+        const [name, rawValue] = parameter.trim().split("=", 2);
+        if (name?.toLowerCase() === "q") {
+          const parsed = Number(rawValue);
+          quality = Number.isFinite(parsed) ? parsed : 0;
+        }
+      }
+      return { locale, quality, index };
+    })
+    .filter(({ locale, quality }) => locale && quality > 0)
+    .sort((left, right) => right.quality - left.quality || left.index - right.index);
+  return preferences[0]?.locale ?? "en";
+}
+
+async function loadLocalization(request, env) {
+  const source = await env.ASSETS.fetch(new Request(new URL("/i18n.json", request.url)));
+  if (!source.ok) throw new RelayError(500, "localization_unavailable");
+  let catalog;
+  try {
+    catalog = await source.json();
+  } catch {
+    throw new RelayError(500, "localization_unavailable");
+  }
+  const keys = catalog?.keys;
+  if (!Array.isArray(keys) || new Set(keys).size !== keys.length || keys.some((key) => !key)) {
+    throw new RelayError(500, "localization_unavailable");
+  }
+  for (const locale of SUPPORTED_WEB_LOCALES) {
+    if (!Array.isArray(catalog.locales?.[locale]) || catalog.locales[locale].length !== keys.length) {
+      throw new RelayError(500, "localization_unavailable");
+    }
+  }
+  const locale = requestWebLocale(request);
+  const messages = Object.fromEntries(keys.map((key, index) => [key, catalog.locales[locale][index]]));
+  return {
+    locale,
+    messages,
+    t(key, replacements = {}) {
+      let value = messages[key] ?? key;
+      for (const [name, replacement] of Object.entries(replacements)) {
+        value = value.replaceAll(`{${name}}`, String(replacement));
+      }
+      return value;
+    },
+  };
+}
+
+function explicitLanguagePath(path, request) {
+  const locale = normalizeWebLocale(new URL(request.url).searchParams.get("lang"));
+  if (!locale) return path;
+  const result = new URL(path, request.url);
+  result.searchParams.set("lang", locale);
+  return /^[a-z][a-z\d+.-]*:/i.test(path)
+    ? result.href
+    : `${result.pathname}${result.search}${result.hash}`;
+}
+
+function appendVary(headers, value) {
+  const existing = (headers.get("Vary") ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (!existing.some((entry) => entry.toLowerCase() === value.toLowerCase())) existing.push(value);
+  headers.set("Vary", existing.join(", "));
+}
 
 class RelayError extends Error {
   constructor(status, code, headers = {}) {
@@ -895,36 +995,46 @@ function activeShare(metadata, now = Date.now()) {
 }
 
 async function unlockedSharePage(request, env, configuration, publicToken, metadata) {
+  const localization = await loadLocalization(request, env);
+  const { t } = localization;
   const clientEncrypted = metadata.encryptionMode === CLIENT_ENCRYPTION_MODE;
-  let title = metadata.title || metadata.fileName.replace(/\.[^.]+$/, "") || "未命名音乐";
+  let title = metadata.title || metadata.fileName.replace(/\.[^.]+$/, "") || t("UNTITLED_MUSIC");
   let artistAlbum = metadata.artist || "";
   if (metadata.album) {
-    artistAlbum += `${artistAlbum ? " · " : ""}《${metadata.album}》`;
+    artistAlbum += `${artistAlbum ? " · " : ""}${metadata.album}`;
   }
-  artistAlbum ||= "来自 Primuse 的音乐分享";
+  artistAlbum ||= t("SHARED_FROM_PRIMUSE");
   let audioFormat = (metadata.audioFormat || metadata.fileName.split(".").at(-1) || "").toUpperCase();
   const size = humanFileSize(metadata.size);
   let technical = [audioFormat, metadata.quality, size].filter(Boolean).join(" · ");
   if (clientEncrypted) {
-    title = "加密音乐分享";
-    artistAlbum = "输入密钥后，歌曲信息将在当前设备解密";
+    title = t("ENCRYPTED_MUSIC_SHARE");
+    artistAlbum = t("DECRYPT_METADATA_HINT");
     audioFormat = "";
-    technical = `端到端加密 · ${size}`;
+    technical = `${t("END_TO_END_ENCRYPTED")} · ${size}`;
   }
   const playback = metadataPermission(metadata.allowPlayback, true);
   const download = metadataPermission(metadata.allowDownload, true);
   const allowImport = metadataPermission(metadata.allowImport, true);
   const permissionNote = [];
-  if (!download) permissionNote.push("分享者未开放下载");
-  if (allowImport) permissionNote.push("导入使用一次性短期凭证，不含密码");
+  if (!download) permissionNote.push(t("DOWNLOAD_NOT_ALLOWED"));
+  if (allowImport) permissionNote.push(t("IMPORT_NOTE"));
   const expiresISO = isPermanent(metadata) ? "" : metadata.expiresAt;
   const expiresLabel = isPermanent(metadata)
-    ? "永久有效（直到分享者撤销）"
-    : `有效至 ${new Date(metadata.expiresAt).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+    ? t("EXPIRES_PERMANENT")
+    : t("EXPIRES_AT", {
+      value: `${new Date(metadata.expiresAt).toISOString().slice(0, 16).replace("T", " ")} UTC`,
+    });
   const base = `${configuration.publicBaseURL}/s/${publicToken}`;
   const protectedHidden = clientEncrypted;
+  const accessLabel = clientEncrypted
+    ? t("END_TO_END_ENCRYPTED")
+    : metadata.passwordHash
+      ? t("ACCESS_PASSWORD_VERIFIED")
+      : t("ACCESS_LINK");
   return templateResponse(request, env, "share.html", 200, {
     TITLE: title,
+    COVER_ALT: t("COVER_ALT", { title }),
     SOCIAL_DESCRIPTION: `${artistAlbum} · ${technical}`,
     COVER_URL: `${configuration.publicBaseURL}/fallback-cover.webp?v=20260903.3`,
     COVER_PATH: "/fallback-cover.webp?v=20260903.3",
@@ -941,7 +1051,7 @@ async function unlockedSharePage(request, env, configuration, publicToken, metad
     ALLOW_PLAYBACK: String(playback),
     ALLOW_DOWNLOAD: String(download),
     ALLOW_IMPORT: String(allowImport),
-    ACCESS_LABEL: clientEncrypted ? "端到端加密" : metadata.passwordHash ? "已通过密码验证" : "持有链接即可访问",
+    ACCESS_LABEL: accessLabel,
     EXPIRES_ISO: expiresISO,
     EXPIRES_LABEL: expiresLabel,
     SESSION_HIDDEN: metadata.passwordHash ? "" : "hidden",
@@ -959,12 +1069,12 @@ async function unlockedSharePage(request, env, configuration, publicToken, metad
     IMPORT_PERMISSION_CLASS: deniedUnless(allowImport),
     PERMISSION_NOTE: permissionNote.join(" · "),
     QR_DESCRIPTION: clientEncrypted
-      ? "二维码包含完整分享链接和 URL 片段中的解密密钥；密钥不会发送给服务器。请只交给你信任的人。"
-      : "二维码仅包含规范化分享页地址，不含音频地址、密钥或密码。",
+      ? t("QR_ENCRYPTED_DESC")
+      : t("QR_STANDARD_DESC"),
     PRIVACY_DESCRIPTION: clientEncrypted
-      ? "歌曲、文件名和音频在上传前已加密。解密密钥只存在于 URL 片段，并在当前设备本地解密；浏览器不会把该片段发送给服务器。"
-      : "分享链接不会被页面索引。音频仅在播放、下载或导入时从当前服务读取；密码不会写入链接或二维码。请只把链接交给你信任的人。",
-  });
+      ? t("PRIVACY_ENCRYPTED_DESC")
+      : t("PRIVACY_STANDARD_DESC"),
+  }, {}, localization);
 }
 
 function hiddenUnless(value) {
@@ -988,37 +1098,54 @@ function humanFileSize(bytes) {
 
 async function passwordPage(request, env, configuration, publicToken, status, options = {}) {
   return templateResponse(request, env, "password.html", status, {
-    AUTH_PATH: `/s/${publicToken}/auth`,
+    AUTH_PATH: explicitLanguagePath(`/s/${publicToken}/auth`, request),
     RETRY_AFTER: options.retryAfter ? String(options.retryAfter) : "",
     ERROR_CLASS: options.error ? "error" : "",
     MESSAGE_CLASS: options.error ? "error" : "",
     MESSAGE: options.message ?? "",
-  }, options.retryAfter ? { "Retry-After": String(options.retryAfter) } : {});
+  }, options.retryAfter ? { "Retry-After": String(options.retryAfter) } : {}, options.localization);
 }
 
-async function templateResponse(request, env, name, status, values = {}, extraHeaders = {}) {
+async function templateResponse(
+  request,
+  env,
+  name,
+  status,
+  values = {},
+  extraHeaders = {},
+  providedLocalization = null,
+) {
+  const localization = providedLocalization ?? await loadLocalization(request, env);
   const assetURL = new URL(`/${name}`, request.url);
   const source = await env.ASSETS.fetch(new Request(assetURL));
   if (!source.ok) {
     throw new RelayError(500, "template_unavailable");
   }
   let page = await source.text();
-  for (const [key, value] of Object.entries(values)) {
+  const localizedValues = {
+    LANG: localization.locale,
+    APP_STORE_URL: PRIMUSE_APP_STORE_URL,
+    ...Object.fromEntries(
+      Object.entries(localization.messages).map(([key, value]) => [`I18N_${key}`, value]),
+    ),
+    ...values,
+  };
+  for (const [key, value] of Object.entries(localizedValues)) {
     page = page.replaceAll(`{{${key}}}`, escapeHTML(String(value)));
   }
   if (page.includes("{{")) {
     throw new RelayError(500, "template_invalid");
   }
-  return new Response(page, {
-    status,
-    headers: {
-      "Cache-Control": "private, no-store, max-age=0",
-      "Content-Type": "text/html; charset=utf-8",
-      "Content-Security-Policy": "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
-      "Cross-Origin-Opener-Policy": "same-origin",
-      ...extraHeaders,
-    },
+  const headers = new Headers({
+    "Cache-Control": "private, no-store, max-age=0",
+    "Content-Type": "text/html; charset=utf-8",
+    "Content-Security-Policy": "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    ...extraHeaders,
   });
+  headers.set("Content-Language", localization.locale);
+  appendVary(headers, "Accept-Language");
+  return new Response(page, { status, headers });
 }
 
 function escapeHTML(value) {
@@ -1064,7 +1191,7 @@ async function authenticateShare(request, env, configuration, publicToken) {
     headers.set("Content-Type", "application/json; charset=utf-8");
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
   }
-  headers.set("Location", `${configuration.publicBaseURL}/s/${publicToken}`);
+  headers.set("Location", explicitLanguagePath(`${configuration.publicBaseURL}/s/${publicToken}`, request));
   return new Response(null, { status: 303, headers });
 }
 
@@ -1083,13 +1210,15 @@ async function authenticationFailure(
   if (status === 410) {
     return templateResponse(request, env, "unavailable.html", 410);
   }
+  const localization = await loadLocalization(request, env);
   const message = status === 429
-    ? "尝试次数过多，请稍后重试。"
-    : "密码不正确，请检查后重试。";
+    ? localization.t("AUTH_RATE_LIMITED")
+    : localization.t("AUTH_INCORRECT");
   return passwordPage(request, env, configuration, publicToken, status, {
     error: true,
     message,
     retryAfter,
+    localization,
   });
 }
 

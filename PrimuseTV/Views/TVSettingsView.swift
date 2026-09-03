@@ -643,8 +643,12 @@ private struct TVSiriRemote: View {
             }
             .padding(.top, 10)
 
-            let grid = [("arrow.uturn.backward", "Back"), ("tv", "TV"),
-                        ("speaker.slash.fill", "Mute"), ("mic.fill", "Siri")]
+            let grid = [
+                ("arrow.uturn.backward", String(localized: "tv_remote_back")),
+                ("tv", String(localized: "tv_remote_tv")),
+                ("speaker.slash.fill", String(localized: "tv_remote_mute")),
+                ("mic.fill", String(localized: "tv_remote_siri"))
+            ]
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                 ForEach(grid, id: \.0) { b in
                     VStack(spacing: 3) {
@@ -667,7 +671,7 @@ private struct TVSiriRemote: View {
             .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay { RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.12), lineWidth: 0.5) }
 
-            Text("SIRI REMOTE").font(.system(size: 11, weight: .medium)).tracking(1.6)
+            Text("tv_siri_remote_badge").font(.system(size: 11, weight: .medium)).tracking(1.6)
                 .foregroundStyle(.white.opacity(0.4)).padding(.top, 4)
         }
         .padding(24)

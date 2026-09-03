@@ -59,6 +59,7 @@
 "ext.widget.stats.last30Days"              = "30 derniers jours";
 "ext.widget.stats.plays"                   = "lectures";
 "ext.widget.stats.totalTime"               = "durée totale";
+"ext.widget.stats.hoursFormat"             = "%d h";
 "ext.widget.stats.topThisMonth"            = "Top ce mois-ci";
 
 "ext.widget.sources.displayName"           = "Sources musicales";
@@ -633,9 +634,9 @@
 "fullscreen_effect_live_waveform" = "Onde en direct";
 "fullscreen_effect_live_waveform_subtitle" = "Le spectre horizontal suit le son lu en temps réel";
 "fullscreen_effect_live_waveform_motion" = "Spectre en direct · Immobile dans le silence";
-"immersive_demo_title" = "Tidal Memory";
+"immersive_demo_title" = "Mémoire des marées";
 "immersive_demo_artist" = "Liuchuan";
-"immersive_demo_album" = "Night Voyage";
+"immersive_demo_album" = "Voyage nocturne";
 "immersive_lyrics_motion_title" = "Mouvement typographique immersif";
 "immersive_lyrics_motion_subtitle" = "Contrôle la dérive du mur de titres et le bandeau horizontal de paroles ; désactivez pour figer le texte.";
 "local_import_insufficient_space" = "Espace libre insuffisant (%lld octets requis, %lld octets disponibles).";
@@ -683,3 +684,17 @@
 "serverShare.error.unsafeURL" = "Le serveur a renvoyé un lien de flux ou un lien contenant des identifiants de compte.";
 "serverShare.error.malformedResponse" = "Le serveur n’a pas renvoyé de lien multimédia public valide.";
 "metadata.rangeRead.error.suffixUnsupported" = "Ce serveur ne permet pas la lecture limitée de la fin du fichier nécessaire aux métadonnées.";
+"ext.widget.live" = "EN DIRECT";
+"ext.widget.wrapped.brand" = "PRIMUSE WRAPPED";
+"audio.quality.lossless" = "Sans perte";
+"audio.quality.standard" = "Standard";
+"ftp.encryption.none" = "Aucun";
+"ftp.encryption.implicitTLS" = "TLS implicite (FTPS)";
+"ftp.encryption.explicitTLS" = "TLS explicite (FTPES)";
+"nfs.version.auto" = "Automatique";
+"radio.streamFormat.automatic" = "Automatique";
+"src.subtitle.sftp" = "SSH · Authentification par clé";
+"src.subtitle.upnp" = "Détection automatique";
+"src.subtitle.jellyfin" = "Logiciel libre";
+"src.subtitle.emby" = "Serveur multimédia";
+"src.subtitle.plex" = "Serveur multimédia Plex";

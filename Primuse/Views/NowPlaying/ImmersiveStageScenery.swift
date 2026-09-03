@@ -150,14 +150,23 @@ struct ImmersiveStageTrack: Equatable {
     var year: Int?
 
     var positionLabel: String {
-        guard let trackNumber, trackNumber > 0 else { return "NOW PLAYING" }
+        guard let trackNumber, trackNumber > 0 else {
+            return String(localized: "immersive_now_playing")
+        }
         if let trackCount,
            trackCount > 0,
            trackCount <= 99,
            trackNumber <= trackCount {
-            return String(format: "TRACK %02d / %02d", trackNumber, trackCount)
+            return String(
+                format: String(localized: "immersive_track_position_total_format"),
+                trackNumber,
+                trackCount
+            )
         }
-        return String(format: "TRACK %02d", trackNumber)
+        return String(
+            format: String(localized: "immersive_track_position_format"),
+            trackNumber
+        )
     }
 
     init(
@@ -202,28 +211,30 @@ struct ImmersiveStageTrack: Equatable {
 
 /// 设置预览和无曲目状态使用固定品牌内容，避免把演示曲目误认为真实歌曲。
 enum ImmersiveDemoContent {
-    static let title = "猿音"
-    static let artist = "Primuse"
-    static let album = "Immersive Player"
+    static var title: String { String(localized: "immersive_demo_title") }
+    static var artist: String { String(localized: "immersive_demo_artist") }
+    static var album: String { String(localized: "immersive_demo_album") }
     static let format = "HI-RES 96/24 FLAC"
-    static let lyrics = [
-        "音乐在此刻铺满整个空间",
-        "Primuse turns every song into a scene",
-        "让声音拥有自己的光与形状",
-        "Every note finds its own light",
-        "Let listening become a complete performance",
-        "The tide leaves a melody along the shore",
-        "The quietest echo can still cross the room",
-        "Night moves slowly beside the window",
-        "A distant rhythm keeps the city awake",
-        "Leave the unfinished words to the next chord",
-        "Light gathers softly between every beat",
-        "When the bass falls even starlight has weight",
-        "We follow the chorus beyond the horizon",
-        "Every breath moves closer to the chorus",
-        "The final note waits inside the blue",
-        "The sound drifts apart and meets here again",
-    ]
+    static var lyrics: [String] {
+        [
+            String(localized: "immersive_demo_lyric_01"),
+            String(localized: "immersive_demo_lyric_02"),
+            String(localized: "immersive_demo_lyric_03"),
+            String(localized: "immersive_demo_lyric_04"),
+            String(localized: "immersive_demo_lyric_05"),
+            String(localized: "immersive_demo_lyric_06"),
+            String(localized: "immersive_demo_lyric_07"),
+            String(localized: "immersive_demo_lyric_08"),
+            String(localized: "immersive_demo_lyric_09"),
+            String(localized: "immersive_demo_lyric_10"),
+            String(localized: "immersive_demo_lyric_11"),
+            String(localized: "immersive_demo_lyric_12"),
+            String(localized: "immersive_demo_lyric_13"),
+            String(localized: "immersive_demo_lyric_14"),
+            String(localized: "immersive_demo_lyric_15"),
+            String(localized: "immersive_demo_lyric_16"),
+        ]
+    }
 
     #if DEBUG
     static let evidenceLyrics: [LyricLine] = lyrics.enumerated().map { index, text in

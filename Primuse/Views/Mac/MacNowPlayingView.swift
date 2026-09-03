@@ -303,7 +303,7 @@ struct MacNowPlayingView: View {
 
                 HStack(spacing: 8) {
                     Circle().fill(.red).frame(width: 9, height: 9)
-                    Text("LIVE")
+                    Text("live_badge")
                         .font(.system(size: 13, weight: .bold))
                     if player.currentTime > 0 {
                         Text("·")

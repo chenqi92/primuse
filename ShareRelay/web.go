@@ -91,7 +91,8 @@ func prefersHTML(r *http.Request) bool {
 
 func (s *relayServer) handleWebAsset(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/")
-	allowed := name == "share.css" || name == "share.js" || name == "fallback-cover.webp"
+	allowed := name == "share.css" || name == "share.js" || name == "i18n.js" ||
+		name == "i18n.json" || name == "fallback-cover.webp"
 	if strings.HasPrefix(name, "icons/") {
 		_, allowed = webIconNames[strings.TrimPrefix(name, "icons/")]
 	}
@@ -105,8 +106,10 @@ func (s *relayServer) handleWebAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	contentType := mime.TypeByExtension(filepath.Ext(name))
-	if name == "share.js" {
+	if strings.HasSuffix(name, ".js") {
 		contentType = "text/javascript; charset=utf-8"
+	} else if strings.HasSuffix(name, ".json") {
+		contentType = "application/json; charset=utf-8"
 	} else if strings.HasSuffix(name, ".svg") {
 		contentType = "image/svg+xml"
 	}
@@ -125,28 +128,28 @@ func (s *relayServer) handleWebAsset(w http.ResponseWriter, r *http.Request) {
 func (s *relayServer) handleSharePage(w http.ResponseWriter, r *http.Request) {
 	if !s.allowPublicRequest(r) {
 		w.Header().Set("Retry-After", "60")
-		s.renderUnavailablePage(w, http.StatusTooManyRequests)
+		s.renderUnavailablePage(w, r, http.StatusTooManyRequests)
 		return
 	}
 	metadata := s.metadataByPublicToken(r.PathValue("token"))
 	if metadata == nil {
 		s.recordShortCodeFailure(r, r.PathValue("token"))
-		s.renderUnavailablePage(w, http.StatusGone)
+		s.renderUnavailablePage(w, r, http.StatusGone)
 		return
 	}
 	shareLock := s.lockForShare(metadata.ID)
 	shareLock.RLock()
 	defer shareLock.RUnlock()
 	if !s.shareIsActive(metadata) {
-		s.renderUnavailablePage(w, http.StatusGone)
+		s.renderUnavailablePage(w, r, http.StatusGone)
 		return
 	}
 	if metadata.PasswordHash != "" && !verifyPassword(metadata, r) &&
 		!s.verifyShareSession(metadata, r.PathValue("token"), r) {
-		s.renderPasswordPage(w, r.PathValue("token"), http.StatusOK, "", false, 0)
+		s.renderPasswordPage(w, r, r.PathValue("token"), http.StatusOK, "", false, 0)
 		return
 	}
-	s.renderSharePage(w, r.PathValue("token"), metadata)
+	s.renderSharePage(w, r, r.PathValue("token"), metadata)
 }
 
 func (s *relayServer) shareIsActive(metadata *shareMetadata) bool {
@@ -154,26 +157,33 @@ func (s *relayServer) shareIsActive(metadata *shareMetadata) bool {
 		metadata.activeAt(s.now()) && metadata.DataDeletedAt.IsZero()
 }
 
-func (s *relayServer) renderSharePage(w http.ResponseWriter, publicToken string, metadata *shareMetadata) {
+func (s *relayServer) renderSharePage(w http.ResponseWriter, r *http.Request, publicToken string, metadata *shareMetadata) {
+	_, messages, err := webLocaleAndMessages(r)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "localization_unavailable")
+		return
+	}
+	t := func(key string, replacements ...string) string {
+		return localizedWebText(messages, key, replacements...)
+	}
 	clientEncrypted := metadata.EncryptionMode == clientEncryptionMode
 	title := metadata.Title
 	if title == "" {
 		title = strings.TrimSuffix(metadata.FileName, filepath.Ext(metadata.FileName))
 	}
 	if title == "" {
-		title = "未命名音乐"
+		title = t("UNTITLED_MUSIC")
 	}
 	artistAlbum := metadata.Artist
 	if metadata.Album != "" {
-		album := "《" + metadata.Album + "》"
 		if artistAlbum == "" {
-			artistAlbum = album
+			artistAlbum = metadata.Album
 		} else {
-			artistAlbum += " · " + album
+			artistAlbum += " · " + metadata.Album
 		}
 	}
 	if artistAlbum == "" {
-		artistAlbum = "来自 Primuse 的音乐分享"
+		artistAlbum = t("SHARED_FROM_PRIMUSE")
 	}
 	format := strings.ToUpper(metadata.AudioFormat)
 	if format == "" {
@@ -189,10 +199,10 @@ func (s *relayServer) renderSharePage(w http.ResponseWriter, publicToken string,
 	size := humanFileSize(metadata.Size)
 	technicalParts = append(technicalParts, size)
 	if clientEncrypted {
-		title = "加密音乐分享"
-		artistAlbum = "输入密钥后，歌曲信息将在当前设备解密"
+		title = t("ENCRYPTED_MUSIC_SHARE")
+		artistAlbum = t("DECRYPT_METADATA_HINT")
 		format = ""
-		technicalParts = []string{"端到端加密", size}
+		technicalParts = []string{t("END_TO_END_ENCRYPTED"), size}
 	}
 
 	playback := metadataPermission(metadata.AllowPlayback, true)
@@ -200,27 +210,35 @@ func (s *relayServer) renderSharePage(w http.ResponseWriter, publicToken string,
 	allowImport := metadataPermission(metadata.AllowImport, true)
 	noteParts := make([]string, 0, 2)
 	if !download {
-		noteParts = append(noteParts, "分享者未开放下载")
+		noteParts = append(noteParts, t("DOWNLOAD_NOT_ALLOWED"))
 	}
 	if allowImport {
-		noteParts = append(noteParts, "导入使用一次性短期凭证，不含密码")
+		noteParts = append(noteParts, t("IMPORT_NOTE"))
 	}
 	expiresISO := ""
-	expiresLabel := "永久有效（直到分享者撤销）"
+	expiresLabel := t("EXPIRES_PERMANENT")
 	if metadata.ExpiresAt != nil {
 		expiresISO = metadata.ExpiresAt.UTC().Format(time.RFC3339)
-		expiresLabel = "有效至 " + metadata.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC")
+		expiresLabel = t("EXPIRES_AT", "value", metadata.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"))
 	}
 	base := s.configuration.publicBaseURL + "/s/" + publicToken
 	protectedHidden := clientEncrypted
-	qrDescription := "二维码仅包含规范化分享页地址，不含音频地址、密钥或密码。"
-	privacyDescription := "分享链接不会被页面索引。音频仅在播放、下载或导入时从当前服务读取；密码不会写入链接或二维码。请只把链接交给你信任的人。"
+	qrDescription := t("QR_STANDARD_DESC")
+	privacyDescription := t("PRIVACY_STANDARD_DESC")
 	if clientEncrypted {
-		qrDescription = "二维码包含完整分享链接和 URL 片段中的解密密钥；密钥不会发送给服务器。请只交给你信任的人。"
-		privacyDescription = "歌曲、文件名和音频在上传前已加密。解密密钥只存在于 URL 片段，并在当前设备本地解密；浏览器不会把该片段发送给服务器。"
+		qrDescription = t("QR_ENCRYPTED_DESC")
+		privacyDescription = t("PRIVACY_ENCRYPTED_DESC")
+	}
+	accessLabel := t("ACCESS_LINK")
+	if metadata.PasswordHash != "" {
+		accessLabel = t("ACCESS_PASSWORD_VERIFIED")
+	}
+	if clientEncrypted {
+		accessLabel = t("END_TO_END_ENCRYPTED")
 	}
 	values := map[string]string{
 		"TITLE":                     title,
+		"COVER_ALT":                 t("COVER_ALT", "title", title),
 		"SOCIAL_DESCRIPTION":        artistAlbum + " · " + strings.Join(technicalParts, " · "),
 		"COVER_URL":                 s.configuration.publicBaseURL + "/fallback-cover.webp?v=20260903.3",
 		"COVER_PATH":                "/fallback-cover.webp?v=20260903.3",
@@ -237,7 +255,7 @@ func (s *relayServer) renderSharePage(w http.ResponseWriter, publicToken string,
 		"ALLOW_PLAYBACK":            strconv.FormatBool(playback),
 		"ALLOW_DOWNLOAD":            strconv.FormatBool(download),
 		"ALLOW_IMPORT":              strconv.FormatBool(allowImport),
-		"ACCESS_LABEL":              map[bool]string{true: "端到端加密", false: map[bool]string{true: "已通过密码验证", false: "持有链接即可访问"}[metadata.PasswordHash != ""]}[clientEncrypted],
+		"ACCESS_LABEL":              accessLabel,
 		"EXPIRES_ISO":               expiresISO,
 		"EXPIRES_LABEL":             expiresLabel,
 		"SESSION_HIDDEN":            map[bool]string{true: "", false: "hidden"}[metadata.PasswordHash != ""],
@@ -257,7 +275,7 @@ func (s *relayServer) renderSharePage(w http.ResponseWriter, publicToken string,
 		"QR_DESCRIPTION":            qrDescription,
 		"PRIVACY_DESCRIPTION":       privacyDescription,
 	}
-	s.writeTemplate(w, "share.html", http.StatusOK, values)
+	s.writeTemplate(w, r, "share.html", http.StatusOK, values)
 }
 
 func hiddenUnless(visible bool) string {
@@ -290,6 +308,7 @@ func humanFileSize(size int64) string {
 
 func (s *relayServer) renderPasswordPage(
 	w http.ResponseWriter,
+	r *http.Request,
 	publicToken string,
 	status int,
 	message string,
@@ -297,24 +316,37 @@ func (s *relayServer) renderPasswordPage(
 	retryAfter int,
 ) {
 	values := map[string]string{
-		"AUTH_PATH":     "/s/" + publicToken + "/auth",
+		"AUTH_PATH":     explicitLanguagePath("/s/"+publicToken+"/auth", r),
 		"RETRY_AFTER":   map[bool]string{true: strconv.Itoa(retryAfter), false: ""}[retryAfter > 0],
 		"ERROR_CLASS":   map[bool]string{true: "error", false: ""}[isError],
 		"MESSAGE_CLASS": map[bool]string{true: "error", false: ""}[isError],
 		"MESSAGE":       message,
 	}
-	s.writeTemplate(w, "password.html", status, values)
+	s.writeTemplate(w, r, "password.html", status, values)
 }
 
-func (s *relayServer) renderUnavailablePage(w http.ResponseWriter, status int) {
-	s.writeTemplate(w, "unavailable.html", status, nil)
+func (s *relayServer) renderUnavailablePage(w http.ResponseWriter, r *http.Request, status int) {
+	s.writeTemplate(w, r, "unavailable.html", status, nil)
 }
 
-func (s *relayServer) writeTemplate(w http.ResponseWriter, name string, status int, values map[string]string) {
+func (s *relayServer) writeTemplate(w http.ResponseWriter, r *http.Request, name string, status int, values map[string]string) {
 	data, err := shareWebFiles.ReadFile("web/" + name)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "template_unavailable")
 		return
+	}
+	locale, messages, err := webLocaleAndMessages(r)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "localization_unavailable")
+		return
+	}
+	if values == nil {
+		values = make(map[string]string)
+	}
+	values["LANG"] = locale
+	values["APP_STORE_URL"] = primuseAppStoreURL
+	for key, value := range messages {
+		values["I18N_"+key] = value
 	}
 	page := string(data)
 	for key, value := range values {
@@ -328,6 +360,7 @@ func (s *relayServer) writeTemplate(w http.ResponseWriter, name string, status i
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
 	w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+	setWebLanguageHeaders(w.Header(), locale)
 	w.Header().Set("Content-Length", strconv.Itoa(len(page)))
 	w.WriteHeader(status)
 	_, _ = io.WriteString(w, page)
@@ -378,7 +411,7 @@ func (s *relayServer) handleShareAuthentication(w http.ResponseWriter, r *http.R
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return
 	}
-	w.Header().Set("Location", s.configuration.publicBaseURL+"/s/"+publicToken)
+	w.Header().Set("Location", explicitLanguagePath(s.configuration.publicBaseURL+"/s/"+publicToken, r))
 	w.WriteHeader(http.StatusSeeOther)
 }
 
@@ -398,14 +431,19 @@ func (s *relayServer) authenticationFailure(
 		return
 	}
 	if status == http.StatusGone {
-		s.renderUnavailablePage(w, http.StatusGone)
+		s.renderUnavailablePage(w, r, http.StatusGone)
 		return
 	}
-	message := "密码不正确，请检查后重试。"
-	if status == http.StatusTooManyRequests {
-		message = "尝试次数过多，请稍后重试。"
+	_, messages, err := webLocaleAndMessages(r)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "localization_unavailable")
+		return
 	}
-	s.renderPasswordPage(w, publicToken, status, message, true, retryAfter)
+	message := localizedWebText(messages, "AUTH_INCORRECT")
+	if status == http.StatusTooManyRequests {
+		message = localizedWebText(messages, "AUTH_RATE_LIMITED")
+	}
+	s.renderPasswordPage(w, r, publicToken, status, message, true, retryAfter)
 }
 
 func passwordFromForm(w http.ResponseWriter, r *http.Request) (string, error) {

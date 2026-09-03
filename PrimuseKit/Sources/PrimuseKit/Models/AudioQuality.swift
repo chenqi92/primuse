@@ -12,8 +12,8 @@ public enum AudioQuality: String, Sendable, CaseIterable {
         switch self {
         case .dsd: return "DSD"
         case .hiRes: return "Hi-Res"
-        case .lossless: return "Lossless"
-        case .standard: return "Standard"
+        case .lossless: return PMString("audio.quality.lossless")
+        case .standard: return PMString("audio.quality.standard")
         }
     }
 

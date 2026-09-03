@@ -262,7 +262,7 @@ private struct NFSDirectoryBrowserView: View {
         if path == "/" {
             return source.exportPath?.isEmpty == false
                 ? NFSSelectionPathCodec.displayName(forExportPath: source.exportPath ?? "/")
-                : "NFS Exports"
+                : String(localized: "nfs_exports")
         }
 
         return NFSSelectionPathCodec.displayComponents(for: path).last

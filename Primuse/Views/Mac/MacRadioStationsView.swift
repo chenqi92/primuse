@@ -280,7 +280,7 @@ private struct MacRadioStationCard: View {
                     if isPlaying {
                         HStack(spacing: 4) {
                             Circle().fill(PMColor.bad).frame(width: 5, height: 5)
-                            Text(verbatim: "LIVE")
+                            Text("live_badge")
                                 .font(.system(size: 9, weight: .bold))
                                 .tracking(0.7)
                                 .foregroundStyle(PMColor.brand)

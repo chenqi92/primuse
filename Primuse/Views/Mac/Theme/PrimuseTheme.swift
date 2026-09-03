@@ -960,7 +960,7 @@ struct PMVolumeSlider: NSViewRepresentable {
     var range: ClosedRange<Double> = 0...1
     var controlSize: NSControl.ControlSize = .mini
     var isEnabled = true
-    var accessibilityLabel: String = "Volume"
+    var accessibilityLabel: String = String(localized: "volume")
     var accessibilityHelp: String?
 
     func makeCoordinator() -> Coordinator {

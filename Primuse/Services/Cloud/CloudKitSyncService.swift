@@ -335,7 +335,7 @@ final class CloudKitSyncService {
     func enableFamilySharing() async throws -> CKShare {
         guard let db = configuredDatabase() else {
             throw NSError(domain: "Primuse.Cloud", code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "CloudKit unavailable"])
+                          userInfo: [NSLocalizedDescriptionKey: String(localized: "cloudkit_unavailable")])
         }
 
         // 1. ensure family zone on server (save zone 幂等, 已存在不报错)

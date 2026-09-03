@@ -1083,7 +1083,7 @@ private struct DateValueEditor: View {
                     Text("\(days)")
                         .monospacedDigit()
                         .fontWeight(.medium)
-                    Text(verbatim: "d")
+                    Text("smart_date_days_unit_short")
                         .foregroundStyle(.secondary)
                 }
             }

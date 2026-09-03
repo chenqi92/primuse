@@ -477,7 +477,7 @@ private struct NowPlayingEyebrow: View {
     }
 
     private var eyebrowText: String {
-        if state.isLiveStream { return "LIVE" }
+        if state.isLiveStream { return PMString("ext.widget.live") }
         let format = state.fileFormat?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let format, !format.isEmpty {
             return PMString("ext.widget.nowPlaying.eyebrowFormat", format.uppercased())
@@ -489,7 +489,7 @@ private struct NowPlayingEyebrow: View {
 private func secondaryMetadata(_ state: PlaybackState) -> String {
     if state.isLiveStream {
         let format = state.fileFormat?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return format.isEmpty ? "LIVE" : format.uppercased()
+        return format.isEmpty ? PMString("ext.widget.live") : format.uppercased()
     }
     return state.albumTitle?.isEmpty == false
         ? state.albumTitle!
@@ -504,7 +504,7 @@ private struct LiveIndicatorLine: View {
             Circle()
                 .fill(Color.red)
                 .frame(width: 7, height: 7)
-            Text(verbatim: "LIVE")
+            Text(verbatim: PMString("ext.widget.live"))
                 .font(.system(size: 10, weight: .bold, design: .rounded))
                 .foregroundStyle(lightText ? Color.white.opacity(0.9) : WidgetDesign.secondaryText)
         }
@@ -792,7 +792,7 @@ private struct AccessoryRectangularNowPlaying: View {
                     .font(.caption2)
                     .lineLimit(1)
                 if state.isLiveStream {
-                    Text(verbatim: "LIVE")
+                    Text(verbatim: PMString("ext.widget.live"))
                         .font(.caption2.weight(.bold))
                         .lineLimit(1)
                 } else if let album = state.albumTitle, !album.isEmpty {

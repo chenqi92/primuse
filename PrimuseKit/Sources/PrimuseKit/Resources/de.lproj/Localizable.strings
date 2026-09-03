@@ -59,6 +59,7 @@
 "ext.widget.stats.last30Days"              = "Letzte 30 Tage";
 "ext.widget.stats.plays"                   = "Wiedergaben";
 "ext.widget.stats.totalTime"               = "Gesamtdauer";
+"ext.widget.stats.hoursFormat"             = "%d Std.";
 "ext.widget.stats.topThisMonth"            = "Top diesen Monat";
 
 "ext.widget.sources.displayName"           = "Musikquellen";
@@ -177,9 +178,9 @@
 "ext.tv.immersive.style.visualizer"        = "Visualisierung";
 "ext.tv.immersive.style.lightField"        = "Lichtfeld";
 "ext.tv.immersive.style.typography"        = "Typografie";
-"ext.tv.immersive.style.deepField"         = "Deep Field";
-"ext.tv.immersive.style.ambientBloom"      = "Ambient Bloom";
-"ext.tv.immersive.style.lyricStage"        = "Lyric Stage";
+"ext.tv.immersive.style.deepField"         = "Tiefenfeld";
+"ext.tv.immersive.style.ambientBloom"      = "Atmosphärisches Leuchten";
+"ext.tv.immersive.style.lyricStage"        = "Liedtextbühne";
 "ext.tv.immersive.style.spectrum"          = "Spektrum";
 "ext.tv.immersive.style.vinyl"             = "Vinyl";
 "ext.tv.immersive.timelineDisclosure"      = "Zeitachsenbasiert · keine Live-Pegel";
@@ -497,7 +498,7 @@
 "ext.tv.sources.form.exportPath" = "Exportpfad";
 "ext.tv.sources.form.basePath" = "Basispfad (optional)";
 "ext.tv.sources.form.serverAddress" = "Serveradresse";
-"ext.tv.sources.form.host" = "Host / IP";
+"ext.tv.sources.form.host" = "Host / IP-Adresse";
 "ext.tv.sources.add.step2" = "Quelle hinzufügen · Schritt 2";
 "ext.tv.sources.connectionTitle" = "%@ · Verbindungsdaten";
 "ext.tv.sources.form.name" = "Name";
@@ -633,9 +634,9 @@
 "fullscreen_effect_live_waveform" = "Live-Wellenform";
 "fullscreen_effect_live_waveform_subtitle" = "Das horizontale Spektrum folgt dem Audio in Echtzeit";
 "fullscreen_effect_live_waveform_motion" = "Live-Spektrum · Bei Stille unbewegt";
-"immersive_demo_title" = "Tidal Memory";
+"immersive_demo_title" = "Erinnerung an die Gezeiten";
 "immersive_demo_artist" = "Liuchuan";
-"immersive_demo_album" = "Night Voyage";
+"immersive_demo_album" = "Nachtfahrt";
 "immersive_lyrics_motion_title" = "Immersive Textbewegung";
 "immersive_lyrics_motion_subtitle" = "Steuert die Bewegung der Titelwand und den horizontalen Liedtextlauf; ausgeschaltet bleibt der Text statisch.";
 "local_import_insufficient_space" = "Nicht genügend freier Speicherplatz (%lld Byte benötigt, %lld Byte verfügbar).";
@@ -683,3 +684,17 @@
 "serverShare.error.unsafeURL" = "Der Server hat einen Stream-Link oder einen Link mit Zugangsdaten zurückgegeben.";
 "serverShare.error.malformedResponse" = "Der Server hat keinen gültigen öffentlichen Medienlink zurückgegeben.";
 "metadata.rangeRead.error.suffixUnsupported" = "Dieser Server unterstützt den für Metadaten erforderlichen begrenzten Lesezugriff am Dateiende nicht.";
+"ext.widget.live" = "LIVE";
+"ext.widget.wrapped.brand" = "PRIMUSE WRAPPED";
+"audio.quality.lossless" = "Verlustfrei";
+"audio.quality.standard" = "Standard";
+"ftp.encryption.none" = "Keine";
+"ftp.encryption.implicitTLS" = "Implizites TLS (FTPS)";
+"ftp.encryption.explicitTLS" = "Explizites TLS (FTPES)";
+"nfs.version.auto" = "Automatisch";
+"radio.streamFormat.automatic" = "Automatisch";
+"src.subtitle.sftp" = "SSH · Schlüsselanmeldung";
+"src.subtitle.upnp" = "Automatische Erkennung";
+"src.subtitle.jellyfin" = "Open Source";
+"src.subtitle.emby" = "Medienserver";
+"src.subtitle.plex" = "Plex-Medienserver";
