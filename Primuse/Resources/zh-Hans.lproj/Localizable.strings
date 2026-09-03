@@ -3507,7 +3507,7 @@
 "minimal_mode_description" = "隐藏底部导航栏，在顶部切换资料库，并从侧边按钮打开设置。";
 
 // MARK: - Authoritative lyrics refresh
-"lyrics_reload_from_source" = "从音乐源重新加载歌词";
+"lyrics_reload_from_source" = "重载歌词";
 "lyrics_source_reload_success" = "已从音乐源刷新歌词。";
 "lyrics_source_reload_unchanged" = "音乐源歌词已与缓存歌词一致。";
 "lyrics_source_reload_empty_kept" = "音乐源未返回歌词，当前歌词未更改。";
