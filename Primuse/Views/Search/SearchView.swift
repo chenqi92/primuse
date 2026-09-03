@@ -389,34 +389,36 @@ struct SearchView: View {
             .frame(height: 48)
             .pmCard(cornerRadius: 12)
 
-            HStack(spacing: 8) {
-                macFilterChip(
-                    .all,
-                    title: "\(String(localized: "search_chip_all")) · \(macTotalResultCount)"
-                )
-                macFilterChip(
-                    .songs,
-                    title: "\(String(localized: "tab_songs")) · \(macSongResultCount)"
-                )
-                macFilterChip(
-                    .albums,
-                    title: "\(String(localized: "tab_albums")) · \(matchingAlbums.count)"
-                )
-                macFilterChip(
-                    .artists,
-                    title: "\(String(localized: "tab_artists")) · \(matchingArtists.count)"
-                )
-                macFilterChip(.lyrics, title: String(
-                    format: String(localized: "search_lyrics_hits_format"),
-                    searchResults.filter { $0.matchKind == .lyrics }.count
-                ))
-                if appleMusicSearchEnabled {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
                     macFilterChip(
-                        .appleMusic,
-                        title: "Apple Music · \(visibleAppleMusicSearchResults.count)"
+                        .all,
+                        title: "\(String(localized: "search_chip_all")) · \(macTotalResultCount)"
                     )
+                    macFilterChip(
+                        .songs,
+                        title: "\(String(localized: "tab_songs")) · \(macSongResultCount)"
+                    )
+                    macFilterChip(
+                        .albums,
+                        title: "\(String(localized: "tab_albums")) · \(matchingAlbums.count)"
+                    )
+                    macFilterChip(
+                        .artists,
+                        title: "\(String(localized: "tab_artists")) · \(matchingArtists.count)"
+                    )
+                    macFilterChip(.lyrics, title: String(
+                        format: String(localized: "search_lyrics_hits_format"),
+                        searchResults.filter { $0.matchKind == .lyrics }.count
+                    ))
+                    if appleMusicSearchEnabled {
+                        macFilterChip(
+                            .appleMusic,
+                            title: "Apple Music · \(visibleAppleMusicSearchResults.count)"
+                        )
+                    }
                 }
-                Spacer()
+                .padding(.vertical, 1)
             }
         }
         .padding(.horizontal, PMSpace.xxxl)
