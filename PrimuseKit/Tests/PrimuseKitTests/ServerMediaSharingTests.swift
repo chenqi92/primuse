@@ -4,6 +4,17 @@ import Testing
 
 @Suite("Server media sharing")
 struct ServerMediaSharingTests {
+    @Test("Share timestamps accept fractional and plain ISO 8601 values")
+    func parsesShareTimestamps() {
+        #expect(ServerMediaShareTimestampPolicy.date(
+            from: "2026-09-03T15:23:42.000Z"
+        ) != nil)
+        #expect(ServerMediaShareTimestampPolicy.date(
+            from: "2026-09-03T15:23:42Z"
+        ) != nil)
+        #expect(ServerMediaShareTimestampPolicy.date(from: "not-a-date") == nil)
+    }
+
     @Test("OpenSubsonic request repeats IDs and encodes expiration in epoch milliseconds")
     func encodesCreateShareQuery() throws {
         let request = try ServerMediaShareRequest(

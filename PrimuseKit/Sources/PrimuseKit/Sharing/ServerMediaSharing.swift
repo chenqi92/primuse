@@ -68,6 +68,18 @@ public enum ServerMediaSharingAvailability: Equatable, Sendable {
     case permissionDenied
 }
 
+public enum ServerMediaShareTimestampPolicy {
+    public static func date(from value: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: value) { return date }
+
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        return plain.date(from: value)
+    }
+}
+
 public enum SongShareLinkMethod: String, CaseIterable, Equatable, Hashable, Identifiable, Sendable {
     case automatic
     case musicServer
@@ -720,12 +732,7 @@ public struct ServerMediaShare: Decodable, Equatable, Hashable, Sendable {
     }
 
     private static func parseDate(_ value: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: value) { return date }
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: value)
+        ServerMediaShareTimestampPolicy.date(from: value)
     }
 }
 

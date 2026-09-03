@@ -5,6 +5,29 @@ import Foundation
 import PrimuseKit
 import SwiftUI
 
+#if os(macOS)
+private struct MediaShareMacHeader: View {
+    let title: LocalizedStringKey
+    var isDismissDisabled = false
+    let dismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(title)
+                .font(.system(size: 13.5, weight: .semibold))
+            Spacer()
+            Button("done", action: dismiss)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .keyboardShortcut(.cancelAction)
+                .disabled(isDismissDisabled)
+        }
+        .padding(.horizontal, 18)
+        .frame(height: 56)
+    }
+}
+#endif
+
 struct SongShareSheet: View {
     private enum PresentedLinkSheet: Identifiable {
         case musicServer(ServerMediaShareTarget)
@@ -74,20 +97,7 @@ struct SongShareSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                songSection
-                informationSection
-                playableLinkSection
-            }
-            .navigationTitle("share_sheet_title")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("done") { dismiss() }
-                }
-            }
-        }
+        shareContent
         .task(id: nativeTarget?.id) {
             await probeNativeCapability()
         }
@@ -101,6 +111,47 @@ struct SongShareSheet: View {
             case .primuseRelay:
                 MediaRelayShareSheet(song: song)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var shareContent: some View {
+        #if os(macOS)
+        VStack(spacing: 0) {
+            MediaShareMacHeader(title: "share_sheet_title") {
+                dismiss()
+            }
+            Divider()
+            shareForm
+                .formStyle(.grouped)
+        }
+        .frame(
+            minWidth: 560,
+            idealWidth: 620,
+            maxWidth: 680,
+            minHeight: 500,
+            idealHeight: 560,
+            maxHeight: 680
+        )
+        #else
+        NavigationStack {
+            shareForm
+            .navigationTitle("share_sheet_title")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("done") { dismiss() }
+                }
+            }
+        }
+        #endif
+    }
+
+    private var shareForm: some View {
+        Form {
+            songSection
+            informationSection
+            playableLinkSection
         }
     }
 
@@ -358,22 +409,7 @@ struct ServerMediaShareSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                targetSection
-                capabilityContent
-                relayFallbackSection
-                publicReachabilitySection
-            }
-            .navigationTitle("server_share_title")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("done") { dismiss() }
-                        .disabled(isCreating)
-                }
-            }
-        }
+        shareContent
         .task(id: target.id) {
             await probeCapability()
         }
@@ -399,6 +435,52 @@ struct ServerMediaShareSheet: View {
             Button("done", role: .cancel) { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "")
+        }
+    }
+
+    @ViewBuilder
+    private var shareContent: some View {
+        #if os(macOS)
+        VStack(spacing: 0) {
+            MediaShareMacHeader(
+                title: "server_share_title",
+                isDismissDisabled: isCreating
+            ) {
+                dismiss()
+            }
+            Divider()
+            shareForm
+                .formStyle(.grouped)
+        }
+        .frame(
+            minWidth: 560,
+            idealWidth: 620,
+            maxWidth: 680,
+            minHeight: 520,
+            idealHeight: 620,
+            maxHeight: 740
+        )
+        #else
+        NavigationStack {
+            shareForm
+            .navigationTitle("server_share_title")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("done") { dismiss() }
+                        .disabled(isCreating)
+                }
+            }
+        }
+        #endif
+    }
+
+    private var shareForm: some View {
+        Form {
+            targetSection
+            capabilityContent
+            relayFallbackSection
+            publicReachabilitySection
         }
     }
 
@@ -518,17 +600,18 @@ struct ServerMediaShareSheet: View {
                 creationTask?.cancel()
                 creationTask = Task { await createShare() }
             } label: {
-                HStack {
-                    Spacer()
+                Group {
                     if isCreating {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("server_share_creating")
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("server_share_creating")
+                        }
                     } else {
                         Label("server_share_create", systemImage: "link.badge.plus")
                     }
-                    Spacer()
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .disabled(isCreating)
         }
@@ -1151,7 +1234,7 @@ private struct MediaRelayClient: @unchecked Sendable {
             } else {
                 guard !response.permanent,
                       let expiresAt = response.expiresAt,
-                      ISO8601DateFormatter().date(from: expiresAt) != nil else {
+                      ServerMediaShareTimestampPolicy.date(from: expiresAt) != nil else {
                     throw MediaRelayShareError.invalidResponse
                 }
             }
@@ -1228,7 +1311,7 @@ private struct MediaRelayClient: @unchecked Sendable {
             }
         } else {
             guard let expiresAt = response.expiresAt,
-                  ISO8601DateFormatter().date(from: expiresAt) != nil else {
+                  ServerMediaShareTimestampPolicy.date(from: expiresAt) != nil else {
                 throw MediaRelayShareError.invalidResponse
             }
         }
@@ -1544,26 +1627,7 @@ struct MediaRelayShareSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                mediaSection
-                configurationSection
-                optionsSection
-                createSection
-                if let createdRecord {
-                    createdSection(createdRecord)
-                }
-                managedSharesSection
-            }
-            .navigationTitle("relay_share_title")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("done") { dismiss() }
-                        .disabled(isUploading)
-                }
-            }
-        }
+        shareContent
         .interactiveDismissDisabled(isUploading)
         .task(id: song.id) {
             serviceMode = MediaRelaySettingsStore.mode
@@ -1585,6 +1649,56 @@ struct MediaRelayShareSheet: View {
             Button("done", role: .cancel) { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "")
+        }
+    }
+
+    @ViewBuilder
+    private var shareContent: some View {
+        #if os(macOS)
+        VStack(spacing: 0) {
+            MediaShareMacHeader(
+                title: "relay_share_title",
+                isDismissDisabled: isUploading
+            ) {
+                dismiss()
+            }
+            Divider()
+            shareForm
+                .formStyle(.grouped)
+        }
+        .frame(
+            minWidth: 600,
+            idealWidth: 640,
+            maxWidth: 700,
+            minHeight: 620,
+            idealHeight: 700,
+            maxHeight: 820
+        )
+        #else
+        NavigationStack {
+            shareForm
+            .navigationTitle("relay_share_title")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("done") { dismiss() }
+                        .disabled(isUploading)
+                }
+            }
+        }
+        #endif
+    }
+
+    private var shareForm: some View {
+        Form {
+            mediaSection
+            configurationSection
+            optionsSection
+            createSection
+            if let createdRecord {
+                createdSection(createdRecord)
+            }
+            managedSharesSection
         }
     }
 
@@ -1624,6 +1738,8 @@ struct MediaRelayShareSheet: View {
                 Text("relay_share_service_self_hosted").tag(MediaRelayServiceMode.selfHosted)
             }
             .pickerStyle(.segmented)
+            .labelsHidden()
+            .accessibilityLabel(Text("relay_share_configuration"))
 
             if serviceMode == .selfHosted {
                 TextField("relay_share_endpoint_placeholder", text: $endpoint)
@@ -1733,11 +1849,8 @@ struct MediaRelayShareSheet: View {
                 uploadTask?.cancel()
                 uploadTask = Task { await createRelayShare() }
             } label: {
-                HStack {
-                    Spacer()
-                    Label("relay_share_create", systemImage: "link.badge.plus")
-                    Spacer()
-                }
+                Label("relay_share_create", systemImage: "link.badge.plus")
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .disabled(
                 isUploading
@@ -1936,7 +2049,7 @@ struct MediaRelayShareSheet: View {
                 usesClientEncryption: e2ee != nil
             )
             let decodedExpiration = creation.expiresAt.flatMap {
-                ISO8601DateFormatter().date(from: $0)
+                ServerMediaShareTimestampPolicy.date(from: $0)
             }
             let publicURLString: String
             if let e2ee {

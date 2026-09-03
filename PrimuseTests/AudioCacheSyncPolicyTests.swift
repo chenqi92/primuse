@@ -2,6 +2,11 @@ import XCTest
 @testable import Primuse
 
 final class AudioCacheSyncPolicyTests: XCTestCase {
+    func testBonjourServiceTypeMatchesInfoPlistFormat() {
+        XCTAssertEqual(AudioCacheSyncPolicy.serviceType, "_primuse-cache._tcp")
+        XCTAssertFalse(AudioCacheSyncPolicy.serviceType.hasSuffix("."))
+    }
+
     func testCacheFileNameRejectsTraversalAndControlCharacters() {
         XCTAssertTrue(AudioCacheSyncPolicy.isSafeCacheFileName("2f8451.flac"))
         XCTAssertFalse(AudioCacheSyncPolicy.isSafeCacheFileName("../2f8451.flac"))

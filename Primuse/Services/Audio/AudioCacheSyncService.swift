@@ -89,7 +89,7 @@ enum AudioCacheSyncOperation: Equatable, Sendable {
 /// to their own library and compute their own destination path.
 enum AudioCacheSyncPolicy {
     static let protocolVersion = 1
-    static let serviceType = "_primuse-cache._tcp."
+    static let serviceType = "_primuse-cache._tcp"
     static let chunkByteCount = 256 * 1_024
     static let maximumManifestItems = 25_000
     static let maximumControlFrameByteCount = 16 * 1_024 * 1_024

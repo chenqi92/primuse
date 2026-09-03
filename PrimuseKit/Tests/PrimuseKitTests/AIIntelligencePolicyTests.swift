@@ -19,6 +19,41 @@ struct AISettingsOperationPolicyTests {
     }
 }
 
+@Suite("AI recommendation queue synchronization")
+struct AIRecommendationQueueSyncPolicyTests {
+    @Test func appendsOnlyTheNewStreamingSuffix() {
+        #expect(AIRecommendationQueueSyncPolicy.decision(
+            expectedQueueSongIDs: ["first"],
+            actualQueueSongIDs: ["first"],
+            desiredQueueSongIDs: ["first", "second", "third"]
+        ) == .append(["second", "third"]))
+    }
+
+    @Test func leavesAnUpToDateQueueUnchanged() {
+        #expect(AIRecommendationQueueSyncPolicy.decision(
+            expectedQueueSongIDs: ["first", "second"],
+            actualQueueSongIDs: ["first", "second"],
+            desiredQueueSongIDs: ["first", "second"]
+        ) == .unchanged)
+    }
+
+    @Test func relinquishesOwnershipAfterListenerChangesQueue() {
+        #expect(AIRecommendationQueueSyncPolicy.decision(
+            expectedQueueSongIDs: ["first"],
+            actualQueueSongIDs: ["manual"],
+            desiredQueueSongIDs: ["first", "second"]
+        ) == .relinquish)
+    }
+
+    @Test func relinquishesOwnershipWhenRecommendationPrefixChanges() {
+        #expect(AIRecommendationQueueSyncPolicy.decision(
+            expectedQueueSongIDs: ["first"],
+            actualQueueSongIDs: ["first"],
+            desiredQueueSongIDs: ["replacement", "second"]
+        ) == .relinquish)
+    }
+}
+
 @Suite("AI region availability")
 struct AIRegionAvailabilityTests {
     @Test func storefrontIsAuthoritative() {

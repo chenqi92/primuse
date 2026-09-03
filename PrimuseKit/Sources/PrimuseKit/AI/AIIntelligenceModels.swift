@@ -997,3 +997,29 @@ public enum MusicIntelligenceError: Error, Equatable, Sendable {
     case requestFailed(statusCode: Int)
     case timedOut
 }
+
+public enum AIRecommendationQueueSyncDecision: Equatable, Sendable {
+    case unchanged
+    case append([String])
+    case relinquish
+}
+
+/// Keeps a queue started from partial streaming recommendations in sync without
+/// taking ownership back after the listener changes or reorders that queue.
+public enum AIRecommendationQueueSyncPolicy {
+    public static func decision(
+        expectedQueueSongIDs: [String],
+        actualQueueSongIDs: [String],
+        desiredQueueSongIDs: [String]
+    ) -> AIRecommendationQueueSyncDecision {
+        guard actualQueueSongIDs == expectedQueueSongIDs else {
+            return .relinquish
+        }
+        guard desiredQueueSongIDs.starts(with: expectedQueueSongIDs) else {
+            return .relinquish
+        }
+
+        let additions = Array(desiredQueueSongIDs.dropFirst(expectedQueueSongIDs.count))
+        return additions.isEmpty ? .unchanged : .append(additions)
+    }
+}

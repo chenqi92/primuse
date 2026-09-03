@@ -243,7 +243,7 @@ targets:
           NSAllowsArbitraryLoads: true
         NSLocalNetworkUsageDescription: "猿音需要访问本地网络，以发现并连接您的 NAS、媒体服务器、其他音乐源及附近的猿音设备。"
         NSBonjourServices:
-          - "_primuse-cache._tcp."
+          - "_primuse-cache._tcp"
           - "_smb._tcp."
           - "_webdav._tcp."
           - "_webdavs._tcp."
@@ -501,7 +501,7 @@ targets:
           NSAllowsArbitraryLoads: true
         NSLocalNetworkUsageDescription: "Primuse needs local network access to discover and connect to your NAS, media servers, music sources, and nearby Primuse devices."
         NSBonjourServices:
-          - "_primuse-cache._tcp."
+          - "_primuse-cache._tcp"
           - "_smb._tcp."
           - "_webdav._tcp."
           - "_webdavs._tcp."

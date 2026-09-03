@@ -63,6 +63,7 @@ struct AIRecommendationLibraryView: View {
     @State private var isLoadingMore = false
     @State private var loadMoreFailed = false
     @State private var preparedLocalContentRevision: String?
+    @State private var streamedQueueSongIDs: [String]?
 
     private var intentChoices: [AIRecommendationIntentChoice] {
         AIRecommendationIntentChoice.all(
@@ -172,6 +173,12 @@ struct AIRecommendationLibraryView: View {
         }
         .onChange(of: hiddenPresetsRawValue) { _, _ in
             normalizeIntentSelectionIfNeeded()
+        }
+        .onChange(of: aiRecommendation.orderedSongIDs) { _, _ in
+            appendNewStreamingRecommendationsToOwnedQueue()
+        }
+        .onDisappear {
+            streamedQueueSongIDs = nil
         }
     }
 
@@ -687,6 +694,7 @@ struct AIRecommendationLibraryView: View {
         guard let index = queue.firstIndex(where: { $0.id == song.id }) else { return }
         player.shuffleEnabled = false
         player.setQueue(queue, startAt: index)
+        beginTrackingStreamingQueue(queue)
         SiriMediaInteractionDonor.donate(song: queue[index])
         Task { await player.play(song: queue[index]) }
     }
@@ -696,8 +704,43 @@ struct AIRecommendationLibraryView: View {
         guard let first = queue.first else { return }
         player.shuffleEnabled = false
         player.setQueue(queue, startAt: 0)
+        beginTrackingStreamingQueue(queue)
         SiriMediaInteractionDonor.donate(song: first)
         Task { await player.play(song: first) }
+    }
+
+    private func beginTrackingStreamingQueue(_ queue: [Song]) {
+        streamedQueueSongIDs = aiRecommendation.isStreaming ? queue.map(\.id) : nil
+    }
+
+    private func appendNewStreamingRecommendationsToOwnedQueue() {
+        guard let expectedQueueSongIDs = streamedQueueSongIDs else { return }
+        let desiredQueue = displayedResults.map(\.song).filteredPlayable()
+        let desiredQueueSongIDs = desiredQueue.map(\.id)
+        let decision = AIRecommendationQueueSyncPolicy.decision(
+            expectedQueueSongIDs: expectedQueueSongIDs,
+            actualQueueSongIDs: player.queue.map(\.id),
+            desiredQueueSongIDs: desiredQueueSongIDs
+        )
+
+        switch decision {
+        case .unchanged:
+            return
+        case .relinquish:
+            streamedQueueSongIDs = nil
+        case let .append(songIDs):
+            let songsByID = Dictionary(
+                desiredQueue.map { ($0.id, $0) },
+                uniquingKeysWith: { current, _ in current }
+            )
+            let additions = songIDs.compactMap { songsByID[$0] }
+            guard additions.map(\.id) == songIDs else {
+                streamedQueueSongIDs = nil
+                return
+            }
+            player.appendToQueue(additions)
+            streamedQueueSongIDs = desiredQueueSongIDs
+        }
     }
 
     private func selectIntent(_ id: String) {
