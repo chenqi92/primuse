@@ -64,6 +64,9 @@ func TestClientEncryptedUploadKeepsKeysAndMetadataOffServer(t *testing.T) {
 	if capabilityPayload["clientSideEncryption"] != e2eePolicyRequired {
 		t.Fatalf("unexpected E2EE policy: %#v", capabilityPayload)
 	}
+	if capabilityPayload["uploadAuthentication"] != "admin-token" {
+		t.Fatalf("unexpected upload authentication: %#v", capabilityPayload)
+	}
 
 	legacyBody, _ := json.Marshal(createUploadRequest{
 		FileName: "plaintext.mp3", ContentType: "audio/mpeg", Size: 16,

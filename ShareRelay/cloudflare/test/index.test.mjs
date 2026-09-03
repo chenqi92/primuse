@@ -35,7 +35,10 @@ test("official E2EE uploads keep keys and presentation metadata off the server",
   timeout: 60_000,
 }, async () => {
   const bucket = new MemoryBucket();
-  const env = makeEnvironment(bucket, { E2EE_POLICY: "required" });
+  const env = makeEnvironment(bucket, {
+    E2EE_POLICY: "required",
+    UPLOAD_AUTHENTICATION: "none",
+  });
   const context = new TestContext();
   const media = new Uint8Array(TEST_CHUNK_SIZE + 137);
   for (let index = 0; index < media.length; index += 1) media[index] = index % 251;
@@ -60,11 +63,11 @@ test("official E2EE uploads keep keys and presentation metadata off the server",
     protocolVersion: 4,
     clientSideEncryption: "required",
     supportedEncryptionModes: [CLIENT_ENCRYPTION_MODE],
+    uploadAuthentication: "none",
   });
   const legacyRejected = await fetchRelay(env, context, "/v1/uploads", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${TEST_ADMIN_TOKEN}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ fileName: "plaintext.mp3", contentType: "audio/mpeg", size: 16 }),
@@ -72,15 +75,21 @@ test("official E2EE uploads keep keys and presentation metadata off the server",
   assert.equal(legacyRejected.status, 400);
   assert.equal((await legacyRejected.json()).error, "encryption_required");
 
-  const creation = await createOnly(env, context, {
-    encryptionMode: CLIENT_ENCRYPTION_MODE,
-    size: media.byteLength,
-    expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-    allowPlayback: true,
-    allowDownload: true,
-    allowImport: true,
-    linkType: "long",
+  const creationResponse = await fetchRelay(env, context, "/v1/uploads", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      encryptionMode: CLIENT_ENCRYPTION_MODE,
+      size: media.byteLength,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      allowPlayback: true,
+      allowDownload: true,
+      allowImport: true,
+      linkType: "long",
+    }),
   });
+  await assertResponseStatus(creationResponse, 201);
+  const creation = await creationResponse.json();
   assert.equal(creation.encryptionMode, CLIENT_ENCRYPTION_MODE);
   assert.equal(new URL(creation.publicURL).hash, "");
 
@@ -184,6 +193,32 @@ test("official E2EE uploads keep keys and presentation metadata off the server",
     assert.equal(persisted.includes(secret), false);
   }
   assert.equal(Buffer.from(bucket.raw(`data/${creation.shareID}.bin`)).includes(Buffer.from(media)), false);
+});
+
+test("anonymous upload mode fails closed without required E2EE and honors rate limits", async () => {
+  const context = new TestContext();
+  const invalid = makeEnvironment(new MemoryBucket(), {
+    E2EE_POLICY: "optional",
+    UPLOAD_AUTHENTICATION: "none",
+  });
+  assert.equal((await fetchRelay(invalid, context, "/healthz")).status, 503);
+
+  const rateLimited = makeEnvironment(new MemoryBucket(), {
+    E2EE_POLICY: "required",
+    UPLOAD_AUTHENTICATION: "none",
+    UPLOAD_RATE_LIMITER: { limit: async () => ({ success: false }) },
+  });
+  const response = await fetchRelay(rateLimited, context, "/v1/uploads", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      encryptionMode: CLIENT_ENCRYPTION_MODE,
+      size: 16,
+      linkType: "permanent",
+    }),
+  });
+  assert.equal(response.status, 429);
+  assert.equal(response.headers.get("Retry-After"), "60");
 });
 
 test("encrypted multipart upload supports full reads, ranges, validators, and secret boundaries", {
@@ -962,6 +997,7 @@ function makeEnvironment(bucket, overrides = {}) {
     MEDIA_BUCKET: bucket,
     ASSETS: new MemoryAssets(),
     PUBLIC_RATE_LIMITER: { limit: async () => ({ success: true }) },
+    UPLOAD_RATE_LIMITER: { limit: async () => ({ success: true }) },
     PASSWORD_RATE_LIMITER: { limit: async () => ({ success: true }) },
     SHORT_CODE_PEER_RATE_LIMITER: { limit: async () => ({ success: true }) },
     ADMIN_TOKEN: TEST_ADMIN_TOKEN,
@@ -972,6 +1008,7 @@ function makeEnvironment(bucket, overrides = {}) {
     MAX_TTL_SECONDS: String(24 * 60 * 60),
     UPLOAD_TTL_SECONDS: String(60 * 60),
     E2EE_POLICY: "optional",
+    UPLOAD_AUTHENTICATION: "admin-token",
     ...overrides,
   };
 }

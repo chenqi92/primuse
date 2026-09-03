@@ -70,6 +70,14 @@
         "limit": 5,
         "period": 60
       }
+    },
+    {
+      "name": "UPLOAD_RATE_LIMITER",
+      "namespace_id": "74006",
+      "simple": {
+        "limit": 10,
+        "period": 60
+      }
     }
   ],
   "vars": {
@@ -79,7 +87,8 @@
     "MAX_TTL_SECONDS": "2592000",
     "UPLOAD_TTL_SECONDS": "86400",
     "SHORT_CODE_MAX_TTL_SECONDS": "86400",
-    "E2EE_POLICY": "required"
+    "E2EE_POLICY": "required",
+    "UPLOAD_AUTHENTICATION": "none"
   },
   "secrets": {
     "required": [

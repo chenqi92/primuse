@@ -488,6 +488,7 @@ func (s *relayServer) handleCapabilities(w http.ResponseWriter, r *http.Request)
 		"protocolVersion":          4,
 		"clientSideEncryption":     s.configuration.e2eePolicy,
 		"supportedEncryptionModes": []string{clientEncryptionMode},
+		"uploadAuthentication":     "admin-token",
 	})
 }
 

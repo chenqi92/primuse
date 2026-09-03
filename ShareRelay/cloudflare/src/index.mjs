@@ -18,6 +18,7 @@ const ENCRYPTED_CHUNK_OVERHEAD = AES_GCM_NONCE_BYTES + AES_GCM_TAG_BYTES;
 const CLIENT_ENCRYPTION_MODE = "client-aes-256-gcm-chunks-v1";
 const MAXIMUM_MANIFEST_BYTES = 8 * 1024;
 const E2EE_POLICIES = new Set(["required", "optional", "disabled"]);
+const UPLOAD_AUTHENTICATION_MODES = new Set(["admin-token", "none"]);
 const CLEANUP_BATCH_SIZE = 2;
 const CLEANUP_SCAN_PAGE_LIMIT = 10;
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
@@ -180,6 +181,7 @@ async function routeRequest(request, env, context) {
       protocolVersion: 4,
       clientSideEncryption: configuration.e2eePolicy,
       supportedEncryptionModes: [CLIENT_ENCRYPTION_MODE],
+      uploadAuthentication: configuration.uploadAuthentication,
     }, 200, request.method === "HEAD");
   }
   if (url.pathname === "/v1/uploads") {
@@ -319,6 +321,13 @@ function loadConfiguration(env) {
   if (!E2EE_POLICIES.has(e2eePolicy)) {
     throw new Error("E2EE_POLICY is invalid");
   }
+  const uploadAuthentication = env.UPLOAD_AUTHENTICATION ?? "admin-token";
+  if (!UPLOAD_AUTHENTICATION_MODES.has(uploadAuthentication)) {
+    throw new Error("UPLOAD_AUTHENTICATION is invalid");
+  }
+  if (uploadAuthentication === "none" && e2eePolicy !== "required") {
+    throw new Error("unauthenticated uploads require E2EE_POLICY=required");
+  }
 
   return {
     bucket: env.MEDIA_BUCKET,
@@ -331,12 +340,22 @@ function loadConfiguration(env) {
     uploadTTLMilliseconds: uploadTTLSeconds * 1000,
     shortCodeMaximumTTLMilliseconds: shortCodeMaximumTTLSeconds * 1000,
     e2eePolicy,
+    uploadAuthentication,
   };
 }
 
 async function createUpload(request, env, configuration) {
-  if (!(await tokenMatches(bearerToken(request), configuration.adminToken))) {
+  if (
+    configuration.uploadAuthentication === "admin-token"
+    && !(await tokenMatches(bearerToken(request), configuration.adminToken))
+  ) {
     throw new RelayError(401, "unauthorized");
+  }
+  if (
+    configuration.uploadAuthentication === "none"
+    && !(await uploadRateLimitAllows(request, env))
+  ) {
+    throw new RelayError(429, "rate_limited", { "Retry-After": "60" });
   }
   const input = await decodeJSONRequest(request);
   const encryptionMode = input.encryptionMode == null ? "" : input.encryptionMode;
@@ -972,6 +991,13 @@ async function publicRateLimitAllows(request, env, publicToken = null) {
     }
   }
   return true;
+}
+
+async function uploadRateLimitAllows(request, env) {
+  if (!env.UPLOAD_RATE_LIMITER?.limit) return true;
+  const peer = request.headers.get("CF-Connecting-IP") ?? "unknown";
+  const result = await env.UPLOAD_RATE_LIMITER.limit({ key: `primuse-upload:${peer}` });
+  return result.success;
 }
 
 async function shortCodeFailureAllows(request, env, publicToken) {

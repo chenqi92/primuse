@@ -803,10 +803,16 @@ private enum MediaRelayClientEncryptionPolicy: String, Decodable {
     var usesClientEncryption: Bool { self != .disabled }
 }
 
+private enum MediaRelayUploadAuthentication: String, Decodable {
+    case none
+    case adminToken = "admin-token"
+}
+
 private struct MediaRelayCapabilities: Decodable {
     let protocolVersion: Int
     let clientSideEncryption: MediaRelayClientEncryptionPolicy
     let supportedEncryptionModes: [String]
+    let uploadAuthentication: MediaRelayUploadAuthentication?
 }
 
 private struct MediaRelayEncryptedManifest: Codable, Sendable {
@@ -1040,7 +1046,10 @@ private struct MediaRelayClient: @unchecked Sendable {
         guard capabilities.protocolVersion >= 4,
               !capabilities.clientSideEncryption.usesClientEncryption
                 || capabilities.supportedEncryptionModes.contains(MediaRelayE2EE.mode),
-              !isOfficialSoundIsleService || capabilities.clientSideEncryption == .required else {
+              !isOfficialSoundIsleService || (
+                capabilities.clientSideEncryption == .required
+                    && capabilities.uploadAuthentication == MediaRelayUploadAuthentication.none
+              ) else {
             throw MediaRelayShareError.invalidResponse
         }
         return capabilities.clientSideEncryption
@@ -1247,8 +1256,7 @@ private struct MediaRelayClient: @unchecked Sendable {
         additionalHeaders: [String: String] = [:],
         expectedStatus: Int
     ) async throws -> Data {
-        guard !bearerToken.isEmpty,
-              pathComponents.allSatisfy({ !$0.isEmpty }) else {
+        guard pathComponents.allSatisfy({ !$0.isEmpty }) else {
             throw MediaRelayShareError.invalidConfiguration
         }
         let endpoint = pathComponents.reduce(baseURL) {
@@ -1258,7 +1266,10 @@ private struct MediaRelayClient: @unchecked Sendable {
         request.httpMethod = method
         request.httpBody = body
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+        let trimmedBearerToken = bearerToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedBearerToken.isEmpty {
+            request.setValue("Bearer \(trimmedBearerToken)", forHTTPHeaderField: "Authorization")
+        }
         request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
         if let contentType {
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")
@@ -1322,26 +1333,97 @@ private struct MediaRelayShareRecord: Codable, Identifiable, Sendable {
     }
 }
 
+private enum MediaRelayServiceMode: String, CaseIterable, Identifiable {
+    case builtIn
+    case selfHosted
+
+    var id: String { rawValue }
+}
+
 @MainActor
 private enum MediaRelaySettingsStore {
-    private static let endpointKey = "mediaRelay.apiBaseURL"
-    private static let tokenAccount = "media-relay.admin-token"
+    static let builtInEndpoint = "https://share.soundisle.com"
 
-    static var endpoint: String {
-        UserDefaults.standard.string(forKey: endpointKey) ?? "https://share.soundisle.com"
+    private static let modeKey = "mediaRelay.serviceMode"
+    private static let selfHostedEndpointKey = "mediaRelay.selfHosted.apiBaseURL"
+    private static let selfHostedTokenAccount = "media-relay.self-hosted.admin-token"
+    private static let legacyEndpointKey = "mediaRelay.apiBaseURL"
+    private static let legacyTokenAccount = "media-relay.admin-token"
+
+    static var mode: MediaRelayServiceMode {
+        if let rawValue = UserDefaults.standard.string(forKey: modeKey),
+           let mode = MediaRelayServiceMode(rawValue: rawValue) {
+            return mode
+        }
+        guard let legacyEndpoint = UserDefaults.standard.string(forKey: legacyEndpointKey),
+              !isBuiltInEndpoint(legacyEndpoint) else {
+            return .builtIn
+        }
+        return .selfHosted
     }
 
-    static var token: String {
-        KeychainService.localOnlyPasswordLookup(for: tokenAccount).password ?? ""
+    static var selfHostedEndpoint: String {
+        if let endpoint = UserDefaults.standard.string(forKey: selfHostedEndpointKey) {
+            return endpoint
+        }
+        guard let legacyEndpoint = UserDefaults.standard.string(forKey: legacyEndpointKey),
+              !isBuiltInEndpoint(legacyEndpoint) else {
+            return ""
+        }
+        return legacyEndpoint
     }
 
-    static func save(endpoint: String, token: String) throws {
-        let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+    static var selfHostedToken: String {
+        if let token = KeychainService.localOnlyPasswordLookup(
+            for: selfHostedTokenAccount
+        ).password {
+            return token
+        }
+        guard let legacyEndpoint = UserDefaults.standard.string(forKey: legacyEndpointKey),
+              !isBuiltInEndpoint(legacyEndpoint) else {
+            return ""
+        }
+        return KeychainService.localOnlyPasswordLookup(for: legacyTokenAccount).password ?? ""
+    }
+
+    static func save(
+        mode: MediaRelayServiceMode,
+        selfHostedEndpoint: String,
+        selfHostedToken: String
+    ) throws {
+        if mode == .builtIn {
+            UserDefaults.standard.set(mode.rawValue, forKey: modeKey)
+            return
+        }
+
+        let trimmedEndpoint = selfHostedEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedEndpoint.isEmpty else {
+            throw MediaRelayShareError.invalidConfiguration
+        }
+        let trimmedToken = selfHostedToken.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedToken.isEmpty,
-              KeychainService.setLocalOnlyPassword(trimmedToken, for: tokenAccount) else {
+              KeychainService.setLocalOnlyPassword(
+                trimmedToken,
+                for: selfHostedTokenAccount
+              ) else {
             throw MediaRelayShareError.credentialStorageFailed
         }
-        UserDefaults.standard.set(endpoint, forKey: endpointKey)
+        UserDefaults.standard.set(trimmedEndpoint, forKey: selfHostedEndpointKey)
+        UserDefaults.standard.set(mode.rawValue, forKey: modeKey)
+    }
+
+    private static func isBuiltInEndpoint(_ value: String) -> Bool {
+        guard let components = URLComponents(string: value),
+              components.scheme?.lowercased() == "https",
+              components.host?.lowercased() == "share.soundisle.com",
+              components.port == nil,
+              components.user == nil,
+              components.password == nil,
+              components.query == nil,
+              components.fragment == nil else {
+            return false
+        }
+        return components.path.isEmpty || components.path == "/"
     }
 }
 
@@ -1426,6 +1508,7 @@ struct MediaRelayShareSheet: View {
     private let minimumExpirationDate: Date
     private let shortCodeMaximumExpirationDate: Date
 
+    @State private var serviceMode: MediaRelayServiceMode = .builtIn
     @State private var endpoint = ""
     @State private var adminToken = ""
     @State private var accessMode: AccessMode = .publicAccess
@@ -1475,7 +1558,6 @@ struct MediaRelayShareSheet: View {
                     createdSection(createdRecord)
                 }
                 managedSharesSection
-                securitySection
             }
             .navigationTitle("relay_share_title")
             .navigationBarTitleDisplayMode(.inline)
@@ -1488,8 +1570,9 @@ struct MediaRelayShareSheet: View {
         }
         .interactiveDismissDisabled(isUploading)
         .task(id: song.id) {
-            endpoint = MediaRelaySettingsStore.endpoint
-            adminToken = MediaRelaySettingsStore.token
+            serviceMode = MediaRelaySettingsStore.mode
+            endpoint = MediaRelaySettingsStore.selfHostedEndpoint
+            adminToken = MediaRelaySettingsStore.selfHostedToken
             records = MediaRelayShareRegistry.records()
         }
         .onDisappear {
@@ -1540,18 +1623,30 @@ struct MediaRelayShareSheet: View {
 
     private var configurationSection: some View {
         Section {
-            TextField("relay_share_endpoint_placeholder", text: $endpoint)
-                .textContentType(.URL)
-                .autocorrectionDisabled()
-                .accessibilityLabel(Text("relay_share_endpoint"))
-            SecureField("relay_share_token_placeholder", text: $adminToken)
-                .textContentType(.password)
-                .privacySensitive()
-                .accessibilityLabel(Text("relay_share_token"))
+            Picker("relay_share_configuration", selection: $serviceMode) {
+                Text("relay_share_service_builtin").tag(MediaRelayServiceMode.builtIn)
+                Text("relay_share_service_self_hosted").tag(MediaRelayServiceMode.selfHosted)
+            }
+            .pickerStyle(.segmented)
+
+            if serviceMode == .selfHosted {
+                TextField("relay_share_endpoint_placeholder", text: $endpoint)
+                    .textContentType(.URL)
+                    .autocorrectionDisabled()
+                    .accessibilityLabel(Text("relay_share_endpoint"))
+                SecureField("relay_share_token_placeholder", text: $adminToken)
+                    .textContentType(.password)
+                    .privacySensitive()
+                    .accessibilityLabel(Text("relay_share_token"))
+            }
         } header: {
             Text("relay_share_configuration")
         } footer: {
-            Text("relay_share_configuration_footer")
+            if serviceMode == .builtIn {
+                Text("relay_share_builtin_footer")
+            } else {
+                Text("relay_share_configuration_footer")
+            }
         }
     }
 
@@ -1651,12 +1746,21 @@ struct MediaRelayShareSheet: View {
             .disabled(
                 isUploading
                     || !isSupported
-                    || endpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    || adminToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || !hasUsableServiceConfiguration
                     || (accessMode == .password && password.isEmpty)
                     || (!allowsPlayback && !allowsDownload && !allowsImport)
             )
             .accessibilityHint(Text("relay_share_create_hint"))
+        }
+    }
+
+    private var hasUsableServiceConfiguration: Bool {
+        switch serviceMode {
+        case .builtIn:
+            true
+        case .selfHosted:
+            !endpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !adminToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
     }
 
@@ -1772,18 +1876,6 @@ struct MediaRelayShareSheet: View {
         }
     }
 
-    private var securitySection: some View {
-        Section {
-            Label("relay_share_security_bytes", systemImage: "lock.shield")
-            Label("relay_share_security_range", systemImage: "arrow.left.and.right")
-            Label("relay_share_security_storage", systemImage: "externaldrive.badge.checkmark")
-        } header: {
-            Text("relay_share_security")
-        } footer: {
-            Text("relay_share_security_footer")
-        }
-    }
-
     @MainActor
     private func createRelayShare() async {
         guard !isUploading else { return }
@@ -1801,8 +1893,13 @@ struct MediaRelayShareSheet: View {
             ) else {
                 throw MediaRelayShareError.unsupportedSong
             }
-            let baseURL = try MediaRelayConfigurationPolicy.validatedAPIBaseURL(endpoint)
-            let trimmedToken = adminToken.trimmingCharacters(in: .whitespacesAndNewlines)
+            let selectedEndpoint = serviceMode == .builtIn
+                ? MediaRelaySettingsStore.builtInEndpoint
+                : endpoint
+            let baseURL = try MediaRelayConfigurationPolicy.validatedAPIBaseURL(selectedEndpoint)
+            let trimmedToken = serviceMode == .builtIn
+                ? ""
+                : adminToken.trimmingCharacters(in: .whitespacesAndNewlines)
             let requestedExpiration: Date?
             if publicLinkStyle == .shortCode {
                 guard expirationDate > Date(),
@@ -1813,7 +1910,11 @@ struct MediaRelayShareSheet: View {
             } else {
                 requestedExpiration = nil
             }
-            try MediaRelaySettingsStore.save(endpoint: baseURL.absoluteString, token: trimmedToken)
+            try MediaRelaySettingsStore.save(
+                mode: serviceMode,
+                selfHostedEndpoint: baseURL.absoluteString,
+                selfHostedToken: trimmedToken
+            )
             let relayClient = MediaRelayClient(baseURL: baseURL, adminToken: trimmedToken)
             client = relayClient
             let encryptionPolicy = try await relayClient.clientEncryptionPolicy()

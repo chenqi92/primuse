@@ -28,7 +28,7 @@
 
 ## 安全约定
 
-- `ADMIN_TOKEN` 和 `MASTER_KEY` 只放入运行时 Secret，不写入镜像、配置仓库、命令参数或日志。
+- `ADMIN_TOKEN` 和 `MASTER_KEY` 只放入运行时 Secret，不写入镜像、配置仓库、命令参数或日志。自建服务的管理员把 `ADMIN_TOKEN` 保存到自己的 Primuse 钥匙串；官方服务的令牌只用于服务端运维，绝不分发给 App 用户。
 - `ADMIN_TOKEN` 至少使用 32 字节随机值；`MASTER_KEY` 必须是 32 字节随机值的 Base64 编码。
 - 新版 Primuse 为每条分享在设备上生成独立的 256 位随机密钥；音频和包含文件名、标题、艺术家、专辑等信息的清单都在上传前用 AES-256-GCM 加密。每个分块使用独立随机 Nonce，并把分享 ID、分块序号和明文长度作为认证数据。
 - 解密密钥只写入 URL 的 `#k=` Fragment。Fragment 按浏览器规则不会进入 HTTP 请求、Worker、反向代理、R2 或服务端日志；服务端只知道分享控制信息、明文总大小、分块大小和密文对象。
@@ -124,6 +124,8 @@ docker compose ps
 {"status":"ok"}
 ```
 
+在 Primuse 的“分享服务”中选择“自建服务”，填写公开 HTTPS 地址和 `PRIMUSE_RELAY_ADMIN_TOKEN`。选择、地址与管理员密钥会在首次使用后保留；其中管理员密钥只存入本机钥匙串。
+
 ### 3. 备份与升级
 
 - `relay_data` Volume 保存加密媒体和哈希后的控制信息，应定期做一致性备份。
@@ -176,6 +178,7 @@ docker buildx imagetools inspect "$IMAGE:$VERSION"
 - 短码请求限流：每个 Cloudflare 边缘位置、每个来源 IP 与短码组合每分钟 60 次
 - 短码总请求限流：每个 Cloudflare 边缘位置、每个来源 IP 每分钟 60 次，换码不会绕过
 - 短码失败限流：每个 Cloudflare 边缘位置、每个来源 IP 与短码组合每分钟 5 次
+- 匿名加密分享创建限流：每个 Cloudflare 边缘位置、每个来源 IP 每分钟 10 次
 - 清理任务：每 5 分钟扫描一个随机 ID 分片，临时链接过期后立即拒绝访问并异步清理；永久链接不会因时间被清理
 
 Primuse 在上传前使用 `AES-256-GCM` 加密清单与每个媒体块，Worker 不持有该分享的解密密钥。Worker 将收到的密文原样写入私有 R2：加密清单是独立对象，媒体块通过 R2 Multipart Upload 合并为一个密文对象。网页按分块区间读取密文并在浏览器本地解密；R2 不设置公开域名，所有读取必须经过 Worker 的能力令牌、状态和权限校验。
@@ -223,7 +226,7 @@ printf '%s\0%s' "$ADMIN_TOKEN" "$MASTER_KEY" \
   | npx wrangler@4.128.0 secret bulk
 ```
 
-在清空变量前，把 `ADMIN_TOKEN` 保存到密码管理器；它需要填入 Primuse 的媒体中继设置。`MASTER_KEY` 无需放入客户端，但仍用于访问会话、访问密码流程和兼容旧分享，应在独立的灾难恢复密码库中备份。每条新版分享的媒体密钥由 Primuse 单独生成，不是这个 `MASTER_KEY`。完成保存后：
+在清空变量前，把 `ADMIN_TOKEN` 保存到仅限运维人员访问的密码管理器。官方内置服务不把它写入 Primuse，也不分发给用户；它只用于管理员应急撤销。`MASTER_KEY` 同样无需放入客户端，但仍用于访问会话、访问密码流程和兼容旧分享，应在独立的灾难恢复密码库中备份。每条新版分享的媒体密钥由 Primuse 单独生成，不是这个 `MASTER_KEY`。完成保存后：
 
 ```bash
 unset ADMIN_TOKEN MASTER_KEY
@@ -247,21 +250,13 @@ npx wrangler@4.128.0 deployments list
 npx wrangler@4.128.0 secret list
 ```
 
-随后在 Primuse 中填写：
+随后在 Primuse 中选择：
 
 ```text
-API 地址：https://share.soundisle.com
-管理令牌：保存到密码管理器的 ADMIN_TOKEN
+分享服务：内置服务
 ```
 
-本次部署生成的管理员令牌还保存在部署 Mac 的钥匙圈中。需要复制到手机时，可在该 Mac 上运行以下命令；令牌只进入剪贴板，不在终端回显：
-
-```bash
-security find-generic-password \
-  -a share.soundisle.com \
-  -s com.primuse.share-relay.admin-token \
-  -w | pbcopy
-```
+App 会固定连接 `https://share.soundisle.com`，不展示 API 地址或管理员密钥。`ADMIN_TOKEN` 继续只保留在服务端 Secret 与运维密码库中。
 
 至少完成一次真实小文件的创建、上传、网页播放、Range、密码解锁、下载权限、一次性导入和撤销测试，再把服务交给其他用户。
 
@@ -272,7 +267,7 @@ curl --fail --silent --show-error \
   https://share.soundisle.com/.well-known/primuse-share
 ```
 
-响应应包含 `"protocolVersion":4`、`"clientSideEncryption":"required"` 和 `client-aes-256-gcm-chunks-v1`。
+响应应包含 `"protocolVersion":4`、`"clientSideEncryption":"required"`、`"uploadAuthentication":"none"` 和 `client-aes-256-gcm-chunks-v1`。
 
 ### 5. 运维边界
 
@@ -292,7 +287,7 @@ Primuse 当前不通过局域网广播或 `.well-known` 自动发现分享服务
 1. 在歌曲行或正在播放页打开“更多”菜单。
 2. 选择唯一的“分享”入口。“分享歌曲信息”只发送歌曲文字信息；“创建播放链接”才会创建可打开的网页链接。
 3. 链接方式默认选“自动”：来源服务器具备原生分享能力时优先使用服务器链接；不支持或创建失败时，Primuse 会说明原因并询问是否改用 Primuse 分享服务，不会静默上传歌曲或改变权限。也可手动选择“音乐服务器”或“Primuse 分享服务”；Navidrome/OpenSubsonic 来源同样保留后者。
-4. 首次使用 Primuse 分享服务时，API 地址默认是 `https://share.soundisle.com`，只需粘贴 `ADMIN_TOKEN`。API 地址和管理员令牌保存在设备钥匙圈中，之后无需重复填写。App 会先读取服务能力；官方服务必须使用客户端加密，自托管 `optional` 也会默认使用客户端加密，只有自托管明确设为 `disabled` 时才回退到中继管理加密。
+4. “分享服务”可选择“内置服务”或“自建服务”。内置服务直接使用 `https://share.soundisle.com`，不显示地址或管理员密钥；自建服务才要求填写自己的 HTTPS 地址和 `ADMIN_TOKEN`。首次使用后会记住选择和自建地址，管理员密钥安全保存在本机钥匙串。App 会先读取服务能力；官方服务必须使用客户端加密，自托管 `optional` 也会默认使用客户端加密，只有自托管明确设为 `disabled` 时才回退到中继管理加密。
 5. 选择“短码链接”或“永久安全链接”。短码可选 4、5、6 位（默认 6 位）且最长 24 小时；永久安全链接使用不可枚举令牌并一直有效，直到主动撤销。访问密码独立于链接类型，两种链接都可选择“公开”或“密码保护”。
 6. 短码需选择过期时间；永久安全链接会明确显示“永久（直到撤销）”。再分别开放“在线播放”“下载原文件”“导入 Primuse”，至少需要开放一项操作。Primuse 会通过歌曲所属连接器按 Range 读取原始媒体，在设备上加密清单和每个分块，只上传密文，并把含 `#k=` 的完整链接与撤销令牌保存在本机钥匙圈。
 7. 成功页可复制完整链接、调用系统分享、显示包含完整链接的二维码或撤销分享。接收者在 Safari 打开后会自动使用 Fragment 密钥解密；如果只收到基础地址和密钥，也可在页面手动粘贴密钥或完整链接，然后播放、下载。点击“用 Primuse 打开”时，网页会把一次性导入凭证与 Fragment 密钥交回已安装的 App，App 下载密文、本地认证解密、校验文件类型和大小，再导入“本地音乐”并启动曲库扫描。
@@ -310,4 +305,4 @@ Primuse 当前不通过局域网广播或 `.well-known` 自动发现分享服务
 
 ## 切换方案
 
-Docker 与 Cloudflare 方案不能同时占用 `share.soundisle.com`。切换前应停止创建新分享，等待或撤销已有链接，再修改 Primuse 中的 API 地址。两套方案即使使用同一个 `MASTER_KEY`，也不会自动迁移元数据、密文或现有分享 URL；每条客户端加密分享还依赖只保存在完整链接和分享者设备中的独立密钥。
+Docker 与 Cloudflare 方案不能同时占用 `share.soundisle.com`。切换前应停止创建新分享，等待或撤销已有链接，再切换 Primuse 中的“内置服务 / 自建服务”。两套方案即使使用同一个 `MASTER_KEY`，也不会自动迁移元数据、密文或现有分享 URL；每条客户端加密分享还依赖只保存在完整链接和分享者设备中的独立密钥。
