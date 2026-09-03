@@ -164,6 +164,7 @@ final class TVAudioEngine {
             let s = AVAudioSession.sharedInstance()
             if !sessionCategoryConfigured {
                 try s.setCategory(.playback, mode: .default)
+                try s.setSupportsMultichannelContent(true)
                 sessionCategoryConfigured = true
             }
             try s.setActive(true)
@@ -437,6 +438,7 @@ final class TVAudioEngine {
     /// 挂 KVO 状态观察 + 上播放器 + 刷新 Now Playing。两条 load 路径共用。
     private func finishLoad(item: AVPlayerItem) {
         removeEndObserver()
+        item.allowedAudioSpatializationFormats = .multichannel
         let observedItemID = ObjectIdentifier(item)
         activeItemID = observedItemID
         itemStatusObs = item.observe(\.status, options: [.new]) { [weak self] item, _ in

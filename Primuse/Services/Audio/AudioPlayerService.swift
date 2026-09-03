@@ -694,6 +694,31 @@ final class AudioPlayerService {
     /// becoming a high-frequency UI dependency.
     @ObservationIgnored private var handoffCurrentTime: TimeInterval = 0
 
+    @ObservationIgnored private var systemAudioPlayer: AVPlayer?
+    @ObservationIgnored private var systemAudioStreamingLoader: SystemAudioStreamingLoader?
+    @ObservationIgnored private var systemAudioStartupWatchdog: Task<Void, Never>?
+    @ObservationIgnored private var systemAudioPlaybackDidStart = false
+    @ObservationIgnored private var pendingSystemAudioSeek: (
+        playID: UUID,
+        songID: String,
+        time: TimeInterval,
+        shouldStart: Bool
+    )?
+    private var isSystemAudioPlaybackActive = false
+    private var systemAudioFallbackContext: (
+        song: Song,
+        url: URL,
+        streamEpoch: UInt64
+    )?
+
+    private var isSystemMediaPlaybackActive: Bool {
+        isMusicVideoPlaybackActive || isSystemAudioPlaybackActive
+    }
+
+    private var activeSystemMediaPlayer: AVPlayer? {
+        isSystemAudioPlaybackActive ? systemAudioPlayer : musicVideoPlayer
+    }
+
     func handoffPlaybackTimeSnapshot() -> TimeInterval {
         handoffCurrentTime
     }
@@ -871,7 +896,7 @@ final class AudioPlayerService {
 
     var isCastingMode: Bool { castingRenderer != nil }
     private var isPlaybackActuallyActive: Bool {
-        if isLiveRadio || isAppleMusicMode || isCastingMode || isMusicVideoPlaybackActive {
+        if isLiveRadio || isAppleMusicMode || isCastingMode || isSystemMediaPlaybackActive {
             return isPlaying
         }
         return isPlaying && audioEngine.isActuallyPlaying
@@ -893,6 +918,7 @@ final class AudioPlayerService {
     private var musicVideoTimeObserver: Any?
     private var musicVideoEndObserver: NSObjectProtocol?
     private var musicVideoStatusObservation: NSKeyValueObservation?
+    private var musicVideoTimeControlObservation: NSKeyValueObservation?
     private var musicVideoFailedObserver: NSObjectProtocol?
     private var musicVideoObserverGeneration: UInt64 = 0
     private var pendingMusicVideoPlayID: UUID?
@@ -1363,9 +1389,18 @@ final class AudioPlayerService {
 
     /// 同步当前 playbackRate 到 engine. 设置变化或新歌开播都会调它。
     func applyPlaybackRate() {
-        audioEngine.applyPlaybackRate(
-            playbackSettings.outputMode == .effects ? playbackSettings.playbackRate : 1
-        )
+        let requestedRate = playbackSettings.outputMode == .effects
+            ? playbackSettings.playbackRate
+            : 1
+        if isSystemAudioPlaybackActive,
+           abs(requestedRate - 1) >= 0.001,
+           let id = playID {
+            Task { @MainActor [weak self] in
+                await self?.fallbackSystemAudioToPCM(playID: id, error: nil)
+            }
+            return
+        }
+        audioEngine.applyPlaybackRate(requestedRate)
     }
 
     /// 如果用户启用了「输出采样率匹配」, 把 AVAudioSession 硬件 SR hint 切到
@@ -1553,7 +1588,7 @@ final class AudioPlayerService {
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                if self.currentSong != nil, !self.isLoading, !self.isMusicVideoPlaybackActive {
+                if self.currentSong != nil, !self.isLoading, !self.isSystemMediaPlaybackActive {
                     self.seek(to: self.currentTime, startPlaying: self.isPlaying)
                 } else {
                     self.applySpatialAudioSettings()
@@ -1652,8 +1687,8 @@ final class AudioPlayerService {
             let frozenProgress = self.interpolatedTime(at: interruptionTime)
             self.stopTimeUpdater()
             self.audioEngine.suspendPlaybackClockReads()
-            if self.isMusicVideoPlaybackActive {
-                self.musicVideoPlayer?.pause()
+            if self.isSystemMediaPlaybackActive {
+                self.activeSystemMediaPlayer?.pause()
                 self.removeMusicVideoObservers()
             }
             self.invalidateAutomaticAdvance(reason: "interruption-began")
@@ -1732,7 +1767,7 @@ final class AudioPlayerService {
                   !self.isCastingMode,
                   (self.pendingMusicVideoPlayID == nil
                     || self.pendingMusicVideoPlayID != self.playID),
-                  !self.isMusicVideoPlaybackActive else { return }
+                  !self.isSystemMediaPlaybackActive else { return }
             if self.localRouteFocusRecoveryOwnerPlayID == self.playID {
                 if AudioSessionManager.shared.outputRouteIsBuiltIn {
                     plog("🔧 Audio engine configuration change absorbed by local route focus recovery")
@@ -1967,7 +2002,7 @@ final class AudioPlayerService {
             && !isLiveRadio
             && !isCastingMode
             && (pendingMusicVideoPlayID == nil || pendingMusicVideoPlayID != playID)
-            && !isMusicVideoPlaybackActive
+            && !isSystemMediaPlaybackActive
         let playbackWasActive = isPlaybackActuallyActive
             || lastPublishedPlaybackWasActive
             || hasConfigurationRecoveryActivityEvidence
@@ -2137,7 +2172,7 @@ final class AudioPlayerService {
             plog("🎧 Bluetooth HFP preemption ended — resuming authorized playback")
             if !isAppleMusicMode,
                !isLiveRadio,
-               !isMusicVideoPlaybackActive {
+               !isSystemMediaPlaybackActive {
                 seek(
                     to: pendingRecoveryTime,
                     startPlaying: true,
@@ -2198,7 +2233,7 @@ final class AudioPlayerService {
         return evidence.itemID == currentSong?.id
             && evidence.playID == playID
             && evidence.observerGeneration == musicVideoObserverGeneration
-            && isMusicVideoPlaybackActive
+            && isSystemMediaPlaybackActive
     }
 
     private func registerPlayIntent() {
@@ -2208,6 +2243,7 @@ final class AudioPlayerService {
         cancelPendingConfigurationRecovery()
         configurationRecoveryActivityEvidence = nil
         musicVideoSeekActivityEvidence = nil
+        pendingSystemAudioSeek = nil
         pendingMusicVideoPlayID = nil
         clearBluetoothHFPDeferredResume()
         interruptionResumePolicy.registerPlayIntent()
@@ -2221,6 +2257,7 @@ final class AudioPlayerService {
         cancelPendingConfigurationRecovery()
         configurationRecoveryActivityEvidence = nil
         musicVideoSeekActivityEvidence = nil
+        pendingSystemAudioSeek = nil
         pendingMusicVideoPlayID = nil
         clearBluetoothHFPDeferredResume()
         interruptionResumePolicy.registerPauseOrStopIntent()
@@ -2349,8 +2386,8 @@ final class AudioPlayerService {
     }
 
     private func syncPlaybackProgressFromEngine() {
-        if isMusicVideoPlaybackActive {
-            let seconds = musicVideoPlayer?.currentTime().seconds ?? currentTime
+        if isSystemMediaPlaybackActive {
+            let seconds = activeSystemMediaPlayer?.currentTime().seconds ?? currentTime
             guard seconds.isFinite else { return }
             currentTime = max(0, seconds)
             return
@@ -2479,6 +2516,326 @@ final class AudioPlayerService {
         }
     }
 
+    private func preferredSystemAudioProfile(
+        for song: Song,
+        url: URL
+    ) async -> ISOBaseMediaAudioProfile? {
+        guard song.cueStartTime == nil,
+              song.cueEndTime == nil,
+              [.m4a, .mp4, .alac].contains(song.fileFormat),
+              !SourceManager.isTranscodedStreamURL(url),
+              song.fileSize > 0 else { return nil }
+
+        let profile: ISOBaseMediaAudioProfile?
+        if url.isFileURL {
+            profile = await Task.detached(priority: .userInitiated) {
+                Self.readPreferredSystemAudioProfile(
+                    from: url,
+                    fileSize: song.fileSize
+                )
+            }.value
+        } else if sourceManager != nil || isDLNACast(song) {
+            do {
+                var head = Data()
+                for probeSize in RemoteMetadataReadPolicy.containerTailReadSizes(
+                    fileSize: song.fileSize
+                ) {
+                    let desiredHeadSize = min(Int64(probeSize), song.fileSize)
+                    if Int64(head.count) < desiredHeadSize {
+                        let newBytes = try await fetchSystemAudioMetadataRange(
+                            for: song,
+                            url: url,
+                            offset: Int64(head.count),
+                            length: desiredHeadSize - Int64(head.count)
+                        )
+                        guard !newBytes.isEmpty else { break }
+                        head.append(newBytes)
+                    }
+
+                    var profiles = ISOBaseMediaAudioProfileParser.parse(head: head)
+                    if profiles.isEmpty, Int64(probeSize) < song.fileSize {
+                        do {
+                            let tail = try await fetchSystemAudioMetadataRange(
+                                for: song,
+                                url: url,
+                                offset: -Int64(probeSize),
+                                length: Int64(probeSize)
+                            )
+                            profiles = ISOBaseMediaAudioProfileParser.parse(head: head, tail: tail)
+                        } catch MetadataRangeReadError.suffixRangeUnsupported {
+                            // Some DLNA endpoints ignore suffix ranges. Keep
+                            // growing the bounded prefix before falling back to
+                            // the established PCM path.
+                            continue
+                        }
+                    }
+                    if let resolved = profiles.first(where: \.prefersSystemMediaPlayback)
+                        ?? profiles.first {
+                        return resolved.prefersSystemMediaPlayback ? resolved : nil
+                    }
+                }
+                profile = nil
+            } catch {
+                plog("System audio profile probe fell back to PCM: \(error.localizedDescription)")
+                profile = nil
+            }
+        } else {
+            profile = nil
+        }
+        return profile?.prefersSystemMediaPlayback == true ? profile : nil
+    }
+
+    private func fetchSystemAudioMetadataRange(
+        for song: Song,
+        url: URL,
+        offset: Int64,
+        length: Int64
+    ) async throws -> Data {
+        if isDLNACast(song),
+           let scheme = url.scheme?.lowercased(),
+           scheme == "http" || scheme == "https" {
+            return try await SourceManager.fetchRemoteMetadataRange(
+                url: url,
+                offset: offset,
+                length: length,
+                intent: .bulkBounded
+            )
+        }
+        guard let sourceManager else {
+            throw SourceError.connectionFailed("Audio metadata source unavailable")
+        }
+        return try await sourceManager.fetchMetadataRange(
+            for: song,
+            offset: offset,
+            length: length,
+            intent: .bulkBounded
+        )
+    }
+
+    private nonisolated static func readPreferredSystemAudioProfile(
+        from url: URL,
+        fileSize declaredSize: Int64
+    ) -> ISOBaseMediaAudioProfile? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        let actualSize = (try? handle.seekToEnd()).map(Int64.init(clamping:)) ?? declaredSize
+        guard actualSize > 0 else { return nil }
+        let byteCount = min(
+            Int64(RemoteMetadataReadPolicy.maximumHeadByteCount),
+            actualSize
+        )
+        try? handle.seek(toOffset: 0)
+        guard let head = try? handle.read(upToCount: Int(byteCount)) else { return nil }
+        var profiles = ISOBaseMediaAudioProfileParser.parse(head: head)
+        if profiles.isEmpty, byteCount < actualSize {
+            try? handle.seek(toOffset: UInt64(actualSize - byteCount))
+            if let tail = try? handle.read(upToCount: Int(byteCount)) {
+                profiles = ISOBaseMediaAudioProfileParser.parse(head: head, tail: tail)
+            }
+        }
+        return profiles.first(where: \.prefersSystemMediaPlayback) ?? profiles.first
+    }
+
+    private func startSystemAudioPlaybackIfPreferred(
+        for song: Song,
+        url: URL,
+        playID id: UUID,
+        sourceStreamEpoch: UInt64
+    ) async -> Bool {
+        let requestedPlaybackRate = playbackSettings.outputMode == .effects
+            ? playbackSettings.playbackRate
+            : 1
+        // The established PCM graph owns variable-speed playback. Keep that
+        // path whenever the user requests a non-default rate so the UI and
+        // audible transport cannot disagree about elapsed time.
+        guard abs(requestedPlaybackRate - 1) < 0.001 else { return false }
+        guard let profile = await preferredSystemAudioProfile(for: song, url: url),
+              playID == id,
+              isLocalTransportStartAuthorized(
+                playID: id,
+                itemID: song.id,
+                trigger: "system-multichannel-audio-start"
+              ) else { return false }
+
+        var loader: SystemAudioStreamingLoader?
+        let asset: AVURLAsset
+        if url.scheme == SourceManager.cloudStreamingScheme {
+            guard let manager = sourceManager,
+                  let inputSource = try? await manager.makeStreamingInputSource(
+                    for: song,
+                    cacheEnabled: playbackSettings.audioCacheEnabled,
+                    expectedStreamEpoch: sourceStreamEpoch
+                  ),
+                  let cloudInput = inputSource as? CloudInputSourceObjC else {
+                return false
+            }
+            let candidate = SystemAudioStreamingLoader(
+                inputSource: cloudInput,
+                fileExtension: "m4a"
+            )
+            guard let streamingAsset = candidate.makeAsset() else {
+                candidate.invalidate()
+                return false
+            }
+            loader = candidate
+            asset = streamingAsset
+        } else if url.scheme == "http" || url.scheme == "https" {
+            guard let inputSource = await makeHTTPStreamingInputSource(
+                for: song,
+                url: url,
+                sourceStreamEpoch: sourceStreamEpoch
+            ), let cloudInput = inputSource as? CloudInputSourceObjC else {
+                return false
+            }
+            let candidate = SystemAudioStreamingLoader(
+                inputSource: cloudInput,
+                fileExtension: "m4a"
+            )
+            guard let streamingAsset = candidate.makeAsset() else {
+                candidate.invalidate()
+                return false
+            }
+            loader = candidate
+            asset = streamingAsset
+        } else {
+            asset = AVURLAsset(url: url)
+        }
+
+        guard playID == id else {
+            loader?.invalidate()
+            return false
+        }
+        _ = AudioSessionManager.shared.activatePlaybackSession()
+        stopMusicVideoPlayback(clearPlayer: true)
+        let item = AVPlayerItem(asset: asset)
+        item.allowedAudioSpatializationFormats = .multichannel
+        let player = AVPlayer(playerItem: item)
+        player.automaticallyWaitsToMinimizeStalling = true
+        player.volume = audioEngine.volume
+        systemAudioPlayer = player
+        systemAudioStreamingLoader = loader
+        systemAudioFallbackContext = (song, url, sourceStreamEpoch)
+        systemAudioPlaybackDidStart = false
+        pendingSystemAudioSeek = nil
+        isSystemAudioPlaybackActive = true
+        isAtTrackEnd = false
+        currentTime = 0
+        duration = song.duration.sanitizedDuration
+        isLoading = true
+        isPlaying = false
+        hasPreparedLocalPlayback = false
+        activeDecoderKind = .native
+        configureMusicVideoObservers(for: player, playID: id)
+        plog("System multichannel audio: codec=\(profile.codecFourCC) channels=\(profile.channelCount) transport=AVPlayer")
+
+        player.play()
+        armSystemAudioStartupWatchdog(player: player, playID: id)
+        updateNowPlayingInfo()
+        updateNowPlayingArtworkIfNeeded()
+        updatePlaybackState()
+        return true
+    }
+
+    private func markSystemAudioPlaybackStarted(player: AVPlayer, playID id: UUID) {
+        guard playID == id,
+              isSystemAudioPlaybackActive,
+              systemAudioPlayer === player,
+              !systemAudioPlaybackDidStart,
+              let song = currentSong,
+              isLocalTransportStartAuthorized(
+                playID: id,
+                itemID: song.id,
+                trigger: "system-multichannel-audio-playing"
+              ) else { return }
+        systemAudioPlaybackDidStart = true
+        if pendingSystemAudioSeek?.playID == id {
+            pendingSystemAudioSeek = nil
+        }
+        systemAudioStartupWatchdog?.cancel()
+        systemAudioStartupWatchdog = nil
+        isLoading = false
+        isPlaying = true
+        clearPendingPlaybackRecovery()
+        library?.recordPlayback(of: song.id)
+        ScrobbleService.shared.handlePlaybackStarted(song: song)
+        PlayHistoryStore.shared.beginSession(song: song)
+        updateNowPlayingInfo()
+        updateNowPlayingArtworkIfNeeded()
+        updatePlaybackState()
+    }
+
+    private func armSystemAudioStartupWatchdog(player: AVPlayer, playID id: UUID) {
+        systemAudioStartupWatchdog?.cancel()
+        systemAudioStartupWatchdog = Task { @MainActor [weak self, weak player] in
+            do {
+                try await Task.sleep(for: .seconds(Self.firstBufferTimeoutSeconds))
+            } catch {
+                return
+            }
+            guard let self,
+                  let player,
+                  self.playID == id,
+                  self.systemAudioPlayer === player,
+                  self.isSystemAudioPlaybackActive,
+                  !self.systemAudioPlaybackDidStart,
+                  self.interruptionResumePolicy.playbackIsIntended else { return }
+            await self.fallbackSystemAudioToPCM(
+                playID: id,
+                error: CocoaError(.fileReadUnknown)
+            )
+        }
+    }
+
+    private func fallbackSystemAudioToPCM(playID id: UUID, error: Error?) async {
+        guard playID == id,
+              isSystemAudioPlaybackActive,
+              let fallback = systemAudioFallbackContext,
+              currentSong?.id == fallback.song.id else { return }
+
+        let pendingSeek = pendingSystemAudioSeek.flatMap { pending in
+            pending.playID == id && pending.songID == fallback.song.id ? pending : nil
+        }
+        syncPlaybackProgressFromEngine()
+        let resumeTime = max(0, pendingSeek?.time ?? currentTime)
+        let alreadyRecordedPlaybackStart = systemAudioPlaybackDidStart
+        let shouldResume = pendingSeek?.shouldStart
+            ?? interruptionResumePolicy.playbackIsIntended
+        plog(
+            "System multichannel playback unavailable; using PCM fallback at "
+                + "\(String(format: "%.2f", resumeTime))s: "
+                + (error?.localizedDescription ?? "-")
+        )
+        stopMusicVideoPlayback(clearPlayer: true)
+        guard playID == id, currentSong?.id == fallback.song.id else { return }
+
+        guard shouldResume else {
+            isLoading = false
+            isPlaying = false
+            pendingRecoveryTime = resumeTime
+            needsPlaybackRecovery = resumeTime > 0
+            updateNowPlayingInfo()
+            updatePlaybackState()
+            return
+        }
+
+        isLoading = true
+        isPlaying = false
+        await playFromURL(
+            song: fallback.song,
+            url: fallback.url,
+            playID: id,
+            sourceStreamEpoch: fallback.streamEpoch,
+            bypassSystemMediaPlayback: true,
+            shouldRecordPlaybackStart: !alreadyRecordedPlaybackStart
+        )
+        guard playID == id,
+              currentSong?.id == fallback.song.id,
+              interruptionResumePolicy.playbackIsIntended else { return }
+        if resumeTime > 0, isPlaying, !isLoading {
+            seek(to: resumeTime, startPlaying: true, isRecovery: true)
+        }
+    }
+
     private enum MusicVideoStartResult {
         case started
         case skipped
@@ -2555,6 +2912,7 @@ final class AudioPlayerService {
                 player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
             }
             player.automaticallyWaitsToMinimizeStalling = true
+            player.volume = audioEngine.volume
             musicVideoPlayer = player
             isMusicVideoPlaybackActive = true
             isAtTrackEnd = false
@@ -2607,9 +2965,13 @@ final class AudioPlayerService {
                       let player,
                       self.musicVideoObserverGeneration == observerGeneration,
                       self.playID == id,
-                      self.musicVideoPlayer === player,
-                      self.isPlaying,
-                      self.isMusicVideoPlaybackActive else { return }
+                      self.activeSystemMediaPlayer === player,
+                      self.isSystemMediaPlaybackActive else { return }
+                if self.isSystemAudioPlaybackActive,
+                   player.timeControlStatus == .playing {
+                    self.markSystemAudioPlaybackStarted(player: player, playID: id)
+                }
+                guard self.isPlaying else { return }
                 if time.seconds.isFinite {
                     self.currentTime = time.seconds.sanitizedDuration
                     ScrobbleService.shared.handleProgressTick(playedDelta: Self.timeUpdateInterval)
@@ -2621,6 +2983,22 @@ final class AudioPlayerService {
                         self.applyResolvedMusicVideoDuration(itemDuration, playID: id)
                     }
                 }
+            }
+        }
+
+        musicVideoTimeControlObservation = player.observe(
+            \.timeControlStatus,
+            options: [.initial, .new]
+        ) { [weak self, weak player] observed, _ in
+            guard observed.timeControlStatus == .playing else { return }
+            Task { @MainActor [weak self, weak player] in
+                guard let self,
+                      let player,
+                      self.musicVideoObserverGeneration == observerGeneration,
+                      self.playID == id,
+                      self.systemAudioPlayer === player,
+                      self.isSystemAudioPlaybackActive else { return }
+                self.markSystemAudioPlaybackStarted(player: player, playID: id)
             }
         }
 
@@ -2678,7 +3056,7 @@ final class AudioPlayerService {
                 await self.handleTrackEnd(
                     advanceTicket: advanceTicket,
                     trigger: "music-video-end",
-                    transportIsActive: self.isPlaying && self.isMusicVideoPlaybackActive
+                    transportIsActive: self.isPlaying && self.isSystemMediaPlaybackActive
                 )
             }
         }
@@ -2695,7 +3073,11 @@ final class AudioPlayerService {
         error: Error?,
         item: AVPlayerItem?
     ) async {
-        guard playID == id, isMusicVideoPlaybackActive else { return }
+        guard playID == id, isSystemMediaPlaybackActive else { return }
+        if isSystemAudioPlaybackActive {
+            await fallbackSystemAudioToPCM(playID: id, error: error)
+            return
+        }
         if let song = currentSong {
             plog("🎞️ MV playback failed for '\(song.title)': \(error?.localizedDescription ?? "-")")
             if isMissingMusicVideoPlaybackError(error, item: item) {
@@ -2710,7 +3092,7 @@ final class AudioPlayerService {
             await autoAdvanceAfterFailure(
                 advanceTicket: advanceTicket,
                 trigger: "music-video-failure",
-                transportIsActive: isPlaying && isMusicVideoPlaybackActive
+                transportIsActive: isPlaying && isSystemMediaPlaybackActive
             )
             return
         }
@@ -2759,7 +3141,7 @@ final class AudioPlayerService {
     private func removeMusicVideoObservers() {
         musicVideoObserverGeneration &+= 1
         musicVideoSeekActivityEvidence = nil
-        if let observer = musicVideoTimeObserver, let player = musicVideoPlayer {
+        if let observer = musicVideoTimeObserver, let player = activeSystemMediaPlayer {
             player.removeTimeObserver(observer)
         }
         musicVideoTimeObserver = nil
@@ -2769,6 +3151,8 @@ final class AudioPlayerService {
         musicVideoEndObserver = nil
         musicVideoStatusObservation?.invalidate()
         musicVideoStatusObservation = nil
+        musicVideoTimeControlObservation?.invalidate()
+        musicVideoTimeControlObservation = nil
         if let observer = musicVideoFailedObserver {
             NotificationCenter.default.removeObserver(observer)
         }
@@ -2776,16 +3160,30 @@ final class AudioPlayerService {
     }
 
     private func stopMusicVideoPlayback(clearPlayer: Bool) {
-        guard musicVideoPlayer != nil || isMusicVideoPlaybackActive || musicVideoStreamingLoader != nil else { return }
-        musicVideoPlayer?.pause()
+        guard musicVideoPlayer != nil
+                || systemAudioPlayer != nil
+                || isSystemMediaPlaybackActive
+                || musicVideoStreamingLoader != nil
+                || systemAudioStreamingLoader != nil else { return }
+        activeSystemMediaPlayer?.pause()
+        systemAudioStartupWatchdog?.cancel()
+        systemAudioStartupWatchdog = nil
         removeMusicVideoObservers()
         if clearPlayer {
             musicVideoPlayer?.replaceCurrentItem(with: nil)
             musicVideoPlayer = nil
             musicVideoStreamingLoader?.invalidate()
             musicVideoStreamingLoader = nil
+            systemAudioPlayer?.replaceCurrentItem(with: nil)
+            systemAudioPlayer = nil
+            systemAudioStreamingLoader?.invalidate()
+            systemAudioStreamingLoader = nil
+            systemAudioFallbackContext = nil
+            pendingSystemAudioSeek = nil
         }
         isMusicVideoPlaybackActive = false
+        isSystemAudioPlaybackActive = false
+        systemAudioPlaybackDidStart = false
     }
 
     private func showPlaybackError(_ message: String) {
@@ -3448,6 +3846,7 @@ final class AudioPlayerService {
         let clamped = min(max(value, 0), 1)
         audioEngine.volume = clamped
         radioPlaybackController.setVolume(clamped)
+        activeSystemMediaPlayer?.volume = clamped
     }
 
     func play(song: Song, caller: String = #fileID, callerLine: Int = #line) async {
@@ -3983,7 +4382,12 @@ final class AudioPlayerService {
         }
     }
 
-    func play(song: Song, from url: URL) async {
+    func play(
+        song: Song,
+        from url: URL,
+        bypassSystemMediaPlayback: Bool = false,
+        shouldRecordPlaybackStart: Bool = true
+    ) async {
         registerPlayIntent()
         let sourceStreamEpoch = CloudPlaybackSource.streamEpochTicket(
             sourceID: song.sourceID
@@ -4055,7 +4459,9 @@ final class AudioPlayerService {
             song: song,
             url: url,
             playID: id,
-            sourceStreamEpoch: sourceStreamEpoch
+            sourceStreamEpoch: sourceStreamEpoch,
+            bypassSystemMediaPlayback: bypassSystemMediaPlayback,
+            shouldRecordPlaybackStart: shouldRecordPlaybackStart
         )
     }
 
@@ -4064,7 +4470,9 @@ final class AudioPlayerService {
         url: URL,
         playID id: UUID,
         sourceStreamEpoch: UInt64,
-        formatRecoveryAttempt: Int = 0
+        formatRecoveryAttempt: Int = 0,
+        bypassSystemMediaPlayback: Bool = false,
+        shouldRecordPlaybackStart: Bool = true
     ) async {
         plog("▶️ playFromURL(song: \(song.title)) playID=\(id.uuidString.prefix(8))")
         plog("▶️   URL: \(redactedURL(url))")
@@ -4095,6 +4503,16 @@ final class AudioPlayerService {
         crossfadeTriggered = false; isCrossfading = false
         activeDecoderKind = .native
         var activeDSDMode: DSDPlaybackMode = .pcm
+
+        if !bypassSystemMediaPlayback,
+           await startSystemAudioPlaybackIfPreferred(
+            for: song,
+            url: url,
+            playID: id,
+            sourceStreamEpoch: sourceStreamEpoch
+           ) {
+            return
+        }
 
         let remoteWAVProbeOutcome: RemoteWAVPlaybackPolicy.ProbeOutcome?
         if (isRemoteURL || isCloudStream), song.fileFormat == .wav {
@@ -4159,7 +4577,8 @@ final class AudioPlayerService {
                         outputFormat: outputFormat,
                         playID: id,
                         cacheURL: cacheURL,
-                        sourceStreamEpoch: sourceStreamEpoch
+                        sourceStreamEpoch: sourceStreamEpoch,
+                        shouldRecordPlaybackStart: shouldRecordPlaybackStart
                     )
                     return
                 }
@@ -4175,7 +4594,15 @@ final class AudioPlayerService {
                         : "custom formats require a local seekable stream"
                     plog("▶️ Decoder: full-download (\(reason))")
                     let cacheURL = playbackSettings.audioCacheEnabled ? sourceManager?.cacheURL(for: song) : nil
-                    await playWithStreamingDownload(song: song, url: url, outputFormat: outputFormat, playID: id, cacheURL: cacheURL, sourceStreamEpoch: sourceStreamEpoch)
+                    await playWithStreamingDownload(
+                        song: song,
+                        url: url,
+                        outputFormat: outputFormat,
+                        playID: id,
+                        cacheURL: cacheURL,
+                        sourceStreamEpoch: sourceStreamEpoch,
+                        shouldRecordPlaybackStart: shouldRecordPlaybackStart
+                    )
                     return
                 }
                 if SourceManager.isTranscodedStreamURL(url), assetReaderDecoder.canDecode(url: url) {
@@ -4183,7 +4610,13 @@ final class AudioPlayerService {
                     // 解码。不按 song.fileSize 做 HTTP Range(会读越界), 也不写按
                     // 大小校验的持久缓存。
                     plog("▶️ Decoder: AVAssetReader (reason: server transcoded stream, progressive, unknown length) outputFormat: sr=\(outputFormat.sampleRate) ch=\(outputFormat.channelCount)")
-                    await playWithFallbackDecoder(song: song, url: url, outputFormat: outputFormat, playID: id)
+                    await playWithFallbackDecoder(
+                        song: song,
+                        url: url,
+                        outputFormat: outputFormat,
+                        playID: id,
+                        shouldRecordPlaybackStart: shouldRecordPlaybackStart
+                    )
                     return
                 }
                 if let inputSource = await makeHTTPStreamingInputSource(
@@ -4208,7 +4641,13 @@ final class AudioPlayerService {
                     // on loading. Let AVFoundation open the remote asset
                     // progressively before trying the legacy full download.
                     plog("▶️ Decoder: AVAssetReader (reason: DLNA URL has no range/fileSize, progressive remote fallback) outputFormat: sr=\(outputFormat.sampleRate) ch=\(outputFormat.channelCount)")
-                    await playWithFallbackDecoder(song: song, url: url, outputFormat: outputFormat, playID: id)
+                    await playWithFallbackDecoder(
+                        song: song,
+                        url: url,
+                        outputFormat: outputFormat,
+                        playID: id,
+                        shouldRecordPlaybackStart: shouldRecordPlaybackStart
+                    )
                     return
                 } else {
                     // Fallback for legacy rows / arbitrary URLs where fileSize is
@@ -4216,7 +4655,15 @@ final class AudioPlayerService {
                     // that startup waits for a full download.
                     plog("▶️ Decoder: StreamingDownloadDecoder (reason: HTTP range unavailable or fileSize unknown, full-download fallback) outputFormat: sr=\(outputFormat.sampleRate) ch=\(outputFormat.channelCount)")
                     let cacheURL = playbackSettings.audioCacheEnabled ? sourceManager?.cacheURL(for: song) : nil
-                    await playWithStreamingDownload(song: song, url: url, outputFormat: outputFormat, playID: id, cacheURL: cacheURL, sourceStreamEpoch: sourceStreamEpoch)
+                    await playWithStreamingDownload(
+                        song: song,
+                        url: url,
+                        outputFormat: outputFormat,
+                        playID: id,
+                        cacheURL: cacheURL,
+                        sourceStreamEpoch: sourceStreamEpoch,
+                        shouldRecordPlaybackStart: shouldRecordPlaybackStart
+                    )
                     return
                 }
             } else if let completeRemoteWAVLocalURL {
@@ -4328,7 +4775,13 @@ final class AudioPlayerService {
                 guard !Task.isCancelled, playID == id else { return }
                 // 云盘大文件逐 chunk 流式卡死(连接饥饿 / 冷文件 hydration)时,
                 // 退回整文件渐进下载再试一次, 而不是直接报错跳过。
-                if isCloudStream, await cloudFullDownloadFallback(song: song, outputFormat: outputFormat, playID: id, sourceStreamEpoch: sourceStreamEpoch) {
+                if isCloudStream, await cloudFullDownloadFallback(
+                    song: song,
+                    outputFormat: outputFormat,
+                    playID: id,
+                    sourceStreamEpoch: sourceStreamEpoch,
+                    shouldRecordPlaybackStart: shouldRecordPlaybackStart
+                ) {
                     return
                 }
                 plog("⚠️ '\(song.title)' first-buffer timeout (35s) — likely cloud fetch stalled")
@@ -4346,7 +4799,13 @@ final class AudioPlayerService {
                 if activeDecoderKind == .httpStream {
                     if isDLNACast(song), assetReaderDecoder.canDecode(url: url) {
                         plog("↳ HTTP range decode failed before first buffer; trying DLNA progressive AssetReader fallback")
-                        await playWithFallbackDecoder(song: song, url: url, outputFormat: outputFormat, playID: id)
+                        await playWithFallbackDecoder(
+                            song: song,
+                            url: url,
+                            outputFormat: outputFormat,
+                            playID: id,
+                            shouldRecordPlaybackStart: shouldRecordPlaybackStart
+                        )
                     } else {
                         plog("↳ HTTP range decode failed before first buffer; falling back to full download")
                         guard await sourceManager?.cancelStreamingSessionForMaterialization(
@@ -4354,7 +4813,15 @@ final class AudioPlayerService {
                             expectedStreamEpoch: sourceStreamEpoch
                         ) != false else { return }
                         let cacheURL = playbackSettings.audioCacheEnabled ? sourceManager?.cacheURL(for: song) : nil
-                        await playWithStreamingDownload(song: song, url: url, outputFormat: outputFormat, playID: id, cacheURL: cacheURL, sourceStreamEpoch: sourceStreamEpoch)
+                        await playWithStreamingDownload(
+                            song: song,
+                            url: url,
+                            outputFormat: outputFormat,
+                            playID: id,
+                            cacheURL: cacheURL,
+                            sourceStreamEpoch: sourceStreamEpoch,
+                            shouldRecordPlaybackStart: shouldRecordPlaybackStart
+                        )
                     }
                 } else if !isCloudStream {
                     let safeOutputFormat = preparePCMOutputAfterDoPFailure(
@@ -4363,8 +4830,20 @@ final class AudioPlayerService {
                         wasUsingDoP: activeDSDMode == .dop
                     ) ?? outputFormat
                     activeDSDPlaybackMode = .pcm
-                    await playWithFallbackDecoder(song: song, url: url, outputFormat: safeOutputFormat, playID: id)
-                } else if await cloudFullDownloadFallback(song: song, outputFormat: outputFormat, playID: id, sourceStreamEpoch: sourceStreamEpoch) {
+                    await playWithFallbackDecoder(
+                        song: song,
+                        url: url,
+                        outputFormat: safeOutputFormat,
+                        playID: id,
+                        shouldRecordPlaybackStart: shouldRecordPlaybackStart
+                    )
+                } else if await cloudFullDownloadFallback(
+                    song: song,
+                    outputFormat: outputFormat,
+                    playID: id,
+                    sourceStreamEpoch: sourceStreamEpoch,
+                    shouldRecordPlaybackStart: shouldRecordPlaybackStart
+                ) {
                     return
                 } else {
                     isLoading = false
@@ -4432,7 +4911,9 @@ final class AudioPlayerService {
                         url: url,
                         playID: id,
                         sourceStreamEpoch: sourceStreamEpoch,
-                        formatRecoveryAttempt: formatRecoveryAttempt + 1
+                        formatRecoveryAttempt: formatRecoveryAttempt + 1,
+                        bypassSystemMediaPlayback: bypassSystemMediaPlayback,
+                        shouldRecordPlaybackStart: shouldRecordPlaybackStart
                     )
                 }
                 return
@@ -4495,8 +4976,11 @@ final class AudioPlayerService {
             isLoading = false
             if didStartPlayback {
                 clearPendingPlaybackRecovery()
-                library?.recordPlayback(of: song.id)
-                ScrobbleService.shared.handlePlaybackStarted(song: song); PlayHistoryStore.shared.beginSession(song: song)
+                if shouldRecordPlaybackStart {
+                    library?.recordPlayback(of: song.id)
+                    ScrobbleService.shared.handlePlaybackStarted(song: song)
+                    PlayHistoryStore.shared.beginSession(song: song)
+                }
                 startTimeUpdater()
             } else {
                 showPlaybackError(String(localized: "playback_error_decode"))
@@ -4643,7 +5127,8 @@ final class AudioPlayerService {
         song: Song,
         outputFormat: AVAudioFormat,
         playID id: UUID,
-        sourceStreamEpoch: UInt64
+        sourceStreamEpoch: UInt64,
+        shouldRecordPlaybackStart: Bool
     ) async -> Bool {
         guard let manager = sourceManager,
               let fallbackTicket = localPipelineAdvanceTicket else { return false }
@@ -4660,7 +5145,15 @@ final class AudioPlayerService {
                 expectedStreamEpoch: sourceStreamEpoch
             ) else { return true }
             let cacheURL = playbackSettings.audioCacheEnabled ? manager.cacheURL(for: song) : nil
-            await playWithStreamingDownload(song: song, url: directURL, outputFormat: outputFormat, playID: id, cacheURL: cacheURL, sourceStreamEpoch: sourceStreamEpoch)
+            await playWithStreamingDownload(
+                song: song,
+                url: directURL,
+                outputFormat: outputFormat,
+                playID: id,
+                cacheURL: cacheURL,
+                sourceStreamEpoch: sourceStreamEpoch,
+                shouldRecordPlaybackStart: shouldRecordPlaybackStart
+            )
             return true
         }
 
@@ -4682,7 +5175,18 @@ final class AudioPlayerService {
             trigger: "cloud-materialized-fallback",
             expectedTicket: fallbackTicket
         ) else { return true }
-        await play(song: song, from: cached)
+        audioEngine.stopPlayback()
+        hasPreparedLocalPlayback = false
+        stopTimeUpdater()
+        cancelGaplessTasks()
+        await playFromURL(
+            song: song,
+            url: cached,
+            playID: id,
+            sourceStreamEpoch: sourceStreamEpoch,
+            bypassSystemMediaPlayback: true,
+            shouldRecordPlaybackStart: shouldRecordPlaybackStart
+        )
         return true
     }
 
@@ -4823,7 +5327,8 @@ final class AudioPlayerService {
     /// certificates that AVAssetReader cannot.
     private func playWithStreamingDownload(
         song: Song, url: URL, outputFormat: AVAudioFormat,
-        playID id: UUID, cacheURL: URL?, sourceStreamEpoch: UInt64
+        playID id: UUID, cacheURL: URL?, sourceStreamEpoch: UInt64,
+        shouldRecordPlaybackStart: Bool = true
     ) async {
         _ = retireStreamingDownloadPreparation()
         await awaitStreamingDownloadRetirement()
@@ -4954,8 +5459,11 @@ final class AudioPlayerService {
             isLoading = false
             if didStartPlayback {
                 clearPendingPlaybackRecovery()
-                library?.recordPlayback(of: song.id)
-                ScrobbleService.shared.handlePlaybackStarted(song: song); PlayHistoryStore.shared.beginSession(song: song)
+                if shouldRecordPlaybackStart {
+                    library?.recordPlayback(of: song.id)
+                    ScrobbleService.shared.handlePlaybackStarted(song: song)
+                    PlayHistoryStore.shared.beginSession(song: song)
+                }
                 startTimeUpdater()
             } else {
                 showPlaybackError(String(localized: "playback_error_decode"))
@@ -5034,7 +5542,13 @@ final class AudioPlayerService {
             }
             // Fallback to AssetReader decoder (for non-SSL failures)
             plog("↳ Trying AssetReader fallback...")
-            await playWithFallbackDecoder(song: song, url: url, outputFormat: outputFormat, playID: id)
+            await playWithFallbackDecoder(
+                song: song,
+                url: url,
+                outputFormat: outputFormat,
+                playID: id,
+                shouldRecordPlaybackStart: shouldRecordPlaybackStart
+            )
         }
     }
 
@@ -5591,7 +6105,13 @@ final class AudioPlayerService {
     /// Broad fallback playback. A local file gets FFmpeg first; progressive
     /// remote media uses AVAssetReader because FFmpeg is intentionally opened
     /// only on complete, seekable files in this architecture.
-    private func playWithFallbackDecoder(song: Song, url: URL, outputFormat: AVAudioFormat, playID id: UUID) async {
+    private func playWithFallbackDecoder(
+        song: Song,
+        url: URL,
+        outputFormat: AVAudioFormat,
+        playID id: UUID,
+        shouldRecordPlaybackStart: Bool = true
+    ) async {
         guard playID == id else { return }
         let useFFmpeg: Bool
         if url.isFileURL {
@@ -5692,8 +6212,11 @@ final class AudioPlayerService {
             isLoading = false
             if didStartPlayback {
                 clearPendingPlaybackRecovery()
-                library?.recordPlayback(of: song.id)
-                ScrobbleService.shared.handlePlaybackStarted(song: song); PlayHistoryStore.shared.beginSession(song: song)
+                if shouldRecordPlaybackStart {
+                    library?.recordPlayback(of: song.id)
+                    ScrobbleService.shared.handlePlaybackStarted(song: song)
+                    PlayHistoryStore.shared.beginSession(song: song)
+                }
                 startTimeUpdater()
             } else {
                 showPlaybackError(String(localized: "playback_error_decode"))
@@ -6028,12 +6551,16 @@ final class AudioPlayerService {
             setCastingPlayback(shouldPlay: false)
             return
         }
-        if isMusicVideoPlaybackActive || wasPendingMusicVideo {
-            if isMusicVideoPlaybackActive {
+        if isSystemMediaPlaybackActive || wasPendingMusicVideo {
+            if isSystemMediaPlaybackActive {
                 if !wasSeekingMusicVideo {
                     syncPlaybackProgressFromEngine()
                 }
-                musicVideoPlayer?.pause()
+                if isSystemAudioPlaybackActive {
+                    systemAudioStartupWatchdog?.cancel()
+                    systemAudioStartupWatchdog = nil
+                }
+                activeSystemMediaPlayer?.pause()
             } else {
                 hasPreparedLocalPlayback = false
                 needsPlaybackRecovery = false
@@ -6125,7 +6652,7 @@ final class AudioPlayerService {
         guard !isLoading, let song = currentSong else { return }
         if isMusicVideoModeEnabled,
            canPlayMusicVideo,
-           !isMusicVideoPlaybackActive {
+           !isSystemMediaPlaybackActive {
             let resumeTime = currentTime
             let resumeGeneration = playbackAdvancePolicy.generation
             Task { @MainActor [weak self] in
@@ -6143,18 +6670,24 @@ final class AudioPlayerService {
             }
             return
         }
-        if isMusicVideoPlaybackActive {
+        if isSystemMediaPlaybackActive {
             _ = beginAutomaticAdvanceTransport(
                 itemID: song.id,
                 reason: registeringUserIntent ? "music-video-manual-resume" : "music-video-system-resume"
             )
-            if let player = musicVideoPlayer, let id = playID {
-                configureMusicVideoObservers(for: player, playID: id)
-            }
+            guard let player = activeSystemMediaPlayer, let id = playID else { return }
+            configureMusicVideoObservers(for: player, playID: id)
             _ = AudioSessionManager.shared.activatePlaybackSession()
-            musicVideoPlayer?.play()
-            isPlaying = true
-            clearPendingPlaybackRecovery()
+            player.play()
+            if isSystemAudioPlaybackActive, !systemAudioPlaybackDidStart {
+                isLoading = true
+                isPlaying = false
+                armSystemAudioStartupWatchdog(player: player, playID: id)
+            } else {
+                isLoading = false
+                isPlaying = true
+                clearPendingPlaybackRecovery()
+            }
             updateNowPlayingInfo()
             updatePlaybackState()
             return
@@ -6993,15 +7526,38 @@ final class AudioPlayerService {
         let requestedTime = TimeInterval.sanitized(time)
         let safeDuration = duration.sanitizedDuration
         let targetTime = safeDuration > 0 ? min(requestedTime, safeDuration) : requestedTime
-        if isMusicVideoPlaybackActive {
+        if isSystemMediaPlaybackActive {
             let carriedSeekActivity = hasMusicVideoSeekActivityEvidence
-            let shouldStartPlaying = startPlaying ?? (isPlaying || carriedSeekActivity)
+            let pendingSystemAudioStart = isSystemAudioPlaybackActive
+                && !systemAudioPlaybackDidStart
+                && isLoading
+                && interruptionResumePolicy.playbackIsIntended
+            let shouldStartPlaying = startPlaying
+                ?? (isPlaying || carriedSeekActivity || pendingSystemAudioStart)
             guard let song = currentSong,
                   let id = playID,
-                  let player = musicVideoPlayer else { return }
+                  let player = activeSystemMediaPlayer else { return }
             let seekWasActivelyPlaying = isPlaybackActuallyActive
                 || lastPublishedPlaybackWasActive
                 || carriedSeekActivity
+                || pendingSystemAudioStart
+            if isSystemAudioPlaybackActive {
+                systemAudioStartupWatchdog?.cancel()
+                systemAudioStartupWatchdog = nil
+                pendingSystemAudioSeek = (
+                    playID: id,
+                    songID: song.id,
+                    time: targetTime,
+                    shouldStart: shouldStartPlaying
+                )
+                if shouldStartPlaying,
+                   interruptionResumePolicy.playbackIsIntended {
+                    // A remote AVPlayer seek may wait indefinitely for bytes
+                    // and never invoke its completion handler. Bound the whole
+                    // seek/start operation so PCM fallback remains reachable.
+                    armSystemAudioStartupWatchdog(player: player, playID: id)
+                }
+            }
             invalidateAutomaticAdvance(reason: "music-video-seek")
             let musicVideoSeekTicket: PlaybackAdvanceTicket?
             if shouldStartPlaying, interruptionResumePolicy.playbackIsIntended {
@@ -7036,13 +7592,24 @@ final class AudioPlayerService {
                     guard let self,
                           let player,
                           self.playID == id,
-                          self.musicVideoPlayer === player,
+                          self.activeSystemMediaPlayer === player,
                           self.musicVideoObserverGeneration == observerGeneration else { return }
                     self.musicVideoSeekActivityEvidence = nil
-                    self.isLoading = false
                     guard finished else {
-                        player.pause()
-                        self.isPlaying = false
+                        if self.isSystemAudioPlaybackActive,
+                           self.pendingSystemAudioSeek?.playID == id,
+                           shouldStartPlaying,
+                           self.interruptionResumePolicy.playbackIsIntended {
+                            player.play()
+                            self.isLoading = true
+                            self.isPlaying = false
+                            self.armSystemAudioStartupWatchdog(player: player, playID: id)
+                        } else {
+                            self.pendingSystemAudioSeek = nil
+                            player.pause()
+                            self.isLoading = false
+                            self.isPlaying = false
+                        }
                         self.updateNowPlayingInfo()
                         self.updatePlaybackState()
                         return
@@ -7055,9 +7622,19 @@ final class AudioPlayerService {
                         expectedTicket: musicVideoSeekTicket
                        ) {
                         player.play()
-                        self.isPlaying = true
+                        if self.isSystemAudioPlaybackActive,
+                           !self.systemAudioPlaybackDidStart {
+                            self.isLoading = true
+                            self.isPlaying = false
+                            self.armSystemAudioStartupWatchdog(player: player, playID: id)
+                        } else {
+                            self.isLoading = false
+                            self.isPlaying = true
+                        }
                     } else {
+                        self.pendingSystemAudioSeek = nil
                         player.pause()
+                        self.isLoading = false
                         self.isPlaying = false
                     }
                     if isRecovery { self.clearPendingPlaybackRecovery() }
@@ -8589,10 +9166,10 @@ final class AudioPlayerService {
             && !isAppleMusicMode
             && !isLiveRadio
             && !isCastingMode
-            && !isMusicVideoPlaybackActive
+            && !isSystemMediaPlaybackActive
         let shouldRearmMusicVideo = hadAdvanceEligibility
             && (isPlaying || hadActiveMusicVideoSeek)
-            && isMusicVideoPlaybackActive
+            && isSystemMediaPlaybackActive
         if !shouldPreservePendingMusicVideoTicket {
             invalidateAutomaticAdvance(reason: "queue-generation-change")
         }
@@ -8614,7 +9191,7 @@ final class AudioPlayerService {
             pendingMusicVideoPlayID = pendingMusicVideoID
         } else if shouldRearmMusicVideo,
            let song = currentSong,
-           let player = musicVideoPlayer,
+           let player = activeSystemMediaPlayer,
            let id = playID {
             if hadActiveMusicVideoSeek {
                 musicVideoSeekActivityEvidence = .init(
@@ -9216,7 +9793,7 @@ final class AudioPlayerService {
               !isLiveRadio,
               !isAppleMusicMode,
               !isCastingMode,
-              !isMusicVideoPlaybackActive else {
+              !isSystemMediaPlaybackActive else {
             decodedBufferUnhealthySampleCount = 0
             return
         }
@@ -10436,7 +11013,7 @@ final class AudioPlayerService {
     ) {
         let actualPlaybackIsActive = isPlaybackActuallyActive
         lastPublishedPlaybackWasActive = actualPlaybackIsActive
-        let preferredRate = playbackSettings.outputMode == .effects
+        let preferredRate = !isSystemAudioPlaybackActive && playbackSettings.outputMode == .effects
             ? Double(playbackSettings.playbackRate)
             : 1
         let projection = NowPlayingPlaybackProjectionPolicy.projection(

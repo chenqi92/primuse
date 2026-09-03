@@ -1466,7 +1466,7 @@ final class DLNARendererService {
                 await sendSOAPError(code: 711, description: "Illegal seek target", on: connection)
                 return
             }
-            player.seek(to: seconds, startPlaying: player.isPlaying)
+            player.seek(to: seconds)
             await sendSOAP(action: "Seek", body: "", on: connection)
         default:
             logEvent(.error, "AVTransport unsupported action: \(action)")

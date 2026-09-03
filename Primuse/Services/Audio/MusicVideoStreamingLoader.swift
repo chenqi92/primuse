@@ -240,3 +240,207 @@ extension MusicVideoStreamingLoader: AVAssetResourceLoaderDelegate {
         task?.cancel()
     }
 }
+
+/// Feeds the same sparse range/cache source used by SFBAudioEngine into
+/// AVPlayer. This keeps connector authentication and cache semantics intact
+/// while allowing multichannel ISO Base Media audio to remain on Apple's
+/// system media pipeline instead of being flattened into PCM first.
+final class SystemAudioStreamingLoader: NSObject, @unchecked Sendable {
+    static let scheme = "primuse-system-audio"
+
+    private final class InputSourceBox: @unchecked Sendable {
+        let value: CloudInputSourceObjC
+
+        init(_ value: CloudInputSourceObjC) {
+            self.value = value
+        }
+    }
+
+    private let inputSource: InputSourceBox
+    private let contentLength: Int64
+    private let contentType: String?
+    private let fileExtension: String
+    private let queue = DispatchQueue(label: "primuse.system-audio.resource-loader")
+    private let readQueue = DispatchQueue(
+        label: "primuse.system-audio.blocking-read",
+        qos: .userInitiated
+    )
+    private let lock = NSLock()
+    private final class RequestWork: @unchecked Sendable {
+        var task: Task<Void, Never>?
+        var isCancelled = false
+    }
+
+    private var requestTasks: [ObjectIdentifier: RequestWork] = [:]
+    private var invalidated = false
+
+    init(inputSource: CloudInputSourceObjC, fileExtension: String) {
+        self.inputSource = InputSourceBox(inputSource)
+        self.contentLength = inputSource.totalLength
+        self.fileExtension = fileExtension
+        self.contentType = UTType(filenameExtension: fileExtension)?.identifier
+        super.init()
+    }
+
+    func makeAsset() -> AVURLAsset? {
+        var components = URLComponents()
+        components.scheme = Self.scheme
+        components.host = "audio"
+        components.path = "/\(UUID().uuidString)\(fileExtension.isEmpty ? "" : ".\(fileExtension)")"
+        guard let url = components.url else { return nil }
+        let asset = AVURLAsset(url: url)
+        asset.resourceLoader.setDelegate(self, queue: queue)
+        return asset
+    }
+
+    func invalidate() {
+        lock.lock()
+        invalidated = true
+        let tasks = requestTasks.values
+        for work in tasks { work.isCancelled = true }
+        requestTasks = [:]
+        lock.unlock()
+        for work in tasks { work.task?.cancel() }
+        readQueue.async { [inputSource] in
+            try? inputSource.value.close()
+        }
+    }
+
+    private final class RequestBox: @unchecked Sendable {
+        let value: AVAssetResourceLoadingRequest
+        init(_ value: AVAssetResourceLoadingRequest) { self.value = value }
+    }
+
+    private func serve(_ box: RequestBox) async {
+        let request = box.value
+        if let info = request.contentInformationRequest {
+            info.contentLength = contentLength
+            info.isByteRangeAccessSupported = true
+            if let contentType { info.contentType = contentType }
+        }
+        guard let dataRequest = request.dataRequest else {
+            finish(box, error: nil)
+            return
+        }
+
+        let requestedOffset = dataRequest.requestedOffset
+        var offset = dataRequest.currentOffset
+        guard requestedOffset >= 0, offset >= requestedOffset else {
+            finish(box, error: CocoaError(.fileReadInvalidFileName))
+            return
+        }
+        let end: Int64
+        if dataRequest.requestsAllDataToEndOfResource {
+            end = contentLength
+        } else if let requestedEnd = SafeByteRange.exclusiveEnd(
+            offset: requestedOffset,
+            length: Int64(dataRequest.requestedLength)
+        ) {
+            end = min(contentLength, requestedEnd)
+        } else {
+            finish(box, error: CocoaError(.fileReadInvalidFileName))
+            return
+        }
+        guard offset <= end else {
+            finish(box, error: CocoaError(.fileReadInvalidFileName))
+            return
+        }
+
+        do {
+            while offset < end {
+                try Task.checkCancellation()
+                let length = Int(min(CloudPlaybackSource.chunkSize, end - offset))
+                let data = try await readData(atOffset: offset, length: length)
+                try Task.checkCancellation()
+                guard !data.isEmpty else { break }
+                dataRequest.respond(with: data)
+                offset += Int64(data.count)
+            }
+            finish(box, error: nil)
+        } catch is CancellationError {
+            return
+        } catch {
+            plog("System audio loader fetch failed offset=\(offset): \(error.localizedDescription)")
+            finish(box, error: error)
+        }
+    }
+
+    private func readData(atOffset offset: Int64, length: Int) async throws -> Data {
+        try await withCheckedThrowingContinuation { continuation in
+            readQueue.async { [inputSource] in
+                do {
+                    continuation.resume(
+                        returning: try inputSource.value.readData(atOffset: offset, length: length)
+                    )
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private func finish(_ box: RequestBox, error: Error?) {
+        let request = box.value
+        guard !request.isFinished, !request.isCancelled else { return }
+        if let error {
+            request.finishLoading(with: error)
+        } else {
+            request.finishLoading()
+        }
+    }
+
+    private func clearTask(for key: ObjectIdentifier, matching work: RequestWork) {
+        lock.lock()
+        if requestTasks[key] === work {
+            requestTasks[key] = nil
+        }
+        lock.unlock()
+    }
+}
+
+extension SystemAudioStreamingLoader: AVAssetResourceLoaderDelegate {
+    func resourceLoader(
+        _ resourceLoader: AVAssetResourceLoader,
+        shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest
+    ) -> Bool {
+        let box = RequestBox(loadingRequest)
+        let key = ObjectIdentifier(loadingRequest)
+        let work = RequestWork()
+
+        lock.lock()
+        guard !invalidated else {
+            lock.unlock()
+            return false
+        }
+        requestTasks[key] = work
+        lock.unlock()
+
+        let task = Task { [weak self] in
+            await self?.serve(box)
+            self?.clearTask(for: key, matching: work)
+        }
+        lock.lock()
+        let shouldCancel = invalidated || work.isCancelled || requestTasks[key] !== work
+        if shouldCancel {
+            work.isCancelled = true
+        } else {
+            work.task = task
+        }
+        lock.unlock()
+        if shouldCancel { task.cancel() }
+        return true
+    }
+
+    func resourceLoader(
+        _ resourceLoader: AVAssetResourceLoader,
+        didCancel loadingRequest: AVAssetResourceLoadingRequest
+    ) {
+        let key = ObjectIdentifier(loadingRequest)
+        lock.lock()
+        let work = requestTasks.removeValue(forKey: key)
+        work?.isCancelled = true
+        let task = work?.task
+        lock.unlock()
+        task?.cancel()
+    }
+}

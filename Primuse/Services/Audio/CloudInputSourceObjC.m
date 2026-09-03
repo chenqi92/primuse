@@ -96,6 +96,49 @@
     return YES;
 }
 
+- (NSData *)readDataAtOffset:(int64_t)offset
+                      length:(NSInteger)length
+                       error:(NSError **)error {
+    if (offset < 0 || length < 0 || offset > _totalLength) {
+        if (error) {
+            *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:EINVAL userInfo:nil];
+        }
+        return nil;
+    }
+    if (length == 0 || offset == _totalLength) {
+        return [NSData data];
+    }
+
+    CloudInputFetchBlock fetch = self.fetchBlock;
+    if (fetch == nil) {
+        if (error) {
+            *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:EBADF userInfo:nil];
+        }
+        return nil;
+    }
+    int64_t requested = MIN((int64_t)length, _totalLength - offset);
+    NSError *fetchError = nil;
+    NSData *data = fetch(offset, requested, &fetchError);
+    if (data == nil) {
+        if (error) {
+            *error = fetchError ?: [NSError errorWithDomain:NSPOSIXErrorDomain code:EIO userInfo:nil];
+        }
+        return nil;
+    }
+    if (data.length == 0 && requested > 0) {
+        if (error) {
+            *error = [NSError errorWithDomain:NSPOSIXErrorDomain
+                                         code:EIO
+                                     userInfo:@{NSLocalizedDescriptionKey: @"Cloud source returned 0 bytes mid-stream"}];
+        }
+        return nil;
+    }
+    if (data.length > (NSUInteger)requested) {
+        return [data subdataWithRange:NSMakeRange(0, (NSUInteger)requested)];
+    }
+    return data;
+}
+
 - (BOOL)atEOF {
     return _offset >= _totalLength;
 }

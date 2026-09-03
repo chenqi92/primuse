@@ -31,6 +31,12 @@ typedef NSData * _Nullable (^CloudInputFetchBlock)(int64_t offset, int64_t lengt
                 totalLength:(int64_t)totalLength
                  fetchBlock:(CloudInputFetchBlock)fetchBlock;
 
+/// Random-access read used by AVAssetResourceLoader. Unlike SFB's cursor API,
+/// this does not mutate the sequential decoder offset.
+- (nullable NSData *)readDataAtOffset:(int64_t)offset
+                               length:(NSInteger)length
+                                error:(NSError **)error;
+
 @end
 
 NS_ASSUME_NONNULL_END

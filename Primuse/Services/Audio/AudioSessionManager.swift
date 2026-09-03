@@ -91,6 +91,9 @@ final class AudioSessionManager {
             policy: .longFormAudio,
             options: []
         )
+        // Let Control Center and compatible AirPods know this Now Playing app
+        // can supply genuine multichannel presentations through AVPlayer.
+        try session.setSupportsMultichannelContent(true)
     }
 
     /// 提示系统把硬件输出 sample rate 切到目标值, 避免 CoreAudio 重采样

@@ -166,6 +166,190 @@ public enum AudioDurationPolicy {
     }
 }
 
+public struct ISOBaseMediaAudioProfile: Equatable, Sendable {
+    public enum Codec: String, Equatable, Sendable {
+        case aac = "mp4a"
+        case alac
+        case ac3 = "ac-3"
+        case enhancedAC3 = "ec-3"
+        case applePositionalAudio = "apac"
+        case unknown
+    }
+
+    public let codec: Codec
+    public let codecFourCC: String
+    public let channelCount: Int
+
+    public init(codecFourCC: String, channelCount: Int) {
+        self.codecFourCC = codecFourCC
+        self.channelCount = channelCount
+        self.codec = Codec(rawValue: codecFourCC) ?? .unknown
+    }
+
+    /// Preserve encoded multichannel and spatial metadata by handing these
+    /// presentations to AVPlayer instead of decoding them into Primuse's PCM
+    /// effects graph. Stereo AAC/ALAC intentionally remain on the established
+    /// decoder path so EQ, transitions, ReplayGain, and cache behavior do not
+    /// change for ordinary M4A files.
+    public var prefersSystemMediaPlayback: Bool {
+        channelCount > 2
+            || codec == .ac3
+            || codec == .enhancedAC3
+            || codec == .applePositionalAudio
+    }
+}
+
+public enum ISOBaseMediaAudioProfileParser {
+    public static func parse(head: Data, tail: Data = Data()) -> [ISOBaseMediaAudioProfile] {
+        guard let metadataFile = ISOBaseMediaMetadataSliceBuilder.makeMetadataFile(
+            head: head,
+            tail: tail
+        ) else { return [] }
+        return parseMetadataFile(metadataFile)
+    }
+
+    public static func parseMetadataFile(_ data: Data) -> [ISOBaseMediaAudioProfile] {
+        atoms(in: data, range: data.startIndex..<data.endIndex)
+            .filter { $0.type == "moov" }
+            .flatMap { profiles(in: data, container: $0, expectedType: "trak") }
+    }
+
+    private struct Atom {
+        let type: String
+        let full: Range<Int>
+        let payload: Range<Int>
+    }
+
+    private static func profiles(
+        in data: Data,
+        container: Atom,
+        expectedType: String
+    ) -> [ISOBaseMediaAudioProfile] {
+        atoms(in: data, range: container.payload)
+            .filter { $0.type == expectedType }
+            .flatMap { profiles(inTrack: $0, data: data) }
+    }
+
+    private static func profiles(inTrack track: Atom, data: Data) -> [ISOBaseMediaAudioProfile] {
+        guard let media = atoms(in: data, range: track.payload).first(where: { $0.type == "mdia" }),
+              isAudioMedia(media, data: data),
+              let mediaInfo = atoms(in: data, range: media.payload).first(where: { $0.type == "minf" }),
+              let sampleTable = atoms(in: data, range: mediaInfo.payload).first(where: { $0.type == "stbl" }),
+              let descriptions = atoms(in: data, range: sampleTable.payload).first(where: { $0.type == "stsd" }) else {
+            return []
+        }
+        return sampleEntryProfiles(in: descriptions, data: data)
+    }
+
+    private static func isAudioMedia(_ media: Atom, data: Data) -> Bool {
+        guard let handler = atoms(in: data, range: media.payload).first(where: { $0.type == "hdlr" }),
+              handler.payload.count >= 12 else { return false }
+        return fourCC(in: data, at: handler.payload.lowerBound + 8) == "soun"
+    }
+
+    private static func sampleEntryProfiles(
+        in descriptions: Atom,
+        data: Data
+    ) -> [ISOBaseMediaAudioProfile] {
+        // stsd is a FullBox: version/flags followed by entry_count.
+        guard descriptions.payload.count >= 8 else { return [] }
+        let entryCount = Int(readUInt32BE(data, at: descriptions.payload.lowerBound + 4))
+        var cursor = descriptions.payload.lowerBound + 8
+        var result: [ISOBaseMediaAudioProfile] = []
+        for _ in 0..<entryCount {
+            guard let entry = atom(in: data, startingAt: cursor),
+                  entry.full.upperBound <= descriptions.payload.upperBound else { break }
+            if entry.full.count >= 26,
+               let codec = fourCC(in: data, at: entry.full.lowerBound + 4) {
+                let version = readUInt16BE(data, at: entry.full.lowerBound + 16)
+                let channels: Int
+                if version == 2 {
+                    // QuickTime SoundDescription v2 keeps a compatibility
+                    // constant (`always3`) at +24. Its real channel count is
+                    // the UInt32 `numAudioChannels` field at +48.
+                    guard entry.full.count >= 52 else {
+                        cursor = entry.full.upperBound
+                        continue
+                    }
+                    channels = Int(readUInt32BE(data, at: entry.full.lowerBound + 48))
+                } else {
+                    channels = Int(readUInt16BE(data, at: entry.full.lowerBound + 24))
+                }
+                result.append(ISOBaseMediaAudioProfile(
+                    codecFourCC: codec,
+                    channelCount: channels
+                ))
+            }
+            cursor = entry.full.upperBound
+        }
+        return result
+    }
+
+    private static func atoms(in data: Data, range: Range<Int>) -> [Atom] {
+        var result: [Atom] = []
+        var cursor = range.lowerBound
+        while cursor <= range.upperBound - 8,
+              let child = atom(in: data, startingAt: cursor),
+              child.full.upperBound <= range.upperBound,
+              child.full.upperBound > cursor {
+            result.append(child)
+            cursor = child.full.upperBound
+        }
+        return result
+    }
+
+    private static func atom(in data: Data, startingAt start: Int) -> Atom? {
+        guard start >= data.startIndex, start <= data.endIndex - 8,
+              let type = fourCC(in: data, at: start + 4) else { return nil }
+        let size32 = readUInt32BE(data, at: start)
+        let headerLength: Int
+        let totalLength: UInt64
+        switch size32 {
+        case 0:
+            headerLength = 8
+            totalLength = UInt64(data.endIndex - start)
+        case 1:
+            guard start <= data.endIndex - 16 else { return nil }
+            headerLength = 16
+            totalLength = readUInt64BE(data, at: start + 8)
+        default:
+            headerLength = 8
+            totalLength = UInt64(size32)
+        }
+        guard totalLength >= UInt64(headerLength),
+              totalLength <= UInt64(data.endIndex - start) else { return nil }
+        let end = start + Int(totalLength)
+        return Atom(type: type, full: start..<end, payload: (start + headerLength)..<end)
+    }
+
+    private static func fourCC(in data: Data, at offset: Int) -> String? {
+        guard offset >= data.startIndex, offset <= data.endIndex - 4 else { return nil }
+        return String(data: data.subdata(in: offset..<(offset + 4)), encoding: .isoLatin1)
+    }
+
+    private static func readUInt16BE(_ data: Data, at offset: Int) -> UInt16 {
+        guard offset >= data.startIndex, offset <= data.endIndex - 2 else { return 0 }
+        return (UInt16(data[offset]) << 8) | UInt16(data[offset + 1])
+    }
+
+    private static func readUInt32BE(_ data: Data, at offset: Int) -> UInt32 {
+        guard offset >= data.startIndex, offset <= data.endIndex - 4 else { return 0 }
+        return (UInt32(data[offset]) << 24)
+            | (UInt32(data[offset + 1]) << 16)
+            | (UInt32(data[offset + 2]) << 8)
+            | UInt32(data[offset + 3])
+    }
+
+    private static func readUInt64BE(_ data: Data, at offset: Int) -> UInt64 {
+        guard offset >= data.startIndex, offset <= data.endIndex - 8 else { return 0 }
+        var value: UInt64 = 0
+        for index in offset..<(offset + 8) {
+            value = (value << 8) | UInt64(data[index])
+        }
+        return value
+    }
+}
+
 
 /// Builds a small, structurally valid ISO Base Media metadata file from
 /// bounded head and tail ranges. A fast-start `moov` can live in the head,

@@ -8401,7 +8401,7 @@ final class SourceManager {
         }
     }
 
-    private nonisolated static func fetchRemoteMetadataRange(
+    nonisolated static func fetchRemoteMetadataRange(
         url: URL,
         offset: Int64,
         length: Int64,
