@@ -44,15 +44,9 @@ struct MacHomeView: View {
     @Environment(ThemeService.self) private var theme
     @Environment(AppUpdateChecker.self) private var updateChecker
     @Environment(RadioStationsStore.self) private var radioStationsStore
-    @Environment(MusicIntelligenceService.self) private var intelligence
     @AppStorage("primuse.home.showRadio") private var showRadio = true
-    @AppStorage("primuse.ai.recommendationScene.v1")
-    private var recommendationSceneRawValue = AIRecommendationScene.automatic.rawValue
     @State private var selectedRadioID: String?
     @State private var pendingInsecureStation: RadioStation?
-    @State private var aiRecommendation = AIRecommendationViewModel()
-    @State private var recommendationHistoryRevision = 0
-    @State private var recommendationClockRevision = 0
 
     // 派生聚合缓存 —— mosaicSongs(全库 sort)、heroStats(全库 reduce)、三个 ratio
     // (各一次全库 filter) 都很重。首页同时观察 scanStates(每扫一个文件就变)和
@@ -113,15 +107,6 @@ struct MacHomeView: View {
             refreshDerivedIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: .primusePlaybackHistoryDidChange)) { _ in
-            recommendationHistoryRevision &+= 1
-            refreshDerived()
-        }
-        .onReceive(
-            Timer.publish(every: 15 * 60, on: .main, in: .common).autoconnect()
-        ) { _ in
-            recommendationClockRevision &+= 1
-        }
-        .onChange(of: intelligence.settingsStore.recommendationsEnabled) { _, _ in
             refreshDerived()
         }
         .onDisappear {
@@ -181,8 +166,7 @@ struct MacHomeView: View {
 
         if hasContent {
             statsRow
-            if intelligence.shouldShowRemoteRecommendations,
-               !derived.recommendationResults.isEmpty {
+            if !derived.recommendationResults.isEmpty {
                 recommendationSection
             }
             pipelineSection
@@ -1105,89 +1089,18 @@ struct MacHomeView: View {
             .padding(.horizontal, 6)
     }
 
-    // MARK: - Scene recommendations
+    // MARK: - Recommendations
 
-    private var recommendationScene: AIRecommendationScene {
-        AIRecommendationScene(rawValue: recommendationSceneRawValue) ?? .automatic
-    }
-
+    /// macOS 首页与 iOS 一样只展示本地每日推荐；远程生成只由资料库推荐页负责。
     private var displayedRecommendationResults: [MusicDiscoveryResult] {
-        let byID = Dictionary(
-            derived.recommendationResults.map { ($0.song.id, $0) },
-            uniquingKeysWith: { current, _ in current }
-        )
-        return aiRecommendation
-            .orderedSongs(from: derived.recommendationResults.map(\.song))
-            .compactMap { byID[$0.id] }
-    }
-
-    private var recommendationRefreshKey: String {
-        return [
-            recommendationSceneRawValue,
-            String(intelligence.settingsStore.revision),
-            String(intelligence.regionAvailability.revision),
-            String(recommendationHistoryRevision),
-            String(recommendationClockRevision),
-            derived.recommendationResults.map(\.song.id).joined(separator: "|"),
-        ].joined(separator: "#")
+        derived.recommendationResults
     }
 
     private var recommendationSection: some View {
         VStack(alignment: .leading, spacing: PMSpace.m) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("ai_recommendation_home_title")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(PMColor.text)
-                    if let summary = aiRecommendation.summaryText {
-                        Text(summary)
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(PMColor.textMuted)
-                            .lineLimit(1)
-                    }
-                }
-                Spacer(minLength: 12)
-                HStack(spacing: 5) {
-                    if case .loading = aiRecommendation.feedback {
-                        ProgressView().controlSize(.mini)
-                    } else {
-                        Image(systemName: recommendationStatusIcon)
-                    }
-                    Text(aiRecommendation.statusText)
-                        .lineLimit(1)
-                }
-                .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(recommendationStatusColor)
-            }
-
-            HStack(spacing: 7) {
-                ForEach(AIRecommendationScene.allCases, id: \.self) { scene in
-                    Button {
-                        recommendationSceneRawValue = scene.rawValue
-                    } label: {
-                        Text(scene.localizedName)
-                            .font(.system(size: 10.5, weight: .semibold))
-                            .foregroundStyle(
-                                recommendationScene == scene ? Color.white : PMColor.textMuted
-                            )
-                            .padding(.horizontal, 11)
-                            .padding(.vertical, 6)
-                            .background(
-                                recommendationScene == scene ? PMColor.brand : PMColor.glassBtn,
-                                in: Capsule()
-                            )
-                            .overlay {
-                                if recommendationScene != scene {
-                                    Capsule().strokeBorder(PMColor.dividerStrong, lineWidth: 0.5)
-                                }
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(
-                        recommendationScene == scene ? .isSelected : []
-                    )
-                }
-            }
+            Text("ai_recommendation_home_title")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(PMColor.text)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 12) {
@@ -1196,19 +1109,10 @@ struct MacHomeView: View {
                             recommendationCard(result)
                         }
                         .buttonStyle(.plain)
-                        .transition(.opacity.combined(with: .scale(scale: 0.97)))
                     }
                 }
                 .padding(.vertical, 2)
-                .animation(.snappy(duration: 0.28), value: aiRecommendation.orderedSongIDs)
             }
-        }
-        .task(id: recommendationRefreshKey) {
-            await aiRecommendation.refresh(
-                scene: recommendationScene,
-                candidates: derived.recommendationResults.map(\.song),
-                using: intelligence
-            )
         }
     }
 
@@ -1225,20 +1129,13 @@ struct MacHomeView: View {
                 fileFormat: song.fileFormat
             )
             VStack(alignment: .leading, spacing: 4) {
-                if let reason = aiRecommendation.reason(for: song.id) {
-                    Label(reason, systemImage: "sparkles")
-                        .font(.system(size: 9.5, weight: .semibold))
-                        .foregroundStyle(PMColor.brand)
-                        .lineLimit(2)
-                } else {
-                    Text(String(
-                        localized: String.LocalizationValue(
-                            result.primaryReason.localizationKey
-                        )
-                    ))
-                        .font(.system(size: 9.5, weight: .semibold))
-                        .foregroundStyle(PMColor.textFaint)
-                }
+                Text(String(
+                    localized: String.LocalizationValue(
+                        result.primaryReason.localizationKey
+                    )
+                ))
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(PMColor.textFaint)
                 Text(song.title)
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(PMColor.text)
@@ -1260,35 +1157,9 @@ struct MacHomeView: View {
         .padding(10)
         .frame(width: 292, height: 100)
         .background(PMColor.bgElev, in: .rect(cornerRadius: PMRadius.m))
-        .overlay(alignment: .leading) {
-            if aiRecommendation.reason(for: song.id) != nil {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(PMColor.brand)
-                    .frame(width: 3)
-                    .padding(.vertical, 10)
-            }
-        }
         .overlay {
             RoundedRectangle(cornerRadius: PMRadius.m)
                 .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-        }
-    }
-
-    private var recommendationStatusIcon: String {
-        switch aiRecommendation.feedback {
-        case .success: "sparkles"
-        case .needsConsent: "hand.raised.fill"
-        case .localFallback: "arrow.uturn.backward.circle"
-        case .idle: "music.note.list"
-        case .loading: "sparkles"
-        }
-    }
-
-    private var recommendationStatusColor: Color {
-        switch aiRecommendation.feedback {
-        case .success: PMColor.brand
-        case .needsConsent, .localFallback: PMColor.warn
-        case .idle, .loading: PMColor.textFaint
         }
     }
 

@@ -167,7 +167,6 @@ struct HomeView: View {
     @Environment(CoverTintProvider.self) private var tintProvider
     @Environment(RadioStationsStore.self) private var radioStationsStore
     @Environment(ThemeService.self) private var theme
-    @Environment(MusicIntelligenceService.self) private var intelligence
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
     #endif
@@ -200,12 +199,7 @@ struct HomeView: View {
     /// 都手动切一次。
     @AppStorage("primuse.home.mode") private var homeModeRawValue = HomeMode.music.rawValue
     @AppStorage("primuse.home.showRadio") private var showRadioOnHome = true
-    @AppStorage("primuse.ai.recommendationScene.v1")
-    private var recommendationSceneRawValue = AIRecommendationScene.automatic.rawValue
     @State private var showRadioBatchAdd = false
-    @State private var aiRecommendation = AIRecommendationViewModel()
-    @State private var recommendationHistoryRevision = 0
-    @State private var recommendationClockRevision = 0
 
     private var homeMode: HomeMode {
         guard showRadioOnHome else { return .music }
@@ -243,13 +237,7 @@ struct HomeView: View {
                 )
             }
             .onReceive(NotificationCenter.default.publisher(for: .primusePlaybackHistoryDidChange)) { _ in
-                recommendationHistoryRevision &+= 1
                 refreshHomeSnapshot(force: true)
-            }
-            .onReceive(
-                Timer.publish(every: 15 * 60, on: .main, in: .common).autoconnect()
-            ) { _ in
-                recommendationClockRevision &+= 1
             }
             .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidCache)) { note in
                 tintProvider.invalidateArtwork(from: note)
@@ -2116,59 +2104,20 @@ struct HomeView: View {
 
     // MARK: - For You
 
-    /// Local recommendation engine output, cached inside `homeSnapshot`
-    /// so tab switches do not rebuild / reshuffle recommendations.
+    /// 首页只读与资料库推荐页同源的本地每日推荐快照。远程重排由资料库
+    /// 推荐页在用户进入时触发，避免首页生命周期反复发起服务调用。
     private var displayedForYouResults: [MusicDiscoveryResult] {
-        let byID = Dictionary(
-            homeSnapshot.forYouResults.map { ($0.song.id, $0) },
-            uniquingKeysWith: { current, _ in current }
-        )
-        return aiRecommendation
-            .orderedSongs(from: homeSnapshot.forYouResults.map(\.song))
-            .compactMap { byID[$0.id] }
+        homeSnapshot.forYouResults
     }
 
     private var forYouPicks: [Song] { displayedForYouResults.map(\.song) }
 
-    private var recommendationScene: AIRecommendationScene {
-        AIRecommendationScene(rawValue: recommendationSceneRawValue) ?? .automatic
-    }
-
-    private var aiRecommendationRefreshKey: String {
-        let songs = homeSnapshot.forYouResults.map(\.song.id).joined(separator: "|")
-        return [
-            recommendationSceneRawValue,
-            String(intelligence.settingsStore.revision),
-            String(intelligence.regionAvailability.revision),
-            String(recommendationHistoryRevision),
-            String(recommendationClockRevision),
-            songs,
-        ].joined(separator: "#")
-    }
-
     private var forYouSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text("home_for_you_title")
-                    .font(.title3)
-                    .fontWeight(.bold)
-                Spacer(minLength: 8)
-                if intelligence.shouldShowRemoteRecommendations {
-                    recommendationStatusLabel
-                }
-            }
-            .padding(.horizontal, 20)
-
-            if intelligence.shouldShowRemoteRecommendations {
-                recommendationScenePicker
-                if let summary = aiRecommendation.summaryText {
-                    Text(summary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .padding(.horizontal, 20)
-                }
-            }
+            Text("home_for_you_title")
+                .font(.title3)
+                .fontWeight(.bold)
+                .padding(.horizontal, 20)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 14) {
@@ -2177,14 +2126,7 @@ struct HomeView: View {
                         Button { playSong(song) } label: {
                             HStack(spacing: 14) {
                                 VStack(alignment: .leading, spacing: 6) {
-                                    if let reason = aiRecommendation.reason(for: song.id) {
-                                        Label(reason, systemImage: "sparkles")
-                                            .font(.caption2.weight(.semibold))
-                                            .foregroundStyle(Color.accentColor)
-                                            .lineLimit(2)
-                                    } else {
-                                        DiscoveryReasonsView(reasons: result.reasons, maxCount: 1)
-                                    }
+                                    DiscoveryReasonsView(reasons: result.reasons, maxCount: 1)
 
                                     Text(song.title)
                                         .font(.headline)
@@ -2226,92 +2168,12 @@ struct HomeView: View {
                             .background(recommendationCardBackground(for: song))
                         }
                         .buttonStyle(.plain)
-                        .transition(.opacity.combined(with: .scale(scale: 0.97)))
                     }
                 }
                 .padding(.horizontal, 20)
                 .scrollTargetLayout()
-                .animation(.snappy(duration: 0.28), value: aiRecommendation.orderedSongIDs)
             }
             .scrollTargetBehavior(.viewAligned)
-        }
-        .task(id: aiRecommendationRefreshKey) {
-            await aiRecommendation.refresh(
-                scene: recommendationScene,
-                candidates: homeSnapshot.forYouResults.map(\.song),
-                using: intelligence
-            )
-        }
-    }
-
-    private var recommendationScenePicker: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(AIRecommendationScene.allCases, id: \.self) { scene in
-                    Button {
-                        recommendationSceneRawValue = scene.rawValue
-                    } label: {
-                        Text(scene.localizedName)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(
-                                recommendationScene == scene ? Color.white : Color.primary
-                            )
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .background(
-                                recommendationScene == scene
-                                    ? Color.accentColor : Color.secondary.opacity(0.12),
-                                in: Capsule()
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(
-                        recommendationScene == scene ? .isSelected : []
-                    )
-                }
-            }
-            .padding(.horizontal, 20)
-        }
-    }
-
-    @ViewBuilder
-    private var recommendationStatusLabel: some View {
-        let label = HStack(spacing: 5) {
-            if case .loading = aiRecommendation.feedback {
-                ProgressView().controlSize(.mini)
-            } else {
-                Image(systemName: recommendationStatusIcon)
-            }
-            Text(aiRecommendation.statusText)
-                .lineLimit(1)
-        }
-        .font(.caption2.weight(.medium))
-        .foregroundStyle(recommendationStatusColor)
-
-        if case .needsConsent = aiRecommendation.feedback,
-           switchToSettingsTab != nil {
-            Button { switchToSettingsTab?() } label: { label }
-                .buttonStyle(.plain)
-        } else {
-            label
-        }
-    }
-
-    private var recommendationStatusIcon: String {
-        switch aiRecommendation.feedback {
-        case .success: "sparkles"
-        case .needsConsent: "hand.raised.fill"
-        case .localFallback: "arrow.uturn.backward.circle"
-        case .idle: "music.note.list"
-        case .loading: "sparkles"
-        }
-    }
-
-    private var recommendationStatusColor: Color {
-        switch aiRecommendation.feedback {
-        case .success: Color.accentColor
-        case .needsConsent, .localFallback: Color.orange
-        case .idle, .loading: Color.secondary
         }
     }
 
