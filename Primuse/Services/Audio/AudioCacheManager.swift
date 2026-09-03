@@ -245,6 +245,7 @@ actor AudioCacheManager {
     private let logURL: URL
     private let manifestURL: URL
     private let basePath: URL
+    private let quarantineBasePath: URL
     private var persistTask: Task<Void, Never>?
     private var manifestPersistTask: Task<Void, Never>?
 
@@ -309,9 +310,22 @@ actor AudioCacheManager {
         }
     }
 
+    private struct QuarantinedSourceCacheMetadata: Codable {
+        var version = 1
+        var sourceID: String
+        var recordedSignature: String?
+        var replacementSignature: String
+        var quarantinedAt: Date
+        var fileCount: Int
+        var allocatedByteCount: Int64
+        var accessLog: [String: Date]
+        var offlineManifest: [String: OfflineManifestEntry]
+    }
+
     private init() {
         let caches = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
         basePath = caches.appendingPathComponent("primuse_audio_cache")
+        quarantineBasePath = caches.appendingPathComponent("primuse_audio_cache_quarantine")
         logURL = basePath.appendingPathComponent(".access_log.json")
         manifestURL = basePath.appendingPathComponent(".offline_manifest.json")
         // Actor init is nonisolated; defer loading to first access
@@ -771,6 +785,106 @@ actor AudioCacheManager {
         }
         if !accessKeys.isEmpty { schedulePersist() }
         if !manifestKeys.isEmpty { scheduleManifestPersist() }
+        return true
+    }
+
+    /// Moves bytes that belong to a previous source security scope out of the
+    /// active cache namespace. The move stays on the same volume and preserves
+    /// the old access/pin metadata, so an account or endpoint change cannot
+    /// silently destroy a large offline library.
+    func quarantineSourceCacheDirectoryIfReady(
+        prefix: String,
+        generation: Int,
+        recordedSignature: String?,
+        replacementSignature: String
+    ) -> Bool {
+        ensureInitialized()
+        guard sourcePurgeGenerationByPrefix[prefix] == generation,
+              !leasedCanonicalPathByID.values.contains(where: { $0.hasPrefix(prefix) }) else {
+            return false
+        }
+
+        let sourceID = prefix.hasSuffix("/") ? String(prefix.dropLast()) : prefix
+        guard !sourceID.isEmpty,
+              sourceID != ".",
+              sourceID != "..",
+              !sourceID.contains("/") else {
+            return false
+        }
+        let sourceDirectory = basePath.appendingPathComponent(sourceID).standardizedFileURL
+        let basePrefix = basePath.standardizedFileURL.path + "/"
+        guard sourceDirectory.path.hasPrefix(basePrefix) else { return false }
+
+        let accessEntries = accessLog.filter { $0.key.hasPrefix(prefix) }
+        let manifestEntries = offlineManifest.filter { $0.key.hasPrefix(prefix) }
+        let trackedEntries = trackedFileSizes.filter { $0.key.hasPrefix(prefix) }
+        let sourceDirectoryExists = FileManager.default.fileExists(
+            atPath: sourceDirectory.path
+        )
+
+        if sourceDirectoryExists || !accessEntries.isEmpty || !manifestEntries.isEmpty {
+            let recordDirectory = quarantineBasePath
+                .appendingPathComponent(sourceID, isDirectory: true)
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            let payloadDirectory = recordDirectory.appendingPathComponent(
+                "payload",
+                isDirectory: true
+            )
+            let metadata = QuarantinedSourceCacheMetadata(
+                sourceID: sourceID,
+                recordedSignature: recordedSignature,
+                replacementSignature: replacementSignature,
+                quarantinedAt: Date(),
+                fileCount: trackedEntries.count,
+                allocatedByteCount: trackedEntries.values.reduce(0) { partial, size in
+                    let result = partial.addingReportingOverflow(max(0, size))
+                    return result.overflow ? .max : result.partialValue
+                },
+                accessLog: accessEntries,
+                offlineManifest: manifestEntries
+            )
+            do {
+                try FileManager.default.createDirectory(
+                    at: recordDirectory,
+                    withIntermediateDirectories: true
+                )
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                let metadataData = try encoder.encode(metadata)
+                try metadataData.write(
+                    to: recordDirectory.appendingPathComponent("metadata.json"),
+                    options: .atomic
+                )
+                if sourceDirectoryExists {
+                    try FileManager.default.moveItem(
+                        at: sourceDirectory,
+                        to: payloadDirectory
+                    )
+                }
+            } catch {
+                // The canonical source directory is moved last. A failure before
+                // that point leaves active bytes untouched; a failure after a
+                // successful move still leaves them in the recorded quarantine.
+                if FileManager.default.fileExists(atPath: sourceDirectory.path) {
+                    try? FileManager.default.removeItem(at: recordDirectory)
+                }
+                plog("⚠️ Audio cache quarantine failed source=\(sourceID.prefix(8)): \(error.localizedDescription)")
+                return false
+            }
+        }
+
+        for key in accessEntries.keys { accessLog[key] = nil }
+        for key in manifestEntries.keys { offlineManifest[key] = nil }
+        for key in trackedEntries.keys { removeTrackedPath(key) }
+        automaticPlaylistProtectedPaths = automaticPlaylistProtectedPaths.filter {
+            !$0.hasPrefix(prefix)
+        }
+        if !accessEntries.isEmpty { persistNow() }
+        if !manifestEntries.isEmpty { persistManifestNow() }
+        plog(
+            "🛡️ Audio cache quarantined source=\(sourceID.prefix(8)) "
+                + "files=\(trackedEntries.count)"
+        )
         return true
     }
 

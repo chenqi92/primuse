@@ -196,14 +196,22 @@ enum AutomaticOfflineCachedReadPolicy {
 enum SourceAudioCacheScopePolicy {
     enum Reconciliation: Equatable {
         case allowExisting
-        case purgeExisting
+        case adoptLegacy
+        case quarantineExisting
     }
 
     static func reconciliation(
         recordedSignature: String?,
-        currentSignature: String
+        currentSignature: String,
+        legacyAdoptionAllowed: Bool
     ) -> Reconciliation {
-        recordedSignature == currentSignature ? .allowExisting : .purgeExisting
+        if recordedSignature == currentSignature {
+            return .allowExisting
+        }
+        if recordedSignature == nil, legacyAdoptionAllowed {
+            return .adoptLegacy
+        }
+        return .quarantineExisting
     }
 
     static func allowsRead(
@@ -1987,6 +1995,8 @@ final class SourceManager {
     @ObservationIgnored private var blockedUntrustedAudioCachePaths: Set<String> = []
     @ObservationIgnored private var automaticOfflineReconciliationGeneration = 0
     @ObservationIgnored private var recordedAudioCacheScopeSignatures: [String: String]
+    @ObservationIgnored private var legacyAudioCacheAdoptionSourceIDs: Set<String>
+    @ObservationIgnored private var needsLegacyAudioCacheAdoptionDiscovery: Bool
     @ObservationIgnored private var validatedAudioCacheSourceIDs: Set<String> = []
     @ObservationIgnored private var blockedAudioCacheSourceIDs: Set<String> = []
     @ObservationIgnored private var audioCacheScopeGenerationBySourceID: [String: Int] = [:]
@@ -1998,7 +2008,10 @@ final class SourceManager {
     private var musicVideoCacheTargets: [String: URL] = [:]
 
     init(database: LibraryDatabase) {
-        self.recordedAudioCacheScopeSignatures = Self.loadAudioCacheScopeSignatures()
+        let initialCacheScopeState = Self.loadInitialAudioCacheScopeState()
+        self.recordedAudioCacheScopeSignatures = initialCacheScopeState.signatures
+        self.legacyAudioCacheAdoptionSourceIDs = initialCacheScopeState.legacyAdoptionSourceIDs
+        self.needsLegacyAudioCacheAdoptionDiscovery = initialCacheScopeState.needsLegacyDiscovery
         self.sourcesProvider = {
             try await database.allSources()
         }
@@ -2011,7 +2024,10 @@ final class SourceManager {
         sourcesProvider: @escaping @Sendable () async throws -> [MusicSource],
         songsProvider: @escaping @MainActor () -> [Song] = { [] }
     ) {
-        self.recordedAudioCacheScopeSignatures = Self.loadAudioCacheScopeSignatures()
+        let initialCacheScopeState = Self.loadInitialAudioCacheScopeState()
+        self.recordedAudioCacheScopeSignatures = initialCacheScopeState.signatures
+        self.legacyAudioCacheAdoptionSourceIDs = initialCacheScopeState.legacyAdoptionSourceIDs
+        self.needsLegacyAudioCacheAdoptionDiscovery = initialCacheScopeState.needsLegacyDiscovery
         self.sourcesProvider = sourcesProvider
         self.songsProvider = songsProvider
         observeLibraryInvalidations()
@@ -4017,6 +4033,8 @@ final class SourceManager {
 
     private nonisolated static let audioCacheDirName = "primuse_audio_cache"
     private nonisolated static let audioCacheScopeStateFileName = "audio_cache_source_scopes.json"
+    private nonisolated static let legacyAudioCacheAdoptionStateFileName =
+        "audio_cache_legacy_adoption.json"
     private static let offlineBatchConcurrency = 2
     private static let offlineSnapshotProbeConcurrency = 16
     private static let directDownloadUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
@@ -4025,6 +4043,17 @@ final class SourceManager {
         case validated
         case retry
         case finishedBlocked
+    }
+
+    private struct LegacyAudioCacheAdoptionState: Codable {
+        var version = 1
+        var pendingSourceIDs: Set<String>
+    }
+
+    private struct InitialAudioCacheScopeState {
+        var signatures: [String: String]
+        var legacyAdoptionSourceIDs: Set<String>
+        var needsLegacyDiscovery: Bool
     }
 
     private nonisolated static var audioCacheScopeStateURL: URL {
@@ -4036,16 +4065,54 @@ final class SourceManager {
         return root.appendingPathComponent(audioCacheScopeStateFileName)
     }
 
-    private nonisolated static func loadAudioCacheScopeSignatures() -> [String: String] {
-        guard let data = try? Data(contentsOf: audioCacheScopeStateURL),
-              let signatures = try? JSONDecoder().decode([String: String].self, from: data)
-        else { return [:] }
-        return signatures
+    private nonisolated static var legacyAudioCacheAdoptionStateURL: URL {
+        audioCacheScopeStateURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(legacyAudioCacheAdoptionStateFileName)
     }
 
-    private func persistAudioCacheScopeSignatures() {
+    private nonisolated static func loadInitialAudioCacheScopeState()
+        -> InitialAudioCacheScopeState {
+        let fileManager = FileManager.default
+        let scopeStateExists = fileManager.fileExists(atPath: audioCacheScopeStateURL.path)
+        let signatures: [String: String]
+        if let data = try? Data(contentsOf: audioCacheScopeStateURL),
+           let decoded = try? JSONDecoder().decode([String: String].self, from: data) {
+            signatures = decoded
+        } else {
+            signatures = [:]
+        }
+
+        let adoptionStateExists = fileManager.fileExists(
+            atPath: legacyAudioCacheAdoptionStateURL.path
+        )
+        if let data = try? Data(contentsOf: legacyAudioCacheAdoptionStateURL),
+           let state = try? JSONDecoder().decode(
+               LegacyAudioCacheAdoptionState.self,
+               from: data
+           ),
+           state.version == 1 {
+            return InitialAudioCacheScopeState(
+                signatures: signatures,
+                legacyAdoptionSourceIDs: state.pendingSourceIDs,
+                needsLegacyDiscovery: false
+            )
+        }
+
+        // Only the complete absence of both files identifies an installation
+        // upgrading from a version that predates source-scoped cache state.
+        // A corrupt/unreadable state stays fail-closed and is quarantined.
+        return InitialAudioCacheScopeState(
+            signatures: signatures,
+            legacyAdoptionSourceIDs: [],
+            needsLegacyDiscovery: !scopeStateExists && !adoptionStateExists
+        )
+    }
+
+    @discardableResult
+    private func persistAudioCacheScopeSignatures() -> Bool {
         guard let data = try? JSONEncoder().encode(recordedAudioCacheScopeSignatures) else {
-            return
+            return false
         }
         do {
             try FileManager.default.createDirectory(
@@ -4053,8 +4120,70 @@ final class SourceManager {
                 withIntermediateDirectories: true
             )
             try data.write(to: Self.audioCacheScopeStateURL, options: .atomic)
+            return true
         } catch {
             plog("⚠️ Audio cache source-scope state could not be persisted: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    @discardableResult
+    private func persistLegacyAudioCacheAdoptionState() -> Bool {
+        let state = LegacyAudioCacheAdoptionState(
+            pendingSourceIDs: legacyAudioCacheAdoptionSourceIDs
+        )
+        guard let data = try? JSONEncoder().encode(state) else { return false }
+        do {
+            try FileManager.default.createDirectory(
+                at: Self.legacyAudioCacheAdoptionStateURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try data.write(to: Self.legacyAudioCacheAdoptionStateURL, options: .atomic)
+            return true
+        } catch {
+            plog("⚠️ Legacy audio-cache adoption state could not be persisted: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private nonisolated static func existingAudioCacheSourceIDs() -> Set<String> {
+        let baseDirectory = FileManager.default
+            .primuseDirectoryURL(for: .cachesDirectory)
+            .appendingPathComponent(audioCacheDirName, isDirectory: true)
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: baseDirectory,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+        return Set(entries.compactMap { entry in
+            guard (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
+                  !entry.lastPathComponent.isEmpty else {
+                return nil
+            }
+            return entry.lastPathComponent
+        })
+    }
+
+    private func discoverLegacyAudioCacheAdoptionCandidatesIfNeeded(
+        from sources: [MusicSource]
+    ) {
+        guard needsLegacyAudioCacheAdoptionDiscovery else { return }
+        legacyAudioCacheAdoptionSourceIDs = Set(
+            sources.lazy.filter { !$0.isDeleted }.map(\.id)
+        )
+        legacyAudioCacheAdoptionSourceIDs.formUnion(Self.existingAudioCacheSourceIDs())
+        // Persist the complete candidate set before reconciling any one source.
+        // If the process stops mid-upgrade, the remaining sources can resume
+        // adoption instead of becoming indistinguishable from a new source.
+        needsLegacyAudioCacheAdoptionDiscovery = !persistLegacyAudioCacheAdoptionState()
+    }
+
+    private func finishLegacyAudioCacheAdoption(for sourceID: String) {
+        guard legacyAudioCacheAdoptionSourceIDs.remove(sourceID) != nil else { return }
+        if !persistLegacyAudioCacheAdoptionState() {
+            legacyAudioCacheAdoptionSourceIDs.insert(sourceID)
         }
     }
 
@@ -4073,6 +4202,7 @@ final class SourceManager {
     private func scheduleInitialAudioCacheScopeValidation() {
         Task { @MainActor [weak self] in
             guard let self, let sources = try? await self.sourcesProvider() else { return }
+            self.discoverLegacyAudioCacheAdoptionCandidatesIfNeeded(from: sources)
             for source in sources where !source.isDeleted {
                 if MusicSourceSecurityRevision.hasPendingChange(for: source.id) {
                     self.requiredConnectorScopeFingerprints[source.id] =
@@ -4301,23 +4431,27 @@ final class SourceManager {
             return .finishedBlocked
         }
         guard let sources = try? await sourcesProvider() else { return .retry }
+        discoverLegacyAudioCacheAdoptionCandidatesIfNeeded(from: sources)
         guard (audioCacheScopeGenerationBySourceID[sourceID] ?? 0) == generation else {
             return .finishedBlocked
         }
         guard let source = sources.first(where: { $0.id == sourceID && !$0.isDeleted }) else {
+            validatedAudioCacheSourceIDs.remove(sourceID)
             blockedAudioCacheSourceIDs.insert(sourceID)
-            return await purgeAudioCacheForUnavailableSource(
-                sourceID: sourceID,
-                generation: generation
-            )
+            // A temporarily incomplete source snapshot must never destroy an
+            // offline library. Explicit source deletion has its own user-driven
+            // purge path; automatic reconciliation only closes the read gate.
+            return .finishedBlocked
         }
 
         let currentSignature = Self.audioCacheScopeSignature(for: source)
         switch SourceAudioCacheScopePolicy.reconciliation(
             recordedSignature: recordedAudioCacheScopeSignatures[sourceID],
-            currentSignature: currentSignature
+            currentSignature: currentSignature,
+            legacyAdoptionAllowed: legacyAudioCacheAdoptionSourceIDs.contains(sourceID)
         ) {
         case .allowExisting:
+            finishLegacyAudioCacheAdoption(for: sourceID)
             guard (audioCacheScopeGenerationBySourceID[sourceID] ?? 0) == generation else {
                 return .finishedBlocked
             }
@@ -4331,14 +4465,35 @@ final class SourceManager {
                 return .finishedBlocked
             }
             return .validated
-        case .purgeExisting:
-            blockedAudioCacheSourceIDs.insert(sourceID)
-            cancelAudioCacheWorkForScopeChange(sourceID: sourceID)
-            let purged = await purgeAudioCacheDirectoryIfUnleased(
-                sourceID: sourceID,
+        case .adoptLegacy:
+            guard (audioCacheScopeGenerationBySourceID[sourceID] ?? 0) == generation else {
+                return .finishedBlocked
+            }
+            let previousSignature = recordedAudioCacheScopeSignatures[sourceID]
+            recordedAudioCacheScopeSignatures[sourceID] = currentSignature
+            guard persistAudioCacheScopeSignatures() else {
+                recordedAudioCacheScopeSignatures[sourceID] = previousSignature
+                return .retry
+            }
+            finishLegacyAudioCacheAdoption(for: sourceID)
+            validatedAudioCacheSourceIDs.insert(sourceID)
+            blockedAudioCacheSourceIDs.remove(sourceID)
+            await AudioCacheManager.shared.endSourcePurge(
+                prefix: "\(sourceID)/",
                 generation: generation
             )
-            guard purged else { return .retry }
+            plog("🛡️ Adopted legacy audio cache without deleting source=\(sourceID.prefix(8))")
+            return .validated
+        case .quarantineExisting:
+            blockedAudioCacheSourceIDs.insert(sourceID)
+            cancelAudioCacheWorkForScopeChange(sourceID: sourceID)
+            let quarantined = await quarantineAudioCacheDirectoryIfUnleased(
+                sourceID: sourceID,
+                generation: generation,
+                recordedSignature: recordedAudioCacheScopeSignatures[sourceID],
+                currentSignature: currentSignature
+            )
+            guard quarantined else { return .retry }
             guard (audioCacheScopeGenerationBySourceID[sourceID] ?? 0) == generation else {
                 return .finishedBlocked
             }
@@ -4346,8 +4501,13 @@ final class SourceManager {
             guard (audioCacheScopeGenerationBySourceID[sourceID] ?? 0) == generation else {
                 return .finishedBlocked
             }
+            let previousSignature = recordedAudioCacheScopeSignatures[sourceID]
             recordedAudioCacheScopeSignatures[sourceID] = currentSignature
-            persistAudioCacheScopeSignatures()
+            guard persistAudioCacheScopeSignatures() else {
+                recordedAudioCacheScopeSignatures[sourceID] = previousSignature
+                return .retry
+            }
+            finishLegacyAudioCacheAdoption(for: sourceID)
             validatedAudioCacheSourceIDs.insert(sourceID)
             blockedAudioCacheSourceIDs.remove(sourceID)
             await AudioCacheManager.shared.endSourcePurge(
@@ -4359,26 +4519,6 @@ final class SourceManager {
             }
             return .validated
         }
-    }
-
-    private func purgeAudioCacheForUnavailableSource(
-        sourceID: String,
-        generation: Int
-    ) async -> AudioCacheScopeReconciliationResult {
-        let purged = await purgeAudioCacheDirectoryIfUnleased(
-            sourceID: sourceID,
-            generation: generation
-        )
-        guard purged else { return .retry }
-        guard (audioCacheScopeGenerationBySourceID[sourceID] ?? 0) == generation else {
-            return .finishedBlocked
-        }
-        if recordedAudioCacheScopeSignatures.removeValue(forKey: sourceID) != nil {
-            persistAudioCacheScopeSignatures()
-        }
-        validatedAudioCacheSourceIDs.remove(sourceID)
-        blockedAudioCacheSourceIDs.insert(sourceID)
-        return .finishedBlocked
     }
 
     private func purgeNonAudioSourceCaches(sourceID: String) async {
@@ -4391,9 +4531,11 @@ final class SourceManager {
         }.value
     }
 
-    private func purgeAudioCacheDirectoryIfUnleased(
+    private func quarantineAudioCacheDirectoryIfUnleased(
         sourceID: String,
-        generation: Int
+        generation: Int,
+        recordedSignature: String?,
+        currentSignature: String
     ) async -> Bool {
         let prefix = "\(sourceID)/"
         guard await AudioCacheManager.shared.beginSourcePurge(
@@ -4402,9 +4544,11 @@ final class SourceManager {
         ) else {
             return false
         }
-        guard await AudioCacheManager.shared.purgeSourceCacheDirectoryIfReady(
+        guard await AudioCacheManager.shared.quarantineSourceCacheDirectoryIfReady(
             prefix: prefix,
-            generation: generation
+            generation: generation,
+            recordedSignature: recordedSignature,
+            replacementSignature: currentSignature
         ) else {
             return false
         }
@@ -8800,7 +8944,7 @@ final class SourceManager {
 
     /// Completes a prepared transition after the new credential is durable.
     /// The effective fingerprint is unchanged by the promotion from pending to
-    /// committed, and only now may reconciliation purge the previous scope.
+    /// committed, and only now may reconciliation isolate the previous scope.
     func credentialsDidChange(for sourceID: String) throws {
         guard credentialChangesInProgress.contains(sourceID) else {
             throw POSIXError(.EINVAL)

@@ -864,25 +864,36 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
         ))
     }
 
-    func testAudioCacheScopeColdStartFailsClosedUntilExactScopeIsValidated() {
+    func testAudioCacheScopeAdoptsOnlyKnownLegacyUpgradeCandidates() {
         XCTAssertEqual(
             SourceAudioCacheScopePolicy.reconciliation(
                 recordedSignature: nil,
-                currentSignature: "scope-a"
+                currentSignature: "scope-a",
+                legacyAdoptionAllowed: true
             ),
-            .purgeExisting
+            .adoptLegacy
+        )
+        XCTAssertEqual(
+            SourceAudioCacheScopePolicy.reconciliation(
+                recordedSignature: nil,
+                currentSignature: "scope-a",
+                legacyAdoptionAllowed: false
+            ),
+            .quarantineExisting
         )
         XCTAssertEqual(
             SourceAudioCacheScopePolicy.reconciliation(
                 recordedSignature: "scope-b",
-                currentSignature: "scope-a"
+                currentSignature: "scope-a",
+                legacyAdoptionAllowed: true
             ),
-            .purgeExisting
+            .quarantineExisting
         )
         XCTAssertEqual(
             SourceAudioCacheScopePolicy.reconciliation(
                 recordedSignature: "scope-a",
-                currentSignature: "scope-a"
+                currentSignature: "scope-a",
+                legacyAdoptionAllowed: false
             ),
             .allowExisting
         )
@@ -901,6 +912,69 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
             validatedSourceIDs: ["source"],
             blockedSourceIDs: []
         ))
+    }
+
+    func testSourceScopeQuarantinePreservesBytesOutsideActiveCache() async throws {
+        let sourceID = "scope-quarantine-\(UUID().uuidString)"
+        let relativePath = "\(sourceID)/track.flac"
+        let caches = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+        let activeSourceDirectory = caches
+            .appendingPathComponent("primuse_audio_cache", isDirectory: true)
+            .appendingPathComponent(sourceID, isDirectory: true)
+        let quarantineSourceDirectory = caches
+            .appendingPathComponent("primuse_audio_cache_quarantine", isDirectory: true)
+            .appendingPathComponent(sourceID, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: activeSourceDirectory)
+            try? FileManager.default.removeItem(at: quarantineSourceDirectory)
+        }
+
+        try FileManager.default.createDirectory(
+            at: activeSourceDirectory,
+            withIntermediateDirectories: true
+        )
+        let expected = Data("preserve cached audio".utf8)
+        try expected.write(to: activeSourceDirectory.appendingPathComponent("track.flac"))
+        await AudioCacheManager.shared.recordAccess(path: relativePath)
+        await AudioCacheManager.shared.pin(
+            path: relativePath,
+            byteCount: Int64(expected.count)
+        )
+
+        let generation = Int.random(in: 1...Int.max)
+        let beganQuarantine = await AudioCacheManager.shared.beginSourcePurge(
+            prefix: "\(sourceID)/",
+            generation: generation
+        )
+        XCTAssertTrue(beganQuarantine)
+        let quarantined = await AudioCacheManager.shared.quarantineSourceCacheDirectoryIfReady(
+            prefix: "\(sourceID)/",
+            generation: generation,
+            recordedSignature: "scope-a",
+            replacementSignature: "scope-b"
+        )
+        XCTAssertTrue(quarantined)
+        await AudioCacheManager.shared.endSourcePurge(
+            prefix: "\(sourceID)/",
+            generation: generation
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: activeSourceDirectory.path))
+        let records = try FileManager.default.contentsOfDirectory(
+            at: quarantineSourceDirectory,
+            includingPropertiesForKeys: nil
+        )
+        let record = try XCTUnwrap(records.first)
+        let preservedURL = record
+            .appendingPathComponent("payload", isDirectory: true)
+            .appendingPathComponent("track.flac")
+        XCTAssertEqual(try Data(contentsOf: preservedURL), expected)
+        let snapshot = await AudioCacheManager.shared.snapshot(
+            path: relativePath,
+            fileExists: false,
+            byteCount: nil
+        )
+        XCTAssertEqual(snapshot, .notCached)
     }
 
     func testSourcePurgeGateRejectsLateOlderGenerationAndNewLeases() async {
