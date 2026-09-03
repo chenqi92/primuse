@@ -193,7 +193,7 @@ struct LyricPlaybackPositionPolicyTests {
         )
 
         #expect(presentation.title == "Second")
-        #expect(presentation.artist == "Artist / Song")
+        #expect(presentation.artist == "Song · Artist")
         #expect(presentation.lyricLineID == "second")
     }
 

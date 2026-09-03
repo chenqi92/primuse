@@ -236,7 +236,7 @@ public enum NowPlayingLyricsMetadataPolicy {
               ) else { return canonical }
 
         let line = synchronizedLyrics[activeIndex]
-        let secondary = [artist, title].filter { !$0.isEmpty }.joined(separator: " / ")
+        let secondary = [title, artist].filter { !$0.isEmpty }.joined(separator: " · ")
         return NowPlayingLyricsMetadataPresentation(
             title: line.text.trimmingCharacters(in: .whitespacesAndNewlines),
             artist: secondary,

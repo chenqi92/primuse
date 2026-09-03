@@ -52,6 +52,7 @@ enum CrossfadeMode: String, Codable, Sendable, CaseIterable {
 
 struct PlaybackSettings: Codable, Sendable {
     static let defaultsKey = "primuse_playback_settings_v1"
+    static let lockScreenLyricsRolloutKey = "primuse_lock_screen_lyrics_default_enabled_v1"
 
     /// New installs start on the shortest, DSP-free signal path. Existing
     /// persisted settings without this field decode as `.effects` below so an
@@ -77,9 +78,9 @@ struct PlaybackSettings: Codable, Sendable {
     /// 节点，自动保持音调不变。
     var playbackRate: Float = 1.0
     /// Uses the current synchronized lyric as the system Now Playing title.
-    /// Disabled by default because the remapped metadata is also visible to
-    /// Control Center, Bluetooth receivers and in-car Now Playing surfaces.
-    var lockScreenLyricsEnabled: Bool = false
+    /// Users can still opt out because the remapped metadata is also visible
+    /// to Control Center, Bluetooth receivers and in-car Now Playing surfaces.
+    var lockScreenLyricsEnabled: Bool = true
     /// 是否让 AVAudioSession 把硬件输出 SR 切到当前歌曲采样率, 避免
     /// CoreAudio 自动重采样。仅 iOS 真机有效, 部分老款硬件无视该 hint。
     var matchOutputSampleRate: Bool = false
@@ -122,7 +123,7 @@ struct PlaybackSettings: Codable, Sendable {
         skipTrailingSilenceEnabled = try c.decodeIfPresent(Bool.self, forKey: .skipTrailingSilenceEnabled) ?? false
         prewarmQueueCount = try c.decodeIfPresent(Int.self, forKey: .prewarmQueueCount) ?? 3
         playbackRate = try c.decodeIfPresent(Float.self, forKey: .playbackRate) ?? 1.0
-        lockScreenLyricsEnabled = try c.decodeIfPresent(Bool.self, forKey: .lockScreenLyricsEnabled) ?? false
+        lockScreenLyricsEnabled = try c.decodeIfPresent(Bool.self, forKey: .lockScreenLyricsEnabled) ?? true
         matchOutputSampleRate = try c.decodeIfPresent(Bool.self, forKey: .matchOutputSampleRate) ?? false
         effectChainEnabled = try c.decodeIfPresent(Bool.self, forKey: .effectChainEnabled) ?? true
         compressorEnabled = try c.decodeIfPresent(Bool.self, forKey: .compressorEnabled) ?? false
@@ -155,7 +156,7 @@ struct PlaybackSettings: Codable, Sendable {
         skipTrailingSilenceEnabled: Bool = false,
         prewarmQueueCount: Int = 3,
         playbackRate: Float = 1.0,
-        lockScreenLyricsEnabled: Bool = false,
+        lockScreenLyricsEnabled: Bool = true,
         matchOutputSampleRate: Bool = false,
         effectChainEnabled: Bool = true,
         compressorEnabled: Bool = false,
@@ -213,6 +214,23 @@ struct PlaybackSettings: Codable, Sendable {
     func save(defaults: UserDefaults = .standard) {
         guard let data = try? JSONEncoder().encode(self) else { return }
         defaults.set(data, forKey: Self.defaultsKey)
+    }
+
+    /// The initial lock-screen lyrics implementation shipped disabled, which
+    /// made the feature appear absent after an update. Enable it once while
+    /// retaining the user's later opt-out as an ordinary persisted setting.
+    @discardableResult
+    static func applyLockScreenLyricsRolloutIfNeeded(
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        guard defaults.object(forKey: lockScreenLyricsRolloutKey) == nil else {
+            return false
+        }
+        var settings = load(defaults: defaults)
+        settings.lockScreenLyricsEnabled = true
+        settings.save(defaults: defaults)
+        defaults.set(true, forKey: lockScreenLyricsRolloutKey)
+        return true
     }
 }
 
@@ -347,6 +365,10 @@ final class PlaybackSettingsStore {
 
         CloudKVSSync.shared.register(key: PlaybackSettings.defaultsKey) { [weak self] in
             self?.reloadFromDefaults()
+        }
+        if PlaybackSettings.applyLockScreenLyricsRolloutIfNeeded(defaults: defaults) {
+            reloadFromDefaults()
+            CloudKVSSync.shared.markChanged(key: PlaybackSettings.defaultsKey)
         }
     }
 

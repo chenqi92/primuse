@@ -1,3 +1,4 @@
+import Foundation
 import PrimuseKit
 import SwiftUI
 import UIKit
@@ -359,5 +360,31 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
         let first = try XCTUnwrap(occupiedColumns.min())
         let last = try XCTUnwrap(occupiedColumns.max())
         return last - first + 1
+    }
+}
+
+final class PlaybackSettingsLockScreenLyricsTests: XCTestCase {
+    func testNewPlaybackSettingsEnableLockScreenLyrics() {
+        XCTAssertTrue(PlaybackSettings().lockScreenLyricsEnabled)
+    }
+
+    func testRolloutEnablesExistingDisabledSettingOnlyOnce() throws {
+        let suiteName = "PlaybackSettingsLockScreenLyricsTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var existing = PlaybackSettings()
+        existing.lockScreenLyricsEnabled = false
+        existing.save(defaults: defaults)
+
+        XCTAssertTrue(PlaybackSettings.applyLockScreenLyricsRolloutIfNeeded(defaults: defaults))
+        XCTAssertTrue(PlaybackSettings.load(defaults: defaults).lockScreenLyricsEnabled)
+
+        var optedOut = PlaybackSettings.load(defaults: defaults)
+        optedOut.lockScreenLyricsEnabled = false
+        optedOut.save(defaults: defaults)
+
+        XCTAssertFalse(PlaybackSettings.applyLockScreenLyricsRolloutIfNeeded(defaults: defaults))
+        XCTAssertFalse(PlaybackSettings.load(defaults: defaults).lockScreenLyricsEnabled)
     }
 }
