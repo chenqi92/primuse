@@ -1966,6 +1966,13 @@ final class MusicScraperService {
             .lowercased()
         let expectedExtension = song.fileFormat.rawValue.lowercased()
 
+        // Subsonic/Navidrome rows deliberately persist a stable transport path
+        // (`/songs/{server-id}.{suffix}`), not the upstream filename. The
+        // server-provided Song.title is authoritative for search; exposing the
+        // transport identifier produces unusable scraper queries.
+        let normalizedPath = song.filePath.replacingOccurrences(of: "\\", with: "/")
+        if normalizedPath.hasPrefix("/songs/") { return true }
+
         // Cloud-drive identifiers (OneDrive item IDs, Google Drive IDs,
         // Aliyun file IDs) usually have no audio extension. A real audio
         // file path almost always does, so keep the scanned display title
@@ -1994,7 +2001,16 @@ final class MusicScraperService {
 
         let digits = scalars.filter { CharacterSet.decimalDigits.contains($0) }.count
         let separators = scalars.filter { $0 == "_" || $0 == "-" || $0 == "!" }.count
-        return digits >= 6 || separators >= 2 || trimmed.count >= 24
+        let uppercase = scalars.filter { CharacterSet.uppercaseLetters.contains($0) }.count
+        let lowercase = scalars.filter { CharacterSet.lowercaseLetters.contains($0) }.count
+        let looksLikeCompactMixedCaseID = trimmed.count >= 20
+            && digits >= 2
+            && uppercase >= 2
+            && lowercase >= 2
+        return digits >= 6
+            || separators >= 2
+            || trimmed.count >= 24
+            || looksLikeCompactMixedCaseID
     }
 
     /// 服务端源专用的严格「只补空缺」合并 —— 只填 nil/空 的
