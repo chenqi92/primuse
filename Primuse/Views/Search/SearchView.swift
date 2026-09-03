@@ -34,6 +34,17 @@ private enum SemanticSearchFeedback: Equatable {
     var isVisible: Bool { self != .idle }
 }
 
+#if os(macOS)
+private enum MacSearchResultFilter: Hashable {
+    case all
+    case songs
+    case albums
+    case artists
+    case lyrics
+    case appleMusic
+}
+#endif
+
 private struct SearchLibraryRevisionObserver: View {
     @Environment(MusicLibrary.self) private var library
     let onRevisionChange: () -> Void
@@ -106,6 +117,9 @@ struct SearchView: View {
     @State private var renderedQuery: String = ""
     @State private var intelligenceRenderedQuery: String = ""
     @State private var selection = SongSelectionModel()
+    #if os(macOS)
+    @State private var macResultFilter: MacSearchResultFilter = .all
+    #endif
 
     init(
         searchText: Binding<String>,
@@ -157,24 +171,40 @@ struct SearchView: View {
         appleMusicSearchEnabled ? appleMusic.searchResults : []
     }
 
-    /// 结果分组各自截断过（iOS 每组 40，macOS 歌词 3 / 其余 6），"全选"只圈
-    /// 用户真正看得到的那些。Apple Music 在线结果不是本地曲库条目，不参与多选。
+    /// “全选”只圈用户在当前筛选下真正看得到的本地歌曲。Apple Music 在线结果
+    /// 不是本地曲库条目，不参与多选。
     private var selectableSongIDs: [String] {
         let kinds: [LibrarySearchMatchKind] = [.metadata, .path, .lyrics, .fuzzy]
+        #if os(macOS)
+        switch macResultFilter {
+        case .albums, .artists, .appleMusic:
+            return []
+        case .lyrics:
+            return searchResults
+                .filter { $0.matchKind == .lyrics }
+                .map(\.song.id)
+        case .songs:
+            let directIDs = kinds.flatMap { kind in
+                searchResults
+                    .filter { $0.matchKind == kind }
+                    .map(\.song.id)
+            }
+            return directIDs + visibleSemanticResults.prefix(40).map(\.song.id)
+        case .all:
+            let directIDs = kinds.flatMap { kind -> [String] in
+                let bucket = searchResults.filter { $0.matchKind == kind }
+                return bucket.prefix(kind == .lyrics ? 3 : 6).map(\.song.id)
+            }
+            return directIDs + visibleSemanticResults.prefix(6).map(\.song.id)
+        }
+        #else
         let directIDs = kinds.flatMap { kind -> [String] in
             let bucket = searchResults.filter { $0.matchKind == kind }
-            #if os(macOS)
-            return bucket.prefix(kind == .lyrics ? 3 : 6).map(\.song.id)
-            #else
             return bucket.prefix(40).map(\.song.id)
-            #endif
         }
-        #if os(macOS)
-        let semanticIDs = visibleSemanticResults.prefix(6).map(\.song.id)
-        #else
         let semanticIDs = visibleSemanticResults.prefix(40).map(\.song.id)
-        #endif
         return directIDs + semanticIDs
+        #endif
     }
 
     var body: some View {
@@ -300,6 +330,14 @@ struct SearchView: View {
             }
         )
         .onSubmit(of: .search) { addRecentSearch(searchText) }
+        .onChange(of: macResultFilter) { _, _ in
+            selection.prune(to: Set(selectableSongIDs))
+        }
+        .onChange(of: appleMusicSearchEnabled) { _, isEnabled in
+            if !isEnabled, macResultFilter == .appleMusic {
+                macResultFilter = .all
+            }
+        }
         // 注意: Album/Artist 的 navigationDestination 由 MacDetailContainer 的
         // NavigationStack 统一注册, 这里不再重复声明 (否则会重复 destination)。
     }
@@ -352,16 +390,31 @@ struct SearchView: View {
             .pmCard(cornerRadius: 12)
 
             HStack(spacing: 8) {
-                chipText("\(String(localized: "search_chip_all")) · \(macTotalResultCount)", active: true)
-                chipText("\(String(localized: "tab_songs")) · \(searchResults.count)", active: false)
-                chipText("\(String(localized: "tab_albums")) · \(matchingAlbums.count)", active: false)
-                chipText("\(String(localized: "tab_artists")) · \(matchingArtistCount)", active: false)
-                chipText(String(
+                macFilterChip(
+                    .all,
+                    title: "\(String(localized: "search_chip_all")) · \(macTotalResultCount)"
+                )
+                macFilterChip(
+                    .songs,
+                    title: "\(String(localized: "tab_songs")) · \(macSongResultCount)"
+                )
+                macFilterChip(
+                    .albums,
+                    title: "\(String(localized: "tab_albums")) · \(matchingAlbums.count)"
+                )
+                macFilterChip(
+                    .artists,
+                    title: "\(String(localized: "tab_artists")) · \(matchingArtists.count)"
+                )
+                macFilterChip(.lyrics, title: String(
                     format: String(localized: "search_lyrics_hits_format"),
                     searchResults.filter { $0.matchKind == .lyrics }.count
-                ), active: false)
+                ))
                 if appleMusicSearchEnabled {
-                    chipText("Apple Music · \(visibleAppleMusicSearchResults.count)", active: false)
+                    macFilterChip(
+                        .appleMusic,
+                        title: "Apple Music · \(visibleAppleMusicSearchResults.count)"
+                    )
                 }
                 Spacer()
             }
@@ -442,7 +495,20 @@ struct SearchView: View {
         .background(PMColor.bg)
     }
 
+    @ViewBuilder
     private var macSearchResultsView: some View {
+        if macResultFilter == .all {
+            macAllSearchResultsView
+        } else if macSelectedFilterHasContent {
+            macFilteredSearchResultsView
+        } else {
+            ContentUnavailableView.search(text: searchText)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(PMColor.bg)
+        }
+    }
+
+    private var macAllSearchResultsView: some View {
         ScrollView(.vertical, showsIndicators: false) {
             LazyVGrid(
                 columns: [GridItem(.flexible(), spacing: 32, alignment: .top),
@@ -456,17 +522,73 @@ struct SearchView: View {
                     macSongBucket(kind: .path, title: "search_section_path")
                     macSongBucket(kind: .lyrics, title: "search_section_lyrics")
                     macSongBucket(kind: .fuzzy, title: "search_section_fuzzy")
-                    macSemanticSection
+                    macSemanticSection()
                 }
 
                 VStack(alignment: .leading, spacing: 24) {
-                    macAlbumsSection
+                    macAlbumsSection()
                     if appleMusicSearchEnabled {
-                        macAppleMusicSection
+                        macAppleMusicSection()
                     }
                     macRecentSearchInlineSection
                 }
             }
+            .padding(.horizontal, PMSpace.xxxl)
+            .padding(.bottom, 100)
+        }
+        .background(PMColor.bg)
+    }
+
+    private var macFilteredSearchResultsView: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            Group {
+                switch macResultFilter {
+                case .songs:
+                    LazyVStack(alignment: .leading, spacing: 14) {
+                        macSongBucket(
+                            kind: .metadata,
+                            title: "search_section_metadata",
+                            showsAllResults: true
+                        )
+                        macSongBucket(
+                            kind: .path,
+                            title: "search_section_path",
+                            showsAllResults: true
+                        )
+                        macSongBucket(
+                            kind: .lyrics,
+                            title: "search_section_lyrics",
+                            showsAllResults: true
+                        )
+                        macSongBucket(
+                            kind: .fuzzy,
+                            title: "search_section_fuzzy",
+                            showsAllResults: true
+                        )
+                        macSemanticSection(limit: 40)
+                    }
+                    .frame(maxWidth: 900, alignment: .leading)
+                case .albums:
+                    macAlbumsSection(showsAllResults: true)
+                case .artists:
+                    macArtistsSection
+                case .lyrics:
+                    LazyVStack(alignment: .leading, spacing: 14) {
+                        macSongBucket(
+                            kind: .lyrics,
+                            title: "search_section_lyrics",
+                            showsAllResults: true
+                        )
+                    }
+                    .frame(maxWidth: 900, alignment: .leading)
+                case .appleMusic:
+                    macAppleMusicSection(showsAllResults: true)
+                        .frame(maxWidth: 900, alignment: .leading)
+                case .all:
+                    EmptyView()
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, PMSpace.xxxl)
             .padding(.bottom, 100)
         }
@@ -513,12 +635,15 @@ struct SearchView: View {
     }
 
     @ViewBuilder
-    private var macAlbumsSection: some View {
+    private func macAlbumsSection(showsAllResults: Bool = false) -> some View {
         if !matchingAlbums.isEmpty {
+            let albums = showsAllResults
+                ? matchingAlbums
+                : Array(matchingAlbums.prefix(6))
             VStack(alignment: .leading, spacing: 10) {
                 macSectionLabel("tab_albums")
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 116), spacing: 14)], alignment: .leading, spacing: 14) {
-                    ForEach(Array(matchingAlbums.prefix(6))) { album in
+                    ForEach(albums) { album in
                         NavigationLink(value: album) {
                             VStack(alignment: .leading, spacing: 7) {
                                 AlbumArtworkView(album: album, cornerRadius: 6)
@@ -541,7 +666,10 @@ struct SearchView: View {
     }
 
     @ViewBuilder
-    private var macAppleMusicSection: some View {
+    private func macAppleMusicSection(showsAllResults: Bool = false) -> some View {
+        let results = showsAllResults
+            ? visibleAppleMusicSearchResults
+            : Array(visibleAppleMusicSearchResults.prefix(5))
         VStack(alignment: .leading, spacing: 10) {
             macSectionLabel("search_apple_music_catalog_section")
             HStack(spacing: 10) {
@@ -568,7 +696,7 @@ struct SearchView: View {
                     .pmRowBackground(cornerRadius: 6)
             }
 
-            ForEach(visibleAppleMusicSearchResults.prefix(5), id: \.id) { song in
+            ForEach(results, id: \.id) { song in
                 Button {
                     Task { await appleMusic.play(song) }
                 } label: {
@@ -651,8 +779,15 @@ struct SearchView: View {
     }
 
     @ViewBuilder
-    private func macSongBucket(kind: LibrarySearchMatchKind, title: LocalizedStringKey) -> some View {
-        let bucket = Array(searchResults.filter { $0.matchKind == kind }.prefix(kind == .lyrics ? 3 : 6))
+    private func macSongBucket(
+        kind: LibrarySearchMatchKind,
+        title: LocalizedStringKey,
+        showsAllResults: Bool = false
+    ) -> some View {
+        let matches = searchResults.filter { $0.matchKind == kind }
+        let bucket = showsAllResults
+            ? matches
+            : Array(matches.prefix(kind == .lyrics ? 3 : 6))
         if !bucket.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 macSectionLabel(title)
@@ -684,8 +819,8 @@ struct SearchView: View {
     }
 
     @ViewBuilder
-    private var macSemanticSection: some View {
-        let results = Array(visibleSemanticResults.prefix(6))
+    private func macSemanticSection(limit: Int = 6) -> some View {
+        let results = Array(visibleSemanticResults.prefix(limit))
         if semanticSearchFeedback.isVisible || !results.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
@@ -703,6 +838,38 @@ struct SearchView: View {
                             orderedIDs: { selectableSongIDs },
                             defaultAction: { playSong(result.song) }
                         )
+                }
+            }
+        }
+    }
+
+    private var macArtistsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            macSectionLabel("tab_artists")
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 116), spacing: 14)],
+                alignment: .leading,
+                spacing: 14
+            ) {
+                ForEach(matchingArtists) { artist in
+                    NavigationLink(value: artist) {
+                        VStack(alignment: .leading, spacing: 7) {
+                            ArtistArtworkView(
+                                artist: artist,
+                                cornerRadius: 999
+                            )
+                            .aspectRatio(1, contentMode: .fit)
+                            Text(artist.name)
+                                .font(.system(size: 11.5, weight: .medium))
+                                .foregroundStyle(PMColor.text)
+                                .lineLimit(1)
+                            Text("\(artist.albumCount) \(String(localized: "albums_count")) · \(artist.songCount) \(String(localized: "songs_count"))")
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(PMColor.textFaint)
+                                .lineLimit(1)
+                        }
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -939,30 +1106,61 @@ struct SearchView: View {
             }
     }
 
+    private func macFilterChip(
+        _ filter: MacSearchResultFilter,
+        title: String
+    ) -> some View {
+        Button {
+            macResultFilter = filter
+        } label: {
+            chipText(title, active: macResultFilter == filter)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(macResultFilter == filter ? .isSelected : [])
+    }
+
+    private var macSelectedFilterHasContent: Bool {
+        switch macResultFilter {
+        case .all:
+            return true
+        case .songs:
+            return !searchResults.isEmpty
+                || !visibleSemanticResults.isEmpty
+                || semanticSearchFeedback.isVisible
+        case .albums:
+            return !matchingAlbums.isEmpty
+        case .artists:
+            return !matchingArtists.isEmpty
+        case .lyrics:
+            return searchResults.contains { $0.matchKind == .lyrics }
+        case .appleMusic:
+            return appleMusicSearchEnabled
+        }
+    }
+
+    private var macSongResultCount: Int {
+        searchResults.count + visibleSemanticResults.count
+    }
+
     private var macTotalResultCount: Int {
-        searchResults.count
-            + visibleSemanticResults.count
+        macSongResultCount
             + matchingAlbums.count
-            + matchingArtistCount
+            + matchingArtists.count
             + visibleAppleMusicSearchResults.count
     }
 
-    /// 从搜索结果歌曲里反推 distinct 艺术家数 — 没有专用 artist search 结果时
-    /// 用这个近似值给搜索芯片显示计数。
-    private var matchingArtistCount: Int {
+    /// 从搜索结果歌曲反推可导航的艺术家，顺序跟随歌曲相关性排序。
+    private var matchingArtists: [PrimuseKit.Artist] {
         var seen = Set<String>()
-        var distinct = 0
-        for r in searchResults {
-            for name in library.artistNames(for: r.song) where !name.isEmpty {
-                let key = name.folding(
-                    options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
-                    locale: .current
-                )
-                guard seen.insert(key).inserted else { continue }
-                distinct += 1
+        var artists: [PrimuseKit.Artist] = []
+        for result in searchResults {
+            for id in library.artistIDs(for: result.song) {
+                guard seen.insert(id).inserted,
+                      let artist = library.visibleArtist(id: id) else { continue }
+                artists.append(artist)
             }
         }
-        return distinct
+        return artists
     }
 
     private var appleMusicStatusText: String {
