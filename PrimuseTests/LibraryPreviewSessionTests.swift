@@ -242,4 +242,69 @@ final class LibraryPreviewSessionTests: XCTestCase {
         XCTAssertEqual(replaced.cueEndTime, incoming.cueEndTime)
         XCTAssertNil(replaced.lyricsText)
     }
+
+    func testLargeSourceRemovalPublishesPrecomputedIDsAndRetainsOtherSources() async throws {
+        let storageDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "PrimuseLargeSourceRemovalTests-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: storageDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: storageDirectory) }
+
+        let library = MusicLibrary(storageDirectory: storageDirectory)
+        let removedSongs = (0..<2_048).map { index in
+            Song(
+                id: "removed-\(index)",
+                title: "Removed \(index)",
+                fileFormat: .flac,
+                filePath: "/removed/\(index).flac",
+                sourceID: "large-source"
+            )
+        }
+        let retainedSongs = (0..<32).map { index in
+            Song(
+                id: "retained-\(index)",
+                title: "Retained \(index)",
+                fileFormat: .mp3,
+                filePath: "/retained/\(index).mp3",
+                sourceID: "other-source"
+            )
+        }
+        library.addSongs(
+            removedSongs + retainedSongs,
+            affectedSourceIDs: ["large-source", "other-source"]
+        )
+
+        let notification = expectation(description: "source-scoped song removal")
+        let token = NotificationCenter.default.addObserver(
+            forName: .primuseSongsRemoved,
+            object: nil,
+            queue: .main
+        ) { note in
+            XCTAssertEqual(
+                Set((note.userInfo?["sourceIDs"] as? [String]) ?? []),
+                ["large-source"]
+            )
+            XCTAssertEqual(
+                (note.userInfo?["songIDs"] as? Set<String>)?.count,
+                removedSongs.count
+            )
+            notification.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        let removedIDs = await library.removeSongsForSources(["large-source"])
+
+        await fulfillment(of: [notification], timeout: 1)
+        XCTAssertEqual(removedIDs.count, removedSongs.count)
+        XCTAssertEqual(library.songs.map(\.id), retainedSongs.map(\.id))
+        guard case .success = await library.persistNowAndWait() else {
+            XCTFail("The isolated library did not finish persistence")
+            return
+        }
+    }
 }

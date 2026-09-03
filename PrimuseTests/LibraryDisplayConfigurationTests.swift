@@ -1425,6 +1425,38 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
         XCTAssertTrue(wasCancelled)
     }
 
+    func testStagedSourceCacheDeletionPreservesReplacementDirectory() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "PrimuseSourceCacheDeletionTests-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let sourceDirectory = root.appendingPathComponent("source", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: sourceDirectory,
+            withIntermediateDirectories: true
+        )
+        try Data("old".utf8).write(
+            to: sourceDirectory.appendingPathComponent("old.cache")
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let staged = SourceManager.stageCacheDirectoriesForDeletion([sourceDirectory])
+        XCTAssertEqual(staged.count, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sourceDirectory.path))
+
+        try FileManager.default.createDirectory(
+            at: sourceDirectory,
+            withIntermediateDirectories: true
+        )
+        let replacement = sourceDirectory.appendingPathComponent("new.cache")
+        try Data("new".utf8).write(to: replacement)
+
+        SourceManager.deleteStagedCacheDirectories(staged)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: replacement.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staged[0].path))
+    }
+
     private static func boundedDownloadTemporaryFiles() -> Set<String> {
         let names = (try? FileManager.default.contentsOfDirectory(
             atPath: FileManager.default.temporaryDirectory.path

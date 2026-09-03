@@ -1349,19 +1349,22 @@ final class AppServices {
                 return
             }
             guard let self, !Task.isCancelled else { return }
-            self.flushPendingSourceCleanup()
+            await self.flushPendingSourceCleanup()
         }
     }
 
-    private func flushPendingSourceCleanup() {
+    private func flushPendingSourceCleanup() async {
         let requests = pendingSourceCleanup
         pendingSourceCleanup.removeAll(keepingCapacity: true)
         sourceCleanupTask = nil
         guard !requests.isEmpty else { return }
 
         let sourceIDs = Set(requests.keys)
-        metadataBackfill.discardWorkNow(forSourceIDs: sourceIDs)
-        musicLibrary.removeSongsForSources(sourceIDs)
+        let removedSongIDs = await musicLibrary.removeSongsForSources(sourceIDs)
+        metadataBackfill.discardWorkNow(
+            forSourceIDs: sourceIDs,
+            knownSongIDs: removedSongIDs
+        )
         musicLibrary.pruneServerPlaylistMirrors(forSourceIDs: sourceIDs)
         radioStationsStore.removeServerMirrors(forSourceIDs: sourceIDs)
         sourcesStore.resetLocalScanState(for: sourceIDs)

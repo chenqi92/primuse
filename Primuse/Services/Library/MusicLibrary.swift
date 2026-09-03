@@ -2632,12 +2632,14 @@ enum LibraryMaintenanceDisposition: Sendable {
 @MainActor
 @Observable
 final class MusicLibrary {
+    @ObservationIgnored private var songMutationGeneration: UInt64 = 0
     private var songsReference = LibraryArrayReference<Song>()
     private(set) var songs: [Song] {
         get { songsReference.value }
         set {
             let previous = songsReference
             songsReference = LibraryArrayReference(newValue)
+            songMutationGeneration &+= 1
             LibraryArrayReclaimer.release(previous)
         }
     }
@@ -3782,7 +3784,7 @@ final class MusicLibrary {
         cleanPlaybackHistoryEntries()
         requestLibraryIndexMaintenance(.immediate)
         persistSongChanges(deletingIDs: [song.id], needsPromptCompatibilitySnapshot: true)
-        postSongsRemoved([song])
+        postSongsRemoved([song], songIDs: [song.id])
         return songs.filter { $0.sourceID == song.sourceID }.count
     }
 
@@ -3812,7 +3814,7 @@ final class MusicLibrary {
         cleanPlaybackHistoryEntries()
         requestLibraryIndexMaintenance(.immediate)
         persistSongChanges(deletingIDs: idsToDelete, needsPromptCompatibilitySnapshot: true)
-        postSongsRemoved(songsToDelete)
+        postSongsRemoved(songsToDelete, songIDs: idsToDelete)
         return remainingCounts
     }
 
@@ -3826,9 +3828,16 @@ final class MusicLibrary {
         persistSnapshot()
     }
 
-    private func postSongsRemoved(_ songs: [Song], sourceIDs: Set<String>? = nil) {
+    private func postSongsRemoved(
+        _ songs: [Song],
+        sourceIDs: Set<String>? = nil,
+        songIDs: Set<String>? = nil
+    ) {
         guard songs.isEmpty == false else { return }
-        var userInfo: [String: Any] = ["songs": songs]
+        var userInfo: [String: Any] = [
+            "songs": songs,
+            "songIDs": songIDs ?? Set(songs.map(\.id)),
+        ]
         if let sourceIDs, !sourceIDs.isEmpty {
             userInfo["sourceIDs"] = Array(sourceIDs)
         }
@@ -3840,39 +3849,100 @@ final class MusicLibrary {
     }
 
     /// Remove all songs for a given source
-    func removeSongsForSource(_ sourceID: String) {
-        removeSongsForSources([sourceID])
+    func removeSongsForSource(_ sourceID: String) async {
+        await removeSongsForSources([sourceID])
+    }
+
+    private struct PreparedSourceSongRemoval: Sendable {
+        let retainedSongs: [Song]
+        let removedSongs: [Song]
+        let retainedIndexByID: [String: Int]
+        let removedSongIDs: Set<String>
+    }
+
+    private nonisolated static func prepareSourceSongRemoval(
+        songs: [Song],
+        sourceIDs: Set<String>
+    ) -> PreparedSourceSongRemoval {
+        var retainedSongs: [Song] = []
+        retainedSongs.reserveCapacity(songs.count)
+        var removedSongs: [Song] = []
+        removedSongs.reserveCapacity(min(songs.count, 1_024))
+        var retainedIndexByID: [String: Int] = [:]
+        retainedIndexByID.reserveCapacity(songs.count)
+        var removedSongIDs: Set<String> = []
+
+        for song in songs {
+            if sourceIDs.contains(song.sourceID) {
+                removedSongs.append(song)
+                removedSongIDs.insert(song.id)
+            } else {
+                retainedIndexByID[song.id] = retainedSongs.count
+                retainedSongs.append(song)
+            }
+        }
+        return PreparedSourceSongRemoval(
+            retainedSongs: retainedSongs,
+            removedSongs: removedSongs,
+            retainedIndexByID: retainedIndexByID,
+            removedSongIDs: removedSongIDs
+        )
     }
 
     /// Remove several sources in one library pass. Repeated per-source
     /// removeAll/playlist cleanup/index rebuild made rapid source deletion
-    /// O(sourceCount × librarySize) on the main actor.
-    func removeSongsForSources(_ sourceIDs: Set<String>) {
-        guard !sourceIDs.isEmpty else { return }
+    /// O(sourceCount × librarySize) on the main actor. Partitioning and the
+    /// replacement lookup are prepared off-main; a generation fence retries
+    /// if another scan/backfill mutation landed while that snapshot was read.
+    @discardableResult
+    func removeSongsForSources(_ sourceIDs: Set<String>) async -> Set<String> {
+        guard !sourceIDs.isEmpty else { return [] }
+
+        let prepared: PreparedSourceSongRemoval
+        while true {
+            let snapshot = songs
+            let generation = songMutationGeneration
+            let candidate = await Task.detached(priority: .userInitiated) {
+                Self.prepareSourceSongRemoval(
+                    songs: snapshot,
+                    sourceIDs: sourceIDs
+                )
+            }.value
+            guard generation == songMutationGeneration else {
+                await Task.yield()
+                continue
+            }
+            prepared = candidate
+            break
+        }
+
         let removedCatalog = sourceIDs.reduce(into: false) { removed, sourceID in
             if automaticArtistArtworkCatalogsBySource.removeValue(forKey: sourceID) != nil {
                 removed = true
             }
         }
-        let removedSongs = songs.filter { sourceIDs.contains($0.sourceID) }
         disabledSourceIDs.subtract(sourceIDs)
-        guard !removedSongs.isEmpty else {
-            rebuildVisibleCache()
+        guard !prepared.removedSongs.isEmpty else {
             if removedCatalog { persistSnapshot() }
-            return
+            return []
         }
 
-        songs.removeAll { sourceIDs.contains($0.sourceID) }
-        songIndexByID = Self.makeSongIndex(songs)
+        songs = prepared.retainedSongs
+        songIndexByID = prepared.retainedIndexByID
         invalidateSearchCaches()
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
         requestLibraryIndexMaintenance(.immediate)
         persistSongChanges(
-            deletingIDs: Set(removedSongs.map(\.id)),
+            deletingIDs: prepared.removedSongIDs,
             needsPromptCompatibilitySnapshot: true
         )
-        postSongsRemoved(removedSongs, sourceIDs: sourceIDs)
+        postSongsRemoved(
+            prepared.removedSongs,
+            sourceIDs: sourceIDs,
+            songIDs: prepared.removedSongIDs
+        )
+        return prepared.removedSongIDs
     }
 
     /// Look up the current Song by its stable id. Used by row views to

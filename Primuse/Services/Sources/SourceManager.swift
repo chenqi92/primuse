@@ -2080,13 +2080,8 @@ final class SourceManager {
         ) { [weak self] note in
             guard let self else { return }
             let songs = (note.userInfo?["songs"] as? [Song]) ?? []
-            let sourceIDs = Set((note.userInfo?["sourceIDs"] as? [String]) ?? [])
             MainActor.assumeIsolated {
-                if sourceIDs.isEmpty {
-                    self.invalidateLocalCachesForContentChanges(songs)
-                } else {
-                    self.deleteLocalCachesForRemovedSources(sourceIDs, songs: songs)
-                }
+                self.invalidateLocalCachesForContentChanges(songs)
             }
         }
 
@@ -2097,8 +2092,19 @@ final class SourceManager {
         ) { [weak self] note in
             guard let self else { return }
             let songs = (note.userInfo?["songs"] as? [Song]) ?? []
+            let sourceIDs = Set((note.userInfo?["sourceIDs"] as? [String]) ?? [])
+            let songIDs = (note.userInfo?["songIDs"] as? Set<String>)
+                ?? Set(songs.map(\.id))
             MainActor.assumeIsolated {
-                self.deleteLocalCaches(for: songs)
+                if sourceIDs.isEmpty {
+                    self.deleteLocalCaches(for: songs)
+                } else {
+                    self.deleteLocalCachesForRemovedSources(
+                        sourceIDs,
+                        songs: songs,
+                        songIDs: songIDs
+                    )
+                }
             }
         }
     }
@@ -4839,6 +4845,25 @@ final class SourceManager {
         }
     }
 
+    /// Removing a complete source can invalidate thousands of downloaded rows.
+    /// Publish the aggregate revision once instead of once per song; retained
+    /// row observers still receive their individual terminal snapshot.
+    private func removeOfflineAudioSnapshots(forSongIDs songIDs: Set<String>) {
+        guard !songIDs.isEmpty else { return }
+        var removedDownloadedSong = false
+        for songID in songIDs {
+            removedDownloadedSong = removedDownloadedSong
+                || offlineAudioSnapshots[songID]?.isDownloaded == true
+            offlineAudioSnapshots.removeValue(forKey: songID)
+            offlineAudioSnapshotEntries[songID]?.update(.notCached)
+            offlineAudioSnapshotEntries.removeValue(forKey: songID)
+            offlineDownloadingSongIDs.remove(songID)
+        }
+        if removedDownloadedSong {
+            offlineAudioSnapshotRevision &+= 1
+        }
+    }
+
     /// Populate a row's first snapshot lazily. Negative results are cached as
     /// well, preventing repeated disk stats when the same row is recycled.
     func ensureOfflineAudioSnapshot(for song: Song) async {
@@ -6898,28 +6923,14 @@ final class SourceManager {
     /// directories, so do not expand every song into six individual file
     /// deletion operations. Only legacy WebDAV cache files lack a source
     /// directory and still require per-song paths.
-    private func deleteLocalCachesForRemovedSources(_ sourceIDs: Set<String>, songs: [Song]) {
+    private func deleteLocalCachesForRemovedSources(
+        _ sourceIDs: Set<String>,
+        songs: [Song],
+        songIDs: Set<String>
+    ) {
         guard !sourceIDs.isEmpty else { return }
-        preservingAutomaticRefreshPaths = preservingAutomaticRefreshPaths.filter { path in
-            !sourceIDs.contains(where: { path.hasPrefix("\($0)/") })
-        }
-        contentChangeProtectionPendingPaths = contentChangeProtectionPendingPaths.filter { path in
-            !sourceIDs.contains(where: { path.hasPrefix("\($0)/") })
-        }
-        contentChangeInvalidationGenerationByPath = contentChangeInvalidationGenerationByPath.filter { path, _ in
-            !sourceIDs.contains(where: { path.hasPrefix("\($0)/") })
-        }
-        blockedUntrustedAudioCachePaths = blockedUntrustedAudioCachePaths.filter { path in
-            !sourceIDs.contains(where: { path.hasPrefix("\($0)/") })
-        }
-        for record in backgroundAudioCacheTasks.values where sourceIDs.contains(record.sourceID) {
-            record.task.cancel()
-        }
-        let songIDs = songs.map(\.id)
-        for songID in songIDs {
-            removeOfflineAudioSnapshot(for: songID)
-        }
-        for (key, task) in musicVideoCacheTasks where sourceIDs.contains(where: { key.hasPrefix("\($0):") }) {
+        removeOfflineAudioSnapshots(forSongIDs: songIDs)
+        for (key, task) in musicVideoCacheTasks where sourceIDs.contains(Self.sourceID(in: key, separator: ":")) {
             task.cancel()
         }
 
@@ -6927,21 +6938,18 @@ final class SourceManager {
 
         let legacyWebDAVRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse_webdav_cache")
-        let legacyTargets = songs.map {
-            legacyWebDAVRoot.appendingPathComponent(
-                CacheFileNamePolicy.legacySanitized(path: $0.filePath)
-            )
-        }
-        Task.detached(priority: .utility) { [legacyTargets] in
-            for target in legacyTargets {
+        Task.detached(priority: .background) { [songs, legacyWebDAVRoot] in
+            for song in songs {
                 if Task.isCancelled { return }
+                let target = legacyWebDAVRoot.appendingPathComponent(
+                    CacheFileNamePolicy.legacySanitized(path: song.filePath)
+                )
                 Self.removeCacheFileFamily(at: target)
             }
         }
-        Task {
-            await MetadataAssetStore.shared.invalidateCaches(forSongIDs: songIDs)
-            await AudioCacheManager.shared.removeAllEntries(
-                forSourcePrefixes: sourceIDs.map { "\($0)/" }
+        Task.detached(priority: .background) { [songIDs] in
+            await MetadataAssetStore.shared.invalidateCaches(
+                forSongIDs: Array(songIDs)
             )
         }
     }
@@ -7006,6 +7014,13 @@ final class SourceManager {
         URL(fileURLWithPath: canonical.path + ".refresh")
     }
 
+    private nonisolated static func sourceID(in namespacedPath: String, separator: Character) -> String {
+        guard let separatorIndex = namespacedPath.firstIndex(of: separator) else {
+            return namespacedPath
+        }
+        return String(namespacedPath[..<separatorIndex])
+    }
+
     private nonisolated static func removeRefreshCacheFiles(at canonical: URL) {
         let refresh = refreshCacheURL(for: canonical)
         try? FileManager.default.removeItem(at: refresh)
@@ -7031,32 +7046,73 @@ final class SourceManager {
     func deleteSourceCaches(sourceIDs: Set<String>) {
         guard !sourceIDs.isEmpty else { return }
         preservingAutomaticRefreshPaths = preservingAutomaticRefreshPaths.filter { path in
-            !sourceIDs.contains(where: { path.hasPrefix("\($0)/") })
+            !sourceIDs.contains(Self.sourceID(in: path, separator: "/"))
         }
         contentChangeProtectionPendingPaths = contentChangeProtectionPendingPaths.filter { path in
-            !sourceIDs.contains(where: { path.hasPrefix("\($0)/") })
+            !sourceIDs.contains(Self.sourceID(in: path, separator: "/"))
         }
         contentChangeInvalidationGenerationByPath = contentChangeInvalidationGenerationByPath.filter { path, _ in
-            !sourceIDs.contains(where: { path.hasPrefix("\($0)/") })
+            !sourceIDs.contains(Self.sourceID(in: path, separator: "/"))
         }
         blockedUntrustedAudioCachePaths = blockedUntrustedAudioCachePaths.filter { path in
-            !sourceIDs.contains(where: { path.hasPrefix("\($0)/") })
+            !sourceIDs.contains(Self.sourceID(in: path, separator: "/"))
         }
         for record in backgroundAudioCacheTasks.values where sourceIDs.contains(record.sourceID) {
             record.task.cancel()
         }
-        let paths = sourceIDs.flatMap(Self.perSourceCacheDirs(sourceID:))
-        Task.detached(priority: .utility) { [paths] in
-            let fileManager = FileManager.default
-            for path in paths {
-                if Task.isCancelled { return }
-                try? fileManager.removeItem(at: path)
-            }
+        let offlineTaskKeys = offlineDownloadTasks.keys.filter {
+            sourceIDs.contains(Self.sourceID(in: $0, separator: "/"))
         }
-        Task {
+        for key in offlineTaskKeys {
+            offlineDownloadTasks[key]?.task.cancel()
+            offlineDownloadTasks[key] = nil
+        }
+        automaticPlaylistPinnedSongsByID = automaticPlaylistPinnedSongsByID.filter {
+            !sourceIDs.contains($0.value.sourceID)
+        }
+        let paths = sourceIDs.flatMap(Self.perSourceCacheDirs(sourceID:))
+        // Rename each live directory before scheduling recursive cleanup.
+        // Same-volume moves are metadata operations, so even a multi-GB source
+        // leaves the active namespace quickly. A restored/re-added source can
+        // then create a fresh canonical directory that this cleanup cannot
+        // accidentally remove.
+        let stagedPaths = Self.stageCacheDirectoriesForDeletion(paths)
+        Task.detached(priority: .background) { [stagedPaths, sourceIDs] in
             await AudioCacheManager.shared.removeAllEntries(
                 forSourcePrefixes: sourceIDs.map { "\($0)/" }
             )
+            Self.deleteStagedCacheDirectories(stagedPaths)
+        }
+    }
+
+    /// Detach active cache trees with same-parent renames before recursive
+    /// deletion. Failed renames are left in place: leaking an OS-reclaimable
+    /// cache is safer than a delayed delete racing a newly restored source.
+    nonisolated static func stageCacheDirectoriesForDeletion(_ paths: [URL]) -> [URL] {
+        let fileManager = FileManager.default
+        var staged: [URL] = []
+        staged.reserveCapacity(paths.count)
+        for path in paths where fileManager.fileExists(atPath: path.path) {
+            let destination = path.deletingLastPathComponent().appendingPathComponent(
+                ".primuse-deleting-\(path.lastPathComponent)-\(UUID().uuidString)",
+                isDirectory: true
+            )
+            do {
+                try fileManager.moveItem(at: path, to: destination)
+                staged.append(destination)
+            } catch {
+                plog("⚠️ Source cache detach deferred: \(error.localizedDescription)")
+            }
+        }
+        return staged
+    }
+
+    nonisolated static func deleteStagedCacheDirectories(_ paths: [URL]) {
+        let fileManager = FileManager.default
+        for path in paths {
+            autoreleasepool {
+                try? fileManager.removeItem(at: path)
+            }
         }
     }
 

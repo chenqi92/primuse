@@ -1623,8 +1623,10 @@ private struct AuthoritativeSongRemovalObserver: View {
         Color.clear
             .frame(width: 0, height: 0)
             .onReceive(NotificationCenter.default.publisher(for: .primuseSongsRemoved)) { note in
-                let removedSongs = (note.userInfo?["songs"] as? [PrimuseKit.Song]) ?? []
-                let removedSongIDs = Set(removedSongs.map(\.id))
+                let removedSongIDs = (note.userInfo?["songIDs"] as? Set<String>) ?? {
+                    let removedSongs = (note.userInfo?["songs"] as? [PrimuseKit.Song]) ?? []
+                    return Set(removedSongs.map(\.id))
+                }()
                 guard !removedSongIDs.isEmpty else { return }
                 onSongsRemoved(removedSongIDs)
             }

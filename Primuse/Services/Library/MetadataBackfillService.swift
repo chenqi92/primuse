@@ -1339,22 +1339,42 @@ final class MetadataBackfillService {
         }
     }
 
-    /// Used by the source-cleanup coordinator immediately before it removes
-    /// the songs from MusicLibrary. Waiting for the debounce after that point
-    /// would lose the IDs needed to clear the persisted backfill state.
-    func discardWorkNow(forSourceIDs sourceIDs: Set<String>) {
+    /// Used by the source-cleanup coordinator after MusicLibrary has prepared
+    /// the removed IDs off-main. Supplying that set avoids another full-library
+    /// sweep on the main actor while preserving every persisted retry cleanup.
+    func discardWorkNow(
+        forSourceIDs sourceIDs: Set<String>,
+        knownSongIDs: Set<String>
+    ) {
         guard !sourceIDs.isEmpty else { return }
-        pendingDiscardSourceIDs.formUnion(sourceIDs)
         stop()
-        discardWorkTask?.cancel()
-        discardWorkTask = nil
-        flushPendingDiscardWork()
+        pendingDiscardSourceIDs.subtract(sourceIDs)
+        if pendingDiscardSourceIDs.isEmpty {
+            discardWorkTask?.cancel()
+            discardWorkTask = nil
+        }
+        discardPersistedWork(
+            forSourceIDs: sourceIDs,
+            songIDs: knownSongIDs
+        )
     }
 
     private func flushPendingDiscardWork() {
         let sourceIDs = pendingDiscardSourceIDs
         pendingDiscardSourceIDs.removeAll(keepingCapacity: true)
         discardWorkTask = nil
+        guard !sourceIDs.isEmpty else { return }
+
+        let songIDs = Set(library.songs.lazy.filter {
+            sourceIDs.contains($0.sourceID)
+        }.map(\.id))
+        discardPersistedWork(forSourceIDs: sourceIDs, songIDs: songIDs)
+    }
+
+    private func discardPersistedWork(
+        forSourceIDs sourceIDs: Set<String>,
+        songIDs: Set<String>
+    ) {
         guard !sourceIDs.isEmpty else { return }
 
         if let activeSourceID = userInitiatedSourceID,
@@ -1368,9 +1388,6 @@ final class MetadataBackfillService {
             setExecutionMode(.standard)
         }
 
-        let songIDs = Set(library.songs.lazy.filter {
-            sourceIDs.contains($0.sourceID)
-        }.map(\.id))
         guard !songIDs.isEmpty else { return }
         failedSongIDs.subtract(songIDs)
         incompleteSongIDs.subtract(songIDs)
