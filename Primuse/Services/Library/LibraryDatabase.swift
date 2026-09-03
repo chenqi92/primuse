@@ -278,6 +278,15 @@ actor LibraryDatabase {
             }
         }
 
+        // Account-scoped play count reported by Navidrome/Subsonic. Nil keeps
+        // local files and servers that omit `playCount` distinguishable from a
+        // real server value of zero.
+        migrator.registerMigration("v14_song_server_play_count") { db in
+            try db.alter(table: "songs") { t in
+                t.add(column: "serverPlayCount", .integer)
+            }
+        }
+
         // Run every registered migration, not just v1 — pinning to
         // `upTo: "v1_initial"` would silently skip later versions on
         // upgrade and reintroduce schema drift.

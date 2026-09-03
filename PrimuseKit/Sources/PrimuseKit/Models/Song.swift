@@ -34,6 +34,10 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     public var year: Int?
     public var lastModified: Date?
     public var dateAdded: Date
+    /// Play count reported by the authenticated media-server account during
+    /// the latest catalogue refresh. This is intentionally separate from the
+    /// on-device history maintained by Primuse's `PlayHistoryStore`.
+    public var serverPlayCount: Int?
     public var coverArtFileName: String?
     /// Source-owned artist artwork reference captured from a server catalogue.
     /// Unlike `artistID`, which is replaced with Primuse's name-derived ID,
@@ -100,6 +104,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         year: Int? = nil,
         lastModified: Date? = nil,
         dateAdded: Date = Date(),
+        serverPlayCount: Int? = nil,
         coverArtFileName: String? = nil,
         artistArtworkFileName: String? = nil,
         lyricsFileName: String? = nil,
@@ -140,6 +145,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.year = year
         self.lastModified = lastModified
         self.dateAdded = dateAdded
+        self.serverPlayCount = serverPlayCount
         self.coverArtFileName = coverArtFileName
         self.artistArtworkFileName = artistArtworkFileName
         self.lyricsFileName = lyricsFileName

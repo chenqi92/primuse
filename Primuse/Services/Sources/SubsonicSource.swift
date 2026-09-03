@@ -1188,6 +1188,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             genre: child.genre,
             year: child.year,
             lastModified: child.created.flatMap(Self.parseDate),
+            serverPlayCount: child.playCount,
             coverArtFileName: coverArtID.flatMap { coverArtURLString(for: $0) },
             artistArtworkFileName: (child.artists?.first?.id ?? child.artistId)
                 .flatMap { artistArtworkReference(for: $0) }

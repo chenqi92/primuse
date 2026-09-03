@@ -515,6 +515,7 @@ final class SubsonicServerScanTests: XCTestCase {
         let final = try await source.songCatalogPage(from: "/", offset: 500)
         XCTAssertEqual(final.itemIDs, ["song-500"])
         XCTAssertEqual(final.songs.map(\.song.filePath), ["/songs/song-500.mp3"])
+        XCTAssertEqual(final.songs.map(\.song.serverPlayCount), [500])
         XCTAssertNil(final.nextOffset)
 
         let offsets: [String] = SubsonicServerScanURLProtocol.requests(host: host).compactMap { request -> String? in
@@ -639,7 +640,7 @@ private final class SubsonicServerScanURLProtocol: URLProtocol, @unchecked Senda
                 .flatMap(Int.init) ?? 0
             let range = offset == 0 ? 0..<500 : 500..<501
             let songs = range.map { index in
-                #"{"id":"song-\#(index)","title":"Song \#(index)","suffix":"mp3","path":"Artist/Album/Song \#(index).mp3","size":1024,"duration":180}"#
+                #"{"id":"song-\#(index)","title":"Song \#(index)","suffix":"mp3","path":"Artist/Album/Song \#(index).mp3","size":1024,"duration":180,"playCount":\#(index)}"#
             }.joined(separator: ",")
             respond(json: #"{"subsonic-response":{"status":"ok","searchResult3":{"song":[\#(songs)]}}}"#)
             return
