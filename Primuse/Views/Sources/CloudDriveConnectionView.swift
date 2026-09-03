@@ -14,6 +14,12 @@ struct CloudDriveConnectionView: View {
     @State private var errorMessage = ""
     @State private var isAuthorizing = false
     @State private var directAccessToken = ""
+    @State private var browsingContext: BrowsingContext?
+
+    private struct BrowsingContext {
+        let source: MusicSource
+        let connector: any MusicSourceConnector
+    }
 
     private var hasAnotherSourceOfSameProvider: Bool {
         sourcesStore.sources.contains {
@@ -31,11 +37,11 @@ struct CloudDriveConnectionView: View {
     }
 
     var body: some View {
-        if step == .browsing {
+        if step == .browsing, let browsingContext {
             // ConnectorDirectoryBrowserView has its own NavigationStack
             ConnectorDirectoryBrowserView(
-                source: source,
-                connector: sourceManager.connector(for: source),
+                source: browsingContext.source,
+                connector: browsingContext.connector,
                 selectedDirectories: $selectedDirectories
             )
         } else {
@@ -597,6 +603,7 @@ struct CloudDriveConnectionView: View {
     private func checkStatus() {
         step = .checking
         errorMessage = ""
+        browsingContext = nil
 
         Task {
             let tokenManager = CloudTokenManager(sourceID: source.id)
@@ -608,7 +615,7 @@ struct CloudDriveConnectionView: View {
                         await sourceManager.refreshConnector(for: source.id)
                         try await sourceManager.connector(for: source).connect()
                         await linkMountToCloudAccount()
-                        withAnimation { step = .browsing }
+                        try await prepareDirectoryBrowser()
                     } catch {
                         errorMessage = error.localizedDescription
                         withAnimation { step = .failed }
@@ -628,8 +635,12 @@ struct CloudDriveConnectionView: View {
             // Check if we already have valid tokens
             switch await tokenManager.lookupTokens() {
             case .found(let tokens) where !tokens.isExpired:
-                // Already authorized — go directly to browsing
-                withAnimation { step = .browsing }
+                do {
+                    try await prepareDirectoryBrowser()
+                } catch {
+                    errorMessage = error.localizedDescription
+                    withAnimation { step = .failed }
+                }
                 return
             case .temporarilyUnavailable:
                 errorMessage = String(localized: "credential_temporarily_unavailable")
@@ -704,7 +715,7 @@ struct CloudDriveConnectionView: View {
                 _ = try await connector.listFiles(at: "/")
                 await linkMountToCloudAccount()
                 directAccessToken = ""
-                withAnimation { step = .browsing }
+                try await prepareDirectoryBrowser()
             } catch let error as CloudDriveError {
                 errorMessage = credentialMessage(for: error)
                 withAnimation { step = .failed }
@@ -825,7 +836,7 @@ struct CloudDriveConnectionView: View {
                 // duplicates.
                 await linkMountToCloudAccount()
 
-                withAnimation { step = .browsing }
+                try await prepareDirectoryBrowser()
             } catch let error as OAuthError {
                 if case .userCancelled = error {
                     withAnimation { step = .readyToAuth }
@@ -852,6 +863,21 @@ struct CloudDriveConnectionView: View {
         default:
             return error.localizedDescription
         }
+    }
+
+    private func prepareDirectoryBrowser() async throws {
+        let resolved = await sourceManager.connectorForDirectoryBrowsing(
+            fallback: source
+        )
+        guard !(resolved.connector is NoAvailableConnectionSourceConnector) else {
+            throw CloudDriveError.notAuthenticated
+        }
+        try await resolved.connector.connect()
+        browsingContext = BrowsingContext(
+            source: resolved.source,
+            connector: resolved.connector
+        )
+        withAnimation { step = .browsing }
     }
 
     /// Resolve `accountIdentifier()` from the freshly-OAuth-ed connector

@@ -2165,6 +2165,22 @@ final class SourceManager {
         return connector(for: source, cache: true)
     }
 
+    /// Directory flows can outlive the `MusicSource` value that presented them.
+    /// OAuth account linking updates the source's security identity immediately
+    /// before the browser appears, so resolve the authoritative row after any
+    /// pending validation instead of freezing a fail-closed connector built
+    /// from the pre-link value.
+    func connectorForDirectoryBrowsing(
+        fallback source: MusicSource
+    ) async -> (source: MusicSource, connector: any MusicSourceConnector) {
+        if connectorScopeValidationPendingSourceIDs.contains(source.id) {
+            await finishConnectorScopeRefresh(for: source.id)
+        }
+        let currentSource = (try? await sourcesProvider())?
+            .first(where: { $0.id == source.id && !$0.isDeleted }) ?? source
+        return (currentSource, connector(for: currentSource))
+    }
+
     func serverCatalogScanStatus(for source: MusicSource) async throws -> ServerCatalogScanStatus {
         let connector = connector(for: source)
         guard let provider = connector as? any ServerCatalogChangeDetectingConnector else {

@@ -1293,6 +1293,43 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
     }
 
     @MainActor
+    func testDirectoryBrowsingUsesAccountLinkedSourceAfterSecurityInvalidation() async {
+        let sourceID = "directory-account-link-\(UUID().uuidString)"
+        let presentedSource = MusicSource(
+            id: sourceID,
+            name: "Baidu",
+            type: .baiduPan,
+            modifiedAt: Date(timeIntervalSinceReferenceDate: 100)
+        )
+        var linkedSource = presentedSource
+        linkedSource.cloudAccountID = "baidu-account"
+        linkedSource.modifiedAt = Date(timeIntervalSinceReferenceDate: 101)
+        let manager = SourceManager(sourcesProvider: { [linkedSource] in [linkedSource] })
+
+        _ = manager.connector(for: presentedSource)
+        NotificationCenter.default.post(
+            name: .primuseSourcesDidChange,
+            object: nil,
+            userInfo: [
+                "ids": [sourceID],
+                "scopeFingerprints": [
+                    sourceID: MusicSourceSecurityRevision.scopedFingerprint(for: linkedSource),
+                ],
+            ]
+        )
+
+        XCTAssertTrue(
+            manager.connector(for: presentedSource) is NoAvailableConnectionSourceConnector
+        )
+        let resolved = await manager.connectorForDirectoryBrowsing(
+            fallback: presentedSource
+        )
+        XCTAssertEqual(resolved.source.cloudAccountID, linkedSource.cloudAccountID)
+        XCTAssertFalse(resolved.connector is NoAvailableConnectionSourceConnector)
+        await manager.disconnectAll()
+    }
+
+    @MainActor
     func testDirectoryConnectorLookupDoesNotPublishInternalCacheMutations() async {
         let sourceTypes: [MusicSourceType] = [
             .smb, .webdav, .ftp, .sftp, .nfs, .qnap, .ugreen, .fnos, .s3,
