@@ -68,6 +68,90 @@ public enum ServerMediaSharingAvailability: Equatable, Sendable {
     case permissionDenied
 }
 
+public enum SongShareLinkMethod: String, CaseIterable, Equatable, Hashable, Identifiable, Sendable {
+    case automatic
+    case musicServer
+    case primuseRelay
+
+    public var id: String { rawValue }
+}
+
+public struct SongShareLinkCapabilities: Equatable, Sendable {
+    public let canTryMusicServer: Bool
+    public let canUsePrimuseRelay: Bool
+
+    public init(canTryMusicServer: Bool, canUsePrimuseRelay: Bool) {
+        self.canTryMusicServer = canTryMusicServer
+        self.canUsePrimuseRelay = canUsePrimuseRelay
+    }
+}
+
+public enum SongShareNativeCapabilityStatus: Equatable, Sendable {
+    case checking
+    case available
+    case unsupported
+    case permissionDenied
+    case failed
+}
+
+public enum SongShareLinkDecision: Equatable, Sendable {
+    case waitForMusicServer
+    case useMusicServer
+    case usePrimuseRelay
+    case confirmPrimuseRelay
+    case unavailable
+}
+
+/// Keeps automatic selection predictable: a server failure may recommend the
+/// relay, but never starts an upload or changes access permissions implicitly.
+public enum SongShareLinkPolicy {
+    public static func availableMethods(
+        for capabilities: SongShareLinkCapabilities
+    ) -> [SongShareLinkMethod] {
+        var methods: [SongShareLinkMethod] = [.automatic]
+        if capabilities.canTryMusicServer {
+            methods.append(.musicServer)
+        }
+        if capabilities.canUsePrimuseRelay {
+            methods.append(.primuseRelay)
+        }
+        return methods
+    }
+
+    public static func decision(
+        for method: SongShareLinkMethod,
+        nativeStatus: SongShareNativeCapabilityStatus,
+        capabilities: SongShareLinkCapabilities
+    ) -> SongShareLinkDecision {
+        switch method {
+        case .musicServer:
+            guard capabilities.canTryMusicServer else { return .unavailable }
+            switch nativeStatus {
+            case .checking:
+                return .waitForMusicServer
+            case .available:
+                return .useMusicServer
+            case .unsupported, .permissionDenied, .failed:
+                return .unavailable
+            }
+        case .primuseRelay:
+            return capabilities.canUsePrimuseRelay ? .usePrimuseRelay : .unavailable
+        case .automatic:
+            if capabilities.canTryMusicServer {
+                switch nativeStatus {
+                case .checking:
+                    return .waitForMusicServer
+                case .available:
+                    return .useMusicServer
+                case .unsupported, .permissionDenied, .failed:
+                    return capabilities.canUsePrimuseRelay ? .confirmPrimuseRelay : .unavailable
+                }
+            }
+            return capabilities.canUsePrimuseRelay ? .confirmPrimuseRelay : .unavailable
+        }
+    }
+}
+
 public enum ServerMediaSharingError: Error, Equatable, LocalizedError, Sendable {
     case unsupported
     case permissionDenied

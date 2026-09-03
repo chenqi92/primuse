@@ -28,6 +28,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var showScrapeOptions = false
     @State private var showNoScraperSourceAlert = false
     @State private var showSongInfo = false
+    @State private var shareSong: Song?
     @State private var showTagEditor = false
     @State private var lyricsEditorTargetSong: Song?
     @State private var showSimilarSongs = false
@@ -102,6 +103,9 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             if let song = player.currentSong {
                 SongInfoSheet(song: song)
             }
+        }
+        .sheet(item: $shareSong) { song in
+            SongShareSheet(song: song)
         }
         .sheet(isPresented: $showTagEditor) {
             if let song = player.currentSong {
@@ -259,22 +263,12 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                     disabled: player.currentSong == nil) {
                 showSongInfo = true
             }
-            if let song = player.currentSong {
-                ShareLink(item: "\(song.title) - \(library.artistDisplayName(for: song) ?? "")") {
-                    HStack(spacing: 10) {
-                        Image(systemName: "square.and.arrow.up")
-                            .frame(width: 18)
-                            .foregroundStyle(PMColor.textMuted)
-                        Text("share")
-                            .font(.callout)
-                            .foregroundStyle(PMColor.text)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .pmRowBackground(cornerRadius: 6)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+            menuRow(
+                title: "share",
+                symbol: "square.and.arrow.up",
+                disabled: player.currentSong == nil
+            ) {
+                shareSong = player.currentSong
             }
             divider()
             Toggle(isOn: $lyricsMotionEnabled) {

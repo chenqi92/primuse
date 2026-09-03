@@ -201,6 +201,92 @@ final class ServerMediaSharingConnectorTests: XCTestCase {
 }
 
 extension ServerMediaSharingConnectorTests {
+    func testSongShareLinkPolicyPrefersNativeAndRequiresRelayConfirmationOnFallback() {
+        let capabilities = SongShareLinkCapabilities(
+            canTryMusicServer: true,
+            canUsePrimuseRelay: true
+        )
+
+        XCTAssertEqual(
+            SongShareLinkPolicy.availableMethods(for: capabilities),
+            [.automatic, .musicServer, .primuseRelay]
+        )
+        XCTAssertEqual(
+            SongShareLinkPolicy.decision(
+                for: .automatic,
+                nativeStatus: .checking,
+                capabilities: capabilities
+            ),
+            .waitForMusicServer
+        )
+        XCTAssertEqual(
+            SongShareLinkPolicy.decision(
+                for: .automatic,
+                nativeStatus: .available,
+                capabilities: capabilities
+            ),
+            .useMusicServer
+        )
+        for unavailableStatus in [
+            SongShareNativeCapabilityStatus.unsupported,
+            .permissionDenied,
+            .failed,
+        ] {
+            XCTAssertEqual(
+                SongShareLinkPolicy.decision(
+                    for: .automatic,
+                    nativeStatus: unavailableStatus,
+                    capabilities: capabilities
+                ),
+                .confirmPrimuseRelay
+            )
+        }
+        XCTAssertEqual(
+            SongShareLinkPolicy.decision(
+                for: .primuseRelay,
+                nativeStatus: .available,
+                capabilities: capabilities
+            ),
+            .usePrimuseRelay
+        )
+        XCTAssertEqual(
+            SongShareLinkPolicy.decision(
+                for: .musicServer,
+                nativeStatus: .failed,
+                capabilities: capabilities
+            ),
+            .unavailable
+        )
+    }
+
+    func testSongShareLinkPolicySupportsRelayOnlySongsWithoutSilentlyStartingUpload() {
+        let capabilities = SongShareLinkCapabilities(
+            canTryMusicServer: false,
+            canUsePrimuseRelay: true
+        )
+
+        XCTAssertEqual(
+            SongShareLinkPolicy.availableMethods(for: capabilities),
+            [.automatic, .primuseRelay]
+        )
+        XCTAssertEqual(
+            SongShareLinkPolicy.decision(
+                for: .automatic,
+                nativeStatus: .unsupported,
+                capabilities: capabilities
+            ),
+            .confirmPrimuseRelay
+        )
+        XCTAssertEqual(
+            SongShareLinkPolicy.decision(
+                for: .primuseRelay,
+                nativeStatus: .unsupported,
+                capabilities: capabilities
+            ),
+            .usePrimuseRelay
+        )
+    }
+
     func testMediaRelayImportDeepLinkRequiresSafeOneTimeEndpoint() throws {
         let ticket = String(repeating: "a", count: 32)
         let importURL = "https://share.example.com/i/\(ticket)"

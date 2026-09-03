@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"mime"
 	"net"
 	"net/http"
@@ -38,21 +39,27 @@ const (
 	defaultUploadTTL       = 24 * time.Hour
 	passwordIterations     = 210_000
 	maximumJSONBytes       = int64(64 * 1024)
+	defaultShortCodeTTL    = 24 * time.Hour
+	shortCodeRetryLimit    = 16
 )
 
 type config struct {
-	listenAddress           string
-	dataDirectory           string
-	publicBaseURL           string
-	adminToken              string
-	masterKey               []byte
-	chunkSize               int64
-	maximumFileSize         int64
-	maximumTTL              time.Duration
-	uploadTTL               time.Duration
-	publicRequestsPerMinute int
-	maximumPublicStreams    int
-	maximumUploads          int
+	listenAddress              string
+	dataDirectory              string
+	publicBaseURL              string
+	adminToken                 string
+	masterKey                  []byte
+	chunkSize                  int64
+	maximumFileSize            int64
+	maximumTTL                 time.Duration
+	uploadTTL                  time.Duration
+	publicRequestsPerMinute    int
+	shortCodeRequestsPerMinute int
+	shortCodeFailuresPerWindow int
+	shortCodeFailureWindow     time.Duration
+	shortCodeMaximumTTL        time.Duration
+	maximumPublicStreams       int
+	maximumUploads             int
 }
 
 type shareMetadata struct {
@@ -82,6 +89,7 @@ type shareMetadata struct {
 	AllowPlayback   *bool     `json:"allowPlayback,omitempty"`
 	AllowDownload   *bool     `json:"allowDownload,omitempty"`
 	AllowImport     *bool     `json:"allowImport,omitempty"`
+	ShortCode       bool      `json:"shortCode,omitempty"`
 }
 
 func (m *shareMetadata) complete() bool { return !m.CompletedAt.IsZero() }
@@ -102,6 +110,8 @@ type createUploadRequest struct {
 	AllowPlayback   *bool   `json:"allowPlayback,omitempty"`
 	AllowDownload   *bool   `json:"allowDownload,omitempty"`
 	AllowImport     *bool   `json:"allowImport,omitempty"`
+	LinkType        string  `json:"linkType,omitempty"`
+	ShortCodeLength int     `json:"shortCodeLength,omitempty"`
 }
 
 type createUploadResponse struct {
@@ -110,6 +120,7 @@ type createUploadResponse struct {
 	PublicURL   string `json:"publicURL"`
 	ChunkSize   int64  `json:"chunkSize"`
 	ExpiresAt   string `json:"expiresAt"`
+	AccessCode  string `json:"accessCode,omitempty"`
 }
 
 type completeUploadResponse struct {
@@ -127,12 +138,13 @@ type relayServer struct {
 	byPublicHash map[string]*shareMetadata
 	shareLocks   map[string]*sync.RWMutex
 
-	publicSlots chan struct{}
-	uploadSlots chan struct{}
-	rateMu      sync.Mutex
-	rateWindows map[string]*rateWindow
-	rateCleaned time.Time
-	ticketMu    sync.Mutex
+	publicSlots        chan struct{}
+	uploadSlots        chan struct{}
+	rateMu             sync.Mutex
+	rateWindows        map[string]*rateWindow
+	rateCleaned        time.Time
+	ticketMu           sync.Mutex
+	shortCodeGenerator func(int) (string, error)
 }
 
 type rateWindow struct {
@@ -179,17 +191,21 @@ func main() {
 
 func loadConfig() (config, error) {
 	c := config{
-		listenAddress:           envOrDefault("PRIMUSE_RELAY_LISTEN_ADDR", ":8787"),
-		dataDirectory:           envOrDefault("PRIMUSE_RELAY_DATA_DIR", "/data"),
-		publicBaseURL:           strings.TrimRight(os.Getenv("PRIMUSE_RELAY_PUBLIC_BASE_URL"), "/"),
-		adminToken:              os.Getenv("PRIMUSE_RELAY_ADMIN_TOKEN"),
-		chunkSize:               envInt64("PRIMUSE_RELAY_CHUNK_SIZE", defaultChunkSize),
-		maximumFileSize:         envInt64("PRIMUSE_RELAY_MAX_FILE_BYTES", defaultMaximumFileSize),
-		maximumTTL:              time.Duration(envInt64("PRIMUSE_RELAY_MAX_TTL_SECONDS", int64(defaultMaximumTTL/time.Second))) * time.Second,
-		uploadTTL:               time.Duration(envInt64("PRIMUSE_RELAY_UPLOAD_TTL_SECONDS", int64(defaultUploadTTL/time.Second))) * time.Second,
-		publicRequestsPerMinute: int(envInt64("PRIMUSE_RELAY_PUBLIC_REQUESTS_PER_MINUTE", 600)),
-		maximumPublicStreams:    int(envInt64("PRIMUSE_RELAY_MAX_PUBLIC_STREAMS", 32)),
-		maximumUploads:          int(envInt64("PRIMUSE_RELAY_MAX_UPLOADS", 4)),
+		listenAddress:              envOrDefault("PRIMUSE_RELAY_LISTEN_ADDR", ":8787"),
+		dataDirectory:              envOrDefault("PRIMUSE_RELAY_DATA_DIR", "/data"),
+		publicBaseURL:              strings.TrimRight(os.Getenv("PRIMUSE_RELAY_PUBLIC_BASE_URL"), "/"),
+		adminToken:                 os.Getenv("PRIMUSE_RELAY_ADMIN_TOKEN"),
+		chunkSize:                  envInt64("PRIMUSE_RELAY_CHUNK_SIZE", defaultChunkSize),
+		maximumFileSize:            envInt64("PRIMUSE_RELAY_MAX_FILE_BYTES", defaultMaximumFileSize),
+		maximumTTL:                 time.Duration(envInt64("PRIMUSE_RELAY_MAX_TTL_SECONDS", int64(defaultMaximumTTL/time.Second))) * time.Second,
+		uploadTTL:                  time.Duration(envInt64("PRIMUSE_RELAY_UPLOAD_TTL_SECONDS", int64(defaultUploadTTL/time.Second))) * time.Second,
+		publicRequestsPerMinute:    int(envInt64("PRIMUSE_RELAY_PUBLIC_REQUESTS_PER_MINUTE", 600)),
+		shortCodeRequestsPerMinute: int(envInt64("PRIMUSE_RELAY_SHORT_CODE_REQUESTS_PER_MINUTE", 60)),
+		shortCodeFailuresPerWindow: int(envInt64("PRIMUSE_RELAY_SHORT_CODE_FAILURES_PER_WINDOW", 5)),
+		shortCodeFailureWindow:     time.Duration(envInt64("PRIMUSE_RELAY_SHORT_CODE_FAILURE_WINDOW_SECONDS", 600)) * time.Second,
+		shortCodeMaximumTTL:        time.Duration(envInt64("PRIMUSE_RELAY_SHORT_CODE_MAX_TTL_SECONDS", int64(defaultShortCodeTTL/time.Second))) * time.Second,
+		maximumPublicStreams:       int(envInt64("PRIMUSE_RELAY_MAX_PUBLIC_STREAMS", 32)),
+		maximumUploads:             int(envInt64("PRIMUSE_RELAY_MAX_UPLOADS", 4)),
 	}
 	key, err := base64.StdEncoding.DecodeString(os.Getenv("PRIMUSE_RELAY_MASTER_KEY"))
 	if err != nil || len(key) != 32 {
@@ -206,7 +222,10 @@ func loadConfig() (config, error) {
 		return config{}, errors.New("PRIMUSE_RELAY_CHUNK_SIZE must be between 256 KiB and 32 MiB")
 	}
 	if c.maximumFileSize <= 0 || c.maximumTTL <= 0 || c.uploadTTL <= 0 ||
-		c.publicRequestsPerMinute <= 0 || c.maximumPublicStreams <= 0 || c.maximumUploads <= 0 {
+		c.publicRequestsPerMinute <= 0 || c.shortCodeRequestsPerMinute <= 0 ||
+		c.shortCodeFailuresPerWindow <= 0 || c.shortCodeFailureWindow <= 0 ||
+		c.shortCodeMaximumTTL <= 0 || c.shortCodeMaximumTTL > c.maximumTTL ||
+		c.maximumPublicStreams <= 0 || c.maximumUploads <= 0 {
 		return config{}, errors.New("relay limits must be positive")
 	}
 	return c, nil
@@ -336,21 +355,23 @@ func newRelayServer(c config) (*relayServer, error) {
 		filepath.Join(c.dataDirectory, "metadata"),
 		filepath.Join(c.dataDirectory, "chunks"),
 		filepath.Join(c.dataDirectory, "tickets"),
+		filepath.Join(c.dataDirectory, "short-code-reservations"),
 	} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			return nil, err
 		}
 	}
 	s := &relayServer{
-		configuration: c,
-		block:         aead,
-		now:           time.Now,
-		byID:          make(map[string]*shareMetadata),
-		byPublicHash:  make(map[string]*shareMetadata),
-		shareLocks:    make(map[string]*sync.RWMutex),
-		publicSlots:   make(chan struct{}, c.maximumPublicStreams),
-		uploadSlots:   make(chan struct{}, c.maximumUploads),
-		rateWindows:   make(map[string]*rateWindow),
+		configuration:      c,
+		block:              aead,
+		now:                time.Now,
+		byID:               make(map[string]*shareMetadata),
+		byPublicHash:       make(map[string]*shareMetadata),
+		shareLocks:         make(map[string]*sync.RWMutex),
+		publicSlots:        make(chan struct{}, c.maximumPublicStreams),
+		uploadSlots:        make(chan struct{}, c.maximumUploads),
+		rateWindows:        make(map[string]*rateWindow),
+		shortCodeGenerator: randomNumericCode,
 	}
 	if err := s.loadMetadata(); err != nil {
 		return nil, err
@@ -451,9 +472,33 @@ func (s *relayServer) handleCreateUpload(w http.ResponseWriter, r *http.Request)
 		writeProblem(w, http.StatusBadRequest, "invalid_media")
 		return
 	}
+	linkType := request.LinkType
+	if linkType == "" {
+		linkType = "long"
+	}
+	shortCode := linkType == "short"
+	if linkType != "long" && !shortCode {
+		writeProblem(w, http.StatusBadRequest, "invalid_link_type")
+		return
+	}
+	if shortCode {
+		if request.ShortCodeLength == 0 {
+			request.ShortCodeLength = 6
+		}
+		if request.ShortCodeLength < 4 || request.ShortCodeLength > 6 {
+			writeProblem(w, http.StatusBadRequest, "invalid_short_code_length")
+			return
+		}
+	} else if request.ShortCodeLength != 0 {
+		writeProblem(w, http.StatusBadRequest, "invalid_short_code_length")
+		return
+	}
 
 	now := s.now().UTC()
 	expiresAt := now.Add(7 * 24 * time.Hour)
+	if shortCode {
+		expiresAt = now.Add(time.Hour)
+	}
 	if request.ExpiresAt != "" {
 		parsed, err := time.Parse(time.RFC3339, request.ExpiresAt)
 		if err != nil {
@@ -462,7 +507,11 @@ func (s *relayServer) handleCreateUpload(w http.ResponseWriter, r *http.Request)
 		}
 		expiresAt = parsed.UTC()
 	}
-	if !expiresAt.After(now) || expiresAt.After(now.Add(s.configuration.maximumTTL)) {
+	maximumExpiration := now.Add(s.configuration.maximumTTL)
+	if shortCode {
+		maximumExpiration = now.Add(s.configuration.shortCodeMaximumTTL)
+	}
+	if !expiresAt.After(now) || expiresAt.After(maximumExpiration) {
 		writeProblem(w, http.StatusBadRequest, "invalid_expiration")
 		return
 	}
@@ -472,18 +521,30 @@ func (s *relayServer) handleCreateUpload(w http.ResponseWriter, r *http.Request)
 		writeProblem(w, http.StatusInternalServerError, "entropy_unavailable")
 		return
 	}
-	publicToken, err := randomToken(32)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "entropy_unavailable")
-		return
-	}
 	uploadToken, err := randomToken(32)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "entropy_unavailable")
 		return
 	}
+	publicToken := ""
+	if shortCode {
+		publicToken, err = s.reserveShortCode(request.ShortCodeLength, id, expiresAt)
+	} else {
+		publicToken, err = randomToken(32)
+	}
+	if err != nil {
+		writeProblem(w, http.StatusServiceUnavailable, "public_identifier_unavailable")
+		return
+	}
+	reservedShortCodeHash := ""
+	if shortCode {
+		reservedShortCodeHash = tokenHash(publicToken)
+	}
 	etagToken, err := randomToken(18)
 	if err != nil {
+		if reservedShortCodeHash != "" {
+			s.releaseShortCodeReservation(reservedShortCodeHash)
+		}
 		writeProblem(w, http.StatusInternalServerError, "entropy_unavailable")
 		return
 	}
@@ -510,10 +571,14 @@ func (s *relayServer) handleCreateUpload(w http.ResponseWriter, r *http.Request)
 		AllowPlayback:   boolPointerOrDefault(request.AllowPlayback, true),
 		AllowDownload:   boolPointerOrDefault(request.AllowDownload, true),
 		AllowImport:     boolPointerOrDefault(request.AllowImport, true),
+		ShortCode:       shortCode,
 	}
 	if request.Password != "" {
 		salt := make([]byte, 16)
 		if _, err := rand.Read(salt); err != nil {
+			if reservedShortCodeHash != "" {
+				s.releaseShortCodeReservation(reservedShortCodeHash)
+			}
 			writeProblem(w, http.StatusInternalServerError, "entropy_unavailable")
 			return
 		}
@@ -521,6 +586,9 @@ func (s *relayServer) handleCreateUpload(w http.ResponseWriter, r *http.Request)
 		metadata.PasswordHash = base64.RawStdEncoding.EncodeToString(pbkdf2SHA256([]byte(request.Password), salt, passwordIterations, 32))
 	}
 	if err := s.persistMetadata(metadata); err != nil {
+		if reservedShortCodeHash != "" {
+			s.releaseShortCodeReservation(reservedShortCodeHash)
+		}
 		writeProblem(w, http.StatusInternalServerError, "storage_unavailable")
 		return
 	}
@@ -530,13 +598,17 @@ func (s *relayServer) handleCreateUpload(w http.ResponseWriter, r *http.Request)
 	s.shareLocks[metadata.ID] = &sync.RWMutex{}
 	s.mu.Unlock()
 
-	writeJSON(w, http.StatusCreated, createUploadResponse{
+	response := createUploadResponse{
 		ShareID:     id,
 		UploadToken: uploadToken,
 		PublicURL:   s.configuration.publicBaseURL + "/s/" + publicToken,
 		ChunkSize:   metadata.ChunkSize,
 		ExpiresAt:   expiresAt.Format(time.RFC3339),
-	})
+	}
+	if shortCode {
+		response.AccessCode = publicToken
+	}
+	writeJSON(w, http.StatusCreated, response)
 }
 
 func (s *relayServer) handleUploadChunk(w http.ResponseWriter, r *http.Request) {
@@ -651,6 +723,7 @@ func (s *relayServer) handleRevokeShare(w http.ResponseWriter, r *http.Request) 
 		_ = os.RemoveAll(filepath.Join(s.configuration.dataDirectory, "chunks", metadata.ID))
 		metadata.DataDeletedAt = s.now().UTC()
 		_ = s.persistMetadata(metadata)
+		s.deactivateShortCode(metadata)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -684,6 +757,7 @@ func (s *relayServer) servePublicMedia(w http.ResponseWriter, r *http.Request, a
 
 	metadata := s.metadataByPublicToken(r.PathValue("token"))
 	if metadata == nil {
+		s.recordShortCodeFailure(r, r.PathValue("token"))
 		writeProblem(w, http.StatusGone, "unavailable")
 		return
 	}
@@ -699,6 +773,9 @@ func (s *relayServer) servePublicMedia(w http.ResponseWriter, r *http.Request, a
 		return
 	}
 	if metadata.PasswordHash != "" && !verifyPassword(metadata, r) && !s.verifyShareSession(metadata, r.PathValue("token"), r) {
+		if r.Header.Get("Authorization") != "" {
+			s.recordShortCodeFailure(r, r.PathValue("token"))
+		}
 		w.Header().Set("WWW-Authenticate", `Basic realm="Primuse Share", charset="UTF-8"`)
 		writeProblem(w, http.StatusUnauthorized, "password_required")
 		return
@@ -840,6 +917,9 @@ func (s *relayServer) validateLoadedMetadata(entry os.DirEntry, metadata *shareM
 		!metadata.UploadExpiresAt.After(metadata.CreatedAt) || !validETag(metadata.ETag) {
 		return errors.New("unsafe or inconsistent fields")
 	}
+	if metadata.ShortCode && metadata.ExpiresAt.Sub(metadata.CreatedAt) > s.configuration.shortCodeMaximumTTL {
+		return errors.New("short code expiration exceeds configured maximum")
+	}
 	if metadata.Version == 2 && (sanitizeDisplayText(metadata.Title, 160) != metadata.Title ||
 		sanitizeDisplayText(metadata.Artist, 160) != metadata.Artist ||
 		sanitizeDisplayText(metadata.Album, 160) != metadata.Album ||
@@ -888,6 +968,67 @@ func (s *relayServer) persistChunk(id string, index int64, data []byte) error {
 	return atomicWrite(s.chunkPath(id, index), data, 0o600)
 }
 
+func (s *relayServer) reserveShortCode(length int, shareID string, expiresAt time.Time) (string, error) {
+	for attempt := 0; attempt < shortCodeRetryLimit; attempt++ {
+		code, err := s.shortCodeGenerator(length)
+		if err != nil {
+			return "", err
+		}
+		if !validShortCode(code) || len(code) != length {
+			return "", errors.New("short code generator returned invalid data")
+		}
+		hash := tokenHash(code)
+		path := s.shortCodeReservationPath(hash)
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		payload, marshalError := json.Marshal(map[string]string{
+			"shareID":   shareID,
+			"expiresAt": expiresAt.UTC().Format(time.RFC3339),
+		})
+		if marshalError == nil {
+			_, marshalError = file.Write(payload)
+		}
+		if marshalError == nil {
+			marshalError = file.Sync()
+		}
+		closeError := file.Close()
+		if marshalError != nil || closeError != nil {
+			_ = os.Remove(path)
+			if marshalError != nil {
+				return "", marshalError
+			}
+			return "", closeError
+		}
+		return code, nil
+	}
+	return "", errors.New("short code collision limit reached")
+}
+
+func (s *relayServer) shortCodeReservationPath(publicTokenHash string) string {
+	return filepath.Join(s.configuration.dataDirectory, "short-code-reservations", publicTokenHash+".json")
+}
+
+func (s *relayServer) releaseShortCodeReservation(publicTokenHash string) {
+	if validSHA256Hex(publicTokenHash) {
+		_ = os.Remove(s.shortCodeReservationPath(publicTokenHash))
+	}
+}
+
+func (s *relayServer) deactivateShortCode(metadata *shareMetadata) {
+	if metadata == nil || !metadata.ShortCode {
+		return
+	}
+	s.releaseShortCodeReservation(metadata.PublicTokenHash)
+	s.mu.Lock()
+	delete(s.byPublicHash, metadata.PublicTokenHash)
+	s.mu.Unlock()
+}
+
 func (s *relayServer) chunkPath(id string, index int64) string {
 	return filepath.Join(s.configuration.dataDirectory, "chunks", id, strconv.FormatInt(index, 10)+".bin")
 }
@@ -927,7 +1068,7 @@ func (s *relayServer) metadataByID(id string) *shareMetadata {
 }
 
 func (s *relayServer) metadataByPublicToken(token string) *shareMetadata {
-	if !validOpaqueID(token) {
+	if !validPublicIdentifier(token) {
 		return nil
 	}
 	s.mu.RLock()
@@ -971,27 +1112,86 @@ func (s *relayServer) acquire(slots chan struct{}, w http.ResponseWriter) bool {
 func (s *relayServer) release(slots chan struct{}) { <-slots }
 
 func (s *relayServer) allowPublicRequest(r *http.Request) bool {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
+	peer := requestPeer(r)
+	if !s.consumeRateWindow("public:"+peer, s.configuration.publicRequestsPerMinute, time.Minute) {
+		return false
 	}
+	code := r.PathValue("token")
+	if !validShortCode(code) {
+		return true
+	}
+	key := s.shortCodeRateKey(r, code)
+	if s.rateWindowCount("short-failure:"+key, s.configuration.shortCodeFailureWindow) >= s.configuration.shortCodeFailuresPerWindow {
+		return false
+	}
+	return s.consumeRateWindow("short-request:"+key, s.configuration.shortCodeRequestsPerMinute, time.Minute)
+}
+
+func requestPeer(r *http.Request) string {
+	peer, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		peer = r.RemoteAddr
+	}
+	return peer
+}
+
+func (s *relayServer) shortCodeRateKey(r *http.Request, code string) string {
+	return requestPeer(r) + ":" + tokenHash(code)
+}
+
+func (s *relayServer) recordShortCodeFailure(r *http.Request, code string) {
+	if !validShortCode(code) {
+		return
+	}
+	_ = s.consumeRateWindow(
+		"short-failure:"+s.shortCodeRateKey(r, code),
+		s.configuration.shortCodeFailuresPerWindow,
+		s.configuration.shortCodeFailureWindow,
+	)
+}
+
+func (s *relayServer) clearShortCodeFailures(r *http.Request, code string) {
+	if !validShortCode(code) {
+		return
+	}
+	s.rateMu.Lock()
+	delete(s.rateWindows, "short-failure:"+s.shortCodeRateKey(r, code))
+	s.rateMu.Unlock()
+}
+
+func (s *relayServer) rateWindowCount(key string, duration time.Duration) int {
 	now := s.now()
 	s.rateMu.Lock()
 	defer s.rateMu.Unlock()
+	window := s.rateWindows[key]
+	if window == nil || now.Sub(window.startedAt) >= duration {
+		return 0
+	}
+	return window.count
+}
+
+func (s *relayServer) consumeRateWindow(key string, limit int, duration time.Duration) bool {
+	now := s.now()
+	s.rateMu.Lock()
+	defer s.rateMu.Unlock()
+	cleanupAfter := s.configuration.shortCodeFailureWindow
+	if cleanupAfter < time.Minute {
+		cleanupAfter = time.Minute
+	}
 	if s.rateCleaned.IsZero() || now.Sub(s.rateCleaned) >= time.Minute {
-		for peer, candidate := range s.rateWindows {
-			if now.Sub(candidate.startedAt) >= time.Minute {
-				delete(s.rateWindows, peer)
+		for candidateKey, candidate := range s.rateWindows {
+			if now.Sub(candidate.startedAt) >= cleanupAfter {
+				delete(s.rateWindows, candidateKey)
 			}
 		}
 		s.rateCleaned = now
 	}
-	window := s.rateWindows[host]
-	if window == nil || now.Sub(window.startedAt) >= time.Minute {
-		s.rateWindows[host] = &rateWindow{startedAt: now, count: 1}
+	window := s.rateWindows[key]
+	if window == nil || now.Sub(window.startedAt) >= duration {
+		s.rateWindows[key] = &rateWindow{startedAt: now, count: 1}
 		return true
 	}
-	if window.count >= s.configuration.publicRequestsPerMinute {
+	if window.count >= limit {
 		return false
 	}
 	window.count++
@@ -1012,13 +1212,19 @@ func (s *relayServer) cleanupExpired() {
 		shouldDelete := metadata.revoked() ||
 			(metadata.complete() && !metadata.ExpiresAt.After(now)) ||
 			(!metadata.complete() && !metadata.UploadExpiresAt.After(now))
-		if !shouldDelete || !metadata.DataDeletedAt.IsZero() {
+		if !shouldDelete {
+			shareLock.Unlock()
+			continue
+		}
+		if !metadata.DataDeletedAt.IsZero() {
+			s.deactivateShortCode(metadata)
 			shareLock.Unlock()
 			continue
 		}
 		_ = os.RemoveAll(filepath.Join(s.configuration.dataDirectory, "chunks", metadata.ID))
 		metadata.DataDeletedAt = now
 		_ = s.persistMetadata(metadata)
+		s.deactivateShortCode(metadata)
 		shareLock.Unlock()
 	}
 	s.cleanupExpiredImportTickets(now)
@@ -1193,6 +1399,18 @@ func randomToken(byteCount int) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(data), nil
 }
 
+func randomNumericCode(length int) (string, error) {
+	if length < 4 || length > 6 {
+		return "", errors.New("short code length must be between four and six digits")
+	}
+	maximum := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(length)), nil)
+	value, err := rand.Int(rand.Reader, maximum)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%0*d", length, value.Int64()), nil
+}
+
 func tokenHash(value string) string {
 	digest := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(digest[:])
@@ -1218,6 +1436,22 @@ func validOpaqueID(value string) bool {
 		}
 	}
 	return true
+}
+
+func validShortCode(value string) bool {
+	if len(value) < 4 || len(value) > 6 {
+		return false
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func validPublicIdentifier(value string) bool {
+	return validOpaqueID(value) || validShortCode(value)
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, target any) error {

@@ -45,6 +45,22 @@
         "limit": 5,
         "period": 60
       }
+    },
+    {
+      "name": "SHORT_CODE_RATE_LIMITER",
+      "namespace_id": "74003",
+      "simple": {
+        "limit": 60,
+        "period": 60
+      }
+    },
+    {
+      "name": "SHORT_CODE_FAILURE_RATE_LIMITER",
+      "namespace_id": "74004",
+      "simple": {
+        "limit": 5,
+        "period": 60
+      }
     }
   ],
   "vars": {
@@ -52,7 +68,8 @@
     "CHUNK_SIZE_BYTES": "8388608",
     "MAX_FILE_BYTES": "21474836480",
     "MAX_TTL_SECONDS": "2592000",
-    "UPLOAD_TTL_SECONDS": "86400"
+    "UPLOAD_TTL_SECONDS": "86400",
+    "SHORT_CODE_MAX_TTL_SECONDS": "86400"
   },
   "secrets": {
     "required": [

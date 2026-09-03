@@ -543,6 +543,7 @@ struct SongListView: View {
     @State private var contextAddToPlaylistSong: Song?
     @State private var contextSongInfoSong: Song?
     @State private var contextTagEditorSong: Song?
+    @State private var contextShareSong: Song?
     @State private var exportError: String?
     @State private var macFirstVisibleRow = 0
     @State private var macSongListChromeHeight: CGFloat = 0
@@ -847,6 +848,9 @@ struct SongListView: View {
                     player.syncSongMetadata(updated)
                     player.forceRefreshNowPlayingArtwork()
                 }
+            }
+            .sheet(item: $contextShareSong) { song in
+                SongShareSheet(song: library.song(id: song.id) ?? song)
             }
             .alert("songs_export_failed",
                    isPresented: exportErrorPresentation) {
@@ -2203,7 +2207,9 @@ struct SongListView: View {
                       systemImage: library.isLiked(songID: song.id) ? "heart.fill" : "heart")
             }
 
-            ShareLink(item: "\(song.title) - \(library.artistDisplayName(for: song) ?? "")") {
+            Button {
+                contextShareSong = latestSong(song)
+            } label: {
                 Label(String(localized: "share"), systemImage: "square.and.arrow.up")
             }
         }

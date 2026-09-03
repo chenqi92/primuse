@@ -28,8 +28,6 @@ struct SongRowView: View {
     var sourceName: String? = nil
     var sourceIconName: String? = nil
     var canDeleteSourceFile = false
-    var serverMediaShareTarget: ServerMediaShareTarget? = nil
-    var canCreateRelayShare = false
 
     /// 非 nil 时由外层列表接管长按，直接进入多选并选中这一行。
     var selection: SongSelectionModel? = nil
@@ -53,8 +51,7 @@ struct SongRowView: View {
     @State private var deleteErrorMessage: String?
     @State private var sourceCheckMessage: String?
     @State private var tagReadMessage: String?
-    @State private var presentedServerMediaShareTarget: ServerMediaShareTarget?
-    @State private var presentedRelayShareSong: Song?
+    @State private var presentedShareSong: Song?
 
     /// "Metadata still pending" — cloud Phase-A songs whose `duration` (and
     /// usually cover/artist) hasn't been backfilled yet. Drives a soft dim +
@@ -236,27 +233,9 @@ struct SongRowView: View {
 
                     // Group 2: Share
                     Section {
-                        if let serverMediaShareTarget {
-                            Button {
-                                presentedServerMediaShareTarget = serverMediaShareTarget
-                            } label: {
-                                Label(
-                                    String(localized: "server_share_action"),
-                                    systemImage: "link.badge.plus"
-                                )
-                            }
-                        } else if canCreateRelayShare {
-                            Button {
-                                presentedRelayShareSong = song
-                            } label: {
-                                Label(
-                                    String(localized: "relay_share_action"),
-                                    systemImage: "link.badge.plus"
-                                )
-                            }
-                        }
-
-                        ShareLink(item: "\(song.title) - \(library.artistDisplayName(for: song) ?? "")") {
+                        Button {
+                            presentedShareSong = song
+                        } label: {
                             Label(String(localized: "share"), systemImage: "square.and.arrow.up")
                         }
                     }
@@ -377,27 +356,9 @@ struct SongRowView: View {
 
             // Group 2: Share
             Section {
-                if let serverMediaShareTarget {
-                    Button {
-                        presentedServerMediaShareTarget = serverMediaShareTarget
-                    } label: {
-                        Label(
-                            String(localized: "server_share_action"),
-                            systemImage: "link.badge.plus"
-                        )
-                    }
-                } else if canCreateRelayShare {
-                    Button {
-                        presentedRelayShareSong = song
-                    } label: {
-                        Label(
-                            String(localized: "relay_share_action"),
-                            systemImage: "link.badge.plus"
-                        )
-                    }
-                }
-
-                ShareLink(item: "\(song.title) - \(library.artistDisplayName(for: song) ?? "")") {
+                Button {
+                    presentedShareSong = song
+                } label: {
                     Label(String(localized: "share"), systemImage: "square.and.arrow.up")
                 }
             }
@@ -451,14 +412,8 @@ struct SongRowView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
-        .sheet(item: $presentedServerMediaShareTarget) { target in
-            ServerMediaShareSheet(
-                target: target,
-                relaySong: canCreateRelayShare ? song : nil
-            )
-        }
-        .sheet(item: $presentedRelayShareSong) { relaySong in
-            MediaRelayShareSheet(song: relaySong)
+        .sheet(item: $presentedShareSong) { sharedSong in
+            SongShareSheet(song: sharedSong)
         }
         .similarSongsPanel(isPresented: $showSimilarSongs, seed: song)
         .sheet(isPresented: $showSongInfo) {
@@ -1500,8 +1455,6 @@ extension SongRowView {
         var sourceIconName: String?
         var detailsState: SongDetailsState
         var canDeleteSourceFile: Bool
-        var serverMediaShareTarget: ServerMediaShareTarget?
-        var canCreateRelayShare: Bool
     }
 
     static func context(
@@ -1511,14 +1464,6 @@ extension SongRowView {
     ) -> RowContext {
         let showBadge = sourcesStore.sources.count > 1
         let source = sourcesStore.source(id: song.sourceID)
-        let serverMediaShareTarget = source.flatMap { source in
-            try? ServerMediaShareTargetPolicy.makeTarget(
-                kind: .song,
-                title: song.title,
-                songs: [song],
-                source: source
-            )
-        }
         return RowContext(
             sourceName: showBadge ? source?.name : nil,
             sourceIconName: showBadge ? source?.type.iconName : nil,
@@ -1528,11 +1473,7 @@ extension SongRowView {
             ),
             canDeleteSourceFile: SourceFileDeletionPolicy.shouldShowDeleteAction(
                 for: source?.type
-            ),
-            serverMediaShareTarget: serverMediaShareTarget,
-            canCreateRelayShare: source.map {
-                MediaRelaySourcePolicy.supports(song: song, sourceType: $0.type)
-            } ?? false
+            )
         )
     }
 
@@ -1553,7 +1494,5 @@ extension SongRowView {
         self.sourceIconName = context.sourceIconName
         self.detailsState = context.detailsState
         self.canDeleteSourceFile = context.canDeleteSourceFile
-        self.serverMediaShareTarget = context.serverMediaShareTarget
-        self.canCreateRelayShare = context.canCreateRelayShare
     }
 }

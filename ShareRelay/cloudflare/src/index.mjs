@@ -2,6 +2,8 @@ const DEFAULT_CHUNK_SIZE = 8 * 1024 * 1024;
 const DEFAULT_MAXIMUM_FILE_SIZE = 20 * 1024 * 1024 * 1024;
 const DEFAULT_MAXIMUM_TTL_SECONDS = 30 * 24 * 60 * 60;
 const DEFAULT_UPLOAD_TTL_SECONDS = 24 * 60 * 60;
+const DEFAULT_SHORT_CODE_MAXIMUM_TTL_SECONDS = 24 * 60 * 60;
+const SHORT_CODE_RETRY_LIMIT = 16;
 const MINIMUM_MULTIPART_CHUNK_SIZE = 5 * 1024 * 1024;
 const MAXIMUM_CHUNK_SIZE = 32 * 1024 * 1024;
 const MAXIMUM_MULTIPART_PARTS = 10_000;
@@ -16,6 +18,8 @@ const ENCRYPTED_CHUNK_OVERHEAD = AES_GCM_NONCE_BYTES + AES_GCM_TAG_BYTES;
 const CLEANUP_BATCH_SIZE = 2;
 const CLEANUP_SCAN_PAGE_LIMIT = 10;
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
+const SHORT_CODE_PATTERN = /^[0-9]{4,6}$/;
+const PUBLIC_IDENTIFIER_PATTERN = /^(?:[A-Za-z0-9_-]{16,128}|[0-9]{4,6})$/;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -88,7 +92,7 @@ async function routeRequest(request, env, context) {
     return revokeShare(request, env, context, configuration, match[1]);
   }
 
-  match = url.pathname.match(/^\/s\/([A-Za-z0-9_-]{16,128})$/);
+  match = url.pathname.match(/^\/s\/((?:[A-Za-z0-9_-]{16,128}|[0-9]{4,6}))$/);
   if (match) {
     if (request.method !== "GET" && request.method !== "HEAD") {
       throw new RelayError(405, "method_not_allowed", { Allow: "GET, HEAD" });
@@ -99,13 +103,13 @@ async function routeRequest(request, env, context) {
     return servePublicShare(request, env, context, configuration, match[1], false);
   }
 
-  match = url.pathname.match(/^\/s\/([A-Za-z0-9_-]{16,128})\/auth$/);
+  match = url.pathname.match(/^\/s\/((?:[A-Za-z0-9_-]{16,128}|[0-9]{4,6}))\/auth$/);
   if (match) {
     requireMethod(request, "POST");
     return authenticateShare(request, env, configuration, match[1]);
   }
 
-  match = url.pathname.match(/^\/s\/([A-Za-z0-9_-]{16,128})\/(media|download)$/);
+  match = url.pathname.match(/^\/s\/((?:[A-Za-z0-9_-]{16,128}|[0-9]{4,6}))\/(media|download)$/);
   if (match) {
     if (request.method !== "GET" && request.method !== "HEAD") {
       throw new RelayError(405, "method_not_allowed", { Allow: "GET, HEAD" });
@@ -113,7 +117,7 @@ async function routeRequest(request, env, context) {
     return servePublicShare(request, env, context, configuration, match[1], match[2] === "download");
   }
 
-  match = url.pathname.match(/^\/s\/([A-Za-z0-9_-]{16,128})\/import$/);
+  match = url.pathname.match(/^\/s\/((?:[A-Za-z0-9_-]{16,128}|[0-9]{4,6}))\/import$/);
   if (match) {
     requireMethod(request, "POST");
     return createImportTicket(request, env, configuration, match[1]);
@@ -166,8 +170,15 @@ function loadConfiguration(env) {
   const maximumFileSize = positiveInteger(env.MAX_FILE_BYTES, DEFAULT_MAXIMUM_FILE_SIZE);
   const maximumTTLSeconds = positiveInteger(env.MAX_TTL_SECONDS, DEFAULT_MAXIMUM_TTL_SECONDS);
   const uploadTTLSeconds = positiveInteger(env.UPLOAD_TTL_SECONDS, DEFAULT_UPLOAD_TTL_SECONDS);
+  const shortCodeMaximumTTLSeconds = positiveInteger(
+    env.SHORT_CODE_MAX_TTL_SECONDS,
+    DEFAULT_SHORT_CODE_MAXIMUM_TTL_SECONDS,
+  );
   if (chunkSize < MINIMUM_MULTIPART_CHUNK_SIZE || chunkSize > MAXIMUM_CHUNK_SIZE) {
     throw new Error("CHUNK_SIZE_BYTES is outside the R2 multipart limits");
+  }
+  if (shortCodeMaximumTTLSeconds > maximumTTLSeconds) {
+    throw new Error("SHORT_CODE_MAX_TTL_SECONDS exceeds MAX_TTL_SECONDS");
   }
 
   return {
@@ -179,6 +190,7 @@ function loadConfiguration(env) {
     maximumFileSize,
     maximumTTLMilliseconds: maximumTTLSeconds * 1000,
     uploadTTLMilliseconds: uploadTTLSeconds * 1000,
+    shortCodeMaximumTTLMilliseconds: shortCodeMaximumTTLSeconds * 1000,
   };
 }
 
@@ -219,27 +231,54 @@ async function createUpload(request, env, configuration) {
       throw new RelayError(400, "invalid_permissions");
     }
   }
+  const linkType = input.linkType == null || input.linkType === "" ? "long" : input.linkType;
+  if (linkType !== "long" && linkType !== "short") {
+    throw new RelayError(400, "invalid_link_type");
+  }
+  const usesShortCode = linkType === "short";
+  let shortCodeLength = input.shortCodeLength;
+  if (usesShortCode) {
+    shortCodeLength ??= 6;
+    if (!Number.isSafeInteger(shortCodeLength) || shortCodeLength < 4 || shortCodeLength > 6) {
+      throw new RelayError(400, "invalid_short_code_length");
+    }
+  } else if (shortCodeLength != null) {
+    throw new RelayError(400, "invalid_short_code_length");
+  }
 
   const now = new Date();
   const expiresAt = input.expiresAt == null || input.expiresAt === ""
-    ? new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+    ? new Date(now.getTime() + (usesShortCode ? 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000))
     : parseRFC3339(input.expiresAt);
+  const maximumTTL = usesShortCode
+    ? configuration.shortCodeMaximumTTLMilliseconds
+    : configuration.maximumTTLMilliseconds;
   if (
     !expiresAt ||
     expiresAt.getTime() <= now.getTime() ||
-    expiresAt.getTime() > now.getTime() + configuration.maximumTTLMilliseconds
+    expiresAt.getTime() > now.getTime() + maximumTTL
   ) {
     throw new RelayError(400, "invalid_expiration");
   }
 
   const id = randomToken(18);
-  const publicToken = randomToken(32);
   const uploadToken = randomToken(32);
+  const publicToken = usesShortCode
+    ? await reserveShortCode(configuration.bucket, shortCodeLength, id, expiresAt)
+    : randomToken(32);
   const dataKey = dataObjectKey(id);
-  const multipartUpload = await configuration.bucket.createMultipartUpload(dataKey, {
-    httpMetadata: { contentType: "application/octet-stream" },
-    customMetadata: { shareID: id, format: "aes-256-gcm-chunks-v1" },
-  });
+  let multipartUpload;
+  try {
+    multipartUpload = await configuration.bucket.createMultipartUpload(dataKey, {
+      httpMetadata: { contentType: "application/octet-stream" },
+      customMetadata: { shareID: id, format: "aes-256-gcm-chunks-v1" },
+    });
+  } catch (error) {
+    if (usesShortCode) {
+      await configuration.bucket.delete(publicIndexKey(await tokenHash(publicToken))).catch(() => {});
+    }
+    throw error;
+  }
 
   const metadata = {
     version: 2,
@@ -268,6 +307,7 @@ async function createUpload(request, env, configuration) {
     allowPlayback: input.allowPlayback ?? true,
     allowDownload: input.allowDownload ?? true,
     allowImport: input.allowImport ?? true,
+    shortCode: usesShortCode,
     dataKey,
     uploadId: multipartUpload.uploadId,
   };
@@ -279,7 +319,9 @@ async function createUpload(request, env, configuration) {
 
   try {
     await putMetadata(configuration.bucket, metadata);
-    await putJSON(configuration.bucket, publicIndexKey(metadata.publicTokenHash), { shareID: id });
+    if (!usesShortCode) {
+      await putJSON(configuration.bucket, publicIndexKey(metadata.publicTokenHash), { shareID: id });
+    }
   } catch (error) {
     await Promise.allSettled([
       multipartUpload.abort(),
@@ -295,6 +337,7 @@ async function createUpload(request, env, configuration) {
     publicURL: `${configuration.publicBaseURL}/s/${publicToken}`,
     chunkSize: metadata.chunkSize,
     expiresAt: metadata.expiresAt,
+    ...(usesShortCode ? { accessCode: publicToken } : {}),
   }, 201);
 }
 
@@ -461,16 +504,15 @@ async function revokeShare(request, env, context, configuration, shareID) {
 }
 
 async function servePublicShare(request, env, context, configuration, publicToken, attachment) {
-  if (env.PUBLIC_RATE_LIMITER?.limit) {
-    const peer = request.headers.get("CF-Connecting-IP") ?? "unknown";
-    const result = await env.PUBLIC_RATE_LIMITER.limit({ key: `primuse-share-relay:${peer}` });
-    if (!result.success) {
-      throw new RelayError(429, "rate_limited", { "Retry-After": "60" });
-    }
+  if (!(await publicRateLimitAllows(request, env, publicToken))) {
+    throw new RelayError(429, "rate_limited", { "Retry-After": "60" });
   }
 
   const loaded = await loadMetadataByPublicToken(configuration.bucket, publicToken, configuration);
   if (!loaded || !isComplete(loaded.metadata) || isRevoked(loaded.metadata)) {
+    if (!(await shortCodeFailureAllows(request, env, publicToken))) {
+      throw new RelayError(429, "rate_limited", { "Retry-After": "60" });
+    }
     throw new RelayError(410, "unavailable");
   }
   if (Date.parse(loaded.metadata.expiresAt) <= Date.now() || loaded.metadata.dataDeletedAt) {
@@ -482,6 +524,9 @@ async function servePublicShare(request, env, context, configuration, publicToke
     !(await verifyPassword(request, loaded.metadata)) &&
     !(await verifyShareSession(request, configuration, publicToken, loaded.metadata))
   ) {
+    if (request.headers.has("Authorization") && !(await shortCodeFailureAllows(request, env, publicToken))) {
+      throw new RelayError(429, "rate_limited", { "Retry-After": "60" });
+    }
     throw new RelayError(401, "password_required", {
       "WWW-Authenticate": 'Basic realm="Primuse Share", charset="UTF-8"',
     });
@@ -569,11 +614,14 @@ function prefersHTML(request) {
 }
 
 async function serveSharePage(request, env, context, configuration, publicToken) {
-  if (!(await publicRateLimitAllows(request, env))) {
+  if (!(await publicRateLimitAllows(request, env, publicToken))) {
     return templateResponse(request, env, "unavailable.html", 429);
   }
   const loaded = await loadMetadataByPublicToken(configuration.bucket, publicToken, configuration);
   if (!activeShare(loaded?.metadata)) {
+    if (!(await shortCodeFailureAllows(request, env, publicToken))) {
+      return templateResponse(request, env, "unavailable.html", 429, {}, { "Retry-After": "60" });
+    }
     if (cleanupDue(loaded?.metadata)) {
       scheduleCleanup(context, env, loaded.metadata);
     }
@@ -597,12 +645,31 @@ function cleanupDue(metadata, now = Date.now()) {
   return Number.isFinite(cleanupAt) && cleanupAt <= now;
 }
 
-async function publicRateLimitAllows(request, env) {
-  if (!env.PUBLIC_RATE_LIMITER?.limit) {
+async function publicRateLimitAllows(request, env, publicToken = null) {
+  const peer = request.headers.get("CF-Connecting-IP") ?? "unknown";
+  if (env.PUBLIC_RATE_LIMITER?.limit) {
+    const result = await env.PUBLIC_RATE_LIMITER.limit({ key: `primuse-share-relay:${peer}` });
+    if (!result.success) {
+      return false;
+    }
+  }
+  if (SHORT_CODE_PATTERN.test(publicToken ?? "") && env.SHORT_CODE_RATE_LIMITER?.limit) {
+    const key = await tokenHash(`${peer}\n${publicToken}`);
+    const result = await env.SHORT_CODE_RATE_LIMITER.limit({ key: `primuse-short-code:${key}` });
+    if (!result.success) {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function shortCodeFailureAllows(request, env, publicToken) {
+  if (!SHORT_CODE_PATTERN.test(publicToken) || !env.SHORT_CODE_FAILURE_RATE_LIMITER?.limit) {
     return true;
   }
   const peer = request.headers.get("CF-Connecting-IP") ?? "unknown";
-  const result = await env.PUBLIC_RATE_LIMITER.limit({ key: `primuse-share-relay:${peer}` });
+  const key = await tokenHash(`${peer}\n${publicToken}`);
+  const result = await env.SHORT_CODE_FAILURE_RATE_LIMITER.limit({ key: `primuse-short-code-failure:${key}` });
   return result.success;
 }
 
@@ -725,8 +792,14 @@ function escapeHTML(value) {
 }
 
 async function authenticateShare(request, env, configuration, publicToken) {
+  if (!(await publicRateLimitAllows(request, env, publicToken))) {
+    return authenticationFailure(request, env, configuration, publicToken, 429, "rate_limited", 60);
+  }
   const loaded = await loadMetadataByPublicToken(configuration.bucket, publicToken, configuration);
   if (!activeShare(loaded?.metadata)) {
+    if (!(await shortCodeFailureAllows(request, env, publicToken))) {
+      return authenticationFailure(request, env, configuration, publicToken, 429, "rate_limited", 60);
+    }
     return authenticationFailure(request, env, configuration, publicToken, 410, "unavailable");
   }
   if (!sameOriginRequest(request, configuration.publicBaseURL)) {
@@ -742,6 +815,9 @@ async function authenticateShare(request, env, configuration, publicToken) {
     }
   }
   if (loaded.metadata.passwordHash && !(await verifyPasswordValue(password, loaded.metadata))) {
+    if (!(await shortCodeFailureAllows(request, env, publicToken))) {
+      return authenticationFailure(request, env, configuration, publicToken, 429, "rate_limited", 60);
+    }
     return authenticationFailure(request, env, configuration, publicToken, 401, "password_required");
   }
   const headers = new Headers({ "Cache-Control": "no-store" });
@@ -852,11 +928,17 @@ async function verifyShareSession(request, configuration, publicToken, metadata)
 }
 
 async function createImportTicket(request, env, configuration, publicToken) {
+  if (!(await publicRateLimitAllows(request, env, publicToken))) {
+    throw new RelayError(429, "rate_limited", { "Retry-After": "60" });
+  }
   if (!sameOriginRequest(request, configuration.publicBaseURL)) {
     throw new RelayError(403, "invalid_origin");
   }
   const loaded = await loadMetadataByPublicToken(configuration.bucket, publicToken, configuration);
   if (!activeShare(loaded?.metadata)) {
+    if (!(await shortCodeFailureAllows(request, env, publicToken))) {
+      throw new RelayError(429, "rate_limited", { "Retry-After": "60" });
+    }
     throw new RelayError(410, "unavailable");
   }
   if (!metadataPermission(loaded.metadata.allowImport, true)) {
@@ -1112,7 +1194,7 @@ function basicAuthPassword(header) {
 }
 
 async function loadMetadataByPublicToken(bucket, publicToken, configuration) {
-  if (!TOKEN_PATTERN.test(publicToken)) {
+  if (!PUBLIC_IDENTIFIER_PATTERN.test(publicToken)) {
     return null;
   }
   const publicTokenHash = await tokenHash(publicToken);
@@ -1177,7 +1259,8 @@ function validMetadata(metadata, shareID, configuration) {
       metadata.durationSeconds > 7 * 24 * 60 * 60 ||
       typeof metadata.allowPlayback !== "boolean" ||
       typeof metadata.allowDownload !== "boolean" ||
-      typeof metadata.allowImport !== "boolean"
+      typeof metadata.allowImport !== "boolean" ||
+      (metadata.shortCode != null && typeof metadata.shortCode !== "boolean")
     ) {
       return false;
     }
@@ -1186,6 +1269,9 @@ function validMetadata(metadata, shareID, configuration) {
   const expiresAt = Date.parse(metadata.expiresAt);
   const uploadExpiresAt = Date.parse(metadata.uploadExpiresAt);
   if (!Number.isFinite(createdAt) || expiresAt <= createdAt || uploadExpiresAt <= createdAt) {
+    return false;
+  }
+  if (metadata.shortCode === true && expiresAt - createdAt > configuration.shortCodeMaximumTTLMilliseconds) {
     return false;
   }
   for (const optionalDate of [metadata.completedAt, metadata.revokedAt, metadata.dataDeletedAt]) {
@@ -1291,6 +1377,9 @@ async function cleanupShareData(bucket, metadata) {
     await bucket.resumeMultipartUpload(metadata.dataKey, metadata.uploadId).abort().catch(() => {});
   }
   await bucket.delete(metadata.dataKey).catch(() => {});
+  if (metadata.shortCode === true) {
+    await bucket.delete(publicIndexKey(metadata.publicTokenHash)).catch(() => {});
+  }
   await deletePartRecords(bucket, metadata.id).catch(() => {});
 }
 
@@ -1598,6 +1687,44 @@ function randomToken(byteCount) {
   return bytesToBase64(crypto.getRandomValues(new Uint8Array(byteCount)), true);
 }
 
+function randomNumericCode(length) {
+  if (!Number.isSafeInteger(length) || length < 4 || length > 6) {
+    throw new Error("short code length must be between four and six digits");
+  }
+  const maximum = 10 ** length;
+  const unbiasedLimit = Math.floor(0x1_0000_0000 / maximum) * maximum;
+  for (let attempt = 0; attempt < 32; attempt += 1) {
+    const value = crypto.getRandomValues(new Uint32Array(1))[0];
+    if (value < unbiasedLimit) {
+      return String(value % maximum).padStart(length, "0");
+    }
+  }
+  throw new Error("entropy_unavailable");
+}
+
+async function reserveShortCode(bucket, length, shareID, expiresAt, generator = randomNumericCode) {
+  for (let attempt = 0; attempt < SHORT_CODE_RETRY_LIMIT; attempt += 1) {
+    const code = generator(length);
+    if (!SHORT_CODE_PATTERN.test(code) || code.length !== length) {
+      throw new Error("short code generator returned invalid data");
+    }
+    const hash = await tokenHash(code);
+    const stored = await bucket.put(
+      publicIndexKey(hash),
+      JSON.stringify({ shareID, reservedAt: new Date().toISOString(), expiresAt: expiresAt.toISOString() }),
+      {
+        onlyIf: { etagDoesNotMatch: "*" },
+        httpMetadata: { contentType: "application/json" },
+        customMetadata: { state: "short-code-reservation", expiresAt: expiresAt.toISOString() },
+      },
+    );
+    if (stored) {
+      return code;
+    }
+  }
+  throw new RelayError(503, "public_identifier_unavailable", { "Retry-After": "2" });
+}
+
 function bytesToHex(bytes) {
   return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
@@ -1660,6 +1787,8 @@ export const testing = {
   contentDisposition,
   parseContentRange,
   requestedRange,
+  reserveShortCode,
+  randomNumericCode,
   sanitizeContentType,
   sanitizeFileName,
   tokenHash,

@@ -11,7 +11,6 @@ import (
 	"html"
 	"io"
 	"mime"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -131,6 +130,7 @@ func (s *relayServer) handleSharePage(w http.ResponseWriter, r *http.Request) {
 	}
 	metadata := s.metadataByPublicToken(r.PathValue("token"))
 	if metadata == nil {
+		s.recordShortCodeFailure(r, r.PathValue("token"))
 		s.renderUnavailablePage(w, http.StatusGone)
 		return
 	}
@@ -306,8 +306,13 @@ func (s *relayServer) writeTemplate(w http.ResponseWriter, name string, status i
 
 func (s *relayServer) handleShareAuthentication(w http.ResponseWriter, r *http.Request) {
 	publicToken := r.PathValue("token")
+	if !s.allowPublicRequest(r) {
+		s.authenticationFailure(w, r, publicToken, http.StatusTooManyRequests, "rate_limited", 60)
+		return
+	}
 	metadata := s.metadataByPublicToken(publicToken)
 	if metadata == nil {
+		s.recordShortCodeFailure(r, publicToken)
 		s.authenticationFailure(w, r, publicToken, http.StatusGone, "unavailable", 0)
 		return
 	}
@@ -332,9 +337,11 @@ func (s *relayServer) handleShareAuthentication(w http.ResponseWriter, r *http.R
 		return
 	}
 	if metadata.PasswordHash != "" && !verifyPasswordValue(metadata, password) {
+		s.recordShortCodeFailure(r, publicToken)
 		s.authenticationFailure(w, r, publicToken, http.StatusUnauthorized, "password_required", 0)
 		return
 	}
+	s.clearShortCodeFailures(r, publicToken)
 	if metadata.PasswordHash != "" {
 		http.SetCookie(w, s.shareSessionCookie(metadata, publicToken))
 	}
@@ -470,33 +477,23 @@ func (s *relayServer) verifyShareSession(metadata *shareMetadata, publicToken st
 }
 
 func (s *relayServer) allowPasswordAttempt(r *http.Request, metadata *shareMetadata) bool {
-	peer, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		peer = r.RemoteAddr
-	}
-	key := "password:" + metadata.PublicTokenHash + ":" + peer
-	now := s.now()
-	s.rateMu.Lock()
-	defer s.rateMu.Unlock()
-	window := s.rateWindows[key]
-	if window == nil || now.Sub(window.startedAt) >= time.Minute {
-		s.rateWindows[key] = &rateWindow{startedAt: now, count: 1}
-		return true
-	}
-	if window.count >= passwordAttempts {
-		return false
-	}
-	window.count++
-	return true
+	key := "password:" + metadata.PublicTokenHash + ":" + requestPeer(r)
+	return s.consumeRateWindow(key, passwordAttempts, time.Minute)
 }
 
 func (s *relayServer) handleCreateImportTicket(w http.ResponseWriter, r *http.Request) {
+	if !s.allowPublicRequest(r) {
+		w.Header().Set("Retry-After", "60")
+		writeProblem(w, http.StatusTooManyRequests, "rate_limited")
+		return
+	}
 	if !sameOriginRequest(r, s.configuration.publicBaseURL) {
 		writeProblem(w, http.StatusForbidden, "invalid_origin")
 		return
 	}
 	metadata := s.metadataByPublicToken(r.PathValue("token"))
 	if metadata == nil {
+		s.recordShortCodeFailure(r, r.PathValue("token"))
 		writeProblem(w, http.StatusGone, "unavailable")
 		return
 	}

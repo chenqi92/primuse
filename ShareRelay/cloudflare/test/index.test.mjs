@@ -324,6 +324,102 @@ test("password browser flow uses a signed session cookie without disclosing meta
   assert.deepEqual(new Uint8Array(await privateMedia.arrayBuffer()), media);
 });
 
+test("short codes retry collisions atomically, expire quickly, and limit failures per peer and code", {
+  timeout: 60_000,
+}, async () => {
+  const bucket = new MemoryBucket();
+  const env = makeEnvironment(bucket);
+  const context = new TestContext();
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+  const creation = await createAndUpload({
+    bucket,
+    env,
+    context,
+    media: utf8.encode("short-code-media".repeat(512)),
+    fileName: "short-code.mp3",
+    contentType: "audio/mpeg",
+    password: "independent-password",
+    expiresAt,
+    linkType: "short",
+    shortCodeLength: 6,
+  });
+  assert.match(creation.accessCode, /^[0-9]{6}$/);
+  assert.equal(new URL(creation.publicURL).pathname, `/s/${creation.accessCode}`);
+  assert.match(creation.shareID, /^[A-Za-z0-9_-]{16,128}$/);
+  assert.match(creation.uploadToken, /^[A-Za-z0-9_-]{16,128}$/);
+  assert.notEqual(creation.accessCode, creation.shareID);
+  assert.notEqual(creation.accessCode, creation.uploadToken);
+  assert.notEqual(creation.accessCode, "independent-password");
+  const persisted = bucket.textForPrefixes(["metadata/", "indexes/public/"]);
+  assert.equal(persisted.includes(creation.accessCode), false);
+  assert.equal(persisted.includes("independent-password"), false);
+
+  const collisionBucket = new MemoryBucket();
+  const codes = ["123456", "123456", "654321"];
+  const generator = (length) => {
+    assert.equal(length, 6);
+    return codes.shift();
+  };
+  const first = await testing.reserveShortCode(
+    collisionBucket,
+    6,
+    "first-share-identifier",
+    expiresAt,
+    generator,
+  );
+  const second = await testing.reserveShortCode(
+    collisionBucket,
+    6,
+    "second-share-identifier",
+    expiresAt,
+    generator,
+  );
+  assert.equal(first, "123456");
+  assert.equal(second, "654321");
+  assert.equal(collisionBucket.keys("indexes/public/").length, 2);
+
+  const overlong = await fetchRelay(env, context, "/v1/uploads", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${TEST_ADMIN_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      fileName: "overlong.mp3",
+      contentType: "audio/mpeg",
+      size: 16,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000 + 5_000).toISOString(),
+      linkType: "short",
+      shortCodeLength: 6,
+    }),
+  });
+  assert.equal(overlong.status, 400);
+
+  const failureLimiter = new CounterRateLimiter(2);
+  const limitedEnvironment = makeEnvironment(new MemoryBucket(), {
+    SHORT_CODE_FAILURE_RATE_LIMITER: failureLimiter,
+  });
+  const limitedContext = new TestContext();
+  for (const expected of [410, 410, 429]) {
+    const response = await fetchRelay(limitedEnvironment, limitedContext, "/s/000000", {
+      headers: { Accept: "text/html", "Sec-Fetch-Mode": "navigate", "CF-Connecting-IP": "203.0.113.8" },
+    });
+    assert.equal(response.status, expected);
+  }
+
+  const longCreation = await createAndUpload({
+    bucket,
+    env,
+    context,
+    media: utf8.encode("long-link-media".repeat(512)),
+    fileName: "long-link.flac",
+    contentType: "audio/flac",
+    linkType: "long",
+  });
+  assert.equal(longCreation.accessCode, undefined);
+  assert.match(new URL(longCreation.publicURL).pathname, /^\/s\/[A-Za-z0-9_-]{16,128}$/);
+});
+
 test("scheduled cleanup removes expired encrypted media and abandoned multipart uploads", {
   timeout: 60_000,
 }, async () => {
@@ -516,6 +612,19 @@ class TestContext {
   }
 }
 
+class CounterRateLimiter {
+  constructor(maximum) {
+    this.maximum = maximum;
+    this.counts = new Map();
+  }
+
+  async limit({ key }) {
+    const count = (this.counts.get(key) ?? 0) + 1;
+    this.counts.set(key, count);
+    return { success: count <= this.maximum };
+  }
+}
+
 class MemoryBucket {
   constructor() {
     this.objects = new Map();
@@ -526,6 +635,9 @@ class MemoryBucket {
   async put(key, value, options = {}) {
     const previous = this.objects.get(key);
     if (options.onlyIf?.etagMatches && previous?.etag !== options.onlyIf.etagMatches) {
+      return null;
+    }
+    if (options.onlyIf?.etagDoesNotMatch === "*" && previous) {
       return null;
     }
     const bytes = await valueBytes(value);

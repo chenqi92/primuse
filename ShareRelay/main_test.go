@@ -338,6 +338,67 @@ func TestPasswordBrowserSessionDoesNotDiscloseMetadata(t *testing.T) {
 	assertResponseBytes(t, privateMedia, http.StatusOK, media)
 }
 
+func TestShortCodesUseAtomicCollisionRetriesStrictTTLAndScopedFailureLimits(t *testing.T) {
+	fixedNow := time.Date(2026, 9, 3, 6, 0, 0, 0, time.UTC)
+	configuration := testConfig(t)
+	configuration.shortCodeRequestsPerMinute = 20
+	configuration.shortCodeFailuresPerWindow = 2
+	server := mustRelayServer(t, configuration, fixedNow)
+	codes := []string{"123456", "123456", "654321"}
+	server.shortCodeGenerator = func(length int) (string, error) {
+		if length != 6 || len(codes) == 0 {
+			t.Fatalf("unexpected short-code request length=%d remaining=%d", length, len(codes))
+		}
+		code := codes[0]
+		codes = codes[1:]
+		return code, nil
+	}
+	endpoint := httptest.NewServer(server.routes())
+	defer endpoint.Close()
+
+	first := createAndUploadWithRequest(t, endpoint.URL, server, []byte("first-short-share"), createUploadRequest{
+		FileName: "first.mp3", ContentType: "audio/mpeg", Size: int64(len("first-short-share")),
+		ExpiresAt: fixedNow.Add(time.Hour).Format(time.RFC3339), Password: "independent-password",
+		LinkType: "short", ShortCodeLength: 6,
+	})
+	second := createAndUploadWithRequest(t, endpoint.URL, server, []byte("second-short-share"), createUploadRequest{
+		FileName: "second.mp3", ContentType: "audio/mpeg", Size: int64(len("second-short-share")),
+		ExpiresAt: fixedNow.Add(2 * time.Hour).Format(time.RFC3339), LinkType: "short", ShortCodeLength: 6,
+	})
+	if first.AccessCode != "123456" || second.AccessCode != "654321" {
+		t.Fatalf("collision retry produced codes %q and %q", first.AccessCode, second.AccessCode)
+	}
+	if mustPublicPath(t, first.PublicURL) != "/s/123456" || mustPublicPath(t, second.PublicURL) != "/s/654321" {
+		t.Fatalf("short-code URLs do not match their access codes")
+	}
+	if !validOpaqueID(first.ShareID) || !validOpaqueID(first.UploadToken) || first.ShareID == first.AccessCode || first.UploadToken == first.AccessCode {
+		t.Fatal("short code replaced an internal high-entropy identifier")
+	}
+	assertStorageOmitsSecrets(t, configuration.dataDirectory, []string{"123456", "654321", "independent-password"})
+
+	tooLongBody, _ := json.Marshal(createUploadRequest{
+		FileName: "too-long.mp3", ContentType: "audio/mpeg", Size: 8,
+		ExpiresAt: fixedNow.Add(24*time.Hour + time.Second).Format(time.RFC3339),
+		LinkType:  "short", ShortCodeLength: 6,
+	})
+	tooLong := performRequest(t, http.MethodPost, endpoint.URL+"/v1/uploads", tooLongBody, map[string]string{
+		"Authorization": "Bearer " + testAdminToken,
+		"Content-Type":  "application/json",
+	})
+	if tooLong.StatusCode != http.StatusBadRequest {
+		t.Fatalf("short code accepted overlong TTL: %d", tooLong.StatusCode)
+	}
+	tooLong.Body.Close()
+
+	for attempt, expected := range []int{http.StatusGone, http.StatusGone, http.StatusTooManyRequests} {
+		response := performRequest(t, http.MethodHead, endpoint.URL+"/s/000000", nil, nil)
+		if response.StatusCode != expected {
+			t.Fatalf("failure attempt %d status=%d want=%d", attempt+1, response.StatusCode, expected)
+		}
+		response.Body.Close()
+	}
+}
+
 func TestPublicRateLimitAndConfigurationGuards(t *testing.T) {
 	configuration := testConfig(t)
 	configuration.publicRequestsPerMinute = 1
@@ -417,18 +478,22 @@ func TestStartupRejectsUnsafePersistedMetadata(t *testing.T) {
 func testConfig(t *testing.T) config {
 	t.Helper()
 	return config{
-		listenAddress:           ":0",
-		dataDirectory:           t.TempDir(),
-		publicBaseURL:           "https://share.example",
-		adminToken:              testAdminToken,
-		masterKey:               bytes.Repeat([]byte{0x42}, 32),
-		chunkSize:               256 * 1024,
-		maximumFileSize:         64 * 1024 * 1024,
-		maximumTTL:              24 * time.Hour,
-		uploadTTL:               time.Hour,
-		publicRequestsPerMinute: 600,
-		maximumPublicStreams:    8,
-		maximumUploads:          2,
+		listenAddress:              ":0",
+		dataDirectory:              t.TempDir(),
+		publicBaseURL:              "https://share.example",
+		adminToken:                 testAdminToken,
+		masterKey:                  bytes.Repeat([]byte{0x42}, 32),
+		chunkSize:                  256 * 1024,
+		maximumFileSize:            64 * 1024 * 1024,
+		maximumTTL:                 24 * time.Hour,
+		uploadTTL:                  time.Hour,
+		publicRequestsPerMinute:    600,
+		shortCodeRequestsPerMinute: 60,
+		shortCodeFailuresPerWindow: 5,
+		shortCodeFailureWindow:     10 * time.Minute,
+		shortCodeMaximumTTL:        24 * time.Hour,
+		maximumPublicStreams:       8,
+		maximumUploads:             2,
 	}
 }
 

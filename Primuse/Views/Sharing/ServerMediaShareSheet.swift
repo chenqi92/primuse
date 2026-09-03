@@ -4,6 +4,321 @@ import Foundation
 import PrimuseKit
 import SwiftUI
 
+struct SongShareSheet: View {
+    private enum PresentedLinkSheet: Identifiable {
+        case musicServer(ServerMediaShareTarget)
+        case primuseRelay
+
+        var id: String {
+            switch self {
+            case .musicServer(let target):
+                "server:\(target.id)"
+            case .primuseRelay:
+                "relay"
+            }
+        }
+    }
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(SourceManager.self) private var sourceManager
+    @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(MusicLibrary.self) private var library
+
+    let song: Song
+
+    @State private var selectedMethod = SongShareLinkMethod.automatic
+    @State private var nativeStatus = SongShareNativeCapabilityStatus.checking
+    @State private var nativeFailureMessage: String?
+    @State private var presentedLinkSheet: PresentedLinkSheet?
+
+    private var source: MusicSource? {
+        sourcesStore.source(id: song.sourceID)
+    }
+
+    private var nativeTarget: ServerMediaShareTarget? {
+        guard let source else { return nil }
+        return try? ServerMediaShareTargetPolicy.makeTarget(
+            kind: .song,
+            title: song.title,
+            songs: [song],
+            source: source
+        )
+    }
+
+    private var relaySupported: Bool {
+        guard let source else { return false }
+        return MediaRelaySourcePolicy.supports(song: song, sourceType: source.type)
+    }
+
+    private var capabilities: SongShareLinkCapabilities {
+        SongShareLinkCapabilities(
+            canTryMusicServer: nativeTarget != nil,
+            canUsePrimuseRelay: relaySupported
+        )
+    }
+
+    private var decision: SongShareLinkDecision {
+        SongShareLinkPolicy.decision(
+            for: selectedMethod,
+            nativeStatus: nativeStatus,
+            capabilities: capabilities
+        )
+    }
+
+    private var informationText: String {
+        let artist = library.artistDisplayName(for: song)?.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ) ?? ""
+        return artist.isEmpty ? song.title : "\(song.title) — \(artist)"
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                songSection
+                informationSection
+                playableLinkSection
+            }
+            .navigationTitle("share_sheet_title")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("done") { dismiss() }
+                }
+            }
+        }
+        .task(id: nativeTarget?.id) {
+            await probeNativeCapability()
+        }
+        .sheet(item: $presentedLinkSheet) { destination in
+            switch destination {
+            case .musicServer(let target):
+                ServerMediaShareSheet(
+                    target: target,
+                    relaySong: relaySupported ? song : nil
+                )
+            case .primuseRelay:
+                MediaRelayShareSheet(song: song)
+            }
+        }
+    }
+
+    private var songSection: some View {
+        Section {
+            HStack(spacing: 14) {
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName,
+                    songID: song.id,
+                    size: 64,
+                    cornerRadius: 12,
+                    sourceID: song.sourceID,
+                    filePath: song.filePath,
+                    fileFormat: song.fileFormat
+                )
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(verbatim: song.title)
+                        .font(.headline)
+                        .lineLimit(2)
+                    if let artist = library.artistDisplayName(for: song), !artist.isEmpty {
+                        Text(verbatim: artist)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    if let source {
+                        Text(verbatim: source.name)
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    private var informationSection: some View {
+        Section {
+            ShareLink(item: informationText, subject: Text(verbatim: song.title)) {
+                Label("share_song_information_action", systemImage: "text.quote")
+            }
+            .accessibilityHint(Text("share_song_information_hint"))
+        } header: {
+            Text("share_song_information")
+        } footer: {
+            Text("share_song_information_footer")
+        }
+    }
+
+    private var playableLinkSection: some View {
+        Section {
+            Picker("share_link_method", selection: $selectedMethod) {
+                ForEach(SongShareLinkPolicy.availableMethods(for: capabilities)) { method in
+                    Text(methodTitle(method)).tag(method)
+                }
+            }
+
+            capabilitySummary
+
+            Button(action: performPrimaryLinkAction) {
+                HStack {
+                    Spacer()
+                    Label(primaryActionTitle, systemImage: primaryActionSymbol)
+                    Spacer()
+                }
+            }
+            .disabled(decision == .waitForMusicServer || decision == .unavailable)
+            .accessibilityHint(Text(primaryActionHint))
+        } header: {
+            Text("share_create_playable_link")
+        } footer: {
+            Text("share_link_permissions_footer")
+        }
+    }
+
+    @ViewBuilder
+    private var capabilitySummary: some View {
+        switch decision {
+        case .waitForMusicServer:
+            HStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("share_server_checking")
+            }
+            .accessibilityElement(children: .combine)
+        case .useMusicServer:
+            Label("share_auto_server_ready", systemImage: "server.rack")
+                .foregroundStyle(.secondary)
+        case .usePrimuseRelay:
+            Label("share_relay_selected_summary", systemImage: "externaldrive.badge.icloud")
+                .foregroundStyle(.secondary)
+        case .confirmPrimuseRelay:
+            Label {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(nativeFallbackTitle)
+                    Text("share_auto_relay_recommended")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            } icon: {
+                Image(systemName: "arrow.triangle.branch")
+                    .foregroundStyle(.orange)
+            }
+            .accessibilityElement(children: .combine)
+        case .unavailable:
+            Label {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(nativeUnavailableTitle)
+                    if let nativeFailureMessage {
+                        Text(verbatim: nativeFailureMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } icon: {
+                Image(systemName: "link.badge.slash")
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    private func methodTitle(_ method: SongShareLinkMethod) -> LocalizedStringKey {
+        switch method {
+        case .automatic: "share_method_automatic"
+        case .musicServer: "share_method_music_server"
+        case .primuseRelay: "share_method_primuse_relay"
+        }
+    }
+
+    private var nativeFallbackTitle: LocalizedStringKey {
+        switch nativeStatus {
+        case .permissionDenied: "share_server_permission_denied"
+        case .failed: "share_server_failed"
+        case .checking: "share_server_checking"
+        case .available: "share_auto_server_ready"
+        case .unsupported: "share_server_unsupported"
+        }
+    }
+
+    private var nativeUnavailableTitle: LocalizedStringKey {
+        if selectedMethod == .musicServer {
+            return nativeFallbackTitle
+        }
+        return "share_link_unavailable"
+    }
+
+    private var primaryActionTitle: LocalizedStringKey {
+        switch decision {
+        case .waitForMusicServer: "share_server_checking"
+        case .useMusicServer: "share_continue_music_server"
+        case .usePrimuseRelay: "share_continue_primuse_relay"
+        case .confirmPrimuseRelay: "share_choose_primuse_relay"
+        case .unavailable: "share_link_unavailable"
+        }
+    }
+
+    private var primaryActionSymbol: String {
+        switch decision {
+        case .useMusicServer: "server.rack"
+        case .usePrimuseRelay, .confirmPrimuseRelay: "externaldrive.badge.icloud"
+        case .waitForMusicServer: "hourglass"
+        case .unavailable: "link.badge.slash"
+        }
+    }
+
+    private var primaryActionHint: LocalizedStringKey {
+        switch decision {
+        case .confirmPrimuseRelay: "share_choose_primuse_relay_hint"
+        default: "share_create_playable_link_hint"
+        }
+    }
+
+    private func performPrimaryLinkAction() {
+        switch decision {
+        case .useMusicServer:
+            if let nativeTarget {
+                presentedLinkSheet = .musicServer(nativeTarget)
+            }
+        case .usePrimuseRelay:
+            presentedLinkSheet = .primuseRelay
+        case .confirmPrimuseRelay:
+            selectedMethod = .primuseRelay
+        case .waitForMusicServer, .unavailable:
+            break
+        }
+    }
+
+    @MainActor
+    private func probeNativeCapability() async {
+        nativeFailureMessage = nil
+        guard let nativeTarget else {
+            nativeStatus = .unsupported
+            return
+        }
+        nativeStatus = .checking
+        do {
+            let availability = try await sourceManager.serverMediaSharingAvailability(
+                for: nativeTarget
+            )
+            try Task.checkCancellation()
+            switch availability {
+            case .available:
+                nativeStatus = .available
+            case .unsupported:
+                nativeStatus = .unsupported
+            case .permissionDenied:
+                nativeStatus = .permissionDenied
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            nativeFailureMessage = error.localizedDescription
+            nativeStatus = .failed
+        }
+    }
+}
+
 struct ServerMediaShareSheet: View {
     private enum CapabilityState {
         case checking
@@ -31,6 +346,7 @@ struct ServerMediaShareSheet: View {
     @State private var probeTask: Task<Void, Never>?
     @State private var creationTask: Task<Void, Never>?
     @State private var showsRelayShare = false
+    @State private var didFailCreation = false
 
     init(target: ServerMediaShareTarget, relaySong: Song? = nil) {
         let now = Date()
@@ -226,6 +542,7 @@ struct ServerMediaShareSheet: View {
         if let relaySong,
            let source = sourcesStore.source(id: relaySong.sourceID),
            MediaRelaySourcePolicy.supports(song: relaySong, sourceType: source.type),
+           shouldOfferRelayFallback,
            createdShare == nil {
             Section {
                 Button {
@@ -239,6 +556,16 @@ struct ServerMediaShareSheet: View {
             } footer: {
                 Text("relay_share_fallback_footer")
             }
+        }
+    }
+
+    private var shouldOfferRelayFallback: Bool {
+        if didFailCreation { return true }
+        switch capabilityState {
+        case .unsupported, .permissionDenied, .failed:
+            return true
+        case .checking, .available:
+            return false
         }
     }
 
@@ -340,6 +667,7 @@ struct ServerMediaShareSheet: View {
     private func createShare() async {
         guard !isCreating else { return }
         isCreating = true
+        didFailCreation = false
         defer { isCreating = false }
         do {
             if includesExpiration, expirationDate <= Date() {
@@ -355,6 +683,7 @@ struct ServerMediaShareSheet: View {
         } catch is CancellationError {
             return
         } catch {
+            didFailCreation = true
             errorMessage = error.localizedDescription
         }
     }
@@ -420,6 +749,12 @@ private enum MediaRelayConfigurationPolicy {
                 || codePoint == 95
         }
     }
+
+    static func isShortCode(_ value: String) -> Bool {
+        (4...6).contains(value.count) && value.unicodeScalars.allSatisfy {
+            (48...57).contains($0.value)
+        }
+    }
 }
 
 private struct MediaRelayCreateRequest: Encodable {
@@ -437,6 +772,8 @@ private struct MediaRelayCreateRequest: Encodable {
     let allowPlayback: Bool
     let allowDownload: Bool
     let allowImport: Bool
+    let linkType: String
+    let shortCodeLength: Int?
 }
 
 private struct MediaRelayCreateResponse: Decodable, Sendable {
@@ -445,6 +782,7 @@ private struct MediaRelayCreateResponse: Decodable, Sendable {
     let publicURL: String
     let chunkSize: Int64
     let expiresAt: String
+    let accessCode: String?
 }
 
 private struct MediaRelayCompleteResponse: Decodable {
@@ -499,7 +837,9 @@ private struct MediaRelayClient: @unchecked Sendable {
         durationSeconds: Double,
         allowPlayback: Bool,
         allowDownload: Bool,
-        allowImport: Bool
+        allowImport: Bool,
+        linkType: String,
+        shortCodeLength: Int?
     ) async throws -> MediaRelayCreateResponse {
         let body = try JSONEncoder().encode(MediaRelayCreateRequest(
             fileName: fileName,
@@ -515,7 +855,9 @@ private struct MediaRelayClient: @unchecked Sendable {
             durationSeconds: durationSeconds,
             allowPlayback: allowPlayback,
             allowDownload: allowDownload,
-            allowImport: allowImport
+            allowImport: allowImport,
+            linkType: linkType,
+            shortCodeLength: shortCodeLength
         ))
         let data = try await perform(
             method: "POST",
@@ -527,6 +869,15 @@ private struct MediaRelayClient: @unchecked Sendable {
         )
         let response = try JSONDecoder().decode(MediaRelayCreateResponse.self, from: data)
         do {
+            if linkType == "short" {
+                guard let expectedLength = shortCodeLength,
+                      let accessCode = response.accessCode,
+                      accessCode.count == expectedLength else {
+                    throw MediaRelayShareError.invalidResponse
+                }
+            } else if response.accessCode != nil {
+                throw MediaRelayShareError.invalidResponse
+            }
             guard MediaRelayConfigurationPolicy.isOpaqueIdentifier(response.shareID),
                   MediaRelayConfigurationPolicy.isOpaqueIdentifier(response.uploadToken),
                   (256 * 1024...32 * 1024 * 1024).contains(response.chunkSize),
@@ -539,10 +890,16 @@ private struct MediaRelayClient: @unchecked Sendable {
             }
             let publicPath = publicURL.path.split(separator: "/")
             guard publicPath.count >= 2,
-                  publicPath[publicPath.count - 2] == "s",
-                  MediaRelayConfigurationPolicy.isOpaqueIdentifier(
-                      String(publicPath[publicPath.count - 1])
-                  ) else {
+                  publicPath[publicPath.count - 2] == "s" else {
+                throw MediaRelayShareError.invalidResponse
+            }
+            let publicIdentifier = String(publicPath[publicPath.count - 1])
+            if let accessCode = response.accessCode {
+                guard MediaRelayConfigurationPolicy.isShortCode(accessCode),
+                      publicIdentifier == accessCode else {
+                    throw MediaRelayShareError.invalidResponse
+                }
+            } else if !MediaRelayConfigurationPolicy.isOpaqueIdentifier(publicIdentifier) {
                 throw MediaRelayShareError.invalidResponse
             }
             try ServerMediaShare.validatePublicURL(response.publicURL)
@@ -678,6 +1035,7 @@ private struct MediaRelayShareRecord: Codable, Identifiable, Sendable {
     let allowsPlayback: Bool?
     let allowsDownload: Bool?
     let allowsImport: Bool?
+    let accessCode: String?
     var isComplete: Bool
 
     var id: String { shareID }
@@ -690,7 +1048,7 @@ private enum MediaRelaySettingsStore {
     private static let tokenAccount = "media-relay.admin-token"
 
     static var endpoint: String {
-        UserDefaults.standard.string(forKey: endpointKey) ?? ""
+        UserDefaults.standard.string(forKey: endpointKey) ?? "https://share.soundisle.com"
     }
 
     static var token: String {
@@ -772,6 +1130,13 @@ struct MediaRelayShareSheet: View {
         var id: String { rawValue }
     }
 
+    private enum PublicLinkStyle: String, CaseIterable, Identifiable {
+        case shortCode = "short"
+        case secureLink = "long"
+
+        var id: String { rawValue }
+    }
+
     @Environment(\.dismiss) private var dismiss
     @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
@@ -779,11 +1144,14 @@ struct MediaRelayShareSheet: View {
     let song: Song
     private let minimumExpirationDate: Date
     private let maximumExpirationDate: Date
+    private let shortCodeMaximumExpirationDate: Date
 
     @State private var endpoint = ""
     @State private var adminToken = ""
     @State private var accessMode: AccessMode = .publicAccess
     @State private var password = ""
+    @State private var publicLinkStyle: PublicLinkStyle = .shortCode
+    @State private var shortCodeLength = 6
     @State private var allowsPlayback = true
     @State private var allowsDownload = false
     @State private var allowsImport = true
@@ -802,8 +1170,9 @@ struct MediaRelayShareSheet: View {
         self.song = song
         self.minimumExpirationDate = now.addingTimeInterval(60)
         self.maximumExpirationDate = now.addingTimeInterval(30 * 24 * 60 * 60)
+        self.shortCodeMaximumExpirationDate = now.addingTimeInterval(24 * 60 * 60)
         _expirationDate = State(
-            initialValue: now.addingTimeInterval(7 * 24 * 60 * 60)
+            initialValue: now.addingTimeInterval(60 * 60)
         )
     }
 
@@ -912,8 +1281,29 @@ struct MediaRelayShareSheet: View {
             DatePicker(
                 "server_share_expiration",
                 selection: $expirationDate,
-                in: minimumExpirationDate...maximumExpirationDate
+                in: minimumExpirationDate...effectiveMaximumExpirationDate
             )
+
+            Picker("relay_share_link_style", selection: $publicLinkStyle) {
+                Text("relay_share_link_short").tag(PublicLinkStyle.shortCode)
+                Text("relay_share_link_secure").tag(PublicLinkStyle.secureLink)
+            }
+            .onChange(of: publicLinkStyle) { _, newValue in
+                if newValue == .shortCode, expirationDate > shortCodeMaximumExpirationDate {
+                    expirationDate = shortCodeMaximumExpirationDate
+                }
+            }
+
+            if publicLinkStyle == .shortCode {
+                Picker("relay_share_code_length", selection: $shortCodeLength) {
+                    ForEach(4...6, id: \.self) { length in
+                        Text(length, format: .number).tag(length)
+                    }
+                }
+                Text("relay_share_short_code_footer")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
 
             Picker("relay_share_access_mode", selection: $accessMode) {
                 Text("relay_share_access_public").tag(AccessMode.publicAccess)
@@ -930,6 +1320,10 @@ struct MediaRelayShareSheet: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
+
+            Text("relay_share_code_password_separate")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
 
             Toggle("relay_share_allow_playback", isOn: $allowsPlayback)
             Toggle("relay_share_allow_download", isOn: $allowsDownload)
@@ -996,6 +1390,14 @@ struct MediaRelayShareSheet: View {
 
                 Link(destination: url) {
                     Label("server_share_open_link", systemImage: "arrow.up.right.square")
+                }
+            }
+            if let accessCode = record.accessCode {
+                LabeledContent("relay_share_access_code") {
+                    Text(verbatim: accessCode)
+                        .font(.title3.monospacedDigit().weight(.semibold))
+                        .textSelection(.enabled)
+                        .accessibilityLabel(Text("relay_share_access_code"))
                 }
             }
             LabeledContent("relay_share_access_mode") {
@@ -1096,7 +1498,7 @@ struct MediaRelayShareSheet: View {
             }
             let baseURL = try MediaRelayConfigurationPolicy.validatedAPIBaseURL(endpoint)
             let trimmedToken = adminToken.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard expirationDate > Date(), expirationDate <= maximumExpirationDate else {
+            guard expirationDate > Date(), expirationDate <= effectiveMaximumExpirationDate else {
                 throw ServerMediaSharingError.invalidExpiration
             }
             try MediaRelaySettingsStore.save(endpoint: baseURL.absoluteString, token: trimmedToken)
@@ -1117,7 +1519,9 @@ struct MediaRelayShareSheet: View {
                 durationSeconds: max(0, song.duration),
                 allowPlayback: allowsPlayback,
                 allowDownload: allowsDownload,
-                allowImport: allowsImport
+                allowImport: allowsImport,
+                linkType: publicLinkStyle.rawValue,
+                shortCodeLength: publicLinkStyle == .shortCode ? shortCodeLength : nil
             )
             guard let decodedExpiration = ISO8601DateFormatter().date(
                 from: creation.expiresAt
@@ -1136,6 +1540,7 @@ struct MediaRelayShareSheet: View {
                 allowsPlayback: allowsPlayback,
                 allowsDownload: allowsDownload,
                 allowsImport: allowsImport,
+                accessCode: creation.accessCode,
                 isComplete: false
             )
             pendingRecord = record
@@ -1198,6 +1603,12 @@ struct MediaRelayShareSheet: View {
                 errorMessage = error.localizedDescription
             }
         }
+    }
+
+    private var effectiveMaximumExpirationDate: Date {
+        publicLinkStyle == .shortCode
+            ? shortCodeMaximumExpirationDate
+            : maximumExpirationDate
     }
 
     private var qualityDescription: String? {
