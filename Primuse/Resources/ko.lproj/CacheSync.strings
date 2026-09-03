@@ -2,7 +2,7 @@
 "cache_sync_subtitle" = "기존 오디오 캐시를 다른 Primuse 기기로 직접 전송";
 "cache_sync_refresh" = "다시 감지";
 "cache_sync_close" = "닫기";
-"cache_sync_local_cache" = "이 Mac에서 전송 가능한 캐시";
+"cache_sync_local_cache" = "이 기기에서 전송 가능한 캐시";
 "cache_sync_inventory_format" = "캐시 파일 %d개 · %@";
 "cache_sync_preparing_inventory" = "완전한 캐시 파일 확인 중…";
 "cache_sync_receiver_ready" = "검색 가능";
@@ -30,3 +30,15 @@
 "cache_sync_error_discovery" = "근처 기기 감지에 실패했습니다. 로컬 네트워크 권한을 확인하세요.";
 "cache_sync_error_connection" = "캐시를 비교할 수 없습니다. 두 기기에서 Primuse를 열어 두세요.";
 "cache_sync_error_transfer" = "캐시 동기화가 중단되었습니다. 검증된 파일은 대상 기기에 유지됩니다.";
+"cache_sync_local_device" = "이 기기";
+"cache_sync_device_status" = "기기 상태";
+"cache_sync_local_network_footer" = "캐시 파일은 로컬 네트워크를 통해 직접 전송됩니다. Primuse가 미디어 서버에서 다시 다운로드하지 않습니다.";
+"cache_sync_missing_on_target" = "대상 기기에 없음";
+"cache_sync_test_three" = "최대 3개 파일로 테스트";
+"cache_sync_sync_all" = "누락된 캐시 모두 동기화";
+"cache_sync_test_three_footer" = "먼저 누락된 파일을 최대 3개 전송해 연결을 확인한 다음 나머지를 동기화하세요.";
+"cache_sync_keep_foreground" = "전송이 끝날 때까지 Primuse를 이 화면에 열어 두고 두 기기를 깨운 상태로 유지하세요.";
+"cache_sync_retry" = "다시 시도";
+"cache_sync_confirm_all_title" = "누락된 캐시를 모두 동기화할까요?";
+"cache_sync_confirm_all_message_format" = "누락된 파일 %d개(%@)를 선택한 기기로 직접 전송합니다.";
+"cache_sync_test_transferred_titles" = "이번 테스트에서 전송된 파일";

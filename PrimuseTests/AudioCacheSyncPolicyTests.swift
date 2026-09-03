@@ -60,4 +60,24 @@ final class AudioCacheSyncPolicyTests: XCTestCase {
             "source-id/hashed-name.m4a"
         )
     }
+
+    func testLimitedItemIDsKeepsDeterministicPrefix() {
+        let itemIDs = ["one", "two", "three", "four"]
+
+        XCTAssertEqual(
+            AudioCacheSyncPolicy.limitedItemIDs(itemIDs, maximumCount: 3),
+            ["one", "two", "three"]
+        )
+        XCTAssertEqual(
+            AudioCacheSyncPolicy.limitedItemIDs(itemIDs, maximumCount: 10),
+            itemIDs
+        )
+        XCTAssertEqual(
+            AudioCacheSyncPolicy.limitedItemIDs(itemIDs, maximumCount: nil),
+            itemIDs
+        )
+        XCTAssertTrue(
+            AudioCacheSyncPolicy.limitedItemIDs(itemIDs, maximumCount: 0).isEmpty
+        )
+    }
 }
