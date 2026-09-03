@@ -1610,9 +1610,9 @@
 "fullscreen_effect_live_waveform" = "实时波形";
 "fullscreen_effect_live_waveform_subtitle" = "横向频谱按实际播放音频实时变化";
 "fullscreen_effect_live_waveform_motion" = "实时频谱驱动 · 无音频时保持静止";
-"immersive_demo_title" = "潮汐记";
-"immersive_demo_artist" = "柳川";
-"immersive_demo_album" = "夜航";
+"immersive_demo_title" = "猿音";
+"immersive_demo_artist" = "图言吐语";
+"immersive_demo_album" = "soundisle";
 "lyrics_full_screen" = "全屏歌词";
 "lyrics_exit_full_screen" = "退出全屏歌词";
 "immersive_lock_controls" = "锁定沉浸式控制";

@@ -632,9 +632,9 @@
 "fullscreen_effect_live_waveform" = "Live Waveform";
 "fullscreen_effect_live_waveform_subtitle" = "The horizontal spectrum follows the playing audio in real time";
 "fullscreen_effect_live_waveform_motion" = "Live spectrum driven · Still when silent";
-"immersive_demo_title" = "Tidal Memory";
-"immersive_demo_artist" = "Liuchuan";
-"immersive_demo_album" = "Night Voyage";
+"immersive_demo_title" = "Primuse";
+"immersive_demo_artist" = "chenqi92";
+"immersive_demo_album" = "soundisle";
 "immersive_lyrics_motion_title" = "Immersive type motion";
 "immersive_lyrics_motion_subtitle" = "Controls the title wall drift and horizontal lyric marquee; turn off to keep type still.";
 "local_import_insufficient_space" = "Not enough free space (required %lld bytes, available %lld bytes).";

@@ -634,9 +634,9 @@
 "fullscreen_effect_live_waveform" = "실시간 파형";
 "fullscreen_effect_live_waveform_subtitle" = "가로 스펙트럼이 재생 오디오를 실시간으로 따릅니다";
 "fullscreen_effect_live_waveform_motion" = "실시간 스펙트럼 · 무음일 때 정지";
-"immersive_demo_title" = "밀물의 기억";
-"immersive_demo_artist" = "Liuchuan";
-"immersive_demo_album" = "밤의 항해";
+"immersive_demo_title" = "Primuse";
+"immersive_demo_artist" = "chenqi92";
+"immersive_demo_album" = "soundisle";
 "immersive_lyrics_motion_title" = "몰입형 문자 모션";
 "immersive_lyrics_motion_subtitle" = "곡명 벽의 느린 이동과 가로 가사 흐름을 제어하며 끄면 문자가 정지합니다.";
 "local_import_insufficient_space" = "사용 가능한 공간이 부족합니다(필요: %lld바이트, 사용 가능: %lld바이트).";

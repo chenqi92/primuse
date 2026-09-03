@@ -634,9 +634,9 @@
 "fullscreen_effect_live_waveform" = "ライブ波形";
 "fullscreen_effect_live_waveform_subtitle" = "横方向のスペクトラムが再生音声をリアルタイムで追います";
 "fullscreen_effect_live_waveform_motion" = "ライブスペクトラム · 無音時は静止";
-"immersive_demo_title" = "潮汐の記憶";
-"immersive_demo_artist" = "柳川";
-"immersive_demo_album" = "夜航";
+"immersive_demo_title" = "Primuse";
+"immersive_demo_artist" = "chenqi92";
+"immersive_demo_album" = "soundisle";
 "immersive_lyrics_motion_title" = "イマーシブ文字モーション";
 "immersive_lyrics_motion_subtitle" = "曲名ウォールの緩やかな移動と横方向の歌詞マーキーを制御し、オフにすると文字が静止します。";
 "local_import_insufficient_space" = "空き容量が不足しています（必要：%lld バイト、利用可能：%lld バイト）。";

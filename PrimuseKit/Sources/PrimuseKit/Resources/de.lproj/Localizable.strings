@@ -634,9 +634,9 @@
 "fullscreen_effect_live_waveform" = "Live-Wellenform";
 "fullscreen_effect_live_waveform_subtitle" = "Das horizontale Spektrum folgt dem Audio in Echtzeit";
 "fullscreen_effect_live_waveform_motion" = "Live-Spektrum · Bei Stille unbewegt";
-"immersive_demo_title" = "Erinnerung an die Gezeiten";
-"immersive_demo_artist" = "Liuchuan";
-"immersive_demo_album" = "Nachtfahrt";
+"immersive_demo_title" = "Primuse";
+"immersive_demo_artist" = "chenqi92";
+"immersive_demo_album" = "soundisle";
 "immersive_lyrics_motion_title" = "Immersive Textbewegung";
 "immersive_lyrics_motion_subtitle" = "Steuert die Bewegung der Titelwand und den horizontalen Liedtextlauf; ausgeschaltet bleibt der Text statisch.";
 "local_import_insufficient_space" = "Nicht genügend freier Speicherplatz (%lld Byte benötigt, %lld Byte verfügbar).";

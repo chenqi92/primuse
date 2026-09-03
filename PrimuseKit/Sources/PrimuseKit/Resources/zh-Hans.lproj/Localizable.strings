@@ -631,9 +631,9 @@
 "fullscreen_effect_live_waveform" = "实时波形";
 "fullscreen_effect_live_waveform_subtitle" = "横向频谱按实际播放音频实时变化";
 "fullscreen_effect_live_waveform_motion" = "实时频谱驱动 · 无音频时保持静止";
-"immersive_demo_title" = "潮汐记";
-"immersive_demo_artist" = "柳川";
-"immersive_demo_album" = "夜航";
+"immersive_demo_title" = "猿音";
+"immersive_demo_artist" = "图言吐语";
+"immersive_demo_album" = "soundisle";
 "immersive_lyrics_motion_title" = "沉浸文字动效";
 "immersive_lyrics_motion_subtitle" = "控制曲名墙的缓慢漂移和歌词横向巡游；关闭后文字保持静态。";
 "local_import_insufficient_space" = "可用空间不足（需要 %lld 字节，可用 %lld 字节）。";

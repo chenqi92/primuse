@@ -634,9 +634,9 @@
 "fullscreen_effect_live_waveform" = "Onde en direct";
 "fullscreen_effect_live_waveform_subtitle" = "Le spectre horizontal suit le son lu en temps réel";
 "fullscreen_effect_live_waveform_motion" = "Spectre en direct · Immobile dans le silence";
-"immersive_demo_title" = "Mémoire des marées";
-"immersive_demo_artist" = "Liuchuan";
-"immersive_demo_album" = "Voyage nocturne";
+"immersive_demo_title" = "Primuse";
+"immersive_demo_artist" = "chenqi92";
+"immersive_demo_album" = "soundisle";
 "immersive_lyrics_motion_title" = "Mouvement typographique immersif";
 "immersive_lyrics_motion_subtitle" = "Contrôle la dérive du mur de titres et le bandeau horizontal de paroles ; désactivez pour figer le texte.";
 "local_import_insufficient_space" = "Espace libre insuffisant (%lld octets requis, %lld octets disponibles).";
