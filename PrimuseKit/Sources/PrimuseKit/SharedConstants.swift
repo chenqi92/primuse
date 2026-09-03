@@ -2112,6 +2112,24 @@ public enum AppleMusicQueueOwnershipPolicy {
     }
 }
 
+/// Keeps Primuse's dormant AVAudioSession notifications from overriding the
+/// system-owned MusicKit transport during local/Apple Music queue handoffs.
+public enum AppleMusicAudioSessionInterruptionPolicy {
+    public static func shouldDeferToSystemTransport(
+        hasActivePlaybackRequest: Bool,
+        requestIsPending: Bool
+    ) -> Bool {
+        hasActivePlaybackRequest && !requestIsPending
+    }
+
+    public static func shouldClearSuppression(
+        isPlaying: Bool,
+        madeProgress: Bool
+    ) -> Bool {
+        isPlaying && madeProgress
+    }
+}
+
 public enum NetworkCredentialPolicy {
     public enum LookupResult: Equatable, Sendable {
         case found(String)

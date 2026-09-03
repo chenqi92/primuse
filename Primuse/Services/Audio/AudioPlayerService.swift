@@ -1621,9 +1621,6 @@ final class AudioPlayerService {
             guard self.currentSong != nil
                     || hasAppleMusicRequest
                     || hadPendingRadioResolution else { return }
-            if hasAppleMusicRequest {
-                appleMusic.markPlaybackInterrupted()
-            }
             // A configuration notification can precede the interruption. Cancel
             // its speculative recovery before reading/publishing any paused state;
             // only the interruption lifecycle may authorize a resume now.
@@ -1651,6 +1648,21 @@ final class AudioPlayerService {
                 self.isPlaying = false
                 self.updateNowPlayingInfo()
                 self.updatePlaybackState()
+                return
+            }
+            if AppleMusicAudioSessionInterruptionPolicy.shouldDeferToSystemTransport(
+                hasActivePlaybackRequest: hasAppleMusicRequest,
+                requestIsPending: false
+            ) {
+                // ApplicationMusicPlayer takes over the route after Primuse's
+                // local engine yields. That handoff interrupts our dormant
+                // AVAudioSession even though MusicKit is already playing. Keep
+                // MusicKit authoritative so the handoff cannot clear queue
+                // intent or strand a mixed-source queue in a paused state.
+                // Genuine calls/route interruptions are mirrored by MusicKit;
+                // its end watchdog remains suppressed until its clock advances.
+                appleMusic.markPlaybackInterrupted()
+                plog("🔇 Active Apple Music interruption delegated to MusicKit")
                 return
             }
             // A cold catalog request may not have mirrored currentSong yet.

@@ -808,6 +808,12 @@ final class AppleMusicService {
              } else {
                  nearEndStallSampleCount = 0
              }
+             if AppleMusicAudioSessionInterruptionPolicy.shouldClearSuppression(
+                isPlaying: nowPlaying,
+                madeProgress: madeProgress
+             ) {
+                 isPlaybackInterrupted = false
+             }
          }
          lastObservedPlaybackTime = playbackTime
 
@@ -905,10 +911,12 @@ final class AppleMusicService {
 
      /// Audio-session interruptions are not natural track endings. Keep the
      /// near-end watchdog suppressed until MusicKit's clock actually resumes.
+     /// Do not turn an interruption into an explicit user pause: starting
+     /// ApplicationMusicPlayer itself interrupts Primuse's dormant local
+     /// AVAudioSession during a normal local-to-DRM queue transition.
      func markPlaybackInterrupted() {
          playbackCommandGeneration &+= 1
          isPlaybackInterrupted = true
-         wasPausedByUser = true
          nearEndStallSampleCount = 0
      }
 

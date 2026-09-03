@@ -74,6 +74,45 @@ struct AppleMusicQueueOwnershipPolicyTests {
     }
 }
 
+@Suite("Apple Music audio-session interruption policy")
+struct AppleMusicAudioSessionInterruptionPolicyTests {
+    @Test("Started MusicKit playback owns interruption recovery")
+    func delegatesStartedPlaybackToMusicKit() {
+        #expect(AppleMusicAudioSessionInterruptionPolicy.shouldDeferToSystemTransport(
+            hasActivePlaybackRequest: true,
+            requestIsPending: false
+        ))
+    }
+
+    @Test("Pending requests and local playback keep existing handling")
+    func keepsPendingAndLocalHandling() {
+        #expect(!AppleMusicAudioSessionInterruptionPolicy.shouldDeferToSystemTransport(
+            hasActivePlaybackRequest: true,
+            requestIsPending: true
+        ))
+        #expect(!AppleMusicAudioSessionInterruptionPolicy.shouldDeferToSystemTransport(
+            hasActivePlaybackRequest: false,
+            requestIsPending: false
+        ))
+    }
+
+    @Test("Only resumed clock progress clears end suppression")
+    func clearsSuppressionAfterProgress() {
+        #expect(AppleMusicAudioSessionInterruptionPolicy.shouldClearSuppression(
+            isPlaying: true,
+            madeProgress: true
+        ))
+        #expect(!AppleMusicAudioSessionInterruptionPolicy.shouldClearSuppression(
+            isPlaying: true,
+            madeProgress: false
+        ))
+        #expect(!AppleMusicAudioSessionInterruptionPolicy.shouldClearSuppression(
+            isPlaying: false,
+            madeProgress: true
+        ))
+    }
+}
+
 @Suite("Apple Music subscription gate policy")
 struct AppleMusicSubscriptionGatePolicyTests {
     @Test("Catalog results require subscription capability")
