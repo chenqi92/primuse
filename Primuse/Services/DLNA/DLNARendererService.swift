@@ -26,6 +26,15 @@ struct RemoteRenderer: Identifiable, Hashable, Sendable {
 }
 
 private let dlnaLog = Logger(subsystem: "com.welape.yuanyin", category: "DLNA")
+private let dlnaControllerDiscoveryQueue = DispatchQueue(
+    label: "com.welape.primuse.dlna.controller-discovery",
+    qos: .utility
+)
+private let dlnaRemoteRendererSearchTargets = [
+    "urn:schemas-upnp-org:device:MediaRenderer:1",
+    // 兼容只响应 ssdp:all、不响应具体 ST 的设备。
+    "ssdp:all",
+]
 
 /// 把猿音宣告成局域网里的 UPnP/AV MediaRenderer ── 别的设备 (VLC / Synology
 /// Audio Station / Plex / Hi-Fi Cast 等控制点) 可以发现这台手机, 把音乐
@@ -86,6 +95,9 @@ final class DLNARendererService {
     /// 主动 M-SEARCH 周期任务 ── 跟 NOTIFY alive 并存, 这边主动扫别人, 那边
     /// 别人主动扫我们。停 DLNA service 时一起 cancel。
     private var discoveryTask: Task<Void, Never>?
+    /// DLNA 接收关闭时，投屏面板仍可用独立临时 socket 主动扫描外部 renderer。
+    /// 扫描最多 3 秒；该标记只用于合并面板 task 与手动刷新产生的重复请求。
+    private var standaloneDiscoveryInFlight = false
 
     /// 拉 device.xml 的 URLSession ── 复用 SmartSSLDelegate 跟项目其他 NAS
     /// 请求一致, 但 DLNA renderer 一般是 LAN HTTP 不需要 SSL trust override。
@@ -348,7 +360,6 @@ final class DLNARendererService {
         transportPlaybackTask?.cancel(); transportPlaybackTask = nil
         subscriptions.removeAll()
         connectedDevices.removeAll()
-        discoveredRenderers.removeAll()
         activeControllerID = nil
         ssdpReadSource?.cancel()  // cancel handler 里 close(fd)
         ssdpReadSource = nil
@@ -367,25 +378,242 @@ final class DLNARendererService {
     /// 主动 M-SEARCH 让 LAN 内的 renderer 立即响应 ── 比等 NOTIFY alive 快得多
     /// (alive 周期 ~5min)。控制点 enter UI 时调一次刷新, 后续 periodic 兜底。
     func refreshRemoteRenderers() {
-        sendMSearch(target: "urn:schemas-upnp-org:device:MediaRenderer:1")
-        // ssdp:all 也撒一遍, 兼容某些设备只对 ssdp:all 响应不对具体 ST 响应
-        sendMSearch(target: "ssdp:all")
+        switch SSDPRemoteRendererDiscoveryPolicy.mode(
+            receiverSocketAvailable: ssdpSocket >= 0
+        ) {
+        case .sharedReceiverSocket:
+            for target in dlnaRemoteRendererSearchTargets {
+                sendMSearch(target: target)
+            }
+        case .standalone:
+            startStandaloneRemoteRendererDiscovery()
+        }
         pruneStaleRenderers()
+    }
+
+    private struct SSDPControllerPacket: Sendable {
+        let message: String
+        let host: String
+    }
+
+    private struct SSDPControllerSearchResult: Sendable {
+        let packets: [SSDPControllerPacket]
+        let failure: String?
+    }
+
+    private func startStandaloneRemoteRendererDiscovery() {
+        guard standaloneDiscoveryInFlight == false else { return }
+        standaloneDiscoveryInFlight = true
+        logEvent(.discovery, "Searching for renderers without enabling DLNA receiver")
+
+        Task { [weak self] in
+            let result = await Self.discoverRemoteRenderersWithTemporarySockets()
+            guard let self else { return }
+            standaloneDiscoveryInFlight = false
+
+            if let failure = result.failure {
+                logEvent(.error, failure)
+            }
+            for packet in result.packets {
+                handleDiscoveryMessage(packet.message, fromHost: packet.host)
+            }
+        }
+    }
+
+    nonisolated private static func discoverRemoteRenderersWithTemporarySockets() async
+        -> SSDPControllerSearchResult {
+        await withCheckedContinuation { continuation in
+            dlnaControllerDiscoveryQueue.async {
+                continuation.resume(returning: performStandaloneRendererDiscovery())
+            }
+        }
+    }
+
+    nonisolated private static func performStandaloneRendererDiscovery()
+        -> SSDPControllerSearchResult {
+        var destination = sockaddr_in()
+        destination.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        destination.sin_family = sa_family_t(AF_INET)
+        destination.sin_port = in_port_t(1900).bigEndian
+        destination.sin_addr = in_addr(s_addr: inet_addr("239.255.255.250"))
+
+        var sockets: [Int32] = []
+        defer {
+            for socketFD in sockets {
+                Darwin.close(socketFD)
+            }
+        }
+
+        for interface in SSDPNetworkInterfaces.discoveryCandidates() {
+            guard let socketFD = makeStandaloneDiscoverySocket(for: interface) else {
+                continue
+            }
+
+            var sentOnInterface = false
+            for target in dlnaRemoteRendererSearchTargets {
+                let payload = mSearchPayload(target: target)
+                let sendResult = payload.withUnsafeBytes { bytes -> Int in
+                    guard let baseAddress = bytes.baseAddress else { return -1 }
+                    return withUnsafePointer(to: &destination) {
+                        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                            Darwin.sendto(
+                                socketFD,
+                                baseAddress,
+                                bytes.count,
+                                0,
+                                $0,
+                                socklen_t(MemoryLayout<sockaddr_in>.size)
+                            )
+                        }
+                    }
+                }
+                sentOnInterface = sentOnInterface || sendResult >= 0
+            }
+
+            if sentOnInterface {
+                sockets.append(socketFD)
+            } else {
+                Darwin.close(socketFD)
+            }
+        }
+
+        guard sockets.isEmpty == false else {
+            return SSDPControllerSearchResult(
+                packets: [],
+                failure: "Unable to send standalone renderer discovery"
+            )
+        }
+
+        var descriptors = sockets.map {
+            pollfd(fd: $0, events: Int16(POLLIN), revents: 0)
+        }
+        let deadline = DispatchTime.now().uptimeNanoseconds + 3_000_000_000
+        var packetsByMessage: [String: SSDPControllerPacket] = [:]
+
+        while true {
+            let now = DispatchTime.now().uptimeNanoseconds
+            guard now < deadline else { break }
+            let remainingMilliseconds = Int32(
+                min((deadline - now + 999_999) / 1_000_000, UInt64(Int32.max))
+            )
+            let readyCount = descriptors.withUnsafeMutableBufferPointer {
+                Darwin.poll($0.baseAddress, nfds_t($0.count), remainingMilliseconds)
+            }
+            if readyCount == 0 { break }
+            if readyCount < 0 {
+                if errno == EINTR { continue }
+                return SSDPControllerSearchResult(
+                    packets: Array(packetsByMessage.values),
+                    failure: "Standalone renderer discovery receive failed errno=\(errno)"
+                )
+            }
+
+            for index in descriptors.indices {
+                guard descriptors[index].revents & Int16(POLLIN) != 0 else { continue }
+                descriptors[index].revents = 0
+                drainStandaloneDiscoverySocket(
+                    descriptors[index].fd,
+                    packetsByMessage: &packetsByMessage
+                )
+            }
+        }
+
+        return SSDPControllerSearchResult(
+            packets: Array(packetsByMessage.values),
+            failure: nil
+        )
+    }
+
+    nonisolated private static func makeStandaloneDiscoverySocket(
+        for interface: SSDPIPv4Interface
+    ) -> Int32? {
+        let socketFD = Darwin.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
+        guard socketFD >= 0 else { return nil }
+
+        var bindAddress = sockaddr_in()
+        bindAddress.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        bindAddress.sin_family = sa_family_t(AF_INET)
+        bindAddress.sin_port = in_port_t(0).bigEndian
+        bindAddress.sin_addr = in_addr(s_addr: INADDR_ANY)
+        let bindResult = withUnsafePointer(to: &bindAddress) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(socketFD, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard bindResult == 0 else {
+            Darwin.close(socketFD)
+            return nil
+        }
+
+        if interface.address != INADDR_ANY {
+            var outboundAddress = in_addr(s_addr: interface.address)
+            let interfaceResult = setsockopt(
+                socketFD,
+                IPPROTO_IP,
+                IP_MULTICAST_IF,
+                &outboundAddress,
+                socklen_t(MemoryLayout<in_addr>.size)
+            )
+            guard interfaceResult == 0 else {
+                Darwin.close(socketFD)
+                return nil
+            }
+        }
+        return socketFD
+    }
+
+    nonisolated private static func drainStandaloneDiscoverySocket(
+        _ socketFD: Int32,
+        packetsByMessage: inout [String: SSDPControllerPacket]
+    ) {
+        while true {
+            var buffer = [UInt8](repeating: 0, count: 8_192)
+            var sourceAddress = sockaddr_in()
+            var sourceLength = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let byteCount = buffer.withUnsafeMutableBufferPointer { bytes in
+                withUnsafeMutablePointer(to: &sourceAddress) {
+                    $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                        Darwin.recvfrom(
+                            socketFD,
+                            bytes.baseAddress,
+                            bytes.count,
+                            MSG_DONTWAIT,
+                            $0,
+                            &sourceLength
+                        )
+                    }
+                }
+            }
+            guard byteCount > 0 else { return }
+            guard let message = String(
+                bytes: buffer.prefix(Int(byteCount)),
+                encoding: .utf8
+            ) else {
+                continue
+            }
+            let host = ipString(from: sourceAddress.sin_addr)
+            let packet = SSDPControllerPacket(message: message, host: host)
+            packetsByMessage["\(host)\n\(message)"] = packet
+        }
+    }
+
+    nonisolated private static func mSearchPayload(target: String) -> Data {
+        Data(
+            """
+            M-SEARCH * HTTP/1.1\r
+            HOST: 239.255.255.250:1900\r
+            MAN: "ssdp:discover"\r
+            MX: 2\r
+            ST: \(target)\r
+            \r
+
+            """.utf8
+        )
     }
 
     private func sendMSearch(target: String) {
         guard ssdpSocket >= 0 else { return }
-        let payload = """
-        M-SEARCH * HTTP/1.1\r
-        HOST: 239.255.255.250:1900\r
-        MAN: "ssdp:discover"\r
-        MX: 2\r
-        ST: \(target)\r
-        \r
-
-        """
-        guard let data = payload.data(using: .utf8) else { return }
-        sendMulticastUDP(data: data)
+        sendMulticastUDP(data: Self.mSearchPayload(target: target))
     }
 
     /// 200 OK (我们 M-SEARCH 的响应) 和 NOTIFY (别人主动广播) 共用同一解析:

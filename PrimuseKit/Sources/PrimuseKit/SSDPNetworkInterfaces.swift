@@ -110,6 +110,19 @@ public enum SSDPLocationPolicy {
     }
 }
 
+public enum SSDPRemoteRendererDiscoveryMode: Sendable {
+    case sharedReceiverSocket
+    case standalone
+}
+
+public enum SSDPRemoteRendererDiscoveryPolicy {
+    public static func mode(
+        receiverSocketAvailable: Bool
+    ) -> SSDPRemoteRendererDiscoveryMode {
+        receiverSocketAvailable ? .sharedReceiverSocket : .standalone
+    }
+}
+
 struct SSDPIPv4InterfaceCandidate: Sendable {
     let interface: SSDPIPv4Interface
     let flags: UInt32

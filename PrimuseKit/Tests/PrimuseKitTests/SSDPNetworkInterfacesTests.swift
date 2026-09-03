@@ -79,6 +79,20 @@ struct SSDPNetworkInterfacesTests {
         #expect(SSDPLocationPolicy.isUsable(location: location, responseHost: "192.168.1.20"))
     }
 
+    @Test func usesStandaloneRendererDiscoveryWhenReceiverIsDisabled() {
+        #expect(
+            SSDPRemoteRendererDiscoveryPolicy.mode(receiverSocketAvailable: false)
+                == .standalone
+        )
+    }
+
+    @Test func reusesReceiverSocketWhenAvailable() {
+        #expect(
+            SSDPRemoteRendererDiscoveryPolicy.mode(receiverSocketAvailable: true)
+                == .sharedReceiverSocket
+        )
+    }
+
     private func candidate(
         _ name: String,
         _ address: String,
