@@ -177,21 +177,18 @@ enum LyricsLoader {
                 }
             }
 
-            let lyricsPath: String
-            if let resolver = connector as? any LyricsSidecarTargetResolving {
-                let target = try await resolver.lyricsSidecarTarget(for: song)
-                guard target.exists else { return .absent }
-                lyricsPath = target.targetPath
-            } else {
-                lyricsPath = try await lyricsSourcePath(for: song, connector: connector)
-            }
+            guard let lyricsFile = try await authoritativeLyricsFile(
+                for: song,
+                connector: connector
+            ) else { return .absent }
             let data = try await connector.fetchRange(
-                path: lyricsPath,
+                path: lyricsFile.path,
                 offset: 0,
-                length: 256 * 1024,
+                length: lyricsFile.size,
                 priority: .background
             )
             guard !Task.isCancelled,
+                  data.count == Int(lyricsFile.size),
                   let raw = String(data: data, encoding: .utf8),
                   !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return .unavailable
@@ -341,15 +338,19 @@ enum LyricsLoader {
                 }
             }
 
-            let lyricsPath = try await lyricsSourcePath(for: song, connector: connector)
+            guard let lyricsFile = try await authoritativeLyricsFile(
+                for: song,
+                connector: connector
+            ) else { return [] }
             let cacheSnapshot = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
             let lyricsData = try await connector.fetchRange(
-                path: lyricsPath,
+                path: lyricsFile.path,
                 offset: 0,
-                length: 256 * 1024,
+                length: lyricsFile.size,
                 priority: .background
             )
-            guard !Task.isCancelled else { return [] }
+            guard !Task.isCancelled,
+                  lyricsData.count == Int(lyricsFile.size) else { return [] }
             guard let lyricsContent = String(data: lyricsData, encoding: .utf8) else {
                 return []
             }
@@ -422,19 +423,37 @@ enum LyricsLoader {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func lyricsSourcePath(
+    private struct AuthoritativeLyricsFile: Sendable {
+        let path: String
+        let size: Int64
+    }
+
+    private static func authoritativeLyricsFile(
         for song: Song,
         connector: any MusicSourceConnector
-    ) async throws -> String {
+    ) async throws -> AuthoritativeLyricsFile? {
+        let target: LyricsSidecarTarget
         if let resolver = connector as? any LyricsSidecarTargetResolving {
-            return try await resolver.lyricsSidecarTarget(for: song).targetPath
+            target = try await resolver.lyricsSidecarTarget(for: song)
+        } else {
+            target = try await LyricsSidecarTargetPolicy.resolve(for: song, using: connector)
         }
-        let songDir = (song.filePath as NSString).deletingLastPathComponent
-        let baseName = ((song.filePath as NSString).lastPathComponent as NSString)
-            .deletingPathExtension
-        if let ref = song.lyricsFileName, ref.contains("/") {
-            return ref
+        guard target.exists, let existingPath = target.existingPath else { return nil }
+        let maximumSize = Int64(LyricsSidecarTargetPolicy.maximumContentByteCount)
+        if let size = target.existingSize, size > 0, size <= maximumSize {
+            return AuthoritativeLyricsFile(path: existingPath, size: size)
         }
-        return (songDir as NSString).appendingPathComponent("\(baseName).lrc")
+        let matches = try await connector.listFiles(at: target.containerPath).filter {
+            !$0.isDirectory
+                && $0.path == existingPath
+                && $0.name.caseInsensitiveCompare(target.fileName) == .orderedSame
+        }
+        guard matches.count == 1,
+              let item = matches.first,
+              item.size > 0,
+              item.size <= maximumSize else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
+        return AuthoritativeLyricsFile(path: item.path, size: item.size)
     }
 }

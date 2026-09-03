@@ -18,7 +18,7 @@ import PrimuseKit
 /// 123 用「文件 ID」而非层级路径标识文件 —— `RemoteFileItem.path` / `Song.filePath`
 /// 存的是 fileId 字符串。sidecar 写入时 SidecarWriteService 传来的 path 形如
 /// `"{fileId}-cover.jpg"`,这里反解 fileId → 查文件详情拿真实名 + 父目录 → 上传。
-actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
+actor Pan123Source: MusicSourceConnector, OAuthCloudSource, LyricsSidecarTargetResolving {
     let sourceID: String
     nonisolated let supportsSidecarWriting = true   // 刮削封面/歌词回写 123 云盘
     nonisolated let preferredDeleteBatchSize = 100
@@ -131,7 +131,9 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
     func writeFile(data: Data, to path: String) async throws {
         let suffix: String
         if path.hasSuffix("-cover.jpg") { suffix = "-cover.jpg" }
-        else if path.hasSuffix(".lrc") { suffix = ".lrc" }
+        else if let lyricsExtension = PrimuseConstants.supportedLyricsExtensions.first(where: {
+            path.hasSuffix(".\($0)")
+        }) { suffix = ".\(lyricsExtension)" }
         else { throw CloudDriveError.invalidResponse }
         let fileID = String(path.dropLast(suffix.count))
         guard !fileID.isEmpty else { throw CloudDriveError.invalidResponse }
@@ -148,14 +150,19 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
         // 2. 单步上传(multipart 一次完成),duplicate=2 覆盖原 sidecar
         let domain = try await uploadDomain()
         do {
-            try await singleStepUpload(domain: domain, parentFileID: parentID, filename: sidecarName, data: data)
+            _ = try await singleStepUpload(
+                domain: domain,
+                parentFileID: parentID,
+                filename: sidecarName,
+                data: data
+            )
         } catch {
             // Upload hosts are assigned dynamically and may be retired before
             // this actor is recreated. Refresh once; duplicate=2 makes retrying
             // the same sidecar idempotent if the first response was lost.
             cachedUploadDomain = nil
             let refreshedDomain = try await uploadDomain()
-            try await singleStepUpload(
+            _ = try await singleStepUpload(
                 domain: refreshedDomain,
                 parentFileID: parentID,
                 filename: sidecarName,
@@ -189,6 +196,132 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
 
     func verifySidecarWrite(data: Data, at path: String) async throws {
         // `writeFile` resolves the resulting file id and performs exact readback.
+    }
+
+    func writeLyricsSidecar(
+        data: Data,
+        target: LyricsSidecarTarget,
+        priority: RangeFetchPriority
+    ) async throws -> LyricsSidecarWriteReceipt {
+        let targetExtension = (target.fileName as NSString).pathExtension.lowercased()
+        guard !data.isEmpty,
+              let parentID = Self.intValue(target.containerPath),
+              PrimuseConstants.supportedLyricsExtensions.contains(targetExtension),
+              target.targetPath.hasSuffix(".\(targetExtension)") else {
+            throw CloudDriveError.invalidResponse
+        }
+        let sourceFileID = String(target.targetPath.dropLast(targetExtension.count + 1))
+        let detail = try await authedRequest(
+            "/api/v1/file/detail?fileID=\(sourceFileID)"
+        )
+        let source = detail["data"] as? [String: Any] ?? [:]
+        guard let sourceName = source["filename"] as? String,
+              Self.intValue(source["parentFileID"]) == parentID,
+              (sourceName as NSString).deletingPathExtension
+                .caseInsensitiveCompare((target.fileName as NSString).deletingPathExtension)
+                == .orderedSame else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+
+        let currentMatches = try await listFiles(at: target.containerPath).filter {
+            !$0.isDirectory
+                && $0.name.caseInsensitiveCompare(target.fileName) == .orderedSame
+        }
+        guard currentMatches.count <= 1 else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        if target.exists {
+            guard let existingPath = target.existingPath,
+                  currentMatches.first?.path == existingPath else {
+                throw EmbeddedMetadataWritebackSourceError.conflict
+            }
+        } else if !currentMatches.isEmpty {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+
+        let domain = try await uploadDomain()
+        let uploadedFileID: String
+        do {
+            uploadedFileID = try await singleStepUpload(
+                domain: domain,
+                parentFileID: parentID,
+                filename: target.fileName,
+                data: data
+            )
+        } catch {
+            cachedUploadDomain = nil
+            let refreshedDomain = try await uploadDomain()
+            uploadedFileID = try await singleStepUpload(
+                domain: refreshedDomain,
+                parentFileID: parentID,
+                filename: target.fileName,
+                data: data
+            )
+        }
+
+        let expectedMD5 = Insecure.MD5.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        let uploadedDetail = try await authedRequest(
+            "/api/v1/file/detail?fileID=\(uploadedFileID)"
+        )
+        let uploaded = uploadedDetail["data"] as? [String: Any] ?? [:]
+        let remoteSize = (uploaded["size"] as? Int64)
+            ?? Int64(Self.intValue(uploaded["size"]) ?? -1)
+        if let returnedID = uploaded["fileID"] ?? uploaded["fileId"],
+           Self.idString(returnedID) != uploadedFileID {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        guard uploaded["filename"] as? String == target.fileName,
+              Self.intValue(uploaded["parentFileID"]) == parentID,
+              remoteSize == Int64(data.count),
+              (uploaded["etag"] as? String)?
+                .caseInsensitiveCompare(expectedMD5) == .orderedSame else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
+        invalidateDownloadURL(for: uploadedFileID)
+        helper.invalidateCachedFile(path: uploadedFileID)
+        let readback = try await fetchRange(
+            path: uploadedFileID,
+            offset: 0,
+            length: remoteSize
+        )
+        guard readback == data else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
+        return LyricsSidecarWriteReceipt(
+            requestedTargetPath: target.targetPath,
+            writtenPath: uploadedFileID,
+            fileName: target.fileName,
+            containerPath: target.containerPath,
+            remoteSize: remoteSize,
+            readback: readback
+        )
+    }
+
+    func lyricsSidecarTarget(for song: Song) async throws -> LyricsSidecarTarget {
+        let detail = try await authedRequest("/api/v1/file/detail?fileID=\(song.filePath)")
+        let data = detail["data"] as? [String: Any] ?? [:]
+        guard let sourceName = data["filename"] as? String,
+              let parentID = Self.intValue(data["parentFileID"]) else {
+            throw CloudDriveError.invalidResponse
+        }
+        let baseName = (sourceName as NSString).deletingPathExtension
+        let siblings = try await listFiles(at: String(parentID))
+        let existing = try LyricsSidecarTargetPolicy.uniqueExistingItem(
+            baseName: baseName,
+            in: siblings
+        )
+        let fileName = existing?.name ?? "\(baseName).lrc"
+        let suffix = ".\((fileName as NSString).pathExtension.lowercased())"
+        return LyricsSidecarTarget(
+            targetPath: song.filePath + suffix,
+            fileName: fileName,
+            containerPath: String(parentID),
+            exists: existing != nil,
+            existingPath: existing?.path,
+            existingSize: existing?.size
+        )
     }
 
     func deleteFile(at path: String) async throws {
@@ -229,13 +362,18 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
 
     /// V2 单步上传:POST {上传域名}/upload/v2/file/single/create(multipart/form-data)。
     /// 适合 ≤1GB 小文件(封面/歌词),一次 HTTP 完成。etag 为文件 MD5(小写 hex)。
-    private func singleStepUpload(domain: String, parentFileID: Int, filename: String, data: Data) async throws {
+    private func singleStepUpload(
+        domain: String,
+        parentFileID: Int,
+        filename: String,
+        data: Data
+    ) async throws -> String {
         let md5 = Insecure.MD5.hash(data: data).map { String(format: "%02x", $0) }.joined()
         guard let url = URL(string: "\(domain)/upload/v2/file/single/create") else {
             throw CloudDriveError.invalidResponse
         }
         let token = try await getToken()
-        try await helper.withTokenRetry(initialToken: token, refresh: refreshToken, isTokenRejection: Self.isAuthError) { @Sendable tok in
+        return try await helper.withTokenRetry(initialToken: token, refresh: refreshToken, isTokenRejection: Self.isAuthError) { @Sendable tok in
             let boundary = "----PrimuseBoundary\(UUID().uuidString)"
             var body = Data()
             func field(_ name: String, _ value: String) {
@@ -267,6 +405,17 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
             let code = Self.intValue(json["code"]) ?? -1
             if code == 401 { throw CloudDriveError.tokenExpired }
             guard code == 0 else { throw CloudDriveError.apiError(code, json["message"] as? String ?? "") }
+            guard let result = json["data"] as? [String: Any],
+                  (result["completed"] as? Bool == true
+                    || Self.intValue(result["completed"]) == 1),
+                  let rawFileID = result["fileID"] ?? result["fileId"] else {
+                throw CloudDriveError.invalidResponse
+            }
+            let uploadedFileID = Self.idString(rawFileID)
+            guard !uploadedFileID.isEmpty else {
+                throw CloudDriveError.invalidResponse
+            }
+            return uploadedFileID
         }
     }
 

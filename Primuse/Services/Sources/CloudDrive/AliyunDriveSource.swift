@@ -4,7 +4,8 @@ import PrimuseKit
 
 /// 阿里云盘 Source — PDS API
 actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
-    RemoteFileDisplayNameProviding, EmbeddedMetadataWritebackAdapter {
+    RemoteFileDisplayNameProviding, LyricsSidecarTargetResolving,
+    EmbeddedMetadataWritebackAdapter {
     let sourceID: String
     nonisolated let supportsSidecarWriting = true   // 刮削歌词/封面写回阿里云盘同目录
     private let helper: CloudDriveHelper
@@ -16,7 +17,9 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
     func writeFile(data: Data, to path: String) async throws {
         let suffix: String
         if path.hasSuffix("-cover.jpg") { suffix = "-cover.jpg" }
-        else if path.hasSuffix(".lrc") { suffix = ".lrc" }
+        else if let lyricsExtension = PrimuseConstants.supportedLyricsExtensions.first(where: {
+            path.hasSuffix(".\($0)")
+        }) { suffix = ".\(lyricsExtension)" }
         else { throw CloudDriveError.invalidResponse }
         let fileID = String(path.dropLast(suffix.count))
         guard !fileID.isEmpty else { throw CloudDriveError.invalidResponse }
@@ -151,6 +154,256 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
 
     func verifySidecarWrite(data: Data, at path: String) async throws {
         // `writeFile` verifies the provider file_id's final size and SHA-1.
+    }
+
+    func writeLyricsSidecar(
+        data: Data,
+        target: LyricsSidecarTarget,
+        priority: RangeFetchPriority
+    ) async throws -> LyricsSidecarWriteReceipt {
+        guard !data.isEmpty else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
+        let targetExtension = (target.fileName as NSString).pathExtension.lowercased()
+        guard PrimuseConstants.supportedLyricsExtensions.contains(targetExtension),
+              target.targetPath.hasSuffix(".\(targetExtension)") else {
+            throw CloudDriveError.invalidResponse
+        }
+        let sourceFileID = String(target.targetPath.dropLast(targetExtension.count + 1))
+        guard !sourceFileID.isEmpty else { throw CloudDriveError.invalidResponse }
+
+        try await connect()
+        guard let driveId else { throw CloudDriveError.notAuthenticated }
+        let token = try await getToken()
+        let source = try await helper.withTokenRetry(
+            initialToken: token,
+            refresh: refreshToken
+        ) { @Sendable tok in
+            try await Self.metadataDetail(
+                driveID: driveId,
+                fileID: sourceFileID,
+                accessToken: tok
+            )
+        }
+        guard source.parentFileID == target.containerPath,
+              (source.name as NSString).deletingPathExtension
+                .caseInsensitiveCompare((target.fileName as NSString).deletingPathExtension)
+                == .orderedSame else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+
+        let currentMatches = try await listFiles(at: target.containerPath).filter {
+            !$0.isDirectory
+                && $0.name.caseInsensitiveCompare(target.fileName) == .orderedSame
+        }
+        guard currentMatches.count <= 1 else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        let exactExistingID: String?
+        if target.exists {
+            guard let existingPath = target.existingPath,
+                  currentMatches.first?.path == existingPath else {
+                throw EmbeddedMetadataWritebackSourceError.conflict
+            }
+            exactExistingID = existingPath
+        } else {
+            guard currentMatches.isEmpty else {
+                throw EmbeddedMetadataWritebackSourceError.conflict
+            }
+            exactExistingID = nil
+        }
+
+        let localURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("primuse-aliyun-lyrics-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: localURL) }
+        try data.write(to: localURL, options: .atomic)
+        let descriptor = try Self.uploadDescriptor(localURL: localURL)
+
+        let writtenFileID: String = try await helper.withTokenRetry(
+            initialToken: token,
+            refresh: refreshToken
+        ) { @Sendable tok in
+            if let exactExistingID {
+                let existing = try await Self.metadataDetail(
+                    driveID: driveId,
+                    fileID: exactExistingID,
+                    accessToken: tok
+                )
+                guard existing.name == target.fileName,
+                      existing.parentFileID == target.containerPath else {
+                    throw EmbeddedMetadataWritebackSourceError.conflict
+                }
+                try await Self.uploadReplacement(
+                    localURL: localURL,
+                    descriptor: descriptor,
+                    detail: existing,
+                    driveID: driveId,
+                    expected: existing.state,
+                    accessToken: tok
+                )
+                try await Self.verifyUploadedFile(
+                    driveID: driveId,
+                    fileID: exactExistingID,
+                    descriptor: descriptor,
+                    accessToken: tok
+                )
+                return exactExistingID
+            }
+
+            let proof = try Self.proofCode(
+                token: tok,
+                localURL: localURL,
+                size: descriptor.size
+            )
+            let createBody = try SafeJSONSerialization.data(withJSONObject: [
+                "drive_id": driveId,
+                "parent_file_id": target.containerPath,
+                "name": target.fileName,
+                "type": "file",
+                "check_name_mode": "refuse",
+                "size": descriptor.size,
+                "content_hash_name": "sha1",
+                "content_hash": descriptor.sha1,
+                "proof_version": "v1",
+                "proof_code": proof,
+                "part_info_list": [["part_number": 1]],
+            ])
+            let created = try await Self.authorizedJSONRequest(
+                url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/create")!,
+                body: createBody,
+                accessToken: tok,
+                operation: "create lyrics sidecar"
+            )
+            if created["exist"] as? Bool == true {
+                throw EmbeddedMetadataWritebackSourceError.conflict
+            }
+            guard let newFileID = created["file_id"] as? String,
+                  !newFileID.isEmpty else {
+                throw CloudDriveError.invalidResponse
+            }
+            if created["rapid_upload"] as? Bool != true {
+                guard let uploadID = created["upload_id"] as? String,
+                      !uploadID.isEmpty,
+                      let uploadURL = (created["part_info_list"] as? [[String: Any]])?
+                        .first?["upload_url"] as? String,
+                      let putURL = URL(string: uploadURL) else {
+                    throw CloudDriveError.invalidResponse
+                }
+                var request = URLRequest(url: putURL)
+                request.httpMethod = "PUT"
+                let (_, response) = try await URLSession.shared.upload(
+                    for: request,
+                    from: data
+                )
+                guard let http = response as? HTTPURLResponse,
+                      (200...299).contains(http.statusCode) else {
+                    throw CloudDriveError.apiError(
+                        (response as? HTTPURLResponse)?.statusCode ?? 0,
+                        "aliyun lyrics part PUT"
+                    )
+                }
+                let completeBody = try SafeJSONSerialization.data(withJSONObject: [
+                    "drive_id": driveId,
+                    "file_id": newFileID,
+                    "upload_id": uploadID,
+                ])
+                let completed = try await Self.authorizedJSONRequest(
+                    url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/complete")!,
+                    body: completeBody,
+                    accessToken: tok,
+                    operation: "complete lyrics sidecar"
+                )
+                guard completed["file_id"] as? String == newFileID else {
+                    throw CloudDriveError.invalidResponse
+                }
+            }
+            try await Self.verifyUploadedFile(
+                driveID: driveId,
+                fileID: newFileID,
+                descriptor: descriptor,
+                accessToken: tok
+            )
+            return newFileID
+        }
+
+        let writtenMetadata = try await helper.withTokenRetry(
+            initialToken: token,
+            refresh: refreshToken
+        ) { @Sendable tok in
+            try await Self.metadataDetail(
+                driveID: driveId,
+                fileID: writtenFileID,
+                accessToken: tok
+            )
+        }
+        guard writtenMetadata.name == target.fileName,
+              writtenMetadata.parentFileID == target.containerPath,
+              writtenMetadata.state.fileSize == descriptor.size,
+              writtenMetadata.state.revision?
+                .caseInsensitiveCompare(descriptor.sha1) == .orderedSame else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
+
+        await invalidateMetadataWritebackCache(for: writtenFileID)
+        let readback = try await fetchRange(
+            path: writtenFileID,
+            offset: 0,
+            length: writtenMetadata.state.fileSize
+        )
+        guard readback == data else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
+        if let visibleMatches = try? await listFiles(at: target.containerPath).filter({
+            !$0.isDirectory
+                && $0.name.caseInsensitiveCompare(target.fileName) == .orderedSame
+        }),
+           visibleMatches.count > 1
+                || (visibleMatches.count == 1 && visibleMatches[0].path != writtenFileID) {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        return LyricsSidecarWriteReceipt(
+            requestedTargetPath: target.targetPath,
+            writtenPath: writtenFileID,
+            fileName: target.fileName,
+            containerPath: target.containerPath,
+            remoteSize: writtenMetadata.state.fileSize,
+            readback: readback
+        )
+    }
+
+    func lyricsSidecarTarget(for song: Song) async throws -> LyricsSidecarTarget {
+        try await connect()
+        guard let driveId else { throw CloudDriveError.notAuthenticated }
+        let token = try await getToken()
+        let context: (baseName: String, parentID: String) = try await helper.withTokenRetry(
+            initialToken: token,
+            refresh: refreshToken
+        ) { @Sendable tok in
+            let source = try await Self.metadataDetail(
+                driveID: driveId,
+                fileID: song.filePath,
+                accessToken: tok
+            )
+            return (
+                (source.name as NSString).deletingPathExtension,
+                source.parentFileID
+            )
+        }
+        let siblings = try await listFiles(at: context.parentID)
+        let existing = try LyricsSidecarTargetPolicy.uniqueExistingItem(
+            baseName: context.baseName,
+            in: siblings
+        )
+        let fileName = existing?.name ?? "\(context.baseName).lrc"
+        let suffix = ".\((fileName as NSString).pathExtension.lowercased())"
+        return LyricsSidecarTarget(
+            targetPath: song.filePath + suffix,
+            fileName: fileName,
+            containerPath: context.parentID,
+            exists: existing != nil,
+            existingPath: existing?.path,
+            existingSize: existing?.size
+        )
     }
 
     private struct MetadataDetail: Sendable {

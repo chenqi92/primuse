@@ -4,6 +4,32 @@ import Testing
 
 @Suite("Lyrics content parser")
 struct LyricsContentParserTests {
+    private var screenshotStyle41LineLRC: String {
+        let visibleLines = [
+            "[00:00.00]作词：彭锋",
+            "[00:01.00]作曲：徐鸣涧",
+            "[00:05.17]发行：北京自在天浩文化传媒有限公司",
+            "[00:29.67]青春大概如你所说",
+            "[00:33.97]在花开的季节经过",
+            "[00:37.89]转身以后才懂得",
+        ]
+        let remainingLines = (7...41).map { index in
+            let totalCentiseconds = 3_789 + (index - 6) * 387
+            let minutes = totalCentiseconds / 6_000
+            let seconds = (totalCentiseconds % 6_000) / 100
+            let fraction = totalCentiseconds % 100
+            return String(
+                format: "[%02d:%02d.%02d]回归测试歌词第%02d行",
+                minutes,
+                seconds,
+                fraction,
+                index
+            )
+        }
+        return (["[ti:青春大概]", "[ar:青春主题曲]"] + visibleLines + remainingLines)
+            .joined(separator: "\n")
+    }
+
     private let issue15ELRC = """
     [ti:I See Her]
     [ar:]
@@ -566,6 +592,111 @@ struct LyricsContentParserTests {
         var changedMetadata = roundTrip
         changedMetadata[0].metadataLines = ["[la:fa]"]
         #expect(!LyricsContentParser.areSemanticallyEquivalent(expected, changedMetadata))
+    }
+
+    @Test("Forty-one-line save readback accepts only transport and precision changes")
+    func comparesFortyOneLineSaveReadback() throws {
+        let sourceLines = LyricsContentParser.parse(screenshotStyle41LineLRC)
+        #expect(sourceLines.count == 41)
+
+        let canonical = LyricsContentParser.serialize(sourceLines)
+        let readback = "\u{FEFF}" + canonical
+            .replacingOccurrences(
+                of: "[ar:青春主题曲]\n",
+                with: "[ar:青春主题曲]\n\n"
+            )
+            .replacingOccurrences(of: "\n", with: "\r\n")
+        #expect(LyricsContentParser.areContentsSemanticallyEquivalent(
+            screenshotStyle41LineLRC,
+            readback
+        ))
+
+        let missingLine = canonical.components(separatedBy: "\n").dropLast().joined(separator: "\n")
+        #expect(!LyricsContentParser.areContentsSemanticallyEquivalent(
+            screenshotStyle41LineLRC,
+            missingLine
+        ))
+        #expect(!LyricsContentParser.areContentsSemanticallyEquivalent(
+            screenshotStyle41LineLRC,
+            canonical.replacingOccurrences(of: "第20行", with: "错误歌曲内容")
+        ))
+        #expect(!LyricsContentParser.areContentsSemanticallyEquivalent(
+            screenshotStyle41LineLRC,
+            canonical.replacingOccurrences(of: "[ar:青春主题曲]", with: "[ar:错误歌手]")
+        ))
+        #expect(!LyricsContentParser.areContentsSemanticallyEquivalent(
+            screenshotStyle41LineLRC,
+            canonical.replacingOccurrences(of: "[00:29.670]", with: "[00:29.680]")
+        ))
+        #expect(!LyricsContentParser.areContentsSemanticallyEquivalent(
+            screenshotStyle41LineLRC,
+            canonical + "\n未带时间戳的残留行"
+        ))
+        #expect(!LyricsContentParser.areContentsSemanticallyEquivalent(
+            "前缀会被解析器忽略[00:01.00]正文",
+            "[00:01.00]正文"
+        ))
+        #expect(!LyricsContentParser.areContentsSemanticallyEquivalent(
+            "[00:01.00]遗漏正文<00:01.00>保留正文",
+            "[00:01.00]<00:01.00>保留正文"
+        ))
+    }
+
+    @Test("TTML writeback comparison accepts transport normalization but no lossy rewrite")
+    func comparesCompleteTTMLDocuments() {
+        let transportNormalized = "\u{FEFF}"
+            + issue27TTML.replacingOccurrences(of: "\n", with: "\r\n")
+        #expect(LyricsContentParser.areContentsSemanticallyEquivalent(
+            issue27TTML,
+            transportNormalized
+        ))
+        #expect(!LyricsContentParser.areContentsSemanticallyEquivalent(
+            issue27TTML,
+            issue27TTML.replacingOccurrences(of: "SECOND &amp; LINE", with: "SECOND LINE")
+        ))
+    }
+
+    @Test("Semantic content comparison preserves same-time order and translations")
+    func comparesSameTimeOrderAndTranslations() {
+        let bilingual = """
+        [la:en]
+        [00:01.00]Stay with me
+        [00:01.00]Reste avec moi
+        [00:03.00]Through the night
+        [00:03.00]Toute la nuit
+        """
+        let canonical = LyricsContentParser.serialize(LyricsContentParser.parse(bilingual))
+        #expect(LyricsContentParser.areContentsSemanticallyEquivalent(bilingual, canonical))
+
+        let reordered = """
+        [la:en]
+        [00:01.000]Reste avec moi
+        [00:01.000]Stay with me
+        [00:03.000]Through the night
+        [00:03.000]Toute la nuit
+        """
+        #expect(!LyricsContentParser.areContentsSemanticallyEquivalent(bilingual, reordered))
+    }
+
+    @Test("Semantic content comparison covers ELRC, plain text, and RTL lyrics")
+    func comparesEditableFormatsAndRTLText() {
+        let serializedELRC = LyricsContentParser.serialize(
+            LyricsContentParser.parse(issue15ELRC)
+        )
+        #expect(LyricsContentParser.areContentsSemanticallyEquivalent(
+            issue15ELRC,
+            "\u{FEFF}" + serializedELRC.replacingOccurrences(of: "\n", with: "\r\n")
+        ))
+
+        let rtl = "شب آرام است\nدل من بیدار است\nراه ادامه دارد"
+        #expect(LyricsContentParser.areContentsSemanticallyEquivalent(
+            rtl,
+            "\u{FEFF}شب آرام است\r\n\r\nدل من بیدار است\r\nراه ادامه دارد"
+        ))
+        #expect(!LyricsContentParser.areContentsSemanticallyEquivalent(
+            rtl,
+            "شب آرام است\nراه ادامه دارد"
+        ))
     }
 
     @Test("Overlapping TTML agents share one row but keep independent word timelines")

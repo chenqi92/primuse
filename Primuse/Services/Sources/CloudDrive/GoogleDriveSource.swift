@@ -21,18 +21,96 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
     /// 形如 "{fileID}-cover.jpg" / "{fileID}.lrc" / "{fileID}.ttml"。
     /// 反解出源 file → 查名+父目录 → multipart 上传。
     func writeFile(data: Data, to path: String) async throws {
+        _ = try await writeSidecar(data: data, to: path, expectedLyricsTarget: nil)
+    }
+
+    func writeLyricsSidecar(
+        data: Data,
+        target: LyricsSidecarTarget,
+        priority: RangeFetchPriority
+    ) async throws -> LyricsSidecarWriteReceipt {
+        let written = try await writeSidecar(
+            data: data,
+            to: target.targetPath,
+            expectedLyricsTarget: target
+        )
+        return LyricsSidecarWriteReceipt(
+            requestedTargetPath: target.targetPath,
+            writtenPath: written.path,
+            fileName: written.fileName,
+            containerPath: written.containerPath,
+            remoteSize: written.size,
+            readback: written.readback
+        )
+    }
+
+    private struct CompletedSidecarWrite: Sendable {
+        let path: String
+        let fileName: String
+        let containerPath: String
+        let size: Int64
+        let readback: Data
+    }
+
+    private func writeSidecar(
+        data: Data,
+        to path: String,
+        expectedLyricsTarget: LyricsSidecarTarget?
+    ) async throws -> CompletedSidecarWrite {
+        guard !data.isEmpty else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
         guard let reference = GoogleDriveSidecarPolicy.reference(from: path) else {
             throw CloudDriveError.invalidResponse
         }
 
-        let context = try await sidecarContext(for: reference)
-        let existingID = try await sidecarItemID(named: context.name, parentID: context.parentID)
+        let resolvedContext = try await sidecarContext(for: reference)
+        let context: SidecarContext
+        let existingID: String?
+        if let target = expectedLyricsTarget {
+            let targetExtension = (target.fileName as NSString).pathExtension.lowercased()
+            let targetBaseName = (target.fileName as NSString).deletingPathExtension
+            let resolvedBaseName = (resolvedContext.name as NSString).deletingPathExtension
+            guard target.targetPath == path,
+                  target.containerPath == resolvedContext.parentID,
+                  targetBaseName.caseInsensitiveCompare(resolvedBaseName) == .orderedSame,
+                  targetExtension == String(reference.suffix.dropFirst()).lowercased(),
+                  PrimuseConstants.supportedLyricsExtensions.contains(targetExtension) else {
+                throw EmbeddedMetadataWritebackSourceError.conflict
+            }
+            let matches = try await listFiles(at: target.containerPath).filter {
+                !$0.isDirectory
+                    && $0.name.caseInsensitiveCompare(target.fileName) == .orderedSame
+            }
+            guard matches.count <= 1 else {
+                throw EmbeddedMetadataWritebackSourceError.conflict
+            }
+            if target.exists {
+                guard let expectedPath = target.existingPath,
+                      matches.first?.path == expectedPath else {
+                    throw EmbeddedMetadataWritebackSourceError.conflict
+                }
+                existingID = expectedPath
+            } else {
+                guard matches.isEmpty else {
+                    throw EmbeddedMetadataWritebackSourceError.conflict
+                }
+                existingID = nil
+            }
+            context = SidecarContext(name: target.fileName, parentID: target.containerPath)
+        } else {
+            context = resolvedContext
+            existingID = try await sidecarItemID(
+                named: context.name,
+                parentID: context.parentID
+            )
+        }
 
         let token = try await getToken()
         // Wrap both the metadata lookup and the upload so a server-side early
         // token revocation (401) triggers one force-refresh + retry of the
         // whole sidecar write rather than failing until local expiry.
-        let sidecarID: String = try await helper.withTokenRetry(
+        let (sidecarID, remoteSize): (String, Int64) = try await helper.withTokenRetry(
             initialToken: token,
             refresh: refreshToken
         ) { @Sendable tok in
@@ -46,7 +124,7 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
                 components.queryItems = [
                     .init(name: "uploadType", value: "media"),
                     .init(name: "supportsAllDrives", value: "true"),
-                    .init(name: "fields", value: "id"),
+                    .init(name: "fields", value: "id,name,size,parents"),
                 ]
                 var update = URLRequest(url: components.url!)
                 update.httpMethod = "PATCH"
@@ -70,7 +148,7 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
                 components.queryItems = [
                     .init(name: "uploadType", value: "multipart"),
                     .init(name: "supportsAllDrives", value: "true"),
-                    .init(name: "fields", value: "id"),
+                    .init(name: "fields", value: "id,name,size,parents"),
                 ]
                 var create = URLRequest(url: components.url!)
                 create.httpMethod = "POST"
@@ -92,19 +170,45 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
                 throw CloudDriveError.apiError(http.statusCode, "Google Drive sidecar upload failed")
             }
             let responseJSON = try JSONSerialization.jsonObject(with: responseData) as? [String: Any] ?? [:]
-            guard let uploadedID = responseJSON["id"] as? String, !uploadedID.isEmpty else {
+            guard let uploadedID = responseJSON["id"] as? String,
+                  !uploadedID.isEmpty,
+                  let uploadedName = responseJSON["name"] as? String,
+                  uploadedName == context.name,
+                  Self.int64(responseJSON["size"]) == Int64(data.count),
+                  (responseJSON["parents"] as? [String])?.contains(context.parentID) == true else {
                 throw CloudDriveError.invalidResponse
             }
-            return uploadedID
+            if let existingID, uploadedID != existingID {
+                throw EmbeddedMetadataWritebackSourceError.conflict
+            }
+            return (uploadedID, Self.int64(responseJSON["size"]))
         }
 
         let readback = try await fetchRange(
             path: sidecarID,
             offset: 0,
-            length: Int64(data.count)
+            length: remoteSize
         )
-        guard readback == data else { throw CloudDriveError.invalidResponse }
+        guard readback == data else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
+        if expectedLyricsTarget != nil,
+           let visibleMatches = try? await listFiles(at: context.parentID).filter({
+               !$0.isDirectory
+                   && $0.name.caseInsensitiveCompare(context.name) == .orderedSame
+           }),
+           visibleMatches.count > 1
+                || (visibleMatches.count == 1 && visibleMatches[0].path != sidecarID) {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
         plog("📁 Google Drive sidecar uploaded and verified: \(context.name)")
+        return CompletedSidecarWrite(
+            path: sidecarID,
+            fileName: context.name,
+            containerPath: context.parentID,
+            size: remoteSize,
+            readback: readback
+        )
     }
 
     private struct SidecarContext: Sendable {
@@ -159,20 +263,21 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         )
         let lrcContext = try await sidecarContext(for: lrcReference)
         let siblings = try await listFiles(at: lrcContext.parentID)
-        let suffix = GoogleDriveSidecarPolicy.preferredLyricsSuffix(
-            sourceFileName: lrcContext.name,
-            siblingNames: siblings.filter { !$0.isDirectory }.map(\.name)
+        let baseName = (lrcContext.name as NSString).deletingPathExtension
+        let existing = try LyricsSidecarTargetPolicy.uniqueExistingItem(
+            baseName: baseName,
+            in: siblings
         )
-        let fileName = GoogleDriveSidecarPolicy.targetName(
-            sourceFileName: lrcContext.name,
-            suffix: suffix
-        )
+        let suffix = existing.map { ".\(($0.name as NSString).pathExtension.lowercased())" }
+            ?? ".lrc"
+        let fileName = existing?.name ?? "\(baseName).lrc"
         return LyricsSidecarTarget(
             targetPath: song.filePath + suffix,
             fileName: fileName,
-            exists: siblings.contains {
-                !$0.isDirectory && $0.name.caseInsensitiveCompare(fileName) == .orderedSame
-            }
+            containerPath: lrcContext.parentID,
+            exists: existing != nil,
+            existingPath: existing?.path,
+            existingSize: existing?.size
         )
     }
 

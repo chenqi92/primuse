@@ -14,10 +14,19 @@ actor SidecarWriteService {
     private init() {}
 
     struct WriteResult: Sendable {
+        struct VerifiedLyricsWrite: Sendable, Equatable {
+            let target: LyricsPreflightResult
+            let content: String
+        }
+
         var coverWritten: Bool = false
         var lyricsWritten: Bool = false
         var lyricsRemoved: Bool = false
         var lyricsTargetChanged: Bool = false
+        /// Issued only after the connector has proved the write at the exact
+        /// preflight target. Callers must use this receipt instead of resolving
+        /// the old `Song` again through an unrelated cache/read route.
+        var verifiedLyricsWrite: VerifiedLyricsWrite?
         var coverError: String?
         var lyricsError: String?
         /// A credential/permission failure applies to the whole source, not
@@ -30,7 +39,10 @@ actor SidecarWriteService {
     struct LyricsPreflightResult: Sendable, Equatable {
         let targetPath: String
         let fileName: String
+        let containerPath: String
         let replacesExistingFile: Bool
+        let existingPath: String?
+        let existingSize: Int64?
     }
 
     /// Non-mutating source/file preflight used by the editor before enabling
@@ -48,7 +60,10 @@ actor SidecarWriteService {
         return LyricsPreflightResult(
             targetPath: target.targetPath,
             fileName: target.fileName,
-            replacesExistingFile: target.exists
+            containerPath: target.containerPath,
+            replacesExistingFile: target.exists,
+            existingPath: target.existingPath,
+            existingSize: target.existingSize
         )
     }
 
@@ -107,26 +122,42 @@ actor SidecarWriteService {
             let sidecarContent = lyricsContent?.trimmingCharacters(in: .newlines)
                 ?? LyricsContentParser.serialize(lyricsLines)
             if let sidecarData = sidecarContent.data(using: .utf8) {
+                guard !sidecarData.isEmpty,
+                      sidecarData.count <= LyricsSidecarTargetPolicy.maximumContentByteCount else {
+                    let error = EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+                    result.lyricsError = error.localizedDescription
+                    result.errors.append("Lyrics: \(error.localizedDescription)")
+                    return result
+                }
                 do {
                     let target = try await lyricsTarget(for: song, using: connector)
                     let currentPreflight = LyricsPreflightResult(
                         targetPath: target.targetPath,
                         fileName: target.fileName,
-                        replacesExistingFile: target.exists
+                        containerPath: target.containerPath,
+                        replacesExistingFile: target.exists,
+                        existingPath: target.existingPath,
+                        existingSize: target.existingSize
                     )
                     guard expectedLyricsTarget == nil
                             || expectedLyricsTarget == currentPreflight else {
                         result.lyricsTargetChanged = true
                         return result
                     }
-                    try await connector.writeFile(
+                    let receipt = try await connector.writeLyricsSidecar(
                         data: sidecarData,
-                        to: target.targetPath,
+                        target: target,
                         priority: .background
                     )
-                    try await connector.verifySidecarWrite(
+                    let verifiedContent = try verifyLyricsSidecarWrite(
                         data: sidecarData,
-                        at: target.targetPath
+                        content: sidecarContent,
+                        target: target,
+                        receipt: receipt
+                    )
+                    result.verifiedLyricsWrite = .init(
+                        target: currentPreflight,
+                        content: verifiedContent
                     )
                     result.lyricsWritten = true
                     plog("📁 Sidecar: \(target.fileName) written to \(songDir)")
@@ -158,7 +189,10 @@ actor SidecarWriteService {
             let currentPreflight = LyricsPreflightResult(
                 targetPath: target.targetPath,
                 fileName: target.fileName,
-                replacesExistingFile: target.exists
+                containerPath: target.containerPath,
+                replacesExistingFile: target.exists,
+                existingPath: target.existingPath,
+                existingSize: target.existingSize
             )
             guard expectedLyricsTarget == nil
                     || expectedLyricsTarget == currentPreflight else {
@@ -169,7 +203,10 @@ actor SidecarWriteService {
                 result.lyricsRemoved = true
                 return result
             }
-            try await connector.deleteFile(at: target.targetPath)
+            guard let existingPath = target.existingPath else {
+                throw SourceError.fileNotFound(target.fileName)
+            }
+            try await connector.deleteFile(at: existingPath)
             result.lyricsRemoved = true
             plog("📁 Sidecar: \(target.fileName) removed")
         } catch {
@@ -181,28 +218,6 @@ actor SidecarWriteService {
         return result
     }
 
-    private nonisolated static func lyricsTargetPath(for song: Song) -> String {
-        let songDir = (song.filePath as NSString).deletingLastPathComponent
-        let songBase = ((song.filePath as NSString).lastPathComponent as NSString)
-            .deletingPathExtension
-
-        if let ref = song.lyricsFileName, !ref.isEmpty {
-            let resolvedRef = ref.contains("/")
-                ? ref
-                : (songDir as NSString).appendingPathComponent(ref)
-            let refDir = (resolvedRef as NSString).deletingLastPathComponent
-            let refName = (resolvedRef as NSString).lastPathComponent
-            let refBase = (refName as NSString).deletingPathExtension
-            let refExtension = (refName as NSString).pathExtension.lowercased()
-            if refDir == songDir,
-               refBase.caseInsensitiveCompare(songBase) == .orderedSame,
-               PrimuseConstants.supportedLyricsExtensions.contains(refExtension) {
-                return resolvedRef
-            }
-        }
-        return (songDir as NSString).appendingPathComponent("\(songBase).lrc")
-    }
-
     private func lyricsTarget(
         for song: Song,
         using connector: any MusicSourceConnector
@@ -210,18 +225,31 @@ actor SidecarWriteService {
         if let resolver = connector as? any LyricsSidecarTargetResolving {
             return try await resolver.lyricsSidecarTarget(for: song)
         }
+        return try await LyricsSidecarTargetPolicy.resolve(for: song, using: connector)
+    }
 
-        let targetPath = Self.lyricsTargetPath(for: song)
-        let directory = (targetPath as NSString).deletingLastPathComponent
-        let fileName = (targetPath as NSString).lastPathComponent
-        let items = try await connector.listFiles(at: directory.isEmpty ? "/" : directory)
-        return LyricsSidecarTarget(
-            targetPath: targetPath,
-            fileName: fileName,
-            exists: items.contains {
-                !$0.isDirectory && $0.name.caseInsensitiveCompare(fileName) == .orderedSame
-            }
-        )
+    private func verifyLyricsSidecarWrite(
+        data: Data,
+        content: String,
+        target: LyricsSidecarTarget,
+        receipt: LyricsSidecarWriteReceipt
+    ) throws -> String {
+        guard receipt.requestedTargetPath == target.targetPath,
+              receipt.fileName.caseInsensitiveCompare(target.fileName) == .orderedSame,
+              receipt.containerPath == target.containerPath,
+              !receipt.writtenPath.isEmpty,
+              receipt.remoteSize == Int64(receipt.readback.count),
+              receipt.remoteSize > 0,
+              receipt.remoteSize <= Int64(LyricsSidecarTargetPolicy.maximumContentByteCount),
+              let readbackContent = String(data: receipt.readback, encoding: .utf8),
+              LyricsContentParser.areContentsSemanticallyEquivalent(
+                content,
+                readbackContent
+              ) else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
+        if receipt.readback == data { return content }
+        return readbackContent
     }
 
     private nonisolated static func isSourceUnavailable(_ error: Error) -> Bool {

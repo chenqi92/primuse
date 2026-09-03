@@ -5,7 +5,8 @@ import PrimuseKit
 ///
 /// Supports authenticated browsing, Range playback, recoverable deletion, and
 /// sidecar uploads beside ID-addressed source audio files.
-actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayNameProviding {
+actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayNameProviding,
+    LyricsSidecarTargetResolving {
     let sourceID: String
     nonisolated let supportsSidecarWriting = true
     nonisolated var preferredDeleteBatchSize: Int { 100 }
@@ -138,6 +139,9 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
             parentID: context.parentID,
             token: token
         )
+        guard uploadedEntry.fileSize == Int64(data.count) else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
         entriesByID[uploadedEntry.id] = uploadedEntry
 
         // Drime may atomically replace an existing relativePath during upload,
@@ -173,6 +177,123 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
         plog(existingEntries.isEmpty
             ? "📁 Drime sidecar uploaded and verified: \(targetName)"
             : "📁 Drime sidecar replaced and verified: \(targetName)")
+    }
+
+    func writeLyricsSidecar(
+        data: Data,
+        target: LyricsSidecarTarget,
+        priority: RangeFetchPriority
+    ) async throws -> LyricsSidecarWriteReceipt {
+        guard !data.isEmpty,
+              let reference = DrimeAPIProtocol.sidecarReference(from: target.targetPath),
+              PrimuseConstants.supportedLyricsExtensions.contains(
+                String(reference.suffix.dropFirst()).lowercased()
+              ) else {
+            throw CloudDriveError.invalidResponse
+        }
+
+        let token = try await accessToken()
+        let context = try await sidecarContext(
+            for: reference.sourceEntryID,
+            token: token
+        )
+        let parentPath = context.parentID ?? "/"
+        let sourceBaseName = (context.sourceName as NSString).deletingPathExtension
+        let targetBaseName = (target.fileName as NSString).deletingPathExtension
+        let targetExtension = (target.fileName as NSString).pathExtension.lowercased()
+        guard target.containerPath == parentPath,
+              targetBaseName.caseInsensitiveCompare(sourceBaseName) == .orderedSame,
+              targetExtension == String(reference.suffix.dropFirst()).lowercased() else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+
+        let currentMatches = try await fileEntries(in: context.parentID, token: token)
+            .filter {
+                !$0.isDirectory
+                    && $0.name.caseInsensitiveCompare(target.fileName) == .orderedSame
+            }
+        guard currentMatches.count <= 1 else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        if target.exists {
+            guard let existingPath = target.existingPath,
+                  currentMatches.first?.id == existingPath else {
+                throw EmbeddedMetadataWritebackSourceError.conflict
+            }
+        } else if !currentMatches.isEmpty {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+
+        guard let metadata = DrimeAPIProtocol.uploadMetadata(for: target.fileName) else {
+            throw CloudDriveError.invalidResponse
+        }
+        let uploadedEntry = try await uploadFile(
+            data: data,
+            metadata: metadata,
+            parentID: context.parentID,
+            token: token
+        )
+        guard uploadedEntry.fileSize == Int64(data.count),
+              uploadedEntry.name == target.fileName,
+              (uploadedEntry.parentID == nil
+                || uploadedEntry.parentID == context.parentID) else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
+        entriesByID[uploadedEntry.id] = uploadedEntry
+        helper.invalidateCachedFile(path: uploadedEntry.id)
+
+        let readback = try await fetchRange(
+            path: uploadedEntry.id,
+            offset: 0,
+            length: uploadedEntry.fileSize
+        )
+        guard readback == data else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
+        if let visibleMatches = try? await fileEntries(
+            in: context.parentID,
+            token: token
+        ).filter({
+            !$0.isDirectory
+                && $0.name.caseInsensitiveCompare(target.fileName) == .orderedSame
+        }),
+           visibleMatches.count > 1
+                || (!target.exists
+                    && visibleMatches.count == 1
+                    && visibleMatches[0].id != uploadedEntry.id) {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        return LyricsSidecarWriteReceipt(
+            requestedTargetPath: target.targetPath,
+            writtenPath: uploadedEntry.id,
+            fileName: uploadedEntry.name,
+            containerPath: parentPath,
+            remoteSize: uploadedEntry.fileSize,
+            readback: readback
+        )
+    }
+
+    func lyricsSidecarTarget(for song: Song) async throws -> LyricsSidecarTarget {
+        let token = try await accessToken()
+        let context = try await sidecarContext(for: song.filePath, token: token)
+        let baseName = (context.sourceName as NSString).deletingPathExtension
+        let siblings = try await fileEntries(in: context.parentID, token: token)
+        let existing = try LyricsSidecarTargetPolicy.uniqueExistingItem(
+            baseName: baseName,
+            in: siblings.map {
+                Self.remoteItem(from: $0, parentPath: context.parentID ?? "/")
+            }
+        )
+        let fileName = existing?.name ?? "\(baseName).lrc"
+        let suffix = ".\((fileName as NSString).pathExtension.lowercased())"
+        return LyricsSidecarTarget(
+            targetPath: song.filePath + suffix,
+            fileName: fileName,
+            containerPath: context.parentID ?? "/",
+            exists: existing != nil,
+            existingPath: existing?.path,
+            existingSize: existing?.size
+        )
     }
 
     func deleteFile(at path: String) async throws {

@@ -671,6 +671,14 @@ protocol MusicSourceConnector: Sendable {
         to path: String,
         priority: RangeFetchPriority
     ) async throws
+    /// Writes one lyric sidecar and returns the exact remote object that was
+    /// observed after the mutation. The synthetic upload path is never reused
+    /// as proof for providers whose reads require opaque object IDs.
+    func writeLyricsSidecar(
+        data: Data,
+        target: LyricsSidecarTarget,
+        priority: RangeFetchPriority
+    ) async throws -> LyricsSidecarWriteReceipt
     /// Confirms that a completed sidecar upload resolves to the exact bytes
     /// requested by the caller. Path-addressed connectors use the shared
     /// readback implementation; opaque-ID providers may verify inside
@@ -776,9 +784,115 @@ enum RemoteDirectoryTransportErrorPolicy {
 }
 
 struct LyricsSidecarTarget: Sendable, Equatable {
+    /// Stable address accepted by the provider's upload operation. ID-backed
+    /// sources commonly encode the source item plus a suffix here.
     let targetPath: String
     let fileName: String
+    /// Directory/container accepted by `listFiles(at:)`. Opaque-ID providers
+    /// must supply the source item's actual parent ID instead of deriving this
+    /// from the synthetic upload address.
+    let containerPath: String
     let exists: Bool
+    /// Address of the currently existing sidecar, when one exists. This can be
+    /// different from `targetPath` on providers whose reads/deletes require the
+    /// uploaded item's own opaque ID.
+    let existingPath: String?
+    let existingSize: Int64?
+
+    init(
+        targetPath: String,
+        fileName: String,
+        containerPath: String? = nil,
+        exists: Bool,
+        existingPath: String? = nil,
+        existingSize: Int64? = nil
+    ) {
+        self.targetPath = targetPath
+        self.fileName = fileName
+        self.containerPath = containerPath
+            ?? ((targetPath as NSString).deletingLastPathComponent.isEmpty
+                ? "/"
+                : (targetPath as NSString).deletingLastPathComponent)
+        self.exists = exists
+        self.existingPath = exists ? existingPath : nil
+        self.existingSize = exists ? existingSize : nil
+    }
+}
+
+struct LyricsSidecarWriteReceipt: Sendable, Equatable {
+    let requestedTargetPath: String
+    let writtenPath: String
+    let fileName: String
+    let containerPath: String
+    let remoteSize: Int64
+    let readback: Data
+}
+
+enum LyricsSidecarTargetPolicy {
+    static let maximumContentByteCount = 4 * 1_024 * 1_024
+
+    static func resolve(
+        for song: Song,
+        using connector: any MusicSourceConnector
+    ) async throws -> LyricsSidecarTarget {
+        let preferredTargetPath = preferredTargetPath(for: song)
+        let directory = (preferredTargetPath as NSString).deletingLastPathComponent
+        let containerPath = directory.isEmpty ? "/" : directory
+        let songBase = (((song.filePath as NSString).lastPathComponent) as NSString)
+            .deletingPathExtension
+        let items = try await connector.listFiles(at: containerPath)
+        let existing = try uniqueExistingItem(baseName: songBase, in: items)
+        let fileName = existing?.name ?? (preferredTargetPath as NSString).lastPathComponent
+        return LyricsSidecarTarget(
+            targetPath: existing?.path ?? preferredTargetPath,
+            fileName: fileName,
+            containerPath: containerPath,
+            exists: existing != nil,
+            existingPath: existing?.path,
+            existingSize: existing?.size
+        )
+    }
+
+    static func uniqueExistingItem(
+        baseName: String,
+        in items: [RemoteFileItem]
+    ) throws -> RemoteFileItem? {
+        var uniqueByPath: [String: RemoteFileItem] = [:]
+        for item in items where !item.isDirectory {
+            let itemName = item.name as NSString
+            guard itemName.deletingPathExtension.caseInsensitiveCompare(baseName) == .orderedSame,
+                  PrimuseConstants.supportedLyricsExtensions.contains(
+                    itemName.pathExtension.lowercased()
+                  ) else { continue }
+            uniqueByPath[item.path] = item
+        }
+        guard uniqueByPath.count <= 1 else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        return uniqueByPath.values.first
+    }
+
+    private static func preferredTargetPath(for song: Song) -> String {
+        let songDirectory = (song.filePath as NSString).deletingLastPathComponent
+        let songBase = ((song.filePath as NSString).lastPathComponent as NSString)
+            .deletingPathExtension
+
+        if let reference = song.lyricsFileName, !reference.isEmpty {
+            let resolvedReference = reference.contains("/")
+                ? reference
+                : (songDirectory as NSString).appendingPathComponent(reference)
+            let referenceDirectory = (resolvedReference as NSString).deletingLastPathComponent
+            let referenceName = (resolvedReference as NSString).lastPathComponent
+            let referenceBase = (referenceName as NSString).deletingPathExtension
+            let referenceExtension = (referenceName as NSString).pathExtension.lowercased()
+            if referenceDirectory == songDirectory,
+               referenceBase.caseInsensitiveCompare(songBase) == .orderedSame,
+               PrimuseConstants.supportedLyricsExtensions.contains(referenceExtension) {
+                return resolvedReference
+            }
+        }
+        return (songDirectory as NSString).appendingPathComponent("\(songBase).lrc")
+    }
 }
 
 protocol LyricsSidecarTargetResolving: MusicSourceConnector {
@@ -924,6 +1038,63 @@ extension MusicSourceConnector {
         priority: RangeFetchPriority
     ) async throws {
         try await writeFile(data: data, to: path)
+    }
+
+    func writeLyricsSidecar(
+        data: Data,
+        target: LyricsSidecarTarget,
+        priority: RangeFetchPriority
+    ) async throws -> LyricsSidecarWriteReceipt {
+        guard !data.isEmpty,
+              data.count <= LyricsSidecarTargetPolicy.maximumContentByteCount else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
+        try await writeFile(data: data, to: target.targetPath, priority: priority)
+
+        var lastError: Error = EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        for delay in [0, 150, 450, 1_000, 2_000] {
+            if delay > 0 {
+                try await Task.sleep(for: .milliseconds(delay))
+            }
+            try Task.checkCancellation()
+            do {
+                let matches = try await listFiles(at: target.containerPath).filter {
+                    !$0.isDirectory
+                        && $0.name.caseInsensitiveCompare(target.fileName) == .orderedSame
+                }
+                guard matches.count <= 1 else {
+                    throw EmbeddedMetadataWritebackSourceError.conflict
+                }
+                guard let written = matches.first,
+                      written.size > 0,
+                      written.size <= Int64(LyricsSidecarTargetPolicy.maximumContentByteCount) else {
+                    throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+                }
+                let readback = try await fetchRange(
+                    path: written.path,
+                    offset: 0,
+                    length: written.size,
+                    priority: .background
+                )
+                guard readback.count == Int(written.size) else {
+                    throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+                }
+                return LyricsSidecarWriteReceipt(
+                    requestedTargetPath: target.targetPath,
+                    writtenPath: written.path,
+                    fileName: written.name,
+                    containerPath: target.containerPath,
+                    remoteSize: written.size,
+                    readback: readback
+                )
+            } catch let error as EmbeddedMetadataWritebackSourceError {
+                if case .conflict = error { throw error }
+                lastError = error
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError
     }
 
     func verifySidecarWrite(data: Data, at path: String) async throws {

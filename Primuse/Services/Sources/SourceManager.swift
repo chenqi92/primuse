@@ -1396,6 +1396,20 @@ private extension RoutedConnectorProxy {
         }
     }
 
+    func writeLyricsSidecar(
+        data: Data,
+        target: LyricsSidecarTarget,
+        priority: RangeFetchPriority
+    ) async throws -> LyricsSidecarWriteReceipt {
+        try await routing.withMutation {
+            try await $0.writeLyricsSidecar(
+                data: data,
+                target: target,
+                priority: priority
+            )
+        }
+    }
+
     func verifySidecarWrite(data: Data, at path: String) async throws {
         try await routing.withRead {
             try await $0.verifySidecarWrite(data: data, at: path)
@@ -1495,11 +1509,21 @@ private extension RoutedConnectorProxy {
     }
 }
 
-private struct RoutedMusicSourceConnector: RoutedConnectorProxy, OpenListSTRMResolvingConnector {
+private struct RoutedMusicSourceConnector: RoutedConnectorProxy, OpenListSTRMResolvingConnector,
+    LyricsSidecarTargetResolving {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
     let routedPreferredDeleteBatchSize: Int
+
+    func lyricsSidecarTarget(for song: Song) async throws -> LyricsSidecarTarget {
+        try await routing.withRead { connector in
+            if let resolver = connector as? any LyricsSidecarTargetResolving {
+                return try await resolver.lyricsSidecarTarget(for: song)
+            }
+            return try await LyricsSidecarTargetPolicy.resolve(for: song, using: connector)
+        }
+    }
 
     func openListSTRMURL(for reference: String) async throws -> URL? {
         try await routing.withRead { connector in

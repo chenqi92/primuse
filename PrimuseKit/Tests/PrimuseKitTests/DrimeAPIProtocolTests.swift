@@ -135,6 +135,8 @@ struct DrimeAPIProtocolTests {
                 == DrimeSidecarReference(sourceEntryID: "485529678", suffix: "-cover.jpg"))
         #expect(DrimeAPIProtocol.sidecarReference(from: "485529678.lrc")
                 == DrimeSidecarReference(sourceEntryID: "485529678", suffix: ".lrc"))
+        #expect(DrimeAPIProtocol.sidecarReference(from: "485529678.ttml")
+                == DrimeSidecarReference(sourceEntryID: "485529678", suffix: ".ttml"))
         #expect(DrimeAPIProtocol.sidecarReference(from: "../485529678.lrc") == nil)
         #expect(DrimeAPIProtocol.sidecarReference(from: "track.lrc") == nil)
         #expect(DrimeAPIProtocol.sidecarReference(from: "485529678.jpg") == nil)
@@ -149,6 +151,10 @@ struct DrimeAPIProtocolTests {
         let lyrics = try #require(DrimeAPIProtocol.uploadMetadata(for: "晴天.lrc"))
         #expect(lyrics.fileExtension == "lrc")
         #expect(lyrics.mimeType == "text/plain; charset=utf-8")
+
+        let ttml = try #require(DrimeAPIProtocol.uploadMetadata(for: "晴天.ttml"))
+        #expect(ttml.fileExtension == "ttml")
+        #expect(ttml.mimeType == "application/ttml+xml")
 
         #expect(DrimeAPIProtocol.uploadMetadata(for: "bad\r\nname.lrc") == nil)
         #expect(DrimeAPIProtocol.uploadMetadata(for: "../name.lrc") == nil)

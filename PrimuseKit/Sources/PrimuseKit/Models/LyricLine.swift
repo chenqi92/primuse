@@ -1230,6 +1230,120 @@ public enum LyricsContentParser {
         return true
     }
 
+    /// Compares two complete lyric documents after removing transport-only
+    /// differences. Every meaningful source row must be represented by the
+    /// parser before structural comparison is allowed, so a missing timed row,
+    /// an extra untimed row, or malformed trailing content cannot be hidden by
+    /// the parser's normal best-effort behaviour.
+    public static func areContentsSemanticallyEquivalent(
+        _ lhs: String,
+        _ rhs: String,
+        tolerance: TimeInterval = 0.002
+    ) -> Bool {
+        let left = normalizedComparisonContent(lhs)
+        let right = normalizedComparisonContent(rhs)
+        guard !left.isEmpty, !right.isEmpty else { return left == right }
+        if left == right { return true }
+
+        // Sidecar writes preserve TTML bytes. Falling back to the best-effort
+        // XML parser here could hide unsupported metadata or text nodes that
+        // were dropped during a remote rewrite.
+        if TTMLLyricsParser.looksLikeTTML(left)
+            || TTMLLyricsParser.looksLikeTTML(right) {
+            return false
+        }
+
+        guard isCompletelyRepresentedForComparison(left),
+              isCompletelyRepresentedForComparison(right) else {
+            return false
+        }
+
+        for options in [LyricsParsingOptions.automatic, .literal] {
+            let leftLines = parseText(left, options: options)
+            let rightLines = parseText(right, options: options)
+            if areSemanticallyEquivalent(leftLines, rightLines, tolerance: tolerance) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func normalizedComparisonContent(_ content: String) -> String {
+        var normalized = content
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        if normalized.unicodeScalars.first?.value == 0xFEFF {
+            normalized.removeFirst()
+        }
+        return normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func isCompletelyRepresentedForComparison(_ content: String) -> Bool {
+        if TTMLLyricsParser.looksLikeTTML(content) { return false }
+        guard LyricsFormat.detect(content) != .plain else { return true }
+
+        var isLeadingMetadataRegion = true
+        var representedLineCount = 0
+        for raw in content.components(separatedBy: "\n") {
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty { continue }
+            if isLeadingMetadataRegion, raw.firstMatch(of: metadataPattern) != nil {
+                continue
+            }
+
+            let absoluteHeads = raw.matches(of: lineHeadPattern)
+            if !absoluteHeads.isEmpty {
+                isLeadingMetadataRegion = false
+                guard let firstHead = absoluteHeads.first,
+                      raw[..<firstHead.range.lowerBound].allSatisfy(\.isWhitespace) else {
+                    return false
+                }
+                for (leftHead, rightHead) in zip(
+                    absoluteHeads,
+                    absoluteHeads.dropFirst()
+                ) where !raw[leftHead.range.upperBound..<rightHead.range.lowerBound]
+                    .allSatisfy(\.isWhitespace) {
+                    return false
+                }
+                guard let lastHead = absoluteHeads.last else { return false }
+                let body = String(raw[lastHead.range.upperBound...])
+                guard isLyricBodyCompletelyRepresented(body) else { return false }
+                let parsed = parse(raw, options: .literal)
+                guard parsed.count == absoluteHeads.count else { return false }
+                representedLineCount += parsed.count
+                continue
+            }
+            if raw.firstMatch(of: relativeLineHeadPattern) != nil {
+                isLeadingMetadataRegion = false
+                guard let head = raw.firstMatch(of: relativeLineHeadPattern),
+                      isLyricBodyCompletelyRepresented(
+                        String(raw[head.range.upperBound...])
+                      ) else { return false }
+                let parsed = parse(raw, options: .literal)
+                guard parsed.count == 1 else { return false }
+                representedLineCount += 1
+                continue
+            }
+
+            // A timed document with an unclassified non-empty row would be
+            // silently dropped by `parseText`; treating it as equivalent could
+            // therefore bless a partial or wrong write.
+            return false
+        }
+        return representedLineCount > 0
+    }
+
+    private static func isLyricBodyCompletelyRepresented(_ body: String) -> Bool {
+        guard !body.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        if let firstWord = body.firstMatch(of: inlineWordPattern) {
+            return body[..<firstWord.range.lowerBound].allSatisfy(\.isWhitespace)
+        }
+        if let firstWord = body.firstMatch(of: relativeWordPattern) {
+            return body[..<firstWord.range.lowerBound].allSatisfy(\.isWhitespace)
+        }
+        return true
+    }
+
     private static func normalizedMetadata(_ metadataLines: [String]?) -> [String] {
         (metadataLines ?? []).compactMap { line in
             let normalized = line

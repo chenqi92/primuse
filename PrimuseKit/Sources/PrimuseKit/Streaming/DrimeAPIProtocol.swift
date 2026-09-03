@@ -141,8 +141,10 @@ public enum DrimeAPIProtocol {
         let suffix: String
         if trimmed.hasSuffix("-cover.jpg") {
             suffix = "-cover.jpg"
-        } else if trimmed.hasSuffix(".lrc") {
-            suffix = ".lrc"
+        } else if let lyricsExtension = PrimuseConstants.supportedLyricsExtensions.first(where: {
+            trimmed.hasSuffix(".\($0)")
+        }) {
+            suffix = ".\(lyricsExtension)"
         } else {
             return nil
         }
@@ -166,6 +168,7 @@ public enum DrimeAPIProtocol {
         switch fileExtension {
         case "jpg", "jpeg": mimeType = "image/jpeg"
         case "lrc", "txt": mimeType = "text/plain; charset=utf-8"
+        case "ttml": mimeType = "application/ttml+xml"
         case "png": mimeType = "image/png"
         default: mimeType = "application/octet-stream"
         }

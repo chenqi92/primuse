@@ -306,48 +306,28 @@ actor NFSSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter,
             relativePath: directory.isEmpty ? "/" : directory
         )
 
-        var candidateNames: [String] = []
-        if let reference = song.lyricsFileName, !reference.isEmpty {
-            let referencedName: String?
-            if reference.hasPrefix("nfs::"),
-               let selection = try? NFSSelectionPathCodec.parse(
-                    reference,
-                    constrainedToExport: source.exportPath
-               ),
-               (selection.relativePath as NSString).deletingLastPathComponent == directory {
-                referencedName = (selection.relativePath as NSString).lastPathComponent
-            } else if !reference.contains("/") {
-                referencedName = reference
-            } else {
-                referencedName = nil
-            }
-            if let referencedName,
-               (referencedName as NSString).deletingPathExtension
-                .caseInsensitiveCompare(baseName) == .orderedSame,
-               PrimuseConstants.supportedLyricsExtensions.contains(
-                    (referencedName as NSString).pathExtension.lowercased()
-               ) {
-                candidateNames.append(referencedName)
-            }
-        }
-        candidateNames.append("\(baseName).lrc")
-        candidateNames.append("\(baseName).ttml")
-
-        let existing = candidateNames.lazy.compactMap { candidate in
-            existingItems.first {
-                !$0.isDirectory && $0.name.caseInsensitiveCompare(candidate) == .orderedSame
-            }
-        }.first
+        let existing = try LyricsSidecarTargetPolicy.uniqueExistingItem(
+            baseName: baseName,
+            in: existingItems
+        )
         let fileName = existing?.name ?? "\(baseName).lrc"
         let relativePath = ((directory.isEmpty ? "/" : directory) as NSString)
             .appendingPathComponent(fileName)
+        let targetPath = NFSSelectionPathCodec.makeSelectionPath(
+            exportPath: source.exportPath,
+            relativePath: relativePath
+        )
+        let containerPath = NFSSelectionPathCodec.makeSelectionPath(
+            exportPath: source.exportPath,
+            relativePath: directory.isEmpty ? "/" : directory
+        )
         return LyricsSidecarTarget(
-            targetPath: NFSSelectionPathCodec.makeSelectionPath(
-                exportPath: source.exportPath,
-                relativePath: relativePath
-            ),
+            targetPath: targetPath,
             fileName: fileName,
-            exists: existing != nil
+            containerPath: containerPath,
+            exists: existing != nil,
+            existingPath: existing?.path,
+            existingSize: existing?.size
         )
     }
 

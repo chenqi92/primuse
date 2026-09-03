@@ -3,7 +3,8 @@ import PrimuseKit
 
 /// OneDrive Source — Microsoft Graph API
 actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayNameProviding,
-    IncrementalMusicSourceConnector, EmbeddedMetadataWritebackAdapter {
+    IncrementalMusicSourceConnector, LyricsSidecarTargetResolving,
+    EmbeddedMetadataWritebackAdapter {
     let sourceID: String
     nonisolated let supportsSidecarWriting = true   // 刮削的歌词/封面写回 OneDrive(上传 sidecar)
     private let helper: CloudDriveHelper
@@ -556,23 +557,100 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
         return json["name"] as? String
     }
 
+    func lyricsSidecarTarget(for song: Song) async throws -> LyricsSidecarTarget {
+        let token = try await getToken()
+        let context: (name: String, parentID: String) = try await helper.withTokenRetry(
+            initialToken: token,
+            refresh: refreshToken
+        ) { @Sendable tok in
+            let (data, http) = try await self.helper.makeAuthorizedRequest(
+                url: URL(
+                    string: "\(Self.graphBase)/me/drive/items/\(song.filePath)?$select=name,parentReference"
+                )!,
+                accessToken: tok
+            )
+            guard http.statusCode == 200,
+                  let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let name = json["name"] as? String,
+                  let parentID = (json["parentReference"] as? [String: Any])?["id"] as? String else {
+                throw CloudDriveError.apiError(http.statusCode, "OneDrive lyric target lookup")
+            }
+            return (name, parentID)
+        }
+
+        let baseName = (context.name as NSString).deletingPathExtension
+        let siblings = try await listFiles(at: context.parentID)
+        let existing = try LyricsSidecarTargetPolicy.uniqueExistingItem(
+            baseName: baseName,
+            in: siblings
+        )
+        let fileName = existing?.name ?? "\(baseName).lrc"
+        let suffix = ".\((fileName as NSString).pathExtension.lowercased())"
+        return LyricsSidecarTarget(
+            targetPath: song.filePath + suffix,
+            fileName: fileName,
+            containerPath: context.parentID,
+            exists: existing != nil,
+            existingPath: existing?.path,
+            existingSize: existing?.size
+        )
+    }
+
     /// 把刮削的 sidecar(歌词 .lrc / 封面 -cover.jpg)上传回 OneDrive,放源歌曲同目录、
     /// 用歌曲真实文件名命名(重新扫描时 findSameName* 能按同名读回,从而多设备共享)。
     /// `path` 由 SidecarWriteService 用 song.filePath(OneDrive 是 item ID)拼成,形如
     /// "{itemID}-cover.jpg" / "{itemID}.lrc"。这里反解出源 item → 查真实文件名+父目录 → 上传。
     func writeFile(data: Data, to path: String) async throws {
+        _ = try await writeSidecar(data: data, to: path, expectedLyricsTarget: nil)
+    }
+
+    func writeLyricsSidecar(
+        data: Data,
+        target: LyricsSidecarTarget,
+        priority: RangeFetchPriority
+    ) async throws -> LyricsSidecarWriteReceipt {
+        let written = try await writeSidecar(
+            data: data,
+            to: target.targetPath,
+            expectedLyricsTarget: target
+        )
+        return LyricsSidecarWriteReceipt(
+            requestedTargetPath: target.targetPath,
+            writtenPath: written.path,
+            fileName: written.fileName,
+            containerPath: written.containerPath,
+            remoteSize: written.size,
+            readback: written.readback
+        )
+    }
+
+    private struct CompletedSidecarWrite: Sendable {
+        let path: String
+        let fileName: String
+        let containerPath: String
+        let size: Int64
+        let readback: Data
+    }
+
+    private func writeSidecar(
+        data: Data,
+        to path: String,
+        expectedLyricsTarget: LyricsSidecarTarget?
+    ) async throws -> CompletedSidecarWrite {
+        guard !data.isEmpty else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
         let suffix: String
         if path.hasSuffix("-cover.jpg") { suffix = "-cover.jpg" }
-        else if path.hasSuffix(".lrc") { suffix = ".lrc" }
+        else if let lyricsExtension = PrimuseConstants.supportedLyricsExtensions.first(where: {
+            path.hasSuffix(".\($0)")
+        }) { suffix = ".\(lyricsExtension)" }
         else { throw CloudDriveError.invalidResponse }
         let itemID = String(path.dropLast(suffix.count))
         guard !itemID.isEmpty else { throw CloudDriveError.invalidResponse }
 
         let token = try await getToken()
-        // Wrap the metadata lookup + content PUT so a server-side early token
-        // revocation (401) triggers one force-refresh + retry of the whole
-        // sidecar write rather than failing until local expiry.
-        let (sidecarName, sidecarID): (String, String) = try await helper.withTokenRetry(
+        let sourceContext: (name: String, parentID: String) = try await helper.withTokenRetry(
             initialToken: token,
             refresh: refreshToken
         ) { @Sendable tok in
@@ -585,13 +663,77 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
                   let parentID = (json["parentReference"] as? [String: Any])?["id"] as? String else {
                 throw CloudDriveError.invalidResponse
             }
-            let sidecarName = (name as NSString).deletingPathExtension + suffix
-            let encoded = sidecarName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sidecarName
-            let uploadURL = URL(string: "\(Self.graphBase)/me/drive/items/\(parentID):/\(encoded):/content")!
+            return (name, parentID)
+        }
+
+        let derivedName = (sourceContext.name as NSString).deletingPathExtension + suffix
+        let sidecarName: String
+        let exactExistingID: String?
+        if let target = expectedLyricsTarget {
+            let targetExtension = (target.fileName as NSString).pathExtension.lowercased()
+            guard target.targetPath == path,
+                  target.containerPath == sourceContext.parentID,
+                  (target.fileName as NSString).deletingPathExtension
+                    .caseInsensitiveCompare((derivedName as NSString).deletingPathExtension)
+                    == .orderedSame,
+                  targetExtension == String(suffix.dropFirst()).lowercased(),
+                  PrimuseConstants.supportedLyricsExtensions.contains(targetExtension) else {
+                throw EmbeddedMetadataWritebackSourceError.conflict
+            }
+            let matches = try await listFiles(at: target.containerPath).filter {
+                !$0.isDirectory
+                    && $0.name.caseInsensitiveCompare(target.fileName) == .orderedSame
+            }
+            guard matches.count <= 1 else {
+                throw EmbeddedMetadataWritebackSourceError.conflict
+            }
+            if target.exists {
+                guard let expectedPath = target.existingPath,
+                      matches.first?.path == expectedPath else {
+                    throw EmbeddedMetadataWritebackSourceError.conflict
+                }
+                exactExistingID = expectedPath
+            } else {
+                guard matches.isEmpty else {
+                    throw EmbeddedMetadataWritebackSourceError.conflict
+                }
+                exactExistingID = nil
+            }
+            sidecarName = target.fileName
+        } else {
+            sidecarName = derivedName
+            exactExistingID = nil
+        }
+
+        // Wrap the content PUT so a server-side early token revocation (401)
+        // triggers one force-refresh + retry of the mutation.
+        let (sidecarID, remoteSize): (String, Int64) = try await helper.withTokenRetry(
+            initialToken: token,
+            refresh: refreshToken
+        ) { @Sendable tok in
+            let uploadURL: URL
+            if let exactExistingID {
+                uploadURL = URL(
+                    string: "\(Self.graphBase)/me/drive/items/\(exactExistingID)/content"
+                )!
+            } else {
+                let encoded = sidecarName.addingPercentEncoding(
+                    withAllowedCharacters: .urlPathAllowed
+                ) ?? sidecarName
+                uploadURL = URL(
+                    string: "\(Self.graphBase)/me/drive/items/\(sourceContext.parentID):/\(encoded):/content"
+                )!
+            }
             var req = URLRequest(url: uploadURL)
             req.httpMethod = "PUT"
             req.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
-            req.setValue(suffix == ".lrc" ? "text/plain; charset=utf-8" : "image/jpeg", forHTTPHeaderField: "Content-Type")
+            let contentType: String
+            switch suffix {
+            case ".lrc": contentType = "text/plain; charset=utf-8"
+            case ".ttml": contentType = "application/ttml+xml"
+            default: contentType = "image/jpeg"
+            }
+            req.setValue(contentType, forHTTPHeaderField: "Content-Type")
             let (responseData, resp) = try await URLSession.shared.upload(for: req, from: data)
             guard let http = resp as? HTTPURLResponse else {
                 throw CloudDriveError.invalidResponse
@@ -603,21 +745,43 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
             guard let responseJSON = try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
                   let uploadedID = responseJSON["id"] as? String,
                   !uploadedID.isEmpty,
+                  responseJSON["name"] as? String == sidecarName,
+                  (responseJSON["parentReference"] as? [String: Any])?["id"] as? String
+                    == sourceContext.parentID,
                   Self.int64(responseJSON["size"]) == Int64(data.count) else {
                 throw CloudDriveError.invalidResponse
             }
-            return (sidecarName, uploadedID)
+            if let exactExistingID, uploadedID != exactExistingID {
+                throw EmbeddedMetadataWritebackSourceError.conflict
+            }
+            return (uploadedID, Self.int64(responseJSON["size"]))
         }
         await invalidateMetadataWritebackCache(for: sidecarID)
         let readback = try await fetchRange(
             path: sidecarID,
             offset: 0,
-            length: Int64(data.count)
+            length: remoteSize
         )
         guard readback == data else {
             throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
         }
+        if expectedLyricsTarget != nil,
+           let visibleMatches = try? await listFiles(at: sourceContext.parentID).filter({
+               !$0.isDirectory
+                   && $0.name.caseInsensitiveCompare(sidecarName) == .orderedSame
+           }),
+           visibleMatches.count > 1
+                || (visibleMatches.count == 1 && visibleMatches[0].path != sidecarID) {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
         plog("📁 OneDrive sidecar uploaded and verified: \(sidecarName)")
+        return CompletedSidecarWrite(
+            path: sidecarID,
+            fileName: sidecarName,
+            containerPath: sourceContext.parentID,
+            size: remoteSize,
+            readback: readback
+        )
     }
 
     func verifySidecarWrite(data: Data, at path: String) async throws {

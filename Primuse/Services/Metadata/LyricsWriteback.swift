@@ -786,12 +786,12 @@ enum LyricsWriteback {
                 guard result.lyricsWritten else {
                     return result.errors.joined(separator: "\n")
                 }
-                // 写完读回来比一次 —— 网盘/NAS 偶尔会吞掉写入还返回成功。
-                guard await verifySidecarWrite(
-                    content: content,
-                    song: song,
-                    sourceManager: sourceManager
-                ) else {
+                guard let verified = result.verifiedLyricsWrite,
+                      verified.target == target,
+                      LyricsContentParser.areContentsSemanticallyEquivalent(
+                        content,
+                        verified.content
+                      ) else {
                     return String(localized: "tag_editor_lyrics_verify_failed")
                 }
                 return nil
@@ -810,7 +810,7 @@ enum LyricsWriteback {
                 return (result.errors + result.unsupported).joined(separator: "\n")
             }
             guard await verifyMediaServerWrite(
-                expectedLines: lines,
+                expectedContent: content,
                 song: song,
                 sourceManager: sourceManager
             ) else {
@@ -867,21 +867,8 @@ enum LyricsWriteback {
 
     // MARK: - 回读校验
 
-    private static func verifySidecarWrite(
-        content: String,
-        song: Song,
-        sourceManager: SourceManager
-    ) async -> Bool {
-        let readback = await LyricsLoader.readAuthoritativeSourceText(
-            for: song,
-            sourceManager: sourceManager
-        )
-        guard case .content(let text) = readback else { return false }
-        return normalized(text) == normalized(content)
-    }
-
     private static func verifyMediaServerWrite(
-        expectedLines: [LyricLine],
+        expectedContent: String,
         song: Song,
         sourceManager: SourceManager
     ) async -> Bool {
@@ -890,19 +877,9 @@ enum LyricsWriteback {
               let readback = await server.fetchServerLyrics(for: song.filePath) else {
             return false
         }
-        let parsedReadback = LyricsContentParser.parseText(readback)
-        if LyricsContentParser.areSemanticallyEquivalent(expectedLines, parsedReadback) {
-            return true
-        }
-
-        // 同文字体系的双语 LRC 不应靠启发式猜配对；按 literal 行序比较仍可
-        // 校验服务端完整保存了原文、译文与各自复用的时间戳。
-        return LyricsContentParser.areSemanticallyEquivalent(
-            LyricsContentParser.parseText(
-                LyricsContentParser.serialize(expectedLines),
-                options: .literal
-            ),
-            LyricsContentParser.parseText(readback, options: .literal)
+        return LyricsContentParser.areContentsSemanticallyEquivalent(
+            expectedContent,
+            readback
         )
     }
 
@@ -910,12 +887,26 @@ enum LyricsWriteback {
         song: Song,
         sourceManager: SourceManager
     ) async -> Bool {
-        guard let preflight = try? await MusicScraperService.preflightLyricsWriteWithTimeout(
-            seconds: 10,
-            sourceManager: sourceManager,
-            for: song
-        ) else { return false }
-        return !preflight.replacesExistingFile
+        // ID-backed cloud providers can acknowledge deletion before their
+        // directory listing converges. Treat the delete response as provisional
+        // and retry the authoritative target lookup for a bounded interval.
+        for delay in [0, 250, 750, 1_500, 3_000, 5_000] {
+            if delay > 0 {
+                do {
+                    try await Task.sleep(for: .milliseconds(delay))
+                } catch {
+                    return false
+                }
+            }
+            if let preflight = try? await MusicScraperService.preflightLyricsWriteWithTimeout(
+                seconds: 5,
+                sourceManager: sourceManager,
+                for: song
+            ), !preflight.replacesExistingFile {
+                return true
+            }
+        }
+        return false
     }
 
     private static func verifyMediaServerRemoval(
