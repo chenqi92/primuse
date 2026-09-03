@@ -690,27 +690,66 @@ struct AIRecommendationLibraryView: View {
     }
 
     private func play(_ song: Song) {
-        let queue = displayedResults.map(\.song).filteredPlayable()
+        let visibleQueue = displayedResults.map(\.song).filteredPlayable()
+        let fallbackQueue = aiRecommendation.isStreaming
+            ? localResults.map(\.song).filteredPlayable()
+            : []
+        let songsByID = Dictionary(
+            (visibleQueue + fallbackQueue).map { ($0.id, $0) },
+            uniquingKeysWith: { current, _ in current }
+        )
+        let orderedIDs = AIRecommendationPlaybackQueuePolicy.orderedSongIDs(
+            visibleSongIDs: visibleQueue.map(\.id),
+            fallbackSongIDs: fallbackQueue.map(\.id),
+            selectedSongID: song.id
+        )
+        let queue = orderedIDs.compactMap { songsByID[$0] }
         guard let index = queue.firstIndex(where: { $0.id == song.id }) else { return }
         player.shuffleEnabled = false
         player.setQueue(queue, startAt: index)
-        beginTrackingStreamingQueue(queue)
-        SiriMediaInteractionDonor.donate(song: queue[index])
-        Task { await player.play(song: queue[index]) }
+        beginTrackingStreamingQueue(
+            queue,
+            hasFallbackTail: queue.count > visibleQueue.count
+        )
+        let selected = queue[index]
+        SiriMediaInteractionDonor.donate(song: selected)
+        Task { await player.play(song: selected) }
     }
 
     private func playAll() {
-        let queue = displayedResults.map(\.song).filteredPlayable()
+        let visibleQueue = displayedResults.map(\.song).filteredPlayable()
+        guard let selected = visibleQueue.first else { return }
+        let fallbackQueue = aiRecommendation.isStreaming
+            ? localResults.map(\.song).filteredPlayable()
+            : []
+        let songsByID = Dictionary(
+            (visibleQueue + fallbackQueue).map { ($0.id, $0) },
+            uniquingKeysWith: { current, _ in current }
+        )
+        let orderedIDs = AIRecommendationPlaybackQueuePolicy.orderedSongIDs(
+            visibleSongIDs: visibleQueue.map(\.id),
+            fallbackSongIDs: fallbackQueue.map(\.id),
+            selectedSongID: selected.id
+        )
+        let queue = orderedIDs.compactMap { songsByID[$0] }
         guard let first = queue.first else { return }
         player.shuffleEnabled = false
         player.setQueue(queue, startAt: 0)
-        beginTrackingStreamingQueue(queue)
+        beginTrackingStreamingQueue(
+            queue,
+            hasFallbackTail: queue.count > visibleQueue.count
+        )
         SiriMediaInteractionDonor.donate(song: first)
         Task { await player.play(song: first) }
     }
 
-    private func beginTrackingStreamingQueue(_ queue: [Song]) {
-        streamedQueueSongIDs = aiRecommendation.isStreaming ? queue.map(\.id) : nil
+    private func beginTrackingStreamingQueue(
+        _ queue: [Song],
+        hasFallbackTail: Bool
+    ) {
+        streamedQueueSongIDs = aiRecommendation.isStreaming && !hasFallbackTail
+            ? queue.map(\.id)
+            : nil
     }
 
     private func appendNewStreamingRecommendationsToOwnedQueue() {

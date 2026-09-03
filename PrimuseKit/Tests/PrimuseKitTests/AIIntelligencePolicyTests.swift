@@ -54,6 +54,33 @@ struct AIRecommendationQueueSyncPolicyTests {
     }
 }
 
+@Suite("AI recommendation playback queue")
+struct AIRecommendationPlaybackQueuePolicyTests {
+    @Test func selectingVisibleTailStillHasSuccessors() {
+        #expect(AIRecommendationPlaybackQueuePolicy.orderedSongIDs(
+            visibleSongIDs: ["first", "second", "selected"],
+            fallbackSongIDs: ["fallback-a", "fallback-b"],
+            selectedSongID: "selected"
+        ) == ["first", "second", "selected", "fallback-a", "fallback-b"])
+    }
+
+    @Test func streamingFallbackDoesNotDuplicateVisibleSongs() {
+        #expect(AIRecommendationPlaybackQueuePolicy.orderedSongIDs(
+            visibleSongIDs: ["selected", "second"],
+            fallbackSongIDs: ["second", "third", "selected", "fourth"],
+            selectedSongID: "selected"
+        ) == ["selected", "second", "third", "fourth"])
+    }
+
+    @Test func unknownSelectionDoesNotStartTheWrongSong() {
+        #expect(AIRecommendationPlaybackQueuePolicy.orderedSongIDs(
+            visibleSongIDs: ["first", "second"],
+            fallbackSongIDs: ["missing"],
+            selectedSongID: "missing"
+        ).isEmpty)
+    }
+}
+
 @Suite("AI region availability")
 struct AIRegionAvailabilityTests {
     @Test func storefrontIsAuthoritative() {

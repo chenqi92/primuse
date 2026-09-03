@@ -1023,3 +1023,27 @@ public enum AIRecommendationQueueSyncPolicy {
         return additions.isEmpty ? .unchanged : .append(additions)
     }
 }
+
+/// Builds a durable playback order from a recommendation surface whose
+/// visible results may still be arriving. Locally ranked candidates can form
+/// a fallback tail so playback remains continuous even if the view disappears
+/// and cancels the presentation task, while the visible order and start index
+/// retain their normal list semantics.
+public enum AIRecommendationPlaybackQueuePolicy {
+    public static func orderedSongIDs(
+        visibleSongIDs: [String],
+        fallbackSongIDs: [String],
+        selectedSongID: String
+    ) -> [String] {
+        var seen = Set<String>()
+        let visible = visibleSongIDs.filter { !$0.isEmpty && seen.insert($0).inserted }
+        guard visible.contains(selectedSongID) else {
+            return []
+        }
+
+        let fallback = fallbackSongIDs.filter {
+            !$0.isEmpty && seen.insert($0).inserted
+        }
+        return visible + fallback
+    }
+}
