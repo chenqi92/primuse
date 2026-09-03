@@ -653,9 +653,17 @@ actor UPnPSource: SongScanningConnector {
 
         let responses = try await discoverSSDPResponsesWithRecovery()
         var servers: [String: UPnPMediaServer] = [:]
+        let localInterfaceHosts = Set(
+            SSDPNetworkInterfaces.activeIPv4MulticastInterfaces().map(\.addressString)
+        )
 
         for response in responses {
-            guard let location = response.location else {
+            guard let location = response.location,
+                  SSDPLocationPolicy.isUsable(
+                      location: location,
+                      responseHost: response.responseHost,
+                      localInterfaceHosts: localInterfaceHosts
+                  ) else {
                 continue
             }
 
@@ -970,10 +978,9 @@ actor UPnPSource: SongScanningConnector {
     }
 
     private nonisolated func discoverSSDPResponses() async throws -> [SSDPDiscoveryResponse] {
-        // The SSDP discovery uses a blocking recv loop (SO_RCVTIMEO=2s, reset on each
-        // packet) that must not run on a Swift Concurrency cooperative thread: it would
-        // pin that thread and freeze the actor for the whole discovery window. Hop onto a
-        // dedicated background queue and suspend the caller until it finishes.
+        // POSIX poll/recv must not run on a Swift Concurrency cooperative thread.
+        // Keep the fixed discovery window on a dedicated background queue and suspend
+        // the caller until all interface sockets have been drained.
         try await withCheckedThrowingContinuation { continuation in
             ssdpDiscoveryQueue.async {
                 do {
@@ -987,104 +994,205 @@ actor UPnPSource: SongScanningConnector {
     }
 
     private nonisolated static func performSSDPDiscovery() throws -> [SSDPDiscoveryResponse] {
-        let socketFD = socket(AF_INET, Int32(SOCK_DGRAM), IPPROTO_UDP)
-        guard socketFD >= 0 else {
-            throw SourceError.connectionFailed("Unable to open SSDP socket")
-        }
-        defer { Darwin.close(socketFD) }
-
-        var reuse: Int32 = 1
-        _ = withUnsafePointer(to: &reuse) {
-            setsockopt(
-                socketFD,
-                SOL_SOCKET,
-                SO_REUSEADDR,
-                $0,
-                socklen_t(MemoryLayout<Int32>.size)
-            )
-        }
-
-        var timeout = timeval(tv_sec: 2, tv_usec: 0)
-        _ = withUnsafePointer(to: &timeout) {
-            setsockopt(
-                socketFD,
-                SOL_SOCKET,
-                SO_RCVTIMEO,
-                $0,
-                socklen_t(MemoryLayout<timeval>.size)
-            )
-        }
-
-        var bindAddress = sockaddr_in()
-        bindAddress.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-        bindAddress.sin_family = sa_family_t(AF_INET)
-        bindAddress.sin_port = in_port_t(0).bigEndian
-        bindAddress.sin_addr = in_addr(s_addr: INADDR_ANY)
-
-        let bindResult = withUnsafePointer(to: &bindAddress) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                bind(socketFD, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-            }
-        }
-        guard bindResult == 0 else {
-            throw SourceError.connectionFailed("Unable to bind SSDP socket")
-        }
-
         var target = sockaddr_in()
         target.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         target.sin_family = sa_family_t(AF_INET)
         target.sin_port = in_port_t(1900).bigEndian
         target.sin_addr = in_addr(s_addr: inet_addr("239.255.255.250"))
 
-        var didSendDiscovery = false
-        for searchTarget in upnpSSDPSearchTargets {
-            let request = [
-                "M-SEARCH * HTTP/1.1",
-                "HOST: 239.255.255.250:1900",
-                "MAN: \"ssdp:discover\"",
-                "MX: 2",
-                "ST: \(searchTarget)",
-                "USER-AGENT: Primuse/1.0 UPnP/1.1",
-                "",
-                "",
-            ].joined(separator: "\r\n")
+        var sockets: [Int32] = []
+        defer {
+            for socketFD in sockets {
+                Darwin.close(socketFD)
+            }
+        }
 
-            let sendResult = request.withCString { pointer in
-                withUnsafePointer(to: &target) {
-                    $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                        sendto(socketFD, pointer, strlen(pointer), 0, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+        var didSendDiscovery = false
+        for interface in SSDPNetworkInterfaces.discoveryCandidates() {
+            guard let socketFD = makeSSDPDiscoverySocket(for: interface) else {
+                continue
+            }
+
+            var didSendOnInterface = false
+            for searchTarget in upnpSSDPSearchTargets {
+                let request = [
+                    "M-SEARCH * HTTP/1.1",
+                    "HOST: 239.255.255.250:1900",
+                    "MAN: \"ssdp:discover\"",
+                    "MX: 2",
+                    "ST: \(searchTarget)",
+                    "USER-AGENT: Primuse/1.0 UPnP/1.1",
+                    "",
+                    "",
+                ].joined(separator: "\r\n")
+
+                let sendResult = request.withCString { pointer in
+                    withUnsafePointer(to: &target) {
+                        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                            sendto(
+                                socketFD,
+                                pointer,
+                                strlen(pointer),
+                                0,
+                                $0,
+                                socklen_t(MemoryLayout<sockaddr_in>.size)
+                            )
+                        }
                     }
                 }
+                didSendOnInterface = didSendOnInterface || sendResult >= 0
             }
-            didSendDiscovery = didSendDiscovery || sendResult >= 0
+
+            if didSendOnInterface {
+                sockets.append(socketFD)
+                didSendDiscovery = true
+            } else {
+                Darwin.close(socketFD)
+            }
         }
-        guard didSendDiscovery else {
+        guard didSendDiscovery, sockets.isEmpty == false else {
             throw SourceError.connectionFailed("Unable to send SSDP discovery")
         }
 
+        var pollDescriptors = sockets.map {
+            pollfd(fd: $0, events: Int16(POLLIN), revents: 0)
+        }
+        let deadline = DispatchTime.now().uptimeNanoseconds + 3_000_000_000
         var responses: [String: SSDPDiscoveryResponse] = [:]
+        while true {
+            let now = DispatchTime.now().uptimeNanoseconds
+            guard now < deadline else { break }
+            let remainingMilliseconds = Int32(
+                min((deadline - now + 999_999) / 1_000_000, UInt64(Int32.max))
+            )
+            let readyCount = pollDescriptors.withUnsafeMutableBufferPointer { descriptors in
+                Darwin.poll(
+                    descriptors.baseAddress,
+                    nfds_t(descriptors.count),
+                    remainingMilliseconds
+                )
+            }
+            if readyCount == 0 {
+                break
+            }
+            if readyCount < 0 {
+                if errno == EINTR { continue }
+                throw SourceError.connectionFailed("Unable to receive SSDP discovery")
+            }
+
+            for index in pollDescriptors.indices {
+                guard pollDescriptors[index].revents & Int16(POLLIN) != 0 else {
+                    continue
+                }
+                pollDescriptors[index].revents = 0
+                receiveSSDPResponses(
+                    from: pollDescriptors[index].fd,
+                    into: &responses
+                )
+            }
+        }
+
+        return Array(responses.values)
+    }
+
+    private nonisolated static func makeSSDPDiscoverySocket(
+        for interface: SSDPIPv4Interface
+    ) -> Int32? {
+        let socketFD = socket(AF_INET, Int32(SOCK_DGRAM), IPPROTO_UDP)
+        guard socketFD >= 0 else { return nil }
+
+        var reuse: Int32 = 1
+        _ = setsockopt(
+            socketFD,
+            SOL_SOCKET,
+            SO_REUSEADDR,
+            &reuse,
+            socklen_t(MemoryLayout<Int32>.size)
+        )
+
+        var bindAddress = sockaddr_in()
+        bindAddress.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        bindAddress.sin_family = sa_family_t(AF_INET)
+        bindAddress.sin_port = in_port_t(0).bigEndian
+        bindAddress.sin_addr = in_addr(s_addr: INADDR_ANY)
+        let bindResult = withUnsafePointer(to: &bindAddress) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(socketFD, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard bindResult == 0 else {
+            Darwin.close(socketFD)
+            return nil
+        }
+
+        if interface.address != INADDR_ANY {
+            var outboundAddress = in_addr(s_addr: interface.address)
+            let interfaceResult = setsockopt(
+                socketFD,
+                IPPROTO_IP,
+                IP_MULTICAST_IF,
+                &outboundAddress,
+                socklen_t(MemoryLayout<in_addr>.size)
+            )
+            guard interfaceResult == 0 else {
+                Darwin.close(socketFD)
+                return nil
+            }
+        }
+
+        return socketFD
+    }
+
+    private nonisolated static func receiveSSDPResponses(
+        from socketFD: Int32,
+        into responses: inout [String: SSDPDiscoveryResponse]
+    ) {
         while true {
             let bufferSize = 8192
             var buffer = [UInt8](repeating: 0, count: bufferSize)
+            var sourceAddress = sockaddr_in()
+            var sourceAddressLength = socklen_t(MemoryLayout<sockaddr_in>.size)
             let byteCount = buffer.withUnsafeMutableBufferPointer { rawBuffer in
-                recv(socketFD, rawBuffer.baseAddress, bufferSize, 0)
+                withUnsafeMutablePointer(to: &sourceAddress) { sourcePointer in
+                    sourcePointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                        recvfrom(
+                            socketFD,
+                            rawBuffer.baseAddress,
+                            bufferSize,
+                            MSG_DONTWAIT,
+                            $0,
+                            &sourceAddressLength
+                        )
+                    }
+                }
             }
-            if byteCount <= 0 {
-                break
-            }
+            guard byteCount > 0 else { return }
 
             guard let text = String(bytes: buffer.prefix(Int(byteCount)), encoding: .utf8) else {
                 continue
             }
 
-            let response = SSDPDiscoveryResponse(text: text)
+            let response = SSDPDiscoveryResponse(
+                text: text,
+                responseHost: ipString(from: sourceAddress.sin_addr)
+            )
             let key = response.location?.absoluteString ?? response.usn
             if !key.isEmpty {
                 responses[key] = response
             }
         }
+    }
 
-        return Array(responses.values)
+    private nonisolated static func ipString(from address: in_addr) -> String {
+        var copy = address
+        var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+        guard inet_ntop(AF_INET, &copy, &buffer, socklen_t(buffer.count)) != nil else {
+            return ""
+        }
+        return buffer.withUnsafeBufferPointer { pointer in
+            guard let baseAddress = pointer.baseAddress else { return "" }
+            return String(cString: baseAddress)
+        }
     }
 }
 
@@ -1223,8 +1331,9 @@ private struct SelectionPath: Sendable {
 private struct SSDPDiscoveryResponse: Sendable {
     let location: URL?
     let usn: String
+    let responseHost: String
 
-    init(text: String) {
+    init(text: String, responseHost: String) {
         var headers: [String: String] = [:]
         for line in text.split(whereSeparator: \.isNewline).dropFirst() {
             let rawLine = String(line).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1240,6 +1349,7 @@ private struct SSDPDiscoveryResponse: Sendable {
 
         self.location = headers["LOCATION"].flatMap(URL.init(string:))
         self.usn = headers["USN"] ?? ""
+        self.responseHost = responseHost
     }
 }
 

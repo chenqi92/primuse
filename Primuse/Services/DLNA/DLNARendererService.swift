@@ -132,6 +132,7 @@ final class DLNARendererService {
     /// 239.255.255.250, multicast 和 unicast M-SEARCH 都能投递到 read source。
     private var ssdpSocket: Int32 = -1
     private var ssdpReadSource: DispatchSourceRead?
+    private var ssdpJoinedInterfaceAddresses: Set<UInt32> = []
     private var httpListener: NWListener?
     /// 半开连接防护: 凑齐请求头前的 idle 超时 + 并发连接上限, 防 LAN 端
     /// slow-loris 式只 connect 不发完整请求头拖死 fd。
@@ -352,6 +353,7 @@ final class DLNARendererService {
         ssdpReadSource?.cancel()  // cancel handler 里 close(fd)
         ssdpReadSource = nil
         ssdpSocket = -1
+        ssdpJoinedInterfaceAddresses.removeAll()
         httpListener?.cancel(); httpListener = nil
         activeHTTPConnections = 0
         isRunning = false
@@ -383,7 +385,7 @@ final class DLNARendererService {
 
         """
         guard let data = payload.data(using: .utf8) else { return }
-        sendUDP(data: data, toHost: "239.255.255.250", toPort: Self.ssdpPort.rawValue)
+        sendMulticastUDP(data: data)
     }
 
     /// 200 OK (我们 M-SEARCH 的响应) 和 NOTIFY (别人主动广播) 共用同一解析:
@@ -411,22 +413,50 @@ final class DLNARendererService {
         }
         guard let locationStr = headerValue("location", in: raw),
               let location = URL(string: locationStr) else { return }
+        let localInterfaceHosts = Set(
+            SSDPNetworkInterfaces.activeIPv4MulticastInterfaces().map(\.addressString)
+        )
+        guard SSDPLocationPolicy.isUsable(
+            location: location,
+            responseHost: host,
+            localInterfaceHosts: localInterfaceHosts
+        ) else {
+            logEvent(
+                .error,
+                "Ignored unreachable renderer LOCATION \(location.absoluteString) from \(host)"
+            )
+            return
+        }
 
-        if discoveredRenderers[udn] != nil {
+        let previousRenderer = discoveredRenderers[udn]
+        if let previousRenderer, previousRenderer.location == location {
             discoveredRenderers[udn]?.lastSeen = Date()
             return   // 已经拉过 device.xml, 不重复
         }
-        // 占位先存, 后续 fetch 完整描述再补字段
+
+        if let previousRenderer,
+           previousRenderer.location.host == host,
+           location.host != host {
+            discoveredRenderers[udn]?.lastSeen = Date()
+            return
+        }
+
+        // 占位先存, 后续 fetch 完整描述再补字段。相同 UDN 的 LOCATION 在网络
+        // 切换后可能改变；若新地址拉取失败，fetch 会恢复此前可用对象。
         discoveredRenderers[udn] = RemoteRenderer(
             udn: udn,
-            friendlyName: host,
+            friendlyName: previousRenderer?.friendlyName ?? host,
             host: host,
             location: location,
             lastSeen: Date()
         )
         logEvent(.discovery, "Renderer discovered \(udn.suffix(8)) → fetching \(location.absoluteString)")
         Task { [weak self] in
-            await self?.fetchDeviceDescription(udn: udn, location: location)
+            await self?.fetchDeviceDescription(
+                udn: udn,
+                location: location,
+                previousRenderer: previousRenderer
+            )
         }
     }
 
@@ -440,14 +470,23 @@ final class DLNARendererService {
     }
 
     /// 异步拉 device.xml 解析出 friendlyName / serviceList controlURL / sinkProtocolInfo,
-    /// 失败把这台 renderer 移除 (后续 alive 会重新触发)。
-    private func fetchDeviceDescription(udn: String, location: URL) async {
+    /// 失败时恢复此前已验证的地址；首次发现失败则移除，等待后续 alive 重试。
+    private func fetchDeviceDescription(
+        udn: String,
+        location: URL,
+        previousRenderer: RemoteRenderer?
+    ) async {
         do {
-            let (data, _) = try await discoverySession.data(from: location)
-            guard let xml = String(data: data, encoding: .utf8) else { return }
+            let (data, response) = try await discoverySession.data(from: location)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200..<300).contains(httpResponse.statusCode),
+                  let xml = String(data: data, encoding: .utf8) else {
+                throw URLError(.badServerResponse)
+            }
             let parsed = parseDeviceDescription(xml, baseURL: location)
             await MainActor.run {
-                guard var existing = discoveredRenderers[udn] else { return }
+                guard var existing = discoveredRenderers[udn],
+                      existing.location == location else { return }
                 existing.friendlyName = parsed.friendlyName ?? existing.friendlyName
                 existing.avTransportControlURL = parsed.avTransportControl
                 existing.renderingControlControlURL = parsed.renderingControlControl
@@ -461,7 +500,14 @@ final class DLNARendererService {
             }
         } catch {
             await MainActor.run {
-                discoveredRenderers.removeValue(forKey: udn)
+                guard discoveredRenderers[udn]?.location == location else { return }
+                if var previousRenderer,
+                   previousRenderer.avTransportControlURL != nil {
+                    previousRenderer.lastSeen = Date()
+                    discoveredRenderers[udn] = previousRenderer
+                } else {
+                    discoveredRenderers.removeValue(forKey: udn)
+                }
                 logEvent(.error, "device.xml fetch failed \(udn.suffix(8)): \(error.localizedDescription)")
             }
         }
@@ -558,18 +604,6 @@ final class DLNARendererService {
                           userInfo: [NSLocalizedDescriptionKey: "bind(0.0.0.0:1900) failed errno=\(e)"])
         }
 
-        // IP_ADD_MEMBERSHIP ── 加入 239.255.255.250 组。imr_interface 设
-        // INADDR_ANY 让内核挑路由(通常是默认上行接口)。失败不致命,
-        // 退化为只有 unicast SSDP 可用。
-        var mreq = ip_mreq()
-        mreq.imr_multiaddr.s_addr = inet_addr("239.255.255.250")
-        mreq.imr_interface.s_addr = in_addr_t(0)
-        let joinResult = setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq,
-                                    socklen_t(MemoryLayout<ip_mreq>.size))
-        if joinResult != 0 {
-            logEvent(.error, "IP_ADD_MEMBERSHIP failed errno=\(errno)")
-        }
-
         // multicast TTL + 关 loopback ── 跨网段 4 跳够用, 自己发的 NOTIFY
         // 不需要再回到自己 (会触发 handleSSDPRead 浪费 CPU)。
         var ttl: UInt8 = 4
@@ -580,6 +614,7 @@ final class DLNARendererService {
                        socklen_t(MemoryLayout<UInt8>.size))
 
         ssdpSocket = fd
+        let interfaces = refreshSSDPInterfaces()
 
         // Keep socket reads and datagram decoding off the UI queue. Build the
         // DispatchSource in a nonisolated context; its event handler is also
@@ -590,7 +625,11 @@ final class DLNARendererService {
         source.resume()
         ssdpReadSource = source
 
-        logEvent(.discovery, "SSDP socket bound UDP/1900 + joined 239.255.255.250")
+        let interfaceNames = interfaces.map(\.name).joined(separator: ",")
+        logEvent(
+            .discovery,
+            "SSDP socket bound UDP/1900 + joined 239.255.255.250 on \(interfaceNames)"
+        )
 
         // 启动 NOTIFY alive 广播循环。前 60s 内每 3s 发一次 (新加入网络
         // 的控制点能尽快看到我们),之后改成每 5 分钟,跟 max-age=1800
@@ -682,7 +721,7 @@ final class DLNARendererService {
     }
 
     private func sendSSDPReplies(toHost host: String, toPort port: UInt16) {
-        guard let location = httpLocation() else { return }
+        guard let location = httpLocation(reachableFrom: host) ?? httpLocation() else { return }
         for nt in usnTypes {
             let usn = nt == "uuid:\(deviceUUID)" ? nt : "uuid:\(deviceUUID)::\(nt)"
             let response = """
@@ -706,35 +745,37 @@ final class DLNARendererService {
     /// NOTIFY ssdp:alive / byebye ── 周期性 multicast 广播当前在线状态。
     /// stop() 时同步发一遍 byebye 让控制点立刻从列表移除, 不用等 max-age 过期。
     private func sendNotifyBatch(isAlive: Bool) {
-        guard ssdpSocket >= 0, let location = httpLocation() else { return }
+        guard ssdpSocket >= 0 else { return }
         let nts = isAlive ? "ssdp:alive" : "ssdp:byebye"
-        for nt in usnTypes {
-            let usn = nt == "uuid:\(deviceUUID)" ? nt : "uuid:\(deviceUUID)::\(nt)"
-            let notify = isAlive
-                ? """
-                NOTIFY * HTTP/1.1\r
-                HOST: 239.255.255.250:1900\r
-                CACHE-CONTROL: max-age=1800\r
-                LOCATION: \(location)\r
-                NT: \(nt)\r
-                NTS: \(nts)\r
-                SERVER: iOS/UPnP/1.0 Primuse/1.0\r
-                USN: \(usn)\r
-                \r
+        for interface in refreshSSDPInterfaces() {
+            guard let location = httpLocation(on: interface) else { continue }
+            for nt in usnTypes {
+                let usn = nt == "uuid:\(deviceUUID)" ? nt : "uuid:\(deviceUUID)::\(nt)"
+                let notify = isAlive
+                    ? """
+                    NOTIFY * HTTP/1.1\r
+                    HOST: 239.255.255.250:1900\r
+                    CACHE-CONTROL: max-age=1800\r
+                    LOCATION: \(location)\r
+                    NT: \(nt)\r
+                    NTS: \(nts)\r
+                    SERVER: iOS/UPnP/1.0 Primuse/1.0\r
+                    USN: \(usn)\r
+                    \r
 
-                """
-                : """
-                NOTIFY * HTTP/1.1\r
-                HOST: 239.255.255.250:1900\r
-                NT: \(nt)\r
-                NTS: \(nts)\r
-                USN: \(usn)\r
-                \r
+                    """
+                    : """
+                    NOTIFY * HTTP/1.1\r
+                    HOST: 239.255.255.250:1900\r
+                    NT: \(nt)\r
+                    NTS: \(nts)\r
+                    USN: \(usn)\r
+                    \r
 
-                """
-            if let data = notify.data(using: .utf8) {
-                sendUDP(data: data, toHost: "239.255.255.250",
-                        toPort: Self.ssdpPort.rawValue)
+                    """
+                if let data = notify.data(using: .utf8) {
+                    sendMulticastUDP(data: data, on: interface)
+                }
             }
         }
     }
@@ -758,6 +799,39 @@ final class DLNARendererService {
 
     private func sendUDP(data: Data, toHost host: String, toPort port: UInt16) {
         guard ssdpSocket >= 0 else { return }
+        sendDatagram(data: data, toHost: host, toPort: port)
+    }
+
+    private func sendMulticastUDP(data: Data) {
+        for interface in refreshSSDPInterfaces() {
+            sendMulticastUDP(data: data, on: interface)
+        }
+    }
+
+    private func sendMulticastUDP(data: Data, on interface: SSDPIPv4Interface) {
+        guard ssdpSocket >= 0 else { return }
+        var outboundAddress = in_addr(s_addr: interface.address)
+        guard setsockopt(
+            ssdpSocket,
+            IPPROTO_IP,
+            IP_MULTICAST_IF,
+            &outboundAddress,
+            socklen_t(MemoryLayout<in_addr>.size)
+        ) == 0 else {
+            logEvent(
+                .error,
+                "IP_MULTICAST_IF failed for \(interface.name) errno=\(errno)"
+            )
+            return
+        }
+        sendDatagram(
+            data: data,
+            toHost: "239.255.255.250",
+            toPort: Self.ssdpPort.rawValue
+        )
+    }
+
+    private func sendDatagram(data: Data, toHost host: String, toPort port: UInt16) {
         var dest = sockaddr_in()
         dest.sin_len = __uint8_t(MemoryLayout<sockaddr_in>.size)
         dest.sin_family = sa_family_t(AF_INET)
@@ -771,6 +845,56 @@ final class DLNARendererService {
                 }
             }
         }
+    }
+
+    @discardableResult
+    private func refreshSSDPInterfaces() -> [SSDPIPv4Interface] {
+        let interfaces = SSDPNetworkInterfaces.discoveryCandidates()
+        reconcileSSDPMemberships(for: interfaces)
+        return interfaces
+    }
+
+    private func reconcileSSDPMemberships(for interfaces: [SSDPIPv4Interface]) {
+        guard ssdpSocket >= 0 else { return }
+        let desiredAddresses = Set(interfaces.map(\.address))
+
+        for address in ssdpJoinedInterfaceAddresses.subtracting(desiredAddresses) {
+            var membership = multicastMembership(interfaceAddress: address)
+            _ = setsockopt(
+                ssdpSocket,
+                IPPROTO_IP,
+                IP_DROP_MEMBERSHIP,
+                &membership,
+                socklen_t(MemoryLayout<ip_mreq>.size)
+            )
+            ssdpJoinedInterfaceAddresses.remove(address)
+        }
+
+        for interface in interfaces where !ssdpJoinedInterfaceAddresses.contains(interface.address) {
+            var membership = multicastMembership(interfaceAddress: interface.address)
+            let result = setsockopt(
+                ssdpSocket,
+                IPPROTO_IP,
+                IP_ADD_MEMBERSHIP,
+                &membership,
+                socklen_t(MemoryLayout<ip_mreq>.size)
+            )
+            if result == 0 || errno == EADDRINUSE {
+                ssdpJoinedInterfaceAddresses.insert(interface.address)
+            } else {
+                logEvent(
+                    .error,
+                    "IP_ADD_MEMBERSHIP failed for \(interface.name) errno=\(errno)"
+                )
+            }
+        }
+    }
+
+    private func multicastMembership(interfaceAddress: UInt32) -> ip_mreq {
+        var membership = ip_mreq()
+        membership.imr_multiaddr.s_addr = inet_addr("239.255.255.250")
+        membership.imr_interface.s_addr = interfaceAddress
+        return membership
     }
 
     nonisolated private static func ipString(from addr: in_addr) -> String {
@@ -2242,35 +2366,55 @@ final class DLNARendererService {
         return "http://\(ip):\(httpPort.rawValue)/device.xml"
     }
 
-    /// 取出"en0" / "pdp_ip0"等接口的 IPv4 地址,做 SSDP LOCATION 用。
-    private func primaryIPv4() -> String? {
-        var ifaddr: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&ifaddr) == 0, let first = ifaddr else { return nil }
-        defer { freeifaddrs(ifaddr) }
+    private func httpLocation(on interface: SSDPIPv4Interface) -> String? {
+        let ip = interface.address == INADDR_ANY
+            ? primaryIPv4()
+            : interface.addressString
+        guard let ip, ip.isEmpty == false else { return nil }
+        return "http://\(ip):\(httpPort.rawValue)/device.xml"
+    }
 
-        var candidates: [String: String] = [:]
-        var node: UnsafeMutablePointer<ifaddrs>? = first
-        while let n = node {
-            let flags = Int32(n.pointee.ifa_flags)
-            if (flags & IFF_UP) != 0,
-               (flags & IFF_LOOPBACK) == 0,
-               let addr = n.pointee.ifa_addr,
-               addr.pointee.sa_family == UInt8(AF_INET) {
-                let name = String(cString: n.pointee.ifa_name)
-                var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-                let res = getnameinfo(addr, socklen_t(addr.pointee.sa_len),
-                                       &host, socklen_t(host.count),
-                                       nil, 0, NI_NUMERICHOST)
-                if res == 0 {
-                    candidates[name] = host.withUnsafeBufferPointer { buffer in
-                        guard let base = buffer.baseAddress else { return "" }
-                        return String(cString: base)
-                    }
-                }
-            }
-            node = n.pointee.ifa_next
+    private func httpLocation(reachableFrom host: String) -> String? {
+        guard let ip = localIPv4Address(reachableFrom: host) else { return nil }
+        return "http://\(ip):\(httpPort.rawValue)/device.xml"
+    }
+
+    /// 选择用于 SSDP LOCATION 的首选局域网 IPv4 地址。
+    private func primaryIPv4() -> String? {
+        SSDPNetworkInterfaces.activeIPv4MulticastInterfaces().first?.addressString
+    }
+
+    private func localIPv4Address(reachableFrom host: String) -> String? {
+        let fd = Darwin.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
+        guard fd >= 0 else { return nil }
+        defer { Darwin.close(fd) }
+
+        var destination = sockaddr_in()
+        destination.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        destination.sin_family = sa_family_t(AF_INET)
+        destination.sin_port = in_port_t(1900).bigEndian
+        guard inet_pton(AF_INET, host, &destination.sin_addr) == 1 else {
+            return nil
         }
-        return candidates["en0"] ?? candidates["en1"] ?? candidates.values.first
+
+        let connectResult = withUnsafePointer(to: &destination) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard connectResult == 0 else { return nil }
+
+        var localAddress = sockaddr_in()
+        var localAddressLength = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let nameResult = withUnsafeMutablePointer(to: &localAddress) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                getsockname(fd, $0, &localAddressLength)
+            }
+        }
+        guard nameResult == 0, localAddress.sin_addr.s_addr != INADDR_ANY else {
+            return nil
+        }
+        return Self.ipString(from: localAddress.sin_addr)
     }
 
     private func rfc1123Now() -> String {
@@ -2989,32 +3133,8 @@ final class DLNAMediaServer {
         }
     }
 
-    /// 优先 en0 (Wi-Fi) IPv4。借鉴 DLNARendererService.primaryIPv4 实现。
+    /// 使用与 SSDP 相同的局域网接口选择，避免生成指向 VPN 隧道的媒体 URL。
     static func primaryIPv4() -> String? {
-        var ifaddr: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&ifaddr) == 0, let first = ifaddr else { return nil }
-        defer { freeifaddrs(ifaddr) }
-        var candidates: [String: String] = [:]
-        var node: UnsafeMutablePointer<ifaddrs>? = first
-        while let n = node {
-            let flags = Int32(n.pointee.ifa_flags)
-            if (flags & IFF_UP) != 0,
-               (flags & IFF_LOOPBACK) == 0,
-               let addr = n.pointee.ifa_addr,
-               addr.pointee.sa_family == UInt8(AF_INET) {
-                let name = String(cString: n.pointee.ifa_name)
-                var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-                let res = getnameinfo(addr, socklen_t(addr.pointee.sa_len),
-                                       &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST)
-                if res == 0 {
-                    candidates[name] = host.withUnsafeBufferPointer { buf in
-                        guard let base = buf.baseAddress else { return "" }
-                        return String(cString: base)
-                    }
-                }
-            }
-            node = n.pointee.ifa_next
-        }
-        return candidates["en0"] ?? candidates["en1"] ?? candidates.values.first
+        SSDPNetworkInterfaces.activeIPv4MulticastInterfaces().first?.addressString
     }
 }

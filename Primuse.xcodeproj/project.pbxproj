@@ -44,6 +44,7 @@
 		098E5FF8D032713C1BC0B08F /* OpenAICompatibleProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 182840B263E637C233CBB7DE /* OpenAICompatibleProvider.swift */; };
 		09AC5EB711BDEE9938736BA3 /* libavcodec.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = E1A603AA0134C1792449BF47 /* libavcodec.xcframework */; };
 		09AED938D1C5CFDD279BCB08 /* UPnPSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A7C2D0F07C125A333AC1046 /* UPnPSource.swift */; };
+		B81B0E1C2D3F405162738491 /* SSDPNetworkInterfaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = A81B0E1C2D3F405162738491 /* SSDPNetworkInterfaces.swift */; };
 		09E0FA677763B8D51EAF2356 /* DrimeAPIProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 546D19974F6A389BCC097DA9 /* DrimeAPIProtocol.swift */; };
 		09EE11D6ADFC5A50BF5744AE /* AICredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F266BC40DFEB0858D943B648 /* AICredentialStore.swift */; };
 		0A176E7239A1CEA25561D8F8 /* CachedArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 128F97B910573229B86FAD8A /* CachedArtworkView.swift */; };
@@ -1184,6 +1185,7 @@
 		12AD42B5CE1CE635F570F26F /* NowPlayingPlaybackProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingPlaybackProjection.swift; sourceTree = "<group>"; };
 		1311FAE83819D951A690CABB /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/CacheSync.strings; sourceTree = "<group>"; };
 		136A0C5EFAF6D7C7056C69A4 /* SharedConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedConstants.swift; sourceTree = "<group>"; };
+		A81B0E1C2D3F405162738491 /* SSDPNetworkInterfaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSDPNetworkInterfaces.swift; sourceTree = "<group>"; };
 		136E43CE662D6E0E06C21E26 /* SharedNowPlayingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedNowPlayingState.swift; sourceTree = "<group>"; };
 		13DF5DE888D6B46DD9A60F16 /* BaiduPanStreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduPanStreamResolver.swift; sourceTree = "<group>"; };
 		1424E7F042F598B858110FDB /* SongRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongRowView.swift; sourceTree = "<group>"; };
@@ -2120,6 +2122,7 @@
 				4B4D61F000626BCDD16F85D3 /* PlayerOverlayDismissalState.swift */,
 				7A6E761F8B6C6057418F1EFC /* QueueBatchRemovalPolicy.swift */,
 				E9BAF2E6891229C3AED60360 /* ServerCertificateTrustPolicy.swift */,
+				A81B0E1C2D3F405162738491 /* SSDPNetworkInterfaces.swift */,
 				136A0C5EFAF6D7C7056C69A4 /* SharedConstants.swift */,
 				C239241684E81EFF2E2AB9A0 /* SimulatorCredentialFallbackPolicy.swift */,
 				2E0FB3345193EA2D67A00D95 /* SingleSongScrapeGatePolicy.swift */,
@@ -3584,6 +3587,7 @@
 				E43A039C4C8FB967DEC92C20 /* ServerListeningStats.swift in Sources */,
 				9010018E8A105A9C3BAABCBA /* ServerMediaSharing.swift in Sources */,
 				3C4428640B01E67A1C097726 /* SessionStableSnapshotCache.swift in Sources */,
+				B81B0E1C2D3F405162738491 /* SSDPNetworkInterfaces.swift in Sources */,
 				C067C2586AAA10F3F398296C /* SharedConstants.swift in Sources */,
 				58098DB86E7285DA9B139FBD /* SimulatorCredentialFallbackPolicy.swift in Sources */,
 				73B6C372A8A78B8A33E5B01C /* SingleSongScrapeGatePolicy.swift in Sources */,
