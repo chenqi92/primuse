@@ -6,6 +6,64 @@ public enum ProgressScrubGestureIntent: Equatable, Sendable {
     case vertical
 }
 
+/// Persistent state for one progress-bar drag. Unlike `GestureState`, this
+/// value remains available to the gesture's end callback, so the track that
+/// began the interaction can be verified before committing a seek.
+public struct ProgressScrubSession: Equatable, Sendable {
+    public let interactionID: String?
+    public private(set) var intent: ProgressScrubGestureIntent = .undecided
+    public private(set) var preview: TimeInterval?
+
+    public init(interactionID: String?) {
+        self.interactionID = interactionID
+    }
+
+    public mutating func update(
+        horizontalTranslation: Double,
+        verticalTranslation: Double,
+        location: Double,
+        trackWidth: Double,
+        duration: TimeInterval
+    ) {
+        intent = NowPlayingInteractionPolicy.scrubGestureIntent(
+            currentIntent: intent,
+            horizontalTranslation: horizontalTranslation,
+            verticalTranslation: verticalTranslation
+        )
+        guard intent == .horizontal else { return }
+        preview = NowPlayingInteractionPolicy.scrubValue(
+            location: location,
+            trackWidth: trackWidth,
+            duration: duration
+        )
+    }
+
+    public func committedValue(
+        currentInteractionID: String?,
+        horizontalTranslation: Double,
+        verticalTranslation: Double,
+        location: Double,
+        trackWidth: Double,
+        duration: TimeInterval
+    ) -> TimeInterval? {
+        let finalIntent = NowPlayingInteractionPolicy.scrubGestureIntent(
+            currentIntent: intent,
+            horizontalTranslation: horizontalTranslation,
+            verticalTranslation: verticalTranslation
+        )
+        guard NowPlayingInteractionPolicy.shouldCommitScrub(
+            intent: finalIntent,
+            startedInteractionID: interactionID,
+            currentInteractionID: currentInteractionID
+        ) else { return nil }
+        return NowPlayingInteractionPolicy.scrubValue(
+            location: location,
+            trackWidth: trackWidth,
+            duration: duration
+        )
+    }
+}
+
 /// Pure interaction rules shared by the Now Playing UI and its regressions.
 public enum NowPlayingInteractionPolicy {
     /// A small movement threshold prevents a normal track tap from becoming a seek.

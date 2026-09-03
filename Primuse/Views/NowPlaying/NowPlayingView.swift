@@ -3862,20 +3862,13 @@ struct ProgressSlider: View {
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Environment(ThemeService.self) private var theme
 
-    private struct ScrubGestureState: Equatable {
-        var intent = ProgressScrubGestureIntent.undecided
-        var preview: TimeInterval?
-        var startedInteractionID: String?
-        var hasCapturedInteraction = false
-    }
-
-    @GestureState private var scrubGesture = ScrubGestureState()
+    @State private var scrubSession: ProgressScrubSession?
 
     private var safeTotal: TimeInterval { total.sanitizedDuration }
     private var activePreview: TimeInterval? {
-        guard scrubGesture.hasCapturedInteraction,
-              scrubGesture.startedInteractionID == interactionID else { return nil }
-        return scrubGesture.preview
+        guard let scrubSession,
+              scrubSession.interactionID == interactionID else { return nil }
+        return scrubSession.preview
     }
     private var isDragging: Bool { activePreview != nil }
     private var displayValue: TimeInterval { (activePreview ?? value).sanitizedDuration }
@@ -3894,14 +3887,6 @@ struct ProgressSlider: View {
         if let fillTint { return fillTint }
         guard theme.colorID != "default" else { return appearance.primary }
         return appearance.isLight ? theme.darkAccent : theme.accentColor
-    }
-
-    private func seekValue(for locationX: CGFloat, width: CGFloat) -> TimeInterval? {
-        NowPlayingInteractionPolicy.scrubValue(
-            location: Double(locationX),
-            trackWidth: Double(width),
-            duration: safeTotal
-        )
     }
 
     private func commitAdjustment(incrementing: Bool) {
@@ -3949,35 +3934,29 @@ struct ProgressSlider: View {
                 DragGesture(minimumDistance: CGFloat(
                     NowPlayingInteractionPolicy.minimumScrubDistance
                 ))
-                    .updating($scrubGesture) { gesture, state, _ in
-                        if !state.hasCapturedInteraction {
-                            state.startedInteractionID = interactionID
-                            state.hasCapturedInteraction = true
-                        }
-                        state.intent = NowPlayingInteractionPolicy.scrubGestureIntent(
-                            currentIntent: state.intent,
+                    .onChanged { gesture in
+                        var session = scrubSession
+                            ?? ProgressScrubSession(interactionID: interactionID)
+                        session.update(
                             horizontalTranslation: Double(gesture.translation.width),
-                            verticalTranslation: Double(gesture.translation.height)
+                            verticalTranslation: Double(gesture.translation.height),
+                            location: Double(gesture.location.x),
+                            trackWidth: Double(width),
+                            duration: safeTotal
                         )
-                        guard state.intent == .horizontal,
-                              let preview = seekValue(
-                                for: gesture.location.x,
-                                width: width
-                              ) else { return }
-                        state.preview = preview
+                        scrubSession = session
                     }
                     .onEnded { gesture in
-                        let finalIntent = NowPlayingInteractionPolicy.scrubGestureIntent(
-                            currentIntent: scrubGesture.intent,
+                        let seekTime = scrubSession?.committedValue(
+                            currentInteractionID: interactionID,
                             horizontalTranslation: Double(gesture.translation.width),
-                            verticalTranslation: Double(gesture.translation.height)
+                            verticalTranslation: Double(gesture.translation.height),
+                            location: Double(gesture.location.x),
+                            trackWidth: Double(width),
+                            duration: safeTotal
                         )
-                        if NowPlayingInteractionPolicy.shouldCommitScrub(
-                            intent: finalIntent,
-                            startedInteractionID: scrubGesture.startedInteractionID,
-                            currentInteractionID: interactionID
-                        ),
-                           let seekTime = seekValue(for: gesture.location.x, width: width) {
+                        scrubSession = nil
+                        if let seekTime {
                             onSeek(seekTime)
                         }
                     }
@@ -3986,8 +3965,13 @@ struct ProgressSlider: View {
         }
         .frame(height: CGFloat(NowPlayingInteractionPolicy.minimumScrubHitTargetSize))
         .onChange(of: activePreview) { _, preview in onPreview(preview) }
-        .onChange(of: interactionID) { _, _ in onPreview(nil) }
-        .onDisappear { onPreview(nil) }
+        .onChange(of: interactionID) { _, _ in
+            onPreview(nil)
+        }
+        .onDisappear {
+            scrubSession = nil
+            onPreview(nil)
+        }
         .accessibilityElement()
         .accessibilityLabel(Text("playback"))
         .accessibilityValue(Text(verbatim:

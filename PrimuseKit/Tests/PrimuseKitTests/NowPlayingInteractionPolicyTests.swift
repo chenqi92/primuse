@@ -154,6 +154,56 @@ struct NowPlayingInteractionPolicyTests {
         #expect(NowPlayingInteractionPolicy.minimumScrubHitTargetSize >= 44)
     }
 
+    @Test func persistentScrubSessionCommitsTheFinalDragPosition() {
+        var session = ProgressScrubSession(interactionID: "song-a")
+        session.update(
+            horizontalTranslation: 40,
+            verticalTranslation: 2,
+            location: 40,
+            trackWidth: 100,
+            duration: 200
+        )
+
+        #expect(session.intent == .horizontal)
+        #expect(session.preview == 80)
+        #expect(session.committedValue(
+            currentInteractionID: "song-a",
+            horizontalTranslation: 70,
+            verticalTranslation: 3,
+            location: 70,
+            trackWidth: 100,
+            duration: 200
+        ) == 140)
+    }
+
+    @Test func persistentScrubSessionRejectsAReplacementTrack() {
+        var session = ProgressScrubSession(interactionID: "song-a")
+        session.update(
+            horizontalTranslation: 40,
+            verticalTranslation: 2,
+            location: 40,
+            trackWidth: 100,
+            duration: 200
+        )
+
+        session.update(
+            horizontalTranslation: 70,
+            verticalTranslation: 3,
+            location: 70,
+            trackWidth: 100,
+            duration: 200
+        )
+        #expect(session.interactionID == "song-a")
+        #expect(session.committedValue(
+            currentInteractionID: "song-b",
+            horizontalTranslation: 70,
+            verticalTranslation: 3,
+            location: 70,
+            trackWidth: 100,
+            duration: 200
+        ) == nil)
+    }
+
     @Test func accessibilityAdjustmentUsesBoundedStepsAndClampsOnce() {
         #expect(NowPlayingInteractionPolicy.accessibilityStep(for: 60) == 5)
         #expect(NowPlayingInteractionPolicy.accessibilityStep(for: 400) == 20)
