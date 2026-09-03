@@ -3463,7 +3463,6 @@
 "share_method_primuse_relay" = "Primuse-Freigabedienst";
 "share_server_checking" = "Freigabefunktion des Musikservers wird geprüft…";
 "share_auto_server_ready" = "Der Musikserver erstellt den Link";
-"share_relay_selected_summary" = "Eine Kopie wird mit den folgenden Berechtigungen hochgeladen";
 "share_auto_relay_recommended" = "Du kannst den Primuse-Freigabedienst ausdrücklich wählen und Ablauf, Passwort und Aktionen prüfen.";
 "share_server_unsupported" = "Der Musikserver kann keine Freigabelinks erstellen";
 "share_server_permission_denied" = "Dieses Konto darf nicht vom Server teilen";

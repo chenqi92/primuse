@@ -3556,7 +3556,6 @@
 "share_method_primuse_relay" = "Primuse 分享服务";
 "share_server_checking" = "正在检查音乐服务器的分享能力…";
 "share_auto_server_ready" = "将使用音乐服务器创建链接";
-"share_relay_selected_summary" = "将上传歌曲副本并按下方权限创建链接";
 "share_auto_relay_recommended" = "你可以明确选择 Primuse 分享服务，并重新确认有效期、密码和允许的操作。";
 "share_server_unsupported" = "音乐服务器不支持创建分享链接";
 "share_server_permission_denied" = "当前账号没有服务器分享权限";

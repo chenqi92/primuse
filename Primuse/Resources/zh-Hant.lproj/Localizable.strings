@@ -3440,7 +3440,6 @@
 "share_method_primuse_relay" = "Primuse 分享服務";
 "share_server_checking" = "正在檢查音樂伺服器的分享能力…";
 "share_auto_server_ready" = "將使用音樂伺服器建立連結";
-"share_relay_selected_summary" = "將上傳歌曲副本，並依下方權限建立連結";
 "share_auto_relay_recommended" = "你可以明確選擇 Primuse 分享服務，並重新確認有效期、密碼與允許的操作。";
 "share_server_unsupported" = "音樂伺服器不支援建立分享連結";
 "share_server_permission_denied" = "目前帳號沒有伺服器分享權限";

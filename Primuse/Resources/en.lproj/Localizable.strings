@@ -3240,7 +3240,6 @@
 "share_method_primuse_relay" = "Primuse Share Service";
 "share_server_checking" = "Checking the music server’s sharing capability…";
 "share_auto_server_ready" = "The music server will create the link";
-"share_relay_selected_summary" = "A copy of the song will be uploaded with the permissions below";
 "share_auto_relay_recommended" = "You can explicitly choose Primuse Share Service and review expiration, password, and allowed actions.";
 "share_server_unsupported" = "The music server cannot create sharing links";
 "share_server_permission_denied" = "This account cannot share from the server";

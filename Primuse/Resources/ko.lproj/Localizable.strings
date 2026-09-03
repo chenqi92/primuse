@@ -3463,7 +3463,6 @@
 "share_method_primuse_relay" = "Primuse 공유 서비스";
 "share_server_checking" = "음악 서버의 공유 기능을 확인하는 중…";
 "share_auto_server_ready" = "음악 서버에서 링크를 만듭니다";
-"share_relay_selected_summary" = "아래 권한으로 노래 사본을 업로드합니다";
 "share_auto_relay_recommended" = "Primuse 공유 서비스를 직접 선택하고 만료, 암호 및 허용 작업을 다시 확인할 수 있습니다.";
 "share_server_unsupported" = "음악 서버에서 공유 링크를 만들 수 없습니다";
 "share_server_permission_denied" = "현재 계정에는 서버 공유 권한이 없습니다";

@@ -3463,7 +3463,6 @@
 "share_method_primuse_relay" = "Service de partage Primuse";
 "share_server_checking" = "Vérification du partage sur le serveur musical…";
 "share_auto_server_ready" = "Le serveur musical créera le lien";
-"share_relay_selected_summary" = "Une copie sera envoyée avec les autorisations ci-dessous";
 "share_auto_relay_recommended" = "Vous pouvez choisir explicitement le service Primuse et vérifier l’expiration, le mot de passe et les actions.";
 "share_server_unsupported" = "Le serveur musical ne peut pas créer de lien de partage";
 "share_server_permission_denied" = "Ce compte ne peut pas partager depuis le serveur";

@@ -162,11 +162,8 @@ struct SongShareSheet: View {
             capabilitySummary
 
             Button(action: performPrimaryLinkAction) {
-                HStack {
-                    Spacer()
-                    Label(primaryActionTitle, systemImage: primaryActionSymbol)
-                    Spacer()
-                }
+                Label(primaryActionTitle, systemImage: primaryActionSymbol)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .disabled(decision == .waitForMusicServer || decision == .unavailable)
             .accessibilityHint(Text(primaryActionHint))
@@ -191,8 +188,7 @@ struct SongShareSheet: View {
             Label("share_auto_server_ready", systemImage: "server.rack")
                 .foregroundStyle(.secondary)
         case .usePrimuseRelay:
-            Label("share_relay_selected_summary", systemImage: "externaldrive.badge.icloud")
-                .foregroundStyle(.secondary)
+            EmptyView()
         case .confirmPrimuseRelay:
             Label {
                 VStack(alignment: .leading, spacing: 4) {

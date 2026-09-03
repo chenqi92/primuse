@@ -3464,7 +3464,6 @@
 "share_method_primuse_relay" = "Primuse 共有サービス";
 "share_server_checking" = "音楽サーバーの共有機能を確認中…";
 "share_auto_server_ready" = "音楽サーバーでリンクを作成します";
-"share_relay_selected_summary" = "以下の権限で曲のコピーをアップロードします";
 "share_auto_relay_recommended" = "Primuse 共有サービスを明示的に選び、有効期限、パスワード、許可する操作を確認できます。";
 "share_server_unsupported" = "音楽サーバーは共有リンクを作成できません";
 "share_server_permission_denied" = "このアカウントにはサーバー共有権限がありません";
