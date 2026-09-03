@@ -2226,10 +2226,12 @@ struct HomeView: View {
                             .background(recommendationCardBackground(for: song))
                         }
                         .buttonStyle(.plain)
+                        .transition(.opacity.combined(with: .scale(scale: 0.97)))
                     }
                 }
                 .padding(.horizontal, 20)
                 .scrollTargetLayout()
+                .animation(.snappy(duration: 0.28), value: aiRecommendation.orderedSongIDs)
             }
             .scrollTargetBehavior(.viewAligned)
         }

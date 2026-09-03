@@ -373,6 +373,101 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         )
     }
 
+    func testRecommendationStreamPublishesSelectionsBeforeCompletion() async throws {
+        let host = "primuse-relay-recommendation-stream.invalid"
+        let items = (0..<12).map { index in
+            ["song_id": "song-\(index)", "reason": "Reason \(index)"]
+        }
+        let lines: [[String: Any]] = [
+            ["type": "started"],
+            ["type": "progress", "data": ["item": items[0]]],
+            ["type": "progress", "data": ["item": items[1]]],
+            ["type": "complete", "data": ["items": items]],
+        ]
+        let body = try lines.map { value in
+            String(
+                decoding: try JSONSerialization.data(withJSONObject: value),
+                as: UTF8.self
+            )
+        }.joined(separator: "\n") + "\n"
+        PrimuseRelayURLProtocol.configure(
+            host: host,
+            featureBody: body,
+            featureContentType: "application/x-ndjson; charset=utf-8"
+        )
+        let credentials = TestPrimuseRelayCredentialStore(
+            credential: PrimuseAIRelayCredential(
+                keyID: "test-app-attest-key",
+                installationID: "test-installation"
+            )
+        )
+        let (client, session, _, _) = makeClient(host: host, credentials: credentials)
+        defer { session.invalidateAndCancel() }
+
+        var events: [AIRecommendationStreamEvent] = []
+        for try await event in await client.recommendationEvents(recommendationRequest()) {
+            events.append(event)
+        }
+
+        XCTAssertEqual(events.count, 3)
+        XCTAssertEqual(events[0], .selection(AIRecommendationSelection(
+            songID: "song-0",
+            reason: "Reason 0"
+        )))
+        XCTAssertEqual(events[1], .selection(AIRecommendationSelection(
+            songID: "song-1",
+            reason: "Reason 1"
+        )))
+        guard case .completed(let plan) = events[2] else {
+            return XCTFail("Expected a completed recommendation plan")
+        }
+        XCTAssertEqual(plan.selections.count, 12)
+        let request = try XCTUnwrap(
+            PrimuseRelayURLProtocol.requests(host: host).last
+        )
+        XCTAssertTrue(
+            request.value(forHTTPHeaderField: "Accept")?.contains("application/x-ndjson") == true
+        )
+    }
+
+    func testSemanticStreamRecoversRejectedCredentialBeforePublishingCompletion() async throws {
+        let host = "primuse-relay-semantic-stream-recovery.invalid"
+        PrimuseRelayURLProtocol.configure(
+            host: host,
+            featureStatusCode: 401,
+            featureBody: #"{"error":{"code":"invalid_assertion","message":"private"}}"#,
+            transientFeatureFailures: 1
+        )
+        let credentials = TestPrimuseRelayCredentialStore(
+            credential: PrimuseAIRelayCredential(
+                keyID: "test-app-attest-key",
+                installationID: "stale-installation"
+            )
+        )
+        let (client, session, _, _) = makeClient(host: host, credentials: credentials)
+        defer { session.invalidateAndCancel() }
+
+        var completedPlan: AISemanticSearchPlan?
+        for try await event in await client.semanticSearchEvents(
+            AISemanticSearchRequest(query: "quiet night")
+        ) {
+            if case .completed(let plan) = event {
+                completedPlan = plan
+            }
+        }
+
+        XCTAssertEqual(completedPlan?.expandedTerms, ["night rain", "rainy night"])
+        let clearCount = await credentials.clearCount()
+        XCTAssertEqual(clearCount, 1)
+        let featureRequests = PrimuseRelayURLProtocol.requests(host: host).filter {
+            $0.url?.path == "/v1/semantic-search"
+        }
+        XCTAssertEqual(featureRequests.count, 2)
+        XCTAssertTrue(featureRequests.allSatisfy {
+            $0.value(forHTTPHeaderField: "Accept")?.contains("application/x-ndjson") == true
+        })
+    }
+
     func testConnectionReportsAppAttestAuthentication() async throws {
         let host = "primuse-relay-test-app-attest.invalid"
         PrimuseRelayURLProtocol.configure(host: host)
@@ -988,6 +1083,7 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
         var requests: [URLRequest] = []
         var featureStatusCode = 200
         var featureBody = #"{"data":{"normalized_query":"night rain","expansion_terms":["night rain","rainy night"]}}"#
+        var featureContentType = "application/json"
         var transientFeatureFailuresRemaining: Int?
         var recoveredFeatureBody: String?
         var featureDelay: TimeInterval = 0
@@ -1000,6 +1096,7 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
         host: String,
         featureStatusCode: Int = 200,
         featureBody: String = #"{"data":{"normalized_query":"night rain","expansion_terms":["night rain","rainy night"]}}"#,
+        featureContentType: String = "application/json",
         transientFeatureFailures: Int? = nil,
         recoveredFeatureBody: String? = nil,
         featureDelay: TimeInterval = 0
@@ -1008,6 +1105,7 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
         states[host] = State(
             featureStatusCode: featureStatusCode,
             featureBody: featureBody,
+            featureContentType: featureContentType,
             transientFeatureFailuresRemaining: transientFeatureFailures,
             recoveredFeatureBody: recoveredFeatureBody,
             featureDelay: featureDelay
@@ -1084,7 +1182,7 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
             url: url,
             statusCode: statusCode,
             httpVersion: nil,
-            headerFields: ["Content-Type": "application/json"]
+            headerFields: ["Content-Type": state.featureContentType]
         ) else {
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
             return

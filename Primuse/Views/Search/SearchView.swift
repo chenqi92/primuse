@@ -139,7 +139,9 @@ struct SearchView: View {
         switch semanticSearchFeedback {
         case .success, .noMatches:
             return true
-        case .idle, .loading, .failed:
+        case .loading:
+            return !semanticResults.isEmpty
+        case .idle, .failed:
             return false
         }
     }
@@ -1482,6 +1484,7 @@ struct SearchView: View {
 
         isIntelligenceSearching = true
         semanticSearchFeedback = .loading
+        semanticResults = []
         workCoordinator.intelligenceTask = Task {
             defer {
                 if generation == workCoordinator.generation {
@@ -1495,7 +1498,35 @@ struct SearchView: View {
                 return
             }
             guard !Task.isCancelled, generation == workCoordinator.generation else { return }
-            let outcome = await intelligence.semanticSearchOutcome(for: query)
+            intelligenceRenderedQuery = query
+            var streamedTerms: [String] = []
+            let outcome = await intelligence.semanticSearchOutcome(
+                for: query,
+                onStreamEvent: { event in
+                    guard !Task.isCancelled,
+                          generation == workCoordinator.generation else { return }
+                    switch event {
+                    case .reset:
+                        streamedTerms = []
+                        semanticResults = []
+                    case .term(let term):
+                        guard !streamedTerms.contains(where: {
+                            $0.caseInsensitiveCompare(term) == .orderedSame
+                        }) else { return }
+                        streamedTerms.append(term)
+                        let results = await semanticLibraryMatches(
+                            plan: AISemanticSearchPlan(expandedTerms: streamedTerms),
+                            songsSnapshot: songsSnapshot,
+                            metadataRevisionKey: metadataRevisionKey
+                        )
+                        guard !Task.isCancelled,
+                              generation == workCoordinator.generation else { return }
+                        semanticResults = results
+                    case .completed:
+                        break
+                    }
+                }
+            )
             guard !Task.isCancelled, generation == workCoordinator.generation else { return }
             switch outcome {
             case .unavailable:

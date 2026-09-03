@@ -379,43 +379,86 @@ actor PrimuseAIRelayClient {
         ).normalized(for: request)
     }
 
+    func semanticSearchEvents(
+        _ request: AISemanticSearchRequest
+    ) -> AsyncThrowingStream<AISemanticSearchStreamEvent, Error> {
+        featureEventStream(
+            path: "/v1/semantic-search",
+            purpose: "semantic_search",
+            input: SemanticSearchInput(
+                query: request.query,
+                languageCode: request.languageCode,
+                maximumExpansionTerms: request.maximumExpansionTerms
+            ),
+            output: SemanticSearchOutput.self,
+            progress: SemanticSearchProgress.self
+        ) { rawEvent in
+            switch rawEvent {
+            case .reset:
+                return .reset
+            case .progress(let progress):
+                let normalized = AISemanticSearchPlan(
+                    expandedTerms: [progress.term]
+                ).normalized(for: request)
+                guard let term = normalized.expandedTerms.first else { return nil }
+                return .term(term)
+            case .completed(let output):
+                return .completed(AISemanticSearchPlan(
+                    expandedTerms: output.expansionTerms
+                ).normalized(for: request))
+            }
+        }
+    }
+
     func recommendations(
         _ request: AIRecommendationRequest
     ) async throws -> AIRecommendationPlan {
         let output: RecommendationsOutput = try await performFeature(
             path: "/v1/recommendations",
             purpose: "recommendations",
-            input: RecommendationsInput(
-                scene: request.scene.rawValue,
-                intent: request.intent,
-                languageCode: request.languageCode,
-                preferences: request.preferences.map {
-                    RecommendationPreference(
-                        title: $0.title,
-                        artist: $0.artist,
-                        genre: $0.genre,
-                        playCount: $0.playCount
-                    )
-                },
-                candidates: request.candidates.map {
-                    RecommendationCandidate(
-                        songID: $0.songID,
-                        title: $0.title,
-                        artist: $0.artist,
-                        genre: $0.genre,
-                        year: $0.year,
-                        durationSeconds: $0.durationSeconds
-                    )
-                },
-                maximumResults: request.maximumResults,
-                minimumResults: request.minimumResults
-            )
+            input: RecommendationsInput(request: request)
         )
         return AIRecommendationPlan(
             selections: output.items.map {
                 AIRecommendationSelection(songID: $0.songID, reason: $0.reason)
             }
         ).normalized(for: request)
+    }
+
+    func recommendationEvents(
+        _ request: AIRecommendationRequest
+    ) -> AsyncThrowingStream<AIRecommendationStreamEvent, Error> {
+        featureEventStream(
+            path: "/v1/recommendations",
+            purpose: "recommendations",
+            input: RecommendationsInput(request: request),
+            output: RecommendationsOutput.self,
+            progress: RecommendationProgress.self
+        ) { rawEvent in
+            switch rawEvent {
+            case .reset:
+                return .reset
+            case .progress(let progress):
+                guard request.candidates.contains(where: {
+                    $0.songID == progress.item.songID
+                }) else { return nil }
+                let reason = progress.item.reason
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .replacingOccurrences(of: "\n", with: " ")
+                    .replacingOccurrences(of: "\r", with: " ")
+                guard !reason.isEmpty else { return nil }
+                return .selection(AIRecommendationSelection(
+                    songID: progress.item.songID,
+                    reason: String(reason.prefix(120))
+                ))
+            case .completed(let output):
+                return .completed(AIRecommendationPlan(
+                    selections: output.items.map {
+                        AIRecommendationSelection(songID: $0.songID, reason: $0.reason)
+                    }
+                ).normalized(for: request))
+            }
+        }
     }
 
     func translateLyrics(
@@ -454,6 +497,51 @@ actor PrimuseAIRelayClient {
         return translations
     }
 
+    func lyricsTranslationEvents(
+        _ candidates: [LyricTranslationCandidate],
+        targetLanguageCode: String
+    ) -> AsyncThrowingStream<AILyricsTranslationStreamEvent, Error> {
+        let limitedCandidates = Array(candidates.prefix(80))
+        let candidateIDs = Set(limitedCandidates.map(\.id))
+        guard candidateIDs.count == limitedCandidates.count else {
+            return AsyncThrowingStream { $0.finish(throwing: PrimuseAIRelayError.invalidResponse) }
+        }
+        return featureEventStream(
+            path: "/v1/lyrics/translate",
+            purpose: "lyrics_translation",
+            input: LyricsTranslationInput(
+                targetLanguageCode: targetLanguageCode,
+                lines: limitedCandidates.map {
+                    LyricsLine(
+                        id: $0.id,
+                        text: String($0.text.prefix(800)),
+                        sourceLanguageCode: $0.sourceLanguageCode
+                    )
+                }
+            ),
+            output: LyricsTranslationOutput.self,
+            progress: LyricsTranslationProgress.self
+        ) { rawEvent in
+            switch rawEvent {
+            case .reset:
+                return .reset
+            case .progress(let progress):
+                guard candidateIDs.contains(progress.line.id) else { return nil }
+                return .translation(
+                    id: progress.line.id,
+                    text: progress.line.translatedText
+                )
+            case .completed(let output):
+                var translations: [String: String] = [:]
+                for line in output.lines where candidateIDs.contains(line.id) {
+                    translations[line.id] = line.translatedText
+                }
+                guard translations.count == candidateIDs.count else { return nil }
+                return .completed(translations)
+            }
+        }
+    }
+
     nonisolated static func assertionClientDataHash(
         challenge: String,
         method: String,
@@ -469,6 +557,299 @@ actor PrimuseAIRelayClient {
             bodyHash,
         ].joined(separator: "\n")
         return Data(SHA256.hash(data: Data(clientData.utf8)))
+    }
+
+    private enum FeatureWireEvent<Progress: Sendable, Output: Sendable>: Sendable {
+        case reset
+        case progress(Progress)
+        case completed(Output)
+    }
+
+    private func featureEventStream<
+        Input: Encodable & Sendable,
+        Output: Decodable & Sendable,
+        Progress: Decodable & Sendable,
+        Event: Sendable
+    >(
+        path: String,
+        purpose: String,
+        input: Input,
+        output: Output.Type,
+        progress: Progress.Type,
+        transform: @escaping @Sendable (FeatureWireEvent<Progress, Output>) -> Event?
+    ) -> AsyncThrowingStream<Event, Error> {
+        AsyncThrowingStream { continuation in
+            let operation = Task {
+                do {
+                    try await self.performStreamingFeature(
+                        path: path,
+                        purpose: purpose,
+                        input: input,
+                        output: output,
+                        progress: progress
+                    ) { wireEvent in
+                        if let event = transform(wireEvent) {
+                            continuation.yield(event)
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { @Sendable _ in operation.cancel() }
+        }
+    }
+
+    private func performStreamingFeature<
+        Input: Encodable & Sendable,
+        Output: Decodable & Sendable,
+        Progress: Decodable & Sendable
+    >(
+        path: String,
+        purpose: String,
+        input: Input,
+        output: Output.Type,
+        progress: Progress.Type,
+        canRecoverLocalAppAttestCredential: Bool = true,
+        canRecoverServerCredential: Bool = true,
+        canRetryFreshProof: Bool = true,
+        emit: (FeatureWireEvent<Progress, Output>) -> Void
+    ) async throws {
+        do {
+            let request = try await streamingFeatureRequest(
+                path: path,
+                purpose: purpose,
+                input: input
+            )
+            try await consumeFeatureResponse(
+                request: request,
+                output: output,
+                progress: progress,
+                emit: emit
+            )
+        } catch {
+            if canRecoverLocalAppAttestCredential,
+               Self.isLocalAppAttestFailure(error) {
+                try await credentialStore.clear()
+                return try await performStreamingFeature(
+                    path: path,
+                    purpose: purpose,
+                    input: input,
+                    output: output,
+                    progress: progress,
+                    canRecoverLocalAppAttestCredential: false,
+                    canRecoverServerCredential: canRecoverServerCredential,
+                    canRetryFreshProof: canRetryFreshProof,
+                    emit: emit
+                )
+            }
+            if canRecoverServerCredential,
+               Self.shouldReplaceCredential(after: error) {
+                try await credentialStore.clear()
+                return try await performStreamingFeature(
+                    path: path,
+                    purpose: purpose,
+                    input: input,
+                    output: output,
+                    progress: progress,
+                    canRecoverLocalAppAttestCredential: canRecoverLocalAppAttestCredential,
+                    canRecoverServerCredential: false,
+                    canRetryFreshProof: canRetryFreshProof,
+                    emit: emit
+                )
+            }
+            if canRetryFreshProof,
+               Self.shouldRetryWithFreshProof(after: error) {
+                return try await performStreamingFeature(
+                    path: path,
+                    purpose: purpose,
+                    input: input,
+                    output: output,
+                    progress: progress,
+                    canRecoverLocalAppAttestCredential: canRecoverLocalAppAttestCredential,
+                    canRecoverServerCredential: canRecoverServerCredential,
+                    canRetryFreshProof: false,
+                    emit: emit
+                )
+            }
+            throw error
+        }
+    }
+
+    private func streamingFeatureRequest<Input: Encodable & Sendable>(
+        path: String,
+        purpose: String,
+        input: Input
+    ) async throws -> URLRequest {
+        let body = try encoder.encode(input)
+        let credential = try await ensureEnrollment(
+            canReplaceInvalidKey: true,
+            allowsStoreKitRefresh: false,
+            prefersAppAttestUpgrade: false
+        )
+        var request = try makeRequest(path: path, body: body)
+        if let accessToken = credential.accessToken, !accessToken.isEmpty {
+            request.setValue(accessToken, forHTTPHeaderField: "X-Primuse-Installation-Token")
+            request.setValue(
+                UUID().uuidString.lowercased(),
+                forHTTPHeaderField: "X-Primuse-Request-Nonce"
+            )
+        } else {
+            let challenge = try await issueChallenge(purpose: purpose)
+            let clientDataHash = Self.assertionClientDataHash(
+                challenge: challenge,
+                method: "POST",
+                path: path,
+                body: body
+            )
+            let assertionResult = try await assertion(
+                credential: credential,
+                clientDataHash: clientDataHash
+            )
+            request.setValue(challenge, forHTTPHeaderField: "X-Primuse-Challenge")
+            request.setValue(
+                assertionResult.1.base64URLEncodedString(),
+                forHTTPHeaderField: "X-Primuse-Assertion"
+            )
+        }
+        guard let installationID = credential.installationID else {
+            throw PrimuseAIRelayError.invalidResponse
+        }
+        request.setValue(Self.appID, forHTTPHeaderField: "X-Primuse-App-Id")
+        request.setValue(installationID, forHTTPHeaderField: "X-Primuse-Installation-Id")
+        request.setValue(
+            "application/x-ndjson, application/json",
+            forHTTPHeaderField: "Accept"
+        )
+        return request
+    }
+
+    private func consumeFeatureResponse<
+        Output: Decodable & Sendable,
+        Progress: Decodable & Sendable
+    >(
+        request: URLRequest,
+        output: Output.Type,
+        progress: Progress.Type,
+        emit: (FeatureWireEvent<Progress, Output>) -> Void
+    ) async throws {
+        let (bytes, rawResponse) = try await session.bytes(for: request)
+        guard let response = rawResponse as? HTTPURLResponse else {
+            throw PrimuseAIRelayError.invalidResponse
+        }
+        var data = Data()
+        data.reserveCapacity(min(response.expectedContentLength > 0
+            ? Int(response.expectedContentLength) : 8_192, Self.maximumResponseBytes))
+
+        if !(200..<300).contains(response.statusCode) {
+            for try await byte in bytes {
+                try Task.checkCancellation()
+                guard data.count < Self.maximumResponseBytes else {
+                    throw PrimuseAIRelayError.responseTooLarge
+                }
+                data.append(byte)
+            }
+            let envelope = try? decoder.decode(ErrorEnvelope.self, from: data)
+            throw PrimuseAIRelayError.requestFailed(
+                statusCode: response.statusCode,
+                code: Self.safeDiagnosticCode(
+                    envelope?.error.code,
+                    statusCode: response.statusCode
+                )
+            )
+        }
+
+        let isNDJSON = response.value(forHTTPHeaderField: "Content-Type")?
+            .lowercased().contains("application/x-ndjson") == true
+        guard isNDJSON else {
+            for try await byte in bytes {
+                try Task.checkCancellation()
+                guard data.count < Self.maximumResponseBytes else {
+                    throw PrimuseAIRelayError.responseTooLarge
+                }
+                data.append(byte)
+            }
+            guard let envelope = try? decoder.decode(SuccessEnvelope<Output>.self, from: data) else {
+                throw PrimuseAIRelayError.invalidResponse
+            }
+            emit(.completed(envelope.data))
+            return
+        }
+
+        var line = Data()
+        var didComplete = false
+        for try await byte in bytes {
+            try Task.checkCancellation()
+            guard data.count < Self.maximumResponseBytes else {
+                throw PrimuseAIRelayError.responseTooLarge
+            }
+            data.append(byte)
+            if byte == 0x0A {
+                if let event = try decodeFeatureStreamLine(
+                    line,
+                    output: output,
+                    progress: progress
+                ) {
+                    if case .completed = event { didComplete = true }
+                    emit(event)
+                }
+                line.removeAll(keepingCapacity: true)
+            } else if byte != 0x0D {
+                line.append(byte)
+            }
+        }
+        if !line.isEmpty,
+           let event = try decodeFeatureStreamLine(line, output: output, progress: progress) {
+            if case .completed = event { didComplete = true }
+            emit(event)
+        }
+        guard didComplete else { throw PrimuseAIRelayError.invalidResponse }
+    }
+
+    private func decodeFeatureStreamLine<
+        Output: Decodable & Sendable,
+        Progress: Decodable & Sendable
+    >(
+        _ line: Data,
+        output: Output.Type,
+        progress: Progress.Type
+    ) throws -> FeatureWireEvent<Progress, Output>? {
+        guard !line.isEmpty else { return nil }
+        guard let object = try JSONSerialization.jsonObject(with: line) as? [String: Any],
+              let type = object["type"] as? String else {
+            throw PrimuseAIRelayError.invalidResponse
+        }
+        switch type {
+        case "started":
+            return nil
+        case "reset":
+            return .reset
+        case "progress":
+            guard let value = object["data"],
+                  JSONSerialization.isValidJSONObject(value),
+                  let decoded = try? decoder.decode(
+                    progress,
+                    from: JSONSerialization.data(withJSONObject: value)
+                  ) else { throw PrimuseAIRelayError.invalidResponse }
+            return .progress(decoded)
+        case "complete":
+            guard let value = object["data"],
+                  JSONSerialization.isValidJSONObject(value),
+                  let decoded = try? decoder.decode(
+                    output,
+                    from: JSONSerialization.data(withJSONObject: value)
+                  ) else { throw PrimuseAIRelayError.invalidResponse }
+            return .completed(decoded)
+        case "error":
+            let error = object["error"] as? [String: Any]
+            throw PrimuseAIRelayError.requestFailed(
+                statusCode: 502,
+                code: Self.safeDiagnosticCode(error?["code"] as? String, statusCode: 502)
+            )
+        default:
+            throw PrimuseAIRelayError.invalidResponse
+        }
     }
 
     private func performFeature<Input: Encodable & Sendable, Output: Decodable & Sendable>(
@@ -940,6 +1321,10 @@ actor PrimuseAIRelayClient {
         }
     }
 
+    private struct SemanticSearchProgress: Decodable, Sendable {
+        var term: String
+    }
+
     private struct RecommendationsInput: Encodable, Sendable {
         var scene: String
         var intent: String?
@@ -957,6 +1342,32 @@ actor PrimuseAIRelayClient {
             case candidates
             case maximumResults = "maximum_results"
             case minimumResults = "minimum_results"
+        }
+
+        init(request: AIRecommendationRequest) {
+            scene = request.scene.rawValue
+            intent = request.intent
+            languageCode = request.languageCode
+            preferences = request.preferences.map {
+                RecommendationPreference(
+                    title: $0.title,
+                    artist: $0.artist,
+                    genre: $0.genre,
+                    playCount: $0.playCount
+                )
+            }
+            candidates = request.candidates.map {
+                RecommendationCandidate(
+                    songID: $0.songID,
+                    title: $0.title,
+                    artist: $0.artist,
+                    genre: $0.genre,
+                    year: $0.year,
+                    durationSeconds: $0.durationSeconds
+                )
+            }
+            maximumResults = request.maximumResults
+            minimumResults = request.minimumResults
         }
     }
 
@@ -1006,6 +1417,10 @@ actor PrimuseAIRelayClient {
         var items: [Item]
     }
 
+    private struct RecommendationProgress: Decodable, Sendable {
+        var item: RecommendationsOutput.Item
+    }
+
     private struct LyricsTranslationInput: Encodable, Sendable {
         var targetLanguageCode: String
         var lines: [LyricsLine]
@@ -1040,6 +1455,10 @@ actor PrimuseAIRelayClient {
         }
 
         var lines: [Line]
+    }
+
+    private struct LyricsTranslationProgress: Decodable, Sendable {
+        var line: LyricsTranslationOutput.Line
     }
 }
 

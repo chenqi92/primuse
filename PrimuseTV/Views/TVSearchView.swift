@@ -188,7 +188,29 @@ struct TVSearchView: View {
             finishSemanticSearch(for: requestedQuery)
             return
         }
-        let outcome = await intelligence.semanticSearchOutcome(for: requestedQuery)
+        var streamedTerms: [String] = []
+        let outcome = await intelligence.semanticSearchOutcome(
+            for: requestedQuery,
+            onStreamEvent: { event in
+                guard !Task.isCancelled, trimmed == requestedQuery else { return }
+                switch event {
+                case .reset:
+                    streamedTerms = []
+                    results = store.searchHits(requestedQuery)
+                case .term(let term):
+                    guard !streamedTerms.contains(where: {
+                        $0.caseInsensitiveCompare(term) == .orderedSame
+                    }) else { return }
+                    streamedTerms.append(term)
+                    results = store.searchHits(
+                        requestedQuery,
+                        relatedConcepts: streamedTerms
+                    )
+                case .completed:
+                    break
+                }
+            }
+        )
         guard !Task.isCancelled else { return }
         guard trimmed == requestedQuery else { return }
         switch outcome {

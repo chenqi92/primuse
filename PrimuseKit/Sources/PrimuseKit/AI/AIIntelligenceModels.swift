@@ -150,6 +150,12 @@ public struct AISemanticSearchPlan: Codable, Equatable, Sendable {
     }
 }
 
+public enum AISemanticSearchStreamEvent: Equatable, Sendable {
+    case reset
+    case term(String)
+    case completed(AISemanticSearchPlan)
+}
+
 public enum AIRecommendationScene: String, Codable, CaseIterable, Hashable, Sendable {
     case automatic
     case driving
@@ -570,6 +576,18 @@ public struct AIRecommendationPlan: Codable, Hashable, Sendable {
             .lowercased()
         return artist.isEmpty ? "song:\(candidate.songID)" : artist
     }
+}
+
+public enum AIRecommendationStreamEvent: Hashable, Sendable {
+    case reset
+    case selection(AIRecommendationSelection)
+    case completed(AIRecommendationPlan)
+}
+
+public enum AILyricsTranslationStreamEvent: Equatable, Sendable {
+    case reset
+    case translation(id: String, text: String)
+    case completed([String: String])
 }
 
 public struct AIRecommendationRefreshState: Hashable, Sendable {

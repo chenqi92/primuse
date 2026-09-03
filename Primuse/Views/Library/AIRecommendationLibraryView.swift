@@ -124,7 +124,10 @@ struct AIRecommendationLibraryView: View {
     }
 
     private var recommendationPresentationState: DeferredContentPresentationState {
-        DeferredContentPresentationPolicy.resolve(
+        if aiRecommendation.isStreaming, displayedResults.isEmpty {
+            return .loading
+        }
+        return DeferredContentPresentationPolicy.resolve(
             isPrepared: preparedLocalContentRevision == localContentRevision
                 || !localResults.isEmpty,
             hasContent: !displayedResults.isEmpty
@@ -475,8 +478,10 @@ struct AIRecommendationLibraryView: View {
                     recommendationCard(result)
                 }
                 .buttonStyle(.plain)
+                .transition(.opacity.combined(with: .scale(scale: 0.97)))
             }
         }
+        .animation(.snappy(duration: 0.28), value: aiRecommendation.orderedSongIDs)
     }
 
     private var recommendationLoadingGrid: some View {

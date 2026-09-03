@@ -456,7 +456,10 @@ final class MusicIntelligenceService {
         return execution.plan
     }
 
-    func semanticSearchOutcome(for query: String) async -> AISemanticSearchOutcome {
+    func semanticSearchOutcome(
+        for query: String,
+        onStreamEvent: ((AISemanticSearchStreamEvent) async -> Void)? = nil
+    ) async -> AISemanticSearchOutcome {
         let consent = settingsStore.hasExplicitRemoteConsent
         let regionSnapshot = regionAvailability.snapshot
         let region = regionSnapshot.context
@@ -499,7 +502,30 @@ final class MusicIntelligenceService {
                     query: trimmedQuery,
                     languageCode: languageCode.isEmpty ? nil : languageCode
                 )
-                let plan = try await primuseRelayClient.interpretSearch(request)
+                let plan: AISemanticSearchPlan
+                if let onStreamEvent {
+                    var completedPlan: AISemanticSearchPlan?
+                    for try await event in await primuseRelayClient.semanticSearchEvents(request) {
+                        try Task.checkCancellation()
+                        guard canUsePrimuseRelay(
+                            captured: regionSnapshot,
+                            latest: regionAvailability.snapshot,
+                            hasRequiredConsent: settingsStore.hasExplicitRemoteConsent
+                        ) else { return .failed }
+                        switch event {
+                        case .reset, .term:
+                            await onStreamEvent(event)
+                        case .completed(let value):
+                            completedPlan = value
+                        }
+                    }
+                    guard let completedPlan else {
+                        throw PrimuseAIRelayError.invalidResponse
+                    }
+                    plan = completedPlan
+                } else {
+                    plan = try await primuseRelayClient.interpretSearch(request)
+                }
                 guard canUsePrimuseRelay(
                     captured: regionSnapshot,
                     latest: regionAvailability.snapshot,
@@ -621,7 +647,8 @@ final class MusicIntelligenceService {
 
     func translateLyrics(
         _ candidates: [LyricTranslationCandidate],
-        targetLanguageCode: String
+        targetLanguageCode: String,
+        onStreamEvent: ((AILyricsTranslationStreamEvent) -> Void)? = nil
     ) async -> AILyricsTranslationExecution? {
         let regionSnapshot = regionAvailability.snapshot
         let consent = settingsStore.hasExplicitRemoteConsent
@@ -636,10 +663,36 @@ final class MusicIntelligenceService {
             ) else { return nil }
             customFallbackOffset = 1
             do {
-                let translations = try await primuseRelayClient.translateLyrics(
-                    candidates,
-                    targetLanguageCode: targetLanguageCode
-                )
+                let translations: [String: String]
+                if let onStreamEvent {
+                    var completedTranslations: [String: String]?
+                    for try await event in await primuseRelayClient.lyricsTranslationEvents(
+                        candidates,
+                        targetLanguageCode: targetLanguageCode
+                    ) {
+                        try Task.checkCancellation()
+                        guard canUsePrimuseRelay(
+                            captured: regionSnapshot,
+                            latest: regionAvailability.snapshot,
+                            hasRequiredConsent: settingsStore.hasExplicitRemoteConsent
+                        ) else { return nil }
+                        switch event {
+                        case .reset, .translation:
+                            onStreamEvent(event)
+                        case .completed(let value):
+                            completedTranslations = value
+                        }
+                    }
+                    guard let completedTranslations else {
+                        throw PrimuseAIRelayError.invalidResponse
+                    }
+                    translations = completedTranslations
+                } else {
+                    translations = try await primuseRelayClient.translateLyrics(
+                        candidates,
+                        targetLanguageCode: targetLanguageCode
+                    )
+                }
                 guard canUsePrimuseRelay(
                     captured: regionSnapshot,
                     latest: regionAvailability.snapshot,
@@ -705,7 +758,8 @@ final class MusicIntelligenceService {
 
     func recommendationOutcome(
         for request: AIRecommendationRequest,
-        forceRefresh: Bool = false
+        forceRefresh: Bool = false,
+        onStreamEvent: ((AIRecommendationStreamEvent) -> Void)? = nil
     ) async -> AIRecommendationOutcome {
         let regionSnapshot = regionAvailability.snapshot
         guard isPersonalizedRecommendationsConfigured,
@@ -737,8 +791,38 @@ final class MusicIntelligenceService {
                 regionRevision: regionSnapshot.revision
             )
             do {
-                let plan = try await primuseRelayRecommendationCoordinator
-                    .recommendations(request)
+                let plan: AIRecommendationPlan
+                if let onStreamEvent {
+                    var completedPlan: AIRecommendationPlan?
+                    for try await event in await primuseRelayClient.recommendationEvents(request) {
+                        try Task.checkCancellation()
+                        guard canUsePrimuseRelay(
+                            captured: regionSnapshot,
+                            latest: regionAvailability.snapshot,
+                            hasRequiredConsent: settingsStore.hasExplicitListeningContextConsent
+                        ) else {
+                            return .failed(primuseRelayFallbackReason(
+                                captured: regionSnapshot,
+                                latest: regionAvailability.snapshot,
+                                hasRequiredConsent: settingsStore
+                                    .hasExplicitListeningContextConsent
+                            ))
+                        }
+                        switch event {
+                        case .reset, .selection:
+                            onStreamEvent(event)
+                        case .completed(let value):
+                            completedPlan = value
+                        }
+                    }
+                    guard let completedPlan else {
+                        throw PrimuseAIRelayError.invalidResponse
+                    }
+                    plan = completedPlan
+                } else {
+                    plan = try await primuseRelayRecommendationCoordinator
+                        .recommendations(request)
+                }
                 guard canUsePrimuseRelay(
                     captured: regionSnapshot,
                     latest: regionAvailability.snapshot,
@@ -1565,6 +1649,7 @@ final class AIRecommendationViewModel {
     private(set) var feedback: AIRecommendationFeedback = .idle
     private(set) var orderedSongIDs: [String] = []
     private(set) var reasonsBySongID: [String: String] = [:]
+    private(set) var isStreaming = false
     private var generation: UInt64 = 0
 
     @discardableResult
@@ -1582,6 +1667,7 @@ final class AIRecommendationViewModel {
         let operationGeneration = generation
         let previousFeedback = feedback
         guard intelligence.settingsStore.recommendationsEnabled else {
+            isStreaming = false
             if !appending {
                 feedback = .idle
                 orderedSongIDs = []
@@ -1590,6 +1676,7 @@ final class AIRecommendationViewModel {
             return false
         }
         guard intelligence.settingsStore.hasExplicitListeningContextConsent else {
+            isStreaming = false
             if !appending {
                 feedback = .needsConsent
                 orderedSongIDs = []
@@ -1604,6 +1691,7 @@ final class AIRecommendationViewModel {
             maximumResults: maximumResults,
             minimumResults: minimumResults
         ) else {
+            isStreaming = false
             if !appending {
                 feedback = .idle
                 orderedSongIDs = []
@@ -1612,20 +1700,71 @@ final class AIRecommendationViewModel {
             return false
         }
 
+        let startingSongIDs = orderedSongIDs
+        let startingIDs = Set(startingSongIDs)
+        let startingReasons = reasonsBySongID
         let outcome: AIRecommendationOutcome
         if !forceRefresh,
            let cached = intelligence.cachedRecommendationOutcome(for: request) {
+            isStreaming = false
             outcome = cached
         } else {
             feedback = .loading
+            isStreaming = true
+            var hasReceivedStreamingSelection = false
             outcome = await intelligence.recommendationOutcome(
                 for: request,
-                forceRefresh: forceRefresh
+                forceRefresh: forceRefresh,
+                onStreamEvent: { [weak self] event in
+                    guard let self,
+                          operationGeneration == self.generation,
+                          !Task.isCancelled else { return }
+                    switch event {
+                    case .reset:
+                        if appending {
+                            self.orderedSongIDs.removeAll { !startingIDs.contains($0) }
+                            self.reasonsBySongID = self.reasonsBySongID.filter {
+                                startingIDs.contains($0.key)
+                            }
+                        } else {
+                            self.orderedSongIDs = startingSongIDs
+                            self.reasonsBySongID = startingReasons
+                        }
+                        hasReceivedStreamingSelection = false
+                    case .selection(let selection):
+                        if !appending, !hasReceivedStreamingSelection {
+                            self.orderedSongIDs = []
+                            self.reasonsBySongID = [:]
+                        }
+                        hasReceivedStreamingSelection = true
+                        guard !self.orderedSongIDs.contains(selection.songID) else { return }
+                        self.orderedSongIDs.append(selection.songID)
+                        self.reasonsBySongID[selection.songID] = selection.reason
+                    case .completed:
+                        break
+                    }
+                }
             )
         }
-        guard operationGeneration == generation, !Task.isCancelled else { return false }
+        guard operationGeneration == generation, !Task.isCancelled else {
+            if operationGeneration == generation {
+                isStreaming = false
+                orderedSongIDs = startingSongIDs
+                reasonsBySongID = startingReasons
+                feedback = previousFeedback
+            }
+            return false
+        }
+        isStreaming = false
         switch outcome {
         case .unavailable:
+            if appending {
+                orderedSongIDs = startingSongIDs
+                reasonsBySongID = startingReasons
+            } else {
+                orderedSongIDs = []
+                reasonsBySongID = [:]
+            }
             feedback = .localFallback(
                 providerName: nil,
                 fallbackDepth: 0,
@@ -1634,15 +1773,17 @@ final class AIRecommendationViewModel {
             return false
         case .success(let execution):
             if appending {
-                let existingIDs = Set(orderedSongIDs)
                 let additions = execution.plan.selections.filter {
-                    !existingIDs.contains($0.songID)
+                    !startingIDs.contains($0.songID)
                 }
                 guard !additions.isEmpty else {
+                    orderedSongIDs = startingSongIDs
+                    reasonsBySongID = startingReasons
                     feedback = previousFeedback
                     return false
                 }
-                orderedSongIDs.append(contentsOf: additions.map(\.songID))
+                orderedSongIDs = startingSongIDs + additions.map(\.songID)
+                reasonsBySongID = startingReasons
                 for selection in additions {
                     reasonsBySongID[selection.songID] = selection.reason
                 }
@@ -1663,6 +1804,13 @@ final class AIRecommendationViewModel {
             )
             return true
         case .empty(let providerName, let fallbackDepth):
+            if appending {
+                orderedSongIDs = startingSongIDs
+                reasonsBySongID = startingReasons
+            } else {
+                orderedSongIDs = []
+                reasonsBySongID = [:]
+            }
             feedback = .localFallback(
                 providerName: providerName,
                 fallbackDepth: fallbackDepth,
@@ -1670,6 +1818,13 @@ final class AIRecommendationViewModel {
             )
             return false
         case .failed(let reason):
+            if appending {
+                orderedSongIDs = startingSongIDs
+                reasonsBySongID = startingReasons
+            } else {
+                orderedSongIDs = []
+                reasonsBySongID = [:]
+            }
             feedback = .localFallback(
                 providerName: nil,
                 fallbackDepth: 0,
@@ -1680,7 +1835,9 @@ final class AIRecommendationViewModel {
     }
 
     func orderedSongs(from candidates: [Song]) -> [Song] {
-        guard !orderedSongIDs.isEmpty else { return candidates }
+        guard !orderedSongIDs.isEmpty else {
+            return isStreaming ? [] : candidates
+        }
         let byID = Dictionary(
             candidates.map { ($0.id, $0) },
             uniquingKeysWith: { current, _ in current }

@@ -6462,9 +6462,26 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         if usesIntelligentProvider {
             activity = .intelligentLoading
             let pendingCandidates = uncachedGroups.flatMap(\.candidates)
+            var streamedTranslations: [String: String] = [:]
             if let execution = await intelligence.translateLyrics(
                 pendingCandidates,
-                targetLanguageCode: identity.targetLanguageCode
+                targetLanguageCode: identity.targetLanguageCode,
+                onStreamEvent: { event in
+                    guard !Task.isCancelled,
+                          translationTaskIdentity == identity else { return }
+                    switch event {
+                    case .reset:
+                        for id in streamedTranslations.keys {
+                            translatedTextByLineID[id] = hits[id]
+                        }
+                        streamedTranslations = [:]
+                    case .translation(let id, let text):
+                        streamedTranslations[id] = text
+                        translatedTextByLineID[id] = text
+                    case .completed:
+                        break
+                    }
+                }
             ), !Task.isCancelled, translationTaskIdentity == identity {
                 var cachePairs: [(source: String, sourceLang: String?, translated: String)] = []
                 for group in uncachedGroups {
@@ -6787,6 +6804,16 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
                         translated: translated
                     )
                 )
+                if !id.isEmpty {
+                    translatedTextByLineID[id] = translated
+                    LyricsTranslationCache.shared.setTranslation(
+                        translated,
+                        for: response.sourceText,
+                        sourceLang: group.sourceLanguageCode,
+                        targetLang: identity.targetLanguageCode,
+                        provider: .system
+                    )
+                }
                 if group.sourceLanguageCode != detectedSourceLanguageCode {
                     newCachePairs.append(
                         (
@@ -6794,6 +6821,13 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
                             sourceLang: detectedSourceLanguageCode,
                             translated: translated
                         )
+                    )
+                    LyricsTranslationCache.shared.setTranslation(
+                        translated,
+                        for: response.sourceText,
+                        sourceLang: detectedSourceLanguageCode,
+                        targetLang: identity.targetLanguageCode,
+                        provider: .system
                     )
                 }
             }
