@@ -20,6 +20,7 @@ struct MacContentView: View {
     @State private var preferences = MacUIPreferences.shared
     @State private var showNewPlaylist = false
     @State private var showSmartEditor = false
+    @State private var showAIPlaylistEditor = false
     @State private var showInitialOnboarding = false
     @State private var newPlaylistName = ""
     @State private var newPlaylistDescription = ""
@@ -189,6 +190,9 @@ struct MacContentView: View {
         .sheet(isPresented: $showSmartEditor) {
             SmartPlaylistEditorView(existing: nil)
         }
+        .sheet(isPresented: $showAIPlaylistEditor) {
+            AIPlaylistEditorView(existing: nil)
+        }
         .alert(
             String(localized: "server_favorite_update_failed_title"),
             isPresented: Binding(
@@ -233,6 +237,9 @@ struct MacContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseSidebarRequestNewSmartPlaylist)) { _ in
             showSmartEditor = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseSidebarRequestNewAIPlaylist)) { _ in
+            showAIPlaylistEditor = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseRequestExpandNowPlaying)) { note in
             let animated = note.userInfo?[PrimuseNowPlayingExpansion.animatedKey] as? Bool ?? true

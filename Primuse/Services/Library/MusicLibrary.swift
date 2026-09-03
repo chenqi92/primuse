@@ -4159,7 +4159,7 @@ final class MusicLibrary {
         setArtworkOverride(
             owner: owner,
             mode: .selectedSong,
-            selectedSongIdentity: makeArtworkSongIdentity(song),
+            selectedSongIdentity: portableSongIdentity(for: song),
             uploadedContentID: nil
         )
     }
@@ -4211,7 +4211,7 @@ final class MusicLibrary {
         return true
     }
 
-    private func makeArtworkSongIdentity(_ song: Song) -> SongIdentity {
+    func portableSongIdentity(for song: Song) -> SongIdentity {
         SongIdentity(
             songID: song.id,
             title: song.title,
@@ -4220,6 +4220,22 @@ final class MusicLibrary {
             cloudAccountID: sourceIdentityResolver?(song.sourceID),
             filePath: song.filePath
         )
+    }
+
+    /// Resolve portable identities back to this device's visible songs while
+    /// preserving the stored order. This is shared by AI smart playlists and
+    /// the existing cross-device playlist identity semantics.
+    func visibleSongs(matching identities: [SongIdentity]) -> [Song] {
+        guard !identities.isEmpty else { return [] }
+        let resolutionIndex = makeIdentityResolutionIndex(for: identities)
+        let visibleIDs = Set(visibleSongs.map(\.id))
+        var seen = Set<String>()
+        return identities.compactMap { identity in
+            guard let songID = resolveIdentity(identity, using: resolutionIndex),
+                  visibleIDs.contains(songID),
+                  seen.insert(songID).inserted else { return nil }
+            return song(id: songID)
+        }
     }
 
     /// Applies a remote value and returns true when the existing local value

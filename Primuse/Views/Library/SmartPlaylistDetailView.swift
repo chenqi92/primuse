@@ -1,8 +1,8 @@
 import SwiftUI
 import PrimuseKit
 
-/// 智能歌单详情页 ── 实时跑 SmartPlaylistEngine.match 拿匹配的歌, 复用
-/// SongRowView 显示。规则变化 / library 变化时会自动重算。
+/// 智能歌单详情页。规则型会实时匹配资料库；AI 型按生成时保存的跨设备歌曲身份
+/// 解析，并可从详情页继续输入描述追加歌曲。
 struct SmartPlaylistDetailView: View {
     /// 用 ID 查找而不是直接持值, 让规则编辑后 detail 能跟着 library 状态刷新。
     let smartPlaylistID: String
@@ -61,11 +61,15 @@ struct SmartPlaylistDetailView: View {
                             ZStack {
                                 RoundedRectangle(cornerRadius: 14)
                                     .fill(LinearGradient(
-                                        colors: [.purple.opacity(0.7), .blue.opacity(0.7)],
+                                        colors: smart.effectiveKind == .ai
+                                            ? [.pink.opacity(0.78), .orange.opacity(0.72)]
+                                            : [.purple.opacity(0.7), .blue.opacity(0.7)],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
                                     ))
-                                Image(systemName: "sparkles")
+                                Image(systemName: smart.effectiveKind == .ai
+                                      ? "sparkles"
+                                      : "slider.horizontal.3")
                                     .font(.system(size: 60))
                                     .foregroundStyle(.white)
                             }
@@ -79,7 +83,7 @@ struct SmartPlaylistDetailView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
 
-                            Text(rulesSummary(smart))
+                            Text(playlistSummary(smart))
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                                 .multilineTextAlignment(.center)
@@ -119,11 +123,22 @@ struct SmartPlaylistDetailView: View {
                         }
                         .padding(.horizontal)
 
+                        if smart.effectiveKind == .ai {
+                            Button {
+                                showEditor = true
+                            } label: {
+                                Label("ai_playlist_add_songs", systemImage: "sparkles")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .padding(.horizontal)
+                        }
+
                         // Songs
                         if matched.isEmpty {
                             EmptyStateView(
                                 titleKey: "smart_playlist_no_matches",
-                                descriptionKey: "smart_playlist_no_matches_desc",
+                                descriptionKey: emptyDescriptionKey(for: smart),
                                 systemImage: "magnifyingglass"
                             )
                             .padding(.top, 24)
@@ -152,12 +167,14 @@ struct SmartPlaylistDetailView: View {
                         Button {
                             showEditor = true
                         } label: {
-                            Image(systemName: "slider.horizontal.3")
+                            Image(systemName: smart.effectiveKind == .ai
+                                  ? "sparkles"
+                                  : "slider.horizontal.3")
                         }
                     }
                 }
                 .sheet(isPresented: $showEditor) {
-                    SmartPlaylistEditorView(existing: smart)
+                    editor(for: smart)
                 }
             } else {
                 ContentUnavailableView(
@@ -177,13 +194,13 @@ struct SmartPlaylistDetailView: View {
                         macHeader(smart, matched: matched)
 
                         VStack(alignment: .leading, spacing: PMSpace.l) {
-                            macRuleCard(smart)
+                            macDefinitionCard(smart)
                             macToolbar(smart)
 
                             if matched.isEmpty {
                                 EmptyStateView(
                                     titleKey: "smart_playlist_no_matches",
-                                    descriptionKey: "smart_playlist_no_matches_desc",
+                                    descriptionKey: emptyDescriptionKey(for: smart),
                                     systemImage: "magnifyingglass"
                                 )
                                 .frame(maxWidth: .infinity)
@@ -200,7 +217,7 @@ struct SmartPlaylistDetailView: View {
                 .background(PMColor.bg.ignoresSafeArea())
                 .navigationBarTitleDisplayMode(.inline)
                 .sheet(isPresented: $showEditor) {
-                    SmartPlaylistEditorView(existing: smart)
+                    editor(for: smart)
                 }
             } else {
                 ContentUnavailableView(
@@ -215,10 +232,12 @@ struct SmartPlaylistDetailView: View {
 
     private func macHeader(_ smart: SmartPlaylist, matched: [Song]) -> some View {
         MacLibraryHeader(
-            eyebrow: "smart_playlists_section",
+            eyebrow: smart.effectiveKind == .ai
+                ? "ai_smart_playlists_section"
+                : "rule_smart_playlists_section",
             title: smart.name,
-            subtitle: "\(matched.count) \(String(localized: "songs_count")) · \(rulesSummary(smart))",
-            iconSystemName: "sparkles",
+            subtitle: "\(matched.count) \(String(localized: "songs_count")) · \(playlistSummary(smart))",
+            iconSystemName: smart.effectiveKind == .ai ? "sparkles" : "slider.horizontal.3",
             coverSong: matched.first(where: { $0.coverArtFileName?.isEmpty == false }) ?? matched.first,
             accent: Color(red: 0.62, green: 0.44, blue: 0.90),
             darkAccent: Color(red: 0.22, green: 0.24, blue: 0.42),
@@ -236,6 +255,9 @@ struct SmartPlaylistDetailView: View {
     /// 不再放在规则编辑器弹框里。
     private func smartMoreMenu(_ smart: SmartPlaylist, matched: [Song]) -> AnyView {
         let playable = matched.filteredPlayable()
+        let editTitle = smart.effectiveKind == .ai
+            ? String(localized: "ai_playlist_add_songs")
+            : String(localized: "smart_edit_rules")
         return AnyView(MacHeaderMoreMenu(sections: [
             [
                 .init(icon: "play.fill", title: String(localized: "play_all"),
@@ -254,7 +276,10 @@ struct SmartPlaylistDetailView: View {
                 },
             ],
             [
-                .init(icon: "slider.horizontal.3", title: String(localized: "smart_edit_rules")) { showEditor = true },
+                .init(
+                    icon: smart.effectiveKind == .ai ? "sparkles" : "slider.horizontal.3",
+                    title: editTitle
+                ) { showEditor = true },
                 .init(icon: "arrow.down.circle", title: String(localized: "offline_download"),
                       enabled: !playable.isEmpty) {
                     sourceManager.downloadForOffline(songs: matched)
@@ -282,17 +307,20 @@ struct SmartPlaylistDetailView: View {
         NotificationCenter.default.post(name: .primuseSelectPlaylists, object: nil)
     }
 
-    private func macRuleCard(_ smart: SmartPlaylist) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: "slider.horizontal.3")
+    private func macDefinitionCard(_ smart: SmartPlaylist) -> some View {
+        let isAI = smart.effectiveKind == .ai
+        return HStack(spacing: 12) {
+            Image(systemName: isAI ? "sparkles" : "slider.horizontal.3")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(PMColor.brand)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("smart_rules_section")
+                Text(LocalizedStringKey(
+                    isAI ? "ai_playlist_prompt_section" : "smart_rules_section"
+                ))
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(PMColor.text)
-                Text(rulesSummary(smart))
+                Text(playlistSummary(smart))
                     .font(.system(size: 12))
                     .foregroundStyle(PMColor.textMuted)
                     .lineLimit(2)
@@ -303,7 +331,9 @@ struct SmartPlaylistDetailView: View {
             Button {
                 showEditor = true
             } label: {
-                Text("smart_edit_rules")
+                Text(LocalizedStringKey(
+                    isAI ? "ai_playlist_add_songs" : "smart_edit_rules"
+                ))
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(PMColor.text)
                     .padding(.horizontal, 10)
@@ -437,7 +467,35 @@ struct SmartPlaylistDetailView: View {
         Task { await player.play(song: song) }
     }
 
-    // MARK: - Rule summary
+    // MARK: - Definition summary
+
+    @ViewBuilder
+    private func editor(for smart: SmartPlaylist) -> some View {
+        if smart.effectiveKind == .ai {
+            AIPlaylistEditorView(existing: smart)
+        } else {
+            SmartPlaylistEditorView(existing: smart)
+        }
+    }
+
+    private func emptyDescriptionKey(for smart: SmartPlaylist) -> LocalizedStringKey {
+        smart.effectiveKind == .ai
+            ? "ai_playlist_no_suggestions"
+            : "smart_playlist_no_matches_desc"
+    }
+
+    private func playlistSummary(_ smart: SmartPlaylist) -> String {
+        if smart.effectiveKind == .ai {
+            guard let prompt = smart.aiConfiguration?.lastPrompt, !prompt.isEmpty else {
+                return String(localized: "ai_smart_playlists_section")
+            }
+            return String(
+                format: String(localized: "ai_playlist_prompt_summary_format"),
+                prompt
+            )
+        }
+        return rulesSummary(smart)
+    }
 
     private func rulesSummary(_ smart: SmartPlaylist) -> String {
         let groups = smart.effectiveRuleGroups

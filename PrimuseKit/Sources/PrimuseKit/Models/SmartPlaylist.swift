@@ -91,6 +91,120 @@ public enum SmartPlaylistSortDirection: String, Codable, Sendable {
     case descending
 }
 
+public enum SmartPlaylistKind: String, Codable, Sendable {
+    case rules
+    case ai
+}
+
+public struct AISmartPlaylistPrompt: Codable, Hashable, Sendable, Identifiable {
+    public var id: String
+    public var text: String
+    public var createdAt: Date
+
+    public init(
+        id: String = UUID().uuidString,
+        text: String,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.text = Self.normalized(text)
+        self.createdAt = createdAt
+    }
+
+    private static func normalized(_ value: String) -> String {
+        String(
+            value
+                .replacingOccurrences(of: "\n", with: " ")
+                .replacingOccurrences(of: "\r", with: " ")
+                .split(whereSeparator: \Character.isWhitespace)
+                .joined(separator: " ")
+                .prefix(160)
+        )
+    }
+}
+
+public struct AISmartPlaylistSelection: Codable, Hashable, Sendable {
+    public var identity: SongIdentity
+    public var reason: String?
+
+    public init(identity: SongIdentity, reason: String? = nil) {
+        self.identity = identity
+        let normalizedReason = reason?
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .split(whereSeparator: \Character.isWhitespace)
+            .joined(separator: " ")
+        self.reason = normalizedReason.flatMap {
+            $0.isEmpty ? nil : String($0.prefix(120))
+        }
+    }
+}
+
+/// AI 智能歌单保存生成历史和可跨设备解析的歌曲身份。
+///
+/// 不直接保存 `Song.id` 数组，因为音乐源 UUID 可能因设备而异；`SongIdentity`
+/// 会沿用普通歌单的精确 ID、云账号路径和元数据兜底解析语义。
+public struct AISmartPlaylistConfiguration: Codable, Hashable, Sendable {
+    public static let maximumPromptCount = 50
+    public static let maximumSelectionCount = 1_000
+
+    public var prompts: [AISmartPlaylistPrompt]
+    public var selections: [AISmartPlaylistSelection]
+
+    public init(
+        prompts: [AISmartPlaylistPrompt] = [],
+        selections: [AISmartPlaylistSelection] = []
+    ) {
+        self.prompts = Array(prompts.suffix(Self.maximumPromptCount))
+        self.selections = Self.uniqueSelections(selections)
+    }
+
+    public var lastPrompt: String? {
+        prompts.last?.text
+    }
+
+    public func appending(
+        prompt: String,
+        selections additions: [AISmartPlaylistSelection],
+        at date: Date = Date()
+    ) -> AISmartPlaylistConfiguration {
+        var nextPrompts = prompts
+        let nextPrompt = AISmartPlaylistPrompt(text: prompt, createdAt: date)
+        if !nextPrompt.text.isEmpty {
+            nextPrompts.append(nextPrompt)
+        }
+        return AISmartPlaylistConfiguration(
+            prompts: nextPrompts,
+            selections: selections + additions
+        )
+    }
+
+    private static func uniqueSelections(
+        _ selections: [AISmartPlaylistSelection]
+    ) -> [AISmartPlaylistSelection] {
+        var seen = Set<String>()
+        var result: [AISmartPlaylistSelection] = []
+        result.reserveCapacity(min(selections.count, maximumSelectionCount))
+        for selection in selections {
+            let key = identityKey(selection.identity)
+            guard seen.insert(key).inserted else { continue }
+            result.append(selection)
+            if result.count == maximumSelectionCount { break }
+        }
+        return result
+    }
+
+    private static func identityKey(_ identity: SongIdentity) -> String {
+        if let accountID = identity.cloudAccountID, !identity.filePath.isEmpty {
+            return "cloud:\(accountID)\u{1F}\(identity.filePath)"
+        }
+        if !identity.songID.isEmpty {
+            return "song:\(identity.songID)"
+        }
+        return "metadata:\(identity.title)\u{1F}\(identity.artistName ?? "")\u{1F}\(identity.duration)"
+    }
+}
+
 // MARK: - Rule
 
 public struct SmartPlaylistRule: Codable, Hashable, Sendable, Identifiable {
@@ -153,6 +267,11 @@ public struct SmartPlaylist: Codable, Identifiable, Hashable, Sendable {
     /// `.or` = 任一组满足即可。Optional 让旧 JSON 缺这个键时解码成 nil → 当 .and,
     /// 维持历史行为; 旧客户端解码新 JSON 时也会忽略这个未知键。
     public var groupCombinator: SmartPlaylistCombinator?
+    /// nil means the legacy rule-based type. Keeping this optional lets older
+    /// snapshots decode without a custom migration.
+    public var kind: SmartPlaylistKind?
+    /// Present only for AI playlists. Rule playlists keep this nil.
+    public var aiConfiguration: AISmartPlaylistConfiguration?
     /// 匹配上限 (nil = 不限)。命中超过此数时按 sortField 截断。
     public var limit: Int?
     public var sortField: SmartPlaylistSortField
@@ -170,6 +289,8 @@ public struct SmartPlaylist: Codable, Identifiable, Hashable, Sendable {
         combinator: SmartPlaylistCombinator = .and,
         ruleGroups: [SmartPlaylistRuleGroup]? = nil,
         groupCombinator: SmartPlaylistCombinator? = nil,
+        kind: SmartPlaylistKind? = nil,
+        aiConfiguration: AISmartPlaylistConfiguration? = nil,
         limit: Int? = nil,
         sortField: SmartPlaylistSortField = .dateAdded,
         sortDirection: SmartPlaylistSortDirection = .descending,
@@ -184,6 +305,8 @@ public struct SmartPlaylist: Codable, Identifiable, Hashable, Sendable {
         self.combinator = combinator
         self.ruleGroups = ruleGroups
         self.groupCombinator = groupCombinator
+        self.kind = kind
+        self.aiConfiguration = aiConfiguration
         self.limit = limit
         self.sortField = sortField
         self.sortDirection = sortDirection
@@ -212,6 +335,14 @@ public struct SmartPlaylist: Codable, Identifiable, Hashable, Sendable {
     /// 分组之间的有效组合方式 (旧数据 / nil → AND, 维持历史行为)。
     public var effectiveGroupCombinator: SmartPlaylistCombinator {
         groupCombinator ?? .and
+    }
+
+    public var effectiveKind: SmartPlaylistKind {
+        kind ?? (aiConfiguration == nil ? .rules : .ai)
+    }
+
+    public var ruleCount: Int {
+        effectiveRuleGroups.reduce(0) { $0 + $1.rules.count }
     }
 }
 

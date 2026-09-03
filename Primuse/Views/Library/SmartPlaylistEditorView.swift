@@ -125,7 +125,7 @@ struct SmartPlaylistEditorView: View {
                     }
                 }
             }
-            .navigationTitle(isEditing ? "smart_playlist_edit" : "smart_playlist_new")
+            .navigationTitle(isEditing ? "rule_smart_playlist_edit" : "rule_smart_playlist_new")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -447,6 +447,8 @@ struct SmartPlaylistEditorView: View {
         smart.sortField = sortField
         smart.sortDirection = sortDirection
         smart.limit = Int(limitText.trimmingCharacters(in: .whitespaces))
+        smart.kind = .rules
+        smart.aiConfiguration = nil
         return smart
     }
 
@@ -501,6 +503,8 @@ struct SmartPlaylistEditorView: View {
         smart.sortField = sortField
         smart.sortDirection = sortDirection
         smart.limit = Int(limitText.trimmingCharacters(in: .whitespaces))
+        smart.kind = .rules
+        smart.aiConfiguration = nil
         library.saveSmartPlaylist(smart)
         dismiss()
     }

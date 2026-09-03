@@ -155,7 +155,8 @@ struct MacSidebar: View {
             // 智能歌单排在普通歌单上面 (跟歌单总览页的分区顺序一致)。侧栏只列前
             // 几个保持节奏, 超出的通过下面「全部歌单」行进入总览页。
             ForEach(sidebarSmartPlaylists.prefix(sidebarPlaylistLimit), id: \.id) { smart in
-                item(route: .smartPlaylist(smart), icon: "sparkles",
+                item(route: .smartPlaylist(smart),
+                     icon: smart.effectiveKind == .ai ? "sparkles" : "slider.horizontal.3",
                      title: LocalizedStringKey(smart.name))
                 .contextMenu {
                     smartPlaylistContextMenu(for: smart)
@@ -199,7 +200,12 @@ struct MacSidebar: View {
             Button {
                 NotificationCenter.default.post(name: .primuseSidebarRequestNewSmartPlaylist, object: nil)
             } label: {
-                Label("new_smart_playlist", systemImage: "sparkles")
+                Label("new_rule_smart_playlist", systemImage: "slider.horizontal.3")
+            }
+            Button {
+                NotificationCenter.default.post(name: .primuseSidebarRequestNewAIPlaylist, object: nil)
+            } label: {
+                Label("new_ai_smart_playlist", systemImage: "sparkles")
             }
         } label: {
             Image(systemName: "plus")
@@ -638,6 +644,7 @@ struct MacSidebar: View {
 extension Notification.Name {
     static let primuseSidebarRequestNewPlaylist = Notification.Name("primuse.sidebar.newPlaylist")
     static let primuseSidebarRequestNewSmartPlaylist = Notification.Name("primuse.sidebar.newSmartPlaylist")
+    static let primuseSidebarRequestNewAIPlaylist = Notification.Name("primuse.sidebar.newAIPlaylist")
 }
 
 #endif

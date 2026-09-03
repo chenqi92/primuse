@@ -20,6 +20,11 @@ enum SmartPlaylistEngine {
         in library: MusicLibrary,
         history: PlayHistoryStore
     ) -> [Song] {
+        if smart.effectiveKind == .ai {
+            let identities = smart.aiConfiguration?.selections.map(\.identity) ?? []
+            return library.visibleSongs(matching: identities)
+        }
+
         let startedAt = Date()
         let songs = candidateSongs(in: library)
         let totalSongs = songs.count

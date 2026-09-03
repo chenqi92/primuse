@@ -16,6 +16,7 @@ struct PlaylistListView: View {
     @State private var newPlaylistName = ""
     @State private var newPlaylistDescription = ""
     @State private var showSmartEditor = false
+    @State private var showAIEditor = false
     @State private var showPlaylistImport = false
     @State private var showNoScraperSourceAlert = false
     /// 歌单批量管理态。普通态和管理态用两个独立的列表 —— 在同一个 List 上
@@ -36,6 +37,12 @@ struct PlaylistListView: View {
         library.playlists.filter { $0.id != MusicLibrary.likedSongsPlaylistID }
     }
     private var smartPlaylists: [SmartPlaylist] { library.smartPlaylists }
+    private var aiSmartPlaylists: [SmartPlaylist] {
+        smartPlaylists.filter { $0.effectiveKind == .ai }
+    }
+    private var ruleSmartPlaylists: [SmartPlaylist] {
+        smartPlaylists.filter { $0.effectiveKind == .rules }
+    }
     private var operationAvailability: PlaylistOperationAvailability {
         #if os(tvOS)
         .television
@@ -97,16 +104,33 @@ struct PlaylistListView: View {
                 playlistManageList
             } else {
                 List {
-                    if !smartPlaylists.isEmpty {
+                    if !aiSmartPlaylists.isEmpty {
                         Section {
-                            ForEach(smartPlaylists) { smart in
+                            ForEach(aiSmartPlaylists) { smart in
                                 NavigationLink(value: smart) {
                                     smartPlaylistRow(smart)
                                 }
                             }
-                            .onDelete(perform: deleteSmartPlaylists)
+                            .onDelete { offsets in
+                                deleteSmartPlaylists(at: offsets, in: aiSmartPlaylists)
+                            }
                         } header: {
-                            Text("smart_playlists_section")
+                            Text("ai_smart_playlists_section")
+                        }
+                    }
+
+                    if !ruleSmartPlaylists.isEmpty {
+                        Section {
+                            ForEach(ruleSmartPlaylists) { smart in
+                                NavigationLink(value: smart) {
+                                    smartPlaylistRow(smart)
+                                }
+                            }
+                            .onDelete { offsets in
+                                deleteSmartPlaylists(at: offsets, in: ruleSmartPlaylists)
+                            }
+                        } header: {
+                            Text("rule_smart_playlists_section")
                         }
                     }
 
@@ -169,9 +193,14 @@ struct PlaylistListView: View {
                             Label("new_playlist", systemImage: "music.note.list")
                         }
                         Button {
+                            showAIEditor = true
+                        } label: {
+                            Label("new_ai_smart_playlist", systemImage: "sparkles")
+                        }
+                        Button {
                             showSmartEditor = true
                         } label: {
-                            Label("new_smart_playlist", systemImage: "sparkles")
+                            Label("new_rule_smart_playlist", systemImage: "slider.horizontal.3")
                         }
                         if operationAvailability.supportsImport {
                             Button {
@@ -201,6 +230,9 @@ struct PlaylistListView: View {
         }
         .sheet(isPresented: $showSmartEditor) {
             SmartPlaylistEditorView(existing: nil)
+        }
+        .sheet(isPresented: $showAIEditor) {
+            AIPlaylistEditorView(existing: nil)
         }
         .navigationDestination(for: SmartPlaylist.self) { smart in
             SmartPlaylistDetailView(smartPlaylistID: smart.id)
@@ -297,15 +329,18 @@ struct PlaylistListView: View {
     }
 
     private func smartPlaylistRow(_ smart: SmartPlaylist) -> some View {
-        HStack(spacing: 12) {
+        let isAI = smart.effectiveKind == .ai
+        return HStack(spacing: 12) {
             ZStack {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(LinearGradient(
-                        colors: [.purple.opacity(0.7), .blue.opacity(0.7)],
+                        colors: isAI
+                            ? [.pink.opacity(0.78), .orange.opacity(0.72)]
+                            : [.purple.opacity(0.7), .blue.opacity(0.7)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     ))
-                Image(systemName: "sparkles")
+                Image(systemName: isAI ? "sparkles" : "slider.horizontal.3")
                     .font(.title3)
                     .foregroundStyle(.white)
             }
@@ -313,12 +348,19 @@ struct PlaylistListView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(smart.name).font(.body)
-                Text("\(smart.rules.count) \(String(localized: "rules_count"))")
+                Text(smartPlaylistSubtitle(smart))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
         }
+    }
+
+    private func smartPlaylistSubtitle(_ smart: SmartPlaylist) -> String {
+        if smart.effectiveKind == .ai {
+            return "\(smart.aiConfiguration?.selections.count ?? 0) \(String(localized: "songs_count")) · AI"
+        }
+        return "\(smart.ruleCount) \(String(localized: "rules_count"))"
     }
 
     #if os(macOS)
@@ -338,15 +380,33 @@ struct PlaylistListView: View {
                 } else {
                     playlistOverview
 
-                    if !smartPlaylists.isEmpty {
+                    if !aiSmartPlaylists.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
-                            macSubsectionTitle("smart_playlists_section")
+                            macSubsectionTitle("ai_smart_playlists_section")
                             LazyVGrid(
                                 columns: macPlaylistGridColumns,
                                 alignment: .leading,
                                 spacing: 12
                             ) {
-                                ForEach(smartPlaylists) { smart in
+                                ForEach(aiSmartPlaylists) { smart in
+                                    NavigationLink(value: smart) {
+                                        smartPlaylistCard(smart)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+
+                    if !ruleSmartPlaylists.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            macSubsectionTitle("rule_smart_playlists_section")
+                            LazyVGrid(
+                                columns: macPlaylistGridColumns,
+                                alignment: .leading,
+                                spacing: 12
+                            ) {
+                                ForEach(ruleSmartPlaylists) { smart in
                                     NavigationLink(value: smart) {
                                         smartPlaylistCard(smart)
                                     }
@@ -429,6 +489,9 @@ struct PlaylistListView: View {
         .sheet(isPresented: $showSmartEditor) {
             SmartPlaylistEditorView(existing: nil)
         }
+        .sheet(isPresented: $showAIEditor) {
+            AIPlaylistEditorView(existing: nil)
+        }
     }
 
     /// 窄窗口保持单列；正文变宽后自动增加列数，避免列表固定在左侧而让右侧闲置。
@@ -463,7 +526,7 @@ struct PlaylistListView: View {
             .buttonStyle(.plain)
 
             Button {
-                showSmartEditor = true
+                showAIEditor = true
             } label: {
                 Image(systemName: "sparkles")
                     .font(.system(size: 12.5, weight: .semibold))
@@ -476,7 +539,23 @@ struct PlaylistListView: View {
                     }
             }
             .buttonStyle(.plain)
-            .help(Text("new_smart_playlist"))
+            .help(Text("new_ai_smart_playlist"))
+
+            Button {
+                showSmartEditor = true
+            } label: {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                    .frame(width: 32, height: 32)
+                    .background(PMColor.glassBtn, in: .rect(cornerRadius: 8))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                    }
+            }
+            .buttonStyle(.plain)
+            .help(Text("new_rule_smart_playlist"))
 
             if operationAvailability.supportsImport {
                 Button {
@@ -531,7 +610,7 @@ struct PlaylistListView: View {
                 Text("tab_playlists")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(PMColor.text)
-                Text("\(playlists.count) \(String(localized: "playlists_section")) · \(smartPlaylists.count) \(String(localized: "smart_playlists_section")) · \(totalPlaylistSongs) \(String(localized: "songs_count"))")
+                Text("\(playlists.count) \(String(localized: "playlists_section")) · \(aiSmartPlaylists.count) \(String(localized: "ai_smart_playlists_section")) · \(ruleSmartPlaylists.count) \(String(localized: "rule_smart_playlists_section")) · \(totalPlaylistSongs) \(String(localized: "songs_count"))")
                     .font(.system(size: 12.5))
                     .foregroundStyle(PMColor.textMuted)
             }
@@ -561,17 +640,20 @@ struct PlaylistListView: View {
 
     private func smartPlaylistCard(_ smart: SmartPlaylist) -> some View {
         let count = SmartPlaylistEngine.match(smart, in: library, history: PlayHistoryStore.shared).count
+        let isAI = smart.effectiveKind == .ai
         return HStack(spacing: 14) {
             ZStack {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(
                         LinearGradient(
-                            colors: [PMColor.brand.opacity(0.92), Color(red: 0.36, green: 0.45, blue: 0.68)],
+                            colors: isAI
+                                ? [Color.pink.opacity(0.82), Color.orange.opacity(0.72)]
+                                : [PMColor.brand.opacity(0.92), Color(red: 0.36, green: 0.45, blue: 0.68)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
                     )
-                Image(systemName: "sparkles")
+                Image(systemName: isAI ? "sparkles" : "slider.horizontal.3")
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(.white)
             }
@@ -583,7 +665,7 @@ struct PlaylistListView: View {
                     .foregroundStyle(PMColor.text)
                     .lineLimit(1)
 
-                Text("\(count) \(String(localized: "songs_count")) · \(smart.rules.count + (smart.ruleGroups?.flatMap(\.rules).count ?? 0)) \(String(localized: "rules_count"))")
+                Text(smartPlaylistCardSubtitle(smart, resolvedSongCount: count))
                     .font(.system(size: 11.5))
                     .foregroundStyle(PMColor.textMuted)
                     .lineLimit(1)
@@ -602,6 +684,16 @@ struct PlaylistListView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
         }
+    }
+
+    private func smartPlaylistCardSubtitle(
+        _ smart: SmartPlaylist,
+        resolvedSongCount: Int
+    ) -> String {
+        if smart.effectiveKind == .ai {
+            return "\(resolvedSongCount) \(String(localized: "songs_count")) · AI"
+        }
+        return "\(resolvedSongCount) \(String(localized: "songs_count")) · \(smart.ruleCount) \(String(localized: "rules_count"))"
     }
 
     private func playlistCard(_ playlist: Playlist) -> some View {
@@ -744,9 +836,12 @@ struct PlaylistListView: View {
             || playlistID == MusicLibrary.likedSongsPlaylistID
     }
 
-    private func deleteSmartPlaylists(at offsets: IndexSet) {
+    private func deleteSmartPlaylists(
+        at offsets: IndexSet,
+        in playlists: [SmartPlaylist]
+    ) {
         for index in offsets {
-            library.deleteSmartPlaylist(id: smartPlaylists[index].id)
+            library.deleteSmartPlaylist(id: playlists[index].id)
         }
     }
 

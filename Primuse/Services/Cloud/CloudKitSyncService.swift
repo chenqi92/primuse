@@ -1917,9 +1917,9 @@ final class CloudKitSyncService {
 
     // MARK: - Smart playlist mapping
     //
-    // 比 Playlist 简单 ── 只存定义不存歌曲列表, 把整份 SmartPlaylist 编码成 JSON
-    // 塞进单个 `payload` 字段, 不需要拆字段也不需要 song identity 解析。
-    // 不同设备的 PlayHistoryStore 不同步, 同一份规则会得到不同结果, 这是设计选择。
+    // 整份 SmartPlaylist 编码成 JSON 塞进单个 `payload` 字段。规则型只存定义；
+    // AI 型还会保存可跨设备解析的 SongIdentity，由 MusicLibrary 在展示时解析。
+    // 不同设备的 PlayHistoryStore 不同步，同一份规则可能得到不同结果，这是设计选择。
 
     private func populateSmartPlaylistRecord(_ record: CKRecord, smartPlaylistID id: String) -> Bool {
         guard let smart = library.allSmartPlaylists.first(where: { $0.id == id }) else { return false }
