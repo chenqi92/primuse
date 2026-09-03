@@ -40,6 +40,7 @@ enum MacTool: String, Identifiable, Hashable {
     case lyricsConverter
     case duplicates
     case scrobble
+    case cacheSync
 
     var id: String { rawValue }
 }

@@ -57,6 +57,34 @@ struct OfflineDownloadBatchResult: Sendable {
     }
 }
 
+#if os(iOS) || os(macOS)
+/// A capacity reservation for one incoming peer-to-peer cache file. The
+/// staging path lives on the cache volume so the verified file can be moved
+/// into place atomically without copying a second full payload.
+struct AudioCacheSyncImportReservation: Sendable {
+    let id: UUID
+    let songID: String
+    let sourceID: String
+    let filePath: String
+    let cacheFileName: String
+    let relativePath: String
+    let stagingURL: URL
+    let targetURL: URL
+    let expectedByteCount: Int64
+    let maximumByteCount: Int64
+    let lease: AudioCachePathLease
+}
+
+enum AudioCacheSyncImportError: Error, Sendable {
+    case invalidRequest
+    case songChanged
+    case sourceUnavailable
+    case alreadyCached
+    case artifactBusy
+    case incomplete
+}
+#endif
+
 struct AlwaysDownloadDesiredSong: Sendable {
     let song: Song
     let playlistIDs: Set<String>
@@ -4594,10 +4622,10 @@ final class SourceManager {
         return dir
     }
 
-    /// Pure URL construction for UI probes. Unlike `cacheURL(for:)`, this does
-    /// not create directories, stat files, or run legacy migration on the main
-    /// actor.
-    private func audioCacheTargetURL(for song: Song) -> URL {
+    /// Pure URL construction for read-only probes and cache-sync manifests.
+    /// Unlike `cacheURL(for:)`, this does not create directories, stat files,
+    /// or run legacy migration on the main actor.
+    func audioCacheTargetURL(for song: Song) -> URL {
         Self.audioCacheDirectoryURL(for: song.sourceID)
             .appendingPathComponent(cacheFileName(for: song))
     }
@@ -4729,6 +4757,184 @@ final class SourceManager {
         }
         return url
     }
+
+    #if os(iOS) || os(macOS)
+    /// Reserves the canonical cache path and enough disk/cache-budget capacity
+    /// before a peer starts sending bytes. The current library row is looked
+    /// up again here so a stale discovery plan cannot install into a source
+    /// that was edited or removed in the meantime.
+    func beginAudioCacheSyncImport(
+        for requestedSong: Song,
+        expectedByteCount: Int64
+    ) async throws -> AudioCacheSyncImportReservation {
+        guard expectedByteCount > 0,
+              let currentSong = songsProvider().first(where: {
+                  $0.id == requestedSong.id
+                      && $0.sourceID == requestedSong.sourceID
+              }),
+              currentSong.filePath == requestedSong.filePath,
+              currentSong.fileFormat == requestedSong.fileFormat else {
+            throw AudioCacheSyncImportError.invalidRequest
+        }
+        if currentSong.fileSize > 0 {
+            do {
+                try OfflineTransferSizePolicy.validate(
+                    actualSize: expectedByteCount,
+                    expectedSize: currentSong.fileSize
+                )
+            } catch {
+                throw AudioCacheSyncImportError.invalidRequest
+            }
+        }
+        guard await ensureAudioCacheScopeValidated(for: currentSong.sourceID),
+              audioCacheReadsAreAllowed(for: currentSong.sourceID) else {
+            throw AudioCacheSyncImportError.sourceUnavailable
+        }
+        if cachedURL(for: currentSong) != nil {
+            throw AudioCacheSyncImportError.alreadyCached
+        }
+
+        let relativePath = audioCacheRelativePath(for: currentSong)
+        guard let lease = await AudioCacheManager.shared.acquirePathFamilyLease(
+            path: relativePath,
+            reserveBytes: 0
+        ) else {
+            throw AudioCacheSyncImportError.artifactBusy
+        }
+
+        do {
+            let maximumByteCount = try await prepareOfflineTransferCapacity(
+                expectedSize: expectedByteCount,
+                lease: lease
+            )
+            guard audioCacheReadsAreAllowed(for: currentSong.sourceID) else {
+                throw AudioCacheSyncImportError.sourceUnavailable
+            }
+
+            let targetURL = audioCacheTargetURL(for: currentSong)
+            let incomingDirectory = targetURL.deletingLastPathComponent()
+            try await Task.detached(priority: .utility) {
+                try FileManager.default.createDirectory(
+                    at: incomingDirectory,
+                    withIntermediateDirectories: true
+                )
+            }.value
+            let stagingURL = incomingDirectory
+                .appendingPathComponent("\(UUID().uuidString).cache-sync")
+                .appendingPathExtension("partial")
+            setOfflineAudioSnapshot(
+                OfflineAudioCacheSnapshot(
+                    state: .downloading,
+                    progress: 0,
+                    byteCount: nil,
+                    errorMessage: nil
+                ),
+                for: currentSong.id
+            )
+            return AudioCacheSyncImportReservation(
+                id: UUID(),
+                songID: currentSong.id,
+                sourceID: currentSong.sourceID,
+                filePath: currentSong.filePath,
+                cacheFileName: cacheFileName(for: currentSong),
+                relativePath: relativePath,
+                stagingURL: stagingURL,
+                targetURL: targetURL,
+                expectedByteCount: expectedByteCount,
+                maximumByteCount: maximumByteCount,
+                lease: lease
+            )
+        } catch {
+            await AudioCacheManager.shared.releasePathFamilyLease(lease)
+            throw error
+        }
+    }
+
+    /// Verifies the exact peer-advertised length and installs the staging file
+    /// through the same atomic path used by ordinary offline downloads.
+    func finishAudioCacheSyncImport(
+        _ reservation: AudioCacheSyncImportReservation
+    ) async throws {
+        do {
+            guard let currentSong = songsProvider().first(where: {
+                $0.id == reservation.songID
+                    && $0.sourceID == reservation.sourceID
+            }),
+                  currentSong.filePath == reservation.filePath,
+                  cacheFileName(for: currentSong) == reservation.cacheFileName,
+                  audioCacheReadsAreAllowed(for: reservation.sourceID) else {
+                throw AudioCacheSyncImportError.songChanged
+            }
+
+            let targetAlreadyUsable = await Task.detached(priority: .utility) {
+                Self.isUsableCacheFile(
+                    at: reservation.targetURL,
+                    expectedSize: currentSong.fileSize
+                )
+            }.value
+            if targetAlreadyUsable {
+                try? await Task.detached(priority: .utility) {
+                    try FileManager.default.removeItem(at: reservation.stagingURL)
+                }.value
+            } else {
+                try await Task.detached(priority: .utility) {
+                    let attributes = try FileManager.default.attributesOfItem(
+                        atPath: reservation.stagingURL.path
+                    )
+                    let actual = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+                    guard actual == reservation.expectedByteCount else {
+                        throw AudioCacheSyncImportError.incomplete
+                    }
+                    try Self.validateCompleteCacheFile(
+                        at: reservation.stagingURL,
+                        expectedSize: reservation.expectedByteCount,
+                        maximumBytes: reservation.maximumByteCount
+                    )
+                    try Self.installCacheFile(
+                        from: reservation.stagingURL,
+                        to: reservation.targetURL,
+                        move: true
+                    )
+                }.value
+            }
+
+            await AudioCacheManager.shared.markDownloaded(
+                path: reservation.relativePath,
+                byteCount: reservation.expectedByteCount,
+                pinned: true
+            )
+            setOfflineAudioSnapshot(
+                OfflineAudioCacheSnapshot(
+                    state: .pinned,
+                    progress: nil,
+                    byteCount: reservation.expectedByteCount,
+                    errorMessage: nil
+                ),
+                for: reservation.songID
+            )
+            await AudioCacheManager.shared.releasePathFamilyLease(reservation.lease)
+        } catch {
+            await AudioCacheManager.shared.releasePathFamilyLease(reservation.lease)
+            throw error
+        }
+    }
+
+    func cancelAudioCacheSyncImport(
+        _ reservation: AudioCacheSyncImportReservation
+    ) async {
+        try? await Task.detached(priority: .utility) {
+            try FileManager.default.removeItem(at: reservation.stagingURL)
+        }.value
+        await AudioCacheManager.shared.releasePathFamilyLease(reservation.lease)
+        if let currentSong = songsProvider().first(where: {
+            $0.id == reservation.songID && $0.sourceID == reservation.sourceID
+        }) {
+            await refreshOfflineAudioSnapshot(for: currentSong)
+        } else {
+            setOfflineAudioSnapshot(.notCached, for: reservation.songID)
+        }
+    }
+    #endif
 
     /// Read-only cache lookup for artwork and other scrolling-adjacent work.
     /// Legacy migration remains on explicit playback/cache paths; a recycled

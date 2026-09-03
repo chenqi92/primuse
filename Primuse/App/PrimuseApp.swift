@@ -984,6 +984,9 @@ struct PrimuseApp: App {
     @State private var batchRemoval: SongBatchRemovalService
     @State private var serverListeningStats: ServerListeningStatsService
     @State private var musicIntelligence: MusicIntelligenceService
+    #if os(iOS) || os(macOS)
+    @State private var audioCacheSync: AudioCacheSyncService
+    #endif
 
     @AppStorage("primuse.iCloudSyncEnabled") private var iCloudSyncEnabled: Bool = true
     /// DLNA 接收器持久开关。打开后启动时自动 start, 不需要进 Settings 触发。
@@ -1030,6 +1033,9 @@ struct PrimuseApp: App {
         _batchRemoval = State(initialValue: services.batchRemoval)
         _serverListeningStats = State(initialValue: services.serverListeningStats)
         _musicIntelligence = State(initialValue: services.musicIntelligence)
+        #if os(iOS) || os(macOS)
+        _audioCacheSync = State(initialValue: services.audioCacheSync)
+        #endif
     }
 
     /// macOS 给主 WindowGroup 一个稳定 id,菜单栏 "Open Main Window"
@@ -1073,6 +1079,9 @@ struct PrimuseApp: App {
             .environment(batchRemoval)
             .environment(serverListeningStats)
             .environment(musicIntelligence)
+            #if os(iOS) || os(macOS)
+            .environment(audioCacheSync)
+            #endif
         return injected.tint(themeService.uiAccentColor)
     }
 
@@ -1143,6 +1152,9 @@ struct PrimuseApp: App {
                     guard !Task.isCancelled else { return }
                     await AppServices.shared.completeDeferredStartup()
                     navidromeAutoRefresh.setApplicationActive(scenePhase == .active)
+                    #if os(iOS) || os(macOS)
+                    audioCacheSync.setApplicationActive(scenePhase == .active)
+                    #endif
 
                     PrimuseAppDelegate.sync = cloudSync
                     // Apple Watch 桥 ── 启动 WCSession, 1Hz 推 Now Playing
@@ -1363,6 +1375,9 @@ struct PrimuseApp: App {
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     navidromeAutoRefresh.setApplicationActive(newPhase == .active)
+                    #if os(iOS) || os(macOS)
+                    audioCacheSync.setApplicationActive(newPhase == .active)
+                    #endif
                     switch newPhase {
                     case .inactive:
                         #if os(iOS)

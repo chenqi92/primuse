@@ -502,6 +502,7 @@ final class AppServices {
     let alwaysDownload: AlwaysDownloadCoordinator
     #if os(iOS) || os(macOS)
     let localReferenceRefresh: LocalReferenceRefreshService
+    let audioCacheSync: AudioCacheSyncService
     #endif
     let metadataBackfill: MetadataBackfillService
     let lyricsTextBackfill: LyricsTextBackfillService
@@ -724,6 +725,13 @@ final class AppServices {
             scanService: scanService,
             scraperService: scraper
         )
+        let audioCacheSync = AudioCacheSyncService()
+        audioCacheSync.attach(
+            sourceManager: manager,
+            sourcesStore: store,
+            library: library
+        )
+        self.audioCacheSync = audioCacheSync
         #endif
         self.metadataBackfill = metadataBackfill
         self.lyricsTextBackfill = LyricsTextBackfillService(library: library)

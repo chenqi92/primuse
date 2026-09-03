@@ -73,6 +73,7 @@
 	<string>Primuse uses Apple Music to search the catalog and play tracks if you have an active subscription.</string>
 	<key>NSBonjourServices</key>
 	<array>
+		<string>_primuse-cache._tcp.</string>
 		<string>_smb._tcp.</string>
 		<string>_webdav._tcp.</string>
 		<string>_webdavs._tcp.</string>
@@ -85,7 +86,7 @@
 		<string>_https._tcp.</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>猿音需要访问本地网络以发现和连接您的 NAS 设备、媒体服务器及其他音乐源。</string>
+	<string>猿音需要访问本地网络，以发现并连接您的 NAS、媒体服务器、其他音乐源及附近的猿音设备。</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Primuse uses headphone motion to keep Spatial Audio anchored while you move your head.</string>
 	<key>NSSiriUsageDescription</key>

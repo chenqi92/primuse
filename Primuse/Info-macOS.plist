@@ -62,6 +62,7 @@
 	<string>Primuse needs access to your Apple Music / iTunes library to import its local tracks as a playback source.</string>
 	<key>NSBonjourServices</key>
 	<array>
+		<string>_primuse-cache._tcp.</string>
 		<string>_smb._tcp.</string>
 		<string>_webdav._tcp.</string>
 		<string>_webdavs._tcp.</string>
@@ -76,7 +77,7 @@
 	<key>NSHumanReadableCopyright</key>
 	<string>© Welape</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Primuse needs local network access to discover and connect to your NAS devices, media servers, and other music sources.</string>
+	<string>Primuse needs local network access to discover and connect to your NAS, media servers, music sources, and nearby Primuse devices.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Primuse uses headphone motion to keep Spatial Audio anchored while you move your head.</string>
 	<key>PrimuseBaiduClientID</key>

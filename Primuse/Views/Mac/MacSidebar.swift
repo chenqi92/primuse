@@ -276,11 +276,16 @@ struct MacSidebar: View {
             sectionHeader("mac_sidebar_tools")
 
             toolItem(.lyricsConverter, icon: "arrow.left.arrow.right",
-                     title: "lyrics_converter_title")
+                     title: String(localized: "lyrics_converter_title"))
             toolItem(.duplicates, icon: "arrow.triangle.2.circlepath",
-                     title: "Duplicate Song Cleanup")
+                     title: String(localized: "Duplicate Song Cleanup"))
             toolItem(.scrobble, icon: "waveform.path.ecg",
-                     title: "Scrobble Configuration")
+                     title: String(localized: "Scrobble Configuration"))
+            toolItem(
+                .cacheSync,
+                icon: "externaldrive.badge.wifi",
+                title: CacheSyncLocalization.text("cache_sync_title")
+            )
         }
         .padding(.horizontal, 6)
     }
@@ -288,7 +293,7 @@ struct MacSidebar: View {
     /// 工具行 —— 跟 `item` 长得一样, 但点击是弹 sheet (`onOpenTool`) 而不是
     /// 切路由, 所以永远不显示选中态。右侧带一个箭头暗示"打开面板"。
     @ViewBuilder
-    private func toolItem(_ tool: MacTool, icon: String, title: LocalizedStringKey) -> some View {
+    private func toolItem(_ tool: MacTool, icon: String, title: String) -> some View {
         Button {
             onOpenTool(tool)
         } label: {
@@ -298,7 +303,7 @@ struct MacSidebar: View {
                     .foregroundStyle(PMColor.text.opacity(0.78))
                     .frame(width: 18, height: 18)
 
-                Text(title)
+                Text(verbatim: title)
                     .font(.system(size: 13))
                     .foregroundStyle(PMColor.text.opacity(0.85))
                     .lineLimit(1)

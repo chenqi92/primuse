@@ -301,6 +301,8 @@ struct MacContentView: View {
             DuplicateSongsView()
         case .scrobble:
             ScrobbleSettingsView()
+        case .cacheSync:
+            MacAudioCacheSyncView()
         }
     }
 
