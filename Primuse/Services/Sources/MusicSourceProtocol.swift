@@ -1104,7 +1104,7 @@ extension MusicSourceConnector {
         let readback = try await fetchRange(
             path: path,
             offset: 0,
-            length: Int64(data.count),
+            length: Int64(data.count) + 1,
             priority: .background
         )
         guard readback == data else {

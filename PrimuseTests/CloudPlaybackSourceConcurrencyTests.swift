@@ -218,6 +218,30 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         return try XCTUnwrap(source as? CloudInputSourceObjC)
     }
 
+    func testDefaultSidecarVerificationRejectsPartialAndTrailingPayloads() async throws {
+        let expected = Data("[00:01.000]完整歌词".utf8)
+        let exact = FixtureRangeConnector(sourceID: "sidecar-exact", payload: expected)
+        try await exact.verifySidecarWrite(data: expected, at: "/song.lrc")
+
+        let partial = FixtureRangeConnector(
+            sourceID: "sidecar-partial",
+            payload: Data(expected.dropLast())
+        )
+        do {
+            try await partial.verifySidecarWrite(data: expected, at: "/song.lrc")
+            XCTFail("partial sidecar unexpectedly passed verification")
+        } catch is EmbeddedMetadataWritebackSourceError {}
+
+        let trailing = FixtureRangeConnector(
+            sourceID: "sidecar-trailing",
+            payload: expected + Data("\n旧歌词残留".utf8)
+        )
+        do {
+            try await trailing.verifySidecarWrite(data: expected, at: "/song.lrc")
+            XCTFail("sidecar with stale trailing bytes unexpectedly passed verification")
+        } catch is EmbeddedMetadataWritebackSourceError {}
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(
             "PrimuseCloudPlaybackConcurrency-\(UUID().uuidString)",

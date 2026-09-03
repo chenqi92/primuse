@@ -289,7 +289,7 @@ actor NFSSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter,
         let readback = try await fetchRange(
             path: resolvedPath,
             offset: 0,
-            length: Int64(data.count)
+            length: Int64(data.count) + 1
         )
         guard readback == data else {
             throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
