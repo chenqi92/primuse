@@ -184,9 +184,6 @@ private struct SongBatchActionsModifier: ViewModifier {
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(ScraperSettingsStore.self) private var scraperSettings
     @Environment(SongBatchRemovalService.self) private var removal
-    #if os(iOS)
-    @Environment(\.appNavigationMode) private var appNavigationMode
-    #endif
     let selection: SongSelectionModel
     let context: SongBatchActionContext
     let orderedIDs: () -> [String]
@@ -250,17 +247,11 @@ private struct SongBatchActionsModifier: ViewModifier {
     private func actionPresentation(_ content: Content) -> some View {
         #if os(iOS)
         content
+            // The page reports ownership upward; ContentView is the only
+            // layer that decides whether the app's system Tab Bar is visible.
             .preference(
                 key: SongBatchSelectionActivePreferenceKey.self,
                 value: selection.isActive
-            )
-            // A selection toolbar and the app tab bar cannot share the same
-            // bottom edge on iPhone. On iOS 26 their glass backgrounds overlap
-            // and taps can fall through to a tab item. Selection temporarily
-            // replaces the tab bar, then restores the parent visibility.
-            .toolbar(
-                selection.isActive || appNavigationMode == .minimal ? .hidden : .automatic,
-                for: .tabBar
             )
             .toolbar {
                 ToolbarItem(placement: .bottomBar) {

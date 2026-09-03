@@ -69,6 +69,56 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         )
     }
 
+    func testBottomChromeHasOneOwnerDuringBatchSelection() {
+        XCTAssertEqual(
+            AppNavigationChromePolicy.bottomChromeOwner(
+                mode: .standard,
+                batchSelectionActive: false
+            ),
+            .systemTabBar
+        )
+        XCTAssertEqual(
+            AppNavigationChromePolicy.bottomChromeOwner(
+                mode: .standard,
+                batchSelectionActive: true
+            ),
+            .batchSelection
+        )
+        XCTAssertEqual(
+            AppNavigationChromePolicy.bottomChromeOwner(
+                mode: .minimal,
+                batchSelectionActive: false
+            ),
+            .minimalNavigation
+        )
+        XCTAssertEqual(
+            AppNavigationChromePolicy.bottomChromeOwner(
+                mode: .minimal,
+                batchSelectionActive: true
+            ),
+            .batchSelection
+        )
+
+        XCTAssertFalse(
+            AppNavigationChromePolicy.hidesSystemTabBar(
+                mode: .standard,
+                batchSelectionActive: false
+            )
+        )
+        XCTAssertTrue(
+            AppNavigationChromePolicy.hidesSystemTabBar(
+                mode: .standard,
+                batchSelectionActive: true
+            )
+        )
+        XCTAssertTrue(
+            AppNavigationChromePolicy.hidesSystemTabBar(
+                mode: .minimal,
+                batchSelectionActive: false
+            )
+        )
+    }
+
     func testMinimalLibraryPagesFollowVisibleSectionOrder() {
         XCTAssertEqual(
             MinimalNavigationPolicy.libraryPages(

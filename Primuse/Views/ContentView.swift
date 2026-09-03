@@ -31,6 +31,33 @@ enum AppNavigationLayoutPolicy {
     }
 }
 
+enum AppBottomChromeOwner: Equatable, Sendable {
+    case systemTabBar
+    case minimalNavigation
+    case batchSelection
+}
+
+enum AppNavigationChromePolicy {
+    static func bottomChromeOwner(
+        mode: AppNavigationMode,
+        batchSelectionActive: Bool
+    ) -> AppBottomChromeOwner {
+        if batchSelectionActive { return .batchSelection }
+        if mode == .minimal { return .minimalNavigation }
+        return .systemTabBar
+    }
+
+    static func hidesSystemTabBar(
+        mode: AppNavigationMode,
+        batchSelectionActive: Bool
+    ) -> Bool {
+        bottomChromeOwner(
+            mode: mode,
+            batchSelectionActive: batchSelectionActive
+        ) != .systemTabBar
+    }
+}
+
 enum MinimalNavigationPage: Hashable, Identifiable, Sendable {
     case librarySection(LibrarySection)
     case search
@@ -437,6 +464,13 @@ struct ContentView: View {
         )
     }
 
+    private var systemTabBarVisibility: Visibility {
+        AppNavigationChromePolicy.hidesSystemTabBar(
+            mode: navigationMode,
+            batchSelectionActive: batchSelectionActive
+        ) ? .hidden : .automatic
+    }
+
     private var visibleLibrarySections: [LibrarySection] {
         LibraryDisplayConfiguration.visibleSections(
             orderRawValue: librarySectionOrderRawValue,
@@ -469,10 +503,7 @@ struct ContentView: View {
                 )
                     .id("primuse.tab.home")
                     .environment(\.minimalNavigationDetailScope, .home)
-                    .toolbar(
-                        navigationMode == .minimal ? .hidden : .automatic,
-                        for: .tabBar
-                    )
+                    .toolbar(systemTabBarVisibility, for: .tabBar)
             }
 
             Tab(String(localized: "library_title"), systemImage: "books.vertical", value: 1) {
@@ -484,29 +515,20 @@ struct ContentView: View {
                     }
                 )
                 .environment(\.minimalNavigationDetailScope, .library)
-                .toolbar(
-                    navigationMode == .minimal ? .hidden : .automatic,
-                    for: .tabBar
-                )
+                .toolbar(systemTabBarVisibility, for: .tabBar)
             }
 
             Tab(value: 2, role: .search) {
                 SearchView(searchText: $searchText, onShowInLibrary: showSongInLibrary)
                     .id("primuse.tab.search")
                     .environment(\.minimalNavigationDetailScope, .search)
-                    .toolbar(
-                        navigationMode == .minimal ? .hidden : .automatic,
-                        for: .tabBar
-                    )
+                    .toolbar(systemTabBarVisibility, for: .tabBar)
             }
 
             Tab(String(localized: "settings_title"), systemImage: "gearshape", value: 3) {
                 SettingsView(scraperSettingsRoute: $scraperSettingsRoute)
                     .environment(\.minimalNavigationDetailScope, .settings)
-                    .toolbar(
-                        navigationMode == .minimal ? .hidden : .automatic,
-                        for: .tabBar
-                    )
+                    .toolbar(systemTabBarVisibility, for: .tabBar)
             }
         }
         .environment(\.minimalNavigationDetailTransitionHandler) {
@@ -558,7 +580,6 @@ struct ContentView: View {
             )
 
             tabRoot
-                .toolbar(.hidden, for: .tabBar)
                 .background {
                     MinimalNavigationScrollObserver(
                         categoriesCollapsed: $minimalNavigationCategoriesCollapsed,
