@@ -28,6 +28,20 @@ public struct PlayerOverlayDismissalState: Equatable, Sendable {
     }
 }
 
+/// Expensive player content may begin only after the container has reached
+/// its visible phase. Scene interruptions and an in-flight dismissal keep the
+/// gate closed even if an older animation completion arrives afterward.
+public enum PlayerOverlayDeferredContentPolicy {
+    public static func allowsLoading(
+        isPresented: Bool,
+        isSceneActive: Bool,
+        isVisible: Bool,
+        isDismissing: Bool
+    ) -> Bool {
+        isPresented && isSceneActive && isVisible && !isDismissing
+    }
+}
+
 /// Pure recognition rules for minimizing the regular Now Playing surface.
 /// Keeping these rules independent from SwiftUI makes rotation irrelevant to
 /// the decision and lets the presentation host unmount immediately afterward.

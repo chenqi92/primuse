@@ -401,6 +401,10 @@ struct NowPlayingView: View {
     var onTopMinimizeDragEnded: ((Bool) -> Void)? = nil
     var onLeadingMinimizeDragChanged: ((CGFloat) -> Void)? = nil
     var onLeadingMinimizeDragEnded: ((Bool) -> Void)? = nil
+    /// The overlay mounts off-screen first. Expensive, nonessential work stays
+    /// suspended until its entrance animation has actually completed.
+    var isPresentationSettled = true
+    var isPresentationActive = true
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
@@ -524,16 +528,39 @@ struct NowPlayingView: View {
     /// is the exposed interaction surface. Modal content retains the static
     /// palette underneath without spending another animation clock.
     private var isNowPlayingSurfaceExposed: Bool {
-        !isFullscreenPlayerPresented
+        isPresentationSettled
+            && isPresentationActive
+            && !isFullscreenPlayerPresented
             && !hasBlockingNowPlayingPresentation
             && activeMinimizeDragAxis == nil
             && activeMinimizeDragStartLocation == nil
     }
 
     private var isLyricsWakeSurfaceExposed: Bool {
-        !hasBlockingNowPlayingPresentation
+        isPresentationSettled
+            && isPresentationActive
+            && !hasBlockingNowPlayingPresentation
             && activeMinimizeDragAxis == nil
             && activeMinimizeDragStartLocation == nil
+    }
+
+    private var initialLyricsLoadIdentity: String {
+        "\(player.currentSong?.id ?? "")|settled:\(isPresentationSettled)"
+    }
+
+    /// Keep startup buffering and playback-state changes from starting a second
+    /// artwork spring while the full-player entrance spring is still running.
+    private var artworkAppearsPlaying: Bool {
+        !isPresentationSettled || player.isPlaying || player.isLoading
+    }
+
+    private func handoffQueueIDs() -> [String] {
+        let queue = player.queue
+        guard !queue.isEmpty else { return [] }
+        let index = min(max(player.currentIndex, 0), queue.count - 1)
+        let lowerBound = max(0, index - 5)
+        let upperBound = min(queue.count, lowerBound + 50)
+        return queue[lowerBound..<upperBound].map { song in song.id }
     }
 
     private var isScrapingCurrentSong: Bool {
@@ -1165,7 +1192,8 @@ struct NowPlayingView: View {
             guard let effect = FullscreenPlayerEffect(rawValue: rawValue) else { return }
             applyFullscreenEffectPresentation(effect)
         }
-        .task(id: player.currentSong?.id) {
+        .task(id: initialLyricsLoadIdentity) {
+            guard isPresentationSettled else { return }
             consumeAutomaticScrapeCompletion()
             if player.isLiveRadio {
                 lyrics = []
@@ -1399,14 +1427,7 @@ struct NowPlayingView: View {
             // 时, 整队前缀里根本不含当前歌, receiver 会找不到 songID 落入兜底
             // (整库从头播)。这里保证当前歌 + 接下来几首都在 payload 里 ——
             // 当前歌前 5 首给点上下文, 之后 45 首是真正的接力窗口。
-            let queueIDs: [String] = {
-                let q = player.queue
-                guard !q.isEmpty else { return [] }
-                let idx = min(max(player.currentIndex, 0), q.count - 1)
-                let lower = max(0, idx - 5)
-                let upper = min(q.count, lower + 50)
-                return Array(q[lower..<upper].map(\.id))
-            }()
+            let queueIDs = handoffQueueIDs()
             activity.userInfo = [
                 "songID": song.id,
                 "queueIDs": queueIDs,
@@ -1594,11 +1615,11 @@ struct NowPlayingView: View {
         ZStack(alignment: .top) {
             HStack(spacing: 24) {
                 artworkOrMusicVideo(size: artworkSize, cornerRadius: 14)
-                    .scaleEffect(player.isPlaying ? 1 : 0.96)
+                    .scaleEffect(artworkAppearsPlaying ? 1 : 0.96)
                     .shadow(color: .black.opacity(0.30), radius: 18, y: 8)
                     .animation(
                         .spring(response: 0.5, dampingFraction: 0.75),
-                        value: player.isPlaying
+                        value: artworkAppearsPlaying
                     )
                     .onTapGesture { setStandardLyricsVisible(true) }
                     .frame(width: artworkColumnWidth, height: contentHeight)
@@ -1635,7 +1656,7 @@ struct NowPlayingView: View {
                         moreMenu
                     }
 
-                    PlaybackProgressBar()
+                    PlaybackProgressBar(fillTint: themedControlAccent)
                         .padding(.top, 4)
 
                     HStack(spacing: 0) {
@@ -1791,9 +1812,9 @@ struct NowPlayingView: View {
             Spacer()
 
             artworkOrMusicVideo(size: artSize, cornerRadius: 16)
-            .scaleEffect(player.isPlaying ? 1.0 : 0.92)
+            .scaleEffect(artworkAppearsPlaying ? 1.0 : 0.92)
             .shadow(color: .black.opacity(0.35), radius: 28, y: 12)
-            .animation(.spring(response: 0.5, dampingFraction: 0.7), value: player.isPlaying)
+            .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
 
             Spacer()
 
@@ -1826,7 +1847,7 @@ struct NowPlayingView: View {
             }
             .padding(.horizontal, 36).padding(.top, 18)
 
-            PlaybackProgressBar()
+            PlaybackProgressBar(fillTint: themedControlAccent)
                 .padding(.horizontal, 36).padding(.top, 10)
 
             HStack(spacing: 0) {
@@ -2016,9 +2037,9 @@ struct NowPlayingView: View {
                     Spacer(minLength: 0)
 
                     artworkOrMusicVideo(size: artSize, cornerRadius: 18)
-                        .scaleEffect(player.isPlaying ? 1 : 0.96)
+                        .scaleEffect(artworkAppearsPlaying ? 1 : 0.96)
                         .shadow(color: .black.opacity(0.34), radius: 22, y: 10)
-                        .animation(.spring(response: 0.5, dampingFraction: 0.76), value: player.isPlaying)
+                        .animation(.spring(response: 0.5, dampingFraction: 0.76), value: artworkAppearsPlaying)
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(player.currentSong?.title ?? "")
@@ -2208,10 +2229,10 @@ struct NowPlayingView: View {
                         .scaleEffect(
                             player.isMusicVideoPlaybackActive
                                 ? 1.0
-                                : (player.isPlaying ? 1.0 : 0.9)
+                                : (artworkAppearsPlaying ? 1.0 : 0.9)
                         )
                         .shadow(color: .black.opacity(0.3), radius: 20, y: 8)
-                        .animation(.spring(response: 0.5, dampingFraction: 0.7), value: player.isPlaying)
+                        .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
                         .onTapGesture {
                             // 视频画面本身不再充当「打开歌词」的隐藏入口，避免用户
                             // 想点 MV 时意外切走；封面模式仍保留原交互。
@@ -2260,7 +2281,7 @@ struct NowPlayingView: View {
                     // 被强制关闭)。SwiftUI Observation 是 per-body 追踪——子 view
                     // 自己读 player.currentTime,父 view body 完全不读高频属性。
                     if !showLyrics || !isLyricsImmersive {
-                        PlaybackProgressBar()
+                        PlaybackProgressBar(fillTint: themedControlAccent)
                             .padding(.horizontal, 26).padding(.top, 8)
 
                         // Controls
@@ -2452,7 +2473,7 @@ struct NowPlayingView: View {
 
     private var floatingPlaybackDock: some View {
         VStack(spacing: 8) {
-            PlaybackProgressBar()
+            PlaybackProgressBar(fillTint: themedControlAccent)
 
             HStack(spacing: 34) {
                 Button { Task { await player.previous() } } label: {
@@ -2535,6 +2556,7 @@ struct NowPlayingView: View {
                 animationRequiresPlayback: true,
                 isPlaying: player.isPlaying,
                 isAnimationVisible: isNowPlayingSurfaceExposed,
+                loadsHighResolution: isPresentationSettled,
                 revisionToken: player.coverRevision
             )
             .matchedGeometryEffect(
@@ -2688,8 +2710,8 @@ struct NowPlayingView: View {
             ImmersiveEffectPickerPanel(
                 selected: fullscreenPlayerEffect,
                 palette: ImmersiveArtworkPalette(
-                    primary: theme.accentColor,
-                    secondary: theme.secondaryDarkAccent
+                    primary: presentationAccentColor,
+                    secondary: presentationSecondaryDarkAccent
                 )
             ) { candidate in
                 showsImmersiveEffectPicker = false
@@ -2789,7 +2811,7 @@ struct NowPlayingView: View {
     // MARK: - Ambient background from cover dominant color
 
     private var backgroundGradient: some View {
-        let hasArtworkTheme = theme.hasArtworkAmbient
+        let hasArtworkTheme = presentationHasArtworkTheme
         let strength = AppThemePreferences.normalizedAmbientStrength(ambientStrength)
         let accentOpacity = (hasArtworkTheme
             ? appearance.artworkAccentOpacity
@@ -2803,7 +2825,7 @@ struct NowPlayingView: View {
             strength: strength
         )
         let darkOverlay = NowPlayingAmbientLegibilityPolicy.darkOverlay(
-            paletteLuminance: theme.artworkLuminance,
+            paletteLuminance: presentationArtworkLuminance,
             primaryOpacity: accentOpacity,
             secondaryOpacity: lowerAccentOpacity,
             usesIncreasedContrast: colorSchemeContrast == .increased
@@ -2812,17 +2834,17 @@ struct NowPlayingView: View {
         return ZStack {
             AdaptiveNowPlayingBackdrop(
                 baseColor: appearance.backgroundBase,
-                primaryAccent: theme.accentColor,
-                secondaryAccent: theme.secondaryAccent,
-                darkAccent: theme.darkAccent,
+                primaryAccent: presentationAccentColor,
+                secondaryAccent: presentationSecondaryAccent,
+                darkAccent: presentationDarkAccent,
                 primaryOpacity: accentOpacity,
                 secondaryOpacity: lowerAccentOpacity,
                 hasArtworkPalette: hasArtworkTheme,
                 isVisible: isNowPlayingSurfaceExposed,
                 isSceneActive: isVisualSceneActive,
                 isPlaying: player.isPlaying,
-                paletteVibrancy: theme.artworkVibrancy,
-                paletteLuminance: theme.artworkLuminance
+                paletteVibrancy: presentationArtworkVibrancy,
+                paletteLuminance: presentationArtworkLuminance
             )
 
             if appearance.isLight {
@@ -2861,7 +2883,7 @@ struct NowPlayingView: View {
         }
         .animation(
             .easeInOut(duration: AmbientBackdropTuning.transitionDuration),
-            value: theme.colorID
+            value: presentationThemeColorID
         )
         .allowsHitTesting(false)
     }
@@ -2970,8 +2992,41 @@ struct NowPlayingView: View {
     }
 
     private var themedControlAccent: Color {
-        guard theme.colorID != "default" else { return appearance.primary }
-        return appearance.isLight ? theme.darkAccent : theme.accentColor
+        guard isPresentationSettled,
+              theme.colorID != "default" else { return appearance.primary }
+        return appearance.isLight ? presentationDarkAccent : presentationAccentColor
+    }
+
+    private var presentationHasArtworkTheme: Bool {
+        isPresentationSettled && theme.hasArtworkAmbient
+    }
+
+    private var presentationAccentColor: Color {
+        isPresentationSettled ? theme.accentColor : theme.baseAccent
+    }
+
+    private var presentationSecondaryAccent: Color {
+        isPresentationSettled ? theme.secondaryAccent : theme.baseDarkAccent
+    }
+
+    private var presentationSecondaryDarkAccent: Color {
+        isPresentationSettled ? theme.secondaryDarkAccent : theme.baseDarkAccent
+    }
+
+    private var presentationDarkAccent: Color {
+        isPresentationSettled ? theme.darkAccent : theme.baseDarkAccent
+    }
+
+    private var presentationArtworkVibrancy: Double {
+        isPresentationSettled ? theme.artworkVibrancy : 0
+    }
+
+    private var presentationArtworkLuminance: Double {
+        isPresentationSettled ? theme.artworkLuminance : 0.18
+    }
+
+    private var presentationThemeColorID: String {
+        isPresentationSettled ? theme.colorID : "presentation-staging"
     }
 
     /// SF Symbol -> VoiceOver 标签的映射, 用在 transport 控件上。
@@ -6902,6 +6957,7 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
 /// 只重算本 view,不会让父 body 重算 → 父 view 里的 SwiftUI Menu submenu (字号
 /// 选择)在用户操作期间不会被强制关闭。
 fileprivate struct PlaybackProgressBar: View {
+    var fillTint: Color? = nil
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -6929,6 +6985,7 @@ fileprivate struct PlaybackProgressBar: View {
                         value: player.currentTime,
                         total: player.duration,
                         interactionID: player.currentSong?.id,
+                        fillTint: fillTint,
                         onPreview: { previewTime = $0 },
                         onSeek: { player.seek(to: $0) }
                     )

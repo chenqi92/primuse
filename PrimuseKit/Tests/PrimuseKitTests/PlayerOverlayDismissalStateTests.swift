@@ -40,6 +40,36 @@ struct PlayerOverlayDismissalStateTests {
     }
 }
 
+@Suite("Player overlay deferred content policy")
+struct PlayerOverlayDeferredContentPolicyTests {
+    @Test("Deferred work waits for a visible active presentation")
+    func waitsForVisiblePresentation() {
+        #expect(!allowsLoading(isVisible: false))
+        #expect(!allowsLoading(isSceneActive: false))
+        #expect(!allowsLoading(isPresented: false))
+        #expect(allowsLoading())
+    }
+
+    @Test("Dismissal rejects a stale entrance completion")
+    func dismissalRejectsCompletion() {
+        #expect(!allowsLoading(isDismissing: true))
+    }
+
+    private func allowsLoading(
+        isPresented: Bool = true,
+        isSceneActive: Bool = true,
+        isVisible: Bool = true,
+        isDismissing: Bool = false
+    ) -> Bool {
+        PlayerOverlayDeferredContentPolicy.allowsLoading(
+            isPresented: isPresented,
+            isSceneActive: isSceneActive,
+            isVisible: isVisible,
+            isDismissing: isDismissing
+        )
+    }
+}
+
 @Suite("Now Playing dismiss gesture policy")
 struct NowPlayingDismissGesturePolicyTests {
     @Test("Downward top swipe dismisses in portrait and landscape coordinates")

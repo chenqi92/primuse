@@ -1653,6 +1653,7 @@ struct PlayerOverlay: View {
     @Environment(\.layoutDirection) private var layoutDirection
     @Environment(\.scenePhase) private var scenePhase
     @State private var presentationPhase = PresentationPhase.staging
+    @State private var presentationHasSettled = false
     @State private var interactiveOffset = CGSize.zero
     @State private var dismissalState = PlayerOverlayDismissalState()
     @State private var dismissalTask: Task<Void, Never>?
@@ -1688,7 +1689,10 @@ struct PlayerOverlay: View {
                         shouldDismiss: shouldDismiss,
                         phase: .dismissingLeading
                     )
-                }
+                },
+                isPresentationSettled: presentationHasSettled,
+                isPresentationActive: presentationPhase == .visible
+                    && !dismissalState.isDismissing
             )
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 // Keep eagerly decoded artwork and its shadow inside the same
@@ -1704,10 +1708,9 @@ struct PlayerOverlay: View {
         .allowsHitTesting(presentationPhase == .visible && !dismissalState.isDismissing)
         .task {
             guard presentationPhase == .staging else { return }
-            // `CachedArtworkView` can resolve synchronously from memory. Give
-            // the complete player one display interval to commit off-screen
-            // before starting the container animation, so no child layer can
-            // appear ahead of the background and controls.
+            // Commit the lightweight player tree off-screen first. Artwork
+            // may reuse a decoded thumbnail here, while large decode, dynamic
+            // artwork, and lyrics work remain suspended until completion.
             do {
                 try await Task.sleep(for: .milliseconds(20))
             } catch {
@@ -1716,13 +1719,23 @@ struct PlayerOverlay: View {
             guard !Task.isCancelled else { return }
             if reduceMotion {
                 presentationPhase = .visible
+                completeEntranceIfPossible()
             } else {
-                withAnimation(.spring(response: 0.45, dampingFraction: 0.92)) {
+                withAnimation(
+                    .spring(response: 0.45, dampingFraction: 0.92),
+                    completionCriteria: .removed
+                ) {
                     presentationPhase = .visible
+                } completion: {
+                    completeEntranceIfPossible()
                 }
             }
         }
         .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                completeEntranceIfPossible()
+                return
+            }
             guard newPhase != .active,
                   dismissalState.isDismissing || interactiveOffset != .zero else { return }
             // Control Center / screen recording can interrupt an in-flight
@@ -1759,6 +1772,16 @@ struct PlayerOverlay: View {
             let direction: CGFloat = layoutDirection == .rightToLeft ? -1 : 1
             return CGSize(width: travel * direction, height: 0)
         }
+    }
+
+    private func completeEntranceIfPossible() {
+        guard PlayerOverlayDeferredContentPolicy.allowsLoading(
+            isPresented: isPresented,
+            isSceneActive: scenePhase == .active,
+            isVisible: presentationPhase == .visible,
+            isDismissing: dismissalState.isDismissing
+        ) else { return }
+        presentationHasSettled = true
     }
 
     private func updateInteractiveOffset(axis: InteractiveAxis, value: CGFloat) {

@@ -46,6 +46,11 @@ struct CachedArtworkView: View {
     var animationRequiresPlayback = false
     var isPlaying = true
     var isAnimationVisible = true
+    /// Large presentation surfaces can mount before their entrance animation.
+    /// While disabled, reuse an already-decoded cache entry without starting
+    /// disk/source IO; the requested bucket is upgraded once the transition
+    /// has settled.
+    var loadsHighResolution = true
     /// 当外部数据源 (e.g. AudioPlayerService.coverRevision) 想强制 view 重新加载,
     /// 但 coverRef / songID 这些 key 字段没变, onChange 不会触发时使用。
     /// 调用方传 player.coverRevision, 任意 bump 都会让本 view 重 loadImage。
@@ -75,6 +80,7 @@ struct CachedArtworkView: View {
     @State private var resolvedAppleMusicArtwork: MusicKit.Artwork?
     @State private var resolvedAppleMusicArtworkID: String?
     @State private var loadedIdentity: String?
+    @State private var displayedArtworkIdentity: String?
     @State private var cacheInvalidationRevision = 0
     @State private var animationPolicyRevision = 0
     @State private var animationCacheMaintenanceGeneration = 0
@@ -185,6 +191,7 @@ struct CachedArtworkView: View {
          animationRequiresPlayback: Bool = false,
          isPlaying: Bool = true,
          isAnimationVisible: Bool = true,
+         loadsHighResolution: Bool = true,
          revisionToken: Int = 0,
          onResolutionChange: @escaping (Bool) -> Void = { _ in }) {
         self.coverRef = coverFileName
@@ -198,6 +205,7 @@ struct CachedArtworkView: View {
         self.animationRequiresPlayback = animationRequiresPlayback
         self.isPlaying = isPlaying
         self.isAnimationVisible = isAnimationVisible
+        self.loadsHighResolution = loadsHighResolution
         self.revisionToken = revisionToken
         self.onResolutionChange = onResolutionChange
     }
@@ -212,6 +220,7 @@ struct CachedArtworkView: View {
          animationRequiresPlayback: Bool = false,
          isPlaying: Bool = true,
          isAnimationVisible: Bool = true,
+         loadsHighResolution: Bool = true,
          revisionToken: Int = 0,
          onResolutionChange: @escaping (Bool) -> Void = { _ in }) {
         self.coverRef = coverRef
@@ -227,6 +236,7 @@ struct CachedArtworkView: View {
         self.animationRequiresPlayback = animationRequiresPlayback
         self.isPlaying = isPlaying
         self.isAnimationVisible = isAnimationVisible
+        self.loadsHighResolution = loadsHighResolution
         self.revisionToken = revisionToken
         self.onResolutionChange = onResolutionChange
     }
@@ -282,8 +292,11 @@ struct CachedArtworkView: View {
         }
         .aspectRatio(1, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-        .task(id: loadIdentity) {
-            await loadImage(for: loadIdentity)
+        .task(id: loadTaskIdentity) {
+            await loadImage(
+                for: loadIdentity,
+                taskIdentity: loadTaskIdentity
+            )
         }
         .task(id: animationLoadIdentity) {
             await loadAnimatedArtwork(for: animationLoadIdentity)
@@ -291,7 +304,8 @@ struct CachedArtworkView: View {
         .task(id: animatedArtworkExpiryIdentity) {
             await expireAnimatedArtwork(for: animatedArtworkExpiryIdentity)
         }
-        .task(id: appleMusicArtworkIdentity) {
+        .task(id: appleMusicArtworkLoadIdentity) {
+            guard loadsHighResolution else { return }
             await resolveAppleMusicArtwork(for: appleMusicArtworkIdentity)
         }
         .onChange(of: hasResolvedArtwork) { _, isResolved in
@@ -405,7 +419,10 @@ struct CachedArtworkView: View {
     private func appleMusicArtworkView(_ artwork: MusicKit.Artwork) -> some View {
         GeometryReader { geo in
             let side = max(geo.size.width, geo.size.height, 1)
-            ArtworkImage(artwork, width: side, height: side)
+            let requestSide = loadsHighResolution ? side : min(side, 96)
+            ArtworkImage(artwork, width: requestSide, height: requestSide)
+                .frame(width: requestSide, height: requestSide)
+                .scaleEffect(side / requestSide)
                 .frame(width: geo.size.width, height: geo.size.height)
                 .clipped()
         }
@@ -432,6 +449,10 @@ struct CachedArtworkView: View {
         guard sourceID == AppleMusicLibraryService.systemSourceID,
               let filePath, !filePath.isEmpty else { return "" }
         return filePath
+    }
+
+    private var appleMusicArtworkLoadIdentity: String {
+        "\(appleMusicArtworkIdentity)|highResolution:\(loadsHighResolution)"
     }
 
     private func resolveAppleMusicArtwork(for identity: String) async {
@@ -480,6 +501,10 @@ struct CachedArtworkView: View {
     /// cache but get separate decoded PlatformImage entries so the 44pt list
     /// cell never has to display (or hold) the 1500×1500 original.
     private var cacheKey: String {
+        cacheKey(for: bucket)
+    }
+
+    private func cacheKey(for bucket: Bucket) -> String {
         let suffix = "@\(bucket.rawValue)"
         if let albumID { return "album_\(albumID)\(suffix)" }
         if let artistID {
@@ -500,6 +525,14 @@ struct CachedArtworkView: View {
         let refIdentity = coverRef ?? ""
         let sourceIdentity = "\(sourceID ?? "")|\(filePath ?? "")|\(fileFormat?.rawValue ?? "")"
         return "\(cacheKey)#ref\(refIdentity)#src\(sourceIdentity)#rev\(revisionToken)#inv\(cacheInvalidationRevision)"
+    }
+
+    private var artworkContentIdentity: String {
+        "\(cacheKey(for: .full))#inv\(cacheInvalidationRevision)"
+    }
+
+    private var loadTaskIdentity: String {
+        "\(loadIdentity)#highResolution\(loadsHighResolution)"
     }
 
     private var animationCacheKey: String {
@@ -529,7 +562,11 @@ struct CachedArtworkView: View {
     }
 
     private var motionArtworkLookupInput: MotionArtworkLookupInput? {
-        guard presentationRole == .animatedHero else { return nil }
+        guard presentationRole == .animatedHero,
+              loadsHighResolution,
+              isAnimationVisible,
+              motionArtworkServiceEnabled,
+              !normalizedMotionArtworkServiceEndpoint.isEmpty else { return nil }
         let song = songID.flatMap { library.song(id: $0) }
         let musicKitSong: MusicKit.Song? = {
             guard sourceID == AppleMusicLibraryService.systemSourceID,
@@ -547,7 +584,8 @@ struct CachedArtworkView: View {
             ?? artistName
             ?? song?.artistName
         let localAlbumTrackCount = resolvedAlbumID.flatMap { albumID -> Int? in
-            let count = library.songs(forAlbum: albumID).count
+            let album = library.visibleAlbums.first(where: { $0.id == albumID })
+            let count = album?.songCount ?? 0
             return count > 0 ? count : nil
         }
         let resolvedTrackCount = albumTrackCount.flatMap { $0 > 0 ? $0 : nil }
@@ -577,8 +615,8 @@ struct CachedArtworkView: View {
     }
 
     private var motionArtworkDiskKey: String {
-        guard let input = motionArtworkLookupInput,
-              !normalizedMotionArtworkServiceEndpoint.isEmpty else { return "" }
+        guard !normalizedMotionArtworkServiceEndpoint.isEmpty,
+              let input = motionArtworkLookupInput else { return "" }
         return [
             "configured-service-v1",
             normalizedMotionArtworkServiceEndpoint,
@@ -607,6 +645,7 @@ struct CachedArtworkView: View {
             normalizedMotionArtworkServiceEndpoint,
             sourceAnimationDiskKey,
             motionArtworkDiskKey,
+            String(loadsHighResolution),
             String(isAnimationVisible),
             String(animationRequiresPlayback),
             String(isPlaying),
@@ -635,7 +674,7 @@ struct CachedArtworkView: View {
         ArtworkAnimationPolicy(
             isEnabled: animatedArtworkEnabled,
             presentationRole: presentationRole,
-            isVisible: isAnimationVisible,
+            isVisible: loadsHighResolution && isAnimationVisible,
             isSceneActive: scenePhase == .active,
             requiresPlayback: animationRequiresPlayback,
             isPlaying: isPlaying,
@@ -741,7 +780,7 @@ struct CachedArtworkView: View {
         let fetchPolicy = ArtworkAnimationFetchPolicy(
             isEnabled: animatedArtworkEnabled,
             presentationRole: presentationRole,
-            isVisible: isAnimationVisible,
+            isVisible: loadsHighResolution && isAnimationVisible,
             isReachable: network.isReachable,
             isExpensive: network.isExpensive,
             isConstrained: network.isConstrained,
@@ -1164,8 +1203,15 @@ struct CachedArtworkView: View {
         return invalidatedTokens.contains { localTokens.contains($0) }
     }
 
-    private func loadImage(for identity: String) async {
+    private func loadImage(for identity: String, taskIdentity: String) async {
         let key = cacheKey
+        let contentIdentity = artworkContentIdentity
+        if displayedArtworkIdentity != contentIdentity {
+            displayedArtworkIdentity = contentIdentity
+            loadedIdentity = nil
+            if image != nil { image = nil }
+        }
+
         guard !key.isEmpty else {
             if image != nil { image = nil }
             loadedIdentity = identity
@@ -1174,9 +1220,6 @@ struct CachedArtworkView: View {
         }
 
         guard loadedIdentity != identity || image == nil else { return }
-        if loadedIdentity != identity, image != nil {
-            image = nil
-        }
 
         let cacheNSKey = key as NSString
         let failureNSKey = identity as NSString
@@ -1189,9 +1232,19 @@ struct CachedArtworkView: View {
             return
         }
 
+        // During a container transition, never start a larger decode. Reuse
+        // the best smaller memory entry (normally the mini player's thumb)
+        // and keep it displayed while the requested bucket loads afterward.
+        guard loadsHighResolution else {
+            if image == nil, let cached = cachedLowerResolutionImage() {
+                image = cached
+                onResolutionChange(true)
+            }
+            return
+        }
+
         if Self.hasRecentFailure(for: failureNSKey) {
             loadedIdentity = identity
-            if image != nil { image = nil }
             onResolutionChange(hasResolvedArtwork)
             return
         }
@@ -1227,19 +1280,39 @@ struct CachedArtworkView: View {
             fetchDiscriminator: String(revisionToken),
             animationDiskKey: sourceAnimationDiskKey
         )
-        guard !Task.isCancelled, loadIdentity == identity else { return }
+        guard !Task.isCancelled,
+              loadIdentity == identity,
+              loadTaskIdentity == taskIdentity else { return }
         loadedIdentity = identity
         if let decoded {
             image = decoded
-        } else if image != nil {
-            image = nil
         }
         if sourceID != AppleMusicLibraryService.systemSourceID || appleMusicArtworkIdentity.isEmpty {
-            onResolutionChange(decoded != nil)
+            onResolutionChange(hasResolvedArtwork)
         }
         if decoded == nil {
             Self.failedLoadCache.setObject(NSDate(), forKey: failureNSKey)
         }
+    }
+
+    private func cachedLowerResolutionImage() -> PlatformImage? {
+        let candidates: [Bucket]
+        switch bucket {
+        case .thumb:
+            candidates = []
+        case .card:
+            candidates = [.thumb]
+        case .full:
+            candidates = [.card, .thumb]
+        }
+        for candidate in candidates {
+            if let cached = Self.memoryCache.object(
+                forKey: cacheKey(for: candidate) as NSString
+            ) {
+                return cached
+            }
+        }
+        return nil
     }
 
     private static func hasRecentFailure(for key: NSString) -> Bool {
