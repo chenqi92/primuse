@@ -3264,7 +3264,10 @@
 "share_link_permissions_footer" = "Automatic prefers the music server. Primuse asks you to review permissions before it uploads anything.";
 "relay_share_link_style" = "Link Type";
 "relay_share_link_short" = "Short Code";
-"relay_share_link_secure" = "Secure Link";
+"relay_share_link_secure" = "Permanent Secure Link";
+"relay_share_lifetime" = "Lifetime";
+"relay_share_permanent_summary" = "Permanent (until revoked)";
+"relay_share_permanent_footer" = "The high-entropy link does not expire and remains available until you revoke it.";
 "relay_share_code_length" = "Code Length";
 "relay_share_short_code_footer" = "Six digits is recommended. Short codes expire within 24 hours and are easy to enter on another device.";
 "relay_share_code_password_separate" = "The code locates the share. Password-protected shares still require a separate password.";
@@ -3291,7 +3294,7 @@
 "relay_share_security" = "Security Boundary";
 "relay_share_security_bytes" = "Only media bytes and display metadata leave this device";
 "relay_share_security_range" = "Recipients get HEAD and byte-range seeking";
-"relay_share_security_storage" = "Relay chunks are encrypted at rest and deleted at expiry or revocation";
+"relay_share_security_storage" = "Relay chunks are encrypted at rest; temporary shares are deleted at expiry and all shares at revocation";
 "relay_share_security_footer" = "Source URLs, cookies, OAuth tokens, NAS sessions, and signed download URLs are never sent to the relay. Completed links continue to work if the original source is temporarily offline.";
 "relay_share_error_unsupported" = "This song cannot be exported safely.";
 "relay_share_error_configuration" = "Enter a valid HTTPS relay API URL and token.";

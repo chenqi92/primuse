@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -67,6 +68,24 @@ func TestEncryptedUploadSupportsHeadRangeSeekRestartExpiryAndSecretBoundary(t *t
 		"source-password",
 	})
 	assertChunksAreEncrypted(t, configuration.dataDirectory, creation.ShareID, media)
+	metadataPath := filepath.Join(configuration.dataDirectory, "metadata", creation.ShareID+".json")
+	legacyData, err := os.ReadFile(metadataPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacyMetadata map[string]any
+	if err := json.Unmarshal(legacyData, &legacyMetadata); err != nil {
+		t.Fatal(err)
+	}
+	legacyMetadata["version"] = float64(2)
+	delete(legacyMetadata, "permanent")
+	legacyData, err = json.Marshal(legacyMetadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(metadataPath, legacyData, 0o600); err != nil {
+		t.Fatalf("failed to prepare legacy metadata: %v", err)
+	}
 
 	// A fresh process reconstructs the hashed public index from disk. The source
 	// is no longer involved, so a completed share remains seekable while it is up.
@@ -162,6 +181,58 @@ func TestPasswordProtectionAndRevocation(t *testing.T) {
 		t.Fatalf("administrator revoke status = %d", adminRevoke.StatusCode)
 	}
 	adminRevoke.Body.Close()
+}
+
+func TestPermanentShareSurvivesRestartAndFarFutureUntilRevoked(t *testing.T) {
+	fixedNow := time.Date(2026, 9, 3, 7, 0, 0, 0, time.UTC)
+	configuration := testConfig(t)
+	server := mustRelayServer(t, configuration, fixedNow)
+	endpoint := httptest.NewServer(server.routes())
+
+	media := bytes.Repeat([]byte("permanent-encrypted-media"), 2_048)
+	creation := createAndUploadWithRequest(t, endpoint.URL, server, media, createUploadRequest{
+		FileName: "永久分享.flac", ContentType: "audio/flac", Size: int64(len(media)),
+		LinkType: "permanent",
+	})
+	endpoint.Close()
+	if !creation.Permanent || creation.ExpiresAt != nil || creation.AccessCode != "" {
+		t.Fatalf("unexpected permanent response: %#v", creation)
+	}
+	publicPath := mustPublicPath(t, creation.PublicURL)
+	publicToken := strings.TrimPrefix(publicPath, "/s/")
+	if !validOpaqueID(publicToken) || validShortCode(publicToken) {
+		t.Fatalf("permanent link did not use a high-entropy public token: %q", publicToken)
+	}
+
+	restarted := mustRelayServer(t, configuration, fixedNow.AddDate(100, 0, 0))
+	restartedEndpoint := httptest.NewServer(restarted.routes())
+	defer restartedEndpoint.Close()
+	farFuture := performRequest(t, http.MethodGet, restartedEndpoint.URL+publicPath, nil, nil)
+	assertResponseBytes(t, farFuture, http.StatusOK, media)
+	page := performRequest(t, http.MethodGet, restartedEndpoint.URL+publicPath, nil, map[string]string{
+		"Accept": "text/html", "Sec-Fetch-Mode": "navigate",
+	})
+	pageBody, _ := io.ReadAll(page.Body)
+	page.Body.Close()
+	if page.StatusCode != http.StatusOK || !strings.Contains(string(pageBody), "永久有效（直到分享者撤销）") {
+		t.Fatalf("permanent page status=%d body=%s", page.StatusCode, pageBody)
+	}
+
+	revoke := performRequest(t, http.MethodDelete, restartedEndpoint.URL+"/v1/shares/"+creation.ShareID, nil, map[string]string{
+		"Authorization": "Bearer " + creation.UploadToken,
+	})
+	if revoke.StatusCode != http.StatusNoContent {
+		t.Fatalf("revoke permanent status = %d", revoke.StatusCode)
+	}
+	revoke.Body.Close()
+	afterRevoke := performRequest(t, http.MethodHead, restartedEndpoint.URL+publicPath, nil, nil)
+	if afterRevoke.StatusCode != http.StatusGone {
+		t.Fatalf("revoked permanent share status = %d", afterRevoke.StatusCode)
+	}
+	afterRevoke.Body.Close()
+	if _, err := os.Stat(filepath.Join(configuration.dataDirectory, "chunks", creation.ShareID)); !os.IsNotExist(err) {
+		t.Fatalf("revoked permanent chunks still exist: %v", err)
+	}
 }
 
 func TestBrowserPagePermissionsAndOneTimeImport(t *testing.T) {
@@ -397,6 +468,33 @@ func TestShortCodesUseAtomicCollisionRetriesStrictTTLAndScopedFailureLimits(t *t
 		}
 		response.Body.Close()
 	}
+
+	server.now = func() time.Time { return fixedNow.Add(90 * time.Minute) }
+	expiredShort := performRequest(t, http.MethodHead, endpoint.URL+mustPublicPath(t, first.PublicURL), nil, nil)
+	if expiredShort.StatusCode != http.StatusGone {
+		t.Fatalf("expired short code status=%d", expiredShort.StatusCode)
+	}
+	expiredShort.Body.Close()
+}
+
+func TestShortCodePeerLimitCannotBeBypassedByRotatingCodes(t *testing.T) {
+	fixedNow := time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC)
+	configuration := testConfig(t)
+	configuration.shortCodePeerRequestsPerMinute = 2
+	configuration.shortCodeRequestsPerMinute = 20
+	configuration.shortCodeFailuresPerWindow = 20
+	server := mustRelayServer(t, configuration, fixedNow)
+	endpoint := httptest.NewServer(server.routes())
+	defer endpoint.Close()
+
+	for index, expected := range []int{http.StatusGone, http.StatusGone, http.StatusTooManyRequests} {
+		code := fmt.Sprintf("%06d", index+1)
+		response := performRequest(t, http.MethodHead, endpoint.URL+"/s/"+code, nil, nil)
+		if response.StatusCode != expected {
+			t.Fatalf("rotating code attempt %d status=%d want=%d", index+1, response.StatusCode, expected)
+		}
+		response.Body.Close()
+	}
 }
 
 func TestPublicRateLimitAndConfigurationGuards(t *testing.T) {
@@ -478,22 +576,23 @@ func TestStartupRejectsUnsafePersistedMetadata(t *testing.T) {
 func testConfig(t *testing.T) config {
 	t.Helper()
 	return config{
-		listenAddress:              ":0",
-		dataDirectory:              t.TempDir(),
-		publicBaseURL:              "https://share.example",
-		adminToken:                 testAdminToken,
-		masterKey:                  bytes.Repeat([]byte{0x42}, 32),
-		chunkSize:                  256 * 1024,
-		maximumFileSize:            64 * 1024 * 1024,
-		maximumTTL:                 24 * time.Hour,
-		uploadTTL:                  time.Hour,
-		publicRequestsPerMinute:    600,
-		shortCodeRequestsPerMinute: 60,
-		shortCodeFailuresPerWindow: 5,
-		shortCodeFailureWindow:     10 * time.Minute,
-		shortCodeMaximumTTL:        24 * time.Hour,
-		maximumPublicStreams:       8,
-		maximumUploads:             2,
+		listenAddress:                  ":0",
+		dataDirectory:                  t.TempDir(),
+		publicBaseURL:                  "https://share.example",
+		adminToken:                     testAdminToken,
+		masterKey:                      bytes.Repeat([]byte{0x42}, 32),
+		chunkSize:                      256 * 1024,
+		maximumFileSize:                64 * 1024 * 1024,
+		maximumTTL:                     24 * time.Hour,
+		uploadTTL:                      time.Hour,
+		publicRequestsPerMinute:        600,
+		shortCodePeerRequestsPerMinute: 60,
+		shortCodeRequestsPerMinute:     60,
+		shortCodeFailuresPerWindow:     5,
+		shortCodeFailureWindow:         10 * time.Minute,
+		shortCodeMaximumTTL:            24 * time.Hour,
+		maximumPublicStreams:           8,
+		maximumUploads:                 2,
 	}
 }
 
@@ -569,7 +668,16 @@ func createAndUploadWithRequest(
 		body, _ := io.ReadAll(complete.Body)
 		t.Fatalf("complete status=%d body=%s", complete.StatusCode, body)
 	}
+	var completion completeUploadResponse
+	if err := json.NewDecoder(complete.Body).Decode(&completion); err != nil {
+		t.Fatal(err)
+	}
 	complete.Body.Close()
+	sameExpiration := creation.ExpiresAt == nil && completion.ExpiresAt == nil ||
+		creation.ExpiresAt != nil && completion.ExpiresAt != nil && *creation.ExpiresAt == *completion.ExpiresAt
+	if completion.ShareID != creation.ShareID || completion.Permanent != creation.Permanent || !sameExpiration {
+		t.Fatalf("completion lifetime does not match creation: create=%#v complete=%#v", creation, completion)
+	}
 	return creation
 }
 

@@ -55,6 +55,14 @@
       }
     },
     {
+      "name": "SHORT_CODE_PEER_RATE_LIMITER",
+      "namespace_id": "74005",
+      "simple": {
+        "limit": 60,
+        "period": 60
+      }
+    },
+    {
       "name": "SHORT_CODE_FAILURE_RATE_LIMITER",
       "namespace_id": "74004",
       "simple": {

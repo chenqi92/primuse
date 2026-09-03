@@ -151,7 +151,7 @@ func (s *relayServer) handleSharePage(w http.ResponseWriter, r *http.Request) {
 
 func (s *relayServer) shareIsActive(metadata *shareMetadata) bool {
 	return metadata != nil && metadata.complete() && !metadata.revoked() &&
-		metadata.ExpiresAt.After(s.now()) && metadata.DataDeletedAt.IsZero()
+		metadata.activeAt(s.now()) && metadata.DataDeletedAt.IsZero()
 }
 
 func (s *relayServer) renderSharePage(w http.ResponseWriter, publicToken string, metadata *shareMetadata) {
@@ -198,6 +198,12 @@ func (s *relayServer) renderSharePage(w http.ResponseWriter, publicToken string,
 	if allowImport {
 		noteParts = append(noteParts, "导入使用一次性短期凭证，不含密码")
 	}
+	expiresISO := ""
+	expiresLabel := "永久有效（直到分享者撤销）"
+	if metadata.ExpiresAt != nil {
+		expiresISO = metadata.ExpiresAt.UTC().Format(time.RFC3339)
+		expiresLabel = "有效至 " + metadata.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC")
+	}
 	base := s.configuration.publicBaseURL + "/s/" + publicToken
 	values := map[string]string{
 		"TITLE":                     title,
@@ -212,8 +218,8 @@ func (s *relayServer) renderSharePage(w http.ResponseWriter, publicToken string,
 		"FILE_SIZE_BYTES":           strconv.FormatInt(metadata.Size, 10),
 		"SIZE":                      size,
 		"ACCESS_LABEL":              map[bool]string{true: "已通过密码验证", false: "持有链接即可访问"}[metadata.PasswordHash != ""],
-		"EXPIRES_ISO":               metadata.ExpiresAt.UTC().Format(time.RFC3339),
-		"EXPIRES_LABEL":             "有效至 " + metadata.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"),
+		"EXPIRES_ISO":               expiresISO,
+		"EXPIRES_LABEL":             expiresLabel,
 		"SESSION_HIDDEN":            map[bool]string{true: "", false: "hidden"}[metadata.PasswordHash != ""],
 		"ARTIST_ALBUM":              artistAlbum,
 		"FORMAT":                    format,
@@ -426,8 +432,8 @@ func verifyPasswordValue(metadata *shareMetadata, password string) bool {
 
 func (s *relayServer) shareSessionCookie(metadata *shareMetadata, publicToken string) *http.Cookie {
 	expiresAt := s.now().Add(shareSessionDuration)
-	if metadata.ExpiresAt.Before(expiresAt) {
-		expiresAt = metadata.ExpiresAt
+	if !metadata.Permanent && metadata.ExpiresAt != nil && metadata.ExpiresAt.Before(expiresAt) {
+		expiresAt = *metadata.ExpiresAt
 	}
 	expiresUnix := expiresAt.Unix()
 	value := s.signShareSession(metadata, publicToken, expiresUnix)
@@ -469,7 +475,8 @@ func (s *relayServer) verifyShareSession(metadata *shareMetadata, publicToken st
 	}
 	now := s.now()
 	expiresAt := time.Unix(expiresUnix, 0)
-	if !expiresAt.After(now) || expiresAt.After(now.Add(shareSessionDuration+time.Minute)) || expiresAt.After(metadata.ExpiresAt) {
+	if !expiresAt.After(now) || expiresAt.After(now.Add(shareSessionDuration+time.Minute)) ||
+		(!metadata.Permanent && (metadata.ExpiresAt == nil || expiresAt.After(*metadata.ExpiresAt))) {
 		return false
 	}
 	expected := s.signShareSession(metadata, publicToken, expiresUnix)
@@ -518,8 +525,8 @@ func (s *relayServer) handleCreateImportTicket(w http.ResponseWriter, r *http.Re
 		return
 	}
 	expiresAt := s.now().Add(importTicketDuration).UTC()
-	if metadata.ExpiresAt.Before(expiresAt) {
-		expiresAt = metadata.ExpiresAt
+	if !metadata.Permanent && metadata.ExpiresAt != nil && metadata.ExpiresAt.Before(expiresAt) {
+		expiresAt = *metadata.ExpiresAt
 	}
 	ticket := importTicket{Version: 1, ShareID: metadata.ID, ExpiresAt: expiresAt}
 	if err := s.persistImportTicket(token, &ticket); err != nil {

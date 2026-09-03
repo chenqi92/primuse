@@ -3477,7 +3477,10 @@
 "share_link_permissions_footer" = "Automatisch bevorzugt den Musikserver. Vor einem Upload mit Primuse werden die Berechtigungen bestätigt.";
 "relay_share_link_style" = "Linktyp";
 "relay_share_link_short" = "Kurzcode";
-"relay_share_link_secure" = "Sicherer Link";
+"relay_share_link_secure" = "Permanenter sicherer Link";
+"relay_share_lifetime" = "Gültigkeit";
+"relay_share_permanent_summary" = "Dauerhaft (bis zum Widerruf)";
+"relay_share_permanent_footer" = "Der nicht erratbare Link läuft nicht ab und bleibt verfügbar, bis du ihn widerrufst.";
 "relay_share_code_length" = "Codelänge";
 "relay_share_short_code_footer" = "Sechs Ziffern werden empfohlen. Kurzcodes laufen binnen 24 Stunden ab und lassen sich leicht eingeben.";
 "relay_share_code_password_separate" = "Der Code findet die Freigabe. Ein geschützter Link verlangt zusätzlich ein eigenes Passwort.";
@@ -3504,7 +3507,7 @@
 "relay_share_security" = "Sicherheitsgrenze";
 "relay_share_security_bytes" = "Nur Mediendaten und Anzeigemetadaten verlassen dieses Gerät";
 "relay_share_security_range" = "Empfänger erhalten HEAD- und Byte-Range-Suche";
-"relay_share_security_storage" = "Relay-Blöcke sind ruhend verschlüsselt und werden bei Ablauf oder Widerruf gelöscht";
+"relay_share_security_storage" = "Relay-Blöcke sind ruhend verschlüsselt; temporäre Freigaben werden bei Ablauf und alle Freigaben bei Widerruf gelöscht";
 "relay_share_security_footer" = "Quell-URLs, Cookies, OAuth-Tokens, NAS-Sitzungen und signierte Download-URLs werden nie an den Relay gesendet. Nach dem Upload funktioniert der Link auch bei vorübergehendem Ausfall der Originalquelle.";
 "relay_share_error_unsupported" = "Dieser Titel kann nicht sicher exportiert werden.";
 "relay_share_error_configuration" = "Gib eine gültige HTTPS-Relay-API-URL und ein Token ein.";

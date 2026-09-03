@@ -3477,7 +3477,10 @@
 "share_link_permissions_footer" = "자동 선택은 음악 서버를 우선합니다. Primuse는 업로드 전에 권한 확인을 요청합니다.";
 "relay_share_link_style" = "링크 형식";
 "relay_share_link_short" = "짧은 코드";
-"relay_share_link_secure" = "보안 링크";
+"relay_share_link_secure" = "영구 보안 링크";
+"relay_share_lifetime" = "유효 기간";
+"relay_share_permanent_summary" = "영구(취소할 때까지)";
+"relay_share_permanent_footer" = "추측하기 어려운 링크는 만료되지 않으며 취소할 때까지 사용할 수 있습니다.";
 "relay_share_code_length" = "코드 길이";
 "relay_share_short_code_footer" = "6자리를 권장합니다. 짧은 코드는 24시간 안에 만료되며 다른 기기에서 쉽게 입력할 수 있습니다.";
 "relay_share_code_password_separate" = "코드는 공유를 찾는 데 사용됩니다. 암호 보호를 선택하면 별도의 암호도 입력해야 합니다.";
@@ -3504,7 +3507,7 @@
 "relay_share_security" = "보안 경계";
 "relay_share_security_bytes" = "미디어 바이트와 표시 메타데이터만 이 기기를 떠납니다";
 "relay_share_security_range" = "수신자는 HEAD 및 바이트 범위 탐색을 사용할 수 있습니다";
-"relay_share_security_storage" = "릴레이 청크는 저장 시 암호화되며 만료 또는 취소 시 삭제됩니다";
+"relay_share_security_storage" = "릴레이 청크는 저장 시 암호화되며 임시 공유는 만료 시, 모든 공유는 취소 시 삭제됩니다";
 "relay_share_security_footer" = "소스 URL, 쿠키, OAuth 토큰, NAS 세션 및 서명된 다운로드 URL은 릴레이로 전송되지 않습니다. 업로드가 완료되면 원본 소스가 일시적으로 오프라인이어도 링크가 작동합니다.";
 "relay_share_error_unsupported" = "이 노래는 안전하게 내보낼 수 없습니다.";
 "relay_share_error_configuration" = "유효한 HTTPS 릴레이 API URL과 토큰을 입력하십시오.";

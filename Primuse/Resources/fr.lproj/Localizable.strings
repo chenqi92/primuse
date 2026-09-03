@@ -3477,7 +3477,10 @@
 "share_link_permissions_footer" = "Le mode automatique privilégie le serveur musical. Primuse demande de confirmer les autorisations avant tout envoi.";
 "relay_share_link_style" = "Type de lien";
 "relay_share_link_short" = "Code court";
-"relay_share_link_secure" = "Lien sécurisé";
+"relay_share_link_secure" = "Lien sécurisé permanent";
+"relay_share_lifetime" = "Durée";
+"relay_share_permanent_summary" = "Permanent (jusqu’à révocation)";
+"relay_share_permanent_footer" = "Ce lien à haute entropie n’expire pas et reste disponible jusqu’à sa révocation.";
 "relay_share_code_length" = "Longueur du code";
 "relay_share_short_code_footer" = "Six chiffres sont recommandés. Les codes expirent sous 24 heures et sont faciles à saisir.";
 "relay_share_code_password_separate" = "Le code trouve le partage. Un partage protégé exige toujours un mot de passe distinct.";
@@ -3504,7 +3507,7 @@
 "relay_share_security" = "Périmètre de sécurité";
 "relay_share_security_bytes" = "Seuls les octets du média et les métadonnées d’affichage quittent cet appareil";
 "relay_share_security_range" = "Les destinataires bénéficient de HEAD et de la navigation par plages d’octets";
-"relay_share_security_storage" = "Les blocs du relais sont chiffrés au repos et supprimés à l’expiration ou à la révocation";
+"relay_share_security_storage" = "Les blocs sont chiffrés au repos ; les partages temporaires sont supprimés à l’expiration et tous les partages à la révocation";
 "relay_share_security_footer" = "Les URL source, cookies, jetons OAuth, sessions NAS et URL de téléchargement signées ne sont jamais envoyés au relais. Une fois le téléversement terminé, le lien reste disponible si la source est temporairement hors ligne.";
 "relay_share_error_unsupported" = "Ce morceau ne peut pas être exporté de façon sûre.";
 "relay_share_error_configuration" = "Saisissez une URL d’API de relais HTTPS et un jeton valides.";

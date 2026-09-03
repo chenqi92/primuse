@@ -44,56 +44,69 @@ const (
 )
 
 type config struct {
-	listenAddress              string
-	dataDirectory              string
-	publicBaseURL              string
-	adminToken                 string
-	masterKey                  []byte
-	chunkSize                  int64
-	maximumFileSize            int64
-	maximumTTL                 time.Duration
-	uploadTTL                  time.Duration
-	publicRequestsPerMinute    int
-	shortCodeRequestsPerMinute int
-	shortCodeFailuresPerWindow int
-	shortCodeFailureWindow     time.Duration
-	shortCodeMaximumTTL        time.Duration
-	maximumPublicStreams       int
-	maximumUploads             int
+	listenAddress                  string
+	dataDirectory                  string
+	publicBaseURL                  string
+	adminToken                     string
+	masterKey                      []byte
+	chunkSize                      int64
+	maximumFileSize                int64
+	maximumTTL                     time.Duration
+	uploadTTL                      time.Duration
+	publicRequestsPerMinute        int
+	shortCodePeerRequestsPerMinute int
+	shortCodeRequestsPerMinute     int
+	shortCodeFailuresPerWindow     int
+	shortCodeFailureWindow         time.Duration
+	shortCodeMaximumTTL            time.Duration
+	maximumPublicStreams           int
+	maximumUploads                 int
 }
 
 type shareMetadata struct {
-	Version         int       `json:"version"`
-	ID              string    `json:"id"`
-	PublicTokenHash string    `json:"publicTokenHash"`
-	ControlHash     string    `json:"controlHash"`
-	FileName        string    `json:"fileName"`
-	ContentType     string    `json:"contentType"`
-	Size            int64     `json:"size"`
-	ChunkSize       int64     `json:"chunkSize"`
-	CreatedAt       time.Time `json:"createdAt"`
-	ExpiresAt       time.Time `json:"expiresAt"`
-	UploadExpiresAt time.Time `json:"uploadExpiresAt"`
-	CompletedAt     time.Time `json:"completedAt,omitempty"`
-	RevokedAt       time.Time `json:"revokedAt,omitempty"`
-	DataDeletedAt   time.Time `json:"dataDeletedAt,omitempty"`
-	ETag            string    `json:"etag"`
-	PasswordSalt    string    `json:"passwordSalt,omitempty"`
-	PasswordHash    string    `json:"passwordHash,omitempty"`
-	Title           string    `json:"title,omitempty"`
-	Artist          string    `json:"artist,omitempty"`
-	Album           string    `json:"album,omitempty"`
-	AudioFormat     string    `json:"audioFormat,omitempty"`
-	Quality         string    `json:"quality,omitempty"`
-	DurationSeconds float64   `json:"durationSeconds,omitempty"`
-	AllowPlayback   *bool     `json:"allowPlayback,omitempty"`
-	AllowDownload   *bool     `json:"allowDownload,omitempty"`
-	AllowImport     *bool     `json:"allowImport,omitempty"`
-	ShortCode       bool      `json:"shortCode,omitempty"`
+	Version         int        `json:"version"`
+	ID              string     `json:"id"`
+	PublicTokenHash string     `json:"publicTokenHash"`
+	ControlHash     string     `json:"controlHash"`
+	FileName        string     `json:"fileName"`
+	ContentType     string     `json:"contentType"`
+	Size            int64      `json:"size"`
+	ChunkSize       int64      `json:"chunkSize"`
+	CreatedAt       time.Time  `json:"createdAt"`
+	ExpiresAt       *time.Time `json:"expiresAt,omitempty"`
+	UploadExpiresAt time.Time  `json:"uploadExpiresAt"`
+	CompletedAt     time.Time  `json:"completedAt,omitempty"`
+	RevokedAt       time.Time  `json:"revokedAt,omitempty"`
+	DataDeletedAt   time.Time  `json:"dataDeletedAt,omitempty"`
+	ETag            string     `json:"etag"`
+	PasswordSalt    string     `json:"passwordSalt,omitempty"`
+	PasswordHash    string     `json:"passwordHash,omitempty"`
+	Title           string     `json:"title,omitempty"`
+	Artist          string     `json:"artist,omitempty"`
+	Album           string     `json:"album,omitempty"`
+	AudioFormat     string     `json:"audioFormat,omitempty"`
+	Quality         string     `json:"quality,omitempty"`
+	DurationSeconds float64    `json:"durationSeconds,omitempty"`
+	AllowPlayback   *bool      `json:"allowPlayback,omitempty"`
+	AllowDownload   *bool      `json:"allowDownload,omitempty"`
+	AllowImport     *bool      `json:"allowImport,omitempty"`
+	ShortCode       bool       `json:"shortCode,omitempty"`
+	Permanent       bool       `json:"permanent"`
 }
 
 func (m *shareMetadata) complete() bool { return !m.CompletedAt.IsZero() }
 func (m *shareMetadata) revoked() bool  { return !m.RevokedAt.IsZero() }
+func (m *shareMetadata) activeAt(now time.Time) bool {
+	return m.Permanent || m.ExpiresAt != nil && m.ExpiresAt.After(now)
+}
+
+func formattedExpiration(expiresAt *time.Time) *string {
+	if expiresAt == nil {
+		return nil
+	}
+	value := expiresAt.UTC().Format(time.RFC3339)
+	return &value
+}
 
 type createUploadRequest struct {
 	FileName        string  `json:"fileName"`
@@ -115,17 +128,19 @@ type createUploadRequest struct {
 }
 
 type createUploadResponse struct {
-	ShareID     string `json:"shareID"`
-	UploadToken string `json:"uploadToken"`
-	PublicURL   string `json:"publicURL"`
-	ChunkSize   int64  `json:"chunkSize"`
-	ExpiresAt   string `json:"expiresAt"`
-	AccessCode  string `json:"accessCode,omitempty"`
+	ShareID     string  `json:"shareID"`
+	UploadToken string  `json:"uploadToken"`
+	PublicURL   string  `json:"publicURL"`
+	ChunkSize   int64   `json:"chunkSize"`
+	ExpiresAt   *string `json:"expiresAt,omitempty"`
+	Permanent   bool    `json:"permanent"`
+	AccessCode  string  `json:"accessCode,omitempty"`
 }
 
 type completeUploadResponse struct {
-	ShareID   string `json:"shareID"`
-	ExpiresAt string `json:"expiresAt"`
+	ShareID   string  `json:"shareID"`
+	ExpiresAt *string `json:"expiresAt,omitempty"`
+	Permanent bool    `json:"permanent"`
 }
 
 type relayServer struct {
@@ -191,21 +206,22 @@ func main() {
 
 func loadConfig() (config, error) {
 	c := config{
-		listenAddress:              envOrDefault("PRIMUSE_RELAY_LISTEN_ADDR", ":8787"),
-		dataDirectory:              envOrDefault("PRIMUSE_RELAY_DATA_DIR", "/data"),
-		publicBaseURL:              strings.TrimRight(os.Getenv("PRIMUSE_RELAY_PUBLIC_BASE_URL"), "/"),
-		adminToken:                 os.Getenv("PRIMUSE_RELAY_ADMIN_TOKEN"),
-		chunkSize:                  envInt64("PRIMUSE_RELAY_CHUNK_SIZE", defaultChunkSize),
-		maximumFileSize:            envInt64("PRIMUSE_RELAY_MAX_FILE_BYTES", defaultMaximumFileSize),
-		maximumTTL:                 time.Duration(envInt64("PRIMUSE_RELAY_MAX_TTL_SECONDS", int64(defaultMaximumTTL/time.Second))) * time.Second,
-		uploadTTL:                  time.Duration(envInt64("PRIMUSE_RELAY_UPLOAD_TTL_SECONDS", int64(defaultUploadTTL/time.Second))) * time.Second,
-		publicRequestsPerMinute:    int(envInt64("PRIMUSE_RELAY_PUBLIC_REQUESTS_PER_MINUTE", 600)),
-		shortCodeRequestsPerMinute: int(envInt64("PRIMUSE_RELAY_SHORT_CODE_REQUESTS_PER_MINUTE", 60)),
-		shortCodeFailuresPerWindow: int(envInt64("PRIMUSE_RELAY_SHORT_CODE_FAILURES_PER_WINDOW", 5)),
-		shortCodeFailureWindow:     time.Duration(envInt64("PRIMUSE_RELAY_SHORT_CODE_FAILURE_WINDOW_SECONDS", 600)) * time.Second,
-		shortCodeMaximumTTL:        time.Duration(envInt64("PRIMUSE_RELAY_SHORT_CODE_MAX_TTL_SECONDS", int64(defaultShortCodeTTL/time.Second))) * time.Second,
-		maximumPublicStreams:       int(envInt64("PRIMUSE_RELAY_MAX_PUBLIC_STREAMS", 32)),
-		maximumUploads:             int(envInt64("PRIMUSE_RELAY_MAX_UPLOADS", 4)),
+		listenAddress:                  envOrDefault("PRIMUSE_RELAY_LISTEN_ADDR", ":8787"),
+		dataDirectory:                  envOrDefault("PRIMUSE_RELAY_DATA_DIR", "/data"),
+		publicBaseURL:                  strings.TrimRight(os.Getenv("PRIMUSE_RELAY_PUBLIC_BASE_URL"), "/"),
+		adminToken:                     os.Getenv("PRIMUSE_RELAY_ADMIN_TOKEN"),
+		chunkSize:                      envInt64("PRIMUSE_RELAY_CHUNK_SIZE", defaultChunkSize),
+		maximumFileSize:                envInt64("PRIMUSE_RELAY_MAX_FILE_BYTES", defaultMaximumFileSize),
+		maximumTTL:                     time.Duration(envInt64("PRIMUSE_RELAY_MAX_TTL_SECONDS", int64(defaultMaximumTTL/time.Second))) * time.Second,
+		uploadTTL:                      time.Duration(envInt64("PRIMUSE_RELAY_UPLOAD_TTL_SECONDS", int64(defaultUploadTTL/time.Second))) * time.Second,
+		publicRequestsPerMinute:        int(envInt64("PRIMUSE_RELAY_PUBLIC_REQUESTS_PER_MINUTE", 600)),
+		shortCodePeerRequestsPerMinute: int(envInt64("PRIMUSE_RELAY_SHORT_CODE_PEER_REQUESTS_PER_MINUTE", 60)),
+		shortCodeRequestsPerMinute:     int(envInt64("PRIMUSE_RELAY_SHORT_CODE_REQUESTS_PER_MINUTE", 60)),
+		shortCodeFailuresPerWindow:     int(envInt64("PRIMUSE_RELAY_SHORT_CODE_FAILURES_PER_WINDOW", 5)),
+		shortCodeFailureWindow:         time.Duration(envInt64("PRIMUSE_RELAY_SHORT_CODE_FAILURE_WINDOW_SECONDS", 600)) * time.Second,
+		shortCodeMaximumTTL:            time.Duration(envInt64("PRIMUSE_RELAY_SHORT_CODE_MAX_TTL_SECONDS", int64(defaultShortCodeTTL/time.Second))) * time.Second,
+		maximumPublicStreams:           int(envInt64("PRIMUSE_RELAY_MAX_PUBLIC_STREAMS", 32)),
+		maximumUploads:                 int(envInt64("PRIMUSE_RELAY_MAX_UPLOADS", 4)),
 	}
 	key, err := base64.StdEncoding.DecodeString(os.Getenv("PRIMUSE_RELAY_MASTER_KEY"))
 	if err != nil || len(key) != 32 {
@@ -222,7 +238,8 @@ func loadConfig() (config, error) {
 		return config{}, errors.New("PRIMUSE_RELAY_CHUNK_SIZE must be between 256 KiB and 32 MiB")
 	}
 	if c.maximumFileSize <= 0 || c.maximumTTL <= 0 || c.uploadTTL <= 0 ||
-		c.publicRequestsPerMinute <= 0 || c.shortCodeRequestsPerMinute <= 0 ||
+		c.publicRequestsPerMinute <= 0 || c.shortCodePeerRequestsPerMinute <= 0 ||
+		c.shortCodeRequestsPerMinute <= 0 ||
 		c.shortCodeFailuresPerWindow <= 0 || c.shortCodeFailureWindow <= 0 ||
 		c.shortCodeMaximumTTL <= 0 || c.shortCodeMaximumTTL > c.maximumTTL ||
 		c.maximumPublicStreams <= 0 || c.maximumUploads <= 0 {
@@ -477,7 +494,8 @@ func (s *relayServer) handleCreateUpload(w http.ResponseWriter, r *http.Request)
 		linkType = "long"
 	}
 	shortCode := linkType == "short"
-	if linkType != "long" && !shortCode {
+	permanent := linkType == "permanent"
+	if linkType != "long" && !shortCode && !permanent {
 		writeProblem(w, http.StatusBadRequest, "invalid_link_type")
 		return
 	}
@@ -495,25 +513,34 @@ func (s *relayServer) handleCreateUpload(w http.ResponseWriter, r *http.Request)
 	}
 
 	now := s.now().UTC()
-	expiresAt := now.Add(7 * 24 * time.Hour)
-	if shortCode {
-		expiresAt = now.Add(time.Hour)
-	}
-	if request.ExpiresAt != "" {
-		parsed, err := time.Parse(time.RFC3339, request.ExpiresAt)
-		if err != nil {
+	var expiresAt *time.Time
+	if permanent {
+		if request.ExpiresAt != "" {
 			writeProblem(w, http.StatusBadRequest, "invalid_expiration")
 			return
 		}
-		expiresAt = parsed.UTC()
-	}
-	maximumExpiration := now.Add(s.configuration.maximumTTL)
-	if shortCode {
-		maximumExpiration = now.Add(s.configuration.shortCodeMaximumTTL)
-	}
-	if !expiresAt.After(now) || expiresAt.After(maximumExpiration) {
-		writeProblem(w, http.StatusBadRequest, "invalid_expiration")
-		return
+	} else {
+		value := now.Add(7 * 24 * time.Hour)
+		if shortCode {
+			value = now.Add(time.Hour)
+		}
+		if request.ExpiresAt != "" {
+			parsed, err := time.Parse(time.RFC3339, request.ExpiresAt)
+			if err != nil {
+				writeProblem(w, http.StatusBadRequest, "invalid_expiration")
+				return
+			}
+			value = parsed.UTC()
+		}
+		maximumExpiration := now.Add(s.configuration.maximumTTL)
+		if shortCode {
+			maximumExpiration = now.Add(s.configuration.shortCodeMaximumTTL)
+		}
+		if !value.After(now) || value.After(maximumExpiration) {
+			writeProblem(w, http.StatusBadRequest, "invalid_expiration")
+			return
+		}
+		expiresAt = &value
 	}
 
 	id, err := randomToken(18)
@@ -528,7 +555,7 @@ func (s *relayServer) handleCreateUpload(w http.ResponseWriter, r *http.Request)
 	}
 	publicToken := ""
 	if shortCode {
-		publicToken, err = s.reserveShortCode(request.ShortCodeLength, id, expiresAt)
+		publicToken, err = s.reserveShortCode(request.ShortCodeLength, id, *expiresAt)
 	} else {
 		publicToken, err = randomToken(32)
 	}
@@ -550,7 +577,7 @@ func (s *relayServer) handleCreateUpload(w http.ResponseWriter, r *http.Request)
 	}
 
 	metadata := &shareMetadata{
-		Version:         2,
+		Version:         3,
 		ID:              id,
 		PublicTokenHash: tokenHash(publicToken),
 		ControlHash:     tokenHash(uploadToken),
@@ -572,6 +599,7 @@ func (s *relayServer) handleCreateUpload(w http.ResponseWriter, r *http.Request)
 		AllowDownload:   boolPointerOrDefault(request.AllowDownload, true),
 		AllowImport:     boolPointerOrDefault(request.AllowImport, true),
 		ShortCode:       shortCode,
+		Permanent:       permanent,
 	}
 	if request.Password != "" {
 		salt := make([]byte, 16)
@@ -603,7 +631,8 @@ func (s *relayServer) handleCreateUpload(w http.ResponseWriter, r *http.Request)
 		UploadToken: uploadToken,
 		PublicURL:   s.configuration.publicBaseURL + "/s/" + publicToken,
 		ChunkSize:   metadata.ChunkSize,
-		ExpiresAt:   expiresAt.Format(time.RFC3339),
+		ExpiresAt:   formattedExpiration(expiresAt),
+		Permanent:   permanent,
 	}
 	if shortCode {
 		response.AccessCode = publicToken
@@ -699,7 +728,8 @@ func (s *relayServer) handleCompleteUpload(w http.ResponseWriter, r *http.Reques
 	}
 	writeJSON(w, http.StatusOK, completeUploadResponse{
 		ShareID:   metadata.ID,
-		ExpiresAt: metadata.ExpiresAt.Format(time.RFC3339),
+		ExpiresAt: formattedExpiration(metadata.ExpiresAt),
+		Permanent: metadata.Permanent,
 	})
 }
 
@@ -768,7 +798,7 @@ func (s *relayServer) servePublicMedia(w http.ResponseWriter, r *http.Request, a
 		writeProblem(w, http.StatusGone, "unavailable")
 		return
 	}
-	if !metadata.ExpiresAt.After(s.now()) || !metadata.DataDeletedAt.IsZero() {
+	if !metadata.activeAt(s.now()) || !metadata.DataDeletedAt.IsZero() {
 		writeProblem(w, http.StatusGone, "unavailable")
 		return
 	}
@@ -905,7 +935,7 @@ func (s *relayServer) loadMetadata() error {
 }
 
 func (s *relayServer) validateLoadedMetadata(entry os.DirEntry, metadata *shareMetadata) error {
-	if entry.Type()&os.ModeType != 0 || (metadata.Version != 1 && metadata.Version != 2) ||
+	if entry.Type()&os.ModeType != 0 || (metadata.Version != 1 && metadata.Version != 2 && metadata.Version != 3) ||
 		!validOpaqueID(metadata.ID) || entry.Name() != metadata.ID+".json" ||
 		!validSHA256Hex(metadata.PublicTokenHash) || !validSHA256Hex(metadata.ControlHash) ||
 		metadata.PublicTokenHash == metadata.ControlHash ||
@@ -913,14 +943,24 @@ func (s *relayServer) validateLoadedMetadata(entry os.DirEntry, metadata *shareM
 		sanitizeContentType(metadata.ContentType) != metadata.ContentType ||
 		metadata.Size <= 0 || metadata.Size > s.configuration.maximumFileSize ||
 		metadata.ChunkSize < 256*1024 || metadata.ChunkSize > 32*1024*1024 ||
-		metadata.CreatedAt.IsZero() || !metadata.ExpiresAt.After(metadata.CreatedAt) ||
+		metadata.CreatedAt.IsZero() ||
 		!metadata.UploadExpiresAt.After(metadata.CreatedAt) || !validETag(metadata.ETag) {
 		return errors.New("unsafe or inconsistent fields")
+	}
+	if metadata.Version < 3 && metadata.Permanent {
+		return errors.New("legacy metadata cannot be permanent")
+	}
+	if metadata.Permanent {
+		if metadata.ShortCode || metadata.ExpiresAt != nil {
+			return errors.New("permanent metadata has an expiration or short code")
+		}
+	} else if metadata.ExpiresAt == nil || !metadata.ExpiresAt.After(metadata.CreatedAt) {
+		return errors.New("expiring metadata is missing a valid expiration")
 	}
 	if metadata.ShortCode && metadata.ExpiresAt.Sub(metadata.CreatedAt) > s.configuration.shortCodeMaximumTTL {
 		return errors.New("short code expiration exceeds configured maximum")
 	}
-	if metadata.Version == 2 && (sanitizeDisplayText(metadata.Title, 160) != metadata.Title ||
+	if metadata.Version >= 2 && (sanitizeDisplayText(metadata.Title, 160) != metadata.Title ||
 		sanitizeDisplayText(metadata.Artist, 160) != metadata.Artist ||
 		sanitizeDisplayText(metadata.Album, 160) != metadata.Album ||
 		sanitizeDisplayText(metadata.AudioFormat, 32) != metadata.AudioFormat ||
@@ -1120,6 +1160,9 @@ func (s *relayServer) allowPublicRequest(r *http.Request) bool {
 	if !validShortCode(code) {
 		return true
 	}
+	if !s.consumeRateWindow("short-peer:"+peer, s.configuration.shortCodePeerRequestsPerMinute, time.Minute) {
+		return false
+	}
 	key := s.shortCodeRateKey(r, code)
 	if s.rateWindowCount("short-failure:"+key, s.configuration.shortCodeFailureWindow) >= s.configuration.shortCodeFailuresPerWindow {
 		return false
@@ -1210,7 +1253,7 @@ func (s *relayServer) cleanupExpired() {
 		shareLock := s.lockForShare(metadata.ID)
 		shareLock.Lock()
 		shouldDelete := metadata.revoked() ||
-			(metadata.complete() && !metadata.ExpiresAt.After(now)) ||
+			(metadata.complete() && !metadata.activeAt(now)) ||
 			(!metadata.complete() && !metadata.UploadExpiresAt.After(now))
 		if !shouldDelete {
 			shareLock.Unlock()

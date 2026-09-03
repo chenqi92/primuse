@@ -232,10 +232,11 @@ async function createUpload(request, env, configuration) {
     }
   }
   const linkType = input.linkType == null || input.linkType === "" ? "long" : input.linkType;
-  if (linkType !== "long" && linkType !== "short") {
+  if (linkType !== "long" && linkType !== "short" && linkType !== "permanent") {
     throw new RelayError(400, "invalid_link_type");
   }
   const usesShortCode = linkType === "short";
+  const permanent = linkType === "permanent";
   let shortCodeLength = input.shortCodeLength;
   if (usesShortCode) {
     shortCodeLength ??= 6;
@@ -247,18 +248,25 @@ async function createUpload(request, env, configuration) {
   }
 
   const now = new Date();
-  const expiresAt = input.expiresAt == null || input.expiresAt === ""
-    ? new Date(now.getTime() + (usesShortCode ? 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000))
-    : parseRFC3339(input.expiresAt);
-  const maximumTTL = usesShortCode
-    ? configuration.shortCodeMaximumTTLMilliseconds
-    : configuration.maximumTTLMilliseconds;
-  if (
-    !expiresAt ||
-    expiresAt.getTime() <= now.getTime() ||
-    expiresAt.getTime() > now.getTime() + maximumTTL
-  ) {
-    throw new RelayError(400, "invalid_expiration");
+  let expiresAt = null;
+  if (permanent) {
+    if (input.expiresAt != null && input.expiresAt !== "") {
+      throw new RelayError(400, "invalid_expiration");
+    }
+  } else {
+    expiresAt = input.expiresAt == null || input.expiresAt === ""
+      ? new Date(now.getTime() + (usesShortCode ? 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000))
+      : parseRFC3339(input.expiresAt);
+    const maximumTTL = usesShortCode
+      ? configuration.shortCodeMaximumTTLMilliseconds
+      : configuration.maximumTTLMilliseconds;
+    if (
+      !expiresAt ||
+      expiresAt.getTime() <= now.getTime() ||
+      expiresAt.getTime() > now.getTime() + maximumTTL
+    ) {
+      throw new RelayError(400, "invalid_expiration");
+    }
   }
 
   const id = randomToken(18);
@@ -281,7 +289,7 @@ async function createUpload(request, env, configuration) {
   }
 
   const metadata = {
-    version: 2,
+    version: 3,
     id,
     publicTokenHash: await tokenHash(publicToken),
     controlHash: await tokenHash(uploadToken),
@@ -290,7 +298,7 @@ async function createUpload(request, env, configuration) {
     size: input.size,
     chunkSize: configuration.chunkSize,
     createdAt: now.toISOString(),
-    expiresAt: expiresAt.toISOString(),
+    expiresAt: expiresAt?.toISOString() ?? null,
     uploadExpiresAt: new Date(now.getTime() + configuration.uploadTTLMilliseconds).toISOString(),
     completedAt: null,
     revokedAt: null,
@@ -308,6 +316,7 @@ async function createUpload(request, env, configuration) {
     allowDownload: input.allowDownload ?? true,
     allowImport: input.allowImport ?? true,
     shortCode: usesShortCode,
+    permanent,
     dataKey,
     uploadId: multipartUpload.uploadId,
   };
@@ -336,7 +345,8 @@ async function createUpload(request, env, configuration) {
     uploadToken,
     publicURL: `${configuration.publicBaseURL}/s/${publicToken}`,
     chunkSize: metadata.chunkSize,
-    expiresAt: metadata.expiresAt,
+    permanent: metadata.permanent,
+    ...(metadata.expiresAt ? { expiresAt: metadata.expiresAt } : {}),
     ...(usesShortCode ? { accessCode: publicToken } : {}),
   }, 201);
 }
@@ -446,7 +456,8 @@ async function completeUpload(request, env, context, configuration, shareID) {
   context?.waitUntil?.(deletePartRecords(configuration.bucket, shareID));
   return jsonResponse({
     shareID: loaded.metadata.id,
-    expiresAt: loaded.metadata.expiresAt,
+    permanent: isPermanent(loaded.metadata),
+    ...(loaded.metadata.expiresAt ? { expiresAt: loaded.metadata.expiresAt } : {}),
   });
 }
 
@@ -515,7 +526,7 @@ async function servePublicShare(request, env, context, configuration, publicToke
     }
     throw new RelayError(410, "unavailable");
   }
-  if (Date.parse(loaded.metadata.expiresAt) <= Date.now() || loaded.metadata.dataDeletedAt) {
+  if (!shareUnexpired(loaded.metadata) || loaded.metadata.dataDeletedAt) {
     scheduleCleanup(context, env, loaded.metadata);
     throw new RelayError(410, "unavailable");
   }
@@ -641,7 +652,7 @@ function cleanupDue(metadata, now = Date.now()) {
   if (!metadata || metadata.dataDeletedAt || isRevoked(metadata)) {
     return Boolean(metadata && !metadata.dataDeletedAt && isRevoked(metadata));
   }
-  const cleanupAt = Date.parse(isComplete(metadata) ? metadata.expiresAt : metadata.uploadExpiresAt);
+  const cleanupAt = metadataCleanupTimestamp(metadata);
   return Number.isFinite(cleanupAt) && cleanupAt <= now;
 }
 
@@ -653,7 +664,16 @@ async function publicRateLimitAllows(request, env, publicToken = null) {
       return false;
     }
   }
-  if (SHORT_CODE_PATTERN.test(publicToken ?? "") && env.SHORT_CODE_RATE_LIMITER?.limit) {
+  if (SHORT_CODE_PATTERN.test(publicToken ?? "")) {
+    if (env.SHORT_CODE_PEER_RATE_LIMITER?.limit) {
+      const result = await env.SHORT_CODE_PEER_RATE_LIMITER.limit({ key: `primuse-short-code-peer:${peer}` });
+      if (!result.success) {
+        return false;
+      }
+    }
+    if (!env.SHORT_CODE_RATE_LIMITER?.limit) {
+      return true;
+    }
     const key = await tokenHash(`${peer}\n${publicToken}`);
     const result = await env.SHORT_CODE_RATE_LIMITER.limit({ key: `primuse-short-code:${key}` });
     if (!result.success) {
@@ -673,12 +693,12 @@ async function shortCodeFailureAllows(request, env, publicToken) {
   return result.success;
 }
 
-function activeShare(metadata) {
+function activeShare(metadata, now = Date.now()) {
   return Boolean(
     metadata &&
     isComplete(metadata) &&
     !isRevoked(metadata) &&
-    Date.parse(metadata.expiresAt) > Date.now() &&
+    shareUnexpired(metadata, now) &&
     !metadata.dataDeletedAt,
   );
 }
@@ -699,6 +719,10 @@ async function unlockedSharePage(request, env, configuration, publicToken, metad
   const permissionNote = [];
   if (!download) permissionNote.push("分享者未开放下载");
   if (allowImport) permissionNote.push("导入使用一次性短期凭证，不含密码");
+  const expiresISO = isPermanent(metadata) ? "" : metadata.expiresAt;
+  const expiresLabel = isPermanent(metadata)
+    ? "永久有效（直到分享者撤销）"
+    : `有效至 ${new Date(metadata.expiresAt).toISOString().slice(0, 16).replace("T", " ")} UTC`;
   const base = `${configuration.publicBaseURL}/s/${publicToken}`;
   return templateResponse(request, env, "share.html", 200, {
     TITLE: title,
@@ -713,8 +737,8 @@ async function unlockedSharePage(request, env, configuration, publicToken, metad
     FILE_SIZE_BYTES: String(metadata.size),
     SIZE: size,
     ACCESS_LABEL: metadata.passwordHash ? "已通过密码验证" : "持有链接即可访问",
-    EXPIRES_ISO: metadata.expiresAt,
-    EXPIRES_LABEL: `有效至 ${new Date(metadata.expiresAt).toISOString().slice(0, 16).replace("T", " ")} UTC`,
+    EXPIRES_ISO: expiresISO,
+    EXPIRES_LABEL: expiresLabel,
     SESSION_HIDDEN: metadata.passwordHash ? "" : "hidden",
     ARTIST_ALBUM: artistAlbum,
     FORMAT: audioFormat,
@@ -895,10 +919,9 @@ async function sessionSignature(configuration, publicToken, metadata, expiresUni
 }
 
 async function shareSessionCookie(configuration, publicToken, metadata) {
-  const expiresAt = Math.min(
-    Date.now() + SHARE_SESSION_SECONDS * 1000,
-    Date.parse(metadata.expiresAt),
-  );
+  const expiresAt = isPermanent(metadata)
+    ? Date.now() + SHARE_SESSION_SECONDS * 1000
+    : Math.min(Date.now() + SHARE_SESSION_SECONDS * 1000, shareExpirationTimestamp(metadata));
   const expiresUnix = Math.floor(expiresAt / 1000);
   const signature = await sessionSignature(configuration, publicToken, metadata, expiresUnix);
   return `${shareCookieName(metadata)}=${expiresUnix}.${signature}; Path=/s/${publicToken}; Max-Age=${Math.max(1, expiresUnix - Math.floor(Date.now() / 1000))}; Expires=${new Date(expiresUnix * 1000).toUTCString()}; Secure; HttpOnly; SameSite=Strict`;
@@ -917,7 +940,7 @@ async function verifyShareSession(request, configuration, publicToken, metadata)
     !Number.isSafeInteger(expiresUnix) ||
     expiresUnix * 1000 <= now ||
     expiresUnix * 1000 > now + (SHARE_SESSION_SECONDS + 60) * 1000 ||
-    expiresUnix * 1000 > Date.parse(metadata.expiresAt)
+    (!isPermanent(metadata) && expiresUnix * 1000 > shareExpirationTimestamp(metadata))
   ) {
     return false;
   }
@@ -951,10 +974,9 @@ async function createImportTicket(request, env, configuration, publicToken) {
     throw new RelayError(401, "password_required");
   }
   const token = randomToken(32);
-  const expiresAt = new Date(Math.min(
-    Date.now() + IMPORT_TICKET_SECONDS * 1000,
-    Date.parse(loaded.metadata.expiresAt),
-  ));
+  const expiresAt = new Date(isPermanent(loaded.metadata)
+    ? Date.now() + IMPORT_TICKET_SECONDS * 1000
+    : Math.min(Date.now() + IMPORT_TICKET_SECONDS * 1000, shareExpirationTimestamp(loaded.metadata)));
   const ticket = {
     version: 1,
     shareID: loaded.metadata.id,
@@ -1223,7 +1245,7 @@ async function loadMetadataByID(bucket, shareID, configuration) {
 function validMetadata(metadata, shareID, configuration) {
   if (
     !metadata ||
-    (metadata.version !== 1 && metadata.version !== 2) ||
+    (metadata.version !== 1 && metadata.version !== 2 && metadata.version !== 3) ||
     metadata.id !== shareID ||
     !TOKEN_PATTERN.test(metadata.id) ||
     !SHA256_PATTERN.test(metadata.publicTokenHash) ||
@@ -1247,7 +1269,7 @@ function validMetadata(metadata, shareID, configuration) {
   ) {
     return false;
   }
-  if (metadata.version === 2) {
+  if (metadata.version >= 2) {
     if (
       sanitizeDisplayText(metadata.title, 160) !== metadata.title ||
       sanitizeDisplayText(metadata.artist, 160) !== metadata.artist ||
@@ -1260,19 +1282,30 @@ function validMetadata(metadata, shareID, configuration) {
       typeof metadata.allowPlayback !== "boolean" ||
       typeof metadata.allowDownload !== "boolean" ||
       typeof metadata.allowImport !== "boolean" ||
-      (metadata.shortCode != null && typeof metadata.shortCode !== "boolean")
+      (metadata.shortCode != null && typeof metadata.shortCode !== "boolean") ||
+      (metadata.version === 3 && typeof metadata.permanent !== "boolean") ||
+      (metadata.version < 3 && metadata.permanent != null)
     ) {
       return false;
     }
   }
   const createdAt = Date.parse(metadata.createdAt);
-  const expiresAt = Date.parse(metadata.expiresAt);
   const uploadExpiresAt = Date.parse(metadata.uploadExpiresAt);
-  if (!Number.isFinite(createdAt) || expiresAt <= createdAt || uploadExpiresAt <= createdAt) {
+  if (!Number.isFinite(createdAt) || uploadExpiresAt <= createdAt) {
     return false;
   }
-  if (metadata.shortCode === true && expiresAt - createdAt > configuration.shortCodeMaximumTTLMilliseconds) {
-    return false;
+  if (isPermanent(metadata)) {
+    if (metadata.version < 3 || metadata.shortCode === true || (metadata.expiresAt !== null && metadata.expiresAt !== undefined)) {
+      return false;
+    }
+  } else {
+    const expiresAt = shareExpirationTimestamp(metadata);
+    if (!Number.isFinite(expiresAt) || expiresAt <= createdAt) {
+      return false;
+    }
+    if (metadata.shortCode === true && expiresAt - createdAt > configuration.shortCodeMaximumTTLMilliseconds) {
+      return false;
+    }
   }
   for (const optionalDate of [metadata.completedAt, metadata.revokedAt, metadata.dataDeletedAt]) {
     if (optionalDate != null && !Number.isFinite(Date.parse(optionalDate))) {
@@ -1297,16 +1330,18 @@ function validMetadata(metadata, shareID, configuration) {
 }
 
 async function putMetadata(bucket, metadata, etag) {
+  const cleanupAt = metadataCleanupTimestamp(metadata);
+  const customMetadata = {
+    state: isRevoked(metadata) ? "revoked" : isComplete(metadata) ? "complete" : "pending",
+    dataDeleted: metadata.dataDeletedAt ? "true" : "false",
+    publicTokenHash: metadata.publicTokenHash,
+  };
+  if (Number.isFinite(cleanupAt)) {
+    customMetadata.nextCleanupAt = String(cleanupAt);
+  }
   const options = {
     httpMetadata: { contentType: "application/json" },
-    customMetadata: {
-      state: isRevoked(metadata) ? "revoked" : isComplete(metadata) ? "complete" : "pending",
-      nextCleanupAt: String(isRevoked(metadata)
-        ? Date.parse(metadata.revokedAt)
-        : Date.parse(isComplete(metadata) ? metadata.expiresAt : metadata.uploadExpiresAt)),
-      dataDeleted: metadata.dataDeletedAt ? "true" : "false",
-      publicTokenHash: metadata.publicTokenHash,
-    },
+    customMetadata,
   };
   if (etag) {
     options.onlyIf = { etagMatches: etag };
@@ -1444,10 +1479,8 @@ export async function cleanupExpiredShares(env, now = new Date(), shard = null) 
     if (!loaded || loaded.metadata.dataDeletedAt) {
       continue;
     }
-    const cleanupAt = isRevoked(loaded.metadata)
-      ? Date.parse(loaded.metadata.revokedAt)
-      : Date.parse(isComplete(loaded.metadata) ? loaded.metadata.expiresAt : loaded.metadata.uploadExpiresAt);
-    if (cleanupAt > now.getTime()) {
+    const cleanupAt = metadataCleanupTimestamp(loaded.metadata);
+    if (!Number.isFinite(cleanupAt) || cleanupAt > now.getTime()) {
       continue;
     }
     await cleanupShareData(configuration.bucket, loaded.metadata);
@@ -1610,6 +1643,34 @@ function isComplete(metadata) {
 
 function isRevoked(metadata) {
   return typeof metadata.revokedAt === "string" && metadata.revokedAt.length > 0;
+}
+
+function isPermanent(metadata) {
+  return metadata?.permanent === true;
+}
+
+function shareExpirationTimestamp(metadata) {
+  if (!metadata || isPermanent(metadata) || typeof metadata.expiresAt !== "string") {
+    return isPermanent(metadata) ? Number.POSITIVE_INFINITY : Number.NaN;
+  }
+  return Date.parse(metadata.expiresAt);
+}
+
+function shareUnexpired(metadata, now = Date.now()) {
+  return isPermanent(metadata) || shareExpirationTimestamp(metadata) > now;
+}
+
+function metadataCleanupTimestamp(metadata) {
+  if (!metadata) {
+    return Number.NaN;
+  }
+  if (isRevoked(metadata)) {
+    return Date.parse(metadata.revokedAt);
+  }
+  if (!isComplete(metadata)) {
+    return Date.parse(metadata.uploadExpiresAt);
+  }
+  return isPermanent(metadata) ? Number.NaN : shareExpirationTimestamp(metadata);
 }
 
 function isUploadClosed(metadata, now) {

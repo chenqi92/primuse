@@ -3478,7 +3478,10 @@
 "share_link_permissions_footer" = "自動選択は音楽サーバーを優先します。Primuse はアップロード前に権限の確認を求めます。";
 "relay_share_link_style" = "リンク形式";
 "relay_share_link_short" = "短いコード";
-"relay_share_link_secure" = "安全なリンク";
+"relay_share_link_secure" = "永久セキュアリンク";
+"relay_share_lifetime" = "有効期間";
+"relay_share_permanent_summary" = "永久（取り消すまで）";
+"relay_share_permanent_footer" = "推測困難なリンクに有効期限はなく、取り消すまで利用できます。";
 "relay_share_code_length" = "コードの桁数";
 "relay_share_short_code_footer" = "6 桁を推奨します。短いコードは 24 時間以内に期限切れになり、別の端末で簡単に入力できます。";
 "relay_share_code_password_separate" = "コードは共有を見つけるためのものです。パスワード保護では別のパスワードも必要です。";
@@ -3505,7 +3508,7 @@
 "relay_share_security" = "セキュリティ境界";
 "relay_share_security_bytes" = "メディアデータと表示用メタデータだけがこのデバイスから送信されます";
 "relay_share_security_range" = "受信者は HEAD とバイト範囲シークを利用できます";
-"relay_share_security_storage" = "リレーのチャンクは保存時に暗号化され、期限切れまたは無効化時に削除されます";
+"relay_share_security_storage" = "リレーのチャンクは保存時に暗号化され、一時共有は期限切れ時に、すべての共有は取り消し時に削除されます";
 "relay_share_security_footer" = "ソース URL、Cookie、OAuth トークン、NAS セッション、署名付きダウンロード URL はリレーに送信されません。アップロード完了後は元のソースが一時的にオフラインでもリンクを利用できます。";
 "relay_share_error_unsupported" = "この曲は安全に書き出せません。";
 "relay_share_error_configuration" = "有効な HTTPS リレー API URL とトークンを入力してください。";

@@ -761,7 +761,7 @@ private struct MediaRelayCreateRequest: Encodable {
     let fileName: String
     let contentType: String
     let size: Int64
-    let expiresAt: String
+    let expiresAt: String?
     let password: String?
     let title: String
     let artist: String?
@@ -781,13 +781,15 @@ private struct MediaRelayCreateResponse: Decodable, Sendable {
     let uploadToken: String
     let publicURL: String
     let chunkSize: Int64
-    let expiresAt: String
+    let expiresAt: String?
+    let permanent: Bool
     let accessCode: String?
 }
 
 private struct MediaRelayCompleteResponse: Decodable {
     let shareID: String
-    let expiresAt: String
+    let expiresAt: String?
+    let permanent: Bool
 }
 
 private final class MediaRelayNoRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
@@ -827,7 +829,7 @@ private struct MediaRelayClient: @unchecked Sendable {
         fileName: String,
         contentType: String,
         size: Int64,
-        expiresAt: Date,
+        expiresAt: Date?,
         password: String?,
         title: String,
         artist: String?,
@@ -845,7 +847,7 @@ private struct MediaRelayClient: @unchecked Sendable {
             fileName: fileName,
             contentType: contentType,
             size: size,
-            expiresAt: Self.dateString(expiresAt),
+            expiresAt: expiresAt.map(Self.dateString),
             password: password?.isEmpty == false ? password : nil,
             title: title,
             artist: artist,
@@ -903,8 +905,16 @@ private struct MediaRelayClient: @unchecked Sendable {
                 throw MediaRelayShareError.invalidResponse
             }
             try ServerMediaShare.validatePublicURL(response.publicURL)
-            guard ISO8601DateFormatter().date(from: response.expiresAt) != nil else {
-                throw MediaRelayShareError.invalidResponse
+            if linkType == "permanent" {
+                guard response.permanent, response.expiresAt == nil else {
+                    throw MediaRelayShareError.invalidResponse
+                }
+            } else {
+                guard !response.permanent,
+                      let expiresAt = response.expiresAt,
+                      ISO8601DateFormatter().date(from: expiresAt) != nil else {
+                    throw MediaRelayShareError.invalidResponse
+                }
             }
             return response
         } catch {
@@ -941,7 +951,11 @@ private struct MediaRelayClient: @unchecked Sendable {
         )
     }
 
-    func complete(shareID: String, uploadToken: String) async throws {
+    func complete(
+        shareID: String,
+        uploadToken: String,
+        expectedPermanent: Bool
+    ) async throws {
         let data = try await perform(
             method: "POST",
             pathComponents: ["v1", "uploads", shareID, "complete"],
@@ -950,8 +964,18 @@ private struct MediaRelayClient: @unchecked Sendable {
         )
         let response = try JSONDecoder().decode(MediaRelayCompleteResponse.self, from: data)
         guard response.shareID == shareID,
-              ISO8601DateFormatter().date(from: response.expiresAt) != nil else {
+              response.permanent == expectedPermanent else {
             throw MediaRelayShareError.invalidResponse
+        }
+        if expectedPermanent {
+            guard response.expiresAt == nil else {
+                throw MediaRelayShareError.invalidResponse
+            }
+        } else {
+            guard let expiresAt = response.expiresAt,
+                  ISO8601DateFormatter().date(from: expiresAt) != nil else {
+                throw MediaRelayShareError.invalidResponse
+            }
         }
     }
 
@@ -1030,7 +1054,8 @@ private struct MediaRelayShareRecord: Codable, Identifiable, Sendable {
     let apiBaseURLString: String
     let controlToken: String
     let createdAt: Date
-    let expiresAt: Date
+    let expiresAt: Date?
+    let permanent: Bool?
     let passwordProtected: Bool?
     let allowsPlayback: Bool?
     let allowsDownload: Bool?
@@ -1040,6 +1065,8 @@ private struct MediaRelayShareRecord: Codable, Identifiable, Sendable {
 
     var id: String { shareID }
     var publicURL: URL? { URL(string: publicURLString) }
+    var isPermanent: Bool { permanent == true }
+    var hasValidLifetime: Bool { isPermanent ? expiresAt == nil : expiresAt != nil }
 }
 
 @MainActor
@@ -1081,7 +1108,8 @@ private enum MediaRelayShareRegistry {
                   ).password,
                   let data = value.data(using: .utf8),
                   let record = try? decoder.decode(MediaRelayShareRecord.self, from: data),
-                  record.shareID == id else {
+                  record.shareID == id,
+                  record.hasValidLifetime else {
                 return nil
             }
             return record
@@ -1132,7 +1160,7 @@ struct MediaRelayShareSheet: View {
 
     private enum PublicLinkStyle: String, CaseIterable, Identifiable {
         case shortCode = "short"
-        case secureLink = "long"
+        case secureLink = "permanent"
 
         var id: String { rawValue }
     }
@@ -1143,7 +1171,6 @@ struct MediaRelayShareSheet: View {
 
     let song: Song
     private let minimumExpirationDate: Date
-    private let maximumExpirationDate: Date
     private let shortCodeMaximumExpirationDate: Date
 
     @State private var endpoint = ""
@@ -1169,7 +1196,6 @@ struct MediaRelayShareSheet: View {
         let now = Date()
         self.song = song
         self.minimumExpirationDate = now.addingTimeInterval(60)
-        self.maximumExpirationDate = now.addingTimeInterval(30 * 24 * 60 * 60)
         self.shortCodeMaximumExpirationDate = now.addingTimeInterval(24 * 60 * 60)
         _expirationDate = State(
             initialValue: now.addingTimeInterval(60 * 60)
@@ -1278,12 +1304,6 @@ struct MediaRelayShareSheet: View {
 
     private var optionsSection: some View {
         Section("server_share_options") {
-            DatePicker(
-                "server_share_expiration",
-                selection: $expirationDate,
-                in: minimumExpirationDate...effectiveMaximumExpirationDate
-            )
-
             Picker("relay_share_link_style", selection: $publicLinkStyle) {
                 Text("relay_share_link_short").tag(PublicLinkStyle.shortCode)
                 Text("relay_share_link_secure").tag(PublicLinkStyle.secureLink)
@@ -1295,12 +1315,24 @@ struct MediaRelayShareSheet: View {
             }
 
             if publicLinkStyle == .shortCode {
+                DatePicker(
+                    "server_share_expiration",
+                    selection: $expirationDate,
+                    in: minimumExpirationDate...shortCodeMaximumExpirationDate
+                )
                 Picker("relay_share_code_length", selection: $shortCodeLength) {
                     ForEach(4...6, id: \.self) { length in
                         Text(length, format: .number).tag(length)
                     }
                 }
                 Text("relay_share_short_code_footer")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                LabeledContent("relay_share_lifetime") {
+                    Text("relay_share_permanent_summary")
+                }
+                Text("relay_share_permanent_footer")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -1321,9 +1353,11 @@ struct MediaRelayShareSheet: View {
                     .foregroundStyle(.secondary)
             }
 
-            Text("relay_share_code_password_separate")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            if publicLinkStyle == .shortCode {
+                Text("relay_share_code_password_separate")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
 
             Toggle("relay_share_allow_playback", isOn: $allowsPlayback)
             Toggle("relay_share_allow_download", isOn: $allowsDownload)
@@ -1407,6 +1441,13 @@ struct MediaRelayShareSheet: View {
                     Text("relay_share_access_public")
                 }
             }
+            LabeledContent("relay_share_lifetime") {
+                if record.isPermanent {
+                    Text("relay_share_permanent_summary")
+                } else if let expiresAt = record.expiresAt {
+                    Text(expiresAt, style: .relative)
+                }
+            }
             if record.allowsPlayback == true {
                 Label("relay_share_allow_playback", systemImage: "play.circle")
             }
@@ -1442,9 +1483,15 @@ struct MediaRelayShareSheet: View {
                         Text(verbatim: record.title)
                             .font(.headline)
                             .lineLimit(1)
-                        Text(record.expiresAt, style: .relative)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        if record.isPermanent {
+                            Text("relay_share_permanent_summary")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else if let expiresAt = record.expiresAt {
+                            Text(expiresAt, style: .relative)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                         HStack {
                             if record.isComplete {
                                 ShareLink(item: record.publicURLString) {
@@ -1498,8 +1545,15 @@ struct MediaRelayShareSheet: View {
             }
             let baseURL = try MediaRelayConfigurationPolicy.validatedAPIBaseURL(endpoint)
             let trimmedToken = adminToken.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard expirationDate > Date(), expirationDate <= effectiveMaximumExpirationDate else {
-                throw ServerMediaSharingError.invalidExpiration
+            let requestedExpiration: Date?
+            if publicLinkStyle == .shortCode {
+                guard expirationDate > Date(),
+                      expirationDate <= shortCodeMaximumExpirationDate else {
+                    throw ServerMediaSharingError.invalidExpiration
+                }
+                requestedExpiration = expirationDate
+            } else {
+                requestedExpiration = nil
             }
             try MediaRelaySettingsStore.save(endpoint: baseURL.absoluteString, token: trimmedToken)
             let relayClient = MediaRelayClient(baseURL: baseURL, adminToken: trimmedToken)
@@ -1509,7 +1563,7 @@ struct MediaRelayShareSheet: View {
                 fileName: MediaRelaySourcePolicy.suggestedFileName(for: song),
                 contentType: MediaRelaySourcePolicy.contentType(for: song.fileFormat),
                 size: song.fileSize,
-                expiresAt: expirationDate,
+                expiresAt: requestedExpiration,
                 password: accessMode == .password ? password : nil,
                 title: song.title,
                 artist: song.artistName,
@@ -1523,10 +1577,8 @@ struct MediaRelayShareSheet: View {
                 linkType: publicLinkStyle.rawValue,
                 shortCodeLength: publicLinkStyle == .shortCode ? shortCodeLength : nil
             )
-            guard let decodedExpiration = ISO8601DateFormatter().date(
-                from: creation.expiresAt
-            ) else {
-                throw MediaRelayShareError.invalidResponse
+            let decodedExpiration = creation.expiresAt.flatMap {
+                ISO8601DateFormatter().date(from: $0)
             }
             var record = MediaRelayShareRecord(
                 shareID: creation.shareID,
@@ -1536,6 +1588,7 @@ struct MediaRelayShareSheet: View {
                 controlToken: creation.uploadToken,
                 createdAt: Date(),
                 expiresAt: decodedExpiration,
+                permanent: creation.permanent,
                 passwordProtected: accessMode == .password,
                 allowsPlayback: allowsPlayback,
                 allowsDownload: allowsDownload,
@@ -1578,7 +1631,8 @@ struct MediaRelayShareSheet: View {
 
             try await relayClient.complete(
                 shareID: creation.shareID,
-                uploadToken: creation.uploadToken
+                uploadToken: creation.uploadToken,
+                expectedPermanent: creation.permanent
             )
             record.isComplete = true
             try MediaRelayShareRegistry.save(record)
@@ -1603,12 +1657,6 @@ struct MediaRelayShareSheet: View {
                 errorMessage = error.localizedDescription
             }
         }
-    }
-
-    private var effectiveMaximumExpirationDate: Date {
-        publicLinkStyle == .shortCode
-            ? shortCodeMaximumExpirationDate
-            : maximumExpirationDate
     }
 
     private var qualityDescription: String? {

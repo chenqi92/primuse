@@ -3454,7 +3454,10 @@
 "share_link_permissions_footer" = "自動選擇會優先使用音樂伺服器；切換至 Primuse 分享服務前會請你確認權限，不會靜默上傳。";
 "relay_share_link_style" = "連結形式";
 "relay_share_link_short" = "短碼";
-"relay_share_link_secure" = "安全連結";
+"relay_share_link_secure" = "永久安全連結";
+"relay_share_lifetime" = "有效期";
+"relay_share_permanent_summary" = "永久（直到撤銷）";
+"relay_share_permanent_footer" = "高熵安全連結不會自動到期，將一直可用，直到你主動撤銷。";
 "relay_share_code_length" = "短碼位數";
 "relay_share_short_code_footer" = "預設使用 6 位數字。短碼最長有效 24 小時，適合當面或跨裝置輸入。";
 "relay_share_code_password_separate" = "短碼用於找到分享；若選擇密碼保護，訪客仍需另外輸入密碼。";
@@ -3481,7 +3484,7 @@
 "relay_share_security" = "安全邊界";
 "relay_share_security_bytes" = "只有媒體位元組和顯示中繼資料會離開本機";
 "relay_share_security_range" = "接收者可使用 HEAD 和位元組範圍拖曳播放";
-"relay_share_security_storage" = "中繼分塊會靜態加密，並在到期或撤銷時刪除";
+"relay_share_security_storage" = "中繼分塊會靜態加密；臨時分享到期時刪除，所有分享撤銷時刪除";
 "relay_share_security_footer" = "來源 URL、Cookie、OAuth 權杖、NAS 工作階段和簽章下載網址絕不會傳送給中繼。上傳完成後，即使原始來源暫時離線，連結仍可使用。";
 "relay_share_error_unsupported" = "這首歌無法安全匯出。";
 "relay_share_error_configuration" = "請輸入有效的 HTTPS 中繼 API 網址和權杖。";

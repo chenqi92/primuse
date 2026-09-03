@@ -99,6 +99,33 @@ test("encrypted multipart upload supports full reads, ranges, validators, and se
   assert.deepEqual(bucket.keys(`parts/${creation.shareID}/`), []);
 });
 
+test("legacy expiring metadata without a permanent marker remains readable", async () => {
+  const bucket = new MemoryBucket();
+  const env = makeEnvironment(bucket);
+  const context = new TestContext();
+  const media = utf8.encode("legacy-expiring-share".repeat(256));
+  const creation = await createAndUpload({
+    env,
+    context,
+    media,
+    fileName: "legacy.mp3",
+    contentType: "audio/mpeg",
+    linkType: "long",
+  });
+  const metadataKey = `metadata/${creation.shareID}.json`;
+  const metadata = JSON.parse(utf8Decoder.decode(bucket.raw(metadataKey)));
+  metadata.version = 2;
+  delete metadata.permanent;
+  await bucket.put(metadataKey, JSON.stringify(metadata), {
+    httpMetadata: { contentType: "application/json" },
+  });
+
+  const response = await fetchRelay(makeEnvironment(bucket), new TestContext(), new URL(creation.publicURL).pathname, {
+    method: "HEAD",
+  });
+  assert.equal(response.status, 200);
+});
+
 test("password protection and revocation preserve the public capability boundary", {
   timeout: 60_000,
 }, async () => {
@@ -149,6 +176,77 @@ test("password protection and revocation preserve the public capability boundary
   const metadata = JSON.parse(utf8Decoder.decode(bucket.raw(`metadata/${creation.shareID}.json`)));
   assert.ok(metadata.revokedAt);
   assert.ok(metadata.dataDeletedAt);
+});
+
+test("permanent secure links survive future cleanup and fresh worker contexts until revoked", {
+  timeout: 60_000,
+}, async () => {
+  const bucket = new MemoryBucket();
+  const env = makeEnvironment(bucket);
+  const context = new TestContext();
+  const media = utf8.encode("permanent-encrypted-media".repeat(4096));
+  const password = "permanent-password";
+  const creation = await createAndUpload({
+    env,
+    context,
+    media,
+    fileName: "永久分享.flac",
+    contentType: "audio/flac",
+    password,
+    title: "不会过期的分享",
+    allowPlayback: true,
+    allowDownload: false,
+    allowImport: true,
+    linkType: "permanent",
+  });
+  await context.flush();
+  assert.equal(creation.permanent, true);
+  assert.equal(creation.expiresAt, undefined);
+  assert.equal(creation.accessCode, undefined);
+  const publicPath = new URL(creation.publicURL).pathname;
+  assert.match(publicPath, /^\/s\/[A-Za-z0-9_-]{16,128}$/);
+  const metadataKey = `metadata/${creation.shareID}.json`;
+  const metadata = JSON.parse(utf8Decoder.decode(bucket.raw(metadataKey)));
+  assert.equal(metadata.permanent, true);
+  assert.equal(metadata.expiresAt, null);
+
+  const future = new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000);
+  await cleanupExpiredShares(env, future);
+  assert.notEqual(bucket.raw(`data/${creation.shareID}.bin`), null);
+
+  const restartedEnv = makeEnvironment(bucket);
+  const restartedContext = new TestContext();
+  const page = await fetchRelay(restartedEnv, restartedContext, publicPath, {
+    headers: {
+      Accept: "text/html",
+      "Sec-Fetch-Mode": "navigate",
+      Authorization: basicAuthorization("listener", password),
+    },
+  });
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /永久有效（直到分享者撤销）/);
+  const playable = await fetchRelay(restartedEnv, restartedContext, `${publicPath}/media`, {
+    headers: { Authorization: basicAuthorization("listener", password) },
+  });
+  assert.equal(playable.status, 200);
+  assert.deepEqual(new Uint8Array(await playable.arrayBuffer()), media);
+  const download = await fetchRelay(restartedEnv, restartedContext, `${publicPath}/download`, {
+    headers: { Authorization: basicAuthorization("listener", password) },
+  });
+  assert.equal(download.status, 403);
+
+  const revoke = await fetchRelay(restartedEnv, restartedContext, `/v1/shares/${creation.shareID}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${creation.uploadToken}` },
+  });
+  assert.equal(revoke.status, 204);
+  await restartedContext.flush();
+  assert.equal(bucket.raw(`data/${creation.shareID}.bin`), null);
+  const afterRevoke = await fetchRelay(restartedEnv, restartedContext, publicPath, { method: "HEAD" });
+  assert.equal(afterRevoke.status, 410);
+  const revokedMetadata = JSON.parse(utf8Decoder.decode(bucket.raw(metadataKey)));
+  assert.ok(revokedMetadata.revokedAt);
+  assert.ok(revokedMetadata.dataDeletedAt);
 });
 
 test("browser share page exposes only allowed actions and import tickets are one-time", {
@@ -353,6 +451,17 @@ test("short codes retry collisions atomically, expire quickly, and limit failure
   const persisted = bucket.textForPrefixes(["metadata/", "indexes/public/"]);
   assert.equal(persisted.includes(creation.accessCode), false);
   assert.equal(persisted.includes("independent-password"), false);
+  const shortMetadataKey = `metadata/${creation.shareID}.json`;
+  const expiredMetadata = JSON.parse(utf8Decoder.decode(bucket.raw(shortMetadataKey)));
+  expiredMetadata.createdAt = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+  expiredMetadata.expiresAt = new Date(Date.now() - 1_000).toISOString();
+  await bucket.put(shortMetadataKey, JSON.stringify(expiredMetadata), {
+    httpMetadata: { contentType: "application/json" },
+  });
+  const expiredShort = await fetchRelay(env, context, new URL(creation.publicURL).pathname, { method: "HEAD" });
+  assert.equal(expiredShort.status, 410);
+  await context.flush();
+  assert.equal(bucket.raw(`data/${creation.shareID}.bin`), null);
 
   const collisionBucket = new MemoryBucket();
   const codes = ["123456", "123456", "654321"];
@@ -418,6 +527,22 @@ test("short codes retry collisions atomically, expire quickly, and limit failure
   });
   assert.equal(longCreation.accessCode, undefined);
   assert.match(new URL(longCreation.publicURL).pathname, /^\/s\/[A-Za-z0-9_-]{16,128}$/);
+});
+
+test("short-code total peer limits cannot be bypassed by rotating codes", async () => {
+  const peerLimiter = new CounterRateLimiter(2);
+  const env = makeEnvironment(new MemoryBucket(), {
+    SHORT_CODE_PEER_RATE_LIMITER: peerLimiter,
+    SHORT_CODE_FAILURE_RATE_LIMITER: new CounterRateLimiter(20),
+  });
+  const context = new TestContext();
+  for (const [code, expected] of [["000001", 410], ["000002", 410], ["000003", 429]]) {
+    const response = await fetchRelay(env, context, `/s/${code}`, {
+      method: "HEAD",
+      headers: { "CF-Connecting-IP": "203.0.113.9" },
+    });
+    assert.equal(response.status, expected);
+  }
 });
 
 test("scheduled cleanup removes expired encrypted media and abandoned multipart uploads", {
@@ -500,17 +625,22 @@ async function createAndUpload({
   fileName,
   contentType,
   password = "",
-  expiresAt = new Date(Date.now() + 60 * 60 * 1000),
+  expiresAt,
   ...presentation
 }) {
-  const creation = await createOnly(env, context, {
+  const input = {
     fileName,
     contentType,
     size: media.byteLength,
-    expiresAt: expiresAt.toISOString(),
     password,
     ...presentation,
-  });
+  };
+  if (presentation.linkType !== "permanent") {
+    input.expiresAt = (expiresAt ?? new Date(Date.now() + 60 * 60 * 1000)).toISOString();
+  } else if (expiresAt) {
+    input.expiresAt = expiresAt.toISOString();
+  }
+  const creation = await createOnly(env, context, input);
   for (let index = 0, offset = 0; offset < media.byteLength; index += 1, offset += creation.chunkSize) {
     const end = Math.min(offset + creation.chunkSize, media.byteLength);
     const response = await fetchRelay(env, context, `/v1/uploads/${creation.shareID}/chunks/${index}`, {
@@ -529,6 +659,10 @@ async function createAndUpload({
     headers: { Authorization: `Bearer ${creation.uploadToken}` },
   });
   await assertResponseStatus(completed, 200);
+  const completion = await completed.json();
+  assert.equal(completion.shareID, creation.shareID);
+  assert.equal(completion.permanent, creation.permanent);
+  assert.equal(completion.expiresAt, creation.expiresAt);
   return creation;
 }
 
@@ -561,6 +695,7 @@ function makeEnvironment(bucket, overrides = {}) {
     ASSETS: new MemoryAssets(),
     PUBLIC_RATE_LIMITER: { limit: async () => ({ success: true }) },
     PASSWORD_RATE_LIMITER: { limit: async () => ({ success: true }) },
+    SHORT_CODE_PEER_RATE_LIMITER: { limit: async () => ({ success: true }) },
     ADMIN_TOKEN: TEST_ADMIN_TOKEN,
     MASTER_KEY: Buffer.alloc(32, 0x42).toString("base64"),
     PUBLIC_BASE_URL: "https://share.soundisle.com",
