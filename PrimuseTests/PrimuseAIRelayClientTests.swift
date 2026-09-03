@@ -434,7 +434,73 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         XCTAssertEqual(request.timeoutInterval, 60)
     }
 
-    func testRecommendationStreamRetriesOneBusyResponseAfterReset() async throws {
+    func testRecommendationStreamKeepsProgressAcrossServerFailoverReset() async throws {
+        let host = "primuse-relay-recommendation-failover.invalid"
+        let items = (0..<12).map { index in
+            ["song_id": "song-\(index)", "reason": "Reason \(index)"]
+        }
+        let lines: [[String: Any]] = [
+            ["type": "started"],
+            ["type": "progress", "data": ["item": items[0]]],
+            ["type": "reset"],
+            ["type": "progress", "data": ["item": items[0]]],
+            ["type": "progress", "data": ["item": items[1]]],
+            ["type": "complete", "data": ["items": items]],
+        ]
+        let body = try lines.map { value in
+            String(
+                decoding: try JSONSerialization.data(withJSONObject: value),
+                as: UTF8.self
+            )
+        }.joined(separator: "\n") + "\n"
+        PrimuseRelayURLProtocol.configure(
+            host: host,
+            featureBody: body,
+            featureContentType: "application/x-ndjson; charset=utf-8"
+        )
+        let credentials = TestPrimuseRelayCredentialStore(
+            credential: PrimuseAIRelayCredential(
+                keyID: "test-app-attest-key",
+                installationID: "test-installation"
+            )
+        )
+        let (client, session, _, _) = makeClient(host: host, credentials: credentials)
+        defer { session.invalidateAndCancel() }
+
+        var events: [AIRecommendationStreamEvent] = []
+        for try await event in await client.recommendationEvents(recommendationRequest()) {
+            events.append(event)
+        }
+
+        XCTAssertEqual(Array(events.prefix(2)), [
+            .selection(AIRecommendationSelection(songID: "song-0", reason: "Reason 0")),
+            .selection(AIRecommendationSelection(songID: "song-1", reason: "Reason 1")),
+        ])
+        XCTAssertFalse(events.contains(.reset))
+        XCTAssertEqual(events.count, 3)
+    }
+
+    func testRecommendationCompletionKeepsAlreadyRenderedPrefix() {
+        let request = recommendationRequest()
+        let streamed = [
+            AIRecommendationSelection(songID: "song-3", reason: "Streamed 3"),
+            AIRecommendationSelection(songID: "song-1", reason: "Streamed 1"),
+        ]
+        let completed = AIRecommendationPlan(selections: (0..<12).map { index in
+            AIRecommendationSelection(songID: "song-\(index)", reason: "Completed \(index)")
+        })
+
+        let merged = MusicIntelligenceService.mergingStreamedRecommendations(
+            streamed,
+            into: completed,
+            for: request
+        )
+
+        XCTAssertEqual(Array(merged.selections.prefix(2)), streamed)
+        XCTAssertEqual(Set(merged.selections.map(\.songID)).count, 12)
+    }
+
+    func testRecommendationStreamRetriesOneBusyResponseWithoutReset() async throws {
         let host = "primuse-relay-recommendation-stream-retry.invalid"
         let items = (0..<12).map { index in
             ["song_id": "song-\(index)", "reason": "Reason \(index)"]
@@ -472,7 +538,7 @@ final class PrimuseAIRelayClientTests: XCTestCase {
             events.append(event)
         }
 
-        XCTAssertEqual(events.first, .reset)
+        XCTAssertFalse(events.contains(.reset))
         guard case .completed(let plan)? = events.last else {
             return XCTFail("Expected a completed recommendation plan")
         }

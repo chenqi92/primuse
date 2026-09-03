@@ -772,6 +772,8 @@ final class MusicIntelligenceService {
         var lastEmptyProvider: (name: String, fallbackDepth: Int)?
         var lastFailureReason: AIRecommendationFallbackReason?
         var customFallbackOffset = 0
+        var streamedSelections: [AIRecommendationSelection] = []
+        var streamedSelectionIDs = Set<String>()
 
         if isPrimuseRelayAvailable {
             guard canUsePrimuseRelay(
@@ -809,10 +811,22 @@ final class MusicIntelligenceService {
                             ))
                         }
                         switch event {
-                        case .reset, .selection:
+                        case .reset:
+                            if streamedSelections.isEmpty {
+                                onStreamEvent(event)
+                            }
+                        case .selection(let selection):
+                            guard streamedSelectionIDs.insert(selection.songID).inserted else {
+                                continue
+                            }
+                            streamedSelections.append(selection)
                             onStreamEvent(event)
                         case .completed(let value):
-                            completedPlan = value
+                            completedPlan = Self.mergingStreamedRecommendations(
+                                streamedSelections,
+                                into: value,
+                                for: request
+                            )
                         }
                     }
                     guard let completedPlan else {
@@ -901,7 +915,7 @@ final class MusicIntelligenceService {
             }
 
             do {
-                let plan = try await engine.recommendations(
+                let providerPlan = try await engine.recommendations(
                     request,
                     configuration: configuration,
                     regionContext: regionSnapshot.context,
@@ -911,6 +925,11 @@ final class MusicIntelligenceService {
                         for: regionSnapshot,
                         configuration: configuration
                     )
+                )
+                let plan = Self.mergingStreamedRecommendations(
+                    streamedSelections,
+                    into: providerPlan,
+                    for: request
                 )
                 guard AIRegionRequestPolicy.canCommitRemoteResponse(
                     captured: regionSnapshot,
@@ -952,6 +971,26 @@ final class MusicIntelligenceService {
             )
         }
         return .failed(lastFailureReason ?? .upstream)
+    }
+
+    nonisolated static func mergingStreamedRecommendations(
+        _ streamed: [AIRecommendationSelection],
+        into completed: AIRecommendationPlan,
+        for request: AIRecommendationRequest
+    ) -> AIRecommendationPlan {
+        guard !streamed.isEmpty else { return completed }
+        var seen = Set<String>()
+        var selections: [AIRecommendationSelection] = []
+        for selection in streamed + completed.selections
+        where seen.insert(selection.songID).inserted {
+            selections.append(selection)
+            if selections.count == request.maximumResults { break }
+        }
+        let merged = AIRecommendationPlan(
+            summary: completed.summary,
+            selections: selections
+        ).normalized(for: request)
+        return merged.selections.isEmpty ? completed : merged
     }
 
     func cachedRecommendationOutcome(

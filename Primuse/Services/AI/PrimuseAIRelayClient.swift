@@ -395,7 +395,8 @@ actor PrimuseAIRelayClient {
                 maximumExpansionTerms: request.maximumExpansionTerms
             ),
             output: SemanticSearchOutput.self,
-            progress: SemanticSearchProgress.self
+            progress: SemanticSearchProgress.self,
+            progressIdentity: { $0.term.lowercased() }
         ) { rawEvent in
             switch rawEvent {
             case .reset:
@@ -437,7 +438,8 @@ actor PrimuseAIRelayClient {
             purpose: "recommendations",
             input: RecommendationsInput(request: request),
             output: RecommendationsOutput.self,
-            progress: RecommendationProgress.self
+            progress: RecommendationProgress.self,
+            progressIdentity: { $0.item.songID }
         ) { rawEvent in
             switch rawEvent {
             case .reset:
@@ -524,7 +526,8 @@ actor PrimuseAIRelayClient {
                 }
             ),
             output: LyricsTranslationOutput.self,
-            progress: LyricsTranslationProgress.self
+            progress: LyricsTranslationProgress.self,
+            progressIdentity: { $0.line.id }
         ) { rawEvent in
             switch rawEvent {
             case .reset:
@@ -580,10 +583,13 @@ actor PrimuseAIRelayClient {
         input: Input,
         output: Output.Type,
         progress: Progress.Type,
+        progressIdentity: @escaping @Sendable (Progress) -> String? = { _ in nil },
         transform: @escaping @Sendable (FeatureWireEvent<Progress, Output>) -> Event?
     ) -> AsyncThrowingStream<Event, Error> {
         AsyncThrowingStream { continuation in
             let operation = Task {
+                var hasEmittedProgress = false
+                var emittedProgressIdentities = Set<String>()
                 do {
                     try await self.performStreamingFeature(
                         path: path,
@@ -592,6 +598,18 @@ actor PrimuseAIRelayClient {
                         output: output,
                         progress: progress
                     ) { wireEvent in
+                        switch wireEvent {
+                        case .reset where hasEmittedProgress:
+                            return
+                        case .progress(let progress):
+                            hasEmittedProgress = true
+                            if let identity = progressIdentity(progress),
+                               !emittedProgressIdentities.insert(identity).inserted {
+                                return
+                            }
+                        case .reset, .completed:
+                            break
+                        }
                         if let event = transform(wireEvent) {
                             continuation.yield(event)
                         }
@@ -683,7 +701,6 @@ actor PrimuseAIRelayClient {
             }
             if canRetryTransientFailure,
                Self.shouldRetryTransientStream(after: error) {
-                emit(.reset)
                 try await Task.sleep(for: transientRetryDelay)
                 return try await performStreamingFeature(
                     path: path,
