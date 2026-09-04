@@ -9,6 +9,7 @@ struct AlbumDetailView: View {
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(ScraperSettingsStore.self) private var scraperSettings
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let album: Album
     private let onMacInlineBack: (() -> Void)?
 
@@ -75,63 +76,11 @@ struct AlbumDetailView: View {
         )
     }
 
+    #if os(iOS)
     private var iosBody: some View {
         ScrollView {
-            VStack(spacing: 24) {
-                VStack(spacing: 10) {
-                    AlbumArtworkView(
-                        album: album,
-                        size: 220,
-                        cornerRadius: 16,
-                        presentationRole: .animatedHero
-                    )
-                    .padding(.bottom, 8)
-
-                    Text(album.title)
-                        .font(.title)
-                        .fontWeight(.bold)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Text(album.artistName ?? String(localized: "unknown_artist"))
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-
-                    HStack(spacing: 12) {
-                        if let year = album.year {
-                            Text(verbatim: String(year))
-                        }
-                        Text("\(album.songCount) \(String(localized: "songs_count"))")
-                        Text(formatDuration(album.totalDuration))
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
-                .padding(.top, 20)
-                .padding(.horizontal, 20)
-                .frame(maxWidth: .infinity)
-
-                HStack(spacing: 10) {
-                    LibraryDetailActionButton(
-                        title: "play",
-                        systemImage: "play.fill",
-                        emphasized: true,
-                        onArtwork: false,
-                        fillsWidth: true,
-                        disabled: songs.filteredPlayable().isEmpty,
-                        action: { playAll() }
-                    )
-                    LibraryDetailActionButton(
-                        title: "shuffle",
-                        systemImage: "shuffle",
-                        onArtwork: false,
-                        fillsWidth: true,
-                        disabled: songs.filteredPlayable().count < 2,
-                        action: shuffleAll
-                    )
-                }
-                .padding(.horizontal, 20)
+            VStack(spacing: 20) {
+                iosSummaryCard
 
                 LazyVStack(spacing: 0) {
                     ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
@@ -159,12 +108,16 @@ struct AlbumDetailView: View {
                         }
                     }
                 }
-                .background(.background, in: RoundedRectangle(cornerRadius: 16))
-                .padding(.horizontal, 20)
+                .background(
+                    Color(uiColor: .secondarySystemBackground),
+                    in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+                )
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
             .padding(.bottom, 64)
         }
-        .background(Color.primary.opacity(0.025).ignoresSafeArea())
+        .background(Color(uiColor: .systemBackground).ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -192,6 +145,78 @@ struct AlbumDetailView: View {
             }
         }
     }
+
+    private var iosSummaryCard: some View {
+        let identityLayout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 16))
+        let actionLayout = dynamicTypeSize >= .xxLarge
+            ? AnyLayout(VStackLayout(spacing: 10))
+            : AnyLayout(HStackLayout(spacing: 10))
+
+        return VStack(alignment: .leading, spacing: 18) {
+            identityLayout {
+                AlbumArtworkView(
+                    album: album,
+                    size: 124,
+                    cornerRadius: 12,
+                    presentationRole: .animatedHero
+                )
+                .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(album.title)
+                        .font(.title2.weight(.bold))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text(album.artistName ?? String(localized: "unknown_artist"))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        if let year = album.year {
+                            Text(verbatim: String(year))
+                        }
+                        Text("\(album.songCount) \(String(localized: "songs_count")) · \(formatDuration(album.totalDuration))")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            actionLayout {
+                LibraryDetailActionButton(
+                    title: "play",
+                    systemImage: "play.fill",
+                    emphasized: true,
+                    onArtwork: false,
+                    fillsWidth: true,
+                    disabled: songs.filteredPlayable().isEmpty,
+                    action: { playAll() }
+                )
+                LibraryDetailActionButton(
+                    title: "shuffle",
+                    systemImage: "shuffle",
+                    onArtwork: false,
+                    fillsWidth: true,
+                    disabled: songs.filteredPlayable().count < 2,
+                    action: shuffleAll
+                )
+            }
+        }
+        .padding(16)
+        .background(
+            Color(uiColor: .secondarySystemBackground),
+            in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(.primary.opacity(0.06), lineWidth: 0.5)
+        }
+    }
+    #endif
 
     #if os(macOS)
     private var macBody: some View {

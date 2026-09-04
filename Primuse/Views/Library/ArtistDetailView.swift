@@ -12,6 +12,7 @@ struct ArtistDetailView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MetadataBackfillService.self) private var backfill
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let artist: Artist
     private let onMacInlineBack: (() -> Void)?
@@ -196,52 +197,61 @@ struct ArtistDetailView: View {
     }
 
     private func iosHero(topInset: CGFloat) -> some View {
-        VStack(spacing: 12) {
-            ArtistArtworkView(artist: artist, size: 142, cornerRadius: 71)
-                .overlay { Circle().stroke(.white.opacity(0.34), lineWidth: 1) }
-                .shadow(color: .black.opacity(0.36), radius: 18, y: 8)
-                .accessibilityHidden(true)
+        let identityLayout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 18))
+        let actionLayout = dynamicTypeSize >= .xxLarge
+            ? AnyLayout(VStackLayout(spacing: 10))
+            : AnyLayout(HStackLayout(spacing: 10))
 
-            VStack(spacing: 5) {
-                Text(verbatim: displayArtistName)
-                    .font(.largeTitle.weight(.bold))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+        return VStack(alignment: .leading, spacing: 20) {
+            identityLayout {
+                ArtistArtworkView(artist: artist, size: 88, cornerRadius: 44)
+                    .overlay { Circle().stroke(.white.opacity(0.28), lineWidth: 1) }
+                    .shadow(color: .black.opacity(0.24), radius: 12, y: 4)
+                    .accessibilityHidden(true)
 
-                Text(
-                    verbatim:
-                        "\(songs.count) \(String(localized: "songs_count")) · \(albumCount) \(String(localized: "albums_count"))"
-                )
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.white.opacity(0.72))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(verbatim: displayArtistName)
+                        .font(.title2.weight(.bold))
+                        .foregroundStyle(.white)
+                        .fixedSize(horizontal: false, vertical: true)
 
-                Text(verbatim: monthlyListenText)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.62))
+                    Text(
+                        verbatim:
+                            "\(songs.count) \(String(localized: "songs_count")) · \(albumCount) \(String(localized: "albums_count"))"
+                    )
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.78))
+
+                    Text(verbatim: monthlyListenText)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.68))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            HStack(spacing: 14) {
+            actionLayout {
                 LibraryDetailActionButton(
                     title: "play",
                     systemImage: "play.fill",
                     emphasized: true,
+                    fillsWidth: true,
                     disabled: playableSongs.isEmpty,
                     action: playAll
                 )
                 LibraryDetailActionButton(
                     title: "shuffle",
                     systemImage: "shuffle",
+                    fillsWidth: true,
                     disabled: playableSongs.count < 2,
                     action: shuffleAll
                 )
             }
-            .padding(.top, 2)
         }
         .padding(.horizontal, 20)
-        .padding(.top, topInset + 20)
-        .padding(.bottom, 28)
+        .padding(.top, topInset + 12)
+        .padding(.bottom, 24)
         .frame(maxWidth: .infinity)
         .background {
             GeometryReader { geometry in
