@@ -2446,6 +2446,7 @@
 "songs_row_relaxed" = "寬鬆";
 "songs_column_format_sample_rate" = "格式 / 取樣率";
 "stats_play_count" = "播放次數";
+"server_play_count_label" = "伺服器播放次數";
 "songs_column_rating" = "評分";
 "songs_column_bitrate" = "位元率";
 "show_in_library" = "在資料庫中顯示";

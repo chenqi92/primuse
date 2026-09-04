@@ -2469,6 +2469,7 @@
 "songs_row_relaxed" = "넓게";
 "songs_column_format_sample_rate" = "포맷 / 샘플 레이트";
 "stats_play_count" = "재생 횟수";
+"server_play_count_label" = "서버 재생 횟수";
 "songs_column_rating" = "평점";
 "songs_column_bitrate" = "비트레이트";
 "show_in_library" = "보관함에서 보기";

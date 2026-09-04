@@ -2469,6 +2469,7 @@
 "songs_row_relaxed" = "Großzügig";
 "songs_column_format_sample_rate" = "Format / Abtastrate";
 "stats_play_count" = "Wiedergaben";
+"server_play_count_label" = "Server-Wiedergaben";
 "songs_column_rating" = "Bewertung";
 "songs_column_bitrate" = "Bitrate";
 "show_in_library" = "In Mediathek anzeigen";

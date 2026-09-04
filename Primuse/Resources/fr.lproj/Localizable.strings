@@ -2469,6 +2469,7 @@
 "songs_row_relaxed" = "Aérée";
 "songs_column_format_sample_rate" = "Format / Fréquence";
 "stats_play_count" = "Lectures";
+"server_play_count_label" = "Lectures sur le serveur";
 "songs_column_rating" = "Note";
 "songs_column_bitrate" = "Débit";
 "show_in_library" = "Afficher dans la bibliothèque";
