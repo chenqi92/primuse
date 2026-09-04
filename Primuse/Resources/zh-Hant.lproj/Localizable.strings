@@ -2473,6 +2473,9 @@
 "source_remove_confirm_title" = "移除此音樂來源？";
 "source_remove_named_format" = "移除「%@」";
 "source_remove_confirm_message" = "會從資料庫移除該來源及其歌曲記錄，本機和遠端檔案不受影響。";
+"source_remove_managed_confirm_title" = "移除音樂來源並刪除複製檔案？";
+"source_remove_managed_confirm_action" = "移除音樂來源並刪除複製檔案";
+"source_remove_managed_confirm_message" = "會從資料庫移除此音樂來源，並刪除所有複製到猿音的檔案以釋放裝置空間。原始檔案不受影響；複製檔案刪除後無法復原。";
 "playlist_reorder_title" = "調整播放順序";
 "playlist_reorder_changed" = "順序已變更";
 "playlist_reorder_hint" = "使用箭頭移動歌曲";

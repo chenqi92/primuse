@@ -2496,6 +2496,9 @@
 "source_remove_confirm_title" = "Diese Musikquelle entfernen?";
 "source_remove_named_format" = "„%@“ entfernen";
 "source_remove_confirm_message" = "Die Quelle und ihre Titeleinträge werden aus der Mediathek entfernt. Lokale und entfernte Dateien bleiben unverändert.";
+"source_remove_managed_confirm_title" = "Quelle entfernen und kopierte Dateien löschen?";
+"source_remove_managed_confirm_action" = "Quelle und Kopien löschen";
+"source_remove_managed_confirm_message" = "Dadurch wird die Quelle aus der Mediathek entfernt und alle in Primuse kopierten Dateien werden vom Gerät gelöscht. Die Originaldateien bleiben unverändert; gelöschte Kopien können nicht wiederhergestellt werden.";
 "playlist_reorder_title" = "Wiedergabereihenfolge anpassen";
 "playlist_reorder_changed" = "Reihenfolge geändert";
 "playlist_reorder_hint" = "Titel mit den Pfeilen verschieben";

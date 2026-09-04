@@ -2589,6 +2589,9 @@
 "source_remove_confirm_title" = "移除此音乐源？";
 "source_remove_named_format" = "移除“%@”";
 "source_remove_confirm_message" = "会从资料库移除该源及其歌曲记录，本地和远端文件不受影响。";
+"source_remove_managed_confirm_title" = "移除音乐源并删除复制文件？";
+"source_remove_managed_confirm_action" = "移除音乐源并删除复制文件";
+"source_remove_managed_confirm_message" = "会从资料库移除此音乐源，并删除所有复制到猿音的文件以释放设备空间。原始文件不受影响；复制文件删除后无法恢复。";
 "playlist_reorder_title" = "调整播放顺序";
 "playlist_reorder_changed" = "顺序已更改";
 "playlist_reorder_hint" = "使用箭头移动歌曲";

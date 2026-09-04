@@ -2983,24 +2983,48 @@ public enum MetadataBackfillExecutionPolicy {
     }
 }
 
+public enum DeviceLocalSourceRemovalPolicy: Equatable, Sendable {
+    case preserveReferencedFiles
+    case deleteManagedCopies
+}
+
 public enum DeviceLocalSourcePolicy {
     /// Only the dedicated iOS import source is guaranteed to live in the app
     /// sandbox. Other `.local` sources may be security-scoped File Provider
     /// references and can require network materialization.
+    public static func removalPolicy(
+        isLocalSource: Bool,
+        sourceID: String,
+        persistedImportSourceID: String?,
+        basePath: String?,
+        managedRootPath: String
+    ) -> DeviceLocalSourceRemovalPolicy {
+        guard isLocalSource,
+              sourceID == persistedImportSourceID,
+              let basePath else {
+            return .preserveReferencedFiles
+        }
+        let sourceRoot = URL(fileURLWithPath: basePath).standardizedFileURL
+        let managedRoot = URL(fileURLWithPath: managedRootPath).standardizedFileURL
+        return sourceRoot == managedRoot
+            ? .deleteManagedCopies
+            : .preserveReferencedFiles
+    }
+
     public static func isManagedCopy(
         isLocalSource: Bool,
         sourceID: String,
         persistedImportSourceID: String?,
-        basePath: String?
+        basePath: String?,
+        managedRootPath: String
     ) -> Bool {
-        guard isLocalSource,
-              sourceID == persistedImportSourceID,
-              let basePath else {
-            return false
-        }
-        let url = URL(fileURLWithPath: basePath)
-        return url.lastPathComponent == "LocalMusic"
-            || url.path.contains("/Documents/LocalMusic")
+        removalPolicy(
+            isLocalSource: isLocalSource,
+            sourceID: sourceID,
+            persistedImportSourceID: persistedImportSourceID,
+            basePath: basePath,
+            managedRootPath: managedRootPath
+        ) == .deleteManagedCopies
     }
 }
 

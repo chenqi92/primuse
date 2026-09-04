@@ -145,26 +145,60 @@ struct MetadataBackfillExecutionPolicyTests {
         #expect(passes > 1)
     }
 
-    @Test("Only copied local music bypasses network gating")
+    @Test("Only the exact managed copy source owns files during removal")
     func copiedLocalSourceClassification() {
+        let managedRoot = "/private/container/Documents/LocalMusic"
+
+        #expect(DeviceLocalSourcePolicy.removalPolicy(
+            isLocalSource: true,
+            sourceID: "copied",
+            persistedImportSourceID: "copied",
+            basePath: managedRoot,
+            managedRootPath: managedRoot
+        ) == .deleteManagedCopies)
         #expect(DeviceLocalSourcePolicy.isManagedCopy(
             isLocalSource: true,
             sourceID: "copied",
             persistedImportSourceID: "copied",
-            basePath: "/private/container/Documents/LocalMusic"
+            basePath: managedRoot,
+            managedRootPath: managedRoot
         ))
-        #expect(!DeviceLocalSourcePolicy.isManagedCopy(
+
+        #expect(DeviceLocalSourcePolicy.removalPolicy(
             isLocalSource: true,
             sourceID: "file-provider",
             persistedImportSourceID: "copied",
-            basePath: "/private/provider/Music"
-        ))
-        #expect(!DeviceLocalSourcePolicy.isManagedCopy(
+            basePath: "/private/provider/Music",
+            managedRootPath: managedRoot
+        ) == .preserveReferencedFiles)
+        #expect(DeviceLocalSourcePolicy.removalPolicy(
+            isLocalSource: true,
+            sourceID: "copied",
+            persistedImportSourceID: "copied",
+            basePath: "/private/provider/LocalMusic",
+            managedRootPath: managedRoot
+        ) == .preserveReferencedFiles)
+        #expect(DeviceLocalSourcePolicy.removalPolicy(
             isLocalSource: false,
             sourceID: "copied",
             persistedImportSourceID: "copied",
-            basePath: "/private/container/Documents/LocalMusic"
-        ))
+            basePath: managedRoot,
+            managedRootPath: managedRoot
+        ) == .preserveReferencedFiles)
+        #expect(DeviceLocalSourcePolicy.removalPolicy(
+            isLocalSource: true,
+            sourceID: "copied",
+            persistedImportSourceID: nil,
+            basePath: managedRoot,
+            managedRootPath: managedRoot
+        ) == .preserveReferencedFiles)
+        #expect(DeviceLocalSourcePolicy.removalPolicy(
+            isLocalSource: true,
+            sourceID: "copied",
+            persistedImportSourceID: "copied",
+            basePath: nil,
+            managedRootPath: managedRoot
+        ) == .preserveReferencedFiles)
     }
 
     @Test("Stream descriptors retain their enrichment path on bare sources")

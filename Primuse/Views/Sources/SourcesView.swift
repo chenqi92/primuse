@@ -6,6 +6,7 @@ private enum SourceAlert: Identifiable {
     case completed(SourceCacheCompletion)
     #if os(iOS)
     case localImport(SourceLocalImportAlert)
+    case managedCopyRemoval(MusicSource)
     #endif
 
     var id: String {
@@ -14,6 +15,7 @@ private enum SourceAlert: Identifiable {
         case .completed(let completion): "completed-\(completion.id.uuidString)"
         #if os(iOS)
         case .localImport(let alert): "local-import-\(alert.id.uuidString)"
+        case .managedCopyRemoval(let source): "managed-copy-removal-\(source.id)"
         #endif
         }
     }
@@ -430,6 +432,15 @@ struct SourcesContentView: View {
                         title: Text(alert.title),
                         message: Text(alert.message),
                         dismissButton: .default(Text("ok"))
+                    )
+                case .managedCopyRemoval(let source):
+                    return Alert(
+                        title: Text("source_remove_managed_confirm_title"),
+                        message: Text("source_remove_managed_confirm_message"),
+                        primaryButton: .destructive(Text("source_remove_managed_confirm_action")) {
+                            scheduleDelete(source)
+                        },
+                        secondaryButton: .cancel(Text("cancel"))
                     )
                 #endif
                 }
@@ -1891,6 +1902,16 @@ struct SourcesContentView: View {
     /// 删除。窗口内点撤销 = 取消尚未执行的删除、卡片滑回, 数据完好(不靠软删
     /// 恢复, 因为 deleteSource 会移歌/移 connector 且 restore 不重扫)。
     private func requestDelete(_ source: MusicSource) {
+        #if os(iOS)
+        if isManagedLocalImportSource(source) {
+            sourceAlert = .managedCopyRemoval(source)
+            return
+        }
+        #endif
+        scheduleDelete(source)
+    }
+
+    private func scheduleDelete(_ source: MusicSource) {
         // 同源若已有未落地删除, 先落地旧的再开新窗口。
         if pendingDeleteTasks[source.id] != nil { commitPendingDelete(source.id) }
         withAnimation {
@@ -1989,7 +2010,7 @@ struct SourcesContentView: View {
 
     private func isManagedLocalImportSource(_ source: MusicSource) -> Bool {
         #if os(iOS)
-        return source.type == .local && source.id == LocalImportService.existingSourceID
+        return LocalImportService.isManagedSource(source)
         #else
         return false
         #endif

@@ -40,13 +40,18 @@ enum LocalImportService {
     /// Distinguishes audio copied into Primuse's sandbox from `.local`
     /// references backed by security-scoped File Provider URLs. Only the
     /// former is guaranteed to remain readable without network connectivity.
-    static func isManagedSource(_ source: MusicSource) -> Bool {
-        DeviceLocalSourcePolicy.isManagedCopy(
+    static func removalPolicy(for source: MusicSource) -> DeviceLocalSourceRemovalPolicy {
+        DeviceLocalSourcePolicy.removalPolicy(
             isLocalSource: source.type == .local,
             sourceID: source.id,
             persistedImportSourceID: existingSourceID,
-            basePath: source.basePath
+            basePath: source.basePath,
+            managedRootPath: musicDirectory.path
         )
+    }
+
+    static func isManagedSource(_ source: MusicSource) -> Bool {
+        removalPolicy(for: source) == .deleteManagedCopies
     }
 
     static var hasPendingScan: Bool {

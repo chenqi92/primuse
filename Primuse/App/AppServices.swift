@@ -1009,18 +1009,18 @@ final class AppServices {
                 let capturedTombstone = note.userInfo?["source"] as? MusicSource
                 Task { @MainActor in
                     self.navidromeAutoRefresh.sourceWasDeleted(id)
-                    if let tombstone = capturedTombstone ?? self.sourcesStore.source(id: id),
-                       tombstone.isDeleted {
+                    let tombstone = capturedTombstone ?? self.sourcesStore.source(id: id)
+                    if let tombstone, tombstone.isDeleted {
                         self.enqueueSourceCloudCleanup(tombstone)
                     }
-                    // 软删(进回收站)即回收空间:删本地导入源在沙箱的原始拷贝。
-                    // 产品取舍 —— restore 不会自动重扫找回歌, 保留拷贝意义不大,
-                    // 而用户删源的核心诉求就是立即回收空间。Toggling isEnabled
-                    // never posts this notification.
+                    // 只有“复制到猿音”的托管来源拥有沙箱副本；文件夹引用、
+                    // File Provider 和远端来源都只移除资料库记录，不碰源文件。
                     self.removeSourceLibraryData(
                         id: id,
                         purgePersistentCaches: true,
-                        removeImportedFiles: true,
+                        removeImportedFiles: tombstone.map {
+                            LocalImportService.isManagedSource($0)
+                        } ?? false,
                         uploadSourcesSnapshot: true
                     )
                 }
@@ -1040,11 +1040,14 @@ final class AppServices {
                         self.enqueueSourceCloudCleanup(tombstone)
                     }
                     // 永久删除(回收站清空 / 30 天清理 / CloudKit 远端永久删 echo)。
-                    // 软删时通常已回收, 这里幂等兜底(目录已删则 removeItem no-op)。
+                    // 托管副本通常已在软删时回收, 这里幂等兜底；引用来源始终
+                    // 保留其原始文件。
                     self.removeSourceLibraryData(
                         id: id,
                         purgePersistentCaches: true,
-                        removeImportedFiles: true,
+                        removeImportedFiles: capturedTombstone.map {
+                            LocalImportService.isManagedSource($0)
+                        } ?? false,
                         uploadSourcesSnapshot: capturedTombstone?.isDeleted == true
                     )
                 }

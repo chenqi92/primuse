@@ -2314,6 +2314,9 @@
 "source_remove_confirm_title" = "Remove This Music Source?";
 "source_remove_named_format" = "Remove “%@”";
 "source_remove_confirm_message" = "This removes the source and its song records from your library. Local and remote files are not affected.";
+"source_remove_managed_confirm_title" = "Remove Source and Delete Copied Files?";
+"source_remove_managed_confirm_action" = "Remove Source and Delete Copies";
+"source_remove_managed_confirm_message" = "This removes the source from your library and deletes all files copied into Primuse to free device storage. Original files are not affected; deleted copies cannot be recovered.";
 "playlist_reorder_title" = "Adjust Play Order";
 "playlist_reorder_changed" = "Order changed";
 "playlist_reorder_hint" = "Use the arrows to move songs";
