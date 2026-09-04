@@ -2504,7 +2504,7 @@
 "playlist_reorder_changed" = "順序を変更しました";
 "playlist_reorder_hint" = "矢印で曲を移動";
 "artist_monthly_plays_format" = "今月 %d 回再生";
-"artist_popular" = "人気";
+"artist_popular" = "よく聴く曲";
 "casting_connected" = "● 接続済み";
 "file_size_label" = "ファイルサイズ";
 "file_location_label" = "ファイルの場所";
@@ -3624,3 +3624,11 @@
 "offline_wait_background_transfer" = "現在のバックグラウンドキャッシュ転送が完了するまで待機しています。";
 "offline_wait_incompatible_transfer" = "別のキャッシュ転送が完了するまで待機しています。";
 "source_unavailable" = "音楽ソースを利用できません。";
+"tab_genres" = "ジャンル";
+"genres_count" = "件のジャンル";
+"no_genres" = "ジャンルがありません";
+"no_genres_desc" = "曲にジャンルタグを追加すると、ジャンル別にライブラリを表示できます。";
+"genre_search_placeholder" = "ジャンルを検索";
+"artist_most_played_albums" = "よく聴くアルバム";
+"artist_releases" = "リリース";
+"artist_appears_on" = "参加作品";

@@ -2812,14 +2812,26 @@ final class MusicLibrary {
             LibraryArrayReclaimer.release(previous)
         }
     }
+    private var visibleGenresReference = LibraryArrayReference<LibraryGenre>()
+    private(set) var visibleGenres: [LibraryGenre] {
+        get { visibleGenresReference.value }
+        set {
+            let previous = visibleGenresReference
+            visibleGenresReference = LibraryArrayReference(newValue)
+            LibraryArrayReclaimer.release(previous)
+        }
+    }
     @ObservationIgnored private var songIndexByID: [String: Int] = [:]
     @ObservationIgnored private var visibleSongIndexByID: [String: Int] = [:]
     @ObservationIgnored private var visibleSongByID: [String: Song] = [:]
+    @ObservationIgnored private var visibleAlbumByID: [String: Album] = [:]
     @ObservationIgnored private var visibleArtistByID: [String: Artist] = [:]
     /// Artist detail bodies can ask for the same slice several times per frame.
     /// Keep stable IDs here and resolve through `visibleSongByID` so lightweight
     /// lyrics/artwork patches remain current without rescanning or reparsing the library.
     @ObservationIgnored private var visibleSongIDsByArtistID: [String: [String]] = [:]
+    @ObservationIgnored private var visibleSongIDsByGenreID: [String: [String]] = [:]
+    @ObservationIgnored private var visibleAlbumIDsByGenreID: [String: [String]] = [:]
     @ObservationIgnored private var visibleSongsBySourceID: [String: [Song]] = [:]
     /// Source cards are re-rendered frequently while scanning/backfilling.
     /// Keep the source grouping beside the other visible caches so those
@@ -2842,11 +2854,15 @@ final class MusicLibrary {
         let songs: [Song]
         let albums: [Album]
         let artists: [Artist]
+        let genres: [LibraryGenre]
         let allSongIndexByID: [String: Int]
         let songIndexByID: [String: Int]
         let songByID: [String: Song]
+        let albumByID: [String: Album]
         let artistByID: [String: Artist]
         let songIDsByArtistID: [String: [String]]
+        let songIDsByGenreID: [String: [String]]
+        let albumIDsByGenreID: [String: [String]]
         let songsBySourceID: [String: [Song]]
         let playableBySourceID: [String: [Song]]
         let countBySourceID: [String: Int]
@@ -2906,6 +2922,7 @@ final class MusicLibrary {
     var songCount: Int { visibleSongs.count }
     var albumCount: Int { visibleAlbums.count }
     var artistCount: Int { visibleArtists.count }
+    var genreCount: Int { visibleGenres.count }
 
     private func rebuildVisibleCache() {
         let prepared = Self.prepareVisibleCache(
@@ -2923,11 +2940,15 @@ final class MusicLibrary {
         visibleSongs = prepared.songs
         visibleAlbums = prepared.albums
         visibleArtists = prepared.artists
+        visibleGenres = prepared.genres
         songIndexByID = prepared.allSongIndexByID
         visibleSongIndexByID = prepared.songIndexByID
         visibleSongByID = prepared.songByID
+        visibleAlbumByID = prepared.albumByID
         visibleArtistByID = prepared.artistByID
         visibleSongIDsByArtistID = prepared.songIDsByArtistID
+        visibleSongIDsByGenreID = prepared.songIDsByGenreID
+        visibleAlbumIDsByGenreID = prepared.albumIDsByGenreID
         visibleSongsBySourceID = prepared.songsBySourceID
         visiblePlayableSongsBySourceID = prepared.playableBySourceID
         visibleSongCountBySourceID = prepared.countBySourceID
@@ -2980,17 +3001,25 @@ final class MusicLibrary {
         let allCounts = disabledSourceIDs.isEmpty
             ? lookups.countBySourceID
             : makeSongCountsBySourceID(songs)
+        let genreIndex = LibraryGenreIndexBuilder.build(from: nextVisibleSongs)
         return PreparedVisibleCache(
             songs: nextVisibleSongs,
             albums: nextVisibleAlbums,
             artists: nextVisibleArtists,
+            genres: genreIndex.genres,
             allSongIndexByID: disabledSourceIDs.isEmpty
                 ? lookups.indexByID
                 : makeSongIndex(songs),
             songIndexByID: lookups.indexByID,
             songByID: lookups.songByID,
+            albumByID: Dictionary(
+                nextVisibleAlbums.map { ($0.id, $0) },
+                uniquingKeysWith: { first, _ in first }
+            ),
             artistByID: artistByID,
             songIDsByArtistID: lookups.songIDsByArtistID,
+            songIDsByGenreID: genreIndex.songIDsByGenreID,
+            albumIDsByGenreID: genreIndex.albumIDsByGenreID,
             songsBySourceID: lookups.songsBySourceID,
             playableBySourceID: lookups.playableBySourceID,
             countBySourceID: lookups.countBySourceID,
@@ -4396,6 +4425,16 @@ final class MusicLibrary {
     func songs(forArtist artistID: String) -> [Song] {
         _ = visibleSongsReference
         return visibleSongIDsByArtistID[artistID]?.compactMap { visibleSongByID[$0] } ?? []
+    }
+
+    func songs(forGenre genreID: String) -> [Song] {
+        _ = visibleSongsReference
+        return visibleSongIDsByGenreID[genreID]?.compactMap { visibleSongByID[$0] } ?? []
+    }
+
+    func albums(forGenre genreID: String) -> [Album] {
+        _ = visibleAlbumsReference
+        return visibleAlbumIDsByGenreID[genreID]?.compactMap { visibleAlbumByID[$0] } ?? []
     }
 
     func updateArtistNameConfiguration(_ value: ArtistNameConfiguration) {

@@ -2480,7 +2480,7 @@
 "playlist_reorder_changed" = "順序已變更";
 "playlist_reorder_hint" = "使用箭頭移動歌曲";
 "artist_monthly_plays_format" = "本月聽了 %d 次";
-"artist_popular" = "熱門";
+"artist_popular" = "常聽歌曲";
 "casting_connected" = "● 已連線";
 "file_size_label" = "檔案大小";
 "file_location_label" = "檔案位置";
@@ -3600,3 +3600,11 @@
 "offline_wait_background_transfer" = "正在等待目前的背景快取傳輸完成。";
 "offline_wait_incompatible_transfer" = "正在等待另一項快取傳輸完成。";
 "source_unavailable" = "音樂來源目前無法使用。";
+"tab_genres" = "曲風";
+"genres_count" = "個曲風";
+"no_genres" = "暫無曲風";
+"no_genres_desc" = "為歌曲補上曲風標籤後，即可依曲風瀏覽資料庫。";
+"genre_search_placeholder" = "搜尋曲風";
+"artist_most_played_albums" = "常聽專輯";
+"artist_releases" = "發行作品";
+"artist_appears_on" = "參與作品";

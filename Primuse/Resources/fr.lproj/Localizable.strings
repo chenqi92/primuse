@@ -2503,7 +2503,7 @@
 "playlist_reorder_changed" = "Ordre modifié";
 "playlist_reorder_hint" = "Utilisez les flèches pour déplacer les morceaux";
 "artist_monthly_plays_format" = "%d lectures ce mois-ci";
-"artist_popular" = "Populaires";
+"artist_popular" = "Les plus écoutés";
 "casting_connected" = "● Connecté";
 "file_size_label" = "Taille du fichier";
 "file_location_label" = "Emplacement du fichier";
@@ -3623,3 +3623,11 @@
 "offline_wait_background_transfer" = "En attente de la fin du transfert du cache en arrière-plan.";
 "offline_wait_incompatible_transfer" = "En attente de la fin d’un autre transfert du cache.";
 "source_unavailable" = "La source musicale est indisponible.";
+"tab_genres" = "Genres";
+"genres_count" = "genres";
+"no_genres" = "Aucun genre";
+"no_genres_desc" = "Ajoutez des genres aux morceaux pour parcourir votre bibliothèque ainsi.";
+"genre_search_placeholder" = "Rechercher des genres";
+"artist_most_played_albums" = "Albums les plus écoutés";
+"artist_releases" = "Sorties";
+"artist_appears_on" = "Apparaît sur";

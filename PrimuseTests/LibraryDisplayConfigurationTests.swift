@@ -23,7 +23,7 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
 
         XCTAssertEqual(
             LibraryDisplayConfiguration.decodeSectionOrder(rawValue),
-            [.recommendations, .albums, .songs, .artists, .playlists, .radio]
+            [.recommendations, .albums, .songs, .artists, .genres, .playlists, .radio]
         )
     }
 

@@ -332,6 +332,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
     case librarySongs
     case libraryAlbums
     case libraryArtists
+    case libraryGenres
     case libraryPlaylists
     case libraryRadio
     case search
@@ -345,7 +346,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
         switch self {
         case .home: return 0
         case .library, .libraryRecommendations, .librarySongs, .libraryAlbums,
-                .libraryArtists, .libraryPlaylists, .libraryRadio:
+                .libraryArtists, .libraryGenres, .libraryPlaylists, .libraryRadio:
             return 1
         case .search: return 2
         case .settings: return 3
@@ -360,6 +361,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
         case .songs: return .librarySongs
         case .albums: return .libraryAlbums
         case .artists: return .libraryArtists
+        case .genres: return .libraryGenres
         case .playlists: return .libraryPlaylists
         case .radio: return .libraryRadio
         }
@@ -373,6 +375,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
         case .librarySongs: return "tab_songs"
         case .libraryAlbums: return "tab_albums"
         case .libraryArtists: return "tab_artists"
+        case .libraryGenres: return "tab_genres"
         case .libraryPlaylists: return "tab_playlists"
         case .libraryRadio: return "radio_title"
         case .search: return "search_title"
@@ -388,6 +391,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
         case .librarySongs: return "music.note"
         case .libraryAlbums: return "square.stack.fill"
         case .libraryArtists: return "music.mic"
+        case .libraryGenres: return "tag.fill"
         case .libraryPlaylists: return "music.note.list"
         case .libraryRadio: return "radio.fill"
         case .search: return "magnifyingglass"
@@ -699,6 +703,8 @@ struct ContentView: View {
             librarySubpane(title: "tab_albums") { AlbumGridView() }
         case .libraryArtists:
             librarySubpane(title: "tab_artists") { ArtistListView(artists: library.visibleArtists) }
+        case .libraryGenres:
+            librarySubpane(title: "tab_genres") { GenreLibraryView() }
         case .libraryPlaylists:
             librarySubpane(title: "tab_playlists") { PlaylistListView() }
         case .libraryRadio:

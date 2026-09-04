@@ -130,6 +130,13 @@ struct MacSidebar: View {
                 title: section.title,
                 trailing: countLabel(library.visibleArtists.count)
             )
+        case .genres:
+            item(
+                route: .section(.genres),
+                icon: section.icon,
+                title: section.title,
+                trailing: countLabel(library.visibleGenres.count)
+            )
         case .radio:
             item(
                 route: .section(.radio),

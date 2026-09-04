@@ -2503,7 +2503,7 @@
 "playlist_reorder_changed" = "순서가 변경됨";
 "playlist_reorder_hint" = "화살표로 곡 이동";
 "artist_monthly_plays_format" = "이번 달 %d회 재생";
-"artist_popular" = "인기곡";
+"artist_popular" = "자주 들은 곡";
 "casting_connected" = "● 연결됨";
 "file_size_label" = "파일 크기";
 "file_location_label" = "파일 위치";
@@ -3623,3 +3623,11 @@
 "offline_wait_background_transfer" = "현재 백그라운드 캐시 전송이 끝날 때까지 기다리는 중입니다.";
 "offline_wait_incompatible_transfer" = "다른 캐시 전송이 끝날 때까지 기다리는 중입니다.";
 "source_unavailable" = "음악 소스를 사용할 수 없습니다.";
+"tab_genres" = "장르";
+"genres_count" = "개 장르";
+"no_genres" = "장르 없음";
+"no_genres_desc" = "노래에 장르 태그를 추가하면 장르별로 보관함을 탐색할 수 있습니다.";
+"genre_search_placeholder" = "장르 검색";
+"artist_most_played_albums" = "자주 들은 앨범";
+"artist_releases" = "발매작";
+"artist_appears_on" = "참여 앨범";

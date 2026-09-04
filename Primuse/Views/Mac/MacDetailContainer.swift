@@ -113,6 +113,9 @@ struct MacDetailContainer: View {
             case .artists:
                 ArtistListView(artists: library.visibleArtists)
                     .navigationTitle(section.title)
+            case .genres:
+                GenreLibraryView()
+                    .navigationTitle(section.title)
             case .playlists:
                 PlaylistListView()
                     .navigationTitle(section.title)

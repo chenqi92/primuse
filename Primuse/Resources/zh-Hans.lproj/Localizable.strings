@@ -2596,7 +2596,7 @@
 "playlist_reorder_changed" = "顺序已更改";
 "playlist_reorder_hint" = "使用箭头移动歌曲";
 "artist_monthly_plays_format" = "本月听 %d 次";
-"artist_popular" = "热门";
+"artist_popular" = "常听歌曲";
 "casting_connected" = "● 已连接";
 "file_size_label" = "文件大小";
 "file_location_label" = "文件位置";
@@ -3716,3 +3716,11 @@
 "offline_wait_background_transfer" = "正在等待当前后台缓存传输完成。";
 "offline_wait_incompatible_transfer" = "正在等待另一项缓存传输完成。";
 "source_unavailable" = "音乐源当前不可用。";
+"tab_genres" = "流派";
+"genres_count" = "个流派";
+"no_genres" = "暂无流派";
+"no_genres_desc" = "为歌曲补充流派标签后，即可按流派浏览资料库。";
+"genre_search_placeholder" = "搜索流派";
+"artist_most_played_albums" = "常听专辑";
+"artist_releases" = "发行作品";
+"artist_appears_on" = "参与作品";
