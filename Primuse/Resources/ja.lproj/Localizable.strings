@@ -2470,6 +2470,7 @@
 "songs_row_relaxed" = "ゆったり";
 "songs_column_format_sample_rate" = "形式 / サンプルレート";
 "stats_play_count" = "再生回数";
+"server_play_count_label" = "サーバー再生回数";
 "songs_column_rating" = "評価";
 "songs_column_bitrate" = "ビットレート";
 "show_in_library" = "ライブラリで表示";

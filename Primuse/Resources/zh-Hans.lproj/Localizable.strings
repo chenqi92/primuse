@@ -2562,6 +2562,7 @@
 "songs_row_relaxed" = "宽松";
 "songs_column_format_sample_rate" = "格式 / 采样率";
 "stats_play_count" = "播放次数";
+"server_play_count_label" = "服务端播放次数";
 "songs_column_rating" = "评分";
 "songs_column_bitrate" = "比特率";
 "show_in_library" = "在资料库中显示";

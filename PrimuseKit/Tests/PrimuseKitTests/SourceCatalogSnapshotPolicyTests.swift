@@ -179,6 +179,22 @@ struct ServerSongCatalogMergePolicyTests {
         #expect(merged.replayGainTrackGain == existing.replayGainTrackGain)
     }
 
+    @Test func stableServerRowsRefreshAccountPlayCount() {
+        var existing = song(revision: "r1")
+        existing.serverPlayCount = 12
+        existing.lyricsText = "locally indexed lyrics"
+        var incoming = song(revision: "r1")
+        incoming.serverPlayCount = 19
+
+        let merged = ServerSongCatalogMergePolicy.merged(
+            existing: existing,
+            incoming: incoming
+        )
+
+        #expect(merged.serverPlayCount == 19)
+        #expect(merged.lyricsText == existing.lyricsText)
+    }
+
     @Test func formatAndCueBoundaryChangesAreContentReplacements() {
         let existing = song(revision: "r1")
         var changedFormat = existing

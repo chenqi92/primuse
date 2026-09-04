@@ -157,6 +157,10 @@ public enum ServerSongCatalogMergePolicy {
         if refreshed.bitDepth == nil { refreshed.bitDepth = incoming.bitDepth }
         if refreshed.revision == nil { refreshed.revision = incoming.revision }
         if refreshed.lastModified == nil { refreshed.lastModified = incoming.lastModified }
+        // Account-scoped server statistics can change while the media object
+        // itself remains byte-for-byte identical. Always adopt the latest
+        // catalogue value instead of treating it as device enrichment.
+        refreshed.serverPlayCount = incoming.serverPlayCount
         if !incoming.filePath.isEmpty { refreshed.filePath = incoming.filePath }
         if refreshed.coverArtFileName == nil {
             refreshed.coverArtFileName = incoming.coverArtFileName
