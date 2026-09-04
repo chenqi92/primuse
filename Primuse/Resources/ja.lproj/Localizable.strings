@@ -859,7 +859,7 @@
 "metadata_backfill_fast_mode" = "高性能タグ読み込み";
 "metadata_backfill_fast_mode_footer" = "初期設定では、小さな単位を直列に処理して穏やかにタグを読み込みます。有効にすると、フォアグラウンドのスキャンで最大 3 件を待ち時間なしで同時に読み込むため、発熱、電池消費、通信量、画面のカクつきが増える場合があります。";
 "metadata_backfill_fast_mode_warning_title" = "高性能タグ読み込みを有効にしますか？";
-"metadata_backfill_fast_mode_warning_message" = "端末と音楽サーバーが継続的な同時リクエストに耐えられる場合のみ有効にしてください。現在または次回のフォアグラウンドスキャンから反映され、バックグラウンド再生の保護は維持されます。";
+"metadata_backfill_fast_mode_warning_message" = "現在または次回のフォアグラウンドスキャンで最大 3 件を待ち時間なしで同時に読み込むため、発熱、電池消費、通信量、画面のカクつきが増える場合があります。端末と音楽サーバーが継続的な同時リクエストに耐えられる場合のみ有効にしてください。バックグラウンド再生の保護は維持されます。";
 "metadata_backfill_fast_mode_confirm" = "この端末なら大丈夫";
 "audio_cache" = "オーディオキャッシュ";
 "image_cache" = "画像キャッシュ";

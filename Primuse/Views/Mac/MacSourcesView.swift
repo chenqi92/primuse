@@ -155,6 +155,19 @@ struct MacSourcesView: View {
                         .foregroundStyle(PMColor.text)
                 }
                 Spacer()
+                MetadataBackfillPerformanceButton { isEnabled in
+                    Image(systemName: isEnabled ? "bolt.fill" : "bolt")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(isEnabled ? Color.white : PMColor.textMuted)
+                        .frame(width: 32, height: 32)
+                        .background(
+                            isEnabled ? theme.uiAccentColor : PMColor.matBtn,
+                            in: .rect(cornerRadius: 8)
+                        )
+                }
+                .buttonStyle(.plain)
+                .help(String(localized: "metadata_backfill_fast_mode_footer"))
+
                 Button {
                     showAddSource = true
                 } label: {

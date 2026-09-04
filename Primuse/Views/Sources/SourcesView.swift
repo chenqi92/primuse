@@ -198,6 +198,48 @@ struct SourceDirectorySelectionSession {
     let previousDirectories: [String]
 }
 
+/// Device-local metadata reading mode exposed alongside source management.
+/// Enabling the aggressive profile always requires an explicit confirmation;
+/// disabling it is immediate so a warm device can be throttled quickly.
+struct MetadataBackfillPerformanceButton<Label: View>: View {
+    @AppStorage(MetadataBackfillExecutionPolicy.highPerformanceAfterScanDefaultsKey)
+    private var isEnabled = false
+    @State private var showsWarning = false
+
+    private let label: (Bool) -> Label
+
+    init(@ViewBuilder label: @escaping (Bool) -> Label) {
+        self.label = label
+    }
+
+    var body: some View {
+        Button {
+            if isEnabled {
+                isEnabled = false
+            } else {
+                showsWarning = true
+            }
+        } label: {
+            label(isEnabled)
+        }
+        .accessibilityLabel(Text("metadata_backfill_fast_mode"))
+        .accessibilityValue(isEnabled ? Text("a11y_value_on") : Text("a11y_value_off"))
+        .accessibilityHint(Text("metadata_backfill_fast_mode_footer"))
+        .accessibilityIdentifier("sources.metadataBackfillPerformance")
+        .alert(
+            "metadata_backfill_fast_mode_warning_title",
+            isPresented: $showsWarning
+        ) {
+            Button("cancel", role: .cancel) {}
+            Button("metadata_backfill_fast_mode_confirm") {
+                isEnabled = true
+            }
+        } message: {
+            Text("metadata_backfill_fast_mode_warning_message")
+        }
+    }
+}
+
 /// Standalone sources root for callers that don't already own navigation.
 struct SourcesView: View {
     var body: some View {
@@ -279,7 +321,12 @@ struct SourcesContentView: View {
                 }
             }
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    MetadataBackfillPerformanceButton { isEnabled in
+                        Image(systemName: isEnabled ? "bolt.circle.fill" : "bolt.circle")
+                            .foregroundStyle(isEnabled ? Color.orange : Color.primary)
+                    }
+
                     Button { showAddSource = true } label: { Image(systemName: "plus") }
                         .accessibilityIdentifier("sources.add")
                 }

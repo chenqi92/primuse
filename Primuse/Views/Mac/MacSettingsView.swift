@@ -280,28 +280,11 @@ struct MacSettingsView: View {
 private struct MacSTStorageView: View {
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
     @Environment(SourceManager.self) private var sourceManager
-    @AppStorage(MetadataBackfillExecutionPolicy.highPerformanceAfterScanDefaultsKey)
-    private var highPerformanceTagReading = false
-    @State private var showsHighPerformanceTagReadingWarning = false
 
     var body: some View {
         @Bindable var settings = playbackSettings
 
         VStack(alignment: .leading, spacing: 0) {
-            MacSTSection(
-                String(localized: "metadata_backfill_performance"),
-                hint: String(localized: "metadata_backfill_fast_mode_footer")
-            ) {
-                MacSTGroup {
-                    MacSTRow(
-                        String(localized: "metadata_backfill_fast_mode"),
-                        divider: false
-                    ) {
-                        MacSTToggle(isOn: highPerformanceTagReadingBinding)
-                    }
-                }
-            }
-
             MacSTSection(String(localized: "cache")) {
                 MacSTGroup {
                     MacSTRow(
@@ -325,30 +308,6 @@ private struct MacSTStorageView: View {
                 }
             }
         }
-        .alert(
-            String(localized: "metadata_backfill_fast_mode_warning_title"),
-            isPresented: $showsHighPerformanceTagReadingWarning
-        ) {
-            Button(String(localized: "cancel"), role: .cancel) {}
-            Button(String(localized: "metadata_backfill_fast_mode_confirm")) {
-                highPerformanceTagReading = true
-            }
-        } message: {
-            Text(String(localized: "metadata_backfill_fast_mode_warning_message"))
-        }
-    }
-
-    private var highPerformanceTagReadingBinding: Binding<Bool> {
-        Binding(
-            get: { highPerformanceTagReading },
-            set: { enabled in
-                if enabled {
-                    showsHighPerformanceTagReadingWarning = true
-                } else {
-                    highPerformanceTagReading = false
-                }
-            }
-        )
     }
 
     private func audioCacheLimitLabel(_ bytes: Int64) -> String {

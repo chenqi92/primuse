@@ -858,7 +858,7 @@
 "metadata_backfill_fast_mode" = "Tags mit hoher Leistung lesen";
 "metadata_backfill_fast_mode_footer" = "Standardmäßig werden Tags schonend in kleinen seriellen Gruppen gelesen. Aktiviert nutzt ein Scan im Vordergrund bis zu 3 parallele Lesevorgänge ohne Drosselung. Das kann Wärme, Akkuverbrauch, Datenverkehr und Ruckler erhöhen.";
 "metadata_backfill_fast_mode_warning_title" = "Tag-Lesen mit hoher Leistung aktivieren?";
-"metadata_backfill_fast_mode_warning_message" = "Nur aktivieren, wenn Gerät und Musikserver dauerhafte parallele Anfragen bewältigen. Die Einstellung gilt für den aktuellen oder nächsten Scan im Vordergrund; die Wiedergabe im Hintergrund bleibt geschützt.";
+"metadata_backfill_fast_mode_warning_message" = "Der aktuelle oder nächste Scan im Vordergrund nutzt bis zu 3 parallele Lesevorgänge ohne Drosselung. Das kann Wärme, Akkuverbrauch, Datenverkehr und Ruckler erhöhen. Nur aktivieren, wenn Gerät und Musikserver dauerhafte parallele Anfragen bewältigen; die Wiedergabe im Hintergrund bleibt geschützt.";
 "metadata_backfill_fast_mode_confirm" = "Mein Gerät schafft das";
 "audio_cache" = "Audio-Cache";
 "image_cache" = "Bild-Cache";

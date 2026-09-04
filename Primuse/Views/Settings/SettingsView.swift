@@ -2248,8 +2248,6 @@ struct StorageManagementView: View {
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
     @Environment(MetadataBackfillService.self) private var backfill
     @AppStorage(MetadataBackfillService.wifiOnlyDefaultsKey) private var cloudScanWifiOnly: Bool = true
-    @AppStorage(MetadataBackfillExecutionPolicy.highPerformanceAfterScanDefaultsKey)
-    private var highPerformanceTagReading = false
     @AppStorage(UserNotificationService.notifyLongTasksKey) private var notifyBackfillComplete: Bool = false
     /// 系统授权状态 ── 进页面时查一次。用户在系统 Settings 关掉后, toggle
     /// 仍是 on 但显示"已被系统拒绝"提示, 让用户知道为什么开关无效。
@@ -2266,7 +2264,6 @@ struct StorageManagementView: View {
     /// 清理结果提示 — 失败时让用户知道为什么没全清掉 (通常是当前正在播放的歌)。
     @State private var cacheActionToast: String?
     @State private var logShareItem: LogShareItem?
-    @State private var showsHighPerformanceTagReadingWarning = false
 
     struct LogShareItem: Identifiable {
         let id = UUID()
@@ -2373,17 +2370,6 @@ struct StorageManagementView: View {
             }
 
             Section {
-                Toggle(
-                    "metadata_backfill_fast_mode",
-                    isOn: highPerformanceTagReadingBinding
-                )
-            } header: {
-                Text("metadata_backfill_performance")
-            } footer: {
-                Text("metadata_backfill_fast_mode_footer")
-            }
-
-            Section {
                 Toggle("audio_cache_enabled", isOn: $settings.audioCacheEnabled)
 
                 Picker("audio_cache_limit", selection: $settings.audioCacheLimitBytes) {
@@ -2474,17 +2460,6 @@ struct StorageManagementView: View {
         .sheet(item: $logShareItem) { item in
             ShareSheet(items: [item.url])
         }
-        .alert(
-            "metadata_backfill_fast_mode_warning_title",
-            isPresented: $showsHighPerformanceTagReadingWarning
-        ) {
-            Button("cancel", role: .cancel) {}
-            Button("metadata_backfill_fast_mode_confirm") {
-                highPerformanceTagReading = true
-            }
-        } message: {
-            Text("metadata_backfill_fast_mode_warning_message")
-        }
         .navigationTitle("storage_management")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -2500,19 +2475,6 @@ struct StorageManagementView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-    }
-
-    private var highPerformanceTagReadingBinding: Binding<Bool> {
-        Binding(
-            get: { highPerformanceTagReading },
-            set: { enabled in
-                if enabled {
-                    showsHighPerformanceTagReadingWarning = true
-                } else {
-                    highPerformanceTagReading = false
-                }
-            }
-        )
     }
 
     private func flashCacheToast(freed: Int64, failed: Int) {
