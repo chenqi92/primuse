@@ -193,6 +193,8 @@ targets:
         CFBundleDisplayName: "猿音"
         CFBundleName: "Primuse"
         LSApplicationCategoryType: "public.app-category.music"
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
         CFBundleURLTypes:
           - CFBundleURLSchemes:
               - primuse
