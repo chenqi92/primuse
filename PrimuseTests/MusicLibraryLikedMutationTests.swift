@@ -71,3 +71,60 @@ final class MusicLibraryLikedMutationTests: XCTestCase {
         )
     }
 }
+
+@MainActor
+final class MusicLibraryMetadataReplacementTests: XCTestCase {
+    func testPreparedMetadataReplacementPatchesStableLibraryCaches() async throws {
+        let storageDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseMetadataReplacementTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: storageDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: storageDirectory) }
+
+        let library = MusicLibrary(storageDirectory: storageDirectory)
+        let first = makeSong(id: "song-1", path: "/music/one.mp3")
+        let second = makeSong(id: "song-2", path: "/music/two.mp3")
+        library.addSongs([first, second], affectedSourceIDs: ["source-1"])
+
+        for _ in 0..<200 where library.visibleSongs.count != 2 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(library.visibleSongs.map(\.id), ["song-1", "song-2"])
+
+        let collectionRevision = library.visibleSongCollectionRevision
+        let replacementToken = library.songReplacementToken
+        var updated = first
+        updated.duration = 193
+        updated.bitRate = 320
+
+        await library.replaceSongsPreparedOffMain([updated], maintenance: .deferred)
+
+        XCTAssertEqual(library.song(id: first.id)?.duration, 193)
+        XCTAssertEqual(library.unobservedVisibleSong(id: first.id)?.bitRate, 320)
+        XCTAssertEqual(
+            library.visibleSongs(forSourceID: first.sourceID).first(where: { $0.id == first.id })?.duration,
+            193
+        )
+        XCTAssertEqual(library.visibleSongCollectionRevision, collectionRevision)
+        XCTAssertNotEqual(library.songReplacementToken, replacementToken)
+        XCTAssertEqual(library.lastReplacedSongIDs, [first.id])
+        XCTAssertEqual(library.songs.map(\.id), ["song-1", "song-2"])
+
+        guard case .success = await library.persistNowAndWait() else {
+            XCTFail("The isolated library did not finish persistence")
+            return
+        }
+    }
+
+    private func makeSong(id: String, path: String) -> Song {
+        Song(
+            id: id,
+            title: id,
+            fileFormat: .mp3,
+            filePath: path,
+            sourceID: "source-1"
+        )
+    }
+}

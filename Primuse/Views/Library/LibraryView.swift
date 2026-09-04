@@ -431,10 +431,7 @@ struct LibraryView: View {
                     onActiveSectionChange(nil)
                 }
             }
-            .task(id: SongListSnapshotVersion(
-                collectionRevision: library.visibleSongCollectionRevision,
-                replacementToken: library.songReplacementToken
-            )) {
+            .task(id: library.visibleSongCollectionRevision) {
                 let version = SongListSnapshotVersion(
                     collectionRevision: library.visibleSongCollectionRevision,
                     replacementToken: library.songReplacementToken

@@ -2633,6 +2633,7 @@ enum LibraryMaintenanceDisposition: Sendable {
 @Observable
 final class MusicLibrary {
     @ObservationIgnored private var songMutationGeneration: UInt64 = 0
+    var songMutationGenerationForMaintenance: UInt64 { songMutationGeneration }
     private var songsReference = LibraryArrayReference<Song>()
     private(set) var songs: [Song] {
         get { songsReference.value }
@@ -2668,6 +2669,7 @@ final class MusicLibrary {
     private var artworkOverridesByOwner: [String: LibraryArtworkOverride] = [:]
     @ObservationIgnored
     private var automaticArtistArtworkCatalogsBySource: [String: SourceArtistArtworkCatalog] = [:]
+    @ObservationIgnored private var automaticArtistArtworkCatalogRevision: UInt64 = 0
     /// Lightweight invalidation token for album, artist, and playlist artwork surfaces.
     /// It is intentionally separate from song and playlist collection
     /// revisions so choosing a cover does not rebuild unrelated lists.
@@ -3922,6 +3924,7 @@ final class MusicLibrary {
                 removed = true
             }
         }
+        if removedCatalog { automaticArtistArtworkCatalogRevision &+= 1 }
         disabledSourceIDs.subtract(sourceIDs)
         guard !prepared.removedSongs.isEmpty else {
             if removedCatalog { persistSnapshot() }
@@ -4172,6 +4175,7 @@ final class MusicLibrary {
             return
         }
         automaticArtistArtworkCatalogsBySource[catalog.sourceID] = catalog
+        automaticArtistArtworkCatalogRevision &+= 1
 
         var nextSongs = songs
         var changedSongs: [Song] = []
@@ -4197,13 +4201,25 @@ final class MusicLibrary {
     }
 
     private func applyAutomaticArtistArtwork(to song: inout Song) {
+        Self.applyAutomaticArtistArtwork(
+            to: &song,
+            catalogsBySource: automaticArtistArtworkCatalogsBySource,
+            artistNameConfiguration: artistNameConfiguration
+        )
+    }
+
+    private nonisolated static func applyAutomaticArtistArtwork(
+        to song: inout Song,
+        catalogsBySource: [String: SourceArtistArtworkCatalog],
+        artistNameConfiguration: ArtistNameConfiguration
+    ) {
         // A media server's own artist image is authoritative automatic
         // artwork. Directory discovery only owns values carrying its marker.
         if let current = song.artistArtworkFileName,
            AutomaticArtistArtworkReference.resolve(current) == nil {
             return
         }
-        guard let catalog = automaticArtistArtworkCatalogsBySource[song.sourceID] else {
+        guard let catalog = catalogsBySource[song.sourceID] else {
             return
         }
         song.artistArtworkFileName = catalog.automaticReference(
@@ -5813,6 +5829,274 @@ final class MusicLibrary {
         )
     }
 
+    private struct StableMetadataReplacementRequest: Sendable {
+        let songMutationGeneration: UInt64
+        let automaticArtworkCatalogRevision: UInt64
+        let updatedSongs: [Song]
+        let originalSongs: [Song]
+        let visibleSongs: [Song]
+        let songIndexByID: [String: Int]
+        let visibleSongIndexByID: [String: Int]
+        let visibleSongsBySourceID: [String: [Song]]
+        let disabledSourceIDs: Set<String>
+        let artistNameConfiguration: ArtistNameConfiguration
+        let automaticArtworkCatalogsBySource: [String: SourceArtistArtworkCatalog]
+    }
+
+    private struct StableVisibleSongReplacement: Sendable {
+        let index: Int
+        let song: Song
+    }
+
+    private struct StableSourceSongReplacement: Sendable {
+        let songs: [Song]
+        let playableSongs: [Song]
+    }
+
+    private struct StableArtworkReplacement: Sendable {
+        let songID: String
+        let oldReference: String?
+        let newReference: String?
+    }
+
+    private struct PreparedStableMetadataReplacements: Sendable {
+        let nextSongs: [Song]
+        let nextVisibleSongs: [Song]
+        let idToIndex: [String: Int]
+        let repairedIndexLookup: Bool
+        let lastApplied: Song
+        let appliedIDs: Set<String>
+        let appliedSongs: [Song]
+        let missedIDs: [String]
+        let visibleUpdates: [StableVisibleSongReplacement]
+        let sourceUpdates: [String: StableSourceSongReplacement]
+        let artworkChanges: [StableArtworkReplacement]
+        let derivedCollectionsChanged: Bool
+    }
+
+    /// Metadata backfill retains song IDs, order, source membership, and
+    /// visibility. Prepare its copy-on-write array snapshots on a utility
+    /// executor so publishing the batch on the main actor is only a pointer
+    /// swap plus O(changed rows) lookup patches.
+    func replaceSongsPreparedOffMain(
+        _ updatedSongs: [Song],
+        maintenance: LibraryMaintenanceDisposition = .deferred
+    ) async {
+        guard !updatedSongs.isEmpty else { return }
+
+        // A source toggle or another song mutation can land while preparation
+        // is suspended. Rebase once on the newest immutable snapshots before
+        // falling back to the general synchronous path.
+        for _ in 0..<2 {
+            let affectedSourceIDs = Set(updatedSongs.map(\.sourceID))
+            let sourceSnapshots = Dictionary(uniqueKeysWithValues: affectedSourceIDs.compactMap { sourceID in
+                visibleSongsBySourceID[sourceID].map { (sourceID, $0) }
+            })
+            let request = StableMetadataReplacementRequest(
+                songMutationGeneration: songMutationGeneration,
+                automaticArtworkCatalogRevision: automaticArtistArtworkCatalogRevision,
+                updatedSongs: updatedSongs,
+                originalSongs: songs,
+                visibleSongs: visibleSongs,
+                songIndexByID: songIndexByID,
+                visibleSongIndexByID: visibleSongIndexByID,
+                visibleSongsBySourceID: sourceSnapshots,
+                disabledSourceIDs: disabledSourceIDs,
+                artistNameConfiguration: artistNameConfiguration,
+                automaticArtworkCatalogsBySource: automaticArtistArtworkCatalogsBySource
+            )
+            let prepared = await Task.detached(priority: .utility) {
+                Self.prepareStableMetadataReplacements(request)
+            }.value
+
+            guard songMutationGeneration == request.songMutationGeneration,
+                  automaticArtistArtworkCatalogRevision == request.automaticArtworkCatalogRevision,
+                  disabledSourceIDs == request.disabledSourceIDs,
+                  artistNameConfiguration == request.artistNameConfiguration else {
+                continue
+            }
+            guard let prepared else {
+                replaceSongs(updatedSongs, maintenance: maintenance)
+                return
+            }
+            applyPreparedStableMetadataReplacements(prepared, maintenance: maintenance)
+            return
+        }
+
+        replaceSongs(updatedSongs, maintenance: maintenance)
+    }
+
+    private nonisolated static func prepareStableMetadataReplacements(
+        _ request: StableMetadataReplacementRequest
+    ) -> PreparedStableMetadataReplacements? {
+        var nextSongs = request.originalSongs
+        var idToIndex = request.songIndexByID
+        var repairedIndexLookup = false
+        var lastApplied: Song?
+        var appliedIDs: Set<String> = []
+        var missedIDs: [String] = []
+        var artworkChanges: [StableArtworkReplacement] = []
+        var derivedCollectionsChanged = false
+
+        for updated in request.updatedSongs {
+            var index = idToIndex[updated.id]
+            if index.map({
+                !nextSongs.indices.contains($0) || nextSongs[$0].id != updated.id
+            }) ?? true {
+                if !repairedIndexLookup {
+                    idToIndex = makeSongIndex(nextSongs)
+                    repairedIndexLookup = true
+                }
+                index = idToIndex[updated.id]
+            }
+            guard let index,
+                  nextSongs.indices.contains(index),
+                  nextSongs[index].id == updated.id else {
+                missedIDs.append(updated.id)
+                continue
+            }
+
+            let previousSong = nextSongs[index]
+            let oldCoverReference = previousSong.coverArtFileName
+            var song = updated
+            fillDerivedIDs(&song, configuration: request.artistNameConfiguration)
+            applyAutomaticArtistArtwork(
+                to: &song,
+                catalogsBySource: request.automaticArtworkCatalogsBySource,
+                artistNameConfiguration: request.artistNameConfiguration
+            )
+            if LibraryIndexMaintenancePolicy.derivedCollectionsChanged(
+                from: previousSong,
+                to: song
+            ) {
+                derivedCollectionsChanged = true
+            }
+            nextSongs[index] = song
+            lastApplied = song
+            appliedIDs.insert(song.id)
+            if oldCoverReference != song.coverArtFileName {
+                artworkChanges.append(
+                    StableArtworkReplacement(
+                        songID: song.id,
+                        oldReference: oldCoverReference,
+                        newReference: song.coverArtFileName
+                    )
+                )
+            }
+        }
+
+        guard let lastApplied else { return nil }
+        var nextVisibleSongs = request.visibleSongs
+        var visibleUpdates: [StableVisibleSongReplacement] = []
+        visibleUpdates.reserveCapacity(appliedIDs.count)
+        for id in appliedIDs {
+            guard let songIndex = idToIndex[id],
+                  request.originalSongs.indices.contains(songIndex),
+                  nextSongs.indices.contains(songIndex) else {
+                return nil
+            }
+            let oldSong = request.originalSongs[songIndex]
+            let newSong = nextSongs[songIndex]
+            guard oldSong.id == newSong.id,
+                  oldSong.sourceID == newSong.sourceID else {
+                return nil
+            }
+
+            let isVisible = !request.disabledSourceIDs.contains(newSong.sourceID)
+            if isVisible {
+                guard let visibleIndex = request.visibleSongIndexByID[id],
+                      nextVisibleSongs.indices.contains(visibleIndex),
+                      nextVisibleSongs[visibleIndex].id == id else {
+                    return nil
+                }
+                nextVisibleSongs[visibleIndex] = newSong
+                visibleUpdates.append(
+                    StableVisibleSongReplacement(index: visibleIndex, song: newSong)
+                )
+            } else if request.visibleSongIndexByID[id] != nil {
+                return nil
+            }
+        }
+
+        let updatesByID = Dictionary(
+            uniqueKeysWithValues: visibleUpdates.map { ($0.song.id, $0.song) }
+        )
+        var sourceUpdates: [String: StableSourceSongReplacement] = [:]
+        for (sourceID, sourceSnapshot) in request.visibleSongsBySourceID {
+            var sourceSongs = sourceSnapshot
+            var changed = false
+            for index in sourceSongs.indices {
+                guard let replacement = updatesByID[sourceSongs[index].id] else { continue }
+                sourceSongs[index] = replacement
+                changed = true
+            }
+            guard changed else { continue }
+            sourceUpdates[sourceID] = StableSourceSongReplacement(
+                songs: sourceSongs,
+                playableSongs: sourceSongs.filter { $0.isPlayable }
+            )
+        }
+
+        let appliedSongs = appliedIDs.compactMap { id in
+            idToIndex[id].map { nextSongs[$0] }
+        }
+        return PreparedStableMetadataReplacements(
+            nextSongs: nextSongs,
+            nextVisibleSongs: nextVisibleSongs,
+            idToIndex: idToIndex,
+            repairedIndexLookup: repairedIndexLookup,
+            lastApplied: lastApplied,
+            appliedIDs: appliedIDs,
+            appliedSongs: appliedSongs,
+            missedIDs: missedIDs,
+            visibleUpdates: visibleUpdates,
+            sourceUpdates: sourceUpdates,
+            artworkChanges: artworkChanges,
+            derivedCollectionsChanged: derivedCollectionsChanged
+        )
+    }
+
+    private func applyPreparedStableMetadataReplacements(
+        _ prepared: PreparedStableMetadataReplacements,
+        maintenance: LibraryMaintenanceDisposition
+    ) {
+        if prepared.repairedIndexLookup {
+            songIndexByID = prepared.idToIndex
+        }
+        plog("📚 replaceSongsPreparedOffMain: requested=\(prepared.appliedIDs.count + prepared.missedIDs.count) applied=\(prepared.appliedIDs.count) missed=\(prepared.missedIDs.count) librarySongs=\(prepared.nextSongs.count) missedSampleID=\(prepared.missedIDs.first ?? "-") sampleLibID=\(prepared.nextSongs.first?.id ?? "-")")
+
+        songs = prepared.nextSongs
+        visibleSongs = prepared.nextVisibleSongs
+        for update in prepared.visibleUpdates {
+            visibleSongByID[update.song.id] = update.song
+        }
+        for (sourceID, update) in prepared.sourceUpdates {
+            visibleSongsBySourceID[sourceID] = update.songs
+            visiblePlayableSongsBySourceID[sourceID] = update.playableSongs
+        }
+
+        lastReplacedSong = prepared.lastApplied
+        lastReplacedSongIDs = prepared.appliedIDs
+        songReplacementToken = UUID()
+        if !prepared.artworkChanges.isEmpty {
+            postArtworkInvalidations(
+                prepared.artworkChanges.map {
+                    ($0.songID, $0.oldReference, $0.newReference)
+                }
+            )
+        }
+        invalidateSearchCaches()
+        requestLibraryIndexMaintenance(
+            maintenance,
+            rebuildDerivedCollections: prepared.derivedCollectionsChanged
+        )
+        // IDs and membership are guaranteed stable, so playlist/history cleanup
+        // cannot remove anything here. Pending identity resolution may still
+        // benefit from newly filled title/artist metadata.
+        schedulePendingIdentityFlush()
+        persistSongChanges(upserts: prepared.appliedSongs)
+    }
+
     private func validatedSongIndex(for id: String, in snapshot: [Song]) -> Int? {
         if let index = songIndexByID[id],
            snapshot.indices.contains(index),
@@ -5933,6 +6217,7 @@ final class MusicLibrary {
     /// 时只有最后一次的结果会 apply。
     private struct DerivedIndexRequest: Sendable {
         let generation: Int
+        let songMutationGeneration: UInt64
         let songs: [Song]
         let artistNameConfiguration: ArtistNameConfiguration
         let disabledSourceIDs: Set<String>
@@ -6012,6 +6297,7 @@ final class MusicLibrary {
         rebuildIndexGeneration &+= 1
         let request = DerivedIndexRequest(
             generation: rebuildIndexGeneration,
+            songMutationGeneration: songMutationGeneration,
             songs: songs,
             artistNameConfiguration: artistNameConfiguration,
             disabledSourceIDs: disabledSourceIDs,
@@ -6079,6 +6365,7 @@ final class MusicLibrary {
         guard rebuildIndexWorkState.activeGeneration == request.generation else { return }
         if let computation,
            rebuildIndexGeneration == request.generation,
+           songMutationGeneration == request.songMutationGeneration,
            disabledSourceIDs == request.disabledSourceIDs,
            artistNameConfiguration == request.artistNameConfiguration {
             albums = computation.albums
