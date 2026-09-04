@@ -695,3 +695,9 @@
 "src.subtitle.jellyfin" = "开源";
 "src.subtitle.emby" = "媒体服务器";
 "src.subtitle.plex" = "Plex 媒体服务器";
+"ext.tv.persistence.failed" = "无法保存更改，请检查可用储存空间后重试。";
+"password" = "密码";
+"api_key" = "API Key";
+"auth_method" = "认证方式";
+"ssh_key" = "SSH 密钥";
+"cue_track_title_format" = "曲目 %02d";

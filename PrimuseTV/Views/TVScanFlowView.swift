@@ -21,6 +21,41 @@ enum TVScanProgressPresentationPolicy {
     }
 }
 
+enum TVScanDirectorySelectionPolicy {
+    /// Keep the shallowest selected roots. A selected parent already includes
+    /// every descendant, so sending both to a network scanner only repeats SMB
+    /// directory listings.
+    static func normalized(_ paths: [String]) -> [String] {
+        let canonical = Set(paths.map(normalize))
+            .sorted { lhs, rhs in
+                let lhsDepth = depth(lhs)
+                let rhsDepth = depth(rhs)
+                return lhsDepth == rhsDepth ? lhs < rhs : lhsDepth < rhsDepth
+            }
+        var roots: [String] = []
+        for candidate in canonical where !roots.contains(where: { contains($0, candidate) }) {
+            roots.append(candidate)
+        }
+        return roots
+    }
+
+    private static func normalize(_ path: String) -> String {
+        var value = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.isEmpty { return "/" }
+        if !value.hasPrefix("/") { value = "/" + value }
+        while value.count > 1, value.hasSuffix("/") { value.removeLast() }
+        return value
+    }
+
+    private static func depth(_ path: String) -> Int {
+        path.split(separator: "/", omittingEmptySubsequences: true).count
+    }
+
+    private static func contains(_ parent: String, _ child: String) -> Bool {
+        parent == "/" || parent == child || child.hasPrefix(parent + "/")
+    }
+}
+
 /// 添加新源后(或长按源菜单)的扫描流程。目录型源选择目录，飞牛音乐直接扫描服务端曲库。
 struct TVScanFlowView: View {
     @Environment(TVStore.self) private var store
@@ -37,7 +72,6 @@ struct TVScanFlowView: View {
     @State private var started = false
     @State private var browseError: String?
     @State private var loadTask: Task<Void, Never>?
-    @State private var scanTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
@@ -52,10 +86,10 @@ struct TVScanFlowView: View {
                         started = false
                     },
                     onCancel: {
-                        scanTask?.cancel()
+                        store.cancelScan(sourceID: source.id)
                         dismiss()
                     },
-                    canCancel: scanTask != nil
+                    canCancel: store.activeScanSourceID == source.id
                 )
             } else if source.type == .fnMusic || source.type == .daoliyu {
                 fnMusicPickView
@@ -169,28 +203,47 @@ struct TVScanFlowView: View {
 
     private func folderRow(name: String, isUp: Bool, selectable: Bool, checked: Bool,
                            onSelect: @escaping () -> Void = {}, onOpen: @escaping () -> Void = {}) -> some View {
-        // 全宽行不缩放/不上抬:缩放会溢出 ScrollView 横向裁切导致描边被裁(同 TVSourceRow)。
-        TVFocusButton(radius: 12, scale: 1.0, lift: 0, action: selectable ? onSelect : onOpen) { focused in
-            HStack(spacing: 16) {
-                if selectable {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .strokeBorder(checked ? .clear : TVColor.cardBorder, lineWidth: 2)
-                            .background(checked ? TVColor.brand : .clear, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                            .frame(width: 28, height: 28)
-                        if checked { Image(systemName: "checkmark").font(.system(size: 16, weight: .bold)).foregroundStyle(TVColor.onBrand) }
+        // Opening and selecting are separate remote targets. Select now follows
+        // the visible “Open” affordance; the trailing checkbox controls scan scope.
+        HStack(spacing: 10) {
+            TVFocusButton(radius: 12, scale: 1.0, lift: 0, action: onOpen) { focused in
+                HStack(spacing: 16) {
+                    Image(systemName: isUp ? "arrow.up.left" : "folder.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(checked ? TVColor.brand : TVColor.textFaint)
+                        .frame(width: 26)
+                    Text(name)
+                        .font(TVFont.body.weight(checked ? .semibold : .regular))
+                        .foregroundStyle(TVColor.text)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    if selectable {
+                        Label(PMString("ext.tv.scan.open"), systemImage: "chevron.right")
+                            .font(TVFont.caption)
+                            .foregroundStyle(focused ? TVColor.text : TVColor.textGhost)
                     }
                 }
-                Image(systemName: isUp ? "arrow.up.left" : "folder.fill")
-                    .font(.system(size: 22)).foregroundStyle(checked ? TVColor.brand : TVColor.textFaint).frame(width: 26)
-                Text(name).font(.system(size: 22, weight: checked ? .semibold : .regular)).foregroundStyle(TVColor.text).lineLimit(1)
-                Spacer(minLength: 0)
-                if selectable {
-                    Text(PMString("ext.tv.scan.open")).font(.system(size: 15)).foregroundStyle(focused ? TVColor.text : TVColor.textGhost)
-                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity)
+                .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle)
             }
-            .padding(.horizontal, 20).padding(.vertical, 14).frame(maxWidth: .infinity)
-            .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle)
+            .accessibilityLabel(Text(name))
+            .accessibilityHint(Text(selectable ? PMString("ext.tv.scan.openFolder") : name))
+
+            if selectable {
+                TVFocusButton(radius: 12, scale: 1.0, lift: 0, action: onSelect) { focused in
+                    Image(systemName: checked ? "checkmark.square.fill" : "square")
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(checked ? TVColor.brand : TVColor.text)
+                        .frame(width: 62, height: 58)
+                        .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle)
+                }
+                .accessibilityLabel(Text(
+                    checked ? PMString("ext.tv.scan.uncheck") : PMString("ext.tv.scan.check")
+                ))
+                .accessibilityAddTraits(checked ? [.isButton, .isSelected] : .isButton)
+            }
         }
         .contextMenu {
             if selectable {
@@ -283,10 +336,12 @@ struct TVScanFlowView: View {
 
     private func startScan() {
         guard let lister else { return }
-        let dirs = selected.isEmpty ? [path] : Array(selected)
+        let dirs = TVScanDirectorySelectionPolicy.normalized(
+            selected.isEmpty ? [path] : Array(selected)
+        )
         loadTask?.cancel()
         started = true
-        scanTask = Task {
+        Task {
             let admitted = await store.runScan(source: source, lister: lister, dirs: dirs)
             guard !admitted, !Task.isCancelled else { return }
             browseError = PMString("ext.tv.scan.busy")
@@ -297,7 +352,7 @@ struct TVScanFlowView: View {
     private func startFnMusicScan() {
         loadTask?.cancel()
         started = true
-        scanTask = Task {
+        Task {
             let admitted = await store.runFnMusicScan(source: source)
             guard !admitted, !Task.isCancelled else { return }
             browseError = PMString("ext.tv.scan.busy")
@@ -436,12 +491,16 @@ private struct TVScanningView: View {
 /// 不定量旋转弧(扫描中没有总数预估)。
 private struct SpinnerArc: View {
     @State private var spin = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         Circle().trim(from: 0, to: 0.28)
             .stroke(TVColor.brand, style: StrokeStyle(lineWidth: 14, lineCap: .round))
-            .rotationEffect(.degrees(spin ? 360 : 0))
-            .animation(.linear(duration: 1).repeatForever(autoreverses: false), value: spin)
-            .onAppear { spin = true }
+            .rotationEffect(.degrees(spin && !reduceMotion ? 360 : 0))
+            .animation(
+                reduceMotion ? nil : .linear(duration: 1).repeatForever(autoreverses: false),
+                value: spin
+            )
+            .onAppear { spin = !reduceMotion }
     }
 }
 #endif

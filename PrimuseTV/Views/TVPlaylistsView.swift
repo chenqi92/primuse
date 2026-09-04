@@ -24,10 +24,18 @@ struct TVPlaylistsView: View {
                             Text(PMString("ext.tv.playlists.title", playlists.count))
                                 .font(TVFont.pageTitle).foregroundStyle(TVColor.text)
                         }
-                        LazyVGrid(columns: Array(repeating: GridItem(.fixed(cell), spacing: gap, alignment: .top), count: cols),
-                                  alignment: .leading, spacing: gap) {
-                            ForEach(playlists) { p in
-                                TVPlaylistCard(playlist: p, width: cell, action: openPlayer)
+                        if playlists.isEmpty {
+                            TVEmptyState(
+                                icon: "music.note.list",
+                                title: PMString("ext.tv.playlists.title", 0)
+                            )
+                            .frame(minHeight: 500)
+                        } else {
+                            LazyVGrid(columns: Array(repeating: GridItem(.fixed(cell), spacing: gap, alignment: .top), count: cols),
+                                      alignment: .leading, spacing: gap) {
+                                ForEach(playlists) { p in
+                                    TVPlaylistCard(playlist: p, width: cell, action: openPlayer)
+                                }
                             }
                         }
                     }
@@ -87,13 +95,12 @@ struct TVPlaylistCard: View {
             }
             .frame(width: width, alignment: .leading)
         }
+        .accessibilityLabel(Text(playlist.name))
+        .accessibilityValue(Text(PMString("ext.tv.songsCount", playlist.count)))
     }
 
-    /// 点击歌单卡片:播放歌单**自身**的曲目(我喜欢的 / 普通歌单),而不是封面取材的那张专辑。
-    /// 智能歌单在 tvOS 上尚未求值(无真实歌曲),点击不做任何事,避免静默打开空播放页。
+    /// 点击歌单卡片播放歌单自身的求值结果，包括普通、喜欢与智能歌单。
     private func playTapped() {
-        // 智能歌单 / 空歌单:无可播放内容,play(playlist:) 返回 false,忽略点击
-        //(不退化为播专辑、不打开空播放页),续播队列即该歌单全部曲目。
         guard store.play(playlist: playlist) else { return }
         action()
     }
@@ -152,7 +159,7 @@ private struct TVPlaylistArtworkView: View {
             switch overrideResolution {
             case .uploaded(let contentID):
                 if let data = MetadataAssetStore.shared.customArtworkData(contentID: contentID),
-                   let customImage = UIImage(data: data) {
+                   let customImage = await Self.decodeImage(data) {
                     guard !Task.isCancelled, loadIdentity == identity else { return }
                     image = customImage
                     return
@@ -165,7 +172,7 @@ private struct TVPlaylistArtworkView: View {
                         coverRef: song.coverArtFileName,
                         fnMusicSourceID: song.sourceID,
                         fnMusicClient: client
-                    ), let selectedImage = UIImage(data: data) {
+                    ), let selectedImage = await Self.decodeImage(data) {
                         guard !Task.isCancelled, loadIdentity == identity else { return }
                         image = selectedImage
                         return
@@ -198,7 +205,7 @@ private struct TVPlaylistArtworkView: View {
                     fnMusicSourceID: sourceID,
                     fnMusicClient: client
                 ) else { return nil }
-                return UIImage(data: data)
+                return await Self.decodeImage(data)
             }
             guard !Task.isCancelled, loadIdentity == identity else { return }
             image = resolved?.value
@@ -237,6 +244,12 @@ private struct TVPlaylistArtworkView: View {
             return true
         }
         return false
+    }
+
+    private static func decodeImage(_ data: Data) async -> UIImage? {
+        await Task.detached(priority: .utility) {
+            UIImage(data: data)
+        }.value
     }
 }
 #endif

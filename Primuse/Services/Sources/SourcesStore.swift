@@ -47,6 +47,12 @@ final class SourcesStore {
     /// Backing storage including soft-deleted entries. `sources` filters this
     /// for normal UI use; `recentlyDeletedSources` exposes the deleted ones.
     private(set) var allSources: [MusicSource]
+    private(set) var hasCompleteSnapshot = true
+
+    func validatedSourcesForSnapshot() throws -> [MusicSource] {
+        guard hasCompleteSnapshot else { throw CocoaError(.fileReadCorruptFile) }
+        return allSources
+    }
 
     /// Live (non-deleted) sources for normal UI use.
     var sources: [MusicSource] { allSources.filter { !$0.isDeleted } }
@@ -271,6 +277,20 @@ final class SourcesStore {
         persist()
     }
 
+    @discardableResult
+    func updateLocalDurably(_ sourceID: String, mutate: (inout MusicSource) -> Void) throws -> Bool {
+        guard let index = allSources.firstIndex(where: { $0.id == sourceID }) else { return false }
+        let previous = allSources
+        mutate(&allSources[index])
+        do {
+            try persistThrowing()
+        } catch {
+            allSources = previous
+            throw error
+        }
+        return true
+    }
+
     /// Merge provider-supplied directory labels into the source payload so the
     /// mapping survives a new device, reinstall, or source resurrection.
     func mergeDirectoryDisplayNames(_ names: [String: String], sourceID: String) {
@@ -364,7 +384,18 @@ final class SourcesStore {
         notifyChanged([id])
     }
 
-    /// Permanently remove a source (manual purge or 30-day prune).
+    @discardableResult
+    func restoreDurably(id: String) throws -> Bool {
+        guard !permanentDeletionInProgressIDs.contains(id),
+              var source = allSources.first(where: { $0.id == id }) else { return false }
+        source.isDeleted = false
+        source.deletedAt = nil
+        source.restoredAt = Date()
+        try addDurably(source)
+        permanentDeletionFailureIDs.remove(id)
+        return true
+    }
+
     @discardableResult
     func permanentlyDelete(id: String) async -> PermanentDeleteResult {
         guard !permanentDeletionInProgressIDs.contains(id) else {
@@ -797,12 +828,14 @@ final class SourcesStore {
         // File-not-present is the normal first-launch case — start empty and
         // let the first add/upsert write a fresh sources.json.
         guard let data = try? Data(contentsOf: storeURL) else {
+            hasCompleteSnapshot = !FileManager.default.fileExists(atPath: storeURL.path)
             allSources = []
             return
         }
         do {
             let decoded = try decoder.decode([MusicSource].self, from: data)
             allSources = decoded.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+            hasCompleteSnapshot = true
         } catch {
             // The file exists but is undecodable as a whole (corruption, an
             // incompatible future schema after a downgrade, a single malformed
@@ -812,6 +845,7 @@ final class SourcesStore {
             // so one bad row only drops that row, and back up the original
             // bytes before anything else can clobber them.
             backupCorruptStore(at: storeURL, data: data, error: error)
+            hasCompleteSnapshot = false
             allSources = recoverPartial(MusicSource.self, from: data)
                 .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
         }
@@ -826,6 +860,11 @@ final class SourcesStore {
     }
 
     private func persistThrowing() throws {
+        #if os(tvOS)
+        // A tolerant partial read is useful for display, but is not a safe
+        // baseline for replacing the only source configuration on disk.
+        guard hasCompleteSnapshot else { throw CocoaError(.fileReadCorruptFile) }
+        #endif
         let data = try encoder.encode(allSources)
         try sourceDataWriter(data, storeURL)
     }

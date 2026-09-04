@@ -13,6 +13,7 @@ struct TVLibraryView: View {
     @Environment(TVStore.self) private var store
     @Environment(MusicIntelligenceService.self) private var intelligence
     var openPlayer: () -> Void = {}
+    var onModalActivityChanged: (Bool) -> Void = { _ in }
 
     enum Filter: String, CaseIterable, Identifiable {
         case all = "全部", recommendations = "推荐", artists = "艺术家", songs = "歌曲", playlists = "歌单", smart = "智能歌单"
@@ -39,6 +40,8 @@ struct TVLibraryView: View {
     private var selectedRecommendationIntentID =
         AIRecommendationIntentSelectionPolicy.defaultSelectionID
     @FocusState private var focusedFilter: Filter?
+    @State private var selectedArtist: TVArtist?
+    @State private var opensPlayerAfterArtistDismissal = false
 
     private let cols = 5
     private let gap: CGFloat = 36
@@ -89,6 +92,21 @@ struct TVLibraryView: View {
                 using: intelligence
             )
         }
+        .fullScreenCover(item: $selectedArtist, onDismiss: finishArtistDismissal) { artist in
+            TVArtistDetailView(
+                artist: artist,
+                openPlayer: { opensPlayerAfterArtistDismissal = true }
+            )
+                .environment(store)
+        }
+        .onChange(of: selectedArtist) { _, artist in
+            onModalActivityChanged(artist != nil)
+        }
+        .onDisappear {
+            if selectedArtist != nil {
+                onModalActivityChanged(false)
+            }
+        }
     }
 
     private var title: String {
@@ -114,7 +132,7 @@ struct TVLibraryView: View {
                         filter = f
                     } label: {
                         Text(f.display)
-                            .font(.system(size: 18, weight: f == filter ? .bold : .medium))
+                            .font(TVFont.button.weight(f == filter ? .bold : .medium))
                             .foregroundStyle(f == filter ? TVColor.onBrand : TVColor.text)
                             .padding(.horizontal, 26).padding(.vertical, 12)
                             .background(f == filter ? AnyShapeStyle(TVColor.brand)
@@ -131,6 +149,9 @@ struct TVLibraryView: View {
                     .buttonStyle(TVBareButtonStyle())
                     .focused($focusedFilter, equals: f)
                     .focusEffectDisabled()
+                    .accessibilityAddTraits(
+                        f == filter ? [.isButton, .isSelected] : .isButton
+                    )
                 }
             }
             // 筛选条独立成焦点区:从右上角某个筛选项往下能跳到下方网格(否则横纵混在一起跳不下去)。
@@ -219,7 +240,11 @@ struct TVLibraryView: View {
         case .artists:
             LazyVGrid(columns: columns, alignment: .leading, spacing: gap) {
                 ForEach(store.artists) { artist in
-                    TVArtistCard(artist: artist, size: cell * 0.82, action: openPlayer)
+                    TVArtistCard(
+                        artist: artist,
+                        size: cell * 0.82,
+                        action: { selectedArtist = artist }
+                    )
                         .frame(width: cell)
                 }
             }
@@ -429,6 +454,101 @@ struct TVLibraryView: View {
         aiRecommendation.orderedSongs(from: recommendationCandidates).compactMap {
             store.song($0.id)
         }
+    }
+
+    private func finishArtistDismissal() {
+        guard opensPlayerAfterArtistDismissal else { return }
+        opensPlayerAfterArtistDismissal = false
+        openPlayer()
+    }
+}
+
+/// TV artist destination shared by Library and Search. It keeps the artist's
+/// queue scope explicit instead of treating an artist card as a player shortcut.
+struct TVArtistDetailView: View {
+    @Environment(TVStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+
+    let artist: TVArtist
+    var openPlayer: () -> Void = {}
+
+    private var songs: [TVSong] { store.songs(forArtistID: artist.id) }
+
+    var body: some View {
+        ZStack {
+            TVAmbientBackdrop(tint: artist.tint, tint2: artist.tint2, strength: 0.55)
+            TVColor.bg.opacity(0.34).ignoresSafeArea()
+            HStack(alignment: .top, spacing: 72) {
+                VStack(alignment: .leading, spacing: 24) {
+                    TVCoverArt(
+                        tint: artist.tint,
+                        tint2: artist.tint2,
+                        glyph: artist.glyph,
+                        size: 300,
+                        radius: 150
+                    )
+                    Text(artist.name)
+                        .font(TVFont.pageTitle)
+                        .foregroundStyle(TVColor.text)
+                        .lineLimit(2)
+                    Text(PMString("ext.tv.songsCount", songs.count))
+                        .font(TVFont.body)
+                        .foregroundStyle(TVColor.textMuted)
+                    HStack(spacing: 14) {
+                        TVPillButton(
+                            title: PMString("ext.tv.home.playAll"),
+                            systemImage: "play.fill",
+                            style: .solid,
+                            action: { play(shuffled: false) }
+                        )
+                        TVPillButton(
+                            title: PMString("ext.tv.home.shuffle"),
+                            systemImage: "shuffle",
+                            action: { play(shuffled: true) }
+                        )
+                    }
+                    Spacer(minLength: 0)
+                }
+                .frame(width: 440, alignment: .leading)
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        TVEyebrow(text: PMString("ext.tv.search.songs"))
+                            .padding(.bottom, 6)
+                        if songs.isEmpty {
+                            TVEmptyState(
+                                icon: "music.note",
+                                title: PMString("ext.tv.search.noMatch")
+                            )
+                            .frame(minHeight: 360)
+                        } else {
+                            ForEach(songs) { song in
+                                TVSongRow(song: song, action: finishPlayback)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 20)
+                }
+                .focusSection()
+            }
+            .padding(.horizontal, 100)
+            .padding(.vertical, 72)
+        }
+        .onExitCommand { dismiss() }
+        .accessibilityIdentifier("tv.artist.detail")
+    }
+
+    private func play(shuffled: Bool) {
+        guard store.playResolvedQueue(songIDs: songs.map(\.id), shuffled: shuffled) else {
+            return
+        }
+        finishPlayback()
+    }
+
+    private func finishPlayback() {
+        openPlayer()
+        dismiss()
     }
 }
 

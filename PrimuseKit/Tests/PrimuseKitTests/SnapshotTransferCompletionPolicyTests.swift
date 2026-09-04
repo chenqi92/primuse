@@ -49,8 +49,10 @@ struct SnapshotTransferCompletionPolicyTests {
         let credentials = CredentialBundle()
         #expect(LANSyncPayload(
             libraryGz: Data([0x01]),
+            sourcesGz: Data([0x01]),
             credentials: credentials
         ).isCompleteForTransfer)
+        #expect(!LANSyncPayload(libraryGz: Data([0x01]), credentials: credentials).isCompleteForTransfer)
         #expect(!LANSyncPayload(credentials: credentials).isCompleteForTransfer)
         #expect(!LANSyncPayload(
             libraryGz: Data(),

@@ -695,3 +695,9 @@
 "src.subtitle.jellyfin" = "開源";
 "src.subtitle.emby" = "媒體伺服器";
 "src.subtitle.plex" = "Plex 媒體伺服器";
+"ext.tv.persistence.failed" = "無法儲存變更，請檢查可用儲存空間後再試。";
+"password" = "密碼";
+"api_key" = "API Key";
+"auth_method" = "驗證方式";
+"ssh_key" = "SSH 金鑰";
+"cue_track_title_format" = "曲目 %02d";

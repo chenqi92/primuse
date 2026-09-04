@@ -3207,7 +3207,11 @@ final class MusicLibrary {
         fileManager: FileManager = .default,
         disabledSourceIDs: Set<String> = [],
         storageDirectory: URL? = nil,
-        artistNameConfiguration: ArtistNameConfiguration? = nil
+        artistNameConfiguration: ArtistNameConfiguration? = nil,
+        preferExternalSnapshot: Bool = false,
+        songStoreSnapshotWriter: @escaping @Sendable (IncrementalSongStore, [Song], String?) throws -> Int64 = {
+            try $0.replaceAll(with: $1, snapshotImportID: $2)
+        }
     ) {
         self.artistNameConfiguration = (
             artistNameConfiguration
@@ -3251,7 +3255,8 @@ final class MusicLibrary {
         encoder.dateEncodingStrategy = .iso8601
         decoder.dateDecodingStrategy = .iso8601
 
-        loadSnapshot()
+        self.songStoreSnapshotWriter = songStoreSnapshotWriter
+        loadSnapshot(preferExternalSnapshot: preferExternalSnapshot)
 
         NotificationCenter.default.addObserver(
             forName: .primuseArtistNameConfigurationDidChange,
@@ -3763,6 +3768,54 @@ final class MusicLibrary {
             )
         }
     }
+
+    #if os(tvOS)
+    struct ScanPruningRecovery {
+        fileprivate let songs: [Song]
+        fileprivate let memberships: [String: [String]]
+        fileprivate let playlistDates: [String: Date]
+        fileprivate let recentIDs: [String]
+    }
+
+    func beginScanPruning(_ incoming: [Song], sourceID: String) -> ScanPruningRecovery {
+        let incomingIDs = Set(incoming.map(\.id))
+        let removed = songs.filter { $0.sourceID == sourceID && !incomingIDs.contains($0.id) }
+        let recovery = ScanPruningRecovery(
+            songs: removed, memberships: playlistSongIDs,
+            playlistDates: Dictionary(allPlaylists.map { ($0.id, $0.updatedAt) }, uniquingKeysWith: { first, _ in first }),
+            recentIDs: recentPlaybackSongIDs
+        )
+        // Cache deletion notifications are irreversible; publish them only
+        // after both the library and source checkpoint have committed.
+        addSongs(incoming, affectedSourceIDs: [sourceID], notifyRemovals: false)
+        return recovery
+    }
+
+    func rollbackScanPruning(_ recovery: ScanPruningRecovery) {
+        let removedIDs = Set(recovery.songs.map(\.id))
+        addSongs(recovery.songs.filter { songIndexByID[$0.id] == nil },
+                 notifyRemovals: false, pruneMissingSongs: false)
+        for playlist in allPlaylists where !playlist.isDeleted {
+            guard playlist.updatedAt == recovery.playlistDates[playlist.id],
+                  let original = recovery.memberships[playlist.id],
+                  playlistSongIDs[playlist.id] == original.filter({ !removedIDs.contains($0) }) else { continue }
+            // A user edit made while persistence was suspended takes priority
+            // over the pre-prune membership; only undo the scan's cleanup.
+            playlistSongIDs[playlist.id] = original.filter { songIndexByID[$0] != nil }
+        }
+        if recentPlaybackSongIDs == recovery.recentIDs.filter({ !removedIDs.contains($0) }) {
+            recentPlaybackSongIDs = recovery.recentIDs.filter { songIndexByID[$0] != nil }
+        }
+        playlistCollectionRevision &+= 1
+        persistNow()
+    }
+
+    func finishScanPruning(_ recovery: ScanPruningRecovery) {
+        guard !recovery.songs.isEmpty else { return }
+        NotificationCenter.default.post(name: .primuseSongsRemoved, object: nil,
+                                        userInfo: ["songs": recovery.songs])
+    }
+    #endif
 
     /// Compare fields consumed by song rows, Now Playing, and technical-info
     /// views without invoking Song's synthesized equality. The latter also
@@ -6444,7 +6497,45 @@ final class MusicLibrary {
     }
 
     /// tvOS 下载到新快照后重新从磁盘加载整库(songs/playlists 等)。
-    func reloadFromDisk() { loadSnapshot(preferExternalSnapshot: true) }
+    func reloadFromDisk(preferExternalSnapshot: Bool = true) {
+        loadSnapshot(preferExternalSnapshot: preferExternalSnapshot)
+    }
+
+    /// A scan must not publish completion while its visible catalogue still
+    /// represents the preceding generation.
+    func waitForPendingIndex() async {
+        flushDeferredLibraryMaintenance()
+        while let task = rebuildIndexTask {
+            await task.value
+        }
+    }
+
+    func remapSongIDs(_ replacements: [String: String]) {
+        guard !replacements.isEmpty else { return }
+        var seen = Set<String>()
+        songs = songs.compactMap { original in
+            var song = original
+            song.id = replacements[song.id] ?? song.id
+            return seen.insert(song.id).inserted ? song : nil
+        }
+        for playlistID in playlistSongIDs.keys {
+            var included = Set<String>()
+            playlistSongIDs[playlistID] = playlistSongIDs[playlistID]?.compactMap { old in
+                let id = replacements[old] ?? old
+                return included.insert(id).inserted ? id : nil
+            }
+        }
+        var recent = Set<String>()
+        recentPlaybackSongIDs = recentPlaybackSongIDs.compactMap { old in
+            let id = replacements[old] ?? old
+            return recent.insert(id).inserted ? id : nil
+        }
+        rebuildIndexSync()
+        persistSongChanges(upserts: songs, deletingIDs: Set(replacements.keys))
+        persistPlaylistDurabilityLedger()
+        persistNow()
+        playlistCollectionRevision &+= 1
+    }
 
     private func loadSnapshot(preferExternalSnapshot: Bool = false) {
         let loadStartedAt = ProcessInfo.processInfo.systemUptime
@@ -6474,6 +6565,7 @@ final class MusicLibrary {
         var canonicalSongs: [Song]?
         var resolvedSnapshot: Snapshot?
         var snapshotByteCount = 0
+        var externalSnapshotImportID: String?
         var canRefreshStartupCache = false
         var usedPortableStartupCache = false
         var readFinishedAt = ProcessInfo.processInfo.systemUptime
@@ -6552,6 +6644,7 @@ final class MusicLibrary {
                 readFinishedAt = ProcessInfo.processInfo.systemUptime
                 snapshotByteCount = data.count
                 if let decoded = try? decoder.decode(Snapshot.self, from: data) {
+                    if preferExternalSnapshot { externalSnapshotImportID = Self.snapshotImportID(for: data) }
                     resolvedSnapshot = decoded
                     canRefreshStartupCache = true
                     persistenceBlockedByCorruption = false
@@ -6602,12 +6695,16 @@ final class MusicLibrary {
         if shouldInspectLoadedSongs, let songStore {
             do {
                 if preferExternalSnapshot || canonicalSongs == nil {
-                    try songStore.replaceAll(with: loadedSongs)
+                    _ = try songStoreSnapshotWriter(songStore, loadedSongs, externalSnapshotImportID)
+                    songStoreRequiresReplacement = false
+                    pendingSnapshotImportID = nil
                 } else if !migration.changedSongs.isEmpty {
                     try songStore.apply(upserts: migration.changedSongs)
                 }
                 try songStore.markMigrationCompleted(version: Self.loadedSongMigrationVersion)
             } catch {
+                songStoreRequiresReplacement = true
+                pendingSnapshotImportID = externalSnapshotImportID
                 plog("⚠️ Incremental song store migration failed; JSON remains authoritative: \(error.localizedDescription)")
             }
         }
@@ -6681,7 +6778,7 @@ final class MusicLibrary {
         }
         let indexFinishedAt = ProcessInfo.processInfo.systemUptime
 
-        if startupCache == nil, canRefreshStartupCache {
+        if startupCache == nil, canRefreshStartupCache, !songStoreRequiresReplacement {
             let currentStoreRevision = try? songStore?.startupState().contentRevision
             scheduleStartupCacheWrite(
                 snapshot: makeSnapshot(),
@@ -6846,6 +6943,11 @@ final class MusicLibrary {
     /// Incremental SQLite writes are serialized independently from the JSON
     /// compatibility snapshot. Scan cursor commits await this chain.
     private var songStoreWriteTask: Task<Int64?, Never>?
+    @ObservationIgnored private var songStoreRequiresReplacement = false
+    @ObservationIgnored private var pendingSnapshotImportID: String?
+    @ObservationIgnored private var songStoreSnapshotWriter: @Sendable (IncrementalSongStore, [Song], String?) throws -> Int64 = {
+        try $0.replaceAll(with: $1, snapshotImportID: $2)
+    }
     /// Serializes off-main-actor snapshot writes. Each `persistNow` chains
     /// onto the previous write so the JSON encode + atomic write happen in
     /// order off the main thread, and the latest snapshot always wins.
@@ -7182,14 +7284,18 @@ final class MusicLibrary {
     }
 
     private func flushIncrementalSongStore() async -> Bool {
-        guard let songStoreWriteTask else { return true }
-        guard await songStoreWriteTask.value == nil else { return true }
+        let pendingSucceeded: Bool
+        if let songStoreWriteTask { pendingSucceeded = await songStoreWriteTask.value != nil }
+        else { pendingSucceeded = true }
+        guard songStoreRequiresReplacement || !pendingSucceeded else { return true }
         guard let songStore else { return false }
 
         let recoverySnapshot = songs
+        let writer = songStoreSnapshotWriter
+        let importID = pendingSnapshotImportID
         let recoveryTask = Task<Int64?, Never>.detached(priority: .utility) {
             do {
-                return try songStore.replaceAll(with: recoverySnapshot)
+                return try writer(songStore, recoverySnapshot, importID)
             } catch {
                 plog("⛔ Incremental song recovery failed: \(error.localizedDescription)")
                 return nil
@@ -7201,7 +7307,13 @@ final class MusicLibrary {
             return false
         }
         self.songStoreWriteTask = Task { recoveredRevision }
+        songStoreRequiresReplacement = false
+        pendingSnapshotImportID = nil
         return true
+    }
+
+    nonisolated static func snapshotImportID(for data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Encode + atomically write a snapshot. `nonisolated` so it runs off the
@@ -7245,6 +7357,62 @@ final class MusicLibrary {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return (try? decoder.decode(Snapshot.self, from: data)) != nil
+    }
+
+    nonisolated static func mergingSnapshotUserState(
+        localData: Data,
+        incomingData: Data,
+        locallyRetainedSongIDs: Set<String>
+    ) throws -> Data {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let local = try decoder.decode(Snapshot.self, from: localData)
+        var incoming = try decoder.decode(Snapshot.self, from: incomingData)
+        var membership = incoming.playlistSongIDs ?? [:]
+        var pending = incoming.pendingPlaylistIdentities ?? [:]
+        for playlist in local.playlists {
+            if let index = incoming.playlists.firstIndex(where: { $0.id == playlist.id }) {
+                if PlaylistReconciliationPolicy.winner(local: playlist, remote: incoming.playlists[index]) == .local {
+                    incoming.playlists[index] = playlist
+                    membership[playlist.id] = local.playlistSongIDs?[playlist.id] ?? []
+                    pending[playlist.id] = local.pendingPlaylistIdentities?[playlist.id] ?? []
+                } else if !incoming.playlists[index].isDeleted {
+                    // Cloud snapshots omit device-local songs. A newer remote
+                    // playlist must not erase its locally owned occurrences.
+                    let retained = (local.playlistSongIDs?[playlist.id] ?? []).filter {
+                        locallyRetainedSongIDs.contains($0)
+                    }
+                    var seen = Set(membership[playlist.id] ?? [])
+                    membership[playlist.id, default: []].append(contentsOf: retained.filter { seen.insert($0).inserted })
+                }
+            } else {
+                incoming.playlists.append(playlist)
+                membership[playlist.id] = local.playlistSongIDs?[playlist.id] ?? []
+                pending[playlist.id] = local.pendingPlaylistIdentities?[playlist.id] ?? []
+            }
+        }
+        incoming.playlistSongIDs = membership
+        incoming.pendingPlaylistIdentities = pending
+        var smart = incoming.smartPlaylists ?? []
+        for playlist in local.smartPlaylists ?? [] {
+            if let index = smart.firstIndex(where: { $0.id == playlist.id }) {
+                if playlist.updatedAt > smart[index].updatedAt { smart[index] = playlist }
+            } else { smart.append(playlist) }
+        }
+        incoming.smartPlaylists = smart
+        var recent = Set<String>()
+        incoming.recentPlaybackSongIDs = Array(
+            ((local.recentPlaybackSongIDs ?? []) + (incoming.recentPlaybackSongIDs ?? []))
+                .filter { recent.insert($0).inserted }.prefix(100)
+        )
+        var identities = Set<PendingSongIdentity>()
+        incoming.pendingHistoryIdentities = ((local.pendingHistoryIdentities ?? []) + (incoming.pendingHistoryIdentities ?? []))
+            .filter { identities.insert($0).inserted }
+        incoming.deletedSongIdentities = Array(Set(local.deletedSongIdentities ?? []).union(incoming.deletedSongIdentities ?? []))
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        return try encoder.encode(incoming)
     }
 
     nonisolated static func isValidSnapshot(at url: URL) -> Bool {

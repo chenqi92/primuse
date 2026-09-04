@@ -13,8 +13,9 @@ struct TVSourcesView: View {
     @Environment(TVStore.self) private var store
     @State private var pendingDelete: TVSource?
     @State private var credentialEditor: TVSource?
-    @State private var testing: String?            // 正在测试的 sourceID
+    @State private var testingSourceIDs: Set<String> = []
     @State private var testResult: TVTestResult?
+    @State private var queuedTestResults: [TVTestResult] = []
     @State private var typePicker = false           // 新增源:先选类型
     @State private var sourceForm: TVSourceForm?    // 新增 / 编辑源表单
     @State private var pendingSourceForm: TVSourceForm?
@@ -66,19 +67,24 @@ struct TVSourcesView: View {
                             VStack(spacing: 12) {
                                 ForEach(store.sources) { s in
                                     TVSourceRow(source: s,
-                                                testing: testing == s.id,
+                                                testing: testingSourceIDs.contains(s.id),
+                                                canEdit: store.source(id: s.id).map(
+                                                    TVSourceEditPolicy.canEdit
+                                                ) ?? false,
                                                 onSelect: {
-                                                    if s.needsInitialScan,
+                                                    if s.status == .disabled {
+                                                        store.setSourceEnabled(s.id, true)
+                                                    } else if s.status == .scanning || s.needsInitialScan,
                                                        let source = store.source(id: s.id) {
                                                         scanSource = source
                                                     } else {
-                                                        store.setSourceEnabled(
-                                                            s.id,
-                                                            s.status == .disabled
-                                                        )
+                                                        store.setSourceEnabled(s.id, false)
                                                     }
                                                 },
                                                 onToggle: {
+                                                    if s.status == .scanning {
+                                                        store.cancelScan(sourceID: s.id)
+                                                    }
                                                     store.setSourceEnabled(
                                                         s.id,
                                                         s.status == .disabled
@@ -179,12 +185,9 @@ struct TVSourcesView: View {
         }
         .alert(PMString("ext.tv.sources.testConnection"), isPresented: Binding(
             get: { testResult != nil },
-            set: { if !$0 { testResult = nil } }
+            set: { if !$0 { advanceTestResultQueue() } }
         ), presenting: testResult) { _ in
-            Button(PMString("ext.tv.sources.ok"), role: .cancel) {
-                testResult = nil
-                restorePrimaryFocus()
-            }
+            Button(PMString("ext.tv.sources.ok"), role: .cancel) {}
         } message: { r in
             Text(PMString("ext.tv.test.resultBody", r.sourceName, r.message))
         }
@@ -236,11 +239,29 @@ struct TVSourcesView: View {
     }
 
     private func runTest(_ s: TVSource) {
-        testing = s.id
+        guard testingSourceIDs.insert(s.id).inserted else { return }
         Task {
             let msg = await store.testConnection(forSourceID: s.id)
-            testing = nil
-            testResult = TVTestResult(sourceName: s.name, message: msg)
+            testingSourceIDs.remove(s.id)
+            let completed = TVTestResult(sourceName: s.name, message: msg)
+            if testResult == nil {
+                testResult = completed
+            } else {
+                queuedTestResults.append(completed)
+            }
+        }
+    }
+
+    private func advanceTestResultQueue() {
+        testResult = nil
+        guard !queuedTestResults.isEmpty else {
+            restorePrimaryFocus()
+            return
+        }
+        let next = queuedTestResults.removeFirst()
+        Task { @MainActor in
+            await Task.yield()
+            testResult = next
         }
     }
 
@@ -367,6 +388,7 @@ private struct TVSourcesInfoCard: View {
 private struct TVSourceRow: View {
     let source: TVSource
     var testing: Bool = false
+    var canEdit = false
     var onSelect: () -> Void = {}            // 点击:启用 / 停用切换
     var onToggle: () -> Void = {}            // 长按菜单:启用 / 停用切换
     var onDelete: () -> Void = {}            // 长按菜单:从 Apple TV 移除
@@ -387,14 +409,14 @@ private struct TVSourceRow: View {
                     .frame(width: 46, height: 46)
                     .background(source.color, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(source.name).font(.system(size: 22, weight: .semibold))
+                    Text(source.name).font(TVFont.cardTitle)
                         .foregroundStyle(TVColor.text).lineLimit(1)
                     Text(PMString(
                         "ext.tv.sources.typeSongs",
                         MusicSourceType(rawValue: source.type)?.displayName ?? source.type.uppercased(),
                         TVFmt.count(source.songs)
                     ))
-                        .font(.system(size: 16, design: .monospaced))
+                        .font(.system(.callout, design: .monospaced))
                         .foregroundStyle(TVColor.textFaint)
                     if let availabilityNote = source.availabilityNote {
                         Label(availabilityNote, systemImage: "clock.badge.exclamationmark")
@@ -448,8 +470,10 @@ private struct TVSourceRow: View {
                     Label(PMString("ext.tv.sources.enterCredentials"), systemImage: "key")
                 }
             }
-            Button { onEdit() } label: {
-                Label(PMString("ext.tv.sources.editConnection"), systemImage: "slider.horizontal.3")
+            if canEdit {
+                Button { onEdit() } label: {
+                    Label(PMString("ext.tv.sources.editConnection"), systemImage: "slider.horizontal.3")
+                }
             }
             if source.canScan {
                 Button { onScan() } label: {
@@ -464,10 +488,12 @@ private struct TVSourceRow: View {
             Button { onTestConnection() } label: {
                 Label(PMString("ext.tv.sources.testConnection"), systemImage: "antenna.radiowaves.left.and.right")
             }
+            .disabled(testing)
             Button(role: .destructive) { onDelete() } label: {
                 Label(PMString("ext.tv.sources.removeFromTV"), systemImage: "trash")
             }
         }
+        .accessibilityValue(Text(statusLabel))
     }
 
     // MARK: 可播放性徽标

@@ -698,3 +698,9 @@
 "src.subtitle.jellyfin" = "Open Source";
 "src.subtitle.emby" = "Medienserver";
 "src.subtitle.plex" = "Plex-Medienserver";
+"ext.tv.persistence.failed" = "Änderungen konnten nicht gespeichert werden. Prüfe den freien Speicherplatz und versuche es erneut.";
+"password" = "Passwort";
+"api_key" = "API Key";
+"auth_method" = "Authentifizierungsmethode";
+"ssh_key" = "SSH-Schlüssel";
+"cue_track_title_format" = "Titel %02d";

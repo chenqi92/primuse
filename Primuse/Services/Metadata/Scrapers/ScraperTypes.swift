@@ -179,6 +179,7 @@ extension MusicScraperType: Codable {
 
 // MARK: - Color hex init
 
+#if !os(tvOS)
 extension Color {
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
@@ -195,3 +196,4 @@ extension Color {
         self.init(red: r, green: g, blue: b)
     }
 }
+#endif

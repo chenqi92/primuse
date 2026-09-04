@@ -1865,41 +1865,173 @@ final class LibrarySnapshotSync: Sendable {
     #endif
 
     #if os(tvOS)
+    static var tvTransactionDirectory: URL {
+        shared.directory.appendingPathComponent("snapshot-transaction", isDirectory: true)
+    }
+
+    static var tvPendingImportURL: URL {
+        shared.directory.appendingPathComponent("tv-pending-library-import.json")
+    }
+
+    @discardableResult
+    static func recoverTVSnapshot(directory: URL? = nil) throws -> Bool {
+        let root = directory ?? shared.directory
+        let pendingURL = root.appendingPathComponent("tv-pending-library-import.json")
+        try SnapshotFileTransaction(directory: root.appendingPathComponent("snapshot-transaction")).recover()
+        guard FileManager.default.fileExists(atPath: pendingURL.path) else { return false }
+        let pending = try Data(contentsOf: pendingURL)
+        guard MusicLibrary.isValidSnapshotData(pending) else { throw CocoaError(.fileReadCorruptFile) }
+        let databaseURL = root.appendingPathComponent("library-songs.sqlite")
+        if FileManager.default.fileExists(atPath: databaseURL.path) {
+            let store = try IncrementalSongStore(path: databaseURL.path)
+            if try store.lastSnapshotImportID() == MusicLibrary.snapshotImportID(for: pending) {
+                // The receipt commits with the rows. A failed marker cleanup
+                // must never replay an old snapshot over subsequent edits.
+                try? finishTVSnapshotImport(directory: root)
+                return false
+            }
+        }
+        try pending.write(to: root.appendingPathComponent("library-cache.json"), options: .atomic)
+        return true
+    }
+
+    static func finishTVSnapshotImport(directory: URL? = nil) throws {
+        let pendingURL = directory?.appendingPathComponent("tv-pending-library-import.json") ?? tvPendingImportURL
+        if FileManager.default.fileExists(atPath: pendingURL.path) {
+            try FileManager.default.removeItem(at: pendingURL)
+        }
+    }
+
+    /// Read both records before touching the live files. Re-reading the
+    /// snapshot change tag rejects a concurrent source/library replacement.
+    func downloadTVPayload() async -> LANSyncPayload? {
+        guard let database else { return nil }
+        do {
+            for _ in 0..<3 {
+                let record = try await database.record(for: recordID)
+                let rawLibrary: Data?
+                if let gz = record["libraryGz"] as? Data {
+                    rawLibrary = Self.gunzip(gz)
+                } else if let url = (record["library"] as? CKAsset)?.fileURL {
+                    guard let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+                          size <= Self.maxLibraryRawBytes else { return nil }
+                    rawLibrary = try Data(contentsOf: url)
+                } else { return nil }
+                guard let rawLibrary, rawLibrary.count <= Self.maxLibraryRawBytes,
+                      MusicLibrary.isValidSnapshotData(rawLibrary),
+                      let sourceData = sourcesSnapshotData(from: record, fm: .default),
+                      let libraryGz = Self.gzip(rawLibrary),
+                      let sourcesGz = Self.gzip(sourceData) else { return nil }
+                let credentials = await downloadCredentials()
+                let latest = try await database.record(for: recordID)
+                guard latest.recordChangeTag == record.recordChangeTag else { continue }
+                var payload = LANSyncPayload(libraryGz: libraryGz, sourcesGz: sourcesGz,
+                                             credentials: credentials)
+                if let gz = record["radioStationsGz"] as? Data {
+                    payload.radioStationsGz = gz
+                } else if let url = (record["radioStations"] as? CKAsset)?.fileURL {
+                    guard let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+                          size <= Self.maxRadioStationsRawBytes else { return nil }
+                    payload.radioStationsGz = Self.gzip(try Data(contentsOf: url))
+                }
+                payload.lyricsGz = record["lyricsGz"] as? Data
+                return payload
+            }
+        } catch {
+            plog("TV snapshot download failed: \(error.localizedDescription)")
+        }
+        return nil
+    }
+
+    func installTVPayload(_ payload: LANSyncPayload, credentialReference: Data?,
+                          fromCloud: Bool = false, preservingSongs: [Song] = [],
+                          localSources: [MusicSource]? = nil,
+                          destinationDirectory: URL? = nil,
+                          fileWriter: (Data, URL) throws -> Void = { try $0.write(to: $1, options: .atomic) }) -> Bool {
+        do {
+            let root = destinationDirectory ?? directory
+            let sourceDestination = root.appendingPathComponent("sources.json")
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let localSourceData: Data?
+            if let localSources {
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                localSourceData = try encoder.encode(localSources)
+            } else if FileManager.default.fileExists(atPath: sourceDestination.path) {
+                let data = try Data(contentsOf: sourceDestination)
+                _ = try decoder.decode([MusicSource].self, from: data)
+                localSourceData = data
+            } else { localSourceData = nil }
+            guard let libraryGz = payload.libraryGz, let sourcesGz = payload.sourcesGz,
+                  var libraryData = Self.gunzip(libraryGz),
+                  MusicLibrary.isValidSnapshotData(libraryData),
+                  let sourceData = Self.gunzip(sourcesGz, maxOutputBytes: Self.maxSourcesRawBytes),
+                  let merged = mergeSourcesJSON(localData: localSourceData,
+                                                incomingData: sourceData) else { return false }
+            let libraryDestination = root.appendingPathComponent("library-cache.json")
+            if FileManager.default.fileExists(atPath: libraryDestination.path) {
+                let originalRows = try JSONSerialization.jsonObject(with: libraryData) as? [String: Any]
+                let incomingIDs = Set((originalRows?["songs"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String })
+                libraryData = try MusicLibrary.mergingSnapshotUserState(
+                    localData: Data(contentsOf: libraryDestination), incomingData: libraryData,
+                    locallyRetainedSongIDs: Set(preservingSongs.map(\.id)).subtracting(incomingIDs)
+                )
+            }
+            let sourceIDs = Set(try decoder.decode([MusicSource].self, from: merged.data).map(\.id))
+            guard var object = try JSONSerialization.jsonObject(with: libraryData) as? [String: Any],
+                  let rows = object["songs"] as? [[String: Any]] else { return false }
+            let knownRows = rows.filter { ($0["sourceID"] as? String).map(sourceIDs.contains) == true }
+            guard fromCloud || knownRows.count == rows.count else { return false }
+            if !preservingSongs.isEmpty || knownRows.count != rows.count {
+                let incomingIDs = Set(knownRows.compactMap { $0["id"] as? String })
+                let retained = preservingSongs.filter { !incomingIDs.contains($0.id) && sourceIDs.contains($0.sourceID) }
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                let retainedRows = try JSONSerialization.jsonObject(with: encoder.encode(retained)) as? [[String: Any]] ?? []
+                object["songs"] = knownRows + retainedRows
+                libraryData = try JSONSerialization.data(withJSONObject: object, options: .sortedKeys)
+            }
+            var files: [URL: Data] = [root.appendingPathComponent("library-cache.json"): libraryData,
+                                      sourceDestination: merged.data,
+                                      root.appendingPathComponent("tv-pending-library-import.json"): libraryData]
+            if let credentialReference {
+                files[root.appendingPathComponent("paired-credential-reference.json")] = credentialReference
+            }
+            if let gz = payload.radioStationsGz {
+                guard let raw = Self.gunzip(gz, maxOutputBytes: Self.maxRadioStationsRawBytes),
+                      Self.radioStations(from: raw) != nil else { return false }
+                files[root.appendingPathComponent("radio-stations.json")] = raw
+            }
+            if let gz = payload.lyricsGz {
+                guard let raw = Self.gunzip(gz, maxOutputBytes: Self.maxLyricsBlobRawBytes) else { return false }
+                let lyrics = try JSONDecoder().decode([String: String].self, from: raw)
+                for (name, encoded) in lyrics {
+                    guard Self.isSafeLyricsFileName(name),
+                          let destination = Self.safeChildURL(in: destinationDirectory?.appendingPathComponent("lyrics")
+                                                              ?? MetadataAssetStore.shared.lyricsDirectoryURL,
+                                                              fileName: name),
+                          let bytes = Data(base64Encoded: encoded),
+                          bytes.count <= Self.maxSingleLyricsFileBytes else { return false }
+                    files[destination] = bytes
+                }
+            }
+            try SnapshotFileTransaction(directory: root.appendingPathComponent("snapshot-transaction"))
+                .apply(files, writer: fileWriter)
+            return true
+        } catch {
+            plog("TV snapshot transaction failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
     /// tvOS:把 iPhone 经局域网直传来的载荷落盘(整库 + 源 + 歌词),与 CloudKit
     /// `download()` 写盘同路。返回有效整库是否成功落盘。凭据由调用方
     /// (TVStore)单独经 TVCredentialStore 持久化。
     @discardableResult
     func applyLANPayload(_ payload: LANSyncPayload) -> Bool {
-        let fm = FileManager.default
-        try? fm.createDirectory(at: directory, withIntermediateDirectories: true)
-        guard let gz = payload.libraryGz,
-              Self.gunzipToFile(
-                  gz,
-                  maxOutputBytes: Self.maxLibraryRawBytes,
-                  destination: libraryCacheURL,
-                  fm: fm,
-                  validate: { MusicLibrary.isValidSnapshot(at: $0) }
-              ) != nil else {
-            plog("LibrarySnapshotSync: rejected LAN payload without a valid library snapshot")
-            return false
-        }
-        if let gz = payload.sourcesGz,
-           let incoming = Self.gunzip(gz, maxOutputBytes: Self.maxSourcesRawBytes),
-           let merged = mergeSourcesJSON(localData: try? Data(contentsOf: sourcesURL), incomingData: incoming) {
-            try? fm.createDirectory(at: sourcesURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? merged.data.write(to: sourcesURL, options: .atomic)
-            plog("LibrarySnapshotSync: merged LAN sources local=\(merged.localCount) incoming=\(merged.incomingCount) total=\(merged.totalCount)")
-        }
-        if let gz = payload.radioStationsGz,
-           let raw = Self.gunzip(gz, maxOutputBytes: Self.maxRadioStationsRawBytes),
-           Self.radioStations(from: raw) != nil {
-            try? raw.write(to: radioStationsURL, options: .atomic)
-        }
-        if let gz = payload.lyricsGz, let raw = Self.gunzip(gz, maxOutputBytes: Self.maxLyricsBlobRawBytes) {
-            Self.writeLyrics(blob: raw, fm: fm)
-        }
-        plog("LibrarySnapshotSync: applied LAN payload (library=true)")
-        return true
+        guard payload.isCompleteForTransfer else { return false }
+        return installTVPayload(payload, credentialReference: nil)
     }
     #endif
 }

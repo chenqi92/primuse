@@ -698,3 +698,9 @@
 "src.subtitle.jellyfin" = "Logiciel libre";
 "src.subtitle.emby" = "Serveur multimédia";
 "src.subtitle.plex" = "Serveur multimédia Plex";
+"ext.tv.persistence.failed" = "Impossible d’enregistrer les modifications. Vérifiez l’espace disponible et réessayez.";
+"password" = "Mot de passe";
+"api_key" = "API Key";
+"auth_method" = "Méthode d'authentification";
+"ssh_key" = "Clé SSH";
+"cue_track_title_format" = "Piste %02d";

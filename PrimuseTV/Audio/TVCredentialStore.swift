@@ -73,13 +73,16 @@ enum TVCredentialStore {
         }
         if source.type.isCloudDrive,
            let oauth = oauthCredentialFromKeychain(sourceID: source.id) {
-            if oauth.token?.isEmpty == false { cred.token = oauth.token }
-            if oauth.refreshToken?.isEmpty == false { cred.refreshToken = oauth.refreshToken }
-            if oauth.clientID?.isEmpty == false { cred.clientID = oauth.clientID }
-            if oauth.clientSecret?.isEmpty == false { cred.clientSecret = oauth.clientSecret }
-            for (key, value) in oauth.extra where !value.isEmpty {
+            if cred.token?.isEmpty != false { cred.token = oauth.token }
+            if cred.refreshToken?.isEmpty != false { cred.refreshToken = oauth.refreshToken }
+            if cred.clientID?.isEmpty != false { cred.clientID = oauth.clientID }
+            if cred.clientSecret?.isEmpty != false { cred.clientSecret = oauth.clientSecret }
+            for (key, value) in oauth.extra where !value.isEmpty && cred.extra[key] == nil {
                 cred.extra[key] = value
             }
+        }
+        if source.authType == .password, let username = source.username, !username.isEmpty {
+            cred.username = username
         }
         if source.type == .fnMusic,
            cred.extra[FnMusicAPIProtocol.fnConnectAccessCodeCredentialKey]?.isEmpty != false {
@@ -354,6 +357,40 @@ enum TVCredentialStore {
     // 一条非同步钥匙串项,与同步读取彻底隔离。
 
     private static let pairedBundleAccount = "tv-paired-bundle"
+    static var pairedBundleReferenceURL: URL {
+        FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+            .appendingPathComponent("Primuse/paired-credential-reference.json")
+    }
+
+    private static var activePairedBundleAccount: String {
+        guard let data = try? Data(contentsOf: pairedBundleReferenceURL),
+              let id = try? JSONDecoder().decode(UUID.self, from: data) else {
+            return pairedBundleAccount
+        }
+        return "\(pairedBundleAccount).\(id.uuidString)"
+    }
+
+    /// Only this non-secret reference enters the file transaction. The bundle
+    /// is staged in a separate Keychain item before any catalogue is replaced.
+    static func stagePairedBundle(_ bundle: CredentialBundle) -> Data? {
+        let id = UUID()
+        guard let data = try? bundle.jsonData(),
+              upsert(data: data, account: "\(pairedBundleAccount).\(id.uuidString)") else { return nil }
+        return try? JSONEncoder().encode(id)
+    }
+
+    static func discardInactiveStagedBundle(reference: Data) {
+        guard let id = try? JSONDecoder().decode(UUID.self, from: reference) else { return }
+        let account = "\(pairedBundleAccount).\(id.uuidString)"
+        guard account != activePairedBundleAccount else { return }
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: PrimuseConstants.keychainServiceName,
+            kSecAttrAccount as String: account,
+            kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
+        ]
+        _ = SecItemDelete(query as CFDictionary)
+    }
 
     @discardableResult
     static func savePairedBundle(_ bundle: CredentialBundle) -> Bool {
@@ -361,7 +398,7 @@ enum TVCredentialStore {
             return clearPairedBundle()
         }
         guard let data = try? bundle.jsonData() else { return false }
-        return upsert(data: data, account: pairedBundleAccount)
+        return upsert(data: data, account: activePairedBundleAccount)
     }
 
     /// 先尝试原地更新，只有条目不存在时才新增。写入失败不会删除旧值，避免
@@ -401,7 +438,7 @@ enum TVCredentialStore {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: PrimuseConstants.keychainServiceName,
-            kSecAttrAccount as String: pairedBundleAccount,
+            kSecAttrAccount as String: activePairedBundleAccount,
             kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
         ]
         let status = SecItemDelete(query as CFDictionary)
@@ -412,7 +449,7 @@ enum TVCredentialStore {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: PrimuseConstants.keychainServiceName,
-            kSecAttrAccount as String: pairedBundleAccount,
+            kSecAttrAccount as String: activePairedBundleAccount,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
             kSecAttrSynchronizable as String: kCFBooleanFalse as Any,

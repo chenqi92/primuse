@@ -26,6 +26,7 @@ struct TVSettingsView: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var onNavigate: (TVRoot.Tab) -> Void = { _ in }
     @AppStorage("tvAutoSync") private var autoSync = true
     @AppStorage(AppThemePreferences.accentHexKey)
@@ -177,6 +178,8 @@ struct TVSettingsView: View {
                 .padding(.vertical, 72)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .disabled(showsEffectPicker || showsThemePicker)
+            .accessibilityHidden(showsEffectPicker || showsThemePicker)
 
             if showsEffectPicker {
                 TVFullscreenEffectPicker(
@@ -198,8 +201,8 @@ struct TVSettingsView: View {
                 .zIndex(11)
             }
         }
-        .animation(.easeInOut(duration: 0.24), value: showsEffectPicker)
-        .animation(.easeInOut(duration: 0.24), value: showsThemePicker)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: showsEffectPicker)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: showsThemePicker)
         .fullScreenCover(isPresented: $showsAISettings) {
             TVAISettingsContainer()
                 .environment(intelligence)
@@ -224,9 +227,11 @@ struct TVSettingsView: View {
         isSyncing = true
         syncMsg = nil
         Task {
-            await store.bootstrap()
+            let succeeded = await store.bootstrap()
             isSyncing = false
-            syncMsg = !store.hasRealLibrary ? PMString("ext.tv.settings.noSnapshot") : PMString("ext.tv.settings.synced", TVFmt.count(store.songs.count))
+            syncMsg = succeeded
+                ? PMString("ext.tv.settings.synced", TVFmt.count(store.songs.count))
+                : PMString("ext.tv.settings.noSnapshot")
         }
     }
 

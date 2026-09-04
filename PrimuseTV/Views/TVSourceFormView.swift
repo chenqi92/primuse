@@ -17,6 +17,19 @@ struct TVSourceForm: Identifiable {
     var prefillUseSsl: Bool? = nil
 }
 
+enum TVSourceEditPolicy {
+    /// TV can safely edit address-backed sources represented by this form.
+    /// OAuth/cookie providers and S3 have provider-specific state that this
+    /// compact TV form must not rewrite.
+    static func canEdit(_ source: MusicSource) -> Bool {
+        source.type.requiresHost
+            && !source.type.isAwaitingPublicAPI
+            && source.type != .s3
+            && source.authType != .oauth
+            && source.authType != .cookie
+    }
+}
+
 // MARK: - 第 1 步:选择服务类型(全屏玻璃态网格)
 
 struct TVSourceTypePicker: View {
@@ -183,6 +196,7 @@ struct TVSourceFormView: View {
     @State private var fnMusicConnectionMode: FnMusicConnectionMode = .fnConnect
     @State private var username = ""
     @State private var password = ""
+    @State private var authType: SourceAuthType = .password
     @State private var fnConnectAccessCode = ""
     @State private var useGuestAccess = false
     @State private var pathText = ""
@@ -192,7 +206,14 @@ struct TVSourceFormView: View {
 
     private var showsSSL: Bool { type.category == .mediaServer || type.category == .nas || type == .webdav }
     private var supportsAdaptiveConnections: Bool { type.supportsAdaptiveConnections }
-    private var showsAuth: Bool { type != .nfs }
+    private var showsAuth: Bool { type.requiresCredentials }
+    private var supportsAPIKeyAuth: Bool {
+        type == .jellyfin || type == .emby || type == .plex
+    }
+    private var showsAuthPicker: Bool { type == .sftp || supportsAPIKeyAuth }
+    private var effectiveAuthType: SourceAuthType {
+        useGuestAccess ? .none : authType
+    }
     private var validatedPort: Int? {
         let trimmed = portText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let value = Int(trimmed), (1...65_535).contains(value) else { return nil }
@@ -235,27 +256,41 @@ struct TVSourceFormView: View {
     }
     private var canSave: Bool {
         let hasName = !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard hasName else { return false }
         let legacyConnectionIsValid = !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && ((type == .synology && synologyConnectionMode == .quickConnect)
                 ? SynologyQuickConnectResolver.isValidQuickConnectID(host)
                 : ((type == .fnMusic && fnMusicConnectionMode == .fnConnect)
                     ? FnConnectResolver.isValidFNID(host)
                     : validatedPort != nil))
-        let connectionIsValid = hasName
-            && (supportsAdaptiveConnections ? adaptiveConnectionIsValid : legacyConnectionIsValid)
-        guard connectionIsValid else { return false }
-        if type == .fnMusic || type == .daoliyu {
+        if type.requiresHost {
+            let connectionIsValid = supportsAdaptiveConnections
+                ? adaptiveConnectionIsValid
+                : legacyConnectionIsValid
+            guard connectionIsValid else { return false }
+        }
+        guard showsAuth else { return true }
+
+        let keepsStoredSecret = editing?.authType == effectiveAuthType && password.isEmpty
+        switch effectiveAuthType {
+        case .none:
+            return type.supportsAnonymous
+        case .password:
             guard !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return false
             }
-            if editing == nil && password.isEmpty { return false }
+            if type == .jellyfin || type == .emby { return true }
+            return keepsStoredSecret || !password.isEmpty
+        case .sshKey:
+            return !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && (keepsStoredSecret || !password.isEmpty)
+        case .apiKey:
+            return keepsStoredSecret || !password.isEmpty
+        case .cookie, .oauth:
+            return keepsStoredSecret
         }
-        if type.supportsAnonymous && !useGuestAccess {
-            guard !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-            if editing == nil && password.isEmpty { return false }
-        }
-        return true
     }
+    private var canTestConnection: Bool { type.requiresHost && canSave }
     private var pathLabel: String {
         switch type {
         case .smb: return PMString("ext.tv.sources.form.share")
@@ -363,47 +398,49 @@ struct TVSourceFormView: View {
                             : PMString("ext.tv.sources.editConnection")
                     )
                     Text(PMString("ext.tv.sources.connectionTitle", type.displayName))
-                        .font(.system(size: 36, weight: .bold)).foregroundStyle(TVColor.text)
+                        .font(TVFont.pageTitle).foregroundStyle(TVColor.text)
                 }
             }
             .padding(.bottom, 8)
 
             TVFormField(label: PMString("ext.tv.sources.form.name"), text: $name, autofocus: true)
-            if supportsAdaptiveConnections {
-                adaptiveConnectionFields
-            } else {
-                if type == .synology {
-                    Picker(PMString("synology_connection_method"), selection: $synologyConnectionMode) {
-                        Text(PMString("synology_connection_quickconnect"))
-                            .tag(SynologyConnectionMode.quickConnect)
-                        Text(PMString("synology_connection_address"))
-                            .tag(SynologyConnectionMode.address)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: 720)
-                }
-                if type == .fnMusic {
-                    Picker(PMString("fnmusic_connection_method"), selection: $fnMusicConnectionMode) {
-                        Text(PMString("fnmusic_connection_fnconnect"))
-                            .tag(FnMusicConnectionMode.fnConnect)
-                        Text(PMString("fnmusic_connection_address"))
-                            .tag(FnMusicConnectionMode.address)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: 720)
-                }
-                TVFormField(label: connectionAddressLabel, text: $host, mono: true)
-                if type == .synology, synologyConnectionMode == .quickConnect {
-                    connectionHint("synology_quickconnect_hint")
-                } else if type == .fnMusic, fnMusicConnectionMode == .fnConnect {
-                    connectionHint("fnmusic_fnconnect_hint")
+            if type.requiresHost {
+                if supportsAdaptiveConnections {
+                    adaptiveConnectionFields
                 } else {
-                    TVFormField(label: PMString("ext.tv.sources.form.port"), text: $portText, mono: true)
-                }
-                if showsSSL
-                    && !(type == .synology && synologyConnectionMode == .quickConnect)
-                    && !(type == .fnMusic && fnMusicConnectionMode == .fnConnect) {
-                    connectionSSLToggle(isOn: $useSsl)
+                    if type == .synology {
+                        Picker(PMString("synology_connection_method"), selection: $synologyConnectionMode) {
+                            Text(PMString("synology_connection_quickconnect"))
+                                .tag(SynologyConnectionMode.quickConnect)
+                            Text(PMString("synology_connection_address"))
+                                .tag(SynologyConnectionMode.address)
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 720)
+                    }
+                    if type == .fnMusic {
+                        Picker(PMString("fnmusic_connection_method"), selection: $fnMusicConnectionMode) {
+                            Text(PMString("fnmusic_connection_fnconnect"))
+                                .tag(FnMusicConnectionMode.fnConnect)
+                            Text(PMString("fnmusic_connection_address"))
+                                .tag(FnMusicConnectionMode.address)
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 720)
+                    }
+                    TVFormField(label: connectionAddressLabel, text: $host, mono: true)
+                    if type == .synology, synologyConnectionMode == .quickConnect {
+                        connectionHint("synology_quickconnect_hint")
+                    } else if type == .fnMusic, fnMusicConnectionMode == .fnConnect {
+                        connectionHint("fnmusic_fnconnect_hint")
+                    } else {
+                        TVFormField(label: PMString("ext.tv.sources.form.port"), text: $portText, mono: true)
+                    }
+                    if showsSSL
+                        && !(type == .synology && synologyConnectionMode == .quickConnect)
+                        && !(type == .fnMusic && fnMusicConnectionMode == .fnConnect) {
+                        connectionSSLToggle(isOn: $useSsl)
+                    }
                 }
             }
             if showsAuth {
@@ -416,14 +453,36 @@ struct TVSourceFormView: View {
                     .background(TVColor.surfaceSubtle, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 if !useGuestAccess {
-                    TVFormField(label: PMString("ext.tv.sources.cred.username"), text: $username, mono: true)
-                    TVFormField(
-                        label: editing == nil
-                            ? PMString("ext.tv.sources.cred.password")
-                            : PMString("ext.tv.sources.form.passwordKeep"),
-                        text: $password,
-                        secure: true
-                    )
+                    if showsAuthPicker {
+                        Picker(PMString("auth_method"), selection: $authType) {
+                            Text(PMString("password")).tag(SourceAuthType.password)
+                            if supportsAPIKeyAuth {
+                                Text(PMString("api_key")).tag(SourceAuthType.apiKey)
+                            }
+                            if type == .sftp {
+                                Text(PMString("ssh_key")).tag(SourceAuthType.sshKey)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 720)
+                    }
+                    if authType == .password || authType == .sshKey {
+                        TVFormField(label: PMString("ext.tv.sources.cred.username"), text: $username, mono: true)
+                    }
+                    if authType != .oauth && authType != .cookie {
+                        let credentialLabel = authType == .apiKey
+                            ? PMString("api_key")
+                            : (authType == .sshKey
+                                ? PMString("ssh_key")
+                                : (editing == nil
+                                    ? PMString("ext.tv.sources.cred.password")
+                                    : PMString("ext.tv.sources.form.passwordKeep")))
+                        TVFormField(
+                            label: credentialLabel,
+                            text: $password,
+                            secure: true
+                        )
+                    }
                     if type == .fnMusic {
                         Text(PMString("fnmusic_account_hint"))
                             .font(.system(size: 16))
@@ -445,12 +504,14 @@ struct TVSourceFormView: View {
                 TVFormField(label: pathLabel, text: $pathText, mono: true)
             }
 
-            HStack(spacing: 12) {
-                Image(systemName: "lock.fill").font(.system(size: 15)).foregroundStyle(TVColor.brand)
-                Text(PMString("ext.tv.sources.form.passwordStorage"))
-                    .font(.system(size: 16)).foregroundStyle(TVColor.textFaint)
+            if showsAuth && effectiveAuthType != .none {
+                HStack(spacing: 12) {
+                    Image(systemName: "lock.fill").font(.system(size: 15)).foregroundStyle(TVColor.brand)
+                    Text(PMString("ext.tv.sources.form.passwordStorage"))
+                        .font(TVFont.caption).foregroundStyle(TVColor.textFaint)
+                }
+                .padding(.top, 4)
             }
-            .padding(.top, 4)
         }
         .frame(maxWidth: 760, alignment: .leading)
     }
@@ -570,7 +631,7 @@ struct TVSourceFormView: View {
                         .frame(maxWidth: .infinity).padding(.vertical, 18)
                         .background(f ? TVColor.surfaceStrong : TVColor.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
-                .disabled(!canSave || testing)
+                .disabled(!canTestConnection || testing)
                 TVFocusButton(radius: 14, accent: TVColor.brand, scale: 1.05, lift: 0, action: save) { f in
                     Text(
                         editing == nil
@@ -598,10 +659,16 @@ struct TVSourceFormView: View {
         portText = String(type.defaultPort(useSsl: useSsl))
         publicUseSsl = showsSSL ? true : type.defaultSSL
         publicPortText = String(type.defaultPort(useSsl: publicUseSsl))
+        if type == .plex {
+            authType = .apiKey
+        } else if !type.requiresCredentials {
+            authType = .none
+        }
 
         if let e = editing {
             name = e.name
             username = e.username ?? ""
+            authType = e.authType
             if supportsAdaptiveConnections {
                 let configuration = e.effectiveConnectionConfiguration
                     ?? SourceConnectionConfiguration()
@@ -638,7 +705,7 @@ struct TVSourceFormView: View {
                     fnMusicConnectionMode = e.effectiveFnMusicConnectionMode
                 }
             }
-            useGuestAccess = type.supportsAnonymous && e.authType == .none
+            useGuestAccess = type.supportsAnonymous && authType == .none
             switch type {
             case .smb: pathText = e.shareName ?? ""
             case .nfs: pathText = e.exportPath ?? ""
@@ -670,7 +737,7 @@ struct TVSourceFormView: View {
     }
 
     private func runTest() {
-        guard canSave, let source = draftSource() else { return }
+        guard canTestConnection, let source = draftSource() else { return }
         let draftPassword = password.isEmpty ? nil : password
         testing = true; testResult = nil
         Task {
@@ -691,12 +758,12 @@ struct TVSourceFormView: View {
 
         var src = editing ?? MusicSource(name: trimmedName, type: type)
         src.name = trimmedName
-        if supportsAdaptiveConnections {
+        if type.requiresHost && supportsAdaptiveConnections {
             src.connectionConfiguration = adaptiveConnectionConfiguration()
             src.synologyConnectionMode = type == .synology ? synologyConnectionMode : nil
             src.fnMusicConnectionMode = type == .fnMusic ? fnMusicConnectionMode : nil
             src = src.projectingPreferredConnectionForLegacy()
-        } else {
+        } else if type.requiresHost {
             if type == .synology, synologyConnectionMode == .quickConnect {
                 src.host = SynologyQuickConnectResolver.quickConnectID(from: trimmedHost)
             } else if type == .fnMusic, fnMusicConnectionMode == .fnConnect {
@@ -710,10 +777,25 @@ struct TVSourceFormView: View {
             src.useSsl = usesResolvedConnection ? true : (showsSSL ? useSsl : type.defaultSSL)
             src.synologyConnectionMode = type == .synology ? synologyConnectionMode : nil
             src.fnMusicConnectionMode = type == .fnMusic ? fnMusicConnectionMode : nil
+        } else {
+            src.host = nil
+            src.port = nil
+            src.connectionConfiguration = nil
         }
-        if showsAuth {
-            src.username = useGuestAccess ? nil : (trimmedUser.isEmpty ? nil : trimmedUser)
-            src.authType = useGuestAccess ? .none : .password
+        if type == .drime {
+            src.username = nil
+            src.authType = .apiKey
+        } else if type.isCloudDrive {
+            src.username = nil
+            src.authType = .oauth
+        } else if showsAuth {
+            switch effectiveAuthType {
+            case .password, .sshKey:
+                src.username = trimmedUser.isEmpty ? nil : trimmedUser
+            case .apiKey, .cookie, .oauth, .none:
+                src.username = nil
+            }
+            src.authType = effectiveAuthType
         } else {
             src.username = nil; src.authType = .none
         }
@@ -784,7 +866,7 @@ struct TVSourceFormView: View {
     private func save() {
         guard let src = draftSource() else { return }
 
-        let passwordToSave = useGuestAccess || password.isEmpty ? nil : password
+        let passwordToSave = effectiveAuthType == .none || password.isEmpty ? nil : password
         let accessCodeToSave = type == .fnMusic
             && fnMusicConnectionMode == .fnConnect
             && !fnConnectAccessCode.isEmpty
@@ -817,14 +899,18 @@ struct TVFormField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(label).font(.system(size: 16)).foregroundStyle(TVColor.textFaint)
+            Text(label).font(TVFont.caption).foregroundStyle(TVColor.textFaint)
             Group {
                 if secure { SecureField("", text: $text) }
                 else { TextField("", text: $text) }
             }
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
-            .font(.system(size: 24, weight: .medium, design: mono ? .monospaced : .default))
+            .font(
+                mono
+                    ? Font.system(.title2, design: .monospaced).weight(.medium)
+                    : TVFont.body.weight(.medium)
+            )
             .frame(maxWidth: 720, alignment: .leading)
             .focused($focused)
         }

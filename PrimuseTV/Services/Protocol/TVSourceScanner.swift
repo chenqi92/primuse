@@ -10,12 +10,52 @@ struct TVDirEntry: Sendable, Identifiable, Hashable {
     let isDir: Bool
     let size: Int64
     let path: String      // share 内相对路径(与 SMBByteReader.resolve 一致,供播放复用)
+    let providerID: String?
+    let parentPath: String?
+    let modifiedDate: Date?
+    let revision: String?
+
+    init(
+        name: String,
+        isDir: Bool,
+        size: Int64,
+        path: String,
+        providerID: String? = nil,
+        parentPath: String? = nil,
+        modifiedDate: Date? = nil,
+        revision: String? = nil
+    ) {
+        self.name = name
+        self.isDir = isDir
+        self.size = size
+        self.path = path
+        self.providerID = providerID
+        self.parentPath = parentPath
+        self.modifiedDate = modifiedDate
+        self.revision = revision
+    }
+
     var id: String { path }
+}
+
+extension TVDirEntry: SidecarDirectoryItem {
+    var sidecarName: String { name }
+    var sidecarPath: String { path }
+    var sidecarIsDirectory: Bool { isDir }
+    var sidecarSize: Int64 { size }
+    var sidecarModifiedDate: Date? { modifiedDate }
+    var sidecarRevision: String? { revision }
+    var sidecarProviderID: String? { providerID }
 }
 
 /// 目录列举器(浏览源的文件夹树)。先实现 SMB,其它协议后续补。
 protocol TVDirectoryLister: Sendable {
+    var usesStableProviderSongIdentity: Bool { get }
     func list(_ path: String) async throws -> [TVDirEntry]
+}
+
+extension TVDirectoryLister {
+    var usesStableProviderSongIdentity: Bool { false }
 }
 
 private struct TVRoutedDirectoryListerCandidate: Sendable {
@@ -113,6 +153,8 @@ actor TVCloudDriveLister: TVDirectoryLister {
     private let source: MusicSource
     private let credential: SourceCredential?
 
+    nonisolated var usesStableProviderSongIdentity: Bool { true }
+
     init(source: MusicSource, credential: SourceCredential?) {
         self.source = source
         self.credential = credential
@@ -129,7 +171,11 @@ actor TVCloudDriveLister: TVDirectoryLister {
                 name: $0.name,
                 isDir: $0.isDirectory,
                 size: $0.size,
-                path: $0.path
+                path: $0.path,
+                providerID: $0.providerID,
+                parentPath: $0.parentPath ?? path,
+                modifiedDate: $0.modifiedDate,
+                revision: $0.revision
             )
         }
     }
@@ -189,7 +235,19 @@ actor TVSMBLister: TVDirectoryLister {
             guard !name.isEmpty, !name.hasPrefix(".") else { return nil }
             let isDir = (item[.fileResourceTypeKey] as? URLFileResourceType) == .directory
             let size = item[.fileSizeKey] as? Int64 ?? 0
-            return TVDirEntry(name: name, isDir: isDir, size: size, path: Self.append(path, name))
+            let modifiedDate = item[.contentModificationDateKey] as? Date
+            let revision = modifiedDate.map {
+                "smb:\(size):\(Int64($0.timeIntervalSince1970))"
+            }
+            return TVDirEntry(
+                name: name,
+                isDir: isDir,
+                size: size,
+                path: Self.append(path, name),
+                parentPath: path,
+                modifiedDate: modifiedDate,
+                revision: revision
+            )
         }
         .sorted { ($0.isDir ? 0 : 1, $0.name) < ($1.isDir ? 0 : 1, $1.name) }
     }
@@ -200,6 +258,58 @@ actor TVSMBLister: TVDirectoryLister {
 }
 
 enum TVScanError: Error { case connectFailed, unsupported, maximumDepthExceeded }
+
+private enum TVScanPipelineError: Error {
+    case skeletonDelivery(String)
+    case metadataDelivery(String)
+
+    var message: String {
+        switch self {
+        case .skeletonDelivery(let message), .metadataDelivery(let message):
+            return message
+        }
+    }
+}
+
+private enum TVScanBatchKind {
+    case skeleton
+    case metadata
+}
+
+enum TVScanCompletion: Sendable, Equatable {
+    case completed
+    case completedWithMetadataFailures(Int)
+    case enumerationFailed(String)
+    case skeletonDeliveryFailed(String)
+    case metadataDeliveryFailed(String)
+    case cancelled
+}
+
+struct TVScanResult: Sendable {
+    let songs: [Song]
+    let discoveredSongIDs: Set<String>
+    let enumerationCompleted: Bool
+    let metadataCompleted: Bool
+    let metadataFailureCount: Int
+    let completion: TVScanCompletion
+    let resumeState: SourceScanResumeState
+
+    var canPrune: Bool {
+        guard enumerationCompleted else { return false }
+        switch completion {
+        case .completed, .completedWithMetadataFailures:
+            return true
+        case .enumerationFailed, .skeletonDeliveryFailed,
+             .metadataDeliveryFailed, .cancelled:
+            return false
+        }
+    }
+}
+
+typealias TVScanBatchHandler = @MainActor @Sendable ([Song]) async throws -> Void
+typealias TVScanCheckpointHandler = @MainActor @Sendable (
+    SourceScanResumeState
+) async throws -> Void
 
 // MARK: - 扫描服务(走查选中目录 → 路径式建 Song)
 
@@ -214,6 +324,28 @@ final class TVSourceScanner {
     private static let maximumScanDepth = 64
     private static let fnMusicPageSize = 50
     private static let daoLiYuPageSize = 100
+
+    private struct DirectoryWork: Sendable {
+        let path: String
+        let depth: Int
+    }
+
+    private struct ScanItem: Sendable {
+        var song: Song
+        let candidate: Song
+        let existing: Song?
+        let sidecars: SidecarDirectoryIndex<TVDirEntry>
+    }
+
+    private struct CueTrackDescriptor: Sendable {
+        let cuePath: String
+        let albumTitle: String?
+        let albumPerformer: String?
+        let genre: String?
+        let year: Int?
+        let format: AudioFormat
+        let track: CueTrack
+    }
 
     private struct FnMusicClientConfiguration: Equatable {
         let host: String?
@@ -274,76 +406,706 @@ final class TVSourceScanner {
         return entries
     }
 
-    /// 走查选中目录建库:先路径骨架(快),再逐文件读真实 tag/时长/封面/歌词(慢)。
-    /// 返回 nil 表示失败(phase 已置 .failed)。`credential` 用于读文件头补元数据。
-    func scan(source: MusicSource, lister: TVDirectoryLister, dirs: [String],
-              credential: SourceCredential?) async -> [Song]? {
+    /// 两阶段扫描：目录枚举每满 20 首立即发布可播放骨架，完整枚举后再以有限
+    /// 并发读取标签并回填。只有 `enumerationCompleted` 的结果可用于删除未见歌曲；
+    /// 扫描器不会自行进入 `.done`，必须等 Store 持久化成功后调用
+    /// `markPersistedScanComplete()`。
+    func scan(
+        source: MusicSource,
+        lister: TVDirectoryLister,
+        dirs: [String],
+        credential: SourceCredential?,
+        existingSongs: [Song],
+        resumeState: SourceScanResumeState? = nil,
+        onCheckpoint: TVScanCheckpointHandler? = nil,
+        onSkeletonBatch: @escaping TVScanBatchHandler,
+        onMetadataBatch: @escaping TVScanBatchHandler
+    ) async -> TVScanResult {
         phase = .scanning
         indexed = 0
         currentFile = ""
-        // (骨架 Song, 同级文件列表) —— 同级文件给 enrich 找同名 .lrc / cover.jpg。
-        var collected: [(song: Song, siblings: [TVDirEntry])] = []
-        var seen = Set<String>()
-        do {
-            if source.type == .fnMusic {
-                let songs = try await withRoutedSource(source) { routedSource in
-                    try await self.scanFnMusic(
-                        source: routedSource,
-                        credential: credential
-                    )
-                }
-                try Task.checkCancellation()
-                indexed = songs.count
-                currentFile = ""
-                phase = .done
-                return songs
-            }
-            if source.type == .daoliyu {
-                let songs = try await withRoutedSource(source) { routedSource in
-                    try await self.scanDaoLiYu(
-                        source: routedSource,
-                        credential: credential
-                    )
-                }
-                try Task.checkCancellation()
-                indexed = songs.count
-                currentFile = ""
-                phase = .done
-                return songs
-            }
-            for dir in dirs {
-                try Task.checkCancellation()
-                try await collect(
-                    lister: lister,
-                    path: dir,
-                    source: source,
-                    depth: 0,
-                    into: &collected,
-                    seen: &seen
-                )
-            }
-            let songs = try await enrichAll(collected, source: source, credential: credential)
-            try Task.checkCancellation()
-            indexed = songs.count
-            phase = .done
-            return songs
-        } catch is CancellationError {
-            phase = .idle
-            currentFile = ""
-            return nil
-        } catch {
-            let message: String
-            switch error as? TVScanError {
-            case .connectFailed:
-                message = PMString("ext.tv.scan.connectFailed")
-            case .maximumDepthExceeded:
-                message = PMString("ext.tv.scan.depthExceeded", Self.maximumScanDepth)
-            default:
-                message = error.localizedDescription
-            }
-            phase = .failed(message)
+        if source.type == .fnMusic || source.type == .daoliyu {
+            return await scanServerCatalog(
+                source: source,
+                credential: credential,
+                existingSongs: existingSongs,
+                onSkeletonBatch: onSkeletonBatch
+            )
+        }
+        return await scanDirectories(
+            source: source,
+            lister: lister,
+            dirs: dirs,
+            credential: credential,
+            existingSongs: existingSongs,
+            resumeState: resumeState,
+            onCheckpoint: onCheckpoint,
+            onSkeletonBatch: onSkeletonBatch,
+            onMetadataBatch: onMetadataBatch
+        )
+    }
+
+    /// Temporary source-compatibility wrapper for callers migrating to the
+    /// streaming contract. It intentionally does not mark the scan done.
+    func scan(
+        source: MusicSource,
+        lister: TVDirectoryLister,
+        dirs: [String],
+        credential: SourceCredential?
+    ) async -> [Song]? {
+        let result = await scan(
+            source: source,
+            lister: lister,
+            dirs: dirs,
+            credential: credential,
+            existingSongs: [],
+            onSkeletonBatch: { _ in },
+            onMetadataBatch: { _ in }
+        )
+        switch result.completion {
+        case .completed, .completedWithMetadataFailures:
+            return result.songs
+        case .enumerationFailed, .skeletonDeliveryFailed,
+             .metadataDeliveryFailed, .cancelled:
             return nil
         }
+    }
+
+    func markPersistedScanComplete() {
+        phase = .done
+        currentFile = ""
+    }
+
+    private func scanServerCatalog(
+        source: MusicSource,
+        credential: SourceCredential?,
+        existingSongs: [Song],
+        onSkeletonBatch: @escaping TVScanBatchHandler
+    ) async -> TVScanResult {
+        let existingByID = Self.existingSongsByCanonicalID(existingSongs)
+        let existingByLocation = Self.existingSongsByLocation(existingSongs)
+        var songsByID: [String: Song] = [:]
+        var songOrder: [String] = []
+        var discoveredIDs: Set<String> = []
+        var pendingBatch: [Song] = []
+
+        let accept: (Song) async throws -> Void = { rawSong in
+            try Task.checkCancellation()
+            var candidate = rawSong
+            candidate.id = TVScanPipelinePolicy.canonicalSongID(candidate.id)
+            let existing = existingByID[candidate.id]
+                ?? existingByLocation[Self.locationKey(candidate)]
+            let song = TVScanPipelinePolicy.reconciledSkeleton(
+                existing: existing,
+                candidate: candidate
+            )
+            if discoveredIDs.insert(song.id).inserted {
+                songOrder.append(song.id)
+            }
+            songsByID[song.id] = song
+            pendingBatch.append(song)
+            self.indexed = discoveredIDs.count
+            self.currentFile = song.title
+            if pendingBatch.count >= TVScanPipelinePolicy.publicationBatchSize {
+                let batch = Array(
+                    pendingBatch.prefix(TVScanPipelinePolicy.publicationBatchSize)
+                )
+                do {
+                    try await onSkeletonBatch(batch)
+                    pendingBatch.removeFirst(batch.count)
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    throw TVScanPipelineError.skeletonDelivery(
+                        error.localizedDescription
+                    )
+                }
+            }
+        }
+
+        do {
+            if source.type == .fnMusic {
+                _ = try await withRoutedSource(source) { routedSource in
+                    try await self.scanFnMusic(
+                        source: routedSource,
+                        credential: credential,
+                        onSong: accept
+                    )
+                }
+            } else {
+                _ = try await withRoutedSource(source) { routedSource in
+                    try await self.scanDaoLiYu(
+                        source: routedSource,
+                        credential: credential,
+                        onSong: accept
+                    )
+                }
+            }
+            try Task.checkCancellation()
+            try await flush(
+                &pendingBatch,
+                to: onSkeletonBatch,
+                ignoringCancellation: false
+            )
+            currentFile = ""
+            return TVScanResult(
+                songs: songOrder.compactMap { songsByID[$0] },
+                discoveredSongIDs: discoveredIDs,
+                enumerationCompleted: true,
+                metadataCompleted: true,
+                metadataFailureCount: 0,
+                completion: .completed,
+                resumeState: SourceScanResumeState(pendingDirectories: [])
+            )
+        } catch is CancellationError {
+            try? await flush(
+                &pendingBatch,
+                to: onSkeletonBatch,
+                ignoringCancellation: true
+            )
+            phase = .idle
+            currentFile = ""
+            return TVScanResult(
+                songs: songOrder.compactMap { songsByID[$0] },
+                discoveredSongIDs: discoveredIDs,
+                enumerationCompleted: false,
+                metadataCompleted: false,
+                metadataFailureCount: 0,
+                completion: .cancelled,
+                resumeState: SourceScanResumeState(pendingDirectories: [])
+            )
+        } catch let error as TVScanPipelineError {
+            try? await flush(
+                &pendingBatch,
+                to: onSkeletonBatch,
+                ignoringCancellation: true
+            )
+            let message = error.message
+            phase = .failed(message)
+            currentFile = ""
+            return TVScanResult(
+                songs: songOrder.compactMap { songsByID[$0] },
+                discoveredSongIDs: discoveredIDs,
+                enumerationCompleted: false,
+                metadataCompleted: false,
+                metadataFailureCount: 0,
+                completion: .skeletonDeliveryFailed(message),
+                resumeState: SourceScanResumeState(pendingDirectories: [])
+            )
+        } catch {
+            try? await flush(
+                &pendingBatch,
+                to: onSkeletonBatch,
+                ignoringCancellation: true
+            )
+            let message = scanErrorMessage(error)
+            phase = .failed(message)
+            currentFile = ""
+            return TVScanResult(
+                songs: songOrder.compactMap { songsByID[$0] },
+                discoveredSongIDs: discoveredIDs,
+                enumerationCompleted: false,
+                metadataCompleted: false,
+                metadataFailureCount: 0,
+                completion: .enumerationFailed(message),
+                resumeState: SourceScanResumeState(pendingDirectories: [])
+            )
+        }
+    }
+
+    private func scanDirectories(
+        source: MusicSource,
+        lister: TVDirectoryLister,
+        dirs: [String],
+        credential: SourceCredential?,
+        existingSongs: [Song],
+        resumeState suppliedResumeState: SourceScanResumeState?,
+        onCheckpoint: TVScanCheckpointHandler?,
+        onSkeletonBatch: @escaping TVScanBatchHandler,
+        onMetadataBatch: @escaping TVScanBatchHandler
+    ) async -> TVScanResult {
+        let existingByID = Self.existingSongsByCanonicalID(existingSongs)
+        let existingByLocation = Self.existingSongsByLocation(existingSongs)
+        let existingCueSongsByPath = Dictionary(
+            grouping: existingSongs.filter {
+                $0.sourceID == source.id && $0.isCueTrack
+            },
+            by: \.filePath
+        )
+        var state: SourceScanResumeState
+        let isResuming = suppliedResumeState?.isUsable == true
+            && suppliedResumeState?.pendingDirectories.isEmpty == false
+        if isResuming, let suppliedResumeState {
+            state = suppliedResumeState
+        } else {
+            state = SourceScanResumeState(
+                pendingDirectories: TVScanPipelinePolicy.normalizedScanRoots(dirs)
+            )
+        }
+
+        var queue = state.pendingDirectories.map { DirectoryWork(path: $0, depth: 0) }
+        var scheduledDirectories = Set(queue.map(\.path))
+        let completedDirectories = Set(
+            state.index.values.lazy.compactMap { item in
+                item.isDirectory && item.seenEpoch > 0 ? item.path : nil
+            }
+        )
+        queue.removeAll { completedDirectories.contains($0.path) }
+        state.pendingDirectories = queue.map(\.path)
+        var items: [ScanItem] = []
+        var songsByID: [String: Song] = [:]
+        var songOrder: [String] = []
+        var discoveredIDs = state.encounteredSongIDs
+        var pendingSkeletonBatch: [Song] = []
+        var partialEnumerationMessage: String?
+        var partialDirectories: [String] = []
+        var songsSinceCheckpoint = 0
+        var lastCheckpointAt = Date()
+        let readerPool = TVMetadataReaderPool(source: source, credential: credential)
+
+        // A resumed walk already published completed directories. Seed the
+        // final authoritative result without emitting the same skeletons again.
+        if isResuming {
+            for id in discoveredIDs.sorted() {
+                guard var song = existingByID[id] else { continue }
+                song.id = TVScanPipelinePolicy.canonicalSongID(song.id)
+                songsByID[song.id] = song
+                songOrder.append(song.id)
+                items.append(ScanItem(
+                    song: song,
+                    candidate: song,
+                    existing: song,
+                    sidecars: SidecarDirectoryIndex<TVDirEntry>([])
+                ))
+            }
+        }
+
+        do {
+            while let work = queue.first {
+                try Task.checkCancellation()
+                guard work.depth <= Self.maximumScanDepth else {
+                    throw TVScanError.maximumDepthExceeded
+                }
+                state.pendingDirectories = TVScanPipelinePolicy.normalizedScanRoots(
+                    partialDirectories + queue.map(\.path)
+                )
+                currentFile = work.path
+                let entries = try await lister.list(work.path)
+                try Task.checkCancellation()
+                let sidecars = SidecarDirectoryIndex(entries)
+                let cueLoad = try await loadCueTracks(
+                    from: entries,
+                    using: readerPool
+                )
+                if let message = cueLoad.failureMessage {
+                    partialEnumerationMessage = partialEnumerationMessage ?? message
+                    if !partialDirectories.contains(work.path) {
+                        partialDirectories.append(work.path)
+                    }
+                }
+
+                for entry in entries where entry.isDir {
+                    Self.recordIndexedItem(
+                        entry,
+                        parentPath: work.path,
+                        songIDs: [],
+                        sidecarFingerprint: nil,
+                        seenEpoch: completedDirectories.contains(entry.path) ? 1 : 0,
+                        in: &state.index
+                    )
+                    if !completedDirectories.contains(entry.path),
+                       scheduledDirectories.insert(entry.path).inserted {
+                        queue.append(
+                            DirectoryWork(path: entry.path, depth: work.depth + 1)
+                        )
+                    }
+                }
+
+                let files = entries.filter { !$0.isDir }
+                for entry in files {
+                    try Task.checkCancellation()
+                    let ext = (entry.name as NSString).pathExtension.lowercased()
+                    var candidates: [Song] = []
+                    if PrimuseConstants.supportedAudioExtensions.contains(ext)
+                        || PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext) {
+                        if let descriptors = cueLoad.tracksByAudioPath[entry.path],
+                           !descriptors.isEmpty {
+                            candidates = Self.makeCueSongs(
+                                entry: entry,
+                                descriptors: descriptors,
+                                source: source,
+                                usesStableProviderIdentity:
+                                    lister.usesStableProviderSongIdentity,
+                                sidecars: sidecars
+                            )
+                        } else if cueLoad.failureMessage != nil {
+                            let priorCueSongs = existingCueSongsByPath[entry.path] ?? []
+                            candidates = priorCueSongs.isEmpty
+                                ? [Self.makeSong(
+                                    entry: entry,
+                                    source: source,
+                                    usesStableProviderIdentity:
+                                        lister.usesStableProviderSongIdentity,
+                                    sidecars: sidecars
+                                )]
+                                : priorCueSongs.map { prior in
+                                    var retained = prior
+                                    retained.id = TVScanPipelinePolicy.canonicalSongID(prior.id)
+                                    retained.fileSize = entry.size
+                                    retained.lastModified = entry.modifiedDate
+                                    retained.revision = entry.revision
+                                    return retained
+                                }
+                        } else {
+                            candidates = [Self.makeSong(
+                                entry: entry,
+                                source: source,
+                                usesStableProviderIdentity:
+                                    lister.usesStableProviderSongIdentity,
+                                sidecars: sidecars
+                            )]
+                        }
+                    } else if PrimuseConstants.supportedMusicVideoExtensions.contains(ext) {
+                        let stem = (entry.name as NSString)
+                            .deletingPathExtension.lowercased()
+                        guard !sidecars.containsAudioOrStream(basename: stem) else {
+                            continue
+                        }
+                        var video = Self.makeSong(
+                            entry: entry,
+                            source: source,
+                            usesStableProviderIdentity:
+                                lister.usesStableProviderSongIdentity,
+                            sidecars: sidecars
+                        )
+                        video.mvPath = entry.path
+                        candidates = [video]
+                    } else {
+                        continue
+                    }
+
+                    var indexedSongIDs: [String] = []
+                    for candidate in candidates {
+                        guard discoveredIDs.insert(candidate.id).inserted else {
+                            indexedSongIDs.append(candidate.id)
+                            continue
+                        }
+                        let existing = existingByID[candidate.id]
+                            ?? existingByLocation[Self.locationKey(candidate)]
+                        let song = TVScanPipelinePolicy.reconciledSkeleton(
+                            existing: existing,
+                            candidate: candidate
+                        )
+                        items.append(ScanItem(
+                            song: song,
+                            candidate: candidate,
+                            existing: existing,
+                            sidecars: sidecars
+                        ))
+                        songsByID[song.id] = song
+                        songOrder.append(song.id)
+                        state.encounteredSongIDs.insert(song.id)
+                        indexedSongIDs.append(song.id)
+                        pendingSkeletonBatch.append(song)
+                        indexed = discoveredIDs.count
+                        currentFile = entry.path
+                        if pendingSkeletonBatch.count
+                            >= TVScanPipelinePolicy.publicationBatchSize {
+                            let batch = Array(
+                                pendingSkeletonBatch.prefix(
+                                    TVScanPipelinePolicy.publicationBatchSize
+                                )
+                            )
+                            do {
+                                try await onSkeletonBatch(batch)
+                                pendingSkeletonBatch.removeFirst(batch.count)
+                                songsSinceCheckpoint += batch.count
+                                if songsSinceCheckpoint >= 200
+                                    || Date().timeIntervalSince(lastCheckpointAt) >= 1.5 {
+                                    try await emitCheckpoint(
+                                        state,
+                                        to: onCheckpoint
+                                    )
+                                    songsSinceCheckpoint = 0
+                                    lastCheckpointAt = Date()
+                                }
+                            } catch is CancellationError {
+                                throw CancellationError()
+                            } catch {
+                                throw TVScanPipelineError.skeletonDelivery(
+                                    error.localizedDescription
+                                )
+                            }
+                        }
+                    }
+                    let basename = (entry.name as NSString).deletingPathExtension
+                    Self.recordIndexedItem(
+                        entry,
+                        parentPath: work.path,
+                        songIDs: indexedSongIDs,
+                        sidecarFingerprint: sidecars.snapshotFingerprint(
+                            selectedPaths: [
+                                sidecars.sameNameCover(basename: basename)?.path
+                                    ?? sidecars.folderCover()?.path,
+                                sidecars.sameNameLyrics(basename: basename)?.path,
+                                sidecars.sameNameMusicVideo(basename: basename)?.path,
+                            ]
+                        ),
+                        seenEpoch: 1,
+                        in: &state.index
+                    )
+                }
+
+                let directoryTailCount = pendingSkeletonBatch.count
+                try await flush(
+                    &pendingSkeletonBatch,
+                    to: onSkeletonBatch,
+                    ignoringCancellation: false
+                )
+                songsSinceCheckpoint += directoryTailCount
+                if cueLoad.failureMessage == nil {
+                    Self.recordCompletedDirectory(
+                        path: work.path,
+                        in: &state.index
+                    )
+                } else {
+                    Self.recordPendingDirectory(
+                        path: work.path,
+                        in: &state.index
+                    )
+                }
+                queue.removeFirst()
+                state.pendingDirectories = TVScanPipelinePolicy.normalizedScanRoots(
+                    partialDirectories + queue.map(\.path)
+                )
+                try await emitCheckpoint(state, to: onCheckpoint)
+                songsSinceCheckpoint = 0
+                lastCheckpointAt = Date()
+            }
+            try await flush(
+                &pendingSkeletonBatch,
+                to: onSkeletonBatch,
+                ignoringCancellation: false
+            )
+            try await emitCheckpoint(state, to: onCheckpoint)
+        } catch is CancellationError {
+            try? await flush(
+                &pendingSkeletonBatch,
+                to: onSkeletonBatch,
+                ignoringCancellation: true
+            )
+            await readerPool.closeAll()
+            phase = .idle
+            currentFile = ""
+            return TVScanResult(
+                songs: songOrder.compactMap { songsByID[$0] },
+                discoveredSongIDs: discoveredIDs,
+                enumerationCompleted: false,
+                metadataCompleted: false,
+                metadataFailureCount: 0,
+                completion: .cancelled,
+                resumeState: state
+            )
+        } catch let error as TVScanPipelineError {
+            try? await flush(
+                &pendingSkeletonBatch,
+                to: onSkeletonBatch,
+                ignoringCancellation: true
+            )
+            await readerPool.closeAll()
+            phase = .failed(error.message)
+            currentFile = ""
+            return TVScanResult(
+                songs: songOrder.compactMap { songsByID[$0] },
+                discoveredSongIDs: discoveredIDs,
+                enumerationCompleted: false,
+                metadataCompleted: false,
+                metadataFailureCount: 0,
+                completion: .skeletonDeliveryFailed(error.message),
+                resumeState: state
+            )
+        } catch {
+            try? await flush(
+                &pendingSkeletonBatch,
+                to: onSkeletonBatch,
+                ignoringCancellation: true
+            )
+            await readerPool.closeAll()
+            let message = scanErrorMessage(error)
+            phase = .failed(message)
+            currentFile = ""
+            return TVScanResult(
+                songs: songOrder.compactMap { songsByID[$0] },
+                discoveredSongIDs: discoveredIDs,
+                enumerationCompleted: false,
+                metadataCompleted: false,
+                metadataFailureCount: 0,
+                completion: .enumerationFailed(message),
+                resumeState: state
+            )
+        }
+
+        if !partialDirectories.isEmpty {
+            state.pendingDirectories = partialDirectories
+        }
+        var pendingMetadataBatch: [Song] = []
+        var metadataFailureCount = 0
+        var itemOffset = 0
+        do {
+            while itemOffset < items.count {
+                try Task.checkCancellation()
+                let upperBound = min(
+                    itemOffset + TVScanPipelinePolicy.metadataConcurrency,
+                    items.count
+                )
+                let positions = Array(itemOffset..<upperBound)
+                let results = await withTaskGroup(
+                    of: (Int, TVMetadataEnrichmentResult).self,
+                    returning: [(Int, TVMetadataEnrichmentResult)].self
+                ) { group in
+                    for position in positions {
+                        let item = items[position]
+                        if TVScanPipelinePolicy.canReuseMetadata(
+                            existing: item.existing,
+                            candidate: item.candidate
+                        ) {
+                            continue
+                        }
+                        group.addTask {
+                            let result = await TVMetadataEnricher.enrich(
+                                song: item.song,
+                                sidecars: item.sidecars,
+                                using: readerPool
+                            )
+                            return (position, result)
+                        }
+                    }
+                    var values: [(Int, TVMetadataEnrichmentResult)] = []
+                    for await value in group { values.append(value) }
+                    return values.sorted { $0.0 < $1.0 }
+                }
+
+                for (position, result) in results {
+                    switch result.status {
+                    case .enriched:
+                        items[position].song = result.song
+                        songsByID[result.song.id] = result.song
+                        pendingMetadataBatch.append(result.song)
+                    case .failed, .timedOut:
+                        metadataFailureCount += 1
+                    case .cancelled:
+                        throw CancellationError()
+                    }
+                    if pendingMetadataBatch.count
+                        >= TVScanPipelinePolicy.publicationBatchSize {
+                        let batch = Array(
+                            pendingMetadataBatch.prefix(
+                                TVScanPipelinePolicy.publicationBatchSize
+                            )
+                        )
+                        do {
+                            try await onMetadataBatch(batch)
+                            pendingMetadataBatch.removeFirst(batch.count)
+                        } catch is CancellationError {
+                            throw CancellationError()
+                        } catch {
+                            throw TVScanPipelineError.metadataDelivery(
+                                error.localizedDescription
+                            )
+                        }
+                    }
+                }
+                itemOffset = upperBound
+                currentFile = items[upperBound - 1].song.filePath
+            }
+            try Task.checkCancellation()
+            try await flush(
+                &pendingMetadataBatch,
+                to: onMetadataBatch,
+                ignoringCancellation: false,
+                kind: .metadata
+            )
+        } catch is CancellationError {
+            try? await flush(
+                &pendingMetadataBatch,
+                to: onMetadataBatch,
+                ignoringCancellation: true,
+                kind: .metadata
+            )
+            await readerPool.closeAll()
+            phase = .idle
+            currentFile = ""
+            return TVScanResult(
+                songs: songOrder.compactMap { songsByID[$0] },
+                discoveredSongIDs: discoveredIDs,
+                enumerationCompleted: false,
+                metadataCompleted: false,
+                metadataFailureCount: metadataFailureCount,
+                completion: .cancelled,
+                resumeState: state
+            )
+        } catch let error as TVScanPipelineError {
+            try? await flush(
+                &pendingMetadataBatch,
+                to: onMetadataBatch,
+                ignoringCancellation: true,
+                kind: .metadata
+            )
+            await readerPool.closeAll()
+            phase = .failed(error.message)
+            currentFile = ""
+            return TVScanResult(
+                songs: songOrder.compactMap { songsByID[$0] },
+                discoveredSongIDs: discoveredIDs,
+                enumerationCompleted: false,
+                metadataCompleted: false,
+                metadataFailureCount: metadataFailureCount,
+                completion: .metadataDeliveryFailed(error.message),
+                resumeState: state
+            )
+        } catch {
+            try? await flush(
+                &pendingMetadataBatch,
+                to: onMetadataBatch,
+                ignoringCancellation: true,
+                kind: .metadata
+            )
+            await readerPool.closeAll()
+            let message = error.localizedDescription
+            phase = .failed(message)
+            currentFile = ""
+            return TVScanResult(
+                songs: songOrder.compactMap { songsByID[$0] },
+                discoveredSongIDs: discoveredIDs,
+                enumerationCompleted: false,
+                metadataCompleted: false,
+                metadataFailureCount: metadataFailureCount,
+                completion: .metadataDeliveryFailed(message),
+                resumeState: state
+            )
+        }
+
+        await readerPool.closeAll()
+        currentFile = ""
+        let enumerationCompleted = partialEnumerationMessage == nil
+        let completion: TVScanCompletion
+        if let partialEnumerationMessage {
+            completion = .enumerationFailed(partialEnumerationMessage)
+            phase = .failed(partialEnumerationMessage)
+        } else if metadataFailureCount > 0 {
+            completion = .completedWithMetadataFailures(metadataFailureCount)
+        } else {
+            completion = .completed
+        }
+        return TVScanResult(
+            songs: songOrder.compactMap { songsByID[$0] },
+            discoveredSongIDs: discoveredIDs,
+            enumerationCompleted: enumerationCompleted,
+            metadataCompleted: metadataFailureCount == 0,
+            metadataFailureCount: metadataFailureCount,
+            completion: completion,
+            resumeState: state
+        )
     }
 
     /// 连接测试直接验证飞牛音乐曲库接口，不依赖本地是否已有该源歌曲。
@@ -391,6 +1153,7 @@ final class TVSourceScanner {
                 return value
             } catch {
                 lastError = error
+                if error is TVScanPipelineError { throw error }
                 guard TVSourceConnectionFailoverPolicy.allowsRetry(after: error) else {
                     throw error
                 }
@@ -419,7 +1182,8 @@ final class TVSourceScanner {
     /// 让整次扫描失败，调用方因此不会用不完整结果覆盖既有曲库。
     private func scanFnMusic(
         source: MusicSource,
-        credential: SourceCredential?
+        credential: SourceCredential?,
+        onSong: (Song) async throws -> Void
     ) async throws -> [Song] {
         let client = fnMusicClient(source: source, credential: credential)
         var page = 1
@@ -468,6 +1232,7 @@ final class TVSourceScanner {
                     throw FnMusicServiceError.invalidResponse(PMString("error.catalog.trackMissingFormat", track.title))
                 }
                 songs.append(song)
+                try await onSong(song)
                 indexed = songs.count
                 currentFile = track.title
             }
@@ -488,7 +1253,8 @@ final class TVSourceScanner {
 
     private func scanDaoLiYu(
         source: MusicSource,
-        credential: SourceCredential?
+        credential: SourceCredential?,
+        onSong: (Song) async throws -> Void
     ) async throws -> [Song] {
         let client = DaoLiYuServiceClient(source: source, credential: credential)
         guard let baseURL = DaoLiYuAPIProtocol.serverBaseURL(
@@ -535,6 +1301,7 @@ final class TVSourceScanner {
                     throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.trackMissingFormat", track.title))
                 }
                 songs.append(song)
+                try await onSong(song)
                 indexed = songs.count
                 currentFile = track.title
             }
@@ -579,92 +1346,14 @@ final class TVSourceScanner {
         fnMusicClients[sourceID]?.client
     }
 
-    /// 递归遍历:收集每首歌的路径骨架 + 其所在目录的同级文件(供找歌词/封面)。
-    private func collect(lister: TVDirectoryLister, path: String, source: MusicSource,
-                         depth: Int,
-                         into collected: inout [(song: Song, siblings: [TVDirEntry])],
-                         seen: inout Set<String>) async throws {
-        try Task.checkCancellation()
-        guard depth <= Self.maximumScanDepth else {
-            throw TVScanError.maximumDepthExceeded
-        }
-        let entries = try await lister.list(path)
-        try Task.checkCancellation()
-        let files = entries.filter { !$0.isDir }
-        for e in entries {
-            try Task.checkCancellation()
-            if e.isDir {
-                try await collect(
-                    lister: lister,
-                    path: e.path,
-                    source: source,
-                    depth: depth + 1,
-                    into: &collected,
-                    seen: &seen
-                )
-            } else {
-                let ext = (e.name as NSString).pathExtension.lowercased()
-                if PrimuseConstants.supportedAudioExtensions.contains(ext)
-                    || PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext) {
-                    guard seen.insert(e.path).inserted else { continue }
-                    collected.append((Self.makeSong(entry: e, source: source), files))
-                } else if PrimuseConstants.supportedMusicVideoExtensions.contains(ext) {
-                    // 独立 MV: 同目录无同名音频的视频独立成曲, mvPath 指向自身;
-                    // 有同名音频时它是那首歌的 sidecar(enrich 阶段挂上), 不成曲。
-                    let stem = (e.name as NSString).deletingPathExtension.lowercased()
-                    let hasSameNameAudio = files.contains {
-                        let fExt = ($0.name as NSString).pathExtension.lowercased()
-                        return (PrimuseConstants.supportedAudioExtensions.contains(fExt)
-                            || PrimuseConstants.supportedStreamDescriptorExtensions.contains(fExt))
-                            && ($0.name as NSString).deletingPathExtension.lowercased() == stem
-                    }
-                    guard hasSameNameAudio == false else { continue }
-                    guard seen.insert(e.path).inserted else { continue }
-                    var song = Self.makeSong(entry: e, source: source)
-                    song.mvPath = e.path
-                    collected.append((song, files))
-                } else {
-                    continue
-                }
-                indexed = collected.count
-                currentFile = e.path
-            }
-        }
-    }
-
-    /// 逐文件补真实元数据(有限并发,默认 4)。失败的文件保留路径骨架,不阻断。
-    private func enrichAll(_ items: [(song: Song, siblings: [TVDirEntry])],
-                           source: MusicSource, credential: SourceCredential?) async throws -> [Song] {
-        var result: [Song] = []
-        result.reserveCapacity(items.count)
-        let chunk = 4
-        var i = 0
-        while i < items.count {
-            try Task.checkCancellation()
-            let slice = Array(items[i..<min(i + chunk, items.count)])
-            let enriched: [Song] = await withTaskGroup(of: (Int, Song).self) { group in
-                for (j, it) in slice.enumerated() {
-                    group.addTask {
-                        guard !Task.isCancelled else { return (j, it.song) }
-                        return (j, await TVMetadataEnricher.enrich(song: it.song, source: source,
-                                                                   credential: credential, siblings: it.siblings))
-                    }
-                }
-                var acc = [Song?](repeating: nil, count: slice.count)
-                for await (j, s) in group { acc[j] = s }
-                return acc.compactMap { $0 }
-            }
-            try Task.checkCancellation()
-            result.append(contentsOf: enriched)
-            i += chunk
-            currentFile = enriched.last?.filePath ?? currentFile
-        }
-        return result
-    }
-
     /// 路径式建 Song(Phase A):标题=文件名,专辑=父文件夹,艺术家=祖父文件夹。
-    /// id / albumID / artistID 用与手机端 LibraryScanner 完全一致的 SHA256 派生,保证可合并去重。
-    static func makeSong(entry e: TVDirEntry, source: MusicSource) -> Song {
+    /// ID 使用共享 identity-material policy 和 16-byte SHA-256 前缀，与通用扫描器一致。
+    static func makeSong(
+        entry e: TVDirEntry,
+        source: MusicSource,
+        usesStableProviderIdentity: Bool = false,
+        sidecars: SidecarDirectoryIndex<TVDirEntry>? = nil
+    ) -> Song {
         let comps = e.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
         let rawName = (e.name as NSString).deletingPathExtension
         var title = Self.stripTrackNumber(rawName)
@@ -677,11 +1366,26 @@ final class TVSourceScanner {
             if !a.isEmpty, !t.isEmpty { artist = a; title = Self.stripTrackNumber(t) }
         }
         let format = AudioFormat.from(fileExtension: (e.name as NSString).pathExtension) ?? .mp3
-        let artistID = artist.map { sha256($0.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)) }
+        let artistID = artist.map {
+            TVScanPipelinePolicy.hash32(
+                $0.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
         let albumID: String? = (album != nil && artist != nil)
-            ? sha256("\(artist!.lowercased()):\(album!.lowercased())") : nil
+            ? TVScanPipelinePolicy.hash32(
+                "\(artist!.lowercased()):\(album!.lowercased())"
+            ) : nil
+        let cover = sidecars?.sameNameCover(basename: rawName)?.path
+            ?? sidecars?.folderCover()?.path
+        let lyrics = sidecars?.sameNameLyrics(basename: rawName)?.path
+        let video = sidecars?.sameNameMusicVideo(basename: rawName)?.path
         return Song(
-            id: sha256("\(source.id):\(e.path)"),
+            id: TVScanPipelinePolicy.songID(
+                sourceID: source.id,
+                path: e.path,
+                providerID: e.providerID,
+                usesStableProviderIdentity: usesStableProviderIdentity
+            ),
             title: title.isEmpty ? e.name : title,
             albumID: albumID,
             artistID: artistID,
@@ -691,12 +1395,313 @@ final class TVSourceScanner {
             fileFormat: format,
             filePath: e.path,
             sourceID: source.id,
-            fileSize: e.size
+            fileSize: e.size,
+            lastModified: e.modifiedDate,
+            coverArtFileName: cover,
+            lyricsFileName: lyrics,
+            mvPath: video,
+            revision: e.revision
         )
     }
 
-    static func sha256(_ s: String) -> String {
-        SHA256.hash(data: Data(s.utf8)).map { String(format: "%02x", $0) }.joined()
+    private static func makeCueSongs(
+        entry: TVDirEntry,
+        descriptors: [CueTrackDescriptor],
+        source: MusicSource,
+        usesStableProviderIdentity: Bool,
+        sidecars: SidecarDirectoryIndex<TVDirEntry>
+    ) -> [Song] {
+        let basename = (entry.name as NSString).deletingPathExtension
+        let cover = sidecars.sameNameCover(basename: basename)?.path
+            ?? sidecars.folderCover()?.path
+        let lyrics = sidecars.sameNameLyrics(basename: basename)?.path
+        let video = sidecars.sameNameMusicVideo(basename: basename)?.path
+        return descriptors.compactMap { descriptor in
+            guard let start = descriptor.track.startTime else { return nil }
+            let end = descriptor.track.endTime
+            let artist = descriptor.track.performer ?? descriptor.albumPerformer
+            let albumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
+                albumArtistName: descriptor.albumPerformer,
+                trackArtistName: artist
+            )
+            let artistID = artist.map {
+                TVScanPipelinePolicy.hash32($0.lowercased())
+            }
+            let albumID: String? = if let albumArtist,
+                                      let album = descriptor.albumTitle {
+                TVScanPipelinePolicy.hash32(
+                    "\(albumArtist.lowercased()):\(album.lowercased())"
+                )
+            } else {
+                nil
+            }
+            return Song(
+                id: TVScanPipelinePolicy.cueSongID(
+                    sourceID: source.id,
+                    path: entry.path,
+                    providerID: entry.providerID,
+                    usesStableProviderIdentity: usesStableProviderIdentity,
+                    cuePath: descriptor.cuePath,
+                    trackNumber: descriptor.track.number
+                ),
+                title: descriptor.track.title
+                    ?? PMString("cue_track_title_format", descriptor.track.number),
+                albumID: albumID,
+                artistID: artistID,
+                albumTitle: descriptor.albumTitle,
+                artistName: artist,
+                albumArtistName: albumArtist,
+                trackNumber: descriptor.track.number,
+                duration: end.map { max(0, $0 - start) } ?? 0,
+                fileFormat: descriptor.format,
+                filePath: entry.path,
+                sourceID: source.id,
+                fileSize: entry.size,
+                genre: descriptor.genre,
+                year: descriptor.year,
+                lastModified: entry.modifiedDate,
+                coverArtFileName: cover,
+                lyricsFileName: lyrics,
+                mvPath: video,
+                cueSheetPath: descriptor.cuePath,
+                cueStartTime: start,
+                cueEndTime: end,
+                revision: entry.revision
+            )
+        }
+    }
+
+    private func loadCueTracks(
+        from siblings: [TVDirEntry],
+        using readerPool: TVMetadataReaderPool
+    ) async throws -> (
+        tracksByAudioPath: [String: [CueTrackDescriptor]],
+        failureMessage: String?
+    ) {
+        var result: [String: [CueTrackDescriptor]] = [:]
+        var failureMessage: String?
+        for cueItem in siblings where !cueItem.isDir
+            && PrimuseConstants.supportedCueSheetExtensions.contains(
+                (cueItem.name as NSString).pathExtension.lowercased()
+            ) {
+            do {
+                try Task.checkCancellation()
+                guard cueItem.size <= 0 || cueItem.size <= 1024 * 1024 else {
+                    throw CocoaError(.fileReadTooLarge)
+                }
+                let requestedLength = min(
+                    max(cueItem.size, 64 * 1024),
+                    Int64(1024 * 1024)
+                )
+                let data = try await readerPool.read(
+                    path: cueItem.path,
+                    size: cueItem.size,
+                    offset: 0,
+                    length: requestedLength
+                )
+                try Task.checkCancellation()
+                guard let cue = CueSheetParser.parse(data: data) else {
+                    throw URLError(.cannotDecodeContentData)
+                }
+                for cueFile in cue.files {
+                    let referencedName = (
+                        cueFile.name.replacingOccurrences(of: "\\", with: "/")
+                            as NSString
+                    ).lastPathComponent
+                    guard let audioItem = siblings.first(where: {
+                        !$0.isDir
+                            && $0.name.caseInsensitiveCompare(referencedName)
+                                == .orderedSame
+                    }), let format = AudioFormat.from(
+                        fileExtension: (audioItem.name as NSString)
+                            .pathExtension.lowercased()
+                    ) else {
+                        continue
+                    }
+                    for track in cueFile.tracks
+                        where track.type == "AUDIO" && track.startTime != nil {
+                        result[audioItem.path, default: []].append(
+                            CueTrackDescriptor(
+                                cuePath: cueItem.path,
+                                albumTitle: cue.title,
+                                albumPerformer: cue.performer,
+                                genre: cue.genre,
+                                year: cue.year,
+                                format: format,
+                                track: track
+                            )
+                        )
+                    }
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                failureMessage = failureMessage
+                    ?? "\(cueItem.name): \(error.localizedDescription)"
+            }
+        }
+        return (result, failureMessage)
+    }
+
+    private func flush(
+        _ buffer: inout [Song],
+        to handler: @escaping TVScanBatchHandler,
+        ignoringCancellation: Bool,
+        kind: TVScanBatchKind = .skeleton
+    ) async throws {
+        guard !buffer.isEmpty else { return }
+        let batch = buffer
+        do {
+            if ignoringCancellation {
+                try await Task { @MainActor in
+                    try await handler(batch)
+                }.value
+            } else {
+                try await handler(batch)
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            switch kind {
+            case .skeleton:
+                throw TVScanPipelineError.skeletonDelivery(
+                    error.localizedDescription
+                )
+            case .metadata:
+                throw TVScanPipelineError.metadataDelivery(
+                    error.localizedDescription
+                )
+            }
+        }
+        buffer.removeAll(keepingCapacity: true)
+    }
+
+    private func emitCheckpoint(
+        _ state: SourceScanResumeState,
+        to handler: TVScanCheckpointHandler?
+    ) async throws {
+        guard let handler else { return }
+        do {
+            try await handler(state)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw TVScanPipelineError.skeletonDelivery(
+                error.localizedDescription
+            )
+        }
+    }
+
+    private func scanErrorMessage(_ error: Error) -> String {
+        switch error as? TVScanError {
+        case .connectFailed:
+            return PMString("ext.tv.scan.connectFailed")
+        case .maximumDepthExceeded:
+            return PMString("ext.tv.scan.depthExceeded", Self.maximumScanDepth)
+        default:
+            return error.localizedDescription
+        }
+    }
+
+    private static func existingSongsByCanonicalID(
+        _ songs: [Song]
+    ) -> [String: Song] {
+        Dictionary(
+            songs.map { (TVScanPipelinePolicy.canonicalSongID($0.id), $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+
+    private static func existingSongsByLocation(
+        _ songs: [Song]
+    ) -> [String: Song] {
+        Dictionary(
+            songs.map { (locationKey($0), $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+
+    private static func locationKey(_ song: Song) -> String {
+        [
+            song.sourceID,
+            song.filePath,
+            song.cueSheetPath ?? "",
+            song.isCueTrack ? song.trackNumber.map(String.init) ?? "" : "",
+        ].joined(separator: "\u{1F}")
+    }
+
+    private static func recordIndexedItem(
+        _ item: TVDirEntry,
+        parentPath: String,
+        songIDs: [String],
+        sidecarFingerprint: String?,
+        seenEpoch: Int64,
+        in index: inout [String: SourceSyncIndexedItem]
+    ) {
+        let stableKey = item.providerID ?? "path:\(item.path.lowercased())"
+        index[stableKey] = SourceSyncIndexedItem(
+            stableKey: stableKey,
+            path: item.path,
+            displayName: item.name,
+            parentPath: item.parentPath ?? parentPath,
+            isDirectory: item.isDir,
+            songIDs: songIDs,
+            size: item.size,
+            modifiedDate: item.modifiedDate,
+            revision: item.revision,
+            sidecarFingerprint: sidecarFingerprint,
+            seenEpoch: seenEpoch
+        )
+    }
+
+    private static func recordCompletedDirectory(
+        path: String,
+        in index: inout [String: SourceSyncIndexedItem]
+    ) {
+        if let key = index.first(where: {
+            $0.value.isDirectory && $0.value.path == path
+        })?.key, var item = index[key] {
+            item.seenEpoch = 1
+            index[key] = item
+            return
+        }
+        let stableKey = "path:\(path.lowercased())"
+        index[stableKey] = SourceSyncIndexedItem(
+            stableKey: stableKey,
+            path: path,
+            displayName: nil,
+            parentPath: nil,
+            isDirectory: true,
+            size: 0,
+            modifiedDate: nil,
+            revision: nil,
+            seenEpoch: 1
+        )
+    }
+
+    private static func recordPendingDirectory(
+        path: String,
+        in index: inout [String: SourceSyncIndexedItem]
+    ) {
+        if let key = index.first(where: {
+            $0.value.isDirectory && $0.value.path == path
+        })?.key, var item = index[key] {
+            item.seenEpoch = 0
+            index[key] = item
+            return
+        }
+        let stableKey = "path:\(path.lowercased())"
+        index[stableKey] = SourceSyncIndexedItem(
+            stableKey: stableKey,
+            path: path,
+            displayName: nil,
+            parentPath: nil,
+            isDirectory: true,
+            size: 0,
+            modifiedDate: nil,
+            revision: nil,
+            seenEpoch: 0
+        )
     }
 
     /// 去掉文件名开头的音轨号(1-3 位数字 + 可选分隔符):"03 七里香" → "七里香"。

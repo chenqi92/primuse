@@ -42,7 +42,11 @@ final class ScraperConfigStore: @unchecked Sendable {
     private let lock = NSLock()
 
     private init() {
+        #if os(tvOS)
+        let appSupport = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+        #else
         let appSupport = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
+        #endif
         configDir = appSupport.appendingPathComponent("Primuse/ScraperConfigs")
         try? FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
         loadAll()

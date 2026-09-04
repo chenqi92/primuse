@@ -1568,10 +1568,26 @@ struct TVArtworkView: View {
         animationCandidateIsOriginal: Bool = false,
         songScoped: Bool = false
     ) async -> Bool {
-        guard let ui = UIImage(data: data), activeIdentity == identity,
+        let decodeTask = Task.detached(priority: .utility) { () -> CGImage? in
+            guard !Task.isCancelled,
+                  let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 1536,
+                kCGImageSourceShouldCacheImmediately: true,
+            ]
+            return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        }
+        let decoded = await withTaskCancellationHandler {
+            await decodeTask.value
+        } onCancel: {
+            decodeTask.cancel()
+        }
+        guard let decoded, activeIdentity == identity,
               artworkTaskIdentity == taskIdentity,
               !Task.isCancelled else { return false }
-        image = ui
+        image = UIImage(cgImage: decoded)
         loadedIdentity = identity
         loadedArtworkAnimationDiskKey = animationDiskKey
         _ = await resolveAnimatedArtwork(

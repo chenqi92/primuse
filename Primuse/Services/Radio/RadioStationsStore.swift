@@ -223,6 +223,7 @@ final class RadioStationsStore {
         }
     }
 
+    #if !os(tvOS)
     /// Reconciles one source's complete radio snapshot in a single durable
     /// write. Server fields are authoritative, while local playback recency
     /// and user ordering survive refreshes. Missing upstream stations become
@@ -332,6 +333,8 @@ final class RadioStationsStore {
         return result
     }
 
+    #endif
+
     func removeServerMirrors(forSourceIDs sourceIDs: Set<String>) {
         guard !sourceIDs.isEmpty else { return }
         let prefixes = sourceIDs.map(ServerRadioStationIdentity.stationIDPrefix(sourceID:))
@@ -437,6 +440,7 @@ final class RadioStationsStore {
     }
 }
 
+#if !os(tvOS)
 @MainActor
 enum ServerRadioSyncService {
     @discardableResult
@@ -465,3 +469,4 @@ enum ServerRadioSyncService {
         }
     }
 }
+#endif

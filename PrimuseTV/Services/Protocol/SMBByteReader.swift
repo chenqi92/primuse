@@ -14,6 +14,7 @@ actor SMBByteReader: ByteRangeReader {
     private var manager: SMB2Manager?
     private var connected = false
     private var cachedSize: Int64?
+    private let operationGate = TVProtocolOperationGate()
 
     /// 从同步过来的 `MusicSource` + 这首歌的 filePath + 凭据构造。host/share 缺失时返回 nil。
     init?(source: MusicSource, filePath: String, credential cred: SourceCredential?) {
@@ -36,7 +37,10 @@ actor SMBByteReader: ByteRangeReader {
         relativePath = rel
     }
 
-    private func ensure() async throws -> SMB2Manager {
+    /// Must only be called while `operationGate` is held. `SMB2Manager` wraps
+    /// one mutable libsmb2 context, so actor isolation alone is insufficient
+    /// once a request suspends in the C library.
+    private func ensureWhileLocked() async throws -> SMB2Manager {
         if let manager, connected { return manager }
         let m = manager ?? SMB2Manager(url: serverURL, credential: credential)
         guard let m else { throw SMBReaderError.invalidConfig }
@@ -49,22 +53,97 @@ actor SMBByteReader: ByteRangeReader {
 
     func contentLength() async throws -> Int64 {
         if let cachedSize { return cachedSize }
-        let m = try await ensure()
-        let attrs = try await m.attributesOfItem(atPath: relativePath)
-        let size = (attrs[.fileSizeKey] as? Int64) ?? (attrs[.fileSizeKey] as? Int).map(Int64.init) ?? 0
-        cachedSize = size
-        return size
+        return try await withSerializedOperation {
+            if let cachedSize { return cachedSize }
+            return try await runWithRetryWhileLocked {
+                let m = try await ensureWhileLocked()
+                let attrs = try await m.attributesOfItem(atPath: relativePath)
+                try Task.checkCancellation()
+                let size = (attrs[.fileSizeKey] as? Int64)
+                    ?? (attrs[.fileSizeKey] as? Int).map(Int64.init) ?? 0
+                guard size > 0 else { throw SMBReaderError.invalidContentLength(size) }
+                cachedSize = size
+                return size
+            }
+        }
     }
 
     func read(offset: Int64, length: Int64) async throws -> Data {
         guard let end = SafeByteRange.exclusiveEnd(offset: offset, length: length) else {
             return Data()
         }
-        let m = try await ensure()
-        return try await m.contents(atPath: relativePath, range: UInt64(offset)..<UInt64(end))
+        return try await withSerializedOperation {
+            try await runWithRetryWhileLocked {
+                let m = try await ensureWhileLocked()
+                let data = try await m.contents(
+                    atPath: relativePath,
+                    range: UInt64(offset)..<UInt64(end)
+                )
+                try Task.checkCancellation()
+                return data
+            }
+        }
     }
 
-    enum SMBReaderError: Error { case invalidConfig }
+    func close() async {
+        await operationGate.acquire()
+        await invalidateConnectionWhileLocked()
+        await operationGate.release()
+    }
+
+    private func withSerializedOperation<T: Sendable>(
+        _ operation: () async throws -> T
+    ) async throws -> T {
+        await operationGate.acquire()
+        do {
+            try Task.checkCancellation()
+            let result = try await operation()
+            try Task.checkCancellation()
+            await operationGate.release()
+            return result
+        } catch {
+            await operationGate.release()
+            throw error
+        }
+    }
+
+    private func runWithRetryWhileLocked<T: Sendable>(
+        _ operation: () async throws -> T
+    ) async throws -> T {
+        var completedReconnectAttempts = 0
+        while true {
+            do {
+                return try await operation()
+            } catch is CancellationError {
+                await invalidateConnectionWhileLocked()
+                throw CancellationError()
+            } catch {
+                let nsError = error as NSError
+                guard SMBConnectionRecoveryPolicy.shouldReconnect(
+                    errorDomain: nsError.domain,
+                    errorCode: nsError.code,
+                    completedReconnectAttempts: completedReconnectAttempts
+                ) else {
+                    throw error
+                }
+                completedReconnectAttempts += 1
+                await invalidateConnectionWhileLocked()
+            }
+        }
+    }
+
+    private func invalidateConnectionWhileLocked() async {
+        if let manager, connected {
+            try? await manager.disconnectShare()
+        }
+        connected = false
+        manager = nil
+    }
+
+    enum SMBReaderError: Error {
+        case invalidConfig
+        case invalidContentLength(Int64)
+    }
 
     /// 把(配置的 share + 这首歌的 filePath)解析成(share 名, share 内相对路径)。
     /// 对齐 iOS `SMBSource.resolve`:配置了 share 则 filePath 视为 share 内路径(可能带 /share 前缀);

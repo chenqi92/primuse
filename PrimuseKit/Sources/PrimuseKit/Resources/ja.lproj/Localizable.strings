@@ -698,3 +698,9 @@
 "src.subtitle.jellyfin" = "オープンソース";
 "src.subtitle.emby" = "メディアサーバー";
 "src.subtitle.plex" = "Plex メディアサーバー";
+"ext.tv.persistence.failed" = "変更を保存できませんでした。空き容量を確認して再試行してください。";
+"password" = "パスワード";
+"api_key" = "API キー";
+"auth_method" = "認証方式";
+"ssh_key" = "SSH キー";
+"cue_track_title_format" = "トラック %02d";

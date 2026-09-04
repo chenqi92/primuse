@@ -16,9 +16,13 @@ struct TVSearchView: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
     var openPlayer: () -> Void = {}
     var focusRequest: TVContentFocusRequest? = nil
+    var onModalActivityChanged: (Bool) -> Void = { _ in }
 
     @State private var query: String = ""
-    @State private var results: (top: TVArtist?, songs: [TVStore.TVSearchHit]) = (nil, [])
+    @State private var results: TVStore.TVSearchResults?
+    @State private var selectedArtist: TVArtist?
+    @State private var opensPlayerAfterArtistDismissal = false
+    @State private var isSearching = false
     @State private var isSemanticSearching = false
     @State private var semanticFeedback: TVSemanticSearchFeedback = .idle
     @FocusState private var inputActive: Bool
@@ -36,21 +40,29 @@ struct TVSearchView: View {
             }
             .tvPage()
         }
-        .onChange(of: query) { _, q in
-            results = store.searchHits(q)
-            if q.trimmingCharacters(in: .whitespaces).isEmpty {
-                isSemanticSearching = false
-                semanticFeedback = .idle
-            }
-        }
         .task(id: trimmed) {
-            await updateSemanticResults(for: trimmed)
+            await updateResults(for: trimmed)
         }
         .task(id: focusRequest?.id) {
             guard let request = focusRequest, request.target == .searchField else { return }
             await Task.yield()
             guard !Task.isCancelled, focusRequest == request else { return }
             inputActive = true
+        }
+        .fullScreenCover(item: $selectedArtist, onDismiss: finishArtistDismissal) { artist in
+            TVArtistDetailView(
+                artist: artist,
+                openPlayer: { opensPlayerAfterArtistDismissal = true }
+            )
+                .environment(store)
+        }
+        .onChange(of: selectedArtist) { _, artist in
+            onModalActivityChanged(artist != nil)
+        }
+        .onDisappear {
+            if selectedArtist != nil {
+                onModalActivityChanged(false)
+            }
         }
     }
 
@@ -67,7 +79,7 @@ struct TVSearchView: View {
                     .foregroundStyle(inputActive ? TVColor.brand : TVColor.textFaint)
                 TextField(PMString("ext.tv.search.placeholder"), text: $query)
                     .focused($inputActive)
-                    .font(.system(size: 28, weight: .semibold))
+                    .font(TVFont.sectionTitle)
                     .frame(maxWidth: .infinity)
                 if !trimmed.isEmpty {
                     TVFocusButton(radius: 18, scale: 1.06, lift: 0, action: { query = "" }) { f in
@@ -93,7 +105,7 @@ struct TVSearchView: View {
                         TVFocusButton(radius: 10, scale: 1.0, lift: 0,
                                       action: { query = s }) { focused in
                             HStack {
-                                Text(s).font(.system(size: 22)).foregroundStyle(TVColor.text)
+                                Text(s).font(TVFont.body).foregroundStyle(TVColor.text)
                                 Spacer()
                             }
                             .padding(.horizontal, 20).padding(.vertical, 14).frame(maxWidth: .infinity)
@@ -114,7 +126,7 @@ struct TVSearchView: View {
             HStack {
                 TVEyebrow(text: PMString("ext.tv.search.topResult"))
                 Spacer()
-                if isSemanticSearching {
+                if isSearching || isSemanticSearching {
                     ProgressView()
                         .controlSize(.small)
                     Text(PMString("ext.tv.search.aiLoading"))
@@ -125,31 +137,46 @@ struct TVSearchView: View {
                 }
             }
             .padding(.bottom, 16)
-            if let artist = results.top {
-                TVFocusButton(radius: 16, scale: 1.02, lift: 4, action: openPlayer) { focused in
-                    HStack(spacing: 20) {
-                        TVCoverArt(tint: artist.tint, tint2: artist.tint2, glyph: artist.glyph, size: 92, radius: 46)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(artist.name).font(.system(size: 32, weight: .bold)).foregroundStyle(TVColor.text)
-                            Text(PMString("ext.tv.search.artistMeta", artist.songCount))
-                                .font(.system(size: 18)).foregroundStyle(TVColor.textFaint)
+            if let artists = results?.artists, !artists.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 22) {
+                        ForEach(artists) { artist in
+                            TVArtistCard(
+                                artist: artist,
+                                size: 92,
+                                action: { selectedArtist = artist }
+                            )
                         }
-                        Spacer(minLength: 0)
                     }
-                    .padding(20).frame(maxWidth: .infinity)
-                    .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 18)
                 }
             } else {
                 Text(PMString("ext.tv.search.typeToSearch")).font(.system(size: 22)).foregroundStyle(TVColor.textFaint)
             }
 
+            if let albums = results?.albums, !albums.isEmpty {
+                TVEyebrow(text: PMString("ext.tv.library.title.albums", albums.count))
+                    .padding(.top, 24)
+                    .padding(.bottom, 8)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 18) {
+                        ForEach(albums) { album in
+                            TVAlbumCard(album: album, width: 148, action: openPlayer)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 20)
+                }
+            }
+
             TVEyebrow(text: PMString("ext.tv.search.songs")).padding(.top, 28).padding(.bottom, 16)
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(results.songs.filter { $0.relatedConcept == nil }) { hit in
+                    ForEach((results?.songs ?? []).filter { $0.relatedConcept == nil }) { hit in
                         TVSearchSongRow(hit: hit, action: openPlayer)
                     }
-                    let intelligentResults = results.songs.filter { $0.relatedConcept != nil }
+                    let intelligentResults = (results?.songs ?? []).filter { $0.relatedConcept != nil }
                     if !intelligentResults.isEmpty {
                         TVEyebrow(text: PMString("ext.tv.search.aiSupplement"))
                             .padding(.top, 22)
@@ -158,7 +185,11 @@ struct TVSearchView: View {
                             TVSearchSongRow(hit: hit, action: openPlayer)
                         }
                     }
-                    if !trimmed.isEmpty, results.songs.isEmpty {
+                    if !trimmed.isEmpty,
+                       results?.songs.isEmpty != false,
+                       results?.albums.isEmpty != false,
+                       results?.artists.isEmpty != false,
+                       !isSearching {
                         Text(PMString("ext.tv.search.noMatch")).font(.system(size: 18))
                             .foregroundStyle(TVColor.textGhost).frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -169,25 +200,33 @@ struct TVSearchView: View {
     }
 
     @MainActor
-    private func updateSemanticResults(for requestedQuery: String) async {
+    private func updateResults(for requestedQuery: String) async {
         guard !requestedQuery.isEmpty else {
+            results = nil
+            isSearching = false
             isSemanticSearching = false
             semanticFeedback = .idle
             return
         }
-        isSemanticSearching = intelligence.isSemanticSearchConfigured
-        semanticFeedback = intelligence.isSemanticSearchConfigured ? .loading : .idle
-        guard intelligence.isSemanticSearchConfigured else { return }
+
+        isSearching = true
+        isSemanticSearching = false
+        semanticFeedback = .idle
         do {
-            try await Task.sleep(for: .milliseconds(400))
+            try await Task.sleep(for: .milliseconds(250))
         } catch {
-            finishSemanticSearch(for: requestedQuery)
             return
         }
-        guard !Task.isCancelled else {
-            finishSemanticSearch(for: requestedQuery)
-            return
-        }
+        guard !Task.isCancelled, trimmed == requestedQuery else { return }
+
+        let primary = await store.searchResults(requestedQuery)
+        guard !Task.isCancelled, trimmed == requestedQuery else { return }
+        results = primary
+        isSearching = false
+
+        guard intelligence.isSemanticSearchConfigured else { return }
+        isSemanticSearching = true
+        semanticFeedback = .loading
         var streamedTerms: [String] = []
         let outcome = await intelligence.semanticSearchOutcome(
             for: requestedQuery,
@@ -196,16 +235,11 @@ struct TVSearchView: View {
                 switch event {
                 case .reset:
                     streamedTerms = []
-                    results = store.searchHits(requestedQuery)
                 case .term(let term):
                     guard !streamedTerms.contains(where: {
                         $0.caseInsensitiveCompare(term) == .orderedSame
                     }) else { return }
                     streamedTerms.append(term)
-                    results = store.searchHits(
-                        requestedQuery,
-                        relatedConcepts: streamedTerms
-                    )
                 case .completed:
                     break
                 }
@@ -221,9 +255,15 @@ struct TVSearchView: View {
         case .empty(let providerName, let fallbackDepth):
             semanticFeedback = .noMatches(provider: providerName, fallbackDepth: fallbackDepth)
         case .success(let execution):
-            let concepts = AISemanticLibraryAggregationPolicy.concepts(from: execution.plan)
-            results = store.searchHits(requestedQuery, relatedConcepts: concepts)
-            let hasSemanticMatches = results.songs.contains { $0.relatedConcept != nil }
+            let plannedConcepts = AISemanticLibraryAggregationPolicy.concepts(from: execution.plan)
+            let concepts = plannedConcepts.isEmpty ? streamedTerms : plannedConcepts
+            let enriched = await store.searchResults(
+                requestedQuery,
+                relatedConcepts: concepts
+            )
+            guard !Task.isCancelled, trimmed == requestedQuery else { return }
+            results = enriched
+            let hasSemanticMatches = enriched.songs.contains { $0.relatedConcept != nil }
             semanticFeedback = hasSemanticMatches
                 ? .success(
                     provider: execution.providerName,
@@ -277,6 +317,12 @@ struct TVSearchView: View {
         if trimmed == requestedQuery {
             isSemanticSearching = false
         }
+    }
+
+    private func finishArtistDismissal() {
+        guard opensPlayerAfterArtistDismissal else { return }
+        opensPlayerAfterArtistDismissal = false
+        openPlayer()
     }
 }
 

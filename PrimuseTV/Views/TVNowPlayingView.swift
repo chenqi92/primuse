@@ -20,12 +20,15 @@ struct TVNowPlayingView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var isTabContent = false
     var focusRequest: TVContentFocusRequest?
+    var interactionRequest = 0
     var onContentAppeared: (TVNowPlayingFocusMode) -> Void = { _ in }
     var onContentModeChanged: (TVNowPlayingFocusMode) -> Void = { _ in }
     var onReturnToTabs: () -> Void = {}
+    var onModalActivityChanged: (Bool) -> Void = { _ in }
 
     @State private var showQueue = false
     @State private var showOptions = false
@@ -40,6 +43,10 @@ struct TVNowPlayingView: View {
 
     /// 播放中静置多久自动进入沉浸展示(设计稿「展示屏」的待机语义)。
     private let immersiveIdleThreshold: TimeInterval = 20
+
+    private var activePresentationCount: Int {
+        [showQueue, showOptions, showImmersive].filter { $0 }.count
+    }
 
     private var fullscreenPlayerEffect: FullscreenPlayerEffect {
         FullscreenPlayerEffect(rawValue: fullscreenPlayerEffectRawValue) ?? .defaultValue
@@ -95,12 +102,23 @@ struct TVNowPlayingView: View {
         }
         .onChange(of: focusedTransport) { _, _ in
             // 遥控切换焦点即视为有操作,推迟自动进入沉浸展示。
-            lastInteraction = Date()
+            registerInteraction()
+        }
+        .onChange(of: interactionRequest) { _, _ in
+            registerInteraction()
+        }
+        .onChange(of: activePresentationCount) { _, count in
+            onModalActivityChanged(count > 0)
         }
         .onChange(of: showImmersive) { _, presented in
             if !presented {
                 immersiveStartsWithEffectPicker = false
                 lastInteraction = Date()
+            }
+        }
+        .onDisappear {
+            if activePresentationCount > 0 {
+                onModalActivityChanged(false)
             }
         }
         .task(id: store.hasNowPlaying) {
@@ -432,7 +450,8 @@ struct TVNowPlayingView: View {
                 .frame(width: 56, alignment: .trailing)
             TVScrubber(progress: p, tint: np.tint, immersiveDark: immersiveDark,
                        currentTime: cur, duration: dur,
-                       onBack: { store.skipBackward() }, onForward: { store.skipForward() })
+                       onBack: { store.skipBackward() }, onForward: { store.skipForward() },
+                       onInteraction: registerInteraction)
             Text("-\(TVFmt.time(max(0, dur - cur)))").font(.system(size: 16, design: .monospaced))
                 .foregroundStyle(immersiveDark ? Color.white.opacity(0.60) : TVColor.textMuted)
                 .frame(width: 56, alignment: .leading)
@@ -444,12 +463,15 @@ struct TVNowPlayingView: View {
         return HStack(spacing: 20) {
             Spacer()
             TVRoundBtn(icon: "shuffle", size: 64, active: store.shuffleEnabled,
-                       immersiveDark: immersiveDark) { store.toggleShuffle() }
+                       immersiveDark: immersiveDark,
+                       onInteraction: registerInteraction) { store.toggleShuffle() }
             if store.canPlayMusicVideo {
                 TVRoundBtn(icon: store.isMusicVideoModeEnabled ? "play.rectangle.fill" : "play.rectangle",
                            size: 64,
                            active: store.isMusicVideoModeEnabled,
-                           immersiveDark: immersiveDark) { store.toggleMusicVideoMode() }
+                           immersiveDark: immersiveDark,
+                           accessibilityLabel: PMString("playback"),
+                           onInteraction: registerInteraction) { store.toggleMusicVideoMode() }
             }
             focusedRoundButton(
                 icon: "backward.fill",
@@ -478,16 +500,23 @@ struct TVNowPlayingView: View {
                 .disabled(!availability.canGoNext)
             TVRoundBtn(icon: store.repeatMode == .one ? "repeat.1" : "repeat", size: 64,
                        active: store.repeatMode != .off,
-                       immersiveDark: immersiveDark) { store.cycleRepeatMode() }
+                       immersiveDark: immersiveDark,
+                       onInteraction: registerInteraction) { store.cycleRepeatMode() }
             // 队列 / 更多移到同一行——和左侧传输键焦点左右线性可达,不再困在右上角。
-            TVRoundBtn(icon: "sparkles.tv", size: 64, immersiveDark: immersiveDark) {
-                lastInteraction = Date()
+            TVRoundBtn(icon: "sparkles.tv", size: 64, immersiveDark: immersiveDark,
+                       onInteraction: registerInteraction) {
                 presentImmersivePlayer(isUserInitiated: true)
             }
-            TVRoundBtn(icon: "list.bullet", size: 64, immersiveDark: immersiveDark) { showQueue = true }
-            TVRoundBtn(icon: "ellipsis", size: 64, immersiveDark: immersiveDark) { showOptions = true }
+            TVRoundBtn(icon: "list.bullet", size: 64, immersiveDark: immersiveDark,
+                       onInteraction: registerInteraction) { showQueue = true }
+            TVRoundBtn(icon: "ellipsis", size: 64, immersiveDark: immersiveDark,
+                       onInteraction: registerInteraction) { showOptions = true }
             Spacer()
         }
+    }
+
+    private func registerInteraction() {
+        lastInteraction = Date()
     }
 
     // MARK: 右列 — 歌词
@@ -531,7 +560,13 @@ struct TVNowPlayingView: View {
             )
             .onChange(of: cur) { _, new in
                 guard followsPlayback, let new else { return }
-                withAnimation(.smooth(duration: 0.55, extraBounce: 0)) { proxy.scrollTo(new, anchor: .center) }
+                if reduceMotion {
+                    proxy.scrollTo(new, anchor: .center)
+                } else {
+                    withAnimation(.smooth(duration: 0.55, extraBounce: 0)) {
+                        proxy.scrollTo(new, anchor: .center)
+                    }
+                }
             }
             .onChange(of: store.lyricsRevision) {
                 guard store.lyricsFollowPlayback, let current = store.currentLyricIndex else { return }
@@ -558,7 +593,7 @@ struct TVNowPlayingView: View {
         let dist = cur.map { abs(i - $0) }
         let opacity = isCur ? 1 : dist.map { max(0.42, 0.72 - Double($0) * 0.08) } ?? 0.82
         // 字号固定、靠 scaleEffect 缩放——缩放能平滑动画,直接换 font size 会硬跳。
-        let scale: CGFloat = isCur ? 1.0 : (cur == nil ? 0.90 : 0.84)
+        let scale: CGFloat = reduceMotion ? 1 : (isCur ? 1.0 : (cur == nil ? 0.90 : 0.84))
         let size: CGFloat = 48
         VStack(alignment: .leading, spacing: 6) {
             if isCur, !ln.syllables.isEmpty {
@@ -579,7 +614,7 @@ struct TVNowPlayingView: View {
         }
         .scaleEffect(scale, anchor: .leading)
         .opacity(opacity)
-        .animation(.smooth(duration: 0.5, extraBounce: 0), value: cur)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.5, extraBounce: 0), value: cur)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(ln.text))
@@ -639,6 +674,7 @@ struct TVKaraokeLine: View {
     let writingDirection: LyricWritingDirection
 
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var lyricLayoutDirection: LayoutDirection {
         switch writingDirection {
@@ -655,7 +691,9 @@ struct TVKaraokeLine: View {
                 let active = i < state.index
                 let inFlight = i == state.index
                 let fillT: Double = active ? 1 : (inFlight ? state.progress : 0)
-                let scale = inFlight ? 1 + 0.05 * sin(state.progress * .pi) : 1
+                let scale = inFlight && !reduceMotion
+                    ? 1 + 0.05 * sin(state.progress * .pi)
+                    : 1
                 Text(s.w)
                     .foregroundStyle(TVColor.textGhost)
                     .overlay(alignment: .leading) {
@@ -820,7 +858,9 @@ private struct TVScrubber: View {
     let duration: Double
     var onBack: () -> Void
     var onForward: () -> Void
+    var onInteraction: () -> Void = {}
     @FocusState private var focused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         GeometryReader { geo in
@@ -859,6 +899,7 @@ private struct TVScrubber: View {
         .focused($focused)
         .focusEffectDisabled()
         .onMoveCommand { direction in
+            onInteraction()
             switch direction {
             case .left: onBack()
             case .right: onForward()
@@ -869,13 +910,17 @@ private struct TVScrubber: View {
         .accessibilityLabel(Text(PMString("playback")))
         .accessibilityValue(Text("\(TVFmt.time(currentTime)) / \(TVFmt.time(duration))"))
         .accessibilityAdjustableAction { direction in
+            onInteraction()
             switch direction {
             case .increment: onForward()
             case .decrement: onBack()
             @unknown default: break
             }
         }
-        .animation(.easeOut(duration: 0.18), value: focused)
+        .onChange(of: focused) { _, value in
+            if value { onInteraction() }
+        }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: focused)
     }
 }
 
@@ -888,12 +933,21 @@ struct TVRoundBtn: View {
     var active: Bool = false   // 开启态(随机/循环)——图标染品牌色
     var immersiveDark: Bool = false
     var accessibilityLabel: String?
+    var onInteraction: () -> Void = {}
     var action: () -> Void = {}
 
     var body: some View {
         TVFocusButton(radius: size / 2,
                       accent: immersiveDark ? Color.white : TVColor.focusRing,
-                      scale: 1.14, lift: 8, action: action) { _ in
+                      scale: 1.14,
+                      lift: 8,
+                      action: {
+                          onInteraction()
+                          action()
+                      },
+                      onFocusChanged: { focused in
+                          if focused { onInteraction() }
+                      }) { _ in
             Image(systemName: icon)
                 .font(.system(size: size * 0.4, weight: .semibold))
                 .foregroundStyle(primary
@@ -906,6 +960,7 @@ struct TVRoundBtn: View {
                             in: Circle())
         }
         .accessibilityLabel(Text(accessibilityLabel ?? Self.defaultAccessibilityLabel(for: icon)))
+        .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
     }
 
     private static func defaultAccessibilityLabel(for icon: String) -> String {

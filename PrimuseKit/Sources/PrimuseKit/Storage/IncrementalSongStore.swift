@@ -93,7 +93,7 @@ public final class IncrementalSongStore: @unchecked Sendable {
     /// Seeds or replaces the canonical table in one transaction. Used only for
     /// first migration and for an explicitly downloaded external snapshot.
     @discardableResult
-    public func replaceAll(with songs: [Song]) throws -> Int64 {
+    public func replaceAll(with songs: [Song], snapshotImportID: String? = nil) throws -> Int64 {
         let rows = try songs.enumerated().map { index, song in
             (song.id, song.sourceID, Int64(index), try encoder.encode(song))
         }
@@ -109,7 +109,16 @@ public final class IncrementalSongStore: @unchecked Sendable {
                 )
             }
             try Self.markAuthoritative(in: db)
+            if let snapshotImportID {
+                try Self.setMetadataValue(snapshotImportID, forKey: "last-snapshot-import", in: db)
+            }
             return try Self.bumpContentRevision(in: db)
+        }
+    }
+
+    public func lastSnapshotImportID() throws -> String? {
+        try database.read { db in
+            try Self.metadataValue(forKey: "last-snapshot-import", in: db)
         }
     }
 

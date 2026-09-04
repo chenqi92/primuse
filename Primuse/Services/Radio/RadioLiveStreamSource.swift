@@ -49,6 +49,7 @@ final class RadioLiveStreamSource: NSObject, URLSessionDataDelegate, @unchecked 
     private static let maximumBufferedBytes = 2 * 1_024 * 1_024
 
     private let url: URL
+    private let headers: [String: String]
     private let metadataHandler: MetadataHandler?
     private let condition = NSCondition()
 
@@ -76,8 +77,13 @@ final class RadioLiveStreamSource: NSObject, URLSessionDataDelegate, @unchecked 
     private var task: URLSessionDataTask?
     private var plainHTTPTransport: RadioPlainHTTPStreamTransport?
 
-    init(url: URL, metadataHandler: MetadataHandler? = nil) {
+    init(
+        url: URL,
+        headers: [String: String] = [:],
+        metadataHandler: MetadataHandler? = nil
+    ) {
         self.url = url
+        self.headers = headers
         self.metadataHandler = metadataHandler
         super.init()
     }
@@ -122,38 +128,45 @@ final class RadioLiveStreamSource: NSObject, URLSessionDataDelegate, @unchecked 
     }
 
     private func startRequest() {
-        condition.lock()
-        let shouldStart = !cancelled
-        condition.unlock()
-        guard shouldStart else { return }
-
-        if InsecureHTTPHostPolicy.requiresExplicitTrust(for: url) {
-            startPlainHTTPRequest()
-            return
-        }
-
-        startURLSessionRequest()
-    }
-
-    private func startURLSessionRequest() {
-
         var request = URLRequest(
             url: url,
             cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
             timeoutInterval: 15
         )
-        request.setValue("1", forHTTPHeaderField: "Icy-MetaData")
-        request.setValue("Primuse/Radio", forHTTPHeaderField: "User-Agent")
+        request.httpMethod = "GET"
+        for (name, value) in TVRadioRequestHeaderPolicy.merged(customHeaders: headers) {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+        startRequest(request, redirectCount: 0)
+    }
 
+    private func startRequest(_ request: URLRequest, redirectCount: Int) {
+        condition.lock()
+        let shouldStart = !cancelled
+        condition.unlock()
+        guard shouldStart, let requestURL = request.url else { return }
+
+        if InsecureHTTPHostPolicy.requiresExplicitTrust(for: requestURL) {
+            startPlainHTTPRequest(request, redirectCount: redirectCount)
+            return
+        }
+
+        startURLSessionRequest(request, redirectCount: redirectCount)
+    }
+
+    private func startURLSessionRequest(_ request: URLRequest, redirectCount: Int) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         configuration.urlCache = nil
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
         let queue = OperationQueue()
         queue.name = "com.welape.yuanyin.radio-live-stream"
         queue.maxConcurrentOperationCount = 1
         queue.qualityOfService = .userInitiated
         let session = URLSession(configuration: configuration, delegate: self, delegateQueue: queue)
         let task = session.dataTask(with: request)
+        task.taskDescription = String(redirectCount)
         condition.lock()
         guard !cancelled else {
             condition.unlock()
@@ -162,17 +175,23 @@ final class RadioLiveStreamSource: NSObject, URLSessionDataDelegate, @unchecked 
         }
         self.session = session
         self.task = task
+        plainHTTPTransport = nil
         condition.unlock()
         task.resume()
     }
 
-    private func startPlainHTTPRequest() {
+    private func startPlainHTTPRequest(_ request: URLRequest, redirectCount: Int) {
+        guard let requestURL = request.url else {
+            let completion = finish(with: .failure(StreamError.invalidResponse))
+            resume(completion)
+            return
+        }
         #if !os(tvOS)
-        guard let trustTarget = TrustedHTTPTransport.trustTarget(for: url),
+        guard let trustTarget = TrustedHTTPTransport.trustTarget(for: requestURL),
               SSLTrustStore.allowsInsecureHTTPHostSync(domain: trustTarget) else {
             let completion = finish(with: .failure(
                 TrustedHTTPTransportError.permissionRequired(
-                    host: TrustedHTTPTransport.trustTarget(for: url) ?? url.host ?? ""
+                    host: TrustedHTTPTransport.trustTarget(for: requestURL) ?? requestURL.host ?? ""
                 )
             ))
             resume(completion)
@@ -187,13 +206,23 @@ final class RadioLiveStreamSource: NSObject, URLSessionDataDelegate, @unchecked 
 
         do {
             let transport = try RadioPlainHTTPStreamTransport(
-                url: url,
-                headers: [
-                    "Icy-MetaData": "1",
-                    "User-Agent": "Primuse/Radio"
-                ],
+                url: requestURL,
+                headers: request.allHTTPHeaderFields ?? [:],
                 onResponse: { [weak self] response in
-                    self?.accept(response: response) ?? false
+                    guard let self else { return false }
+                    guard Self.isRedirect(response.statusCode) else {
+                        return self.accept(response: response)
+                    }
+                    guard redirectCount < TVRadioRedirectRequestPolicy.maximumRedirects,
+                          let redirected = TVRadioRedirectRequestPolicy.redirectedRequest(
+                              from: request,
+                              response: response,
+                              customHeaders: self.headers
+                          ) else {
+                        return self.accept(response: response)
+                    }
+                    self.startRequest(redirected, redirectCount: redirectCount + 1)
+                    return false
                 },
                 onData: { [weak self] data in
                     self?.receiveBodyData(data)
@@ -209,12 +238,59 @@ final class RadioLiveStreamSource: NSObject, URLSessionDataDelegate, @unchecked 
                 return
             }
             plainHTTPTransport = transport
+            session = nil
+            task = nil
             condition.unlock()
             transport.start()
         } catch {
             let completion = finish(with: .failure(error))
             resume(completion)
         }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        let redirectCount = Int(task.taskDescription ?? "0") ?? 0
+        guard redirectCount < TVRadioRedirectRequestPolicy.maximumRedirects,
+              let currentRequest = task.currentRequest ?? task.originalRequest,
+              let redirected = TVRadioRedirectRequestPolicy.redirectedRequest(
+                  from: currentRequest,
+                  response: response,
+                  customHeaders: headers
+              ) else {
+            completionHandler(nil)
+            return
+        }
+        task.taskDescription = String(redirectCount + 1)
+        completionHandler(redirected)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge
+    ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        #if os(tvOS)
+        return await TVServerTrustPolicy.disposition(for: challenge)
+        #else
+        return (.performDefaultHandling, nil)
+        #endif
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didReceive challenge: URLAuthenticationChallenge
+    ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        #if os(tvOS)
+        return await TVServerTrustPolicy.disposition(for: challenge)
+        #else
+        return (.performDefaultHandling, nil)
+        #endif
     }
 
     func urlSession(
@@ -515,6 +591,10 @@ final class RadioLiveStreamSource: NSObject, URLSessionDataDelegate, @unchecked 
               number.isFinite,
               number > 0 else { return nil }
         return Int((number < 10_000 ? number * 1_000 : number).rounded())
+    }
+
+    private static func isRedirect(_ statusCode: Int) -> Bool {
+        [301, 302, 303, 307, 308].contains(statusCode)
     }
 }
 

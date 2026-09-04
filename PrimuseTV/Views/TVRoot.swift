@@ -154,11 +154,13 @@ struct TVRoot: View {
     @State private var nowPlayingFocusRequest: TVContentFocusRequest?
     @State private var sourcesFocusRequest = 0
     @State private var searchFocusRequest: TVContentFocusRequest?
+    @State private var playbackInteractionRequest = 0
     @State private var contentFocusRouting = TVContentFocusRoutingState()
     @State private var tabFocusRequest = 0
     @State private var isTabBarFocused = true
     @State private var suppressesFocusDrivenTabSelection = false
     @State private var modalFocusRecoveryGeneration = 0
+    @State private var hasChildModalPresentation = false
     @State private var certificateTrustStore = TVServerCertificateTrustStore.shared
 
     init() {
@@ -183,6 +185,7 @@ struct TVRoot: View {
             .onPlayPauseCommand {
                 guard store.hasNowPlaying else { return }
                 store.togglePlayPause()
+                playbackInteractionRequest &+= 1
             }
             .alert(
                 PMString("ext.tv.certificate.title"),
@@ -248,7 +251,7 @@ struct TVRoot: View {
             }
         }
         .onChange(of: rootModalPresentationCount) { _, count in
-            modalActivityChanged(count > 0)
+            modalActivityChanged(count > 0 || hasChildModalPresentation)
         }
         .fullScreenCover(isPresented: $showSettings) {
             TVSettingsView(onNavigate: { tab = $0 }).environment(store)
@@ -315,26 +318,30 @@ struct TVRoot: View {
         case .library:
             TVLibraryView(
                 openPlayer: { tab = .nowPlaying },
+                onModalActivityChanged: childModalActivityChanged,
                 focusRequest: libraryFocusRequest
             )
         case .nowPlaying:
             TVNowPlayingView(
                 isTabContent: true,
                 focusRequest: nowPlayingFocusRequest,
+                interactionRequest: playbackInteractionRequest,
                 onContentAppeared: restoreNowPlayingFocus,
                 onContentModeChanged: retargetNowPlayingFocus,
-                onReturnToTabs: returnFocusToTabs
+                onReturnToTabs: returnFocusToTabs,
+                onModalActivityChanged: childModalActivityChanged
             )
         case .playlists: TVPlaylistsView(openPlayer: { tab = .nowPlaying })
         case .sources:
             TVSourcesView(
                 focusRequest: sourcesFocusRequest,
-                onModalActivityChanged: modalActivityChanged
+                onModalActivityChanged: childModalActivityChanged
             )
         case .search:
             TVSearchView(
                 openPlayer: { tab = .nowPlaying },
-                focusRequest: searchFocusRequest
+                focusRequest: searchFocusRequest,
+                onModalActivityChanged: childModalActivityChanged
             )
         }
     }
@@ -345,7 +352,13 @@ struct TVRoot: View {
     }
 
     private var rootModalPresentationCount: Int {
-        [showSettings, showQueue, showOptions].filter { $0 }.count
+        [
+            showSettings,
+            showQueue,
+            showOptions,
+            certificateTrustStore.pendingRequest != nil,
+            certificateTrustStore.pendingInsecureHTTPRequest != nil,
+        ].filter { $0 }.count
     }
 
     private func modalActivityChanged(_ active: Bool) {
@@ -369,6 +382,11 @@ struct TVRoot: View {
             guard generation == modalFocusRecoveryGeneration else { return }
             suppressesFocusDrivenTabSelection = false
         }
+    }
+
+    private func childModalActivityChanged(_ active: Bool) {
+        hasChildModalPresentation = active
+        modalActivityChanged(active || rootModalPresentationCount > 0)
     }
 
     private func requestContentFocus(from tab: Tab) {
@@ -404,6 +422,9 @@ struct TVRoot: View {
 
     private func tabBarFocusChanged(_ focused: Bool) {
         isTabBarFocused = focused
+        if focused {
+            playbackInteractionRequest &+= 1
+        }
         guard focused, !suppressesFocusDrivenTabSelection else { return }
         // A horizontal tab transition is still tab-bar navigation. Clear any
         // previous content route so a newly appeared page cannot reclaim focus
@@ -538,7 +559,7 @@ struct TVTabBar: View {
                     }
                     .shadow(color: TVColor.brand.opacity(0.28), radius: 12, y: 6)
                 Text(verbatim: PMString("ext.tv.appName"))
-                    .font(.system(size: 24, weight: .bold))
+                    .font(TVFont.cardTitle)
                     .foregroundStyle(TVColor.text)
             }
 
@@ -639,11 +660,12 @@ private struct TVTabItem: View {
     let isActive: Bool
     let isFocused: Bool
     var action: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 26, weight: isActive ? .bold : .medium))
+                .font(TVFont.sectionTitle.weight(isActive ? .bold : .medium))
                 .foregroundStyle(isActive || isFocused ? TVColor.text : TVColor.textMuted)
                 .padding(.horizontal, 24).padding(.vertical, 10)
                 .background(isFocused ? TVColor.surfaceStrong : .clear,
@@ -652,11 +674,12 @@ private struct TVTabItem: View {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .strokeBorder(TVColor.focusRing, lineWidth: isFocused ? 3 : 0)
                 }
-                .scaleEffect(isFocused ? 1.08 : 1)
-                .animation(.easeOut(duration: 0.18), value: isFocused)
+                .scaleEffect(isFocused && !reduceMotion ? 1.08 : 1)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: isFocused)
         }
         .buttonStyle(TVBareButtonStyle())
         .focusEffectDisabled()
+        .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
     }
 }
 

@@ -56,8 +56,13 @@ final class PlayHistoryStore {
     private var currentMaxElapsed: TimeInterval = 0
 
     private init() {
+        #if os(tvOS)
+        let docs = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+            .appendingPathComponent("Primuse", isDirectory: true)
+        #else
         let docs = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
             .appendingPathComponent("Primuse", isDirectory: true)
+        #endif
         try? FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
         self.storeURL = docs.appendingPathComponent("play_history.json")
         load()
@@ -323,6 +328,24 @@ final class PlayHistoryStore {
     }
 
     // MARK: - Persistence
+
+    func flush() {
+        saveTask?.cancel()
+        saveTask = nil
+        saveNow()
+    }
+
+    func remapSongIDs(_ replacements: [String: String]) {
+        guard entries.contains(where: { replacements[$0.songID] != nil }) else { return }
+        entries = entries.map { entry in
+            Entry(songID: replacements[entry.songID] ?? entry.songID,
+                  songTitle: entry.songTitle, artistName: entry.artistName,
+                  albumTitle: entry.albumTitle, playedAt: entry.playedAt,
+                  listenedSec: entry.listenedSec, sourceID: entry.sourceID)
+        }
+        flush()
+        notifyChanged()
+    }
 
     private func load() {
         guard let data = try? Data(contentsOf: storeURL) else { return }

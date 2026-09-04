@@ -162,7 +162,7 @@ public struct LANSyncPayload: Codable, Sendable {
     /// but a new transfer is complete only when it carries both the library and
     /// the prepared credential bundle promised by LAN pairing.
     public var isCompleteForTransfer: Bool {
-        SnapshotTransferCompletionPolicy.canSendLAN(
+        sourcesGz?.isEmpty == false && SnapshotTransferCompletionPolicy.canSendLAN(
             hasLibrarySnapshot: libraryGz?.isEmpty == false,
             credentialOutcome: credentials == nil ? .failed : .succeeded
         )

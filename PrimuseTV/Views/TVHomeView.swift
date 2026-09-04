@@ -17,6 +17,7 @@ struct TVHomeView: View {
     @State private var aiRecommendation = AIRecommendationViewModel()
     @State private var recommendationHistoryRevision = 0
     @State private var recommendationClockRevision = 0
+    @ScaledMetric(relativeTo: .largeTitle) private var heroTitleSize: CGFloat = 84
     var openPlayer: () -> Void = {}
 
     private var candidateAlbum: TVAlbum? {
@@ -78,6 +79,10 @@ struct TVHomeView: View {
             totalSongCount: store.songs.count,
             candidateAlbumSongCount: candidateAlbumSongs.count
         )
+    }
+    private var heroLikeSong: TVSong? { heroSong ?? candidateAlbumSongs.first }
+    private var heroIsLiked: Bool {
+        heroLikeSong.map { store.isLiked($0.id) } ?? false
     }
     private var heroHeading: String {
         hero.artist.isEmpty ? hero.title : "\(hero.artist) · \(hero.title)"
@@ -268,7 +273,8 @@ struct TVHomeView: View {
             VStack(alignment: .leading, spacing: 0) {
                 TVEyebrow(text: PMString("ext.tv.home.tonightsPick"))
                 Text(heroHeading)
-                    .font(.system(size: 84, weight: .bold)).tracking(-1.5)
+                    .font(.system(size: heroTitleSize, weight: .bold))
+                    .tracking(-1.5)
                     .foregroundStyle(TVColor.text).lineLimit(2)
                     .padding(.top, 16)
                 Text(heroSubtitle)
@@ -277,10 +283,19 @@ struct TVHomeView: View {
                     .padding(.top, 14)
                 HStack(spacing: 16) {
                     TVPillButton(title: PMString("ext.tv.home.playAll"), systemImage: "play.fill", style: .solid,
-                                 action: { store.playAll(shuffle: false); openPlayer() })
+                                 action: { playHero(shuffle: false) })
                     TVPillButton(title: PMString("ext.tv.home.shuffle"), systemImage: "shuffle",
-                                 action: { store.playAll(shuffle: true); openPlayer() })
-                    TVPillButton(title: PMString("ext.tv.home.love"), systemImage: "heart")
+                                 action: { playHero(shuffle: true) })
+                    if heroLikeSong != nil {
+                        TVPillButton(
+                            title: PMString(
+                                heroIsLiked ? "ext.tv.options.loved" : "ext.tv.home.love"
+                            ),
+                            systemImage: heroIsLiked ? "heart.fill" : "heart",
+                            isSelected: heroIsLiked,
+                            action: toggleHeroLiked
+                        )
+                    }
                 }
                 .padding(.top, 32)
             }
@@ -329,6 +344,34 @@ struct TVHomeView: View {
 
     private var heroAmbientTint: Color {
         coverDrivenAmbient ? hero.tint : TVColor.brand(hex: accentHex)
+    }
+
+    private func playHero(shuffle: Bool) {
+        let didStart: Bool
+        switch heroContent {
+        case .album:
+            guard let heroAlbum else { return }
+            if shuffle {
+                didStart = store.playResolvedQueue(
+                    songIDs: candidateAlbumSongs.map(\.id),
+                    shuffled: true
+                )
+            } else {
+                store.play(album: heroAlbum)
+                didStart = !candidateAlbumSongs.isEmpty
+            }
+        case .song:
+            store.playAll(shuffle: shuffle)
+            didStart = !store.songs.isEmpty
+        case .empty:
+            didStart = false
+        }
+        if didStart { openPlayer() }
+    }
+
+    private func toggleHeroLiked() {
+        guard let heroLikeSong else { return }
+        store.toggleLiked(heroLikeSong.id)
     }
 }
 #endif

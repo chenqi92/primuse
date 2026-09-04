@@ -210,12 +210,16 @@ enum TVRadius {
 }
 
 enum TVFont {
-    static let pageTitle: Font = .system(size: 48, weight: .bold)
-    static let sectionTitle: Font = .system(size: 28, weight: .bold)
-    static let cardTitle: Font = .system(size: 22, weight: .semibold)
-    static let body: Font = .system(size: 22, weight: .regular)
-    static let caption: Font = .system(size: 16, weight: .regular)
-    static let eyebrow: Font = .system(size: 16, weight: .semibold)
+    // Semantic styles follow the viewer's accessibility text-size preference.
+    // Explicit frames still preserve the 10-foot layout while text can scale.
+    static let pageTitle: Font = .largeTitle.weight(.bold)
+    static let sectionTitle: Font = .title.weight(.bold)
+    static let cardTitle: Font = .title2.weight(.semibold)
+    static let body: Font = .title3
+    static let caption: Font = .callout
+    static let eyebrow: Font = .headline
+    static let button: Font = .title3.weight(.semibold)
+    static let metadata: Font = .callout
 }
 
 // MARK: - 轻量双语
@@ -267,24 +271,27 @@ enum TVFmt {
         let r = Int(s) % 60
         return "\(m):\(String(format: "%02d", r))"
     }
-    static func count(_ n: Int) -> String {
+    static func count(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
         let f = NumberFormatter()
         f.numberStyle = .decimal
-        f.groupingSeparator = ","
+        f.locale = locale
         return f.string(from: NSNumber(value: n)) ?? "\(n)"
     }
 }
 
 // MARK: - 焦点高亮
 
-extension View {
-    /// tvOS 焦点态: scale + 上抬 + 4pt 内描边(不被父级 overflow 裁切) + 辉光阴影。
-    func tvFocusRing(_ focused: Bool,
-                     radius: CGFloat = TVRadius.card,
-                     accent: Color = TVColor.focusRing,
-                     scale: CGFloat = 1.06,
-                     lift: CGFloat = 12) -> some View {
-        self
+private struct TVFocusRingModifier: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    let focused: Bool
+    let radius: CGFloat
+    let accent: Color
+    let scale: CGFloat
+    let lift: CGFloat
+
+    func body(content: Content) -> some View {
+        content
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
@@ -294,10 +301,27 @@ extension View {
                     radius: focused ? 26 : 11, x: 0, y: focused ? 18 : 8)
             .shadow(color: focused ? accent.opacity(0.45) : .clear,
                     radius: focused ? 30 : 0)
-            .scaleEffect(focused ? scale : 1)
-            .offset(y: focused ? -lift : 0)
+            .scaleEffect(focused && !reduceMotion ? scale : 1)
+            .offset(y: focused && !reduceMotion ? -lift : 0)
             .zIndex(focused ? 1 : 0)
-            .animation(.easeOut(duration: 0.22), value: focused)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: focused)
+    }
+}
+
+extension View {
+    /// tvOS 焦点态: scale + 上抬 + 4pt 内描边(不被父级 overflow 裁切) + 辉光阴影。
+    func tvFocusRing(_ focused: Bool,
+                     radius: CGFloat = TVRadius.card,
+                     accent: Color = TVColor.focusRing,
+                     scale: CGFloat = 1.06,
+                     lift: CGFloat = 12) -> some View {
+        modifier(TVFocusRingModifier(
+            focused: focused,
+            radius: radius,
+            accent: accent,
+            scale: scale,
+            lift: lift
+        ))
     }
 
     /// 页面级分组面板。浅色下用细描边明确边界，深色下用低对比表面保持层级。
@@ -330,6 +354,7 @@ struct TVFocusButton<Label: View>: View {
     var lift: CGFloat
     var ring: Bool
     var action: () -> Void
+    var onFocusChanged: (Bool) -> Void
     @ViewBuilder var label: (Bool) -> Label
 
     @FocusState private var focused: Bool
@@ -340,6 +365,7 @@ struct TVFocusButton<Label: View>: View {
          lift: CGFloat = 12,
          ring: Bool = true,
          action: @escaping () -> Void = {},
+         onFocusChanged: @escaping (Bool) -> Void = { _ in },
          @ViewBuilder label: @escaping (Bool) -> Label) {
         self.radius = radius
         self.accent = accent
@@ -347,6 +373,7 @@ struct TVFocusButton<Label: View>: View {
         self.lift = lift
         self.ring = ring
         self.action = action
+        self.onFocusChanged = onFocusChanged
         self.label = label
     }
 
@@ -363,6 +390,9 @@ struct TVFocusButton<Label: View>: View {
         .buttonStyle(TVBareButtonStyle())
         .focused($focused)
         .focusEffectDisabled()   // 关掉 tvOS 默认白卡焦点效果,只保留自定义高亮
+        .onChange(of: focused) { _, value in
+            onFocusChanged(value)
+        }
     }
 }
 

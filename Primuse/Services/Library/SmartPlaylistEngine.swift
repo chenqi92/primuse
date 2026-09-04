@@ -72,10 +72,14 @@ enum SmartPlaylistEngine {
     }
 
     private static func candidateSongs(in library: MusicLibrary) -> [Song] {
+        #if os(tvOS)
+        return library.visibleSongs
+        #else
         guard !AppleMusicFeatureSettings.autoAddToSmartPlaylistsEnabled else {
             return library.visibleSongs
         }
         return library.visibleSongs.filter { $0.sourceID != AppleMusicLibraryService.systemSourceID }
+        #endif
     }
 
     // MARK: - Rule evaluation

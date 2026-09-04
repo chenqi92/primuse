@@ -541,6 +541,20 @@ targets:
       - path: Primuse/Services/Library/MusicLibrary.swift
       - path: Primuse/Services/Library/LibraryDatabase.swift
       - path: Primuse/Services/Library/PlayHistoryStore.swift
+      - path: Primuse/Services/Library/SmartPlaylistEngine.swift
+      - path: Primuse/Services/Cloud/CloudKitSyncService.swift
+      - path: Primuse/Services/Radio/RadioStationsStore.swift
+      - path: Primuse/Services/Metadata/ScraperSettingsStore.swift
+      - path: Primuse/Services/Metadata/Scrapers/ScraperConfigStore.swift
+      - path: Primuse/Services/Metadata/Scrapers/ScraperConfig.swift
+      - path: Primuse/Services/Metadata/Scrapers/ScraperSourceConfig.swift
+      - path: Primuse/Services/Metadata/Scrapers/ScraperTypes.swift
+      - path: Primuse/Services/Scrobble/ScrobbleService.swift
+      - path: Primuse/Services/Scrobble/ScrobbleSettings.swift
+      - path: Primuse/Services/Scrobble/ScrobbleProvider.swift
+      - path: Primuse/Services/Scrobble/LastFmProvider.swift
+      - path: Primuse/Services/Scrobble/ListenBrainzProvider.swift
+      - path: Primuse/Services/Scrobble/AppSecrets.swift
       - path: Primuse/Services/Library/ArtistNameSettingsStore.swift
       - path: Primuse/Services/Sources/SourcesStore.swift
       - path: Primuse/Services/Sources/MusicSourceSecurityRevision.swift

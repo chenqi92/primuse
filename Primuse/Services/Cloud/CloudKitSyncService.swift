@@ -205,7 +205,11 @@ final class CloudKitSyncService {
         self.radioStationsStore = radioStationsStore
         self.scraperConfigStore = scraperConfigStore
         self.scraperSettingsStore = scraperSettingsStore
+        #if os(tvOS)
+        let appSupport = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+        #else
         let appSupport = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
+        #endif
         let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         self.stateURL = directory.appendingPathComponent("cloudkit-engine-state.bin")
@@ -754,6 +758,9 @@ final class CloudKitSyncService {
             message = nil
         }
         guard let message else { return }
+        #if os(tvOS)
+        plog("TV cloud synchronization failed: \(message)")
+        #else
         Task { @MainActor in
             await UserNotificationService.shared.postError(
                 category: .cloudSyncFailed,
@@ -761,6 +768,7 @@ final class CloudKitSyncService {
                 body: message
             )
         }
+        #endif
     }
 
     private func mapToSyncStatus(_ error: any Error) -> CloudSyncStatus {

@@ -64,6 +64,11 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         playMediaHandler.refreshRadioVocabulary()
+        store.applicationDidBecomeActive()
+    }
+
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        Task { await store.persistForLifecycle() }
     }
 
     func application(_ application: UIApplication, handlerFor intent: INIntent) -> Any? {

@@ -137,10 +137,9 @@ struct TVRadioArtworkView: View {
     let size: CGFloat
     var radius: CGFloat = TVRadius.cover
 
-    private var logo: UIImage? {
-        guard let data = station.logoData else { return nil }
-        return UIImage(data: data)
-    }
+    @State private var logo: UIImage?
+
+    private var logoIdentity: Int { station.logoData?.hashValue ?? 0 }
 
     var body: some View {
         Group {
@@ -157,6 +156,18 @@ struct TVRadioArtworkView: View {
         .overlay {
             RoundedRectangle(cornerRadius: radius, style: .continuous)
                 .strokeBorder(TVColor.cardBorder, lineWidth: 1)
+        }
+        .task(id: logoIdentity) {
+            let identity = logoIdentity
+            guard let data = station.logoData else {
+                logo = nil
+                return
+            }
+            let decoded = await Task.detached(priority: .utility) {
+                UIImage(data: data)
+            }.value
+            guard !Task.isCancelled, identity == logoIdentity else { return }
+            logo = decoded
         }
     }
 }
@@ -208,6 +219,8 @@ struct TVArtistCard: View {
                     .foregroundStyle(TVColor.text).lineLimit(1).frame(width: size + 20)
             }
         }
+        .accessibilityLabel(Text(artist.name))
+        .accessibilityValue(Text(PMString("ext.tv.search.artistMeta", artist.songCount)))
     }
 }
 
@@ -237,14 +250,14 @@ struct TVPillButton: View {
     let title: String
     let systemImage: String
     var style: Style = .glass
+    var isSelected = false
     var action: () -> Void = {}
 
     var body: some View {
         TVFocusButton(radius: 14, scale: 1.04, lift: 6, action: action) { _ in
             HStack(spacing: 12) {
                 Image(systemName: systemImage).font(.system(size: 22, weight: .semibold))
-                Text(title).font(.system(size: style == .solid ? 26 : 24,
-                                         weight: style == .solid ? .bold : .medium))
+                Text(title).font(style == .solid ? TVFont.sectionTitle : TVFont.button)
             }
             .padding(.horizontal, style == .solid ? 44 : 32)
             .padding(.vertical, 18)
@@ -252,6 +265,7 @@ struct TVPillButton: View {
             .background(style == .solid ? AnyShapeStyle(TVColor.brand)
                                         : AnyShapeStyle(TVColor.surfaceStrong))
         }
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 }
 #endif

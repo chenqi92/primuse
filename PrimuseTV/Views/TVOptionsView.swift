@@ -87,6 +87,7 @@ struct TVOptionsView: View {
             .frame(width: 150, height: 150)
             .background(focused ? AnyShapeStyle(TVColor.brand) : AnyShapeStyle(TVColor.surfaceStrong))
         }
+        .accessibilityAddTraits(a.on ? [.isButton, .isSelected] : .isButton)
     }
 }
 
@@ -153,6 +154,9 @@ struct TVFullscreenEffectPicker: View {
                         .buttonStyle(TVBareButtonStyle())
                         .focused($lyricsToggleFocused)
                         .focusEffectDisabled()
+                        .accessibilityAddTraits(
+                            lyricsMotionEnabled ? [.isButton, .isSelected] : .isButton
+                        )
                     }
 
                     ScrollView(.vertical, showsIndicators: false) {
@@ -237,6 +241,7 @@ struct TVFullscreenEffectPicker: View {
         .buttonStyle(TVBareButtonStyle())
         .focused($focusedEffect, equals: candidate)
         .focusEffectDisabled()
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 }
 #endif

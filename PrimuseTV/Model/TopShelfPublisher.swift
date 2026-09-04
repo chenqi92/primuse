@@ -25,7 +25,7 @@ enum TopShelfPublisher {
 
     static func publish(recent: [Draft], albums: [Draft]) async {
         // 没配 App Group(旧版 / 未签 entitlement)时 containerURL 为 nil,直接跳过。
-        guard TopShelfStore.containerURL != nil else { return }
+        guard !Task.isCancelled, TopShelfStore.containerURL != nil else { return }
         pruneStaleCovers()
 
         var sections: [TopShelfSection] = []
@@ -37,6 +37,7 @@ enum TopShelfPublisher {
         if !albumItems.isEmpty {
             sections.append(TopShelfSection(id: "albums", title: PMString("ext.tv.topShelf.library"), items: albumItems))
         }
+        guard !Task.isCancelled else { return }
         TopShelfStore.save(TopShelfPayload(sections: sections))
         // 通知系统 Top Shelf 内容已变,促其在下次机会重新向扩展取数据(否则停留旧值/空)
         TVTopShelfContentProvider.topShelfContentDidChange()
@@ -45,6 +46,7 @@ enum TopShelfPublisher {
     private static func items(from drafts: [Draft]) async -> [TopShelfItem] {
         var out: [TopShelfItem] = []
         for d in drafts {
+            guard !Task.isCancelled else { return [] }
             let file = await cover(
                 key: d.id,
                 coverKey: d.coverKey,
@@ -93,7 +95,8 @@ enum TopShelfPublisher {
                 album: album
             )
         }
-        guard let output = data.flatMap({ $0.isEmpty ? nil : $0 })
+        guard !Task.isCancelled,
+              let output = data.flatMap({ $0.isEmpty ? nil : $0 })
                 ?? placeholderCover(seed: key) else { return nil }
 
         // 把实际图像内容纳入 URL：占位后来被真实封面替换时，tvOS 不会继续命中旧图缓存。

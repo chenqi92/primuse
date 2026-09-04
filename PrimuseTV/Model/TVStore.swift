@@ -1,6 +1,7 @@
 #if os(tvOS)
 import SwiftUI
 import Observation
+import CryptoKit
 import PrimuseKit
 
 extension Notification.Name {
@@ -273,22 +274,68 @@ struct TVNowPlaying {
 @MainActor
 @Observable
 final class TVStore {
-    let library = MusicLibrary()
+    let library: MusicLibrary
     let sourcesStore: SourcesStore
+    private let defaults: UserDefaults
+    @ObservationIgnored private let snapshotRecovery: @MainActor () throws -> Bool
+    @ObservationIgnored private let scanPersistence: @MainActor @Sendable (MusicLibrary) async -> Result<Void, AppleTVTransferFailure>
     @ObservationIgnored let engine = TVAudioEngine()
     @ObservationIgnored private lazy var coordinator = TVPlaybackCoordinator(store: self, engine: engine)
     @ObservationIgnored private var playbackTask: Task<Void, Never>?
     @ObservationIgnored private var activePlaybackRequestID: UUID?
     @ObservationIgnored private var radioReconnectTask: Task<Void, Never>?
     @ObservationIgnored private var radioReconnectAttempt = 0
+    @ObservationIgnored private lazy var radioStore = RadioStationsStore()
+    @ObservationIgnored private lazy var serverFeedback = TVServerFeedbackService(
+        sourceProvider: { [weak self] id in
+            guard let self, !self.locallyRemovedSourceIDs.contains(id),
+                  let source = self.sourcesStore.source(id: id), source.isEnabled, !source.isDeleted else { return nil }
+            return source
+        },
+        credentialProvider: { [weak self] source in
+            TVCredentialStore.credential(for: source, bundle: self?.credentialBundle)
+        },
+        currentLikedState: { [weak self] id in self?.library.isLiked(songID: id) ?? false },
+        applyLikedState: { [weak self] id, desired in
+            self?.library.setLiked(songID: id, isLiked: desired, propagatesServerMutation: false)
+        },
+        reportError: { [weak self] message in self?.playbackIssue = .failed(message) }
+    )
+    @ObservationIgnored private lazy var cloudSync = CloudKitSyncService(
+        library: library, sourcesStore: sourcesStore,
+        radioStationsStore: radioStore, scraperSettingsStore: ScraperSettingsStore()
+    )
 
-    init(sourcesStore: SourcesStore = SourcesStore()) {
-        self.sourcesStore = sourcesStore
+    init(sourcesStore: SourcesStore? = nil, library: MusicLibrary? = nil,
+         defaults: UserDefaults = .standard,
+         sessionStore: PlaybackSessionStore = PlaybackSessionStore(),
+         snapshotRecovery: (@MainActor () throws -> Bool)? = nil,
+         scanPersistence: @escaping @MainActor @Sendable (MusicLibrary) async -> Result<Void, AppleTVTransferFailure> = {
+             await $0.persistNowAndWait()
+         }) {
+        var pendingSnapshotImport = false
+        var pendingSnapshotRecovery = false
+        let recover = snapshotRecovery ?? { try LibrarySnapshotSync.recoverTVSnapshot() }
+        if snapshotRecovery != nil || (sourcesStore == nil && library == nil) {
+            do { pendingSnapshotImport = try recover() }
+            catch {
+                pendingSnapshotRecovery = true
+                plog("TV snapshot recovery pending: \(error.localizedDescription)")
+            }
+        }
+        self.sourcesStore = sourcesStore ?? SourcesStore()
+        self.library = library ?? MusicLibrary(preferExternalSnapshot: pendingSnapshotImport)
+        self.defaults = defaults
+        self.snapshotRecovery = recover
+        self.scanPersistence = scanPersistence
+        self.sessionStore = sessionStore
+        hasPendingSnapshotImport = pendingSnapshotImport
+        hasPendingSnapshotRecovery = pendingSnapshotRecovery
+        locallyRemovedSourceIDs = Set(defaults.stringArray(forKey: "tv.removedSourceIDs") ?? [])
+        locallyScannedSourceIDs = Set(defaults.stringArray(forKey: "tv.scannedSourceIDs") ?? [])
         engine.onEnded = { [weak self] in self?.handlePlaybackEnded() }
         engine.onFailure = { [weak self] message in
-            guard let self, self.isLiveRadio else { return }
-            self.playbackIssue = .failed(message)
-            self.scheduleRadioReconnect()
+            self?.handlePlaybackFailure(message)
         }
         engine.onLiveMetadata = { [weak self] title in
             guard let self, self.isLiveRadio else { return }
@@ -302,7 +349,17 @@ final class TVStore {
         engine.onRemoteTogglePlayPause = { [weak self] in self?.togglePlayPause() }
         engine.onRemotePreviousTrack = { [weak self] in self?.previous() }
         engine.onRemoteNextTrack = { [weak self] in self?.next() }
+        self.library.likedStateMutationHandler = { [weak self] song, previous, desired in
+            self?.serverFeedback.setLiked(song: song, previous: previous, desired: desired)
+        }
         syncTrackNavigationCommands()
+        observeLibraryChanges()
+        observePlaybackChanges()
+        if pendingSnapshotImport || pendingSnapshotRecovery {
+            Task { [weak self] in
+                _ = await self?.retryPendingSnapshotImport()
+            }
+        }
         Task { [weak self] in
             await StreamResolverRegistry.shared.setCloudCredentialRefreshHandler {
                 [weak self] sourceID, refresh in
@@ -365,6 +422,27 @@ final class TVStore {
     // TV 本机扫描(SMB 路径快扫 / 飞牛音乐整库)。视图观察 scanner.phase/indexed/currentFile。
     @ObservationIgnored let scanner = TVSourceScanner()
     private(set) var activeScanSourceID: String?
+    @ObservationIgnored private var scanTask: Task<Bool, Never>?
+    @ObservationIgnored private var scanGeneration = UUID()
+    @ObservationIgnored private var pendingScanSongs: [Song] = []
+    @ObservationIgnored private var scanExistingIDsByFile: [String: String] = [:]
+    @ObservationIgnored private var lastScanFlush = Date.distantPast
+    private struct ScanCheckpoint: Codable {
+        let connectionIdentity: String
+        let roots: [String]
+        let state: SourceScanResumeState
+    }
+    private var isApplyingSnapshot = false
+    private var hasPendingSnapshotImport = false
+    private var hasPendingSnapshotRecovery = false
+    private var canMutateLibrary: Bool {
+        !isApplyingSnapshot && !hasPendingSnapshotRecovery && sourcesStore.hasCompleteSnapshot
+    }
+    @ObservationIgnored private var pendingImportTask: Task<Bool, Never>?
+    @ObservationIgnored private var syncTask: Task<Bool, Never>?
+    private var locallyRemovedSourceIDs: Set<String>
+    private var locallyScannedSourceIDs: Set<String>
+    private var sourceAuthenticationFailures: Set<String> = []
 
     // 内网自动发现(Bonjour),与 iOS/macOS 同一实现。
     @ObservationIgnored let discovery = NetworkDiscoveryService()
@@ -396,7 +474,17 @@ final class TVStore {
     private var queueIndex = 0 {
         didSet { syncTrackNavigationCommands() }
     }
-    private var localLiked = Set<String>()
+    private var canonicalQueue: [String] = []
+    private var queueCanonicalIndices: [Int] = []
+    @ObservationIgnored private var topShelfTask: Task<Void, Never>?
+    @ObservationIgnored private var playbackSessionTask: Task<Void, Never>?
+    @ObservationIgnored private var playbackMonitorTask: Task<Void, Never>?
+    @ObservationIgnored private var libraryRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var historyRequestID: UUID?
+    @ObservationIgnored private var playbackRecoveryAttempt = 0
+    @ObservationIgnored private var playbackRestoreAttempted = false
+    @ObservationIgnored private var accumulatedListeningTime: TimeInterval = 0
+    @ObservationIgnored private var sessionStore = PlaybackSessionStore()
 
     // 单条查询索引:song(_:)/album(_:) 命中字典而非全量 map 整库。
     // 在 refreshVisibility()(reload / 改源后)重建,曲库快照变更即失效。
@@ -409,6 +497,8 @@ final class TVStore {
     @ObservationIgnored private var cachedArtists: [TVArtist] = []
     @ObservationIgnored private var cachedNormalPlaylists: [TVPlaylist] = []
     @ObservationIgnored private var cachedSmartPlaylists: [TVPlaylist] = []
+    @ObservationIgnored private var smartPlaylistSongIDs: [String: [String]] = [:]
+    @ObservationIgnored private var playCountsBySongID: [String: Int] = [:]
     @ObservationIgnored private var normalPlaylistCacheRevision = -1
     @ObservationIgnored private var smartPlaylistCacheRevision = -1
     @ObservationIgnored private var normalPlaylistCollectionRevision = -1
@@ -506,13 +596,17 @@ final class TVStore {
     var playlists: [TVPlaylist] { normalPlaylists + smartPlaylists }
     var sources: [TVSource] {
         _ = sourcesRevision   // 建立观察依赖:bump 即触发本视图刷新
-        return sourcesStore.sources.map { self.map($0) }
+        return sourcesStore.sources.filter { !locallyRemovedSourceIDs.contains($0.id) }.map { self.map($0) }
     }
 
     // MARK: 查询
 
     func album(_ id: String) -> TVAlbum? { albumByID[id] }
     func song(_ id: String) -> TVSong? { songByID[id] }
+
+    func songs(forArtistID id: String) -> [TVSong] {
+        library.songs(forArtist: id).compactMap { song($0.id) }
+    }
 
     // MARK: 搜索(含歌词级,与 iOS/macOS 共用 LibrarySearchWorker)
 
@@ -525,6 +619,49 @@ final class TVStore {
     }
 
     @ObservationIgnored private var searchCache = LibrarySearchCache()
+
+    struct TVSearchResults {
+        let artists: [TVArtist]
+        let albums: [TVAlbum]
+        let songs: [TVSearchHit]
+    }
+
+    func searchResults(_ query: String, relatedConcepts: [String] = []) async -> TVSearchResults {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty, !Task.isCancelled else { return .init(artists: [], albums: [], songs: []) }
+        let songSnapshot = library.visibleSongs
+        let albumSnapshot = library.visibleAlbums
+        let cache = searchCache
+        let revision = library.searchRevision
+        let worker = Task.detached(priority: .userInitiated) {
+            let primary = LibrarySearchWorker.compute(query: q, songs: songSnapshot,
+                                                      albums: albumSnapshot, cache: cache)
+            var secondary: [(String, LibrarySearchOutput)] = []
+            for concept in relatedConcepts.prefix(5) where !Task.isCancelled {
+                secondary.append((concept, LibrarySearchWorker.compute(query: concept,
+                    songs: songSnapshot, albums: albumSnapshot, cache: primary.cache)))
+            }
+            return (primary, secondary)
+        }
+        let (primary, secondary) = await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: { worker.cancel() }
+        guard !Task.isCancelled, revision == library.searchRevision else {
+            return .init(artists: [], albums: [], songs: [])
+        }
+        searchCache = primary.cache
+        var seen = Set<String>()
+        var hits: [TVSearchHit] = []
+        for (concept, output) in [(Optional<String>.none, primary)] + secondary.map({ (Optional($0.0), $0.1) }) {
+            for hit in output.songResults where hits.count < 24 {
+                guard seen.insert(hit.song.id).inserted, let song = song(hit.song.id) else { continue }
+                hits.append(.init(song: song, isLyric: hit.matchKind == .lyrics,
+                                  lyricSnippet: hit.lyricSnippet, relatedConcept: concept))
+            }
+        }
+        return .init(artists: Array(artists.filter { $0.name.localizedCaseInsensitiveContains(q) }.prefix(12)),
+                     albums: primary.albumResults.prefix(12).compactMap { album($0.id) }, songs: hits)
+    }
 
     /// 元数据 + 路径 + 拼音/模糊 + 歌词匹配(歌词数据来自同步过来的缓存)。
     func searchHits(_ query: String) -> (top: TVArtist?, songs: [TVSearchHit]) {
@@ -647,9 +784,13 @@ final class TVStore {
         return result
     }
 
-    func isLiked(_ id: String) -> Bool { localLiked.contains(id) }
+    func isLiked(_ id: String) -> Bool { library.isLiked(songID: id) }
     func toggleLiked(_ id: String) {
-        if localLiked.contains(id) { localLiked.remove(id) } else { localLiked.insert(id) }
+        guard canMutateLibrary else {
+            playbackIssue = .failed(PMString("ext.tv.persistence.failed"))
+            return
+        }
+        library.toggleLiked(songID: id)
         rebuildLookupCaches()
     }
 
@@ -758,7 +899,8 @@ final class TVStore {
                    sourceID: s.sourceID,
                    sourceType: sourcesStore.source(id: s.sourceID)?.type
                ),
-               plays: 0, liked: localLiked.contains(s.id))
+               plays: playCountsBySongID[s.id] ?? 0,
+               liked: library.isLiked(songID: s.id))
     }
     private func map(_ a: Artist) -> TVArtist {
         let (t1, t2) = Self.tint(a.id.isEmpty ? a.name : a.id)
@@ -819,8 +961,14 @@ final class TVStore {
         )
     }
     private func mapSmart(_ sp: SmartPlaylist) -> TVPlaylist {
-        TVPlaylist(id: sp.id, name: sp.name, kind: .smart, count: 0,
-                   artworkSignature: "smart:\(sp.id)", artworkCandidates: [])
+        let matches = SmartPlaylistEngine.match(sp, in: library, history: .shared)
+        smartPlaylistSongIDs[sp.id] = matches.map(\.id)
+        return TVPlaylist(id: sp.id, name: sp.name, kind: .smart, count: matches.count,
+                          artworkSignature: "smart:\(sp.id):\(libraryContentRevision)",
+                          artworkCandidates: matches.prefix(4).map {
+            TVPlaylistArtworkCandidate(id: $0.id, kind: .song, songID: $0.id,
+                                        coverRef: $0.coverArtFileName, sourceID: $0.sourceID)
+        })
     }
 
     private func rebuildNormalPlaylistCacheIfNeeded() {
@@ -852,13 +1000,16 @@ final class TVStore {
         smartPlaylistCollectionRevision = playlistRevision
     }
     private func map(_ s: MusicSource) -> TVSource {
-        let cnt = hasRealLibrary ? (visibleSongCountsBySource[s.id] ?? 0) : s.songCount
+        let cnt = library.songs.lazy.filter { $0.sourceID == s.id }.count
         let (c, _) = Self.tint(s.id)
         let canScan = Self.tvScannableTypes.contains(s.type)
         return TVSource(id: s.id, name: s.name, type: s.type.rawValue,
                          iconName: s.type.iconName,
                          host: s.connectionSummary ?? s.basePath ?? s.type.displayName,
-                         status: s.isEnabled ? .connected : .disabled, songs: cnt, color: c,
+                         status: !s.isEnabled ? .disabled : (activeScanSourceID == s.id ? .scanning
+                            : (sourceAuthenticationFailures.contains(s.id) || playability(for: s) == .missingCredential
+                               ? .authFailed : .connected)),
+                         songs: cnt, color: c,
                          availabilityNote: s.type.isAwaitingPublicAPI ? s.type.subtitle : nil,
                          playability: playability(for: s),
                          canEnterCredential: !s.type.isAwaitingPublicAPI && Self.manualCredentialTypes.contains(s.type),
@@ -874,13 +1025,20 @@ final class TVStore {
     /// NAS 两步验证:用一次性验证码登录,成功则把申请到的「受信设备」令牌(deviceId)存进源,
     /// 之后该设备登录即可跳过 OTP。返回 nil 表示成功,否则返回错误文案。
     func login2FA(sourceID: String, otp: String) async -> String? {
+        guard canMutateLibrary else { return PMString("ext.tv.persistence.failed") }
         guard let source = sourcesStore.source(id: sourceID) else { return PMString("ext.tv.test.sourceNotFound") }
         let cred = TVCredentialStore.credential(for: source, bundle: credentialBundle)
         do {
             let did = try await StreamResolverRegistry.shared.loginForDeviceToken(
                 source: source, credential: cred, otp: otp)
+            guard canMutateLibrary, !Task.isCancelled,
+                  sourcesStore.source(id: sourceID) == source else { return PMString("ext.tv.persistence.failed") }
             if let did, !did.isEmpty {
-                sourcesStore.updateLocal(sourceID) { $0.deviceId = did }
+                do {
+                    guard try sourcesStore.updateLocalDurably(sourceID, mutate: { $0.deviceId = did }) else {
+                        return PMString("ext.tv.persistence.failed")
+                    }
+                } catch { return PMString("ext.tv.persistence.failed") }
             }
             await StreamResolverRegistry.shared.invalidateSession(for: source)
             sourcesRevision += 1
@@ -926,7 +1084,8 @@ final class TVStore {
         }
         // 协议直连(SMB/NFS/FTP):TV 本机直读,无需中继 → 可直接播放。
         if Self.directProtocolTypes.contains(type) {
-            return .ok
+            return type == .nfs || s.authType == .none || hasUsableCredential(for: s)
+                ? .ok : .missingCredential
         }
         // 其余 relay 类(SFTP/local/appleMusic):能否播放取决于 iPhone 中继端点是否已同步过来。
         if RelayStreamResolver.relayTypes.contains(type) {
@@ -941,6 +1100,7 @@ final class TVStore {
 
     /// 是否有可用凭据:TV 本地输入 > 同步凭据包条目 > 同步 iCloud 钥匙串密码。
     private func hasUsableCredential(for s: MusicSource) -> Bool {
+        if s.authType == .none { return true }
         if s.type.isCloudDrive {
             let credential = TVCredentialStore.credential(for: s, bundle: credentialBundle)
             if credential.token?.isEmpty == false { return true }
@@ -976,11 +1136,14 @@ final class TVStore {
         username: String,
         password: String
     ) -> Bool {
+        guard canMutateLibrary else { return false }
         guard TVCredentialStore.saveLocalCredential(
             sourceID: sourceID,
             username: username,
             password: password
         ) else { return false }
+        cancelScan(sourceID: sourceID)
+        serverFeedback.cancel(sourceID: sourceID)
         scanner.invalidateFnMusicClient(sourceID: sourceID)
         sourcesRevision += 1
         if let src = sourcesStore.source(id: sourceID) {
@@ -991,7 +1154,10 @@ final class TVStore {
 
     /// 清除 TV 本地手动输入凭据(回退到同步凭据)。
     func clearManualCredential(sourceID: String) {
-        TVCredentialStore.clearLocalCredential(sourceID: sourceID)
+        guard canMutateLibrary,
+              TVCredentialStore.clearLocalCredential(sourceID: sourceID) else { return }
+        cancelScan(sourceID: sourceID)
+        serverFeedback.cancel(sourceID: sourceID)
         scanner.invalidateFnMusicClient(sourceID: sourceID)
         sourcesRevision += 1
         if let src = sourcesStore.source(id: sourceID) {
@@ -1003,7 +1169,16 @@ final class TVStore {
     func testConnection(forSourceID id: String) async -> String {
         guard let source = sourcesStore.source(id: id) else { return PMString("ext.tv.test.sourceNotFound") }
         let credential = TVCredentialStore.credential(for: source, bundle: credentialBundle)
-        return await testConnection(source: source, credential: credential)
+        let result = await testConnection(source: source, credential: credential)
+        guard !Task.isCancelled, sourcesStore.source(id: id) == source else { return result }
+        if result == PMString("ext.tv.test.authFailed") || result == PMString("ext.tv.test.missingCredential")
+            || result == PMString("ext.tv.test.needs2FA") {
+            sourceAuthenticationFailures.insert(id)
+        } else if result.hasPrefix(PMString("ext.tv.test.connectedPrefix")) {
+            sourceAuthenticationFailures.remove(id)
+        }
+        sourcesRevision &+= 1
+        return result
     }
 
     /// Test an unsaved edit with the form's host, port and credentials. Blank
@@ -1021,6 +1196,7 @@ final class TVStore {
             }
             if let password, !password.isEmpty {
                 credential.password = password
+                if source.authType == .apiKey { credential.token = password }
             }
         }
         return await testConnection(source: source, credential: credential)
@@ -1073,7 +1249,7 @@ final class TVStore {
                     return PMString("ext.tv.test.unsupported", source.type.displayName)
                 }
                 do {
-                    _ = try await scanner.browse(lister: lister, path: "/")
+                    _ = try await lister.list("/")
                     return PMString("ext.tv.test.connectedPrefix")
                         + (source.host ?? PMString("ext.tv.test.resolved"))
                 } catch {
@@ -1140,31 +1316,30 @@ final class TVStore {
 
     // MARK: 启动引导(从 iCloud 拉取快照并重载真实曲库)
 
-    func bootstrap() async {
+    @discardableResult
+    func bootstrap() async -> Bool {
+        if let syncTask { return await syncTask.value }
+        let task = Task { await self.performBootstrap() }
+        syncTask = task
+        let succeeded = await task.value
+        syncTask = nil
+        return succeeded
+    }
+
+    private func performBootstrap() async -> Bool {
+        guard await retryPendingSnapshotImport() else { return false }
         #if DEBUG
         injectDebugCredential()   // 先注入,避免与自动播放钩子竞态(CloudKit await 期间)
         #endif
-        // 在首次 await 前发布本地曲库与来源。CloudKit 慢或未登录时首页仍可立即
-        // 使用持久化歌曲；下载完成后继续用本地 before 保留 TV-only 扫描结果。
-        await LocalFirstSnapshotBootstrap.run(
-            publishLocal: {
-                self.reload()
-                return self.library.songs
-            },
-            download: {
-                await LibrarySnapshotSync.shared.download()
-            },
-            applyDownloaded: { before in
-                self.reloadMerging(before: before)
-            }
-        )
-        // 凭据优先级:① 局域网直传存下来的配对包(reload 已载入)为基线;② CloudKit
-        // 拉到(同账号兜底)的逐条覆盖上去。不同 Apple ID 的 TV,CloudKit 返回 nil,
-        // 仅靠 LAN 配对包即可;同账号则两者合并。模拟器无 iCloud 也保留注入的 DEBUG 凭据。
-        if let cloud = await LibrarySnapshotSync.shared.downloadCredentials() {
-            cloudCredentialSourceIDs = Set(cloud.entries.keys)
-            mergeCredentialBundle(cloud, persistAsPaired: false)
-        }
+        reload()
+        resumePendingSourceUpload()
+        let payload = await LibrarySnapshotSync.shared.downloadTVPayload()
+        let installed: Bool
+        if let payload { installed = await installSnapshot(payload, fromCloud: true) }
+        else { installed = false }
+        await cloudSync.start()
+        refreshVisibility()
+        return installed
     }
 
     /// 启动局域网「扫码直传」接收端(幂等)。源页出现时调用;收到载荷即落盘 + reload,
@@ -1195,30 +1370,107 @@ final class TVStore {
 
     /// 收到 iPhone 经局域网直传来的整库 + 源 + 凭据:落盘、持久化凭据、合并重载曲库。
     @discardableResult
-    func applyLANPayload(_ payload: LANSyncPayload) -> Bool {
+    func applyLANPayload(_ payload: LANSyncPayload) async -> Bool {
         guard payload.isCompleteForTransfer else {
             plog("TVStore: rejected incomplete LAN payload")
             return false
         }
+        return await installSnapshot(payload, fromCloud: false)
+    }
+
+    private func installSnapshot(_ payload: LANSyncPayload, fromCloud: Bool) async -> Bool {
+        guard await retryPendingSnapshotImport() else { return false }
+        guard !isApplyingSnapshot else { return false }
+        guard sourcesStore.hasCompleteSnapshot else { return false }
+        isApplyingSnapshot = true
+        defer { isApplyingSnapshot = false }
+        // A downloaded payload is staged; it cannot race scan writes or use a
+        // baseline captured before those writes completed.
+        _ = await scanTask?.value
+        guard case .success = await library.persistNowAndWait() else { return false }
+        guard let localSources = try? sourcesStore.validatedSourcesForSnapshot() else { return false }
         let before = library.songs
-        guard LibrarySnapshotSync.shared.applyLANPayload(payload) else {
-            plog("TVStore: unable to persist or validate LAN library snapshot")
+        let previousCredentialReference = try? Data(contentsOf: TVCredentialStore.pairedBundleReferenceURL)
+        var reference: Data?
+        var nextBundle: CredentialBundle?
+        if let incoming = payload.credentials {
+            let key = fromCloud ? "tv.credentialSources.cloud" : "tv.credentialSources.paired"
+            let oldScope = Set(defaults.stringArray(forKey: key) ?? [])
+            var baseline = credentialBundle ?? TVCredentialStore.loadPairedBundle() ?? CredentialBundle()
+            for id in oldScope where incoming.entries[id] == nil { baseline.entries.removeValue(forKey: id) }
+            baseline.relay = incoming.relay
+            for (id, entry) in incoming.entries { baseline.entries[id] = entry }
+            nextBundle = baseline
+            guard let staged = TVCredentialStore.stagePairedBundle(baseline) else { return false }
+            reference = staged
+        }
+        guard LibrarySnapshotSync.shared.installTVPayload(
+            payload, credentialReference: reference, fromCloud: fromCloud,
+            preservingSongs: before.filter { locallyScannedSourceIDs.contains($0.sourceID) },
+            localSources: localSources
+        ) else {
+            if let reference { TVCredentialStore.discardInactiveStagedBundle(reference: reference) }
             return false
         }
+        hasPendingSnapshotImport = true
+        if let previousCredentialReference, reference != nil {
+            TVCredentialStore.discardInactiveStagedBundle(reference: previousCredentialReference)
+        }
+        if let nextBundle { credentialBundle = nextBundle }
+        if let incoming = payload.credentials {
+            defaults.set(Array(incoming.entries.keys),
+                         forKey: fromCloud ? "tv.credentialSources.cloud" : "tv.credentialSources.paired")
+            if fromCloud { cloudCredentialSourceIDs = Set(incoming.entries.keys) }
+        }
         reloadMerging(before: before)
-        var credentialsPersisted = true
-        if let credentials = payload.credentials {
-            credentialsPersisted = mergeCredentialBundle(
-                credentials,
-                persistAsPaired: true
-            )
-            if !credentialsPersisted {
-                plog("TVStore: unable to persist paired credential bundle")
+        await library.waitForPendingIndex()
+        guard case .success = await library.persistNowAndWait() else { return false }
+        do { try LibrarySnapshotSync.finishTVSnapshotImport() }
+        catch { return false }
+        hasPendingSnapshotImport = false
+        refreshVisibility()
+        sourcesRevision += 1
+        return true
+    }
+
+    func retryPendingSnapshotImport() async -> Bool {
+        guard hasPendingSnapshotImport || hasPendingSnapshotRecovery else { return true }
+        if let pendingImportTask { return await pendingImportTask.value }
+        guard !isApplyingSnapshot else { return false }
+        let task = Task { [weak self] () -> Bool in
+            guard let self else { return false }
+            self.isApplyingSnapshot = true
+            defer { self.isApplyingSnapshot = false }
+            if self.hasPendingSnapshotRecovery {
+                do {
+                    self.hasPendingSnapshotImport = try self.snapshotRecovery()
+                    self.hasPendingSnapshotRecovery = false
+                    self.library.reloadFromDisk(preferExternalSnapshot: self.hasPendingSnapshotImport)
+                    self.sourcesStore.reloadFromDisk()
+                    self.refreshVisibility()
+                } catch {
+                    self.playbackIssue = .failed(PMString("ext.tv.persistence.failed"))
+                    return false
+                }
+            }
+            guard self.hasPendingSnapshotImport else { return true }
+            guard case .success = await self.library.persistNowAndWait() else {
+                self.playbackIssue = .failed(PMString("ext.tv.persistence.failed"))
+                return false
+            }
+            do {
+                try LibrarySnapshotSync.finishTVSnapshotImport()
+                self.hasPendingSnapshotImport = false
+                return true
+            } catch {
+                self.playbackIssue = .failed(PMString("ext.tv.persistence.failed"))
+                return false
             }
         }
-        sourcesRevision += 1
-        plog("TVStore: applied LAN payload → sources=\(sourcesStore.sources.count) songs=\(library.songs.count) credentialsPersisted=\(credentialsPersisted)")
-        return credentialsPersisted
+        pendingImportTask = task
+        let succeeded = await task.value
+        pendingImportTask = nil
+        return succeeded
     }
 
     /// 应用手机快照后重载,并把「TV 本机扫的、手机快照里没有的源」的歌合并回来,
@@ -1226,10 +1478,12 @@ final class TVStore {
     private func reloadMerging(before: [Song]) {
         scanner.invalidateFnMusicClients()
         library.reloadFromDisk()
-        let incomingSources = Set(library.songs.map(\.sourceID))
-        let tvOnly = before.filter { !incomingSources.contains($0.sourceID) }
+        let incomingIDs = Set(library.songs.map(\.id))
+        let tvOnly = before.filter {
+            locallyScannedSourceIDs.contains($0.sourceID) && !incomingIDs.contains($0.id)
+        }
         if !tvOnly.isEmpty {
-            library.addSongs(tvOnly, affectedSourceIDs: nil, notifyRemovals: false)
+            library.addSongs(tvOnly, affectedSourceIDs: nil, notifyRemovals: false, pruneMissingSongs: false)
             library.persistNow()
             plog("TVStore: merged \(tvOnly.count) TV-scanned songs back after sync")
         }
@@ -1402,8 +1656,18 @@ final class TVStore {
 
     /// 仅从本地磁盘重载(不联网),用于关闭自动同步时的启动。
     func reload() {
+        guard !hasPendingSnapshotRecovery else {
+            playbackIssue = .failed(PMString("ext.tv.persistence.failed"))
+            Task { _ = await self.retryPendingSnapshotImport() }
+            return
+        }
         scanner.invalidateFnMusicClients()
-        library.reloadFromDisk()
+        // Normal launch uses the canonical song store. Only a successfully
+        // installed external snapshot may replace it from the portable JSON.
+        if activeScanSourceID == nil, !isApplyingSnapshot, !hasPendingSnapshotImport {
+            library.reloadFromDisk(preferExternalSnapshot: false)
+        }
+        migrateLegacySongIDs()
         sourcesStore.reloadFromDisk()
         reloadRadioStations()
         refreshVisibility()
@@ -1412,29 +1676,19 @@ final class TVStore {
         // 凭据未就绪时载入局域网直传持久化下来的配对包，并以本地活跃来源
         // 为边界裁剪。CloudKit 下载失败不会被当成空包，也不会清掉活跃源凭据。
         pruneCredentialBundlesToActiveSources()
+        restorePlaybackSessionIfNeeded()
+        if hasPendingSnapshotImport { Task { _ = await self.retryPendingSnapshotImport() } }
     }
 
-    private func reloadRadioStations() {
-        let directory = FileManager.default
-            .primuseDirectoryURL(for: .cachesDirectory)
-            .appendingPathComponent("Primuse", isDirectory: true)
-        let url = directory.appendingPathComponent("radio-stations.json")
-        guard let data = try? Data(contentsOf: url) else {
-            radioStations = []
-            return
-        }
-
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        guard var decoded = try? decoder.decode([RadioStation].self, from: data) else {
-            radioStations = []
-            return
-        }
+    private func reloadRadioStations(fromDisk: Bool = true) {
+        if fromDisk { radioStore.reloadFromDisk() }
+        var decoded = radioStore.allStations
 
         let recency = UserDefaults.standard.dictionary(forKey: "tvRadioLastPlayedAt") ?? [:]
         for index in decoded.indices {
             if let timestamp = recency[decoded[index].id] as? NSNumber {
-                decoded[index].lastPlayedAt = Date(timeIntervalSince1970: timestamp.doubleValue)
+                let legacy = Date(timeIntervalSince1970: timestamp.doubleValue)
+                decoded[index].lastPlayedAt = max(decoded[index].lastPlayedAt ?? .distantPast, legacy)
             }
         }
         radioStations = RadioStationOrdering.sorted(
@@ -1442,6 +1696,11 @@ final class TVStore {
                 !$0.isDeleted
                     && RadioStationValidation.hasConsistentServerIdentity($0)
                     && RadioStationValidation.hasValidPlaybackReference($0)
+                    && ($0.sourceID.map { id in
+                        !locallyRemovedSourceIDs.contains(id)
+                            && sourcesStore.source(id: id)?.isEnabled == true
+                            && sourcesStore.source(id: id)?.isDeleted == false
+                    } ?? true)
             }
         )
 
@@ -1462,6 +1721,7 @@ final class TVStore {
 
     private func markRadioPlayed(_ id: String) {
         let now = Date()
+        radioStore.markPlayed(id, at: now)
         if let index = radioStations.firstIndex(where: { $0.id == id }) {
             radioStations[index].lastPlayedAt = now
             radioStations = RadioStationOrdering.sorted(radioStations)
@@ -1472,17 +1732,12 @@ final class TVStore {
     }
 
     private var activeCredentialSourceIDs: Set<String> {
-        Set(sourcesStore.sources.map(\.id))
+        Set(sourcesStore.allSources.map(\.id))
     }
 
     private func pruneCredentialBundlesToActiveSources() {
+        guard !hasPendingSnapshotRecovery, sourcesStore.hasCompleteSnapshot else { return }
         let activeSourceIDs = activeCredentialSourceIDs
-        // Soft-deleted source rows remain in the recycle bin, so retry local
-        // Keychain cleanup on every reload if an earlier delete happened while
-        // the Keychain was temporarily unavailable.
-        for source in sourcesStore.recentlyDeletedSources {
-            TVCredentialStore.clearLocalCredential(sourceID: source.id)
-        }
         var paired: CredentialBundle?
         if let stored = TVCredentialStore.loadPairedBundle() {
             let pruned = CredentialBundlePolicy.pruning(stored, activeSourceIDs: activeSourceIDs)
@@ -1509,21 +1764,35 @@ final class TVStore {
     ) -> Bool {
         let activeSourceIDs = activeCredentialSourceIDs
         let previous = credentialBundle ?? CredentialBundle()
+        let provenanceKey = persistAsPaired ? "tv.credentialSources.paired" : "tv.credentialSources.cloud"
+        let oldScope = Set(defaults.stringArray(forKey: provenanceKey) ?? [])
+        var baseline = previous
+        for sourceID in oldScope where incoming.entries[sourceID] == nil {
+            baseline.entries.removeValue(forKey: sourceID)
+        }
+        baseline.relay = incoming.relay
         var persisted = true
         if persistAsPaired {
+            var stored = TVCredentialStore.loadPairedBundle() ?? CredentialBundle()
+            for sourceID in oldScope where incoming.entries[sourceID] == nil {
+                stored.entries.removeValue(forKey: sourceID)
+            }
+            stored.relay = incoming.relay
             let paired = CredentialBundlePolicy.merging(
-                current: TVCredentialStore.loadPairedBundle() ?? CredentialBundle(),
+                current: stored,
                 incoming: incoming,
                 activeSourceIDs: activeSourceIDs
             )
             persisted = TVCredentialStore.savePairedBundle(paired)
         }
+        guard persisted else { return false }
         let merged = CredentialBundlePolicy.merging(
-            current: previous,
+            current: baseline,
             incoming: incoming,
             activeSourceIDs: activeSourceIDs
         )
         credentialBundle = merged
+        defaults.set(Array(incoming.entries.keys), forKey: provenanceKey)
         scanner.invalidateFnMusicClients()
         for sourceID in activeSourceIDs where previous.entries[sourceID] != merged.entries[sourceID] {
             guard let source = sourcesStore.source(id: sourceID) else { continue }
@@ -1589,8 +1858,12 @@ final class TVStore {
                   album: a.title, coverKey: a.id, songID: nil, coverRef: nil,
                   playURL: Self.topShelfLink(host: "album", key: "id", a.id))
         }
-        guard !recent.isEmpty || !lib.isEmpty else { return }
-        Task.detached { await TopShelfPublisher.publish(recent: recent, albums: lib) }
+        topShelfTask?.cancel()
+        topShelfTask = Task {
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            await TopShelfPublisher.publish(recent: recent, albums: lib)
+        }
     }
 
     private static func topShelfLink(host: String, key: String, _ value: String) -> String {
@@ -1629,14 +1902,44 @@ final class TVStore {
 
     /// 隐藏「停用 / 已删除」音乐源的歌曲——资料库只显示有效源的内容。
     private func refreshVisibility() {
+        let known = Set(sourcesStore.allSources.map(\.id))
+        let orphaned = Set(library.songs.map(\.sourceID)).subtracting(known)
         let hidden = Set(sourcesStore.allSources.filter { $0.isDeleted || !$0.isEnabled }.map(\.id))
+            .union(locallyRemovedSourceIDs).union(orphaned)
         library.updateDisabledSourceIDs(hidden)
         rebuildLookupCaches()
+        publishTopShelf()
+    }
+
+    private func observeLibraryChanges() {
+        withObservationTracking {
+            _ = library.visibleSongCollectionRevision
+            _ = library.songReplacementToken
+            _ = library.albumArtworkLookupRevision
+            _ = library.playlistCollectionRevision
+            _ = sourcesStore.allSources
+            _ = PlayHistoryStore.shared.entries
+            _ = radioStore.allStations
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.observeLibraryChanges()
+                guard self.libraryRefreshTask == nil else { return }
+                self.libraryRefreshTask = Task { @MainActor [weak self] in
+                    await Task.yield()
+                    guard let self else { return }
+                    self.libraryRefreshTask = nil
+                    self.refreshVisibility()
+                    self.reloadRadioStations(fromDisk: false)
+                }
+            }
+        }
     }
 
     /// 重建 song(_:)/album(_:) 的单条查询索引。曲库可见集变化后调用一次,
     /// 之后单条查询为 O(1),不再每次访问都全量 map 整库。
     private func rebuildLookupCaches() {
+        playCountsBySongID = Dictionary(grouping: PlayHistoryStore.shared.entries, by: \.songID).mapValues(\.count)
         let visibleSongs = library.visibleSongs
         cachedSongs = visibleSongs.map { self.map($0) }
         cachedSongIDs = cachedSongs.map(\.id)
@@ -1664,23 +1967,37 @@ final class TVStore {
         )
     }
 
-    /// 在 Apple TV 上删除音乐源:本地软删除 + 隐藏其歌曲 + 尽力把快照上传回 iCloud。
-    /// 注意:手机才是源的权威方——若该源在手机上仍存在,下次同步可能回来,
-    /// 彻底删除请在手机/电脑上操作。
+    /// The TV removal control is device-local; retain the source and its
+    /// credential so restoring it does not require another pairing.
     func deleteSource(_ id: String) {
+        guard canMutateLibrary else { return }
+        cancelScan(sourceID: id)
+        serverFeedback.cancel(sourceID: id)
         scanner.invalidateFnMusicClient(sourceID: id)
-        sourcesStore.remove(id: id)
-        TVCredentialStore.clearLocalCredential(sourceID: id)
-        pruneCredentialBundlesToActiveSources()
+        locallyRemovedSourceIDs.insert(id)
+        defaults.set(Array(locallyRemovedSourceIDs), forKey: "tv.removedSourceIDs")
+        if currentSongID.flatMap({ library.song(id: $0)?.sourceID }) == id {
+            pausePlayback()
+        }
         refreshVisibility()
         sourcesRevision += 1
-        enqueueSnapshotUpload(removingCredentialFor: id)
     }
 
     /// 在 Apple TV 上启用 / 停用音乐源。停用源的歌曲在资料库里是隐藏的,启用后即可
     /// 浏览 / 播放(快照含全量歌曲,显隐由各源的 enabled 状态决定)。
     func setSourceEnabled(_ id: String, _ enabled: Bool) {
-        sourcesStore.update(id) { $0.isEnabled = enabled }
+        guard canMutateLibrary else { return }
+        do {
+            guard try sourcesStore.updateDurably(id, mutate: { $0.isEnabled = enabled }) else { return }
+        } catch {
+            playbackIssue = .failed(PMString("ext.tv.persistence.failed"))
+            return
+        }
+        if !enabled {
+            cancelScan(sourceID: id)
+            serverFeedback.cancel(sourceID: id)
+            if currentSongID.flatMap({ library.song(id: $0)?.sourceID }) == id { pausePlayback() }
+        }
         refreshVisibility()
         sourcesRevision += 1
         let fromThis = library.songs.filter { $0.sourceID == id }.count
@@ -1697,7 +2014,8 @@ final class TVStore {
     /// 「最近删除」的源(回收站),供恢复。
     var deletedSources: [TVSource] {
         _ = sourcesRevision
-        return sourcesStore.recentlyDeletedSources.map { self.map($0) }
+        return sourcesStore.allSources.filter { $0.isDeleted || locallyRemovedSourceIDs.contains($0.id) }
+            .map { self.map($0) }
     }
 
     /// 只展示能由 Apple TV 自行建立曲库的来源。其余来源必须先在 iPhone / Mac
@@ -1717,7 +2035,7 @@ final class TVStore {
         password: String?,
         fnConnectAccessCode: String? = nil
     ) -> Bool {
-        guard Self.canBuildLibraryOnTV(source.type) else { return false }
+        guard canMutateLibrary, Self.canBuildLibraryOnTV(source.type) else { return false }
         let previousCredential = TVCredentialStore.loadLocalCredential(sourceID: source.id)
         guard saveLocalCred(source, password, fnConnectAccessCode) else { return false }
         do {
@@ -1738,6 +2056,17 @@ final class TVStore {
         password: String?,
         fnConnectAccessCode: String? = nil
     ) -> Bool {
+        guard canMutateLibrary else { return false }
+        let originalSource = sourcesStore.source(id: source.id)
+        var source = source
+        if let originalSource,
+           Self.connectionIdentity(originalSource) != Self.connectionIdentity(source) {
+            cancelScan(sourceID: source.id)
+            source.lastScannedAt = nil
+            source.songCount = 0
+            source.extraConfig = MusicSource.encodeScannedDirectories([], into: source.extraConfig, type: source.type)
+            source.scannedDirectoryDisplayNames = [:]
+        }
         let previousCredential = TVCredentialStore.loadLocalCredential(sourceID: source.id)
         guard saveLocalCred(source, password, fnConnectAccessCode) else { return false }
         do {
@@ -1750,6 +2079,25 @@ final class TVStore {
             return false
         }
         scanner.invalidateFnMusicClient(sourceID: source.id)
+        serverFeedback.cancel(sourceID: source.id)
+        if let originalSource,
+           originalSource.authType != source.authType || originalSource.username != source.username {
+            cancelScan(sourceID: source.id)
+        }
+        if let originalSource,
+           Self.connectionIdentity(originalSource) != Self.connectionIdentity(source) {
+            library.addSongs([], affectedSourceIDs: [source.id])
+            library.persistNow()
+            locallyScannedSourceIDs.remove(source.id)
+            defaults.set(Array(locallyScannedSourceIDs), forKey: "tv.scannedSourceIDs")
+        }
+        if source.authType == .none {
+            credentialBundle?.entries.removeValue(forKey: source.id)
+            if var paired = TVCredentialStore.loadPairedBundle() {
+                paired.entries.removeValue(forKey: source.id)
+                _ = TVCredentialStore.savePairedBundle(paired)
+            }
+        }
         if let s = sourcesStore.source(id: source.id) {
             Task { await StreamResolverRegistry.shared.invalidateSession(for: s) }
         }
@@ -1759,9 +2107,23 @@ final class TVStore {
 
     /// 从回收站恢复软删除的源。
     func restoreSource(_ id: String) {
+        guard canMutateLibrary else { return }
         scanner.invalidateFnMusicClient(sourceID: id)
-        sourcesStore.restore(id: id)
-        afterSourceMutation()
+        if locallyRemovedSourceIDs.remove(id) != nil {
+            defaults.set(Array(locallyRemovedSourceIDs), forKey: "tv.removedSourceIDs")
+            refreshVisibility()
+            sourcesRevision += 1
+        } else {
+            do {
+                guard try sourcesStore.restoreDurably(id: id) else { return }
+                afterSourceMutation()
+            } catch { playbackIssue = .failed(PMString("ext.tv.persistence.failed")) }
+        }
+    }
+
+    private static func connectionIdentity(_ source: MusicSource) -> String {
+        [source.type.rawValue, source.host ?? "", String(source.port ?? 0),
+         source.basePath ?? "", source.shareName ?? "", String(source.useSsl)].joined(separator: "\u{0}")
     }
 
     private func saveLocalCred(
@@ -1773,16 +2135,21 @@ final class TVStore {
             return TVCredentialStore.clearLocalCredential(sourceID: source.id)
         }
         let existing = TVCredentialStore.loadLocalCredential(sourceID: source.id)
+        let resolved = TVCredentialStore.credential(for: source, bundle: credentialBundle)
         let newPassword = password?.isEmpty == false ? password : nil
         let newAccessCode = fnConnectAccessCode?.isEmpty == false ? fnConnectAccessCode : nil
         let storedUsername = source.username ?? ""
-        let usernameChanged = existing.map { $0.username != storedUsername } == true
+        let previousUsername = existing?.username
+            ?? sourcesStore.allSources.first(where: { $0.id == source.id })?.username
+            ?? credentialBundle?.entries[source.id]?.username
+            ?? ""
+        let usernameChanged = previousUsername != storedUsername
         let accessCodeChanged = newAccessCode != nil && newAccessCode != existing?.accessCode
         guard newPassword != nil || usernameChanged || accessCodeChanged else { return true }
         return TVCredentialStore.saveLocalCredential(
             sourceID: source.id,
             username: storedUsername,
-            password: newPassword ?? existing?.password ?? "",
+            password: newPassword ?? existing?.password ?? resolved.password ?? "",
             accessCode: newAccessCode ?? existing?.accessCode
         )
     }
@@ -1841,49 +2208,184 @@ final class TVStore {
         lister: TVDirectoryLister,
         dirs: [String]
     ) async -> Bool {
-        guard TVScanAdmissionPolicy.canStart(
+        guard await retryPendingSnapshotImport() else { return false }
+        guard canMutateLibrary, !locallyRemovedSourceIDs.contains(source.id), TVScanAdmissionPolicy.canStart(
             activeSourceID: activeScanSourceID,
             requestedSourceID: source.id
         ) else {
             return false
         }
         activeScanSourceID = source.id
-        defer {
-            if activeScanSourceID == source.id {
-                activeScanSourceID = nil
-            }
+        let generation = UUID()
+        scanGeneration = generation
+        let task = Task { await self.performScan(source: source, lister: lister, dirs: dirs, generation: generation) }
+        scanTask = task
+        let committed = await task.value
+        if scanGeneration == generation {
+            scanTask = nil
+            activeScanSourceID = nil
+            if !committed, scanner.phase == .scanning { scanner.phase = .idle }
         }
+        return true
+    }
+
+    func cancelScan(sourceID: String) {
+        guard activeScanSourceID == sourceID else { return }
+        scanTask?.cancel()
+    }
+
+    private func flushScanBatch(sourceID: String) async throws {
+        guard !pendingScanSongs.isEmpty else { return }
+        let batch = pendingScanSongs
+        pendingScanSongs = []
+        var replacements: [String: String] = [:]
+        for song in batch {
+            let key = Self.scanFileIdentity(song)
+            if let old = scanExistingIDsByFile[key], old != song.id,
+               library.song(id: old) != nil {
+                replacements[old] = song.id
+            }
+            scanExistingIDsByFile[key] = song.id
+        }
+        applySongIDReplacements(replacements)
+        library.addSongs(batch, affectedSourceIDs: nil, notifyRemovals: false, pruneMissingSongs: false)
+        guard case .success = await library.persistIncrementalNowAndWait() else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        locallyScannedSourceIDs.insert(sourceID)
+        defaults.set(Array(locallyScannedSourceIDs), forKey: "tv.scannedSourceIDs")
+        await library.waitForPendingIndex()
+        refreshVisibility()
+        lastScanFlush = Date()
+    }
+
+    private func acceptScanBatch(_ songs: [Song], sourceID: String, generation: UUID) async throws {
+        guard scanGeneration == generation, !locallyRemovedSourceIDs.contains(sourceID),
+              sourcesStore.source(id: sourceID)?.isDeleted == false else { throw CancellationError() }
+        pendingScanSongs.append(contentsOf: songs)
+        if pendingScanSongs.count >= 200 || Date().timeIntervalSince(lastScanFlush) >= 1.5 {
+            try await flushScanBatch(sourceID: sourceID)
+        }
+    }
+
+    private func performScan(source: MusicSource, lister: TVDirectoryLister, dirs: [String],
+                             generation: UUID) async -> Bool {
+        pendingScanSongs = []
+        scanExistingIDsByFile = Dictionary(
+            library.songs.filter { $0.sourceID == source.id }.map { (Self.scanFileIdentity($0), $0.id) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        lastScanFlush = .distantPast
         let cred = TVCredentialStore.credential(for: source, bundle: credentialBundle)
-        guard let songs = await scanner.scan(
+        let checkpointURL = sessionStore.url.deletingLastPathComponent()
+            .appendingPathComponent("scan-checkpoints", isDirectory: true)
+            .appendingPathComponent(TVScanPipelinePolicy.hash32(source.id) + ".json")
+        let roots = TVScanPipelinePolicy.normalizedScanRoots(dirs)
+        let connection = Self.connectionIdentity(source)
+        let saved = (try? Data(contentsOf: checkpointURL)).flatMap {
+            try? JSONDecoder().decode(ScanCheckpoint.self, from: $0)
+        }
+        let checkpointModifiedAt = try? checkpointURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        let resumeState = saved.flatMap {
+            $0.connectionIdentity == connection && $0.roots == roots && $0.state.isUsable
+                && Self.canResumeScanCheckpoint(lastScannedAt: source.lastScannedAt,
+                                                checkpointModifiedAt: checkpointModifiedAt)
+                ? $0.state : nil
+        }
+        let saveCheckpoint: TVScanCheckpointHandler = { state in
+            // Do not turn every 20-row scanner publication into a complete
+            // library reindex. Only advance the checkpoint past durable rows.
+            guard self.pendingScanSongs.isEmpty || state.pendingDirectories.isEmpty else { return }
+            try await self.flushScanBatch(sourceID: source.id)
+            try FileManager.default.createDirectory(at: checkpointURL.deletingLastPathComponent(),
+                                                     withIntermediateDirectories: true)
+            let checkpoint = ScanCheckpoint(connectionIdentity: connection, roots: roots, state: state)
+            try JSONEncoder().encode(checkpoint).write(to: checkpointURL, options: .atomic)
+        }
+        let result = await scanner.scan(
             source: source,
             lister: lister,
             dirs: dirs,
-            credential: cred
-        ) else {
-            return true
-        }
-        library.addSongs(songs, affectedSourceIDs: [source.id])
-        library.persistNow()
-        sourcesStore.updateLocal(source.id) {
-            $0.songCount = songs.count
-            $0.lastScannedAt = Date()
-        }
-        if source.type != .fnMusic && source.type != .daoliyu {
-            let scannedConfig = MusicSource.encodeScannedDirectories(
-                dirs,
-                into: source.extraConfig,
-                type: source.type
-            )
-            if scannedConfig != source.extraConfig {
-                sourcesStore.update(source.id) {
-                    $0.extraConfig = scannedConfig
+            credential: cred,
+            existingSongs: library.songs.filter { $0.sourceID == source.id },
+            resumeState: resumeState,
+            onCheckpoint: saveCheckpoint,
+            onSkeletonBatch: { songs in
+                try await self.acceptScanBatch(songs, sourceID: source.id, generation: generation)
+            },
+            onMetadataBatch: { songs in
+                try await self.acceptScanBatch(songs, sourceID: source.id, generation: generation)
+            }
+        )
+        var pruningRecovery: MusicLibrary.ScanPruningRecovery?
+        do {
+            // A cancelled scan still commits the discovery batches already
+            // accepted by the store, but never prunes or announces completion.
+            try await Task { try await self.flushScanBatch(sourceID: source.id) }.value
+            guard isCurrentScan(source: source, generation: generation), result.canPrune else { return false }
+            pruningRecovery = library.beginScanPruning(result.songs, sourceID: source.id)
+            let persistence = await scanPersistence(library)
+            guard isCurrentScan(source: source, generation: generation) else { throw CancellationError() }
+            guard case .success = persistence else { throw CocoaError(.fileWriteUnknown) }
+            await library.waitForPendingIndex()
+            guard isCurrentScan(source: source, generation: generation) else { throw CancellationError() }
+            let count = library.songs.lazy.filter { $0.sourceID == source.id }.count
+            if source.type != .fnMusic && source.type != .daoliyu {
+                try sourcesStore.updateDurably(source.id) {
+                    $0.songCount = count
+                    $0.lastScannedAt = Date()
+                    $0.extraConfig = MusicSource.encodeScannedDirectories(dirs, into: $0.extraConfig, type: $0.type)
+                }
+            } else {
+                try sourcesStore.updateLocalDurably(source.id) {
+                    $0.songCount = count
+                    $0.lastScannedAt = Date()
                 }
             }
+            if let pruningRecovery { library.finishScanPruning(pruningRecovery) }
+            pruningRecovery = nil
+            refreshVisibility()
+            library.sourceSyncDidComplete()
+            sourcesRevision += 1
+            if FileManager.default.fileExists(atPath: checkpointURL.path) {
+                try? FileManager.default.removeItem(at: checkpointURL)
+            }
+            scanner.markPersistedScanComplete()
+            enqueueSnapshotUpload()
+            return true
+        } catch {
+            if let pruningRecovery,
+               let current = sourcesStore.source(id: source.id), !current.isDeleted,
+               Self.connectionIdentity(current) == connection {
+                library.rollbackScanPruning(pruningRecovery)
+                let restored = await Task { await self.library.persistNowAndWait() }.value
+                await library.waitForPendingIndex()
+                refreshVisibility()
+                guard case .success = restored else {
+                    scanner.phase = .failed(PMString("ext.tv.persistence.failed"))
+                    return false
+                }
+            }
+            scanner.phase = error is CancellationError ? .idle : .failed(PMString("ext.tv.persistence.failed"))
+            return false
         }
-        refreshVisibility()
-        sourcesRevision += 1
-        enqueueSnapshotUpload()
-        return true
+    }
+
+    private func isCurrentScan(source: MusicSource, generation: UUID) -> Bool {
+        guard scanGeneration == generation, !Task.isCancelled,
+              !locallyRemovedSourceIDs.contains(source.id),
+              let current = sourcesStore.source(id: source.id), current.isEnabled, !current.isDeleted else { return false }
+        return Self.connectionIdentity(current) == Self.connectionIdentity(source)
+            && current.authType == source.authType && current.username == source.username
+    }
+
+    nonisolated static func canResumeScanCheckpoint(lastScannedAt: Date?, checkpointModifiedAt: Date?) -> Bool {
+        guard let checkpointModifiedAt else { return false }
+        // Sources JSON loses subsecond precision. Treat an ambiguous same-
+        // second checkpoint as stale: re-enumeration is safer than skipping
+        // new files after cleanup of a completed checkpoint failed.
+        return (lastScannedAt ?? .distantPast).timeIntervalSince1970.rounded(.down)
+            < checkpointModifiedAt.timeIntervalSince1970.rounded(.down)
     }
 
     /// 飞牛音乐没有目录选择步骤，直接从服务端分页读取完整曲库。
@@ -1908,13 +2410,28 @@ final class TVStore {
     /// 只走 `uploadSourcesOnly()` —— 仅覆盖服务器记录的 sources 字段,绝不回传 tvOS 本机
     /// 那份启动时下载的旧 library 副本(否则会回退手机端新扫描的曲库)。
     private func enqueueSnapshotUpload(removingCredentialFor sourceID: String? = nil) {
-        let previous = pendingUpload
-        pendingUpload = Task {
-            await previous?.value
-            if let sourceID, sourcesStore.source(id: sourceID)?.isDeleted != false {
-                await LibrarySnapshotSync.shared.removeCredentialFromCloud(forSourceID: sourceID)
+        defaults.set(UUID().uuidString, forKey: "tv.pendingSourceUpload")
+        resumePendingSourceUpload()
+    }
+
+    private func resumePendingSourceUpload() {
+        guard !hasPendingSnapshotRecovery, sourcesStore.hasCompleteSnapshot else { return }
+        guard pendingUpload == nil, defaults.string(forKey: "tv.pendingSourceUpload") != nil else { return }
+        pendingUpload = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.pendingUpload = nil }
+            for attempt in 0..<6 {
+                guard !Task.isCancelled,
+                      let generation = self.defaults.string(forKey: "tv.pendingSourceUpload") else { return }
+                if await LibrarySnapshotSync.shared.uploadSourcesOnly() {
+                    if self.defaults.string(forKey: "tv.pendingSourceUpload") == generation {
+                        self.defaults.removeObject(forKey: "tv.pendingSourceUpload")
+                        return
+                    }
+                }
+                do { try await Task.sleep(for: .seconds(min(120, pow(2, Double(attempt)) * 2))) }
+                catch { return }
             }
-            await LibrarySnapshotSync.shared.uploadSourcesOnly()
         }
     }
 
@@ -1973,6 +2490,7 @@ final class TVStore {
     }
 
     private func resumePlayback() {
+        guard !hasPendingSnapshotRecovery else { return }
         if isLiveRadio {
             radioReconnectTask?.cancel()
             radioReconnectTask = nil
@@ -2043,11 +2561,16 @@ final class TVStore {
         _ station: RadioStation,
         resolutionCompletion: ((Bool) -> Void)?
     ) {
-        guard RadioStationValidation.hasConsistentServerIdentity(station),
+        guard !hasPendingSnapshotRecovery,
+              RadioStationValidation.hasConsistentServerIdentity(station),
               RadioStationValidation.hasValidPlaybackReference(station) else {
             resolutionCompletion?(false)
             return
         }
+        finishListeningSession()
+        persistPlaybackSession()
+        playbackRestoreAttempted = true
+        coordinator.cancelAuxiliaryTasks()
         playbackTask?.cancel()
         let requestID = UUID()
         activePlaybackRequestID = requestID
@@ -2056,6 +2579,8 @@ final class TVStore {
         radioReconnectAttempt = 0
         playbackIssue = nil
         queue = []
+        canonicalQueue = []
+        queueCanonicalIndices = []
         queueIndex = 0
         queueUpNextIDs = []
         lyrics = []
@@ -2120,7 +2645,8 @@ final class TVStore {
                 }
                 self.playbackTask = nil
                 self.engine.loadLiveRadio(
-                    url: url,
+                    url: url.url,
+                    headers: url.headers,
                     title: station.name,
                     subtitle: self.radioMetadataTitle.isEmpty
                         ? station.playbackSubtitle
@@ -2153,6 +2679,7 @@ final class TVStore {
 
     /// 选中一首歌播放:以其所属专辑为队列,从该曲开始。
     func play(_ song: TVSong) {
+        guard !hasPendingSnapshotRecovery else { return }
         setQueueAround(song)
         startPlaying(song)
     }
@@ -2161,47 +2688,41 @@ final class TVStore {
     /// 单曲所属专辑重建随机队列而丢失语音请求的范围与顺序。
     @discardableResult
     func playResolvedQueue(songIDs: [String], shuffled: Bool) -> Bool {
-        var resolved = songIDs.filter { song($0) != nil }
+        guard !hasPendingSnapshotRecovery else { return false }
+        let resolved = songIDs.filter { song($0) != nil }
         guard !resolved.isEmpty else { return false }
-        if shuffled { resolved.shuffle() }
-        guard let first = song(resolved[0]) else { return false }
+        canonicalQueue = resolved
+        queueCanonicalIndices = Array(resolved.indices)
+        if shuffled { queueCanonicalIndices.shuffle() }
+        queue = queueCanonicalIndices.map { resolved[$0] }
+        guard let first = song(queue[0]) else { return false }
         shuffleEnabled = shuffled
-        queue = resolved
         queueIndex = 0
         startPlaying(first)
         return true
     }
 
     func play(album: TVAlbum) {
-        let albumSongs = songs(forAlbum: album.id)
-        guard let first = albumSongs.first else { return }
-        queue = albumSongs.map(\.id)
-        queueIndex = 0
-        startPlaying(first)
+        playResolvedQueue(songIDs: songs(forAlbum: album.id).map(\.id), shuffled: shuffleEnabled)
     }
 
     /// 播放歌单**自身**的曲目:用歌单全部歌曲建队列、从首曲开始,续播留在歌单内
-    /// (而非退化为封面所属专辑或整库)。智能歌单在 tvOS 暂未求值,返回 false 表示无可播放内容。
+    /// (而非退化为封面所属专辑或整库)。智能歌单使用与其他端相同的规则引擎。
     @discardableResult
     func play(playlist: TVPlaylist) -> Bool {
-        guard playlist.kind != .smart else { return false }
-        let ids = library.songs(forPlaylist: playlist.id).map(\.id)
-        guard let first = ids.first, let firstSong = song(first) else { return false }
-        queue = ids
-        queueIndex = 0
-        startPlaying(firstSong)
-        return true
+        let ids: [String]
+        if playlist.kind == .smart {
+            _ = smartPlaylists
+            ids = smartPlaylistSongIDs[playlist.id] ?? []
+        } else {
+            ids = library.songs(forPlaylist: playlist.id).map(\.id)
+        }
+        return playResolvedQueue(songIDs: ids, shuffled: shuffleEnabled)
     }
 
     /// 全部播放 / 随机播放整个可见曲库(库多为散曲、没有真正专辑,所以播放范围用整库)。
     func playAll(shuffle: Bool) {
-        var ids = library.visibleSongs.map(\.id)
-        guard !ids.isEmpty else { return }
-        if shuffle { ids.shuffle() }
-        shuffleEnabled = shuffle
-        queue = ids
-        queueIndex = 0
-        if let first = song(ids[0]) { startPlaying(first) }
+        playResolvedQueue(songIDs: library.visibleSongs.map(\.id), shuffled: shuffle)
     }
 
     func next() {
@@ -2249,19 +2770,27 @@ final class TVStore {
     func toggleShuffle() {
         guard !isLiveRadio else { return }
         shuffleEnabled.toggle()
-        guard shuffleEnabled,
-              queue.indices.contains(queueIndex),
-              queue.count > queueIndex + 1 else { refreshUpNext(); return }
-        // 只打乱「当前曲之后」的部分,当前曲不动。
-        var tail = Array(queue[(queueIndex + 1)...])
-        tail.shuffle()
-        queue = Array(queue[0...queueIndex]) + tail
+        guard queueCanonicalIndices.indices.contains(queueIndex) else { return }
+        if shuffleEnabled {
+            let tailStart = queueIndex + 1
+            if tailStart < queueCanonicalIndices.count {
+                queueCanonicalIndices.replaceSubrange(tailStart..., with: queueCanonicalIndices[tailStart...].shuffled())
+            }
+        } else {
+            // Store occurrence indices, not just IDs: playlists may contain the
+            // same track more than once and must restore the selected occurrence.
+            queueIndex = queueCanonicalIndices[queueIndex]
+            queueCanonicalIndices = Array(canonicalQueue.indices)
+        }
+        queue = queueCanonicalIndices.map { canonicalQueue[$0] }
         refreshUpNext()
+        persistPlaybackSession()
     }
 
     func cycleRepeatMode() {
         guard !isLiveRadio else { return }
         repeatMode = repeatMode == .off ? .all : (repeatMode == .all ? .one : .off)
+        persistPlaybackSession()
     }
 
     func toggleMusicVideoMode() {
@@ -2315,26 +2844,25 @@ final class TVStore {
         startPlaying(s)
     }
 
-    /// 点单曲播放:队列永远「不会只剩这一首」—— 后面自动随机续整库,放完不停。
-    /// 多曲专辑按顺序放整张,放完接着随机续;散曲 / 单曲专辑直接本曲 + 整库其余随机。
+    /// 单曲入口保留专辑范围；没有多曲专辑时使用当前可见歌曲顺序。
     private func setQueueAround(_ song: TVSong) {
-        func shuffledRest(excluding ids: [String]) -> [String] {
-            let ex = Set(ids)
-            return library.visibleSongs.filter { !ex.contains($0.id) }.shuffled().map(\.id)
-        }
         let albumSongs = songs(forAlbum: song.albumID)
-        if albumSongs.count > 1, let idx = albumSongs.firstIndex(where: { $0.id == song.id }) {
-            let albumIDs = albumSongs.map(\.id)
-            queue = albumIDs + shuffledRest(excluding: albumIDs)
-            queueIndex = idx
-        } else {
-            queue = [song.id] + shuffledRest(excluding: [song.id])
-            queueIndex = 0
+        canonicalQueue = albumSongs.count > 1 ? albumSongs.map(\.id) : cachedSongIDs
+        guard let selected = canonicalQueue.firstIndex(of: song.id) else { return }
+        queueCanonicalIndices = Array(canonicalQueue.indices)
+        if shuffleEnabled {
+            queueCanonicalIndices = [selected] + queueCanonicalIndices.filter { $0 != selected }.shuffled()
         }
+        queue = queueCanonicalIndices.map { canonicalQueue[$0] }
+        queueIndex = shuffleEnabled ? 0 : selected
     }
 
     /// 设置展示元数据 + 触发真实解析播放。
-    private func startPlaying(_ song: TVSong, resumeTime: Double = 0, autoPlay: Bool = true) {
+    private func startPlaying(_ song: TVSong, resumeTime: Double = 0, autoPlay: Bool = true,
+                              isRecovery: Bool = false) {
+        finishListeningSession()
+        playbackRestoreAttempted = true
+        if !isRecovery { playbackRecoveryAttempt = 0 }
         radioReconnectTask?.cancel()
         radioReconnectTask = nil
         radioReconnectAttempt = 0
@@ -2385,11 +2913,197 @@ final class TVStore {
     }
 
     private func handlePlaybackEnded() {
+        finishListeningSession()
+        persistPlaybackSession()
         if isLiveRadio {
             scheduleRadioReconnect()
         } else {
             advanceAfterEnd()
         }
+    }
+
+    private func handlePlaybackFailure(_ message: String) {
+        playbackIssue = .failed(message)
+        if isLiveRadio {
+            scheduleRadioReconnect()
+            return
+        }
+        finishListeningSession()
+        persistPlaybackSession()
+        guard playbackRecoveryAttempt == 0,
+              let id = currentSongID, let selected = song(id),
+              let raw = library.song(id: id),
+              let source = sourcesStore.allSources.first(where: { $0.id == raw.sourceID }) else { return }
+        playbackRecoveryAttempt = 1
+        let position = currentTime
+        let requestID = activePlaybackRequestID
+        playbackTask = Task { [weak self] in
+            await StreamResolverRegistry.shared.invalidateSession(for: source)
+            guard !Task.isCancelled, let self,
+                  self.activePlaybackRequestID == requestID else { return }
+            self.startPlaying(selected, resumeTime: position, isRecovery: true)
+        }
+    }
+
+    private func observePlaybackChanges() {
+        withObservationTracking {
+            _ = engine.isPlaying
+            _ = engine.status
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.observePlaybackChanges()
+                self.updateListeningMonitor()
+            }
+        }
+    }
+
+    private func updateListeningMonitor() {
+        playbackMonitorTask?.cancel()
+        playbackMonitorTask = nil
+        persistPlaybackSession()
+        guard !isLiveRadio, engine.isPlaying, engine.status == .playing,
+              let requestID = activePlaybackRequestID, let id = currentSongID,
+              let raw = library.song(id: id) else { return }
+        if historyRequestID != requestID {
+            historyRequestID = requestID
+            accumulatedListeningTime = 0
+            library.recordPlayback(of: id)
+            PlayHistoryStore.shared.beginSession(song: raw)
+            ScrobbleService.shared.serverScrobbleHandler = { [weak self] song, submission in
+                if submission { self?.serverFeedback.reportScrobble(song: song) }
+                else { self?.serverFeedback.reportNowPlaying(song: song) }
+            }
+            ScrobbleService.shared.handlePlaybackStarted(song: raw)
+            publishTopShelf()
+        }
+        ScrobbleService.shared.handlePlaybackDurationResolved(songID: id, duration: duration)
+        playbackMonitorTask = Task { [weak self] in
+            var lastTick = ProcessInfo.processInfo.systemUptime
+            var ticks = 0
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled, let self, self.activePlaybackRequestID == requestID,
+                      self.engine.isPlaying, self.engine.status == .playing else { return }
+                let now = ProcessInfo.processInfo.systemUptime
+                let delta = min(2, max(0, now - lastTick))
+                lastTick = now
+                self.accumulatedListeningTime += delta
+                PlayHistoryStore.shared.tick(elapsed: self.accumulatedListeningTime)
+                ScrobbleService.shared.handleProgressTick(playedDelta: delta)
+                ticks += 1
+                if ticks % 5 == 0 { self.persistPlaybackSession() }
+            }
+        }
+    }
+
+    private func finishListeningSession() {
+        playbackMonitorTask?.cancel()
+        playbackMonitorTask = nil
+        guard historyRequestID != nil else { return }
+        PlayHistoryStore.shared.tick(elapsed: accumulatedListeningTime)
+        PlayHistoryStore.shared.endSession()
+        PlayHistoryStore.shared.flush()
+        ScrobbleService.shared.handlePlaybackStopped()
+        historyRequestID = nil
+        accumulatedListeningTime = 0
+    }
+
+    private func persistPlaybackSession() {
+        guard !isLiveRadio, let id = currentSongID,
+              queueCanonicalIndices.indices.contains(queueIndex) else { return }
+        let mode: PrimuseKit.RepeatMode = repeatMode == .off ? .off : (repeatMode == .all ? .all : .one)
+        let snapshot = PlaybackSessionSnapshot(
+            queueSongIDs: canonicalQueue, currentSongID: id,
+            currentIndex: queueCanonicalIndices[queueIndex], currentTime: currentTime,
+            duration: duration, wasPlaying: isPlaying, shuffleEnabled: shuffleEnabled,
+            shuffledIndices: shuffleEnabled ? queueCanonicalIndices : [],
+            shufflePosition: shuffleEnabled ? queueIndex : 0, repeatMode: mode,
+            isAtTrackEnd: duration > 0 && currentTime >= duration - 0.5
+        )
+        let previous = playbackSessionTask
+        let storage = sessionStore
+        playbackSessionTask = Task.detached {
+            await previous?.value
+            do { try storage.save(snapshot) }
+            catch { plog("TV playback session save failed: \(error.localizedDescription)") }
+        }
+    }
+
+    private func restorePlaybackSessionIfNeeded() {
+        guard !playbackRestoreAttempted, !hasNowPlaying, !cachedSongIDs.isEmpty else { return }
+        playbackRestoreAttempted = true
+        do {
+            guard let snapshot = try sessionStore.load(),
+                  let plan = PlaybackSessionRestorationPolicy.plan(
+                    snapshot: snapshot, availableSongIDs: Set(cachedSongIDs)
+                  ) else { return }
+            canonicalQueue = plan.queueSongIDs
+            shuffleEnabled = plan.shuffleEnabled
+            queueCanonicalIndices = plan.shuffleEnabled ? plan.shuffledIndices : Array(canonicalQueue.indices)
+            queue = queueCanonicalIndices.map { canonicalQueue[$0] }
+            queueIndex = plan.shuffleEnabled ? plan.shufflePosition : plan.currentIndex
+            repeatMode = plan.repeatMode == .off ? .off : (plan.repeatMode == .all ? .all : .one)
+            if let selected = song(queue[queueIndex]) {
+                startPlaying(selected, resumeTime: plan.currentTime, autoPlay: false)
+            }
+        } catch { plog("TV playback session restore failed: \(error.localizedDescription)") }
+    }
+
+    private func migrateLegacySongIDs() {
+        var replacements: [String: String] = [:]
+        for raw in library.songs where raw.id.count == 64 {
+            let digest = SHA256.hash(data: Data("\(raw.sourceID):\(raw.filePath)".utf8))
+                .map { String(format: "%02x", $0) }.joined()
+            let type = sourcesStore.source(id: raw.sourceID)?.type
+            guard raw.id == digest || type == .fnMusic || type == .daoliyu else { continue }
+            let canonical = TVScanPipelinePolicy.canonicalSongID(raw.id)
+            guard canonical != raw.id else { continue }
+            replacements[raw.id] = canonical
+            locallyScannedSourceIDs.insert(raw.sourceID)
+        }
+        applySongIDReplacements(replacements)
+        defaults.set(Array(locallyScannedSourceIDs), forKey: "tv.scannedSourceIDs")
+    }
+
+    private static func scanFileIdentity(_ song: Song) -> String {
+        [song.sourceID, song.filePath, song.cueSheetPath ?? "",
+         song.cueStartTime.map { String($0) } ?? ""].joined(separator: "\u{0}")
+    }
+
+    private func applySongIDReplacements(_ replacements: [String: String]) {
+        guard !replacements.isEmpty else { return }
+        library.remapSongIDs(replacements)
+        PlayHistoryStore.shared.remapSongIDs(replacements)
+        queue = queue.map { replacements[$0] ?? $0 }
+        canonicalQueue = canonicalQueue.map { replacements[$0] ?? $0 }
+        nowPlaying.songID = replacements[nowPlaying.songID] ?? nowPlaying.songID
+        refreshUpNext()
+        Task {
+            for (old, canonical) in replacements {
+                await MetadataAssetStore.shared.preserveLyricsAlias(fromSongID: old, toSongID: canonical)
+            }
+        }
+        if var snapshot = try? sessionStore.load() {
+            snapshot.queueSongIDs = snapshot.queueSongIDs.map { replacements[$0] ?? $0 }
+            snapshot.currentSongID = replacements[snapshot.currentSongID] ?? snapshot.currentSongID
+            do { try sessionStore.save(snapshot) }
+            catch { plog("TV migrated playback session save failed: \(error.localizedDescription)") }
+        }
+    }
+
+    func applicationDidBecomeActive() {
+        resumePendingSourceUpload()
+        ScrobbleService.shared.retryPendingNow()
+    }
+
+    func persistForLifecycle() async {
+        guard !hasPendingSnapshotRecovery else { return }
+        persistPlaybackSession()
+        if !isPlaying { finishListeningSession() }
+        PlayHistoryStore.shared.flush()
+        await playbackSessionTask?.value
+        _ = await library.persistNowAndWait()
     }
 
     private func scheduleRadioReconnect() {
@@ -2399,6 +3113,7 @@ final class TVStore {
               let requestID = activePlaybackRequestID else { return }
         radioReconnectAttempt += 1
         let attempt = radioReconnectAttempt
+        guard attempt <= 6 else { return }
         let delay = min(15.0, pow(2.0, Double(min(attempt - 1, 4))))
         radioReconnectTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(delay))
@@ -2419,7 +3134,8 @@ final class TVStore {
                 ), self.currentRadioStationID == station.id else { return }
                 self.playbackIssue = nil
                 self.engine.loadLiveRadio(
-                    url: url,
+                    url: url.url,
+                    headers: url.headers,
                     title: station.name,
                     subtitle: self.radioMetadataTitle.isEmpty
                         ? station.playbackSubtitle

@@ -25,6 +25,7 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
     private let headers: [String: String]
     private let explicitContentType: String?   // 已知文件格式推得的 UTType id(覆盖服务器误报的 octet-stream)
     private let enforcesFnMusicRangeResponses: Bool
+    private let isLiveStream: Bool
     private lazy var session: URLSession = {
         let cfg = URLSessionConfiguration.default
         cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -46,10 +47,11 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         private let lock = NSLock()
         private var task: Task<Void, Never>?
         private var isCancelled = false
+        private var isFinished = false
 
         func install(_ task: Task<Void, Never>) {
             lock.lock()
-            if isCancelled {
+            if isCancelled || isFinished {
                 lock.unlock()
                 task.cancel()
             } else {
@@ -69,6 +71,7 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
 
         func finish() {
             lock.lock()
+            isFinished = true
             task = nil
             lock.unlock()
         }
@@ -146,10 +149,16 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         }
     }
 
-    init(realURL: URL, headers: [String: String], fileExtension: String? = nil) {
+    init(
+        realURL: URL,
+        headers: [String: String],
+        fileExtension: String? = nil,
+        isLiveStream: Bool = false
+    ) {
         self.realURL = realURL
         self.headers = headers
         self.explicitContentType = fileExtension.flatMap { UTType(filenameExtension: $0)?.identifier }
+        self.isLiveStream = isLiveStream
         let fnMusicStreamPath = "\(FnMusicAPIProtocol.apiPath)/track/stream"
         self.enforcesFnMusicRangeResponses = headers[FnMusicAPIProtocol.authxHeaderField] != nil
             && FnMusicAPIProtocol.authxPath(for: realURL) == fnMusicStreamPath
@@ -173,11 +182,23 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
                         shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
         var req = URLRequest(url: realURL)
         for (key, value) in headers { req.setValue(value, forHTTPHeaderField: key) }
+        req.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
 
         let offset: Int64
         let length: Int64           // <=0 表示开放式 Range(读到资源末尾)
-        if let dataReq = loadingRequest.dataRequest {
-            let requestedStart = max(0, dataReq.requestedOffset)
+        if isLiveStream {
+            // Continuous radio responses generally have no stable byte length
+            // and may not implement Range at all.
+            offset = 0
+            length = -1
+        } else if let dataReq = loadingRequest.dataRequest {
+            guard dataReq.requestedOffset >= 0 else {
+                loadingRequest.finishLoading(
+                    with: rangeResponseError(PMString("ext.tv.error.range.invalidRequest"))
+                )
+                return false
+            }
+            let requestedStart = dataReq.requestedOffset
             let current = dataReq.currentOffset > 0 ? dataReq.currentOffset : requestedStart
             offset = max(0, current)
             if dataReq.requestsAllDataToEndOfResource {
@@ -185,23 +206,32 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
                 // 拼进 Range 头也会被部分服务器拒为 416。改发开放式 Range(bytes=offset-)。
                 length = -1
             } else {
-                let requestedLength = Int64(max(1, dataReq.requestedLength))
+                guard dataReq.requestedLength > 0 else {
+                    loadingRequest.finishLoading(
+                        with: rangeResponseError(PMString("ext.tv.error.range.invalidRequest"))
+                    )
+                    return false
+                }
+                let requestedLength = Int64(dataReq.requestedLength)
                 if let requestedEnd = SafeByteRange.exclusiveEnd(
                     offset: requestedStart,
                     length: requestedLength
                 ), requestedEnd > offset {
                     length = requestedEnd - offset
                 } else {
-                    // An invalid/extreme request is safer as an open-ended
-                    // range than as wrapping signed arithmetic.
-                    length = -1
+                    loadingRequest.finishLoading(
+                        with: rangeResponseError(PMString("ext.tv.error.range.invalidRequest"))
+                    )
+                    return false
                 }
             }
         } else {
             offset = 0
             length = 2   // 仅取内容信息时拉头两字节即可拿到 Content-Range/Type
         }
-        if length <= 0 {
+        if isLiveStream {
+            req.setValue(nil, forHTTPHeaderField: "Range")
+        } else if length <= 0 {
             req.setValue("bytes=\(offset)-", forHTTPHeaderField: "Range")
         } else if let rangeHeader = SafeByteRange.httpHeader(offset: offset, length: length) {
             req.setValue(rangeHeader, forHTTPHeaderField: "Range")
@@ -297,25 +327,30 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
     }
 
     private func prepare(response http: HTTPURLResponse, context: LoadingContext) throws {
-        if enforcesFnMusicRangeResponses {
-            context.expectedByteCount = try Self.validatedFnMusicRangeResponseLength(
-                http,
-                requestedOffset: context.offset,
-                requestedLength: context.length
+        let contentLength = http.value(forHTTPHeaderField: "Content-Length")
+            .flatMap(Int64.init)
+        guard let validation = TVHTTPRangeResponsePolicy.validate(
+            statusCode: http.statusCode,
+            contentRange: http.value(forHTTPHeaderField: "Content-Range"),
+            contentLength: contentLength,
+            contentEncoding: http.value(forHTTPHeaderField: "Content-Encoding"),
+            requestedOffset: context.offset,
+            requestedLength: context.length,
+            isLiveStream: isLiveStream
+        ) else {
+            throw rangeResponseError(
+                "HTTP \(http.statusCode) returned an invalid byte range"
             )
         }
+        context.expectedByteCount = validation.expectedBodyLength
 
         if let info = context.loadingRequest.contentInformationRequest {
             Self.fillContentInfo(info, from: http, explicit: explicitContentType)
+            if let totalLength = validation.totalLength {
+                info.contentLength = totalLength
+            }
+            info.isByteRangeAccessSupported = validation.supportsByteRanges
             plog("📺 loader info status=\(http.statusCode) ct=\(info.contentType ?? "nil") len=\(info.contentLength) ranges=\(info.isByteRangeAccessSupported) serverCT=\(http.value(forHTTPHeaderField: "Content-Type") ?? "nil")")
-        }
-
-        guard http.statusCode == 200 || http.statusCode == 206 else {
-            throw NSError(
-                domain: "TVStreamResourceLoader",
-                code: http.statusCode,
-                userInfo: [NSLocalizedDescriptionKey: "HTTP \(http.statusCode)"]
-            )
         }
     }
 
@@ -326,8 +361,8 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         if let expectedByteCount = context.expectedByteCount,
            (context.byteCount > expectedByteCount
             || incomingCount > expectedByteCount - context.byteCount) {
-            let error = FnMusicRangeResponseError(
-                detail: PMString(
+            let error = rangeResponseError(
+                PMString(
                     "ext.tv.error.range.bodyTooLarge",
                     String(expectedByteCount)
                 )
@@ -359,8 +394,8 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         if let expectedByteCount = context.expectedByteCount,
            context.byteCount != expectedByteCount {
             context.loadingRequest.finishLoading(
-                with: FnMusicRangeResponseError(
-                    detail: PMString(
+                with: rangeResponseError(
+                    PMString(
                         "ext.tv.error.range.bodyLengthMismatch",
                         String(context.byteCount),
                         String(expectedByteCount)
@@ -401,14 +436,16 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
                     dataTask: URLSessionDataTask,
                     didReceive response: URLResponse,
                     completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        guard let http = response as? HTTPURLResponse else {
-            completionHandler(.allow)
-            return
-        }
         lock.lock()
         let context = contexts[dataTask.taskIdentifier]
         lock.unlock()
         guard let context else {
+            completionHandler(.cancel)
+            return
+        }
+        guard let http = response as? HTTPURLResponse else {
+            context.terminalErrorReported = true
+            context.loadingRequest.finishLoading(with: URLError(.badServerResponse))
             completionHandler(.cancel)
             return
         }
@@ -461,7 +498,21 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         completionHandler: @escaping @Sendable (URLRequest?) -> Void
     ) {
         guard enforcesFnMusicRangeResponses else {
-            completionHandler(request)
+            guard let currentRequest = task.currentRequest ?? task.originalRequest else {
+                completionHandler(nil)
+                return
+            }
+            let redirectCount = Int(task.taskDescription ?? "0") ?? 0
+            guard redirectCount < HTTPMediaRedirectRequestPolicy.maximumRedirects,
+                  let redirected = HTTPMediaRedirectRequestPolicy.redirectedRequest(
+                    from: currentRequest,
+                    response: response
+                  ) else {
+                completionHandler(nil)
+                return
+            }
+            task.taskDescription = String(redirectCount + 1)
+            completionHandler(redirected)
             return
         }
         let redirectCount = Int(task.taskDescription ?? "0") ?? 0
@@ -512,6 +563,13 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
                   let len = Int64(lenStr), len >= 0 {
             info.contentLength = len
         }
+    }
+
+    private func rangeResponseError(_ detail: String) -> any Error {
+        if enforcesFnMusicRangeResponses {
+            return FnMusicRangeResponseError(detail: detail)
+        }
+        return TVStreamRangeResponseError(detail: detail)
     }
 
     /// 飞牛音乐的播放端点必须对每个实际 Range 请求返回严格匹配的 206。
@@ -626,6 +684,12 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         var errorDescription: String? {
             PMString("ext.tv.error.fnMusicRange", detail)
         }
+    }
+
+    private struct TVStreamRangeResponseError: LocalizedError {
+        let detail: String
+
+        var errorDescription: String? { detail }
     }
 }
 
