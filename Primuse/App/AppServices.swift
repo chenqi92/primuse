@@ -657,6 +657,9 @@ final class AppServices {
                 }.map(\.id))
             }
         )
+        player.configurePlaybackMetadataBackfill(metadataBackfill) { sourceID in
+            store.source(id: sourceID)?.type
+        }
         let navidromeAutoRefresh = NavidromeAutoRefreshCoordinator(
             sourceManager: manager,
             scanService: scanService,

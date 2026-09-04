@@ -256,6 +256,29 @@ final class TVAudioEngine {
              isVideo: false, cueStartTime: cueStartTime, cueEndTime: cueEndTime)
     }
 
+    /// Refreshes the visible/system metadata after an opportunistic tag read.
+    /// The playback request generation is validated by the coordinator before
+    /// this method is called, so the values cannot leak onto a newer track.
+    func updateCatalogMetadata(
+        title: String,
+        artist: String,
+        album: String,
+        duration: Double
+    ) {
+        guard !isLiveStream else { return }
+        npTitle = title
+        npArtist = artist
+        npAlbum = album
+        if duration.isFinite, duration > 0 {
+            configurePlaybackSegment(
+                cueStartTime: nil,
+                cueEndTime: nil,
+                storedDuration: duration
+            )
+        }
+        updateNowPlayingInfo()
+    }
+
     func load(url: URL, headers: [String: String] = [:], fileExtension: String? = nil,
               title: String, artist: String, album: String, duration: Double, isVideo: Bool,
               cueStartTime: Double? = nil, cueEndTime: Double? = nil) {

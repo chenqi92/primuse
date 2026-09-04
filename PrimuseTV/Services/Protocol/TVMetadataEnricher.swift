@@ -149,7 +149,8 @@ actor TVMetadataReaderPool {
         ) {
             reader = direct
         } else {
-            guard source.type == .oneDrive
+            guard source.type == .webdav
+                || source.type == .oneDrive
                 || source.type == .dropbox else {
                 throw TVMetadataError.readerUnavailable
             }

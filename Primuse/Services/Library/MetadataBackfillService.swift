@@ -12,6 +12,16 @@ enum SingleSongTagReadResult: Sendable, Equatable {
     case failed(reason: String)
 }
 
+enum PlaybackSingleSongTagReadResult: Sendable, Equatable {
+    case completed(MetadataReadCompletionKind)
+    case alreadyReading
+    case notNeeded
+    case unsupported
+    case cancelled
+    case retryableFailure(reason: String)
+    case failed(reason: String)
+}
+
 extension MetadataReadCompletionKind {
     var localizedRereadResult: String {
         switch self {
@@ -238,6 +248,29 @@ final class MetadataBackfillService {
     /// not show a spinner while another provider is being processed.
     private(set) var activeSourceIDs: Set<String> = []
     private(set) var manuallyReadingSongIDs: Set<String> = []
+    @ObservationIgnored private var activeReadSongIDs: Set<String> = []
+    private struct PlaybackTagReadIdentity: Hashable, Sendable {
+        let songID: String
+        let sourceID: String
+        let filePath: String
+        let revision: String?
+        let fileSize: Int64
+
+        init(_ song: Song) {
+            songID = song.id
+            sourceID = song.sourceID
+            filePath = song.filePath
+            revision = song.revision
+            fileSize = song.fileSize
+        }
+    }
+
+    /// A deterministic playback failure is suppressed for this exact remote
+    /// object for the rest of the launch. A changed path/revision/size gets a
+    /// fresh probe, and failures recorded by the bulk worker do not block the
+    /// playback-owned recovery path.
+    @ObservationIgnored private var playbackTerminalFailureIdentities:
+        Set<PlaybackTagReadIdentity> = []
     @ObservationIgnored private var lastRemainingCountRefreshAt = Date.distantPast
     @ObservationIgnored private var remainingCountComputationGeneration: UInt64 = 0
     private static let remainingCountRefreshInterval: TimeInterval = 5
@@ -2060,6 +2093,72 @@ final class MetadataBackfillService {
 
     func isRereadingTags(songID: String) -> Bool {
         manuallyReadingSongIDs.contains(songID)
+            || activeReadSongIDs.contains(songID)
+    }
+
+    func needsPlaybackTagRead(
+        songID: String,
+        expectedSourceID: String
+    ) -> Bool {
+        guard let song = library.song(id: songID),
+              song.sourceID == expectedSourceID,
+              canRereadTags(for: song),
+              backfillableSourceIDs().contains(song.sourceID),
+              !playbackTerminalFailureIdentities.contains(
+                PlaybackTagReadIdentity(song)
+              ) else {
+            return false
+        }
+        return needsBackfill(song)
+    }
+
+    /// Playback uses the same bounded single-file reader as the explicit menu
+    /// action without reopening the whole-library queue or resetting persisted
+    /// retry budgets. A track switch cancels the caller task and is recorded as
+    /// a neutral outcome.
+    func rereadTagsForPlayback(
+        songID: String,
+        expectedSourceID: String
+    ) async -> PlaybackSingleSongTagReadResult {
+        guard let song = library.song(id: songID),
+              song.sourceID == expectedSourceID,
+              canRereadTags(for: song),
+              backfillableSourceIDs().contains(song.sourceID) else {
+            return .unsupported
+        }
+        guard needsPlaybackTagRead(
+            songID: songID,
+            expectedSourceID: expectedSourceID
+        ) else {
+            return .notNeeded
+        }
+        guard !activeReadSongIDs.contains(songID) else {
+            return .alreadyReading
+        }
+        guard manuallyReadingSongIDs.insert(songID).inserted else {
+            return .alreadyReading
+        }
+        defer { manuallyReadingSongIDs.remove(songID) }
+
+        let outcome = await processOne(song, isExplicitReread: true)
+        if outcome.cancelled { return .cancelled }
+        let result = applySingleSongTagReadOutcome(outcome, original: song)
+        let identity = PlaybackTagReadIdentity(song)
+        switch result {
+        case .completed(let kind):
+            playbackTerminalFailureIdentities.remove(identity)
+            return .completed(kind)
+        case .alreadyReading:
+            return .alreadyReading
+        case .unsupported:
+            return .unsupported
+        case .failed(let reason):
+            if outcome.transientFailure {
+                return .retryableFailure(reason: reason)
+            }
+            playbackTerminalFailureIdentities.insert(identity)
+            return .failed(reason: reason)
+        }
     }
 
     /// Immediately reads only the selected file. File-oriented remote sources
@@ -2074,6 +2173,9 @@ final class MetadataBackfillService {
               expectedSourceID == nil || song.sourceID == expectedSourceID,
               canRereadTags(for: song) else {
             return .unsupported
+        }
+        guard !activeReadSongIDs.contains(songID) else {
+            return .alreadyReading
         }
         guard manuallyReadingSongIDs.insert(songID).inserted else {
             return .alreadyReading
@@ -2902,6 +3004,10 @@ final class MetadataBackfillService {
             finish(.failure(error))
         }
 
+        func cancel() {
+            finish(.failure(CancellationError()))
+        }
+
         private func finish(_ result: Result<T, Error>) {
             let tasks: (work: Task<Void, Never>?, timeout: Task<Void, Never>?)
             lock.lock()
@@ -2925,33 +3031,65 @@ final class MetadataBackfillService {
         }
     }
 
+    private final class AsyncTimeoutCancellationRelay<T: Sendable>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var box: AsyncTimeoutBox<T>?
+        private var isCancelled = false
+
+        func install(_ box: AsyncTimeoutBox<T>) {
+            lock.lock()
+            if isCancelled {
+                lock.unlock()
+                box.cancel()
+                return
+            }
+            self.box = box
+            lock.unlock()
+        }
+
+        func cancel() {
+            let installed: AsyncTimeoutBox<T>?
+            lock.lock()
+            isCancelled = true
+            installed = box
+            lock.unlock()
+            installed?.cancel()
+        }
+    }
+
     private nonisolated static func withHardTimeout<T: Sendable>(
         seconds: TimeInterval,
         operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
-        try await withCheckedThrowingContinuation { continuation in
-            let box = AsyncTimeoutBox<T>(continuation)
-            let timeoutNanoseconds = (max(0.1, seconds) * 1_000_000_000)
-                .finiteUInt64(or: 100_000_000)
+        let relay = AsyncTimeoutCancellationRelay<T>()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let box = AsyncTimeoutBox<T>(continuation)
+                relay.install(box)
+                let timeoutNanoseconds = (max(0.1, seconds) * 1_000_000_000)
+                    .finiteUInt64(or: 100_000_000)
 
-            let workTask = Task {
-                do {
-                    box.succeed(try await operation())
-                } catch {
-                    box.fail(error)
+                let workTask = Task {
+                    do {
+                        box.succeed(try await operation())
+                    } catch {
+                        box.fail(error)
+                    }
                 }
-            }
 
-            let timeoutTask = Task {
-                do {
-                    try await Task.sleep(nanoseconds: timeoutNanoseconds)
-                    box.fail(BackfillHardTimeoutError(seconds: seconds))
-                } catch {
-                    // The timeout task is cancelled when work finishes first.
+                let timeoutTask = Task {
+                    do {
+                        try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                        box.fail(BackfillHardTimeoutError(seconds: seconds))
+                    } catch {
+                        // The timeout task is cancelled when work finishes first.
+                    }
                 }
-            }
 
-            box.setTasks(workTask: workTask, timeoutTask: timeoutTask)
+                box.setTasks(workTask: workTask, timeoutTask: timeoutTask)
+            }
+        } onCancel: {
+            relay.cancel()
         }
     }
 
@@ -2964,6 +3102,16 @@ final class MetadataBackfillService {
         _ song: Song,
         isExplicitReread: Bool = false
     ) async -> BackfillOutcome {
+        guard !Task.isCancelled else {
+            return BackfillOutcome(song: nil, markFailed: false, cancelled: true)
+        }
+        guard isExplicitReread || !manuallyReadingSongIDs.contains(song.id) else {
+            return BackfillOutcome(song: nil, markFailed: false)
+        }
+        guard activeReadSongIDs.insert(song.id).inserted else {
+            return BackfillOutcome(song: nil, markFailed: false)
+        }
+        defer { activeReadSongIDs.remove(song.id) }
         let started = Date()
         do {
             let timeout = isExplicitReread
@@ -2978,9 +3126,6 @@ final class MetadataBackfillService {
             }
         } catch {
             let elapsed = Date().timeIntervalSince(started)
-            if !isStillEligible(song) {
-                return BackfillOutcome(song: nil, markFailed: false)
-            }
             let cancelled = error is CancellationError || Task.isCancelled
             if cancelled {
                 plog("📥 Backfill: cancelled '\(song.title)' without consuming a retry")
@@ -2989,6 +3134,12 @@ final class MetadataBackfillService {
                     markFailed: false,
                     cancelled: true
                 )
+            }
+            let remainsReadable = isExplicitReread
+                ? isStillReadable(song)
+                : isStillEligible(song)
+            if !remainsReadable {
+                return BackfillOutcome(song: nil, markFailed: false)
             }
             // 只有「确定性永久」的错误(文件已不存在 / 4xx)才标记 failed —— 那种
             // 重试也没用,标记后不再浪费配额。连接/鉴权/超时/限流/网络这类是瞬时的
@@ -3015,7 +3166,10 @@ final class MetadataBackfillService {
         started: Date,
         isExplicitReread: Bool
     ) async throws -> BackfillOutcome {
-        guard isStillEligible(song) else {
+        let remainsReadable = isExplicitReread
+            ? isStillReadable(song)
+            : isStillEligible(song)
+        guard remainsReadable else {
             return BackfillOutcome(song: nil, markFailed: false)
         }
         // Use the SHARED connector (not auxiliary). Backfill is sequential
@@ -3888,10 +4042,26 @@ final class MetadataBackfillService {
             retryCounts: transientFailureCounts,
             sourceRetryCounts: sourceTransientFailureCounts
         ) else { return false }
+        guard isStillReadable(song) else { return false }
+        guard let live = library.song(id: song.id) else { return false }
+        return self.needsBackfill(live)
+    }
+
+    private func isStillReadable(_ song: Song) -> Bool {
         guard !library.disabledSourceIDs.contains(song.sourceID) else { return false }
         guard backfillableSourceIDs().contains(song.sourceID) else { return false }
-        guard let live = library.song(id: song.id), live.sourceID == song.sourceID else { return false }
-        return self.needsBackfill(live)
+        guard let live = library.song(id: song.id),
+              live.sourceID == song.sourceID,
+              live.filePath == song.filePath else {
+            return false
+        }
+        if let liveRevision = live.revision, let expectedRevision = song.revision {
+            guard liveRevision == expectedRevision else { return false }
+        }
+        if live.fileSize > 0, song.fileSize > 0 {
+            guard live.fileSize == song.fileSize else { return false }
+        }
+        return true
     }
 
     /// Validate that an in-flight result still belongs to the live file. This

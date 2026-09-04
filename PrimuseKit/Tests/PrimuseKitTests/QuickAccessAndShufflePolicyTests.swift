@@ -267,6 +267,110 @@ struct MetadataBackfillEligibilityPolicyTests {
     }
 }
 
+@Suite("WebDAV playback metadata backfill")
+struct PlaybackMetadataBackfillPolicyTests {
+    @Test("Only an incomplete WebDAV file starts an on-demand tag read")
+    func webDAVOnlyAdmission() {
+        #expect(PlaybackMetadataBackfillPolicy.shouldStart(
+            sourceType: .webdav,
+            hasMissingMetadata: true,
+            isCueTrack: false,
+            isStreamDescriptor: false,
+            isAlreadyReading: false,
+            completedForCurrentFile: false,
+            failedAttemptCount: 0
+        ))
+        #expect(!PlaybackMetadataBackfillPolicy.shouldStart(
+            sourceType: .smb,
+            hasMissingMetadata: true,
+            isCueTrack: false,
+            isStreamDescriptor: false,
+            isAlreadyReading: false,
+            completedForCurrentFile: false,
+            failedAttemptCount: 0
+        ))
+        #expect(!PlaybackMetadataBackfillPolicy.shouldStart(
+            sourceType: .webdav,
+            hasMissingMetadata: false,
+            isCueTrack: false,
+            isStreamDescriptor: false,
+            isAlreadyReading: false,
+            completedForCurrentFile: false,
+            failedAttemptCount: 0
+        ))
+    }
+
+    @Test("Duplicate, completed, CUE, and STRM requests stay suppressed")
+    func duplicateAndUnsupportedRowsStaySuppressed() {
+        for state in [
+            (true, false, false, false),
+            (false, true, false, false),
+            (false, false, true, false),
+            (false, false, false, true),
+        ] {
+            #expect(!PlaybackMetadataBackfillPolicy.shouldStart(
+                sourceType: .webdav,
+                hasMissingMetadata: true,
+                isCueTrack: state.2,
+                isStreamDescriptor: state.3,
+                isAlreadyReading: state.0,
+                completedForCurrentFile: state.1,
+                failedAttemptCount: 0
+            ))
+        }
+    }
+
+    @Test("Transient playback failures use bounded backoff and cancellation is neutral")
+    func boundedRetryAndCancellation() {
+        #expect(PlaybackMetadataBackfillPolicy.retryDelay(afterFailedAttempt: 1) == 2)
+        #expect(PlaybackMetadataBackfillPolicy.retryDelay(afterFailedAttempt: 2) == 8)
+        #expect(PlaybackMetadataBackfillPolicy.retryDelay(afterFailedAttempt: 3) == nil)
+        #expect(PlaybackMetadataBackfillPolicy.shouldCountFailure(
+            isCancellation: false,
+            isTransient: true
+        ))
+        #expect(!PlaybackMetadataBackfillPolicy.shouldCountFailure(
+            isCancellation: true,
+            isTransient: true
+        ))
+        #expect(!PlaybackMetadataBackfillPolicy.shouldCountFailure(
+            isCancellation: false,
+            isTransient: false
+        ))
+        #expect(!PlaybackMetadataBackfillPolicy.shouldStart(
+            sourceType: .webdav,
+            hasMissingMetadata: true,
+            isCueTrack: false,
+            isStreamDescriptor: false,
+            isAlreadyReading: false,
+            completedForCurrentFile: false,
+            failedAttemptCount: PlaybackMetadataBackfillPolicy.maximumAttemptsPerPlayback
+        ))
+    }
+
+    @Test("Core metadata gaps are detected for the TV playback path")
+    func detectsCoreMetadataGaps() {
+        #expect(PlaybackMetadataBackfillPolicy.hasMissingCoreMetadata(
+            title: "Track",
+            artistName: nil,
+            albumTitle: "Album",
+            duration: 180
+        ))
+        #expect(PlaybackMetadataBackfillPolicy.hasMissingCoreMetadata(
+            title: "Track",
+            artistName: "Artist",
+            albumTitle: "Album",
+            duration: 0
+        ))
+        #expect(!PlaybackMetadataBackfillPolicy.hasMissingCoreMetadata(
+            title: "Track",
+            artistName: "Artist",
+            albumTitle: "Album",
+            duration: 180
+        ))
+    }
+}
+
 @Suite("Server catalog metadata inspection")
 struct ServerCatalogMetadataInspectionPolicyTests {
     @Test("A real server title completes title inspection")

@@ -626,6 +626,12 @@ final class AudioPlayerService {
     let audioEffectsService: AudioEffectsService
     private let sourceManager: SourceManager?
     private let library: MusicLibrary?
+    @ObservationIgnored private weak var playbackMetadataBackfill: MetadataBackfillService?
+    @ObservationIgnored private var playbackMetadataSourceType: ((String) -> MusicSourceType?)?
+    @ObservationIgnored private var playbackMetadataTask: Task<Void, Never>?
+    @ObservationIgnored private var playbackMetadataTaskIdentity: PlaybackMetadataIdentity?
+    @ObservationIgnored private var playbackMetadataTaskToken: UUID?
+    @ObservationIgnored private var playbackMetadataFailureCounts: [PlaybackMetadataIdentity: Int] = [:]
     @ObservationIgnored private var artistNameConfiguration: ArtistNameConfiguration
     private let playbackSessionStore: PlaybackSessionStore
     private var playbackSessionRestoreLifecycle = PlaybackSessionRestoreLifecycle()
@@ -636,9 +642,14 @@ final class AudioPlayerService {
             #if os(iOS)
             prepareLyricsForSystemSurfaces(previousSong: oldValue)
             #endif
+            playbackMetadataSongDidChange(from: oldValue, to: currentSong)
         }
     }
-    private(set) var isPlaying = false
+    private(set) var isPlaying = false {
+        didSet {
+            if isPlaying && !isLoading { schedulePlaybackMetadataReadIfNeeded() }
+        }
+    }
     private(set) var playbackKind: PlaybackKind = .track
     private(set) var currentRadioStation: RadioStation?
     private(set) var radioMetadataTitle: String?
@@ -671,7 +682,11 @@ final class AudioPlayerService {
         }
     }
     private(set) var duration: TimeInterval = 0
-    private(set) var isLoading = false
+    private(set) var isLoading = false {
+        didSet {
+            if !isLoading && isPlaying { schedulePlaybackMetadataReadIfNeeded() }
+        }
+    }
     private(set) var lastPlaybackError: String?
     /// `currentSong` is published before remote resolution finishes, so it
     /// cannot tell resume whether a local decoder has scheduled any audio.
@@ -1238,6 +1253,22 @@ final class AudioPlayerService {
     private static let remoteFallbackFirstBufferTimeoutSeconds = 60
     private static let dlnaSourceID = "dlna"
 
+    private struct PlaybackMetadataIdentity: Hashable, Sendable {
+        let songID: String
+        let sourceID: String
+        let filePath: String
+        let revision: String?
+        let fileSize: Int64
+
+        init(_ song: Song) {
+            songID = song.id
+            sourceID = song.sourceID
+            filePath = song.filePath
+            revision = song.revision
+            fileSize = song.fileSize
+        }
+    }
+
     let playbackSettings: PlaybackSettingsStore
 
     init(
@@ -1330,6 +1361,147 @@ final class AudioPlayerService {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.refreshRadioStationOrder()
+            }
+        }
+    }
+
+    func configurePlaybackMetadataBackfill(
+        _ service: MetadataBackfillService,
+        sourceType: @escaping (String) -> MusicSourceType?
+    ) {
+        playbackMetadataBackfill = service
+        playbackMetadataSourceType = sourceType
+        if isPlaying && !isLoading {
+            schedulePlaybackMetadataReadIfNeeded()
+        }
+    }
+
+    private func playbackMetadataSongDidChange(from oldSong: Song?, to newSong: Song?) {
+        let oldIdentity = oldSong.map(PlaybackMetadataIdentity.init)
+        let newIdentity = newSong.map(PlaybackMetadataIdentity.init)
+        if oldIdentity != newIdentity, let oldIdentity {
+            playbackMetadataFailureCounts[oldIdentity] = nil
+        }
+        if playbackMetadataTaskIdentity != nil,
+           playbackMetadataTaskIdentity != newIdentity {
+            cancelPlaybackMetadataRead()
+        }
+    }
+
+    private func preparePlaybackMetadataSelection(for song: Song) {
+        let identity = PlaybackMetadataIdentity(song)
+        if currentSong.map(PlaybackMetadataIdentity.init) != identity
+            || (!isPlaying && !isLoading) {
+            playbackMetadataFailureCounts[identity] = nil
+        }
+        if playbackMetadataTaskIdentity != nil,
+           playbackMetadataTaskIdentity != identity {
+            cancelPlaybackMetadataRead()
+        }
+    }
+
+    private func cancelPlaybackMetadataRead() {
+        playbackMetadataTask?.cancel()
+        playbackMetadataTask = nil
+        playbackMetadataTaskIdentity = nil
+        playbackMetadataTaskToken = nil
+    }
+
+    private func schedulePlaybackMetadataReadIfNeeded() {
+        guard let song = currentSong,
+              let service = playbackMetadataBackfill,
+              let sourceType = playbackMetadataSourceType?(song.sourceID) else {
+            return
+        }
+        let identity = PlaybackMetadataIdentity(song)
+        let isAlreadyReading = playbackMetadataTaskIdentity == identity
+            || service.isRereadingTags(songID: song.id)
+        let hasMissingMetadata = service.needsPlaybackTagRead(
+            songID: song.id,
+            expectedSourceID: song.sourceID
+        )
+        let failedAttemptCount = playbackMetadataFailureCounts[identity] ?? 0
+        guard PlaybackMetadataBackfillPolicy.shouldStart(
+            sourceType: sourceType,
+            hasMissingMetadata: hasMissingMetadata,
+            isCueTrack: song.isCueTrack,
+            isStreamDescriptor: song.isStreamDescriptor,
+            isAlreadyReading: isAlreadyReading,
+            completedForCurrentFile: false,
+            failedAttemptCount: failedAttemptCount
+        ) else {
+            return
+        }
+
+        let token = UUID()
+        playbackMetadataTaskIdentity = identity
+        playbackMetadataTaskToken = token
+        playbackMetadataTask = Task(priority: .utility) { @MainActor [weak self] in
+            await self?.runPlaybackMetadataRead(
+                identity: identity,
+                token: token,
+                service: service
+            )
+        }
+    }
+
+    private func runPlaybackMetadataRead(
+        identity: PlaybackMetadataIdentity,
+        token: UUID,
+        service: MetadataBackfillService
+    ) async {
+        defer {
+            if playbackMetadataTaskToken == token {
+                playbackMetadataTask = nil
+                playbackMetadataTaskIdentity = nil
+                playbackMetadataTaskToken = nil
+            }
+        }
+
+        while !Task.isCancelled {
+            guard playbackMetadataTaskToken == token,
+                  currentSong.map(PlaybackMetadataIdentity.init) == identity else {
+                return
+            }
+            let result = await service.rereadTagsForPlayback(
+                songID: identity.songID,
+                expectedSourceID: identity.sourceID
+            )
+            guard !Task.isCancelled,
+                  playbackMetadataTaskToken == token,
+                  currentSong.map(PlaybackMetadataIdentity.init) == identity else {
+                return
+            }
+
+            switch result {
+            case .completed, .notNeeded:
+                playbackMetadataFailureCounts[identity] = nil
+                return
+            case .alreadyReading, .unsupported, .cancelled:
+                return
+            case .failed:
+                playbackMetadataFailureCounts[identity] =
+                    PlaybackMetadataBackfillPolicy.maximumAttemptsPerPlayback
+                return
+            case .retryableFailure:
+                guard PlaybackMetadataBackfillPolicy.shouldCountFailure(
+                    isCancellation: false,
+                    isTransient: true
+                ) else {
+                    return
+                }
+                let failureCount = (playbackMetadataFailureCounts[identity] ?? 0) + 1
+                playbackMetadataFailureCounts[identity] = failureCount
+                guard let delay = PlaybackMetadataBackfillPolicy.retryDelay(
+                    afterFailedAttempt: failureCount
+                ) else {
+                    return
+                }
+                do {
+                    try await Task.sleep(for: .seconds(delay))
+                } catch {
+                    return
+                }
             }
         }
     }
@@ -3868,6 +4040,7 @@ final class AudioPlayerService {
             showPlaybackError(String(localized: "playback_error_source_disabled"))
             return
         }
+        preparePlaybackMetadataSelection(for: song)
         registerPlayIntent()
         if isLiveRadio {
             stopRadioTransport(clearSelection: true)

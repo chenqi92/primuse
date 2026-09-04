@@ -100,6 +100,28 @@ final class TVPlaybackCoordinator {
     private let engine: TVAudioEngine
     private let registry = StreamResolverRegistry.shared
     private var lyricsTask: Task<Void, Never>?
+    private var playbackMetadataTask: Task<Void, Never>?
+    private var playbackMetadataTaskIdentity: PlaybackMetadataIdentity?
+    private var playbackMetadataTaskToken: UUID?
+    private var playbackMetadataSelectionIdentity: PlaybackMetadataIdentity?
+    private var playbackMetadataFailureCounts: [PlaybackMetadataIdentity: Int] = [:]
+    private var playbackMetadataCompletedIdentities: Set<PlaybackMetadataIdentity> = []
+
+    private struct PlaybackMetadataIdentity: Hashable, Sendable {
+        let songID: String
+        let sourceID: String
+        let filePath: String
+        let revision: String?
+        let fileSize: Int64
+
+        init(_ song: Song) {
+            songID = song.id
+            sourceID = song.sourceID
+            filePath = song.filePath
+            revision = song.revision
+            fileSize = song.fileSize
+        }
+    }
 
     init(store: TVStore, engine: TVAudioEngine) {
         self.store = store
@@ -154,6 +176,10 @@ final class TVPlaybackCoordinator {
     func cancelAuxiliaryTasks() {
         lyricsTask?.cancel()
         lyricsTask = nil
+        playbackMetadataTask?.cancel()
+        playbackMetadataTask = nil
+        playbackMetadataTaskIdentity = nil
+        playbackMetadataTaskToken = nil
     }
 
     func radioPlaybackIssue(for error: Error, station: RadioStation) -> TVPlaybackIssue {
@@ -623,6 +649,170 @@ final class TVPlaybackCoordinator {
     ) {
         engine.startPlayback(at: startAt, autoPlay: autoPlay)
         loadLyrics(song: song, source: source, credential: credential, requestID: requestID)
+        schedulePlaybackMetadataRead(
+            song: song,
+            source: source,
+            credential: credential,
+            requestID: requestID
+        )
+    }
+
+    private func schedulePlaybackMetadataRead(
+        song: Song,
+        source: MusicSource,
+        credential: SourceCredential?,
+        requestID: UUID
+    ) {
+        let identity = PlaybackMetadataIdentity(song)
+        if playbackMetadataSelectionIdentity != identity {
+            playbackMetadataSelectionIdentity = identity
+            playbackMetadataFailureCounts.removeAll(keepingCapacity: true)
+        }
+        let failureCount = playbackMetadataFailureCounts[identity] ?? 0
+        guard PlaybackMetadataBackfillPolicy.shouldStart(
+            sourceType: source.type,
+            hasMissingMetadata: PlaybackMetadataBackfillPolicy.hasMissingCoreMetadata(
+                title: song.title,
+                artistName: song.artistName,
+                albumTitle: song.albumTitle,
+                duration: song.duration
+            ),
+            isCueTrack: song.isCueTrack,
+            isStreamDescriptor: song.isStreamDescriptor,
+            isAlreadyReading: playbackMetadataTaskIdentity == identity,
+            completedForCurrentFile: playbackMetadataCompletedIdentities.contains(identity),
+            failedAttemptCount: failureCount
+        ) else {
+            return
+        }
+
+        let token = UUID()
+        playbackMetadataTaskIdentity = identity
+        playbackMetadataTaskToken = token
+        playbackMetadataTask = Task(priority: .utility) { @MainActor [weak self] in
+            await self?.runPlaybackMetadataRead(
+                identity: identity,
+                token: token,
+                song: song,
+                source: source,
+                credential: credential,
+                requestID: requestID
+            )
+        }
+    }
+
+    private func runPlaybackMetadataRead(
+        identity: PlaybackMetadataIdentity,
+        token: UUID,
+        song: Song,
+        source: MusicSource,
+        credential: SourceCredential?,
+        requestID: UUID
+    ) async {
+        defer {
+            if playbackMetadataTaskToken == token {
+                playbackMetadataTask = nil
+                playbackMetadataTaskIdentity = nil
+                playbackMetadataTaskToken = nil
+            }
+        }
+
+        while !Task.isCancelled {
+            guard let store,
+                  playbackMetadataTaskToken == token,
+                  isCurrent(requestID, store: store),
+                  store.library.song(id: identity.songID).map(PlaybackMetadataIdentity.init)
+                    == identity else {
+                return
+            }
+
+            let pool = TVMetadataReaderPool(source: source, credential: credential)
+            let result = await TVMetadataEnricher.enrich(
+                song: song,
+                sidecars: SidecarDirectoryIndex<TVDirEntry>([]),
+                using: pool
+            )
+            await pool.closeAll()
+
+            guard !Task.isCancelled,
+                  playbackMetadataTaskToken == token,
+                  isCurrent(requestID, store: store),
+                  let live = store.library.song(id: identity.songID),
+                  PlaybackMetadataIdentity(live) == identity else {
+                return
+            }
+
+            switch result.status {
+            case .enriched:
+                let updated = SongUserMetadataPolicy.preservingUserEdits(
+                    from: live,
+                    in: result.song
+                )
+                playbackMetadataFailureCounts[identity] = nil
+                playbackMetadataCompletedIdentities.insert(identity)
+                applyPlaybackMetadata(updated, requestID: requestID, store: store)
+                if store.lyrics.isEmpty,
+                   let cached = await MetadataAssetStore.shared.cachedLyrics(
+                    forSongID: updated.id
+                   ), !cached.isEmpty,
+                   isCurrent(requestID, store: store) {
+                    store.applyLyrics(
+                        Self.toTVLyrics(cached, duration: updated.duration),
+                        forSongID: updated.id
+                    )
+                }
+                return
+            case .cancelled:
+                return
+            case .failed, .timedOut:
+                let failureCount = (playbackMetadataFailureCounts[identity] ?? 0) + 1
+                playbackMetadataFailureCounts[identity] = failureCount
+                guard let delay = PlaybackMetadataBackfillPolicy.retryDelay(
+                    afterFailedAttempt: failureCount
+                ) else {
+                    plog(
+                        "TV WebDAV playback metadata read stopped after "
+                            + "\(failureCount) attempts for '\(song.title)'"
+                    )
+                    return
+                }
+                do {
+                    try await Task.sleep(for: .seconds(delay))
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    private func applyPlaybackMetadata(
+        _ song: Song,
+        requestID: UUID,
+        store: TVStore
+    ) {
+        guard isCurrent(requestID, store: store),
+              store.nowPlaying.songID == song.id else {
+            return
+        }
+        store.library.replaceSongs([song])
+        let artist = store.library.artistDisplayName(for: song)
+            ?? song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? PMString("ext.tv.unknownArtist")
+        store.nowPlaying.coverRef = song.coverArtFileName
+        store.nowPlaying.title = song.title
+        store.nowPlaying.artist = artist
+        store.nowPlaying.album = song.albumTitle ?? ""
+        store.nowPlaying.albumID = song.albumID ?? ""
+        store.nowPlaying.duration = song.duration
+        store.nowPlaying.format = song.fileFormat.displayName
+        store.nowPlaying.bitrate = song.bitRate ?? 0
+        store.nowPlaying.sampleRate = Double(song.sampleRate ?? 0) / 1_000
+        engine.updateCatalogMetadata(
+            title: song.title,
+            artist: artist,
+            album: song.albumTitle ?? "",
+            duration: song.duration
+        )
     }
 
     private func playNonNative(
