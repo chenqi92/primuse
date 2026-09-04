@@ -3,6 +3,17 @@ import PrimuseKit
 
 struct AlbumGridView: View {
     @Environment(MusicLibrary.self) private var library
+    @State private var albumFilter = ""
+
+    private var filteredAlbums: [Album] {
+        let query = albumFilter.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return library.visibleAlbums }
+        return library.visibleAlbums.filter { album in
+            album.title.localizedCaseInsensitiveContains(query)
+                || (album.artistName?.localizedCaseInsensitiveContains(query) ?? false)
+                || album.year.map(String.init)?.contains(query) == true
+        }
+    }
     #if !os(macOS)
     private let columns = [
         GridItem(.adaptive(minimum: 150), spacing: 16)
@@ -27,8 +38,11 @@ struct AlbumGridView: View {
                 }
             #else
             ScrollView {
+                if filteredAlbums.isEmpty {
+                    ContentUnavailableView.search(text: albumFilter)
+                }
                 LazyVGrid(columns: columns, spacing: 20) {
-                    ForEach(library.visibleAlbums) { album in
+                    ForEach(filteredAlbums) { album in
                         NavigationLink(value: album) {
                             AlbumCardView(album: album)
                         }
@@ -37,13 +51,17 @@ struct AlbumGridView: View {
                 }
                 .padding()
             }
+            .searchable(
+                text: $albumFilter,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: Text("filter_albums_placeholder")
+            )
             #endif
         }
     }
 
     #if os(macOS)
     @State private var albumSort: AlbumSortOrder = .year
-    @State private var albumFilter: String = ""
     @State private var albumViewMode: AlbumViewMode = .grid
     @State private var selectedAlbumID: String?
 
@@ -69,16 +87,6 @@ struct AlbumGridView: View {
             case .artist: return String(localized: "artist_label")
             case .songCount: return String(localized: "album_sort_song_count")
             }
-        }
-    }
-
-    private var filteredAlbums: [Album] {
-        let q = albumFilter.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty else { return library.visibleAlbums }
-        return library.visibleAlbums.filter { album in
-            album.title.localizedCaseInsensitiveContains(q)
-                || (album.artistName?.localizedCaseInsensitiveContains(q) ?? false)
-                || album.year.map(String.init)?.contains(q) == true
         }
     }
 
@@ -129,7 +137,7 @@ struct AlbumGridView: View {
                         .padding(.horizontal, PMSpace.xxxl)
                 } else if albumViewMode == .grid {
                     LazyVGrid(
-                        columns: Array(repeating: GridItem(.flexible(), spacing: 24, alignment: .top), count: 5),
+                        columns: [GridItem(.adaptive(minimum: 150), spacing: 24, alignment: .top)],
                         alignment: .leading,
                         spacing: 24
                     ) {

@@ -1,5 +1,65 @@
 import SwiftUI
 
+#if os(iOS)
+struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
+    private let header: (CGFloat) -> Header
+    private let content: Content
+
+    init(
+        @ViewBuilder header: @escaping (CGFloat) -> Header,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.header = header
+        self.content = content()
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(spacing: 0) {
+                    header(geometry.safeAreaInsets.top)
+                    content
+                }
+                // Horizontal artwork shelves must not determine the page width.
+                .frame(width: geometry.size.width)
+            }
+            .ignoresSafeArea(.container, edges: .top)
+        }
+        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.hidden, for: .navigationBar)
+    }
+}
+#endif
+
+struct LibraryDetailActionButton: View {
+    let title: LocalizedStringKey
+    let systemImage: String
+    var emphasized = false
+    var onArtwork = true
+    var fillsWidth = false
+    let disabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.headline)
+                .foregroundStyle(emphasized || onArtwork ? Color.white : Color.accentColor)
+                .padding(.horizontal, 20)
+                .frame(maxWidth: fillsWidth ? .infinity : nil, minHeight: 48)
+                .background(
+                    emphasized ? Color.accentColor
+                        : (onArtwork ? Color.white.opacity(0.18) : Color.accentColor.opacity(0.12)),
+                    in: Capsule()
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.4 : 1)
+    }
+}
+
 struct MediaDetailActionBar: View {
     let canPlay: Bool
     let canShuffle: Bool

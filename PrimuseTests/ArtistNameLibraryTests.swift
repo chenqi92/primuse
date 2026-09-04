@@ -4,6 +4,49 @@ import XCTest
 @testable import Primuse
 
 final class ArtistNameLibraryTests: XCTestCase {
+    func testCatalogSearchFindsAlbumWithoutMatchingSongs() {
+        let album = Album(id: "album", title: "独立专辑名称", artistName: "Artist")
+        let result = SearchCatalogPolicy.albums(
+            query: "独立专辑",
+            visibleAlbums: [album],
+            relatedAlbums: []
+        )
+        XCTAssertEqual(result.map(\.id), [album.id])
+    }
+
+    func testCatalogSearchPrioritizesDirectMatchesAndDeduplicatesRelatedAlbums() {
+        let direct = Album(id: "direct", title: "Moonlight", artistName: "Artist")
+        let related = Album(id: "related", title: "Other", artistName: "Artist")
+        let hidden = Album(id: "hidden", title: "Hidden source")
+        let result = SearchCatalogPolicy.albums(
+            query: "moonlight",
+            visibleAlbums: [related, direct],
+            relatedAlbums: [related, direct, related, hidden]
+        )
+        XCTAssertEqual(result.map(\.id), [direct.id, related.id])
+    }
+
+    func testCatalogSearchKeepsAllArtistAlbumMatches() {
+        let albums = (0..<24).map {
+            Album(id: "album-\($0)", title: "Release \($0)", artistName: "Artist")
+        }
+        let result = SearchCatalogPolicy.albums(
+            query: "artist",
+            visibleAlbums: albums,
+            relatedAlbums: []
+        )
+        XCTAssertEqual(Set(result.map(\.id)), Set(albums.map(\.id)))
+    }
+
+    func testCatalogSearchDoesNotReturnRelatedAlbumsForBlankQuery() {
+        let album = Album(id: "album", title: "Album")
+        XCTAssertTrue(SearchCatalogPolicy.albums(
+            query: " \n ",
+            visibleAlbums: [album],
+            relatedAlbums: [album]
+        ).isEmpty)
+    }
+
     func testTextArtistsJoinOneAlbumButCreateContributorEntries() throws {
         let song = makeSong(
             artistName: "Host; Guest",

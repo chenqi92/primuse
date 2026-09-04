@@ -68,7 +68,14 @@ struct ArtistDetailView: View {
         }
     }
 
-    private var topSongs: [Song] { Array(rankedSongs.prefix(8)) }
+    private var topSongs: [Song] {
+        #if os(iOS)
+        Array(rankedSongs.prefix(6))
+        #else
+        Array(rankedSongs.prefix(8))
+        #endif
+    }
+    private var albumCount: Int { releaseAlbums.count + appearsOnAlbums.count }
     private var selectableSongIDs: [String] { topSongs.map(\.id) }
 
     private var displayArtistName: String {
@@ -140,7 +147,10 @@ struct ArtistDetailView: View {
                     }
                     .accessibilityLabel(Text("server_share_action"))
                 }
-                Button("artwork_edit") { showArtworkEditor = true }
+                Button { showArtworkEditor = true } label: {
+                    Image(systemName: "photo.badge.plus")
+                }
+                .accessibilityLabel(Text("artwork_edit"))
             }
         }
         #endif
@@ -148,134 +158,114 @@ struct ArtistDetailView: View {
 
     #if os(iOS)
     private var iosBody: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                iosHero
-
-                VStack(alignment: .leading, spacing: 30) {
-                    if songs.isEmpty && releaseAlbums.isEmpty {
-                        EmptyStateView(
-                            titleKey: "no_songs",
-                            descriptionKey: "no_songs_desc",
-                            systemImage: "music.mic"
+        ImmersiveLibraryDetailScrollView { topInset in
+            iosHero(topInset: topInset)
+        } content: {
+            VStack(alignment: .leading, spacing: 30) {
+                if songs.isEmpty && releaseAlbums.isEmpty {
+                    EmptyStateView(
+                        titleKey: "no_songs",
+                        descriptionKey: "no_songs_desc",
+                        systemImage: "music.mic"
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 40)
+                } else {
+                    if !topSongs.isEmpty { iosTopSongs }
+                    if !mostPlayedAlbums.isEmpty {
+                        iosAlbumShelf(
+                            title: "artist_most_played_albums",
+                            albums: Array(mostPlayedAlbums.prefix(6)),
+                            showsPlayCount: true
                         )
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 40)
-                    } else {
-                        if !topSongs.isEmpty { iosTopSongs }
-                        if !mostPlayedAlbums.isEmpty {
-                            iosAlbumShelf(
-                                title: "artist_most_played_albums",
-                                albums: Array(mostPlayedAlbums.prefix(6)),
-                                showsPlayCount: true
-                            )
-                        }
-                        if !releaseAlbums.isEmpty {
-                            iosAlbumShelf(title: "artist_releases", albums: releaseAlbums)
-                        }
-                        if !appearsOnAlbums.isEmpty {
-                            iosAlbumShelf(title: "artist_appears_on", albums: appearsOnAlbums)
-                        }
-                        if !songs.isEmpty {
-                            allSongsLink.padding(.horizontal, 16)
-                        }
+                    }
+                    if !releaseAlbums.isEmpty {
+                        iosAlbumShelf(title: "artist_releases", albums: releaseAlbums)
+                    }
+                    if !appearsOnAlbums.isEmpty {
+                        iosAlbumShelf(title: "artist_appears_on", albums: appearsOnAlbums)
+                    }
+                    if !songs.isEmpty {
+                        allSongsLink.padding(.horizontal, 20)
                     }
                 }
-                .padding(.top, 26)
-                .padding(.bottom, 48)
             }
+            .padding(.top, 26)
+            .padding(.bottom, 64)
         }
-        .background(Color.primary.opacity(0.025).ignoresSafeArea())
-        .navigationBarTitleDisplayMode(.inline)
     }
 
-    private var iosHero: some View {
-        ZStack(alignment: .bottom) {
-            Color.black
+    private func iosHero(topInset: CGFloat) -> some View {
+        VStack(spacing: 12) {
+            ArtistArtworkView(artist: artist, size: 142, cornerRadius: 71)
+                .overlay { Circle().stroke(.white.opacity(0.34), lineWidth: 1) }
+                .shadow(color: .black.opacity(0.36), radius: 18, y: 8)
+                .accessibilityHidden(true)
 
-            ArtistArtworkView(artist: artist, size: 430, cornerRadius: 0)
+            VStack(spacing: 5) {
+                Text(verbatim: displayArtistName)
+                    .font(.largeTitle.weight(.bold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(
+                    verbatim:
+                        "\(songs.count) \(String(localized: "songs_count")) · \(albumCount) \(String(localized: "albums_count"))"
+                )
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white.opacity(0.72))
+
+                Text(verbatim: monthlyListenText)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.62))
+            }
+
+            HStack(spacing: 14) {
+                LibraryDetailActionButton(
+                    title: "play",
+                    systemImage: "play.fill",
+                    emphasized: true,
+                    disabled: playableSongs.isEmpty,
+                    action: playAll
+                )
+                LibraryDetailActionButton(
+                    title: "shuffle",
+                    systemImage: "shuffle",
+                    disabled: playableSongs.count < 2,
+                    action: shuffleAll
+                )
+            }
+            .padding(.top, 2)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, topInset + 20)
+        .padding(.bottom, 28)
+        .frame(maxWidth: .infinity)
+        .background {
+            GeometryReader { geometry in
+                ArtistArtworkView(
+                    artist: artist,
+                    size: max(geometry.size.width, geometry.size.height),
+                    cornerRadius: 0
+                )
                 .blur(radius: 24)
                 .scaleEffect(1.16)
                 .opacity(0.72)
-
-            LinearGradient(
-                colors: [.black.opacity(0.05), .black.opacity(0.28), .black.opacity(0.92)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-
-            VStack(spacing: 12) {
-                ArtistArtworkView(artist: artist, size: 142, cornerRadius: 71)
-                    .overlay { Circle().stroke(.white.opacity(0.34), lineWidth: 1) }
-                    .shadow(color: .black.opacity(0.36), radius: 18, y: 8)
-
-                VStack(spacing: 5) {
-                    Text(verbatim: displayArtistName)
-                        .font(.system(size: 30, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-
-                    Text(verbatim: "\(songs.count) \(String(localized: "songs_count")) · \(releaseAlbums.count) \(String(localized: "albums_count"))")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.white.opacity(0.72))
-
-                    Text(verbatim: monthlyListenText)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.62))
-                }
-
-                HStack(spacing: 14) {
-                    heroActionButton(
-                        title: "play",
-                        systemImage: "play.fill",
-                        emphasized: true,
-                        disabled: playableSongs.isEmpty,
-                        action: playAll
-                    )
-                    heroActionButton(
-                        title: "shuffle",
-                        systemImage: "shuffle",
-                        disabled: playableSongs.count < 2,
-                        action: shuffleAll
-                    )
-                }
-                .padding(.top, 2)
+                .frame(width: geometry.size.width, height: geometry.size.height)
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 24)
-        }
-        .frame(height: 364)
-        .clipped()
-    }
-
-    private func heroActionButton(
-        title: LocalizedStringKey,
-        systemImage: String,
-        emphasized: Bool = false,
-        disabled: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .labelStyle(.iconOnly)
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 52, height: 52)
-                .background(
-                    emphasized ? Color.accentColor : Color.white.opacity(0.16),
-                    in: Circle()
+            .background(.black)
+            .accessibilityHidden(true)
+            .overlay {
+                LinearGradient(
+                    colors: [.black.opacity(0.12), .black.opacity(0.28), .black.opacity(0.92)],
+                    startPoint: .top,
+                    endPoint: .bottom
                 )
-                .overlay {
-                    if !emphasized {
-                        Circle().stroke(.white.opacity(0.22), lineWidth: 0.5)
-                    }
-                }
+            }
         }
-        .buttonStyle(.plain)
-        .disabled(disabled)
-        .opacity(disabled ? 0.4 : 1)
-        .accessibilityLabel(Text(title))
+        .clipped()
     }
 
     private var iosTopSongs: some View {
@@ -286,7 +276,7 @@ struct ArtistDetailView: View {
             }
 
             LazyVStack(spacing: 0) {
-                ForEach(Array(topSongs.prefix(6).enumerated()), id: \.element.id) { index, song in
+                ForEach(Array(topSongs.enumerated()), id: \.element.id) { index, song in
                     SongRowView(
                         song: song,
                         isPlaying: player.currentSong?.id == song.id,
@@ -307,7 +297,7 @@ struct ArtistDetailView: View {
                         orderedIDs: { selectableSongIDs }
                     )
 
-                    if index != min(topSongs.count, 6) - 1 {
+                    if index != topSongs.count - 1 {
                         Divider().padding(.leading, 66)
                     }
                 }
@@ -317,7 +307,7 @@ struct ArtistDetailView: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(.primary.opacity(0.06), lineWidth: 0.5)
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 20)
         }
     }
 
@@ -338,7 +328,7 @@ struct ArtistDetailView: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 20)
             }
             .contentMargins(.horizontal, 0, for: .scrollContent)
         }
@@ -380,7 +370,7 @@ struct ArtistDetailView: View {
             Spacer()
             trailing()
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 20)
     }
 
     private func sectionHeader(_ title: LocalizedStringKey) -> some View {
@@ -440,7 +430,7 @@ struct ArtistDetailView: View {
         MacLibraryHeader(
             eyebrow: "artist_label",
             title: displayArtistName,
-            subtitle: "\(songs.count) \(String(localized: "songs_count")) · \(releaseAlbums.count) \(String(localized: "albums_count")) · \(monthlyListenText)",
+            subtitle: "\(songs.count) \(String(localized: "songs_count")) · \(albumCount) \(String(localized: "albums_count")) · \(monthlyListenText)",
             iconSystemName: "music.mic",
             coverArtist: artist,
             accent: Color(red: 0.70, green: 0.32, blue: 0.42),
@@ -505,7 +495,7 @@ struct ArtistDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             macSectionTitle(title)
             LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: 18, alignment: .top), count: 4),
+                columns: [GridItem(.adaptive(minimum: 132), spacing: 18, alignment: .top)],
                 alignment: .leading,
                 spacing: 22
             ) {

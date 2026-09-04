@@ -60,6 +60,18 @@ struct ArtistListView: View {
                 }
             }
             .listStyle(.plain)
+            .overlay {
+                if filteredArtists.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
+                }
+            }
+            #if os(iOS)
+            .searchable(
+                text: $searchText,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: Text("filter_artists_placeholder")
+            )
+            #endif
         }
     }
 

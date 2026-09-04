@@ -31,7 +31,7 @@ struct AlbumDetailView: View {
             #if os(macOS)
             macBody
             #else
-            legacyBody
+            iosBody
             #endif
         }
         #if os(iOS)
@@ -75,79 +75,66 @@ struct AlbumDetailView: View {
         )
     }
 
-    private var legacyBody: some View {
+    private var iosBody: some View {
         ScrollView {
-            VStack(spacing: 20) {
-                // Album header
-                VStack(spacing: 12) {
+            VStack(spacing: 24) {
+                VStack(spacing: 10) {
                     AlbumArtworkView(
                         album: album,
                         size: 220,
-                        cornerRadius: 14,
+                        cornerRadius: 16,
                         presentationRole: .animatedHero
                     )
+                    .padding(.bottom, 8)
 
                     Text(album.title)
-                        .font(.title2)
+                        .font(.title)
                         .fontWeight(.bold)
                         .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     Text(album.artistName ?? String(localized: "unknown_artist"))
                         .font(.body)
                         .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
 
                     HStack(spacing: 12) {
                         if let year = album.year {
-                            Text("\(year)")
+                            Text(verbatim: String(year))
                         }
                         Text("\(album.songCount) \(String(localized: "songs_count"))")
                         Text(formatDuration(album.totalDuration))
                     }
                     .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
                 }
                 .padding(.top, 20)
+                .padding(.horizontal, 20)
+                .frame(maxWidth: .infinity)
 
-                // Action buttons ── 主按钮"播放全部"占大头, 旁边两个紧凑图标按钮。
                 HStack(spacing: 10) {
-                    Button {
-                        playAll()
-                    } label: {
-                        Label("play_all", systemImage: "play.fill")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-
-                    Button {
-                        shuffleAll()
-                    } label: {
-                        Image(systemName: "shuffle")
-                            .font(.headline)
-                            .frame(width: 24, height: 24)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .accessibilityLabel(Text("shuffle"))
-
-                    Button {
-                        sourceManager.downloadForOffline(songs: songs)
-                    } label: {
-                        Image(systemName: "arrow.down.circle")
-                            .font(.headline)
-                            .frame(width: 24, height: 24)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .disabled(songs.filteredPlayable().isEmpty)
-                    .accessibilityLabel(Text("offline_download"))
+                    LibraryDetailActionButton(
+                        title: "play",
+                        systemImage: "play.fill",
+                        emphasized: true,
+                        onArtwork: false,
+                        fillsWidth: true,
+                        disabled: songs.filteredPlayable().isEmpty,
+                        action: { playAll() }
+                    )
+                    LibraryDetailActionButton(
+                        title: "shuffle",
+                        systemImage: "shuffle",
+                        onArtwork: false,
+                        fillsWidth: true,
+                        disabled: songs.filteredPlayable().count < 2,
+                        action: shuffleAll
+                    )
                 }
-                .padding(.horizontal)
+                .padding(.horizontal, 20)
 
-                // Track list
                 LazyVStack(spacing: 0) {
-                    ForEach(songs) { song in
+                    ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
                         SongRowView(
                             song: song,
                             isPlaying: player.currentSong?.id == song.id,
@@ -155,7 +142,7 @@ struct AlbumDetailView: View {
                             selection: selection,
                             context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
                         )
-                        .padding(.horizontal)
+                        .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .contentShape(Rectangle())
                         .onTapGesture {
@@ -167,15 +154,27 @@ struct AlbumDetailView: View {
                             orderedIDs: { orderedSongIDs }
                         )
 
-                        Divider()
-                            .padding(.leading, 50)
+                        if index < songs.count - 1 {
+                            Divider().padding(.leading, 66)
+                        }
                     }
                 }
+                .background(.background, in: RoundedRectangle(cornerRadius: 16))
+                .padding(.horizontal, 20)
             }
+            .padding(.bottom, 64)
         }
+        .background(Color.primary.opacity(0.025).ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                Button {
+                    sourceManager.downloadForOffline(songs: songs)
+                } label: {
+                    Image(systemName: "arrow.down.circle")
+                }
+                .disabled(songs.filteredPlayable().isEmpty)
+                .accessibilityLabel(Text("offline_download"))
                 if let target = albumServerMediaShareTarget {
                     Button {
                         serverMediaShareTarget = target

@@ -2,6 +2,30 @@ import SwiftUI
 import MusicKit
 import PrimuseKit
 
+enum SearchCatalogPolicy {
+    static func albums(
+        query: String,
+        visibleAlbums: [PrimuseKit.Album],
+        relatedAlbums: [PrimuseKit.Album]
+    ) -> [PrimuseKit.Album] {
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+        let directMatches = LibrarySearchWorker.compute(
+            query: query,
+            songs: [],
+            albums: visibleAlbums,
+            cache: LibrarySearchCache(),
+            includeLyrics: false,
+            songLimit: 0,
+            albumLimit: visibleAlbums.count
+        ).albumResults
+        let visibleIDs = Set(visibleAlbums.map(\.id))
+        var seen = Set(directMatches.map(\.id))
+        return directMatches + relatedAlbums.filter {
+            visibleIDs.contains($0.id) && seen.insert($0.id).inserted
+        }
+    }
+}
+
 @MainActor
 private final class SearchWorkCoordinator {
     var searchTask: Task<Void, Never>?
@@ -16,6 +40,32 @@ private final class SearchWorkCoordinator {
         intelligenceTask = nil
     }
 }
+
+#if os(iOS)
+private enum SearchCatalogDestination: Hashable {
+    case albums, artists
+}
+
+private struct SearchAlbumResultsView: View {
+    let albums: [PrimuseKit.Album]
+
+    var body: some View {
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 16)], spacing: 22) {
+                ForEach(albums) { album in
+                    NavigationLink(value: album) {
+                        AlbumCardView(album: album)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(20)
+        }
+        .navigationTitle(Text("tab_albums"))
+        .minimalNavigationDetail()
+    }
+}
+#endif
 
 private struct SemanticLibrarySearchResult: Identifiable, Sendable {
     let song: PrimuseKit.Song
@@ -298,6 +348,7 @@ struct SearchView: View {
                 searchingPlaceholder
             } else if searchResults.isEmpty
                         && matchingAlbums.isEmpty
+                        && matchingArtists.isEmpty
                         && visibleSemanticResults.isEmpty
                         && visibleAppleMusicSearchResults.isEmpty
                         && !semanticSearchFeedback.isVisible {
@@ -314,6 +365,18 @@ struct SearchView: View {
         .toolbarTitleDisplayMode(usesMinimalNavigation ? .inline : .inlineLarge)
         .navigationDestination(for: PrimuseKit.Album.self) { AlbumDetailView(album: $0) }
         .navigationDestination(for: PrimuseKit.Artist.self) { ArtistDetailView(artist: $0) }
+        #if os(iOS)
+        .navigationDestination(for: SearchCatalogDestination.self) { destination in
+            switch destination {
+            case .albums:
+                SearchAlbumResultsView(albums: matchingAlbums)
+            case .artists:
+                ArtistListView(artists: matchingArtists)
+                    .navigationTitle(Text("tab_artists"))
+                    .minimalNavigationDetail()
+            }
+        }
+        #endif
     }
 
     #if os(macOS)
@@ -442,6 +505,7 @@ struct SearchView: View {
             macSearchingPlaceholder
         } else if searchResults.isEmpty
                     && matchingAlbums.isEmpty
+                    && matchingArtists.isEmpty
                     && visibleSemanticResults.isEmpty
                     && visibleAppleMusicSearchResults.isEmpty
                     && !semanticSearchFeedback.isVisible {
@@ -512,28 +576,26 @@ struct SearchView: View {
 
     private var macAllSearchResultsView: some View {
         ScrollView(.vertical, showsIndicators: false) {
-            LazyVGrid(
-                columns: [GridItem(.flexible(), spacing: 32, alignment: .top),
-                          GridItem(.flexible(), spacing: 32, alignment: .top)],
-                alignment: .leading,
-                spacing: 24
-            ) {
+            LazyVStack(alignment: .leading, spacing: 28) {
+                macTopMatchSection
+                    .frame(maxWidth: 680)
+                macAlbumsSection()
+                if !matchingArtists.isEmpty {
+                    macArtistsSection(showsAllResults: false)
+                }
                 VStack(alignment: .leading, spacing: 14) {
-                    macTopMatchSection
                     macSongBucket(kind: .metadata, title: "search_section_metadata")
                     macSongBucket(kind: .path, title: "search_section_path")
                     macSongBucket(kind: .lyrics, title: "search_section_lyrics")
                     macSongBucket(kind: .fuzzy, title: "search_section_fuzzy")
                     macSemanticSection()
                 }
-
-                VStack(alignment: .leading, spacing: 24) {
-                    macAlbumsSection()
-                    if appleMusicSearchEnabled {
-                        macAppleMusicSection()
-                    }
-                    macRecentSearchInlineSection
+                .frame(maxWidth: 900, alignment: .leading)
+                if appleMusicSearchEnabled {
+                    macAppleMusicSection()
+                        .frame(maxWidth: 900, alignment: .leading)
                 }
+                macRecentSearchInlineSection
             }
             .padding(.horizontal, PMSpace.xxxl)
             .padding(.bottom, 100)
@@ -573,7 +635,7 @@ struct SearchView: View {
                 case .albums:
                     macAlbumsSection(showsAllResults: true)
                 case .artists:
-                    macArtistsSection
+                    macArtistsSection()
                 case .lyrics:
                     LazyVStack(alignment: .leading, spacing: 14) {
                         macSongBucket(
@@ -643,21 +705,36 @@ struct SearchView: View {
                 ? matchingAlbums
                 : Array(matchingAlbums.prefix(6))
             VStack(alignment: .leading, spacing: 10) {
-                macSectionLabel("tab_albums")
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 116), spacing: 14)], alignment: .leading, spacing: 14) {
+                HStack {
+                    Text("tab_albums").font(.title3.weight(.bold))
+                    Spacer()
+                    if !showsAllResults && matchingAlbums.count > albums.count {
+                        Button("see_all") { macResultFilter = .albums }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(PMColor.brand)
+                    }
+                }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 146, maximum: 210), spacing: 20)], alignment: .leading, spacing: 22) {
                     ForEach(albums) { album in
                         NavigationLink(value: album) {
                             VStack(alignment: .leading, spacing: 7) {
-                                AlbumArtworkView(album: album, cornerRadius: 6)
+                                AlbumArtworkView(album: album, cornerRadius: 10)
                                     .aspectRatio(1, contentMode: .fit)
                                 Text(album.title)
-                                    .font(.system(size: 11.5, weight: .medium))
+                                    .font(.system(size: 13, weight: .semibold))
                                     .foregroundStyle(PMColor.text)
                                     .lineLimit(1)
                                 Text(album.artistName ?? "")
-                                    .font(.system(size: 10.5))
+                                    .font(.system(size: 12))
                                     .foregroundStyle(PMColor.textFaint)
                                     .lineLimit(1)
+                                Text(verbatim: [
+                                    album.year.map(String.init),
+                                    "\(album.songCount) \(String(localized: "songs_count"))"
+                                ].compactMap { $0 }.joined(separator: " · "))
+                                .font(.system(size: 11))
+                                .foregroundStyle(PMColor.textMuted)
+                                .lineLimit(1)
                             }
                         }
                         .buttonStyle(.plain)
@@ -845,15 +922,23 @@ struct SearchView: View {
         }
     }
 
-    private var macArtistsSection: some View {
+    private func macArtistsSection(showsAllResults: Bool = true) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            macSectionLabel("tab_artists")
+            HStack {
+                Text("tab_artists").font(.title3.weight(.bold))
+                Spacer()
+                if !showsAllResults && matchingArtists.count > 6 {
+                    Button("see_all") { macResultFilter = .artists }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(PMColor.brand)
+                }
+            }
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 116), spacing: 14)],
+                columns: [GridItem(.adaptive(minimum: 146, maximum: 210), spacing: 20)],
                 alignment: .leading,
                 spacing: 14
             ) {
-                ForEach(matchingArtists) { artist in
+                ForEach(showsAllResults ? matchingArtists : Array(matchingArtists.prefix(6))) { artist in
                     NavigationLink(value: artist) {
                         VStack(alignment: .leading, spacing: 7) {
                             ArtistArtworkView(
@@ -931,12 +1016,12 @@ struct SearchView: View {
                     CachedArtworkView(coverRef: song.coverArtFileName,
                                       songID: song.id,
                                       size: 80,
-                                      cornerRadius: 40,
+                                      cornerRadius: 10,
                                       sourceID: song.sourceID,
                                       filePath: song.filePath,
                                       fileFormat: song.fileFormat)
                 } else if let album {
-                    AlbumArtworkView(album: album, size: 80, cornerRadius: 40)
+                    AlbumArtworkView(album: album, size: 80, cornerRadius: 10)
                 } else {
                     Circle()
                         .fill(PMColor.rowHover)
@@ -959,7 +1044,7 @@ struct SearchView: View {
                 }
             }
             Spacer()
-            Image(systemName: "play.fill")
+            Image(systemName: album == nil ? "play.fill" : "chevron.right")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 36, height: 36)
@@ -1151,20 +1236,6 @@ struct SearchView: View {
             + visibleAppleMusicSearchResults.count
     }
 
-    /// 从搜索结果歌曲反推可导航的艺术家，顺序跟随歌曲相关性排序。
-    private var matchingArtists: [PrimuseKit.Artist] {
-        var seen = Set<String>()
-        var artists: [PrimuseKit.Artist] = []
-        for result in searchResults {
-            for id in library.artistIDs(for: result.song) {
-                guard seen.insert(id).inserted,
-                      let artist = library.visibleArtist(id: id) else { continue }
-                artists.append(artist)
-            }
-        }
-        return artists
-    }
-
     private var appleMusicStatusText: String {
         switch appleMusic.authState {
         case .notDetermined:
@@ -1189,6 +1260,23 @@ struct SearchView: View {
     }
 
     #endif
+
+    private var matchingArtists: [PrimuseKit.Artist] {
+        let query = renderedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return [] }
+        var artists = library.visibleArtists.filter {
+            $0.name.localizedCaseInsensitiveContains(query)
+        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        var seen = Set(artists.map(\.id))
+        for result in searchResults {
+            for id in library.artistIDs(for: result.song) {
+                guard seen.insert(id).inserted,
+                      let artist = library.visibleArtist(id: id) else { continue }
+                artists.append(artist)
+            }
+        }
+        return artists
+    }
 
     @ViewBuilder
     private var semanticFeedbackRow: some View {
@@ -1296,19 +1384,50 @@ struct SearchView: View {
                 }
             }
 
-            // Albums matching — 点 row 跳到 AlbumDetailView (整张专辑曲目列表)。
             if !matchingAlbums.isEmpty {
-                Section("tab_albums") {
-                    ForEach(matchingAlbums.prefix(5)) { album in
-                        NavigationLink(value: album) {
+                Section {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        LazyHStack(alignment: .top, spacing: 14) {
+                            ForEach(matchingAlbums.prefix(8)) { album in
+                                NavigationLink(value: album) {
+                                    AlbumCardView(album: album).frame(width: 142)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.vertical, 8)
+                    }
+                    .listRowSeparator(.hidden)
+                } header: {
+                    HStack {
+                        Text("tab_albums")
+                        Spacer()
+                        #if os(iOS)
+                        NavigationLink("see_all", value: SearchCatalogDestination.albums)
+                        .textCase(nil)
+                        #endif
+                    }
+                }
+            }
+
+            if !matchingArtists.isEmpty {
+                Section("tab_artists") {
+                    ForEach(matchingArtists.prefix(3)) { artist in
+                        NavigationLink(value: artist) {
                             HStack(spacing: 12) {
-                                AlbumArtworkView(album: album, size: 44, cornerRadius: 6)
+                                ArtistArtworkView(artist: artist, size: 44, cornerRadius: 22)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(album.title).font(.subheadline).lineLimit(1)
-                                    Text(album.artistName ?? "").font(.caption).foregroundStyle(.secondary)
+                                    Text(artist.name).font(.subheadline).lineLimit(1)
+                                    Text("\(artist.songCount) \(String(localized: "songs_count"))")
+                                        .font(.caption).foregroundStyle(.secondary)
                                 }
                             }
                         }
+                    }
+                    if matchingArtists.count > 3 {
+                        #if os(iOS)
+                        NavigationLink("see_all", value: SearchCatalogDestination.artists)
+                        #endif
                     }
                 }
             }
@@ -1670,8 +1789,21 @@ struct SearchView: View {
                 }
             }
             guard !Task.isCancelled else { return }
+            let catalogWorker = Task.detached(priority: .userInitiated) {
+                SearchCatalogPolicy.albums(
+                    query: query,
+                    visibleAlbums: albumsSnapshot,
+                    relatedAlbums: output.albumResults
+                )
+            }
+            let albums = await withTaskCancellationHandler {
+                await catalogWorker.value
+            } onCancel: {
+                catalogWorker.cancel()
+            }
+            guard !Task.isCancelled, myGen == workCoordinator.generation else { return }
             searchResults = output.songResults
-            matchingAlbums = output.albumResults
+            matchingAlbums = albums
             workCoordinator.lyricsCache = output.cache
             renderedQuery = query
             isSearching = false

@@ -2510,9 +2510,11 @@ struct SongListView: View {
             )
         }
         ToolbarItem(placement: .topBarTrailing) {
+            SongListBrowseModeToolbarButton(selection: selection, browseMode: $browseMode)
+        }
+        ToolbarItem(placement: .topBarTrailing) {
             SongListNormalToolbarMenu(
                 selection: selection,
-                browseMode: $browseMode,
                 sortOrder: sortOrderBinding,
                 filter: $songFilter
             )
@@ -4769,9 +4771,30 @@ private struct SongSortMenuOptions: View {
     }
 }
 
-private struct SongListNormalToolbarMenu: View {
+private struct SongListBrowseModeToolbarButton: View {
     let selection: SongSelectionModel
     @Binding var browseMode: LibrarySongBrowseMode
+
+    var body: some View {
+        if !selection.isActive {
+            Button {
+                browseMode = browseMode == .folder ? .flat : .folder
+            } label: {
+                Image(systemName: browseMode == .folder ? "list.bullet" : "folder")
+            }
+            .accessibilityLabel(Text(LocalizedStringKey(
+                browseMode == .folder ? "library_browse_flat" : "library_browse_folder"
+            )))
+            .accessibilityValue(Text(LocalizedStringKey(
+                browseMode == .folder ? "library_browse_folder" : "library_browse_flat"
+            )))
+            .accessibilityIdentifier("libraryBrowseMode.toggle")
+        }
+    }
+}
+
+private struct SongListNormalToolbarMenu: View {
+    let selection: SongSelectionModel
     let sortOrder: Binding<SongListView.SongSortOrder>
     @Binding var filter: SongListView.SongFilter
 
@@ -4779,16 +4802,6 @@ private struct SongListNormalToolbarMenu: View {
     var body: some View {
         if !selection.isActive {
             Menu {
-                Section {
-                    Picker("library_browse", selection: $browseMode) {
-                        Label("library_browse_folder", systemImage: "folder")
-                            .tag(LibrarySongBrowseMode.folder)
-                        Label("library_browse_flat", systemImage: "list.bullet")
-                            .tag(LibrarySongBrowseMode.flat)
-                    }
-                    .pickerStyle(.inline)
-                }
-
                 Section {
                     SongSortMenuOptions(sortOrder: sortOrder)
                 }

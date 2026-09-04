@@ -1697,6 +1697,9 @@ struct GenreLibraryView: View {
         macBody
         #else
         iosBody
+            .navigationDestination(for: LibraryGenre.self) { genre in
+                GenreDetailView(genre: genre)
+            }
         #endif
     }
 
@@ -1720,9 +1723,7 @@ struct GenreLibraryView: View {
                         spacing: 12
                     ) {
                         ForEach(filteredGenres) { genre in
-                            NavigationLink {
-                                GenreDetailView(genre: genre)
-                            } label: {
+                            NavigationLink(value: genre) {
                                 LibraryGenreCard(genre: genre)
                             }
                             .buttonStyle(.plain)
@@ -1982,19 +1983,33 @@ private struct GenreDetailView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                hero
-
-                if !albums.isEmpty { albumShelf }
-                if !songs.isEmpty { songSection }
+        Group {
+            #if os(iOS)
+            ImmersiveLibraryDetailScrollView { topInset in
+                hero(topInset: topInset)
+            } content: {
+                VStack(alignment: .leading, spacing: 28) {
+                    if !albums.isEmpty { albumShelf }
+                    if !songs.isEmpty { songSection }
+                }
+                .padding(.top, 28)
+                .padding(.bottom, 64)
             }
-            .padding(.bottom, 64)
+            .navigationTitle("")
+            #else
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    hero(topInset: 0)
+
+                    if !albums.isEmpty { albumShelf }
+                    if !songs.isEmpty { songSection }
+                }
+                .padding(.bottom, 64)
+            }
+            .background(PMColor.bg.ignoresSafeArea())
+            .navigationTitle(Text(verbatim: genre.name))
+            #endif
         }
-        #if os(macOS)
-        .background(PMColor.bg.ignoresSafeArea())
-        #endif
-        .navigationTitle(Text(verbatim: genre.name))
         .toolbarTitleDisplayMode(.inline)
         #if os(iOS)
         .minimalNavigationDetail()
@@ -2006,95 +2021,71 @@ private struct GenreDetailView: View {
         )
     }
 
-    private var hero: some View {
+    private func hero(topInset: CGFloat) -> some View {
         let palette = GenreVisualStyle.palette(for: genre.id)
-        return ZStack(alignment: .bottomLeading) {
+        return VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(verbatim: genre.name)
+                    #if os(macOS)
+                    .font(.system(size: 42, weight: .bold))
+                    #else
+                    .font(.largeTitle.weight(.bold))
+                    #endif
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(
+                    verbatim:
+                        "\(albums.count) \(String(localized: "albums_count")) · \(songs.count) \(String(localized: "songs_count"))"
+                )
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white.opacity(0.74))
+            }
+
+            HStack(spacing: 10) {
+                LibraryDetailActionButton(
+                    title: "play",
+                    systemImage: "play.fill",
+                    emphasized: true,
+                    disabled: playableSongs.isEmpty,
+                    action: playAll
+                )
+                LibraryDetailActionButton(
+                    title: "shuffle",
+                    systemImage: "shuffle",
+                    disabled: playableSongs.count < 2,
+                    action: shuffleAll
+                )
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, topInset + 100)
+        .padding(.bottom, 28)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
             LinearGradient(
                 colors: [palette.leading, palette.trailing],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
-
-            GenreArtworkMosaic(genre: genre, artworkSize: 116)
-                .frame(width: 220, height: 150)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .padding(.trailing, 26)
-                .opacity(0.80)
-
-            LinearGradient(
-                colors: [.black.opacity(0.03), .black.opacity(0.72)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-
-            VStack(alignment: .leading, spacing: 12) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(verbatim: genre.name)
-                        #if os(macOS)
-                        .font(.system(size: 42, weight: .bold))
-                        #else
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
-                        #endif
-                        .foregroundStyle(.white)
-                        .lineLimit(2)
-
-                    Text(verbatim: "\(albums.count) \(String(localized: "albums_count")) · \(songs.count) \(String(localized: "songs_count"))")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.white.opacity(0.74))
-                }
-
-                HStack(spacing: 10) {
-                    genreActionButton(
-                        title: "play",
-                        systemImage: "play.fill",
-                        emphasized: true,
-                        disabled: playableSongs.isEmpty,
-                        action: playAll
-                    )
-                    genreActionButton(
-                        title: "shuffle",
-                        systemImage: "shuffle",
-                        disabled: playableSongs.count < 2,
-                        action: shuffleAll
-                    )
-                }
+            .overlay(alignment: .topTrailing) {
+                GenreArtworkMosaic(genre: genre, artworkSize: 116)
+                    .frame(width: 220, height: 150)
+                    .padding(.top, topInset + 12)
+                    .padding(.trailing, 16)
+                    .opacity(0.8)
+                    .accessibilityHidden(true)
             }
-            .padding(24)
-        }
-        #if os(macOS)
-        .frame(height: 240)
-        #else
-        .frame(height: 260)
-        #endif
-        .clipped()
-    }
-
-    private func genreActionButton(
-        title: LocalizedStringKey,
-        systemImage: String,
-        emphasized: Bool = false,
-        disabled: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(emphasized ? Color.black : Color.white)
-                .padding(.horizontal, 16)
-                .frame(minHeight: 44)
-                .background(
-                    emphasized ? Color.white : Color.white.opacity(0.16),
-                    in: Capsule()
+            .overlay {
+                LinearGradient(
+                    colors: [.black.opacity(0.05), .black.opacity(0.76)],
+                    startPoint: .top,
+                    endPoint: .bottom
                 )
-                .overlay {
-                    if !emphasized {
-                        Capsule().stroke(.white.opacity(0.24), lineWidth: 0.5)
-                    }
-                }
+            }
         }
-        .buttonStyle(.plain)
-        .disabled(disabled)
-        .opacity(disabled ? 0.42 : 1)
+        .clipped()
     }
 
     private var albumShelf: some View {
