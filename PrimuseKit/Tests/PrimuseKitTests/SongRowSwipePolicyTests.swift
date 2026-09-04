@@ -47,19 +47,19 @@ struct SongRowSwipePolicyTests {
         #expect(SongRowSwipePolicy.action(
             forOffset: 60,
             isRightToLeft: false
-        ) == .appendToQueue)
+        ) == .insertNext)
         #expect(SongRowSwipePolicy.action(
             forOffset: -60,
             isRightToLeft: false
-        ) == .insertNext)
+        ) == .appendToQueue)
         #expect(SongRowSwipePolicy.action(
             forOffset: 60,
             isRightToLeft: true
-        ) == .insertNext)
+        ) == .appendToQueue)
         #expect(SongRowSwipePolicy.action(
             forOffset: -60,
             isRightToLeft: true
-        ) == .appendToQueue)
+        ) == .insertNext)
     }
 
     @Test("A short drag rebounds while a committed drag stays open")
@@ -70,10 +70,10 @@ struct SongRowSwipePolicyTests {
             isRightToLeft: false
         ) == nil)
         #expect(SongRowSwipePolicy.settledAction(
-            offset: -60,
+            offset: -70,
             velocityX: 0,
             isRightToLeft: false
-        ) == .insertNext)
+        ) == .appendToQueue)
     }
 
     @Test("A directional flick may commit but an opposing flick cancels")
@@ -82,7 +82,7 @@ struct SongRowSwipePolicyTests {
             offset: 20,
             velocityX: 700,
             isRightToLeft: false
-        ) == .appendToQueue)
+        ) == .insertNext)
         #expect(SongRowSwipePolicy.settledAction(
             offset: 60,
             velocityX: -900,
@@ -90,11 +90,35 @@ struct SongRowSwipePolicyTests {
         ) == nil)
     }
 
-    @Test("Overscroll is resisted and capped")
-    func resistsOverscroll() {
-        #expect(SongRowSwipePolicy.interactiveOffset(80) == 80)
-        #expect(SongRowSwipePolicy.interactiveOffset(212) == 130)
-        #expect(SongRowSwipePolicy.interactiveOffset(-400) == -130)
+    @Test("The row follows a full swipe without the old action-width stop")
+    func followsFullSwipe() {
+        #expect(SongRowSwipePolicy.interactiveOffset(80, containerWidth: 320) == 80)
+        #expect(SongRowSwipePolicy.interactiveOffset(212, containerWidth: 320) == 212)
+        #expect(abs(
+            SongRowSwipePolicy.interactiveOffset(-400, containerWidth: 320) + 300.8
+        ) < 0.001)
+    }
+
+    @Test("Only a deliberate full swipe executes immediately")
+    func detectsFullSwipe() {
+        #expect(SongRowSwipePolicy.fullSwipeThreshold(containerWidth: 320) == 166.4)
+        #expect(SongRowSwipePolicy.fullSwipeAction(
+            offset: 150,
+            containerWidth: 320,
+            isRightToLeft: false
+        ) == nil)
+        #expect(SongRowSwipePolicy.fullSwipeAction(
+            offset: 180,
+            containerWidth: 320,
+            isRightToLeft: false
+        ) == .insertNext)
+        #expect(SongRowSwipePolicy.fullSwipeAction(
+            offset: -180,
+            containerWidth: 320,
+            isRightToLeft: true
+        ) == .insertNext)
+        #expect(SongRowSwipePolicy.fullSwipeThreshold(containerWidth: 100) == 96)
+        #expect(SongRowSwipePolicy.fullSwipeThreshold(containerWidth: 900) == 360)
     }
 
     @Test("Resting offsets preserve action meaning in RTL")
@@ -102,15 +126,15 @@ struct SongRowSwipePolicyTests {
         #expect(SongRowSwipePolicy.restingOffset(
             for: .appendToQueue,
             isRightToLeft: false
-        ) == 112)
+        ) == -96)
         #expect(SongRowSwipePolicy.restingOffset(
             for: .appendToQueue,
             isRightToLeft: true
-        ) == -112)
+        ) == 96)
         #expect(SongRowSwipePolicy.restingOffset(
             for: .insertNext,
             isRightToLeft: true
-        ) == 112)
+        ) == -96)
     }
 
     private func sample(

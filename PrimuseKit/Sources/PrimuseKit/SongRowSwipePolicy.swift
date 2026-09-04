@@ -44,11 +44,13 @@ public enum SongRowSwipePolicy {
     public static let minimumIntentVelocity = 40.0
     public static let horizontalDominanceRatio = 1.25
     public static let systemLeadingEdgeExclusion = 24.0
-    public static let revealWidth = 112.0
-    public static let revealThreshold = 0.42
-    public static let velocityProjectionDuration = 0.12
-    public static let overscrollResistance = 0.18
-    public static let maximumOverscroll = 18.0
+    public static let revealWidth = 96.0
+    public static let revealThreshold = 0.65
+    public static let velocityProjectionDuration = 0.08
+    public static let maximumInteractiveWidthFraction = 0.94
+    public static let fullSwipeWidthFraction = 0.52
+    public static let fullSwipeMinimumDistance = 160.0
+    public static let fullSwipeMaximumDistance = 360.0
 
     public static func shouldBegin(_ sample: SongRowSwipeSample) -> Bool {
         guard !startsInSystemLeadingEdge(sample) else { return false }
@@ -67,14 +69,14 @@ public enum SongRowSwipePolicy {
     }
 
     /// Positive offsets expose the physical left side of the row. In LTR that
-    /// side is semantic leading (queue end); RTL mirrors both actions.
+    /// side is semantic leading (play next); RTL mirrors both actions.
     public static func action(
         forOffset offset: Double,
         isRightToLeft: Bool
     ) -> SongRowSwipeAction? {
         guard offset != 0 else { return nil }
         let exposesSemanticLeading = isRightToLeft ? offset < 0 : offset > 0
-        return exposesSemanticLeading ? .appendToQueue : .insertNext
+        return exposesSemanticLeading ? .insertNext : .appendToQueue
     }
 
     public static func restingOffset(
@@ -83,23 +85,54 @@ public enum SongRowSwipePolicy {
     ) -> Double {
         guard let action else { return 0 }
         switch action {
-        case .appendToQueue:
-            return isRightToLeft ? -revealWidth : revealWidth
         case .insertNext:
+            return isRightToLeft ? -revealWidth : revealWidth
+        case .appendToQueue:
             return isRightToLeft ? revealWidth : -revealWidth
         }
     }
 
-    public static func interactiveOffset(_ proposedOffset: Double) -> Double {
-        let magnitude = abs(proposedOffset)
-        guard magnitude > revealWidth else { return proposedOffset }
-        let overscroll = min(
-            maximumOverscroll,
-            (magnitude - revealWidth) * overscrollResistance
+    /// Keep the row under the finger through a full swipe instead of hitting
+    /// a fixed stop immediately after the action button is revealed.
+    public static func interactiveOffset(
+        _ proposedOffset: Double,
+        containerWidth: Double
+    ) -> Double {
+        guard containerWidth > 0 else { return proposedOffset }
+        let maximumOffset = max(
+            revealWidth,
+            containerWidth * maximumInteractiveWidthFraction
         )
-        return proposedOffset.sign == .minus
-            ? -(revealWidth + overscroll)
-            : revealWidth + overscroll
+        return min(max(proposedOffset, -maximumOffset), maximumOffset)
+    }
+
+    public static func fullSwipeThreshold(containerWidth: Double) -> Double {
+        guard containerWidth > 0 else {
+            return revealWidth * 1.75
+        }
+        let minimum = max(
+            revealWidth,
+            min(fullSwipeMinimumDistance, containerWidth * 0.8)
+        )
+        let preferred = max(minimum, containerWidth * fullSwipeWidthFraction)
+        let maximum = max(
+            revealWidth,
+            min(fullSwipeMaximumDistance, containerWidth * 0.85)
+        )
+        return min(preferred, maximum)
+    }
+
+    /// Full swipes require real travel, rather than velocity projection, so a
+    /// quick short flick can reveal an action without unexpectedly executing it.
+    public static func fullSwipeAction(
+        offset: Double,
+        containerWidth: Double,
+        isRightToLeft: Bool
+    ) -> SongRowSwipeAction? {
+        guard abs(offset) >= fullSwipeThreshold(containerWidth: containerWidth) else {
+            return nil
+        }
+        return action(forOffset: offset, isRightToLeft: isRightToLeft)
     }
 
     public static func settledAction(

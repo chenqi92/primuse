@@ -20,6 +20,7 @@ struct SongRowView: View {
     var isPlaying: Bool = false
     var showAlbum: Bool = true
     var showsActions: Bool = true
+    var queueSwipeActionsEnabled = true
 
     /// Source badge — only shown when the parent decides multiple sources
     /// exist and resolves the song's source. Passing `nil` hides the badge
@@ -262,7 +263,9 @@ struct SongRowView: View {
         }
         .songRowSwipeActions(
             songID: song.id,
-            isEnabled: song.isPlayable && selection?.isActive != true,
+            isEnabled: queueSwipeActionsEnabled
+                && song.isPlayable
+                && selection?.isActive != true,
             onInsertNext: { player.insertNextInQueue([song]) },
             onAppendToQueue: { player.appendToQueue([song]) }
         )
@@ -711,6 +714,7 @@ private struct SongRowPanEvent {
     var phase: SongRowPanPhase
     var translationX: CGFloat
     var velocityX: CGFloat
+    var containerWidth: CGFloat
 }
 
 private struct SongRowSwipeModifier: ViewModifier {
@@ -725,6 +729,7 @@ private struct SongRowSwipeModifier: ViewModifier {
     @State private var offset: CGFloat = 0
     @State private var dragOriginOffset: CGFloat = 0
     @State private var settledAction: SongRowSwipeAction?
+    @State private var isFullSwipeArmed = false
 
     private var isRightToLeft: Bool { layoutDirection == .rightToLeft }
     private var revealWidth: CGFloat { CGFloat(SongRowSwipePolicy.revealWidth) }
@@ -778,12 +783,16 @@ private struct SongRowSwipeModifier: ViewModifier {
     private var actionLayer: some View {
         if let visibleAction {
             let positiveOffset = offset > 0
-            actionButton(visibleAction, positiveOffset: positiveOffset)
-                .frame(width: revealWidth)
+            actionButton(
+                visibleAction,
+                positiveOffset: positiveOffset,
+                isFullSwipeArmed: isFullSwipeArmed
+            )
+                .frame(width: max(abs(offset), revealWidth))
                 .frame(maxWidth: .infinity, alignment: physicalAlignment(positiveOffset: positiveOffset))
                 .mask(alignment: physicalAlignment(positiveOffset: positiveOffset)) {
                     Rectangle()
-                        .frame(width: min(abs(offset), revealWidth))
+                        .frame(width: abs(offset))
                 }
                 .allowsHitTesting(
                     settledAction == visibleAction
@@ -794,7 +803,8 @@ private struct SongRowSwipeModifier: ViewModifier {
 
     private func actionButton(
         _ action: SongRowSwipeAction,
-        positiveOffset: Bool
+        positiveOffset: Bool,
+        isFullSwipeArmed: Bool
     ) -> some View {
         Button {
             perform(action)
@@ -802,6 +812,7 @@ private struct SongRowSwipeModifier: ViewModifier {
             VStack(spacing: 2) {
                 Image(systemName: actionSystemImage(action))
                     .font(.callout.weight(.semibold))
+                    .scaleEffect(isFullSwipeArmed ? 1.14 : 1)
                 Text(verbatim: actionTitle(action))
                     .font(.caption2.weight(.semibold))
                     .lineLimit(1)
@@ -823,11 +834,27 @@ private struct SongRowSwipeModifier: ViewModifier {
         switch event.phase {
         case .began:
             dragOriginOffset = offset
+            isFullSwipeArmed = false
         case .changed:
             let proposed = dragOriginOffset + event.translationX
-            offset = CGFloat(SongRowSwipePolicy.interactiveOffset(Double(proposed)))
+            offset = CGFloat(SongRowSwipePolicy.interactiveOffset(
+                Double(proposed),
+                containerWidth: Double(event.containerWidth)
+            ))
+            updateFullSwipeArming(
+                offset: proposed,
+                containerWidth: event.containerWidth
+            )
         case .ended:
             let proposed = dragOriginOffset + event.translationX
+            if let action = SongRowSwipePolicy.fullSwipeAction(
+                offset: Double(proposed),
+                containerWidth: Double(event.containerWidth),
+                isRightToLeft: isRightToLeft
+            ) {
+                perform(action)
+                return
+            }
             let action = SongRowSwipePolicy.settledAction(
                 offset: Double(proposed),
                 velocityX: Double(event.velocityX),
@@ -835,11 +862,28 @@ private struct SongRowSwipeModifier: ViewModifier {
             )
             settle(on: action, animated: true)
         case .cancelled:
+            isFullSwipeArmed = false
             settle(on: settledAction, animated: true)
         }
     }
 
+    private func updateFullSwipeArming(
+        offset: CGFloat,
+        containerWidth: CGFloat
+    ) {
+        let shouldArm = SongRowSwipePolicy.fullSwipeAction(
+            offset: Double(offset),
+            containerWidth: Double(containerWidth),
+            isRightToLeft: isRightToLeft
+        ) != nil
+        if shouldArm && !isFullSwipeArmed {
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred(intensity: 0.65)
+        }
+        isFullSwipeArmed = shouldArm
+    }
+
     private func settle(on action: SongRowSwipeAction?, animated: Bool) {
+        isFullSwipeArmed = false
         settledAction = action
         let target = CGFloat(SongRowSwipePolicy.restingOffset(
             for: action,
@@ -973,7 +1017,8 @@ private struct SongRowHorizontalPanGesture: UIGestureRecognizerRepresentable {
         onEvent(SongRowPanEvent(
             phase: phase,
             translationX: translation.x,
-            velocityX: velocity.x
+            velocityX: velocity.x,
+            containerWidth: view.bounds.width
         ))
     }
 
@@ -1483,6 +1528,7 @@ extension SongRowView {
         showAlbum: Bool = true,
         showsActions: Bool = true,
         selection: SongSelectionModel? = nil,
+        queueSwipeActionsEnabled: Bool = true,
         context: RowContext
     ) {
         self.song = song
@@ -1490,6 +1536,7 @@ extension SongRowView {
         self.showAlbum = showAlbum
         self.showsActions = showsActions
         self.selection = selection
+        self.queueSwipeActionsEnabled = queueSwipeActionsEnabled
         self.sourceName = context.sourceName
         self.sourceIconName = context.sourceIconName
         self.detailsState = context.detailsState

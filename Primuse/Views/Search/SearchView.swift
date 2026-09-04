@@ -1385,6 +1385,7 @@ struct SearchView: View {
                             song: result.song,
                             isPlaying: player.currentSong?.id == result.song.id,
                             selection: selection,
+                            queueSwipeActionsEnabled: false,
                             context: SongRowView.context(for: result.song, sourcesStore: sourcesStore, backfill: backfill)
                         )
                         // Keep playback taps on the view that owns the context menu.
@@ -1424,9 +1425,13 @@ struct SearchView: View {
                         selection: selection,
                         orderedIDs: { selectableSongIDs }
                     )
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    .searchResultSwipeActions(
+                        queueActionsEnabled: result.song.isPlayable
+                            && !selection.isActive,
+                        onInsertNext: { player.insertNextInQueue([result.song]) },
+                        onAppendToQueue: { player.appendToQueue([result.song]) }
+                    ) {
                         showInLibraryButton(for: result.song)
-                            .tint(.accentColor)
                     }
                     .accessibilityAction(named: Text("show_in_library")) {
                         onShowInLibrary(result.song)
@@ -1450,6 +1455,7 @@ struct SearchView: View {
                             song: result.song,
                             isPlaying: player.currentSong?.id == result.song.id,
                             selection: selection,
+                            queueSwipeActionsEnabled: false,
                             context: SongRowView.context(
                                 for: result.song,
                                 sourcesStore: sourcesStore,
@@ -1473,9 +1479,13 @@ struct SearchView: View {
                         selection: selection,
                         orderedIDs: { selectableSongIDs }
                     )
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    .searchResultSwipeActions(
+                        queueActionsEnabled: result.song.isPlayable
+                            && !selection.isActive,
+                        onInsertNext: { player.insertNextInQueue([result.song]) },
+                        onAppendToQueue: { player.appendToQueue([result.song]) }
+                    ) {
                         showInLibraryButton(for: result.song)
-                            .tint(.accentColor)
                     }
                     .accessibilityAction(named: Text("show_in_library")) {
                         onShowInLibrary(result.song)
@@ -1909,6 +1919,47 @@ struct SearchView: View {
 
     private func saveRecentSearches() {
         SearchHistoryStore.save(recentSearches)
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func searchResultSwipeActions<LibraryAction: View>(
+        queueActionsEnabled: Bool,
+        onInsertNext: @escaping () -> Void,
+        onAppendToQueue: @escaping () -> Void,
+        @ViewBuilder showInLibrary: @escaping () -> LibraryAction
+    ) -> some View {
+        #if os(iOS)
+        if queueActionsEnabled {
+            self
+                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                    Button(action: onInsertNext) {
+                        Label("insert_next", systemImage: "text.line.first.and.arrowtriangle.forward")
+                    }
+                    .tint(.accentColor)
+                }
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button(action: onAppendToQueue) {
+                        Label("add_to_queue", systemImage: "text.line.last.and.arrowtriangle.forward")
+                    }
+                    .tint(.green)
+
+                    showInLibrary()
+                        .tint(.accentColor)
+                }
+        } else {
+            self.swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                showInLibrary()
+                    .tint(.accentColor)
+            }
+        }
+        #else
+        self.swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            showInLibrary()
+                .tint(.accentColor)
+        }
+        #endif
     }
 }
 
