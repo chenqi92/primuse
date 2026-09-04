@@ -3673,6 +3673,7 @@ final class MetadataBackfillService {
             year: metadata.year ?? bare.year,
             lastModified: bare.lastModified,
             dateAdded: bare.dateAdded,
+            serverPlayCount: bare.serverPlayCount,
             coverArtFileName: coverRef,
             artistArtworkFileName: bare.artistArtworkFileName,
             lyricsFileName: lyricsRef,

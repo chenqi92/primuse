@@ -3631,6 +3631,7 @@ final class MusicLibrary {
                     if newSong.dateAdded < merged.dateAdded {
                         merged.dateAdded = newSong.dateAdded
                     }
+                    merged.serverPlayCount = newSong.serverPlayCount
                     // Always refresh revision — when the connector starts
                     // surfacing a fingerprint that wasn't there before
                     // (e.g. user upgraded to a build that reads md5), we

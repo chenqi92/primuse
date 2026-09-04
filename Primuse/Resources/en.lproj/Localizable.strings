@@ -2287,6 +2287,7 @@
 "songs_row_relaxed" = "Relaxed";
 "songs_column_format_sample_rate" = "Format / Sample Rate";
 "stats_play_count" = "Play Count";
+"server_play_count_label" = "Server Play Count";
 "songs_column_rating" = "Rating";
 "songs_column_bitrate" = "Bit Rate";
 "show_in_library" = "Show in Library";

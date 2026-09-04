@@ -4252,6 +4252,12 @@ struct SongInfoSheet: View {
                 }
 
                 Section(String(localized: "library_info")) {
+                    if let serverPlayCount = song.serverPlayCount {
+                        infoRow(
+                            String(localized: "server_play_count_label"),
+                            serverPlayCount.formatted()
+                        )
+                    }
                     infoRow(String(localized: "date_added_label"), song.dateAdded.formatted(date: .long, time: .omitted))
                     if let lastModified = song.lastModified {
                         infoRow(String(localized: "last_modified_label"), lastModified.formatted(date: .abbreviated, time: .shortened))
@@ -4444,6 +4450,9 @@ struct SongInfoSheet: View {
         if let track = song.trackNumber { rows.append((String(localized: "track_label"), "\(track)", false)) }
         rows.append((String(localized: "stats_play_count"), playbackStats.playCount.formatted(), false))
         rows.append((String(localized: "last_played_label"), playbackStats.lastPlayedAt?.formatted(date: .abbreviated, time: .shortened) ?? String(localized: "no_recorded_playback"), false))
+        if let serverPlayCount = song.serverPlayCount {
+            rows.append((String(localized: "server_play_count_label"), serverPlayCount.formatted(), false))
+        }
         rows.append((String(localized: "date_added_label"), song.dateAdded.formatted(date: .long, time: .omitted), false))
         if let lastModified = song.lastModified {
             rows.append((String(localized: "last_modified_label"), lastModified.formatted(date: .abbreviated, time: .shortened), false))
