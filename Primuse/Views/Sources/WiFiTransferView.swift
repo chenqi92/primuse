@@ -152,29 +152,19 @@ struct WiFiTransferView: View {
     #endif
 
     private var modeSelector: some View {
-        HStack(spacing: 3) {
-            modeButton("send", icon: "paperplane")
-            modeButton("receive", icon: "tray.and.arrow.down")
+        Picker(WiFiTransferText.string("nativeTitle"), selection: $mode) {
+            Text(WiFiTransferText.string("send")).tag("send")
+            Text(WiFiTransferText.string("receive")).tag("receive")
         }
-        .padding(3).background(TransferAppearance.line.opacity(0.65), in: .rect(cornerRadius: 10))
+        .pickerStyle(.segmented)
+        .labelsHidden()
         #if os(macOS)
+        .controlSize(.regular)
         .frame(width: 316)
         #endif
         .padding(.horizontal, 22).padding(.top, 14)
+        .accessibilityIdentifier("wifiTransfer.mode")
         .disabled(receiver.running || sender.busy)
-    }
-
-    private func modeButton(_ value: String, icon: String) -> some View {
-        Button { mode = value } label: {
-            Label(WiFiTransferText.string(value), systemImage: icon)
-                .font(.system(size: TransferAppearance.bodySize, weight: mode == value ? .semibold : .medium))
-                .foregroundStyle(mode == value ? TransferAppearance.text : TransferAppearance.muted)
-                .frame(maxWidth: .infinity).padding(.vertical, 9)
-                .frame(minHeight: TransferAppearance.compactTarget)
-                .background(mode == value ? TransferAppearance.surface : .clear, in: .rect(cornerRadius: 8))
-                .contentShape(.rect)
-        }.buttonStyle(.plain)
-            .accessibilityAddTraits(mode == value ? .isSelected : [])
     }
 
     private var receiveForm: some View {
@@ -341,6 +331,7 @@ struct WiFiTransferView: View {
                 copied = true
             } label: {
                 Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: TransferAppearance.bodySize, weight: .medium))
                     .frame(width: TransferAppearance.compactTarget, height: TransferAppearance.compactTarget).contentShape(.rect)
             }.buttonStyle(.plain).foregroundStyle(TransferAppearance.accent)
                 .accessibilityLabel(WiFiTransferText.string(copied ? "copied" : "copyAddress"))

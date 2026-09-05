@@ -362,10 +362,10 @@ struct WiFiTransferSendView: View {
         VStack(alignment: .leading, spacing: 9) {
             HStack {
                 if sender.busy { ProgressView().controlSize(.small) }
-                Text(WiFiTransferText.string(sender.status)).font(.system(size: TransferAppearance.bodySize, weight: .medium))
+                Text(WiFiTransferText.string(sender.status))
                 Spacer()
                 if !sender.busy { Text("\(sender.completed) / \(sender.completed + sender.failed.count)").monospacedDigit() }
-            }
+            }.font(.system(size: TransferAppearance.bodySize, weight: .medium))
             if sender.busy && !sender.currentFile.isEmpty {
                 Text(sender.currentFile).font(.system(size: TransferAppearance.captionSize))
                     .foregroundStyle(TransferAppearance.muted).lineLimit(1).truncationMode(.middle)
@@ -433,11 +433,12 @@ private struct WiFiTransferLocalPicker: View {
         .safeAreaInset(edge: .bottom) {
             HStack {
                 Button(WiFiTransferText.string("cancel")) { dismiss() }
+                    .buttonStyle(TransferButtonStyle())
                 Spacer()
                 Button("\(WiFiTransferText.string("selected")) (\(selected.count))") {
                     onSelect(Array(selected)); dismiss()
                 }
-                .buttonStyle(.borderedProminent).disabled(selected.isEmpty)
+                .buttonStyle(TransferButtonStyle(prominent: true)).disabled(selected.isEmpty)
                 .accessibilityIdentifier("transfer.confirmSelection")
             }.padding().background(.bar)
         }

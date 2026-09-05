@@ -74,10 +74,10 @@ struct TVTransferReceiveView: View {
                                 .fixedSize(horizontal: false, vertical: true).frame(minHeight: 190, alignment: .topLeading)
                         }
                         action(TVTransferText.string(receiver.running ? "stopReceiving" : "startReceiving"),
-                               icon: receiver.running ? "stop.circle" : "tray.and.arrow.down") {
+                               icon: receiver.running ? "stop.circle" : "tray.and.arrow.down",
+                               enabled: !receiver.stopping) {
                             if receiver.running { requestAction("stop") } else { start() }
                         }.frame(maxWidth: 360)
-                            .disabled(receiver.stopping)
                             .prefersDefaultFocus(true, in: transferFocus)
                     }
                     .padding(36).frame(maxWidth: .infinity, alignment: .leading)
@@ -91,9 +91,7 @@ struct TVTransferReceiveView: View {
                                 .font(.system(size: 26, weight: .semibold))
                             Text(TVTransferText.string("browserHint")).font(.system(size: 20))
                                 .foregroundStyle(TVColor.textMuted).fixedSize(horizontal: false, vertical: true)
-                            action(TVTransferText.string(receiver.browserEnabled ? "enabled" : "disabled"), icon: receiver.browserEnabled ? "checkmark.circle.fill" : "circle") {
-                                receiver.setBrowserEnabled(!receiver.browserEnabled)
-                            }.disabled(!receiver.running)
+                            browserAccessToggle
                         }.padding(28).background(TVColor.card, in: .rect(cornerRadius: 22))
                         if let error = error ?? receiver.error.map(TVTransferText.string) ?? store.transferScanError.map(TVTransferText.string) {
                             Text(error).font(.system(size: 18)).foregroundStyle(.red)
@@ -183,13 +181,40 @@ struct TVTransferReceiveView: View {
         else if value == "music" { showMusic = true }
     }
 
-    private func action(_ title: String, icon: String, perform: @escaping () -> Void) -> some View {
+    private var browserAccessToggle: some View {
+        TVFocusButton(radius: 14, scale: 1.0, lift: 0, action: {
+            receiver.setBrowserEnabled(!receiver.browserEnabled)
+        }) { focused in
+            HStack(spacing: 18) {
+                Text(TVTransferText.string(receiver.browserEnabled ? "enabled" : "disabled"))
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(TVColor.text)
+                Spacer(minLength: 12)
+                ZStack(alignment: receiver.browserEnabled ? .trailing : .leading) {
+                    Capsule().fill(receiver.browserEnabled ? TVColor.brand : TVColor.surfaceStrong)
+                        .frame(width: 62, height: 34)
+                    Circle().fill(.white).frame(width: 28, height: 28).padding(3)
+                }
+                .animation(.easeOut(duration: 0.18), value: receiver.browserEnabled)
+            }
+            .padding(.horizontal, 22).padding(.vertical, 16)
+            .background(focused ? TVColor.surfaceStrong : TVColor.surface, in: .rect(cornerRadius: 14))
+        }
+        .accessibilityLabel(TVTransferText.string("browserAccess"))
+        .accessibilityValue(TVTransferText.string(receiver.browserEnabled ? "enabled" : "disabled"))
+        .disabled(!receiver.running || receiver.stopping)
+        .opacity(receiver.running && !receiver.stopping ? 1 : 0.4)
+    }
+
+    private func action(_ title: String, icon: String, enabled: Bool = true, perform: @escaping () -> Void) -> some View {
         TVFocusButton(radius: 14, scale: 1.02, lift: 0, action: perform) { focused in
             Label(title, systemImage: icon).font(.system(size: 22, weight: .semibold))
                 .foregroundStyle(focused ? TVColor.onBrand : TVColor.text)
                 .padding(.horizontal, 24).padding(.vertical, 18).frame(maxWidth: .infinity, alignment: .leading)
                 .background(focused ? TVColor.brand : TVColor.surface, in: RoundedRectangle(cornerRadius: 14))
         }
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.4)
     }
 
     private func start() {
