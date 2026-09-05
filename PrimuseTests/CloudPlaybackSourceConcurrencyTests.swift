@@ -39,7 +39,7 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
 
         for (offset, target) in [6.0, 8.0].enumerated() {
             player.seek(to: target, startPlaying: true)
-            let settled = await waitUntilAsync(timeout: 5) {
+            let settled = await Self.waitUntilAsync(timeout: 5) {
                 await MainActor.run { !player.isLoading }
             }
             XCTAssertTrue(settled)
@@ -255,7 +255,7 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
             oldReadFinished.fulfill()
         }
         await fulfillment(of: [oldReadFinished], timeout: 2)
-        let trailingStarted = await waitUntilAsync(timeout: 2) {
+        let trailingStarted = await Self.waitUntilAsync(timeout: 2) {
             await trailingGate.hasStarted()
         }
         XCTAssertTrue(trailingStarted, "trailing fill did not start")
@@ -332,7 +332,7 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         )
         let firstRead = Self.read(try XCTUnwrap(input), byteCount: 4_096)
         XCTAssertTrue(firstRead.success, firstRead.error ?? "read failed")
-        let trailingStarted = await waitUntilAsync(timeout: 2) {
+        let trailingStarted = await Self.waitUntilAsync(timeout: 2) {
             await trailingGate.hasStarted()
         }
         XCTAssertTrue(trailingStarted, "trailing fill did not start")
@@ -460,7 +460,7 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         return condition()
     }
 
-    private func waitUntilAsync(
+    private static func waitUntilAsync(
         timeout: TimeInterval,
         condition: @escaping @Sendable () async -> Bool
     ) async -> Bool {
