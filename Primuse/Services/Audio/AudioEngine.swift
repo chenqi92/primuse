@@ -7,6 +7,8 @@ import PrimuseKit
 @MainActor
 @Observable
 final class AudioEngine {
+    private let volumeDefaults: UserDefaults
+    private var requestedVolume: Float = 1
     private var engine: AVAudioEngine?
     private var playerNode: AVAudioPlayerNode?
     private var crossfadePlayerNode: AVAudioPlayerNode?
@@ -61,7 +63,13 @@ final class AudioEngine {
     /// this tracks the cumulative sample offset so currentTime resets to 0.
     var sampleTimeOffset: Int64 = 0
 
-    init() {}
+    init(volumeDefaults: UserDefaults = .standard) {
+        self.volumeDefaults = volumeDefaults
+        #if !os(iOS)
+        let saved = volumeDefaults.object(forKey: Self.volumeKey) as? Float ?? 1
+        requestedVolume = saved.isFinite ? min(max(saved, 0), 1) : 1
+        #endif
+    }
 
     // MARK: - Setup
 
@@ -1145,11 +1153,15 @@ final class AudioEngine {
     private static let volumeKey = "primuse_volume"
 
     var volume: Float {
-        get { outputMode == .highFidelity ? 1 : (engine?.mainMixerNode.outputVolume ?? 1.0) }
+        // The control must retain its value before playback prepares a graph
+        // and while an output-device change replaces that graph.
+        get { outputMode == .highFidelity ? 1 : requestedVolume }
         set {
-            UserDefaults.standard.set(newValue, forKey: Self.volumeKey)
+            guard newValue.isFinite else { return }
+            requestedVolume = min(max(newValue, 0), 1)
+            volumeDefaults.set(requestedVolume, forKey: Self.volumeKey)
             guard outputMode == .effects else { return }
-            engine?.mainMixerNode.outputVolume = newValue
+            engine?.mainMixerNode.outputVolume = requestedVolume
         }
     }
 
@@ -1160,7 +1172,8 @@ final class AudioEngine {
         // second persisted mixer gain would make the visible system value and
         // actual loudness diverge, and it cannot affect MusicKit playback at
         // all. Migrate legacy app-volume values back to unity gain.
-        UserDefaults.standard.removeObject(forKey: Self.volumeKey)
+        volumeDefaults.removeObject(forKey: Self.volumeKey)
+        requestedVolume = 1
         playerNode?.volume = 1
         // The high-fidelity graph deliberately connects the player directly
         // to the output node. Asking AVAudioEngine for mainMixerNode in that
@@ -1174,9 +1187,7 @@ final class AudioEngine {
             playerNode?.volume = 1
             return
         }
-        if let saved = UserDefaults.standard.object(forKey: Self.volumeKey) as? Float {
-            engine?.mainMixerNode.outputVolume = saved
-        }
+        engine?.mainMixerNode.outputVolume = requestedVolume
         #endif
     }
 
