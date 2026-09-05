@@ -8,6 +8,9 @@ struct ServerListeningStatsView: View {
     @State private var range: ServerListeningStatsRange = .month
     @State private var rankTab: RankTab = .tracks
     @State private var manualRefreshTask: Task<Void, Never>?
+    #if os(macOS)
+    @State private var expandedRanks: Set<RankTab> = []
+    #endif
 
     private struct HeatmapDay {
         let date: Date
@@ -281,15 +284,18 @@ struct ServerListeningStatsView: View {
 
     private var macHeader: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center, spacing: 16) {
+            HStack(alignment: .center, spacing: 14) {
+                Image(systemName: "server.rack")
+                    .font(.system(size: 24, weight: .medium))
+                    .foregroundStyle(PMColor.brand)
+                    .frame(width: 54, height: 54)
+                    .background(PMColor.brand.opacity(0.10), in: .rect(cornerRadius: 14))
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("stats_server_authoritative")
+                    Text("stats_title")
                         .font(.system(size: 11, weight: .semibold))
-                        .tracking(0.8)
-                        .textCase(.uppercase)
                         .foregroundStyle(PMColor.textMuted)
                     Text(source.name)
-                        .font(.system(size: 30, weight: .bold))
+                        .font(.system(size: 28, weight: .bold))
                         .foregroundStyle(PMColor.text)
                 }
                 Spacer()
@@ -298,16 +304,25 @@ struct ServerListeningStatsView: View {
                 }
                 refreshButton
                     .buttonStyle(.bordered)
+                    .controlSize(.large)
             }
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
+                Text("stats_server_authoritative")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(PMColor.brand)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(PMColor.brand.opacity(0.08), in: .capsule)
                 if let fetchedAt = statsService.snapshot?.fetchedAt {
                     Label {
-                        Text(fetchedAt, format: .dateTime.year().month().day().hour().minute())
+                        Text(fetchedAt, format: .dateTime.month().day().hour().minute())
                     } icon: {
                         Image(systemName: "clock.arrow.circlepath")
                     }
-                    .font(.caption)
+                    .font(.system(size: 11))
                     .foregroundStyle(PMColor.textMuted)
+                    .help(String(localized: "stats_server_last_updated") + ": "
+                          + fetchedAt.formatted(.dateTime.year().month().day().hour().minute()))
                 }
                 Spacer()
                 if isEventHistory {
@@ -347,49 +362,70 @@ struct ServerListeningStatsView: View {
     private func macSummaryGrid(
         _ presentation: ServerListeningStatsPresentation
     ) -> some View {
-        let columns = [GridItem(.adaptive(minimum: 180), spacing: 14)]
-        return LazyVGrid(columns: columns, spacing: 14) {
-            macSummaryCell(
-                presentation.totalPlays.formatted(),
-                label: String(localized: "stats_total_plays")
-            )
-            macSummaryCell(
-                presentation.uniqueTracks.formatted(),
-                label: String(localized: "stats_unique_songs")
-            )
-            if let activeDays = presentation.activeDays {
-                macSummaryCell(
-                    activeDays.formatted(),
-                    label: String(localized: "stats_active_days")
-                )
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 14) {
+                macSummaryCells(presentation)
+                    .frame(minWidth: 180)
             }
-            macSummaryCell(
-                lastPlayedText(presentation.lastPlayedAt),
-                label: String(localized: "stats_server_last_played")
-            )
-            if let duration = presentation.totalListenedSeconds {
-                macSummaryCell(
-                    formatDuration(duration),
-                    label: String(localized: "stats_total_duration")
-                )
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
+                macSummaryCells(presentation)
             }
         }
     }
 
-    private func macSummaryCell(_ value: String, label: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(value)
-                .font(.system(size: 28, weight: .bold, design: .monospaced))
+    @ViewBuilder
+    private func macSummaryCells(_ presentation: ServerListeningStatsPresentation) -> some View {
+        macSummaryCell(
+            presentation.totalPlays.formatted(),
+            label: "stats_total_plays", icon: "play.fill",
+            detail: presentation.temporalDetail == .aggregate ? String(localized: "stats_all_time_total") : nil
+        )
+        macSummaryCell(
+            presentation.uniqueTracks.formatted(),
+            label: "stats_unique_songs", icon: "music.note"
+        )
+        if let activeDays = presentation.activeDays {
+            macSummaryCell(activeDays.formatted(), label: "stats_active_days", icon: "calendar")
+        }
+        macSummaryCell(
+            presentation.lastPlayedAt?.formatted(.dateTime.year().month().day())
+                ?? String(localized: "stats_server_never_played"),
+            label: "stats_server_last_played", icon: "clock",
+            detail: presentation.lastPlayedAt?.formatted(date: .omitted, time: .shortened),
+            isDate: true
+        )
+        if let duration = presentation.totalListenedSeconds {
+            macSummaryCell(formatDuration(duration), label: "stats_total_duration", icon: "timer")
+        }
+    }
+
+    private func macSummaryCell(
+        _ value: String, label: LocalizedStringKey, icon: String, detail: String? = nil, isDate: Bool = false
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(label)
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.textMuted)
+                Spacer()
+                Image(systemName: icon)
+                    .font(.system(size: 13))
+                    .foregroundStyle(PMColor.brand.opacity(0.8))
+            }
+            Text(verbatim: value)
+                .font(.system(size: isDate ? 22 : 32, weight: .bold, design: isDate ? .default : .monospaced))
                 .foregroundStyle(PMColor.text)
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
-            Text(label)
-                .font(.caption)
+                .lineLimit(isDate ? 2 : 1)
+                .minimumScaleFactor(0.8)
+                .frame(minHeight: 39, alignment: .leading)
+            Text(verbatim: detail ?? " ")
+                .font(.system(size: 11))
                 .foregroundStyle(PMColor.textMuted)
         }
-        .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
         .macStatsCard()
+        .accessibilityElement(children: .combine)
     }
 
     private func macBoundaryCard(
@@ -399,13 +435,13 @@ struct ServerListeningStatsView: View {
             presentation.temporalDetail == .aggregate
                 ? "stats_server_aggregate_boundary"
                 : "stats_server_event_boundary",
-            systemImage: "checkmark.shield"
+            systemImage: "info.circle"
         )
-        .font(.subheadline)
+        .font(.system(size: 11))
         .foregroundStyle(PMColor.textMuted)
+        .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
-        .macStatsCard()
+        .padding(.horizontal, 2)
     }
 
     private func macHeatmapCard(
@@ -427,18 +463,117 @@ struct ServerListeningStatsView: View {
     private func macRankingCard(
         _ presentation: ServerListeningStatsPresentation
     ) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 14) {
+                macRankColumn(title: "stats_top_songs", tab: .tracks, items: presentation.topTracks)
+                    .frame(minWidth: 260)
+                macRankColumn(title: "stats_top_artists", tab: .artists, items: presentation.topArtists)
+                    .frame(minWidth: 260)
+                macRankColumn(title: "stats_top_albums", tab: .albums, items: presentation.topAlbums)
+                    .frame(minWidth: 260)
+            }
+            VStack(spacing: 14) {
+                macRankColumn(title: "stats_top_songs", tab: .tracks, items: presentation.topTracks)
+                macRankColumn(title: "stats_top_artists", tab: .artists, items: presentation.topArtists)
+                macRankColumn(title: "stats_top_albums", tab: .albums, items: presentation.topAlbums)
+            }
+        }
+        .settingsAnchor("stats.serverRank")
+    }
+
+    private func macRankColumn(
+        title: LocalizedStringKey, tab: RankTab, items: [ServerListeningStatsRankedItem]
+    ) -> some View {
+        let expanded = expandedRanks.contains(tab)
+        let visibleItems = expanded ? items : Array(items.prefix(6))
+        let maximum = max(items.map(\.playCount).max() ?? 0, 1)
+        return VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("stats_top_header")
-                    .font(.headline)
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(PMColor.text)
                 Spacer()
-                rankPicker.frame(width: 360)
+                Text("stats_total_plays")
+                    .font(.system(size: 10))
+                    .foregroundStyle(PMColor.textFaint)
             }
-            rankedRows(presentation)
+            .padding(.bottom, 12)
+
+            if items.isEmpty {
+                Text("stats_rank_empty")
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.textMuted)
+                    .frame(maxWidth: .infinity, minHeight: 100)
+            } else {
+                ForEach(Array(visibleItems.enumerated()), id: \.element.id) { index, item in
+                    macRankRow(item, rank: index + 1, maximum: maximum)
+                }
+            }
+            if items.count > 6 {
+                Button {
+                    if expanded { expandedRanks.remove(tab) } else { expandedRanks.insert(tab) }
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(expanded ? "update_show_less" : "see_all")
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    }
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(PMColor.brand)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 9)
+                    .background(PMColor.brand.opacity(0.07), in: .rect(cornerRadius: 7))
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 10)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(18)
         .macStatsCard()
+        .accessibilityElement(children: .contain)
+    }
+
+    private func macRankRow(_ item: ServerListeningStatsRankedItem, rank: Int, maximum: Int) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text(String(format: "%02d", rank))
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(rank <= 3 ? PMColor.brand : PMColor.textFaint)
+                .frame(width: 20, alignment: .leading)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(item.title)
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundStyle(PMColor.text)
+                            .lineLimit(1)
+                        if let subtitle = item.subtitle, !subtitle.isEmpty {
+                            Text(subtitle)
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(PMColor.textMuted)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    Text(item.playCount.formatted())
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(PMColor.text)
+                        .fixedSize()
+                }
+                GeometryReader { geometry in
+                    Capsule().fill(PMColor.brand.opacity(0.08))
+                        .overlay(alignment: .leading) {
+                            Capsule().fill(PMColor.brand.opacity(rank <= 3 ? 0.70 : 0.40))
+                                .frame(width: geometry.size.width * CGFloat(item.playCount) / CGFloat(maximum))
+                        }
+                }
+                .frame(height: 3)
+                .accessibilityHidden(true)
+            }
+        }
+        .padding(.vertical, 9)
+        .help([item.title, item.subtitle].compactMap { $0 }.joined(separator: " · "))
+        .accessibilityElement(children: .combine)
     }
     #endif
 
