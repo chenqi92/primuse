@@ -54,6 +54,10 @@ struct WiFiTransferView: View {
     @State private var setupError: String?
     @State private var receivingSource: MusicSource?
     @State private var copied = false
+    @State private var showStopConfirmation = false
+    @State private var closeAfterStopping = false
+    @State private var dismissWhenStopped = false
+    @State private var showReceiveHistory = false
     #if os(iOS)
     @State private var previousIdleTimer: Bool?
     #endif
@@ -66,6 +70,15 @@ struct WiFiTransferView: View {
             header
             #endif
             modeSelector
+                .alert(WiFiTransferText.string(closeAfterStopping ? "closeTransferTitle" : "stopReceiveTitle"),
+                       isPresented: $showStopConfirmation) {
+                    Button(WiFiTransferText.string(closeAfterStopping ? "stopAndClose" : "stopReceiving"), role: .destructive) {
+                        if closeAfterStopping { finishAndClose() } else { receiver.stop() }
+                    }
+                    Button(WiFiTransferText.string("keepTransferring"), role: .cancel) {}
+                } message: {
+                    Text(WiFiTransferText.string(sender.busy ? "closeSenderHint" : "closeReceiverHint"))
+                }
             if mode == "send" { WiFiTransferSendView(sender: sender) }
             else { receiveForm }
         }
@@ -74,14 +87,16 @@ struct WiFiTransferView: View {
         #if os(iOS)
         .navigationTitle(WiFiTransferText.string("nativeTitle"))
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button(WiFiTransferText.string("done")) { dismiss() }
+                Button(WiFiTransferText.string("done")) { requestClose() }
             }
         }
         #else
         .frame(width: 820, height: 620)
         #endif
+        .interactiveDismissDisabled()
         .alert(WiFiTransferText.string("requestTitle"), isPresented: Binding(
             get: { receiver.invitation != nil },
             set: { if !$0 { receiver.allow(false) } }
@@ -93,10 +108,12 @@ struct WiFiTransferView: View {
                         invitation.fileCount, ByteCountFormatter.string(fromByteCount: invitation.byteCount, countStyle: .file)))
         }
         .onDisappear { stop() }
-        .onChange(of: mode) { _, _ in setupError = nil }
+        .onChange(of: receiver.running) { _, running in
+            if !running, dismissWhenStopped { dismiss() }
+        }
         .onChange(of: scenePhase) { _, phase in
             #if os(iOS)
-            if phase == .background { stop() }
+            if phase == .background { receiver.stop(reason: "backgroundStopped"); sender.cancel(); restoreIdleTimer() }
             #endif
         }
         .onChange(of: receiver.running || sender.busy) { _, active in
@@ -122,7 +139,7 @@ struct WiFiTransferView: View {
                     .foregroundStyle(PMColor.textMuted).lineLimit(2)
             }
             Spacer(minLength: 20)
-            Button { dismiss() } label: {
+            Button { requestClose() } label: {
                 Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(PMColor.textMuted).frame(width: 28, height: 28)
                     .background(PMColor.glassBtn, in: .circle)
@@ -163,8 +180,14 @@ struct WiFiTransferView: View {
     private var receiveForm: some View {
         VStack(spacing: 0) {
             GeometryReader { geometry in
+                ScrollViewReader { scroll in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
+                        if let receipt = receiver.receipts.first {
+                            TransferSectionHeading(title: WiFiTransferText.string("receiveActivity"))
+                            TransferReceiveReceiptView(receipt: receipt,
+                                indexing: needsScan || pendingScan != nil, indexError: setupError)
+                        }
                         if receiver.running, let address = receiver.address {
                             Group {
                                 if geometry.size.width >= 680 {
@@ -196,31 +219,10 @@ struct WiFiTransferView: View {
                                     }
                                 }
                             }.modifier(TransferSurface())
-                            if receiver.completed > 0 || !receiver.currentFile.isEmpty {
-                                VStack(alignment: .leading, spacing: 10) {
-                                    TransferSectionHeading(title: WiFiTransferText.string(receiver.currentFile.isEmpty ? "uploaded" : "receiving"),
-                                        detail: String(receiver.completed))
-                                    if let sender = receiver.sender {
-                                        Text(sender).font(.system(size: TransferAppearance.captionSize)).foregroundStyle(TransferAppearance.muted)
-                                    }
-                                    if !receiver.currentFile.isEmpty {
-                                        Text(receiver.currentFile).font(.system(size: TransferAppearance.bodySize)).lineLimit(1).truncationMode(.middle)
-                                        ProgressView(value: receiver.progress).tint(TransferAppearance.accent)
-                                    }
-                                    if needsScan || pendingScan != nil {
-                                        HStack(spacing: 8) {
-                                            ProgressView().controlSize(.small)
-                                            Text(WiFiTransferText.string("indexing")).font(.system(size: TransferAppearance.captionSize))
-                                        }
-                                    } else if setupError == nil {
-                                        TransferFeedback(text: WiFiTransferText.string("stored"))
-                                    }
-                                }.modifier(TransferSurface())
-                            }
                         } else if receiver.running {
                             ProgressView(WiFiTransferText.string("waiting"))
                                 .frame(maxWidth: .infinity, minHeight: 280)
-                        } else {
+                        } else if receiver.receipts.isEmpty {
                             VStack(spacing: 16) {
                                 Image(systemName: TransferAppearance.deviceIcon(WiFiTransferText.identity.platform))
                                     .font(.system(size: 54, weight: .ultraLight))
@@ -234,6 +236,20 @@ struct WiFiTransferView: View {
                                     .frame(maxWidth: 400)
                             }.frame(maxWidth: .infinity, minHeight: 285)
                         }
+                        if receiver.receipts.count > 1 {
+                            DisclosureGroup(isExpanded: $showReceiveHistory) {
+                                VStack(spacing: 14) {
+                                    ForEach(receiver.receipts.dropFirst()) { receipt in
+                                        TransferReceiveReceiptView(receipt: receipt,
+                                            indexing: needsScan || pendingScan != nil, indexError: setupError)
+                                    }
+                                }.padding(.top, 14)
+                            } label: {
+                                Text(WiFiTransferText.string("receiveHistory"))
+                                    .font(.system(size: TransferAppearance.bodySize, weight: .medium))
+                                    .frame(minHeight: TransferAppearance.compactTarget)
+                            }.tint(TransferAppearance.accent)
+                        }
                         if let error = setupError ?? receiver.error.map(WiFiTransferText.string) {
                             TransferFeedback(text: error, isError: true)
                             if let source = receivingSource, LocalImportService.hasPendingScan, pendingScan == nil {
@@ -242,12 +258,19 @@ struct WiFiTransferView: View {
                                 }.buttonStyle(TransferButtonStyle(compact: true))
                             }
                         }
+                        #if os(iOS)
                         if receiver.running {
                             Text(WiFiTransferText.string("sessionHint"))
                                 .font(.system(size: TransferAppearance.captionSize))
                                 .foregroundStyle(TransferAppearance.muted)
                         }
-                    }.padding(22)
+                        #endif
+                    }.padding(22).id("receiveTop")
+                }
+                .onChange(of: receiver.receipts.first?.id) { _, _ in
+                    showReceiveHistory = false
+                    withAnimation { scroll.scrollTo("receiveTop", anchor: .top) }
+                }
                 }
             }
             HStack(spacing: 18) {
@@ -255,8 +278,12 @@ struct WiFiTransferView: View {
                     .font(.system(size: TransferAppearance.captionSize)).foregroundStyle(TransferAppearance.muted)
                 Spacer()
                 if receiver.running {
-                    Button(WiFiTransferText.string("stopReceiving")) { receiver.stop() }
+                    Button(WiFiTransferText.string("stopReceiving")) {
+                        closeAfterStopping = false
+                        showStopConfirmation = true
+                    }
                         .buttonStyle(TransferButtonStyle()).accessibilityIdentifier("wifiTransfer.stop")
+                        .disabled(receiver.stopping)
                 } else {
                     Button { start() } label: {
                         Label(WiFiTransferText.string("startReceiving"), systemImage: "tray.and.arrow.down.fill")
@@ -272,7 +299,7 @@ struct WiFiTransferView: View {
         VStack(alignment: .leading, spacing: 12) {
             Label(WiFiTransferText.identity.name, systemImage: TransferAppearance.deviceIcon(WiFiTransferText.identity.platform))
                 .font(.system(size: 17, weight: .semibold))
-            Label(WiFiTransferText.string("receiverReady"), systemImage: "circle.fill")
+            Label(WiFiTransferText.string(receiver.receipts.contains { !$0.finished } ? "receiving" : "receiverReady"), systemImage: "circle.fill")
                 .font(.system(size: TransferAppearance.captionSize, weight: .medium))
                 .foregroundStyle(TransferAppearance.accent)
             Text(WiFiTransferText.string("receiveHint"))
@@ -326,6 +353,18 @@ struct WiFiTransferView: View {
         #if os(iOS)
         restoreIdleTimer()
         #endif
+    }
+
+    private func requestClose() {
+        guard receiver.running || sender.busy else { dismiss(); return }
+        closeAfterStopping = true
+        showStopConfirmation = true
+    }
+
+    private func finishAndClose() {
+        dismissWhenStopped = receiver.running
+        stop()
+        if !dismissWhenStopped { dismiss() }
     }
 
     #if os(iOS)

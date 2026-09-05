@@ -120,11 +120,36 @@ public final class WiFiTransferDiscovery {
     }
 }
 
+public struct WiFiTransferReceivedFile: Identifiable, Equatable, Sendable {
+    public let id: UUID
+    public let path: String
+    public let size: Int64
+    public internal(set) var received: Int64 = 0
+    public internal(set) var finished = false
+    public internal(set) var error: String?
+    public var succeeded: Bool { finished && error == nil }
+}
+
+public struct WiFiTransferReceipt: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let sender: String?
+    public let fileCount: Int
+    public let byteCount: Int64
+    public internal(set) var files: [WiFiTransferReceivedFile] = []
+    public internal(set) var finished = false
+    public internal(set) var error: String?
+    public var completed: Int { files.filter(\.succeeded).count }
+    public var receivedBytes: Int64 { files.reduce(0) { $0 + ($1.succeeded ? $1.size : ($1.finished ? 0 : $1.received)) } }
+    public var progress: Double { min(1, Double(receivedBytes) / Double(max(1, byteCount))) }
+    public var succeeded: Bool { finished && error == nil }
+}
+
 @MainActor @Observable
 public final class WiFiTransferReceiver {
     public private(set) var address: String?
     public private(set) var code = ""
     public private(set) var running = false
+    public private(set) var stopping = false
     public private(set) var browserEnabled = false
     public private(set) var currentFile = ""
     public private(set) var progress: Double = 0
@@ -132,8 +157,11 @@ public final class WiFiTransferReceiver {
     public private(set) var invitation: WiFiTransferInvitation?
     public private(set) var sender: String?
     public private(set) var error: String?
+    public private(set) var receipts: [WiFiTransferReceipt] = []
+    public var hasActiveTransfers: Bool { invitation != nil || receipts.contains { !$0.finished } }
     @ObservationIgnored private var server: WiFiTransferServer?
-    @ObservationIgnored private var generation = UUID()
+    @ObservationIgnored private var eventTask: Task<Void, Never>?
+    @ObservationIgnored private var stopReason: String?
 
     public init() {}
 
@@ -141,65 +169,123 @@ public final class WiFiTransferReceiver {
                       willChange: @escaping @Sendable () -> Void = {},
                       onChange: @escaping @MainActor (String, Bool) -> Void) {
         guard server == nil else { return }
-        let generation = UUID()
-        self.generation = generation
         error = nil
+        stopReason = nil
         completed = 0
         running = true
+        stopping = false
         browserEnabled = false
+        let (events, continuation) = AsyncStream.makeStream(of: WiFiTransferServer.Event.self)
         let server = WiFiTransferServer(root: root, page: page, identity: identity, browserEnabled: false,
-                                        willChange: willChange) { [weak self] event in
-            Task { @MainActor in
-                guard let self, self.generation == generation else { return }
-                switch event {
-                case .ready(let url): self.address = url
-                case let .progress(path, received, total):
-                    self.currentFile = path
-                    self.progress = Double(received) / Double(max(1, total))
-                case let .changed(path, deleted):
-                    if !deleted { self.completed += 1 }
-                    onChange(path, deleted)
-                case .uploadEnded: self.currentFile = ""
-                case .invitation(let request): self.invitation = request
-                case .transferEnded: self.invitation = nil; self.sender = nil
-                case .stopped(let error):
-                    self.running = false
-                    self.server = nil
-                    self.address = nil
-                    self.currentFile = ""
-                    self.invitation = nil
-                    self.sender = nil
-                    self.browserEnabled = false
-                    self.error = error
-                }
-            }
+                                        willChange: willChange) { event in
+            continuation.yield(event)
+            if case .stopped = event { continuation.finish() }
         }
         self.server = server
+        // Preserve queue order so a committed file cannot become an interrupted
+        // result when stopping immediately after the final upload.
+        eventTask = Task { [weak self] in
+            for await event in events {
+                guard let self else { return }
+                self.handle(event, onChange: onChange)
+            }
+        }
         code = server.accessCode
         server.start()
     }
 
+    func handle(_ event: WiFiTransferServer.Event, onChange: (String, Bool) -> Void = { _, _ in }) {
+        switch event {
+        case .ready(let url): address = url
+        case .transferStarted(let request):
+            sender = request.sender
+            receipts.insert(.init(id: request.id, sender: request.sender, fileCount: request.fileCount,
+                                  byteCount: request.byteCount), at: 0)
+            trimHistory()
+        case let .uploadStarted(id, path, total, transferID):
+            let receiptID = transferID ?? id.uuidString
+            if transferID == nil {
+                receipts.insert(.init(id: receiptID, sender: nil, fileCount: 1, byteCount: total), at: 0)
+                trimHistory()
+            }
+            if let index = receipts.firstIndex(where: { $0.id == receiptID }) {
+                receipts[index].files.append(.init(id: id, path: path, size: total))
+            }
+        case let .progress(id, path, received, total):
+            currentFile = path
+            progress = Double(received) / Double(max(1, total))
+            updateFile(id) { $0.received = min(received, $0.size) }
+        case let .changed(path, deleted):
+            if !deleted { completed += 1 }
+            onChange(path, deleted)
+        case let .uploadEnded(id, failure):
+            updateFile(id) {
+                $0.finished = true
+                $0.error = failure
+                if failure == nil { $0.received = $0.size }
+            }
+            if let index = receipts.firstIndex(where: { $0.id == id.uuidString }) {
+                receipts[index].finished = true
+                receipts[index].error = failure
+            }
+            if !receipts.contains(where: { $0.files.contains { !$0.finished && $0.received > 0 } }) {
+                currentFile = ""
+            }
+        case .invitation(let request): invitation = request
+        case let .transferEnded(id, failure):
+            if invitation?.id == id { invitation = nil }
+            if let index = receipts.firstIndex(where: { $0.id == id }) {
+                receipts[index].finished = true
+                receipts[index].error = failure
+                sender = nil
+            }
+        case .stopped(let failure):
+            running = false
+            stopping = false
+            server = nil
+            address = nil
+            currentFile = ""
+            invitation = nil
+            sender = nil
+            browserEnabled = false
+            error = stopReason ?? failure
+            for index in receipts.indices where !receipts[index].finished {
+                receipts[index].finished = true
+                receipts[index].error = stopReason ?? failure ?? "cancelled"
+            }
+        }
+    }
+
+    private func updateFile(_ id: UUID, update: (inout WiFiTransferReceivedFile) -> Void) {
+        for index in receipts.indices {
+            if let fileIndex = receipts[index].files.firstIndex(where: { $0.id == id }) {
+                update(&receipts[index].files[fileIndex])
+                return
+            }
+        }
+    }
+
+    private func trimHistory() {
+        // A small receipt history survives stopping and restarting the listener.
+        while receipts.count > 10, let index = receipts.lastIndex(where: \.finished) { receipts.remove(at: index) }
+    }
+
     public func allow(_ accepted: Bool) {
         guard let invitation else { return }
-        if accepted { sender = invitation.sender }
         server?.answer(invitationID: invitation.id, accepted: accepted)
         self.invitation = nil
     }
 
     public func setBrowserEnabled(_ enabled: Bool) {
+        guard running, !stopping else { return }
         browserEnabled = enabled
         server?.setBrowserEnabled(enabled)
     }
 
-    public func stop() {
-        server?.stop()
-        server = nil
-        generation = UUID()
-        address = nil
-        running = false
-        currentFile = ""
-        invitation = nil
-        sender = nil
-        browserEnabled = false
+    public func stop(reason: String? = nil) {
+        guard let server, !stopping else { return }
+        stopping = true
+        stopReason = reason
+        server.stop()
     }
 }

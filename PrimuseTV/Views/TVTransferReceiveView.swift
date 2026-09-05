@@ -18,6 +18,9 @@ struct TVTransferReceiveView: View {
     @State private var error: String?
     @State private var previousIdleTimer: Bool?
     @State private var showMusic = false
+    @State private var showStopConfirmation = false
+    @State private var requestedAction = "stop"
+    @State private var actionAfterStop: String?
     @Namespace private var transferFocus
 
     var body: some View {
@@ -33,15 +36,21 @@ struct TVTransferReceiveView: View {
                         Text(UIDevice.current.name).font(.system(size: 20)).foregroundStyle(TVColor.textMuted)
                     }
                     Spacer()
-                    action(TVTransferText.string("done"), icon: "xmark") { dismiss() }.frame(width: 180)
+                    action(TVTransferText.string("done"), icon: "xmark") { requestAction("close") }.frame(width: 180)
                 }
+                .alert(TVTransferText.string("stopReceiveTitle"), isPresented: $showStopConfirmation) {
+                    Button(TVTransferText.string(requestedAction == "close" ? "stopAndClose" : "stopReceiving"), role: .destructive) {
+                        performAction(requestedAction)
+                    }
+                    Button(TVTransferText.string("keepTransferring"), role: .cancel) {}
+                } message: { Text(TVTransferText.string("closeReceiverHint")) }
                 HStack(alignment: .top, spacing: 34) {
                     VStack(alignment: .leading, spacing: 28) {
                         HStack(spacing: 20) {
                             Image(systemName: "appletv")
                                 .font(.system(size: 55, weight: .light)).foregroundStyle(TVColor.brand)
                             VStack(alignment: .leading, spacing: 8) {
-                                Text(TVTransferText.string(receiver.running ? "receiverReady" : "receiveEmptyTitle"))
+                                Text(TVTransferText.string(receiver.running ? (receiver.receipts.contains { !$0.finished } ? "receiving" : "receiverReady") : "receiveEmptyTitle"))
                                     .font(.system(size: 28, weight: .semibold))
                                 Text(TVTransferText.string("receiveEmptyHint")).font(.system(size: 20))
                                     .foregroundStyle(TVColor.textMuted).fixedSize(horizontal: false, vertical: true)
@@ -66,8 +75,9 @@ struct TVTransferReceiveView: View {
                         }
                         action(TVTransferText.string(receiver.running ? "stopReceiving" : "startReceiving"),
                                icon: receiver.running ? "stop.circle" : "tray.and.arrow.down") {
-                            if receiver.running { stop() } else { start() }
+                            if receiver.running { requestAction("stop") } else { start() }
                         }.frame(maxWidth: 360)
+                            .disabled(receiver.stopping)
                             .prefersDefaultFocus(true, in: transferFocus)
                     }
                     .padding(36).frame(maxWidth: .infinity, alignment: .leading)
@@ -75,6 +85,7 @@ struct TVTransferReceiveView: View {
                     .focusSection()
 
                     VStack(alignment: .leading, spacing: 24) {
+                        receiptCard
                         VStack(alignment: .leading, spacing: 18) {
                             Label(TVTransferText.string("browserAccess"), systemImage: "globe")
                                 .font(.system(size: 26, weight: .semibold))
@@ -83,23 +94,6 @@ struct TVTransferReceiveView: View {
                             action(TVTransferText.string(receiver.browserEnabled ? "enabled" : "disabled"), icon: receiver.browserEnabled ? "checkmark.circle.fill" : "circle") {
                                 receiver.setBrowserEnabled(!receiver.browserEnabled)
                             }.disabled(!receiver.running)
-                        }.padding(28).background(TVColor.card, in: .rect(cornerRadius: 22))
-                        VStack(alignment: .leading, spacing: 16) {
-                            HStack {
-                                Label(TVTransferText.string("uploaded"), systemImage: "music.note")
-                                    .font(.system(size: 24, weight: .semibold))
-                                Spacer()
-                                Text(String(receiver.completed)).font(.system(size: 24, weight: .semibold)).monospacedDigit()
-                            }
-                            if !receiver.currentFile.isEmpty {
-                                Text(receiver.currentFile).font(.system(size: 18))
-                                    .foregroundStyle(TVColor.textMuted).lineLimit(1).truncationMode(.middle)
-                                ProgressView(value: receiver.progress).tint(TVColor.brand)
-                            }
-                            if store.transferIsIndexing {
-                                ProgressView(TVTransferText.string("indexing")).font(.system(size: 18))
-                            }
-                            action(TVTransferText.string("library"), icon: "music.note.list") { stop(); showMusic = true }
                         }.padding(28).background(TVColor.card, in: .rect(cornerRadius: 22))
                         if let error = error ?? receiver.error.map(TVTransferText.string) ?? store.transferScanError.map(TVTransferText.string) {
                             Text(error).font(.system(size: 18)).foregroundStyle(.red)
@@ -113,6 +107,7 @@ struct TVTransferReceiveView: View {
             }.padding(.horizontal, 80).padding(.vertical, 56).foregroundStyle(TVColor.text)
         }
         .focusScope(transferFocus)
+        .onExitCommand { requestAction("close") }
         .alert(TVTransferText.string("requestTitle"), isPresented: Binding(
             get: { receiver.invitation != nil }, set: { if !$0 { receiver.allow(false) } }
         ), presenting: receiver.invitation) { _ in
@@ -124,13 +119,68 @@ struct TVTransferReceiveView: View {
         }
         .fullScreenCover(isPresented: $showMusic) { TVReceivedMusicView().environment(store) }
         .onDisappear { stop() }
-        .onChange(of: scenePhase) { _, phase in if phase == .background { stop() } }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { receiver.stop(reason: "backgroundStopped"); restoreIdleTimer() }
+        }
         .onChange(of: receiver.running) { _, running in
             if running {
                 if previousIdleTimer == nil { previousIdleTimer = UIApplication.shared.isIdleTimerDisabled }
                 UIApplication.shared.isIdleTimerDisabled = true
-            } else { restoreIdleTimer() }
+            } else {
+                restoreIdleTimer()
+                if let next = actionAfterStop { actionAfterStop = nil; performAction(next) }
+            }
         }
+    }
+
+    private var receiptCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if let receipt = receiver.receipts.first {
+                Label(TVTransferText.string(receipt.finished ? (receipt.succeeded ? "receiveCompleted" : "receiveInterrupted") : "receiving"),
+                      systemImage: receipt.succeeded ? "checkmark.circle.fill" : "tray.and.arrow.down")
+                    .font(.system(size: 26, weight: .semibold))
+                HStack {
+                    Text(receipt.sender ?? TVTransferText.string("browserSender"))
+                        .lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    Text(String(format: TVTransferText.string("receiveCount"), receipt.completed, receipt.fileCount))
+                        .monospacedDigit()
+                }.font(.system(size: 20)).foregroundStyle(TVColor.textMuted)
+                if !receipt.finished {
+                    ProgressView(value: receipt.progress).tint(TVColor.brand)
+                    Text(receipt.files.last(where: { !$0.finished })?.path ?? TVTransferText.string("receiveWaitingFiles"))
+                        .font(.system(size: 18)).lineLimit(1).truncationMode(.middle)
+                }
+                if let failure = receipt.error {
+                    Text(TVTransferText.string(failure)).font(.system(size: 18))
+                        .foregroundStyle(.orange).lineLimit(3)
+                }
+                if store.transferIsIndexing {
+                    ProgressView(TVTransferText.string("indexing")).font(.system(size: 18))
+                } else if receipt.completed > 0, store.transferScanError == nil {
+                    Text(TVTransferText.string("receiveStored")).font(.system(size: 18)).foregroundStyle(TVColor.textMuted)
+                }
+            } else {
+                Text(TVTransferText.string("receiveActivity")).font(.system(size: 26, weight: .semibold))
+                Text(TVTransferText.string("receiverReady")).font(.system(size: 20)).foregroundStyle(TVColor.textMuted)
+            }
+            action(TVTransferText.string("library"), icon: "music.note.list") { requestAction("music") }
+        }.padding(28).background(TVColor.card, in: .rect(cornerRadius: 22))
+    }
+
+    private func requestAction(_ value: String) {
+        if receiver.running {
+            requestedAction = value
+            showStopConfirmation = true
+        } else { performAction(value) }
+    }
+
+    private func performAction(_ value: String) {
+        if receiver.running {
+            actionAfterStop = value
+            stop()
+        } else if value == "close" { dismiss() }
+        else if value == "music" { showMusic = true }
     }
 
     private func action(_ title: String, icon: String, perform: @escaping () -> Void) -> some View {

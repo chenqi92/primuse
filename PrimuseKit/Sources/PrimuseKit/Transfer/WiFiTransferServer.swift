@@ -6,11 +6,13 @@ import Darwin
 public final class WiFiTransferServer: @unchecked Sendable {
     public enum Event: Sendable {
         case ready(url: String)
-        case progress(path: String, received: Int64, total: Int64)
+        case uploadStarted(id: UUID, path: String, total: Int64, transferID: String?)
+        case progress(id: UUID, path: String, received: Int64, total: Int64)
         case changed(path: String, deleted: Bool)
-        case uploadEnded
+        case uploadEnded(id: UUID, error: String?)
         case invitation(WiFiTransferInvitation)
-        case transferEnded
+        case transferStarted(WiFiTransferInvitation)
+        case transferEnded(id: String, error: String?)
         case stopped(error: String?)
     }
 
@@ -33,6 +35,7 @@ public final class WiFiTransferServer: @unchecked Sendable {
         var state = "waiting"
         var completed = 0
         var received: Int64 = 0
+        var resultReported = false
         var lastActivity = Date()
     }
     private var nativeTransfer: NativeTransfer?
@@ -120,15 +123,16 @@ public final class WiFiTransferServer: @unchecked Sendable {
             guard nativeTransfer?.invitation.id == invitationID else { return }
             nativeTransfer?.state = accepted ? "accepted" : "rejected"
             nativeTransfer?.lastActivity = Date()
-            if !accepted { event(.transferEnded) }
+            if accepted, let transfer = nativeTransfer { event(.transferStarted(transfer.invitation)) }
+            else { reportTransferEnd(error: "rejected") }
         }
     }
 
     private func stopOnQueue(error: String?) {
         listener?.cancel()
         listener = nil
-        for client in connections.values { client.connection.cancel() }
-        connections.removeAll()
+        for id in Array(connections.keys) { finish(id, error: error ?? "cancelled") }
+        reportTransferEnd(error: error ?? "cancelled")
         files = nil
         nativeTransfer = nil
         event(.stopped(error: error))
@@ -143,6 +147,8 @@ public final class WiFiTransferServer: @unchecked Sendable {
         var lastActivity = Date()
         var lastProgress = Date.distantPast
         var responded = false
+        var uploadAnnounced = false
+        var uploadEnded = false
         init(_ connection: NWConnection) { self.connection = connection }
     }
 
@@ -170,10 +176,23 @@ public final class WiFiTransferServer: @unchecked Sendable {
         }
     }
 
-    private func finish(_ id: UUID) {
+    private func finish(_ id: UUID, error: String = "unavailable") {
         guard let client = connections.removeValue(forKey: id) else { return }
-        if client.upload != nil { event(.uploadEnded) }
+        endUpload(client, error: error)
         client.connection.cancel()
+    }
+
+    private func endUpload(_ client: Client, error: String?) {
+        guard client.uploadAnnounced, !client.uploadEnded else { return }
+        client.uploadEnded = true
+        event(.uploadEnded(id: client.id, error: error))
+    }
+
+    private func reportTransferEnd(error: String?) {
+        guard let transfer = nativeTransfer, !transfer.resultReported else { return }
+        nativeTransfer?.resultReported = true
+        let complete = transfer.completed == transfer.invitation.fileCount && transfer.received == transfer.invitation.byteCount
+        event(.transferEnded(id: transfer.invitation.id, error: complete ? nil : (error ?? "receiveIncomplete")))
     }
 
     private func receive(_ id: UUID) {
@@ -203,6 +222,7 @@ public final class WiFiTransferServer: @unchecked Sendable {
                 }
             } catch {
                 let failure = error as? WiFiTransferError ?? .unavailable
+                self.endUpload(client, error: failure.rawValue)
                 self.respond(client, status: failure.status, json: ["error": failure.rawValue])
             }
         }
@@ -245,6 +265,9 @@ public final class WiFiTransferServer: @unchecked Sendable {
         } else if !browserEnabled { throw WiFiTransferError.browserDisabled }
         switch (request.method, request.route) {
         case ("PUT", "/api/files"):
+            client.uploadAnnounced = true
+            event(.uploadStarted(id: client.id, path: request.path, total: request.contentLength,
+                                 transferID: request.headers["x-primuse-transfer"]))
             // Serial uploads bound disk reservations and preserve audio/sidecar ordering.
             guard !connections.values.contains(where: { $0.upload != nil }) else { throw WiFiTransferError.conflict }
             client.upload = try files.beginUpload(path: request.path, size: request.contentLength)
@@ -268,7 +291,7 @@ public final class WiFiTransferServer: @unchecked Sendable {
         guard let upload = client.upload, let files else { throw WiFiTransferError.invalidRequest }
         try upload.append(data)
         if Date().timeIntervalSince(client.lastProgress) >= 0.2 || upload.receivedSize == upload.expectedSize {
-            event(.progress(path: upload.path, received: upload.receivedSize, total: upload.expectedSize))
+            event(.progress(id: client.id, path: upload.path, received: upload.receivedSize, total: upload.expectedSize))
             client.lastProgress = Date()
         }
         if upload.receivedSize == upload.expectedSize {
@@ -281,7 +304,9 @@ public final class WiFiTransferServer: @unchecked Sendable {
             }
             event(.changed(path: upload.path, deleted: false))
             client.upload = nil
-            event(.uploadEnded)
+            endUpload(client, error: nil)
+            if let transfer = nativeTransfer, transfer.completed == transfer.invitation.fileCount,
+               transfer.received == transfer.invitation.byteCount { reportTransferEnd(error: nil) }
             respond(client, status: 201, json: ["ok": true])
         }
     }
@@ -302,9 +327,9 @@ public final class WiFiTransferServer: @unchecked Sendable {
             guard nativeTransfer?.invitation.id == request.path else { throw WiFiTransferError.notFound }
         case "DELETE":
             guard nativeTransfer?.invitation.id == request.path else { throw WiFiTransferError.notFound }
-            for active in Array(connections.values) where active.request?.headers["x-primuse-transfer"] == request.path { finish(active.id) }
+            for active in Array(connections.values) where active.request?.headers["x-primuse-transfer"] == request.path { finish(active.id, error: "cancelled") }
+            reportTransferEnd(error: "receiveIncomplete")
             nativeTransfer = nil
-            event(.transferEnded)
             respond(client, status: 200, json: ["ok": true])
             return
         default: throw WiFiTransferError.invalidRequest
@@ -318,8 +343,8 @@ public final class WiFiTransferServer: @unchecked Sendable {
             guard let self, let transfer = self.nativeTransfer, transfer.invitation.id == id else { return }
             let uploading = self.connections.values.contains { $0.request?.headers["x-primuse-transfer"] == id && $0.upload != nil }
             if !uploading && Date().timeIntervalSince(transfer.lastActivity) > (transfer.state == "waiting" ? 120 : 300) {
+                self.reportTransferEnd(error: "receiveTimedOut")
                 self.nativeTransfer = nil
-                self.event(.transferEnded)
             } else { self.checkTransferTimeout(id) }
         }
     }

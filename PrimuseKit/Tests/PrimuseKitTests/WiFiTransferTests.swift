@@ -5,10 +5,58 @@ import Testing
 
 @Suite("Wi-Fi transfer")
 struct WiFiTransferTests {
+    private final class EventRecorder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: [WiFiTransferServer.Event] = []
+
+        func append(_ event: WiFiTransferServer.Event) {
+            lock.lock()
+            stored.append(event)
+            lock.unlock()
+        }
+
+        func snapshot() -> [WiFiTransferServer.Event] {
+            lock.lock()
+            defer { lock.unlock() }
+            return stored
+        }
+    }
+
     private func temporaryRoot() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("primuse-wifi-test-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private func waitForReady(_ recorder: EventRecorder) async throws -> String {
+        for _ in 0..<200 {
+            for event in recorder.snapshot() {
+                if case .ready(let address) = event { return address }
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        throw WiFiTransferError.unavailable
+    }
+
+    private func waitForInvitation(_ id: String, recorder: EventRecorder) async throws -> WiFiTransferInvitation {
+        for _ in 0..<200 {
+            for event in recorder.snapshot() {
+                if case .invitation(let invitation) = event, invitation.id == id { return invitation }
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        throw WiFiTransferError.unavailable
+    }
+
+    private func waitForStopped(_ recorder: EventRecorder) async throws {
+        for _ in 0..<200 {
+            if recorder.snapshot().contains(where: {
+                if case .stopped = $0 { return true }
+                return false
+            }) { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        throw WiFiTransferError.unavailable
     }
 
     @Test func folderUploadKeepsUnicodeAndIndependentLyrics() throws {
@@ -369,6 +417,199 @@ struct WiFiTransferTests {
         #expect(try await send("GET", route: "/").1 == 200)
         #expect(try await send("PUT", route: "/api/files", path: "browser.mp3", body: Data([9]),
                                code: server.accessCode).1 == 201)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func nativeCompletionIsReportedOnceBeforeDeleteAndStop() async throws {
+        let root = try temporaryRoot()
+        let source = try temporaryRoot()
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: source)
+        }
+        let bytes = Data(repeating: 17, count: 64 * 1024)
+        let file = source.appendingPathComponent("only.mp3")
+        try bytes.write(to: file)
+        let recorder = EventRecorder()
+        let server = WiFiTransferServer(root: root, page: "", testingHost: "127.0.0.1") {
+            recorder.append($0)
+        }
+        server.start()
+        defer { server.stop() }
+        let address = try await waitForReady(recorder)
+        let client = try WiFiTransferClient(address: address, code: server.accessCode)
+        let ticket = try await client.invite(sender: "Mac", fileCount: 1, byteCount: Int64(bytes.count))
+        let invitation = try await waitForInvitation(ticket.id, recorder: recorder)
+        server.answer(invitationID: invitation.id, accepted: true)
+        try await client.waitForAcceptance(ticket.id)
+        try await client.upload(file: file, path: "native/only.mp3", size: Int64(bytes.count), ticket: ticket.id) { _ in }
+
+        let beforeDelete = recorder.snapshot().compactMap { event -> Bool? in
+            guard case let .transferEnded(id, error) = event, id == ticket.id else { return nil }
+            return error == nil
+        }
+        #expect(beforeDelete == [true])
+
+        await client.finish(ticket.id)
+        server.stop()
+        try await waitForStopped(recorder)
+        let events = recorder.snapshot()
+        let ends = events.compactMap { event -> Bool? in
+            guard case let .transferEnded(id, error) = event, id == ticket.id else { return nil }
+            return error == nil
+        }
+        #expect(ends == [true])
+        let uploadEnd = try #require(events.firstIndex {
+            if case .uploadEnded(_, error: nil) = $0 { return true }
+            return false
+        })
+        let transferEnd = try #require(events.firstIndex {
+            if case .transferEnded(id: ticket.id, error: nil) = $0 { return true }
+            return false
+        })
+        let stopped = try #require(events.firstIndex {
+            if case .stopped = $0 { return true }
+            return false
+        })
+        #expect(uploadEnd < transferEnd)
+        #expect(transferEnd < stopped)
+        #expect(try Data(contentsOf: root.appendingPathComponent("native/only.mp3")) == bytes)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func stoppingImmediatelyAfterFinalUploadKeepsSuccessfulResult() async throws {
+        let root = try temporaryRoot()
+        let source = try temporaryRoot()
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: source)
+        }
+        let bytes = Data(repeating: 23, count: 32 * 1024)
+        let file = source.appendingPathComponent("last.mp3")
+        try bytes.write(to: file)
+        let recorder = EventRecorder()
+        let server = WiFiTransferServer(root: root, page: "", testingHost: "127.0.0.1") {
+            recorder.append($0)
+        }
+        server.start()
+        defer { server.stop() }
+        let address = try await waitForReady(recorder)
+        let client = try WiFiTransferClient(address: address, code: server.accessCode)
+        let ticket = try await client.invite(sender: "iPad", fileCount: 1, byteCount: Int64(bytes.count))
+        let invitation = try await waitForInvitation(ticket.id, recorder: recorder)
+        server.answer(invitationID: invitation.id, accepted: true)
+        try await client.waitForAcceptance(ticket.id)
+        try await client.upload(file: file, path: "instant-stop/last.mp3", size: Int64(bytes.count), ticket: ticket.id) { _ in }
+        server.stop()
+        try await waitForStopped(recorder)
+
+        let events = recorder.snapshot()
+        let ends = events.compactMap { event -> Bool? in
+            guard case let .transferEnded(id, error) = event, id == ticket.id else { return nil }
+            return error == nil
+        }
+        #expect(ends == [true])
+        #expect(try Data(contentsOf: root.appendingPathComponent("instant-stop/last.mp3")) == bytes)
+    }
+
+    @MainActor
+    @Test(.timeLimit(.minutes(1))) func partialNativeAndBrowserReceiptsStaySeparateAcrossRestart() async throws {
+        let receiver = WiFiTransferReceiver()
+        let native = WiFiTransferInvitation(id: "native-partial", sender: "iPhone", fileCount: 2, byteCount: 10)
+        let nativeFile = UUID()
+        receiver.handle(.transferStarted(native))
+        receiver.handle(.uploadStarted(id: nativeFile, path: "phone/song.mp3", total: 6, transferID: native.id))
+        receiver.handle(.progress(id: nativeFile, path: "phone/song.mp3", received: 6, total: 6))
+        receiver.handle(.changed(path: "phone/song.mp3", deleted: false))
+        receiver.handle(.uploadEnded(id: nativeFile, error: nil))
+        receiver.handle(.transferEnded(id: native.id, error: "receiveIncomplete"))
+        receiver.handle(.stopped(error: nil))
+
+        let partial = try #require(receiver.receipts.first)
+        #expect(partial.id == native.id)
+        #expect(partial.fileCount == 2)
+        #expect(partial.files.count == 1)
+        #expect(partial.completed == 1)
+        #expect(partial.receivedBytes == 6)
+        #expect(partial.finished)
+        #expect(partial.error == "receiveIncomplete")
+
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        receiver.start(root: root, identity: .init(id: "receiver", name: "Mac", platform: "macOS"), page: "") { _, _ in }
+        #expect(receiver.running)
+        #expect(receiver.receipts.count == 1)
+        #expect(receiver.completed == 0)
+
+        let browserFile = UUID()
+        receiver.handle(.uploadStarted(id: browserFile, path: "browser/song.mp3", total: 4, transferID: nil))
+        receiver.handle(.progress(id: browserFile, path: "browser/song.mp3", received: 4, total: 4))
+        receiver.handle(.changed(path: "browser/song.mp3", deleted: false))
+        receiver.handle(.uploadEnded(id: browserFile, error: nil))
+        #expect(receiver.receipts.count == 2)
+        let browser = try #require(receiver.receipts.first)
+        #expect(browser.id == browserFile.uuidString)
+        #expect(browser.sender == nil)
+        #expect(browser.fileCount == 1)
+        #expect(browser.completed == 1)
+        #expect(browser.succeeded)
+        #expect(receiver.receipts[1] == partial)
+        #expect(receiver.completed == 1)
+
+        receiver.stop()
+        for _ in 0..<200 where receiver.stopping {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(!receiver.running)
+        #expect(!receiver.stopping)
+        #expect(receiver.receipts.count == 2)
+        #expect(receiver.receipts.first?.succeeded == true)
+        #expect(receiver.receipts.last?.error == "receiveIncomplete")
+    }
+
+    @MainActor
+    @Test func cancellingPartialNativeTransferRetainsCompletedFiles() throws {
+        let receiver = WiFiTransferReceiver()
+        let transfer = WiFiTransferInvitation(id: "native-cancelled", sender: "iPad", fileCount: 2, byteCount: 10)
+        let completedFile = UUID()
+        let interruptedFile = UUID()
+        receiver.handle(.transferStarted(transfer))
+        receiver.handle(.uploadStarted(id: completedFile, path: "tablet/complete.mp3", total: 6,
+                                       transferID: transfer.id))
+        receiver.handle(.progress(id: completedFile, path: "tablet/complete.mp3", received: 6, total: 6))
+        receiver.handle(.changed(path: "tablet/complete.mp3", deleted: false))
+        receiver.handle(.uploadEnded(id: completedFile, error: nil))
+        receiver.handle(.uploadStarted(id: interruptedFile, path: "tablet/interrupted.lrc", total: 4,
+                                       transferID: transfer.id))
+        receiver.handle(.progress(id: interruptedFile, path: "tablet/interrupted.lrc", received: 2, total: 4))
+        receiver.handle(.stopped(error: nil))
+
+        let receipt = try #require(receiver.receipts.first)
+        #expect(receipt.finished)
+        #expect(receipt.error == "cancelled")
+        #expect(receipt.completed == 1)
+        #expect(receipt.files.count == 2)
+        #expect(receipt.files.first?.succeeded == true)
+        #expect(receipt.files.first?.received == 6)
+        #expect(receipt.files.last?.finished == false)
+        #expect(receipt.files.last?.received == 2)
+        #expect(receiver.completed == 1)
+    }
+
+    @MainActor
+    @Test func receiverRetainsOnlyTenMostRecentCompletedBatches() throws {
+        let receiver = WiFiTransferReceiver()
+        var ids: [String] = []
+        for index in 0..<12 {
+            let id = UUID()
+            ids.append(id.uuidString)
+            receiver.handle(.uploadStarted(id: id, path: "browser/\(index).mp3", total: 1, transferID: nil))
+            receiver.handle(.progress(id: id, path: "browser/\(index).mp3", received: 1, total: 1))
+            receiver.handle(.changed(path: "browser/\(index).mp3", deleted: false))
+            receiver.handle(.uploadEnded(id: id, error: nil))
+        }
+        #expect(receiver.receipts.count == 10)
+        #expect(receiver.receipts.map(\.id) == Array(ids.suffix(10).reversed()))
+        #expect(receiver.receipts.map(\.succeeded) == Array(repeating: true, count: 10))
+        #expect(receiver.completed == 12)
     }
 
     @Test func validatesNativeTransferAddresses() {
