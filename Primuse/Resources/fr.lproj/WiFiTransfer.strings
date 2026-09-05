@@ -142,3 +142,15 @@
 "libraryAddSelected" = "Ajouter %d titres";
 "libraryRetryPreparation" = "Réessayer les titres en échec";
 "libraryChooseMusic" = "Choisir la musique à envoyer";
+
+"libraryTreeHint" = "Classé par source musicale et album. Sélectionnez les morceaux, puis envoyez.";
+"libraryLoadMore" = "Afficher plus";
+"libraryUngrouped" = "Sans album";
+"libraryPartiallySelected" = "Sélection partielle";
+"librarySelectionLimit" = "Sélectionnez au maximum 3 000 morceaux par transfert. Choisissez un groupe plus petit.";
+"librarySelectedSummary" = "%d morceaux · %d fichiers supplémentaires";
+"discoveryPermission" = "Accès au réseau local refusé. Autorisez Primuse dans les réglages système, puis réessayez.";
+"discoveryBonjour" = "La découverte Bonjour n’est pas autorisée (NoAuth). Rouvrez la version actuelle de l’app et réessayez. Les connexions directes nécessitent toujours l’accès au réseau local.";
+"discoveryNetwork" = "Aucun réseau local accessible. Connectez-vous au Wi-Fi ou à Ethernet, puis réessayez.";
+"discoveryUnavailable" = "La recherche d’appareils est temporairement indisponible. Réessayez ou saisissez l’adresse de réception.";
+"discoveryConfiguration" = "Cette version ne déclare pas le service Bonjour. Installez une version complète et rouvrez-la.";

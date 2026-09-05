@@ -86,3 +86,33 @@ public enum WiFiTransferFilePreparation {
         }
     }
 }
+
+public struct WiFiTransferLibraryGroupID: Hashable, Sendable {
+    public let sourceID: String
+    public let album: AlbumGroupingIdentity?
+
+    public init(song: Song) {
+        sourceID = song.sourceID
+        album = AlbumGroupingPolicy.identity(albumTitle: song.albumTitle, albumArtistName: song.albumArtistName,
+                                             trackArtistName: song.artistName, unknownArtistName: "")
+    }
+}
+
+public enum WiFiTransferLibraryGrouping {
+    public static let selectionLimit = 3_000
+
+    public static func matches(_ song: Song, query: String) -> Bool {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return query.isEmpty || [song.title, song.artistName ?? "", song.albumTitle ?? ""].contains {
+            $0.localizedStandardContains(query)
+        }
+    }
+
+    public static func toggling(_ eligibleIDs: [String], in selected: Set<String>) throws -> Set<String> {
+        let group = Set(eligibleIDs)
+        if group.isSubset(of: selected) { return selected.subtracting(group) }
+        let result = selected.union(group)
+        guard result.count <= selectionLimit else { throw WiFiTransferError.tooLarge }
+        return result
+    }
+}

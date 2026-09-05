@@ -6,11 +6,29 @@ import PrimuseKit
 
 @MainActor
 enum WiFiTransferLibraryPreparation {
+    struct Version: Equatable {
+        let path: String
+        let size: Int64
+        let revision: String?
+        let sourceScope: String
+
+        init?(song: Song, source: MusicSource) {
+            guard source.isEnabled, !source.isDeleted,
+                  !MusicSourceSecurityRevision.hasPendingChange(for: source.id),
+                  WiFiTransferFilePreparation.unavailableReason(song: song, sourceType: source.type) == nil else { return nil }
+            path = song.filePath
+            size = song.fileSize
+            revision = song.revision
+            sourceScope = MusicSourceSecurityRevision.scopedFingerprint(for: source)
+        }
+    }
+
     struct Result {
         let selection: WiFiTransferSelection
         let songFiles: [String: Set<String>]
         let failures: [String: String]
         let warnings: [String]
+        let versions: [String: Version]
     }
 
     static func prepare(
@@ -24,6 +42,7 @@ enum WiFiTransferLibraryPreparation {
         var failures: [String: String] = [:]
         var warnings: [String] = []
         var songDirectories: [String: URL] = [:]
+        var versions: [String: Version] = [:]
         for (index, id) in songIDs.enumerated() {
             try Task.checkCancellation()
             guard let song = library.visibleSong(id: id),
@@ -83,6 +102,7 @@ enum WiFiTransferLibraryPreparation {
                 }
                 warnings.append(contentsOf: sidecarWarnings)
                 songDirectories[id] = folder
+                versions[id] = Version(song: finalSong, source: finalSource)
                 progress(song.title, index, songIDs.count, song.fileSize, song.fileSize)
             } catch {
                 try? FileManager.default.removeItem(at: folder)
@@ -96,7 +116,7 @@ enum WiFiTransferLibraryPreparation {
         let songFiles = songDirectories.mapValues { folder in
             Set(selection.files.filter { $0.url.deletingLastPathComponent().standardizedFileURL.path == folder.standardizedFileURL.path }.map(\.id))
         }
-        return Result(selection: selection, songFiles: songFiles, failures: failures, warnings: warnings)
+        return Result(selection: selection, songFiles: songFiles, failures: failures, warnings: warnings, versions: versions)
     }
 
     private static func copyCompleteCache(song: Song, to destination: URL, sourceManager: SourceManager) async throws -> Bool {
@@ -194,7 +214,7 @@ enum WiFiTransferLibraryPreparation {
         return data
     }
 
-    private enum PreparationError: LocalizedError {
+    enum PreparationError: LocalizedError {
         case sourceChanged
         var errorDescription: String? { WiFiTransferText.string("librarySourceChanged") }
     }

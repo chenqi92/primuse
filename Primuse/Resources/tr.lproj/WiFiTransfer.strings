@@ -140,3 +140,15 @@
 "libraryAddSelected" = "%d şarkı ekle";
 "libraryRetryPreparation" = "Hazırlamayı yeniden dene";
 "libraryChooseMusic" = "Gönderilecek müziği seçin";
+
+"libraryTreeHint" = "Müzik kaynağına ve albüme göre gruplandırılır. Şarkıları seçip gönderin.";
+"libraryLoadMore" = "Daha fazla göster";
+"libraryUngrouped" = "Albüm yok";
+"libraryPartiallySelected" = "Kısmen seçili";
+"librarySelectionLimit" = "Her aktarımda en fazla 3.000 şarkı seçebilirsiniz. Daha küçük bir grup seçin.";
+"librarySelectedSummary" = "%d şarkı · %d ek dosya";
+"discoveryPermission" = "Yerel ağ erişimi reddedildi. Sistem ayarlarında Primuse için izin verip yeniden deneyin.";
+"discoveryBonjour" = "Bonjour keşfi yetkilendirilmedi (NoAuth). Geçerli uygulamayı yeniden açıp deneyin. Doğrudan bağlantılar da yerel ağ izni gerektirir.";
+"discoveryNetwork" = "Erişilebilir yerel ağ yok. Wi-Fi veya Ethernet ağına bağlanıp yeniden deneyin.";
+"discoveryUnavailable" = "Yakındaki cihazları bulma geçici olarak kullanılamıyor. Yeniden deneyin veya alıcı adresini girin.";
+"discoveryConfiguration" = "Bu sürümde Bonjour hizmet bildirimi eksik. Tam bir sürüm yükleyip yeniden açın.";

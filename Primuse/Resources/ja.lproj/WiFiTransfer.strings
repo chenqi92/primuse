@@ -142,3 +142,15 @@
 "libraryAddSelected" = "%d曲を追加";
 "libraryRetryPreparation" = "失敗した曲の準備を再試行";
 "libraryChooseMusic" = "送信する音楽を選択";
+
+"libraryTreeHint" = "音楽ソースとアルバム別に表示します。曲を選択して送信してください。";
+"libraryLoadMore" = "さらに表示";
+"libraryUngrouped" = "アルバムなし";
+"libraryPartiallySelected" = "一部選択済み";
+"librarySelectionLimit" = "1 回に選択できるのは 3,000 曲までです。より小さいグループを選択してください。";
+"librarySelectedSummary" = "%d 曲 · 追加ファイル %d 件";
+"discoveryPermission" = "ローカルネットワークへのアクセスが拒否されました。システム設定で Primuse を許可して再試行してください。";
+"discoveryBonjour" = "Bonjour の検出が許可されませんでした（NoAuth）。現在のアプリを開き直して再試行してください。直接接続にもローカルネットワークの許可が必要です。";
+"discoveryNetwork" = "利用可能なローカルネットワークがありません。Wi-Fi または有線ネットワークに接続して再試行してください。";
+"discoveryUnavailable" = "近くのデバイスの検出は一時的に利用できません。再試行するか、受信アドレスを入力してください。";
+"discoveryConfiguration" = "このアプリには Bonjour サービス宣言がありません。完全なバージョンをインストールして開き直してください。";

@@ -333,7 +333,7 @@ struct SourcesContentView: View {
                     Button { showAddSource = true } label: { Image(systemName: "plus") }
                         .accessibilityIdentifier("sources.add")
                     Button { showTransfer = true } label: {
-                        Label(WiFiTransferText.string("nativeTitle"), systemImage: "arrow.left.arrow.right")
+                        Label(WiFiTransferText.string("nativeTitle"), systemImage: "laptopcomputer.and.iphone")
                     }.accessibilityIdentifier("sources.transfer")
                 }
             }

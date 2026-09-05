@@ -69,7 +69,7 @@ public final class WiFiTransferServer: @unchecked Sendable {
     public func start() {
         queue.async { [self] in
             guard listener == nil else { return }
-            guard let host else { event(.stopped(error: "network")); return }
+            guard let host else { event(.stopped(error: "discoveryNetwork")); return }
             do {
                 files = try WiFiTransferFiles(root: root)
                 let parameters = NWParameters.tcp
@@ -93,15 +93,15 @@ public final class WiFiTransferServer: @unchecked Sendable {
                             )
                         }
                         self.event(.ready(url: "http://\(self.authority)"))
-                    case .waiting, .failed:
-                        self.stopOnQueue(error: "network")
+                    case .waiting(let error), .failed(let error):
+                        self.stopOnQueue(error: WiFiTransferDiscovery.failureKey(error))
                     default: break
                     }
                 }
                 listener.newConnectionHandler = { [weak self] connection in self?.accept(connection) }
                 listener.start(queue: queue)
             } catch {
-                stopOnQueue(error: "unavailable")
+                stopOnQueue(error: (error as? NWError).map(WiFiTransferDiscovery.failureKey) ?? "unavailable")
             }
         }
     }

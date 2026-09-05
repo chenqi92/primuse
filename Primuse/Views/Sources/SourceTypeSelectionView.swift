@@ -735,7 +735,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
                 WiFiTransferView(initialMode: "receive")
             } label: {
                 HStack(spacing: 12) {
-                    Image(systemName: "wifi")
+                    Image(systemName: "laptopcomputer.and.iphone")
                         .font(.title3).foregroundStyle(.white)
                         .frame(width: 36, height: 36)
                         .background(Color.accentColor)

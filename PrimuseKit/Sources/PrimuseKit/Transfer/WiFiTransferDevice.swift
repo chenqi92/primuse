@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import Observation
+import OSLog
 
 public struct WiFiTransferIdentity: Codable, Equatable, Identifiable, Sendable {
     public let id: String
@@ -70,10 +71,24 @@ public final class WiFiTransferDiscovery {
 
     public init(localID: String = WiFiTransferIdentity.localID) { self.localID = localID }
 
+    nonisolated public static func failureKey(_ error: NWError) -> String {
+        switch error {
+        case .dns(-65570), .posix(.EACCES), .posix(.EPERM): "discoveryPermission"
+        case .dns(-65555): "discoveryBonjour"
+        case .posix(.ENETDOWN), .posix(.ENETUNREACH), .posix(.EHOSTUNREACH): "discoveryNetwork"
+        default: "discoveryUnavailable"
+        }
+    }
+
     public func start() {
         stop()
         error = nil
         peers = []
+        let services = Bundle.main.object(forInfoDictionaryKey: "NSBonjourServices") as? [String] ?? []
+        guard services.contains(where: { $0.trimmingCharacters(in: CharacterSet(charactersIn: ".")) == Self.serviceType }) else {
+            error = "discoveryConfiguration"
+            return
+        }
         searching = true
         let parameters = NWParameters.tcp
         parameters.prohibitedInterfaceTypes = [.cellular]
@@ -84,7 +99,12 @@ public final class WiFiTransferDiscovery {
             Task { @MainActor in
                 guard let self, self.browser === browser else { return }
                 switch state {
-                case .failed, .waiting: self.error = "network"; self.searching = false
+                case .failed(let failure), .waiting(let failure):
+                    self.error = Self.failureKey(failure)
+                    self.searching = false
+                    self.peers = []
+                    Logger(subsystem: "com.welape.yuanyin", category: "DeviceTransfer")
+                        .error("Bonjour browse failed: \(String(describing: failure), privacy: .public)")
                 case .ready: self.error = nil; self.searching = true
                 default: break
                 }
@@ -117,6 +137,8 @@ public final class WiFiTransferDiscovery {
         browser?.cancel()
         browser = nil
         searching = false
+        error = nil
+        peers = []
     }
 }
 

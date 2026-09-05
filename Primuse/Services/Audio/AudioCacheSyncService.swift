@@ -336,7 +336,7 @@ final class AudioCacheSyncService {
     private(set) var receivedFileCount = 0
     private(set) var receivedByteCount: Int64 = 0
     private(set) var incomingError: String?
-    var isReceiving: Bool { receiverState == .ready || receiverState == .directOnly }
+    var isReceiving: Bool { (receiverState == .ready || receiverState == .directOnly) && connectionCode != nil }
     var localDeviceName: String { "\(deviceName) · \(deviceID.prefix(4))" }
     private(set) var operation: AudioCacheSyncOperation = .idle
     private(set) var activePeerID: String?
@@ -463,6 +463,7 @@ final class AudioCacheSyncService {
         browser?.cancel()
         browser = nil
         isDiscovering = false
+        discoveryIssue = nil
     }
 
     func retryNetworking(discover: Bool = true) {
@@ -730,8 +731,8 @@ final class AudioCacheSyncService {
                         switch change {
                         case .add:
                             self.hasRegisteredService = true
-                            self.receiverState = .ready
-                            self.receiverIssue = nil
+                            self.receiverState = self.connectionCode == nil ? .starting : .ready
+                            if self.connectionCode != nil { self.receiverIssue = nil }
                         case .remove:
                             self.hasRegisteredService = false
                             self.receiverState = .starting
@@ -749,6 +750,12 @@ final class AudioCacheSyncService {
                             ? (self.hasRegisteredService ? .ready : .starting)
                             : .directOnly
                         self.updateConnectionCode(port: listener?.port)
+                        if self.connectionCode == nil {
+                            self.receiverState = .failed
+                            self.receiverIssue = .networkUnavailable
+                        } else if self.receiverIssue == .networkUnavailable || self.receiverIssue == .permissionDenied {
+                            self.receiverIssue = nil
+                        }
                     case .waiting(let error):
                         self.receiverIssue = AudioCacheSyncNetworkIssue(error)
                         self.receiverState = .failed

@@ -140,3 +140,15 @@
 "libraryAddSelected" = "%d गाने जोड़ें";
 "libraryRetryPreparation" = "तैयारी फिर से करें";
 "libraryChooseMusic" = "भेजने के लिए संगीत चुनें";
+
+"libraryTreeHint" = "संगीत स्रोत और एल्बम के अनुसार समूहित। गाने चुनकर भेजें।";
+"libraryLoadMore" = "और दिखाएँ";
+"libraryUngrouped" = "कोई एल्बम नहीं";
+"libraryPartiallySelected" = "आंशिक रूप से चुना गया";
+"librarySelectionLimit" = "एक बार में अधिकतम 3,000 गाने चुनें। छोटा समूह चुनें।";
+"librarySelectedSummary" = "%d गाने · %d अतिरिक्त फ़ाइलें";
+"discoveryPermission" = "स्थानीय नेटवर्क की अनुमति नहीं मिली। सिस्टम सेटिंग में Primuse को अनुमति देकर फिर कोशिश करें।";
+"discoveryBonjour" = "Bonjour खोज अधिकृत नहीं हुई (NoAuth)। वर्तमान ऐप दोबारा खोलकर कोशिश करें। सीधे कनेक्शन के लिए भी स्थानीय नेटवर्क की अनुमति चाहिए।";
+"discoveryNetwork" = "स्थानीय नेटवर्क उपलब्ध नहीं है। Wi-Fi या Ethernet से जुड़कर फिर कोशिश करें।";
+"discoveryUnavailable" = "आस-पास के डिवाइस की खोज फिलहाल उपलब्ध नहीं है। फिर कोशिश करें या प्राप्तकर्ता का पता दर्ज करें।";
+"discoveryConfiguration" = "इस संस्करण में Bonjour सेवा की घोषणा नहीं है। पूरा संस्करण इंस्टॉल करके दोबारा खोलें।";

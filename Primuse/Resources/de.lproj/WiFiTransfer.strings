@@ -142,3 +142,15 @@
 "libraryAddSelected" = "%d Titel hinzufügen";
 "libraryRetryPreparation" = "Fehlgeschlagene Titel erneut vorbereiten";
 "libraryChooseMusic" = "Musik zum Senden auswählen";
+
+"libraryTreeHint" = "Nach Musikquelle und Album gruppiert. Titel auswählen und senden.";
+"libraryLoadMore" = "Mehr anzeigen";
+"libraryUngrouped" = "Ohne Album";
+"libraryPartiallySelected" = "Teilweise ausgewählt";
+"librarySelectionLimit" = "Pro Übertragung sind bis zu 3.000 Titel möglich. Wähle eine kleinere Gruppe.";
+"librarySelectedSummary" = "%d Titel · %d zusätzliche Dateien";
+"discoveryPermission" = "Der Zugriff auf das lokale Netzwerk wurde verweigert. Erlaube Primuse in den Systemeinstellungen und versuche es erneut.";
+"discoveryBonjour" = "Bonjour-Erkennung wurde nicht autorisiert (NoAuth). Öffne die aktuelle App-Version erneut. Direkte Verbindungen benötigen weiterhin die Berechtigung für das lokale Netzwerk.";
+"discoveryNetwork" = "Kein lokales Netzwerk erreichbar. Verbinde dich mit WLAN oder Ethernet und versuche es erneut.";
+"discoveryUnavailable" = "Die Gerätesuche ist vorübergehend nicht verfügbar. Versuche es erneut oder gib die Empfangsadresse ein.";
+"discoveryConfiguration" = "Dieser App-Version fehlt die Bonjour-Dienstdeklaration. Installiere eine vollständige Version und öffne sie erneut.";

@@ -142,3 +142,15 @@
 "libraryAddSelected" = "加入 %d 首";
 "libraryRetryPreparation" = "重新準備失敗的歌曲";
 "libraryChooseMusic" = "選擇要傳送的音樂";
+
+"libraryTreeHint" = "依音樂來源與專輯分組，勾選後直接傳送。";
+"libraryLoadMore" = "顯示更多";
+"libraryUngrouped" = "未歸入專輯";
+"libraryPartiallySelected" = "部分選取";
+"librarySelectionLimit" = "每次最多選取 3,000 首歌曲，請選取較小的群組。";
+"librarySelectedSummary" = "已選 %d 首歌曲 · %d 個附加檔案";
+"discoveryPermission" = "區域網路存取遭拒，請在系統設定中允許猿音存取後再試。";
+"discoveryBonjour" = "Bonjour 裝置探索未獲授權（NoAuth）。請重新開啟目前版本後再試；直接連線仍需要區域網路權限。";
+"discoveryNetwork" = "目前沒有可用的區域網路，請連接 Wi-Fi 或有線網路後再試。";
+"discoveryUnavailable" = "附近裝置探索暫時無法使用，請重試或輸入接收位址。";
+"discoveryConfiguration" = "目前安裝版本缺少 Bonjour 服務宣告，請安裝完整版本後重新開啟。";

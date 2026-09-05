@@ -140,3 +140,15 @@
 "libraryAddSelected" = "إضافة %d أغنية";
 "libraryRetryPreparation" = "إعادة محاولة التجهيز";
 "libraryChooseMusic" = "اختر الموسيقى لإرسالها";
+
+"libraryTreeHint" = "مجمّعة حسب مصدر الموسيقى والألبوم. حدّد الأغاني ثم أرسلها.";
+"libraryLoadMore" = "عرض المزيد";
+"libraryUngrouped" = "بلا ألبوم";
+"libraryPartiallySelected" = "محدّد جزئيًا";
+"librarySelectionLimit" = "يمكن تحديد حتى 3,000 أغنية في كل عملية نقل. اختر مجموعة أصغر.";
+"librarySelectedSummary" = "%d أغنية · %d ملف إضافي";
+"discoveryPermission" = "رُفض الوصول إلى الشبكة المحلية. اسمح لتطبيق Primuse في إعدادات النظام ثم أعد المحاولة.";
+"discoveryBonjour" = "لم يُصرّح باكتشاف Bonjour ‏(NoAuth). أعد فتح الإصدار الحالي وحاول مجددًا. الاتصالات المباشرة تتطلب أيضًا إذن الشبكة المحلية.";
+"discoveryNetwork" = "لا توجد شبكة محلية متاحة. اتصل بشبكة Wi-Fi أو Ethernet ثم أعد المحاولة.";
+"discoveryUnavailable" = "اكتشاف الأجهزة القريبة غير متاح مؤقتًا. أعد المحاولة أو أدخل عنوان الاستقبال.";
+"discoveryConfiguration" = "يفتقد هذا الإصدار تصريح خدمة Bonjour. ثبّت إصدارًا كاملًا وأعد فتحه.";

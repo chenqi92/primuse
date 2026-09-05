@@ -142,3 +142,15 @@
 "libraryAddSelected" = "%d곡 추가";
 "libraryRetryPreparation" = "실패한 곡 다시 준비";
 "libraryChooseMusic" = "전송할 음악 선택";
+
+"libraryTreeHint" = "음악 소스와 앨범별로 표시합니다. 곡을 선택한 후 전송하세요.";
+"libraryLoadMore" = "더 보기";
+"libraryUngrouped" = "앨범 없음";
+"libraryPartiallySelected" = "일부 선택됨";
+"librarySelectionLimit" = "한 번에 최대 3,000곡을 선택할 수 있습니다. 더 작은 그룹을 선택하세요.";
+"librarySelectedSummary" = "%d곡 · 추가 파일 %d개";
+"discoveryPermission" = "로컬 네트워크 접근이 거부되었습니다. 시스템 설정에서 Primuse를 허용한 후 다시 시도하세요.";
+"discoveryBonjour" = "Bonjour 검색이 승인되지 않았습니다(NoAuth). 현재 앱을 다시 열고 시도하세요. 직접 연결에도 로컬 네트워크 권한이 필요합니다.";
+"discoveryNetwork" = "사용 가능한 로컬 네트워크가 없습니다. Wi-Fi 또는 이더넷에 연결한 후 다시 시도하세요.";
+"discoveryUnavailable" = "주변 기기 검색을 일시적으로 사용할 수 없습니다. 다시 시도하거나 수신 주소를 입력하세요.";
+"discoveryConfiguration" = "현재 앱에 Bonjour 서비스 선언이 없습니다. 완전한 버전을 설치한 후 다시 여세요.";

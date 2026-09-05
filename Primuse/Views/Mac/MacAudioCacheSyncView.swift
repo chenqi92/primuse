@@ -55,10 +55,14 @@ struct MacAudioCacheSyncView: View {
             header
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
 
+            AudioCacheSyncDirectionPicker(selection: $direction)
+                .disabled(cacheSync.operation == .transferring || cacheSync.incomingTransferCount > 0)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, PMSpace.l).padding(.vertical, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: PMSpace.m14) {
-                    AudioCacheSyncDirectionPicker(selection: $direction)
-                        .disabled(cacheSync.operation == .transferring || cacheSync.incomingTransferCount > 0)
                     if direction == .send {
                     localInventoryCard
                     nearbyDevicesSection
@@ -92,7 +96,7 @@ struct MacAudioCacheSyncView: View {
                     contentHeight = height
                 }
             }
-            .frame(height: min(contentHeight, 520))
+            .frame(height: min(contentHeight, 460))
 
             footer
         }
@@ -234,7 +238,7 @@ struct MacAudioCacheSyncView: View {
 
             HStack(spacing: PMSpace.s) {
                 Circle()
-                    .fill(cacheSync.isReceiving ? PMColor.ok : PMColor.warn)
+                    .fill(cacheSync.receiverState == .ready ? PMColor.ok : PMColor.warn)
                     .frame(width: 7, height: 7)
                 Text(verbatim: localized(cacheSync.receiverState.labelKey))
                 .font(.system(size: 11.5, weight: .medium))
@@ -617,9 +621,9 @@ private struct AudioCacheSyncConnectionControls: View {
                 Label {
                     Text(verbatim: text(cacheSync.receiverState.labelKey))
                 } icon: {
-                    Image(systemName: cacheSync.isReceiving ? "checkmark.circle.fill" : "exclamationmark.circle")
+                    Image(systemName: cacheSync.receiverState == .ready ? "checkmark.circle.fill" : "exclamationmark.circle")
                 }
-                .foregroundStyle(cacheSync.isReceiving ? Color.green : Color.orange)
+                .foregroundStyle(cacheSync.receiverState == .ready ? Color.green : Color.orange)
 
                 if cacheSync.incomingTransferCount > 0 {
                     HStack {
@@ -885,7 +889,7 @@ struct IOSAudioCacheSyncView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .font(.subheadline)
-                .foregroundStyle(cacheSync.isReceiving ? Color.green : Color.orange)
+                .foregroundStyle(cacheSync.receiverState == .ready ? Color.green : Color.orange)
             }
         } header: {
             Text(verbatim: localized("cache_sync_local_device"))

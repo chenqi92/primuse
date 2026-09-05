@@ -2,6 +2,17 @@ import Foundation
 
 public enum WiFiTransferPage {
     public static let english: [String: String] = [
+        "libraryTreeHint": "Grouped by music source and album. Select songs, then send.",
+        "libraryLoadMore": "Show more",
+        "libraryUngrouped": "No album",
+        "libraryPartiallySelected": "Partially selected",
+        "librarySelectionLimit": "Select up to 3,000 songs per transfer. Select a smaller group.",
+        "librarySelectedSummary": "%d songs · %d additional files",
+        "discoveryPermission": "Local network access was denied. Allow Primuse in system settings, then retry.",
+        "discoveryBonjour": "Bonjour discovery was not authorized (NoAuth). Reopen the current app version and retry. Direct connections still require local network permission.",
+        "discoveryNetwork": "No local network is reachable. Connect to Wi-Fi or Ethernet, then retry.",
+        "discoveryUnavailable": "Nearby device discovery is temporarily unavailable. Retry or enter the receiving address.",
+        "discoveryConfiguration": "This app build is missing the Bonjour service declaration. Install a complete build and reopen it.",
         "addMusic": "Add music",
         "librarySelectionHint": "Choose songs from local music or connected sources. Files, lyrics and artwork are prepared before sending.",
         "libraryProtected": "Apple Music subscription tracks cannot be exported as audio files.",

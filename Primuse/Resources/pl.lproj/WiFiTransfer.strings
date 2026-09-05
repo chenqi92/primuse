@@ -140,3 +140,15 @@
 "libraryAddSelected" = "Dodaj utwory: %d";
 "libraryRetryPreparation" = "Ponów przygotowywanie";
 "libraryChooseMusic" = "Wybierz muzykę do wysłania";
+
+"libraryTreeHint" = "Według źródła muzyki i albumu. Wybierz utwory i wyślij.";
+"libraryLoadMore" = "Pokaż więcej";
+"libraryUngrouped" = "Bez albumu";
+"libraryPartiallySelected" = "Częściowo wybrane";
+"librarySelectionLimit" = "Można wybrać do 3000 utworów na transfer. Wybierz mniejszą grupę.";
+"librarySelectedSummary" = "%d utworów · %d dodatkowych plików";
+"discoveryPermission" = "Odmówiono dostępu do sieci lokalnej. Zezwól aplikacji Primuse w ustawieniach systemu i spróbuj ponownie.";
+"discoveryBonjour" = "Wykrywanie Bonjour nie zostało autoryzowane (NoAuth). Otwórz ponownie obecną wersję aplikacji. Połączenia bezpośrednie też wymagają dostępu do sieci lokalnej.";
+"discoveryNetwork" = "Brak dostępnej sieci lokalnej. Połącz się z Wi-Fi lub Ethernet i spróbuj ponownie.";
+"discoveryUnavailable" = "Wyszukiwanie urządzeń jest chwilowo niedostępne. Spróbuj ponownie lub wpisz adres odbiorcy.";
+"discoveryConfiguration" = "W tej wersji brakuje deklaracji usługi Bonjour. Zainstaluj pełną wersję i otwórz ją ponownie.";

@@ -284,7 +284,7 @@ struct MacSidebar: View {
 
             toolItem(.cacheSync, icon: "externaldrive.badge.wifi",
                      title: CacheSyncLocalization.text("cache_sync_title"))
-            toolItem(.deviceTransfer, icon: "arrow.left.arrow.right",
+            toolItem(.deviceTransfer, icon: "laptopcomputer.and.iphone",
                      title: WiFiTransferText.string("nativeTitle"))
             toolItem(.lyricsConverter, icon: "arrow.left.arrow.right",
                      title: String(localized: "lyrics_converter_title"))

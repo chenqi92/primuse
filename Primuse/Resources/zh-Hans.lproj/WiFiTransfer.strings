@@ -142,3 +142,15 @@
 "libraryAddSelected" = "添加 %d 首";
 "libraryRetryPreparation" = "重新准备失败歌曲";
 "libraryChooseMusic" = "选择要发送的音乐";
+
+"libraryTreeHint" = "按音乐源与专辑分组，勾选后直接发送。";
+"libraryLoadMore" = "显示更多";
+"libraryUngrouped" = "未归入专辑";
+"libraryPartiallySelected" = "部分选中";
+"librarySelectionLimit" = "每次最多选择 3,000 首歌曲，请选择较小的分组。";
+"librarySelectedSummary" = "已选 %d 首歌曲 · %d 个附加文件";
+"discoveryPermission" = "本地网络访问被拒绝，请在系统设置中允许猿音访问后重试。";
+"discoveryBonjour" = "Bonjour 设备发现未获授权（NoAuth）。请重新打开当前版本后重试；直连仍需要本地网络权限。";
+"discoveryNetwork" = "当前没有可用的局域网，请连接 Wi-Fi 或有线网络后重试。";
+"discoveryUnavailable" = "附近设备发现暂不可用，请重试或输入接收地址。";
+"discoveryConfiguration" = "当前安装包缺少 Bonjour 服务声明，请安装完整版本后重新打开。";

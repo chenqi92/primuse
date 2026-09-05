@@ -140,3 +140,15 @@
 "libraryAddSelected" = "Adicionar %d músicas";
 "libraryRetryPreparation" = "Tentar preparar novamente";
 "libraryChooseMusic" = "Escolha músicas para enviar";
+
+"libraryTreeHint" = "Agrupado por fonte de música e álbum. Selecione as músicas e envie.";
+"libraryLoadMore" = "Mostrar mais";
+"libraryUngrouped" = "Sem álbum";
+"libraryPartiallySelected" = "Seleção parcial";
+"librarySelectionLimit" = "Selecione até 3.000 músicas por transferência. Escolha um grupo menor.";
+"librarySelectedSummary" = "%d músicas · %d arquivos adicionais";
+"discoveryPermission" = "O acesso à rede local foi negado. Autorize o Primuse nos ajustes do sistema e tente novamente.";
+"discoveryBonjour" = "A descoberta Bonjour não foi autorizada (NoAuth). Reabra a versão atual e tente novamente. Conexões diretas também exigem permissão de rede local.";
+"discoveryNetwork" = "Nenhuma rede local está acessível. Conecte-se ao Wi-Fi ou Ethernet e tente novamente.";
+"discoveryUnavailable" = "A busca de dispositivos está temporariamente indisponível. Tente novamente ou insira o endereço de recepção.";
+"discoveryConfiguration" = "Esta versão não declara o serviço Bonjour. Instale uma versão completa e reabra o app.";

@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import Testing
 @testable import PrimuseKit
 
@@ -208,13 +209,105 @@ struct WiFiTransferPreparationTests {
         #expect(!FileManager.default.fileExists(atPath: additionDirectory.path))
     }
 
-    private func makeSong(path: String, size: Int64) -> Song {
+    @Test("Library album groups never cross source boundaries")
+    func isolatesAlbumsFromDifferentSources() {
+        let first = makeSong(
+            id: "first", path: "/Music/first.flac", size: 1, sourceID: "source-a",
+            albumTitle: "Shared Album", artistName: "Track Artist A", albumArtistName: "Various Artists"
+        )
+        let second = makeSong(
+            id: "second", path: "/Music/second.flac", size: 1, sourceID: "source-b",
+            albumTitle: "Shared Album", artistName: "Track Artist B", albumArtistName: "Various Artists"
+        )
+        let firstGroup = WiFiTransferLibraryGroupID(song: first)
+        let secondGroup = WiFiTransferLibraryGroupID(song: second)
+
+        #expect(firstGroup.album == secondGroup.album)
+        #expect(firstGroup != secondGroup)
+    }
+
+    @Test("Ungrouped songs stay explicit and album artist joins compilation tracks")
+    func groupsByAlbumArtistAndKeepsMissingAlbumsUngrouped() {
+        let ungrouped = makeSong(
+            id: "ungrouped", path: "/Music/single.flac", size: 1,
+            albumTitle: "  ", artistName: "Solo Artist"
+        )
+        let first = makeSong(
+            id: "first", path: "/Music/first.flac", size: 1,
+            albumTitle: "Compilation", artistName: "Track Artist A", albumArtistName: "Various Artists"
+        )
+        let second = makeSong(
+            id: "second", path: "/Music/second.flac", size: 1,
+            albumTitle: "Compilation", artistName: "Track Artist B", albumArtistName: "Various Artists"
+        )
+
+        #expect(WiFiTransferLibraryGroupID(song: ungrouped).album == nil)
+        #expect(WiFiTransferLibraryGroupID(song: first) == WiFiTransferLibraryGroupID(song: second))
+    }
+
+    @Test("A partial parent selection becomes fully selected, then fully deselected")
+    func togglesPartialParentSelectionAsOneGroup() throws {
+        let group = ["first", "second", "third"]
+        let partial: Set<String> = ["first", "outside"]
+
+        let fullySelected = try WiFiTransferLibraryGrouping.toggling(group, in: partial)
+        #expect(fullySelected == ["first", "second", "third", "outside"])
+
+        let deselected = try WiFiTransferLibraryGrouping.toggling(group, in: fullySelected)
+        #expect(deselected == ["outside"])
+    }
+
+    @Test("An over-limit group is rejected without changing the existing selection")
+    func rejectsWholeGroupWithoutTruncatingSelection() {
+        let original: Set<String> = ["kept"]
+        let group = (0..<WiFiTransferLibraryGrouping.selectionLimit).map { "new-\($0)" }
+
+        #expect(throws: WiFiTransferError.tooLarge) {
+            try WiFiTransferLibraryGrouping.toggling(group, in: original)
+        }
+        #expect(original == ["kept"])
+    }
+
+    @Test("Library search matches visible metadata but not source paths")
+    func matchesLibraryMetadataOnly() {
+        let song = makeSong(
+            path: "/private/Hidden Needle/song.flac", size: 1,
+            albumTitle: "Evening Sessions", artistName: "The Ensemble"
+        )
+
+        #expect(WiFiTransferLibraryGrouping.matches(song, query: "  evening "))
+        #expect(WiFiTransferLibraryGrouping.matches(song, query: "ensemble"))
+        #expect(WiFiTransferLibraryGrouping.matches(song, query: "Song"))
+        #expect(WiFiTransferLibraryGrouping.matches(song, query: "   "))
+        #expect(!WiFiTransferLibraryGrouping.matches(song, query: "Hidden Needle"))
+    }
+
+    @Test("Discovery failures distinguish policy, authorization, network, and fallback cases")
+    func classifiesDiscoveryFailures() {
+        #expect(WiFiTransferDiscovery.failureKey(.dns(-65_570)) == "discoveryPermission")
+        #expect(WiFiTransferDiscovery.failureKey(.dns(-65_555)) == "discoveryBonjour")
+        #expect(WiFiTransferDiscovery.failureKey(.posix(.ENETUNREACH)) == "discoveryNetwork")
+        #expect(WiFiTransferDiscovery.failureKey(.posix(.ECONNRESET)) == "discoveryUnavailable")
+    }
+
+    private func makeSong(
+        id: String = "song",
+        path: String,
+        size: Int64,
+        sourceID: String = "source",
+        albumTitle: String? = nil,
+        artistName: String? = nil,
+        albumArtistName: String? = nil
+    ) -> Song {
         Song(
-            id: "song",
+            id: id,
             title: "Song",
+            albumTitle: albumTitle,
+            artistName: artistName,
+            albumArtistName: albumArtistName,
             fileFormat: .flac,
             filePath: path,
-            sourceID: "source",
+            sourceID: sourceID,
             fileSize: size
         )
     }
