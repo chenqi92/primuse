@@ -62,6 +62,7 @@
 	<string>Primuse needs access to your Apple Music / iTunes library to import its local tracks as a playback source.</string>
 	<key>NSBonjourServices</key>
 	<array>
+		<string>_primuse-xfer._tcp</string>
 		<string>_primuse-cache._tcp</string>
 		<string>_smb._tcp.</string>
 		<string>_webdav._tcp.</string>

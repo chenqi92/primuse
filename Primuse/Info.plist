@@ -75,6 +75,7 @@
 	<string>Primuse uses Apple Music to search the catalog and play tracks if you have an active subscription.</string>
 	<key>NSBonjourServices</key>
 	<array>
+		<string>_primuse-xfer._tcp</string>
 		<string>_primuse-cache._tcp</string>
 		<string>_smb._tcp.</string>
 		<string>_webdav._tcp.</string>

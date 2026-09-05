@@ -59,6 +59,7 @@
 	</dict>
 	<key>NSBonjourServices</key>
 	<array>
+		<string>_primuse-xfer._tcp</string>
 		<string>_smb._tcp.</string>
 		<string>_webdav._tcp.</string>
 		<string>_webdavs._tcp.</string>

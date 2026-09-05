@@ -531,5 +531,123 @@ final class TVLibraryStateTests: XCTestCase {
         XCTAssertEqual(store.queueUpNextIDs, ["c"])
         await store.persistForLifecycle()
     }
+
+    func testReceivedMusicOwnershipIsLimitedToThisTVContainer() throws {
+        let sourceID = TVLocalTransferSource.sourceID
+        let currentRoot = TVLocalTransferSource.root.standardizedFileURL.path
+        let owned = MusicSource(id: sourceID, name: "Received", type: .local, basePath: currentRoot)
+        XCTAssertTrue(TVLocalTransferSource.isOwned(owned))
+        XCTAssertNotNil(TVPlaybackCoordinator.makeDirectReader(
+            source: owned, filePath: "/Album/song.mp3", credential: nil
+        ))
+
+        var components = currentRoot.split(separator: "/").map(String.init)
+        XCTAssertGreaterThanOrEqual(components.count, 5)
+        components[components.count - 5] = "84A53263-830F-49AF-8B0F-6F0442C8F9D1"
+        let migratedRoot = "/" + components.joined(separator: "/")
+        var migrated = owned
+        migrated.basePath = migratedRoot
+        XCTAssertTrue(TVLocalTransferSource.isOwned(migrated))
+
+        var foreign = owned
+        foreign.id = "phone-local-source"
+        foreign.basePath = "/private/var/mobile/Containers/Data/Application/31F463AE-70DC-4B0D-8162-A21A391C4520/Documents/LocalMusic"
+        XCTAssertFalse(TVLocalTransferSource.isOwned(foreign))
+        XCTAssertNil(TVPlaybackCoordinator.makeDirectReader(
+            source: foreign, filePath: "/Album/song.mp3", credential: nil
+        ))
+
+        var wrongID = owned
+        wrongID.id = UUID().uuidString
+        XCTAssertFalse(TVLocalTransferSource.isOwned(wrongID))
+        var subdirectory = owned
+        subdirectory.basePath = currentRoot + "/Album"
+        XCTAssertFalse(TVLocalTransferSource.isOwned(subdirectory))
+        var wrongType = owned
+        wrongType.type = .smb
+        XCTAssertFalse(TVLocalTransferSource.isOwned(wrongType))
+    }
+
+    func testReceivedMusicAdaptersListAndReadOnlyInsideManagedRoot() async throws {
+        let folderName = "TV Transfer QA \(UUID().uuidString)"
+        let folder = TVLocalTransferSource.root.appendingPathComponent(folderName, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let bytes = Data((0..<128).map(UInt8.init))
+        let audio = folder.appendingPathComponent("Live & 中文.mp3")
+        try bytes.write(to: audio)
+        try Data([7]).write(to: folder.appendingPathComponent(".hidden.mp3"))
+        try FileManager.default.createSymbolicLink(
+            at: folder.appendingPathComponent("linked.mp3"), withDestinationURL: audio
+        )
+
+        let lister = TVLocalDirectoryLister()
+        let rootEntries = try await lister.list("/")
+        XCTAssertTrue(rootEntries.contains { $0.isDir && $0.path == "/\(folderName)" })
+        let entries = try await lister.list("/\(folderName)")
+        XCTAssertEqual(entries.map(\.name), ["Live & 中文.mp3"])
+
+        let reader = TVLocalByteRangeReader(filePath: "/\(folderName)/Live & 中文.mp3")
+        let length = try await reader.contentLength()
+        let slice = try await reader.read(offset: 17, length: 23)
+        XCTAssertEqual(length, Int64(bytes.count))
+        XCTAssertEqual(slice, bytes.subdata(in: 17..<40))
+        await reader.close()
+        XCTAssertThrowsError(try TVLocalTransferSource.url(for: "../outside.mp3"))
+        XCTAssertThrowsError(try TVLocalTransferSource.url(for: "/\(folderName)/linked.mp3"))
+    }
+
+    func testReceivedMusicScanAddsThenPrunesDeletedFile() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let store = fixture.store()
+        store.reload()
+        let source = try store.prepareTransferSource()
+        let folderName = "TV Scan QA \(UUID().uuidString)"
+        let folder = TVLocalTransferSource.root.appendingPathComponent(folderName, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let audio = folder.appendingPathComponent("Transferred.wav")
+        try waveFixture().write(to: audio)
+        let path = "/\(folderName)/Transferred.wav"
+        let songID = TVScanPipelinePolicy.songID(sourceID: source.id, path: path)
+
+        let added = await store.runScan(source: source, lister: TVLocalDirectoryLister(), dirs: ["/"])
+        XCTAssertTrue(added)
+        XCTAssertEqual(store.scanner.phase, .done)
+        XCTAssertNotNil(fixture.library.song(id: songID))
+        XCTAssertEqual(fixture.library.song(id: songID)?.filePath, path)
+
+        try FileManager.default.removeItem(at: audio)
+        let pruned = await store.runScan(source: source, lister: TVLocalDirectoryLister(), dirs: ["/"])
+        XCTAssertTrue(pruned)
+        XCTAssertEqual(store.scanner.phase, .done)
+        XCTAssertNil(fixture.library.song(id: songID))
+        XCTAssertNil(store.song(songID))
+    }
+
+    private func waveFixture() -> Data {
+        let samples = Data(repeating: 0, count: 1_600)
+        var data = Data()
+        func ascii(_ value: String) { data.append(contentsOf: value.utf8) }
+        func littleEndian<T: FixedWidthInteger>(_ value: T) {
+            var encoded = value.littleEndian
+            Swift.withUnsafeBytes(of: &encoded) { data.append(contentsOf: $0) }
+        }
+        ascii("RIFF")
+        littleEndian(UInt32(36 + samples.count))
+        ascii("WAVEfmt ")
+        littleEndian(UInt32(16))
+        littleEndian(UInt16(1))
+        littleEndian(UInt16(1))
+        littleEndian(UInt32(8_000))
+        littleEndian(UInt32(16_000))
+        littleEndian(UInt16(2))
+        littleEndian(UInt16(16))
+        ascii("data")
+        littleEndian(UInt32(samples.count))
+        data.append(samples)
+        return data
+    }
 }
 #endif

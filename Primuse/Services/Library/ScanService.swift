@@ -75,6 +75,7 @@ final class ScanService {
     /// same source run concurrently and clobber each other's state.
     /// Mirrors `MetadataBackfillService.workerGeneration`.
     private var scanGenerations: [String: Int] = [:]
+    private var localImportScanRevisions: [String: (generation: Int, revision: String?)] = [:]
     private var checkpoints: [String: ScanCheckpoint] = [:]
     /// Serial off-main checkpoint writes. A checkpoint can contain thousands
     /// of Song values, so JSON encoding it on the main actor visibly stalls
@@ -410,6 +411,9 @@ final class ScanService {
 
         scanGenerations[source.id, default: 0] += 1
         let generation = scanGenerations[source.id] ?? 0
+        if LocalImportService.isManagedSource(source) {
+            localImportScanRevisions[source.id] = (generation, LocalImportService.pendingScanRevision)
+        }
 
         let taskPriority: TaskPriority = snapshotExecutionContext == .userInitiatedForeground
             ? .userInitiated
@@ -423,6 +427,9 @@ final class ScanService {
                 if isCurrentScan(source.id, generation: generation) {
                     activeTasks[source.id] = nil
                     endBackgroundTask(for: source.id)
+                }
+                if localImportScanRevisions[source.id]?.generation == generation {
+                    localImportScanRevisions[source.id] = nil
                 }
             }
 
@@ -2935,11 +2942,9 @@ final class ScanService {
         scanStates[sourceID] = Self.completedScanState(
             reconciliation: syncState?.reconciliation
         )
-        #if os(iOS)
-        if sourceID == LocalImportService.existingSourceID {
-            LocalImportService.clearPendingScan()
+        if let pending = localImportScanRevisions[sourceID], pending.generation == generation {
+            LocalImportService.clearPendingScan(ifRevisionMatches: pending.revision)
         }
-        #endif
 
         // 歌单镜像放在扫描收尾之后: 曲库已经落库(上面 addSongs +
         // persistIncrementalNowAndWait), serverItemID → Song.id 的索引才是完整的;

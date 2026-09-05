@@ -1123,6 +1123,8 @@ final class TVPlaybackCoordinator {
         credential: SourceCredential?
     ) -> ByteRangeReader? {
         switch source.type {
+        case .local where TVLocalTransferSource.isOwned(source):
+            return TVLocalByteRangeReader(filePath: filePath)
         case .smb:
             return SMBByteReader(source: source, filePath: filePath, credential: credential)
         case .nfs:
@@ -1160,6 +1162,11 @@ final class TVPlaybackCoordinator {
     }
 
     // MARK: 歌词
+
+    func refreshTransferredLyrics(song: Song, source: MusicSource, requestID: UUID) {
+        guard TVLocalTransferSource.isOwned(source) else { return }
+        loadLyrics(song: song, source: source, credential: nil, requestID: requestID)
+    }
 
     /// 加载歌词:先本地缓存(随快照同步下来的 / 之前抓过的),再按源能力读取服务端歌词
     /// 或源内 `.lrc` sidecar。`lyricsFileName` 指向源里的歌词文件(NAS 是 `.lrc`

@@ -17,6 +17,8 @@ enum LocalImportService {
     private static let identityBatchSize = 32
     private static let maximumFailureSamples = 20
     private static let pendingScanKey = "local_import_pending_scan_v1"
+    private static let pendingScanRevisionKey = "local_import_pending_scan_revision_v1"
+    private static let pendingScanLock = NSLock()
 
     /// 本设备的「本地音乐」源 ID。每台设备独立(UUID 存 UserDefaults):
     /// 同一设备多次导入复用同一个源往里追加; 不同设备各自独立。设备本地源
@@ -55,11 +57,26 @@ enum LocalImportService {
     }
 
     static var hasPendingScan: Bool {
-        UserDefaults.standard.bool(forKey: pendingScanKey)
+        pendingScanLock.withLock { UserDefaults.standard.bool(forKey: pendingScanKey) }
     }
 
-    static func clearPendingScan() {
-        UserDefaults.standard.removeObject(forKey: pendingScanKey)
+    static var pendingScanRevision: String? {
+        pendingScanLock.withLock { UserDefaults.standard.string(forKey: pendingScanRevisionKey) }
+    }
+
+    static func clearPendingScan(ifRevisionMatches revision: String?) {
+        pendingScanLock.withLock {
+            guard UserDefaults.standard.string(forKey: pendingScanRevisionKey) == revision else { return }
+            UserDefaults.standard.removeObject(forKey: pendingScanKey)
+            UserDefaults.standard.removeObject(forKey: pendingScanRevisionKey)
+        }
+    }
+
+    static func markPendingScan() {
+        pendingScanLock.withLock {
+            UserDefaults.standard.set(UUID().uuidString, forKey: pendingScanRevisionKey)
+            UserDefaults.standard.set(true, forKey: pendingScanKey)
+        }
     }
 
     /// Returns as soon as one complete importable file is found. This is used
@@ -628,7 +645,7 @@ enum LocalImportService {
             // Persist scan intent before the atomic rename. If the process is
             // killed immediately after the rename, cold-start recovery still
             // knows that a complete file may not have reached the library DB.
-            UserDefaults.standard.set(true, forKey: pendingScanKey)
+            markPendingScan()
             let committed = try transaction.commit(staged, suggestedFileName: fileName)
             let sidecars = copySidecarsAtomically(
                 forAudio: sourceURL,

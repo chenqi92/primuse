@@ -422,6 +422,11 @@ final class TVStore {
     // TV 本机扫描(SMB 路径快扫 / 飞牛音乐整库)。视图观察 scanner.phase/indexed/currentFile。
     @ObservationIgnored let scanner = TVSourceScanner()
     private(set) var activeScanSourceID: String?
+    var transferIsIndexing = false
+    var transferScanError: String?
+    @ObservationIgnored private var transferScanTask: Task<Void, Never>?
+    @ObservationIgnored private var transferNeedsScan = false
+    @ObservationIgnored private var transferLyricsStems: Set<String> = []
     @ObservationIgnored private var scanTask: Task<Bool, Never>?
     @ObservationIgnored private var scanGeneration = UUID()
     @ObservationIgnored private var pendingScanSongs: [Song] = []
@@ -1002,7 +1007,7 @@ final class TVStore {
     private func map(_ s: MusicSource) -> TVSource {
         let cnt = library.songs.lazy.filter { $0.sourceID == s.id }.count
         let (c, _) = Self.tint(s.id)
-        let canScan = Self.tvScannableTypes.contains(s.type)
+        let canScan = canScanOnTV(s)
         return TVSource(id: s.id, name: s.name, type: s.type.rawValue,
                          iconName: s.type.iconName,
                          host: s.connectionSummary ?? s.basePath ?? s.type.displayName,
@@ -1074,6 +1079,7 @@ final class TVStore {
     ]
 
     private func playability(for s: MusicSource) -> TVPlayability {
+        if TVLocalTransferSource.isOwned(s) { return .ok }
         let type = s.type
         // 厂商尚未提供可依赖的公开 API；保留同步记录和 UI 状态，但不宣称可播放。
         if type.isAwaitingPublicAPI { return .unsupported }
@@ -2028,6 +2034,158 @@ final class TVStore {
         TVSourceLocalLibraryPolicy.capability(for: type) == .directScan
     }
 
+    func prepareTransferSource() throws -> MusicSource {
+        guard canMutateLibrary else { throw WiFiTransferError.unavailable }
+        try FileManager.default.createDirectory(at: TVLocalTransferSource.root, withIntermediateDirectories: true)
+        let localName = NSLocalizedString("root", tableName: "WiFiTransfer", bundle: .main,
+                                          value: WiFiTransferPage.english["root"] ?? "Local music", comment: "")
+        let source: MusicSource
+        if let existing = sourcesStore.source(id: TVLocalTransferSource.sourceID), !existing.isDeleted {
+            guard TVLocalTransferSource.isOwned(existing) else { throw WiFiTransferError.invalidPath }
+            guard existing.isEnabled else { throw WiFiTransferError.unavailable }
+            var current = existing
+            current.basePath = TVLocalTransferSource.root.path
+            if current.name == "local_import_source_name" { current.name = localName }
+            if current.basePath != existing.basePath || current.name != existing.name {
+                try sourcesStore.updateDurably(current.id) { $0.basePath = current.basePath; $0.name = current.name }
+            }
+            source = sourcesStore.source(id: existing.id) ?? current
+        } else {
+            var created = MusicSource(id: TVLocalTransferSource.sourceID,
+                name: localName, type: .local,
+                basePath: TVLocalTransferSource.root.path,
+                extraConfig: MusicSource.encodeScannedDirectories(["/"], into: nil, type: .local))
+            created.authType = .none
+            try sourcesStore.addDurably(created)
+            source = created
+        }
+        locallyRemovedSourceIDs.remove(source.id)
+        locallyScannedSourceIDs.insert(source.id)
+        defaults.set(Array(locallyRemovedSourceIDs), forKey: "tv.removedSourceIDs")
+        defaults.set(Array(locallyScannedSourceIDs), forKey: "tv.scannedSourceIDs")
+        afterSourceMutation()
+        return source
+    }
+
+    func queueTransferScan(source: MusicSource, path: String, deleted: Bool) {
+        if deleted {
+            let ids = Set(library.songs.filter { $0.sourceID == source.id && $0.filePath == "/" + path }.map(\.id))
+            removeTransferredSongsFromQueue(ids)
+        }
+        let url = URL(fileURLWithPath: "/" + path)
+        if PrimuseConstants.supportedLyricsExtensions.contains(url.pathExtension.lowercased()) {
+            transferLyricsStems.insert(url.deletingPathExtension().path)
+        }
+        TVLocalTransferSource.markPendingScan(in: defaults)
+        transferNeedsScan = true
+        startTransferScan(sourceID: source.id)
+    }
+
+    func recoverReceivedMusicIfNeeded() {
+        guard defaults.bool(forKey: "tv.transfer.pendingScan"),
+              let source = sourcesStore.allSources.first(where: TVLocalTransferSource.isOwned),
+              !source.isDeleted, source.isEnabled, !locallyRemovedSourceIDs.contains(source.id) else { return }
+        transferNeedsScan = true
+        // Interrupted sidecar updates may have lost their in-memory path list.
+        transferLyricsStems.formUnion(library.songs.filter { $0.sourceID == source.id }.map {
+            URL(fileURLWithPath: $0.filePath).deletingPathExtension().path
+        })
+        startTransferScan(sourceID: source.id)
+    }
+
+    private func startTransferScan(sourceID: String) {
+        guard transferScanTask == nil else { return }
+        transferScanError = nil
+        transferIsIndexing = true
+        transferScanTask = Task { @MainActor in
+            defer { transferScanTask = nil; transferIsIndexing = false }
+            while transferNeedsScan && !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(750))
+                _ = await syncTask?.value
+                guard await retryPendingSnapshotImport(), canMutateLibrary else { return }
+                while activeScanSourceID != nil && !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+                guard !Task.isCancelled, let source = sourcesStore.source(id: sourceID),
+                      TVLocalTransferSource.isOwned(source), source.isEnabled, !source.isDeleted,
+                      !locallyRemovedSourceIDs.contains(sourceID) else { return }
+                transferNeedsScan = false
+                let scanRevision = TVLocalTransferSource.scanRevision(in: defaults)
+                let stems = transferLyricsStems
+                transferLyricsStems.removeAll()
+                let changed = library.songs.filter {
+                    $0.sourceID == sourceID && stems.contains(URL(fileURLWithPath: $0.filePath).deletingPathExtension().path)
+                }
+                for song in changed {
+                    _ = await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: song.id)
+                    applyLyrics([], forSongID: song.id)
+                }
+                guard await runScan(source: source, lister: TVLocalDirectoryLister(), dirs: ["/"]) else {
+                    transferScanError = "unavailable"
+                    return
+                }
+                guard case .done = scanner.phase else { transferScanError = "unavailable"; return }
+                if let id = currentSongID, changed.contains(where: { $0.id == id }),
+                   let song = library.song(id: id), let requestID = activePlaybackRequestID {
+                    coordinator.refreshTransferredLyrics(song: song, source: source, requestID: requestID)
+                }
+                if !transferNeedsScan {
+                    TVLocalTransferSource.clearPendingScan(ifRevisionMatches: scanRevision, in: defaults)
+                }
+            }
+        }
+    }
+
+    private func removeTransferredSongsFromQueue(_ ids: Set<String>) {
+        guard !isLiveRadio, !ids.isEmpty else { return }
+        let plan = QueueBatchRemovalPolicy.plan(queueSongIDs: queue, currentIndex: queueIndex,
+                                               currentSongID: currentSongID, removingSongIDs: ids)
+        guard plan.action != .unchanged else { return }
+        let removedCurrent = currentSongID.map(ids.contains) ?? false
+        let wasPlaying = engine.isPlaying || engine.status == .loading
+        if removedCurrent {
+            playbackTask?.cancel(); playbackTask = nil
+            activePlaybackRequestID = nil
+            coordinator.cancelAuxiliaryTasks()
+            finishListeningSession()
+            engine.stop()
+            lyrics = []
+            playbackIssue = nil
+        }
+        let retainedCanonical = canonicalQueue.indices.filter { !ids.contains(canonicalQueue[$0]) }
+        let newCanonicalIndex = Dictionary(uniqueKeysWithValues: retainedCanonical.enumerated().map { ($0.element, $0.offset) })
+        let oldOrder = queueCanonicalIndices
+        queue = plan.retainedIndices.map { queue[$0] }
+        canonicalQueue = retainedCanonical.map { canonicalQueue[$0] }
+        queueCanonicalIndices = plan.retainedIndices.compactMap {
+            oldOrder.indices.contains($0) ? newCanonicalIndex[oldOrder[$0]] : nil
+        }
+        if queueCanonicalIndices.count != queue.count {
+            canonicalQueue = queue
+            queueCanonicalIndices = Array(queue.indices)
+        }
+        switch plan.action {
+        case .unchanged: break
+        case .replaceQueue(let index): queueIndex = index
+        case .playReplacement(let index):
+            queueIndex = index
+            if queue.indices.contains(index), let next = song(queue[index]) { startPlaying(next, autoPlay: wasPlaying) }
+        case .stopAndClearQueue:
+            queueIndex = 0
+            nowPlaying = .none
+            hasNowPlaying = false
+        }
+        refreshUpNext()
+        if currentSongID == nil {
+            let previous = playbackSessionTask
+            let storage = sessionStore
+            playbackSessionTask = Task.detached {
+                await previous?.value
+                try? storage.clear()
+            }
+        } else { persistPlaybackSession() }
+    }
+
     /// TV 上新增源:写入 sources + 存本地凭据 + 回传快照。
     @discardableResult
     func addSource(
@@ -2180,7 +2338,7 @@ final class TVStore {
 
     /// 该源能否在 TV 上扫描。飞牛音乐不浏览文件夹，直接读取服务端完整曲库。
     func canScanOnTV(_ source: MusicSource) -> Bool {
-        Self.tvScannableTypes.contains(source.type)
+        Self.tvScannableTypes.contains(source.type) || TVLocalTransferSource.isOwned(source)
     }
 
     /// 构造目录列举器(供选目录页浏览)。
@@ -3095,6 +3253,7 @@ final class TVStore {
     func applicationDidBecomeActive() {
         resumePendingSourceUpload()
         ScrobbleService.shared.retryPendingNow()
+        recoverReceivedMusicIfNeeded()
     }
 
     func persistForLifecycle() async {

@@ -145,6 +145,7 @@ struct PrimuseTVApp: App {
                     #endif
                     let autoSync = UserDefaults.standard.object(forKey: "tvAutoSync") as? Bool ?? true
                     if autoSync { await store.bootstrap() } else { store.reload() }
+                    store.recoverReceivedMusicIfNeeded()
                 }
                 // 注意:不在回到前台时自动重新拉快照。否则会用手机端的权威状态覆盖
                 // Apple TV 上的本地改动(如本地启用某个源)。仅在启动时拉一次 + 设置页

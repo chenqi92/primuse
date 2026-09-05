@@ -245,6 +245,7 @@ targets:
           NSAllowsArbitraryLoads: true
         NSLocalNetworkUsageDescription: "猿音需要访问本地网络，以发现并连接您的 NAS、媒体服务器、其他音乐源及附近的猿音设备。"
         NSBonjourServices:
+          - "_primuse-xfer._tcp"
           - "_primuse-cache._tcp"
           - "_smb._tcp."
           - "_webdav._tcp."
@@ -503,6 +504,7 @@ targets:
           NSAllowsArbitraryLoads: true
         NSLocalNetworkUsageDescription: "Primuse needs local network access to discover and connect to your NAS, media servers, music sources, and nearby Primuse devices."
         NSBonjourServices:
+          - "_primuse-xfer._tcp"
           - "_primuse-cache._tcp"
           - "_smb._tcp."
           - "_webdav._tcp."
@@ -587,6 +589,10 @@ targets:
       - path: Primuse/Views/NowPlaying/ImmersiveStageView.swift
       - path: SiriVocabulary
         buildPhase: resources
+      - path: Primuse/Resources
+        includes:
+          - "**/WiFiTransfer.strings"
+        buildPhase: resources
     resources:
       - path: PrimuseTV/Resources
       - path: Primuse/Resources/en.lproj/Localizable.strings
@@ -647,6 +653,7 @@ targets:
         NSLocalNetworkUsageDescription: "猿音需要访问本地网络,以便从 iPhone 扫码直接接收音乐源配置、并自动发现局域网内的 NAS。"
         # 内网自动发现要浏览的 Bonjour 服务类型(与 NetworkDiscoveryService.serviceTypes 一致)
         NSBonjourServices:
+          - "_primuse-xfer._tcp"
           - "_smb._tcp."
           - "_webdav._tcp."
           - "_webdavs._tcp."

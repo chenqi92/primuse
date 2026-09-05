@@ -17,6 +17,7 @@ struct MacSourcesView: View {
     @Environment(ThemeService.self) private var theme
 
     @State private var showAddSource = false
+    @State private var showTransfer = false
     @State private var editingSource: MusicSource?
     @State private var connectingSource: MusicSource?
     @State private var diagnosingSource: MusicSource?
@@ -39,6 +40,7 @@ struct MacSourcesView: View {
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .sheet(isPresented: $showTransfer) { WiFiTransferView() }
         .sheet(isPresented: $showAddSource) {
             SourceTypeSelectionView(
                 submitIntent: .continueToConnection,
@@ -155,6 +157,12 @@ struct MacSourcesView: View {
                         .foregroundStyle(PMColor.text)
                 }
                 Spacer()
+                Button { showTransfer = true } label: {
+                    Label(WiFiTransferText.string("nativeTitle"), systemImage: "arrow.left.arrow.right")
+                        .font(.system(size: 12.5, weight: .semibold)).foregroundStyle(PMColor.text)
+                        .padding(.horizontal, 14).frame(height: 32)
+                        .background(PMColor.matBtn, in: .rect(cornerRadius: 8))
+                }.buttonStyle(.plain).accessibilityIdentifier("sources.transfer")
                 MetadataBackfillPerformanceButton { isEnabled in
                     Image(systemName: isEnabled ? "bolt.fill" : "bolt")
                         .font(.system(size: 13, weight: .semibold))

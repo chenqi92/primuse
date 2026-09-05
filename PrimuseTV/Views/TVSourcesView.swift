@@ -8,6 +8,7 @@ struct TVSourcesView: View {
     private enum PrimaryAction: Hashable {
         case addSource
         case recycleBin
+        case receive
     }
 
     @Environment(TVStore.self) private var store
@@ -21,6 +22,7 @@ struct TVSourcesView: View {
     @State private var pendingSourceForm: TVSourceForm?
     @State private var pendingScanAfterSave: MusicSource?
     @State private var recycleBin = false           // 回收站
+    @State private var showTransfer = false
     @State private var otpSource: TVSource?         // 两步验证(OTP)输入
     @State private var scanSource: MusicSource?     // 选目录 + 扫描流程
     @FocusState private var focusedPrimaryAction: PrimaryAction?
@@ -38,6 +40,7 @@ struct TVSourcesView: View {
             pendingSourceForm != nil,
             pendingScanAfterSave != nil,
             recycleBin,
+            showTransfer,
             otpSource != nil,
             scanSource != nil,
         ].filter { $0 }.count
@@ -49,9 +52,10 @@ struct TVSourcesView: View {
             HStack(alignment: .top, spacing: 60) {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 6) {
-                        TVEyebrow(text: PMString("ext.tv.sources.eyebrow"))
+                        Text(PMString("ext.tv.sources.eyebrow"))
+                            .font(.system(size: 18, weight: .medium)).foregroundStyle(TVColor.textMuted)
                         Text(PMString("ext.tv.sources.title", store.sources.count))
-                            .font(TVFont.pageTitle).foregroundStyle(TVColor.text)
+                            .font(.system(size: 48, weight: .bold)).foregroundStyle(TVColor.text)
                             .padding(.bottom, 22)
                         if store.sources.isEmpty {
                             VStack(alignment: .leading, spacing: 12) {
@@ -110,8 +114,21 @@ struct TVSourcesView: View {
 
                 // 右侧操作栏撑满高度,从左列任意一行往右都能到达(焦点区 frame 满高)。
                 VStack(alignment: .leading, spacing: 18) {
-                    TVEyebrow(text: PMString("ext.tv.sources.addSource"))
+                    Text(PMString("ext.tv.sources.addSource"))
+                        .font(.system(size: 18, weight: .medium)).foregroundStyle(TVColor.textMuted)
                     TVSourcesInfoCard()
+                    Button { showTransfer = true } label: {
+                        Label(TVTransferText.string("receive"), systemImage: "arrow.down.circle")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(focusedPrimaryAction == .receive ? TVColor.onBrand : TVColor.text)
+                            .padding(.horizontal, 24).padding(.vertical, 16)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(focusedPrimaryAction == .receive ? TVColor.brand : TVColor.surface,
+                                        in: RoundedRectangle(cornerRadius: 16))
+                            .tvFocusRing(focusedPrimaryAction == .receive, radius: 16, accent: TVColor.brand, scale: 1.02, lift: 0)
+                    }
+                    .buttonStyle(TVBareButtonStyle()).focused($focusedPrimaryAction, equals: .receive)
+                    .focusEffectDisabled().accessibilityIdentifier("tv.sources.receive")
                     Button { typePicker = true } label: {
                         Label(PMString("ext.tv.sources.addOnTV"), systemImage: "plus.circle.fill")
                             .font(.system(size: 20, weight: .semibold))
@@ -190,6 +207,9 @@ struct TVSourcesView: View {
             Button(PMString("ext.tv.sources.ok"), role: .cancel) {}
         } message: { r in
             Text(PMString("ext.tv.test.resultBody", r.sourceName, r.message))
+        }
+        .fullScreenCover(isPresented: $showTransfer, onDismiss: restorePrimaryFocus) {
+            TVTransferReceiveView().environment(store)
         }
         .sheet(item: $credentialEditor, onDismiss: restorePrimaryFocus) { src in
             TVCredentialEditorView(source: src).environment(store)
@@ -409,14 +429,14 @@ private struct TVSourceRow: View {
                     .frame(width: 46, height: 46)
                     .background(source.color, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(source.name).font(TVFont.cardTitle)
+                    Text(source.name).font(.system(size: 24, weight: .semibold))
                         .foregroundStyle(TVColor.text).lineLimit(1)
                     Text(PMString(
                         "ext.tv.sources.typeSongs",
                         MusicSourceType(rawValue: source.type)?.displayName ?? source.type.uppercased(),
                         TVFmt.count(source.songs)
                     ))
-                        .font(.system(.callout, design: .monospaced))
+                        .font(.system(size: 18, design: .monospaced))
                         .foregroundStyle(TVColor.textFaint)
                     if let availabilityNote = source.availabilityNote {
                         Label(availabilityNote, systemImage: "clock.badge.exclamationmark")

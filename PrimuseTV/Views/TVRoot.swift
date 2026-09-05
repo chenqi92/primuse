@@ -559,7 +559,8 @@ struct TVTabBar: View {
                     }
                     .shadow(color: TVColor.brand.opacity(0.28), radius: 12, y: 6)
                 Text(verbatim: PMString("ext.tv.appName"))
-                    .font(TVFont.cardTitle)
+                    .font(.system(size: 24, weight: .semibold))
+                    .lineLimit(1)
                     .foregroundStyle(TVColor.text)
             }
 
@@ -665,7 +666,8 @@ private struct TVTabItem: View {
     var body: some View {
         Button(action: action) {
             Text(label)
-                .font(TVFont.sectionTitle.weight(isActive ? .bold : .medium))
+                .font(.system(size: 26, weight: isActive ? .bold : .medium))
+                .lineLimit(1).minimumScaleFactor(0.85)
                 .foregroundStyle(isActive || isFocused ? TVColor.text : TVColor.textMuted)
                 .padding(.horizontal, 24).padding(.vertical, 10)
                 .background(isFocused ? TVColor.surfaceStrong : .clear,

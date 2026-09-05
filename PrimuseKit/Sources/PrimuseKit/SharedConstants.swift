@@ -3004,11 +3004,32 @@ public enum DeviceLocalSourcePolicy {
               let basePath else {
             return .preserveReferencedFiles
         }
-        let sourceRoot = URL(fileURLWithPath: basePath).standardizedFileURL
-        let managedRoot = URL(fileURLWithPath: managedRootPath).standardizedFileURL
-        return sourceRoot == managedRoot
+        let sourceRoot = normalizedRoot(basePath)
+        let managedRoot = normalizedRoot(managedRootPath)
+        let matchesCurrentContainer = sourceRoot == managedRoot
+            || (containerParent(sourceRoot) != nil
+                && containerParent(sourceRoot) == containerParent(managedRoot))
+        return matchesCurrentContainer
             ? .deleteManagedCopies
             : .preserveReferencedFiles
+    }
+
+    private static func normalizedRoot(_ path: String) -> String {
+        let path = URL(fileURLWithPath: path).standardizedFileURL.path
+        return path.hasPrefix("/private/var/") ? String(path.dropFirst("/private".count)) : path
+    }
+
+    private static func containerParent(_ path: String) -> String? {
+        let components = path.split(separator: "/").map(String.init)
+        guard components.count >= 6,
+              Array(components.suffix(2)) == ["Documents", "LocalMusic"],
+              UUID(uuidString: components[components.count - 3]) != nil,
+              Array(components.suffix(6).prefix(3)) == ["Containers", "Data", "Application"] else {
+            return nil
+        }
+        // An app update may replace only the data-container UUID. Matching the
+        // complete parent keeps other devices and File Provider roots distinct.
+        return components.dropLast(3).joined(separator: "/")
     }
 
     public static func isManagedCopy(

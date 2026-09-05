@@ -731,6 +731,25 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
     /// 提供；旧版本已经复制到 Documents/LocalMusic 的来源继续独立复用。
     private var iosLocalImportSection: some View {
         Section {
+            NavigationLink {
+                WiFiTransferView(initialMode: "receive")
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "wifi")
+                        .font(.title3).foregroundStyle(.white)
+                        .frame(width: 36, height: 36)
+                        .background(Color.accentColor)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(WiFiTransferText.string("nativeTitle"))
+                        Text(WiFiTransferText.string("nativeSubtitle"))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .disabled(localImportProgress != nil)
+            .accessibilityIdentifier("localImport.wifi")
+
             Button {
                 localImportPickerMode = .referenceFolder
                 showLocalImporter = true

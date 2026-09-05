@@ -262,6 +262,7 @@ struct SourcesContentView: View {
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(MetadataBackfillService.self) private var backfill
     @State private var showAddSource = false
+    @State private var showTransfer = false
     @State private var editingSource: MusicSource?
     @State private var connectingSource: MusicSource?
     @State private var directorySelectionSession: SourceDirectorySelectionSession?
@@ -331,8 +332,12 @@ struct SourcesContentView: View {
 
                     Button { showAddSource = true } label: { Image(systemName: "plus") }
                         .accessibilityIdentifier("sources.add")
+                    Button { showTransfer = true } label: {
+                        Label(WiFiTransferText.string("nativeTitle"), systemImage: "arrow.left.arrow.right")
+                    }.accessibilityIdentifier("sources.transfer")
                 }
             }
+            .sheet(isPresented: $showTransfer) { NavigationStack { WiFiTransferView() } }
             .sheet(isPresented: $showAddSource) {
                 SourceTypeSelectionView(
                     submitIntent: .continueToConnection,

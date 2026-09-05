@@ -533,6 +533,7 @@ final class AppServices {
     private var sourceCloudCleanupPropagationTask: Task<Void, Never>?
     private var sourceCloudCleanupFailureStreak = 0
     private var didCompleteDeferredStartup = false
+    private var didFinishDeferredStartup = false
     private var sourceCountReconciliationTask: Task<Void, Never>?
 
     private struct StartupLibraryReconciliation: Sendable {
@@ -919,6 +920,10 @@ final class AppServices {
         alwaysDownload.start()
         navidromeAutoRefresh.startColdLaunchRefresh()
         schedulePendingSourceCloudCleanupPropagation(delay: .seconds(1))
+        didFinishDeferredStartup = true
+        #if os(macOS)
+        resumePendingLocalImportScanIfNeeded()
+        #endif
         let finishedAt = ProcessInfo.processInfo.systemUptime
         plog(String(
             format: "🚀 deferred startup total=%.0fms restore=%.0fms maintenance=%.0fms",
@@ -949,13 +954,15 @@ final class AppServices {
         #endif
     }
 
-    /// Resume interrupted local-import recovery only from an iOS background
-    /// execution window. Cold-start recovery used to launch a complete local
-    /// scan a moment after the first frame, which reproduced the apparent
-    /// "freezes later" behavior on libraries with unfinished imports.
+    /// iOS resumes in a background execution window to keep large unfinished
+    /// imports out of the launch path. macOS can resume after startup settles.
     func resumePendingLocalImportScanIfNeeded() {
-        #if os(iOS)
+        #if os(iOS) || os(macOS)
+        #if os(macOS)
+        guard didFinishDeferredStartup, LocalImportService.hasPendingScan else { return }
+        #endif
         guard let sourceID = LocalImportService.existingSourceID else { return }
+        guard scanService.scanStates[sourceID]?.isScanning != true else { return }
         let hasPendingCheckpoint = scanService.scanStates[sourceID]?.hasPendingWork == true
         let hasUnplayableRows = musicLibrary.songs.contains {
             $0.sourceID == sourceID && $0.duration <= 0
@@ -963,11 +970,15 @@ final class AppServices {
         let hasPendingScan = LocalImportService.hasPendingScan
 
         let source: MusicSource
-        if let existing = sourcesStore.source(id: sourceID),
-           existing.isEnabled,
-           !existing.isDeleted {
+        if let existing = sourcesStore.source(id: sourceID) {
+            guard existing.isEnabled, !existing.isDeleted, LocalImportService.isManagedSource(existing) else { return }
             guard hasPendingScan || hasPendingCheckpoint || hasUnplayableRows else { return }
-            source = existing
+            do {
+                if existing.basePath != LocalImportService.musicDirectory.path {
+                    try sourcesStore.updateDurably(sourceID) { $0.basePath = LocalImportService.musicDirectory.path }
+                }
+                source = sourcesStore.source(id: sourceID) ?? existing
+            } catch { return }
         } else if LocalImportService.hasRecoverableCompleteFiles || hasPendingCheckpoint {
             let recovered = LocalImportService.makeSource(
                 name: String(localized: "local_import_source_name")

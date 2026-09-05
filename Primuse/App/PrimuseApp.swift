@@ -1528,6 +1528,7 @@ struct PrimuseApp: App {
                         AppServices.shared.spotlightIndex.resumePendingSynchronization(
                             library: musicLibrary
                         )
+                        AppServices.shared.resumePendingLocalImportScanIfNeeded()
                         #endif
                         scanService.startFolderTopologyRebuildsIfNeeded(
                             sourceManager: sourceManager,

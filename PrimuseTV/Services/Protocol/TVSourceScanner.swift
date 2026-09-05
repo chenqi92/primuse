@@ -385,6 +385,7 @@ final class TVSourceScanner {
         credential: SourceCredential?
     ) -> TVDirectoryLister? {
         switch source.type {
+        case .local where TVLocalTransferSource.isOwned(source): return TVLocalDirectoryLister()
         case .smb: return TVSMBLister(source: source, credential: credential)
         case .oneDrive, .dropbox:
             return TVCloudDriveLister(source: source, credential: credential)
