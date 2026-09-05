@@ -121,3 +121,24 @@
 "backgroundStopped" = "猿音切到后台，传输已停止。已完成的文件会保留；重新开启接收后请使用新的访问码。";
 "receiveTimedOut" = "发送设备长时间没有响应，已完成的文件会保留。请在发送端重试剩余文件。";
 "receiveHistory" = "之前的接收";
+
+"addMusic" = "添加音乐";
+"librarySelectionHint" = "从本地音乐或已连接的音乐源选曲，发送前会准备完整音频、歌词和封面。";
+"libraryProtected" = "Apple Music 订阅歌曲无法导出为音频文件。";
+"librarySourceUnavailable" = "音乐源当前不可用，请启用或重新连接后重试。";
+"libraryCue" = "这是 CUE 虚拟单曲，请通过“选择文件”一起发送完整音频和 CUE 文件。";
+"libraryStream" = "实时流和 STRM 链接无法作为音频文件发送。";
+"libraryUnknownSize" = "无法确认原文件大小，请刷新音乐源后重试。";
+"libraryPreparing" = "正在准备音乐…";
+"libraryPrepared" = "音乐已加入待发送列表";
+"libraryPreparationDetail" = "%d / %d 首 · %@";
+"libraryLyricsUnavailable" = "歌词未能准备完成，音频仍可发送。";
+"libraryCoverUnavailable" = "封面未能准备完成，音频仍可发送。";
+"librarySourceChanged" = "准备期间歌曲或音乐源发生了变化，请重新选择。";
+"libraryAllSources" = "全部音乐源";
+"librarySearch" = "搜索歌曲、歌手或专辑";
+"libraryEmpty" = "没有符合条件的歌曲";
+"libraryAlreadyAdded" = "已在待发送列表中";
+"libraryAddSelected" = "添加 %d 首";
+"libraryRetryPreparation" = "重新准备失败歌曲";
+"libraryChooseMusic" = "选择要发送的音乐";

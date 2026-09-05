@@ -121,3 +121,24 @@
 "backgroundStopped" = "Primuseがバックグラウンドに移ったため、転送を停止しました。完了したファイルは保持されます。受信を再開して新しいコードを使用してください。";
 "receiveTimedOut" = "送信端末から応答がありません。完了したファイルは保持されます。残りのファイルを再送してください。";
 "receiveHistory" = "以前の受信";
+
+"addMusic" = "音楽を追加";
+"librarySelectionHint" = "ローカル音楽や接続済みのソースから選曲します。送信前に音声、歌詞、アートワークを準備します。";
+"libraryProtected" = "Apple Musicのサブスクリプション楽曲は音声ファイルとして書き出せません。";
+"librarySourceUnavailable" = "このソースは利用できません。有効にするか再接続してからやり直してください。";
+"libraryCue" = "CUEで定義された曲です。「ファイルを選択」で音声ファイル全体とCUEシートを一緒に送信してください。";
+"libraryStream" = "ライブストリームやSTRMリンクは音声ファイルとして送信できません。";
+"libraryUnknownSize" = "元のファイルサイズを確認できません。音楽ソースを更新してからやり直してください。";
+"libraryPreparing" = "音楽を準備中…";
+"libraryPrepared" = "音楽を送信リストに追加しました";
+"libraryPreparationDetail" = "%d / %d曲 · %@";
+"libraryLyricsUnavailable" = "歌詞を準備できませんでした。音声は送信できます。";
+"libraryCoverUnavailable" = "アートワークを準備できませんでした。音声は送信できます。";
+"librarySourceChanged" = "準備中に曲またはソースが変更されました。もう一度選択してください。";
+"libraryAllSources" = "すべてのソース";
+"librarySearch" = "曲、アーティスト、アルバムを検索";
+"libraryEmpty" = "一致する曲がありません";
+"libraryAlreadyAdded" = "送信リストに追加済み";
+"libraryAddSelected" = "%d曲を追加";
+"libraryRetryPreparation" = "失敗した曲の準備を再試行";
+"libraryChooseMusic" = "送信する音楽を選択";

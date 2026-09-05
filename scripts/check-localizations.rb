@@ -537,6 +537,7 @@ def localized_error_literals(path)
 
       stripped = line.strip
       literal_probe = stripped.gsub('""', "")
+        .gsub(/\bWiFiTransferText\.string\("[a-zA-Z][a-zA-Z0-9]*"\)/, "WiFiTransferText.string()")
       localization_argument = stripped.match?(/\A"[a-zA-Z0-9_. %@-]+",?\z/)
       if literal_probe.include?('"') &&
          !localization_argument &&

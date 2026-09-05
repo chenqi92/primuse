@@ -116,6 +116,12 @@ public struct WiFiTransferOutgoingFile: Identifiable, Sendable {
     public let path: String
     public let size: Int64
     public var id: String { url.path }
+
+    public init(url: URL, path: String, size: Int64) {
+        self.url = url
+        self.path = path
+        self.size = size
+    }
 }
 
 /// Owns the security scopes for the whole selection, including any folder descendants.
@@ -124,14 +130,64 @@ public final class WiFiTransferSelection: @unchecked Sendable {
     public let skipped: Int
     public var byteCount: Int64 { files.reduce(0) { $0 + $1.size } }
     private let scopes: [URL]
+    private let parents: [WiFiTransferSelection]
+    private let temporaryDirectory: URL?
 
-    private init(files: [WiFiTransferOutgoingFile], skipped: Int, scopes: [URL]) {
+    private init(files: [WiFiTransferOutgoingFile], skipped: Int, scopes: [URL],
+                 parents: [WiFiTransferSelection] = [], temporaryDirectory: URL? = nil) {
         self.files = files
         self.skipped = skipped
         self.scopes = scopes
+        self.parents = parents
+        self.temporaryDirectory = temporaryDirectory
     }
 
-    deinit { scopes.forEach { $0.stopAccessingSecurityScopedResource() } }
+    deinit {
+        scopes.forEach { $0.stopAccessingSecurityScopedResource() }
+        if let temporaryDirectory { try? FileManager.default.removeItem(at: temporaryDirectory) }
+    }
+
+    /// Takes ownership of an export directory after every file is fully prepared.
+    public static func prepareTemporaryDirectory(_ directory: URL) async throws -> WiFiTransferSelection {
+        do {
+            let children = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+            let selection = try await prepare(children)
+            return WiFiTransferSelection(files: selection.files, skipped: selection.skipped, scopes: [],
+                                         parents: [selection], temporaryDirectory: directory)
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            throw error
+        }
+    }
+
+    public func keeping(_ ids: Set<String>) -> WiFiTransferSelection {
+        WiFiTransferSelection(files: files.filter { ids.contains($0.id) }, skipped: skipped,
+                              scopes: [], parents: [self])
+    }
+
+    /// Keep audio and sidecars together when an added batch has conflicting paths.
+    public func appending(_ addition: WiFiTransferSelection, conflictFolder: String) throws -> WiFiTransferSelection {
+        let existingIDs = Set(files.map(\.id))
+        var added = addition.files.filter { !existingIDs.contains($0.id) }
+        guard files.count + added.count <= 10_000 else { throw WiFiTransferError.tooLarge }
+        let existingPaths = Set(files.map { $0.path.precomposedStringWithCanonicalMapping.lowercased() })
+        if added.contains(where: { existingPaths.contains($0.path.precomposedStringWithCanonicalMapping.lowercased()) }) {
+            let roots = Set(files.map { String($0.path.split(separator: "/")[0]).lowercased() })
+            let base = WiFiTransferFilePreparation.safeComponent(conflictFolder)
+            var folder = base
+            var suffix = 2
+            while roots.contains(folder.lowercased()) {
+                folder = "\(base) (\(suffix))"
+                suffix += 1
+            }
+            added = added.map { .init(url: $0.url, path: folder + "/" + $0.path, size: $0.size) }
+        }
+        guard added.allSatisfy({ $0.path.split(separator: "/").count <= 32 && $0.path.utf8.count <= 4096 }) else {
+            throw WiFiTransferError.invalidPath
+        }
+        return WiFiTransferSelection(files: files + added, skipped: skipped + addition.skipped,
+                                     scopes: [], parents: [self, addition])
+    }
 
     public static func prepare(_ urls: [URL]) async throws -> WiFiTransferSelection {
         let scopes = urls.filter { $0.startAccessingSecurityScopedResource() }

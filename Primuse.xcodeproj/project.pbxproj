@@ -169,6 +169,7 @@
 		27F7E620B133E0F14CD925F9 /* MacLibraryHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 050D42F39CEE8830909BFA20 /* MacLibraryHeader.swift */; };
 		283B381A6A7A0EB7F5F4FFB0 /* AudioOutputPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 252F65F36897EF6DB9E6BCD8 /* AudioOutputPickerView.swift */; };
 		287112ACD7B473C32EF89924 /* PlatformShims.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AE10B90CF85FD450338F498 /* PlatformShims.swift */; };
+		298DA96D8AC0587B7941AC94 /* WiFiTransferLibraryPreparation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 619ED42D72C2CF96721550D0 /* WiFiTransferLibraryPreparation.swift */; };
 		2993EB2DD32DE34F3A6655E1 /* CloudKitRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C804B707FEBA12189DA49BB3 /* CloudKitRuntime.swift */; };
 		29A2ADD8EBE1F20B1C80FEE2 /* TVPlayMediaIntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C53D95B464F9DAE95E595DC2 /* TVPlayMediaIntentHandler.swift */; };
 		29A9409313AE55C1C09F955C /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 0F9C8BBA8A78A11F68EC9E00 /* GRDB */; };
@@ -538,6 +539,7 @@
 		8397D1889EFA82D7EFAB5329 /* FnMusicServiceClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8321DC84502AE307E1C3B466 /* FnMusicServiceClient.swift */; };
 		83D5D5AEB6EA850B28E6B5D2 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = C39C5A4CDC0E68A52651A1DB /* GRDB */; };
 		83FBC7E697D9FB957F5CFFE7 /* FileMetadataReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8607E666A6AB28E00D1C257 /* FileMetadataReader.swift */; };
+		840AB166E67D6505C18D5988 /* WiFiTransferLibraryPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0AA7EC4D7A4EFC36DF55E56 /* WiFiTransferLibraryPicker.swift */; };
 		842D9D5F65C4F4C2B4094BE7 /* SendToTVSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91CED344D90A31CB6096E8CF /* SendToTVSheet.swift */; };
 		8457016E2EBE033A08C38A33 /* DuplicateDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2117016184001B6F46168B00 /* DuplicateDetector.swift */; };
 		8485F49F2EE6DF52BCFFD372 /* SettingsCatalogData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81D0685C67A04B385250A962 /* SettingsCatalogData.swift */; };
@@ -616,6 +618,7 @@
 		983084B9EA621EC0D7E43351 /* MacSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C45DBC29426E786513B5CFA0 /* MacSettingsView.swift */; };
 		984E943D37DB65FA159E3903 /* AudioCacheSyncPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8E2CAAEF4F1C45017F7770 /* AudioCacheSyncPolicyTests.swift */; };
 		988DA2043A4AF89477D2B837 /* ArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 363F869C6171BAEF3E787B3A /* ArtworkView.swift */; };
+		9900D9BCAE8AF04B7BAC5AEB /* WiFiTransferLibraryPreparation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 619ED42D72C2CF96721550D0 /* WiFiTransferLibraryPreparation.swift */; };
 		99577D17289CE95A12530D1E /* YearlyReportAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E155726354BEF06B6BCABFB7 /* YearlyReportAnalyzer.swift */; };
 		996C1B4150BF531114D218FD /* SynologySource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E60AA3C090087F657145292 /* SynologySource.swift */; };
 		9979267D96DDD94E79B457EA /* TCPRangeFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77301F04EF850775B481E2D1 /* TCPRangeFetcher.swift */; };
@@ -815,6 +818,7 @@
 		CBF80DCFF81D6AD88D25A143 /* NFSBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44B4D0FC334BC388026F33AF /* NFSBrowserView.swift */; };
 		CC2F6112F008D100288922BA /* UgreenStreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7FD80E79A00801D898E32CA /* UgreenStreamResolver.swift */; };
 		CC3A1BFFBC9A8DD1D551B632 /* URL+AudioFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81BF3B3BCA7A1454E6731DDC /* URL+AudioFormat.swift */; };
+		CC831659451547578C1EB96C /* WiFiTransferFilePreparation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C999AE17AF8E49236B326C3 /* WiFiTransferFilePreparation.swift */; };
 		CC9675B11D330108D649DB12 /* SourcesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E43D86A7277FFD6BA412DECF /* SourcesStore.swift */; };
 		CCE8AC67FDF71E2038F1D5DC /* ScrobbleProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74A342EFF9101DE4480355B9 /* ScrobbleProvider.swift */; };
 		CCFBEA9ED1C863907F0814C8 /* AudioEngineVolumeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20F7B4C2CC5E6302579FD2E /* AudioEngineVolumeTests.swift */; };
@@ -971,6 +975,7 @@
 		F92FCB0CCB720B0F2A644274 /* SharedNowPlayingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 136E43CE662D6E0E06C21E26 /* SharedNowPlayingState.swift */; };
 		F9BD261E8D2A741B071F0307 /* ImmersiveTypographyFieldPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40B5788CDC6F1B7679A28630 /* ImmersiveTypographyFieldPolicy.swift */; };
 		F9CDAF1525E2198BCA7BD338 /* SongSelectionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142BA8BC3930817CCEC07646 /* SongSelectionModel.swift */; };
+		FA03B7642DD6B26415E9E956 /* WiFiTransferLibraryPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0AA7EC4D7A4EFC36DF55E56 /* WiFiTransferLibraryPicker.swift */; };
 		FADC54FE2BED967374273CE1 /* UserNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24CA1E9D7FDCD0F25BE8D43A /* UserNotificationService.swift */; };
 		FB0911208AD3966703462CC2 /* AIRecommendationLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3550B5D018DE49C7E2D1338F /* AIRecommendationLibraryView.swift */; };
 		FB7F4C31C1165C1F0923BCC4 /* TVConfigServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3C8CEC911997BAD1A995D08 /* TVConfigServer.swift */; };
@@ -1223,6 +1228,7 @@
 		0BE82C5DF65A566D6D3CDE4E /* AppleMusicLibrarySource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicLibrarySource.swift; sourceTree = "<group>"; };
 		0C50B958D5A7FEF1F9E8AD24 /* SourceTypeSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceTypeSelectionView.swift; sourceTree = "<group>"; };
 		0C7964E39EEC2700BAB113F8 /* PrimuseWatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PrimuseWatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0C999AE17AF8E49236B326C3 /* WiFiTransferFilePreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiTransferFilePreparation.swift; sourceTree = "<group>"; };
 		0D3CF7E2A5E7D4B7274BDB17 /* ExternalDisplaySceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalDisplaySceneDelegate.swift; sourceTree = "<group>"; };
 		0DAC7AD4DE8847836AD78A51 /* MediaServerBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaServerBrowserView.swift; sourceTree = "<group>"; };
 		0E0E5D6E03C437F8A3D75067 /* AudioCacheManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCacheManager.swift; sourceTree = "<group>"; };
@@ -1456,6 +1462,7 @@
 		5FBCC291DEF77EA9096556D6 /* TVNowPlayingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVNowPlayingView.swift; sourceTree = "<group>"; };
 		6034E45EAB5EDE327A29E399 /* UPnPBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UPnPBrowserView.swift; sourceTree = "<group>"; };
 		60D668FE9811EE6FEF380039 /* ScraperTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperTypes.swift; sourceTree = "<group>"; };
+		619ED42D72C2CF96721550D0 /* WiFiTransferLibraryPreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiTransferLibraryPreparation.swift; sourceTree = "<group>"; };
 		619F72A778551BB017F0840A /* RadioStationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioStationsView.swift; sourceTree = "<group>"; };
 		61EACF0F812C134ED35D5209 /* SongBatchRemovalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongBatchRemovalService.swift; sourceTree = "<group>"; };
 		6260D8F4F4648F9D7376C4F5 /* BaiduPanIncrementalSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduPanIncrementalSync.swift; sourceTree = "<group>"; };
@@ -1648,6 +1655,7 @@
 		AFC99787799DFBA7FE0F2C6D /* SiriRadioStationCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiriRadioStationCatalog.swift; sourceTree = "<group>"; };
 		AFFB42471DF5D9BEF29B46A0 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/WiFiTransfer.strings; sourceTree = "<group>"; };
 		B09E1FFC29629DC9E3BB3883 /* SourceCatalogSnapshotPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceCatalogSnapshotPolicy.swift; sourceTree = "<group>"; };
+		B0AA7EC4D7A4EFC36DF55E56 /* WiFiTransferLibraryPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiTransferLibraryPicker.swift; sourceTree = "<group>"; };
 		B11DC6DAB49401834DC62E35 /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = fr; path = fr.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		B15B6CFA8E91CA7408F262EA /* DiagnosticReportsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticReportsView.swift; sourceTree = "<group>"; };
 		B1E36F2FECF46E724081F983 /* PrimuseKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = PrimuseKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -2019,6 +2027,7 @@
 				6034E45EAB5EDE327A29E399 /* UPnPBrowserView.swift */,
 				637B2519A8207FCB3ABC3E34 /* WebDAVBrowserView.swift */,
 				EFA3B23764DBF5882B2C110B /* WiFiTransferComponents.swift */,
+				B0AA7EC4D7A4EFC36DF55E56 /* WiFiTransferLibraryPicker.swift */,
 				30E5518F412D9DA5689DB819 /* WiFiTransferSendView.swift */,
 				758577225D4912E66F9AA8CE /* WiFiTransferView.swift */,
 			);
@@ -2334,6 +2343,7 @@
 			children = (
 				3719BA4F5C42F0BA08675B59 /* WiFiTransferClient.swift */,
 				BA370CF93CF263D5B554EA26 /* WiFiTransferDevice.swift */,
+				0C999AE17AF8E49236B326C3 /* WiFiTransferFilePreparation.swift */,
 				41E1E159BB8773813997C2CE /* WiFiTransferFiles.swift */,
 				67EDF7DB74CD3E0D6F725125 /* WiFiTransferHTTP.swift */,
 				2A3BC752AD6BA07686801ABC /* WiFiTransferPage.swift */,
@@ -2450,6 +2460,14 @@
 			path = App;
 			sourceTree = "<group>";
 		};
+		82393C1ADCBCAFE7BBF8820E /* Transfer */ = {
+			isa = PBXGroup;
+			children = (
+				619ED42D72C2CF96721550D0 /* WiFiTransferLibraryPreparation.swift */,
+			);
+			path = Transfer;
+			sourceTree = "<group>";
+		};
 		842B78D19D0E7D0D75E453B4 /* Extensions */ = {
 			isa = PBXGroup;
 			children = (
@@ -2523,6 +2541,7 @@
 				DE3F0EDB45D39B39E3DA2D5A /* Settings */,
 				227B30DE534574B04EF07610 /* Sources */,
 				C5B3232ED3706187CCF05A97 /* Stats */,
+				82393C1ADCBCAFE7BBF8820E /* Transfer */,
 				5070DEF324D99A563F83D6FA /* Watch */,
 				A796306024AE3678DB56D02A /* AppIconService.swift */,
 				674035830422263129C5DAB9 /* AppReviewPromptCoordinator.swift */,
@@ -3773,6 +3792,7 @@
 				CC2F6112F008D100288922BA /* UgreenStreamResolver.swift in Sources */,
 				F678853AC4F5F5E6CFB67C93 /* WiFiTransferClient.swift in Sources */,
 				2D289CD7902DECBEFFF91C12 /* WiFiTransferDevice.swift in Sources */,
+				CC831659451547578C1EB96C /* WiFiTransferFilePreparation.swift in Sources */,
 				5386518D1AB3CB7A467E2276 /* WiFiTransferFiles.swift in Sources */,
 				C50DFAF285078C89CB860BEC /* WiFiTransferHTTP.swift in Sources */,
 				46C16D2AEE302ABA4521D6C8 /* WiFiTransferPage.swift in Sources */,
@@ -4108,6 +4128,8 @@
 				C2A580459ECE4BEDAEE0A928 /* WebDAVBrowserView.swift in Sources */,
 				42E967953F2970DAE068FA3A /* WebDAVSource.swift in Sources */,
 				69C02720974BF53818AC20B1 /* WiFiTransferComponents.swift in Sources */,
+				840AB166E67D6505C18D5988 /* WiFiTransferLibraryPicker.swift in Sources */,
+				298DA96D8AC0587B7941AC94 /* WiFiTransferLibraryPreparation.swift in Sources */,
 				AFA2C9D32512C709BD508C2C /* WiFiTransferSendView.swift in Sources */,
 				AB6341B1F3F64502DA84A07E /* WiFiTransferView.swift in Sources */,
 				5D45E0DE770834B700BA3ED1 /* XorZlibLyricsDecoder.swift in Sources */,
@@ -4514,6 +4536,8 @@
 				87FF2436F5492C7D7D1D1A26 /* WebDAVBrowserView.swift in Sources */,
 				BCD118DDD7CB7A8F1DCC6BED /* WebDAVSource.swift in Sources */,
 				544E8AFF70B594C2A6AC5690 /* WiFiTransferComponents.swift in Sources */,
+				FA03B7642DD6B26415E9E956 /* WiFiTransferLibraryPicker.swift in Sources */,
+				9900D9BCAE8AF04B7BAC5AEB /* WiFiTransferLibraryPreparation.swift in Sources */,
 				57F1ED6AFDBA5831ECEA50DA /* WiFiTransferSendView.swift in Sources */,
 				79E2E4EE00D50F18EEDF9B01 /* WiFiTransferView.swift in Sources */,
 				E77B4CEB5D9E9A052E4DBA84 /* XorZlibLyricsDecoder.swift in Sources */,

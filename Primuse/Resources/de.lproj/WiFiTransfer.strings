@@ -121,3 +121,24 @@
 "backgroundStopped" = "Primuse wurde in den Hintergrund versetzt. Die Übertragung wurde gestoppt; empfangene Dateien bleiben erhalten. Starte den Empfang erneut für einen neuen Code.";
 "receiveTimedOut" = "Das sendende Gerät antwortet nicht mehr. Empfangene Dateien bleiben erhalten. Sende die übrigen Dateien erneut.";
 "receiveHistory" = "Frühere Übertragungen";
+
+"addMusic" = "Musik hinzufügen";
+"librarySelectionHint" = "Wähle Titel aus lokaler Musik oder verbundenen Quellen. Audio, Liedtexte und Cover werden vor dem Senden vorbereitet.";
+"libraryProtected" = "Apple Music-Abotitel lassen sich nicht als Audiodateien exportieren.";
+"librarySourceUnavailable" = "Diese Quelle ist nicht verfügbar. Aktiviere oder verbinde sie erneut.";
+"libraryCue" = "Dies ist ein CUE-Titel. Sende die vollständige Audiodatei und das CUE-Sheet über „Dateien auswählen“.";
+"libraryStream" = "Livestreams und STRM-Links lassen sich nicht als Audiodateien senden.";
+"libraryUnknownSize" = "Die Originaldateigröße ist unbekannt. Aktualisiere die Musikquelle und versuche es erneut.";
+"libraryPreparing" = "Musik wird vorbereitet…";
+"libraryPrepared" = "Musik zur Sendeliste hinzugefügt";
+"libraryPreparationDetail" = "%d / %d Titel · %@";
+"libraryLyricsUnavailable" = "Liedtexte konnten nicht vorbereitet werden. Die Audiodatei kann gesendet werden.";
+"libraryCoverUnavailable" = "Das Cover konnte nicht vorbereitet werden. Die Audiodatei kann gesendet werden.";
+"librarySourceChanged" = "Titel oder Quelle wurden während der Vorbereitung geändert. Wähle den Titel erneut aus.";
+"libraryAllSources" = "Alle Quellen";
+"librarySearch" = "Titel, Künstler oder Alben suchen";
+"libraryEmpty" = "Keine passenden Titel";
+"libraryAlreadyAdded" = "Bereits in der Sendeliste";
+"libraryAddSelected" = "%d Titel hinzufügen";
+"libraryRetryPreparation" = "Fehlgeschlagene Titel erneut vorbereiten";
+"libraryChooseMusic" = "Musik zum Senden auswählen";

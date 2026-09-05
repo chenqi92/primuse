@@ -121,3 +121,24 @@
 "backgroundStopped" = "Primuse가 백그라운드로 이동하여 전송이 중지되었습니다. 완료된 파일은 유지됩니다. 수신을 다시 시작하여 새 코드를 받으세요.";
 "receiveTimedOut" = "보내는 기기가 응답하지 않습니다. 완료된 파일은 유지됩니다. 나머지 파일을 다시 보내세요.";
 "receiveHistory" = "이전 수신 내역";
+
+"addMusic" = "음악 추가";
+"librarySelectionHint" = "로컬 음악이나 연결된 소스에서 곡을 선택하세요. 전송 전에 오디오, 가사와 커버를 준비합니다.";
+"libraryProtected" = "Apple Music 구독 곡은 오디오 파일로 내보낼 수 없습니다.";
+"librarySourceUnavailable" = "이 소스를 사용할 수 없습니다. 활성화하거나 다시 연결한 후 재시도하세요.";
+"libraryCue" = "CUE 가상 트랙입니다. 파일 선택에서 전체 오디오와 CUE 파일을 함께 보내세요.";
+"libraryStream" = "실시간 스트림과 STRM 링크는 오디오 파일로 보낼 수 없습니다.";
+"libraryUnknownSize" = "원본 파일 크기를 확인할 수 없습니다. 음악 소스를 새로 고친 후 재시도하세요.";
+"libraryPreparing" = "음악 준비 중…";
+"libraryPrepared" = "음악이 전송 대기 목록에 추가됨";
+"libraryPreparationDetail" = "%d / %d곡 · %@";
+"libraryLyricsUnavailable" = "가사를 준비하지 못했습니다. 오디오는 전송할 수 있습니다.";
+"libraryCoverUnavailable" = "커버를 준비하지 못했습니다. 오디오는 전송할 수 있습니다.";
+"librarySourceChanged" = "준비 중에 곡이나 소스가 변경되었습니다. 다시 선택하세요.";
+"libraryAllSources" = "모든 소스";
+"librarySearch" = "곡, 아티스트 또는 앨범 검색";
+"libraryEmpty" = "일치하는 곡 없음";
+"libraryAlreadyAdded" = "이미 전송 대기 목록에 있음";
+"libraryAddSelected" = "%d곡 추가";
+"libraryRetryPreparation" = "실패한 곡 다시 준비";
+"libraryChooseMusic" = "전송할 음악 선택";

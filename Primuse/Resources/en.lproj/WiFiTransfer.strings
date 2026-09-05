@@ -121,3 +121,24 @@
 "backgroundStopped" = "Transfer stopped because Primuse went into the background. Completed files are kept. Start receiving again to get a new code.";
 "receiveTimedOut" = "The sending device stopped responding. Completed files are kept; retry the remaining files.";
 "receiveHistory" = "Earlier transfers";
+
+"addMusic" = "Add music";
+"librarySelectionHint" = "Choose songs from local music or connected sources. Files, lyrics and artwork are prepared before sending.";
+"libraryProtected" = "Apple Music subscription tracks cannot be exported as audio files.";
+"librarySourceUnavailable" = "This source is unavailable. Enable or reconnect it, then try again.";
+"libraryCue" = "This is a CUE track. Use Choose files to send the complete audio and CUE sheet together.";
+"libraryStream" = "Live streams and STRM links cannot be sent as audio files.";
+"libraryUnknownSize" = "The original file size is unknown. Refresh this music source, then try again.";
+"libraryPreparing" = "Preparing music…";
+"libraryPrepared" = "Music added to the send queue";
+"libraryPreparationDetail" = "%d / %d songs · %@";
+"libraryLyricsUnavailable" = "Lyrics could not be prepared. The audio is still ready to send.";
+"libraryCoverUnavailable" = "Artwork could not be prepared. The audio is still ready to send.";
+"librarySourceChanged" = "The song or source changed during preparation. Select it again.";
+"libraryAllSources" = "All sources";
+"librarySearch" = "Search songs, artists or albums";
+"libraryEmpty" = "No matching songs";
+"libraryAlreadyAdded" = "Already in the send queue";
+"libraryAddSelected" = "Add %d songs";
+"libraryRetryPreparation" = "Retry preparing failed songs";
+"libraryChooseMusic" = "Choose music to send";

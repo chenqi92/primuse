@@ -16,11 +16,70 @@ final class WiFiTransferSender {
     private(set) var failures: [String] = []
     private(set) var error: String?
     private(set) var destinationName = ""
+    private(set) var preparationFailures: [String: String] = [:]
+    private(set) var preparationWarnings: [String] = []
+    private(set) var preparationDetail = ""
+    private var songFiles: [String: Set<String>] = [:]
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var generation = UUID()
 
     var files: [WiFiTransferOutgoingFile] { selection?.files.filter { !excluded.contains($0.id) } ?? [] }
     var bytes: Int64 { files.reduce(0) { $0 + $1.size } }
+    var addedSongIDs: Set<String> {
+        let queued = Set(files.map(\.id))
+        return Set(songFiles.filter { !$0.value.isDisjoint(with: queued) }.keys)
+    }
+
+    private func append(_ addition: WiFiTransferSelection) throws {
+        if let selection {
+            let retained = selection.keeping(Set(files.map(\.id)))
+            self.selection = try retained.appending(addition, conflictFolder: WiFiTransferText.string("addMusic"))
+        } else {
+            selection = addition
+        }
+        excluded = []
+        completed = 0
+        failed = []
+        failures = []
+    }
+
+    func choose(songIDs: [String], library: MusicLibrary, sources: SourcesStore, sourceManager: SourceManager) {
+        guard !busy else { return }
+        var seen = addedSongIDs
+        let ids = songIDs.filter { seen.insert($0).inserted }
+        guard !ids.isEmpty else { return }
+        busy = true
+        error = nil
+        status = "libraryPreparing"
+        progress = 0
+        preparationDetail = ""
+        task = Task {
+            defer { busy = false; task = nil; currentFile = "" }
+            do {
+                let result = try await WiFiTransferLibraryPreparation.prepare(
+                    songIDs: ids, library: library, sources: sources, sourceManager: sourceManager
+                ) { [weak self] title, index, total, received, size in
+                    guard let self else { return }
+                    self.currentFile = title
+                    self.progress = min(1, (Double(index) + (size > 0 ? Double(received) / Double(size) : 0)) / Double(max(1, total)))
+                    self.preparationDetail = String(format: WiFiTransferText.string("libraryPreparationDetail"),
+                                               min(index + 1, total), total,
+                                               ByteCountFormatter.string(fromByteCount: received, countStyle: .file))
+                }
+                try Task.checkCancellation()
+                try append(result.selection)
+                songFiles.merge(result.songFiles) { _, latest in latest }
+                for id in ids { preparationFailures[id] = nil }
+                preparationFailures.merge(result.failures) { _, latest in latest }
+                preparationWarnings = result.warnings
+                status = result.songFiles.isEmpty ? "failed" : "libraryPrepared"
+                progress = 1
+            } catch {
+                self.error = WiFiTransferText.error(error)
+                status = Task.isCancelled ? "cancelled" : "failed"
+            }
+        }
+    }
 
     func choose(_ urls: [URL]) {
         guard !busy else { return }
@@ -32,11 +91,7 @@ final class WiFiTransferSender {
             do {
                 let selection = try await WiFiTransferSelection.prepare(urls)
                 try Task.checkCancellation()
-                self.selection = selection
-                excluded = []
-                completed = 0
-                failed = []
-                failures = []
+                try append(selection)
                 status = ""
                 if selection.files.isEmpty { error = WiFiTransferText.string("emptySelection") }
             } catch {
@@ -71,6 +126,8 @@ final class WiFiTransferSender {
                 if let client, let ticket { Task { await client.finish(ticket) } }
             }
             do {
+                try WiFiTransferFilePreparation.checkSpace(at: FileManager.default.temporaryDirectory,
+                                                          additionalBytes: files.map(\.size).max() ?? 0)
                 let connection = try WiFiTransferClient(address: address, code: code)
                 client = connection
                 let destination = try await connection.destination()
@@ -127,6 +184,9 @@ final class WiFiTransferSender {
 }
 
 struct WiFiTransferSendView: View {
+    @Environment(MusicLibrary.self) private var library
+    @Environment(SourcesStore.self) private var sources
+    @Environment(SourceManager.self) private var sourceManager
     @Bindable var sender: WiFiTransferSender
     @State private var discovery = WiFiTransferDiscovery()
     @State private var address = ""
@@ -134,7 +194,7 @@ struct WiFiTransferSendView: View {
     @State private var expectedPeerID: String?
     @State private var showImporter = false
     @State private var pickFolder = false
-    @State private var showLocalFiles = false
+    @State private var showLibrary = false
     @State private var manualConnection = false
     @State private var pickerError: String?
     @State private var dropTargeted = false
@@ -170,7 +230,11 @@ struct WiFiTransferSendView: View {
             case .failure(let error): pickerError = WiFiTransferText.error(error)
             }
         }
-        .sheet(isPresented: $showLocalFiles) { WiFiTransferLocalPicker { sender.choose($0) } }
+        .sheet(isPresented: $showLibrary) {
+            WiFiTransferLibraryPicker(alreadyAdded: sender.addedSongIDs) {
+                sender.choose(songIDs: $0, library: library, sources: sources, sourceManager: sourceManager)
+            }
+        }
         .onAppear { discovery.start() }
         .onDisappear { discovery.stop() }
     }
@@ -185,18 +249,18 @@ struct WiFiTransferSendView: View {
                     VStack(spacing: 14) {
                         ZStack {
                             RoundedRectangle(cornerRadius: 18).fill(TransferAppearance.accent.opacity(0.08))
-                                .frame(width: 84, height: 84).rotationEffect(.degrees(-9))
+                                .frame(width: 60, height: 60).rotationEffect(.degrees(-9))
                             Image(systemName: "music.note")
-                                .font(.system(size: 34, weight: .medium))
+                                .font(.system(size: 28, weight: .medium))
                                 .foregroundStyle(TransferAppearance.accent)
-                        }.padding(.top, 16)
-                        Text(WiFiTransferText.string("drop")).font(.system(size: 17, weight: .semibold))
+                        }
+                        Text(WiFiTransferText.string("libraryChooseMusic")).font(.system(size: 17, weight: .semibold))
                         Text(WiFiTransferText.string("formats"))
                             .font(.system(size: TransferAppearance.captionSize))
                             .foregroundStyle(TransferAppearance.muted).multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
                         fileActions
-                    }.padding(22).frame(maxWidth: .infinity, minHeight: 275)
+                    }.padding(22).frame(maxWidth: .infinity)
                 } else {
                     ScrollView(.vertical, showsIndicators: sender.files.count > 4) {
                         LazyVStack(spacing: 0) {
@@ -244,28 +308,52 @@ struct WiFiTransferSendView: View {
             if !sender.status.isEmpty {
                 progressSummary
             }
+            if !sender.preparationFailures.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(sender.preparationFailures.keys.sorted(), id: \.self) { id in
+                        TransferFeedback(text: sender.preparationFailures[id] ?? "", isError: true)
+                    }
+                    Button(WiFiTransferText.string("libraryRetryPreparation"), systemImage: "arrow.clockwise") {
+                        sender.choose(songIDs: sender.preparationFailures.keys.sorted(), library: library, sources: sources, sourceManager: sourceManager)
+                    }
+                    .buttonStyle(TransferButtonStyle()).disabled(sender.busy)
+                }
+                .modifier(TransferSurface(padding: 14))
+            }
+            ForEach(Array(sender.preparationWarnings.enumerated()), id: \.offset) { _, warning in
+                TransferFeedback(text: warning, isError: true)
+            }
             if let error = sender.error ?? pickerError { TransferFeedback(text: error, isError: true) }
         }
     }
 
     private var fileActions: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 8) {
-                Button { pickFolder = false; showImporter = true } label: {
-                    Label(WiFiTransferText.string("files"), systemImage: "doc.badge.plus")
-                }.buttonStyle(TransferButtonStyle(prominent: sender.files.isEmpty, compact: true))
-                Button { pickFolder = true; showImporter = true } label: {
-                    Label(WiFiTransferText.string("folder"), systemImage: "folder")
-                }.buttonStyle(TransferButtonStyle(compact: true))
+        Menu {
+            Button { showLibrary = true } label: {
+                Label(String(localized: "library"), systemImage: "music.note.list")
             }
-            Button { showLocalFiles = true } label: {
-                Label(WiFiTransferText.string("localFiles"), systemImage: "music.note.list")
-                    .font(.system(size: TransferAppearance.captionSize, weight: .medium))
-                    .foregroundStyle(TransferAppearance.accent)
-                    .padding(.vertical, 4)
-                    .frame(minHeight: TransferAppearance.compactTarget)
-            }.buttonStyle(.plain)
-        }.disabled(sender.busy).frame(maxWidth: .infinity)
+            Divider()
+            Button { pickFolder = false; showImporter = true } label: {
+                Label(WiFiTransferText.string("files"), systemImage: "doc.badge.plus")
+            }
+            Button { pickFolder = true; showImporter = true } label: {
+                Label(WiFiTransferText.string("folder"), systemImage: "folder")
+            }
+        } label: {
+            Label(WiFiTransferText.string("addMusic"), systemImage: "plus")
+                .font(.callout.weight(.semibold))
+                #if os(iOS)
+                .frame(minHeight: 28)
+                #endif
+        }
+        #if os(macOS)
+        .menuStyle(.borderlessButton)
+        #endif
+        .buttonStyle(TransferButtonStyle(prominent: true))
+        .fixedSize(horizontal: true, vertical: false)
+        .frame(maxWidth: .infinity)
+        .disabled(sender.busy)
+        .accessibilityIdentifier("transfer.addMusic")
     }
 
     private var devicePane: some View {
@@ -364,12 +452,17 @@ struct WiFiTransferSendView: View {
                 if sender.busy { ProgressView().controlSize(.small) }
                 Text(WiFiTransferText.string(sender.status))
                 Spacer()
-                if !sender.busy { Text("\(sender.completed) / \(sender.completed + sender.failed.count)").monospacedDigit() }
+                if !sender.busy && sender.completed + sender.failed.count > 0 && sender.status != "libraryPrepared" {
+                    Text("\(sender.completed) / \(sender.completed + sender.failed.count)").monospacedDigit()
+                }
             }.font(.system(size: TransferAppearance.bodySize, weight: .medium))
             if sender.busy && !sender.currentFile.isEmpty {
                 Text(sender.currentFile).font(.system(size: TransferAppearance.captionSize))
                     .foregroundStyle(TransferAppearance.muted).lineLimit(1).truncationMode(.middle)
                 ProgressView(value: sender.progress).tint(TransferAppearance.accent)
+                if sender.status == "libraryPreparing" {
+                    Text(sender.preparationDetail).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                }
             }
             ForEach(Array(sender.failures.prefix(3).enumerated()), id: \.offset) { _, failure in
                 TransferFeedback(text: failure, isError: true)
@@ -420,76 +513,4 @@ struct WiFiTransferSendView: View {
     }
 }
 
-private struct WiFiTransferLocalPicker: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var selected: Set<URL> = []
-    let onSelect: ([URL]) -> Void
-
-    var body: some View {
-        NavigationStack {
-            WiFiTransferLocalFolder(folder: LocalImportService.ensureMusicDirectory(), selected: $selected)
-                .navigationTitle(WiFiTransferText.string("localFiles"))
-        }
-        .safeAreaInset(edge: .bottom) {
-            HStack {
-                Button(WiFiTransferText.string("cancel")) { dismiss() }
-                    .buttonStyle(TransferButtonStyle())
-                Spacer()
-                Button("\(WiFiTransferText.string("selected")) (\(selected.count))") {
-                    onSelect(Array(selected)); dismiss()
-                }
-                .buttonStyle(TransferButtonStyle(prominent: true)).disabled(selected.isEmpty)
-                .accessibilityIdentifier("transfer.confirmSelection")
-            }.padding().background(.bar)
-        }
-        #if os(macOS)
-        .frame(width: 620, height: 540)
-        #endif
-    }
-}
-
-private struct WiFiTransferLocalFolder: View {
-    struct Entry: Identifiable, Sendable {
-        let url: URL
-        let folder: Bool
-        var id: URL { url }
-    }
-    let folder: URL
-    @Binding var selected: Set<URL>
-    @State private var entries: [Entry] = []
-    @State private var error: String?
-
-    var body: some View {
-        List {
-            ForEach(entries) { entry in
-                HStack {
-                    Button {
-                        if selected.contains(entry.url) { selected.remove(entry.url) } else { selected.insert(entry.url) }
-                    } label: {
-                        Image(systemName: selected.contains(entry.url) ? "checkmark.circle.fill" : "circle")
-                    }.buttonStyle(.plain).accessibilityLabel(entry.url.lastPathComponent)
-                    if entry.folder {
-                        NavigationLink {
-                            WiFiTransferLocalFolder(folder: entry.url, selected: $selected)
-                                .navigationTitle(entry.url.lastPathComponent)
-                        } label: { Label(entry.url.lastPathComponent, systemImage: "folder") }
-                    } else { Text(entry.url.lastPathComponent) }
-                }
-            }
-            if entries.isEmpty { Text(error ?? WiFiTransferText.string("emptySelection")).foregroundStyle(.secondary) }
-        }
-        .task(id: folder) {
-            do {
-                entries = try await Task.detached(priority: .utility) {
-                    try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey], options: [.skipsHiddenFiles])
-                        .compactMap { url -> Entry? in
-                            let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-                            guard values.isSymbolicLink != true else { return nil }
-                            return Entry(url: url, folder: values.isDirectory == true)
-                        }.sorted { $0.url.lastPathComponent.localizedStandardCompare($1.url.lastPathComponent) == .orderedAscending }
-                }.value
-            } catch { self.error = WiFiTransferText.error(error) }
-        }
-    }
-}
 #endif

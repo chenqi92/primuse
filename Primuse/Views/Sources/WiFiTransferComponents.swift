@@ -48,6 +48,33 @@ struct TransferSurface: ViewModifier {
     }
 }
 
+#if os(iOS)
+struct TransferButtonStyle: PrimitiveButtonStyle {
+    var prominent = false
+    var compact = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        Group {
+            if prominent {
+                Button(action: configuration.trigger) { label(configuration) }
+                    .buttonStyle(.borderedProminent)
+            } else {
+                Button(action: configuration.trigger) { label(configuration) }
+                    .buttonStyle(.bordered)
+            }
+        }
+        .controlSize(.regular)
+    }
+
+    private func label(_ configuration: Configuration) -> some View {
+        configuration.label
+            .labelStyle(.titleAndIcon)
+            .font(.callout.weight(.semibold))
+            .frame(minHeight: 28)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+#else
 struct TransferButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
     var prominent = false
@@ -69,6 +96,8 @@ struct TransferButtonStyle: ButtonStyle {
             .contentShape(.rect)
     }
 }
+
+#endif
 
 struct TransferSectionHeading: View {
     let title: String

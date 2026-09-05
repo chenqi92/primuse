@@ -121,3 +121,24 @@
 "backgroundStopped" = "猿音切到背景，傳輸已停止。已完成的檔案會保留；重新開啟接收後請使用新的存取碼。";
 "receiveTimedOut" = "傳送裝置長時間沒有回應，已完成的檔案會保留。請在傳送端重試剩餘檔案。";
 "receiveHistory" = "先前的接收";
+
+"addMusic" = "加入音樂";
+"librarySelectionHint" = "從本機音樂或已連線的音樂來源選曲，傳送前會準備完整音訊、歌詞與封面。";
+"libraryProtected" = "Apple Music 訂閱歌曲無法匯出為音訊檔案。";
+"librarySourceUnavailable" = "音樂來源目前無法使用，請啟用或重新連線後再試。";
+"libraryCue" = "這是 CUE 虛擬單曲，請透過「選擇檔案」一起傳送完整音訊與 CUE 檔案。";
+"libraryStream" = "即時串流與 STRM 連結無法作為音訊檔案傳送。";
+"libraryUnknownSize" = "無法確認原始檔案大小，請重新整理音樂來源後再試。";
+"libraryPreparing" = "正在準備音樂…";
+"libraryPrepared" = "音樂已加入待傳送列表";
+"libraryPreparationDetail" = "%d / %d 首 · %@";
+"libraryLyricsUnavailable" = "歌詞未能準備完成，音訊仍可傳送。";
+"libraryCoverUnavailable" = "封面未能準備完成，音訊仍可傳送。";
+"librarySourceChanged" = "準備期間歌曲或音樂來源發生變更，請重新選擇。";
+"libraryAllSources" = "所有音樂來源";
+"librarySearch" = "搜尋歌曲、藝人或專輯";
+"libraryEmpty" = "沒有符合條件的歌曲";
+"libraryAlreadyAdded" = "已在待傳送列表中";
+"libraryAddSelected" = "加入 %d 首";
+"libraryRetryPreparation" = "重新準備失敗的歌曲";
+"libraryChooseMusic" = "選擇要傳送的音樂";

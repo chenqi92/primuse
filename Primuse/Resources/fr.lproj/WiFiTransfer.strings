@@ -121,3 +121,24 @@
 "backgroundStopped" = "Primuse est passé en arrière-plan. Le transfert a été arrêté et les fichiers reçus sont conservés. Relancez la réception pour obtenir un nouveau code.";
 "receiveTimedOut" = "L’appareil expéditeur ne répond plus. Les fichiers reçus sont conservés ; renvoyez les fichiers restants.";
 "receiveHistory" = "Transferts précédents";
+
+"addMusic" = "Ajouter de la musique";
+"librarySelectionHint" = "Choisissez des titres locaux ou de sources connectées. Audio, paroles et pochettes seront préparés avant l’envoi.";
+"libraryProtected" = "Les titres de l’abonnement Apple Music ne peuvent pas être exportés en fichiers audio.";
+"librarySourceUnavailable" = "Cette source est indisponible. Activez-la ou reconnectez-la, puis réessayez.";
+"libraryCue" = "Ce titre est défini par une feuille CUE. Utilisez « Choisir des fichiers » pour envoyer l’audio complet et la feuille CUE ensemble.";
+"libraryStream" = "Les flux en direct et les liens STRM ne peuvent pas être envoyés comme fichiers audio.";
+"libraryUnknownSize" = "La taille du fichier original est inconnue. Actualisez la source musicale, puis réessayez.";
+"libraryPreparing" = "Préparation de la musique…";
+"libraryPrepared" = "Musique ajoutée à la liste d’envoi";
+"libraryPreparationDetail" = "%d / %d titres · %@";
+"libraryLyricsUnavailable" = "Les paroles n’ont pas pu être préparées. L’audio peut être envoyé.";
+"libraryCoverUnavailable" = "La pochette n’a pas pu être préparée. L’audio peut être envoyé.";
+"librarySourceChanged" = "Le titre ou la source a changé pendant la préparation. Sélectionnez-le à nouveau.";
+"libraryAllSources" = "Toutes les sources";
+"librarySearch" = "Rechercher des titres, artistes ou albums";
+"libraryEmpty" = "Aucun titre correspondant";
+"libraryAlreadyAdded" = "Déjà dans la liste d’envoi";
+"libraryAddSelected" = "Ajouter %d titres";
+"libraryRetryPreparation" = "Réessayer les titres en échec";
+"libraryChooseMusic" = "Choisir la musique à envoyer";
