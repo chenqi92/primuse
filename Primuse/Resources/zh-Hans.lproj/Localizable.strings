@@ -3728,3 +3728,14 @@
 "ai_recommendation_stream_partial_format" = "已保留 %d 首完整推荐，可先播放或加载更多。";
 "ai_recommendation_stream_retained_format" = "刷新未完成，已保留之前的 %d 首推荐。";
 "ai_recommendation_retry_countdown_format" = "%d 秒后可重试";
+
+"stats_calendar_title" = "听歌日历";
+"stats_calendar_hint" = "高亮为所选周期 · 颜色越深，播放越多";
+"stats_trend_title" = "听歌时长趋势";
+"stats_trend_daily" = "按天 · 分钟";
+"stats_trend_monthly" = "按月 · 分钟";
+"stats_hourly_title" = "播放时段分布";
+"stats_hourly_hint" = "按歌曲开始播放的小时统计 · 次";
+"stats_chart_no_activity" = "此周期暂无播放记录";
+"stats_chart_minutes" = "分钟";
+"stats_chart_hour" = "时段";

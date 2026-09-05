@@ -3635,3 +3635,14 @@
 "ai_recommendation_stream_partial_format" = "%d recommandations complètes conservées. Écoutez-les ou chargez-en d’autres.";
 "ai_recommendation_stream_retained_format" = "Actualisation inachevée. Vos %d recommandations précédentes restent disponibles.";
 "ai_recommendation_retry_countdown_format" = "Réessayez dans %d s";
+
+"stats_calendar_title" = "Calendrier d’écoute";
+"stats_calendar_hint" = "Dates sélectionnées en surbrillance · Plus foncé signifie plus d’écoutes";
+"stats_trend_title" = "Évolution du temps d’écoute";
+"stats_trend_daily" = "Par jour · minutes";
+"stats_trend_monthly" = "Par mois · minutes";
+"stats_hourly_title" = "Écoutes par heure";
+"stats_hourly_hint" = "Selon l’heure de début de lecture · écoutes";
+"stats_chart_no_activity" = "Aucune écoute sur cette période";
+"stats_chart_minutes" = "Minutes";
+"stats_chart_hour" = "Heure";

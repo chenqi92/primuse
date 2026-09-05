@@ -3541,3 +3541,14 @@
 "ai_recommendation_stream_partial_format" = "Збережено повних рекомендацій: %d. Слухайте їх або завантажте ще.";
 "ai_recommendation_stream_retained_format" = "Оновлення не завершено. Попередні рекомендації (%d) досі доступні.";
 "ai_recommendation_retry_countdown_format" = "Спробуйте знову через %d с";
+
+"stats_calendar_title" = "Календар прослуховування";
+"stats_calendar_hint" = "Вибраний період виділено · Темніше — більше відтворень";
+"stats_trend_title" = "Динаміка часу прослуховування";
+"stats_trend_daily" = "За днями · хвилини";
+"stats_trend_monthly" = "За місяцями · хвилини";
+"stats_hourly_title" = "Відтворення за годинами";
+"stats_hourly_hint" = "За годиною початку відтворення · разів";
+"stats_chart_no_activity" = "За цей період немає відтворень";
+"stats_chart_minutes" = "Хвилини";
+"stats_chart_hour" = "Година";

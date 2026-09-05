@@ -3541,3 +3541,14 @@
 "ai_recommendation_stream_partial_format" = "%d पूरे सुझाव रखे गए हैं। इन्हें चलाएँ या और लोड करें।";
 "ai_recommendation_stream_retained_format" = "रीफ़्रेश पूरा नहीं हुआ। आपके पिछले %d सुझाव अब भी उपलब्ध हैं।";
 "ai_recommendation_retry_countdown_format" = "%d सेकंड में फिर कोशिश करें";
+
+"stats_calendar_title" = "सुनने का कैलेंडर";
+"stats_calendar_hint" = "चुनी गई अवधि हाइलाइट है · गहरा रंग अधिक प्ले दर्शाता है";
+"stats_trend_title" = "सुनने के समय का रुझान";
+"stats_trend_daily" = "प्रतिदिन · मिनट";
+"stats_trend_monthly" = "प्रतिमाह · मिनट";
+"stats_hourly_title" = "समय के अनुसार प्ले";
+"stats_hourly_hint" = "प्ले शुरू होने के घंटे के अनुसार · प्ले";
+"stats_chart_no_activity" = "इस अवधि में कोई प्ले नहीं";
+"stats_chart_minutes" = "मिनट";
+"stats_chart_hour" = "घंटा";

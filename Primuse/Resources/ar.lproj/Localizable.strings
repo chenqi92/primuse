@@ -3541,3 +3541,14 @@
 "ai_recommendation_stream_partial_format" = "تم الاحتفاظ بـ %d توصيات مكتملة. شغّلها أو حمّل المزيد.";
 "ai_recommendation_stream_retained_format" = "لم يكتمل التحديث. لا تزال توصياتك السابقة البالغ عددها %d متاحة.";
 "ai_recommendation_retry_countdown_format" = "أعِد المحاولة بعد %d ثوانٍ";
+
+"stats_calendar_title" = "تقويم الاستماع";
+"stats_calendar_hint" = "التواريخ المميزة ضمن الفترة المحددة · اللون الأغمق يعني تشغيلات أكثر";
+"stats_trend_title" = "اتجاه وقت الاستماع";
+"stats_trend_daily" = "يوميًا · دقائق";
+"stats_trend_monthly" = "شهريًا · دقائق";
+"stats_hourly_title" = "التشغيل حسب الساعة";
+"stats_hourly_hint" = "حسب ساعة بدء التشغيل · مرات التشغيل";
+"stats_chart_no_activity" = "لا توجد تشغيلات في هذه الفترة";
+"stats_chart_minutes" = "دقائق";
+"stats_chart_hour" = "الساعة";

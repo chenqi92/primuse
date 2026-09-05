@@ -3635,3 +3635,14 @@
 "ai_recommendation_stream_partial_format" = "완성된 추천 %d곡을 유지했습니다. 재생하거나 더 불러오세요.";
 "ai_recommendation_stream_retained_format" = "새로 고침이 완료되지 않았습니다. 이전 추천 %d곡은 계속 사용할 수 있습니다.";
 "ai_recommendation_retry_countdown_format" = "%d초 후 다시 시도";
+
+"stats_calendar_title" = "음악 감상 달력";
+"stats_calendar_hint" = "선택 기간 강조 · 색이 진할수록 재생 횟수가 많음";
+"stats_trend_title" = "감상 시간 추이";
+"stats_trend_daily" = "일별 · 분";
+"stats_trend_monthly" = "월별 · 분";
+"stats_hourly_title" = "시간대별 재생 횟수";
+"stats_hourly_hint" = "재생 시작 시간 기준 · 회";
+"stats_chart_no_activity" = "이 기간에 재생 기록이 없습니다";
+"stats_chart_minutes" = "분";
+"stats_chart_hour" = "시간대";

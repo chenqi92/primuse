@@ -3541,3 +3541,14 @@
 "ai_recommendation_stream_partial_format" = "Mantidas %d recomendações completas. Reproduza ou carregue mais.";
 "ai_recommendation_stream_retained_format" = "A atualização não terminou. Suas %d recomendações anteriores continuam disponíveis.";
 "ai_recommendation_retry_countdown_format" = "Tente novamente em %d s";
+
+"stats_calendar_title" = "Calendário de escuta";
+"stats_calendar_hint" = "Datas selecionadas em destaque · Mais escuro indica mais reproduções";
+"stats_trend_title" = "Evolução do tempo de escuta";
+"stats_trend_daily" = "Por dia · minutos";
+"stats_trend_monthly" = "Por mês · minutos";
+"stats_hourly_title" = "Reproduções por horário";
+"stats_hourly_hint" = "Pela hora de início da reprodução · reproduções";
+"stats_chart_no_activity" = "Nenhuma reprodução neste período";
+"stats_chart_minutes" = "Minutos";
+"stats_chart_hour" = "Hora";

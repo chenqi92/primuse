@@ -3635,3 +3635,14 @@
 "ai_recommendation_stream_partial_format" = "%d vollständige Empfehlungen behalten. Abspielen oder weitere laden.";
 "ai_recommendation_stream_retained_format" = "Aktualisierung nicht abgeschlossen. Die vorherigen %d Empfehlungen bleiben verfügbar.";
 "ai_recommendation_retry_countdown_format" = "In %d s erneut versuchen";
+
+"stats_calendar_title" = "Hörkalender";
+"stats_calendar_hint" = "Markierte Tage entsprechen dem Zeitraum · Dunkler bedeutet mehr Wiedergaben";
+"stats_trend_title" = "Hörzeit im Verlauf";
+"stats_trend_daily" = "Täglich · Minuten";
+"stats_trend_monthly" = "Monatlich · Minuten";
+"stats_hourly_title" = "Wiedergaben nach Tageszeit";
+"stats_hourly_hint" = "Nach Stunde des Wiedergabestarts · Wiedergaben";
+"stats_chart_no_activity" = "Keine Wiedergaben in diesem Zeitraum";
+"stats_chart_minutes" = "Minuten";
+"stats_chart_hour" = "Stunde";

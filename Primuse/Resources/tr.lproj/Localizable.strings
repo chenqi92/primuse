@@ -3541,3 +3541,14 @@
 "ai_recommendation_stream_partial_format" = "%d tamamlanmış öneri korundu. Bunları çalın veya daha fazlasını yükleyin.";
 "ai_recommendation_stream_retained_format" = "Yenileme tamamlanmadı. Önceki %d öneriniz hâlâ kullanılabilir.";
 "ai_recommendation_retry_countdown_format" = "%d sn sonra tekrar deneyin";
+
+"stats_calendar_title" = "Dinleme takvimi";
+"stats_calendar_hint" = "Seçilen dönem vurgulanır · Daha koyu renk daha çok çalma demektir";
+"stats_trend_title" = "Dinleme süresi eğilimi";
+"stats_trend_daily" = "Günlük · dakika";
+"stats_trend_monthly" = "Aylık · dakika";
+"stats_hourly_title" = "Saate göre çalma sayısı";
+"stats_hourly_hint" = "Çalmanın başladığı saate göre · çalma";
+"stats_chart_no_activity" = "Bu dönemde çalma yok";
+"stats_chart_minutes" = "Dakika";
+"stats_chart_hour" = "Saat";

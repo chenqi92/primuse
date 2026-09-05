@@ -3636,3 +3636,14 @@
 "ai_recommendation_stream_partial_format" = "%d 曲の完全なおすすめを保持しました。再生するか、さらに読み込めます。";
 "ai_recommendation_stream_retained_format" = "更新が完了しませんでした。前の %d 曲のおすすめは引き続き利用できます。";
 "ai_recommendation_retry_countdown_format" = "%d 秒後に再試行できます";
+
+"stats_calendar_title" = "再生カレンダー";
+"stats_calendar_hint" = "選択期間を強調表示 · 濃い色ほど再生回数が多い";
+"stats_trend_title" = "再生時間の推移";
+"stats_trend_daily" = "日別 · 分";
+"stats_trend_monthly" = "月別 · 分";
+"stats_hourly_title" = "時間帯別の再生回数";
+"stats_hourly_hint" = "再生を開始した時刻別 · 回";
+"stats_chart_no_activity" = "この期間の再生記録はありません";
+"stats_chart_minutes" = "分";
+"stats_chart_hour" = "時間帯";

@@ -3413,3 +3413,14 @@
 "ai_recommendation_stream_partial_format" = "Kept %d complete recommendations. Play these or load more.";
 "ai_recommendation_stream_retained_format" = "Refresh did not complete. Your previous %d recommendations are still available.";
 "ai_recommendation_retry_countdown_format" = "Try again in %d s";
+
+"stats_calendar_title" = "Listening calendar";
+"stats_calendar_hint" = "Highlighted dates match the selected period · Darker means more plays";
+"stats_trend_title" = "Listening time trend";
+"stats_trend_daily" = "Daily · minutes";
+"stats_trend_monthly" = "Monthly · minutes";
+"stats_hourly_title" = "Plays by time of day";
+"stats_hourly_hint" = "Grouped by the hour playback started · plays";
+"stats_chart_no_activity" = "No plays in this period";
+"stats_chart_minutes" = "Minutes";
+"stats_chart_hour" = "Hour";

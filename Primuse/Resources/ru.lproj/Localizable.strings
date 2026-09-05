@@ -3541,3 +3541,14 @@
 "ai_recommendation_stream_partial_format" = "Сохранено полных рекомендаций: %d. Слушайте их или загрузите ещё.";
 "ai_recommendation_stream_retained_format" = "Обновление не завершено. Предыдущие рекомендации (%d) по-прежнему доступны.";
 "ai_recommendation_retry_countdown_format" = "Повторите через %d с";
+
+"stats_calendar_title" = "Календарь прослушивания";
+"stats_calendar_hint" = "Выбранный период выделен · Темнее — больше воспроизведений";
+"stats_trend_title" = "Динамика времени прослушивания";
+"stats_trend_daily" = "По дням · минуты";
+"stats_trend_monthly" = "По месяцам · минуты";
+"stats_hourly_title" = "Воспроизведения по часам";
+"stats_hourly_hint" = "По часу начала воспроизведения · раз";
+"stats_chart_no_activity" = "За этот период нет воспроизведений";
+"stats_chart_minutes" = "Минуты";
+"stats_chart_hour" = "Час";

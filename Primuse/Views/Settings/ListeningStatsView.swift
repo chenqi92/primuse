@@ -1,5 +1,8 @@
 import SwiftUI
 import PrimuseKit
+#if os(macOS)
+import Charts
+#endif
 
 /// 听歌统计 — 本地播放历史的可视化。数据来源 PlayHistoryStore (纯本地,
 /// 不上传)。包含:
@@ -13,6 +16,8 @@ struct ListeningStatsView: View {
     private var selectedServerSourceID = ""
     #if os(macOS)
     @State private var range: PlayHistoryStore.Range = .year
+    @State private var heatmapYear: Int?
+    @State private var heatmapWidth: CGFloat = 0
     #else
     @State private var range: PlayHistoryStore.Range = .month
     #endif
@@ -141,7 +146,8 @@ struct ListeningStatsView: View {
                     macEmptyState
                 } else {
                     macSummarySection(snapshot: snapshot)
-                    macHeatmapCard(days: snapshot.dailyStats)
+                    macHeatmapCard(timeline: snapshot.timeline)
+                    macActivityCharts(timeline: snapshot.timeline)
                     macTopCards(snapshot: snapshot)
                 }
             }
@@ -175,6 +181,7 @@ struct ListeningStatsView: View {
                         let selected = item == range
                         Button {
                             range = item
+                            heatmapYear = nil
                         } label: {
                             Text(LocalizedStringKey(item.localizationKey))
                                 .font(.system(size: 11.5, weight: selected ? .semibold : .medium))
@@ -187,6 +194,7 @@ struct ListeningStatsView: View {
                                 }
                         }
                         .buttonStyle(.plain)
+                        .accessibilityAddTraits(selected ? .isSelected : [])
                     }
                 }
             }
@@ -196,8 +204,6 @@ struct ListeningStatsView: View {
         }
     }
 
-    /// 设计稿副标题: "2026 年 1 月 1 日 — 今天 · 365 天"。起点取热力图首日,
-    /// 天数取整个区间天数。
     private func statsRangeSubtitle(days: [MacDailyStat]) -> String {
         let start = days.first?.date ?? Date()
         let df = DateFormatter()
@@ -236,9 +242,7 @@ struct ListeningStatsView: View {
         let days = max(snapshot.dailyStats.count, 1)
         let totalMin = Int(s.totalSec / 60)
         let coverage = (Double(s.activeDays) / Double(days) * 100).rounded().finiteInt()
-        let coverLabel = (range == .week || range == .month)
-            ? String(localized: "stats_coverage")
-            : String(localized: "stats_year_coverage")
+        let coverLabel = String(localized: "stats_coverage")
         return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 4), spacing: 14) {
             macSummaryCell(value: decimal(s.totalPlays),
                            label: String(localized: "stats_total_plays"),
@@ -319,29 +323,46 @@ struct ListeningStatsView: View {
 
     // MARK: 热力图 (STATS-02)
 
-    private func macHeatmapCard(days: [MacDailyStat]) -> some View {
+    private func macHeatmapCard(timeline: ListeningActivityTimeline) -> some View {
         let calendar = Calendar.current
-        let weeks = makeMacHeatmapWeeks(
-            days: days,
-            calendar: calendar,
-            displayEnd: macHeatmapDisplayEnd(now: Date(), calendar: calendar)
-        )
-        return VStack(alignment: .leading, spacing: 14) {
+        let weeks = makeMacHeatmapWeeks(timeline: timeline, calendar: calendar)
+        return VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .firstTextBaseline) {
-                Text("stats_heatmap_style_title")
+                Text("stats_calendar_title")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(PMColor.text)
                 Spacer()
-                Text(verbatim: String(
-                    format: String(localized: "stats_heatmap_dimensions_format"),
-                    weeks.count,
-                    days.count
-                ))
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(PMColor.textFaint)
+                Text(LocalizedStringKey(range.localizationKey))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(PMColor.brand)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(PMColor.brand.opacity(0.10), in: .capsule)
+                if range == .all && timeline.availableYears.count > 1 {
+                    Picker("stats_range_year", selection: Binding(
+                        get: { heatmapYear ?? calendar.component(.year, from: Date()) },
+                        set: { heatmapYear = $0 }
+                    )) {
+                        ForEach(timeline.availableYears, id: \.self) { year in
+                            Text(verbatim: String(year)).tag(year)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize()
+                } else {
+                    Text(verbatim: String(calendar.component(.year, from: timeline.yearInterval.start)))
+                        .font(.system(size: 12, weight: .medium).monospacedDigit())
+                        .foregroundStyle(PMColor.textMuted)
+                }
             }
             macHeatmapGrid(weeks: weeks, calendar: calendar)
-            macHeatmapLegend
+            HStack {
+                Text("stats_calendar_hint")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(PMColor.textMuted)
+                macHeatmapLegend
+            }
         }
         .padding(18)
         .background(PMColor.card.opacity(0.78), in: .rect(cornerRadius: 12))
@@ -351,73 +372,63 @@ struct ListeningStatsView: View {
         }
     }
 
-    /// 7 行 × N 周。格子边长按卡片宽度平分 (上限 16pt), 满一年时正好铺满整行;
-    /// 区间短 (本周/本月) 时不会被拉成巨大方块, 靠左排列。
     private func macHeatmapGrid(weeks: [MacHeatmapWeek], calendar: Calendar) -> some View {
         let gap: CGFloat = 3
-        let maxCell: CGFloat = 16
         let weekdayWidth: CGFloat = 20
+        let n = CGFloat(max(weeks.count, 1))
+        let cell = max(3, (heatmapWidth - weekdayWidth - 8 - gap * (n - 1)) / n)
         let weekdaySymbols = macWeekdaySymbols(calendar: calendar)
-        return GeometryReader { geo in
-            let n = CGFloat(max(weeks.count, 1))
-            let gridWidth = max(0, geo.size.width - weekdayWidth - 8)
-            let cell = min(maxCell, max(6, (gridWidth - gap * (n - 1)) / n))
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .top, spacing: 8) {
-                    Color.clear.frame(width: weekdayWidth, height: 12)
-                    HStack(alignment: .top, spacing: gap) {
-                        ForEach(weeks.indices, id: \.self) { weekIndex in
-                            let label = macMonthLabel(
-                                for: weeks,
-                                weekIndex: weekIndex,
-                                calendar: calendar
-                            )
-                            Color.clear
-                                .frame(width: cell, height: 12)
-                                .overlay(alignment: .leading) {
-                                    if let label {
-                                        Text(verbatim: label)
-                                            .font(.system(size: 9.5))
-                                            .foregroundStyle(PMColor.textFaint)
-                                            .lineLimit(1)
-                                            .fixedSize(horizontal: true, vertical: false)
-                                    }
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 8) {
+                Color.clear.frame(width: weekdayWidth, height: 12)
+                HStack(alignment: .top, spacing: gap) {
+                    ForEach(weeks.indices, id: \.self) { weekIndex in
+                        let label = macMonthLabel(for: weeks, weekIndex: weekIndex, calendar: calendar)
+                        Color.clear
+                            .frame(width: cell, height: 12)
+                            .overlay(alignment: .leading) {
+                                if let label {
+                                    Text(verbatim: label)
+                                        .font(.system(size: 9.5))
+                                        .foregroundStyle(PMColor.textMuted)
+                                        .lineLimit(1)
+                                        .fixedSize(horizontal: true, vertical: false)
                                 }
-                        }
+                            }
                     }
                 }
-
-                HStack(alignment: .top, spacing: 8) {
-                    VStack(spacing: gap) {
-                        ForEach(weekdaySymbols.indices, id: \.self) { index in
-                            Text(verbatim: weekdaySymbols[index])
-                                .font(.system(size: 9))
-                                .foregroundStyle(PMColor.textFaint)
-                                .frame(width: weekdayWidth, height: cell, alignment: .trailing)
-                        }
+            }
+            HStack(alignment: .top, spacing: 8) {
+                VStack(spacing: gap) {
+                    ForEach(weekdaySymbols.indices, id: \.self) { index in
+                        Text(verbatim: weekdaySymbols[index])
+                            .font(.system(size: 9))
+                            .foregroundStyle(PMColor.textFaint)
+                            .frame(width: weekdayWidth, height: cell, alignment: .trailing)
                     }
-                    HStack(alignment: .top, spacing: gap) {
-                        ForEach(weeks) { week in
-                            VStack(spacing: gap) {
-                                ForEach(week.cells) { heatmapCell in
-                                    macHeatmapCell(heatmapCell, size: cell)
-                                }
+                }
+                HStack(alignment: .top, spacing: gap) {
+                    ForEach(weeks) { week in
+                        VStack(spacing: gap) {
+                            ForEach(week.cells) { heatmapCell in
+                                macHeatmapCell(heatmapCell, size: cell)
                             }
                         }
                     }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(height: 12 + 6 + maxCell * 7 + gap * 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { heatmapWidth = $0 }
     }
 
     private func macHeatmapCell(_ cell: MacHeatmapCell, size: CGFloat) -> some View {
+        let outlined = cell.isSelected && (range == .week || range == .month)
         let fill: Color
-        if let day = cell.day {
-            fill = heatColor(count: day.count)
-        } else if cell.isFuture && cell.isInDisplayRange {
-            fill = PMColor.divider.opacity(0.52)
+        if cell.isFuture && cell.isInDisplayRange {
+            fill = PMColor.divider.opacity(0.32)
+        } else if let day = cell.day {
+            fill = heatColor(count: day.count).opacity(cell.isSelected ? 1 : 0.23)
         } else {
             fill = PMColor.divider.opacity(0.34)
         }
@@ -425,9 +436,10 @@ struct ListeningStatsView: View {
             .fill(fill)
             .frame(width: size, height: size)
             .overlay {
-                if cell.isFuture && cell.isInDisplayRange {
+                if outlined || (cell.isFuture && cell.isInDisplayRange) {
                     RoundedRectangle(cornerRadius: 2, style: .continuous)
-                        .strokeBorder(PMColor.cardBorder.opacity(0.7), lineWidth: 0.5)
+                        .strokeBorder(outlined ? PMColor.brand.opacity(0.65) : PMColor.cardBorder,
+                                      lineWidth: outlined ? 1 : 0.5)
                 }
             }
             .help(macHeatmapTooltip(for: cell))
@@ -437,7 +449,7 @@ struct ListeningStatsView: View {
 
     private func macHeatmapTooltip(for cell: MacHeatmapCell) -> String {
         let date = cell.date.formatted(date: .long, time: .omitted)
-        guard let day = cell.day else { return "\(date)\n—" }
+        guard !cell.isFuture, let day = cell.day else { return "\(date)\n—" }
         let plays = String(
             format: String(localized: "stats_play_count_format"),
             day.count
@@ -507,6 +519,101 @@ struct ListeningStatsView: View {
         }
     }
 
+    private func macActivityCharts(timeline: ListeningActivityTimeline) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 14) {
+                macDurationChart(timeline: timeline).frame(minWidth: 360)
+                macHourlyChart(timeline: timeline).frame(minWidth: 320)
+            }
+            VStack(spacing: 14) {
+                macDurationChart(timeline: timeline)
+                macHourlyChart(timeline: timeline)
+            }
+        }
+    }
+
+    private func macDurationChart(timeline: ListeningActivityTimeline) -> some View {
+        macChartCard(title: "stats_trend_title",
+                     subtitle: timeline.trendUsesMonths ? "stats_trend_monthly" : "stats_trend_daily") {
+            Chart(timeline.trend) { day in
+                BarMark(
+                    x: .value(String(localized: "stats_range"), day.date, unit: timeline.trendUsesMonths ? .month : .day),
+                    y: .value(String(localized: "stats_chart_minutes"), day.totalSec / 60)
+                )
+                .foregroundStyle(PMColor.brand.gradient)
+                .cornerRadius(3)
+                .accessibilityLabel(day.date.formatted(date: .abbreviated, time: .omitted))
+                .accessibilityValue(formatHours(day.totalSec))
+            }
+            .chartXAxis {
+                AxisMarks(values: .automatic(desiredCount: 6)) { _ in
+                    AxisValueLabel(format: timeline.trendUsesMonths
+                                   ? (range == .all && timeline.availableYears.count > 1
+                                      ? .dateTime.year().month(.abbreviated) : .dateTime.month(.abbreviated))
+                                   : .dateTime.month().day())
+                }
+            }
+            .chartYAxis { AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) }
+            .chartYScale(domain: 0...max(1, (timeline.trend.map { $0.totalSec / 60 }.max() ?? 0) * 1.12))
+            .overlay { if timeline.hourlyCounts.reduce(0, +) == 0 { macChartEmptyState } }
+        }
+    }
+
+    private func macHourlyChart(timeline: ListeningActivityTimeline) -> some View {
+        macChartCard(title: "stats_hourly_title", subtitle: "stats_hourly_hint") {
+            Chart(Array(timeline.hourlyCounts.enumerated()), id: \.offset) { hour, count in
+                BarMark(
+                    x: .value(String(localized: "stats_chart_hour"), hour),
+                    y: .value(String(localized: "stats_total_plays"), count),
+                    width: .fixed(8)
+                )
+                    .foregroundStyle(PMColor.brand.opacity(0.78).gradient)
+                    .cornerRadius(2)
+                    .accessibilityLabel(String(format: "%02d:00–%02d:00", hour, hour + 1))
+                    .accessibilityValue(String(format: String(localized: "stats_play_count_format"), count))
+            }
+            .chartXScale(domain: -0.5...23.5)
+            .chartXAxis {
+                AxisMarks(values: [0, 6, 12, 18, 23]) { value in
+                    if let hour = value.as(Int.self) {
+                        AxisValueLabel(anchor: hour == 23 ? .topTrailing : (hour == 0 ? .topLeading : .top)) {
+                            Text(String(format: "%02d:00", hour))
+                        }
+                    }
+                }
+            }
+            .chartYAxis { AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) }
+            .chartYScale(domain: 0...max(1, Double(timeline.hourlyCounts.max() ?? 0) * 1.12))
+            .overlay { if timeline.hourlyCounts.reduce(0, +) == 0 { macChartEmptyState } }
+        }
+    }
+
+    private var macChartEmptyState: some View {
+        Text("stats_chart_no_activity")
+            .font(.system(size: 12))
+            .foregroundStyle(PMColor.textMuted)
+            .padding(10)
+            .background(PMColor.card, in: .rect(cornerRadius: 8))
+    }
+
+    private func macChartCard<Content: View>(
+        title: LocalizedStringKey, subtitle: LocalizedStringKey, @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.system(size: 14, weight: .semibold)).foregroundStyle(PMColor.text)
+            Text(subtitle).font(.system(size: 10.5)).foregroundStyle(PMColor.textMuted)
+            content()
+                .frame(height: 160)
+                .padding(.top, 14)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .background(PMColor.card.opacity(0.78), in: .rect(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12).strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+    }
+
     // MARK: Top 三栏 (STATS-03)
 
     private func macTopCards(snapshot: MacStatsSnapshot) -> some View {
@@ -517,18 +624,14 @@ struct ListeningStatsView: View {
         }
     }
 
-    private struct MacDailyStat: Identifiable {
-        let date: Date
-        let count: Int
-        let totalSec: TimeInterval
-        var id: Date { date }
-    }
+    private typealias MacDailyStat = ListeningActivityTimeline.Day
 
     private struct MacHeatmapCell: Identifiable {
         let date: Date
         let day: MacDailyStat?
         let isFuture: Bool
         let isInDisplayRange: Bool
+        let isSelected: Bool
         var id: Date { date }
     }
 
@@ -540,7 +643,8 @@ struct ListeningStatsView: View {
 
     private struct MacStatsSnapshot {
         let summary: PlayHistoryStore.Summary
-        let dailyStats: [MacDailyStat]
+        let timeline: ListeningActivityTimeline
+        var dailyStats: [MacDailyStat] { timeline.dailyStats }
         let previousPlayCount: Int?
         let heavyRotationCount: Int
         let topSongs: [PlayHistoryStore.RankedItem]
@@ -568,10 +672,12 @@ struct ListeningStatsView: View {
         let dayBuckets = Dictionary(grouping: scopedEntries) {
             calendar.startOfDay(for: $0.playedAt)
         }
-        let dailyStats = makeDailyStats(
-            dayBuckets: dayBuckets,
+        let timeline = ListeningActivityTimeline(
+            events: store.entries.map { .init(date: $0.playedAt, seconds: $0.listenedSec) },
+            selectedStart: range == .all ? nil : currentStart,
+            displayYear: heatmapYear,
             now: now,
-            currentStart: currentStart
+            calendar: calendar
         )
         let playsBySong = Dictionary(grouping: scopedEntries, by: \.songID)
         let summary = PlayHistoryStore.Summary(
@@ -583,42 +689,13 @@ struct ListeningStatsView: View {
 
         return MacStatsSnapshot(
             summary: summary,
-            dailyStats: dailyStats,
+            timeline: timeline,
             previousPlayCount: range == .all ? nil : previousPlayCount,
             heavyRotationCount: playsBySong.values.lazy.filter { $0.count >= 5 }.count,
             topSongs: rankedSongs(playsBySong, limit: 6),
             topArtists: rankedArtists(scopedEntries, limit: 6),
             topAlbums: rankedAlbums(scopedEntries, limit: 6)
         )
-    }
-
-    private func makeDailyStats(
-        dayBuckets: [Date: [PlayHistoryStore.Entry]],
-        now: Date,
-        currentStart: Date
-    ) -> [MacDailyStat] {
-        let calendar = Calendar.current
-        let end = calendar.startOfDay(for: now)
-        let rawStart: Date
-        if range == .all {
-            rawStart = dayBuckets.keys.min() ?? end
-        } else {
-            rawStart = calendar.startOfDay(for: currentStart)
-        }
-        let floor = calendar.date(byAdding: .day, value: -740, to: end) ?? rawStart
-        var cursor = max(rawStart, floor)
-        var result: [MacDailyStat] = []
-        while cursor <= end {
-            let entries = dayBuckets[cursor] ?? []
-            result.append(MacDailyStat(
-                date: cursor,
-                count: entries.count,
-                totalSec: entries.reduce(0) { $0 + $1.listenedSec }
-            ))
-            cursor = calendar.date(byAdding: .day, value: 1, to: cursor)
-                ?? cursor.addingTimeInterval(86_400)
-        }
-        return result
     }
 
     private func macRangeStartDate(now: Date) -> Date {
@@ -652,62 +729,23 @@ struct ListeningStatsView: View {
     }
 
     private func makeMacHeatmapWeeks(
-        days: [MacDailyStat],
-        calendar: Calendar,
-        displayEnd: Date
+        timeline: ListeningActivityTimeline,
+        calendar: Calendar
     ) -> [MacHeatmapWeek] {
-        guard let firstDay = days.first?.date,
-              let firstWeekStart = calendar.dateInterval(of: .weekOfYear, for: firstDay)?.start,
-              let lastWeekStart = calendar.dateInterval(of: .weekOfYear, for: displayEnd)?.start else {
-            return []
-        }
-
-        let statsByDate = Dictionary(uniqueKeysWithValues: days.map {
-            (calendar.startOfDay(for: $0.date), $0)
-        })
-        let displayStart = calendar.startOfDay(for: firstDay)
-        let normalizedDisplayEnd = calendar.startOfDay(for: displayEnd)
         let today = calendar.startOfDay(for: Date())
-        var result: [MacHeatmapWeek] = []
-        var weekStart = firstWeekStart
-        while weekStart <= lastWeekStart {
-            let cells = (0..<7).compactMap { offset -> MacHeatmapCell? in
-                guard let date = calendar.date(byAdding: .day, value: offset, to: weekStart) else {
-                    return nil
-                }
-                let normalizedDate = calendar.startOfDay(for: date)
-                return MacHeatmapCell(
-                    date: normalizedDate,
-                    day: statsByDate[normalizedDate],
-                    isFuture: normalizedDate > today,
-                    isInDisplayRange: normalizedDate >= displayStart
-                        && normalizedDate <= normalizedDisplayEnd
-                )
-            }
-            result.append(MacHeatmapWeek(start: weekStart, cells: cells))
-            guard let next = calendar.date(byAdding: .weekOfYear, value: 1, to: weekStart),
-                  next > weekStart else { break }
-            weekStart = next
+        let cells = timeline.calendarDays.map { day in
+            let selected = day.date >= timeline.selectedStart && day.date <= today
+            return MacHeatmapCell(
+                date: day.date,
+                day: day,
+                isFuture: day.date > today,
+                isInDisplayRange: day.date >= timeline.yearInterval.start && day.date < timeline.yearInterval.end,
+                isSelected: selected
+            )
         }
-        return result
-    }
-
-    /// Keep the calendar silhouette stable while the selected period is still
-    /// in progress. Future cells are visual placeholders only; summaries and
-    /// daily statistics still stop at today.
-    private func macHeatmapDisplayEnd(now: Date, calendar: Calendar) -> Date {
-        let interval: DateInterval?
-        switch range {
-        case .week:
-            interval = calendar.dateInterval(of: .weekOfYear, for: now)
-        case .month:
-            interval = calendar.dateInterval(of: .month, for: now)
-        case .year, .all:
-            interval = calendar.dateInterval(of: .year, for: now)
+        return stride(from: 0, to: cells.count, by: 7).map { index in
+            MacHeatmapWeek(start: cells[index].date, cells: Array(cells[index..<min(index + 7, cells.count)]))
         }
-        guard let end = interval?.end else { return calendar.startOfDay(for: now) }
-        return calendar.date(byAdding: .day, value: -1, to: end)
-            ?? calendar.startOfDay(for: now)
     }
 
     private func rankedSongs(
@@ -909,7 +947,7 @@ struct ListeningStatsView: View {
 
     private func logHeatmapStats() {
         #if os(macOS)
-        let counts = makeMacStatsSnapshot().dailyStats.map {
+        let counts = makeMacStatsSnapshot().timeline.calendarDays.map {
             (date: $0.date, count: $0.count)
         }
         #else
