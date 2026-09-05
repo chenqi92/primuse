@@ -118,8 +118,10 @@ struct ScrobbleSettingsView: View {
         Form {
             Section {
                 Toggle("scrobble_enabled", isOn: $settings.isEnabled)
+                .settingsAnchor("scrobble.enabled")
                 if settings.isEnabled {
                     Toggle("scrobble_send_now_playing", isOn: $settings.sendNowPlaying)
+                    .settingsAnchor("scrobble.nowPlaying")
                 }
             } footer: {
                 Text("scrobble_overall_footer")
@@ -399,6 +401,7 @@ struct ScrobbleSettingsView: View {
                             .font(.system(size: 12.5, weight: .medium))
                             .foregroundStyle(PMColor.textMuted)
                     }
+                    .settingsAnchor("scrobble.lastFMAdvanced")
                 }
             }
         }
@@ -628,6 +631,7 @@ struct ScrobbleSettingsView: View {
                 Toggle("", isOn: providerToggleBinding(.listenBrainz))
                     .labelsHidden()
             }
+            .settingsAnchor("scrobble.listenBrainz")
 
             if settings.enabledProviders.contains(.listenBrainz) {
                 RevealableSecureField(title: "scrobble_lb_token_placeholder", text: $listenBrainzToken)
@@ -686,6 +690,7 @@ struct ScrobbleSettingsView: View {
                 Toggle("", isOn: providerToggleBinding(.lastFm))
                     .labelsHidden()
             }
+            .settingsAnchor("scrobble.lastFM")
 
             if settings.enabledProviders.contains(.lastFm) {
                 if lastFmConnected {
@@ -846,9 +851,11 @@ struct ScrobbleSettingsView: View {
                 Button("scrobble_retry_now") {
                     service.retryPendingNow()
                 }
+                .settingsAnchor("scrobble.retryQueue")
                 Button("scrobble_clear_queue", role: .destructive) {
                     showClearQueueConfirm = true
                 }
+                .settingsAnchor("scrobble.clearQueue")
             }
 
             if !service.recentReports.isEmpty {

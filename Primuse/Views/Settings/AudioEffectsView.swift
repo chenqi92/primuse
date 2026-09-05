@@ -11,6 +11,7 @@ struct AudioEffectsView: View {
 
             Section {
                 Toggle("reverb_enabled", isOn: $fx.reverbEnabled)
+                .settingsAnchor("effects.reverb")
                     .accessibilityHint(Text("reverb_desc"))
 
                 if effects.reverbEnabled {
@@ -51,15 +52,18 @@ struct AudioEffectsView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
+                    .settingsAnchor("effects.reverbMix")
                 }
             } header: {
                 Text("reverb")
             }
+            .settingsAnchor("effects.reverbPreset")
 
             // MARK: - Compressor / Limiter Section
 
             Section {
                 Toggle("compressor_enabled", isOn: $fx.compressorEnabled)
+                .settingsAnchor("effects.compressor")
                     .accessibilityHint(Text("compressor_desc"))
 
                 if effects.compressorEnabled {
@@ -102,6 +106,7 @@ struct AudioEffectsView: View {
                                 .foregroundStyle(.secondary)
                                 .monospacedDigit()
                         }
+                        .settingsAnchor("effects.compressorThreshold")
                         Slider(value: $fx.compressorThreshold, in: -40...0, step: 1)
                     }
 
@@ -116,6 +121,7 @@ struct AudioEffectsView: View {
                                 .foregroundStyle(.secondary)
                                 .monospacedDigit()
                         }
+                        .settingsAnchor("effects.compressorHeadroom")
                         Slider(value: $fx.compressorHeadRoom, in: 0.1...40, step: 0.5)
                     }
 
@@ -130,6 +136,7 @@ struct AudioEffectsView: View {
                                 .foregroundStyle(.secondary)
                                 .monospacedDigit()
                         }
+                        .settingsAnchor("effects.compressorAttack")
                         Slider(value: $fx.compressorAttackTime, in: 0.0001...0.2, step: 0.001)
                     }
 
@@ -144,6 +151,7 @@ struct AudioEffectsView: View {
                                 .foregroundStyle(.secondary)
                                 .monospacedDigit()
                         }
+                        .settingsAnchor("effects.compressorRelease")
                         Slider(value: $fx.compressorReleaseTime, in: 0.01...3, step: 0.01)
                     }
 
@@ -158,12 +166,14 @@ struct AudioEffectsView: View {
                                 .foregroundStyle(.secondary)
                                 .monospacedDigit()
                         }
+                        .settingsAnchor("effects.compressorGain")
                         Slider(value: $fx.compressorMasterGain, in: -40...40, step: 1)
                     }
                 }
             } header: {
                 Text("compressor_limiter")
             }
+            .settingsAnchor("effects.compressorPreset")
         }
         #if os(macOS)
         .formStyle(.grouped)

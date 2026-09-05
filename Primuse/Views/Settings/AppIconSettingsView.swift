@@ -15,6 +15,7 @@ struct AppIconSettingsView: View {
                     iconCell(option)
                 }
             }
+            .settingsAnchor("appearance.appIcon")
             .padding(.horizontal, 20)
             .padding(.vertical, 24)
         }

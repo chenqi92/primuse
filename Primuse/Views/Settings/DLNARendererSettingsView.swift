@@ -12,6 +12,7 @@ struct DLNARendererSettingsView: View {
         Form {
             Section {
                 Toggle(String(localized: "settings_dlna_enable"), isOn: $enabled)
+                .settingsAnchor("dlna.enabled")
                     .onChange(of: enabled) { _, new in
                         if new { renderer.start() } else { renderer.stop() }
                     }
@@ -31,6 +32,7 @@ struct DLNARendererSettingsView: View {
 
             Section {
                 Toggle(String(localized: "settings_dlna_keepalive"), isOn: $keepAlive)
+                .settingsAnchor("dlna.keepAlive")
                     .disabled(!enabled)
                     .onChange(of: keepAlive) { _, new in
                         renderer.setKeepAliveInBackground(new)
@@ -52,6 +54,7 @@ struct DLNARendererSettingsView: View {
                         }
                     }
                 }
+                .settingsAnchor("dlna.devices")
             }
         }
         .navigationTitle("settings_dlna_section")

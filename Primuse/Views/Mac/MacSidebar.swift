@@ -288,11 +288,6 @@ struct MacSidebar: View {
                      title: String(localized: "Duplicate Song Cleanup"))
             toolItem(.scrobble, icon: "waveform.path.ecg",
                      title: String(localized: "Scrobble Configuration"))
-            toolItem(
-                .cacheSync,
-                icon: "externaldrive.badge.wifi",
-                title: CacheSyncLocalization.text("cache_sync_title")
-            )
         }
         .padding(.horizontal, 6)
     }

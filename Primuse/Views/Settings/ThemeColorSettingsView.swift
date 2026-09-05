@@ -80,6 +80,7 @@ struct AppearanceSettingsView: View {
                     .accessibilityAddTraits(selection == option ? [.isButton, .isSelected] : .isButton)
                 }
             }
+            .settingsAnchor("appearance.scheme")
 
             Section {
                 Toggle(isOn: minimalModeEnabled) {
@@ -90,6 +91,7 @@ struct AppearanceSettingsView: View {
             } footer: {
                 Text("minimal_mode_description")
             }
+            .settingsAnchor("appearance.minimalNavigation")
         }
         .navigationTitle("appearance")
         .navigationBarTitleDisplayMode(.inline)
@@ -130,6 +132,7 @@ struct ThemeColorSettingsView: View {
             } header: {
                 Text("theme_color_mode")
             }
+            .settingsAnchor("appearance.themeMode")
 
             Section {
                 LazyVGrid(columns: columns, spacing: 18) {
@@ -141,6 +144,7 @@ struct ThemeColorSettingsView: View {
             } header: {
                 Text("theme_color_palette")
             }
+            .settingsAnchor("appearance.palette")
 
             Section {
                 channelSlider(
@@ -199,9 +203,11 @@ struct ThemeColorSettingsView: View {
                         .font(.subheadline.monospaced())
                         .foregroundStyle(.secondary)
                 }
+                .settingsAnchor("appearance.hex")
             } header: {
                 Text("theme_color_custom")
             }
+            .settingsAnchor("appearance.hue")
 
             Section {
                 Toggle(isOn: coverDrivenAmbientBinding) {
@@ -224,6 +230,7 @@ struct ThemeColorSettingsView: View {
                             .font(.subheadline.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
+                    .settingsAnchor("appearance.ambientStrength")
                     Slider(value: ambientStrengthBinding, in: 0...1, step: 0.05)
                         .tint(themeService.uiAccentColor)
                 }
@@ -231,6 +238,7 @@ struct ThemeColorSettingsView: View {
             } header: {
                 Text(PMString("ext.tv.settings.coverColor"))
             }
+            .settingsAnchor("appearance.coverAmbient")
         }
         .navigationTitle("theme_color_title")
         .navigationBarTitleDisplayMode(.inline)

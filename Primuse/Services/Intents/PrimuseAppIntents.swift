@@ -75,6 +75,30 @@ struct PrimusePreviousIntent: AudioPlaybackIntent {
     }
 }
 
+enum PrimuseSkipDirection: String, AppEnum {
+    case next, previous
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: LocalizedStringResource("Direction", table: "SettingsSearch"))
+    static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
+        .next: DisplayRepresentation(title: LocalizedStringResource("Next", table: "SettingsSearch")),
+        .previous: DisplayRepresentation(title: LocalizedStringResource("Previous", table: "SettingsSearch"))
+    ]
+}
+
+struct PrimuseSkipTrackIntent: AudioPlaybackIntent {
+    static let title = LocalizedStringResource("Skip Track", table: "SettingsSearch")
+    @Parameter(title: LocalizedStringResource("Direction", table: "SettingsSearch"), default: .next) var direction: PrimuseSkipDirection
+    static var parameterSummary: some ParameterSummary { Summary("Play the \(\.$direction) track", table: "SettingsSearch") }
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        switch direction {
+        case .next: await PrimuseIntentBridge.shared.next()
+        case .previous: await PrimuseIntentBridge.shared.previous()
+        }
+        return .result()
+    }
+}
+
 // MARK: - Like
 
 /// 锁屏 widget / Live Activity 的喜欢按钮。
@@ -316,20 +340,19 @@ struct PrimuseShortcuts: AppShortcutsProvider {
             systemImageName: "play.fill"
         )
         AppShortcut(
-            intent: PrimuseNextIntent(),
-            phrases: [
-                "Play the next track in \(.applicationName)",
-            ],
-            shortTitle: "Next",
-            systemImageName: "forward.fill"
+            intent: PrimuseSkipTrackIntent(),
+            phrases: ["Play the \(\.$direction) track in \(.applicationName)"],
+            shortTitle: LocalizedStringResource("Skip Track", table: "SettingsSearch"),
+            systemImageName: "forward.end"
         )
         AppShortcut(
-            intent: PrimusePreviousIntent(),
+            intent: PrimuseOpenSettingIntent(),
             phrases: [
-                "Play the previous track in \(.applicationName)",
+                "Open \(\.$target) in \(.applicationName)",
+                "Open a setting in \(.applicationName)",
             ],
-            shortTitle: "Previous",
-            systemImageName: "backward.fill"
+            shortTitle: LocalizedStringResource("Open Setting", table: "SettingsSearch"),
+            systemImageName: "gearshape"
         )
         AppShortcut(
             intent: PrimuseShuffleAllIntent(),

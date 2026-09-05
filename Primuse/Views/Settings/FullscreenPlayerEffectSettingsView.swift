@@ -44,6 +44,7 @@ struct FullscreenPlayerEffectSettingsView: View {
                     }
                 }
             }
+            .settingsAnchor("appearance.fullscreenEffect")
             .padding(.horizontal, 16)
             .padding(.top, 10)
             .padding(.bottom, 40)
@@ -64,6 +65,7 @@ struct FullscreenPlayerEffectSettingsView: View {
             Text("immersive_lyrics_motion_title")
                 .font(.system(size: 16, weight: .semibold))
         }
+        .settingsAnchor("appearance.lyricsMotion")
         .accessibilityHint(Text("immersive_lyrics_motion_subtitle"))
         .tint(previewPalette.primary)
         .padding(16)

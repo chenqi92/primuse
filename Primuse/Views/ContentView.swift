@@ -876,6 +876,11 @@ struct ContentView: View {
         } message: {
             Text("cellular_backfill_message")
         }
+        .onChange(of: SettingsNavigation.shared.request, initial: true) { _, request in
+            guard let request, SettingsNavigation.shared.activatedToken != request.token else { return }
+            SettingsNavigation.shared.activatedToken = request.token
+            selectMinimalPage(.settings)
+        }
         .environment(\.openScraperSettings, OpenScraperSettingsAction {
             openScraperSettings()
         })

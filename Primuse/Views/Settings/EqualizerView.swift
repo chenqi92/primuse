@@ -37,6 +37,7 @@ struct EqualizerView: View {
                 HStack {
                     Spacer()
                     Button("eq_reset") { eq.reset() }
+                    .settingsAnchor("equalizer.reset")
                         .controlSize(.small)
                 }
             }
@@ -52,6 +53,7 @@ struct EqualizerView: View {
             } header: {
                 Text("eq_preset")
             }
+            .settingsAnchor("equalizer.preset")
         }
         .formStyle(.grouped)
     }
@@ -63,6 +65,7 @@ struct EqualizerView: View {
                 get: { eq.isEnabled },
                 set: { eq.setEnabled($0) }
             ))
+            .settingsAnchor("equalizer.enabled")
             .padding(.horizontal)
 
             // 频段滑块:占上半部分,固定高度
@@ -71,11 +74,13 @@ struct EqualizerView: View {
                     bandSlider(index: index, height: 200)
                 }
             }
+            .settingsAnchor("equalizer.bands")
             .padding(.horizontal, 12)
             .opacity(eq.isEnabled ? 1 : 0.4)
             .disabled(!eq.isEnabled)
 
             Button("eq_reset") { eq.reset() }
+                .settingsAnchor("equalizer.reset")
                 .buttonStyle(.bordered)
                 .controlSize(.small)
 
@@ -93,6 +98,7 @@ struct EqualizerView: View {
                 .padding(.horizontal)
                 .padding(.bottom, 8)
             }
+            .settingsAnchor("equalizer.preset")
             .frame(maxHeight: .infinity)
         }
         .padding(.vertical)

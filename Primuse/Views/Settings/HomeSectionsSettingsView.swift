@@ -108,6 +108,7 @@ struct HomeSectionsSettingsView: View {
                 }
                 .accessibilityHint(Text("radio_home_visibility_description"))
             }
+            .settingsAnchor("home.radio")
 
             Section {
                 ForEach(editableSections) { section in
@@ -115,11 +116,13 @@ struct HomeSectionsSettingsView: View {
                         Label(section.title, systemImage: section.icon)
                     }
                     .accessibilityHint(Text("home_settings_sections_footer"))
+                    .settingsAnchor("home." + section.rawValue)
                 }
                 .onMove(perform: moveSections)
             } header: {
                 Text("home_settings_sections_label")
             }
+            .settingsAnchor("home.order")
 
             Section {
                 Button("home_settings_restore_default_order") {
@@ -127,6 +130,7 @@ struct HomeSectionsSettingsView: View {
                         HomeSectionConfiguration.defaultOrder
                     )
                 }
+                .settingsAnchor("home.restoreOrder")
             }
         }
         #if os(iOS)

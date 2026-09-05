@@ -84,6 +84,7 @@ struct DiagnosticReportsView: View {
                 service.clearAll()
                 reload()
             }
+            .settingsAnchor("diagnostics.clearReports")
             Button(String(localized: "cancel"), role: .cancel) {}
         }
     }

@@ -22,6 +22,7 @@ struct CloudSyncSettingsView: View {
         Form {
             Section {
                 Toggle("icloud_sync_enabled", isOn: $enabled)
+                .settingsAnchor("cloud.enabled")
                     .onChange(of: enabled) { _, newValue in
                         Task {
                             if newValue {
@@ -86,18 +87,26 @@ struct CloudSyncSettingsView: View {
                                 ProgressView()
                             }
                         }
+                        .settingsAnchor("cloud.syncNow")
                     }
                     .disabled(isSyncingNow || !sync.isAvailableInCurrentBuild)
                 }
+                .settingsAnchor("cloud.status")
             }
 
             Section {
                 channelToggle("synced_playlists", systemImage: "music.note.list", isOn: $syncPlaylists, channel: .playlists)
+                .settingsAnchor("cloud.playlists")
                 channelToggle("synced_sources", systemImage: "externaldrive.connected.to.line.below", isOn: $syncSources, channel: .sources)
+                .settingsAnchor("cloud.sources")
                 channelToggle("synced_playback_history", systemImage: "clock.arrow.circlepath", isOn: $syncPlaybackHistory, channel: .playbackHistory)
+                .settingsAnchor("cloud.playbackHistory")
                 channelToggle("synced_settings", systemImage: "slider.horizontal.3", isOn: $syncSettings, channel: .settings)
+                .settingsAnchor("cloud.settings")
                 channelToggle("synced_credentials", systemImage: "lock.shield", isOn: $syncCredentials, channel: .credentials)
+                .settingsAnchor("cloud.credentials")
                 channelToggle("stats_title", systemImage: "chart.bar.xaxis", isOn: $syncListeningStats, channel: .listeningStats)
+                .settingsAnchor("cloud.listeningStats")
             } header: {
                 Text("synced_items")
             } footer: {

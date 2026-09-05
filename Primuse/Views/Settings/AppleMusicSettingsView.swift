@@ -38,9 +38,10 @@ struct AppleMusicSettingsView: View {
                 Text(String(localized: "settings_apple_music_footer"))
                     .font(.footnote)
             }
+            .settingsAnchor("appleMusic.authorize")
 
             if appleMusic.authState == .authorized {
-                librarySection
+                librarySection.settingsAnchor("appleMusic.sync")
             }
         }
         .navigationTitle("settings_apple_music_section")

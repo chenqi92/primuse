@@ -60,6 +60,7 @@ OPENAI_ACCOUNT_BOUNDARY_BILLING_MARKERS = {
 
 RESOURCE_GROUPS = [
   ["Primuse Localizable.strings", ROOT / "Primuse/Resources", "Localizable.strings", false],
+  ["Primuse SettingsSearch.strings", ROOT / "Primuse/Resources", "SettingsSearch.strings", true],
   ["Primuse CacheSync.strings", ROOT / "Primuse/Resources", "CacheSync.strings", true],
   ["PrimuseKit Localizable.strings", ROOT / "PrimuseKit/Sources/PrimuseKit/Resources", "Localizable.strings", true],
   ["Primuse InfoPlist.strings", ROOT / "Primuse/Resources", "InfoPlist.strings", true],
@@ -565,6 +566,10 @@ def hard_coded_han_literals(path)
     # Removing the comment suffix also makes URL literals incomplete, so they
     # cannot be mistaken for user-facing text by the string-literal matcher.
     code = line.split("//", 2).first
+    if relative == "Primuse/Services/Settings/SettingsCatalogData.swift"
+      # Search aliases are metadata in multiple languages, never displayed as UI copy.
+      code = code.gsub(/keywords: \[(?:"(?:\\.|[^"\\])*"(?:, )?)*\]/, "")
+    end
     literals = code.scan(/"(?:\\.|[^"\\])*"/).select { |literal| literal.match?(/\p{Han}/) }
     next if literals.empty?
     next if allowlist.any? { |pattern| line.match?(pattern) }

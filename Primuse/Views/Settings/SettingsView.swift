@@ -11,6 +11,11 @@ import AppKit
 struct SettingsView: View {
     @Environment(MusicIntelligenceService.self) private var musicIntelligence
     @Binding private var scraperSettingsRoute: ScraperSettingsRouteState
+    @State private var path: [SettingsDestination] = []
+    @State private var query = ""
+    @State private var isSearchPresented = false
+    @State private var rootItemID: String?
+    @State private var rootFocusRevision = UUID()
     #if os(iOS)
     @AppStorage(AppNavigationMode.storageKey)
     private var navigationModeRawValue = AppNavigationMode.standard.rawValue
@@ -20,272 +25,348 @@ struct SettingsView: View {
         _scraperSettingsRoute = scraperSettingsRoute
     }
 
+    private var recentItems: [SettingDefinition] {
+        SettingsSearchHistory.shared.ids.compactMap { SettingsCatalog.byID[$0] }
+            .filter { musicIntelligence.shouldExposeRemoteConfiguration || $0.page != .intelligence }
+    }
+
     var body: some View {
-        NavigationStack {
-            List {
-                Section("library") {
-                    NavigationLink {
-                        SourcesContentView()
-                    } label: {
-                        Label("manage_sources", systemImage: "externaldrive.connected.to.line.below")
-                    }
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
+            searchableNavigation.searchToolbarBehavior(.minimize)
+        } else {
+            searchableNavigation
+        }
+        #else
+        searchableNavigation
+        #endif
+    }
 
-                    NavigationLink {
-                        MetadataScrapingView()
-                    } label: {
-                        Label("metadata_scraping", systemImage: "wand.and.stars")
-                    }
-
-                    NavigationLink {
-                        ArtistNameSettingsView()
-                    } label: {
-                        Label("artist_name_settings_title", systemImage: "person.2")
-                    }
-
-                    NavigationLink {
-                        LyricsSettingsView()
-                    } label: {
-                        Label("lyrics_settings_title", systemImage: "character.bubble")
-                    }
-
-                    NavigationLink {
-                        DuplicateSongsView()
-                    } label: {
-                        Label("dup_title", systemImage: "square.stack.3d.up.badge.automatic")
-                    }
-
-                    NavigationLink {
-                        StorageManagementView()
-                    } label: {
-                        Label("storage_management", systemImage: "internaldrive")
-                    }
-
-                    NavigationLink {
-                        RecentlyDeletedView()
-                    } label: {
-                        Label("recently_deleted", systemImage: "trash")
-                    }
-                }
-
-                Section("playback") {
-                    NavigationLink {
-                        PlaybackSettingsView()
-                    } label: {
-                        Label("playback_settings", systemImage: "play.circle")
-                    }
-
-                    NavigationLink {
-                        EqualizerView()
-                    } label: {
-                        Label("equalizer", systemImage: "slider.horizontal.3")
-                    }
-
-                    NavigationLink {
-                        AudioEffectsView()
-                    } label: {
-                        Label("audio_effects", systemImage: "waveform.badge.plus")
-                    }
-
-                    #if os(iOS) && !targetEnvironment(simulator)
-                    NavigationLink {
-                        SiriSettingsView()
-                    } label: {
-                        Label("Siri", systemImage: "waveform")
-                    }
-                    #endif
-                }
-
-                Section("appearance") {
-                    #if os(iOS)
-                    NavigationLink {
-                        AppearanceSettingsView()
-                    } label: {
-                        Label("appearance", systemImage: "circle.lefthalf.filled")
-                    }
-
-                    NavigationLink {
-                        ThemeColorSettingsView()
-                    } label: {
-                        Label("theme_color_title", systemImage: "paintpalette")
-                    }
-
-                    NavigationLink {
-                        PlayerAppearanceSettingsView()
-                    } label: {
-                        Label("player_appearance_title", systemImage: "play.rectangle")
-                    }
-
-                    NavigationLink {
-                        FullscreenPlayerEffectSettingsView()
-                    } label: {
-                        Label("fullscreen_effect_settings_title", systemImage: "viewfinder.rectangular")
-                    }
-
-                    NavigationLink {
-                        AppIconSettingsView()
-                    } label: {
-                        Label("app_icon", systemImage: "app.badge")
-                    }
-                    #endif
-
-                    NavigationLink {
-                        HomeSectionsSettingsView()
-                    } label: {
-                        Label("home_settings_title", systemImage: "house")
-                    }
-
-                    NavigationLink {
-                        LibraryDisplaySettingsView()
-                    } label: {
-                        Label("library_display_settings_title", systemImage: "rectangle.grid.1x2")
-                    }
-                }
-
-                Section("sync") {
-                    #if os(iOS)
-                    NavigationLink {
-                        IOSAudioCacheSyncView()
-                    } label: {
-                        Label {
-                            Text(verbatim: CacheSyncLocalization.text("cache_sync_title"))
-                        } icon: {
-                            Image(systemName: "arrow.left.arrow.right.circle")
+    private var searchableNavigation: some View {
+        NavigationStack(path: $path) {
+            SettingsFocusedPage(itemID: rootItemID) {
+                List {
+                    if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        searchResults
+                    } else if isSearchPresented && !recentItems.isEmpty {
+                        Section {
+                            ForEach(recentItems) { item in
+                                Button { open(item) } label: { SettingsSearchResultRow(item: item) }
+                                    .buttonStyle(.plain)
+                            }
+                        } header: {
+                            HStack {
+                                Text(SettingsStrings.text("Recently used"))
+                                Spacer()
+                                Button(SettingsStrings.text("Clear")) { SettingsSearchHistory.shared.clear() }
+                                    .textCase(nil)
+                            }
                         }
-                    }
-                    #endif
-
-                    NavigationLink {
-                        CloudSyncSettingsView()
-                    } label: {
-                        Label("icloud_sync_title", systemImage: "icloud")
-                    }
-
-                    NavigationLink {
-                        FamilySharingSettingsView()
-                    } label: {
-                        Label("family_sharing_title", systemImage: "person.2.fill")
+                    } else {
+                        settingsRows
                     }
                 }
-
-                Section("services_integrations") {
-                    if musicIntelligence.shouldExposeRemoteConfiguration {
-                        NavigationLink {
-                            AISettingsView()
-                        } label: {
-                            Label("ai_settings_title", systemImage: "sparkles")
-                        }
-                    }
-
-                    NavigationLink {
-                        AppleMusicSettingsView()
-                    } label: {
-                        Label("settings_apple_music_section", systemImage: "applelogo")
-                    }
-
-                    NavigationLink {
-                        ScrobbleSettingsView()
-                    } label: {
-                        Label("scrobble_title", systemImage: "music.note.list")
-                    }
-
-                    NavigationLink {
-                        ListeningStatsView()
-                    } label: {
-                        Label("stats_title", systemImage: "chart.bar.xaxis")
-                    }
-
-                    NavigationLink {
-                        DLNARendererSettingsView()
-                    } label: {
-                        Label("settings_dlna_section", systemImage: "antenna.radiowaves.left.and.right")
-                    }
-                }
-
-                Section {
-                    AppleTVPushRow()
-
-                    NavigationLink {
-                        RelaySettingsView()
-                    } label: {
-                        Label("settings_relay_section", systemImage: "appletv")
-                    }
-                } header: {
-                    Text("settings_appletv_section")
-                }
-
-                Section("security") {
-                    NavigationLink {
-                        TrustedDomainsView()
-                    } label: {
-                        HStack {
-                            Label("trusted_domains", systemImage: "lock.shield")
-                            Spacer()
-                            Text("\(SSLTrustStore.shared.trustedDomains.count + SSLTrustStore.shared.insecureHTTPDomains.count)")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                Section {
-                    HStack {
-                        Label("version", systemImage: "number")
-                        Spacer()
-                        Text(Bundle.main.appVersion)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    HStack {
-                        Label("build", systemImage: "hammer")
-                        Spacer()
-                        Text(Bundle.main.appBuildNumber)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    CheckForUpdateRow()
-
-                    NavigationLink {
-                        DiagnosticReportsView(service: AppServices.shared.crashDiagnostics)
-                    } label: {
-                        Label(String(localized: "diagnostics_title"), systemImage: "stethoscope")
-                    }
-
-                    NavigationLink {
-                        LicensesView()
-                    } label: {
-                        Label("licenses", systemImage: "doc.text")
-                    }
-
-                    Link(destination: PrimuseAppStore.reviewURL) {
-                        Label("rate_on_app_store", systemImage: "star.bubble")
-                    }
-
-                    Link(destination: URL(string: "https://github.com/chenqi92/primuse")!) {
-                        Label("github_repository", systemImage: "chevron.left.forwardslash.chevron.right")
-                    }
-
-                    Link(destination: URL(string: "https://github.com/chenqi92/primuse/issues/new/choose")!) {
-                        Label("github_feedback", systemImage: "exclamationmark.bubble")
-                    }
-                } header: {
-                    Text("about")
-                }
+                .scrollDismissesKeyboard(.interactively)
             }
+            .id(rootFocusRevision)
+            // Search belongs to this column; putting it on the stack hides it in iPad split view.
+            .searchable(text: $query, isPresented: $isSearchPresented, placement: .toolbar,
+                        prompt: Text(SettingsStrings.text("Search settings")))
+            .autocorrectionDisabled()
             .navigationTitle("settings_title")
             .toolbarTitleDisplayMode(.inlineLarge)
             #if os(iOS)
-            .toolbar(
-                AppNavigationMode.resolve(navigationModeRawValue) == .minimal
-                    ? .hidden
-                    : .automatic,
-                for: .navigationBar
-            )
-            #endif
-            .navigationDestination(isPresented: Binding(
-                get: { scraperSettingsRoute.isMetadataScrapingPresented },
-                set: { scraperSettingsRoute.setMetadataScrapingPresented($0) }
-            )) {
-                MetadataScrapingView()
+            .toolbar(AppNavigationMode.resolve(navigationModeRawValue) == .minimal ? .hidden : .automatic, for: .navigationBar)
+            .toolbar {
+                if #available(iOS 26.0, *) {
+                    if AppNavigationMode.resolve(navigationModeRawValue) == .minimal {
+                        DefaultToolbarItem(kind: .search, placement: .bottomBar)
+                    } else {
+                        DefaultToolbarItem(kind: .search, placement: .topBarTrailing)
+                    }
+                }
             }
+            #endif
+            .navigationDestination(for: SettingsDestination.self) { destination in
+                switch destination {
+                case .page(let page, let itemID):
+                    SettingsFocusedPage(itemID: itemID, page: page) { SettingsPageContent(page: page) }
+                        .id(destination)
+                        .onAppear {
+                            if itemID == nil { SettingsSearchHistory.shared.record(page.id) }
+                        }
+                }
+            }
+            .onChange(of: scraperSettingsRoute.isMetadataScrapingPresented, initial: true) { _, requested in
+                guard requested else { return }
+                path = [.page(.scraping, nil)]
+                scraperSettingsRoute.setMetadataScrapingPresented(false)
+            }
+            .onChange(of: SettingsNavigation.shared.request, initial: true) { _, request in
+                guard let request, SettingsNavigation.shared.presentedToken != request.token,
+                      let item = SettingsCatalog.byID[request.settingID] else { return }
+                SettingsNavigation.shared.presentedToken = request.token
+                path = []
+                open(item)
+            }
+        }
+    }
+
+    @ViewBuilder private var searchResults: some View {
+        let results = SettingsCatalog.search(query, showsIntelligence: musicIntelligence.shouldExposeRemoteConfiguration)
+        if results.isEmpty {
+            ContentUnavailableView.search(text: query)
+        } else {
+            ForEach(results) { item in
+                Button { open(item) } label: { SettingsSearchResultRow(item: item) }
+                    .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func open(_ item: SettingDefinition) {
+        guard let page = item.page else { return }
+        SettingsSearchHistory.shared.record(item.id)
+        if page == .about || page == .appleTV {
+            isSearchPresented = false
+            query = ""
+            path = []
+            rootItemID = item.id
+            rootFocusRevision = UUID()
+        } else {
+            path.append(.page(page, item.isPage ? nil : item.id))
+        }
+    }
+
+    @ViewBuilder private var settingsRows: some View {
+        Section("library") {
+            NavigationLink(value: SettingsDestination.page(.sources, nil)) {
+                Label("manage_sources", systemImage: "externaldrive.connected.to.line.below")
+            }
+
+            NavigationLink(value: SettingsDestination.page(.scraping, nil)) {
+                Label("metadata_scraping", systemImage: "wand.and.stars")
+            }
+
+            NavigationLink(value: SettingsDestination.page(.artists, nil)) {
+                Label("artist_name_settings_title", systemImage: "person.2")
+            }
+
+            NavigationLink(value: SettingsDestination.page(.lyrics, nil)) {
+                Label("lyrics_settings_title", systemImage: "character.bubble")
+            }
+
+            NavigationLink(value: SettingsDestination.page(.duplicates, nil)) {
+                Label("dup_title", systemImage: "square.stack.3d.up.badge.automatic")
+            }
+
+            NavigationLink(value: SettingsDestination.page(.storage, nil)) {
+                Label("storage_management", systemImage: "internaldrive")
+            }
+
+            NavigationLink(value: SettingsDestination.page(.deleted, nil)) {
+                Label("recently_deleted", systemImage: "trash")
+            }
+        }
+
+        Section("playback") {
+            NavigationLink(value: SettingsDestination.page(.playback, nil)) {
+                Label("playback_settings", systemImage: "play.circle")
+            }
+
+            NavigationLink(value: SettingsDestination.page(.equalizer, nil)) {
+                Label("equalizer", systemImage: "slider.horizontal.3")
+            }
+
+            NavigationLink(value: SettingsDestination.page(.effects, nil)) {
+                Label("audio_effects", systemImage: "waveform.badge.plus")
+            }
+
+            #if os(iOS)
+            NavigationLink(value: SettingsDestination.page(.siri, nil)) {
+                Label("Siri", systemImage: "waveform")
+            }
+            #endif
+        }
+
+        Section("appearance") {
+            #if os(iOS)
+            NavigationLink(value: SettingsDestination.page(.appearance, nil)) {
+                Label("appearance", systemImage: "circle.lefthalf.filled")
+            }
+
+            NavigationLink(value: SettingsDestination.page(.themeColor, nil)) {
+                Label("theme_color_title", systemImage: "paintpalette")
+            }
+
+            NavigationLink(value: SettingsDestination.page(.player, nil)) {
+                Label("player_appearance_title", systemImage: "play.rectangle")
+            }
+
+            NavigationLink(value: SettingsDestination.page(.fullscreen, nil)) {
+                Label("fullscreen_effect_settings_title", systemImage: "viewfinder.rectangular")
+            }
+
+            NavigationLink(value: SettingsDestination.page(.appIcon, nil)) {
+                Label("app_icon", systemImage: "app.badge")
+            }
+            #endif
+
+            NavigationLink(value: SettingsDestination.page(.home, nil)) {
+                Label("home_settings_title", systemImage: "house")
+            }
+
+            NavigationLink(value: SettingsDestination.page(.libraryDisplay, nil)) {
+                Label("library_display_settings_title", systemImage: "rectangle.grid.1x2")
+            }
+        }
+
+        Section("sync") {
+            NavigationLink(value: SettingsDestination.page(.cloud, nil)) {
+                Label("icloud_sync_title", systemImage: "icloud")
+            }
+
+            NavigationLink(value: SettingsDestination.page(.family, nil)) {
+                Label("family_sharing_title", systemImage: "person.2.fill")
+            }
+        }
+
+        Section("services_integrations") {
+            if musicIntelligence.shouldExposeRemoteConfiguration {
+                NavigationLink(value: SettingsDestination.page(.intelligence, nil)) {
+                    Label("ai_settings_title", systemImage: "sparkles")
+                }
+            }
+
+            NavigationLink(value: SettingsDestination.page(.appleMusic, nil)) {
+                Label("settings_apple_music_section", systemImage: "applelogo")
+            }
+
+            NavigationLink(value: SettingsDestination.page(.scrobble, nil)) {
+                Label("scrobble_title", systemImage: "music.note.list")
+            }
+
+            NavigationLink(value: SettingsDestination.page(.statistics, nil)) {
+                Label("stats_title", systemImage: "chart.bar.xaxis")
+            }
+
+            NavigationLink(value: SettingsDestination.page(.dlna, nil)) {
+                Label("settings_dlna_section", systemImage: "antenna.radiowaves.left.and.right")
+            }
+        }
+
+        Section {
+            AppleTVPushRow()
+
+            NavigationLink(value: SettingsDestination.page(.relay, nil)) {
+                Label("settings_relay_section", systemImage: "appletv")
+            }
+        } header: {
+            Text("settings_appletv_section")
+        }
+        .settingsAnchor("page.appleTV")
+
+        Section("security") {
+            NavigationLink(value: SettingsDestination.page(.domains, nil)) {
+                HStack {
+                    Label("trusted_domains", systemImage: "lock.shield")
+                    Spacer()
+                    Text("\(SSLTrustStore.shared.trustedDomains.count + SSLTrustStore.shared.insecureHTTPDomains.count)")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+
+        Section {
+            HStack {
+                Label("version", systemImage: "number")
+                Spacer()
+                Text(Bundle.main.appVersion)
+                    .foregroundStyle(.secondary)
+            }
+            .settingsAnchor("about.version")
+
+            HStack {
+                Label("build", systemImage: "hammer")
+                Spacer()
+                Text(Bundle.main.appBuildNumber)
+                    .foregroundStyle(.secondary)
+            }
+            .settingsAnchor("about.build")
+
+            CheckForUpdateRow()
+
+            NavigationLink(value: SettingsDestination.page(.diagnostics, nil)) {
+                Label(String(localized: "diagnostics_title"), systemImage: "stethoscope")
+            }
+
+            NavigationLink(value: SettingsDestination.page(.licenses, nil)) {
+                Label("licenses", systemImage: "doc.text")
+            }
+
+            Link(destination: PrimuseAppStore.reviewURL) {
+                Label("rate_on_app_store", systemImage: "star.bubble")
+            }
+            .settingsAnchor("about.rate")
+
+            Link(destination: URL(string: "https://github.com/chenqi92/primuse")!) {
+                Label("github_repository", systemImage: "chevron.left.forwardslash.chevron.right")
+            }
+            .settingsAnchor("about.repository")
+
+            Link(destination: URL(string: "https://github.com/chenqi92/primuse/issues/new/choose")!) {
+                Label("github_feedback", systemImage: "exclamationmark.bubble")
+            }
+            .settingsAnchor("about.feedback")
+        } header: {
+            Text("about")
+        }
+        .settingsAnchor("page.about")
+    }
+}
+
+private struct SettingsPageContent: View {
+    let page: SettingsPage
+
+    @ViewBuilder var body: some View {
+        switch page {
+        case .playback: PlaybackSettingsView()
+        case .equalizer: EqualizerView()
+        case .effects: AudioEffectsView()
+        case .lyrics: LyricsSettingsView()
+        case .transcription: GoogleLyricsTranscriptionSettingsView()
+        case .sources: SourcesContentView()
+        case .scraping: MetadataScrapingView()
+        case .artists: ArtistNameSettingsView()
+        case .duplicates: DuplicateSongsView()
+        case .deleted: RecentlyDeletedView()
+        case .storage: StorageManagementView()
+        case .home: HomeSectionsSettingsView()
+        case .libraryDisplay: LibraryDisplaySettingsView()
+        case .cloud: CloudSyncSettingsView()
+        case .family: FamilySharingSettingsView()
+        case .appleTV, .about: EmptyView()
+        case .relay: RelaySettingsView()
+        case .dlna: DLNARendererSettingsView()
+        case .intelligence: AISettingsView()
+        case .appleMusic: AppleMusicSettingsView()
+        case .scrobble: ScrobbleSettingsView()
+        case .statistics: ListeningStatsView()
+        case .domains: TrustedDomainsView()
+        case .diagnostics: DiagnosticReportsView(service: AppServices.shared.crashDiagnostics)
+        case .licenses: LicensesView()
+        #if os(iOS)
+        case .appearance: AppearanceSettingsView()
+        case .themeColor: ThemeColorSettingsView()
+        case .player: PlayerAppearanceSettingsView()
+        case .fullscreen: FullscreenPlayerEffectSettingsView()
+        case .appIcon: AppIconSettingsView()
+        case .cacheSync: StorageManagementView(opensCacheSync: true)
+        case .siri: SiriSettingsView()
+        #else
+        case .appearance, .themeColor, .player, .fullscreen, .appIcon, .cacheSync, .siri: EmptyView()
+        #endif
+        case .keyboard, .widgets: EmptyView()
         }
     }
 }
@@ -391,11 +472,13 @@ private struct PlayerAppearanceSettingsView: View {
         Form {
             Section {
                 Toggle("player_animated_artwork", isOn: $animatedArtworkEnabled)
+                .settingsAnchor("appearance.animatedArtwork")
                     .accessibilityHint(Text("player_animated_artwork_description"))
                 Toggle(
                     "player_animated_artwork_unmetered_only",
                     isOn: $animatedArtworkUnmeteredOnly
                 )
+                .settingsAnchor("appearance.animatedArtworkUnmeteredOnly")
                 .disabled(!animatedArtworkEnabled)
                 .accessibilityHint(Text("player_animated_artwork_unmetered_only_description"))
             }
@@ -405,10 +488,12 @@ private struct PlayerAppearanceSettingsView: View {
                     "motion_artwork_service_enabled",
                     isOn: $motionArtworkServiceEnabled
                 )
+                .settingsAnchor("appearance.motionArtworkService")
                 TextField(
                     "motion_artwork_service_endpoint",
                     text: $motionArtworkServiceEndpoint
                 )
+                .settingsAnchor("appearance.motionArtworkEndpoint")
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .keyboardType(.URL)
@@ -419,6 +504,7 @@ private struct PlayerAppearanceSettingsView: View {
 
             Section {
                 Toggle("player_volume_bar", isOn: $showsVolumeBar)
+                .settingsAnchor("appearance.volumeBar")
                     .accessibilityHint(Text("player_volume_bar_description"))
             }
 
@@ -429,6 +515,7 @@ private struct PlayerAppearanceSettingsView: View {
                             .tag(mode)
                     }
                 }
+                .settingsAnchor("lyrics.colorMode")
                 .pickerStyle(.menu)
                 .accessibilityHint(Text("player_current_lyric_color_description"))
                 .accessibilityIdentifier("playerLyricsColorModePicker")
@@ -475,19 +562,23 @@ private struct PlayerAppearanceSettingsView: View {
                             .tag(alignment)
                     }
                 }
+                .settingsAnchor("lyrics.alignment")
                 .pickerStyle(.segmented)
 
                 Toggle("player_blur_inactive_lyrics", isOn: $blursInactiveLyrics)
+                .settingsAnchor("lyrics.blurInactive")
                     .accessibilityHint(Text("player_blur_inactive_lyrics_description"))
 
                 Toggle(
                     "player_keep_screen_awake_for_lyrics",
                     isOn: $keepsScreenAwakeForLyrics
                 )
+                .settingsAnchor("lyrics.keepScreenAwake")
                 .accessibilityHint(Text("player_keep_screen_awake_for_lyrics_description"))
                 .accessibilityIdentifier("playerKeepScreenAwakeForLyricsToggle")
 
                 Toggle("player_tap_lyrics_to_seek", isOn: $tapLyricsToSeek)
+                .settingsAnchor("lyrics.tapToSeek")
                     .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
                     .accessibilityIdentifier("playerTapLyricsToSeekToggle")
             } header: {
@@ -605,6 +696,7 @@ private struct LibraryDisplaySettingsView: View {
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
                     }
+                    .settingsAnchor("library.quickAccessCount")
 
                     Slider(
                         value: quickAccessLimitBinding,
@@ -628,11 +720,13 @@ private struct LibraryDisplaySettingsView: View {
                         Label(section.title, systemImage: section.icon)
                     }
                     .accessibilityHint(Text("library_sections_settings_footer"))
+                    .settingsAnchor("library.show." + section.rawValue)
                 }
                 .onMove(perform: moveSections)
             } header: {
                 Text("library_sections_settings_label")
             }
+            .settingsAnchor("library.sectionOrder")
 
             Section {
                 Button("library_sections_restore_default_order") {
@@ -640,6 +734,7 @@ private struct LibraryDisplaySettingsView: View {
                         LibraryDisplayConfiguration.defaultSectionOrder
                     )
                 }
+                .settingsAnchor("library.restoreOrder")
             }
 
             Section {
@@ -739,9 +834,11 @@ private struct LibraryDisplaySettingsView: View {
             } footer: {
                 Text("ai_recommendation_intents_settings_footer")
             }
+            .settingsAnchor("library.recommendationDirections")
 
             Section {
                 Toggle("library_default_flat_view", isOn: defaultFlatBrowseBinding)
+                .settingsAnchor("library.flatBrowse")
                     .accessibilityHint(Text("library_default_flat_view_description"))
             }
         }
@@ -900,6 +997,7 @@ private struct CheckForUpdateRow: View {
                                 .foregroundStyle(statusColor)
                         }
                     }
+                    .settingsAnchor("about.update")
                 } icon: {
                     Image(systemName: "arrow.triangle.2.circlepath")
                 }
@@ -1074,6 +1172,7 @@ struct MetadataScrapingView: View {
                     .font(.caption)
                     .textCase(nil)
                 }
+                .settingsAnchor("scraping.sources")
             }
 
             Section {
@@ -1090,13 +1189,16 @@ struct MetadataScrapingView: View {
             } footer: {
                 Text("import_scraper_footer")
             }
+            .settingsAnchor("scraping.import")
 
             Section("scraper_options") {
                 Toggle("only_fill_missing", isOn: $settings.onlyFillMissingFields)
+                .settingsAnchor("scraping.onlyMissing")
 
                 Button("reset_scraper_defaults") {
                     scraperSettings.resetToDefaults()
                 }
+                .settingsAnchor("scraping.reset")
                 .foregroundStyle(.red)
             }
 
@@ -1128,10 +1230,12 @@ struct MetadataScrapingView: View {
                     Button("scrape_missing_metadata") {
                         scraperService.scrapeMissingMetadata(in: library)
                     }
+                    .settingsAnchor("scraping.fillMissing")
 
                     Button("rescrape_library") {
                         scraperService.rescrapeLibrary(in: library)
                     }
+                    .settingsAnchor("scraping.rescrape")
                 }
             } header: {
                 Text("scrape_actions")
@@ -1470,12 +1574,14 @@ struct PlaybackSettingsView: View {
                         Text(mode.displayName).tag(mode)
                     }
                 }
+                .settingsAnchor("playback.outputMode")
 
                 Picker("dsd_playback_mode", selection: $settings.dsdPlaybackMode) {
                     ForEach(DSDPlaybackMode.allCases, id: \.self) { mode in
                         Text(mode.displayName).tag(mode)
                     }
                 }
+                .settingsAnchor("playback.dsdMode")
             } header: {
                 Text("audio_output_section")
             } footer: {
@@ -1485,7 +1591,11 @@ struct PlaybackSettingsView: View {
             }
 
             Section {
-                Toggle("output_sr_matching", isOn: $settings.matchOutputSampleRate)
+                Toggle("output_sr_matching", isOn: Binding(
+                    get: { settings.outputMode == .highFidelity || settings.matchOutputSampleRate },
+                    set: { settings.matchOutputSampleRate = $0 }
+                ))
+                .settingsAnchor("playback.matchSampleRate")
             } footer: {
                 Text(settings.outputMode == .highFidelity
                      ? "output_sr_matching_fidelity_desc"
@@ -1495,6 +1605,7 @@ struct PlaybackSettingsView: View {
 
             Section {
                 Toggle("gapless_playback", isOn: $settings.gaplessEnabled)
+                .settingsAnchor("playback.gapless")
                     .onChange(of: settings.gaplessEnabled) { _, enabled in
                         if enabled { settings.crossfadeEnabled = false }
                     }
@@ -1503,6 +1614,7 @@ struct PlaybackSettingsView: View {
 
             Section {
                 Toggle("crossfade", isOn: $settings.crossfadeEnabled)
+                .settingsAnchor("playback.crossfade")
                     .onChange(of: settings.crossfadeEnabled) { _, enabled in
                         if enabled { settings.gaplessEnabled = false }
                     }
@@ -1538,7 +1650,9 @@ struct PlaybackSettingsView: View {
 
             Section {
                 Toggle("skip_leading_silence", isOn: $settings.skipLeadingSilenceEnabled)
+                .settingsAnchor("playback.skipLeadingSilence")
                 Toggle("skip_trailing_silence", isOn: $settings.skipTrailingSilenceEnabled)
+                .settingsAnchor("playback.skipTrailingSilence")
             } footer: {
                 Text("silence_skipping_desc")
             }
@@ -1546,6 +1660,7 @@ struct PlaybackSettingsView: View {
 
             Section {
                 Toggle("replay_gain", isOn: $settings.replayGainEnabled)
+                .settingsAnchor("playback.replayGain")
                     .accessibilityHint(Text("replay_gain_desc"))
 
                 if settings.replayGainEnabled {
@@ -1560,6 +1675,7 @@ struct PlaybackSettingsView: View {
 
             Section {
                 Toggle("spatial_audio", isOn: $settings.spatialAudioEnabled)
+                .settingsAnchor("playback.spatialAudio")
                     .accessibilityHint(Text("spatial_audio_desc"))
 
                 if settings.spatialAudioEnabled {
@@ -1573,12 +1689,15 @@ struct PlaybackSettingsView: View {
                 HStack {
                     Text("playback_rate")
                     Spacer()
-                    Text(String(format: "%.2fx", settings.playbackRate))
+                    Text(String(format: "%.2fx", Double(settings.outputMode == .highFidelity ? Float(1) : settings.playbackRate)))
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
                 Slider(
-                    value: $settings.playbackRate,
+                    value: Binding(
+                        get: { settings.outputMode == .highFidelity ? 1 : settings.playbackRate },
+                        set: { settings.playbackRate = $0 }
+                    ),
                     in: 0.5...2.0,
                     step: 0.05
                 ) {
@@ -1588,6 +1707,7 @@ struct PlaybackSettingsView: View {
                 } maximumValueLabel: {
                     Text("2.0x").font(.caption2)
                 }
+                .settingsAnchor("playback.speed")
                 .accessibilityHint(Text("playback_rate_desc"))
                 if settings.playbackRate != 1.0 {
                     Button("playback_rate_reset") {
@@ -1603,11 +1723,11 @@ struct PlaybackSettingsView: View {
             #if os(iOS)
             Section {
                 Toggle("lock_screen_lyrics", isOn: $settings.lockScreenLyricsEnabled)
+                    .settingsAnchor("lyrics.lockScreen")
             } footer: {
                 Text("lock_screen_lyrics_desc")
             }
             #endif
-
         }
         .navigationTitle("playback_settings")
         #if os(iOS)
@@ -1668,6 +1788,7 @@ private struct AppleTVPushRow: View {
                         .foregroundStyle(result ? .green : .orange)
                 }
             }
+            .settingsAnchor("appleTV.push")
         }
         .disabled(pushing || !iCloudSyncEnabled)
         .alert(
@@ -1710,6 +1831,7 @@ struct RelaySettingsView: View {
 
             Section {
                 Toggle(String(localized: "settings_relay_enable"), isOn: $enabled)
+                .settingsAnchor("relay.enabled")
                     .onChange(of: enabled) { _, on in
                         if on { startRelay() } else { PhoneRelayServer.shared.stop() }
                         pushCredentialsToTV(relayOn: on)
@@ -1781,6 +1903,8 @@ struct RelaySettingsView: View {
 // MARK: - Storage Management
 
 struct StorageManagementView: View {
+    var opensCacheSync = false
+    @State private var showsCacheSync = false
     @Environment(SourceManager.self) private var sourceManager
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
     @Environment(MetadataBackfillService.self) private var backfill
@@ -1813,12 +1937,14 @@ struct StorageManagementView: View {
         List {
             Section {
                 Toggle("cloud_scan_wifi_only", isOn: $cloudScanWifiOnly)
+                .settingsAnchor("storage.wifiOnly")
                     .onChange(of: cloudScanWifiOnly) { _, _ in
                         // Re-evaluate immediately so the user sees backfill
                         // start (or stop) right after flipping the switch.
                         backfill.refreshQueue()
                     }
                 Toggle("notify_backfill_complete", isOn: $notifyBackfillComplete)
+                .settingsAnchor("storage.notifyBackfill")
                     .onChange(of: notifyBackfillComplete) { _, on in
                         guard on else { return }
                         // 用户从关 → 开: 主动请求权限。UserNotificationService 内部
@@ -1908,6 +2034,7 @@ struct StorageManagementView: View {
 
             Section {
                 Toggle("audio_cache_enabled", isOn: $settings.audioCacheEnabled)
+                .settingsAnchor("storage.audioCacheEnabled")
 
                 Picker("audio_cache_limit", selection: $settings.audioCacheLimitBytes) {
                     ForEach(
@@ -1917,6 +2044,7 @@ struct StorageManagementView: View {
                         Text(formatBytes(bytes)).tag(bytes)
                     }
                 }
+                .settingsAnchor("storage.audioCacheLimit")
 
                 storageRow(
                     icon: "waveform",
@@ -1932,6 +2060,7 @@ struct StorageManagementView: View {
                         flashCacheToast(freed: result.freedBytes, failed: result.failedCount)
                     }
                 }
+                .settingsAnchor("storage.clearAudioCache")
 
                 if let bd = audioBreakdown {
                     audioBreakdownDetail(bd)
@@ -1951,6 +2080,7 @@ struct StorageManagementView: View {
                         isClearingImages = false
                     }
                 }
+                .settingsAnchor("storage.clearImageCache")
             } header: {
                 Text("cache")
             } footer: {
@@ -1972,6 +2102,7 @@ struct StorageManagementView: View {
                         isClearingMetadata = false
                     }
                 }
+                .settingsAnchor("storage.clearMetadata")
             } header: {
                 Text("persistent_data")
             } footer: {
@@ -2000,6 +2131,24 @@ struct StorageManagementView: View {
         .navigationTitle("storage_management")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showsCacheSync = true
+                } label: {
+                    Label(CacheSyncLocalization.text("cache_sync_title"), systemImage: "arrow.left.arrow.right")
+                }
+                .accessibilityIdentifier("storage.cacheSync")
+            }
+        }
+        .sheet(isPresented: $showsCacheSync) {
+            NavigationStack { IOSAudioCacheSyncView(isPresentedAsSheet: true) }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
+        .onAppear {
+            if opensCacheSync { showsCacheSync = true }
+        }
         #endif
         .task { await refreshSizes() }
         .overlay(alignment: .bottom) {
@@ -2246,6 +2395,7 @@ struct TrustedDomainsView: View {
             } footer: {
                 Text("trusted_domains_footer")
             }
+            .settingsAnchor("security.httpsTrust")
 
             Section {
                 ForEach(SSLTrustStore.shared.insecureHTTPDomains, id: \.self) { domain in
@@ -2273,6 +2423,7 @@ struct TrustedDomainsView: View {
             } footer: {
                 Text("insecure_http_domains_footer")
             }
+            .settingsAnchor("security.httpDomains")
         }
         .navigationTitle("trusted_domains")
         #if os(iOS)
@@ -2285,10 +2436,12 @@ struct TrustedDomainsView: View {
                         newDomain = ""
                         showAddSSLAlert = true
                     }
+                    .settingsAnchor("security.addTrustedDomain")
                     Button("add_insecure_http_domain") {
                         newDomain = ""
                         showAddHTTPAlert = true
                     }
+                    .settingsAnchor("security.addHTTPDomain")
                 } label: {
                     Image(systemName: "plus")
                 }
@@ -2450,6 +2603,7 @@ struct FamilySharingSettingsView: View {
                     Text("family_sharing_footer").font(.footnote)
                 }
             }
+            .settingsAnchor("family.create")
 
             // 解散 ── 独立 Section, 物理上跟"邀请家人"分开避免 SwiftUI Form
             // 多 Button 同 Section 时点击 highlight 串味。
@@ -2460,6 +2614,7 @@ struct FamilySharingSettingsView: View {
                     } label: {
                         Label("family_sharing_leave", systemImage: "person.crop.circle.badge.xmark")
                     }
+                    .settingsAnchor("family.leave")
                     .disabled(isBusy)
                 } footer: {
                     Text("family_sharing_footer").font(.footnote)

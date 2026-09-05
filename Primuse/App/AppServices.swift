@@ -1716,6 +1716,7 @@ final class AppServices {
 
         bridge.setRepeatMode = { player.repeatMode = $0 }
         bridge.setPlaybackSpeed = { [self] requested in
+            guard playbackSettingsStore.outputMode == .effects else { return 1 }
             let effective = min(max(requested, 0.5), 2.0)
             playbackSettingsStore.playbackRate = Float(effective)
             player.applyPlaybackRate()

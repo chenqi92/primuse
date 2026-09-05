@@ -36,12 +36,10 @@ struct SiriSettingsView: View {
             }
 
             Section {
-                Label {
-                    Text("siri_play_song_example")
-                } icon: {
-                    Image(systemName: "quote.bubble")
-                }
-
+                SettingsShortcutsHelpView()
+            }
+            Section {
+                Label("siri_play_song_example", systemImage: "quote.bubble")
                 ShortcutsLink()
                     .shortcutsLinkStyle(.automaticOutline)
             } header: {
@@ -49,6 +47,7 @@ struct SiriSettingsView: View {
             } footer: {
                 Text("siri_shortcuts_hint")
             }
+            .settingsAnchor("siri.shortcuts")
         }
         .navigationTitle("Siri")
         .navigationBarTitleDisplayMode(.inline)
@@ -64,6 +63,7 @@ struct SiriSettingsView: View {
             Image(systemName: statusImage)
                 .foregroundStyle(statusColor)
         }
+        .settingsAnchor("siri.authorization")
         .contentShape(Rectangle())
     }
 

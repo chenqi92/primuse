@@ -887,20 +887,19 @@ struct PrimuseShortcuts: AppShortcutsProvider {
             systemImageName: "play.fill"
         )
         AppShortcut(
-            intent: PrimuseNextIntent(),
-            phrases: [
-                "Play the next track in \(.applicationName)",
-            ],
-            shortTitle: "Next",
-            systemImageName: "forward.fill"
+            intent: PrimuseSkipTrackIntent(),
+            phrases: ["Play the \(\.$direction) track in \(.applicationName)"],
+            shortTitle: LocalizedStringResource("Skip Track", table: "SettingsSearch"),
+            systemImageName: "forward.end"
         )
         AppShortcut(
-            intent: PrimusePreviousIntent(),
+            intent: PrimuseOpenSettingIntent(),
             phrases: [
-                "Play the previous track in \(.applicationName)",
+                "Open \(\.$target) in \(.applicationName)",
+                "Open a setting in \(.applicationName)",
             ],
-            shortTitle: "Previous",
-            systemImageName: "backward.fill"
+            shortTitle: LocalizedStringResource("Open Setting", table: "SettingsSearch"),
+            systemImageName: "gearshape"
         )
         AppShortcut(
             intent: PrimuseShuffleAllIntent(),

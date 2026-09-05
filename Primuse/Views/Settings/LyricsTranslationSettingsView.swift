@@ -16,6 +16,7 @@ struct LyricsSettingsView: View {
         Form {
             Section {
                 Toggle("lyrics_translation_enabled", isOn: $settings.isEnabled)
+                .settingsAnchor("lyrics.translationEnabled")
             } footer: {
                 Text("lyrics_translation_overall_footer")
             }
@@ -89,6 +90,7 @@ struct LyricsSettingsView: View {
             } footer: {
                 Text("lyrics_audio_tools_footer")
             }
+            .settingsAnchor("lyrics.transcription")
         }
         .navigationTitle("lyrics_settings_title")
         #if os(iOS)
@@ -290,6 +292,7 @@ struct GoogleLyricsTranscriptionSettingsView: View {
 
                 Section {
                     SecureField("lyrics_transcription_api_key", text: $editor.apiKeyDraft)
+                    .settingsAnchor("lyrics.transcriptionAPIKey")
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                     if editor.hasStoredAPIKey && editor.apiKeyDraft.isEmpty {
@@ -308,6 +311,7 @@ struct GoogleLyricsTranscriptionSettingsView: View {
                                 ProgressView()
                             }
                         }
+                        .settingsAnchor("lyrics.transcriptionFetchModels")
                     }
                     .disabled(!editor.canFetchModels)
 
@@ -320,6 +324,7 @@ struct GoogleLyricsTranscriptionSettingsView: View {
                                 Text(verbatim: model.id).tag(model.id)
                             }
                         }
+                        .settingsAnchor("lyrics.transcriptionModel")
                     } else if !editor.configuration.transcriptionModel.isEmpty {
                         LabeledContent("lyrics_transcription_model") {
                             Text(verbatim: editor.configuration.transcriptionModel)
@@ -334,10 +339,12 @@ struct GoogleLyricsTranscriptionSettingsView: View {
 
                 Section {
                     Toggle("lyrics_transcription_enabled", isOn: $editor.isEnabled)
+                    .settingsAnchor("lyrics.transcriptionEnabled")
                     Toggle(
                         "lyrics_transcription_audio_consent",
                         isOn: $editor.hasExplicitAudioUploadConsent
                     )
+                    .settingsAnchor("lyrics.transcriptionConsent")
                 } footer: {
                     Text("lyrics_transcription_consent_footer")
                 }

@@ -458,6 +458,7 @@ struct ServerListeningStatsView: View {
                 Text(tab.localizationKey).tag(tab)
             }
         }
+        .settingsAnchor("stats.serverRank")
         .pickerStyle(.segmented)
     }
 
@@ -521,6 +522,7 @@ struct ServerListeningStatsView: View {
         } label: {
             Label("stats_server_refresh", systemImage: "arrow.clockwise")
         }
+        .settingsAnchor("stats.serverRefresh")
         .disabled(statsService.isRefreshing)
     }
 

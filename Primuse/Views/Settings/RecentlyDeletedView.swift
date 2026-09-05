@@ -47,6 +47,7 @@ struct RecentlyDeletedView: View {
                             pendingPurgePlan = purgePlan
                             showClearAllConfirmation = true
                         }
+                        .settingsAnchor("deleted.clearAll")
                         .disabled(!sourcesStore.permanentDeletionInProgressIDs.isDisjoint(
                             with: purgePlan.sourceIDs
                         ))
@@ -114,6 +115,7 @@ struct RecentlyDeletedView: View {
             } footer: {
                 Text("hidden_source_playlists_desc")
             }
+            .settingsAnchor("deleted.hiddenPlaylists")
         }
     }
 
@@ -136,6 +138,7 @@ struct RecentlyDeletedView: View {
             } header: {
                 Text("recently_deleted_playlists")
             }
+            .settingsAnchor("deleted.playlists")
         }
     }
 
@@ -156,6 +159,7 @@ struct RecentlyDeletedView: View {
             } header: {
                 Text("recently_deleted_smart_playlists")
             }
+            .settingsAnchor("deleted.smartPlaylists")
         }
     }
 
@@ -183,6 +187,7 @@ struct RecentlyDeletedView: View {
             } header: {
                 Text("recently_deleted_sources")
             }
+            .settingsAnchor("deleted.sources")
         }
     }
 
@@ -210,6 +215,7 @@ struct RecentlyDeletedView: View {
             } header: {
                 Text("recently_deleted_scraper_configs")
             }
+            .settingsAnchor("deleted.scraperConfigs")
         }
     }
 

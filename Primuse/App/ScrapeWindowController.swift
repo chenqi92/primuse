@@ -105,9 +105,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private override init() { super.init() }
 
     /// 打开设置窗口 (Cmd+, / 菜单触发)。已开则置前。
-    func show(tab: MacSettingsTab? = nil) {
-        if let tab {
-            navigation.tab = tab
+    func show(tab: MacSettingsTab? = nil, settingID: String? = nil) {
+        if let settingID, let item = SettingsCatalog.byID[settingID] {
+            navigation.select(item: item)
+        } else if let tab {
+            navigation.select(tab: tab)
         }
         if let win = window {
             NSApp.activate(ignoringOtherApps: true)
@@ -130,7 +132,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         win.setFrameAutosaveName("PrimuseSettings")
         win.isReleasedWhenClosed = false
         win.contentViewController = NSHostingController(
-            rootView: MacSettingsView(navigation: navigation).applyPrimuseEnvironments()
+            rootView: MacSettingsView(navigation: navigation)
+                .applyPrimuseEnvironments()
+                .environment(AppServices.shared.audioCacheSync)
         )
         win.delegate = self
         self.window = win

@@ -111,6 +111,7 @@ struct DuplicateSongsView: View {
                                     Text(String(format: String(localized: "dup_show_all_format"),
                                                 groups.count - Self.initialGroupRenderCap))
                                 }
+                                .settingsAnchor("duplicates.showAll")
                             }
                         } footer: {
                             Text("dup_show_all_hint")
@@ -136,6 +137,7 @@ struct DuplicateSongsView: View {
             Button("dup_keep_best_action_short", role: .destructive) {
                 cleanAll()
             }
+            .settingsAnchor("duplicates.keepBest")
             Button("cancel", role: .cancel) {}
         } message: {
             Text(String(format: String(localized: "dup_clean_all_message_format"), totalRedundantCount))
@@ -744,6 +746,7 @@ struct DuplicateSongsView: View {
                     Text("dup_clean_all_action")
                 }
             }
+            .settingsAnchor("duplicates.cleanAll")
             .disabled(totalRedundantCount == 0 || cleaner.progress != nil)
         }
     }

@@ -41,28 +41,187 @@
         ] } }
       }
     },
-    "Play the next track in ${applicationName}" : {
+    "Play the ${direction} track in ${applicationName}" : {
       "extractionState" : "extracted_with_value",
       "localizations" : {
-        "de" : { "stringSet" : { "state" : "translated", "values" : [ "Nächsten Titel in ${applicationName} abspielen" ] } },
-        "en" : { "stringSet" : { "state" : "translated", "values" : [ "Play the next track in ${applicationName}" ] } },
-        "fr" : { "stringSet" : { "state" : "translated", "values" : [ "Lire le morceau suivant dans ${applicationName}" ] } },
-        "ja" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}で次の曲を再生" ] } },
-        "ko" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}에서 다음 곡 재생" ] } },
-        "zh-Hans" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 播放下一首" ] } },
-        "zh-Hant" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 播放下一首" ] } }
+        "de" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "In ${applicationName} ${direction} abspielen"
+            ]
+          }
+        },
+        "en" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Play the ${direction} track in ${applicationName}"
+            ]
+          }
+        },
+        "fr" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Lire le morceau ${direction} dans ${applicationName}"
+            ]
+          }
+        },
+        "ja" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName}で${direction}の曲を再生"
+            ]
+          }
+        },
+        "ko" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName}에서 ${direction} 곡 재생"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "用 ${applicationName} 播放${direction}"
+            ]
+          }
+        },
+        "zh-Hant" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "用 ${applicationName} 播放${direction}"
+            ]
+          }
+        }
       }
     },
-    "Play the previous track in ${applicationName}" : {
+    "Open ${target} in ${applicationName}" : {
       "extractionState" : "extracted_with_value",
       "localizations" : {
-        "de" : { "stringSet" : { "state" : "translated", "values" : [ "Vorherigen Titel in ${applicationName} abspielen" ] } },
-        "en" : { "stringSet" : { "state" : "translated", "values" : [ "Play the previous track in ${applicationName}" ] } },
-        "fr" : { "stringSet" : { "state" : "translated", "values" : [ "Lire le morceau précédent dans ${applicationName}" ] } },
-        "ja" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}で前の曲を再生" ] } },
-        "ko" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}에서 이전 곡 재생" ] } },
-        "zh-Hans" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 播放上一首" ] } },
-        "zh-Hant" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 播放上一首" ] } }
+        "de" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${target} in ${applicationName} öffnen"
+            ]
+          }
+        },
+        "en" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Open ${target} in ${applicationName}"
+            ]
+          }
+        },
+        "fr" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Ouvrir ${target} dans ${applicationName}"
+            ]
+          }
+        },
+        "ja" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName}で${target}を開く"
+            ]
+          }
+        },
+        "ko" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName}에서 ${target} 열기"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "在 ${applicationName} 中打开${target}"
+            ]
+          }
+        },
+        "zh-Hant" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "在 ${applicationName} 中開啟${target}"
+            ]
+          }
+        }
+      }
+    },
+    "Open a setting in ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Eine Einstellung in ${applicationName} öffnen"
+            ]
+          }
+        },
+        "en" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Open a setting in ${applicationName}"
+            ]
+          }
+        },
+        "fr" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Ouvrir un réglage dans ${applicationName}"
+            ]
+          }
+        },
+        "ja" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName}の設定項目を開く"
+            ]
+          }
+        },
+        "ko" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName} 설정 항목 열기"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "打开 ${applicationName} 的设置项"
+            ]
+          }
+        },
+        "zh-Hant" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "開啟 ${applicationName} 的設定項目"
+            ]
+          }
+        }
       }
     },
     "Shuffle ${applicationName}" : {

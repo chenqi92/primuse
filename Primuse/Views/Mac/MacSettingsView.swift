@@ -11,7 +11,7 @@ import PrimuseKit
 /// system as the design instead of embedding the older grouped Forms.
 enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
     case playback, storage, equalizer, effects, keyboard, theme
-    case scrape, artists, lyrics, appleMusic, intelligence, widgets, cloud, deleted, ssl, about
+    case scrape, artists, lyrics, appleMusic, intelligence, widgets, cloud, deleted, ssl, about, siri
 
     var id: String { rawValue }
 
@@ -33,6 +33,7 @@ enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
         case .deleted: return Lz("Recently Deleted")
         case .ssl: return Lz("Trusted Domains")
         case .about: return Lz("About")
+        case .siri: return SettingsPage.siri.title
         }
     }
 
@@ -54,6 +55,7 @@ enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
         case .deleted: return "trash"
         case .ssl: return "lock.shield"
         case .about: return "info.circle"
+        case .siri: return "waveform"
         }
     }
 
@@ -75,6 +77,7 @@ enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
         case .deleted: return "ST-09"
         case .ssl: return "ST-10"
         case .about: return "ST-11"
+        case .siri: return ""
         }
     }
 }
@@ -83,6 +86,71 @@ enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
 @Observable
 final class MacSettingsNavigationModel {
     var tab: MacSettingsTab = .playback
+    var settingID: String?
+    var revision = UUID()
+
+    func select(tab: MacSettingsTab) {
+        self.tab = tab
+        settingID = nil
+        revision = UUID()
+    }
+
+    func select(item: SettingDefinition) {
+        guard let tab = item.page?.macTab else { return }
+        self.tab = tab
+        settingID = item.isPage ? nil : item.id
+        if item.page == .transcription || item.page == .cacheSync { settingID = item.id }
+        revision = UUID()
+    }
+}
+
+extension SettingsPage {
+    var macTab: MacSettingsTab? {
+        switch self {
+        case .playback: .playback
+        case .storage, .cacheSync: .storage
+        case .equalizer: .equalizer
+        case .effects: .effects
+        case .keyboard: .keyboard
+        case .appearance: .theme
+        case .scraping: .scrape
+        case .artists: .artists
+        case .lyrics, .transcription: .lyrics
+        case .appleMusic: .appleMusic
+        case .intelligence: .intelligence
+        case .widgets: .widgets
+        case .cloud: .cloud
+        case .deleted: .deleted
+        case .domains: .ssl
+        case .about: .about
+        case .siri: .siri
+        default: nil
+        }
+    }
+}
+
+private extension MacSettingsTab {
+    var page: SettingsPage {
+        switch self {
+        case .playback: .playback
+        case .storage: .storage
+        case .equalizer: .equalizer
+        case .effects: .effects
+        case .keyboard: .keyboard
+        case .theme: .appearance
+        case .scrape: .scraping
+        case .artists: .artists
+        case .lyrics: .lyrics
+        case .appleMusic: .appleMusic
+        case .intelligence: .intelligence
+        case .widgets: .widgets
+        case .cloud: .cloud
+        case .deleted: .deleted
+        case .ssl: .domains
+        case .about: .about
+        case .siri: .siri
+        }
+    }
 }
 
 struct MacSettingsView: View {
@@ -90,23 +158,18 @@ struct MacSettingsView: View {
 
     @Environment(MusicIntelligenceService.self) private var intelligence
     @State private var sidebarFilter = ""
+    @State private var showingSearchResults = false
 
     private var tab: MacSettingsTab { navigation.tab }
 
     private func selectTab(_ newTab: MacSettingsTab) {
-        navigation.tab = newTab
+        navigation.select(tab: newTab)
+        SettingsSearchHistory.shared.record(newTab.page.id)
+        showingSearchResults = false
     }
 
-    private var filteredTabs: [MacSettingsTab] {
-        let query = sidebarFilter.trimmingCharacters(in: .whitespacesAndNewlines)
-        let availableTabs = MacSettingsTab.allCases.filter {
-            $0 != .intelligence || intelligence.shouldExposeRemoteConfiguration
-        }
-        guard !query.isEmpty else { return availableTabs }
-        return availableTabs.filter {
-            $0.title.localizedCaseInsensitiveContains(query)
-            || $0.spec.localizedCaseInsensitiveContains(query)
-        }
+    private var availableTabs: [MacSettingsTab] {
+        MacSettingsTab.allCases.filter { $0 != .intelligence || intelligence.shouldExposeRemoteConfiguration }
     }
 
     var body: some View {
@@ -128,13 +191,17 @@ struct MacSettingsView: View {
         .background(PMColor.bg.ignoresSafeArea())
         .background(PMWindowChromeConfigurator())
         .ignoresSafeArea(.container, edges: .top)
+        .onChange(of: sidebarFilter) { _, value in
+            showingSearchResults = !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        .onChange(of: navigation.revision) { _, _ in showingSearchResults = false }
     }
 
     private var settingsTitleBar: some View {
         HStack(spacing: 0) {
             PMStandardWindowButtonArea()
 
-            Text(verbatim: tab.title)
+            Text(verbatim: showingSearchResults ? SettingsStrings.text("Search settings") : tab.title)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(PMColor.text)
                 .lineLimit(1)
@@ -166,7 +233,7 @@ struct MacSettingsView: View {
 
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 1) {
-                    ForEach(filteredTabs) { sidebarItem($0) }
+                    ForEach(availableTabs) { sidebarItem($0) }
                 }
                 .padding(.horizontal, 8)
                 .padding(.bottom, 10)
@@ -188,6 +255,8 @@ struct MacSettingsView: View {
                 .foregroundStyle(PMColor.textFaint)
             TextField("", text: $sidebarFilter, prompt: Text(verbatim: Lz("Search…")))
                 .textFieldStyle(.plain)
+                .accessibilityIdentifier("settings.search")
+                .onExitCommand { sidebarFilter = "" }
                 .font(.system(size: 12.5))
                 .foregroundStyle(PMColor.text)
         }
@@ -231,9 +300,49 @@ struct MacSettingsView: View {
 
     @ViewBuilder
     private var contentPane: some View {
-        MacSettingsScroll(title: tab.title) {
-            settingsContent
+        VStack(spacing: 0) {
+            if showingSearchResults {
+                let results = SettingsCatalog.search(sidebarFilter, showsIntelligence: intelligence.shouldExposeRemoteConfiguration)
+                if results.isEmpty {
+                    ContentUnavailableView.search(text: sidebarFilter)
+                } else {
+                    List(results) { item in
+                        Button {
+                            SettingsSearchHistory.shared.record(item.id)
+                            navigation.select(item: item)
+                            showingSearchResults = false
+                        } label: {
+                            SettingsSearchResultRow(item: item)
+                        }
+                        .buttonStyle(.plain)
+                        .listRowBackground(Color.clear)
+                    }
+                    .scrollContentBackground(.hidden)
+                }
+            } else {
+                if !sidebarFilter.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Button {
+                        showingSearchResults = true
+                    } label: {
+                        Label(SettingsStrings.text("Back to search results"), systemImage: "chevron.left")
+                    }
+                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                }
+                SettingsFocusedPage(itemID: navigation.settingID, page: tab.page) {
+                    if navigation.settingID.flatMap({ SettingsCatalog.byID[$0] })?.page == .transcription {
+                        GoogleLyricsTranscriptionSettingsView()
+                    } else {
+                        MacSettingsScroll(title: tab.title) { settingsContent }
+                    }
+                }
+                .id(navigation.revision)
+            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(PMColor.bg)
     }
 
     @ViewBuilder
@@ -242,7 +351,7 @@ struct MacSettingsView: View {
         case .playback:
             MacSTPlaybackView()
         case .storage:
-            MacSTStorageView()
+            MacSTStorageView(opensCacheSync: navigation.settingID.flatMap { SettingsCatalog.byID[$0] }?.page == .cacheSync)
         case .equalizer:
             MacSTEqualizerView()
         case .effects:
@@ -271,6 +380,8 @@ struct MacSettingsView: View {
             MacSTSSLView()
         case .about:
             MacSTAboutView()
+        case .siri:
+            SettingsShortcutsHelpView()
         }
     }
 }
@@ -278,6 +389,8 @@ struct MacSettingsView: View {
 // MARK: - ST-16 Storage
 
 private struct MacSTStorageView: View {
+    var opensCacheSync = false
+    @State private var showsCacheSync = false
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
     @Environment(SourceManager.self) private var sourceManager
 
@@ -285,6 +398,17 @@ private struct MacSTStorageView: View {
         @Bindable var settings = playbackSettings
 
         VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Spacer()
+                Button {
+                    showsCacheSync = true
+                } label: {
+                    Label(CacheSyncLocalization.text("cache_sync_title"), systemImage: "arrow.left.arrow.right")
+                }
+                .buttonStyle(TransferButtonStyle())
+                .accessibilityIdentifier("storage.cacheSync")
+            }
+            .padding(.bottom, 18)
             MacSTSection(String(localized: "cache")) {
                 MacSTGroup {
                     MacSTRow(
@@ -293,6 +417,7 @@ private struct MacSTStorageView: View {
                     ) {
                         MacSTToggle(isOn: $settings.audioCacheEnabled)
                     }
+                    .settingsAnchor("storage.audioCacheEnabled")
                     MacSTRow(String(localized: "audio_cache_limit")) {
                         MacSTPicker(
                             selection: $settings.audioCacheLimitBytes,
@@ -305,9 +430,12 @@ private struct MacSTStorageView: View {
                             Task { await sourceManager.clearAudioCache() }
                         }
                     }
+                    .settingsAnchor("storage.audioCacheLimit")
                 }
             }
         }
+        .sheet(isPresented: $showsCacheSync) { MacAudioCacheSyncView() }
+        .onAppear { if opensCacheSync { showsCacheSync = true } }
     }
 
     private func audioCacheLimitLabel(_ bytes: Int64) -> String {
@@ -734,11 +862,13 @@ private struct MacSTIntelligenceView: View {
                     ) {
                         MacSTToggle(isOn: editor.semanticSearchBinding)
                     }
+                    .settingsAnchor("intelligence.semanticSearch")
                     MacSTRow(
                         String(localized: "ai_enable_recommendations")
                     ) {
                         MacSTToggle(isOn: editor.recommendationsBinding)
                     }
+                    .settingsAnchor("intelligence.recommendations")
                 }
             }
 
@@ -953,6 +1083,7 @@ private struct MacSTIntelligenceView: View {
                 MacSTRow(String(localized: "ai_primuse_relay_enabled"), divider: false) {
                     MacSTToggle(isOn: editor.primuseRelayBinding)
                 }
+                .settingsAnchor("intelligence.relay")
                 MacSTRow(
                     String(localized: "ai_connection_section")
                 ) {
@@ -971,6 +1102,7 @@ private struct MacSTIntelligenceView: View {
                         .disabled(!editor.canTestPrimuseRelayConnection)
                     }
                 }
+                .settingsAnchor("intelligence.relayTest")
                 if editor.primuseRelayConnectionPresentation != .notTested {
                     MacSTRow(
                         editor.primuseRelayConnectionTitle,
@@ -1084,6 +1216,7 @@ private struct MacSTIntelligenceView: View {
                 MacSTRow(String(localized: "ai_fallback_enabled")) {
                     MacSTToggle(isOn: editor.fallbackBinding)
                 }
+                .settingsAnchor("intelligence.fallback")
                 MacSTRow(String(localized: "ai_provider_actions"), divider: false) {
                     HStack(spacing: 8) {
                         MacSTButton(
@@ -1095,8 +1228,10 @@ private struct MacSTIntelligenceView: View {
                         }
                     }
                 }
+                .settingsAnchor("intelligence.addProvider")
             }
         }
+        .settingsAnchor("intelligence.providers")
     }
 
     private var visibleProviderPresets: [AIProviderPreset] {
@@ -1373,6 +1508,7 @@ private struct MacSTPlaybackView: View {
                         width: 180
                     )
                 }
+                .settingsAnchor("playback.outputMode")
                 MacSTRow(Lz("DSD Playback"), hint: Lz("DoP requires a compatible USB DAC")) {
                     MacSTPicker(
                         selection: $s.dsdPlaybackMode,
@@ -1380,9 +1516,14 @@ private struct MacSTPlaybackView: View {
                         width: 180
                     )
                 }
+                .settingsAnchor("playback.dsdMode")
                 MacSTRow(Lz("Match Hardware Sample Rate"), hint: Lz("Works on physical iOS devices; ignored by some hardware")) {
-                    MacSTToggle(isOn: $s.matchOutputSampleRate)
+                    MacSTToggle(isOn: Binding(
+                        get: { s.outputMode == .highFidelity || s.matchOutputSampleRate },
+                        set: { s.matchOutputSampleRate = $0 }
+                    ))
                 }
+                .settingsAnchor("playback.matchSampleRate")
                 .disabled(s.outputMode == .highFidelity)
             }
         }
@@ -1392,7 +1533,7 @@ private struct MacSTPlaybackView: View {
                 MacSTRow(Lz("Playback Rate"), divider: false) {
                     MacSTSlider(
                         value: Binding(
-                            get: { Double(s.playbackRate * 100) },
+                            get: { Double((s.outputMode == .highFidelity ? 1 : s.playbackRate) * 100) },
                             set: { s.playbackRate = Float($0 / 100) }
                         ),
                         in: 50...200,
@@ -1400,16 +1541,19 @@ private struct MacSTPlaybackView: View {
                     )
                     .accessibilityHint(Text(verbatim: Lz("0.5x – 2.0x · Preserve Pitch")))
                 }
+                .settingsAnchor("playback.speed")
                 .disabled(s.outputMode == .highFidelity)
                 MacSTRow(Lz("Spatial Audio")) {
                     MacSTToggle(isOn: $s.spatialAudioEnabled)
                         .accessibilityHint(Text(verbatim: Lz("Apple AirPods · Head Tracking")))
                 }
+                .settingsAnchor("playback.spatialAudio")
                 .disabled(s.outputMode == .highFidelity)
                 MacSTRow(String(localized: "replay_gain")) {
                     MacSTToggle(isOn: $s.replayGainEnabled)
                         .accessibilityHint(Text(verbatim: Lz("Automatic Volume Balancing")))
                 }
+                .settingsAnchor("playback.replayGain")
                 .disabled(s.outputMode == .highFidelity)
                 if s.replayGainEnabled {
                     MacSTRow(Lz("RG Mode")) {
@@ -1429,10 +1573,12 @@ private struct MacSTPlaybackView: View {
                     MacSTToggle(isOn: $s.gaplessEnabled)
                         .accessibilityHint(Text(verbatim: Lz("P-16 · On by Default")))
                 }
+                .settingsAnchor("playback.gapless")
                 MacSTRow(String(localized: "crossfade")) {
                     MacSTToggle(isOn: $s.crossfadeEnabled)
                         .accessibilityHint(Text(verbatim: Lz("Mutually exclusive with Gapless")))
                 }
+                .settingsAnchor("playback.crossfade")
                 .disabled(s.outputMode == .highFidelity)
                 if s.crossfadeEnabled {
                     MacSTRow(Lz("Crossfade Mode"), hint: s.crossfadeMode == .smart
@@ -1460,9 +1606,11 @@ private struct MacSTPlaybackView: View {
                 MacSTRow(Lz("Skip leading silence")) {
                     MacSTToggle(isOn: $s.skipLeadingSilenceEnabled)
                 }
+                .settingsAnchor("playback.skipLeadingSilence")
                 MacSTRow(Lz("Skip trailing silence")) {
                     MacSTToggle(isOn: $s.skipTrailingSilenceEnabled)
                 }
+                .settingsAnchor("playback.skipTrailingSilence")
             }
             .disabled(s.outputMode == .highFidelity)
         }
@@ -1499,6 +1647,7 @@ private struct MacSTPlaybackView: View {
                             formatter: { "\($0.rounded().finiteInt())" }
                         )
                     }
+                    .settingsAnchor("playback.prewarmQueue")
                 }
             }
         }
@@ -1559,6 +1708,7 @@ private struct MacSTKeyboardShortcutsView: View {
                 recorderMessage = nil
             }
         }
+        .settingsAnchor("keyboard.restoreDefaults")
         .padding(.horizontal, 14)
         .padding(.bottom, 22)
         .alert(item: $pendingAssignment) { pending in
@@ -1664,6 +1814,7 @@ private struct MacSTKeyboardShortcutsView: View {
                             }
                         }
                     )
+                    .settingsAnchor("keyboard." + action.rawValue)
                 }
             }
         }
@@ -1833,6 +1984,7 @@ private struct MacSTEqualizerView: View {
                 MacSTRow(Lz("Enable EQ"), divider: false) {
                     MacSTToggle(isOn: $eq.isEnabled)
                 }
+                .settingsAnchor("equalizer.enabled")
                 MacSTRow(Lz("Current Preset")) {
                     MacSTPicker(
                         selection: Binding(
@@ -1847,6 +1999,7 @@ private struct MacSTEqualizerView: View {
                         width: 180
                     )
                 }
+                .settingsAnchor("equalizer.preset")
                 MacSTRow(Lz("Preset"), hint: Lz("Click to switch · Drag the slider below to make it custom"), block: true) {
                     HStack(spacing: 6) {
                         ForEach(EQPreset.builtInPresets) { preset in
@@ -1862,6 +2015,7 @@ private struct MacSTEqualizerView: View {
                         MacSTButton(title: Lz("Reset")) { eq.reset() }
                     }
                 }
+                .settingsAnchor("equalizer.reset")
             }
         }
 
@@ -1876,6 +2030,7 @@ private struct MacSTEqualizerView: View {
                 }
             )
         )
+        .settingsAnchor("equalizer.bands")
     }
 }
 
@@ -1997,6 +2152,7 @@ private struct MacSTEffectsView: View {
                 MacSTRow(Lz("Enable Effects Chain"), hint: Lz("Master bypass"), divider: false) {
                     MacSTToggle(isOn: $fx.effectChainEnabled)
                 }
+                .settingsAnchor("effects.chain")
             }
         }
 
@@ -2005,6 +2161,7 @@ private struct MacSTEffectsView: View {
                 MacSTRow(Lz("Toggle"), divider: false) {
                     MacSTToggle(isOn: $fx.reverbEnabled)
                 }
+                .settingsAnchor("effects.reverb")
                 if fx.reverbEnabled {
                     MacSTRow(Lz("Type")) {
                         MacSTPicker(
@@ -2013,6 +2170,7 @@ private struct MacSTEffectsView: View {
                             width: 180
                         )
                     }
+                    .settingsAnchor("effects.reverbPreset")
                     MacSTRow("\(String(localized: "reverb_mix")) (%)", hint: Lz("0 = dry, 100 = wet")) {
                         MacSTSlider(
                             value: Binding(
@@ -2022,6 +2180,7 @@ private struct MacSTEffectsView: View {
                             in: 0...100
                         )
                     }
+                    .settingsAnchor("effects.reverbMix")
                     MacSTRow(Lz("Room Size"), hint: Lz("Small room → large hall")) {
                         MacSTSlider(
                             value: Binding(
@@ -2032,6 +2191,7 @@ private struct MacSTEffectsView: View {
                             formatter: { String(format: "%.0f%%", $0) }
                         )
                     }
+                    .settingsAnchor("effects.reverbRoomSize")
                 }
             }
         }
@@ -2043,6 +2203,7 @@ private struct MacSTEffectsView: View {
                 MacSTRow(Lz("Toggle"), divider: false) {
                     MacSTToggle(isOn: $fx.compressorEnabled)
                 }
+                .settingsAnchor("effects.compressor")
                 if fx.compressorEnabled {
                     MacSTRow(Lz("Preset")) {
                         MacSTPicker(
@@ -2059,6 +2220,7 @@ private struct MacSTEffectsView: View {
                             width: 160
                         )
                     }
+                    .settingsAnchor("effects.compressorPreset")
                     MacSTRow("\(String(localized: "compressor_threshold")) (dB)") {
                         MacSTSlider(
                             value: Binding(
@@ -2069,6 +2231,7 @@ private struct MacSTEffectsView: View {
                             formatter: { String(format: "%.0f", $0) }
                         )
                     }
+                    .settingsAnchor("effects.compressorThreshold")
                     MacSTRow("\(String(localized: "compressor_headroom")) (dB)") {
                         MacSTSlider(
                             value: Binding(
@@ -2078,6 +2241,7 @@ private struct MacSTEffectsView: View {
                             in: 0...20
                         )
                     }
+                    .settingsAnchor("effects.compressorHeadroom")
                     MacSTRow("\(String(localized: "compressor_attack")) (s)") {
                         MacSTSlider(
                             value: Binding(
@@ -2088,6 +2252,7 @@ private struct MacSTEffectsView: View {
                             formatter: { String(format: "%.3fs", $0) }
                         )
                     }
+                    .settingsAnchor("effects.compressorAttack")
                     MacSTRow("\(String(localized: "compressor_release")) (s)") {
                         MacSTSlider(
                             value: Binding(
@@ -2098,6 +2263,7 @@ private struct MacSTEffectsView: View {
                             formatter: { String(format: "%.2fs", $0) }
                         )
                     }
+                    .settingsAnchor("effects.compressorRelease")
                     MacSTRow("\(String(localized: "compressor_gain")) (dB)") {
                         MacSTSlider(
                             value: Binding(
@@ -2107,6 +2273,7 @@ private struct MacSTEffectsView: View {
                             in: -20...20
                         )
                     }
+                    .settingsAnchor("effects.compressorGain")
                 }
             }
         }
@@ -2197,6 +2364,7 @@ private struct MacSTArtistNameView: View {
                     }
                 }
             }
+            .settingsAnchor("artists.separators")
 
             MacSTSection(
                 String(localized: "artist_name_settings_protected_names"),
@@ -2237,6 +2405,7 @@ private struct MacSTArtistNameView: View {
                     }
                 }
             }
+            .settingsAnchor("artists.protectedNames")
 
             MacSTSection(
                 String(localized: "artist_name_settings_display_separator"),
@@ -2260,6 +2429,7 @@ private struct MacSTArtistNameView: View {
                             .disabled(displaySeparatorDraft.isEmpty)
                         }
                     }
+                    .settingsAnchor("artists.displaySeparator")
                     MacSTRow(String(localized: "artist_name_settings_reset")) {
                         MacSTButton(
                             title: String(localized: "artist_name_settings_reset"),
@@ -2351,8 +2521,10 @@ private struct MacSTScrapingView: View {
                         beginImport()
                     }
                 }
+                .settingsAnchor("scraping.import")
             }
         }
+        .settingsAnchor("scraping.sources")
 
         MacSTSection(Lz("Matching Strategy"), hint: Lz("META-04 · Filling only missing fields won't overwrite metadata you've edited manually")) {
             MacSTGroup {
@@ -2362,12 +2534,14 @@ private struct MacSTScrapingView: View {
                         set: { scraperSettings.onlyFillMissingFields = $0 }
                     ))
                 }
+                .settingsAnchor("scraping.onlyMissing")
                 MacSTRow(Lz("Enabled Sources")) {
                     MacSTInfoText(text: "\(scraperSettings.enabledSources.count) / \(scraperSettings.sources.count)")
                     MacSTButton(title: Lz("Restore Defaults"), destructive: true) {
                         scraperSettings.resetToDefaults()
                     }
                 }
+                .settingsAnchor("scraping.reset")
             }
         }
 
@@ -2376,9 +2550,11 @@ private struct MacSTScrapingView: View {
                 MacSTRow(Lz("Cover Write-Back"), hint: Lz("<Song Name>-cover.jpg"), divider: false) {
                     MacSTToggle(isOn: $sidecarCoverWriteEnabled)
                 }
+                .settingsAnchor("scraping.writeCover")
                 MacSTRow(Lz("Lyrics Write-Back"), hint: Lz("<Song Name>.lrc")) {
                     MacSTToggle(isOn: $sidecarLyricsWriteEnabled)
                 }
+                .settingsAnchor("scraping.writeLyrics")
                 MacSTRow(Lz("Write Timeout"), hint: Lz("Network sidecar write timeout")) {
                     MacSTSlider(
                         value: $sidecarWriteTimeout,
@@ -2386,6 +2562,7 @@ private struct MacSTScrapingView: View {
                         formatter: { "\($0.rounded().finiteInt())s" }
                     )
                 }
+                .settingsAnchor("scraping.writeTimeout")
             }
         }
 
@@ -2413,6 +2590,7 @@ private struct MacSTScrapingView: View {
                         }
                     }
                 }
+                .settingsAnchor("scraping.fillMissing")
             }
         }
         .sheet(isPresented: $showImportSheet) {
@@ -3152,6 +3330,7 @@ private struct MacSTLyricsView: View {
                             set: { settings.isEnabled = $0 }
                         ))
                     }
+                    .settingsAnchor("lyrics.translationEnabled")
                     MacSTRow(String(localized: "lyrics_translation_mode")) {
                         MacSTPicker(
                             selection: Binding(
@@ -3198,6 +3377,7 @@ private struct MacSTLyricsView: View {
                             showTranscriptionSettings = true
                         }
                     }
+                    .settingsAnchor("lyrics.transcription")
                 }
             }
 
@@ -3213,6 +3393,7 @@ private struct MacSTLyricsView: View {
                             formatter: { String(format: "%.0f%%", $0) }
                         )
                     }
+                    .settingsAnchor("lyrics.fontSize")
                     MacSTRow(
                         String(localized: "player_tap_lyrics_to_seek"),
                         divider: false
@@ -3226,6 +3407,7 @@ private struct MacSTLyricsView: View {
                                     : "desktop_widget_sync_status_disabled"
                             ))
                     }
+                    .settingsAnchor("lyrics.tapToSeek")
                 }
             }
         }
@@ -3308,6 +3490,7 @@ private struct MacSTAppleMusicView: View {
                     .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
             }
         }
+        .settingsAnchor("appleMusic.authorize")
 
         if appleMusic.authState == .authorized {
             MacSTSection(Lz("Library Sync")) {
@@ -3315,12 +3498,15 @@ private struct MacSTAppleMusicView: View {
                     MacSTRow(Lz("Sync User Library"), divider: false) {
                         MacSTToggle(isOn: syncUserLibraryBinding)
                     }
+                    .settingsAnchor("appleMusic.syncUserLibrary")
                     MacSTRow(Lz("Catalog Search")) {
                         MacSTToggle(isOn: catalogSearchBinding)
                     }
+                    .settingsAnchor("appleMusic.catalogSearch")
                     MacSTRow(Lz("Auto Add to Smart Playlists")) {
                         MacSTToggle(isOn: $autoAddToSmartPlaylists)
                     }
+                    .settingsAnchor("appleMusic.autoSmartPlaylists")
                     MacSTRow(Lz("Sync Status")) {
                         MacSTInfoText(text: syncStateText,
                                       color: syncStateColor)
@@ -3332,6 +3518,7 @@ private struct MacSTAppleMusicView: View {
                         }
                         .disabled(!syncUserLibrary)
                     }
+                    .settingsAnchor("appleMusic.sync")
                 }
             }
         }
@@ -3464,6 +3651,7 @@ private struct MacSTWidgetView: View {
                          divider: false) {
                     MacSTToggle(isOn: $widgetSyncEnabled)
                 }
+                .settingsAnchor("widgets.enabled")
                 MacSTRow(Lz("Refresh Frequency"), hint: Lz("Higher frequency updates sooner but uses more energy")) {
                     MacSTPicker(
                         selection: $refreshMode,
@@ -3471,6 +3659,7 @@ private struct MacSTWidgetView: View {
                         width: 180
                     )
                 }
+                .settingsAnchor("widgets.refreshFrequency")
                 MacSTRow(Lz("Shared Data Scope")) {
                     MacSTPicker(
                         selection: $sharedDataScope,
@@ -3482,9 +3671,11 @@ private struct MacSTWidgetView: View {
                         width: 280
                     )
                 }
+                .settingsAnchor("widgets.sharedData")
                 MacSTRow(Lz("Clickable Interaction")) {
                     MacSTToggle(isOn: $clickableInteraction)
                 }
+                .settingsAnchor("widgets.clickable")
                 MacSTRow(Lz("Refresh Now")) {
                     MacSTButton(title: String(localized: "desktop_widget_sync_update_now"), systemImage: "arrow.triangle.2.circlepath") {
                         MacWidgetDataPublisher.publishFromSettings(
@@ -3493,6 +3684,7 @@ private struct MacSTWidgetView: View {
                         )
                     }
                 }
+                .settingsAnchor("widgets.refreshNow")
             }
         }
 
@@ -3504,31 +3696,37 @@ private struct MacSTWidgetView: View {
                     isOn: $nowPlayingWidgetEnabled,
                     divider: false
                 )
+                .settingsAnchor("widgets.nowPlaying")
                 MacSTWidgetChecklistRow(
                     title: Lz("Lyrics"),
                     detail: Lz("Medium / Large"),
                     isOn: $lyricsWidgetEnabled
                 )
+                .settingsAnchor("widgets.lyrics")
                 MacSTWidgetChecklistRow(
                     title: Lz("Listening Stats"),
                     detail: Lz("Medium"),
                     isOn: $statsWidgetEnabled
                 )
+                .settingsAnchor("widgets.stats")
                 MacSTWidgetChecklistRow(
                     title: String(localized: "carplay_tab_recent"),
                     detail: Lz("Medium / Large"),
                     isOn: $recentWidgetEnabled
                 )
+                .settingsAnchor("widgets.recent")
                 MacSTWidgetChecklistRow(
                     title: String(localized: "sources_title"),
                     detail: Lz("Small"),
                     isOn: $sourcesWidgetEnabled
                 )
+                .settingsAnchor("widgets.sources")
                 MacSTWidgetChecklistRow(
                     title: Lz("Wrapped"),
                     detail: Lz("Medium"),
                     isOn: $wrappedWidgetEnabled
                 )
+                .settingsAnchor("widgets.wrapped")
             }
         }
 
@@ -4315,6 +4513,7 @@ private struct MacSTCloudView: View {
                     ))
                     .disabled(!sync.isAvailableInCurrentBuild)
                 }
+                .settingsAnchor("cloud.enabled")
                 MacSTRow(Lz("Sync Status")) {
                     Circle()
                         .fill(statusColor)
@@ -4341,17 +4540,24 @@ private struct MacSTCloudView: View {
                     }
                     .disabled(isSyncingNow || !enabled || !sync.isAvailableInCurrentBuild)
                 }
+                .settingsAnchor("cloud.status")
             }
         }
 
         MacSTSection(String(localized: "synced_items"), hint: String(localized: "synced_items_footer")) {
             MacSTGroup {
                 channelRow(String(localized: "synced_playlists"), channel: .playlists, isOn: $syncPlaylists, divider: false)
+                .settingsAnchor("cloud.playlists")
                 channelRow(String(localized: "synced_sources"), channel: .sources, isOn: $syncSources)
+                .settingsAnchor("cloud.sources")
                 channelRow(String(localized: "synced_playback_history"), channel: .playbackHistory, isOn: $syncPlaybackHistory)
+                .settingsAnchor("cloud.playbackHistory")
                 channelRow(String(localized: "synced_settings"), channel: .settings, isOn: $syncSettings)
+                .settingsAnchor("cloud.settings")
                 channelRow(String(localized: "synced_credentials"), channel: .credentials, isOn: $syncCredentials)
+                .settingsAnchor("cloud.credentials")
                 channelRow(String(localized: "stats_title"), channel: .listeningStats, isOn: $syncListeningStats)
+                .settingsAnchor("cloud.listeningStats")
             }
         }
 
@@ -4409,6 +4615,7 @@ private struct MacSTCloudView: View {
             }
             .background(MacSTSharePickerAnchor(url: $pendingShareURL))
         }
+        .settingsAnchor("family.create")
     }
 
     private func channelRow(_ label: String,
@@ -4641,6 +4848,7 @@ private struct MacSTThemeView: View {
                         }
                     }
                 }
+                .settingsAnchor("appearance.scheme")
                 MacSTRow(String(localized: "fullscreen_effect_settings_title"),
                          hint: Lz("Shown when the player window goes full screen"),
                          divider: false,
@@ -4653,6 +4861,7 @@ private struct MacSTThemeView: View {
                         )
                     )
                 }
+                .settingsAnchor("appearance.fullscreenEffect")
             }
         }
 
@@ -4664,6 +4873,7 @@ private struct MacSTThemeView: View {
                     MacSTToggle(isOn: $animatedArtworkEnabled)
                         .accessibilityHint(Text("player_animated_artwork_description"))
                 }
+                .settingsAnchor("appearance.animatedArtwork")
                 MacSTRow(
                     String(localized: "player_animated_artwork_unmetered_only")
                 ) {
@@ -4671,12 +4881,14 @@ private struct MacSTThemeView: View {
                         .accessibilityHint(Text("player_animated_artwork_unmetered_only_description"))
                         .disabled(!animatedArtworkEnabled)
                 }
+                .settingsAnchor("appearance.animatedArtworkUnmeteredOnly")
                 MacSTRow(
                     String(localized: "motion_artwork_service_enabled"),
                     hint: String(localized: "motion_artwork_service_description")
                 ) {
                     MacSTToggle(isOn: $motionArtworkServiceEnabled)
                 }
+                .settingsAnchor("appearance.motionArtworkService")
                 MacSTRow(
                     String(localized: "motion_artwork_service_endpoint"),
                     divider: false,
@@ -4689,12 +4901,14 @@ private struct MacSTThemeView: View {
                     )
                     .disabled(!motionArtworkServiceEnabled)
                 }
+                .settingsAnchor("appearance.motionArtworkEndpoint")
                 MacSTRow(
                     String(localized: "player_volume_bar")
                 ) {
                     MacSTToggle(isOn: $showsPlayerVolumeBar)
                         .accessibilityHint(Text("player_volume_bar_description"))
                 }
+                .settingsAnchor("appearance.volumeBar")
             }
         }
 
@@ -4724,8 +4938,10 @@ private struct MacSTThemeView: View {
                          divider: false) {
                     MacSTToggle(isOn: $autoDetectMaterial)
                 }
+                .settingsAnchor("appearance.autoMaterial")
             }
         }
+        .settingsAnchor("appearance.material")
         .onAppear { FullscreenPlayerEffectSync.shared.install() }
         .onChange(of: fullscreenEffectRawValue) { _, rawValue in
             guard let effect = FullscreenPlayerEffect(rawValue: rawValue) else { return }
@@ -4752,6 +4968,7 @@ private struct MacSTThemeView: View {
                         }
                     }
                 }
+                .settingsAnchor("appearance.themeMode")
             }
 
             MacSTGroup {
@@ -4771,6 +4988,7 @@ private struct MacSTThemeView: View {
                 }
             }
         }
+        .settingsAnchor("appearance.palette")
 
         MacSTSection(PMString("ext.tv.settings.coverColor")) {
             MacSTGroup {
@@ -4794,6 +5012,7 @@ private struct MacSTThemeView: View {
                         }
                     ))
                 }
+                .settingsAnchor("appearance.coverAmbient")
                 MacSTRow(PMString("ext.tv.settings.ambientIntensity"), divider: true) {
                     MacSTSlider(
                         value: Binding(
@@ -4804,6 +5023,7 @@ private struct MacSTThemeView: View {
                         formatter: { String(format: "%.0f%%", $0) }
                     )
                 }
+                .settingsAnchor("appearance.ambientStrength")
             }
         }
 
@@ -4819,6 +5039,7 @@ private struct MacSTThemeView: View {
                 }
             }
         }
+        .settingsAnchor("appearance.appIcon")
 
         MacSTSection(String(localized: "home_settings_title")) {
             MacSTGroup {
@@ -4829,6 +5050,7 @@ private struct MacSTThemeView: View {
                     MacSTToggle(isOn: $showRadioOnHome)
                         .accessibilityHint(Text("radio_home_visibility_description"))
                 }
+                .settingsAnchor("home.radio")
             }
         }
 
@@ -4847,12 +5069,14 @@ private struct MacSTThemeView: View {
                     )
                     .accessibilityHint(Text("library_quick_access_count_description"))
                 }
+                .settingsAnchor("library.quickAccessCount")
                 MacSTRow(
                     String(localized: "library_default_flat_view")
                 ) {
                     MacSTToggle(isOn: defaultFlatBrowseBinding)
                         .accessibilityHint(Text("library_default_flat_view_description"))
                 }
+                .settingsAnchor("library.flatBrowse")
             }
 
             MacSTGroup {
@@ -4881,6 +5105,7 @@ private struct MacSTThemeView: View {
                         }
                         .foregroundStyle(PMColor.textMuted)
                     }
+                    .settingsAnchor("library.show." + section.rawValue)
                 }
 
                 MacSTRow(
@@ -4893,6 +5118,7 @@ private struct MacSTThemeView: View {
                     }
                     .accessibilityHint(Text("library_sections_settings_footer"))
                 }
+                .settingsAnchor("library.sectionOrder")
             }
 
             MacSTGroup {
@@ -5003,6 +5229,7 @@ private struct MacSTThemeView: View {
                         }
                     }
                 }
+                .settingsAnchor("library.recommendationDirections")
             }
         }
         .sheet(item: $inspectedRecommendationIntent) { details in
@@ -5431,6 +5658,7 @@ private struct MacSTDeletedView: View {
                             pendingPurgePlan = purgePlan
                             showClearAllConfirmation = true
                         }
+                        .settingsAnchor("deleted.clearAll")
                         .buttonStyle(.bordered)
                         .disabled(!sourcesStore.permanentDeletionInProgressIDs.isDisjoint(
                             with: purgePlan.sourceIDs
@@ -5473,6 +5701,7 @@ private struct MacSTDeletedView: View {
                         }
                     }
                 }
+                .settingsAnchor("deleted.playlists")
             }
 
             let smartPlaylists = library.recentlyDeletedSmartPlaylists
@@ -5491,6 +5720,7 @@ private struct MacSTDeletedView: View {
                         }
                     }
                 }
+                .settingsAnchor("deleted.smartPlaylists")
             }
 
             let hiddenMirrors = library.hiddenMirrorPlaylists
@@ -5510,6 +5740,7 @@ private struct MacSTDeletedView: View {
                         }
                     }
                 }
+                .settingsAnchor("deleted.hiddenPlaylists")
             }
 
             let sources = sourcesStore.recentlyDeletedSources
@@ -5535,6 +5766,7 @@ private struct MacSTDeletedView: View {
                         }
                     }
                 }
+                .settingsAnchor("deleted.sources")
             }
 
             let configs = ScraperConfigStore.shared.recentlyDeletedConfigs
@@ -5560,6 +5792,7 @@ private struct MacSTDeletedView: View {
                         }
                     }
                 }
+                .settingsAnchor("deleted.scraperConfigs")
             }
         }
         .confirmationDialog(
@@ -5757,9 +5990,11 @@ private struct MacSTSSLView: View {
                             beginAdd()
                         }
                     }
+                    .settingsAnchor("security.addTrustedDomain")
                 }
             }
         }
+        .settingsAnchor("security.httpsTrust")
         .sheet(isPresented: $showAddSheet) {
             addDomainSheet
         }
@@ -6666,6 +6901,7 @@ private struct MacSTAboutView: View {
                         .lineSpacing(3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                .settingsAnchor("about.version")
             }
             .padding(22)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -6693,6 +6929,7 @@ private struct MacSTAboutView: View {
                     NSWorkspace.shared.open(issuesURL)
                 }
             }
+            .settingsAnchor("about.repository")
 
             HStack(alignment: .top, spacing: 7) {
                 Image(systemName: "info.circle")
@@ -6732,6 +6969,7 @@ private struct MacSTAboutView: View {
                     MacDiagnosticsWindowController.shared.show()
                 }
             }
+            .settingsAnchor("about.update")
 
             Text(verbatim: "© 2026 Primuse Project")
                 .font(.system(size: 10.5))

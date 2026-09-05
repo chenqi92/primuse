@@ -64,6 +64,7 @@ struct ListeningStatsView: View {
                         Text(LocalizedStringKey(r.localizationKey)).tag(r)
                     }
                 }
+                .settingsAnchor("stats.range")
                 .pickerStyle(.segmented)
             }
 
@@ -116,6 +117,7 @@ struct ListeningStatsView: View {
                     Text(source.name).tag(source.id)
                 }
             }
+            .settingsAnchor("stats.source")
             .labelsHidden()
             .pickerStyle(.menu)
         }
@@ -1010,6 +1012,7 @@ struct ListeningStatsView: View {
                     Text(tab.label).tag(tab)
                 }
             }
+            .settingsAnchor("stats.rank")
             .pickerStyle(.segmented)
 
             let items = rankItems()
@@ -1068,6 +1071,7 @@ struct ListeningStatsView: View {
                     Text("stats_clear_action")
                 }
             }
+            .settingsAnchor("stats.clear")
         } footer: {
             Text("stats_privacy_footer")
         }

@@ -949,6 +949,9 @@ struct AISettingsView: View {
     private var primuseRelaySection: some View {
         Section {
             Toggle("ai_primuse_relay_enabled", isOn: editor.primuseRelayBinding)
+            #if !os(tvOS)
+            .settingsAnchor("intelligence.relay")
+            #endif
 
             if !usesCompactMobileLayout || editor.primuseRelayEnabled {
                 Button {
@@ -962,6 +965,9 @@ struct AISettingsView: View {
                         }
                         Text("ai_primuse_relay_test_connection")
                     }
+                    #if !os(tvOS)
+                    .settingsAnchor("intelligence.relayTest")
+                    #endif
                 }
                 .disabled(!editor.canTestPrimuseRelayConnection)
 
@@ -1008,10 +1014,16 @@ struct AISettingsView: View {
                 "ai_enable_semantic_search",
                 isOn: editor.semanticSearchBinding
             )
+            #if !os(tvOS)
+            .settingsAnchor("intelligence.semanticSearch")
+            #endif
             Toggle(
                 "ai_enable_recommendations",
                 isOn: editor.recommendationsBinding
             )
+            #if !os(tvOS)
+            .settingsAnchor("intelligence.recommendations")
+            #endif
         } header: {
             if usesCompactMobileLayout {
                 Text("ai_capability_section")
@@ -1091,11 +1103,17 @@ struct AISettingsView: View {
             }
 
             Toggle("ai_fallback_enabled", isOn: editor.fallbackBinding)
+            #if !os(tvOS)
+            .settingsAnchor("intelligence.fallback")
+            #endif
 
             HStack {
                 Button("ai_add_provider", systemImage: "plus") {
                     editor.addProvider()
                 }
+                #if !os(tvOS)
+                .settingsAnchor("intelligence.addProvider")
+                #endif
                 Spacer()
                 if editor.selectedProviderID != editor.draftProviderSet.primaryProviderID {
                     Button("ai_set_primary") {
@@ -1112,6 +1130,9 @@ struct AISettingsView: View {
         } footer: {
             Text(editor.providerListFooterText)
         }
+        #if !os(tvOS)
+        .settingsAnchor("intelligence.providers")
+        #endif
     }
 
     private var providerDetailLinkSection: some View {

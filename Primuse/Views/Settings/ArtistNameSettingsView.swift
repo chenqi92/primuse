@@ -50,6 +50,7 @@ struct ArtistNameSettingsView: View {
             } footer: {
                 Text("artist_name_settings_separators_footer")
             }
+            .settingsAnchor("artists.separators")
 
             Section {
                 ForEach(Array(store.configuration.protectedNames.enumerated()), id: \.offset) { _, value in
@@ -70,6 +71,7 @@ struct ArtistNameSettingsView: View {
             } footer: {
                 Text("artist_name_settings_protected_footer")
             }
+            .settingsAnchor("artists.protectedNames")
 
             Section {
                 HStack {
@@ -88,6 +90,7 @@ struct ArtistNameSettingsView: View {
             } footer: {
                 Text("artist_name_settings_display_footer")
             }
+            .settingsAnchor("artists.displaySeparator")
 
             Section {
                 Button("artist_name_settings_reset", role: .destructive) {
