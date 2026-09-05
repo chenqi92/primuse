@@ -55,7 +55,7 @@ struct MacContentView: View {
                 PMTitleBar(
                     searchText: $searchText,
                     sidebarCollapsed: $sidebarCollapsed,
-                    selection: $selection,
+                    selection: navigationSelection,
                     onAddSource: { selectRoute(.sources) },
                     onAudioOutput: { /* 由 BottomBar 右侧的喇叭按钮 popover 接管 */ }
                 )
@@ -63,7 +63,7 @@ struct MacContentView: View {
 
             HStack(spacing: 0) {
                 if !sidebarCollapsed {
-                    MacSidebar(selection: $selection, onOpenTool: { activeTool = $0 })
+                    MacSidebar(selection: navigationSelection, onOpenTool: { activeTool = $0 })
                         .frame(width: preferences.sidebarWidth)
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 }
@@ -268,6 +268,14 @@ struct MacContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .primuseSelectRadio)) { _ in
             selectRoute(.section(.radio))
         }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseDetailOpenAlbum)) { note in
+            guard note.object is Album else { return }
+            nowPlayingPresented = false
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseDetailOpenArtist)) { note in
+            guard note.object is Artist else { return }
+            nowPlayingPresented = false
+        }
         .background {
             PMWindowResolver { window in
                 hostWindow = window
@@ -404,10 +412,15 @@ struct MacContentView: View {
         lyricsTranscriptionEditorTargetSong = song
     }
 
+    private var navigationSelection: Binding<MacRoute> {
+        Binding(get: { selection }, set: { selectRoute($0) })
+    }
+
     private func selectRoute(_ route: MacRoute) {
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
+            nowPlayingPresented = false
             selection = route
         }
     }

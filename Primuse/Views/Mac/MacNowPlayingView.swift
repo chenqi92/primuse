@@ -583,11 +583,16 @@ struct MacNowPlayingView: View {
                     .lineLimit(2)
                     .multilineTextAlignment(textAlignment)
                     .padding(.top, 10)
-                Text(artistAlbumLine)
+                if let song = player.currentSong {
+                    MacNowPlayingMetadata(
+                        song: song,
+                        alignment: horizontalAlignment,
+                        foreground: playerSecondaryColor,
+                        highlight: playerPrimaryColor
+                    )
                     .font(.system(size: isWindowFullScreen ? 20 : 16))
-                    .foregroundStyle(playerSecondaryColor)
-                    .lineLimit(1)
                     .padding(.top, 6)
+                }
                 if let sourceLabel, !sourceLabel.isEmpty {
                     Text(sourceLabel)
                         .font(.system(size: 11, weight: .regular, design: .monospaced))
@@ -598,7 +603,9 @@ struct MacNowPlayingView: View {
             }
             .frame(width: coverSize, alignment: frameAlignment)
 
-            artworkScrubberRow(width: coverSize)
+            if isWindowFullScreen {
+                MacNowPlayingProgressRow(width: coverSize, accent: theme.accentColor)
+            }
 
             Spacer(minLength: 0)
         }
@@ -932,20 +939,6 @@ struct MacNowPlayingView: View {
         }
         let fallback = URL(fileURLWithPath: song.filePath).lastPathComponent
         return fallback.isEmpty ? nil : fallback
-    }
-
-    private var artistAlbumLine: String {
-        guard let song = player.currentSong else { return "" }
-        return [library.artistDisplayName(for: song), song.albumTitle]
-            .compactMap { value in
-                guard let value, !value.isEmpty else { return nil }
-                return value
-            }
-            .joined(separator: " · ")
-    }
-
-    private func artworkScrubberRow(width: CGFloat) -> some View {
-        MacNowPlayingProgressRow(width: width, accent: theme.accentColor)
     }
 
     // MARK: - Floating controls (top-right of the window)
@@ -1341,12 +1334,20 @@ private struct MacNowPlayingProgressRow: View {
     @Environment(AudioPlayerService.self) private var player
     let width: CGFloat
     let accent: Color
+    @State private var preview: TimeInterval?
 
     var body: some View {
         HStack(spacing: 8) {
-            Text(player.currentTime.formattedDuration)
+            Text((preview ?? player.currentTime).formattedDuration)
                 .frame(width: 38, alignment: .trailing)
-            MacNowPlayingScrubber(progress: progress, accent: accent)
+            ProgressSlider(
+                value: player.currentTime,
+                total: player.duration,
+                interactionID: player.currentSong?.id,
+                fillTint: accent,
+                onPreview: { preview = $0 },
+                onSeek: { player.seek(to: $0) }
+            )
             Text(player.duration.formattedDuration)
                 .frame(width: 38, alignment: .leading)
         }
@@ -1354,38 +1355,104 @@ private struct MacNowPlayingProgressRow: View {
         .foregroundStyle(.primary.opacity(0.6))
         .frame(width: width)
     }
+}
 
-    private var progress: Double {
-        guard player.duration > 0 else { return 0 }
-        return min(1, max(0, player.currentTime / player.duration))
+private struct MacNowPlayingMetadata: View {
+    let song: Song
+    let alignment: HorizontalAlignment
+    let foreground: Color
+    let highlight: Color
+    @Environment(MusicLibrary.self) private var library
+
+    var body: some View {
+        let names = library.artistNames(for: song)
+        VStack(alignment: alignment, spacing: 4) {
+            if !names.isEmpty {
+                HStack(spacing: 4) {
+                    ForEach(Array(names.enumerated()), id: \.offset) { index, name in
+                        if index > 0 {
+                            Text(verbatim: " / ")
+                                .foregroundStyle(foreground)
+                        }
+                        if let artist = matchingArtist(name: name, index: index) {
+                            metadataLink(name, help: "go_to_artist") {
+                                NotificationCenter.default.post(name: .primuseDetailOpenArtist, object: artist)
+                            }
+                        } else {
+                            Text(verbatim: name).foregroundStyle(foreground)
+                        }
+                    }
+                }
+            }
+            if let title = trimmed(song.albumTitle) {
+                if let album = matchingAlbum {
+                    metadataLink(title, help: "go_to_album") {
+                        NotificationCenter.default.post(name: .primuseDetailOpenAlbum, object: album)
+                    }
+                } else {
+                    Text(verbatim: title).foregroundStyle(foreground)
+                }
+            }
+        }
+        .lineLimit(1)
+    }
+
+    private func metadataLink(_ title: String, help: LocalizedStringKey, action: @escaping () -> Void) -> some View {
+        MacNowPlayingMetadataLink(
+            title: title, help: help, foreground: foreground, highlight: highlight, action: action
+        )
+    }
+
+    private func matchingArtist(name: String, index: Int) -> Artist? {
+        if let artist = library.visibleArtists.first(where: {
+            $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
+        }) {
+            return artist
+        }
+        guard index == 0, let id = song.artistID else { return nil }
+        return library.visibleArtists.first { $0.id == id }
+    }
+
+    private var matchingAlbum: Album? {
+        if let id = song.albumID,
+           let album = library.visibleAlbums.first(where: { $0.id == id }) {
+            return album
+        }
+        guard let title = trimmed(song.albumTitle) else { return nil }
+        let artist = trimmed(song.albumArtistName ?? library.artistNames(for: song).first)
+        return library.visibleAlbums.first { album in
+            guard album.title.localizedCaseInsensitiveCompare(title) == .orderedSame else { return false }
+            guard let artist else { return true }
+            return (album.artistName ?? "").localizedCaseInsensitiveCompare(artist) == .orderedSame
+        }
+    }
+
+    private func trimmed(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+        return value
     }
 }
 
-private struct MacNowPlayingScrubber: View {
-    let progress: Double
-    let accent: Color
+private struct MacNowPlayingMetadataLink: View {
+    let title: String
+    let help: LocalizedStringKey
+    let foreground: Color
+    let highlight: Color
+    let action: () -> Void
+    @State private var isHovered = false
 
     var body: some View {
-        GeometryReader { proxy in
-            let clamped = min(1, max(0, progress))
-            let width = max(0, proxy.size.width)
-            let fillWidth = width * clamped
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(.primary.opacity(0.18))
-                    .frame(height: 3)
-                Capsule()
-                    .fill(accent)
-                    .frame(width: max(3, fillWidth), height: 3)
-                Circle()
-                    .fill(.primary)
-                    .frame(width: 8, height: 8)
-                    .shadow(color: accent.opacity(0.35), radius: 8)
-                    .offset(x: min(max(0, fillWidth - 4), max(0, width - 8)))
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        Button(action: action) {
+            Text(verbatim: title)
+                .underline(isHovered)
+                .foregroundStyle(isHovered ? highlight : foreground)
+                .contentShape(Rectangle())
         }
-        .frame(height: 8)
+        .buttonStyle(.plain)
+        .pointerStyle(.link)
+        .onHover { isHovered = $0 }
+        .help(Text(help))
+        .accessibilityHint(Text(help))
     }
 }
 

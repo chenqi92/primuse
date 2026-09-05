@@ -38,6 +38,7 @@ struct MacImmersivePlayerView: View {
     @State private var gallerySongs: [Song] = []
     @State private var typographyFieldLines: [String] = []
     @State private var showsEffectPicker = false
+    @State private var scrubPreview: TimeInterval?
     @State private var activeLyricIndex: Int?
     @State private var lyricInterlude = false
     @State private var isPresentationActive = false
@@ -295,7 +296,7 @@ struct MacImmersivePlayerView: View {
         case .standard: designHeight = 178
         case .lyrics: designHeight = 136
         case .spectrum: designHeight = 116
-        case .showcase: designHeight = 104
+        case .showcase: designHeight = 172
         }
         let chromeHeight = metrics.s(designHeight)
         let safeBottom = max(metrics.safeArea.bottom, metrics.s(18))
@@ -406,7 +407,11 @@ struct MacImmersivePlayerView: View {
             horizontalPadding: metrics.s(18),
             verticalPadding: metrics.s(8)
         ) {
-            transportStrip
+            VStack(spacing: 0) {
+                seekBar
+                transportStrip
+            }
+            .frame(width: min(metrics.s(360), metrics.size.width * 0.36))
         }
     }
 
@@ -492,13 +497,23 @@ struct MacImmersivePlayerView: View {
     }
 
     private var seekBar: some View {
-        VStack(spacing: 5) {
-            MacImmersiveScrubber(accent: seekTint) { fraction in
-                revealChrome()
-                player.seek(to: fraction * player.duration)
-            }
+        VStack(spacing: 0) {
+            ProgressSlider(
+                value: player.currentTime,
+                total: player.duration,
+                interactionID: player.currentSong?.id,
+                fillTint: seekTint,
+                onPreview: {
+                    scrubPreview = $0
+                    revealChrome()
+                },
+                onSeek: {
+                    revealChrome()
+                    player.seek(to: $0)
+                }
+            )
             HStack {
-                Text(player.currentTime.formattedDuration)
+                Text((scrubPreview ?? player.currentTime).formattedDuration)
                 Spacer()
                 Text(player.duration.formattedDuration)
             }
@@ -1003,6 +1018,7 @@ struct MacImmersivePlayerView: View {
               isStageReady,
               player.isPlaying,
               !voiceOverEnabled,
+              scrubPreview == nil,
               !showsEffectPicker else { return }
         chromeTask = Task { @MainActor in
             do {
@@ -1014,6 +1030,7 @@ struct MacImmersivePlayerView: View {
                   isPresentationActive,
                   player.isPlaying,
                   !voiceOverEnabled,
+                  scrubPreview == nil,
                   !showsEffectPicker else { return }
             withAnimation(.easeInOut(duration: 0.26)) { showsChrome = false }
         }
