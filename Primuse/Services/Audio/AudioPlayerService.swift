@@ -10849,7 +10849,10 @@ final class AudioPlayerService {
     }
 
     private var shouldLoadLyricsForSystemSurfaces: Bool {
-        playbackSettings.lockScreenLyricsEnabled || shouldPublishWidgetLyrics
+        #if DEBUG
+        if LyricsLiveActivityService.isProbeEnabled { return true }
+        #endif
+        return playbackSettings.lockScreenLyricsEnabled || shouldPublishWidgetLyrics
     }
 
     private func observeLockScreenLyricsSetting() {
@@ -10883,7 +10886,7 @@ final class AudioPlayerService {
     private func refreshInstalledLyricsWidgetDemand(force: Bool = false) {
         guard widgetLyricsSharingEnabled else {
             clearWidgetLyricsSnapshotIfNeeded()
-            if !playbackSettings.lockScreenLyricsEnabled {
+            if !shouldLoadLyricsForSystemSurfaces {
                 resetSystemLyricsState()
             }
             return
@@ -10924,7 +10927,7 @@ final class AudioPlayerService {
                 }
             } else {
                 self.clearWidgetLyricsSnapshotIfNeeded()
-                if !self.playbackSettings.lockScreenLyricsEnabled {
+                if !self.shouldLoadLyricsForSystemSurfaces {
                     self.resetSystemLyricsState()
                 }
             }
@@ -10942,6 +10945,7 @@ final class AudioPlayerService {
         systemLyrics = []
         lastPublishedLockScreenLyricsPresentation = nil
         clearWidgetLyricsSnapshotIfNeeded()
+        publishLyricsActivityProbe()
     }
 
     private func loadLyricsForSystemSurfacesIfNeeded(for song: Song?) {
@@ -11060,6 +11064,7 @@ final class AudioPlayerService {
     }
 
     private func publishLockScreenLyricsIfNeeded() {
+        publishLyricsActivityProbe()
         guard playbackSettings.lockScreenLyricsEnabled,
               !isLiveRadio,
               systemLyricsSongID == currentSong?.id,
@@ -11068,6 +11073,31 @@ final class AudioPlayerService {
         let presentation = lockScreenLyricsPresentation()
         guard presentation != lastPublishedLockScreenLyricsPresentation else { return }
         updateNowPlayingInfo()
+    }
+
+    private func publishLyricsActivityProbe() {
+        #if DEBUG
+        guard LyricsLiveActivityService.isProbeEnabled else { return }
+        guard let song = currentSong, !isLiveRadio, !isAtTrackEnd else {
+            LyricsLiveActivityService.shared.publish(nil)
+            return
+        }
+        let presentation = NowPlayingLyricsMetadataPolicy.presentation(
+            canonicalTitle: song.title,
+            artistName: displayedArtistName(for: song),
+            lyrics: systemLyricsSongID == song.id ? systemLyrics : [],
+            playbackTime: currentTime,
+            isEnabled: true,
+            isLiveStream: false
+        )
+        LyricsLiveActivityService.shared.publish(.init(
+            songID: String(song.id.prefix(120)),
+            title: String(song.title.prefix(120)),
+            artist: String((displayedArtistName(for: song) ?? "").prefix(120)),
+            lyric: presentation.lyricLineID == nil ? "" : String(presentation.title.prefix(200)),
+            isPlaying: isPlaybackActuallyActive
+        ))
+        #endif
     }
 
     private func observeLockScreenLyricsChanges() {
@@ -11220,6 +11250,9 @@ final class AudioPlayerService {
         artwork: MPMediaItemArtwork? = nil,
         artworkSongID: String? = nil
     ) {
+        #if os(iOS)
+        publishLyricsActivityProbe()
+        #endif
         let actualPlaybackIsActive = isPlaybackActuallyActive
         lastPublishedPlaybackWasActive = actualPlaybackIsActive
         let preferredRate = !isSystemAudioPlaybackActive && playbackSettings.outputMode == .effects

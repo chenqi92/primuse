@@ -1048,7 +1048,7 @@ struct AIRecommendationPolicyTests {
         #expect(plan.summary.count == 180)
     }
 
-    @Test func recommendationPlanRejectsSingleArtistConcentration() {
+    @Test func recommendationPlanPreservesValidSongsWithUnevenArtistDistribution() {
         let candidates = (0..<8).map { index in
             AIRecommendationCandidate(
                 songID: "song-\(index)",
@@ -1068,7 +1068,7 @@ struct AIRecommendationPolicyTests {
             }
         ).normalized(for: request)
 
-        #expect(plan.selections.isEmpty)
+        #expect(plan.selections.map(\.songID) == candidates.map(\.songID))
     }
 
     @Test func recommendationPlanAcceptsBalancedArtistSelection() {
@@ -1095,7 +1095,7 @@ struct AIRecommendationPolicyTests {
         #expect(plan.selections.count == 8)
     }
 
-    @Test func recommendationPlanRejectsFewerThanRequiredSelections() {
+    @Test func recommendationPlanPreservesFewerThanRequestedSelections() {
         let candidates = (0..<12).map { index in
             AIRecommendationCandidate(
                 songID: "song-\(index)",
@@ -1116,7 +1116,17 @@ struct AIRecommendationPolicyTests {
             }
         ).normalized(for: request)
 
-        #expect(plan.selections.isEmpty)
+        #expect(plan.selections.map(\.songID) == (0..<7).map { "song-\($0)" })
+        #expect(plan.isPartial)
+    }
+
+    @Test func recommendationPlanDecodesOlderCompleteResponses() throws {
+        let data = Data(#"{"selections":[{"songID":"song-0","reason":"Focus"}]}"#.utf8)
+        let plan = try JSONDecoder().decode(AIRecommendationPlan.self, from: data)
+        #expect(plan.selections.count == 1)
+        #expect(!plan.isPartial)
+        let partial = AIRecommendationPlan(selections: plan.selections, isPartial: true)
+        #expect(try JSONDecoder().decode(AIRecommendationPlan.self, from: JSONEncoder().encode(partial)) == partial)
     }
 
     @Test func recommendationRequestBoundsResultRangeToAvailableCandidates() {

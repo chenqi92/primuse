@@ -165,6 +165,13 @@ struct AIRecommendationLibraryView: View {
             guard refreshState.shouldRefresh else { return }
             await refresh()
         }
+        .task(id: aiRecommendation.retryAvailableAt) {
+            guard let retryAt = aiRecommendation.retryAvailableAt else { return }
+            do {
+                try await Task.sleep(for: .seconds(max(0, retryAt.timeIntervalSinceNow)))
+                aiRecommendation.finishRetryCooldown()
+            } catch { }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .primusePlaybackHistoryDidChange)) { _ in
             historyRevision &+= 1
         }
@@ -355,6 +362,16 @@ struct AIRecommendationLibraryView: View {
                 Text(aiRecommendation.statusText)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(platformPrimaryTextColor)
+                if let retryAt = aiRecommendation.retryAvailableAt {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        Text(String(
+                            format: String(localized: "ai_recommendation_retry_countdown_format"),
+                            max(0, Int(ceil(retryAt.timeIntervalSince(context.date))))
+                        ))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(platformSecondaryTextColor)
+                    }
+                }
                 if let summary = aiRecommendation.summaryText {
                     Text(summary)
                         .font(.caption)
@@ -368,7 +385,9 @@ struct AIRecommendationLibraryView: View {
             }
             Spacer(minLength: 8)
             HStack(spacing: 6) {
-                if intelligence.isPersonalizedRecommendationsConfigured {
+                if aiRecommendation.isStreaming {
+                    ProgressView().controlSize(.small)
+                } else if intelligence.isPersonalizedRecommendationsConfigured {
                     Button {
                         Task { await refresh(forceAIRefresh: true) }
                     } label: {
@@ -380,6 +399,7 @@ struct AIRecommendationLibraryView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(platformAccentColor)
                     .accessibilityLabel("ai_recommendation_refresh")
+                    .disabled(aiRecommendation.retryAvailableAt != nil || isLoadingMore)
                 }
 
                 if intelligence.shouldExposeRemoteConfiguration {
@@ -463,7 +483,8 @@ struct AIRecommendationLibraryView: View {
                             }
                         }
                         .buttonStyle(.plain)
-                        .disabled(isLoadingMore)
+                        .disabled(isLoadingMore || aiRecommendation.isStreaming
+                            || aiRecommendation.retryAvailableAt != nil)
                     }
                 }
             }
@@ -664,7 +685,9 @@ struct AIRecommendationLibraryView: View {
 
     @MainActor
     private func loadMoreRecommendations() async {
-        guard !isLoadingMore, refreshState.shouldRefresh else { return }
+        guard !isLoadingMore, !aiRecommendation.isStreaming,
+              aiRecommendation.retryAvailableAt == nil,
+              refreshState.shouldRefresh else { return }
         let selectedIDs = Set(aiRecommendation.orderedSongIDs)
         let remaining = localResults.filter { !selectedIDs.contains($0.song.id) }
         guard !remaining.isEmpty else { return }
@@ -816,16 +839,17 @@ struct AIRecommendationLibraryView: View {
 
     private var showsLocalFallbackDetail: Bool {
         if case .localFallback = aiRecommendation.feedback {
-            return true
+            return aiRecommendation.orderedSongIDs.isEmpty
         }
         return false
     }
 
     private var showsActionableStatus: Bool {
+        if aiRecommendation.isPartial { return true }
         switch aiRecommendation.feedback {
-        case .needsConsent, .localFallback:
+        case .needsConsent, .localFallback, .loading:
             return true
-        case .idle, .loading, .success:
+        case .idle, .success:
             return false
         }
     }

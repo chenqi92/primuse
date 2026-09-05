@@ -514,6 +514,7 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> PMWindowChromeHostView {
+        PMScrollViewStyle.shared.install()
         let view = PMWindowChromeHostView(frame: .zero)
         bind(view, to: context.coordinator)
         return view
@@ -1051,6 +1052,125 @@ struct PMWindowResolver: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         DispatchQueue.main.async { onResolve(nsView.window) }
+    }
+}
+
+// MARK: - Scroll view appearance
+
+@MainActor
+final class PMScrollViewStyle {
+    static let shared = PMScrollViewStyle()
+
+    private var observers: [NSObjectProtocol] = []
+    private let windows = NSHashTable<NSWindow>.weakObjects()
+    private let pending = NSHashTable<NSScrollView>.weakObjects()
+    private let registrations = NSMapTable<NSScrollView, Registration>.weakToStrongObjects()
+
+    func install() {
+        guard observers.isEmpty else { return }
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(
+            forName: NSView.frameDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] notification in
+            guard let scrollView = notification.object as? NSScrollView else { return }
+            // SwiftUI lays out newly mounted ScrollView/List/Form instances after
+            // creating them. Defer until mounting finishes; never scan on scroll.
+            DispatchQueue.main.async { [weak self, weak scrollView] in
+                guard let scrollView else { return }
+                self?.register(scrollView)
+            }
+        })
+        observers.append(center.addObserver(
+            forName: NSWindow.didUpdateNotification, object: nil, queue: .main
+        ) { [weak self] notification in
+            guard let window = notification.object as? NSWindow else { return }
+            // The observer is delivered on OperationQueue.main. Avoid enqueuing
+            // another run-loop turn for every otherwise unchanged window update.
+            MainActor.assumeIsolated {
+                self?.update(window)
+            }
+        })
+        for window in NSApp.windows {
+            update(window)
+        }
+    }
+
+    private func update(_ window: NSWindow) {
+        guard !(window is NSSavePanel), let content = window.contentView else { return }
+        if !windows.contains(window) {
+            windows.add(window)
+            registerDescendants(of: content)
+        }
+        // A pre-sized scroll view can be attached without another frame change.
+        // Only revisit these unmounted candidates, not the window's view tree.
+        for scrollView in pending.allObjects where scrollView.window === window {
+            register(scrollView)
+        }
+    }
+
+    private func registerDescendants(of view: NSView) {
+        if let scrollView = view as? NSScrollView {
+            register(scrollView)
+        }
+        for child in view.subviews {
+            registerDescendants(of: child)
+        }
+    }
+
+    private func register(_ scrollView: NSScrollView) {
+        guard let window = scrollView.window else {
+            pending.add(scrollView)
+            return
+        }
+        pending.remove(scrollView)
+        guard !(window is NSSavePanel), registrations.object(forKey: scrollView) == nil else { return }
+        registrations.setObject(Registration(scrollView), forKey: scrollView)
+    }
+
+    @MainActor
+    private final class Registration {
+        private weak var scrollView: NSScrollView?
+        private var observations: [NSKeyValueObservation] = []
+        private var refreshScheduled = false
+
+        init(_ scrollView: NSScrollView) {
+            self.scrollView = scrollView
+            observations = [
+                scrollView.observe(\.scrollerStyle) { [weak self] _, _ in
+                    DispatchQueue.main.async { self?.scheduleRefresh() }
+                },
+                scrollView.observe(\.verticalScroller) { [weak self] _, _ in
+                    DispatchQueue.main.async { self?.scheduleRefresh() }
+                },
+                scrollView.observe(\.horizontalScroller) { [weak self] _, _ in
+                    DispatchQueue.main.async { self?.scheduleRefresh() }
+                },
+            ]
+            apply()
+        }
+
+        private func scheduleRefresh() {
+            guard !refreshScheduled else { return }
+            refreshScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                self?.refreshScheduled = false
+                self?.apply()
+            }
+        }
+
+        private func apply() {
+            guard let scrollView else { return }
+            // AppKit can reset the style when pointing devices or system
+            // preferences change. Keep native dragging and automatic fading.
+            if scrollView.scrollerStyle != .overlay {
+                scrollView.scrollerStyle = .overlay
+            }
+            for scroller in [scrollView.verticalScroller, scrollView.horizontalScroller].compactMap({ $0 }) {
+                if scroller.controlSize != .small {
+                    scroller.controlSize = .small
+                }
+            }
+        }
     }
 }
 

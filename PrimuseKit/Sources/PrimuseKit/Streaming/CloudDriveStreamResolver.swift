@@ -7,12 +7,29 @@ public struct CloudDriveDirectoryEntry: Sendable, Equatable {
     public let isDirectory: Bool
     public let size: Int64
     public let path: String
+    public let providerID: String?
+    public let parentPath: String?
+    public let modifiedDate: Date?
+    public let revision: String?
 
-    public init(name: String, isDirectory: Bool, size: Int64, path: String) {
+    public init(
+        name: String,
+        isDirectory: Bool,
+        size: Int64,
+        path: String,
+        providerID: String? = nil,
+        parentPath: String? = nil,
+        modifiedDate: Date? = nil,
+        revision: String? = nil
+    ) {
         self.name = name
         self.isDirectory = isDirectory
         self.size = size
         self.path = path
+        self.providerID = providerID
+        self.parentPath = parentPath
+        self.modifiedDate = modifiedDate
+        self.revision = revision
     }
 }
 
@@ -587,7 +604,10 @@ public actor CloudDriveStreamResolver: StreamResolver {
                 name: name,
                 isDirectory: value["folder"] != nil,
                 size: int64Value(value["size"]),
-                path: id
+                path: id,
+                parentPath: (value["parentReference"] as? [String: Any])?["id"] as? String,
+                modifiedDate: dateValue(value["lastModifiedDateTime"]),
+                revision: value["eTag"] as? String
             ))
         }
         let nextURL: URL?
@@ -623,7 +643,13 @@ public actor CloudDriveStreamResolver: StreamResolver {
                 name: name,
                 isDirectory: tag == "folder",
                 size: int64Value(value["size"]),
-                path: path
+                path: path,
+                providerID: value["id"] as? String,
+                modifiedDate: dateValue(
+                    value["server_modified"] ?? value["client_modified"]
+                ),
+                revision: (value["content_hash"] as? String)
+                    ?? (value["rev"] as? String)
             ))
         }
         return DropboxDirectoryPage(
@@ -638,6 +664,13 @@ public actor CloudDriveStreamResolver: StreamResolver {
         if let value = value as? NSNumber { return value.int64Value }
         if let value = value as? String { return Int64(value) ?? 0 }
         return 0
+    }
+
+    private static func dateValue(_ value: Any?) -> Date? {
+        guard let string = value as? String, !string.isEmpty else { return nil }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: string) ?? ISO8601DateFormatter().date(from: string)
     }
 
     private static func isTrustedOneDriveURL(_ url: URL) -> Bool {

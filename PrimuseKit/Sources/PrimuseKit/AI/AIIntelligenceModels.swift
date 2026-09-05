@@ -521,10 +521,25 @@ public struct AIRecommendationSelection: Codable, Hashable, Sendable {
 public struct AIRecommendationPlan: Codable, Hashable, Sendable {
     public var summary: String
     public var selections: [AIRecommendationSelection]
+    public var isPartial: Bool
 
-    public init(summary: String = "", selections: [AIRecommendationSelection] = []) {
+    public init(
+        summary: String = "",
+        selections: [AIRecommendationSelection] = [],
+        isPartial: Bool = false
+    ) {
         self.summary = summary
         self.selections = selections
+        self.isPartial = isPartial
+    }
+
+    private enum CodingKeys: String, CodingKey { case summary, selections, isPartial }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        summary = try container.decodeIfPresent(String.self, forKey: .summary) ?? ""
+        selections = try container.decode([AIRecommendationSelection].self, forKey: .selections)
+        isPartial = try container.decodeIfPresent(Bool.self, forKey: .isPartial) ?? false
     }
 
     public func normalized(for request: AIRecommendationRequest) -> AIRecommendationPlan {
@@ -545,36 +560,15 @@ public struct AIRecommendationPlan: Codable, Hashable, Sendable {
             )
         }
         let limitedSelections = Array(selections.prefix(request.maximumResults))
-        let availableArtistCount = Set(request.candidates.map(Self.artistIdentity)).count
-        let selectedArtistCounts = Dictionary(
-            grouping: limitedSelections,
-            by: { selection in
-                guard let candidate = request.candidates.first(where: {
-                    $0.songID == selection.songID
-                }) else { return "song:\(selection.songID)" }
-                return Self.artistIdentity(candidate)
-            }
-        ).mapValues(\.count)
-        let requiredArtistCount = min(4, min(availableArtistCount, limitedSelections.count))
-        let hasRequiredCount = limitedSelections.count >= request.minimumResults
-        let isSufficientlyDiverse = hasRequiredCount
-            && selectedArtistCounts.count >= requiredArtistCount
-            && (availableArtistCount < 4 || (selectedArtistCounts.values.max() ?? 0) <= 2)
-
+        // Quantity and variety guide ranking; they must not discard valid,
+        // already playable selections when a response is incomplete.
         return AIRecommendationPlan(
             summary: String(
                 summary.trimmingCharacters(in: .whitespacesAndNewlines).prefix(180)
             ),
-            selections: isSufficientlyDiverse ? limitedSelections : []
+            selections: limitedSelections,
+            isPartial: isPartial || limitedSelections.count < request.minimumResults
         )
-    }
-
-    private static func artistIdentity(_ candidate: AIRecommendationCandidate) -> String {
-        let artist = candidate.artist
-            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        return artist.isEmpty ? "song:\(candidate.songID)" : artist
     }
 }
 

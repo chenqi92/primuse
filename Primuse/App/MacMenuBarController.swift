@@ -184,6 +184,7 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
 /// the main scene, so the popover view sees the same services.
 extension View {
     func applyPrimuseEnvironments() -> some View {
+        PMScrollViewStyle.shared.install()
         let services = AppServices.shared
         // No global tint here: same reasoning as PrimuseApp.injectServices
         // — macOS ships native control colors, the brand purple only

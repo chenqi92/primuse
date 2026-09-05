@@ -38,6 +38,71 @@ private struct MacSongScrollWindowMetrics: Equatable {
     let viewportHeight: Int
 }
 
+/// Scrolling invalidates only the bounded row window. The page header and
+/// library observers keep their existing view values while the window moves.
+private struct MacWindowedSongScrollView<Header: View, RowContent: View>: View {
+    let rowCount: Int
+    let rowHeight: CGFloat
+    @Binding var chromeHeight: CGFloat
+    @Binding var viewportHeight: CGFloat
+    @ViewBuilder let header: Header
+    @ViewBuilder let rowContent: (Int) -> RowContent
+
+    @State private var firstVisibleRow = 0
+
+    var body: some View {
+        let range = SongListScrollWindow.range(
+            totalCount: rowCount,
+            firstVisibleRow: firstVisibleRow,
+            viewportHeight: Double(viewportHeight),
+            rowHeight: Double(rowHeight)
+        )
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                header
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.height
+                    } action: { height in
+                        guard abs(chromeHeight - height) > 0.5 else { return }
+                        chromeHeight = height
+                    }
+
+                Color.clear
+                    .frame(height: CGFloat(range.lowerBound) * rowHeight)
+                    .accessibilityHidden(true)
+
+                ForEach(range, id: \.self) { position in
+                    rowContent(position)
+                        .frame(height: rowHeight)
+                        .padding(.horizontal, PMSpace.xxxl)
+                }
+
+                Color.clear
+                    .frame(height: CGFloat(rowCount - range.upperBound) * rowHeight + 112)
+                    .accessibilityHidden(true)
+            }
+        }
+        .onScrollGeometryChange(for: MacSongScrollWindowMetrics.self) { geometry in
+            let offset = max(0, geometry.visibleRect.minY - chromeHeight)
+            let row = Int(offset / max(1, rowHeight))
+            let stride = SongListScrollWindow.rowStride
+            return MacSongScrollWindowMetrics(
+                firstVisibleRow: row / stride * stride,
+                viewportHeight: Int(geometry.containerSize.height.rounded())
+            )
+        } action: { _, metrics in
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                firstVisibleRow = metrics.firstVisibleRow
+                if viewportHeight != CGFloat(metrics.viewportHeight) {
+                    viewportHeight = CGFloat(metrics.viewportHeight)
+                }
+            }
+        }
+    }
+}
+
 /// Own the mutable scroll position below `SongListView` so user scrolling does
 /// not invalidate the complete library screen on every position update.
 private struct MacSongLocationScrollModifier: ViewModifier {
@@ -545,7 +610,6 @@ struct SongListView: View {
     @State private var contextTagEditorSong: Song?
     @State private var contextShareSong: Song?
     @State private var exportError: String?
-    @State private var macFirstVisibleRow = 0
     @State private var macSongListChromeHeight: CGFloat = 0
     @State private var macSongListViewportHeight: CGFloat = 0
     /// songID → 播放次数, 由 PlayHistory 一次性折叠而来。重建只发生在
@@ -1280,105 +1344,35 @@ struct SongListView: View {
         }
     }
 
-    private func macVirtualRowRange(totalCount: Int) -> Range<Int> {
-        guard totalCount > 0 else { return 0..<0 }
-        let rowHeight = max(1, macVirtualRowHeight)
-        let estimatedVisibleCount = max(
-            1,
-            Int(ceil(max(macSongListViewportHeight, 720) / rowHeight))
-        )
-        let leadingOverscan = 24
-        let windowCount = max(96, estimatedVisibleCount + 64)
-        let preferredLowerBound = max(0, macFirstVisibleRow - leadingOverscan)
-        let lowerBound = min(
-            preferredLowerBound,
-            max(0, totalCount - windowCount)
-        )
-        let upperBound = min(totalCount, lowerBound + windowCount)
-        return lowerBound..<upperBound
-    }
-
     private func macWindowedSongList(rows: [SongListRowIdentity]) -> some View {
-        let rowHeight = macVirtualRowHeight
-        let visibleRange = macVirtualRowRange(totalCount: rows.count)
-        return ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 0) {
-                macVirtualizedSongListChrome
-                    .onGeometryChange(for: CGFloat.self) { proxy in
-                        proxy.size.height
-                    } action: { height in
-                        guard abs(macSongListChromeHeight - height) > 0.5 else { return }
-                        macSongListChromeHeight = height
+        MacWindowedSongScrollView(
+            rowCount: rows.count,
+            rowHeight: macVirtualRowHeight,
+            chromeHeight: $macSongListChromeHeight,
+            viewportHeight: $macSongListViewportHeight
+        ) {
+            macVirtualizedSongListChrome
+        } rowContent: { position in
+            let row = rows[position]
+            if let song = library.unobservedVisibleSong(id: row.id) {
+                Group {
+                    switch macViewMode {
+                    case .list:
+                        songTableRow(song, index: row.offset)
+                    case .compact:
+                        compactSongRow(song, index: row.offset)
+                    case .grid:
+                        EmptyView()
                     }
-
-                Color.clear
-                    .frame(height: CGFloat(visibleRange.lowerBound) * rowHeight)
-                    .accessibilityHidden(true)
-
-                switch macViewMode {
-                case .list:
-                    ForEach(visibleRange, id: \.self) { position in
-                        Group {
-                            let row = rows[position]
-                            if let song = library.unobservedVisibleSong(id: row.id) {
-                                songTableRow(song, index: row.offset)
-                                    .songSelectable(
-                                        songID: row.id,
-                                        selection: selection,
-                                        orderedIDs: { filteredSongIDs },
-                                        defaultAction: { playSong(song) }
-                                    )
-                            } else {
-                                Color.clear.frame(height: 32)
-                            }
-                        }
-                        .frame(height: rowHeight)
-                        .padding(.horizontal, PMSpace.xxxl)
-                    }
-
-                case .compact:
-                    ForEach(visibleRange, id: \.self) { position in
-                        Group {
-                            let row = rows[position]
-                            if let song = library.unobservedVisibleSong(id: row.id) {
-                                compactSongRow(song, index: row.offset)
-                                    .songSelectable(
-                                        songID: row.id,
-                                        selection: selection,
-                                        orderedIDs: { filteredSongIDs },
-                                        defaultAction: { playSong(song) }
-                                    )
-                            } else {
-                                Color.clear.frame(height: 24)
-                            }
-                        }
-                        .frame(height: rowHeight)
-                        .padding(.horizontal, PMSpace.xxxl)
-                    }
-
-                case .grid:
-                    EmptyView()
                 }
-
+                .songSelectable(
+                    songID: row.id,
+                    selection: selection,
+                    orderedIDs: { filteredSongIDs },
+                    defaultAction: { playSong(song) }
+                )
+            } else {
                 Color.clear
-                    .frame(height: CGFloat(rows.count - visibleRange.upperBound) * rowHeight + 112)
-                    .accessibilityHidden(true)
-            }
-        }
-        .onScrollGeometryChange(for: MacSongScrollWindowMetrics.self) { geometry in
-            let rowsOffset = max(0, geometry.visibleRect.minY - macSongListChromeHeight)
-            let rawFirstVisibleRow = Int(rowsOffset / max(1, rowHeight))
-            let firstVisibleRow = (rawFirstVisibleRow / 16) * 16
-            return MacSongScrollWindowMetrics(
-                firstVisibleRow: firstVisibleRow,
-                viewportHeight: Int(geometry.containerSize.height.rounded())
-            )
-        } action: { _, metrics in
-            var transaction = Transaction(animation: nil)
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                macFirstVisibleRow = metrics.firstVisibleRow
-                macSongListViewportHeight = CGFloat(metrics.viewportHeight)
             }
         }
     }

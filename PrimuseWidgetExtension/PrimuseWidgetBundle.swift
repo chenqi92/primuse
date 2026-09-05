@@ -15,6 +15,7 @@ struct PrimuseWidgetBundle: WidgetBundle {
         #endif
         // iOS 18+ 控制中心 / 锁屏 Action Button 入口 (macOS 无此 API)
         #if os(iOS)
+        LyricsLiveActivityWidget()
         if #available(iOS 18.0, *) {
             PrimusePlayPauseControl()
             PrimuseShuffleControl()

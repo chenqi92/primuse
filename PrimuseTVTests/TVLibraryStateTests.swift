@@ -171,6 +171,140 @@ final class TVLibraryStateTests: XCTestCase {
         _ = await fixture.library.persistNowAndWait()
     }
 
+    func testPlaybackRecordAppearsInTVRecentlyPlayedInNewestOrder() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let store = fixture.store()
+        store.reload()
+        let songs = [fixture.song("first"), fixture.song("second")]
+        fixture.library.addSongs(songs, pruneMissingSongs: false)
+        await fixture.library.waitForPendingIndex()
+        for _ in 0..<100 where store.song("first") == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertNotNil(store.song("first"))
+
+        let historyChange = expectation(description: "TV observes recent playback change")
+        withObservationTracking {
+            _ = store.recentlyPlayed.map(\.id)
+        } onChange: {
+            historyChange.fulfill()
+        }
+
+        fixture.library.recordPlayback(of: "first")
+        fixture.library.recordPlayback(of: "second")
+
+        await fulfillment(of: [historyChange], timeout: 1)
+        XCTAssertEqual(fixture.library.recentlyPlayedSongs(limit: 2).map(\.id), ["second", "first"])
+        XCTAssertEqual(store.recentlyPlayed.map(\.id), ["second", "first"])
+    }
+
+    func testSyntheticOwnedWAVPlaybackRecordsRecentlyPlayed() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let source = MusicSource(
+            id: TVLocalTransferSource.sourceID,
+            name: "Synthetic playback",
+            type: .local,
+            basePath: TVLocalTransferSource.root.path,
+            extraConfig: MusicSource.encodeScannedDirectories(["/"], into: nil, type: .local)
+        )
+        try fixture.sources.addDurably(source)
+        let fileName = "TVLibraryStateTests-\(UUID().uuidString).wav"
+        let fileURL = TVLocalTransferSource.root.appendingPathComponent(fileName)
+        try FileManager.default.createDirectory(
+            at: TVLocalTransferSource.root,
+            withIntermediateDirectories: true
+        )
+        try waveFixture(duration: 2).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        var song = fixture.song("synthetic-playback")
+        song.sourceID = source.id
+        song.filePath = "/\(fileName)"
+        song.fileFormat = .wav
+        let fileValues = try fileURL.resourceValues(forKeys: [.fileSizeKey])
+        song.fileSize = Int64(fileValues.fileSize ?? 0)
+        let store = fixture.store()
+        store.reload()
+        fixture.library.addSongs([song], pruneMissingSongs: false)
+        await fixture.library.waitForPendingIndex()
+        for _ in 0..<100 where store.song(song.id) == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertNotNil(store.song(song.id))
+        XCTAssertTrue(store.playResolvedQueue(songIDs: [song.id], shuffled: false))
+
+        let deadline = Date().addingTimeInterval(8)
+        var reachedPlaybackProgress = false
+        while Date() < deadline {
+            if store.engine.currentTime > 0 {
+                reachedPlaybackProgress = true
+                break
+            }
+            if case .failed(let message) = store.engine.status {
+                XCTFail("Synthetic WAV playback failed: \(message)")
+                break
+            }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTAssertTrue(reachedPlaybackProgress)
+        while fixture.library.recentlyPlayedSongs(limit: 1).isEmpty, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTAssertEqual(fixture.library.recentlyPlayedSongs(limit: 1).map(\.id), [song.id])
+        XCTAssertEqual(store.recentlyPlayed.map(\.id), [song.id])
+        store.engine.stop()
+    }
+
+    func testToggleLikedWithTenThousandSongsRecordsSynchronousRefreshCost() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let store = fixture.store()
+        store.reload()
+        let songs = (0..<10_000).map { index -> Song in
+            var song = fixture.song("bulk-\(index)")
+            song.filePath = "/Music/bulk-\(index).mp3"
+            return song
+        }
+        fixture.library.addSongs(songs, pruneMissingSongs: false)
+        await fixture.library.waitForPendingIndex()
+        let deadline = Date().addingTimeInterval(5)
+        while store.songs.count != songs.count, Date() < deadline {
+            await Task.yield()
+        }
+        XCTAssertEqual(store.songs.count, songs.count)
+
+        let likedIDs = (0..<5_000).map { "bulk-\($0)" }
+        let revisionAfterLoad = store.recommendationRevision
+        fixture.library.replaceLikedSongs(
+            fromSourceID: fixture.source.id,
+            with: likedIDs
+        )
+        for _ in 0..<500 where store.recommendationRevision == revisionAfterLoad {
+            await Task.yield()
+        }
+        XCTAssertEqual(likedIDs.count, fixture.library.rawSongIDs(forPlaylist: MusicLibrary.likedSongsPlaylistID).count)
+
+        let revisionBefore = store.recommendationRevision
+        let clock = ContinuousClock()
+        let start = clock.now
+        store.toggleLiked("bulk-5000")
+        let elapsed = start.duration(to: clock.now)
+        let synchronousRevisionDelta = store.recommendationRevision - revisionBefore
+
+        var eventualRevision = store.recommendationRevision
+        for _ in 0..<100 {
+            await Task.yield()
+            eventualRevision = max(eventualRevision, store.recommendationRevision)
+        }
+        let eventualRevisionDelta = eventualRevision - revisionBefore
+        print("TV 10K toggleLiked elapsed=\(elapsed), synchronousRevisionDelta=\(synchronousRevisionDelta), eventualRevisionDelta=\(eventualRevisionDelta)")
+
+        XCTAssertTrue(store.isLiked("bulk-5000"))
+        XCTAssertGreaterThanOrEqual(synchronousRevisionDelta, 1)
+    }
+
     func testScannerPublishesBeforeEnumerationFinishesAndCancellationDoesNotPrune() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
@@ -626,8 +760,8 @@ final class TVLibraryStateTests: XCTestCase {
         XCTAssertNil(store.song(songID))
     }
 
-    private func waveFixture() -> Data {
-        let samples = Data(repeating: 0, count: 1_600)
+    private func waveFixture(duration: TimeInterval = 0.1) -> Data {
+        let samples = Data(repeating: 0, count: Int(8_000 * duration) * 2)
         var data = Data()
         func ascii(_ value: String) { data.append(contentsOf: value.utf8) }
         func littleEndian<T: FixedWidthInteger>(_ value: T) {

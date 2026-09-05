@@ -7,6 +7,93 @@ import XCTest
 @testable import Primuse
 
 final class PrimuseAIRelayClientTests: XCTestCase {
+    func testRetryAfterAcceptsSecondsAndHTTPDateWithoutInventingCooldowns() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertEqual(PrimuseAIRelayClient.retryDate(header: "45", now: now), now.addingTimeInterval(45))
+        XCTAssertEqual(
+            PrimuseAIRelayClient.retryDate(header: "Fri, 15 Jan 2027 08:00:30 GMT", now: now),
+            now.addingTimeInterval(30)
+        )
+        XCTAssertNil(PrimuseAIRelayClient.retryDate(header: "invalid", now: now))
+        XCTAssertNil(PrimuseAIRelayClient.retryDate(now: now))
+    }
+
+    func testRecommendationStreamHonorsServerCooldownWithoutImmediateRetry() async throws {
+        let host = "primuse-relay-stream-cooldown.invalid"
+        PrimuseRelayURLProtocol.configure(
+            host: host,
+            featureBody: #"{"type":"error","error":{"status":503,"code":"upstreams_busy","retry_after":45}}"# + "\n",
+            featureContentType: "application/x-ndjson"
+        )
+        let (client, session, _, _) = makeClient(host: host)
+        defer { session.invalidateAndCancel() }
+        do {
+            for try await _ in await client.recommendationEvents(recommendationRequest()) { }
+            XCTFail("Expected a cooldown")
+        } catch {
+            guard case .requestFailed(let status, let code, let retryAt) = error as? PrimuseAIRelayError else {
+                return XCTFail("Expected a structured relay error")
+            }
+            XCTAssertEqual(status, 503)
+            XCTAssertEqual(code, "upstreams_busy")
+            XCTAssertGreaterThan(try XCTUnwrap(retryAt).timeIntervalSinceNow, 40)
+        }
+        XCTAssertEqual(PrimuseRelayURLProtocol.requests(host: host)
+            .filter { $0.url?.path == "/v1/recommendations" }.count, 1)
+    }
+
+    func testPartialCompletionIsKeptWithoutWaitingForTrailingBytes() async throws {
+        let host = "primuse-relay-partial-complete.invalid"
+        let items = (0..<8).map { ["song_id": "song-\($0)", "reason": "Reason \($0)"] }
+        let completion: [String: Any] = ["type": "complete", "data": ["items": items, "partial": true]]
+        PrimuseRelayURLProtocol.configure(
+            host: host,
+            featureBody: String(decoding: try JSONSerialization.data(withJSONObject: completion), as: UTF8.self)
+                + "\nmalformed trailing data\n",
+            featureContentType: "application/x-ndjson"
+        )
+        let (client, session, _, _) = makeClient(host: host)
+        defer { session.invalidateAndCancel() }
+        var result: AIRecommendationPlan?
+        for try await event in await client.recommendationEvents(recommendationRequest()) {
+            if case .completed(let plan) = event { result = plan }
+        }
+        XCTAssertEqual(result?.selections.count, 8)
+        XCTAssertEqual(result?.isPartial, true)
+    }
+
+    func testInterruptedStreamPreservesValidatedSongsWithoutRetryingOrAcceptingHalfAnItem() async throws {
+        let host = "primuse-relay-eight-and-half.invalid"
+        let lines = try (0..<8).map { index in
+            String(decoding: try JSONSerialization.data(withJSONObject: [
+                "type": "progress", "data": ["item": ["song_id": "song-\(index)", "reason": "Reason \(index)"]],
+            ] as [String: Any]), as: UTF8.self)
+        }
+        PrimuseRelayURLProtocol.configure(
+            host: host,
+            featureBody: lines.joined(separator: "\n") + "\n{\"type\":\"progress\",\"data\":",
+            featureContentType: "application/x-ndjson"
+        )
+        let (client, session, _, _) = makeClient(host: host)
+        defer { session.invalidateAndCancel() }
+        var selections: [AIRecommendationSelection] = []
+        do {
+            for try await event in await client.recommendationEvents(recommendationRequest()) {
+                if case .selection(let selection) = event { selections.append(selection) }
+            }
+            XCTFail("Expected an interrupted response")
+        } catch {
+            XCTAssertEqual(selections.map(\.songID), (0..<8).map { "song-\($0)" })
+        }
+        let partial = MusicIntelligenceService.mergingStreamedRecommendations(
+            selections, into: AIRecommendationPlan(isPartial: true), for: recommendationRequest()
+        )
+        XCTAssertEqual(partial.selections, selections)
+        XCTAssertTrue(partial.isPartial)
+        XCTAssertEqual(PrimuseRelayURLProtocol.requests(host: host)
+            .filter { $0.url?.path == "/v1/recommendations" }.count, 1)
+    }
+
     func testAssertionClientDataHashMatchesRelayContract() {
         let body = Data(#"{"query":"night rain"}"#.utf8)
         let bodyHash = Data(SHA256.hash(data: body)).base64URLEncodedForRelayTests()

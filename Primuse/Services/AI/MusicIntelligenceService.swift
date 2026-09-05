@@ -46,7 +46,7 @@ enum AIRecommendationOutcome: Sendable {
     case unavailable
     case success(AIRecommendationExecution)
     case empty(providerName: String, fallbackDepth: Int)
-    case failed(AIRecommendationFallbackReason)
+    case failed(AIRecommendationFallbackReason, retryAt: Date? = nil)
 }
 
 enum AIRecommendationFallbackReason: Equatable, Sendable {
@@ -69,7 +69,7 @@ enum AIRecommendationFallbackReason: Equatable, Sendable {
             return .network
         }
         if let relayError = error as? PrimuseAIRelayError {
-            if case .requestFailed(let statusCode, let code) = relayError {
+            if case .requestFailed(let statusCode, let code, _) = relayError {
                 switch code {
                 case "concurrency_limited", "upstreams_busy":
                     return .busy
@@ -170,7 +170,12 @@ actor PrimuseRelayRecommendationCoordinator {
                 guard AIRecommendationFallbackReason.classify(error).retriesBriefly else {
                     throw error
                 }
-                try await Task.sleep(for: retryDelay)
+                if let retryAt = (error as? PrimuseAIRelayError)?.retryAt {
+                    guard retryAt.timeIntervalSinceNow <= 2 else { throw error }
+                    try await Task.sleep(for: .seconds(max(0, retryAt.timeIntervalSinceNow)))
+                } else {
+                    try await Task.sleep(for: retryDelay)
+                }
                 return try await client.recommendations(request)
             }
         }
@@ -771,6 +776,7 @@ final class MusicIntelligenceService {
         let now = ProcessInfo.processInfo.systemUptime
         var lastEmptyProvider: (name: String, fallbackDepth: Int)?
         var lastFailureReason: AIRecommendationFallbackReason?
+        var lastRetryAt: Date?
         var customFallbackOffset = 0
         var streamedSelections: [AIRecommendationSelection] = []
         var streamedSelectionIDs = Set<String>()
@@ -873,6 +879,37 @@ final class MusicIntelligenceService {
                 return .failed(.upstream)
             } catch {
                 lastFailureReason = AIRecommendationFallbackReason.classify(error)
+                lastRetryAt = (error as? PrimuseAIRelayError)?.retryAt
+                if !Task.isCancelled, !streamedSelections.isEmpty,
+                   canUsePrimuseRelay(
+                    captured: regionSnapshot,
+                    latest: regionAvailability.snapshot,
+                    hasRequiredConsent: settingsStore.hasExplicitListeningContextConsent
+                   ) {
+                    let partial = AIRecommendationPlan(
+                        selections: streamedSelections,
+                        isPartial: true
+                    ).normalized(for: request)
+                    if !partial.selections.isEmpty {
+                        primuseRelayRecommendationCache[cacheKey] = RecommendationCacheEntry(
+                            plan: partial,
+                            createdAt: now
+                        )
+                        if primuseRelayRecommendationCache.count > Self.recommendationCacheLimit,
+                           let oldestKey = primuseRelayRecommendationCache.min(by: {
+                               $0.value.createdAt < $1.value.createdAt
+                           })?.key {
+                            primuseRelayRecommendationCache[oldestKey] = nil
+                        }
+                        return .success(AIRecommendationExecution(
+                            plan: partial,
+                            providerName: primuseRelayProviderName,
+                            fallbackDepth: 0,
+                            resolvedScene: request.scene,
+                            isCached: false
+                        ))
+                    }
+                }
                 // A user-configured provider remains available as a fallback.
             }
         }
@@ -961,6 +998,7 @@ final class MusicIntelligenceService {
                 return .failed(.upstream)
             } catch {
                 lastFailureReason = AIRecommendationFallbackReason.classify(error)
+                lastRetryAt = (error as? PrimuseAIRelayError)?.retryAt
                 continue
             }
         }
@@ -970,7 +1008,7 @@ final class MusicIntelligenceService {
                 fallbackDepth: lastEmptyProvider.fallbackDepth
             )
         }
-        return .failed(lastFailureReason ?? .upstream)
+        return .failed(lastFailureReason ?? .upstream, retryAt: lastRetryAt)
     }
 
     nonisolated static func mergingStreamedRecommendations(
@@ -988,7 +1026,8 @@ final class MusicIntelligenceService {
         }
         let merged = AIRecommendationPlan(
             summary: completed.summary,
-            selections: selections
+            selections: selections,
+            isPartial: completed.isPartial
         ).normalized(for: request)
         return merged.selections.isEmpty ? completed : merged
     }
@@ -1689,6 +1728,9 @@ final class AIRecommendationViewModel {
     private(set) var orderedSongIDs: [String] = []
     private(set) var reasonsBySongID: [String: String] = [:]
     private(set) var isStreaming = false
+    private(set) var isPartial = false
+    private(set) var retryAvailableAt: Date?
+    private(set) var streamedSongCount = 0
     private var generation: UInt64 = 0
 
     @discardableResult
@@ -1702,9 +1744,11 @@ final class AIRecommendationViewModel {
         minimumResults: Int = 10,
         appending: Bool = false
     ) async -> Bool {
+        finishRetryCooldown()
         generation &+= 1
         let operationGeneration = generation
         let previousFeedback = feedback
+        let previousPartial = isPartial
         guard intelligence.settingsStore.recommendationsEnabled else {
             isStreaming = false
             if !appending {
@@ -1748,7 +1792,10 @@ final class AIRecommendationViewModel {
             isStreaming = false
             outcome = cached
         } else {
+            if let retryAvailableAt, retryAvailableAt > Date() { return false }
             feedback = .loading
+            isPartial = false
+            streamedSongCount = 0
             isStreaming = true
             var hasReceivedStreamingSelection = false
             outcome = await intelligence.recommendationOutcome(
@@ -1779,6 +1826,7 @@ final class AIRecommendationViewModel {
                         guard !self.orderedSongIDs.contains(selection.songID) else { return }
                         self.orderedSongIDs.append(selection.songID)
                         self.reasonsBySongID[selection.songID] = selection.reason
+                        self.streamedSongCount += 1
                     case .completed:
                         break
                     }
@@ -1791,6 +1839,7 @@ final class AIRecommendationViewModel {
                 orderedSongIDs = startingSongIDs
                 reasonsBySongID = startingReasons
                 feedback = previousFeedback
+                isPartial = previousPartial
             }
             return false
         }
@@ -1806,6 +1855,7 @@ final class AIRecommendationViewModel {
             )
             return false
         case .success(let execution):
+            isPartial = execution.plan.isPartial
             if appending {
                 let additions = execution.plan.selections.filter {
                     !startingIDs.contains($0.songID)
@@ -1846,7 +1896,8 @@ final class AIRecommendationViewModel {
                 reason: .empty
             )
             return false
-        case .failed(let reason):
+        case .failed(let reason, let retryAt):
+            retryAvailableAt = retryAt
             orderedSongIDs = startingSongIDs
             reasonsBySongID = startingReasons
             feedback = .localFallback(
@@ -1873,11 +1924,29 @@ final class AIRecommendationViewModel {
         reasonsBySongID[songID]
     }
 
+    func finishRetryCooldown() {
+        if let retryAvailableAt, retryAvailableAt <= Date() {
+            self.retryAvailableAt = nil
+        }
+    }
+
     var statusText: String {
+        if isPartial, !orderedSongIDs.isEmpty {
+            return String(
+                format: String(localized: "ai_recommendation_stream_partial_format"),
+                orderedSongIDs.count
+            )
+        }
         switch feedback {
         case .idle:
             return String(localized: "ai_recommendation_status_local")
         case .loading:
+            if streamedSongCount > 0 {
+                return String(
+                    format: String(localized: "ai_recommendation_stream_progress_format"),
+                    streamedSongCount
+                )
+            }
             return String(localized: "ai_recommendation_status_loading")
         case .needsConsent:
             return String(localized: "ai_recommendation_status_needs_consent")
@@ -1898,6 +1967,12 @@ final class AIRecommendationViewModel {
                 scene.localizedName
             )
         case .localFallback(_, _, let reason):
+            if !orderedSongIDs.isEmpty {
+                return String(
+                    format: String(localized: "ai_recommendation_stream_retained_format"),
+                    orderedSongIDs.count
+                )
+            }
             let key: String
             switch reason {
             case .unavailable, .empty:

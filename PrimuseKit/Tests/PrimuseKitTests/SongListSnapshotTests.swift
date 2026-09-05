@@ -4,6 +4,47 @@ import Testing
 
 @Suite("Large song-list snapshots")
 struct SongListSnapshotTests {
+    @Test("Scroll windows cover every visible row throughout each scroll step")
+    func scrollWindowCoversViewport() {
+        let count = 11_558
+        for rowHeight in [24.0, 34.0, 40.0, 48.0] {
+            for viewport in [400.0, 785.5, 1_600.0] {
+                for firstRow in stride(from: 0, to: count, by: 7) {
+                    let range = SongListScrollWindow.range(
+                        totalCount: count,
+                        firstVisibleRow: firstRow,
+                        viewportHeight: viewport,
+                        rowHeight: rowHeight
+                    )
+                    let lastRow = min(count - 1, firstRow + Int(ceil(viewport / rowHeight)))
+                    #expect(range.contains(firstRow))
+                    #expect(range.contains(lastRow))
+                    #expect(range.count <= Int(ceil(viewport / rowHeight)) + 33)
+                    #expect(range.lowerBound >= 0 && range.upperBound <= count)
+                }
+            }
+        }
+    }
+
+    @Test("Scroll windows stay stable within a step and clamp after filtering")
+    func scrollWindowStabilityAndFiltering() {
+        func window(_ count: Int, _ firstRow: Int, _ viewport: Double = 720) -> Range<Int> {
+            SongListScrollWindow.range(
+                totalCount: count, firstVisibleRow: firstRow,
+                viewportHeight: viewport, rowHeight: 40
+            )
+        }
+        for row in 320..<336 {
+            #expect(window(11_558, row) == window(11_558, 320))
+        }
+        #expect(window(0, 10_000).isEmpty)
+        #expect(window(5, 10_000) == 0..<5)
+        #expect(window(11_558, -1) == window(11_558, 0))
+        #expect(window(11_558, 0, 0) == window(11_558, 0))
+        #expect(window(11_558, 0, .infinity) == window(11_558, 0))
+        #expect(window(11_558, 0, 1_000_000) == 0..<11_558)
+    }
+
     @Test("Builds sorted lightweight rows and aggregates")
     func buildsRowsAndAggregates() {
         let songs = [

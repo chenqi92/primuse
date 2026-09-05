@@ -14,7 +14,12 @@ enum PrimuseAIRelayError: Error, Equatable, Sendable {
     case storeKitAuthenticationCancelled
     case invalidResponse
     case responseTooLarge
-    case requestFailed(statusCode: Int, code: String)
+    case requestFailed(statusCode: Int, code: String, retryAt: Date? = nil)
+
+    var retryAt: Date? {
+        if case .requestFailed(_, _, let date) = self { return date }
+        return nil
+    }
 }
 
 enum PrimuseAIRelayAuthenticationMethod: Equatable, Sendable {
@@ -97,7 +102,7 @@ struct PrimuseAIRelayDiagnostic: Equatable, Sendable {
             return PrimuseAIRelayDiagnostic(category: .upstream, code: "invalid_response")
         case .responseTooLarge:
             return PrimuseAIRelayDiagnostic(category: .upstream, code: "response_too_large")
-        case .requestFailed(let statusCode, let code):
+        case .requestFailed(let statusCode, let code, _):
             let deviceRegistrationCodes: Set<String> = [
                 "invalid_attestation",
                 "invalid_app_attest_policy",
@@ -426,7 +431,8 @@ actor PrimuseAIRelayClient {
         return AIRecommendationPlan(
             selections: output.items.map {
                 AIRecommendationSelection(songID: $0.songID, reason: $0.reason)
-            }
+            },
+            isPartial: output.partial == true
         ).normalized(for: request)
     }
 
@@ -461,7 +467,8 @@ actor PrimuseAIRelayClient {
                 return .completed(AIRecommendationPlan(
                     selections: output.items.map {
                         AIRecommendationSelection(songID: $0.songID, reason: $0.reason)
-                    }
+                    },
+                    isPartial: output.partial == true
                 ).normalized(for: request))
             }
         }
@@ -639,6 +646,7 @@ actor PrimuseAIRelayClient {
         canRetryTransientFailure: Bool = true,
         emit: (FeatureWireEvent<Progress, Output>) -> Void
     ) async throws {
+        var receivedProgress = false
         do {
             let request = try await streamingFeatureRequest(
                 path: path,
@@ -649,9 +657,13 @@ actor PrimuseAIRelayClient {
                 request: request,
                 output: output,
                 progress: progress,
-                emit: emit
+                emit: { event in
+                    if case .progress = event { receivedProgress = true }
+                    emit(event)
+                }
             )
         } catch {
+            if receivedProgress { throw error }
             if canRecoverLocalAppAttestCredential,
                Self.isLocalAppAttestFailure(error) {
                 try await credentialStore.clear()
@@ -701,7 +713,11 @@ actor PrimuseAIRelayClient {
             }
             if canRetryTransientFailure,
                Self.shouldRetryTransientStream(after: error) {
-                try await Task.sleep(for: transientRetryDelay)
+                if let retryAt = (error as? PrimuseAIRelayError)?.retryAt {
+                    try await Task.sleep(for: .seconds(max(0, retryAt.timeIntervalSinceNow)))
+                } else {
+                    try await Task.sleep(for: transientRetryDelay)
+                }
                 return try await performStreamingFeature(
                     path: path,
                     purpose: purpose,
@@ -798,7 +814,8 @@ actor PrimuseAIRelayClient {
                 code: Self.safeDiagnosticCode(
                     envelope?.error.code,
                     statusCode: response.statusCode
-                )
+                ),
+                retryAt: Self.retryDate(header: response.value(forHTTPHeaderField: "Retry-After"))
             )
         }
 
@@ -833,8 +850,8 @@ actor PrimuseAIRelayClient {
                     output: output,
                     progress: progress
                 ) {
-                    if case .completed = event { didComplete = true }
                     emit(event)
+                    if case .completed = event { return }
                 }
                 line.removeAll(keepingCapacity: true)
             } else if byte != 0x0D {
@@ -885,9 +902,11 @@ actor PrimuseAIRelayClient {
             return .completed(decoded)
         case "error":
             let error = object["error"] as? [String: Any]
+            let status = error?["status"] as? Int ?? 502
             throw PrimuseAIRelayError.requestFailed(
-                statusCode: 502,
-                code: Self.safeDiagnosticCode(error?["code"] as? String, statusCode: 502)
+                statusCode: status,
+                code: Self.safeDiagnosticCode(error?["code"] as? String, statusCode: status),
+                retryAt: Self.retryDate(seconds: error?["retry_after"] as? Double)
             )
         default:
             throw PrimuseAIRelayError.invalidResponse
@@ -1195,7 +1214,8 @@ actor PrimuseAIRelayClient {
                 code: Self.safeDiagnosticCode(
                     envelope?.error.code,
                     statusCode: response.statusCode
-                )
+                ),
+                retryAt: Self.retryDate(header: response.value(forHTTPHeaderField: "Retry-After"))
             )
         }
         guard let decoded = try? decoder.decode(type, from: data) else {
@@ -1219,7 +1239,7 @@ actor PrimuseAIRelayClient {
     ) -> Bool {
         if isLocalAppAttestFailure(error) { return true }
         guard let relayError = error as? PrimuseAIRelayError,
-              case .requestFailed(_, let code) = relayError else {
+              case .requestFailed(_, let code, _) = relayError else {
             return false
         }
         return code == "invalid_attestation" || code == "invalid_app_attest_policy"
@@ -1227,7 +1247,7 @@ actor PrimuseAIRelayClient {
 
     private nonisolated static func shouldReplaceCredential(after error: Error) -> Bool {
         guard let relayError = error as? PrimuseAIRelayError,
-              case .requestFailed(_, let code) = relayError else {
+              case .requestFailed(_, let code, _) = relayError else {
             return false
         }
         return [
@@ -1240,7 +1260,7 @@ actor PrimuseAIRelayClient {
 
     private nonisolated static func shouldRetryWithFreshProof(after error: Error) -> Bool {
         guard let relayError = error as? PrimuseAIRelayError,
-              case .requestFailed(_, let code) = relayError else {
+              case .requestFailed(_, let code, _) = relayError else {
             return false
         }
         return [
@@ -1253,10 +1273,29 @@ actor PrimuseAIRelayClient {
 
     private nonisolated static func shouldRetryTransientStream(after error: Error) -> Bool {
         guard let relayError = error as? PrimuseAIRelayError,
-              case .requestFailed(_, let code) = relayError else {
+              case .requestFailed(_, let code, let retryAt) = relayError else {
             return false
         }
+        if let retryAt, retryAt.timeIntervalSinceNow > 2 { return false }
         return code == "concurrency_limited" || code == "upstreams_busy"
+    }
+
+    nonisolated static func retryDate(
+        header: String? = nil,
+        seconds: Double? = nil,
+        now: Date = Date()
+    ) -> Date? {
+        let raw = header?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let interval = seconds ?? raw.flatMap(Double.init), interval.isFinite, interval >= 0 {
+            return now.addingTimeInterval(min(interval, 86_400))
+        }
+        guard let raw else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        guard let date = formatter.date(from: raw) else { return nil }
+        return min(max(date, now), now.addingTimeInterval(86_400))
     }
 
     private nonisolated static func safeDiagnosticCode(
@@ -1468,6 +1507,7 @@ actor PrimuseAIRelayClient {
         }
 
         var items: [Item]
+        var partial: Bool?
     }
 
     private struct RecommendationProgress: Decodable, Sendable {

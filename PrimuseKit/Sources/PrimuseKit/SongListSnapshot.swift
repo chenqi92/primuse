@@ -125,6 +125,30 @@ public struct SongListSectionIndexEntry: Identifiable, Equatable, Hashable, Send
     }
 }
 
+public enum SongListScrollWindow {
+    public static let rowStride = 16
+
+    /// Cover the viewport throughout a quantized scroll step, including a
+    /// partially visible row and a small buffer on either side.
+    public static func range(
+        totalCount: Int,
+        firstVisibleRow: Int,
+        viewportHeight: Double,
+        rowHeight: Double
+    ) -> Range<Int> {
+        guard totalCount > 0 else { return 0..<0 }
+        let height = viewportHeight.isFinite && viewportHeight > 0 ? viewportHeight : 720
+        let rowHeight = rowHeight.isFinite && rowHeight > 0 ? rowHeight : 1
+        let visibleCount = Int(min(Double(totalCount), ceil(height / rowHeight)))
+        let overscan = 8
+        let windowCount = min(totalCount, visibleCount + overscan * 2 + rowStride + 1)
+        let firstRow = min(max(0, firstVisibleRow), totalCount - 1)
+        let quantizedRow = firstRow / rowStride * rowStride
+        let lowerBound = min(max(0, quantizedRow - overscan), totalCount - windowCount)
+        return lowerBound..<(lowerBound + windowCount)
+    }
+}
+
 public enum SongListSectionIndexHitTesting {
     public static func index(
         at locationY: Double,
