@@ -1,5 +1,6 @@
 #if os(iOS) || os(macOS)
 import CryptoKit
+import Darwin
 import Foundation
 import Network
 import Observation
@@ -83,6 +84,87 @@ enum AudioCacheSyncOperation: Equatable, Sendable {
     case preparing
     case inspecting
     case transferring
+}
+
+enum AudioCacheSyncNetworkIssue: Equatable, Sendable {
+    case permissionDenied
+    case bonjourUnavailable
+    case networkUnavailable
+    case configurationMissing
+    case other(String)
+
+    init(_ error: NWError) {
+        switch error {
+        case .dns(-65570), .posix(.EACCES), .posix(.EPERM): self = .permissionDenied
+        case .dns(-65555): self = .bonjourUnavailable
+        case .posix(.ENETDOWN), .posix(.ENETUNREACH), .posix(.EHOSTUNREACH): self = .networkUnavailable
+        default: self = .other(String(describing: error))
+        }
+    }
+
+    var message: String {
+        let key: String
+        switch self {
+        case .permissionDenied: key = "cache_sync_error_permission"
+        case .bonjourUnavailable: key = "cache_sync_error_bonjour"
+        case .networkUnavailable: key = "cache_sync_error_network"
+        case .configurationMissing: key = "cache_sync_error_configuration"
+        case .other(let detail):
+            return String(format: CacheSyncLocalization.text("cache_sync_error_network_format"), detail)
+        }
+        return CacheSyncLocalization.text(key)
+    }
+}
+
+enum AudioCacheSyncReceiverState: Equatable, Sendable {
+    case stopped, starting, ready, directOnly, failed
+
+    var labelKey: String {
+        switch self {
+        case .stopped: "cache_sync_receiver_stopped"
+        case .starting: "cache_sync_receiver_starting"
+        case .ready: "cache_sync_receiver_ready"
+        case .directOnly: "cache_sync_receiver_direct"
+        case .failed: "cache_sync_receiver_failed"
+        }
+    }
+}
+
+struct AudioCacheSyncInvitation: Codable, Equatable, Sendable {
+    let version: Int
+    let host: String
+    let port: UInt16
+    let id: String
+    let name: String
+    let platform: AudioCacheSyncPlatform
+    let publicKey: Data
+
+    var code: String? {
+        (try? JSONEncoder().encode(self)).map { "primuse-cache:" + $0.base64EncodedString() }
+    }
+
+    static func parse(_ code: String) -> Self? {
+        let text = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "primuse-cache:"
+        guard text.utf8.count <= 2_048, text.hasPrefix(prefix),
+              let data = Data(base64Encoded: String(text.dropFirst(prefix.count))),
+              let value = try? JSONDecoder().decode(Self.self, from: data),
+              value.version == AudioCacheSyncPolicy.protocolVersion,
+              value.port > 0, UUID(uuidString: value.id) != nil,
+              !value.name.isEmpty, value.name.utf8.count <= 256,
+              !value.name.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains),
+              value.publicKey.count == 32, isLocalIPv4(value.host) else { return nil }
+        return value
+    }
+
+    static func isLocalIPv4(_ host: String) -> Bool {
+        guard let address = IPv4Address(host) else { return false }
+        let bytes = Array(address.rawValue)
+        return bytes[0] == 10
+            || (bytes[0] == 172 && (16...31).contains(bytes[1]))
+            || (bytes[0] == 192 && bytes[1] == 168)
+            || (bytes[0] == 169 && bytes[1] == 254)
+    }
 }
 
 /// Cross-device cache transfer policy. Only canonical, complete cache files
@@ -246,7 +328,16 @@ private enum AudioCacheSyncSocketError: Error {
 final class AudioCacheSyncService {
     private(set) var peers: [AudioCacheSyncPeer] = []
     private(set) var isDiscovering = false
-    private(set) var isReceiving = false
+    private(set) var receiverState: AudioCacheSyncReceiverState = .stopped
+    private(set) var receiverIssue: AudioCacheSyncNetworkIssue?
+    private(set) var discoveryIssue: AudioCacheSyncNetworkIssue?
+    private(set) var connectionCode: String?
+    private(set) var incomingTransferCount = 0
+    private(set) var receivedFileCount = 0
+    private(set) var receivedByteCount: Int64 = 0
+    private(set) var incomingError: String?
+    var isReceiving: Bool { receiverState == .ready || receiverState == .directOnly }
+    var localDeviceName: String { "\(deviceName) · \(deviceID.prefix(4))" }
     private(set) var operation: AudioCacheSyncOperation = .idle
     private(set) var activePeerID: String?
     private(set) var localInventory: AudioCacheSyncInventorySummary?
@@ -259,7 +350,10 @@ final class AudioCacheSyncService {
     @ObservationIgnored private weak var library: MusicLibrary?
     @ObservationIgnored private var sourceManager: SourceManager?
     @ObservationIgnored private var listener: NWListener?
+    @ObservationIgnored private var hasRegisteredService = false
+    @ObservationIgnored private var receivingSessionIDs: Set<String> = []
     @ObservationIgnored private var browser: NWBrowser?
+    @ObservationIgnored private var manualPeers: [String: AudioCacheSyncInvitation] = [:]
     @ObservationIgnored private var discoveryIndicatorTask: Task<Void, Never>?
     @ObservationIgnored private var operationTask: Task<Void, Never>?
     @ObservationIgnored private var endpointByPeerID: [String: NWEndpoint] = [:]
@@ -273,16 +367,12 @@ final class AudioCacheSyncService {
     @ObservationIgnored private let deviceID: String
     @ObservationIgnored private let deviceName: String
     @ObservationIgnored private let platform: AudioCacheSyncPlatform
+    @ObservationIgnored private let advertisesBonjour: Bool
 
-    init(defaults: UserDefaults = .standard) {
-        let deviceIDKey = "primuse.cacheSync.deviceID.v1"
-        if let existing = defaults.string(forKey: deviceIDKey), !existing.isEmpty {
-            deviceID = existing
-        } else {
-            let created = UUID().uuidString
-            defaults.set(created, forKey: deviceIDKey)
-            deviceID = created
-        }
+    init(advertisesBonjour: Bool = true) {
+        self.advertisesBonjour = advertisesBonjour
+        // A restored backup or cloned simulator must not share a discovery identity.
+        deviceID = UUID().uuidString
 
         #if os(iOS)
         deviceName = String(UIDevice.current.name.prefix(64))
@@ -319,12 +409,17 @@ final class AudioCacheSyncService {
 
     func startDiscovery() {
         stopDiscovery()
-        peers = []
-        endpointByPeerID = [:]
-        publicKeyByPeerID = [:]
+        applyBrowseResults([])
         peerPlans = [:]
         isDiscovering = true
         lastError = nil
+        discoveryIssue = nil
+
+        guard hasBonjourDeclaration else {
+            discoveryIssue = .configurationMissing
+            isDiscovering = false
+            return
+        }
 
         let parameters = NWParameters.tcp
         parameters.includePeerToPeer = true
@@ -333,18 +428,23 @@ final class AudioCacheSyncService {
             domain: nil
         )
         let browser = NWBrowser(for: descriptor, using: parameters)
-        browser.stateUpdateHandler = { [weak self] state in
+        browser.stateUpdateHandler = { [weak self, weak browser] state in
             Task { @MainActor in
-                guard let self else { return }
-                if case .failed = state {
+                guard let self, let browser, self.browser === browser else { return }
+                switch state {
+                case .ready:
+                    self.discoveryIssue = nil
+                case .waiting(let error), .failed(let error):
                     self.isDiscovering = false
-                    self.lastError = CacheSyncLocalization.text("cache_sync_error_discovery")
+                    self.discoveryIssue = AudioCacheSyncNetworkIssue(error)
+                default: break
                 }
             }
         }
-        browser.browseResultsChangedHandler = { [weak self] results, _ in
+        browser.browseResultsChangedHandler = { [weak self, weak browser] results, _ in
             Task { @MainActor in
-                self?.applyBrowseResults(results)
+                guard let self, let browser, self.browser === browser else { return }
+                self.applyBrowseResults(results)
             }
         }
         browser.start(queue: .main)
@@ -363,6 +463,36 @@ final class AudioCacheSyncService {
         browser?.cancel()
         browser = nil
         isDiscovering = false
+    }
+
+    func retryNetworking(discover: Bool = true) {
+        guard operation != .transferring else { return }
+        if activeIncomingConnectionCount == 0 {
+            stopReceiving()
+            receiverShouldRun = true
+            receiverIssue = nil
+            startReceiving()
+        }
+        if discover { startDiscovery() }
+    }
+
+    @discardableResult
+    func connect(using code: String) -> String? {
+        guard operation != .transferring else { return nil }
+        guard let invitation = AudioCacheSyncInvitation.parse(code), invitation.id != deviceID else {
+            lastError = CacheSyncLocalization.text("cache_sync_error_code")
+            return nil
+        }
+        manualPeers[invitation.id] = invitation
+        endpointByPeerID[invitation.id] = .hostPort(
+            host: NWEndpoint.Host(invitation.host),
+            port: NWEndpoint.Port(rawValue: invitation.port)!
+        )
+        publicKeyByPeerID[invitation.id] = invitation.publicKey
+        peers.removeAll { $0.id == invitation.id }
+        peers.append(AudioCacheSyncPeer(id: invitation.id, name: invitation.name, platform: invitation.platform))
+        lastError = nil
+        return invitation.id
     }
 
     func refreshLocalInventory() {
@@ -565,57 +695,135 @@ final class AudioCacheSyncService {
         )
     }
 
-    private func startReceiving() {
+    private var hasBonjourDeclaration: Bool {
+        let types = Bundle.main.object(forInfoDictionaryKey: "NSBonjourServices") as? [String] ?? []
+        return types.contains { $0.trimmingCharacters(in: CharacterSet(charactersIn: ".")) == AudioCacheSyncPolicy.serviceType }
+    }
+
+    private func startReceiving(advertise requestedAdvertising: Bool = true) {
         guard receiverShouldRun, listener == nil else { return }
+        let advertise = requestedAdvertising && advertisesBonjour && hasBonjourDeclaration
+        if requestedAdvertising && advertisesBonjour && !advertise { receiverIssue = .configurationMissing }
+        receiverState = .starting
+        hasRegisteredService = false
         do {
             let parameters = NWParameters.tcp
             parameters.includePeerToPeer = true
             let listener = try NWListener(using: parameters)
             let txtRecord = NWTXTRecord([
                 "id": deviceID,
-                "name": deviceName,
+                "name": localDeviceName,
                 "platform": platform.rawValue,
                 "v": String(AudioCacheSyncPolicy.protocolVersion),
                 "pk": receiverPrivateKey.publicKey.rawRepresentation.base64EncodedString(),
             ])
-            listener.service = NWListener.Service(
-                name: deviceName,
-                type: AudioCacheSyncPolicy.serviceType,
-                domain: nil,
-                txtRecord: txtRecord
-            )
+            if advertise {
+                listener.service = NWListener.Service(
+                    name: deviceName,
+                    type: AudioCacheSyncPolicy.serviceType,
+                    domain: nil,
+                    txtRecord: txtRecord
+                )
+                listener.serviceRegistrationUpdateHandler = { [weak self, weak listener] change in
+                    Task { @MainActor in
+                        guard let self, let listener, self.listener === listener else { return }
+                        switch change {
+                        case .add:
+                            self.hasRegisteredService = true
+                            self.receiverState = .ready
+                            self.receiverIssue = nil
+                        case .remove:
+                            self.hasRegisteredService = false
+                            self.receiverState = .starting
+                        @unknown default: break
+                        }
+                    }
+                }
+            }
             listener.stateUpdateHandler = { [weak self, weak listener] state in
                 Task { @MainActor in
-                    guard let self, self.listener === listener else { return }
+                    guard let self, let currentListener = listener, self.listener === currentListener else { return }
                     switch state {
                     case .ready:
-                        self.isReceiving = true
-                    case .failed:
+                        self.receiverState = advertise
+                            ? (self.hasRegisteredService ? .ready : .starting)
+                            : .directOnly
+                        self.updateConnectionCode(port: listener?.port)
+                    case .waiting(let error):
+                        self.receiverIssue = AudioCacheSyncNetworkIssue(error)
+                        self.receiverState = .failed
+                        self.connectionCode = nil
+                        if advertise, self.receiverIssue == .bonjourUnavailable {
+                            listener?.cancel()
+                            self.listener = nil
+                            self.startReceiving(advertise: false)
+                        }
+                    case .failed(let error):
+                        listener?.cancel()
                         self.listener = nil
-                        self.isReceiving = false
-                        if self.receiverShouldRun {
-                            Task { @MainActor [weak self] in
-                                try? await Task.sleep(for: .seconds(2))
-                                self?.startReceiving()
-                            }
+                        self.receiverIssue = AudioCacheSyncNetworkIssue(error)
+                        self.receiverState = .failed
+                        self.connectionCode = nil
+                        // Bonjour authorization can fail independently of TCP listening.
+                        if advertise, self.receiverIssue == .bonjourUnavailable {
+                            self.startReceiving(advertise: false)
                         }
                     case .cancelled:
-                        self.isReceiving = false
+                        self.receiverState = .stopped
+                        self.connectionCode = nil
                     default:
                         break
                     }
                 }
             }
-            listener.newConnectionHandler = { [weak self] connection in
+            listener.newConnectionHandler = { [weak self, weak listener] connection in
                 Task { @MainActor in
-                    self?.acceptIncomingConnection(connection)
+                    guard let self, let listener, self.listener === listener else {
+                        connection.cancel()
+                        return
+                    }
+                    self.acceptIncomingConnection(connection)
                 }
             }
             listener.start(queue: .main)
             self.listener = listener
         } catch {
-            isReceiving = false
+            receiverState = .failed
+            receiverIssue = (error as? NWError).map(AudioCacheSyncNetworkIssue.init)
+                ?? .other(String(describing: error))
         }
+    }
+
+    private func updateConnectionCode(port: NWEndpoint.Port?) {
+        guard let port, let host = Self.localAddress() else {
+            connectionCode = nil
+            return
+        }
+        connectionCode = AudioCacheSyncInvitation(
+            version: AudioCacheSyncPolicy.protocolVersion,
+            host: host, port: port.rawValue, id: deviceID, name: localDeviceName,
+            platform: platform, publicKey: receiverPrivateKey.publicKey.rawRepresentation
+        ).code
+    }
+
+    private static func localAddress() -> String? {
+        var interfaces: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&interfaces) == 0 else { return nil }
+        defer { freeifaddrs(interfaces) }
+        var cursor = interfaces
+        while let current = cursor {
+            defer { cursor = current.pointee.ifa_next }
+            let entry = current.pointee
+            guard let address = entry.ifa_addr, address.pointee.sa_family == UInt8(AF_INET),
+                  String(cString: entry.ifa_name).hasPrefix("en"),
+                  entry.ifa_flags & UInt32(IFF_UP) != 0 else { continue }
+            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            if getnameinfo(address, socklen_t(address.pointee.sa_len), &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 {
+                let value = String(decoding: host.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+                if AudioCacheSyncInvitation.isLocalIPv4(value) { return value }
+            }
+        }
+        return nil
     }
 
     private func stopReceiving() {
@@ -624,7 +832,8 @@ final class AudioCacheSyncService {
         for connection in incomingConnections.values {
             connection.cancel()
         }
-        isReceiving = false
+        receiverState = .stopped
+        connectionCode = nil
     }
 
     private func acceptIncomingConnection(_ connection: NWConnection) {
@@ -691,6 +900,14 @@ final class AudioCacheSyncService {
             nextPeers.append(AudioCacheSyncPeer(id: peerID, name: name, platform: peerPlatform))
             nextEndpoints[peerID] = result.endpoint
             nextPublicKeys[peerID] = publicKey
+        }
+
+        for invitation in manualPeers.values {
+            nextPeers.append(AudioCacheSyncPeer(id: invitation.id, name: invitation.name, platform: invitation.platform))
+            nextEndpoints[invitation.id] = .hostPort(
+                host: NWEndpoint.Host(invitation.host), port: NWEndpoint.Port(rawValue: invitation.port)!
+            )
+            nextPublicKeys[invitation.id] = invitation.publicKey
         }
 
         peers = Dictionary(nextPeers.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -922,6 +1139,27 @@ final class AudioCacheSyncService {
         await sourceManager?.cancelAudioCacheSyncImport(reservation)
     }
 
+    private func beginReceivingFeedback(sessionID: String) {
+        if receivingSessionIDs.isEmpty {
+            receivedFileCount = 0
+            receivedByteCount = 0
+            incomingError = nil
+        }
+        receivingSessionIDs.insert(sessionID)
+        incomingTransferCount = receivingSessionIDs.count
+    }
+
+    private func recordReceivedFile(byteCount: Int64) {
+        receivedFileCount += 1
+        receivedByteCount += byteCount
+    }
+
+    private func endReceivingFeedback(sessionID: String, failed: Bool) {
+        receivingSessionIDs.remove(sessionID)
+        incomingTransferCount = receivingSessionIDs.count
+        if failed { incomingError = CacheSyncLocalization.text("cache_sync_error_transfer") }
+    }
+
     private static func peerPlan(
         peerID: String,
         wirePlan: AudioCacheSyncWirePlan,
@@ -962,7 +1200,9 @@ final class AudioCacheSyncService {
         manifest: AudioCacheSyncLocalManifest,
         action: AudioCacheSyncWireAction
     ) async throws -> AudioCacheSyncWirePlan {
-        let socket = AudioCacheSyncSocket(connection: NWConnection(to: endpoint, using: .tcp))
+        let parameters = NWParameters.tcp
+        parameters.includePeerToPeer = true
+        let socket = AudioCacheSyncSocket(connection: NWConnection(to: endpoint, using: parameters))
         return try await withTaskCancellationHandler {
             defer { socket.cancel() }
             try await socket.start()
@@ -990,7 +1230,9 @@ final class AudioCacheSyncService {
         summary: AudioCacheSyncWireTransferSummary,
         transferredItemIDs: [String]
     ) {
-        let socket = AudioCacheSyncSocket(connection: NWConnection(to: endpoint, using: .tcp))
+        let parameters = NWParameters.tcp
+        parameters.includePeerToPeer = true
+        let socket = AudioCacheSyncSocket(connection: NWConnection(to: endpoint, using: parameters))
         return try await withTaskCancellationHandler {
             defer { socket.cancel() }
             try await socket.start()
@@ -1214,6 +1456,7 @@ final class AudioCacheSyncService {
         let socket = AudioCacheSyncSocket(connection: connection)
         await withTaskCancellationHandler {
             defer { socket.cancel() }
+            var receivingSessionID: String?
             do {
                 try await socket.start()
                 let helloData = try await socket.receiveFrame(maximumLength: 8 * 1_024)
@@ -1246,6 +1489,8 @@ final class AudioCacheSyncService {
                 let incomingPlan = await service.prepareIncomingPlan(request)
                 try await session.sendJSON(incomingPlan.response)
                 guard request.action == .transfer else { return }
+                receivingSessionID = hello.sessionID
+                await service.beginReceivingFeedback(sessionID: hello.sessionID)
 
                 var transferred = 0
                 var failed = 0
@@ -1311,6 +1556,7 @@ final class AudioCacheSyncService {
                         installed = true
                         transferred += 1
                         transferredBytes += item.byteCount
+                        await service.recordReceivedFile(byteCount: item.byteCount)
                         try await session.sendJSON(
                             AudioCacheSyncWireFileResult(itemID: itemID, succeeded: true)
                         )
@@ -1337,10 +1583,14 @@ final class AudioCacheSyncService {
                     failedFileCount: failed,
                     transferredByteCount: transferredBytes
                 ))
+                await service.endReceivingFeedback(sessionID: hello.sessionID, failed: failed > 0)
                 Task { @MainActor in
                     service.refreshLocalInventory()
                 }
             } catch {
+                if let receivingSessionID {
+                    await service.endReceivingFeedback(sessionID: receivingSessionID, failed: true)
+                }
                 return
             }
         } onCancel: {

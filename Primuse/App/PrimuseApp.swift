@@ -1153,7 +1153,7 @@ struct PrimuseApp: App {
                     await AppServices.shared.completeDeferredStartup()
                     navidromeAutoRefresh.setApplicationActive(scenePhase == .active)
                     #if os(iOS) || os(macOS)
-                    audioCacheSync.setApplicationActive(scenePhase == .active)
+                    audioCacheSync.setApplicationActive(scenePhase != .background)
                     #endif
 
                     PrimuseAppDelegate.sync = cloudSync
@@ -1376,7 +1376,7 @@ struct PrimuseApp: App {
                 .onChange(of: scenePhase) { _, newPhase in
                     navidromeAutoRefresh.setApplicationActive(newPhase == .active)
                     #if os(iOS) || os(macOS)
-                    audioCacheSync.setApplicationActive(newPhase == .active)
+                    audioCacheSync.setApplicationActive(newPhase != .background)
                     #endif
                     switch newPhase {
                     case .inactive:
