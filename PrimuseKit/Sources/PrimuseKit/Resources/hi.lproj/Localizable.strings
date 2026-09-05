@@ -651,3 +651,8 @@
 "theme_color_teal" = "टील";
 "theme_color_terracotta" = "टेराकोटा";
 "theme_color_turquoise" = "फ़िरोज़ी";
+
+"ext.tv.nowPlaying.artworkControls" = "कवर पर फ़ोकस करें · बायाँ / दायाँ: पिछला / अगला गाना";
+
+"ext.tv.remote.transportButton" = "प्ले / पॉज़ बटन";
+"ext.tv.remote.transportShortcuts" = "एक बार दबाएँ: प्ले / पॉज़\nदो बार दबाएँ: अगला गाना\nदबाकर रखें: बाएँ / दाएँ से आगे या पीछे जाएँ";

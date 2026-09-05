@@ -24,6 +24,8 @@ enum TVNowPlayingFocusTarget: Hashable, Sendable {
     case previous
     case liveRadioPrimary
     case songPrimary
+    case playPause
+    case scrubber
     case next
 }
 
@@ -86,6 +88,12 @@ struct TVContentFocusRoutingState: Equatable, Sendable {
         return issue(target)
     }
 
+    mutating func seekInNowPlaying(mode: TVNowPlayingFocusMode) -> TVContentFocusRequest? {
+        guard mode == .song else { return nil }
+        keepsContentFocusActive = true
+        return issue(.nowPlaying(.scrubber))
+    }
+
     mutating func contentDidAppear(
         in tab: TVContentFocusTab,
         nowPlayingMode: TVNowPlayingFocusMode
@@ -110,6 +118,10 @@ struct TVContentFocusRoutingState: Equatable, Sendable {
         nowPlayingMode: TVNowPlayingFocusMode
     ) -> TVContentFocusRequest? {
         guard keepsContentFocusActive else { return nil }
+        if tab == .nowPlaying, nowPlayingMode == .song,
+           latestRequest?.target == .nowPlaying(.scrubber) {
+            return issue(.nowPlaying(.scrubber))
+        }
         guard let target = TVContentFocusRoutingPolicy.target(
             for: tab,
             nowPlayingMode: nowPlayingMode
@@ -155,6 +167,7 @@ struct TVRoot: View {
     @State private var sourcesFocusRequest = 0
     @State private var searchFocusRequest: TVContentFocusRequest?
     @State private var playbackInteractionRequest = 0
+    @State private var isRoutingToScrubber = false
     @State private var contentFocusRouting = TVContentFocusRoutingState()
     @State private var tabFocusRequest = 0
     @State private var isTabBarFocused = true
@@ -182,11 +195,25 @@ struct TVRoot: View {
             .modifier(TVReturnToTabsModifier(enabled: !isTabBarFocused) {
                 returnFocusToTabs()
             })
-            .onPlayPauseCommand {
+            .modifier(TVRemoteTransportModifier(
+                shortcutsEnabled: store.hasNowPlaying && rootModalPresentationCount == 0
+                    && !hasChildModalPresentation && tab != .search
+                    && certificateTrustStore.pendingRequest == nil
+                    && certificateTrustStore.pendingInsecureHTTPRequest == nil
+            ) { command in
                 guard store.hasNowPlaying else { return }
-                store.togglePlayPause()
+                switch command {
+                case .togglePlayback: store.togglePlayPause()
+                case .nextTrack: store.next()
+                case .seek:
+                    guard store.duration > 0,
+                          let request = contentFocusRouting.seekInNowPlaying(mode: nowPlayingFocusMode) else { return }
+                    isRoutingToScrubber = true
+                    tab = .nowPlaying
+                    applyContentFocusRequest(request)
+                }
                 playbackInteractionRequest &+= 1
-            }
+            })
             .alert(
                 PMString("ext.tv.certificate.title"),
                 isPresented: Binding(
@@ -242,7 +269,7 @@ struct TVRoot: View {
                         onSelect: { tab = $0 },
                         onContentDown: requestContentFocus,
                         focusRequest: tabFocusRequest,
-                        allowsFocusDrivenSelection: !suppressesFocusDrivenTabSelection,
+                        allowsFocusDrivenSelection: !suppressesFocusDrivenTabSelection && !isRoutingToScrubber,
                         onFocusChanged: tabBarFocusChanged,
                         onSettings: { showSettings = true }
                     )
@@ -328,6 +355,7 @@ struct TVRoot: View {
                 interactionRequest: playbackInteractionRequest,
                 onContentAppeared: restoreNowPlayingFocus,
                 onContentModeChanged: retargetNowPlayingFocus,
+                onProgressFocused: { isRoutingToScrubber = false },
                 onReturnToTabs: returnFocusToTabs,
                 onModalActivityChanged: childModalActivityChanged
             )
@@ -414,6 +442,7 @@ struct TVRoot: View {
     }
 
     private func returnFocusToTabs() {
+        isRoutingToScrubber = false
         contentFocusRouting.returnToTabs()
         nowPlayingFocusRequest = nil
         searchFocusRequest = nil
@@ -425,7 +454,7 @@ struct TVRoot: View {
         if focused {
             playbackInteractionRequest &+= 1
         }
-        guard focused, !suppressesFocusDrivenTabSelection else { return }
+        guard focused, !suppressesFocusDrivenTabSelection, !isRoutingToScrubber else { return }
         // A horizontal tab transition is still tab-bar navigation. Clear any
         // previous content route so a newly appeared page cannot reclaim focus
         // until the user explicitly moves down again.
@@ -597,7 +626,7 @@ struct TVTabBar: View {
             let bypassesEntryCorrection = focused != nil
                 && focused == pendingProgrammaticFocusTarget
             pendingProgrammaticFocusTarget = nil
-            if !bypassesEntryCorrection,
+            if allowsFocusDrivenSelection, !bypassesEntryCorrection,
                let corrected = TVTabBarEntryFocusPolicy.correctedTarget(
                 previous: previous,
                 focused: focused,
@@ -668,15 +697,13 @@ private struct TVTabItem: View {
             Text(label)
                 .font(.system(size: 26, weight: isActive ? .bold : .medium))
                 .lineLimit(1).minimumScaleFactor(0.85)
-                .foregroundStyle(isActive || isFocused ? TVColor.text : TVColor.textMuted)
+                .foregroundStyle(isFocused ? TVColor.bg : (isActive ? TVColor.text : TVColor.textMuted))
                 .padding(.horizontal, 24).padding(.vertical, 10)
-                .background(isFocused ? TVColor.surfaceStrong : .clear,
-                            in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(TVColor.focusRing, lineWidth: isFocused ? 3 : 0)
-                }
-                .scaleEffect(isFocused && !reduceMotion ? 1.08 : 1)
+                .background(isFocused ? TVColor.text : .clear,
+                            in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .shadow(color: isFocused ? TVColor.focusShadow.opacity(0.45) : .clear,
+                        radius: 10, y: 4)
+                .scaleEffect(isFocused && !reduceMotion ? 1.04 : 1)
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: isFocused)
         }
         .buttonStyle(TVBareButtonStyle())
@@ -826,7 +853,7 @@ struct TVEyebrow: View {
 
     var body: some View {
         Text(text.uppercased())
-            .font(TVFont.eyebrow).tracking(1.4)
+            .tvFont(.eyebrow).tracking(1.4)
             .foregroundStyle(color)
     }
 }

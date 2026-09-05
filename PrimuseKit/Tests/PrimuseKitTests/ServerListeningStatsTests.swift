@@ -43,14 +43,15 @@ struct ServerListeningStatsTests {
         #expect(result.topArtists.first?.playCount == 5)
     }
 
-    @Test func eventPayloadFiltersRollingRangesAndNeverInventsPlexDuration() throws {
+    @Test func eventPayloadFiltersCalendarWeekAndNeverInventsPlexDuration() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        calendar.firstWeekday = 2
         let now = try #require(calendar.date(from: DateComponents(
             year: 2026, month: 8, day: 26, hour: 12
         )))
-        let inside = try #require(calendar.date(byAdding: .day, value: -6, to: now))
-        let outside = try #require(calendar.date(byAdding: .day, value: -7, to: now))
+        let inside = try #require(calendar.date(byAdding: .day, value: -2, to: now))
+        let outside = try #require(calendar.date(byAdding: .day, value: -3, to: now))
         let payload = ServerListeningStatsPayload(
             accountFingerprint: "plex-account",
             temporalDetail: .events,
@@ -72,6 +73,29 @@ struct ServerListeningStatsTests {
         #expect(result.activeDays == 2)
         #expect(result.totalListenedSeconds == nil)
         #expect(result.dailyCounts.map(\.playCount) == [1, 1])
+    }
+
+    @Test func calendarMonthAndLeapYearIncludeTheirFirstDay() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = try #require(calendar.date(from: DateComponents(year: 2024, month: 12, day: 31, hour: 12)))
+        for range in [ServerListeningStatsRange.month, .year] {
+            let first = try #require(calendar.date(from: DateComponents(
+                year: 2024, month: range == .month ? 12 : 1, day: 1
+            )))
+            let payload = ServerListeningStatsPayload(accountFingerprint: "test", temporalDetail: .events, events: [
+                .init(id: "before", remoteTrackID: "before", title: "Before", playedAt: first.addingTimeInterval(-1)),
+                .init(id: "first", remoteTrackID: "first", title: "First", playedAt: first),
+                .init(id: "now", remoteTrackID: "now", title: "Now", playedAt: now),
+                .init(id: "future", remoteTrackID: "future", title: "Future", playedAt: now.addingTimeInterval(3600))
+            ])
+            let result = try #require(ServerListeningStatsPresentationBuilder.build(
+                payload: payload, range: range, now: now, calendar: calendar
+            ))
+            #expect(result.totalPlays == 2)
+            #expect(result.dailyCounts.first?.date == first)
+            #expect(Set(result.topTracks.map(\.title)) == ["First", "Now"])
+        }
     }
 
     @Test func actualDurationRequiresEveryEventToCarryServerDuration() {

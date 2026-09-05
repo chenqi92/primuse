@@ -124,7 +124,7 @@ struct TVLibraryView: View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
                 TVEyebrow(text: PMString("ext.tv.library.eyebrow"))
-                Text(title).font(TVFont.pageTitle).foregroundStyle(TVColor.text)
+                Text(title).tvFont(.pageTitle).foregroundStyle(TVColor.text)
             }
             HStack(spacing: 12) {
                 ForEach(Filter.allCases) { f in
@@ -132,15 +132,16 @@ struct TVLibraryView: View {
                         filter = f
                     } label: {
                         Text(f.display)
-                            .font(TVFont.button.weight(f == filter ? .bold : .medium))
+                            .tvFont(.button, weight: f == filter ? .bold : .medium)
                             .foregroundStyle(f == filter ? TVColor.onBrand : TVColor.text)
                             .padding(.horizontal, 26).padding(.vertical, 12)
+                            .frame(minHeight: 66)
                             .background(f == filter ? AnyShapeStyle(TVColor.brand)
                                                     : AnyShapeStyle(TVColor.surfaceStrong),
                                         in: Capsule())
                             .tvFocusRing(
                                 focusedFilter == f,
-                                radius: 28,
+                                radius: TVRadius.pill,
                                 accent: TVColor.focusRing,
                                 scale: 1.06,
                                 lift: 4
@@ -488,11 +489,11 @@ struct TVArtistDetailView: View {
                         radius: 150
                     )
                     Text(artist.name)
-                        .font(TVFont.pageTitle)
+                        .tvFont(.pageTitle)
                         .foregroundStyle(TVColor.text)
                         .lineLimit(2)
                     Text(PMString("ext.tv.songsCount", songs.count))
-                        .font(TVFont.body)
+                        .tvFont(.body)
                         .foregroundStyle(TVColor.textMuted)
                     HStack(spacing: 14) {
                         TVPillButton(

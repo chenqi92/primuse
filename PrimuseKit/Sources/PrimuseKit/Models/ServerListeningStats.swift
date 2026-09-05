@@ -189,16 +189,12 @@ public enum ServerListeningStatsRange: String, Codable, CaseIterable, Identifiab
     public var id: String { rawValue }
 
     public func startDate(relativeTo now: Date, calendar: Calendar = .current) -> Date? {
-        guard self != .all else { return nil }
-        let days: Int
         switch self {
-        case .week: days = 7
-        case .month: days = 30
-        case .year: days = 365
+        case .week: return calendar.dateInterval(of: .weekOfYear, for: now)?.start
+        case .month: return calendar.dateInterval(of: .month, for: now)?.start
+        case .year: return calendar.dateInterval(of: .year, for: now)?.start
         case .all: return nil
         }
-        let today = calendar.startOfDay(for: now)
-        return calendar.date(byAdding: .day, value: -(days - 1), to: today)
     }
 }
 

@@ -704,3 +704,8 @@
 "auth_method" = "Méthode d'authentification";
 "ssh_key" = "Clé SSH";
 "cue_track_title_format" = "Piste %02d";
+
+"ext.tv.nowPlaying.artworkControls" = "Sélectionnez la pochette · Gauche / droite : titre précédent / suivant";
+
+"ext.tv.remote.transportButton" = "Bouton lecture / pause";
+"ext.tv.remote.transportShortcuts" = "Appui : lecture / pause\nDouble appui : titre suivant\nAppui long : avancer / reculer avec gauche / droite";

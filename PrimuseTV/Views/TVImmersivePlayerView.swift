@@ -169,6 +169,7 @@ struct TVImmersivePlayerView: View {
     private var coverDrivenAmbient = AppThemePreferences.defaultCoverDrivenAmbient
 
     @State private var showsChrome = true
+    @State private var showsSeekControls = false
     @State private var chromeTask: Task<Void, Never>?
     @State private var lyricObservationTask: Task<Void, Never>?
     @State private var directionalCommandState = TVImmersiveDirectionalCommandState()
@@ -182,6 +183,7 @@ struct TVImmersivePlayerView: View {
     @State private var lyricInterlude = false
     @Namespace private var chromeFocus
     @FocusState private var focusedControl: Control?
+    @FocusState private var scrubberFocused: Bool
     @FocusState private var focusedEffect: FullscreenPlayerEffect?
     @FocusState private var lyricsToggleFocused: Bool
     @FocusState private var wakesChrome: Bool
@@ -281,10 +283,23 @@ struct TVImmersivePlayerView: View {
             }
         }
         .onMoveCommand(perform: handleMoveCommand)
-        .onPlayPauseCommand {
-            revealChrome()
-            store.togglePlayPause()
-        }
+        .modifier(TVRemoteTransportModifier(
+            shortcutsEnabled: presentationActivity.isRenderingActive && !showsQueue && !showsModePicker
+        ) { command in
+            guard presentationActivity.isRenderingActive else { return }
+            switch command {
+            case .togglePlayback:
+                revealChrome()
+                store.togglePlayPause()
+            case .nextTrack:
+                revealChrome()
+                store.next()
+            case .seek:
+                guard !store.isLiveRadio, store.duration > 0 else { return }
+                showsSeekControls = true
+                revealChrome(preferScrubber: true)
+            }
+        })
         .fullScreenCover(isPresented: $showsQueue, onDismiss: {
             resumePresentation(after: .queueDismissed)
         }) {
@@ -320,6 +335,9 @@ struct TVImmersivePlayerView: View {
         .onChange(of: focusedControl) { _, _ in
             // 遥控在传输键之间移动焦点即视为有操作,重置淡出计时。
             if showsChrome { scheduleChromeHide() }
+        }
+        .onChange(of: scrubberFocused) { _, _ in
+            scheduleChromeHide()
         }
         .onChange(of: focusedEffect) { _, _ in
             if showsModePicker { chromeTask?.cancel() }
@@ -452,6 +470,13 @@ struct TVImmersivePlayerView: View {
 
             Spacer()
 
+            if showsSeekControls, !store.isLiveRadio, store.duration > 0 {
+                tvProgress
+                    .frame(maxWidth: 1200)
+                    .padding(.horizontal, 112)
+                    .padding(.bottom, 24)
+            }
+
             tvBottomControls(metrics: metrics)
                 .padding(.horizontal, 112)
                 .padding(.bottom, 72)
@@ -496,15 +521,14 @@ struct TVImmersivePlayerView: View {
 
     private var tvProgress: some View {
         VStack(spacing: 10) {
-            GeometryReader { geometry in
-                let fraction = store.duration > 0 ? min(1, max(0, store.currentTime / store.duration)) : 0
-                ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.16)).frame(height: 5)
-                    Capsule().fill(artworkPalette.primary).frame(width: max(5, geometry.size.width * fraction), height: 5)
-                }
-                .frame(maxHeight: .infinity, alignment: .center)
-            }
-            .frame(height: 12)
+            TVScrubber(
+                progress: store.duration > 0 ? min(1, max(0, store.currentTime / store.duration)) : 0,
+                tint: TVColor.brand, immersiveDark: true,
+                currentTime: store.currentTime, duration: store.duration,
+                onBack: { store.skipBackward() }, onForward: { store.skipForward() },
+                onInteraction: scheduleChromeHide,
+                onFinish: { revealChrome() }, focused: $scrubberFocused
+            )
             HStack {
                 Text(store.currentTime.formattedDuration)
                 Spacer()
@@ -1035,7 +1059,7 @@ struct TVImmersivePlayerView: View {
         }
     }
 
-    private func revealChrome() {
+    private func revealChrome(preferScrubber: Bool = false) {
         guard presentationActivity.isRenderingActive else { return }
         wakesChrome = false
         withAnimation(.easeInOut(duration: TVImmersiveChromeMotionPolicy.duration(
@@ -1048,7 +1072,13 @@ struct TVImmersivePlayerView: View {
             await Task.yield()
             guard presentationActivity.isRenderingActive else { return }
             resetFocus(in: chromeFocus)
-            focusedControl = .playPause
+            if preferScrubber {
+                focusedControl = nil
+                scrubberFocused = true
+            } else {
+                scrubberFocused = false
+                focusedControl = .playPause
+            }
         }
         scheduleChromeHide()
     }
@@ -1072,7 +1102,7 @@ struct TVImmersivePlayerView: View {
         }
         #endif
         guard presentationActivity.isRenderingActive,
-              !showsModePicker,
+              !showsModePicker, !scrubberFocused,
               !assistiveNavigationEnabled else { return }
         chromeTask = Task { @MainActor in
             do {
@@ -1082,7 +1112,7 @@ struct TVImmersivePlayerView: View {
             }
             guard !Task.isCancelled,
                   presentationActivity.isRenderingActive,
-                  !showsModePicker,
+                  !showsModePicker, !scrubberFocused,
                   !assistiveNavigationEnabled else { return }
             focusedControl = nil
             withAnimation(.easeInOut(duration: TVImmersiveChromeMotionPolicy.duration(
@@ -1090,6 +1120,7 @@ struct TVImmersivePlayerView: View {
                 reduceMotion: reduceMotion
             ))) {
                 showsChrome = false
+                showsSeekControls = false
             }
             await Task.yield()
             guard presentationActivity.isRenderingActive else { return }

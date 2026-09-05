@@ -3,6 +3,7 @@ import CryptoKit
 import Foundation
 import PrimuseKit
 import XCTest
+import UIKit
 @testable import PrimuseTV
 
 @MainActor
@@ -100,6 +101,141 @@ final class TVLibraryStateTests: XCTestCase {
             // SQLite handles can outlive the test's lexical scope because
             // derived-cache writes are asynchronous; let the sandbox reap tmp.
         }
+    }
+
+    private func artworkStore(_ fixture: Fixture, name: String) -> MetadataAssetStore {
+        MetadataAssetStore(storageDirectory: fixture.directory.appendingPathComponent(name))
+    }
+
+    private func artworkSnapshot(_ songs: [Song]) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return try JSONSerialization.data(withJSONObject: [
+            "songs": JSONSerialization.jsonObject(with: encoder.encode(songs)),
+            "playlists": []
+        ])
+    }
+
+    private func artworkImage() throws -> Data {
+        try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).image { context in
+            UIColor.systemBlue.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        }.pngData())
+    }
+
+    func testPortableArtworkRestoresSongAndAlbumCoversWithContentDeduplication() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let sender = artworkStore(fixture, name: "sender")
+        let receiver = artworkStore(fixture, name: "receiver")
+        var first = fixture.song("first")
+        first.albumID = "album"
+        var second = fixture.song("second")
+        second.albumID = "album"
+        let original = try artworkImage()
+        sender.storeCoverSync(original, for: first.id)
+        sender.storeCoverSync(original, for: second.id)
+        _ = await sender.storeAlbumCover(original, forAlbumID: "album")
+        let transfer = try XCTUnwrap(MusicLibrary.preparePortableSnapshotDataIncludingArtworkAssets(
+            artworkSnapshot([first, second]), assetStore: sender
+        ))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: transfer.data) as? [String: Any])
+        XCTAssertEqual((object["cachedArtworkAssets"] as? [String: String])?.count, 1)
+        XCTAssertEqual((object["artworkCacheReferences"] as? [String: String])?.count, 3)
+        MusicLibrary.restorePortableArtworkAssets(from: transfer.data, assetStore: receiver)
+        let firstCover = try XCTUnwrap(receiver.readCoverData(named: receiver.expectedCoverFileName(for: first.id)))
+        XCTAssertNotNil(UIImage(data: firstCover))
+        XCTAssertEqual(firstCover, receiver.readCoverData(named: receiver.expectedCoverFileName(for: second.id)))
+        let albumCover = await receiver.cachedAlbumCover(forAlbumID: "album")
+        XCTAssertEqual(firstCover, albumCover)
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: receiver.customArtworkDirectoryURL.path).isEmpty)
+    }
+
+    func testPortableArtworkFiltersDeviceLocalCoversBeforeCloudExport() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let sender = artworkStore(fixture, name: "sender")
+        let local = fixture.song("local-only")
+        let remoteSource = MusicSource(id: "remote", name: "Remote", type: .smb)
+        var remote = fixture.song("remote-song")
+        remote.sourceID = remoteSource.id
+        sender.storeCoverSync(try artworkImage(), for: local.id)
+        let transfer = try XCTUnwrap(MusicLibrary.preparePortableSnapshotDataIncludingArtworkAssets(
+            artworkSnapshot([local, remote]), cloudSources: [fixture.source, remoteSource], assetStore: sender
+        ))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: transfer.data) as? [String: Any])
+        XCTAssertEqual((object["songs"] as? [[String: Any]])?.compactMap { $0["id"] as? String }, [remote.id])
+        XCTAssertNil(object["cachedArtworkAssets"])
+        XCTAssertNil(object["artworkCacheReferences"])
+    }
+
+    func testPortableArtworkBudgetDoesNotDiscardLibraryMetadata() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let sender = artworkStore(fixture, name: "sender")
+        let song = fixture.song("budget")
+        sender.storeCoverSync(try artworkImage(), for: song.id)
+        let transfer = try XCTUnwrap(MusicLibrary.preparePortableSnapshotDataIncludingArtworkAssets(
+            artworkSnapshot([song]), assetStore: sender, maximumArtworkBytes: 0
+        ))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: transfer.data) as? [String: Any])
+        XCTAssertEqual((object["songs"] as? [[String: Any]])?.count, 1)
+        XCTAssertNil(object["cachedArtworkAssets"])
+        XCTAssertLessThan(transfer.data.count, 60 * 1024 * 1024)
+    }
+
+    func testPortableArtworkRejectsCorruptContentAndUnrelatedReferences() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let receiver = artworkStore(fixture, name: "receiver")
+        let song = fixture.song("valid")
+        let data = try artworkImage()
+        let contentID = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        var snapshot = try XCTUnwrap(JSONSerialization.jsonObject(with: artworkSnapshot([song])) as? [String: Any])
+        let name = receiver.expectedCoverFileName(for: song.id)
+        let otherName = receiver.expectedCoverFileName(for: "unrelated")
+        snapshot["artworkCacheReferences"] = [name: contentID, otherName: contentID, "../escape.jpg": contentID]
+        snapshot["cachedArtworkAssets"] = [contentID: Data("invalid".utf8).base64EncodedString()]
+        MusicLibrary.restorePortableArtworkAssets(from: try JSONSerialization.data(withJSONObject: snapshot), assetStore: receiver)
+        XCTAssertNil(receiver.readCoverData(named: name))
+        snapshot["cachedArtworkAssets"] = [contentID: data.base64EncodedString()]
+        MusicLibrary.restorePortableArtworkAssets(from: try JSONSerialization.data(withJSONObject: snapshot), assetStore: receiver)
+        XCTAssertEqual(receiver.readCoverData(named: name), data)
+        XCTAssertNil(receiver.readCoverData(named: otherName))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: receiver.artworkDirectoryURL.deletingLastPathComponent().appendingPathComponent("escape.jpg").path))
+    }
+
+    func testAlbumArtworkPrefersSongWithSourceCoverReference() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        var withoutCover = fixture.song("first-track")
+        withoutCover.albumTitle = "Artwork Album"
+        withoutCover.artistName = "Artwork Artist"
+        var withCover = fixture.song("source-cover")
+        withCover.albumTitle = "Artwork Album"
+        withCover.artistName = "Artwork Artist"
+        withCover.coverArtFileName = "https://example.com/album.jpg"
+        fixture.library.addSongs([withoutCover, withCover])
+        await fixture.library.waitForPendingIndex()
+        let albumID = try XCTUnwrap(fixture.library.song(id: withCover.id)?.albumID)
+        XCTAssertEqual(fixture.library.preferredArtworkSong(forAlbumID: albumID)?.id, withCover.id)
+    }
+
+    func testPreviousTrackShortcutSkipsEvenAfterPlaybackHasAdvanced() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        fixture.library.addSongs([fixture.song("first"), fixture.song("second")])
+        await fixture.library.waitForPendingIndex()
+        let store = fixture.store()
+        store.reload()
+        let first = try XCTUnwrap(store.song("first"))
+        let second = try XCTUnwrap(store.song("second"))
+        store.play(second)
+        store.engine.prepareForSelection(startAt: 20)
+        XCTAssertEqual(store.currentTime, 20)
+        store.previous(restartCurrentIfNeeded: false)
+        XCTAssertEqual(store.nowPlaying.songID, first.id)
+        store.engine.stop()
     }
 
     func testLikesSurviveLibraryRestart() async throws {

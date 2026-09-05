@@ -704,3 +704,8 @@
 "auth_method" = "Authentifizierungsmethode";
 "ssh_key" = "SSH-Schlüssel";
 "cue_track_title_format" = "Titel %02d";
+
+"ext.tv.nowPlaying.artworkControls" = "Cover fokussieren · Links / rechts: vorheriger / nächster Titel";
+
+"ext.tv.remote.transportButton" = "Wiedergabe-/Pausetaste";
+"ext.tv.remote.transportShortcuts" = "Drücken: Wiedergabe / Pause\nDoppeldruck: nächster Titel\nHalten: mit links / rechts spulen";

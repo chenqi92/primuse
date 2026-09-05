@@ -158,12 +158,6 @@ struct ServerListeningStatsView: View {
                         color: .green
                     )
                 }
-                summaryCell(
-                    value: lastPlayedText(presentation.lastPlayedAt),
-                    label: String(localized: "stats_server_last_played"),
-                    icon: "clock",
-                    color: .orange
-                )
                 if let duration = presentation.totalListenedSeconds {
                     summaryCell(
                         value: formatDuration(duration),
@@ -174,6 +168,13 @@ struct ServerListeningStatsView: View {
                 }
             }
             .padding(.vertical, 4)
+            summaryCell(
+                value: lastPlayedText(presentation.lastPlayedAt),
+                label: String(localized: "stats_server_last_played"),
+                icon: "clock",
+                color: .orange,
+                isDate: true
+            )
         }
     }
 
@@ -181,7 +182,8 @@ struct ServerListeningStatsView: View {
         value: String,
         label: String,
         icon: String,
-        color: Color
+        color: Color,
+        isDate: Bool = false
     ) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Label(label, systemImage: icon)
@@ -190,12 +192,14 @@ struct ServerListeningStatsView: View {
             Text(value)
                 .font(.title3.weight(.semibold))
                 .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .lineLimit(isDate ? nil : 1)
+                .minimumScaleFactor(isDate ? 1 : 0.7)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
         .background(color.opacity(0.08), in: .rect(cornerRadius: 10))
+        .accessibilityElement(children: .combine)
     }
 
     private func capabilityBoundarySection(
@@ -217,7 +221,11 @@ struct ServerListeningStatsView: View {
         _ presentation: ServerListeningStatsPresentation
     ) -> some View {
         Section {
-            serverHeatmap(presentation: presentation, cellSize: 14)
+            MobileListeningActivityView(
+                counts: presentation.dailyCounts.map { (date: $0.date, count: $0.playCount) },
+                range: presentation.appliedRange
+            )
+                .id(source.id)
                 .padding(.vertical, 4)
         } header: {
             Text("stats_heatmap_title")

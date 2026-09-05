@@ -89,6 +89,8 @@ final class LibrarySnapshotSync: Sendable {
         let radioStations: FileIdentity?
         let lyricsDirectory: FileIdentity?
         let customArtworkDirectory: FileIdentity?
+        let songArtworkDirectory: FileIdentity?
+        let albumArtworkDirectory: FileIdentity?
     }
 
     private static let automaticUploadFingerprintKey =
@@ -182,7 +184,7 @@ final class LibrarySnapshotSync: Sendable {
             Self.sanitizedSourcesData($0, includeDeviceLocalSources: false)
         }.map(Self.sha256Hex)
         return AutomaticUploadFingerprint(
-            formatVersion: 1,
+            formatVersion: 2,
             library: library,
             cloudSourcesDigest: cloudSourcesDigest,
             radioStations: Self.fileIdentity(at: radioStationsURL),
@@ -191,6 +193,12 @@ final class LibrarySnapshotSync: Sendable {
             ),
             customArtworkDirectory: Self.fileIdentity(
                 at: MetadataAssetStore.shared.customArtworkDirectoryURL
+            ),
+            songArtworkDirectory: Self.fileIdentity(
+                at: MetadataAssetStore.shared.artworkDirectoryURL
+            ),
+            albumArtworkDirectory: Self.fileIdentity(
+                at: MetadataAssetStore.shared.artworkDirectoryURL.appendingPathComponent("album")
             )
         )
     }

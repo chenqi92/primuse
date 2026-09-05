@@ -75,7 +75,7 @@ struct TVScanFlowView: View {
 
     var body: some View {
         ZStack {
-            TVAmbientBackdrop(tint: TVColor.brand, tint2: Color(hex: "#1f3a5b"), strength: started ? 0.5 : 0.4)
+            TVAmbientBackdrop(tint: TVColor.brand, tint2: TVColor.brandSecondary, strength: started ? 0.5 : 0.4)
             TVColor.bg.opacity(0.48).ignoresSafeArea()
             if started {
                 TVScanningView(
@@ -213,13 +213,13 @@ struct TVScanFlowView: View {
                         .foregroundStyle(checked ? TVColor.brand : TVColor.textFaint)
                         .frame(width: 26)
                     Text(name)
-                        .font(TVFont.body.weight(checked ? .semibold : .regular))
+                        .tvFont(.body, weight: checked ? .semibold : .regular)
                         .foregroundStyle(TVColor.text)
                         .lineLimit(1)
                     Spacer(minLength: 0)
                     if selectable {
                         Label(PMString("ext.tv.scan.open"), systemImage: "chevron.right")
-                            .font(TVFont.caption)
+                            .tvFont(.caption)
                             .foregroundStyle(focused ? TVColor.text : TVColor.textGhost)
                     }
                 }

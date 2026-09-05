@@ -1,14 +1,12 @@
 import SwiftUI
 import PrimuseKit
-#if os(macOS)
 import Charts
-#endif
 
 /// 听歌统计 — 本地播放历史的可视化。数据来源 PlayHistoryStore (纯本地,
 /// 不上传)。包含:
 /// - 时间段选择 (本周 / 本月 / 本年 / 全部)
 /// - 摘要数字 (播放次数 / 总时长 / 活跃天数 / 不重复曲目)
-/// - 热力图 (GitHub-style 7×N 格子, 颜色深度对应当日播放次数)
+/// - 日历活跃度、时长趋势与播放时段
 /// - Top 排行 (歌曲 / 艺术家 / 专辑 三个 tab)
 struct ListeningStatsView: View {
     @Environment(SourcesStore.self) private var sourcesStore
@@ -16,11 +14,12 @@ struct ListeningStatsView: View {
     private var selectedServerSourceID = ""
     #if os(macOS)
     @State private var range: PlayHistoryStore.Range = .year
-    @State private var heatmapYear: Int?
     @State private var heatmapWidth: CGFloat = 0
     #else
     @State private var range: PlayHistoryStore.Range = .month
+    @State private var activityChart: MobileActivityChart = .duration
     #endif
+    @State private var heatmapYear: Int?
     @State private var rankTab: RankTab = .songs
     @State private var showClearConfirm = false
     private let store = PlayHistoryStore.shared
@@ -38,10 +37,12 @@ struct ListeningStatsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            #if os(macOS)
             if !serverSources.isEmpty {
                 statsSourcePicker
                 Divider()
             }
+            #endif
 
             if let source = selectedServerSource {
                 ServerListeningStatsView(source: source)
@@ -49,6 +50,31 @@ struct ListeningStatsView: View {
                 localBody
             }
         }
+        .navigationTitle("stats_title")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if !serverSources.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        sourcePicker
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(selectedServerSource?.name ?? String(localized: "stats_source_local"))
+                                .lineLimit(1)
+                                .frame(maxWidth: 110)
+                            Image(systemName: "chevron.down")
+                                .font(.caption2.weight(.semibold))
+                        }
+                        .font(.subheadline)
+                    }
+                    .accessibilityLabel("stats_data_source")
+                    .accessibilityValue(selectedServerSource?.name ?? String(localized: "stats_source_local"))
+                    .settingsAnchor("stats.source")
+                }
+            }
+        }
+        #endif
         .onChange(of: serverSourceIDs, initial: true) { _, validIDs in
             if !selectedServerSourceID.isEmpty,
                !validIDs.contains(selectedServerSourceID) {
@@ -62,6 +88,7 @@ struct ListeningStatsView: View {
         #if os(macOS)
         macBody
         #else
+        let snapshot = makeStatsSnapshot(rankLimit: 20)
         Form {
             Section {
                 Picker("stats_range", selection: $range) {
@@ -76,9 +103,10 @@ struct ListeningStatsView: View {
             if store.entries.isEmpty {
                 emptySection
             } else {
-                summarySection
-                heatmapSection
-                rankingSection
+                summarySection(snapshot: snapshot)
+                mobileActivitySection(timeline: snapshot.timeline)
+                mobileChartsSection(timeline: snapshot.timeline)
+                rankingSection(snapshot: snapshot)
                 clearSection
             }
         }
@@ -116,12 +144,7 @@ struct ListeningStatsView: View {
             Label("stats_data_source", systemImage: "server.rack")
                 .font(.subheadline.weight(.medium))
             Spacer()
-            Picker("stats_data_source", selection: $selectedServerSourceID) {
-                Text("stats_source_local").tag("")
-                ForEach(serverSources) { source in
-                    Text(source.name).tag(source.id)
-                }
-            }
+            sourcePicker
             .settingsAnchor("stats.source")
             .labelsHidden()
             .pickerStyle(.menu)
@@ -135,9 +158,18 @@ struct ListeningStatsView: View {
         #endif
     }
 
+    private var sourcePicker: some View {
+        Picker("stats_data_source", selection: $selectedServerSourceID) {
+            Text("stats_source_local").tag("")
+            ForEach(serverSources) { source in
+                Text(source.name).tag(source.id)
+            }
+        }
+    }
+
     #if os(macOS)
     private var macBody: some View {
-        let snapshot = makeMacStatsSnapshot()
+        let snapshot = makeStatsSnapshot()
         return ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 24) {
                 macStatsHeader(snapshot: snapshot)
@@ -161,7 +193,7 @@ struct ListeningStatsView: View {
         .task(id: range) { logHeatmapStats() }
     }
 
-    private func macStatsHeader(snapshot: MacStatsSnapshot) -> some View {
+    private func macStatsHeader(snapshot: StatsSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .bottom, spacing: 18) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -237,7 +269,7 @@ struct ListeningStatsView: View {
 
     // MARK: 摘要四卡 (STATS-04)
 
-    private func macSummarySection(snapshot: MacStatsSnapshot) -> some View {
+    private func macSummarySection(snapshot: StatsSnapshot) -> some View {
         let s = snapshot.summary
         let days = max(snapshot.dailyStats.count, 1)
         let totalMin = Int(s.totalSec / 60)
@@ -616,7 +648,7 @@ struct ListeningStatsView: View {
 
     // MARK: Top 三栏 (STATS-03)
 
-    private func macTopCards(snapshot: MacStatsSnapshot) -> some View {
+    private func macTopCards(snapshot: StatsSnapshot) -> some View {
         HStack(alignment: .top, spacing: 14) {
             macTopCard(title: String(localized: "stats_top_songs"), items: snapshot.topSongs)
             macTopCard(title: String(localized: "stats_top_artists"), items: snapshot.topArtists)
@@ -641,10 +673,87 @@ struct ListeningStatsView: View {
         var id: Date { start }
     }
 
-    private struct MacStatsSnapshot {
+    private func makeMacHeatmapWeeks(
+        timeline: ListeningActivityTimeline,
+        calendar: Calendar
+    ) -> [MacHeatmapWeek] {
+        let today = calendar.startOfDay(for: Date())
+        let cells = timeline.calendarDays.map { day in
+            let selected = day.date >= timeline.selectedStart && day.date <= today
+            return MacHeatmapCell(
+                date: day.date,
+                day: day,
+                isFuture: day.date > today,
+                isInDisplayRange: day.date >= timeline.yearInterval.start && day.date < timeline.yearInterval.end,
+                isSelected: selected
+            )
+        }
+        return stride(from: 0, to: cells.count, by: 7).map { index in
+            MacHeatmapWeek(start: cells[index].date, cells: Array(cells[index..<min(index + 7, cells.count)]))
+        }
+    }
+
+    private func macTopCard(title: String, items: [PlayHistoryStore.RankedItem]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(verbatim: title)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(PMColor.text)
+                .padding(.bottom, 10)
+            if items.isEmpty {
+                Text("stats_rank_empty")
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.textFaint)
+                    .padding(.vertical, 8)
+            } else {
+                ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
+                    if idx != 0 {
+                        Rectangle().fill(PMColor.divider).frame(height: 0.5)
+                    }
+                    macTopRow(rank: idx + 1, item: item)
+                        .padding(.vertical, 5)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(PMColor.card.opacity(0.78), in: .rect(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+    }
+
+    private func macTopRow(rank: Int, item: PlayHistoryStore.RankedItem) -> some View {
+        HStack(spacing: 10) {
+            Text("\(rank)")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(PMColor.textFaint)
+                .frame(width: 18, alignment: .leading)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
+                if !item.subtitle.isEmpty {
+                    Text(item.subtitle)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(PMColor.textFaint)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 6)
+            Text("\(item.playCount)")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(PMColor.textMuted)
+        }
+    }
+    #endif
+
+    private struct StatsSnapshot {
         let summary: PlayHistoryStore.Summary
         let timeline: ListeningActivityTimeline
-        var dailyStats: [MacDailyStat] { timeline.dailyStats }
+        var dailyStats: [ListeningActivityTimeline.Day] { timeline.dailyStats }
         let previousPlayCount: Int?
         let heavyRotationCount: Int
         let topSongs: [PlayHistoryStore.RankedItem]
@@ -654,10 +763,10 @@ struct ListeningStatsView: View {
 
     /// 同一次 SwiftUI 渲染共享统计结果，避免标题、摘要、热力图和三个榜单
     /// 分别再次过滤完整播放历史。
-    private func makeMacStatsSnapshot() -> MacStatsSnapshot {
+    private func makeStatsSnapshot(rankLimit: Int = 6) -> StatsSnapshot {
         let now = Date()
-        let currentStart = macRangeStartDate(now: now)
-        let previousInterval = macPreviousRangeInterval(now: now, currentStart: currentStart)
+        let currentStart = statsRangeStartDate(now: now)
+        let previousInterval = statsPreviousRangeInterval(now: now, currentStart: currentStart)
         var scopedEntries: [PlayHistoryStore.Entry] = []
         var previousPlayCount = 0
         for entry in store.entries {
@@ -687,18 +796,18 @@ struct ListeningStatsView: View {
             uniqueSongs: playsBySong.count
         )
 
-        return MacStatsSnapshot(
+        return StatsSnapshot(
             summary: summary,
             timeline: timeline,
             previousPlayCount: range == .all ? nil : previousPlayCount,
             heavyRotationCount: playsBySong.values.lazy.filter { $0.count >= 5 }.count,
-            topSongs: rankedSongs(playsBySong, limit: 6),
-            topArtists: rankedArtists(scopedEntries, limit: 6),
-            topAlbums: rankedAlbums(scopedEntries, limit: 6)
+            topSongs: rankedSongs(playsBySong, limit: rankLimit),
+            topArtists: rankedArtists(scopedEntries, limit: rankLimit),
+            topAlbums: rankedAlbums(scopedEntries, limit: rankLimit)
         )
     }
 
-    private func macRangeStartDate(now: Date) -> Date {
+    private func statsRangeStartDate(now: Date) -> Date {
         let calendar = Calendar.current
         switch range {
         case .week:
@@ -712,7 +821,7 @@ struct ListeningStatsView: View {
         }
     }
 
-    private func macPreviousRangeInterval(now: Date, currentStart: Date) -> DateInterval? {
+    private func statsPreviousRangeInterval(now: Date, currentStart: Date) -> DateInterval? {
         let calendar = Calendar.current
         let component: Calendar.Component
         switch range {
@@ -726,26 +835,6 @@ struct ListeningStatsView: View {
             return nil
         }
         return DateInterval(start: start, end: end)
-    }
-
-    private func makeMacHeatmapWeeks(
-        timeline: ListeningActivityTimeline,
-        calendar: Calendar
-    ) -> [MacHeatmapWeek] {
-        let today = calendar.startOfDay(for: Date())
-        let cells = timeline.calendarDays.map { day in
-            let selected = day.date >= timeline.selectedStart && day.date <= today
-            return MacHeatmapCell(
-                date: day.date,
-                day: day,
-                isFuture: day.date > today,
-                isInDisplayRange: day.date >= timeline.yearInterval.start && day.date < timeline.yearInterval.end,
-                isSelected: selected
-            )
-        }
-        return stride(from: 0, to: cells.count, by: 7).map { index in
-            MacHeatmapWeek(start: cells[index].date, cells: Array(cells[index..<min(index + 7, cells.count)]))
-        }
     }
 
     private func rankedSongs(
@@ -814,63 +903,6 @@ struct ListeningStatsView: View {
         .map { $0 }
     }
 
-    private func macTopCard(title: String, items: [PlayHistoryStore.RankedItem]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(verbatim: title)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(PMColor.text)
-                .padding(.bottom, 10)
-            if items.isEmpty {
-                Text("stats_rank_empty")
-                    .font(.system(size: 12))
-                    .foregroundStyle(PMColor.textFaint)
-                    .padding(.vertical, 8)
-            } else {
-                ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
-                    if idx != 0 {
-                        Rectangle().fill(PMColor.divider).frame(height: 0.5)
-                    }
-                    macTopRow(rank: idx + 1, item: item)
-                        .padding(.vertical, 5)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(PMColor.card.opacity(0.78), in: .rect(cornerRadius: 12))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-        }
-    }
-
-    private func macTopRow(rank: Int, item: PlayHistoryStore.RankedItem) -> some View {
-        HStack(spacing: 10) {
-            Text("\(rank)")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(PMColor.textFaint)
-                .frame(width: 18, alignment: .leading)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(item.title)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(PMColor.text)
-                    .lineLimit(1)
-                if !item.subtitle.isEmpty {
-                    Text(item.subtitle)
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(PMColor.textFaint)
-                        .lineLimit(1)
-                }
-            }
-            Spacer(minLength: 6)
-            Text("\(item.playCount)")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(PMColor.textMuted)
-        }
-    }
-    #endif
-
     // MARK: - Sections
 
     private var emptySection: some View {
@@ -890,9 +922,9 @@ struct ListeningStatsView: View {
         }
     }
 
-    private var summarySection: some View {
+    private func summarySection(snapshot: StatsSnapshot) -> some View {
         Section {
-            let s = store.summary(in: range)
+            let s = snapshot.summary
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                 summaryCell(value: "\(s.totalPlays)",
                             label: String(localized: "stats_total_plays"),
@@ -928,122 +960,12 @@ struct ListeningStatsView: View {
         .background(RoundedRectangle(cornerRadius: 10).fill(color.opacity(0.08)))
     }
 
-    private var heatmapSection: some View {
-        Section {
-            let counts = store.dailyPlayCounts(in: range)
-            let maxCount = counts.map(\.count).max() ?? 0
-            VStack(alignment: .leading, spacing: 8) {
-                Text("stats_heatmap_title").font(.subheadline.weight(.medium))
-                heatmapGrid(counts: counts, maxCount: maxCount)
-                heatmapLegend(maxCount: maxCount)
-            }
-            .padding(.vertical, 4)
-        } footer: {
-            Text("stats_heatmap_footer")
-        }
-        // 把每次 range 切换后的格子数 / 列数 dump 到日志, 用户拉日志能看到。
-        .task(id: range) { logHeatmapStats() }
-    }
-
     private func logHeatmapStats() {
-        #if os(macOS)
-        let counts = makeMacStatsSnapshot().timeline.calendarDays.map {
-            (date: $0.date, count: $0.count)
-        }
-        #else
-        let counts = store.dailyPlayCounts(in: range)
-        #endif
-        let cal = Calendar.current
-        let weeks = Set(counts.map { cell -> Int in
-            let comp = cal.dateComponents([.weekOfYear, .yearForWeekOfYear], from: cell.date)
-            return (comp.yearForWeekOfYear ?? 0) * 100 + (comp.weekOfYear ?? 0)
-        }).count
-        let nonZero = counts.filter { $0.count > 0 }.count
-        plog("📊 stats heatmap range=\(range.rawValue) cells=\(counts.count) weekCols=\(weeks) activeDays=\(nonZero)")
+        let timeline = makeStatsSnapshot().timeline
+        plog("stats range=\(range.rawValue) days=\(timeline.dailyStats.count) activeDays=\(timeline.dailyStats.filter { $0.count > 0 }.count)")
     }
 
-    @ViewBuilder
-    private func heatmapGrid(counts: [(date: Date, count: Int)], maxCount: Int) -> some View {
-        // 按周分列, 周日为每列首行 (符合 iOS 中文区习惯, 也是 GitHub 用的)
-        let cal = Calendar.current
-        let weeks = groupByWeek(counts: counts, cal: cal)
-        let cellSize: CGFloat = 14
-        let cellSpacing: CGFloat = 3
-
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: cellSpacing) {
-                ForEach(weeks.indices, id: \.self) { wIdx in
-                    let column = weeks[wIdx]
-                    VStack(spacing: cellSpacing) {
-                        // 7 行 (周日到周六), 缺失的日子留空
-                        ForEach(0..<7, id: \.self) { dow in
-                            if let cell = column[dow] {
-                                heatmapCell(count: cell.count, maxCount: maxCount, size: cellSize)
-                            } else {
-                                Color.clear.frame(width: cellSize, height: cellSize)
-                            }
-                        }
-                    }
-                }
-            }
-            .padding(.vertical, 2)
-        }
-    }
-
-    private func heatmapCell(count: Int, maxCount: Int, size: CGFloat) -> some View {
-        let intensity: Double = {
-            guard maxCount > 0, count > 0 else { return 0 }
-            // log scale 让单次播放也能可见, 高频日子不会把低频压成全无色
-            let ratio = log(Double(count) + 1) / log(Double(maxCount) + 1)
-            return max(0.15, ratio)
-        }()
-        return RoundedRectangle(cornerRadius: 3)
-            .fill(count == 0 ? Color.secondary.opacity(0.10) : Color.accentColor.opacity(intensity))
-            .frame(width: size, height: size)
-    }
-
-    private func heatmapLegend(maxCount: Int) -> some View {
-        HStack(spacing: 4) {
-            Text("stats_legend_less").font(.caption2).foregroundStyle(.secondary)
-            ForEach(0..<5, id: \.self) { i in
-                let intensity = Double(i) * 0.22 + (i == 0 ? 0.10 : 0.15)
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(i == 0 ? Color.secondary.opacity(0.10) : Color.accentColor.opacity(intensity))
-                    .frame(width: 10, height: 10)
-            }
-            Text("stats_legend_more").font(.caption2).foregroundStyle(.secondary)
-            Spacer()
-            if maxCount > 0 {
-                Text(String(format: String(localized: "stats_legend_max_format"), maxCount))
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    /// 按周拆分: 返回 [[dayOfWeek(0=周日..6=周六): cell]], 每个内层是一周。
-    private func groupByWeek(counts: [(date: Date, count: Int)],
-                              cal: Calendar) -> [[Int: (date: Date, count: Int)]] {
-        guard !counts.isEmpty else { return [] }
-        var weeks: [[Int: (Date, Int)]] = []
-        var currentWeek: [Int: (Date, Int)] = [:]
-        var lastWeekOfYear: Int = -1
-
-        for cell in counts {
-            let comp = cal.dateComponents([.weekday, .weekOfYear, .yearForWeekOfYear], from: cell.date)
-            let dow = (comp.weekday ?? 1) - 1  // weekday: 1=Sunday → 0
-            let weekKey = (comp.yearForWeekOfYear ?? 0) * 100 + (comp.weekOfYear ?? 0)
-            if weekKey != lastWeekOfYear {
-                if !currentWeek.isEmpty { weeks.append(currentWeek) }
-                currentWeek = [:]
-                lastWeekOfYear = weekKey
-            }
-            currentWeek[dow] = (cell.date, cell.count)
-        }
-        if !currentWeek.isEmpty { weeks.append(currentWeek) }
-        return weeks
-    }
-
-    private var rankingSection: some View {
+    private func rankingSection(snapshot: StatsSnapshot) -> some View {
         Section {
             Picker("rank_by", selection: $rankTab) {
                 ForEach(RankTab.allCases, id: \.self) { tab in
@@ -1053,7 +975,7 @@ struct ListeningStatsView: View {
             .settingsAnchor("stats.rank")
             .pickerStyle(.segmented)
 
-            let items = rankItems()
+            let items = rankItems(snapshot: snapshot)
             if items.isEmpty {
                 Text("stats_rank_empty").foregroundStyle(.secondary)
             } else {
@@ -1066,11 +988,11 @@ struct ListeningStatsView: View {
         }
     }
 
-    private func rankItems() -> [PlayHistoryStore.RankedItem] {
+    private func rankItems(snapshot: StatsSnapshot) -> [PlayHistoryStore.RankedItem] {
         switch rankTab {
-        case .songs: return store.topSongs(in: range)
-        case .artists: return store.topArtists(in: range)
-        case .albums: return store.topAlbums(in: range)
+        case .songs: return snapshot.topSongs
+        case .artists: return snapshot.topArtists
+        case .albums: return snapshot.topAlbums
         }
     }
 
@@ -1130,3 +1052,359 @@ struct ListeningStatsView: View {
         return String(format: String(localized: "stats_hours_minutes_format"), hours, minutes)
     }
 }
+
+#if !os(macOS)
+private extension ListeningStatsView {
+    enum MobileActivityChart: String, CaseIterable {
+        case duration, hourly
+
+        var title: LocalizedStringKey {
+            self == .duration ? "stats_trend_title" : "stats_hourly_title"
+        }
+    }
+
+    func mobileActivitySection(timeline: ListeningActivityTimeline) -> some View {
+        Section {
+            MobileListeningActivityView(
+                counts: timeline.dailyStats.map { (date: $0.date, count: $0.count) },
+                range: ServerListeningStatsRange(rawValue: range.rawValue) ?? .month
+            )
+            .padding(.vertical, 4)
+        } header: {
+            Text("stats_heatmap_title")
+        } footer: {
+            Text("stats_heatmap_footer")
+        }
+    }
+
+    func mobileChartsSection(timeline: ListeningActivityTimeline) -> some View {
+        Section {
+            VStack(alignment: .leading, spacing: 12) {
+                Picker("stats_title", selection: $activityChart) {
+                    ForEach(MobileActivityChart.allCases, id: \.self) { chart in
+                        Text(chart.title).tag(chart)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Text(activityChart == .hourly ? "stats_hourly_hint"
+                     : (timeline.trendUsesMonths ? "stats_trend_monthly" : "stats_trend_daily"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Group {
+                    if activityChart == .duration {
+                        mobileDurationChart(timeline: timeline)
+                    } else {
+                        mobileHourlyChart(timeline: timeline)
+                    }
+                }
+                .frame(height: 160)
+                .overlay {
+                    if timeline.hourlyCounts.reduce(0, +) == 0 {
+                        Text("stats_chart_no_activity")
+                            .font(.caption)
+                            .padding(8)
+                            .background(.regularMaterial, in: .rect(cornerRadius: 8))
+                    }
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    func mobileDurationChart(timeline: ListeningActivityTimeline) -> some View {
+        Chart(timeline.trend) { day in
+            BarMark(
+                x: .value(String(localized: "stats_range"), day.date, unit: timeline.trendUsesMonths ? .month : .day),
+                y: .value(String(localized: "stats_chart_minutes"), day.totalSec / 60),
+                width: .ratio(0.7)
+            )
+            .foregroundStyle(Color.accentColor.gradient)
+            .cornerRadius(2)
+            .accessibilityLabel(day.date.formatted(date: .abbreviated, time: .omitted))
+            .accessibilityValue(formatHours(day.totalSec))
+        }
+        .chartXAxis {
+            AxisMarks(values: .automatic(desiredCount: 4)) { _ in
+                AxisValueLabel(format: timeline.trendUsesMonths
+                               ? (range == .all && timeline.availableYears.count > 1
+                                  ? .dateTime.year(.twoDigits).month(.abbreviated) : .dateTime.month(.abbreviated))
+                               : .dateTime.month().day())
+            }
+        }
+        .chartYAxis { AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) }
+        .chartYScale(domain: 0...max(1, (timeline.trend.map { $0.totalSec / 60 }.max() ?? 0) * 1.12))
+    }
+
+    func mobileHourlyChart(timeline: ListeningActivityTimeline) -> some View {
+        Chart(Array(timeline.hourlyCounts.enumerated()), id: \.offset) { hour, count in
+            BarMark(
+                x: .value(String(localized: "stats_chart_hour"), hour),
+                y: .value(String(localized: "stats_total_plays"), count),
+                width: .fixed(6)
+            )
+            .foregroundStyle(Color.accentColor.opacity(0.8).gradient)
+            .cornerRadius(2)
+            .accessibilityLabel(String(format: "%02d:00–%02d:00", hour, hour + 1))
+            .accessibilityValue(String(format: String(localized: "stats_play_count_format"), count))
+        }
+        .chartXScale(domain: -0.5...23.5)
+        .chartXAxis {
+            AxisMarks(values: [0, 6, 12, 18, 23]) { value in
+                if let hour = value.as(Int.self) {
+                    AxisValueLabel(anchor: hour == 23 ? .topTrailing : (hour == 0 ? .topLeading : .top)) {
+                        Text(String(format: "%02d:00", hour))
+                    }
+                }
+            }
+        }
+        .chartYAxis { AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) }
+        .chartYScale(domain: 0...max(1, Double(timeline.hourlyCounts.max() ?? 0) * 1.12))
+    }
+}
+
+struct MobileListeningActivityView: View {
+    let counts: [(date: Date, count: Int)]
+    let range: ServerListeningStatsRange
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var selectedYear: Int?
+    @State private var selectedDay: Date?
+    @State private var expandedMonth: Date?
+
+    var body: some View {
+        let model = ListeningActivityCalendar(counts: counts, now: Date(), calendar: .current)
+        let year = selectedYear.flatMap { model.availableYears.contains($0) ? $0 : nil }
+            ?? model.calendar.component(.year, from: model.today)
+        let maximum = counts.filter {
+            range != .all || model.calendar.component(.year, from: $0.date) == year
+        }.map(\.count).max() ?? 0
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                if range == .week {
+                    let days = model.days(in: .weekOfYear, containing: model.today)
+                    Text(dateRangeLabel(days: days))
+                        .font(.subheadline.weight(.medium))
+                } else if range == .month {
+                    Text(model.today, format: .dateTime.year().month(.wide))
+                        .font(.subheadline.weight(.medium))
+                } else if range == .all && model.availableYears.count > 1 {
+                    Text("stats_calendar_title")
+                        .font(.subheadline.weight(.medium))
+                } else {
+                    Text(verbatim: String(year))
+                        .font(.subheadline.weight(.medium).monospacedDigit())
+                }
+                Spacer(minLength: 8)
+                if range == .all && model.availableYears.count > 1 {
+                    Picker("stats_range_year", selection: Binding(
+                        get: { year }, set: { selectedYear = $0; selectedDay = nil }
+                    )) {
+                        ForEach(model.availableYears, id: \.self) { item in
+                            Text(verbatim: String(item)).tag(item)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                }
+            }
+
+            switch range {
+            case .week:
+                weekStrip(model: model, maximum: maximum)
+            case .month:
+                monthGrid(date: model.today, model: model, maximum: maximum)
+                dayDetail(model: model)
+            case .year, .all:
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14),
+                                         count: dynamicTypeSize.isAccessibilitySize ? 2 : 3), spacing: 16) {
+                    ForEach(model.months(in: year), id: \.self) { month in
+                        Button { selectedDay = nil; expandedMonth = month } label: {
+                            miniMonth(date: month, model: model, maximum: maximum)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(month.formatted(.dateTime.year().month(.wide)))
+                        .accessibilityValue(playCountLabel(model.days(in: .month, containing: month).compactMap(\.count).reduce(0, +)))
+                    }
+                }
+            }
+            legend
+        }
+        .onChange(of: range) { _, _ in
+            selectedYear = nil
+            selectedDay = nil
+            expandedMonth = nil
+        }
+        .sheet(isPresented: Binding(get: { expandedMonth != nil }, set: { if !$0 { expandedMonth = nil } })) {
+            if let month = expandedMonth {
+                NavigationStack {
+                    Form {
+                        Section {
+                            monthGrid(date: month, model: model, maximum: maximum)
+                            dayDetail(model: model)
+                        } footer: {
+                            Text("stats_heatmap_footer")
+                        }
+                    }
+                    .navigationTitle(month.formatted(.dateTime.year().month(.wide)))
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("done") { expandedMonth = nil }
+                        }
+                    }
+                }
+                .presentationDetents([.medium, .large])
+            }
+        }
+    }
+
+    private func weekStrip(model: ListeningActivityCalendar, maximum: Int) -> some View {
+        HStack(alignment: .top, spacing: 4) {
+            ForEach(model.days(in: .weekOfYear, containing: model.today)) { day in
+                VStack(spacing: 7) {
+                    Text(day.date, format: .dateTime.weekday(.narrow))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    VStack(spacing: 6) {
+                        Text(model.calendar.component(.day, from: day.date), format: .number.grouping(.never))
+                            .font(.caption2)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                        Text(day.count.map { $0.formatted() } ?? "—")
+                            .font(.callout.weight(.semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                    }
+                    .monospacedDigit()
+                    .frame(maxWidth: .infinity, minHeight: 62)
+                    .background(fill(day, maximum: maximum), in: .rect(cornerRadius: 8))
+                    .overlay {
+                        if model.calendar.isDate(day.date, inSameDayAs: model.today) {
+                            RoundedRectangle(cornerRadius: 8).strokeBorder(Color.accentColor, lineWidth: 1.5)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(day.date.formatted(date: .long, time: .omitted))
+                .accessibilityValue(day.count.map(playCountLabel) ?? "—")
+            }
+        }
+    }
+
+    private func monthGrid(date: Date, model: ListeningActivityCalendar, maximum: Int) -> some View {
+        let cells = model.monthCells(containing: date)
+        let count = ((cells.lastIndex { $0 != nil } ?? 0) / 7 + 1) * 7
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 5), count: 7), spacing: 5) {
+            ForEach(0..<7, id: \.self) { offset in
+                Text(model.calendar.veryShortStandaloneWeekdaySymbols[(model.calendar.firstWeekday - 1 + offset) % 7])
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityHidden(true)
+            }
+            ForEach(0..<count, id: \.self) { index in
+                if let day = cells[index] {
+                    Button { selectedDay = day.date } label: {
+                        Text(model.calendar.component(.day, from: day.date), format: .number.grouping(.never))
+                            .font(.callout.monospacedDigit())
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                            .foregroundStyle(day.count == nil ? .secondary : .primary)
+                            .frame(maxWidth: .infinity, minHeight: 40)
+                            .background(fill(day, maximum: maximum), in: .rect(cornerRadius: 7))
+                            .overlay {
+                                if day.date == selectedDay || (selectedDay == nil && day.date == model.today) {
+                                    RoundedRectangle(cornerRadius: 7).strokeBorder(Color.accentColor, lineWidth: 1.5)
+                                }
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(day.count == nil)
+                    .accessibilityLabel(day.date.formatted(date: .long, time: .omitted))
+                    .accessibilityValue(day.count.map(playCountLabel) ?? "—")
+                } else {
+                    Color.clear.frame(height: 40).accessibilityHidden(true)
+                }
+            }
+        }
+    }
+
+    private func miniMonth(date: Date, model: ListeningActivityCalendar, maximum: Int) -> some View {
+        let cells = model.monthCells(containing: date)
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 3) {
+                Text(date, format: .dateTime.month(.abbreviated))
+                    .font(.caption.weight(.medium))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 7), spacing: 2) {
+                ForEach(cells.indices, id: \.self) { index in
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(cells[index].map { fill($0, maximum: maximum) } ?? .clear)
+                        .frame(height: 9)
+                }
+            }
+        }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+    }
+
+    private func dayDetail(model: ListeningActivityCalendar) -> some View {
+        let fallback = expandedMonth.flatMap {
+            model.days(in: .month, containing: $0).last(where: { $0.count != nil })?.date ?? $0
+        } ?? model.today
+        let date = selectedDay ?? fallback
+        let count = model.days(in: .month, containing: date).first { $0.date == date }?.count
+        return ViewThatFits(in: .horizontal) {
+            HStack {
+                Text(date, format: .dateTime.month().day().weekday())
+                Spacer()
+                Text(count.map(playCountLabel) ?? "—")
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(date, format: .dateTime.month().day().weekday())
+                Text(count.map(playCountLabel) ?? "—")
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+
+    private func fill(_ day: ListeningActivityCalendar.Day, maximum: Int) -> Color {
+        guard let count = day.count else { return Color.secondary.opacity(0.035) }
+        guard count > 0, maximum > 0 else { return Color.secondary.opacity(0.10) }
+        return Color.accentColor.opacity(0.16 + 0.44 * log(Double(count) + 1) / log(Double(maximum) + 1))
+    }
+
+    private var legend: some View {
+        HStack(spacing: 4) {
+            Text("stats_legend_less")
+            ForEach(0..<5, id: \.self) { level in
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(level == 0 ? Color.secondary.opacity(0.10) : Color.accentColor.opacity(0.16 + Double(level) * 0.11))
+                    .frame(width: 10, height: 10)
+            }
+            Text("stats_legend_more")
+        }
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+        .accessibilityHidden(true)
+    }
+
+    private func playCountLabel(_ count: Int) -> String {
+        String(format: String(localized: "stats_play_count_format"), count)
+    }
+
+    private func dateRangeLabel(days: [ListeningActivityCalendar.Day]) -> String {
+        guard let first = days.first, let last = days.last else { return "" }
+        return "\(first.date.formatted(.dateTime.month().day())) – \(last.date.formatted(.dateTime.month().day()))"
+    }
+}
+#endif

@@ -704,3 +704,8 @@
 "auth_method" = "인증 방식";
 "ssh_key" = "SSH 키";
 "cue_track_title_format" = "트랙 %02d";
+
+"ext.tv.nowPlaying.artworkControls" = "표지에 포커스 · 왼쪽 / 오른쪽: 이전 / 다음 곡";
+
+"ext.tv.remote.transportButton" = "재생 / 일시 정지 버튼";
+"ext.tv.remote.transportShortcuts" = "한 번 누르기: 재생 / 일시 정지\n두 번 누르기: 다음 곡\n길게 누르기: 좌우로 재생 위치 조절";

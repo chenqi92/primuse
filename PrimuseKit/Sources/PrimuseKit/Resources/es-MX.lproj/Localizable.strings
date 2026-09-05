@@ -651,3 +651,8 @@
 "theme_color_teal" = "Verde Azulado";
 "theme_color_terracotta" = "Terracota";
 "theme_color_turquoise" = "Turquesa";
+
+"ext.tv.nowPlaying.artworkControls" = "Enfoca la portada · Izquierda / derecha: pista anterior / siguiente";
+
+"ext.tv.remote.transportButton" = "Botón reproducir / pausar";
+"ext.tv.remote.transportShortcuts" = "Presionar: reproducir / pausar\nDoble pulsación: pista siguiente\nMantener: adelantar / retroceder con izquierda / derecha";

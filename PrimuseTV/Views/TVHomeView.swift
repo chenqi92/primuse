@@ -17,7 +17,6 @@ struct TVHomeView: View {
     @State private var aiRecommendation = AIRecommendationViewModel()
     @State private var recommendationHistoryRevision = 0
     @State private var recommendationClockRevision = 0
-    @ScaledMetric(relativeTo: .largeTitle) private var heroTitleSize: CGFloat = 84
     var openPlayer: () -> Void = {}
 
     private var candidateAlbum: TVAlbum? {
@@ -273,12 +272,12 @@ struct TVHomeView: View {
             VStack(alignment: .leading, spacing: 0) {
                 TVEyebrow(text: PMString("ext.tv.home.tonightsPick"))
                 Text(heroHeading)
-                    .font(.system(size: heroTitleSize, weight: .bold))
-                    .tracking(-1.5)
+                    .tvFont(.heroTitle)
+                    .tracking(-0.8)
                     .foregroundStyle(TVColor.text).lineLimit(2)
                     .padding(.top, 16)
                 Text(heroSubtitle)
-                    .font(.system(size: 22)).foregroundStyle(TVColor.textMuted)
+                    .tvFont(.caption).foregroundStyle(TVColor.textMuted)
                     .lineLimit(2).frame(maxWidth: 760, alignment: .leading)
                     .padding(.top, 14)
                 HStack(spacing: 16) {
@@ -303,7 +302,7 @@ struct TVHomeView: View {
             heroArtwork
                 .shadow(color: .black.opacity(0.5), radius: 36, y: 18)
         }
-        .frame(minHeight: 460)
+        .frame(minHeight: 420)
         .padding(.bottom, 10)
     }
 

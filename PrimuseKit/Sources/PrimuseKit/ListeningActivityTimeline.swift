@@ -86,3 +86,63 @@ public struct ListeningActivityTimeline: Sendable {
         }
     }
 }
+
+/// Calendar cells retain future dates as placeholders rather than zero-play days.
+public struct ListeningActivityCalendar: Sendable {
+    public struct Day: Identifiable, Sendable {
+        public let date: Date
+        public let count: Int?
+        public var id: Date { date }
+    }
+
+    public let calendar: Calendar
+    public let today: Date
+    public let availableYears: [Int]
+    private let counts: [Date: Int]
+
+    public init(counts: [(date: Date, count: Int)], now: Date, calendar: Calendar) {
+        self.calendar = calendar
+        today = calendar.startOfDay(for: now)
+        self.counts = Dictionary(counts.filter { $0.date <= now }.map {
+            (calendar.startOfDay(for: $0.date), max(0, $0.count))
+        }, uniquingKeysWith: +)
+        let currentYear = calendar.component(.year, from: now)
+        let firstYear = calendar.component(.year, from: self.counts.keys.min() ?? now)
+        availableYears = Array((min(firstYear, currentYear)...currentYear).reversed())
+    }
+
+    public func days(in component: Calendar.Component, containing date: Date) -> [Day] {
+        guard let interval = calendar.dateInterval(of: component, for: date) else { return [] }
+        var result: [Day] = []
+        var cursor = interval.start
+        while cursor < interval.end {
+            result.append(Day(date: cursor, count: cursor > today ? nil : counts[cursor, default: 0]))
+            guard let next = calendar.date(byAdding: .day, value: 1, to: cursor), next > cursor else { break }
+            cursor = next
+        }
+        return result
+    }
+
+    public func monthCells(containing date: Date) -> [Day?] {
+        let days = days(in: .month, containing: date)
+        guard let first = days.first else { return [] }
+        let offset = (calendar.component(.weekday, from: first.date) - calendar.firstWeekday + 7) % 7
+        var cells: [Day?] = Array(repeating: nil, count: offset) + days.map(Optional.some)
+        // Equal-height month blocks keep the year overview aligned, including six-week months.
+        cells += Array(repeating: nil, count: max(0, 42 - cells.count))
+        return cells
+    }
+
+    public func months(in year: Int) -> [Date] {
+        guard let start = calendar.date(from: DateComponents(year: year, month: 1, day: 1)),
+              let interval = calendar.dateInterval(of: .year, for: start) else { return [] }
+        var months: [Date] = []
+        var cursor = interval.start
+        while cursor < interval.end {
+            months.append(cursor)
+            guard let next = calendar.date(byAdding: .month, value: 1, to: cursor), next > cursor else { break }
+            cursor = next
+        }
+        return months
+    }
+}

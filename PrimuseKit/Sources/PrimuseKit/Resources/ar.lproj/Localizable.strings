@@ -651,3 +651,8 @@
 "theme_color_teal" = "أزرق مخضر";
 "theme_color_terracotta" = "الطين";
 "theme_color_turquoise" = "فيروزي";
+
+"ext.tv.nowPlaying.artworkControls" = "ركز على الغلاف · يسار / يمين: المقطع السابق / التالي";
+
+"ext.tv.remote.transportButton" = "زر التشغيل / الإيقاف المؤقت";
+"ext.tv.remote.transportShortcuts" = "ضغطة: تشغيل / إيقاف مؤقت\nضغطتان: المقطع التالي\nضغط مطول: تقديم أو ترجيع باليسار / اليمين";

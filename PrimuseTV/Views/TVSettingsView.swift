@@ -80,11 +80,11 @@ struct TVSettingsView: View {
         ZStack {
             TVColor.bg.ignoresSafeArea()
             ScrollView(.vertical, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 64) {
+                HStack(alignment: .top, spacing: 40) {
                     VStack(alignment: .leading, spacing: 0) {
                         TVEyebrow(text: PMString("ext.tv.settings.eyebrow")).padding(.bottom, 6)
                         Text(PMString("ext.tv.settings.general"))
-                            .font(TVFont.pageTitle)
+                            .tvFont(.pageTitle)
                             .foregroundStyle(TVColor.text)
                             .padding(.bottom, 24)
                         VStack(spacing: 0) {
@@ -154,28 +154,23 @@ struct TVSettingsView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                    VStack(alignment: .leading, spacing: 0) {
-                        TVEyebrow(text: PMString("ext.tv.settings.remoteTips")).padding(.bottom, 24)
-                        VStack(spacing: 0) {
-                            HStack { Spacer(); TVSiriRemote(); Spacer() }
-                            Rectangle()
-                                .fill(TVColor.divider)
-                                .frame(height: 1)
-                                .padding(.vertical, 24)
-                            VStack(alignment: .leading, spacing: 14) {
-                                TVRemoteHint(PMString("ext.tv.settings.tip.touch.title"), PMString("ext.tv.settings.tip.touch.body"))
-                                TVRemoteHint(PMString("ext.tv.settings.tip.menu.title"), PMString("ext.tv.settings.tip.menu.body"))
-                                TVRemoteHint(PMString("ext.tv.settings.tip.tv.title"), PMString("ext.tv.settings.tip.tv.body"))
-                                TVRemoteHint(PMString("ext.tv.settings.tip.search.title"), PMString("ext.tv.settings.tip.search.body"))
-                            }
-                        }
-                        .padding(28)
-                        .tvPanel(radius: 20)
+                    VStack(alignment: .leading, spacing: 20) {
+                        Text(PMString("ext.tv.settings.remoteTips"))
+                            .font(.system(size: 28, weight: .semibold))
+                            .foregroundStyle(TVColor.text)
+                        HStack { Spacer(); TVSiriRemote(); Spacer() }
+                            .padding(.bottom, 8)
+                        TVRemoteHint(PMString("ext.tv.settings.tip.touch.title"), PMString("ext.tv.settings.tip.touch.body"))
+                        TVRemoteHint(PMString("ext.tv.remote.transportButton"), PMString("ext.tv.remote.transportShortcuts"))
+                        TVRemoteHint(PMString("ext.tv.settings.tip.menu.title"), PMString("ext.tv.settings.tip.menu.body"))
+                        TVRemoteHint(PMString("ext.tv.settings.tip.search.title"), PMString("ext.tv.settings.tip.search.body"))
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(28)
+                    .frame(width: 400, alignment: .leading)
+                    .tvPanel(radius: 20)
                 }
                 .padding(.horizontal, 80)
-                .padding(.vertical, 72)
+                .padding(.vertical, 48)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .disabled(showsEffectPicker || showsThemePicker)
@@ -272,7 +267,7 @@ struct TVSettingsView: View {
         HStack(spacing: 18) {
             settingIcon("circle.lefthalf.filled", focused: false)
             Text(PMString("ext.tv.settings.appearance"))
-                .font(.system(size: 22, weight: .medium))
+                .font(.system(size: 28, weight: .medium))
                 .foregroundStyle(TVColor.text)
             Spacer(minLength: 12)
             HStack(spacing: 8) {
@@ -282,11 +277,11 @@ struct TVSettingsView: View {
                         appearanceState.select(preference)
                     } label: { focused in
                         Text(appearanceTitle(preference))
-                            .font(.system(size: 16, weight: isSelected ? .bold : .semibold))
+                            .font(.system(size: 22, weight: isSelected ? .bold : .semibold))
                             .foregroundStyle(isSelected ? TVColor.onBrand : TVColor.textMuted)
                             .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                            .frame(width: 94)
+                            .minimumScaleFactor(0.9)
+                            .frame(minWidth: 116)
                             .padding(.vertical, 11)
                             .background(isSelected ? TVColor.brand : TVColor.cardElev,
                                         in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -316,7 +311,7 @@ struct TVSettingsView: View {
         return HStack(spacing: 18) {
             settingIcon("sun.haze.fill", focused: false)
             Text(PMString("ext.tv.settings.ambientIntensity"))
-                .font(.system(size: 22, weight: .medium))
+                .font(.system(size: 28, weight: .medium))
                 .foregroundStyle(TVColor.text)
             Spacer(minLength: 12)
             HStack(spacing: 8) {
@@ -326,9 +321,9 @@ struct TVSettingsView: View {
                         ambientStrength = choice.value
                     } label: { focused in
                         Text(PMString(choice.key))
-                            .font(.system(size: 16, weight: isSelected ? .bold : .semibold))
+                            .font(.system(size: 22, weight: isSelected ? .bold : .semibold))
                             .foregroundStyle(isSelected ? TVColor.onBrand : TVColor.textMuted)
-                            .frame(width: 94)
+                            .frame(minWidth: 116)
                             .padding(.vertical, 11)
                             .background(
                                 isSelected ? TVColor.brand : TVColor.cardElev,
@@ -365,9 +360,11 @@ struct TVSettingsView: View {
         TVFocusButton(radius: 14, scale: 1.0, lift: 0, action: action) { focused in
             HStack(spacing: 18) {
                 settingIcon(icon, focused: focused)
-                Text(title).font(.system(size: 22, weight: focused ? .bold : .medium)).foregroundStyle(TVColor.text)
+                Text(title).font(.system(size: 28, weight: focused ? .bold : .medium)).foregroundStyle(TVColor.text)
+                    .fixedSize(horizontal: false, vertical: true).layoutPriority(1)
                 Spacer(minLength: 0)
-                Text(value).font(.system(size: 18)).foregroundStyle(TVColor.textMuted).lineLimit(1)
+                Text(value).font(.system(size: 24)).foregroundStyle(TVColor.textMuted)
+                    .multilineTextAlignment(.trailing).lineLimit(2)
                 Image(systemName: trailing).font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(focused ? TVColor.text : TVColor.textGhost)
             }
@@ -382,7 +379,8 @@ struct TVSettingsView: View {
         TVFocusButton(radius: 14, scale: 1.0, lift: 0, action: { isOn.wrappedValue.toggle() }) { focused in
             HStack(spacing: 18) {
                 settingIcon(icon, focused: focused)
-                Text(title).font(.system(size: 22, weight: focused ? .bold : .medium)).foregroundStyle(TVColor.text)
+                Text(title).font(.system(size: 28, weight: focused ? .bold : .medium)).foregroundStyle(TVColor.text)
+                    .fixedSize(horizontal: false, vertical: true).layoutPriority(1)
                 Spacer(minLength: 0)
                 ZStack(alignment: isOn.wrappedValue ? .trailing : .leading) {
                     Capsule().fill(isOn.wrappedValue ? AnyShapeStyle(TVColor.brand)
@@ -405,9 +403,10 @@ struct TVSettingsView: View {
     private func infoRow(_ icon: String, _ title: String, _ value: String) -> some View {
         HStack(spacing: 18) {
             settingIcon(icon, focused: false)
-            Text(title).font(.system(size: 22, weight: .medium)).foregroundStyle(TVColor.text)
+            Text(title).font(.system(size: 28, weight: .medium)).foregroundStyle(TVColor.text)
             Spacer(minLength: 0)
-            Text(value).font(.system(size: 18)).foregroundStyle(TVColor.textMuted).lineLimit(1)
+            Text(value).font(.system(size: 24)).foregroundStyle(TVColor.textMuted)
+                    .multilineTextAlignment(.trailing).lineLimit(2)
         }
         .padding(.horizontal, 22).padding(.vertical, 16)
         .frame(maxWidth: .infinity)
@@ -613,83 +612,90 @@ private struct TVRemoteHint: View {
     let label: String
     init(_ binding: String, _ label: String) { self.binding = binding; self.label = label }
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 14) {
-            Text(binding).font(.system(size: 15, weight: .semibold)).foregroundStyle(TVColor.text)
-                .frame(minWidth: 180).padding(.horizontal, 12).padding(.vertical, 6)
-                .background(TVColor.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(TVColor.cardBorder, lineWidth: 0.5)
-                }
-            Text(label).font(.system(size: 18)).foregroundStyle(TVColor.textMuted)
+        VStack(alignment: .leading, spacing: 5) {
+            Text(binding).font(.system(size: 23, weight: .semibold)).foregroundStyle(TVColor.text)
+            Text(label).font(.system(size: 22)).foregroundStyle(TVColor.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-/// 风格化 Siri Remote。
 private struct TVSiriRemote: View {
-    var body: some View {
-        VStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .fill(RadialGradient(colors: [.white.opacity(0.08), .clear],
-                                         center: UnitPoint(x: 0.5, y: 0.3), startRadius: 0, endRadius: 90))
-                    .overlay { Circle().strokeBorder(.white.opacity(0.16), lineWidth: 0.5) }
-                    .frame(width: 150, height: 150)
-                ForEach([0.0, 90.0, 180.0, 270.0], id: \.self) { deg in
-                    Image(systemName: "chevron.up").font(.system(size: 16))
-                        .foregroundStyle(.white.opacity(0.45))
-                        .offset(y: -56)
-                        .rotationEffect(.degrees(deg))
-                }
-                Circle().fill(.white.opacity(0.18))
-                    .overlay { Circle().strokeBorder(.white.opacity(0.3), lineWidth: 0.5) }
-                    .frame(width: 24, height: 24)
-            }
-            .padding(.top, 10)
+    private let buttonColor = Color(white: 0.12)
 
-            let grid = [
-                ("arrow.uturn.backward", String(localized: "tv_remote_back")),
-                ("tv", String(localized: "tv_remote_tv")),
-                ("speaker.slash.fill", String(localized: "tv_remote_mute")),
-                ("mic.fill", String(localized: "tv_remote_siri"))
-            ]
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                ForEach(grid, id: \.0) { b in
-                    VStack(spacing: 3) {
-                        Image(systemName: b.0).font(.system(size: 16)).foregroundStyle(.white.opacity(0.7))
-                        Text(b.1).font(.system(size: 9)).foregroundStyle(.white.opacity(0.4))
-                    }
-                    .frame(maxWidth: .infinity).frame(height: 48)
-                    .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay { RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.12), lineWidth: 0.5) }
+    var body: some View {
+        VStack(spacing: 14) {
+            HStack {
+                Spacer()
+                remoteButton("power", size: 17, symbolSize: 9)
+            }
+            ZStack {
+                Circle().fill(buttonColor)
+                Circle().fill(Color(white: 0.19)).padding(16)
+                    .overlay { Circle().strokeBorder(.black.opacity(0.6), lineWidth: 1).padding(16) }
+                ForEach([0.0, 90.0, 180.0, 270.0], id: \.self) { degrees in
+                    Circle().fill(.white.opacity(0.6)).frame(width: 3, height: 3)
+                        .offset(y: -35).rotationEffect(.degrees(degrees))
                 }
             }
+            .frame(width: 88, height: 88)
 
             HStack(spacing: 14) {
-                Image(systemName: "backward.fill")
-                Image(systemName: "playpause.fill")
-                Image(systemName: "forward.fill")
+                remoteButton("chevron.left", outlined: true)
+                remoteButton("tv")
             }
-            .font(.system(size: 16)).foregroundStyle(.white.opacity(0.6))
-            .frame(maxWidth: .infinity).frame(height: 48)
-            .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay { RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.12), lineWidth: 0.5) }
-
-            Text("tv_siri_remote_badge").font(.system(size: 11, weight: .medium)).tracking(1.6)
-                .foregroundStyle(.white.opacity(0.4)).padding(.top, 4)
+            HStack(alignment: .top, spacing: 14) {
+                VStack(spacing: 14) {
+                    remoteButton("playpause.fill")
+                    remoteButton("speaker.slash.fill")
+                }
+                VStack {
+                    Image(systemName: "plus")
+                    Spacer()
+                    Image(systemName: "minus")
+                }
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.white)
+                .padding(.vertical, 12)
+                .frame(width: 34, height: 82)
+                .background(buttonColor, in: Capsule())
+            }
+            Spacer(minLength: 0)
         }
-        .padding(24)
-        .frame(width: 200)
+        .padding(.horizontal, 10)
+        .padding(.top, 18)
+        .padding(.bottom, 24)
+        .frame(width: 108, height: 416)
         .background(
-            RoundedRectangle(cornerRadius: 32, style: .continuous)
-                .fill(LinearGradient(colors: [Color(hex: "#2a2722"), Color(hex: "#16140f")],
-                                     startPoint: .topLeading, endPoint: .bottomTrailing))
+            LinearGradient(colors: [Color(white: 0.92), Color(white: 0.68), Color(white: 0.84)],
+                           startPoint: .leading, endPoint: .trailing),
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
         )
         .overlay {
-            RoundedRectangle(cornerRadius: 32, style: .continuous).strokeBorder(.white.opacity(0.16), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(.white.opacity(0.6), lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.6), radius: 30, y: 14)
+        .overlay(alignment: .topTrailing) {
+            Capsule().fill(Color(white: 0.55)).frame(width: 3, height: 44)
+                .offset(x: 2, y: 104)
+        }
+        .shadow(color: .black.opacity(0.25), radius: 18, y: 10)
+        .accessibilityHidden(true)
+    }
+
+    private func remoteButton(
+        _ symbol: String,
+        size: CGFloat = 34,
+        symbolSize: CGFloat = 14,
+        outlined: Bool = false
+    ) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: symbolSize, weight: .medium))
+            .foregroundStyle(.white)
+            .frame(width: size, height: size)
+            .background(buttonColor, in: Circle())
+            .overlay { Circle().strokeBorder(.white.opacity(outlined ? 0.9 : 0), lineWidth: 2) }
     }
 }
 #endif

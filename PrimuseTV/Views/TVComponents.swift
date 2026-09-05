@@ -13,13 +13,12 @@ struct TVRow<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .firstTextBaseline, spacing: 16) {
-                Text(label).font(.system(size: 28, weight: .bold)).foregroundStyle(TVColor.text)
-                if let sub { Text(sub).font(.system(size: 16)).foregroundStyle(TVColor.textFaint) }
+                Text(label).tvFont(.sectionTitle).foregroundStyle(TVColor.text)
+                if let sub { Text(sub).tvFont(.caption).foregroundStyle(TVColor.textFaint) }
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 22) { content() }
-                    // 焦点态卡片会上抬 12pt + 放大 ~10pt(scale 1.10),纵向留 30pt、横向留 20pt
-                    // 才不会把首/末张卡的左右描边裁掉(之前 4pt 不够,第一张卡左边线被裁)。
+                    // 为首尾卡片的焦点描边和放大保留空间。
                     .padding(.vertical, 30)
                     .padding(.horizontal, 20)
             }
@@ -42,12 +41,12 @@ struct TVAlbumCard: View {
                       action: { store.play(album: album); action() }) { _ in
             VStack(alignment: .leading, spacing: 0) {
                 TVArtworkView(album: album, size: width)
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text(titleOverride ?? album.title)
-                        .font(.system(size: width >= 220 ? 22 : 17, weight: .semibold))
-                        .foregroundStyle(TVColor.text).lineLimit(1)
+                        .tvFont(.cardTitle)
+                        .foregroundStyle(TVColor.text).lineLimit(2)
                     Text(subtitleOverride ?? album.artist)
-                        .font(.system(size: width >= 220 ? 16 : 13))
+                        .tvFont(.caption)
                         .foregroundStyle(TVColor.textFaint).lineLimit(1)
                 }
                 .padding(.top, 12).padding(.horizontal, 2)
@@ -76,16 +75,16 @@ struct TVSongCard: View {
                               album: album?.title ?? "", songID: song.id, coverRef: song.coverRef,
                               tint: album?.tint ?? TVColor.brand,
                               tint2: album?.tint2 ?? .black, glyph: album?.glyph ?? "♪", size: width)
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 6) {
                     if let reason, !reason.isEmpty {
                         Label(reason, systemImage: "sparkles")
-                            .font(.system(size: 12, weight: .semibold))
+                            .tvFont(.caption, weight: .semibold)
                             .foregroundStyle(TVColor.brand)
                             .lineLimit(1)
                     }
-                    Text(song.title).font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(TVColor.text).lineLimit(1)
-                    Text(song.artist).font(.system(size: 13))
+                    Text(song.title).tvFont(.cardTitle)
+                        .foregroundStyle(TVColor.text).lineLimit(2)
+                    Text(song.artist).tvFont(.caption)
                         .foregroundStyle(TVColor.textFaint).lineLimit(1)
                 }
                 .padding(.top, 12).padding(.horizontal, 2)
@@ -113,13 +112,13 @@ struct TVRadioStationCard: View {
                       }) { _ in
             VStack(alignment: .leading, spacing: 0) {
                 TVRadioArtworkView(station: station, size: width, radius: TVRadius.cover)
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text(station.name)
-                        .font(.system(size: 19, weight: .semibold))
+                        .tvFont(.cardTitle)
                         .foregroundStyle(TVColor.text)
-                        .lineLimit(1)
+                        .lineLimit(2)
                     Text(station.playbackSubtitle)
-                        .font(.system(size: 14))
+                        .tvFont(.caption)
                         .foregroundStyle(TVColor.textFaint)
                         .lineLimit(1)
                 }
@@ -215,8 +214,8 @@ struct TVArtistCard: View {
             VStack(spacing: 12) {
                 TVCoverArt(tint: artist.tint, tint2: artist.tint2, glyph: artist.glyph,
                            size: size, radius: size / 2)
-                Text(artist.name).font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(TVColor.text).lineLimit(1).frame(width: size + 20)
+                Text(artist.name).tvFont(.cardTitle)
+                    .foregroundStyle(TVColor.text).lineLimit(2).frame(width: size + 20)
             }
         }
         .accessibilityLabel(Text(artist.name))
@@ -233,9 +232,9 @@ struct TVEmptyState: View {
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: icon).font(.system(size: 80)).foregroundStyle(TVColor.textGhost)
-            Text(title).font(.system(size: 32, weight: .bold)).foregroundStyle(TVColor.text)
+            Text(title).tvFont(.sectionTitle).foregroundStyle(TVColor.text)
             if !subtitle.isEmpty {
-                Text(subtitle).font(.system(size: 20)).foregroundStyle(TVColor.textMuted)
+                Text(subtitle).tvFont(.caption).foregroundStyle(TVColor.textMuted)
                     .multilineTextAlignment(.center).frame(maxWidth: 720)
             }
         }
@@ -257,15 +256,191 @@ struct TVPillButton: View {
         TVFocusButton(radius: 14, scale: 1.04, lift: 6, action: action) { _ in
             HStack(spacing: 12) {
                 Image(systemName: systemImage).font(.system(size: 22, weight: .semibold))
-                Text(title).font(style == .solid ? TVFont.sectionTitle : TVFont.button)
+                Text(title).tvFont(.button, weight: style == .solid ? .bold : .semibold)
+                    .lineLimit(1)
             }
-            .padding(.horizontal, style == .solid ? 44 : 32)
+            .padding(.horizontal, 28)
             .padding(.vertical, 18)
             .foregroundStyle(style == .solid ? TVColor.onBrand : TVColor.text)
             .background(style == .solid ? AnyShapeStyle(TVColor.brand)
                                         : AnyShapeStyle(TVColor.surfaceStrong))
         }
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+enum TVRemoteTransportCommand: Equatable {
+    case togglePlayback
+    case nextTrack
+    case seek
+}
+
+struct TVRemoteTransportModifier: ViewModifier {
+    var shortcutsEnabled: Bool
+    var onCommand: (TVRemoteTransportCommand) -> Void
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var isVisible = false
+    @State private var assistiveNavigation = UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning
+
+    private var capturesPresses: Bool {
+        shortcutsEnabled && isVisible && scenePhase == .active && !assistiveNavigation
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                TVRemoteTransportBridge(enabled: capturesPresses, onCommand: onCommand)
+                    .frame(width: 0, height: 0)
+                    .accessibilityHidden(true)
+            }
+            .onPlayPauseCommand {
+                // The UIKit recognizers arbitrate single/double/long presses.
+                // Keep the native single-press route when shortcuts are unavailable.
+                if !capturesPresses { onCommand(.togglePlayback) }
+            }
+            .onAppear { isVisible = true }
+            .onDisappear { isVisible = false }
+            .onReceive(NotificationCenter.default.publisher(for: UIAccessibility.voiceOverStatusDidChangeNotification)) { _ in
+                refreshAssistiveNavigation()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIAccessibility.switchControlStatusDidChangeNotification)) { _ in
+                refreshAssistiveNavigation()
+            }
+    }
+
+    private func refreshAssistiveNavigation() {
+        assistiveNavigation = UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning
+    }
+}
+
+private struct TVRemoteTransportBridge: UIViewRepresentable {
+    let enabled: Bool
+    let onCommand: (TVRemoteTransportCommand) -> Void
+
+    func makeCoordinator() -> TVRemoteTransportCoordinator { TVRemoteTransportCoordinator() }
+
+    func makeUIView(context: Context) -> TVRemoteTransportAnchor {
+        let view = TVRemoteTransportAnchor()
+        view.isUserInteractionEnabled = false
+        view.coordinator = context.coordinator
+        return view
+    }
+
+    func updateUIView(_ view: TVRemoteTransportAnchor, context: Context) {
+        context.coordinator.configure(enabled: enabled, onCommand: onCommand)
+        view.attachToHostingView()
+    }
+
+    static func dismantleUIView(_ view: TVRemoteTransportAnchor, coordinator: TVRemoteTransportCoordinator) {
+        coordinator.detach()
+    }
+}
+
+private final class TVRemoteTransportAnchor: UIView {
+    weak var coordinator: TVRemoteTransportCoordinator?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        attachToHostingView()
+    }
+
+    func attachToHostingView() {
+        guard window != nil else { coordinator?.detach(); return }
+        var responder: UIResponder? = next
+        while let current = responder {
+            if let controller = current as? UIViewController {
+                // The hosting view contains the focused controls. An invisible
+                // background view does not receive their remote presses.
+                coordinator?.attach(to: controller)
+                return
+            }
+            responder = current.next
+        }
+    }
+}
+
+@MainActor
+final class TVRemoteTransportCoordinator: NSObject, UIGestureRecognizerDelegate {
+    private(set) var enabled = false
+    private weak var controller: UIViewController?
+    private var onCommand: (TVRemoteTransportCommand) -> Void = { _ in }
+    private(set) lazy var singlePress = UITapGestureRecognizer(target: self, action: #selector(singlePressed))
+    private(set) lazy var doublePress = UITapGestureRecognizer(target: self, action: #selector(doublePressed))
+    private(set) lazy var longPress = UILongPressGestureRecognizer(target: self, action: #selector(longPressed))
+
+    override init() {
+        super.init()
+        doublePress.numberOfTapsRequired = 2
+        longPress.minimumPressDuration = 0.7
+        for gesture in recognizers {
+            gesture.allowedPressTypes = [NSNumber(value: UIPress.PressType.playPause.rawValue)]
+            gesture.allowedTouchTypes = []
+            gesture.delaysTouchesBegan = true
+            gesture.cancelsTouchesInView = true
+            gesture.delegate = self
+            gesture.isEnabled = false
+        }
+        singlePress.require(toFail: doublePress)
+        singlePress.require(toFail: longPress)
+        doublePress.require(toFail: longPress)
+    }
+
+    private var recognizers: [UIGestureRecognizer] { [singlePress, doublePress, longPress] }
+
+    func configure(enabled: Bool, onCommand: @escaping (TVRemoteTransportCommand) -> Void) {
+        self.onCommand = onCommand
+        self.enabled = enabled
+        for gesture in recognizers { gesture.isEnabled = enabled && controller != nil }
+    }
+
+    func attach(to controller: UIViewController) {
+        guard self.controller !== controller else { return }
+        detach()
+        self.controller = controller
+        for gesture in recognizers {
+            controller.view.addGestureRecognizer(gesture)
+            gesture.isEnabled = enabled
+        }
+    }
+
+    func detach() {
+        for gesture in recognizers {
+            gesture.isEnabled = false
+            gesture.view?.removeGestureRecognizer(gesture)
+        }
+        controller = nil
+    }
+
+    private var canHandleCommand: Bool {
+        guard enabled, let controller,
+              controller.isViewLoaded, controller.view.window != nil,
+              !controller.isBeingDismissed, controller.presentedViewController == nil,
+              !UIAccessibility.isVoiceOverRunning, !UIAccessibility.isSwitchControlRunning else { return false }
+        return true
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive press: UIPress) -> Bool {
+        canHandleCommand && press.type == .playPause
+    }
+
+    func perform(_ command: TVRemoteTransportCommand) {
+        guard canHandleCommand else { return }
+        onCommand(command)
+    }
+
+    @objc private func singlePressed(_ gesture: UITapGestureRecognizer) {
+        guard gesture.state == .ended else { return }
+        perform(.togglePlayback)
+    }
+
+    @objc private func doublePressed(_ gesture: UITapGestureRecognizer) {
+        guard gesture.state == .ended else { return }
+        perform(.nextTrack)
+    }
+
+    @objc private func longPressed(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began else { return }
+        perform(.seek)
     }
 }
 #endif

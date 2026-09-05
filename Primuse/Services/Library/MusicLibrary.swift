@@ -6668,7 +6668,7 @@ final class MusicLibrary {
             }
         }
         guard let snapshot = resolvedSnapshot else { return }
-        Self.restorePortableArtworkAssets(snapshot.artworkAssets)
+        Self.restorePortableArtworkAssets(snapshot, assetStore: .shared)
 
         // Migrate the decoded value before publishing it. `songs` is backed by
         // an immutable observable reference, so mutating `songs[i]` would run
@@ -7427,12 +7427,13 @@ final class MusicLibrary {
         let eligibleLyricsFileNames: Set<String>?
     }
 
-    /// Adds bounded transport copies of active uploads to an otherwise normal
-    /// library snapshot. The local canonical snapshot remains metadata-only;
-    /// this augmented value is used solely by CloudKit/LAN transfer to tvOS.
+    /// The local snapshot stays metadata-only. Transport copies include bounded,
+    /// content-deduplicated covers so tvOS can display artwork without the sender's cache.
     nonisolated static func preparePortableSnapshotDataIncludingArtworkAssets(
         _ data: Data,
-        cloudSources: [MusicSource]? = nil
+        cloudSources: [MusicSource]? = nil,
+        assetStore: MetadataAssetStore = .shared,
+        maximumArtworkBytes: Int = 24 * 1024 * 1024
     ) -> PortableSnapshotTransferData? {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -7475,9 +7476,10 @@ final class MusicLibrary {
         }
 
         let maximumEncodedSnapshotBytes = 60 * 1024 * 1024
-        let availableEncodedBytes = max(0, maximumEncodedSnapshotBytes - data.count)
-        let maximumRawArtworkBytes = min(24 * 1024 * 1024, availableEncodedBytes * 3 / 4)
+        let availableEncodedBytes = max(0, maximumEncodedSnapshotBytes - data.count - 512)
+        let maximumRawArtworkBytes = min(max(0, maximumArtworkBytes), availableEncodedBytes * 3 / 4)
         var usedBytes = 0
+        var usedEncodedBytes = 0
         var assets: [String: Data] = [:]
         let uploaded = (snapshot.artworkOverrides ?? [])
             .filter { $0.mode == .uploaded }
@@ -7485,16 +7487,73 @@ final class MusicLibrary {
         for value in uploaded {
             guard let contentID = value.uploadedContentID,
                   assets[contentID] == nil,
-                  let artworkData = MetadataAssetStore.shared.customArtworkData(
+                  let artworkData = assetStore.customArtworkData(
                     contentID: contentID
                   ),
                   usedBytes <= maximumRawArtworkBytes - artworkData.count else {
                 continue
             }
+            let encodedBytes = ((artworkData.count + 2) / 3) * 4 + contentID.utf8.count + 6
+            guard encodedBytes <= availableEncodedBytes - usedEncodedBytes else { continue }
             assets[contentID] = artworkData
             usedBytes += artworkData.count
+            usedEncodedBytes += encodedBytes
         }
         snapshot.artworkAssets = assets.isEmpty ? nil : assets
+
+        var cachedAssets: [String: Data] = [:]
+        var references: [String: String] = [:]
+        var preparedContent: [String: String] = [:]
+        var visitedFiles = Set<String>()
+        func includeCachedCover(named sourceName: String, as destinationName: String) {
+            guard references[destinationName] == nil,
+                  visitedFiles.insert(destinationName).inserted,
+                  let cacheIdentity = assetStore.coverContentIdentifier(named: sourceName) else { return }
+            let sourceID = cacheIdentity.hasPrefix("sha256:") ? cacheIdentity : sourceName + ":" + cacheIdentity
+            let referenceBytes = destinationName.utf8.count + 64 + 6
+            guard referenceBytes <= availableEncodedBytes - usedEncodedBytes else { return }
+            if let contentID = preparedContent[sourceID] {
+                references[destinationName] = contentID
+                usedEncodedBytes += referenceBytes
+                return
+            }
+            guard usedBytes < maximumRawArtworkBytes,
+                  let original = assetStore.readCoverData(named: sourceName),
+                  let image = LibraryArtworkImageProcessor.process(original) else { return }
+            let contentID = SHA256.hash(data: image).map { String(format: "%02x", $0) }.joined()
+            if cachedAssets[contentID] == nil {
+                let encodedBytes = ((image.count + 2) / 3) * 4 + contentID.utf8.count + 6
+                guard image.count <= maximumRawArtworkBytes - usedBytes,
+                      encodedBytes + referenceBytes <= availableEncodedBytes - usedEncodedBytes else { return }
+                cachedAssets[contentID] = image
+                usedBytes += image.count
+                usedEncodedBytes += encodedBytes
+            }
+            preparedContent[sourceID] = contentID
+            references[destinationName] = contentID
+            usedEncodedBytes += referenceBytes
+        }
+        // Iterate only retained songs: CloudKit excludes device-local media and
+        // must also exclude the ordinary covers belonging solely to that media.
+        for song in snapshot.songs {
+            if withUnsafeCurrentTask(body: { $0?.isCancelled ?? false }) { return nil }
+            if let albumID = song.albumID, !albumID.isEmpty {
+                let name = "album/" + assetStore.expectedCoverFileName(for: "album_\(albumID)")
+                includeCachedCover(named: name, as: name)
+            }
+            let name = assetStore.expectedCoverFileName(for: song.id)
+            let sourceName: String
+            if assetStore.coverContentIdentifier(named: name) != nil {
+                sourceName = name
+            } else if let legacy = song.coverArtFileName, assetStore.isLegacyLocalRef(legacy) {
+                sourceName = legacy
+            } else {
+                continue
+            }
+            includeCachedCover(named: sourceName, as: name)
+        }
+        snapshot.cachedArtworkAssets = cachedAssets.isEmpty ? nil : cachedAssets
+        snapshot.artworkCacheReferences = references.isEmpty ? nil : references
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -7510,6 +7569,8 @@ final class MusicLibrary {
         // Artwork is optional. Never fall back to the unfiltered raw snapshot
         // for CloudKit, because that would reintroduce device-local songs.
         snapshot.artworkAssets = nil
+        snapshot.cachedArtworkAssets = nil
+        snapshot.artworkCacheReferences = nil
         guard let encoded = try? encoder.encode(snapshot),
               encoded.count <= 64 * 1024 * 1024 else { return nil }
         return PortableSnapshotTransferData(
@@ -7528,15 +7589,44 @@ final class MusicLibrary {
         )?.data
     }
 
-    private nonisolated static func restorePortableArtworkAssets(
-        _ assets: [String: Data]?
+    nonisolated static func restorePortableArtworkAssets(
+        from data: Data,
+        assetStore: MetadataAssetStore
     ) {
-        guard let assets else { return }
-        for (contentID, data) in assets {
-            _ = MetadataAssetStore.shared.storeCustomArtworkSync(
-                data,
-                expectedContentID: contentID
-            )
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let snapshot = try? decoder.decode(Snapshot.self, from: data) else { return }
+        restorePortableArtworkAssets(snapshot, assetStore: assetStore)
+    }
+
+    private nonisolated static func restorePortableArtworkAssets(
+        _ snapshot: Snapshot,
+        assetStore: MetadataAssetStore
+    ) {
+        for (contentID, data) in snapshot.artworkAssets ?? [:] {
+            _ = assetStore.storeCustomArtworkSync(data, expectedContentID: contentID)
+        }
+        guard let references = snapshot.artworkCacheReferences,
+              let assets = snapshot.cachedArtworkAssets else { return }
+        var eligibleNames = Set<String>()
+        for song in snapshot.songs {
+            eligibleNames.insert(assetStore.expectedCoverFileName(for: song.id))
+            if let albumID = song.albumID, !albumID.isEmpty {
+                eligibleNames.insert("album/" + assetStore.expectedCoverFileName(for: "album_\(albumID)"))
+            }
+        }
+        let byContent = Dictionary(grouping: references.filter { eligibleNames.contains($0.key) }, by: \.value)
+        var installed = false
+        for (contentID, entries) in byContent {
+            guard let data = assets[contentID] else { continue }
+            if assetStore.installPortableCachedArtwork(data, contentID: contentID, referenceFileNames: entries.map(\.key)) {
+                installed = true
+            }
+        }
+        if installed {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .primuseArtworkDidCache, object: nil, userInfo: ["all": true])
+            }
         }
     }
 
@@ -7941,6 +8031,8 @@ final class MusicLibrary {
         /// Normal local persistence always writes nil; images remain canonical
         /// in MetadataAssetStore's durable custom directory.
         var artworkAssets: [String: Data]? = nil
+        var cachedArtworkAssets: [String: Data]? = nil
+        var artworkCacheReferences: [String: String]? = nil
         var mirrorPlaylistSuppressions: [MirrorPlaylistSuppression]?
         /// 智能歌单。Optional 让旧 snapshot decode 不报错。
         var smartPlaylists: [SmartPlaylist]?

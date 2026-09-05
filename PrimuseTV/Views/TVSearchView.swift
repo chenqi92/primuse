@@ -79,12 +79,12 @@ struct TVSearchView: View {
                     .foregroundStyle(inputActive ? TVColor.brand : TVColor.textFaint)
                 TextField(PMString("ext.tv.search.placeholder"), text: $query)
                     .focused($inputActive)
-                    .font(TVFont.sectionTitle)
+                    .tvFont(.input)
                     .frame(maxWidth: .infinity)
                 if !trimmed.isEmpty {
                     TVFocusButton(radius: 18, scale: 1.06, lift: 0, action: { query = "" }) { f in
                         Text(PMString("ext.tv.search.clear"))
-                            .font(.system(size: 17, weight: .medium)).foregroundStyle(TVColor.text)
+                            .tvFont(.caption, weight: .medium).foregroundStyle(TVColor.text)
                             .padding(.horizontal, 16).padding(.vertical, 8)
                             .background(f ? TVColor.surfaceStrong : TVColor.surface, in: Capsule())
                     }
@@ -93,19 +93,19 @@ struct TVSearchView: View {
             .padding(.bottom, 18)
 
             Text(PMString("ext.tv.search.hint"))
-                .font(.system(size: 15)).foregroundStyle(TVColor.textGhost).padding(.bottom, 28)
+                .tvFont(.caption).foregroundStyle(TVColor.textGhost).padding(.bottom, 28)
 
             // 建议常驻(随输入精化),不再只在空查询时显示。
             let suggestions = store.searchSuggestions(query)
             if !suggestions.isEmpty {
-                Text(PMString("ext.tv.search.suggestions")).font(.system(size: 18))
+                Text(PMString("ext.tv.search.suggestions")).tvFont(.caption)
                     .foregroundStyle(TVColor.textMuted).padding(.bottom, 10)
                 VStack(spacing: 4) {
                     ForEach(suggestions, id: \.self) { s in
                         TVFocusButton(radius: 10, scale: 1.0, lift: 0,
                                       action: { query = s }) { focused in
                             HStack {
-                                Text(s).font(TVFont.body).foregroundStyle(TVColor.text)
+                                Text(s).tvFont(.body).foregroundStyle(TVColor.text)
                                 Spacer()
                             }
                             .padding(.horizontal, 20).padding(.vertical, 14).frame(maxWidth: .infinity)
@@ -130,7 +130,7 @@ struct TVSearchView: View {
                     ProgressView()
                         .controlSize(.small)
                     Text(PMString("ext.tv.search.aiLoading"))
-                        .font(.system(size: 15))
+                        .tvFont(.caption)
                         .foregroundStyle(TVColor.textFaint)
                 } else {
                     semanticStatusLabel
@@ -143,7 +143,7 @@ struct TVSearchView: View {
                         ForEach(artists) { artist in
                             TVArtistCard(
                                 artist: artist,
-                                size: 92,
+                                size: 140,
                                 action: { selectedArtist = artist }
                             )
                         }
@@ -152,7 +152,7 @@ struct TVSearchView: View {
                     .padding(.vertical, 18)
                 }
             } else {
-                Text(PMString("ext.tv.search.typeToSearch")).font(.system(size: 22)).foregroundStyle(TVColor.textFaint)
+                Text(PMString("ext.tv.search.typeToSearch")).tvFont(.caption).foregroundStyle(TVColor.textFaint)
             }
 
             if let albums = results?.albums, !albums.isEmpty {
@@ -162,7 +162,7 @@ struct TVSearchView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 18) {
                         ForEach(albums) { album in
-                            TVAlbumCard(album: album, width: 148, action: openPlayer)
+                            TVAlbumCard(album: album, width: 200, action: openPlayer)
                         }
                     }
                     .padding(.horizontal, 14)
@@ -190,7 +190,7 @@ struct TVSearchView: View {
                        results?.albums.isEmpty != false,
                        results?.artists.isEmpty != false,
                        !isSearching {
-                        Text(PMString("ext.tv.search.noMatch")).font(.system(size: 18))
+                        Text(PMString("ext.tv.search.noMatch")).tvFont(.caption)
                             .foregroundStyle(TVColor.textGhost).frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
@@ -303,11 +303,11 @@ struct TVSearchView: View {
                 ),
                 systemImage: "sparkles"
             )
-            .font(.system(size: 15))
+            .tvFont(.caption)
             .foregroundStyle(TVColor.textFaint)
         case .failed:
             Label(PMString("ext.tv.search.aiFailed"), systemImage: "exclamationmark.triangle.fill")
-                .font(.system(size: 15))
+                .tvFont(.caption)
                 .foregroundStyle(.orange)
         }
     }
@@ -341,23 +341,23 @@ private struct TVSearchSongRow: View {
                               album: album?.title ?? "", songID: song.id, coverRef: song.coverRef,
                               tint: album?.tint ?? TVColor.brand,
                               tint2: album?.tint2 ?? .black, glyph: album?.glyph ?? "♪", size: 56, radius: 6)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(song.title).font(.system(size: 22, weight: .semibold)).foregroundStyle(TVColor.text).lineLimit(1)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(song.title).tvFont(.cardTitle).foregroundStyle(TVColor.text).lineLimit(1)
                     if hit.isLyric, let snippet = hit.lyricSnippet, !snippet.isEmpty {
                         // 歌词命中:展示命中片段,与 iOS/macOS 一致。
                         HStack(spacing: 6) {
                             Image(systemName: "quote.opening").font(.system(size: 12)).foregroundStyle(TVColor.brand)
                             Text(snippet.replacingOccurrences(of: "\n", with: " · "))
-                                .font(.system(size: 15)).foregroundStyle(TVColor.brand.opacity(0.9)).lineLimit(1)
+                                .tvFont(.caption).foregroundStyle(TVColor.brand.opacity(0.9)).lineLimit(1)
                         }
                     } else if let concept = hit.relatedConcept {
                         Text(PMString("ext.tv.search.aiReason", concept))
-                            .font(.system(size: 15))
+                            .tvFont(.caption)
                             .foregroundStyle(TVColor.brand.opacity(0.9))
                             .lineLimit(1)
                     } else {
                         Text("\(song.artist) · \(album?.title ?? "")")
-                            .font(.system(size: 16)).foregroundStyle(TVColor.textFaint).lineLimit(1)
+                            .tvFont(.caption).foregroundStyle(TVColor.textFaint).lineLimit(1)
                     }
                     if let path = song.displayPath {
                         HStack(spacing: 5) {
@@ -366,14 +366,14 @@ private struct TVSearchSongRow: View {
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                         }
-                        .font(.system(size: 13, design: .monospaced))
+                        .tvFont(.caption, design: .monospaced)
                         .foregroundStyle(TVColor.textGhost)
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel(Text(PMString("ext.tv.search.path", path)))
                     }
                 }
                 Spacer(minLength: 0)
-                Image(systemName: "play.fill").font(.system(size: 18)).foregroundStyle(TVColor.textFaint)
+                Image(systemName: "play.fill").tvFont(.caption).foregroundStyle(TVColor.textFaint)
             }
             .padding(14).frame(maxWidth: .infinity)
             .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle)

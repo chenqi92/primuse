@@ -704,3 +704,8 @@
 "auth_method" = "認証方式";
 "ssh_key" = "SSH キー";
 "cue_track_title_format" = "トラック %02d";
+
+"ext.tv.nowPlaying.artworkControls" = "カバーにフォーカスして左右キーで前後の曲に切り替え";
+
+"ext.tv.remote.transportButton" = "再生 / 一時停止ボタン";
+"ext.tv.remote.transportShortcuts" = "1回押す：再生 / 一時停止\n2回押す：次の曲\n長押し：左右で再生位置を調整";

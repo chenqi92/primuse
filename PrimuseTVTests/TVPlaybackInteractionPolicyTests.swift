@@ -2,6 +2,8 @@
 import Foundation
 import PrimuseKit
 import XCTest
+import UIKit
+import SwiftUI
 @testable import PrimuseTV
 
 final class TVContentFocusRoutingTests: XCTestCase {
@@ -32,6 +34,29 @@ final class TVContentFocusRoutingTests: XCTestCase {
         var state = TVContentFocusRoutingState()
         XCTAssertNil(state.moveDown(from: .nowPlaying, nowPlayingMode: .empty))
         XCTAssertNil(state.latestRequest)
+    }
+
+    func testSeekingFromLibraryKeepsProgressFocusWhenPlayerAppears() {
+        var state = TVContentFocusRoutingState()
+        _ = state.moveDown(from: .library, nowPlayingMode: .song)
+        XCTAssertEqual(state.seekInNowPlaying(mode: .song)?.target, .nowPlaying(.scrubber))
+        XCTAssertEqual(
+            state.contentDidAppear(in: .nowPlaying, nowPlayingMode: .song)?.target,
+            .nowPlaying(.scrubber)
+        )
+        state.returnToTabs()
+        XCTAssertNil(state.contentDidAppear(in: .nowPlaying, nowPlayingMode: .song))
+    }
+
+    func testLiveRadioAndEmptyPlaybackCannotEnterSeeking() {
+        var state = TVContentFocusRoutingState()
+        XCTAssertNil(state.seekInNowPlaying(mode: .liveRadio))
+        XCTAssertNil(state.seekInNowPlaying(mode: .empty))
+        _ = state.seekInNowPlaying(mode: .song)
+        XCTAssertEqual(
+            state.contentModeDidChange(in: .nowPlaying, nowPlayingMode: .liveRadio)?.target,
+            .nowPlaying(.liveRadioPrimary)
+        )
     }
 
     func testSourcesDownRoutesToPrimaryAddAction() {
@@ -1186,6 +1211,147 @@ final class TVLyricSyllableTimingTests: XCTestCase {
         return try XCTUnwrap(
             TVPlaybackCoordinator.toTVLyrics([sourceLine], duration: 0).first
         ).syllables
+    }
+}
+
+@MainActor
+final class TVRemoteTransportCoordinatorTests: XCTestCase {
+    func testDisabledAndDetachedScopesDropPendingCommands() {
+        let controller = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
+        window.rootViewController = controller
+        window.isHidden = false
+        defer { window.isHidden = true }
+        let coordinator = TVRemoteTransportCoordinator()
+        var commands: [TVRemoteTransportCommand] = []
+        let record: (TVRemoteTransportCommand) -> Void = { commands.append($0) }
+        coordinator.configure(enabled: true, onCommand: record)
+        coordinator.attach(to: controller)
+        coordinator.perform(.nextTrack)
+
+        coordinator.configure(enabled: false, onCommand: record)
+        coordinator.perform(.seek)
+        XCTAssertFalse(coordinator.longPress.isEnabled)
+        coordinator.configure(enabled: true, onCommand: record)
+        coordinator.perform(.togglePlayback)
+        coordinator.detach()
+        coordinator.perform(.nextTrack)
+
+        XCTAssertEqual(commands, [.nextTrack, .togglePlayback])
+        XCTAssertNil(coordinator.doublePress.view)
+    }
+
+    func testChangingOwnerMovesRecognizersWithoutDuplicatingThem() {
+        let first = UIViewController()
+        let second = UIViewController()
+        let coordinator = TVRemoteTransportCoordinator()
+        coordinator.configure(enabled: true) { _ in }
+        coordinator.attach(to: first)
+        coordinator.attach(to: first)
+        XCTAssertEqual(first.view.gestureRecognizers?.count, 3)
+
+        coordinator.attach(to: second)
+        XCTAssertTrue(first.view.gestureRecognizers?.isEmpty ?? true)
+        XCTAssertEqual(second.view.gestureRecognizers?.count, 3)
+        XCTAssertTrue(coordinator.singlePress.view === second.view)
+        coordinator.detach()
+    }
+
+    func testPresentedModalBlocksCommandsUntilDismissed() async {
+        let controller = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
+        window.rootViewController = controller
+        window.isHidden = false
+        defer { window.isHidden = true }
+        let coordinator = TVRemoteTransportCoordinator()
+        var commands: [TVRemoteTransportCommand] = []
+        coordinator.configure(enabled: true) { commands.append($0) }
+        coordinator.attach(to: controller)
+        await withCheckedContinuation { continuation in
+            controller.present(UIViewController(), animated: false) { continuation.resume() }
+        }
+        XCTAssertNotNil(controller.presentedViewController)
+        coordinator.perform(.nextTrack)
+        XCTAssertTrue(commands.isEmpty)
+
+        await withCheckedContinuation { continuation in
+            controller.dismiss(animated: false) { continuation.resume() }
+        }
+        XCTAssertNil(controller.presentedViewController)
+        coordinator.perform(.seek)
+        XCTAssertEqual(commands, [.seek])
+        coordinator.detach()
+    }
+}
+
+@MainActor
+final class TVRemoteSeekFocusTests: XCTestCase {
+    func testSeekCommandFocusesPlayerProgressWithoutChangingTrack() async throws {
+        try await verifySeekFocus { store in TVRoot().environment(store) }
+    }
+
+    func testSeekCommandRevealsAndFocusesImmersiveProgress() async throws {
+        try await verifySeekFocus { store in TVImmersivePlayerView().environment(store) }
+    }
+
+    private func verifySeekFocus<Content: View>(@ViewBuilder content: (TVStore) -> Content) async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let defaultsName = "TVRemoteSeekFocusTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        defaults.set(FullscreenPlayerEffect.coverFlow.rawValue, forKey: FullscreenPlayerEffect.storageKey)
+        let store = TVStore(
+            sourcesStore: SourcesStore(storageDirectoryURL: directory),
+            library: MusicLibrary(storageDirectory: directory), defaults: defaults,
+            sessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json"))
+        )
+        store.nowPlaying.songID = "seek-focus"
+        store.nowPlaying.title = "Seek Focus"
+        store.nowPlaying.duration = 180
+        store.hasNowPlaying = true
+        let host = UIHostingController(rootView: content(store)
+            .environment(\.scenePhase, .active).defaultAppStorage(defaults)
+            .environment(MusicIntelligenceService())
+            .environment(TVThemeState.shared).environment(TVAppearanceState()))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.keyWindow
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            previousWindow?.makeKeyAndVisible()
+            defaults.removePersistentDomain(forName: defaultsName)
+        }
+        var coordinator: TVRemoteTransportCoordinator?
+        for _ in 0..<80 {
+            coordinator = host.view.gestureRecognizers?.compactMap {
+                $0.delegate as? TVRemoteTransportCoordinator
+            }.first(where: { $0.enabled })
+            if coordinator != nil { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        try XCTUnwrap(coordinator).perform(.seek)
+        var focusedFrame = CGRect.zero
+        for _ in 0..<80 {
+            focusedFrame = UIFocusSystem(for: host.view)?.focusedItem?.frame ?? .zero
+            if focusedFrame.width > 600 && (20...80).contains(focusedFrame.height) { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        try await Task.sleep(for: .milliseconds(250))
+        focusedFrame = UIFocusSystem(for: host.view)?.focusedItem?.frame ?? .zero
+        let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
+            host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+        })
+        attachment.name = "SeekFocus"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        // SwiftUI exposes a UIFocusItem rather than a UIView; its wide, shallow
+        // bounds distinguish the progress control from tabs and transport buttons.
+        XCTAssertGreaterThan(focusedFrame.width, 600)
+        XCTAssertTrue((20...80).contains(focusedFrame.height), "Unexpected focused frame: \(focusedFrame)")
+        XCTAssertEqual(store.nowPlaying.songID, "seek-focus")
+        XCTAssertEqual(store.currentTime, 0)
     }
 }
 #endif

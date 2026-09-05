@@ -18,6 +18,7 @@ private var tvDebugImmersiveLaunch: (show: Bool, picker: Bool) {
 struct TVNowPlayingView: View {
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.resetFocus) private var resetFocus
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -27,9 +28,11 @@ struct TVNowPlayingView: View {
     var interactionRequest = 0
     var onContentAppeared: (TVNowPlayingFocusMode) -> Void = { _ in }
     var onContentModeChanged: (TVNowPlayingFocusMode) -> Void = { _ in }
+    var onProgressFocused: () -> Void = {}
     var onReturnToTabs: () -> Void = {}
     var onModalActivityChanged: (Bool) -> Void = { _ in }
 
+    @State private var artworkDirectionalCommands = TVImmersiveDirectionalCommandState()
     @State private var showQueue = false
     @State private var showOptions = false
     @State private var showImmersive = tvDebugImmersiveLaunch.show
@@ -40,6 +43,7 @@ struct TVNowPlayingView: View {
     @State private var lastInteraction = Date()
     @Namespace private var playerFocus
     @FocusState private var focusedTransport: TVNowPlayingFocusTarget?
+    @FocusState private var scrubberFocused: Bool
 
     /// 播放中静置多久自动进入沉浸展示(设计稿「展示屏」的待机语义)。
     private let immersiveIdleThreshold: TimeInterval = 20
@@ -104,6 +108,9 @@ struct TVNowPlayingView: View {
             // 遥控切换焦点即视为有操作,推迟自动进入沉浸展示。
             registerInteraction()
         }
+        .onChange(of: scrubberFocused) { _, focused in
+            if focused { onProgressFocused() }
+        }
         .onChange(of: interactionRequest) { _, _ in
             registerInteraction()
         }
@@ -128,7 +135,7 @@ struct TVNowPlayingView: View {
                 guard store.hasNowPlaying, store.isPlaying,
                       !store.isLiveRadio, !store.isMusicVideoPlaybackActive,
                       fullscreenPlayerEffect != .native,
-                      !showImmersive, !showQueue, !showOptions else { continue }
+                      !showImmersive, !showQueue, !showOptions, !scrubberFocused else { continue }
                 if Date().timeIntervalSince(lastInteraction) >= immersiveIdleThreshold {
                     presentImmersivePlayer(isUserInitiated: false)
                 }
@@ -289,15 +296,18 @@ struct TVNowPlayingView: View {
     }
 
     private func applyFocusRequest(_ request: TVContentFocusRequest?) {
-        guard let request,
-              request.target == TVContentFocusRoutingPolicy.target(
-                  for: .nowPlaying,
-                  nowPlayingMode: focusMode
-              ),
-              case let .nowPlaying(target) = request.target else {
-            return
+        guard let request, case let .nowPlaying(target) = request.target else { return }
+        if target == .scrubber, focusMode == .song, store.duration > 0 {
+            registerInteraction()
+            focusedTransport = nil
+            resetFocus(in: playerFocus)
+            scrubberFocused = true
+        } else if request.target == TVContentFocusRoutingPolicy.target(
+            for: .nowPlaying, nowPlayingMode: focusMode
+        ) {
+            scrubberFocused = false
+            focusedTransport = target
         }
-        focusedTransport = target
     }
 
     private func focusedRoundButton(
@@ -400,15 +410,41 @@ struct TVNowPlayingView: View {
         let np = store.nowPlaying
         return VStack(alignment: .leading, spacing: 0) {
             TVEyebrow(text: PMString("ext.tv.nowPlaying.eyebrow")).padding(.bottom, 16)
-            TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
-                          songID: np.songID, coverRef: np.coverRef,
-                          tint: np.tint, tint2: np.tint2, glyph: np.glyph,
-                          size: 420, radius: 20,
-                          presentationRole: .animatedHero,
-                          animationRequiresPlayback: true,
-                          isPlaying: store.isPlaying,
-                          isAnimationVisible: !showQueue && !showOptions && !showImmersive)
-                .shadow(color: .black.opacity(0.5), radius: 36, y: 18)
+            Button {
+                registerInteraction()
+                store.togglePlayPause()
+            } label: {
+                TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
+                              songID: np.songID, coverRef: np.coverRef,
+                              tint: np.tint, tint2: np.tint2, glyph: np.glyph,
+                              size: 420, radius: 20,
+                              presentationRole: .animatedHero,
+                              animationRequiresPlayback: true,
+                              isPlaying: store.isPlaying,
+                              isAnimationVisible: activePresentationCount == 0)
+                    .shadow(color: .black.opacity(0.5), radius: 36, y: 18)
+                    .tvFocusRing(focusedTransport == .songPrimary, radius: 20,
+                                 accent: TVColor.focusRing, scale: 1.025, lift: 0)
+                    .overlay(alignment: .bottomLeading) {
+                        if focusedTransport == .songPrimary {
+                            Text(PMString("ext.tv.nowPlaying.artworkControls"))
+                                .font(.system(size: 22, weight: .medium))
+                                .foregroundStyle(.white)
+                                .multilineTextAlignment(.leading)
+                                .padding(12)
+                                .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 10))
+                                .padding(14)
+                                .accessibilityHidden(true)
+                        }
+                    }
+            }
+            .buttonStyle(TVBareButtonStyle())
+            .focused($focusedTransport, equals: .songPrimary)
+            .focusEffectDisabled()
+            .onMoveCommand(perform: handleArtworkMove)
+            .accessibilityLabel(Text(PMString(store.isPlaying ? "ext.control.pause" : "ext.control.play")))
+            .accessibilityHint(Text(PMString("ext.tv.nowPlaying.artworkControls")))
+            .accessibilityIdentifier("tv.nowPlaying.artworkControls")
             Text(np.title).font(.system(size: 48, weight: .bold)).tracking(-0.8)
                 .foregroundStyle(TVColor.text).lineLimit(2).padding(.top, 26)
             Text(np.artist).font(.system(size: 26)).foregroundStyle(TVColor.textMuted).padding(.top, 8)
@@ -440,7 +476,6 @@ struct TVNowPlayingView: View {
     }
 
     private func scrubber(immersiveDark: Bool) -> some View {
-        let np = store.nowPlaying
         let cur = store.currentTime
         let dur = store.duration
         let p = dur > 0 ? max(0, min(1, cur / dur)) : 0
@@ -448,10 +483,13 @@ struct TVNowPlayingView: View {
             Text(TVFmt.time(cur)).font(.system(size: 16, design: .monospaced))
                 .foregroundStyle(immersiveDark ? Color.white.opacity(0.60) : TVColor.textMuted)
                 .frame(width: 56, alignment: .trailing)
-            TVScrubber(progress: p, tint: np.tint, immersiveDark: immersiveDark,
+            TVScrubber(progress: p, tint: TVColor.brand, immersiveDark: immersiveDark,
                        currentTime: cur, duration: dur,
                        onBack: { store.skipBackward() }, onForward: { store.skipForward() },
-                       onInteraction: registerInteraction)
+                       onInteraction: registerInteraction,
+                       onFinish: { focusedTransport = immersiveDark ? .songPrimary : .playPause },
+                       focused: $scrubberFocused)
+                .prefersDefaultFocus(focusRequest?.target == .nowPlaying(.scrubber), in: playerFocus)
             Text("-\(TVFmt.time(max(0, dur - cur)))").font(.system(size: 16, design: .monospaced))
                 .foregroundStyle(immersiveDark ? Color.white.opacity(0.60) : TVColor.textMuted)
                 .frame(width: 56, alignment: .leading)
@@ -488,7 +526,7 @@ struct TVNowPlayingView: View {
                     store.isPlaying ? "ext.control.pause" : "ext.control.play"
                 ),
                 immersiveDark: immersiveDark,
-                target: .songPrimary
+                target: immersiveDark ? .songPrimary : .playPause
             ) { store.togglePlayPause() }
             focusedRoundButton(
                 icon: "forward.fill",
@@ -512,6 +550,31 @@ struct TVNowPlayingView: View {
             TVRoundBtn(icon: "ellipsis", size: 64, immersiveDark: immersiveDark,
                        onInteraction: registerInteraction) { showOptions = true }
             Spacer()
+        }
+    }
+
+    private func handleArtworkMove(_ direction: MoveCommandDirection) {
+        guard focusedTransport == .songPrimary, activePresentationCount == 0,
+              !UIAccessibility.isVoiceOverRunning,
+              !UIAccessibility.isSwitchControlRunning else { return }
+        let input: TVImmersiveDirectionalInput
+        switch direction {
+        case .left: input = .left
+        case .right: input = .right
+        default: return
+        }
+        registerInteraction()
+        let action = artworkDirectionalCommands.action(
+            for: input,
+            at: ProcessInfo.processInfo.systemUptime,
+            controlsVisible: false,
+            modePickerVisible: false,
+            assistiveNavigationEnabled: false
+        )
+        switch action {
+        case .previousTrack: store.previous(restartCurrentIfNeeded: false)
+        case .nextTrack: store.next()
+        default: break
         }
     }
 
@@ -850,7 +913,7 @@ private final class TVMusicVideoLayerView: UIView {
 
 // MARK: - 可聚焦进度条(Siri Remote 左右拖动 ∓10s 定位)
 
-private struct TVScrubber: View {
+struct TVScrubber: View {
     let progress: Double
     let tint: Color
     var immersiveDark = false
@@ -859,42 +922,29 @@ private struct TVScrubber: View {
     var onBack: () -> Void
     var onForward: () -> Void
     var onInteraction: () -> Void = {}
-    @FocusState private var focused: Bool
+    var onFinish: () -> Void = {}
+    @FocusState.Binding var focused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
                 Capsule().fill(immersiveDark
-                               ? Color.white.opacity(focused ? 0.32 : 0.16)
-                               : (focused ? TVColor.surfaceStrong : TVColor.divider))
-                    .frame(height: focused ? 10 : 5)
+                               ? Color.white.opacity(focused ? 0.34 : 0.18)
+                               : TVColor.text.opacity(focused ? 0.30 : 0.16))
+                    .frame(height: focused ? 8 : 4)
                 Capsule().fill(tint)
-                    .frame(width: max(0, geo.size.width * progress), height: focused ? 10 : 5)
-                    .shadow(color: focused ? tint.opacity(0.8) : .clear, radius: focused ? 8 : 0)
+                    .frame(width: max(0, geo.size.width * progress), height: focused ? 8 : 4)
                 Circle().fill(immersiveDark ? Color.white : TVColor.text)
-                    .frame(width: focused ? 30 : 16, height: focused ? 30 : 16)
-                    .overlay(Circle().strokeBorder(tint, lineWidth: focused ? 4 : 0))
-                    .shadow(color: tint.opacity(focused ? 0.9 : 0.5), radius: focused ? 12 : 4)
-                    .offset(x: max(0, geo.size.width * progress) - (focused ? 15 : 8))
+                    .frame(width: focused ? 24 : 14, height: focused ? 24 : 14)
+                    .shadow(color: .black.opacity(0.22), radius: 3, y: 2)
+                    .offset(x: max(0, geo.size.width * progress) - (focused ? 12 : 7))
             }
             .frame(maxHeight: .infinity, alignment: .center)
         }
         .frame(height: 30)
         .padding(.vertical, 12).padding(.horizontal, 16)
-        // 聚焦时整条进度条套上品牌色描边 + 辉光的高亮框,清楚区分「选中在此处」。
-        .background {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(focused
-                      ? (immersiveDark ? Color.white.opacity(0.12) : TVColor.surfaceStrong)
-                      : Color.clear)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .strokeBorder(tint, lineWidth: focused ? 3 : 0)
-                }
-        }
-        .shadow(color: focused ? tint.opacity(0.45) : .clear, radius: focused ? 18 : 0)
-        .scaleEffect(focused ? 1.03 : 1)
+        .contentShape(Rectangle())
         .focusable(true)
         .focused($focused)
         .focusEffectDisabled()
@@ -906,8 +956,10 @@ private struct TVScrubber: View {
             default: break
             }
         }
+        .onTapGesture(perform: onFinish)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(PMString("playback")))
+        .accessibilityIdentifier("tv.playback.scrubber")
         .accessibilityValue(Text("\(TVFmt.time(currentTime)) / \(TVFmt.time(duration))"))
         .accessibilityAdjustableAction { direction in
             onInteraction()

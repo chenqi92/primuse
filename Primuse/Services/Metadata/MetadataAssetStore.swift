@@ -31,14 +31,14 @@ actor MetadataAssetStore {
     /// 所以读取时一字节就能区分新旧两种格式。
     private static let redirectPrefixData = Data("REDIRECT:".utf8)
 
-    private init(fileManager: FileManager = .default) {
+    init(storageDirectory: URL? = nil, fileManager: FileManager = .default) {
         // tvOS 只允许写 Caches / tmp;Application Support 不可写(歌词/封面落不了盘)。
         #if os(tvOS)
         let appSupport = fileManager.primuseDirectoryURL(for: .cachesDirectory)
         #else
         let appSupport = fileManager.primuseDirectoryURL(for: .applicationSupportDirectory)
         #endif
-        let rootDirectory = appSupport.appendingPathComponent("Primuse/MetadataAssets", isDirectory: true)
+        let rootDirectory = storageDirectory ?? appSupport.appendingPathComponent("Primuse/MetadataAssets", isDirectory: true)
         artworkDirectory = rootDirectory.appendingPathComponent("artwork", isDirectory: true)
         lyricsDirectory = rootDirectory.appendingPathComponent("lyrics", isDirectory: true)
         albumArtworkDirectory = rootDirectory.appendingPathComponent("artwork/album", isDirectory: true)
@@ -65,7 +65,7 @@ actor MetadataAssetStore {
         // One-time migration from old Caches location
         let oldRoot = fileManager.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent("primuse_metadata", isDirectory: true)
-        migrateIfNeeded(from: oldRoot, fileManager: fileManager)
+        if storageDirectory == nil { migrateIfNeeded(from: oldRoot, fileManager: fileManager) }
 
         // Dedup/GC can traverse every artwork reference. It is deliberately
         // started by the scene's scheduled file-maintenance window instead of
@@ -737,6 +737,40 @@ actor MetadataAssetStore {
         let fileName = expectedCoverFileName(for: key)
         let fileURL = artworkDirectoryURL.appendingPathComponent(fileName)
         try? writeContentAddressed(data, refURL: fileURL)
+    }
+
+    /// Transport references are restricted to deterministic cache filenames;
+    /// imported images never become user-selected artwork overrides.
+    @discardableResult
+    nonisolated func installPortableCachedArtwork(
+        _ data: Data,
+        contentID: String,
+        referenceFileNames: [String]
+    ) -> Bool {
+        guard !data.isEmpty,
+              data.count <= LibraryArtworkContentIDPolicy.maximumSyncedArtworkBytes,
+              Self.sha256Hex(data) == contentID,
+              CGImageSourceCreateWithData(data as CFData, nil) != nil else { return false }
+        var installed = false
+        for reference in referenceFileNames {
+            let name = reference.hasPrefix("album/") ? String(reference.dropFirst(6)) : reference
+            let stem = String(name.dropLast(4))
+            guard name.hasSuffix(".jpg"), stem.utf8.count == 32,
+                  stem.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else { continue }
+            let url = artworkDirectoryURL.appendingPathComponent(reference)
+            if let existing = readCoverData(named: reference) {
+                if existing == data { continue }
+                #if !os(tvOS)
+                // A TV-sized transport image must not replace the sender's original.
+                if CGImageSourceCreateWithData(existing as CFData, nil) != nil { continue }
+                #endif
+            }
+            do {
+                try writeContentAddressed(data, refURL: url)
+                installed = true
+            } catch { continue }
+        }
+        return installed
     }
 
     // MARK: - One-time dedup migration

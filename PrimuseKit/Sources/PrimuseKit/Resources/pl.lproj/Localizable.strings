@@ -651,3 +651,8 @@
 "theme_color_teal" = "Turkusowy";
 "theme_color_terracotta" = "Terakota";
 "theme_color_turquoise" = "Turkusowy";
+
+"ext.tv.nowPlaying.artworkControls" = "Ustaw fokus na okładce · Lewo / prawo: poprzedni / następny utwór";
+
+"ext.tv.remote.transportButton" = "Przycisk odtwarzania / pauzy";
+"ext.tv.remote.transportShortcuts" = "Naciśnij: odtwarzanie / pauza\nNaciśnij dwa razy: następny utwór\nPrzytrzymaj: przewijaj w lewo / w prawo";

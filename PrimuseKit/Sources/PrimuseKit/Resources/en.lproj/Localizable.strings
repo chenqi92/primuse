@@ -702,3 +702,8 @@
 "auth_method" = "Auth Method";
 "ssh_key" = "SSH Key";
 "cue_track_title_format" = "Track %02d";
+
+"ext.tv.nowPlaying.artworkControls" = "Focus the cover · Left / right: previous / next track";
+
+"ext.tv.remote.transportButton" = "Play / Pause button";
+"ext.tv.remote.transportShortcuts" = "Press: play / pause\nDouble-press: next track\nHold: seek with left / right";

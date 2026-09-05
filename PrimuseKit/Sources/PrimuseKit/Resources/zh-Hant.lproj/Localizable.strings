@@ -701,3 +701,8 @@
 "auth_method" = "驗證方式";
 "ssh_key" = "SSH 金鑰";
 "cue_track_title_format" = "曲目 %02d";
+
+"ext.tv.nowPlaying.artworkControls" = "聚焦封面後，按左 / 右鍵切換歌曲";
+
+"ext.tv.remote.transportButton" = "播放 / 暫停鍵";
+"ext.tv.remote.transportShortcuts" = "單擊：播放 / 暫停\n雙擊：下一首\n長按：調整進度（左 / 右）";

@@ -22,7 +22,7 @@ struct TVPlaylistsView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             TVEyebrow(text: PMString("ext.tv.playlists.eyebrow"))
                             Text(PMString("ext.tv.playlists.title", playlists.count))
-                                .font(TVFont.pageTitle).foregroundStyle(TVColor.text)
+                                .tvFont(.pageTitle).foregroundStyle(TVColor.text)
                         }
                         if playlists.isEmpty {
                             TVEmptyState(
@@ -84,10 +84,10 @@ struct TVPlaylistCard: View {
                     }
                 }
                 .frame(width: width, height: h)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(playlist.name).font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(TVColor.text).lineLimit(1)
-                    Text(PMString("ext.tv.songsCount", playlist.count)).font(.system(size: 16))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(playlist.name).tvFont(.cardTitle)
+                        .foregroundStyle(TVColor.text).lineLimit(2)
+                    Text(PMString("ext.tv.songsCount", playlist.count)).tvFont(.caption)
                         .foregroundStyle(TVColor.textFaint)
                 }
                 .padding(.top, 12).padding(.horizontal, 2)

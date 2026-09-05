@@ -209,17 +209,44 @@ enum TVRadius {
     static let pill: CGFloat = 999
 }
 
-enum TVFont {
-    // Semantic styles follow the viewer's accessibility text-size preference.
-    // Explicit frames still preserve the 10-foot layout while text can scale.
-    static let pageTitle: Font = .largeTitle.weight(.bold)
-    static let sectionTitle: Font = .title.weight(.bold)
-    static let cardTitle: Font = .title2.weight(.semibold)
-    static let body: Font = .title3
-    static let caption: Font = .callout
-    static let eyebrow: Font = .headline
-    static let button: Font = .title3.weight(.semibold)
-    static let metadata: Font = .callout
+struct TVFont {
+    let size: CGFloat
+    let weight: Font.Weight
+    let relativeTo: Font.TextStyle
+
+    // 先统一电视布局的基础比例，再随系统文字大小缩放，避免按钮继承标题级字号。
+    static let heroTitle = TVFont(size: 64, weight: .bold, relativeTo: .largeTitle)
+    static let pageTitle = TVFont(size: 48, weight: .bold, relativeTo: .title)
+    static let sectionTitle = TVFont(size: 32, weight: .bold, relativeTo: .title2)
+    static let cardTitle = TVFont(size: 28, weight: .semibold, relativeTo: .headline)
+    static let body = TVFont(size: 29, weight: .regular, relativeTo: .body)
+    static let caption = TVFont(size: 23, weight: .regular, relativeTo: .caption)
+    static let eyebrow = TVFont(size: 24, weight: .semibold, relativeTo: .subheadline)
+    static let button = TVFont(size: 30, weight: .semibold, relativeTo: .body)
+    static let input = TVFont(size: 32, weight: .regular, relativeTo: .body)
+}
+
+private struct TVFontModifier: ViewModifier {
+    @ScaledMetric private var size: CGFloat
+    let weight: Font.Weight
+    let design: Font.Design
+
+    init(_ font: TVFont, weight: Font.Weight?, design: Font.Design) {
+        _size = ScaledMetric(wrappedValue: font.size, relativeTo: font.relativeTo)
+        self.weight = weight ?? font.weight
+        self.design = design
+    }
+
+    func body(content: Content) -> some View {
+        content.font(.system(size: size, weight: weight, design: design))
+    }
+}
+
+extension View {
+    func tvFont(_ font: TVFont, weight: Font.Weight? = nil,
+                design: Font.Design = .default) -> some View {
+        modifier(TVFontModifier(font, weight: weight, design: design))
+    }
 }
 
 // MARK: - 轻量双语
@@ -295,21 +322,19 @@ private struct TVFocusRingModifier: ViewModifier {
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .strokeBorder(accent, lineWidth: focused ? 4 : 0)
+                    .strokeBorder(accent.opacity(0.85), lineWidth: focused ? 2 : 0)
             }
-            .shadow(color: focused ? TVColor.focusShadow : TVColor.cardShadow,
-                    radius: focused ? 26 : 11, x: 0, y: focused ? 18 : 8)
-            .shadow(color: focused ? accent.opacity(0.45) : .clear,
-                    radius: focused ? 30 : 0)
-            .scaleEffect(focused && !reduceMotion ? scale : 1)
-            .offset(y: focused && !reduceMotion ? -lift : 0)
+            .shadow(color: focused ? TVColor.focusShadow.opacity(0.65) : TVColor.cardShadow,
+                    radius: focused ? 14 : 8, x: 0, y: focused ? 6 : 4)
+            .scaleEffect(focused && !reduceMotion ? min(scale, 1.06) : 1)
+            .offset(y: focused && !reduceMotion ? -min(lift, 4) : 0)
             .zIndex(focused ? 1 : 0)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: focused)
     }
 }
 
 extension View {
-    /// tvOS 焦点态: scale + 上抬 + 4pt 内描边(不被父级 overflow 裁切) + 辉光阴影。
+    /// 细描边与轻微浮起保持焦点可见，避免彩色光晕与封面氛围叠加。
     func tvFocusRing(_ focused: Bool,
                      radius: CGFloat = TVRadius.card,
                      accent: Color = TVColor.focusRing,
@@ -401,7 +426,7 @@ struct TVFocusButton<Label: View>: View {
 /// 封面双色氛围背景。浅色外观使用柔和色场，深色外观保留沉浸式明暗层次。
 struct TVAmbientBackdrop: View {
     var tint: Color = TVColor.brand
-    var tint2: Color = Color(hex: "#1f3a5b")
+    var tint2: Color = TVColor.brandSecondary
     var strength: Double = 0.7
 
     @Environment(\.colorScheme) private var colorScheme

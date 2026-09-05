@@ -651,3 +651,8 @@
 "theme_color_indigo" = "İndigo";
 "send_to_tv_error_cloud_schema" = "iCloud aktarım kanalı bu sürümde etkinleştirilmemiştir (sunucuda “%@” eksiktir), bu nedenle yeniden denemek yardımcı olmayacaktır. Bunun yerine Apple TV müzik kaynakları ekranındaki QR kodu doğrudan aktarımını kullanın.";
 "ai_recommendation_custom_remove" = "Odağı Kaldır";
+
+"ext.tv.nowPlaying.artworkControls" = "Kapağa odaklanın · Sol / sağ: önceki / sonraki parça";
+
+"ext.tv.remote.transportButton" = "Oynat / Duraklat düğmesi";
+"ext.tv.remote.transportShortcuts" = "Basın: oynat / duraklat\nİki kez basın: sonraki parça\nBasılı tutun: sol / sağ ile sarın";

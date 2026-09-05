@@ -72,4 +72,38 @@ struct ListeningActivityTimelineTests {
         #expect(!timeline.trendUsesMonths)
         #expect(timeline.dailyStats[2].date.timeIntervalSince(timeline.dailyStats[1].date) == 23 * 3600)
     }
+
+    @Test func mobileMonthKeepsLeapDayAndRespectsFirstWeekday() {
+        let model = ListeningActivityCalendar(counts: [(date(2024, 2, 29), 8)],
+                                              now: date(2024, 3, 1), calendar: calendar)
+        let cells = model.monthCells(containing: date(2024, 2, 1))
+        #expect(cells.count == 42)
+        #expect(cells.prefix(3).allSatisfy { $0 == nil })
+        #expect(cells.compactMap { $0 }.count == 29)
+        #expect(cells[31]?.count == 8)
+        var sundayFirst = calendar
+        sundayFirst.firstWeekday = 1
+        let sundayModel = ListeningActivityCalendar(counts: [], now: date(2024, 3, 1), calendar: sundayFirst)
+        #expect(sundayModel.monthCells(containing: date(2024, 2, 1)).prefix(4).allSatisfy { $0 == nil })
+    }
+
+    @Test func mobileWeekCrossesYearAndDistinguishesFutureFromInactiveDays() {
+        let model = ListeningActivityCalendar(counts: [(date(2025, 12, 31), 4), (date(2026, 1, 3), 8)],
+                                              now: date(2026, 1, 2), calendar: calendar)
+        let days = model.days(in: .weekOfYear, containing: date(2026, 1, 2))
+        #expect(days.count == 7)
+        #expect(days.map(\.count) == [0, 0, 4, 0, 0, nil, nil])
+        #expect(model.availableYears == [2026, 2025])
+    }
+
+    @Test func mobileYearPreservesAllMonthsAndHistoricalActivity() {
+        let model = ListeningActivityCalendar(counts: [(date(2023, 1, 1), 3), (date(2026, 9, 5), 2)],
+                                              now: date(2026, 9, 5), calendar: calendar)
+        #expect(model.availableYears == [2026, 2025, 2024, 2023])
+        let months = model.months(in: 2024)
+        #expect(months.count == 12)
+        #expect(months.flatMap { model.monthCells(containing: $0).compactMap { $0 } }.count == 366)
+        #expect(model.days(in: .month, containing: date(2023, 1, 1)).first?.count == 3)
+        #expect(model.days(in: .weekOfYear, containing: date(2024, 3, 10)).count == 7)
+    }
 }

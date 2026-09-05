@@ -2984,7 +2984,7 @@ final class TVStore {
         queueUpNextIDs = Array(queue[(queueIndex + 1)...])
     }
 
-    func previous() {
+    func previous(restartCurrentIfNeeded: Bool = true) {
         if isLiveRadio {
             guard let currentRadioStationID,
                   radioStations.count > 1,
@@ -2993,7 +2993,7 @@ final class TVStore {
             return
         }
         // 播过 3 秒先回到开头,否则切上一首。
-        if currentTime > 3 { engine.seek(to: 0); return }
+        if restartCurrentIfNeeded, currentTime > 3 { engine.seek(to: 0); return }
         guard let previousIndex = QueueTraversalPolicy.previousAvailableIndex(
             before: queueIndex,
             isAvailable: { song(queue[$0]) != nil }

@@ -1076,8 +1076,18 @@ struct TVArtworkView: View {
     private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
 
     var coverKey: String          // 缓存键(专辑 id)
-    var songID: String? = nil
-    var coverRef: String? = nil
+    private var requestedSongID: String? = nil
+    private var requestedCoverRef: String? = nil
+
+    private var sourceArtworkSong: Song? {
+        if let requestedSongID, !requestedSongID.isEmpty {
+            return store.library.song(id: requestedSongID)
+        }
+        return store.library.preferredArtworkSong(forAlbumID: coverKey)
+    }
+
+    private var songID: String? { requestedSongID ?? sourceArtworkSong?.id }
+    private var coverRef: String? { requestedCoverRef ?? sourceArtworkSong?.coverArtFileName }
     var artist: String
     var album: String
     // 程序化兜底参数
@@ -1236,10 +1246,9 @@ struct TVArtworkView: View {
 
     private var albumArtworkOverride: LibraryArtworkOverrideResolution? {
         guard !coverKey.isEmpty else { return nil }
-        return store.library.artworkOverrideResolution(
-            for: LibraryArtworkOwner(kind: .album, id: coverKey),
-            eligibleSongs: store.library.songs(forAlbum: coverKey)
-        )
+        return store.library.artworkPresentation(
+            for: LibraryArtworkOwner(kind: .album, id: coverKey)
+        ).resolution
     }
 
     private var albumArtworkOverrideIdentity: String? {
@@ -1912,7 +1921,7 @@ struct TVArtworkView: View {
          isAnimationVisible: Bool = true,
          onResolutionChange: @escaping (Bool) -> Void = { _ in }) {
         self.coverKey = coverKey; self.artist = artist; self.album = album
-        self.songID = songID; self.coverRef = coverRef
+        self.requestedSongID = songID; self.requestedCoverRef = coverRef
         self.tint = tint; self.tint2 = tint2; self.glyph = glyph
         self.placeholderKind = placeholderKind
         self.size = size; self.height = height; self.radius = radius

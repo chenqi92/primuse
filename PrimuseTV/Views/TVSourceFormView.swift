@@ -49,7 +49,7 @@ struct TVSourceTypePicker: View {
 
     var body: some View {
         ZStack {
-            TVAmbientBackdrop(tint: TVColor.brand, tint2: Color(hex: "#1f3a5b"), strength: 0.4)
+            TVAmbientBackdrop(tint: TVColor.brand, tint2: TVColor.brandSecondary, strength: 0.4)
             TVColor.bg.opacity(0.42).ignoresSafeArea()
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -314,7 +314,7 @@ struct TVSourceFormView: View {
 
     var body: some View {
         ZStack {
-            TVAmbientBackdrop(tint: TVColor.brand, tint2: Color(hex: "#1f3a5b"), strength: 0.4)
+            TVAmbientBackdrop(tint: TVColor.brand, tint2: TVColor.brandSecondary, strength: 0.4)
             TVColor.bg.opacity(0.42).ignoresSafeArea()
             // 只让左列字段在自己列里滚动;右列作为撑满高度的固定侧栏,从任意字段往右都能到达
             //(右侧焦点区 frame 必须满高,否则下方字段往右无候选)。
@@ -398,7 +398,7 @@ struct TVSourceFormView: View {
                             : PMString("ext.tv.sources.editConnection")
                     )
                     Text(PMString("ext.tv.sources.connectionTitle", type.displayName))
-                        .font(TVFont.pageTitle).foregroundStyle(TVColor.text)
+                        .tvFont(.pageTitle).foregroundStyle(TVColor.text)
                 }
             }
             .padding(.bottom, 8)
@@ -508,7 +508,7 @@ struct TVSourceFormView: View {
                 HStack(spacing: 12) {
                     Image(systemName: "lock.fill").font(.system(size: 15)).foregroundStyle(TVColor.brand)
                     Text(PMString("ext.tv.sources.form.passwordStorage"))
-                        .font(TVFont.caption).foregroundStyle(TVColor.textFaint)
+                        .tvFont(.caption).foregroundStyle(TVColor.textFaint)
                 }
                 .padding(.top, 4)
             }
@@ -899,18 +899,14 @@ struct TVFormField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(label).font(TVFont.caption).foregroundStyle(TVColor.textFaint)
+            Text(label).tvFont(.caption).foregroundStyle(TVColor.textFaint)
             Group {
                 if secure { SecureField("", text: $text) }
                 else { TextField("", text: $text) }
             }
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
-            .font(
-                mono
-                    ? Font.system(.title2, design: .monospaced).weight(.medium)
-                    : TVFont.body.weight(.medium)
-            )
+            .tvFont(.input, weight: .medium, design: mono ? .monospaced : .default)
             .frame(maxWidth: 720, alignment: .leading)
             .focused($focused)
         }
@@ -933,7 +929,7 @@ struct TVOTPEntryView: View {
 
     var body: some View {
         ZStack {
-            TVAmbientBackdrop(tint: TVColor.brand, tint2: Color(hex: "#264a6e"), strength: 0.45)
+            TVAmbientBackdrop(tint: TVColor.brand, tint2: TVColor.brandSecondary, strength: 0.45)
             TVColor.bg.opacity(0.38).ignoresSafeArea()
             HStack(alignment: .center, spacing: 100) {
                 leftPrompt
@@ -1034,7 +1030,7 @@ struct TVRecycleBinView: View {
 
     var body: some View {
         ZStack {
-            TVAmbientBackdrop(tint: TVColor.brand, tint2: Color(hex: "#1f3a5b"), strength: 0.35)
+            TVAmbientBackdrop(tint: TVColor.brand, tint2: TVColor.brandSecondary, strength: 0.35)
             TVColor.bg.opacity(0.38).ignoresSafeArea()
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {

@@ -651,3 +651,8 @@
 "theme_color_teal" = "เขียวอมฟ้า";
 "theme_color_terracotta" = "ดินเผา";
 "theme_color_turquoise" = "เทอร์ควอยซ์";
+
+"ext.tv.nowPlaying.artworkControls" = "โฟกัสที่ปก · ซ้าย / ขวา: เพลงก่อนหน้า / ถัดไป";
+
+"ext.tv.remote.transportButton" = "ปุ่มเล่น / หยุดพัก";
+"ext.tv.remote.transportShortcuts" = "กด: เล่น / หยุดพัก\nกดสองครั้ง: เพลงถัดไป\nกดค้าง: เลื่อนตำแหน่งด้วยปุ่มซ้าย / ขวา";
