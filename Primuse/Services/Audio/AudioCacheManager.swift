@@ -1092,17 +1092,18 @@ actor AudioCacheManager {
             options: [.skipsHiddenFiles]
         ) else { return }
         var changed = false
+        let pathResolver = AudioCachePathResolver(root: basePath)
         for case let fileURL as URL in enumerator {
             guard let values = try? fileURL.resourceValues(forKeys: [
                 .contentModificationDateKey,
                 .totalFileAllocatedSizeKey,
                 .isRegularFileKey,
             ]), values.isRegularFile == true else { continue }
-            let relative = fileURL.path.replacingOccurrences(of: basePath.path + "/", with: "")
+            guard let relative = pathResolver.relativePath(for: fileURL) else { continue }
             let allocatedSize = Int64(values.totalFileAllocatedSize ?? 0)
-            trackedFileSizes[relative] = allocatedSize
+            let previousSize = trackedFileSizes.updateValue(allocatedSize, forKey: relative) ?? 0
             trackedFileModificationDates[relative] = values.contentModificationDate ?? Date()
-            trackedTotalSize += allocatedSize
+            trackedTotalSize += allocatedSize - previousSize
             if migrateAccessDates, accessLog[relative] == nil {
                 let modified = values.contentModificationDate ?? Date()
                 accessLog[relative] = modified
@@ -1152,12 +1153,12 @@ actor AudioCacheManager {
     }
 
     private func activeStreamingRelativePaths() -> Set<String> {
-        let prefix = basePath.standardizedFileURL.path + "/"
+        let pathResolver = AudioCachePathResolver(root: basePath)
         var relativePaths = Set<String>()
         for path in CloudPlaybackSource.activeSessionPaths() {
-            let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
-            guard standardized.hasPrefix(prefix) else { continue }
-            var relative = String(standardized.dropFirst(prefix.count))
+            guard var relative = pathResolver.relativePath(
+                for: URL(fileURLWithPath: path)
+            ) else { continue }
             if relative.hasSuffix(".partial") {
                 relative.removeLast(".partial".count)
             }

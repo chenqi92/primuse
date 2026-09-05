@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import PrimuseKit
 
 @MainActor
 final class AudioSessionManager {
@@ -22,6 +23,15 @@ final class AudioSessionManager {
 
     @discardableResult
     func activatePlaybackSession(reacquiringLocalRouteFocus: Bool = false) -> Bool {
+        do {
+            try requirePlaybackSession(reacquiringLocalRouteFocus: reacquiringLocalRouteFocus)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    func requirePlaybackSession(reacquiringLocalRouteFocus: Bool = false) throws {
         let session = AVAudioSession.sharedInstance()
         if reacquiringLocalRouteFocus {
             do {
@@ -35,16 +45,15 @@ final class AudioSessionManager {
                 try session.setActive(false)
             } catch {
                 plog("Failed to release audio session before local route recovery: \(error)")
-                return false
+                throw PlaybackAudioSessionFailure(error)
             }
         }
         do {
             try configurePlaybackSession(session)
             try session.setActive(true)
-            return true
         } catch {
             plog("Failed to activate audio session: \(error)")
-            return false
+            throw PlaybackAudioSessionFailure(error)
         }
     }
 
@@ -179,22 +188,24 @@ final class AudioSessionManager {
             let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
             return AVAudioSession.InterruptionOptions(rawValue: optionsValue).contains(.shouldResume)
         }()
+        let reasonValue = userInfo[AVAudioSessionInterruptionReasonKey] as? UInt
+        let outputTypes = AVAudioSession.sharedInstance().currentRoute.outputs
+            .map { $0.portType.rawValue }.joined(separator: ",")
         let eventTime = Date()
         Task { @MainActor [weak self] in
             guard let self else { return }
             switch type {
             case .began:
-                // Another app took audio focus. Sync UI to paused state.
-                plog("🔇 Audio interruption began")
+                plog("🔇 Audio interruption began reason=\(reasonValue.map(String.init) ?? "nil") outputs=[\(outputTypes)]")
                 self.onInterruptionBegan?(eventTime)
 
             case .ended:
                 // Always forward the ending. The player owns user intent and
                 // generation checks; `.shouldResume` alone is not authorization.
                 if shouldResume {
-                    plog("🔊 Audio interruption ended — shouldResume")
+                    plog("🔊 Audio interruption ended — shouldResume outputs=[\(outputTypes)]")
                 } else {
-                    plog("🔊 Audio interruption ended — should NOT resume")
+                    plog("🔊 Audio interruption ended — should NOT resume outputs=[\(outputTypes)]")
                 }
                 self.onInterruptionEnded?(shouldResume)
 
@@ -222,6 +233,7 @@ final class AudioSessionManager {
     // after the hardware has settled.
     @discardableResult
     func activatePlaybackSession(reacquiringLocalRouteFocus: Bool = false) -> Bool { true }
+    func requirePlaybackSession(reacquiringLocalRouteFocus: Bool = false) throws {}
     func prepareForPlayback() {
         guard !isConfigured else { return }
         isConfigured = true

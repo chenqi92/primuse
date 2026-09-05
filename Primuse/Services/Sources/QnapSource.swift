@@ -380,12 +380,26 @@ func httpMediaResponseLooksLikeErrorBody(_ http: HTTPURLResponse, data: Data) ->
         || contentType.hasPrefix("text/") {
         return true
     }
-    // 无 / 含糊 Content-Type 时按首个非空字节兜底: JSON '{'、HTML '<'。
-    if let first = data.first(where: { $0 != UInt8(ascii: " ") && $0 != UInt8(ascii: "\n")
-        && $0 != UInt8(ascii: "\r") && $0 != UInt8(ascii: "\t") }) {
-        if first == UInt8(ascii: "{") || first == UInt8(ascii: "<") {
-            return true
-        }
+    // A middle Range starts inside encoded audio; '<' and '{' are ordinary
+    // sample bytes there, not document signatures. Range validity is checked
+    // by the caller before any bytes are cached.
+    if http.statusCode == 206,
+       let range = http.value(forHTTPHeaderField: "Content-Range"),
+       range.range(of: #"^bytes\s+[1-9][0-9]*-[0-9]+/[0-9]+$"#,
+                   options: [.regularExpression, .caseInsensitive]) != nil {
+        return false
     }
-    return false
+    // Inspect an actual text prefix instead of a single byte, even when the
+    // server labels its login page as application/octet-stream or audio/*.
+    let bytes = data.prefix(512)
+    // The inspection window can end inside a UTF-8 scalar in a login page.
+    let maximumTrim = data.count > bytes.count ? 3 : 0
+    guard let prefix = (0...maximumTrim).lazy.compactMap({
+              String(data: bytes.dropLast($0), encoding: .utf8)
+          }).first,
+          !prefix.unicodeScalars.contains(where: {
+              $0.value < 0x20 && $0 != "\n" && $0 != "\r" && $0 != "\t"
+          }) else { return false }
+    let text = prefix.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return text.hasPrefix("{") || text.hasPrefix("[") || text.hasPrefix("<")
 }

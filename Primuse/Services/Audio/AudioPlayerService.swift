@@ -1270,12 +1270,16 @@ final class AudioPlayerService {
     }
 
     let playbackSettings: PlaybackSettingsStore
+    @ObservationIgnored private let activateAudioSession: @MainActor (Bool) throws -> Void
 
     init(
         sourceManager: SourceManager? = nil,
         library: MusicLibrary? = nil,
         playbackSettings: PlaybackSettingsStore = PlaybackSettingsStore(),
-        playbackSessionStore: PlaybackSessionStore = PlaybackSessionStore()
+        playbackSessionStore: PlaybackSessionStore = PlaybackSessionStore(),
+        activateAudioSession: @escaping @MainActor (Bool) throws -> Void = {
+            try AudioSessionManager.shared.requirePlaybackSession(reacquiringLocalRouteFocus: $0)
+        }
     ) {
         self.sourceManager = sourceManager
         self.library = library
@@ -1283,6 +1287,7 @@ final class AudioPlayerService {
             ?? ArtistNameConfiguration.load(from: .standard)
         self.playbackSettings = playbackSettings
         self.playbackSessionStore = playbackSessionStore
+        self.activateAudioSession = activateAudioSession
         audioEngine = AudioEngine()
         equalizerService = EqualizerService(audioEngine: audioEngine)
         audioEffectsService = AudioEffectsService(audioEngine: audioEngine, settingsStore: playbackSettings)
@@ -1628,12 +1633,7 @@ final class AudioPlayerService {
     ) async throws -> DSDPlaybackMode {
         let settings = playbackSettings.snapshot()
         let isLocalDSD = url.isFileURL && nativeDecoder.isDSD(url)
-        let sessionActivated = AudioSessionManager.shared.activatePlaybackSession(
-            reacquiringLocalRouteFocus: reacquiringLocalRouteFocus
-        )
-        if reacquiringLocalRouteFocus, !sessionActivated {
-            throw AudioDecoderError.decodingFailed("local audio focus unavailable")
-        }
+        try activateAudioSession(reacquiringLocalRouteFocus)
 
         if isLocalDSD,
            settings.outputMode == .highFidelity,
@@ -2108,19 +2108,21 @@ final class AudioPlayerService {
             // 的 Sendable port-type 快照。当前路由在主 actor 上现取, 避免把
             // AVAudioSessionRouteDescription 捕获进 Task。
             let reasonValue = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
-            let previousRouteWasBluetooth = (
+            let previousOutputs = (
                 note.userInfo?[AVAudioSessionRouteChangePreviousRouteKey]
                     as? AVAudioSessionRouteDescription
-            )?.outputs.contains {
+            )?.outputs ?? []
+            let previousRouteWasBluetooth = previousOutputs.contains {
                 $0.portType == .bluetoothA2DP
                     || $0.portType == .bluetoothHFP
                     || $0.portType == .bluetoothLE
-            } ?? false
-            let previousRouteWasAirPlay = (
-                note.userInfo?[AVAudioSessionRouteChangePreviousRouteKey]
-                    as? AVAudioSessionRouteDescription
-            )?.outputs.contains { $0.portType == .airPlay } ?? false
+            }
+            let previousRouteWasAirPlay = previousOutputs.contains { $0.portType == .airPlay }
             let currentOutputs = AVAudioSession.sharedInstance().currentRoute.outputs
+            let previousOutputTypes = previousOutputs.map { $0.portType.rawValue }.joined(separator: ",")
+            let currentOutputTypes = currentOutputs.map { $0.portType.rawValue }.joined(separator: ",")
+            let previousOutputUIDs = Set(previousOutputs.map(\.uid).filter { !$0.isEmpty })
+            let hasSameOutputDevice = currentOutputs.contains { previousOutputUIDs.contains($0.uid) }
             let currentRouteIsBluetooth = currentOutputs.contains {
                     $0.portType == .bluetoothA2DP
                         || $0.portType == .bluetoothHFP
@@ -2133,7 +2135,10 @@ final class AudioPlayerService {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 let reason = reasonValue.flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
-                plog("🔀 Audio route changed reason=\(String(describing: reason)) raw=\(reasonValue.map(String.init) ?? "nil")")
+                let session = AVAudioSession.sharedInstance()
+                let handlingOutputTypes = session.currentRoute.outputs
+                    .map { $0.portType.rawValue }.joined(separator: ",")
+                plog("🔀 Audio route changed reason=\(String(describing: reason)) raw=\(reasonValue.map(String.init) ?? "nil") previous=[\(previousOutputTypes)] observed=[\(currentOutputTypes)] handling=[\(handlingOutputTypes)] sameOutputDevice=\(hasSameOutputDevice) song=\(self.currentSong?.id ?? "nil") time=\(String(format: "%.3f", self.currentTime)) playing=\(self.isPlaying) loading=\(self.isLoading) intended=\(self.interruptionResumePolicy.playbackIsIntended) awaitingInterruptionEnd=\(self.interruptionResumePolicy.isAwaitingInterruptionEnd) otherAudio=\(session.isOtherAudioPlaying)")
                 let reasonIsOldDeviceUnavailable = reason == .oldDeviceUnavailable
                 if self.recoverLocalAudioFocusAfterAirPlayReturn(
                     previousRouteWasAirPlay: previousRouteWasAirPlay,
@@ -5296,6 +5301,17 @@ final class AudioPlayerService {
             }
         } catch {
             guard !Task.isCancelled, playID == id else { return }
+            if PlaybackPipelineFailurePolicy.action(
+                requestIsCurrent: true,
+                error: error
+            ) == .preserveCurrentItem {
+                plog("⏸️ Playback preparation unavailable; keeping '\(song.title)': \(error)")
+                suspendPlaybackPreservingSelection(
+                    reason: "playback-preparation-unavailable",
+                    resumeTime: currentTime
+                )
+                return
+            }
             plog("⚠️ Playback error for '\(song.title)': \(error.localizedDescription)")
             showPlaybackError(String(localized: "playback_error_decode"))
             isLoading = false
@@ -7458,7 +7474,10 @@ final class AudioPlayerService {
     /// Stops an invalid or security-fenced transport without erasing the
     /// user's selected item or queue. A later Play rebuilds this item (or seeks
     /// back to the preserved position) with a fresh request generation.
-    private func suspendPlaybackPreservingSelection(reason: String) {
+    private func suspendPlaybackPreservingSelection(
+        reason: String,
+        resumeTime: TimeInterval? = nil
+    ) {
         guard currentSong != nil else { return }
         registerPauseOrStopIntent()
         playID = UUID()
@@ -7472,7 +7491,11 @@ final class AudioPlayerService {
             sourceManager?.finalizeStreamingSession(for: currentSong)
         }
         stopTimeUpdater()
-        syncPlaybackProgressFromEngine()
+        if let resumeTime {
+            currentTime = max(0, resumeTime)
+        } else {
+            syncPlaybackProgressFromEngine()
+        }
         pendingRecoveryTime = currentTime
         decodingTask?.cancel()
         decodingTask = nil
@@ -7708,7 +7731,6 @@ final class AudioPlayerService {
         // old timer already enqueued. Invalidate its clock ticket before the
         // visible target or player timeline changes.
         stopTimeUpdater()
-        let previousTime = currentTime
         let requestedTime = TimeInterval.sanitized(time)
         let safeDuration = duration.sanitizedDuration
         let targetTime = safeDuration > 0 ? min(requestedTime, safeDuration) : requestedTime
@@ -8311,6 +8333,13 @@ final class AudioPlayerService {
             } catch {
                 plog("Seek error: \(error)")
                 guard !Task.isCancelled, playID == id else { return }
+                if error is PlaybackAudioSessionFailure {
+                    suspendPlaybackPreservingSelection(
+                        reason: "audio-session-unavailable-during-seek",
+                        resumeTime: targetTime
+                    )
+                    return
+                }
                 let canRestartColdRemoteStream = isRecovery
                     && isColdSessionRestore
                     && sourceManager?.cachedURL(for: song) == nil
@@ -8327,28 +8356,22 @@ final class AudioPlayerService {
                     await play(song: song)
                     return
                 }
+                if !isRecovery {
+                    suspendPlaybackPreservingSelection(
+                        reason: "seek-failed",
+                        resumeTime: targetTime
+                    )
+                    showPlaybackError(String(localized: "playback_error_decode"))
+                    return
+                }
                 isLoading = false
                 isPlaying = false
-                currentTime = previousTime
+                currentTime = targetTime
+                pendingRecoveryTime = targetTime
+                needsPlaybackRecovery = true
+                invalidateAutomaticAdvance(reason: "same-position-recovery-failed")
                 showPlaybackError(String(localized: "playback_error_decode"))
-                updateNowPlayingInfo()
-                updatePlaybackState()
-                if !isRecovery,
-                   shouldStartPlaying,
-                   playbackAdvancePolicy.activeTicket == seekAdvanceTicket,
-                   interruptionResumePolicy.playbackIsIntended,
-                   playbackAdvancePolicy.isGenerationCurrent(for: seekAdvanceTicket) {
-                    // The seek pipeline has already stopped the node. Restart
-                    // predictably from the track beginning instead of leaving
-                    // a play icon/progress position that does not match audio.
-                    await play(song: song)
-                } else if isRecovery {
-                    currentTime = targetTime
-                    pendingRecoveryTime = targetTime
-                    needsPlaybackRecovery = true
-                    invalidateAutomaticAdvance(reason: "same-position-recovery-failed")
-                    republishNowPlayingSurfaces()
-                }
+                republishNowPlayingSurfaces()
             }
         }
     }

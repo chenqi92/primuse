@@ -1,9 +1,179 @@
+import AVFoundation
 import Foundation
 import PrimuseKit
 import XCTest
 @testable import Primuse
 
 final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
+    @MainActor
+    func testFailedUserSeekKeepsRequestedPositionInsteadOfRestartingSong() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let audioURL = directory.appendingPathComponent("seek.wav")
+        try Self.writeSilentAudio(to: audioURL)
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "seek-failure-\(UUID().uuidString)"))
+        let settings = PlaybackSettingsStore(defaults: defaults)
+        let store = PlaybackSessionStore(url: directory.appendingPathComponent("session.json"))
+        var activationCount = 0
+        let player = AudioPlayerService(
+            playbackSettings: settings,
+            playbackSessionStore: store,
+            activateAudioSession: { _ in
+                activationCount += 1
+                if activationCount > 1 { throw AudioDecoderError.seekUnavailable }
+                try AudioSessionManager.shared.requirePlaybackSession()
+            }
+        )
+        let song = Song(
+            id: "seek-fixture",
+            title: "Seek Fixture",
+            duration: 10,
+            fileFormat: .wav,
+            filePath: audioURL.path,
+            sourceID: "local"
+        )
+        player.setQueue([song])
+        await player.play(song: song)
+        XCTAssertTrue(player.isPlaying)
+        XCTAssertEqual(activationCount, 1)
+
+        for (offset, target) in [6.0, 8.0].enumerated() {
+            player.seek(to: target, startPlaying: true)
+            let settled = await waitUntilAsync(timeout: 5) {
+                await MainActor.run { !player.isLoading }
+            }
+            XCTAssertTrue(settled)
+            XCTAssertEqual(player.currentTime, target, accuracy: 0.001)
+            XCTAssertEqual(player.currentSong?.id, song.id)
+            XCTAssertEqual(player.currentIndex, 0)
+            XCTAssertEqual(player.queue.map(\.id), [song.id])
+            XCTAssertFalse(player.isPlaying)
+            XCTAssertEqual(activationCount, offset + 2, "seek failure must not issue a new play request")
+        }
+    }
+
+    private static func writeSilentAudio(to url: URL) throws {
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1))
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 441_000))
+        buffer.frameLength = buffer.frameCapacity
+        let samples = try XCTUnwrap(buffer.floatChannelData?[0])
+        samples.initialize(repeating: 0, count: Int(buffer.frameLength))
+        let file = try AVAudioFile(forWriting: url, settings: format.settings)
+        try file.write(from: buffer)
+    }
+
+    func testMiddleAudioRangeIsNotMistakenForAnErrorPage() throws {
+        let sampleBytes = Data([
+            0x3c, 0x01, 0x8a, 0x11, 0x74, 0x01, 0x8e, 0x07,
+            0xfe, 0x02, 0x48, 0x00, 0x23, 0x00, 0x1f, 0x11,
+        ])
+        for contentType in ["audio/wav", "application/octet-stream", ""] {
+            for firstByte in [UInt8(0x3c), 0x7b] {
+                var body = sampleBytes
+                body[0] = firstByte
+                let response = try XCTUnwrap(HTTPURLResponse(
+                    url: URL(string: "https://media.invalid/song.wav")!,
+                    statusCode: 206,
+                    httpVersion: "HTTP/1.1",
+                    headerFields: [
+                        "Content-Type": contentType,
+                        "Content-Range": "bytes 13631488-13631503/137674442",
+                    ]
+                ))
+                XCTAssertFalse(httpMediaResponseLooksLikeErrorBody(response, data: body))
+            }
+        }
+    }
+
+    func testMediaRangesStillRejectExplicitErrorContentTypes() throws {
+        for contentType in ["text/html", "application/json", "text/plain"] {
+            let response = try XCTUnwrap(HTTPURLResponse(
+                url: URL(string: "https://media.invalid/song.wav")!,
+                statusCode: 206,
+                httpVersion: "HTTP/1.1",
+                headerFields: [
+                    "Content-Type": contentType,
+                    "Content-Range": "bytes 13631488-13631503/137674442",
+                ]
+            ))
+            XCTAssertTrue(httpMediaResponseLooksLikeErrorBody(response, data: Data("login required".utf8)))
+        }
+    }
+
+    func testWholeMediaAndFirstRangeStillRejectDisguisedLoginPages() throws {
+        for status in [200, 206] {
+            let response = try XCTUnwrap(HTTPURLResponse(
+                url: URL(string: "https://media.invalid/song.wav")!,
+                statusCode: status,
+                httpVersion: "HTTP/1.1",
+                headerFields: [
+                    "Content-Type": "application/octet-stream",
+                    "Content-Range": "bytes 0-15/137674442",
+                ]
+            ))
+            for text in [
+                " {\"error\":401}", "<html>Login</html>", "<!DOCTYPE html>",
+                "<html>" + String(repeating: "需登录", count: 100),
+            ] {
+                XCTAssertTrue(httpMediaResponseLooksLikeErrorBody(response, data: Data(text.utf8)))
+            }
+            XCTAssertFalse(httpMediaResponseLooksLikeErrorBody(
+                response,
+                data: Data([0x3c, 0x01, 0x8a, 0x11])
+            ))
+        }
+    }
+
+    @MainActor
+    func testUnavailableAudioSessionPreservesQueueAndAllowsSameSongRetry() async throws {
+        let directory = try makeTemporaryDirectory()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "audio-session-\(UUID().uuidString)"))
+        let settings = PlaybackSettingsStore(defaults: defaults)
+        let store = PlaybackSessionStore(url: directory.appendingPathComponent("session.json"))
+        let seekActivation = expectation(description: "seek attempted audio activation")
+        var activationCount = 0
+        let player = AudioPlayerService(
+            playbackSettings: settings,
+            playbackSessionStore: store,
+            activateAudioSession: { _ in
+                activationCount += 1
+                if activationCount == 3 { seekActivation.fulfill() }
+                throw PlaybackAudioSessionFailure(NSError(
+                    domain: NSOSStatusErrorDomain,
+                    code: 560557684
+                ))
+            }
+        )
+        let songs = ["first", "second"].map {
+            Song(
+                id: $0,
+                title: $0,
+                duration: 100,
+                fileFormat: .flac,
+                filePath: "http://127.0.0.1/\($0).flac",
+                sourceID: "audio-session-fixture"
+            )
+        }
+        player.setQueue(songs)
+        for attempt in 1...2 {
+            await player.play(song: songs[0])
+            XCTAssertEqual(activationCount, attempt)
+            XCTAssertEqual(player.currentSong?.id, songs[0].id)
+            XCTAssertEqual(player.currentIndex, 0)
+            XCTAssertEqual(player.queue.map(\.id), songs.map(\.id))
+            XCTAssertFalse(player.isPlaying)
+            XCTAssertFalse(player.isLoading)
+        }
+        player.seek(to: 42, startPlaying: false)
+        await fulfillment(of: [seekActivation], timeout: 5)
+        XCTAssertEqual(player.currentTime, 42)
+        XCTAssertEqual(player.currentSong?.id, songs[0].id)
+        XCTAssertEqual(player.currentIndex, 0)
+        XCTAssertEqual(player.queue.map(\.id), songs.map(\.id))
+        XCTAssertFalse(player.isPlaying)
+        XCTAssertFalse(player.isLoading)
+    }
+
     func testFirstChunkCanRegisterTrailingFillWithoutDeadlocking() async throws {
         let sourceID = "cloud-trailing-first-chunk-\(UUID().uuidString)"
         let directory = try makeTemporaryDirectory()
