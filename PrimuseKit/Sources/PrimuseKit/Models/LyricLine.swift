@@ -756,6 +756,18 @@ extension LyricLine: Codable {
             [LyricManualTranslation].self,
             forKey: .alternateManualTranslations
         ) ?? []
+
+        // Older parsers cached square-bracket word lyrics as unsynchronized
+        // source text. Recover only that lossless shape, retaining row identity
+        // and authored metadata across every cache reader.
+        if timestamp == 0, !isSynchronized, syllables?.isEmpty != false,
+           LyricsContentParser.squareWordTimestampIssue(text) == nil,
+           let recovered = LyricsContentParser.parseSquareWordLevelLine(text) {
+            timestamp = recovered.timestamp
+            text = recovered.text
+            isSynchronized = true
+            syllables = recovered.syllables
+        }
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -802,6 +814,11 @@ public enum LyricsFormat: String, Codable, Sendable, CaseIterable {
             return .wordLevel
         }
         if content.range(of: #"<\d+,\d+(,\d+)?>"#, options: .regularExpression) != nil {
+            return .wordLevel
+        }
+        if content.components(separatedBy: .newlines).contains(where: {
+            LyricsContentParser.usesSquareWordTimestamps($0)
+        }) {
             return .wordLevel
         }
         if content.range(of: #"\[\d+:\d+(?:[.:]\d+)?\]"#, options: .regularExpression) != nil {
@@ -969,6 +986,12 @@ public enum LyricsContentParser {
                 continue
             }
 
+            if let parsed = parseSquareWordLevelLine(raw) {
+                isLeadingMetadataRegion = false
+                lines.append(parsed)
+                continue
+            }
+
             let heads = raw.matches(of: lineHeadPattern)
             if heads.isEmpty {
                 guard let head = raw.firstMatch(of: relativeLineHeadPattern) else { continue }
@@ -1027,6 +1050,50 @@ public enum LyricsContentParser {
 
     public static func isTTML(_ content: String) -> Bool {
         TTMLLyricsParser.looksLikeTTML(content)
+    }
+
+    fileprivate static func usesSquareWordTimestamps(_ raw: String) -> Bool {
+        let marks = raw.matches(of: lineHeadPattern)
+        guard let first = marks.first,
+              raw[..<first.range.lowerBound].allSatisfy({
+                  $0.isWhitespace || $0 == "\u{FEFF}"
+              }) else { return false }
+        // Adjacent timestamps repeat a whole LRC line; text between them
+        // instead identifies word starts, including a final end-only marker.
+        return zip(marks, marks.dropFirst()).contains { left, right in
+            !raw[left.range.upperBound..<right.range.lowerBound].allSatisfy(\.isWhitespace)
+        }
+    }
+
+    fileprivate static func parseSquareWordLevelLine(_ raw: String) -> LyricLine? {
+        guard usesSquareWordTimestamps(raw),
+              let first = raw.firstMatch(of: lineHeadPattern),
+              let lineStart = parseTimestamp(min: first.1, sec: first.2, frac: first.3) else {
+            return nil
+        }
+        return parseWordLevelLine(
+            body: raw,
+            lineStart: lineStart,
+            lineFractionDigits: first.3?.count,
+            squareBrackets: true
+        )
+    }
+
+    fileprivate static func squareWordTimestampIssue(_ raw: String) -> LyricsValidationIssueKind? {
+        let marks = raw.matches(of: lineHeadPattern)
+        var previousStart: TimeInterval = 0
+        for mark in marks {
+            guard let start = parseEnhancedWordTimestamp(
+                min: mark.1,
+                sec: mark.2,
+                frac: mark.3,
+                lineFractionDigits: marks.first?.3?.count,
+                previousStart: previousStart
+            ) else { return .invalidWordTimestamp }
+            if start < previousStart { return .nonMonotonicTimestamp }
+            previousStart = start
+        }
+        return nil
     }
 
     public static func parseText(
@@ -1143,8 +1210,10 @@ public enum LyricsContentParser {
 
             let looksTimed = trimmed.hasPrefix("[")
                 && trimmed.dropFirst().first?.isNumber == true
-            let containsWordDelimiters = (trimmed.contains("<") || trimmed.contains(">"))
-                && (looksTimed || format == .wordLevel)
+            let squareWords = usesSquareWordTimestamps(raw)
+            let containsWordDelimiters = squareWords
+                || ((trimmed.contains("<") || trimmed.contains(">"))
+                    && (looksTimed || format == .wordLevel))
             guard looksTimed || containsWordDelimiters else { continue }
 
             let parsed = parse(raw)
@@ -1164,8 +1233,15 @@ public enum LyricsContentParser {
                parsed.contains(where: { !$0.isWordLevel }) {
                 issues.append(.init(lineNumber: offset + 1, kind: .invalidWordTimestamp))
             }
+            if squareWords, let issue = squareWordTimestampIssue(raw) {
+                issues.append(.init(lineNumber: offset + 1, kind: issue))
+            }
 
             for line in parsed {
+                if let words = line.syllables,
+                   zip(words, words.dropFirst()).contains(where: { $0.start > $1.start }) {
+                    issues.append(.init(lineNumber: offset + 1, kind: .nonMonotonicTimestamp))
+                }
                 if let previousTimestamp, line.timestamp < previousTimestamp {
                     issues.append(.init(lineNumber: offset + 1, kind: .nonMonotonicTimestamp))
                     break
@@ -1291,6 +1367,16 @@ public enum LyricsContentParser {
                 continue
             }
 
+            if usesSquareWordTimestamps(raw) {
+                isLeadingMetadataRegion = false
+                guard parseSquareWordLevelLine(raw) != nil,
+                      squareWordTimestampIssue(raw) == nil else {
+                    return false
+                }
+                representedLineCount += 1
+                continue
+            }
+
             let absoluteHeads = raw.matches(of: lineHeadPattern)
             if !absoluteHeads.isEmpty {
                 isLeadingMetadataRegion = false
@@ -1388,9 +1474,10 @@ public enum LyricsContentParser {
     private static func parseWordLevelLine(
         body: String,
         lineStart: TimeInterval,
-        lineFractionDigits: Int?
+        lineFractionDigits: Int?,
+        squareBrackets: Bool = false
     ) -> LyricLine? {
-        let marks = body.matches(of: inlineWordPattern)
+        let marks = body.matches(of: squareBrackets ? lineHeadPattern : inlineWordPattern)
         guard !marks.isEmpty else {
             return parseRelativeWordLevelLine(body: body, lineStart: lineStart)
         }
@@ -1410,7 +1497,7 @@ public enum LyricsContentParser {
             let textStart = mark.range.upperBound
             let textEnd = index + 1 < marks.count ? marks[index + 1].range.lowerBound : body.endIndex
             let chunk = String(body[textStart..<textEnd])
-            if chunk.isEmpty {
+            if chunk.isEmpty || (index == marks.count - 1 && chunk.allSatisfy(\.isWhitespace)) {
                 if let last = syllables.last {
                     syllables[syllables.count - 1] = LyricSyllable(
                         text: last.text,

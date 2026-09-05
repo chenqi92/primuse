@@ -4,6 +4,183 @@ import Testing
 
 @Suite("Lyrics content parser")
 struct LyricsContentParserTests {
+    @Test("Square word timestamps preserve text and explicit endings", arguments: [
+        "[00:01.000]你[00:01.500]好[00:02.000]",
+        "[00:01.00]你[00:01.50]好[00:02.00]",
+        "[00:01:000]你[00:01:500]好[00:02:000]",
+        "[00:01]你[00:01.5]好[00:02]",
+        "\u{FEFF} [00:01.000]你[00:01.500]好[00:02.000]  ",
+    ])
+    func parsesSquareWordTimestamps(_ content: String) throws {
+        let lines = LyricsContentParser.parseText(content)
+        let line = try #require(lines.first)
+        let words = try #require(line.syllables)
+
+        #expect(lines.count == 1)
+        #expect(LyricsFormat.detect(content) == .wordLevel)
+        #expect(line.isSynchronized)
+        #expect(line.timestamp == 1)
+        #expect(line.text == "你好")
+        #expect(words.map(\.text) == ["你", "好"])
+        #expect(words.map(\.start) == [1, 1.5])
+        #expect(words.map(\.end) == [1.5, 2])
+        #expect(words.map(\.endTiming) == [.inferred, .explicit])
+        #expect(LyricsContentParser.validateEditableText(content).isValid)
+    }
+
+    @Test("Square words without a terminal timestamp keep the final word")
+    func parsesSquareWordsWithoutEnd() throws {
+        let content = "[00:01.000]Hello [00:01.500]world!"
+        let lines = LyricsContentParser.parse(content)
+        let words = try #require(lines.first?.syllables)
+
+        #expect(lines.count == 1)
+        #expect(lines[0].text == "Hello world!")
+        #expect(words.map(\.text) == ["Hello ", "world!"])
+        #expect(words.last?.start == 1.5)
+        #expect(words.last?.end == 1.9)
+        #expect(words.last?.endTiming == .inferred)
+    }
+
+    @Test("Repeated LRC heads remain separate line timings", arguments: [
+        "[00:01.000][00:03.000]你好",
+        "[00:01.000] [00:03.000]你好",
+    ])
+    func preservesRepeatedLRCHeads(_ content: String) {
+        let lines = LyricsContentParser.parse(content)
+        #expect(LyricsFormat.detect(content) == .lineLevel)
+        #expect(lines.map(\.timestamp) == [1, 3])
+        #expect(lines.map(\.text) == ["你好", "你好"])
+        #expect(lines.allSatisfy { $0.isSynchronized && !$0.isWordLevel })
+    }
+
+    @Test("Mixed LRC, square words, ELRC and relative words retain every row")
+    func parsesMixedWordTimestampFormats() throws {
+        let content = """
+        [ar:Artist]
+        [00:00.000]说明
+        [00:01.000]你[00:01.500]好[00:02.000]
+        [00:03.000]<00:03.000>再<00:03.500>见<00:04.000>
+        [5000,1000]<0,500,0>Hello <500,500,0>world
+        """.replacingOccurrences(of: "\n", with: "\r\n")
+        let lines = LyricsContentParser.parse(content)
+
+        #expect(lines.map(\.text) == ["说明", "你好", "再见", "Hello world"])
+        #expect(lines.map(\.timestamp) == [0, 1, 3, 5])
+        #expect(lines.map(\.isWordLevel) == [false, true, true, true])
+        #expect(lines.first?.metadataLines?.filter { !$0.isEmpty } == ["[ar:Artist]"])
+    }
+
+    @Test("Square lyrics save as ELRC without losing text, rows or end timings")
+    func roundTripsSquareWordTimestamps() {
+        let content = """
+        [ar:Artist]
+        [00:01.000]你[00:01.500]好[00:02.000]
+        [00:03.000]再[00:03.500]见[00:04.000]
+        """
+        let canonical = LyricsContentParser.serialize(LyricsContentParser.parse(content))
+        #expect(LyricsContentParser.areContentsSemanticallyEquivalent(content, canonical))
+        #expect(!LyricsContentParser.areContentsSemanticallyEquivalent(
+            content, canonical.replacingOccurrences(of: "你", with: "他")
+        ))
+        #expect(!LyricsContentParser.areContentsSemanticallyEquivalent(
+            content, canonical.replacingOccurrences(of: "<00:02.000>", with: "<00:02.100>")
+        ))
+        #expect(!LyricsContentParser.areContentsSemanticallyEquivalent(
+            content, canonical.components(separatedBy: "\n").dropLast().joined(separator: "\n")
+        ))
+    }
+
+    @Test("Square timing preserves delayed starts, single tokens and literal brackets")
+    func preservesSquareTimingBoundaries() throws {
+        let delayed = try #require(LyricsContentParser.parse(
+            "[00:00.000][00:01.000]你[00:01.500]好[00:02.000]"
+        ).first)
+        #expect(delayed.timestamp == 0)
+        #expect(delayed.syllables?.map(\.start) == [1, 1.5])
+
+        let single = try #require(LyricsContentParser.parse(
+            "[00:01.000]Hello [chorus]![00:02.000]"
+        ).first)
+        #expect(single.text == "Hello [chorus]!")
+        #expect(single.syllables?.count == 1)
+        #expect(single.syllables?.last?.end == 2)
+        #expect(single.syllables?.last?.endTiming == .explicit)
+    }
+
+    @Test("Square timing rejects invalid words and decreasing terminal timestamps", arguments: [
+        "[00:01.000]你[00:99.000]好[00:02.000]",
+        "[00:02.000]你[00:01.500]好[00:03.000]",
+        "[00:01.000]你[00:02.000]好[00:01.500]",
+    ])
+    func validatesSquareTimingFailures(_ content: String) {
+        let validation = LyricsContentParser.validateEditableText(content)
+        #expect(!validation.isValid)
+        #expect(validation.issues.allSatisfy { $0.lineNumber == 1 })
+        #expect(!LyricsContentParser.areContentsSemanticallyEquivalent(
+            content, LyricsContentParser.serialize(LyricsContentParser.parse(content))
+        ))
+    }
+
+    @Test("Square timing retains the existing centisecond carry compatibility")
+    func parsesSquareCentisecondCarry() throws {
+        let line = try #require(LyricsContentParser.parse(
+            "[00:01.90]你[00:01.92]好[00:01.100]"
+        ).first)
+        #expect(line.syllables?.map(\.start) == [1.9, 1.92])
+        #expect(line.syllables?.last?.end == 2)
+    }
+
+    @Test("Cached square source text recovers timing without losing authored fields")
+    func recoversLegacySquareWordCache() throws {
+        let original = LyricLine(
+            id: "cached-row",
+            timestamp: 0,
+            text: "[00:01.000]你[00:01.500]好[00:02.000]",
+            isSynchronized: false,
+            voice: .secondary,
+            metadataLines: ["[ar:Artist]"],
+            languageCode: "zh-Hans",
+            documentIsLocalOverride: true,
+            manualTranslation: .init(text: "Hello", languageCode: "en", source: .localEditor),
+            alternateManualTranslations: [
+                .init(text: "Bonjour", languageCode: "fr", source: .embeddedField),
+            ]
+        )
+        let recovered = try JSONDecoder().decode(
+            LyricLine.self, from: JSONEncoder().encode(original)
+        )
+        #expect(recovered.id == original.id)
+        #expect(recovered.timestamp == 1)
+        #expect(recovered.text == "你好")
+        #expect(recovered.isSynchronized && recovered.isWordLevel)
+        #expect(recovered.syllables?.last?.end == 2)
+        #expect(recovered.voice == original.voice)
+        #expect(recovered.metadataLines == original.metadataLines)
+        #expect(recovered.languageCode == original.languageCode)
+        #expect(recovered.documentIsLocalOverride == original.documentIsLocalOverride)
+        #expect(recovered.manualTranslation == original.manualTranslation)
+        #expect(recovered.alternateManualTranslations == original.alternateManualTranslations)
+        let reread = try JSONDecoder().decode(
+            LyricLine.self, from: JSONEncoder().encode(recovered)
+        )
+        #expect(reread == recovered)
+    }
+
+    @Test("Ordinary and damaged cached lyrics remain unchanged")
+    func preservesUnrelatedCachedLyrics() throws {
+        let originals = [
+            LyricLine(timestamp: 0, text: "普通歌词", isSynchronized: false),
+            LyricLine(timestamp: 0, text: "[00:01.000][00:03.000]重复", isSynchronized: false),
+            LyricLine(timestamp: 0, text: "[00:02.000]你[00:01.000]好", isSynchronized: false),
+            LyricLine(timestamp: 1, text: "[00:01.000]你[00:02.000]好", isSynchronized: true),
+        ] + LyricsContentParser.parse("[00:01.000]<00:01.000>你好<00:02.000>")
+        let recovered = try JSONDecoder().decode(
+            [LyricLine].self, from: JSONEncoder().encode(originals)
+        )
+        #expect(recovered == originals)
+    }
+
     private var screenshotStyle41LineLRC: String {
         let visibleLines = [
             "[00:00.00]作词：彭锋",
