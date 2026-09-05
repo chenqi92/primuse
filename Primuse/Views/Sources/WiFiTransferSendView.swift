@@ -5,6 +5,7 @@ import PrimuseKit
 
 @MainActor @Observable
 final class WiFiTransferSender {
+    let libraryTree = TransferLibraryTreeModel()
     private(set) var selection: WiFiTransferSelection?
     private(set) var excluded: Set<String> = []
     private(set) var busy = false
@@ -286,7 +287,8 @@ struct WiFiTransferSendView: View {
                 fileActions
             }
             WiFiTransferLibraryTree(selected: Binding(get: { sender.selectedSongIDs },
-                                                       set: { if !sender.busy { sender.selectedSongIDs = $0 } }))
+                                                       set: { if !sender.busy { sender.selectedSongIDs = $0 } }),
+                                    model: sender.libraryTree)
                 .disabled(sender.busy)
                 .frame(maxHeight: .infinity)
                 .dropDestination(for: URL.self) { urls, _ in

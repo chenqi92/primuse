@@ -174,7 +174,7 @@ struct WiFiTransferView: View {
         .labelsHidden()
         #if os(macOS)
         .controlSize(.regular)
-        .frame(width: 316)
+        .fixedSize(horizontal: true, vertical: false)
         #endif
         .padding(.horizontal, 22).padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
