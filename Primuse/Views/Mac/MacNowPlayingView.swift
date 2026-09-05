@@ -546,14 +546,7 @@ struct MacNowPlayingView: View {
                     .aspectRatio(1, contentMode: .fit)
                     .frame(width: coverSize, height: coverSize)
                 } else {
-                    RoundedRectangle(cornerRadius: coverRadius)
-                        .fill(.quaternary)
-                        .frame(width: coverSize, height: coverSize)
-                        .overlay {
-                            Image(systemName: "music.note")
-                                .font(.system(size: 80))
-                                .foregroundStyle(.tertiary)
-                        }
+                    CoverArtView(data: nil, size: coverSize, cornerRadius: coverRadius)
                 }
             }
             .frame(width: coverSize, height: mediaHeight)

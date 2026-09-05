@@ -126,13 +126,7 @@ struct MacBottomBar: View {
                     fileFormat: song.fileFormat
                 )
             } else {
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(PMColor.card)
-                    .frame(width: 48, height: 48)
-                    .overlay {
-                        Image(systemName: "music.note")
-                            .foregroundStyle(PMColor.textFaint)
-                    }
+                CoverArtView(data: nil, size: 48, cornerRadius: 5)
             }
         }
         .help(Text(isExpanded ? "close" : "now_playing"))

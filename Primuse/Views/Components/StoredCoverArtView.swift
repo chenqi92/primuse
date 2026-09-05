@@ -93,6 +93,9 @@ struct PlaylistArtworkView: View {
     @State private var resource: PlaylistArtworkResource?
     @State private var frameworkFallbackResource: PlaylistArtworkResource?
     @State private var uploadedImage: PlatformImage?
+    #if os(macOS)
+    @State private var artworkLoadingRequest: UUID?
+    #endif
     @State private var resolvedPlanSignature: String?
     @State private var reloadRevision = 0
 
@@ -131,6 +134,13 @@ struct PlaylistArtworkView: View {
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .task(id: loadRevisionIdentity) {
+            #if os(macOS)
+            let request = UUID()
+            artworkLoadingRequest = request
+            defer {
+                if artworkLoadingRequest == request { artworkLoadingRequest = nil }
+            }
+            #endif
             let identity = loadRevisionIdentity
             let playlistSnapshot = currentPlaylist
             let currentSongs = songs
@@ -243,7 +253,20 @@ struct PlaylistArtworkView: View {
         }
     }
 
+    @ViewBuilder
     private var placeholder: some View {
+        #if os(macOS)
+        if placeholderIcon == "music.note.list" {
+            MacDefaultArtwork(isLoading: artworkLoadingRequest != nil)
+        } else {
+            symbolicPlaceholder
+        }
+        #else
+        symbolicPlaceholder
+        #endif
+    }
+
+    private var symbolicPlaceholder: some View {
         ZStack {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(

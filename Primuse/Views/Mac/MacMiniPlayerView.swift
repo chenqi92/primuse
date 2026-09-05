@@ -202,14 +202,7 @@ struct MacMiniPlayerView: View {
                     fileFormat: song.fileFormat
                 )
             } else {
-                RoundedRectangle(cornerRadius: cornerRadius)
-                    .fill(PMColor.text.opacity(0.10))
-                    .frame(width: coverSize, height: coverSize)
-                    .overlay {
-                        Image(systemName: "music.note")
-                            .font(.system(size: bottomMode == .none ? 24 : 30))
-                            .foregroundStyle(PMColor.textFaint)
-                    }
+                CoverArtView(data: nil, size: coverSize, cornerRadius: cornerRadius)
             }
         }
         .frame(maxWidth: .infinity)

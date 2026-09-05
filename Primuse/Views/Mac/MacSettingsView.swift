@@ -11,7 +11,7 @@ import PrimuseKit
 /// system as the design instead of embedding the older grouped Forms.
 enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
     case playback, storage, equalizer, effects, keyboard, theme
-    case scrape, artists, lyrics, appleMusic, intelligence, widgets, cloud, deleted, ssl, about, siri
+    case scrape, artists, lyrics, appleMusic, intelligence, widgets, cloud, deleted, ssl, siri, about
 
     var id: String { rawValue }
 
@@ -87,19 +87,28 @@ enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
 final class MacSettingsNavigationModel {
     var tab: MacSettingsTab = .playback
     var settingID: String?
+    var showsCacheSync = false
     var revision = UUID()
 
     func select(tab: MacSettingsTab) {
+        showsCacheSync = false
         self.tab = tab
         settingID = nil
         revision = UUID()
     }
 
     func select(item: SettingDefinition) {
+        if item.page == .cacheSync {
+            settingID = nil
+            showsCacheSync = true
+            revision = UUID()
+            return
+        }
         guard let tab = item.page?.macTab else { return }
+        showsCacheSync = false
         self.tab = tab
         settingID = item.isPage ? nil : item.id
-        if item.page == .transcription || item.page == .cacheSync { settingID = item.id }
+        if item.page == .transcription { settingID = item.id }
         revision = UUID()
     }
 }
@@ -108,7 +117,7 @@ extension SettingsPage {
     var macTab: MacSettingsTab? {
         switch self {
         case .playback: .playback
-        case .storage, .cacheSync: .storage
+        case .storage: .storage
         case .equalizer: .equalizer
         case .effects: .effects
         case .keyboard: .keyboard
@@ -195,6 +204,10 @@ struct MacSettingsView: View {
             showingSearchResults = !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         .onChange(of: navigation.revision) { _, _ in showingSearchResults = false }
+        .sheet(isPresented: Binding(
+            get: { navigation.showsCacheSync },
+            set: { navigation.showsCacheSync = $0 }
+        )) { MacAudioCacheSyncView() }
     }
 
     private var settingsTitleBar: some View {
@@ -351,7 +364,7 @@ struct MacSettingsView: View {
         case .playback:
             MacSTPlaybackView()
         case .storage:
-            MacSTStorageView(opensCacheSync: navigation.settingID.flatMap { SettingsCatalog.byID[$0] }?.page == .cacheSync)
+            MacSTStorageView()
         case .equalizer:
             MacSTEqualizerView()
         case .effects:
@@ -389,8 +402,6 @@ struct MacSettingsView: View {
 // MARK: - ST-16 Storage
 
 private struct MacSTStorageView: View {
-    var opensCacheSync = false
-    @State private var showsCacheSync = false
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
     @Environment(SourceManager.self) private var sourceManager
 
@@ -398,17 +409,6 @@ private struct MacSTStorageView: View {
         @Bindable var settings = playbackSettings
 
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Spacer()
-                Button {
-                    showsCacheSync = true
-                } label: {
-                    Label(CacheSyncLocalization.text("cache_sync_title"), systemImage: "arrow.left.arrow.right")
-                }
-                .buttonStyle(TransferButtonStyle())
-                .accessibilityIdentifier("storage.cacheSync")
-            }
-            .padding(.bottom, 18)
             MacSTSection(String(localized: "cache")) {
                 MacSTGroup {
                     MacSTRow(
@@ -434,8 +434,6 @@ private struct MacSTStorageView: View {
                 }
             }
         }
-        .sheet(isPresented: $showsCacheSync) { MacAudioCacheSyncView() }
-        .onAppear { if opensCacheSync { showsCacheSync = true } }
     }
 
     private func audioCacheLimitLabel(_ bytes: Int64) -> String {

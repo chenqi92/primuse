@@ -550,6 +550,9 @@ struct ImmersiveArtworkFallback: View {
     var palette: ImmersiveArtworkPalette = .fallback
 
     var body: some View {
+        #if os(macOS)
+        MacDefaultArtwork()
+        #else
         ZStack {
             LinearGradient(
                 colors: [palette.primary.opacity(0.72), palette.secondary.opacity(0.92)],
@@ -561,6 +564,7 @@ struct ImmersiveArtworkFallback: View {
                 .foregroundStyle(.white.opacity(0.72))
                 .symbolRenderingMode(.hierarchical)
         }
+        #endif
     }
 }
 

@@ -282,6 +282,10 @@ struct MacSidebar: View {
         VStack(alignment: .leading, spacing: 1) {
             sectionHeader("mac_sidebar_tools")
 
+            toolItem(.cacheSync, icon: "externaldrive.badge.wifi",
+                     title: CacheSyncLocalization.text("cache_sync_title"))
+            toolItem(.deviceTransfer, icon: "arrow.left.arrow.right",
+                     title: WiFiTransferText.string("nativeTitle"))
             toolItem(.lyricsConverter, icon: "arrow.left.arrow.right",
                      title: String(localized: "lyrics_converter_title"))
             toolItem(.duplicates, icon: "arrow.triangle.2.circlepath",

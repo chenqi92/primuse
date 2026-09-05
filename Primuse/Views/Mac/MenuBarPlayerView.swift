@@ -126,14 +126,7 @@ struct MenuBarPlayerView: View {
                     fileFormat: song.fileFormat
                 )
             } else {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(PMColor.card)
-                    .frame(width: 64, height: 64)
-                    .overlay {
-                        Image(systemName: "music.note")
-                            .font(.system(size: 22))
-                            .foregroundStyle(PMColor.textFaint)
-                    }
+                CoverArtView(data: nil, size: 64, cornerRadius: 8)
             }
         }
         .shadow(color: .black.opacity(0.20), radius: 6, y: 3)

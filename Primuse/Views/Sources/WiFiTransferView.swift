@@ -69,18 +69,7 @@ struct WiFiTransferView: View {
             #if os(macOS)
             header
             #endif
-            modeSelector
-                .alert(WiFiTransferText.string(closeAfterStopping ? "closeTransferTitle" : "stopReceiveTitle"),
-                       isPresented: $showStopConfirmation) {
-                    Button(WiFiTransferText.string(closeAfterStopping ? "stopAndClose" : "stopReceiving"), role: .destructive) {
-                        if closeAfterStopping { finishAndClose() } else { receiver.stop() }
-                    }
-                    Button(WiFiTransferText.string("keepTransferring"), role: .cancel) {}
-                } message: {
-                    Text(WiFiTransferText.string(sender.busy ? "closeSenderHint" : "closeReceiverHint"))
-                }
-            if mode == "send" { WiFiTransferSendView(sender: sender) }
-            else { receiveForm }
+            transferWorkspace
         }
         .background(TransferAppearance.background)
         .foregroundStyle(TransferAppearance.text)
@@ -94,7 +83,7 @@ struct WiFiTransferView: View {
             }
         }
         #else
-        .frame(width: 820, height: 620)
+        .frame(width: 980, height: 640)
         #endif
         .interactiveDismissDisabled()
         .alert(WiFiTransferText.string("requestTitle"), isPresented: Binding(
@@ -126,7 +115,75 @@ struct WiFiTransferView: View {
         }
     }
 
+    private var transferWorkspace: some View {
+        Group {
+            #if os(macOS)
+            HStack(spacing: 0) {
+                modeNavigation
+                Divider()
+                transferContent
+            }
+            #else
+            VStack(spacing: 0) {
+                modeSelector
+                transferContent
+            }
+            #endif
+        }
+        .alert(WiFiTransferText.string(closeAfterStopping ? "closeTransferTitle" : "stopReceiveTitle"),
+               isPresented: $showStopConfirmation) {
+            Button(WiFiTransferText.string(closeAfterStopping ? "stopAndClose" : "stopReceiving"), role: .destructive) {
+                if closeAfterStopping { finishAndClose() } else { receiver.stop() }
+            }
+            Button(WiFiTransferText.string("keepTransferring"), role: .cancel) {}
+        } message: {
+            Text(WiFiTransferText.string(sender.busy ? "closeSenderHint" : "closeReceiverHint"))
+        }
+    }
+
+    @ViewBuilder
+    private var transferContent: some View {
+        if mode == "send" { WiFiTransferSendView(sender: sender) }
+        else { receiveForm }
+    }
+
     #if os(macOS)
+    private var modeNavigation: some View {
+        VStack(spacing: 6) {
+            modeButton("send", icon: "arrow.up.right")
+            modeButton("receive", icon: "arrow.down.left")
+            Spacer()
+        }
+        .padding(12)
+        .frame(width: 164)
+        .background(PMColor.bgElev)
+        .accessibilityIdentifier("wifiTransfer.mode")
+        .disabled(receiver.running || sender.busy)
+    }
+
+    private func modeButton(_ value: String, icon: String) -> some View {
+        Button { mode = value } label: {
+            HStack(spacing: 9) {
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .medium))
+                    .frame(width: 18)
+                Text(WiFiTransferText.string(value))
+                    .font(.system(size: 12.5, weight: mode == value ? .semibold : .medium))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(mode == value ? PMColor.brand : PMColor.textMuted)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 12)
+            .background(mode == value ? PMColor.brand.opacity(0.12) : .clear,
+                        in: .rect(cornerRadius: 8))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(mode == value ? .isSelected : [])
+        .accessibilityIdentifier("wifiTransfer.mode.\(value)")
+    }
+
     private var header: some View {
         HStack(spacing: 12) {
             Image(systemName: "arrow.left.arrow.right")

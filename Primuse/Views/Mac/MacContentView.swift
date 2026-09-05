@@ -311,6 +311,8 @@ struct MacContentView: View {
             ScrobbleSettingsView()
         case .cacheSync:
             MacAudioCacheSyncView()
+        case .deviceTransfer:
+            WiFiTransferView()
         }
     }
 

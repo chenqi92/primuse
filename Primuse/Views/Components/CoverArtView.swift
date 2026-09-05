@@ -12,6 +12,9 @@ struct CoverArtView: View {
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             } else {
+                #if os(macOS)
+                MacDefaultArtwork()
+                #else
                 ZStack {
                     RoundedRectangle(cornerRadius: cornerRadius)
                         .fill(.ultraThinMaterial)
@@ -19,6 +22,7 @@ struct CoverArtView: View {
                         .font(.system(size: size * 0.4))
                         .foregroundStyle(.secondary)
                 }
+                #endif
             }
         }
         .frame(width: size, height: size)
@@ -34,3 +38,40 @@ struct CoverArtView: View {
     }
     .padding()
 }
+
+#if os(macOS)
+struct MacDefaultArtwork: View {
+    var isLoading = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Image("AppIconPreview")
+            .renderingMode(.original)
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fill)
+            .overlay(alignment: .bottom) {
+                GeometryReader { geometry in
+                    let side = min(geometry.size.width, geometry.size.height)
+                    if isLoading, side >= 120 {
+                        VStack {
+                            Spacer()
+                            HStack(spacing: 6) {
+                                Text("app_name")
+                                    .font(.system(size: min(max(side * 0.055, 10), 20), weight: .medium))
+                                if !reduceMotion {
+                                    ProgressView()
+                                        .controlSize(.mini)
+                                }
+                            }
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.bottom, side * 0.07)
+                        }
+                    }
+                }
+            }
+            .accessibilityHidden(true)
+    }
+}
+#endif

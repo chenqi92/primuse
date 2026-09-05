@@ -11,6 +11,9 @@ struct ArtworkView: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
             } else {
+                #if os(macOS)
+                MacDefaultArtwork()
+                #else
                 ZStack {
                     RoundedRectangle(cornerRadius: cornerRadius)
                         .fill(.ultraThinMaterial)
@@ -18,6 +21,7 @@ struct ArtworkView: View {
                         .font(.system(size: 60))
                         .foregroundStyle(.secondary)
                 }
+                #endif
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))

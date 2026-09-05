@@ -79,6 +79,10 @@ struct CachedArtworkView: View {
     @State private var animatedArtworkGeneration: String?
     @State private var resolvedAppleMusicArtwork: MusicKit.Artwork?
     @State private var resolvedAppleMusicArtworkID: String?
+    #if os(macOS)
+    @State private var imageLoadingRequest: UUID?
+    @State private var musicKitLoadingRequest: UUID?
+    #endif
     @State private var loadedIdentity: String?
     @State private var displayedArtworkIdentity: String?
     @State private var cacheInvalidationRevision = 0
@@ -456,6 +460,9 @@ struct CachedArtworkView: View {
     }
 
     private func resolveAppleMusicArtwork(for identity: String) async {
+        #if os(macOS)
+        musicKitLoadingRequest = nil
+        #endif
         guard !identity.isEmpty else {
             resolvedAppleMusicArtwork = nil
             resolvedAppleMusicArtworkID = nil
@@ -474,6 +481,13 @@ struct CachedArtworkView: View {
             resolvedAppleMusicArtwork = nil
             resolvedAppleMusicArtworkID = nil
         }
+        #if os(macOS)
+        let request = UUID()
+        musicKitLoadingRequest = request
+        defer {
+            if musicKitLoadingRequest == request { musicKitLoadingRequest = nil }
+        }
+        #endif
         let resolved = await AppServices.shared.appleMusicLibrary.musicKitSong(amID: identity)?.artwork
         guard !Task.isCancelled, appleMusicArtworkIdentity == identity else { return }
         resolvedAppleMusicArtwork = resolved
@@ -481,7 +495,21 @@ struct CachedArtworkView: View {
         onResolutionChange(resolved != nil)
     }
 
+    @ViewBuilder
     private var placeholderView: some View {
+        #if os(macOS)
+        if placeholderIcon == "music.note" || placeholderIcon == "square.stack" {
+            MacDefaultArtwork(isLoading: loadsHighResolution
+                && (imageLoadingRequest != nil || musicKitLoadingRequest != nil))
+        } else {
+            symbolicPlaceholder
+        }
+        #else
+        symbolicPlaceholder
+        #endif
+    }
+
+    private var symbolicPlaceholder: some View {
         ZStack {
             RoundedRectangle(cornerRadius: cornerRadius)
                 .fill(
@@ -1204,6 +1232,9 @@ struct CachedArtworkView: View {
     }
 
     private func loadImage(for identity: String, taskIdentity: String) async {
+        #if os(macOS)
+        imageLoadingRequest = nil
+        #endif
         let key = cacheKey
         let contentIdentity = artworkContentIdentity
         if displayedArtworkIdentity != contentIdentity {
@@ -1264,6 +1295,13 @@ struct CachedArtworkView: View {
         let capturedFileFormat = fileFormat
         let capturedSourceManager = sourceManager
 
+        #if os(macOS)
+        let request = UUID()
+        imageLoadingRequest = request
+        defer {
+            if imageLoadingRequest == request { imageLoadingRequest = nil }
+        }
+        #endif
         let decoded = await Self.loadAndDecode(
             cacheKey: key,
             bucket: capturedBucket,

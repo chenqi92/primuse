@@ -147,7 +147,12 @@ struct SettingDefinition: Identifiable, Hashable, Sendable {
     var path: String {
         guard let page else { return "" }
         if page == .cacheSync {
-            return isPage ? SettingsPage.storage.title : SettingsPage.storage.title + " › " + page.title
+            #if os(macOS)
+            let parent = String(localized: "mac_sidebar_tools")
+            #else
+            let parent = SettingsPage.storage.title
+            #endif
+            return isPage ? parent : parent + " › " + page.title
         }
         #if os(macOS)
         return isPage ? String(localized: "settings_title") : page.title

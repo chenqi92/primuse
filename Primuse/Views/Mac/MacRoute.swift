@@ -41,6 +41,7 @@ enum MacTool: String, Identifiable, Hashable {
     case duplicates
     case scrobble
     case cacheSync
+    case deviceTransfer
 
     var id: String { rawValue }
 }
