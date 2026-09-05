@@ -1,0 +1,5 @@
+"CFBundleDisplayName" = "Primuse";
+"NSAppleMusicUsageDescription" = "Primuse ต้องเข้าถึงคลัง Apple Music / iTunes ของคุณเพื่อนำเข้าเพลงในเครื่องเป็นแหล่งเล่นเพลง";
+"NSLocalNetworkUsageDescription" = "Primuse ต้องเข้าถึงเครือข่ายภายในเพื่อค้นหาและเชื่อมต่ออุปกรณ์ NAS เซิร์ฟเวอร์สื่อ และแหล่งเพลงอื่นของคุณ";
+"NSMotionUsageDescription" = "Primuse ใช้ข้อมูลการเคลื่อนไหวของหูฟังเพื่อคงตำแหน่งเสียงแบบมิติเสมือนเมื่อคุณขยับศีรษะ";
+"NSSiriUsageDescription" = "ใช้เพื่อเริ่มเล่นและควบคุม Primuse ด้วยคำสั่งเสียง Siri";

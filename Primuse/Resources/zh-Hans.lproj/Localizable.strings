@@ -3724,3 +3724,7 @@
 "artist_most_played_albums" = "常听专辑";
 "artist_releases" = "发行作品";
 "artist_appears_on" = "参与作品";
+"ai_recommendation_stream_progress_format" = "已收到 %d 首推荐，可以开始播放，更多歌曲正在到达…";
+"ai_recommendation_stream_partial_format" = "已保留 %d 首完整推荐，可先播放或加载更多。";
+"ai_recommendation_stream_retained_format" = "刷新未完成，已保留之前的 %d 首推荐。";
+"ai_recommendation_retry_countdown_format" = "%d 秒后可重试";

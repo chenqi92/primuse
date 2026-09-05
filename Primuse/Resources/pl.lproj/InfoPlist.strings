@@ -1,0 +1,5 @@
+"CFBundleDisplayName" = "Primuse";
+"NSAppleMusicUsageDescription" = "Primuse potrzebuje dostępu do biblioteki Apple Music / iTunes, aby zaimportować jej lokalne utwory jako źródło odtwarzania.";
+"NSLocalNetworkUsageDescription" = "Primuse potrzebuje dostępu do sieci lokalnej, aby wykrywać urządzenia NAS, serwery multimediów i inne źródła muzyki oraz łączyć się z nimi.";
+"NSMotionUsageDescription" = "Primuse wykorzystuje ruch słuchawek, aby utrzymywać stałe położenie dźwięku przestrzennego podczas poruszania głową.";
+"NSSiriUsageDescription" = "Umożliwia rozpoczynanie odtwarzania i sterowanie Primuse poleceniami głosowymi Siri.";

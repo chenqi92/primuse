@@ -1,0 +1,5 @@
+"NSAppleMusicUsageDescription" = "Primuse, yerel parçaları oynatma kaynağı olarak içe aktarmak için Apple Music / iTunes arşivinize erişim gerektirir.";
+"NSLocalNetworkUsageDescription" = "Primuse, NAS cihazlarınızı, medya sunucularınızı ve diğer müzik kaynaklarınızı bulmak ve bunlara bağlanmak için yerel ağa erişim gerektirir.";
+"CFBundleDisplayName" = "Primuse";
+"NSSiriUsageDescription" = "Siri sesli komutlarıyla oynatmayı başlatmak ve Primuse'ı denetlemek için kullanılır.";
+"NSMotionUsageDescription" = "Primuse, başınızı hareket ettirdiğinizde Uzamsal Ses'in konumunu korumak için kulaklık hareketini kullanır.";

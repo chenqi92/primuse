@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>IntentPhrases</key>
+    <array>
+        <dict>
+            <key>IntentExamples</key>
+            <array>
+                <string>ค้นหาเพลงใน Primuse</string>
+                <string>ค้นหาเพลงด้วย Primuse</string>
+                <string>ค้นหาอัลบั้มด้วย Primuse</string>
+                <string>ค้นหาเพลงของศิลปินด้วย Primuse</string>
+                <string>ค้นหาเพลย์ลิสต์ด้วย Primuse</string>
+                <string>ค้นหาเพลงแจ๊สด้วย Primuse</string>
+                <string>ค้นหาสถานีวิทยุด้วย Primuse</string>
+            </array>
+            <key>IntentName</key>
+            <string>INSearchForMediaIntent</string>
+        </dict>
+        <dict>
+            <key>IntentExamples</key>
+            <array>
+                <string>เปิดเพลงใน Primuse</string>
+                <string>เล่นเพลงด้วย Primuse</string>
+                <string>เล่นอัลบั้มด้วย Primuse</string>
+                <string>เล่นเพลงของศิลปินด้วย Primuse</string>
+                <string>เล่นเพลย์ลิสต์ด้วย Primuse</string>
+                <string>เล่นเพลงแจ๊สด้วย Primuse</string>
+                <string>เล่นสถานีวิทยุด้วย Primuse</string>
+            </array>
+            <key>IntentName</key>
+            <string>INPlayMediaIntent</string>
+        </dict>
+    </array>
+</dict>
+</plist>

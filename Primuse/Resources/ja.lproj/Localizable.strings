@@ -3632,3 +3632,7 @@
 "artist_most_played_albums" = "よく聴くアルバム";
 "artist_releases" = "リリース";
 "artist_appears_on" = "参加作品";
+"ai_recommendation_stream_progress_format" = "%d 曲のおすすめを受信しました。続きの受信中も再生できます…";
+"ai_recommendation_stream_partial_format" = "%d 曲の完全なおすすめを保持しました。再生するか、さらに読み込めます。";
+"ai_recommendation_stream_retained_format" = "更新が完了しませんでした。前の %d 曲のおすすめは引き続き利用できます。";
+"ai_recommendation_retry_countdown_format" = "%d 秒後に再試行できます";

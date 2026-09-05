@@ -3631,3 +3631,7 @@
 "artist_most_played_albums" = "자주 들은 앨범";
 "artist_releases" = "발매작";
 "artist_appears_on" = "참여 앨범";
+"ai_recommendation_stream_progress_format" = "추천 %d곡을 받았습니다. 나머지를 받는 동안 재생할 수 있습니다…";
+"ai_recommendation_stream_partial_format" = "완성된 추천 %d곡을 유지했습니다. 재생하거나 더 불러오세요.";
+"ai_recommendation_stream_retained_format" = "새로 고침이 완료되지 않았습니다. 이전 추천 %d곡은 계속 사용할 수 있습니다.";
+"ai_recommendation_retry_countdown_format" = "%d초 후 다시 시도";

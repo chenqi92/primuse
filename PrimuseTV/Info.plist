@@ -21,6 +21,15 @@
 		<string>ko</string>
 		<string>fr</string>
 		<string>de</string>
+		<string>ru</string>
+		<string>uk</string>
+		<string>ar</string>
+		<string>es-MX</string>
+		<string>pt-BR</string>
+		<string>hi</string>
+		<string>th</string>
+		<string>tr</string>
+		<string>pl</string>
 	</array>
 	<key>CFBundleName</key>
 	<string>Primuse</string>

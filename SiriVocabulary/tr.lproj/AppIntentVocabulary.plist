@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>IntentPhrases</key>
+  <array>
+    <dict>
+      <key>IntentExamples</key>
+      <array>
+        <string>Primuse'ta müzik ara.</string>
+        <string>Primuse'ta bir şarkı bul.</string>
+        <string>Primuse'ta bir albüm bul.</string>
+        <string>Primuse'ta bir sanatçının şarkılarını bul.</string>
+        <string>Primuse'ta bir çalma listesi bul.</string>
+        <string>Primuse'ta caz müzik bul.</string>
+        <string>Primuse'ta bir radyo istasyonu bul.</string>
+      </array>
+      <key>IntentName</key>
+      <string>INSearchForMediaIntent</string>
+    </dict>
+    <dict>
+      <key>IntentExamples</key>
+      <array>
+        <string>Primuse'ta müzik çal.</string>
+        <string>Primuse'ta bir şarkı çal.</string>
+        <string>Primuse'ta bir albüm çal.</string>
+        <string>Primuse'ta bir sanatçının şarkılarını çal.</string>
+        <string>Primuse'ta bir çalma listesi çal.</string>
+        <string>Primuse'ta caz müzik çal.</string>
+        <string>Primuse'ta bir radyo istasyonu çal.</string>
+      </array>
+      <key>IntentName</key>
+      <string>INPlayMediaIntent</string>
+    </dict>
+  </array>
+</dict>
+</plist>

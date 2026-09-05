@@ -1,0 +1,5 @@
+"CFBundleDisplayName" = "Primuse";
+"NSAppleMusicUsageDescription" = "स्थानीय गानों को प्लेबैक स्रोत के रूप में आयात करने के लिए Primuse को आपकी Apple Music / iTunes लाइब्रेरी की पहुँच चाहिए।";
+"NSLocalNetworkUsageDescription" = "NAS डिवाइस, मीडिया सर्वर और अन्य संगीत स्रोत खोजने व उनसे जुड़ने के लिए Primuse को स्थानीय नेटवर्क की पहुँच चाहिए।";
+"NSMotionUsageDescription" = "सिर घुमाते समय स्थानिक ऑडियो को स्थिर रखने के लिए Primuse हेडफ़ोन की गति का उपयोग करता है।";
+"NSSiriUsageDescription" = "Siri के वॉइस कमांड से प्लेबैक शुरू करने और Primuse नियंत्रित करने के लिए उपयोग होता है।";

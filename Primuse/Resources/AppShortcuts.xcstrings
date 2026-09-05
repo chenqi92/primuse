@@ -1,367 +1,1666 @@
 {
-  "sourceLanguage" : "en",
-  "strings" : {
-    "Play or pause in ${applicationName}" : {
-      "extractionState" : "extracted_with_value",
-      "localizations" : {
-        "de" : { "stringSet" : { "state" : "translated", "values" : [
-          "Wiedergabe in ${applicationName} starten",
-          "${applicationName} pausieren",
-          "Wiedergabe in ${applicationName} starten oder pausieren"
-        ] } },
-        "en" : { "stringSet" : { "state" : "translated", "values" : [
-          "Play in ${applicationName}",
-          "Pause ${applicationName}",
-          "Play or pause in ${applicationName}"
-        ] } },
-        "fr" : { "stringSet" : { "state" : "translated", "values" : [
-          "Lire dans ${applicationName}",
-          "Mettre ${applicationName} en pause",
-          "Lire ou mettre en pause dans ${applicationName}"
-        ] } },
-        "ja" : { "stringSet" : { "state" : "translated", "values" : [
-          "${applicationName}で再生",
-          "${applicationName}を一時停止",
-          "${applicationName}で再生または一時停止"
-        ] } },
-        "ko" : { "stringSet" : { "state" : "translated", "values" : [
-          "${applicationName}에서 재생",
-          "${applicationName} 일시 정지",
-          "${applicationName}에서 재생 또는 일시 정지"
-        ] } },
-        "zh-Hans" : { "stringSet" : { "state" : "translated", "values" : [
-          "用 ${applicationName} 播放",
-          "用 ${applicationName} 暂停",
-          "用 ${applicationName} 播放或暂停"
-        ] } },
-        "zh-Hant" : { "stringSet" : { "state" : "translated", "values" : [
-          "用 ${applicationName} 播放",
-          "用 ${applicationName} 暫停",
-          "用 ${applicationName} 播放或暫停"
-        ] } }
-      }
-    },
-    "Play the ${direction} track in ${applicationName}" : {
-      "extractionState" : "extracted_with_value",
-      "localizations" : {
-        "de" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "In ${applicationName} ${direction} abspielen"
-            ]
-          }
-        },
-        "en" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
+  "sourceLanguage": "en",
+  "strings": {
+    "Play the ${direction} track in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
               "Play the ${direction} track in ${applicationName}"
             ]
           }
         },
-        "fr" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
+        "zh-Hans": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "用 ${applicationName} 播放${direction}"
+            ]
+          }
+        },
+        "zh-Hant": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "用 ${applicationName} 播放${direction}"
+            ]
+          }
+        },
+        "de": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "In ${applicationName} ${direction} abspielen"
+            ]
+          }
+        },
+        "fr": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
               "Lire le morceau ${direction} dans ${applicationName}"
             ]
           }
         },
-        "ja" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
+        "ja": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
               "${applicationName}で${direction}の曲を再生"
             ]
           }
         },
-        "ko" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
+        "ko": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
               "${applicationName}에서 ${direction} 곡 재생"
             ]
           }
         },
-        "zh-Hans" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "用 ${applicationName} 播放${direction}"
+        "ru": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Воспроизведи ${direction} трек в ${applicationName}"
             ]
           }
         },
-        "zh-Hant" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "用 ${applicationName} 播放${direction}"
+        "uk": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Відтвори ${direction} трек у ${applicationName}"
+            ]
+          }
+        },
+        "ar": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "شغّل المقطع ${direction} في ${applicationName}"
+            ]
+          }
+        },
+        "es-MX": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Reproduce la canción ${direction} en ${applicationName}"
+            ]
+          }
+        },
+        "pt-BR": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Reproduza a música ${direction} no ${applicationName}"
+            ]
+          }
+        },
+        "hi": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} में ${direction} ट्रैक चलाएँ"
+            ]
+          }
+        },
+        "th": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "เล่นเพลง${direction}ใน ${applicationName}"
+            ]
+          }
+        },
+        "tr": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} uygulamasında ${direction} parçayı çal"
+            ]
+          }
+        },
+        "pl": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Odtwórz ${direction} utwór w ${applicationName}"
             ]
           }
         }
       }
     },
-    "Open ${target} in ${applicationName}" : {
-      "extractionState" : "extracted_with_value",
-      "localizations" : {
-        "de" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "${target} in ${applicationName} öffnen"
-            ]
-          }
-        },
-        "en" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
+    "Open ${target} in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
               "Open ${target} in ${applicationName}"
             ]
           }
         },
-        "fr" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Ouvrir ${target} dans ${applicationName}"
-            ]
-          }
-        },
-        "ja" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "${applicationName}で${target}を開く"
-            ]
-          }
-        },
-        "ko" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "${applicationName}에서 ${target} 열기"
-            ]
-          }
-        },
-        "zh-Hans" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
+        "zh-Hans": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
               "在 ${applicationName} 中打开${target}"
             ]
           }
         },
-        "zh-Hant" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
+        "zh-Hant": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
               "在 ${applicationName} 中開啟${target}"
+            ]
+          }
+        },
+        "de": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${target} in ${applicationName} öffnen"
+            ]
+          }
+        },
+        "fr": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Ouvrir ${target} dans ${applicationName}"
+            ]
+          }
+        },
+        "ja": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName}で${target}を開く"
+            ]
+          }
+        },
+        "ko": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName}에서 ${target} 열기"
+            ]
+          }
+        },
+        "ru": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Открой ${target} в ${applicationName}"
+            ]
+          }
+        },
+        "uk": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Відкрий ${target} у ${applicationName}"
+            ]
+          }
+        },
+        "ar": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "افتح ${target} في ${applicationName}"
+            ]
+          }
+        },
+        "es-MX": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Abre ${target} en ${applicationName}"
+            ]
+          }
+        },
+        "pt-BR": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Abra ${target} no ${applicationName}"
+            ]
+          }
+        },
+        "hi": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} में ${target} खोलें"
+            ]
+          }
+        },
+        "th": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "เปิด ${target} ใน ${applicationName}"
+            ]
+          }
+        },
+        "tr": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} uygulamasında ${target} aç"
+            ]
+          }
+        },
+        "pl": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Otwórz ${target} w ${applicationName}"
             ]
           }
         }
       }
     },
-    "Open a setting in ${applicationName}" : {
-      "extractionState" : "extracted_with_value",
-      "localizations" : {
-        "de" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Eine Einstellung in ${applicationName} öffnen"
-            ]
-          }
-        },
-        "en" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
+    "Open a setting in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
               "Open a setting in ${applicationName}"
             ]
           }
         },
-        "fr" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Ouvrir un réglage dans ${applicationName}"
-            ]
-          }
-        },
-        "ja" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "${applicationName}の設定項目を開く"
-            ]
-          }
-        },
-        "ko" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "${applicationName} 설정 항목 열기"
-            ]
-          }
-        },
-        "zh-Hans" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
+        "zh-Hans": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
               "打开 ${applicationName} 的设置项"
             ]
           }
         },
-        "zh-Hant" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
+        "zh-Hant": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
               "開啟 ${applicationName} 的設定項目"
+            ]
+          }
+        },
+        "de": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Eine Einstellung in ${applicationName} öffnen"
+            ]
+          }
+        },
+        "fr": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Ouvrir un réglage dans ${applicationName}"
+            ]
+          }
+        },
+        "ja": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName}の設定項目を開く"
+            ]
+          }
+        },
+        "ko": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} 설정 항목 열기"
+            ]
+          }
+        },
+        "ru": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Открой настройку в ${applicationName}"
+            ]
+          }
+        },
+        "uk": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Відкрий параметр у ${applicationName}"
+            ]
+          }
+        },
+        "ar": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "افتح أحد الإعدادات في ${applicationName}"
+            ]
+          }
+        },
+        "es-MX": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Abre un ajuste en ${applicationName}"
+            ]
+          }
+        },
+        "pt-BR": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Abra um ajuste no ${applicationName}"
+            ]
+          }
+        },
+        "hi": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} में एक सेटिंग खोलें"
+            ]
+          }
+        },
+        "th": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "เปิดการตั้งค่าใน ${applicationName}"
+            ]
+          }
+        },
+        "tr": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} uygulamasında bir ayarı aç"
+            ]
+          }
+        },
+        "pl": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Otwórz ustawienie w ${applicationName}"
             ]
           }
         }
       }
     },
-    "Shuffle ${applicationName}" : {
-      "extractionState" : "extracted_with_value",
-      "localizations" : {
-        "de" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName} zufällig wiedergeben" ] } },
-        "en" : { "stringSet" : { "state" : "translated", "values" : [ "Shuffle ${applicationName}" ] } },
-        "fr" : { "stringSet" : { "state" : "translated", "values" : [ "Lecture aléatoire dans ${applicationName}" ] } },
-        "ja" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}をシャッフル再生" ] } },
-        "ko" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}에서 임의 재생" ] } },
-        "zh-Hans" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 随机播放" ] } },
-        "zh-Hant" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 隨機播放" ] } }
+    "Play or pause in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "de": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Wiedergabe in ${applicationName} starten",
+              "${applicationName} pausieren",
+              "Wiedergabe in ${applicationName} starten oder pausieren"
+            ]
+          }
+        },
+        "en": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Play in ${applicationName}",
+              "Pause ${applicationName}",
+              "Play or pause in ${applicationName}"
+            ]
+          }
+        },
+        "fr": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Lire dans ${applicationName}",
+              "Mettre ${applicationName} en pause",
+              "Lire ou mettre en pause dans ${applicationName}"
+            ]
+          }
+        },
+        "ja": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName}で再生",
+              "${applicationName}を一時停止",
+              "${applicationName}で再生または一時停止"
+            ]
+          }
+        },
+        "ko": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName}에서 재생",
+              "${applicationName} 일시 정지",
+              "${applicationName}에서 재생 또는 일시 정지"
+            ]
+          }
+        },
+        "zh-Hans": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "用 ${applicationName} 播放",
+              "用 ${applicationName} 暂停",
+              "用 ${applicationName} 播放或暂停"
+            ]
+          }
+        },
+        "zh-Hant": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "用 ${applicationName} 播放",
+              "用 ${applicationName} 暫停",
+              "用 ${applicationName} 播放或暫停"
+            ]
+          }
+        },
+        "ru": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Включи музыку в ${applicationName}",
+              "Приостанови ${applicationName}",
+              "Включи или приостанови музыку в ${applicationName}"
+            ]
+          }
+        },
+        "uk": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Увімкни музику в ${applicationName}",
+              "Призупини ${applicationName}",
+              "Увімкни або призупини музику в ${applicationName}"
+            ]
+          }
+        },
+        "ar": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "شغّل الموسيقى في ${applicationName}",
+              "أوقف ${applicationName} مؤقتًا",
+              "شغّل الموسيقى أو أوقفها مؤقتًا في ${applicationName}"
+            ]
+          }
+        },
+        "es-MX": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Reproduce en ${applicationName}",
+              "Pausa ${applicationName}",
+              "Reproduce o pausa en ${applicationName}"
+            ]
+          }
+        },
+        "pt-BR": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Reproduza no ${applicationName}",
+              "Pause o ${applicationName}",
+              "Reproduza ou pause no ${applicationName}"
+            ]
+          }
+        },
+        "hi": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} में संगीत चलाएँ",
+              "${applicationName} को रोकें",
+              "${applicationName} में चलाएँ या रोकें"
+            ]
+          }
+        },
+        "th": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "เล่นเพลงใน ${applicationName}",
+              "พัก ${applicationName}",
+              "เล่นหรือพักใน ${applicationName}"
+            ]
+          }
+        },
+        "tr": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} uygulamasında çal",
+              "${applicationName} uygulamasını duraklat",
+              "${applicationName} uygulamasında çal veya duraklat"
+            ]
+          }
+        },
+        "pl": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Odtwarzaj w ${applicationName}",
+              "Wstrzymaj ${applicationName}",
+              "Odtwórz lub wstrzymaj w ${applicationName}"
+            ]
+          }
+        }
       }
     },
-    "Play a song in ${applicationName}" : {
-      "extractionState" : "extracted_with_value",
-      "localizations" : {
-        "de" : { "stringSet" : { "state" : "translated", "values" : [ "Einen Titel in ${applicationName} abspielen" ] } },
-        "en" : { "stringSet" : { "state" : "translated", "values" : [ "Play a song in ${applicationName}" ] } },
-        "fr" : { "stringSet" : { "state" : "translated", "values" : [ "Lire un morceau dans ${applicationName}" ] } },
-        "ja" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}で曲を再生" ] } },
-        "ko" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}에서 곡 재생" ] } },
-        "zh-Hans" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 播放歌曲" ] } },
-        "zh-Hant" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 播放歌曲" ] } }
+    "Shuffle ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "de": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} zufällig wiedergeben"
+            ]
+          }
+        },
+        "en": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Shuffle ${applicationName}"
+            ]
+          }
+        },
+        "fr": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Lecture aléatoire dans ${applicationName}"
+            ]
+          }
+        },
+        "ja": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName}をシャッフル再生"
+            ]
+          }
+        },
+        "ko": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName}에서 임의 재생"
+            ]
+          }
+        },
+        "zh-Hans": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "用 ${applicationName} 随机播放"
+            ]
+          }
+        },
+        "zh-Hant": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "用 ${applicationName} 隨機播放"
+            ]
+          }
+        },
+        "ru": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Включи случайный порядок в ${applicationName}"
+            ]
+          }
+        },
+        "uk": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Увімкни випадковий порядок у ${applicationName}"
+            ]
+          }
+        },
+        "ar": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "شغّل ${applicationName} عشوائيًا"
+            ]
+          }
+        },
+        "es-MX": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Reproduce aleatoriamente en ${applicationName}"
+            ]
+          }
+        },
+        "pt-BR": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Reproduza aleatoriamente no ${applicationName}"
+            ]
+          }
+        },
+        "hi": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} में गाने फेरबदल करके चलाएँ"
+            ]
+          }
+        },
+        "th": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "สุ่มเล่นใน ${applicationName}"
+            ]
+          }
+        },
+        "tr": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} uygulamasında karışık çal"
+            ]
+          }
+        },
+        "pl": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Włącz odtwarzanie losowe w ${applicationName}"
+            ]
+          }
+        }
       }
     },
-    "Play a playlist in ${applicationName}" : {
-      "extractionState" : "extracted_with_value",
-      "localizations" : {
-        "de" : { "stringSet" : { "state" : "translated", "values" : [ "Eine Playlist in ${applicationName} abspielen" ] } },
-        "en" : { "stringSet" : { "state" : "translated", "values" : [ "Play a playlist in ${applicationName}" ] } },
-        "fr" : { "stringSet" : { "state" : "translated", "values" : [ "Lire une playlist dans ${applicationName}" ] } },
-        "ja" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}でプレイリストを再生" ] } },
-        "ko" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}에서 플레이리스트 재생" ] } },
-        "zh-Hans" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 播放歌单" ] } },
-        "zh-Hant" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 播放播放清單" ] } }
+    "Play a song in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "de": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Einen Titel in ${applicationName} abspielen"
+            ]
+          }
+        },
+        "en": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Play a song in ${applicationName}"
+            ]
+          }
+        },
+        "fr": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Lire un morceau dans ${applicationName}"
+            ]
+          }
+        },
+        "ja": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName}で曲を再生"
+            ]
+          }
+        },
+        "ko": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName}에서 곡 재생"
+            ]
+          }
+        },
+        "zh-Hans": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "用 ${applicationName} 播放歌曲"
+            ]
+          }
+        },
+        "zh-Hant": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "用 ${applicationName} 播放歌曲"
+            ]
+          }
+        },
+        "ru": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Включи песню в ${applicationName}"
+            ]
+          }
+        },
+        "uk": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Увімкни пісню в ${applicationName}"
+            ]
+          }
+        },
+        "ar": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "شغّل أغنية في ${applicationName}"
+            ]
+          }
+        },
+        "es-MX": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Reproduce una canción en ${applicationName}"
+            ]
+          }
+        },
+        "pt-BR": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Reproduza uma música no ${applicationName}"
+            ]
+          }
+        },
+        "hi": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} में गाना चलाएँ"
+            ]
+          }
+        },
+        "th": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "เล่นเพลงใน ${applicationName}"
+            ]
+          }
+        },
+        "tr": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} uygulamasında bir şarkı çal"
+            ]
+          }
+        },
+        "pl": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Odtwórz utwór w ${applicationName}"
+            ]
+          }
+        }
       }
     },
-    "Resume ${applicationName}" : {
-      "extractionState" : "extracted_with_value",
-      "localizations" : {
-        "de" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName} fortsetzen" ] } },
-        "en" : { "stringSet" : { "state" : "translated", "values" : [ "Resume ${applicationName}" ] } },
-        "fr" : { "stringSet" : { "state" : "translated", "values" : [ "Reprendre la lecture dans ${applicationName}" ] } },
-        "ja" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}の再生を再開" ] } },
-        "ko" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName} 재생 재개" ] } },
-        "zh-Hans" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 继续播放" ] } },
-        "zh-Hant" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 繼續播放" ] } }
+    "Play a playlist in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "de": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Eine Playlist in ${applicationName} abspielen"
+            ]
+          }
+        },
+        "en": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Play a playlist in ${applicationName}"
+            ]
+          }
+        },
+        "fr": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Lire une playlist dans ${applicationName}"
+            ]
+          }
+        },
+        "ja": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName}でプレイリストを再生"
+            ]
+          }
+        },
+        "ko": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName}에서 플레이리스트 재생"
+            ]
+          }
+        },
+        "zh-Hans": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "用 ${applicationName} 播放歌单"
+            ]
+          }
+        },
+        "zh-Hant": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "用 ${applicationName} 播放播放清單"
+            ]
+          }
+        },
+        "ru": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Включи плейлист в ${applicationName}"
+            ]
+          }
+        },
+        "uk": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Увімкни плейліст у ${applicationName}"
+            ]
+          }
+        },
+        "ar": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "شغّل قائمة تشغيل في ${applicationName}"
+            ]
+          }
+        },
+        "es-MX": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Reproduce una lista en ${applicationName}"
+            ]
+          }
+        },
+        "pt-BR": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Reproduza uma playlist no ${applicationName}"
+            ]
+          }
+        },
+        "hi": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} में प्लेलिस्ट चलाएँ"
+            ]
+          }
+        },
+        "th": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "เล่นเพลย์ลิสต์ใน ${applicationName}"
+            ]
+          }
+        },
+        "tr": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} uygulamasında bir çalma listesi çal"
+            ]
+          }
+        },
+        "pl": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Odtwórz playlistę w ${applicationName}"
+            ]
+          }
+        }
       }
     },
-    "Play ${station} in ${applicationName}" : {
-      "extractionState" : "extracted_with_value",
-      "localizations" : {
-        "de" : { "stringSet" : { "state" : "translated", "values" : [
-          "${station} in ${applicationName} abspielen",
-          "Radio in ${applicationName} abspielen"
-        ] } },
-        "en" : { "stringSet" : { "state" : "translated", "values" : [
-          "Play ${station} in ${applicationName}",
-          "Play radio in ${applicationName}"
-        ] } },
-        "fr" : { "stringSet" : { "state" : "translated", "values" : [
-          "Écouter ${station} dans ${applicationName}",
-          "Écouter la radio dans ${applicationName}"
-        ] } },
-        "ja" : { "stringSet" : { "state" : "translated", "values" : [
-          "${applicationName}で${station}を再生",
-          "${applicationName}でラジオを再生"
-        ] } },
-        "ko" : { "stringSet" : { "state" : "translated", "values" : [
-          "${applicationName}에서 ${station} 재생",
-          "${applicationName}에서 라디오 재생"
-        ] } },
-        "zh-Hans" : { "stringSet" : { "state" : "translated", "values" : [
-          "用 ${applicationName} 播放 ${station}",
-          "用 ${applicationName} 播放电台"
-        ] } },
-        "zh-Hant" : { "stringSet" : { "state" : "translated", "values" : [
-          "用 ${applicationName} 播放 ${station}",
-          "用 ${applicationName} 播放電台"
-        ] } }
+    "Resume ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "de": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} fortsetzen"
+            ]
+          }
+        },
+        "en": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Resume ${applicationName}"
+            ]
+          }
+        },
+        "fr": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Reprendre la lecture dans ${applicationName}"
+            ]
+          }
+        },
+        "ja": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName}の再生を再開"
+            ]
+          }
+        },
+        "ko": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} 재생 재개"
+            ]
+          }
+        },
+        "zh-Hans": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "用 ${applicationName} 继续播放"
+            ]
+          }
+        },
+        "zh-Hant": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "用 ${applicationName} 繼續播放"
+            ]
+          }
+        },
+        "ru": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Продолжи воспроизведение в ${applicationName}"
+            ]
+          }
+        },
+        "uk": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Продовж відтворення у ${applicationName}"
+            ]
+          }
+        },
+        "ar": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "استأنف التشغيل في ${applicationName}"
+            ]
+          }
+        },
+        "es-MX": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Reanuda ${applicationName}"
+            ]
+          }
+        },
+        "pt-BR": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Retome o ${applicationName}"
+            ]
+          }
+        },
+        "hi": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} फिर से चलाएँ"
+            ]
+          }
+        },
+        "th": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "เล่นต่อใน ${applicationName}"
+            ]
+          }
+        },
+        "tr": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} uygulamasında çalmayı sürdür"
+            ]
+          }
+        },
+        "pl": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Wznów ${applicationName}"
+            ]
+          }
+        }
       }
     },
-    "Play similar songs in ${applicationName}" : {
-      "extractionState" : "extracted_with_value",
-      "localizations" : {
-        "de" : { "stringSet" : { "state" : "translated", "values" : [ "Ähnliche Titel in ${applicationName} abspielen" ] } },
-        "en" : { "stringSet" : { "state" : "translated", "values" : [ "Play similar songs in ${applicationName}" ] } },
-        "fr" : { "stringSet" : { "state" : "translated", "values" : [ "Lire des morceaux similaires dans ${applicationName}" ] } },
-        "ja" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}で似ている曲を再生" ] } },
-        "ko" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}에서 비슷한 곡 재생" ] } },
-        "zh-Hans" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 播放相似歌曲" ] } },
-        "zh-Hant" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 播放相似歌曲" ] } }
+    "Play ${station} in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "de": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${station} in ${applicationName} abspielen",
+              "Radio in ${applicationName} abspielen"
+            ]
+          }
+        },
+        "en": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Play ${station} in ${applicationName}",
+              "Play radio in ${applicationName}"
+            ]
+          }
+        },
+        "fr": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Écouter ${station} dans ${applicationName}",
+              "Écouter la radio dans ${applicationName}"
+            ]
+          }
+        },
+        "ja": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName}で${station}を再生",
+              "${applicationName}でラジオを再生"
+            ]
+          }
+        },
+        "ko": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName}에서 ${station} 재생",
+              "${applicationName}에서 라디오 재생"
+            ]
+          }
+        },
+        "zh-Hans": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "用 ${applicationName} 播放 ${station}",
+              "用 ${applicationName} 播放电台"
+            ]
+          }
+        },
+        "zh-Hant": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "用 ${applicationName} 播放 ${station}",
+              "用 ${applicationName} 播放電台"
+            ]
+          }
+        },
+        "ru": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Включи ${station} в ${applicationName}",
+              "Включи радио в ${applicationName}"
+            ]
+          }
+        },
+        "uk": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Увімкни ${station} у ${applicationName}",
+              "Увімкни радіо у ${applicationName}"
+            ]
+          }
+        },
+        "ar": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "شغّل ${station} في ${applicationName}",
+              "شغّل الراديو في ${applicationName}"
+            ]
+          }
+        },
+        "es-MX": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Reproduce ${station} en ${applicationName}",
+              "Reproduce radio en ${applicationName}"
+            ]
+          }
+        },
+        "pt-BR": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Reproduza ${station} no ${applicationName}",
+              "Reproduza rádio no ${applicationName}"
+            ]
+          }
+        },
+        "hi": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} में ${station} चलाएँ",
+              "${applicationName} में रेडियो चलाएँ"
+            ]
+          }
+        },
+        "th": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "เล่น ${station} ใน ${applicationName}",
+              "เล่นวิทยุใน ${applicationName}"
+            ]
+          }
+        },
+        "tr": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} uygulamasında ${station} çal",
+              "${applicationName} uygulamasında radyo çal"
+            ]
+          }
+        },
+        "pl": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Odtwórz ${station} w ${applicationName}",
+              "Odtwórz radio w ${applicationName}"
+            ]
+          }
+        }
       }
     },
-    "Search for ${station} radio in ${applicationName}" : {
-      "extractionState" : "extracted_with_value",
-      "localizations" : {
-        "de" : { "stringSet" : { "state" : "translated", "values" : [
-          "In ${applicationName} nach dem Radiosender ${station} suchen",
-          "Radio in ${applicationName} suchen"
-        ] } },
-        "en" : { "stringSet" : { "state" : "translated", "values" : [
-          "Search for ${station} radio in ${applicationName}",
-          "Search radio in ${applicationName}"
-        ] } },
-        "fr" : { "stringSet" : { "state" : "translated", "values" : [
-          "Rechercher la radio ${station} dans ${applicationName}",
-          "Rechercher une radio dans ${applicationName}"
-        ] } },
-        "ja" : { "stringSet" : { "state" : "translated", "values" : [
-          "${applicationName}で${station}ラジオを検索",
-          "${applicationName}でラジオを検索"
-        ] } },
-        "ko" : { "stringSet" : { "state" : "translated", "values" : [
-          "${applicationName}에서 ${station} 라디오 검색",
-          "${applicationName}에서 라디오 검색"
-        ] } },
-        "zh-Hans" : { "stringSet" : { "state" : "translated", "values" : [
-          "用 ${applicationName} 搜索电台 ${station}",
-          "用 ${applicationName} 搜索电台"
-        ] } },
-        "zh-Hant" : { "stringSet" : { "state" : "translated", "values" : [
-          "用 ${applicationName} 搜尋電台 ${station}",
-          "用 ${applicationName} 搜尋電台"
-        ] } }
+    "Play similar songs in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "de": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Ähnliche Titel in ${applicationName} abspielen"
+            ]
+          }
+        },
+        "en": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Play similar songs in ${applicationName}"
+            ]
+          }
+        },
+        "fr": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Lire des morceaux similaires dans ${applicationName}"
+            ]
+          }
+        },
+        "ja": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName}で似ている曲を再生"
+            ]
+          }
+        },
+        "ko": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName}에서 비슷한 곡 재생"
+            ]
+          }
+        },
+        "zh-Hans": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "用 ${applicationName} 播放相似歌曲"
+            ]
+          }
+        },
+        "zh-Hant": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "用 ${applicationName} 播放相似歌曲"
+            ]
+          }
+        },
+        "ru": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Включи похожие песни в ${applicationName}"
+            ]
+          }
+        },
+        "uk": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Увімкни схожі пісні у ${applicationName}"
+            ]
+          }
+        },
+        "ar": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "شغّل أغاني مشابهة في ${applicationName}"
+            ]
+          }
+        },
+        "es-MX": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Reproduce canciones similares en ${applicationName}"
+            ]
+          }
+        },
+        "pt-BR": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Reproduza músicas semelhantes no ${applicationName}"
+            ]
+          }
+        },
+        "hi": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} में मिलते-जुलते गाने चलाएँ"
+            ]
+          }
+        },
+        "th": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "เล่นเพลงที่คล้ายกันใน ${applicationName}"
+            ]
+          }
+        },
+        "tr": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} uygulamasında benzer şarkılar çal"
+            ]
+          }
+        },
+        "pl": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Odtwórz podobne utwory w ${applicationName}"
+            ]
+          }
+        }
       }
     },
-    "Scrape the current song in ${applicationName}" : {
-      "extractionState" : "extracted_with_value",
-      "localizations" : {
-        "de" : { "stringSet" : { "state" : "translated", "values" : [ "Metadaten des aktuellen Titels in ${applicationName} abrufen" ] } },
-        "en" : { "stringSet" : { "state" : "translated", "values" : [ "Scrape the current song in ${applicationName}" ] } },
-        "fr" : { "stringSet" : { "state" : "translated", "values" : [ "Récupérer les métadonnées du morceau actuel dans ${applicationName}" ] } },
-        "ja" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}で現在の曲のメタデータを取得" ] } },
-        "ko" : { "stringSet" : { "state" : "translated", "values" : [ "${applicationName}에서 현재 곡의 메타데이터 가져오기" ] } },
-        "zh-Hans" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 补全当前歌曲信息" ] } },
-        "zh-Hant" : { "stringSet" : { "state" : "translated", "values" : [ "用 ${applicationName} 補齊目前歌曲資訊" ] } }
+    "Search for ${station} radio in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "de": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "In ${applicationName} nach dem Radiosender ${station} suchen",
+              "Radio in ${applicationName} suchen"
+            ]
+          }
+        },
+        "en": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Search for ${station} radio in ${applicationName}",
+              "Search radio in ${applicationName}"
+            ]
+          }
+        },
+        "fr": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Rechercher la radio ${station} dans ${applicationName}",
+              "Rechercher une radio dans ${applicationName}"
+            ]
+          }
+        },
+        "ja": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName}で${station}ラジオを検索",
+              "${applicationName}でラジオを検索"
+            ]
+          }
+        },
+        "ko": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName}에서 ${station} 라디오 검색",
+              "${applicationName}에서 라디오 검색"
+            ]
+          }
+        },
+        "zh-Hans": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "用 ${applicationName} 搜索电台 ${station}",
+              "用 ${applicationName} 搜索电台"
+            ]
+          }
+        },
+        "zh-Hant": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "用 ${applicationName} 搜尋電台 ${station}",
+              "用 ${applicationName} 搜尋電台"
+            ]
+          }
+        },
+        "ru": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Найди радио ${station} в ${applicationName}",
+              "Найди радио в ${applicationName}"
+            ]
+          }
+        },
+        "uk": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Знайди радіо ${station} у ${applicationName}",
+              "Знайди радіо у ${applicationName}"
+            ]
+          }
+        },
+        "ar": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "ابحث عن محطة ${station} في ${applicationName}",
+              "ابحث عن الراديو في ${applicationName}"
+            ]
+          }
+        },
+        "es-MX": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Busca la estación ${station} en ${applicationName}",
+              "Busca radio en ${applicationName}"
+            ]
+          }
+        },
+        "pt-BR": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Busque a estação ${station} no ${applicationName}",
+              "Busque rádio no ${applicationName}"
+            ]
+          }
+        },
+        "hi": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} में ${station} रेडियो खोजें",
+              "${applicationName} में रेडियो खोजें"
+            ]
+          }
+        },
+        "th": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "ค้นหาสถานีวิทยุ ${station} ใน ${applicationName}",
+              "ค้นหาวิทยุใน ${applicationName}"
+            ]
+          }
+        },
+        "tr": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} uygulamasında ${station} radyosunu ara",
+              "${applicationName} uygulamasında radyo ara"
+            ]
+          }
+        },
+        "pl": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Wyszukaj radio ${station} w ${applicationName}",
+              "Wyszukaj radio w ${applicationName}"
+            ]
+          }
+        }
+      }
+    },
+    "Scrape the current song in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "de": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Metadaten des aktuellen Titels in ${applicationName} abrufen"
+            ]
+          }
+        },
+        "en": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Scrape the current song in ${applicationName}"
+            ]
+          }
+        },
+        "fr": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Récupérer les métadonnées du morceau actuel dans ${applicationName}"
+            ]
+          }
+        },
+        "ja": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName}で現在の曲のメタデータを取得"
+            ]
+          }
+        },
+        "ko": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName}에서 현재 곡의 메타데이터 가져오기"
+            ]
+          }
+        },
+        "zh-Hans": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "用 ${applicationName} 补全当前歌曲信息"
+            ]
+          }
+        },
+        "zh-Hant": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "用 ${applicationName} 補齊目前歌曲資訊"
+            ]
+          }
+        },
+        "ru": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Найди метаданные текущей песни в ${applicationName}"
+            ]
+          }
+        },
+        "uk": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Знайди метадані поточної пісні у ${applicationName}"
+            ]
+          }
+        },
+        "ar": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "اجلب بيانات الأغنية الحالية في ${applicationName}"
+            ]
+          }
+        },
+        "es-MX": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Obtén los metadatos de la canción actual en ${applicationName}"
+            ]
+          }
+        },
+        "pt-BR": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Busque os metadados da música atual no ${applicationName}"
+            ]
+          }
+        },
+        "hi": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} में वर्तमान गाने का मेटाडेटा खोजें"
+            ]
+          }
+        },
+        "th": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "ค้นหาเมทาดาทาเพลงปัจจุบันใน ${applicationName}"
+            ]
+          }
+        },
+        "tr": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} uygulamasında geçerli şarkının üst verilerini bul"
+            ]
+          }
+        },
+        "pl": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Pobierz metadane bieżącego utworu w ${applicationName}"
+            ]
+          }
+        }
       }
     }
   },
-  "version" : "1.1"
+  "version": "1.1"
 }

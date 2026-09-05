@@ -189,6 +189,13 @@ struct WiFiTransferTests {
         #expect(!html.contains("__LABELS__"))
     }
 
+    @Test(arguments: [("ar", "rtl"), ("ar-SA", "rtl"), ("ru", "ltr"), ("en", "ltr")])
+    func transferPageFollowsReadingDirection(language: String, direction: String) {
+        let html = WiFiTransferPage.html(language: language)
+        #expect(html.contains("<html lang=\"\(language)\" dir=\"\(direction)\">"))
+        #expect(!html.contains("__DIRECTION__"))
+    }
+
     @Test func managedLocalSourceSurvivesDataContainerUUIDMigration() {
         let oldContainer = "84A53263-830F-49AF-8B0F-6F0442C8F9D1"
         let currentContainer = "31F463AE-70DC-4B0D-8162-A21A391C4520"

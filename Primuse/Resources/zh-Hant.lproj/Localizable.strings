@@ -3608,3 +3608,7 @@
 "artist_most_played_albums" = "常聽專輯";
 "artist_releases" = "發行作品";
 "artist_appears_on" = "參與作品";
+"ai_recommendation_stream_progress_format" = "已收到 %d 首推薦，可以開始播放，更多歌曲正在抵達…";
+"ai_recommendation_stream_partial_format" = "已保留 %d 首完整推薦，可先播放或載入更多。";
+"ai_recommendation_stream_retained_format" = "重新整理未完成，已保留先前的 %d 首推薦。";
+"ai_recommendation_retry_countdown_format" = "%d 秒後可重試";

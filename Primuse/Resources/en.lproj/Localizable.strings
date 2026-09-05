@@ -3409,3 +3409,7 @@
 "artist_most_played_albums" = "Most Played Albums";
 "artist_releases" = "Releases";
 "artist_appears_on" = "Appears On";
+"ai_recommendation_stream_progress_format" = "Received %d recommendations. Start listening while more arrive…";
+"ai_recommendation_stream_partial_format" = "Kept %d complete recommendations. Play these or load more.";
+"ai_recommendation_stream_retained_format" = "Refresh did not complete. Your previous %d recommendations are still available.";
+"ai_recommendation_retry_countdown_format" = "Try again in %d s";

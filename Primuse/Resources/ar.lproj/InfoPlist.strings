@@ -1,0 +1,5 @@
+"CFBundleDisplayName" = "Primuse";
+"NSAppleMusicUsageDescription" = "يحتاج Primuse إلى الوصول إلى مكتبتك في Apple Music / iTunes لاستيراد أغانيها المحلية كمصدر للتشغيل.";
+"NSLocalNetworkUsageDescription" = "يحتاج Primuse إلى الوصول إلى الشبكة المحلية لاكتشاف أجهزة NAS وخوادم الوسائط ومصادر الموسيقى الأخرى والاتصال بها.";
+"NSMotionUsageDescription" = "يستخدم Primuse حركة سماعات الرأس للحفاظ على ثبات الصوت المكاني أثناء تحريك رأسك.";
+"NSSiriUsageDescription" = "يُستخدم لبدء التشغيل والتحكم في Primuse بالأوامر الصوتية عبر Siri.";

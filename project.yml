@@ -592,6 +592,7 @@ targets:
       - path: Primuse/Resources
         includes:
           - "**/WiFiTransfer.strings"
+          - "**/InfoPlist.strings"
         buildPhase: resources
     resources:
       - path: PrimuseTV/Resources
@@ -602,6 +603,15 @@ targets:
       - path: Primuse/Resources/fr.lproj/Localizable.strings
       - path: Primuse/Resources/ja.lproj/Localizable.strings
       - path: Primuse/Resources/ko.lproj/Localizable.strings
+      - path: Primuse/Resources/ru.lproj/Localizable.strings
+      - path: Primuse/Resources/uk.lproj/Localizable.strings
+      - path: Primuse/Resources/ar.lproj/Localizable.strings
+      - path: Primuse/Resources/es-MX.lproj/Localizable.strings
+      - path: Primuse/Resources/pt-BR.lproj/Localizable.strings
+      - path: Primuse/Resources/hi.lproj/Localizable.strings
+      - path: Primuse/Resources/th.lproj/Localizable.strings
+      - path: Primuse/Resources/tr.lproj/Localizable.strings
+      - path: Primuse/Resources/pl.lproj/Localizable.strings
     dependencies:
       - sdk: DeviceCheck.framework
       - target: PrimuseKit
@@ -638,6 +648,15 @@ targets:
           - ko
           - fr
           - de
+          - ru
+          - uk
+          - ar
+          - es-MX
+          - pt-BR
+          - hi
+          - th
+          - tr
+          - pl
         # 只用 HTTPS / 标准 OS 加密(豁免类),声明免出口合规,免去每次上传都要填。
         ITSAppUsesNonExemptEncryption: false
         NSSiriUsageDescription: "用 Siri 语音点播、控制猿音播放。"

@@ -6,7 +6,7 @@ require "pathname"
 require "set"
 
 ROOT = Pathname(__dir__).parent.freeze
-SUPPORTED_LOCALES = %w[en de fr ja ko zh-Hans zh-Hant].freeze
+SUPPORTED_LOCALES = %w[en de fr ja ko zh-Hans zh-Hant ru uk ar es-MX pt-BR hi th tr pl].freeze
 NON_ENGLISH_LOCALES = (SUPPORTED_LOCALES - ["en"]).freeze
 REQUIRED_SIRI_INTENTS = %w[
   INPlayMediaIntent
@@ -55,13 +55,23 @@ OPENAI_ACCOUNT_BOUNDARY_BILLING_MARKERS = {
   "ja" => /別途/,
   "ko" => /별도/,
   "zh-Hans" => /单独/,
-  "zh-Hant" => /另外/
+  "zh-Hant" => /另外/,
+  "ru" => /отдельн/i,
+  "uk" => /окрем/i,
+  "ar" => /منفصل/,
+  "es-MX" => /separad|independient/i,
+  "pt-BR" => /separad/i,
+  "hi" => /अलग/,
+  "th" => /แยก/,
+  "tr" => /ayrı/i,
+  "pl" => /osobn|oddzieln/i
 }.freeze
 
 RESOURCE_GROUPS = [
   ["Primuse Localizable.strings", ROOT / "Primuse/Resources", "Localizable.strings", false],
   ["Primuse SettingsSearch.strings", ROOT / "Primuse/Resources", "SettingsSearch.strings", true],
   ["Primuse CacheSync.strings", ROOT / "Primuse/Resources", "CacheSync.strings", true],
+  ["Primuse WiFiTransfer.strings", ROOT / "Primuse/Resources", "WiFiTransfer.strings", true],
   ["PrimuseKit Localizable.strings", ROOT / "PrimuseKit/Sources/PrimuseKit/Resources", "Localizable.strings", true],
   ["Primuse InfoPlist.strings", ROOT / "Primuse/Resources", "InfoPlist.strings", true],
   ["Widget InfoPlist.strings", ROOT / "PrimuseWidgetExtension/Resources", "InfoPlist.strings", true],
@@ -119,6 +129,11 @@ IDENTICAL_VALUE_KEYS = %w[
 ].freeze
 
 IDENTICAL_VALUE_GLOBAL_ALLOWLIST = %w[
+  fnmusic_fnid
+  fnmusic_connection_fnconnect
+  drime_token_section
+  home_dashboard_title
+  radio_batch_status_playable
   fullscreen_effect_cover_flow
   fullscreen_effect_collection_native
   fullscreen_effect_native
@@ -133,6 +148,7 @@ IDENTICAL_VALUE_GLOBAL_ALLOWLIST = %w[
 ].freeze
 
 VERBATIM_SWIFTUI_LITERALS = %w[
+  192.168.1.8:12345
   A-
   A+
   AM
@@ -184,6 +200,9 @@ JAPANESE_TRANSLATION_REQUIRED_PREFIXES = %w[
 ].freeze
 
 IDENTICAL_VALUE_ALLOWLIST = {
+  "es-MX" => %w[home_mode_radio radio_title],
+  "pt-BR" => %w[stats_hours_minutes_format],
+  "pl" => %w[ext.tv.sources.form.host],
   "de" => %w[
     drime_token_section
     fnmusic_connection_fnconnect

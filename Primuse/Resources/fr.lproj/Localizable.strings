@@ -3631,3 +3631,7 @@
 "artist_most_played_albums" = "Albums les plus écoutés";
 "artist_releases" = "Sorties";
 "artist_appears_on" = "Apparaît sur";
+"ai_recommendation_stream_progress_format" = "%d recommandations reçues. Écoutez-les pendant que la suite arrive…";
+"ai_recommendation_stream_partial_format" = "%d recommandations complètes conservées. Écoutez-les ou chargez-en d’autres.";
+"ai_recommendation_stream_retained_format" = "Actualisation inachevée. Vos %d recommandations précédentes restent disponibles.";
+"ai_recommendation_retry_countdown_format" = "Réessayez dans %d s";

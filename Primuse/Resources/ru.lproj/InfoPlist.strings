@@ -1,0 +1,5 @@
+"NSAppleMusicUsageDescription" = "Primuse нужен доступ к медиатеке Apple Music / iTunes, чтобы импортировать её локальные песни как источник воспроизведения.";
+"NSLocalNetworkUsageDescription" = "Primuse нужен доступ к локальной сети для обнаружения ваших устройств NAS, медиасерверов и других источников музыки и подключения к ним.";
+"CFBundleDisplayName" = "Primuse";
+"NSSiriUsageDescription" = "Используется для запуска воспроизведения и управления Primuse голосовыми командами Siri.";
+"NSMotionUsageDescription" = "Primuse использует данные о движении наушников, чтобы пространственное аудио сохраняло своё положение при поворотах головы.";

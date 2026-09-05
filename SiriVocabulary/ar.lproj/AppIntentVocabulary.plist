@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>IntentPhrases</key>
+    <array>
+        <dict>
+            <key>IntentExamples</key>
+            <array>
+                <string>ابحث عن موسيقى باستخدام Primuse.</string>
+                <string>ابحث عن أغنية باستخدام Primuse.</string>
+                <string>ابحث عن ألبوم باستخدام Primuse.</string>
+                <string>ابحث عن أغاني فنان باستخدام Primuse.</string>
+                <string>ابحث عن قائمة تشغيل باستخدام Primuse.</string>
+                <string>ابحث عن موسيقى الجاز باستخدام Primuse.</string>
+                <string>ابحث عن محطة راديو باستخدام Primuse.</string>
+            </array>
+            <key>IntentName</key>
+            <string>INSearchForMediaIntent</string>
+        </dict>
+        <dict>
+            <key>IntentExamples</key>
+            <array>
+                <string>شغّل الموسيقى باستخدام Primuse.</string>
+                <string>شغّل أغنية باستخدام Primuse.</string>
+                <string>شغّل ألبومًا باستخدام Primuse.</string>
+                <string>شغّل أغاني فنان باستخدام Primuse.</string>
+                <string>شغّل قائمة تشغيل باستخدام Primuse.</string>
+                <string>شغّل موسيقى الجاز باستخدام Primuse.</string>
+                <string>شغّل محطة راديو باستخدام Primuse.</string>
+            </array>
+            <key>IntentName</key>
+            <string>INPlayMediaIntent</string>
+        </dict>
+    </array>
+</dict>
+</plist>
