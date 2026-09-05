@@ -4,7 +4,7 @@ import PrimuseKit
 
 /// macOS-native sources management aligned with design SRC-23..28: an eyebrow
 /// + "Connected" title, a status-breakdown summary line, an attention banner
-/// for sources that need re-auth, and a flat 2-column card grid. Each card
+/// for sources that need re-auth, and adaptive waterfall columns. Each card
 /// carries a status dot, a mono host line, a stats / scan-progress body, and a
 /// row of text pills (rescan / browse / settings) plus an enable switch.
 struct MacSourcesView: View {
@@ -208,18 +208,14 @@ struct MacSourcesView: View {
                         attentionBanner
                     }
 
-                    // 设计稿: 单一「已连接」分组 + 2 列自适应卡片网格。
-                    LazyVGrid(
-                        // 卡片放大一点 (min 440), 这样操作行的「重新扫描/浏览/设置/
-                        // 删除」几个按钮不会被挤到截断成「重…」。
-                        columns: [GridItem(.adaptive(minimum: 440, maximum: 600),
-                                           spacing: PMSpace.m14, alignment: .top)],
-                        alignment: .leading,
+                    MacSourceWaterfallLayout(
+                        minimumColumnWidth: 440,
                         spacing: PMSpace.m14
                     ) {
                         ForEach(sources, id: \.id) { source in
                             sourceCard(source)
                                 .pmCard(cornerRadius: PMRadius.l)
+                                .accessibilityElement(children: .contain)
                         }
                     }
                 }
@@ -327,9 +323,7 @@ struct MacSourcesView: View {
             }
 
             cardBody(source, scanning: scanning, displayedSongCount: displayedSongCount)
-                // 给内容区一个统一最小高度: "扫描中"(三行进度) 和 "已同步"(一行)
-                // 的卡片高度就一致了, 不会某张在扫描时突然变高、其它变矮。
-                .frame(maxWidth: .infinity, minHeight: 46, alignment: .topLeading)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
 
             if source.type == .navidrome {
                 navidromeAutoRefreshControl(for: source)
@@ -1014,6 +1008,46 @@ struct MacSourcesView: View {
         sourceStore.update(sourceID, mutate: mutate)
     }
 
+}
+
+private struct MacSourceWaterfallLayout: Layout {
+    let minimumColumnWidth: CGFloat
+    let spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let proposedWidth = proposal.width ?? minimumColumnWidth
+        let width = proposedWidth.isFinite ? max(proposedWidth, 1) : minimumColumnWidth
+        let frames = cardFrames(width: width, subviews: subviews)
+        return CGSize(width: width, height: frames.map(\.maxY).max() ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let frames = cardFrames(width: bounds.width, subviews: subviews)
+        for (index, subview) in subviews.enumerated() {
+            let frame = frames[index]
+            subview.place(
+                at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: frame.width, height: frame.height)
+            )
+        }
+    }
+
+    private func cardFrames(width: CGFloat, subviews: Subviews) -> [CGRect] {
+        let columns = max(1, Int((width + spacing) / (minimumColumnWidth + spacing)))
+        let columnWidth = max(1, (width - CGFloat(columns - 1) * spacing) / CGFloat(columns))
+        var nextY = [CGFloat](repeating: 0, count: columns)
+
+        return subviews.enumerated().map { index, subview in
+            // 保持列归属，扫描状态改变高度时只推动同列卡片，避免操作按钮跨列跳动。
+            let column = index % columns
+            let height = subview.sizeThatFits(ProposedViewSize(width: columnWidth, height: nil)).height
+            let frame = CGRect(x: CGFloat(column) * (columnWidth + spacing),
+                               y: nextY[column], width: columnWidth, height: height)
+            nextY[column] = frame.maxY + spacing
+            return frame
+        }
+    }
 }
 
 // MARK: - Pill button
