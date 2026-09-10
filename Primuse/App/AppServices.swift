@@ -1128,6 +1128,12 @@ final class AppServices {
         guard previous != current else { return }
 
         musicLibrary.updateDisabledSourceIDs(current)
+        // iCloud 同步过来的停用与设置页里的停用按钮走的是同一个语义:
+        // 名下的离线批量 / 单曲下载 / 后台音频与 MV 缓存都要停掉。启用方向
+        // 不做任何事, 与手动路径一致。
+        for sourceID in current.subtracting(previous) {
+            sourceManager.sourceAvailabilityDidChange(sourceID: sourceID, isEnabled: false)
+        }
         playerService.sourceAvailabilityDidChange(
             for: previous.symmetricDifference(current)
         )

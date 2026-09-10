@@ -2958,11 +2958,17 @@ final class MusicLibrary {
 
     /// Cached filtered views — rebuilt only when songs/disabled state change
     private var visibleSongsReference = LibraryArrayReference<Song>()
+    /// 每次可见缓存发布都会前进。`songMutationGeneration` 只覆盖 `songs`,
+    /// 而 applyPreparedVisibleCache / publishStableMembershipReplacements 等
+    /// 路径可以在 `songs` 不变的情况下换掉 visibleSongs 与它的索引; 离主线程
+    /// 准备好的补丁必须能看出这一点, 否则会用旧副本盖掉更新的可见缓存。
+    @ObservationIgnored private var visibleCacheGeneration: UInt64 = 0
     private(set) var visibleSongs: [Song] {
         get { visibleSongsReference.value }
         set {
             let previous = visibleSongsReference
             visibleSongsReference = LibraryArrayReference(newValue)
+            visibleCacheGeneration &+= 1
             LibraryArrayReclaimer.release(previous)
         }
     }
@@ -3647,9 +3653,13 @@ final class MusicLibrary {
                   let info = note.userInfo,
                   let songID = info["songID"] as? String else { return }
             let fallbackText = info["lyricsText"] as? String
-            let generation = LibrarySearchIndex.persistLibraryChangePending()
-            Task { @MainActor [weak self] in
-                guard let self else { return }
+            // 观察者注册在 `queue: .main`, 所以这里已经在主线程上。代际分配
+            // 必须和入链发生在同一个 main actor 轮次 (persistSongChanges 就是
+            // 这么做的): 中间插一次 Task hop 时, 后分配的代际会先入链, 让
+            // markIncrementalPreparationCompleted 的连续性检查永久失败, 增量
+            // 索引再也无法结账, 每次启动 / 退到后台都要跑全库 prepare。
+            MainActor.assumeIsolated {
+                let generation = LibrarySearchIndex.persistLibraryChangePending()
                 self.enqueueLyricsSearchIndexRefresh(
                     songID: songID,
                     fallbackText: fallbackText,
@@ -3688,6 +3698,7 @@ final class MusicLibrary {
         let needsImmediatePersistence = persistTask != nil || deferredPersistRequested
         persistTask?.cancel()
         persistTask = nil
+        persistDeadline = nil
         if needsImmediatePersistence {
             deferredPersistRequested = false
             persistNow()
@@ -6484,8 +6495,19 @@ final class MusicLibrary {
         applyAutomaticArtistArtwork(to: &s)
         var nextSongs = currentSongs
         nextSongs[index] = s
-        songs = nextSongs
-        rebuildVisibleCache()
+        // 单行改动 (播放开始纠正时长、标签编辑、单曲刮削) 此前也要在主 actor
+        // 上重算整库的可见查找表, 而 250ms 后的异步派生重建又会把同一份结果
+        // 再算一遍。ID / 源 / 可见性不变时走 replaceSongs 的 O(改动行) 补丁,
+        // 其余情况仍旧退回整库重建。
+        if !publishStableMembershipReplacements(
+            originalSongs: currentSongs,
+            nextSongs: nextSongs,
+            appliedIDs: [s.id],
+            idToIndex: songIndexByID
+        ) {
+            songs = nextSongs
+            rebuildVisibleCache()
+        }
         lastReplacedSong = s
         lastReplacedSongIDs = [s.id]
         if previousSong.sourceID != s.sourceID
@@ -6621,6 +6643,7 @@ final class MusicLibrary {
 
     private struct StableMetadataReplacementRequest: Sendable {
         let songMutationGeneration: UInt64
+        let visibleCacheGeneration: UInt64
         let automaticArtworkCatalogRevision: UInt64
         let updatedSongs: [Song]
         let originalSongs: [Song]
@@ -6665,6 +6688,10 @@ final class MusicLibrary {
         let songListSnapshotChanged: Bool
     }
 
+    /// 仅供测试注入: 拉长离主线程准备的时长, 好让另一次可见缓存发布确定性地
+    /// 抢在这批补丁前面落地。生产路径保持 nil。
+    @ObservationIgnored var stableMetadataPreparationDelayForTesting: Duration?
+
     /// Metadata backfill retains song IDs, order, source membership, and
     /// visibility. Prepare its copy-on-write array snapshots on a utility
     /// executor so publishing the batch on the main actor is only a pointer
@@ -6689,6 +6716,7 @@ final class MusicLibrary {
             })
             let request = StableMetadataReplacementRequest(
                 songMutationGeneration: songMutationGeneration,
+                visibleCacheGeneration: visibleCacheGeneration,
                 automaticArtworkCatalogRevision: automaticArtistArtworkCatalogRevision,
                 updatedSongs: updatedSongs,
                 originalSongs: songs,
@@ -6700,11 +6728,17 @@ final class MusicLibrary {
                 artistNameConfiguration: artistNameConfiguration,
                 automaticArtworkCatalogsBySource: automaticArtistArtworkCatalogsBySource
             )
+            let preparationDelay = stableMetadataPreparationDelayForTesting
             let prepared = await Task.detached(priority: .utility) {
-                Self.prepareStableMetadataReplacements(request)
+                if let preparationDelay { try? await Task.sleep(for: preparationDelay) }
+                return Self.prepareStableMetadataReplacements(request)
             }.value
 
+            // visibleCacheGeneration 覆盖 songs 不变但可见缓存已被重新发布的
+            // 情况 (异步派生重建落地 / 稳定成员替换), 否则这份补丁会把更新的
+            // visibleSongs 换回旧数组, 而 visibleSongIndexByID 仍指向新数组。
             guard songMutationGeneration == request.songMutationGeneration,
+                  visibleCacheGeneration == request.visibleCacheGeneration,
                   automaticArtistArtworkCatalogRevision == request.automaticArtworkCatalogRevision,
                   disabledSourceIDs == request.disabledSourceIDs,
                   artistNameConfiguration == request.artistNameConfiguration else {
@@ -7179,6 +7213,7 @@ final class MusicLibrary {
         computation: DerivedIndexComputation?
     ) {
         guard rebuildIndexWorkState.activeGeneration == request.generation else { return }
+        var applied = false
         if let computation,
            rebuildIndexGeneration == request.generation,
            songMutationGeneration == request.songMutationGeneration,
@@ -7189,18 +7224,36 @@ final class MusicLibrary {
             derivedIndexSignature = computation.signature
             applyPreparedVisibleCache(computation.visibleCache)
             persistDerivedIndexCache()
+            applied = true
         }
 
         let nextGeneration = rebuildIndexWorkState.complete(generation: request.generation)
         rebuildIndexTask = nil
-        guard let nextGeneration,
-              let nextRequest = pendingRebuildIndexRequest,
-              nextRequest.generation == nextGeneration else {
+        if let nextGeneration,
+           let nextRequest = pendingRebuildIndexRequest,
+           nextRequest.generation == nextGeneration {
             pendingRebuildIndexRequest = nil
+            startIndexRebuild(nextRequest)
             return
         }
         pendingRebuildIndexRequest = nil
-        startIndexRebuild(nextRequest)
+
+        // 守卫失败时结果只能丢弃 (否则旧快照会盖掉更新的 lyricsText /
+        // coverRef), 但推进 songMutationGeneration 的一批 mutator 并不请求
+        // 派生维护 —— updateLyricsText / updateAssetReferences /
+        // updateMusicVideoReference, 以及只改技术字段的 backfill 批次。
+        // 没有人补发时 `songs` 已经更新而 visibleSongs/visibleAlbums 会一直
+        // 停留在扫描前的样子, 所以这里自己补一次。不走
+        // requestLibraryIndexMaintenance(.immediate), 避免无谓地 bump
+        // spotlightIndexRevision; 后台 / 高热时只置位标志, 交给
+        // didBecomeActive / 热状态观察者或 backfill 结束时的 flush 接手。
+        guard computation != nil, !applied else { return }
+        if deferredMaintenanceAllowed() {
+            rebuildIndex()
+        } else {
+            deferredLibraryMaintenancePending = true
+            deferredDerivedIndexMaintenancePending = true
+        }
     }
 
     /// 启动 / 测试场景下需要"调用即生效"的同步重建。比异步版本贵 (会卡
@@ -8127,6 +8180,9 @@ final class MusicLibrary {
     }
 
     private var persistTask: Task<Void, Never>?
+    /// 已武装的 `persistTask` 的到期时刻。用来保留"最早的那个截止时间",
+    /// 否则 backfill 的 30s 合并写会不断把用户操作的 0.2s / 2s 落盘推后。
+    @ObservationIgnored private var persistDeadline: ContinuousClock.Instant?
     /// Incremental SQLite writes are serialized independently from the JSON
     /// compatibility snapshot. Scan cursor commits await this chain.
     private var songStoreWriteTask: Task<Int64?, Never>?
@@ -8299,11 +8355,17 @@ final class MusicLibrary {
             deferredPersistRequested = true
             return
         }
+        let deadline = ContinuousClock.now + .seconds(delay)
+        // 保留最早的截止时间: 一次 30s 的 backfill 合并写不能顶掉已经为
+        // 点赞 / 评分 / 歌单编辑 / 删除墓碑武装好的 0.2s / 2s 落盘。
+        if persistTask != nil, let armed = persistDeadline, armed <= deadline { return }
         persistTask?.cancel()
+        persistDeadline = deadline
         persistTask = Task {
-            try? await Task.sleep(for: .seconds(delay))
+            try? await Task.sleep(until: deadline, clock: .continuous)
             guard !Task.isCancelled else { return }
             persistTask = nil
+            persistDeadline = nil
             persistNow()
         }
     }
@@ -8322,6 +8384,7 @@ final class MusicLibrary {
         }
         persistTask?.cancel()
         persistTask = nil
+        persistDeadline = nil
         _ = enqueueSnapshotWrite()
     }
 
@@ -8448,6 +8511,7 @@ final class MusicLibrary {
         guard !Task.isCancelled else { return .failure(.cancelled) }
         persistTask?.cancel()
         persistTask = nil
+        persistDeadline = nil
         guard await flushIncrementalSongStore() else {
             return .failure(.snapshotPreparationFailed)
         }
@@ -8494,7 +8558,13 @@ final class MusicLibrary {
         let recoverySnapshot = songs
         let writer = songStoreSnapshotWriter
         let importID = pendingSnapshotImportID
+        // 恢复写入必须留在 songStoreWriteTask 这条串行链上, 并且在 await 之前
+        // 就成为链头: 等待期间 persistSongChanges 产生的增量才会排在恢复之后,
+        // 既不会被更旧的恢复快照覆盖, 也不会因为 await 之后重新赋值链头而被
+        // 挤出链外 (它们的成败也就再没人观察得到)。
+        let previous = songStoreWriteTask
         let recoveryTask = Task<Int64?, Never>.detached(priority: .utility) {
+            _ = await previous?.value
             do {
                 return try writer(songStore, recoverySnapshot, importID)
             } catch {
@@ -8502,14 +8572,18 @@ final class MusicLibrary {
                 return nil
             }
         }
-        let recoveredRevision = await recoveryTask.value
-        guard let recoveredRevision else {
+        songStoreWriteTask = recoveryTask
+        guard await recoveryTask.value != nil else {
             plog("⛔ Incremental song persistence failed before library commit")
             return false
         }
-        self.songStoreWriteTask = Task { recoveredRevision }
-        songStoreRequiresReplacement = false
-        pendingSnapshotImportID = nil
+        // 不再回写 songStoreWriteTask: 等待期间 chain 上来的增量才是真正的链头。
+        // reloadFromDisk 可能在等待期间重新武装一次更新的替换, 所以只清除本次
+        // 处理的那一个 importID。
+        if pendingSnapshotImportID == importID {
+            songStoreRequiresReplacement = false
+            pendingSnapshotImportID = nil
+        }
         return true
     }
 

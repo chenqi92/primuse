@@ -382,3 +382,273 @@ final class MusicLibraryMetadataReplacementTests: XCTestCase {
         )
     }
 }
+
+@MainActor
+final class MusicLibraryDerivedIndexRecoveryTests: XCTestCase {
+    /// 派生重建落地前被一次"不请求派生维护"的 mutation 作废时, 必须自己补发,
+    /// 否则 `songs` 已经有新歌而 visibleSongs / visibleAlbums 会一直停在扫描前。
+    func testMutationDuringIndexRebuildDoesNotLeaveVisibleCachesStale() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseIndexRequeue-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(
+            storageDirectory: directory,
+            deferredMaintenanceAllowed: { true }
+        )
+
+        var first = makeSong(id: "first", path: "/music/first.mp3")
+        first.albumTitle = "Album A"
+        library.addSongs([first], affectedSourceIDs: [first.sourceID])
+        await library.waitForPendingIndex()
+        XCTAssertEqual(library.visibleSongs.map(\.id), ["first"])
+
+        var second = makeSong(id: "second", path: "/music/second.mp3")
+        second.albumTitle = "Album B"
+        // 启动一次异步派生重建 (250ms 防抖), 不等待它落地。
+        library.addSongs(
+            [second],
+            affectedSourceIDs: [second.sourceID],
+            pruneMissingSongs: false
+        )
+        // 防抖窗口内推进 songMutationGeneration, 且这条路径从不请求派生重建。
+        library.updateAssetReferences(songID: "first", coverRef: "first-cover.jpg")
+
+        await library.waitForPendingIndex()
+
+        XCTAssertEqual(Set(library.visibleSongs.map(\.id)), ["first", "second"])
+        XCTAssertEqual(Set(library.visibleAlbums.map(\.title)), ["Album A", "Album B"])
+        XCTAssertNotNil(library.unobservedVisibleSong(id: "second"))
+        XCTAssertEqual(
+            library.unobservedVisibleSong(id: "first")?.coverArtFileName,
+            "first-cover.jpg",
+            "补发的重建必须带上更新后的引用, 而不是用旧快照盖回去"
+        )
+
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("The requeued rebuild fixture did not finish persistence")
+        }
+    }
+
+    /// 离主线程准备好的补丁不能盖掉在它挂起期间发布的、更新的可见缓存。
+    func testDelayedPreparedReplacementRebasesOnFresherVisibleCache() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseVisibleCacheRebase-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(
+            storageDirectory: directory,
+            deferredMaintenanceAllowed: { true }
+        )
+
+        let a = makeSong(id: "a", path: "/music/a.mp3")
+        let b = makeSong(id: "b", path: "/music/b.mp3")
+        library.addSongs([a, b], affectedSourceIDs: ["source-1"])
+        await library.waitForPendingIndex()
+        XCTAssertEqual(library.visibleSongs.map(\.id), ["a", "b"])
+
+        // 准备耗时长于 250ms 防抖, 于是派生重建一定先发布 [a, b, c]。
+        library.stableMetadataPreparationDelayForTesting = Duration.milliseconds(500)
+        library.addSongs(
+            [makeSong(id: "c", path: "/music/c.mp3")],
+            affectedSourceIDs: ["source-1"],
+            pruneMissingSongs: false
+        )
+        var patched = a
+        patched.duration = 193
+        await library.replaceSongsPreparedOffMain([patched], maintenance: .deferred)
+        library.stableMetadataPreparationDelayForTesting = nil
+
+        XCTAssertEqual(library.visibleSongs.map(\.id), ["a", "b", "c"])
+        XCTAssertEqual(library.songCount, 3)
+        XCTAssertNotNil(library.visibleSong(id: "c"))
+        XCTAssertEqual(library.unobservedVisibleSong(id: "a")?.duration, 193)
+        XCTAssertEqual(
+            Set(library.visibleSongs(forSourceID: "source-1").map(\.id)),
+            ["a", "b", "c"]
+        )
+
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("The rebased replacement fixture did not finish persistence")
+        }
+    }
+
+    /// 单行元数据替换不该在主 actor 上重算整库可见查找表。
+    func testMetadataOnlyReplaceSongKeepsWholeLibraryVisibleLookups() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseSingleRowReplace-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(
+            storageDirectory: directory,
+            deferredMaintenanceAllowed: { true }
+        )
+        let catalogue = (0..<50).map { makeSong(id: "song-\($0)", path: "/music/\($0).mp3") }
+        library.addSongs(catalogue, affectedSourceIDs: ["source-1"])
+        await library.waitForPendingIndex()
+        XCTAssertEqual(library.visibleSongs.count, 50)
+
+        let artworkRevision = library.albumArtworkLookupRevision
+        let collectionRevision = library.visibleSongCollectionRevision
+        let invalidationRevision = library.songListSnapshotInvalidationRevision
+        let replacementToken = library.songReplacementToken
+
+        var updated = try XCTUnwrap(library.song(id: "song-7"))
+        updated.duration = 193
+        library.replaceSong(updated)
+
+        XCTAssertEqual(library.song(id: "song-7")?.duration, 193)
+        XCTAssertEqual(library.unobservedVisibleSong(id: "song-7")?.duration, 193)
+        XCTAssertEqual(
+            library.visibleSongs(forSourceID: "source-1").first(where: { $0.id == "song-7" })?.duration,
+            193
+        )
+        XCTAssertEqual(library.lastReplacedSong?.id, "song-7")
+        XCTAssertEqual(library.lastReplacedSongIDs, ["song-7"])
+        XCTAssertNotEqual(library.songReplacementToken, replacementToken)
+        XCTAssertEqual(library.songListSnapshotInvalidationRevision, invalidationRevision)
+        XCTAssertEqual(
+            library.albumArtworkLookupRevision,
+            artworkRevision,
+            "元数据替换不应触发整库可见缓存重建"
+        )
+        XCTAssertEqual(library.visibleSongCollectionRevision, collectionRevision)
+
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("The single-row replacement fixture did not finish persistence")
+        }
+    }
+
+    private func makeSong(id: String, path: String) -> Song {
+        Song(
+            id: id,
+            title: id,
+            fileFormat: .mp3,
+            filePath: path,
+            sourceID: "source-1"
+        )
+    }
+}
+
+@MainActor
+final class MusicLibraryPersistenceSchedulingTests: XCTestCase {
+    /// backfill 的 30s 合并写不能把已经武装好的 2s 用户操作落盘顶掉。
+    func testCoalescedBackfillFlushDoesNotStarvePromptUserMutation() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimusePersistDeadline-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let liked = makeSong(id: "liked", path: "/music/liked.mp3")
+        var other = makeSong(id: "other", path: "/music/other.mp3")
+        library.addSongs([liked, other], affectedSourceIDs: ["source-1"])
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("The persistence-scheduling fixture did not finish its baseline write")
+        }
+
+        library.toggleLiked(songID: "liked")
+        XCTAssertTrue(library.isLiked(songID: "liked"))
+        other.albumTitle = "Coalesced"
+        library.replaceSongs([other])
+        XCTAssertTrue(library.hasPendingPortableSnapshotChanges)
+
+        for _ in 0..<600 where library.hasPendingPortableSnapshotChanges {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertFalse(
+            library.hasPendingPortableSnapshotChanges,
+            "点赞武装的短定时器必须继续生效, 而不是被 30s 合并写推后"
+        )
+
+        let restored = MusicLibrary(storageDirectory: directory)
+        XCTAssertTrue(restored.isLiked(songID: "liked"))
+        XCTAssertEqual(restored.song(id: "other")?.albumTitle, "Coalesced")
+    }
+
+    private func makeSong(id: String, path: String) -> Song {
+        Song(
+            id: id,
+            title: id,
+            fileFormat: .mp3,
+            filePath: path,
+            sourceID: "source-1"
+        )
+    }
+}
+
+@MainActor
+final class MusicLibraryIncrementalRecoveryTests: XCTestCase {
+    /// 恢复写入必须留在 songStoreWriteTask 链上, 否则等待期间产生的增量
+    /// 会被更旧的恢复快照覆盖 (或者被挤出链外, 成败无人观察)。
+    func testRecoveryWriteKeepsConcurrentDeltaInTheSongStore() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseSongStoreRecovery-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let seed = MusicLibrary(storageDirectory: directory)
+        seed.addSongs([makeSong(id: "old", path: "/music/old.mp3")], affectedSourceIDs: ["source-1"])
+        guard case .success = await seed.persistNowAndWait() else {
+            return XCTFail("The seed library did not finish persistence")
+        }
+
+        // 第一次调用是装载期的迁移写入 —— 让它失败以武装
+        // songStoreRequiresReplacement; 第二次调用就是 flushIncrementalSongStore
+        // 的恢复写入, 停在闸门上等测试插入一次并发增量。
+        let firstCallToken = DispatchSemaphore(value: 1)
+        let recoveryEntered = DispatchSemaphore(value: 0)
+        let recoveryRelease = DispatchSemaphore(value: 0)
+        let writer: @Sendable (IncrementalSongStore, [Song], String?) throws -> Int64 = { store, songs, importID in
+            if firstCallToken.wait(timeout: .now()) == .success {
+                throw CocoaError(.fileWriteOutOfSpace)
+            }
+            recoveryEntered.signal()
+            _ = recoveryRelease.wait(timeout: .now() + 10)
+            return try store.replaceAll(with: songs, snapshotImportID: importID)
+        }
+
+        let library = MusicLibrary(
+            storageDirectory: directory,
+            preferExternalSnapshot: true,
+            songStoreSnapshotWriter: writer
+        )
+        let flush = Task { await library.persistIncrementalNowAndWait() }
+
+        var didEnterRecovery = false
+        for _ in 0..<500 {
+            if recoveryEntered.wait(timeout: .now()) == .success {
+                didEnterRecovery = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(didEnterRecovery, "The recovery write must be in flight before the delta")
+
+        library.addSongs(
+            [makeSong(id: "later", path: "/music/later.mp3")],
+            affectedSourceIDs: ["source-1"],
+            pruneMissingSongs: false
+        )
+        try await Task.sleep(for: .milliseconds(200))
+        recoveryRelease.signal()
+
+        guard case .success = await flush.value else {
+            return XCTFail("The chained recovery must report a durable commit")
+        }
+        guard case .success = await library.persistIncrementalNowAndWait() else {
+            return XCTFail("Draining the song-store chain must succeed")
+        }
+
+        let database = try IncrementalSongStore(
+            path: directory.appendingPathComponent("library-songs.sqlite").path
+        )
+        XCTAssertEqual(Set(try database.loadSongs().map(\.id)), ["old", "later"])
+        XCTAssertEqual(Set(library.songs.map(\.id)), ["old", "later"])
+    }
+
+    private func makeSong(id: String, path: String) -> Song {
+        Song(
+            id: id,
+            title: id,
+            fileFormat: .mp3,
+            filePath: path,
+            sourceID: "source-1"
+        )
+    }
+}
