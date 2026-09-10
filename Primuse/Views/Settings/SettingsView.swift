@@ -2313,7 +2313,7 @@ struct StorageManagementView: View {
                     Button(role: .destructive) {
                         isClearingPartials = true
                         Task {
-                            let result = sourceManager.purgeAllPartialFiles()
+                            let result = await sourceManager.purgeAllPartialFiles()
                             await refreshSizes()
                             isClearingPartials = false
                             flashCacheToast(freed: result.freedBytes, failed: result.failedCount)

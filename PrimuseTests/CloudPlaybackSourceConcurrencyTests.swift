@@ -822,6 +822,65 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: first.appendingPathComponent("song.lrc").path))
     }
 
+    /// 「清缓存」的跳过判定必须挂在 session 是否还活着上, 而不是文件名后缀:
+    /// 正在播放的 `.partial` 与正在下载的 `.offline` 要留下, 早就中断的
+    /// `.partial` 照删; session 结束之后同一个文件立刻恢复可删。
+    @MainActor
+    func testClearSkipsOnlyLiveSessionPartialsAndRunningOfflineStaging() async throws {
+        let sourceID = "cloud-clear-skip-\(UUID().uuidString)"
+        let directory = try makeTemporaryDirectory()
+        let cacheURL = directory.appendingPathComponent("song.bin")
+        let payload = Data(repeating: 0x42, count: Int(CloudPlaybackSource.chunkSize) * 2)
+        let connector = FixtureRangeConnector(sourceID: sourceID, payload: payload)
+        defer {
+            CloudPlaybackSource.cancelSessions(sourceID: sourceID)
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let input = try makeInputSource(
+            sourceID: sourceID,
+            cacheURL: cacheURL,
+            payload: payload,
+            connector: connector,
+            allowsTrailingFill: false
+        )
+        XCTAssertTrue(Self.read(input, byteCount: 4_096).success)
+        let livePartial = cacheURL.path + ".partial"
+        XCTAssertTrue(CloudPlaybackSource.activeSessionPaths().contains(livePartial))
+
+        let stalePartial = directory.appendingPathComponent("other.bin.partial")
+        let runningOffline = directory.appendingPathComponent("pinning.bin.offline")
+        try Data(repeating: 9, count: 128).write(to: stalePartial)
+        try Data(repeating: 9, count: 128).write(to: runningOffline)
+
+        var protectedPaths = CloudPlaybackSource.activeSessionPaths()
+        protectedPaths.insert(runningOffline.path)
+
+        func shouldSkip(_ url: URL) -> Bool {
+            SourceManager.audioCacheClearShouldSkip(
+                fileURL: url,
+                basePath: directory,
+                pinnedRelativePaths: [],
+                protectedAbsolutePaths: protectedPaths
+            )
+        }
+
+        XCTAssertTrue(shouldSkip(URL(fileURLWithPath: livePartial)))
+        XCTAssertTrue(shouldSkip(runningOffline))
+        XCTAssertFalse(shouldSkip(stalePartial))
+
+        // session 结束后同一个 `.partial` 不再受保护。
+        CloudPlaybackSource.cancelSessions(sourceID: sourceID)
+        XCTAssertFalse(
+            SourceManager.audioCacheClearShouldSkip(
+                fileURL: URL(fileURLWithPath: livePartial),
+                basePath: directory,
+                pinnedRelativePaths: [],
+                protectedAbsolutePaths: CloudPlaybackSource.activeSessionPaths()
+            )
+        )
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(
             "PrimuseCloudPlaybackConcurrency-\(UUID().uuidString)",

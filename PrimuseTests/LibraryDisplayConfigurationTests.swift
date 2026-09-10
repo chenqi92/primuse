@@ -1677,11 +1677,249 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: staged[0].path))
     }
 
+    /// 清缓存的枚举 + 删除必须能在后台执行器上跑 (nonisolated static 本身
+    /// 就是编译期护栏), 并且跳过 pinned 与在途文件: 正在播放的 `.partial`
+    /// 与正在下载的 `.offline` 被删掉不会让写入端退出, 只会让这首歌之后
+    /// 每次读都 miss、离线任务报错变红。
+    func testClearAudioCacheHelperSkipsPinnedAndInFlightFiles() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "PrimuseAudioCacheClearTests-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let basePath = root.appendingPathComponent("primuse_audio_cache", isDirectory: true)
+        let sourceDirectory = basePath.appendingPathComponent("source-a", isDirectory: true)
+        let smbDirectory = root.appendingPathComponent("primuse_smb_cache", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: smbDirectory, withIntermediateDirectories: true)
+
+        let removable = sourceDirectory.appendingPathComponent("gone.cache")
+        let pinned = sourceDirectory.appendingPathComponent("pinned.cache")
+        let streaming = sourceDirectory.appendingPathComponent("live.flac.partial")
+        let staleStreaming = sourceDirectory.appendingPathComponent("stale.flac.partial")
+        let offline = sourceDirectory.appendingPathComponent("download.flac.offline")
+        let smbFile = smbDirectory.appendingPathComponent("scratch.tmp")
+        for url in [removable, pinned, streaming, staleStreaming, offline, smbFile] {
+            try Data(repeating: 7, count: 1024).write(to: url)
+        }
+
+        let outcome = await Task.detached(priority: .utility) { () -> (Bool, Int64, Int) in
+            let ranOffMainThread = !Thread.isMainThread
+            let result = SourceManager.removeUnpinnedAudioCacheFiles(
+                dirs: [basePath, smbDirectory],
+                basePath: basePath,
+                removableDirPaths: [smbDirectory.path],
+                pinnedRelativePaths: ["source-a/pinned.cache"],
+                protectedAbsolutePaths: [streaming.path, offline.path]
+            )
+            return (ranOffMainThread, result.freedBytes, result.failedCount)
+        }.value
+
+        XCTAssertTrue(outcome.0)
+        XCTAssertGreaterThan(outcome.1, 0)
+        XCTAssertEqual(outcome.2, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pinned.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: streaming.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: offline.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: removable.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staleStreaming.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: smbDirectory.path))
+    }
+
+    /// 临时目录整删是「文件都删光了」之后的收尾。只要本轮跳过了在途文件,
+    /// 就不能再递归删掉整个目录, 否则跳过等于没跳过。
+    func testClearAudioCacheHelperKeepsTemporaryDirectoryHoldingProtectedFile() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "PrimuseAudioCacheClearKeepTests-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let basePath = root.appendingPathComponent("primuse_audio_cache", isDirectory: true)
+        let smbDirectory = root.appendingPathComponent("primuse_smb_cache", isDirectory: true)
+        try FileManager.default.createDirectory(at: basePath, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: smbDirectory, withIntermediateDirectories: true)
+        let live = smbDirectory.appendingPathComponent("live.flac.partial")
+        try Data(repeating: 3, count: 512).write(to: live)
+
+        let failed = await Task.detached(priority: .utility) { () -> Int in
+            SourceManager.removeUnpinnedAudioCacheFiles(
+                dirs: [basePath, smbDirectory],
+                basePath: basePath,
+                removableDirPaths: [smbDirectory.path],
+                pinnedRelativePaths: [],
+                protectedAbsolutePaths: [live.path]
+            ).failedCount
+        }.value
+
+        XCTAssertEqual(failed, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: live.path))
+    }
+
+    func testPurgePartialHelperKeepsInFlightStagingFiles() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "PrimusePartialPurgeTests-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let basePath = root.appendingPathComponent("primuse_audio_cache", isDirectory: true)
+        let sourceDirectory = basePath.appendingPathComponent("source-a", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+
+        let completed = sourceDirectory.appendingPathComponent("done.flac")
+        let stalePartial = sourceDirectory.appendingPathComponent("stale.flac.partial")
+        let staleMarker = sourceDirectory.appendingPathComponent("stale.flac.partial.prewarmed")
+        let staleOffline = sourceDirectory.appendingPathComponent("stale.flac.offline")
+        let livePartial = sourceDirectory.appendingPathComponent("live.flac.partial")
+        let liveOffline = sourceDirectory.appendingPathComponent("live.flac.offline")
+        for url in [completed, stalePartial, staleMarker, staleOffline, livePartial, liveOffline] {
+            try Data(repeating: 5, count: 1024).write(to: url)
+        }
+
+        let result = await Task.detached(priority: .utility) { () -> (Int64, Int) in
+            let purged = SourceManager.removePartialFiles(
+                basePath: basePath,
+                protectedAbsolutePaths: [livePartial.path, liveOffline.path]
+            )
+            return (purged.freedBytes, purged.failedCount)
+        }.value
+
+        XCTAssertGreaterThan(result.0, 0)
+        XCTAssertEqual(result.1, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: completed.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: livePartial.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: liveOffline.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stalePartial.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staleMarker.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staleOffline.path))
+    }
+
+    /// 整源清理必须在主 actor 上只做一次 rename, 递归删除交给后台。
+    @MainActor
+    func testPurgeAudioCacheStagesDirectoryBeforeDeleting() async throws {
+        let sourceID = "purge-staging-\(UUID().uuidString)"
+        let cacheRoot = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+            .appendingPathComponent("primuse_audio_cache", isDirectory: true)
+        let sourceDirectory = cacheRoot.appendingPathComponent(sourceID, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: sourceDirectory) }
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        for index in 0..<64 {
+            try Data(repeating: 1, count: 256).write(
+                to: sourceDirectory.appendingPathComponent("track-\(index).flac")
+            )
+        }
+
+        let manager = SourceManager(sourcesProvider: { [] })
+        manager.purgeAudioCache(forSourceID: sourceID)
+
+        // rename 是同步完成的: 调用返回时规范目录已经离开命名空间。
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sourceDirectory.path))
+
+        func stagedEntries() -> [String] {
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: cacheRoot.path)) ?? []
+            return names.filter { $0.hasPrefix(".primuse-deleting-\(sourceID)") }
+        }
+        let deadline = Date().addingTimeInterval(10)
+        while !stagedEntries().isEmpty, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(stagedEntries().isEmpty)
+    }
+
+    /// 停用一个源必须停掉它名下的整源离线批量, 而不是只取消扫描:
+    /// 此前用户在蜂窝网下关掉源, 剩余歌曲仍会一首接一首继续下载。
+    @MainActor
+    func testDisablingSourceCancelsWholeSourceOfflineBatch() async throws {
+        let sourceID = "offline-disable-\(UUID().uuidString)"
+        let source = MusicSource(
+            id: sourceID, name: "Disable fixture", type: .webdav,
+            host: "nas.invalid", authType: .none
+        )
+        let songs = (0..<6).map { index in
+            Song(
+                id: "\(sourceID)-\(index)", title: "Song \(index)",
+                fileFormat: .flac, filePath: "/music/song-\(index).flac",
+                sourceID: sourceID, fileSize: 4_096
+            )
+        }
+        let connector = SuspendingOfflineConnector(sourceID: sourceID)
+        let manager = SourceManager(
+            sourcesProvider: { [source] },
+            songsProvider: { songs },
+            connectorFactory: { _ in connector }
+        )
+        defer {
+            try? FileManager.default.removeItem(
+                at: FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+                    .appendingPathComponent("primuse_audio_cache", isDirectory: true)
+                    .appendingPathComponent(sourceID, isDirectory: true)
+            )
+        }
+        // 先把 audio cache scope 校验推到完成, 否则每首歌都会在触到
+        // connector 之前就以 sourceUnavailable 结束。
+        await manager.ensureOfflineAudioSnapshot(for: songs[0])
+
+        let batch = Task { @MainActor in
+            await manager.downloadSourceForOffline(sourceID: sourceID, songs: songs)
+        }
+        var started = 0
+        let deadline = Date().addingTimeInterval(5)
+        while started == 0, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+            started = await connector.connectAttempts
+        }
+        guard started > 0 else {
+            batch.cancel()
+            _ = await batch.value
+            throw XCTSkip("离线下载在本环境没有走到 connector, 无法验证取消传播")
+        }
+        XCTAssertTrue(manager.activeOfflineSourceCacheSourceIDs.contains(sourceID))
+
+        manager.sourceAvailabilityDidChange(sourceID: sourceID, isEnabled: false)
+
+        let result = await batch.value
+        XCTAssertEqual(result.completedCount, 0)
+        XCTAssertFalse(manager.activeOfflineSourceCacheSourceIDs.contains(sourceID))
+        let cancelled = await connector.cancelledCount
+        XCTAssertGreaterThan(cancelled, 0)
+        // 取消之后不再排新的歌: 并发上限是 2, 不应该把 6 首都跑一遍。
+        let attempts = await connector.connectAttempts
+        XCTAssertLessThan(attempts, songs.count)
+    }
+
     private static func boundedDownloadTemporaryFiles() -> Set<String> {
         let names = (try? FileManager.default.contentsOfDirectory(
             atPath: FileManager.default.temporaryDirectory.path
         )) ?? []
         return Set(names.filter { $0.hasPrefix("Primuse-HTTPS-") })
+    }
+}
+
+/// 下载会一直挂着直到被取消的假 connector。
+private actor SuspendingOfflineConnector: MusicSourceConnector {
+    nonisolated let sourceID: String
+    private(set) var connectAttempts = 0
+    private(set) var cancelledCount = 0
+
+    init(sourceID: String) { self.sourceID = sourceID }
+
+    func connect() async throws {
+        connectAttempts += 1
+        do {
+            try await Task.sleep(for: .seconds(20))
+        } catch {
+            cancelledCount += 1
+            throw error
+        }
+        throw SourceError.timeout
+    }
+    func disconnect() async {}
+    func listFiles(at path: String) async throws -> [RemoteFileItem] { [] }
+    func localURL(for path: String) async throws -> URL { throw URLError(.unsupportedURL) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
+        throw URLError(.unsupportedURL)
+    }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
+        AsyncThrowingStream { $0.finish() }
     }
 }
 

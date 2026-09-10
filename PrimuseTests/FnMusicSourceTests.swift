@@ -441,6 +441,56 @@ final class FnMusicSourceTests: XCTestCase {
         XCTAssertNotNil(library.playlist(id: id("other", sourceID: "elsewhere")))
     }
 
+    /// 探测失败发生在 connect() 之后时, 被探测的实例可能同时被扫描 / 播放
+    /// 持有: 只能把它踢出连接缓存, 不能 disconnect —— 否则 WebDAV 会连带
+    /// invalidate 正在拉 range 的 session, 让不相干的播放报错。
+    func testPostConnectDiagnosticFailureDoesNotDisconnectSharedConnector() async {
+        let source = MusicSource(
+            id: UUID().uuidString, name: "Diag WebDAV", type: .webdav,
+            host: "nas.invalid", authType: .none
+        )
+        let connector = DiagnosticProbeConnector(sourceID: source.id, failsConnect: false)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        // 模拟「扫描 / 播放正持有同一个共享实例」。
+        let held = manager.connector(for: source)
+        XCTAssertTrue(held is DiagnosticProbeConnector)
+
+        let report = await manager.diagnose(source: source, directories: ["/music"])
+
+        XCTAssertTrue(report.checks.contains { $0.status == .failed })
+        let connects = await connector.connectCount
+        XCTAssertEqual(connects, 1)
+        // 退休是异步的; 给它足够时间真的跑一次才判定「没有断开」。
+        for _ in 0..<20 {
+            try? await Task.sleep(for: .milliseconds(20))
+            let disconnects = await connector.disconnectCount
+            if disconnects > 0 { break }
+        }
+        let disconnects = await connector.disconnectCount
+        XCTAssertEqual(disconnects, 0)
+    }
+
+    /// connect() 本身失败时没有别的持有者依赖这个传输, 保持原有的断开语义。
+    func testConnectFailureStillRetiresDiagnosticConnector() async {
+        let source = MusicSource(
+            id: UUID().uuidString, name: "Diag WebDAV", type: .webdav,
+            host: "nas.invalid", authType: .none
+        )
+        let connector = DiagnosticProbeConnector(sourceID: source.id, failsConnect: true)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+
+        let report = await manager.diagnose(source: source, directories: ["/music"])
+
+        XCTAssertTrue(report.checks.contains { $0.status == .failed })
+        var disconnects = 0
+        let deadline = Date().addingTimeInterval(5)
+        while disconnects == 0, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+            disconnects = await connector.disconnectCount
+        }
+        XCTAssertEqual(disconnects, 1)
+    }
+
     private func makeSource() -> FnMusicSource {
         let host = UUID().uuidString.lowercased() + ".invalid"
         FnMusicSourceURLProtocol.register(host: host)
@@ -545,6 +595,33 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
+}
+
+/// connect() 成功、目录探测失败的假 connector, 记录 connect/disconnect 次数。
+private actor DiagnosticProbeConnector: MusicSourceConnector {
+    nonisolated let sourceID: String
+    private let failsConnect: Bool
+    private(set) var connectCount = 0
+    private(set) var disconnectCount = 0
+
+    init(sourceID: String, failsConnect: Bool) {
+        self.sourceID = sourceID
+        self.failsConnect = failsConnect
+    }
+
+    func connect() async throws {
+        connectCount += 1
+        if failsConnect { throw SourceError.connectionFailed("probe") }
+    }
+    func disconnect() async { disconnectCount += 1 }
+    func listFiles(at path: String) async throws -> [RemoteFileItem] { throw SourceError.timeout }
+    func localURL(for path: String) async throws -> URL { throw URLError(.unsupportedURL) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
+        throw URLError(.unsupportedURL)
+    }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
+        AsyncThrowingStream { $0.finish() }
+    }
 }
 
 private actor DuplicateDeletionFixtureConnector: MusicSourceConnector {

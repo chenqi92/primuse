@@ -2064,8 +2064,11 @@ struct SourcesContentView: View {
         scanService.removeCheckpoint(for: sourceID)
     }
 
+    /// 停用源时暂停它名下的后台工作: 扫描, 以及 SourceManager 里的整源
+    /// 离线批量 / 单曲离线下载 / 后台缓存 / MV 下载。
     private func pauseBackgroundWork(for sourceID: String) {
         scanService.cancelScan(for: sourceID)
+        sourceManager.sourceAvailabilityDidChange(sourceID: sourceID, isEnabled: false)
     }
 
     private func isManagedLocalImportSource(_ source: MusicSource) -> Bool {

@@ -738,6 +738,22 @@ private struct BackgroundAudioCacheTaskRecord {
     let task: Task<Void, Never>
 }
 
+/// 一次 MV 后台缓存下载。`target` 决定这次下载写到哪个 namespace 目录,
+/// 复用登记时必须比对它。
+private struct MusicVideoCacheRun: KeyedRunCancellable {
+    let task: Task<URL, Error>
+    let target: URL
+
+    func cancelRun() { task.cancel() }
+}
+
+/// 一次「缓存整个源」的批量离线下载。
+private struct OfflineSourceCacheBatchRun: KeyedRunCancellable {
+    let task: Task<OfflineDownloadBatchResult, Never>
+
+    func cancelRun() { task.cancel() }
+}
+
 /// Per-song observation node for the offline badge. A single dictionary on
 /// SourceManager caused every visible SongRowView to refresh whenever one
 /// newly-visible song finished its disk probe or one download advanced.
@@ -2248,8 +2264,12 @@ final class SourceManager {
     @ObservationIgnored private var audioCacheScopeReconciliationsInProgress: Set<String> = []
     @ObservationIgnored private var credentialChangesInProgress: Set<String> = []
     @ObservationIgnored private var automaticAudioCachingEnabled = true
-    private var musicVideoCacheTasks: [String: Task<URL, Error>] = [:]
-    private var musicVideoCacheTargets: [String: URL] = [:]
+    /// MV 后台下载登记表。带 run 身份: 被取消的旧任务可能过几秒才真正退出,
+    /// 它的收尾不能把同一个 key 下新登记的替代任务删掉 —— 否则切歌取消、
+    /// 驱逐保护 (protectedVideoCachePaths) 都再也找不到那个下载。
+    private var musicVideoCacheDownloads = KeyedRunRegistry<MusicVideoCacheRun>()
+    /// 整源离线批量任务, 便于源被停用时整批取消。
+    private var offlineSourceCacheBatches = KeyedRunRegistry<OfflineSourceCacheBatchRun>()
 
     init(database: LibraryDatabase) {
         self.connectorFactory = nil
@@ -2892,7 +2912,7 @@ final class SourceManager {
                     message: String(localized: "source_diag_scan_ready_ok")
                 ))
             } catch {
-                retireDiagnosticConnector(connector, sourceID: source.id)
+                retireDiagnosticConnector(connector, sourceID: source.id, disconnect: false)
                 checks.append(diagnosticCheck(
                     for: error,
                     source: source,
@@ -2937,7 +2957,7 @@ final class SourceManager {
                     suggestion: visibleItems == 0 ? String(localized: "source_diag_directory_empty_suggestion") : ""
                 ))
             } catch {
-                retireDiagnosticConnector(connector, sourceID: source.id)
+                retireDiagnosticConnector(connector, sourceID: source.id, disconnect: false)
                 checks.append(diagnosticCheck(for: error, source: source, title: String(localized: "source_diag_directory_title")))
                 return SourceDiagnosticReport(
                     source: source,
@@ -2959,9 +2979,16 @@ final class SourceManager {
     /// A failed or timed-out preflight must never leave its connector in the
     /// reusable cache. Disconnect asynchronously because the same transport
     /// that ignored operation cancellation may also delay cleanup.
+    ///
+    /// `disconnect` 只对「connect() 本身失败」成立: 那时这个实例还没建立起
+    /// 可用传输, 没有别的持有者。connect 成功之后的探测失败 (listFiles /
+    /// 超时) 必须只把它踢出缓存 —— 同一个实例可能正被扫描或播放使用,
+    /// 断开它会连带把在途 range 请求一起取消掉。被踢出缓存的实例在最后
+    /// 一个持有者用完后自然释放。
     private func retireDiagnosticConnector(
         _ connector: any MusicSourceConnector,
-        sourceID: String
+        sourceID: String,
+        disconnect: Bool = true
     ) {
         if let cached = connectors[sourceID], Self.isSameConnector(cached, connector) {
             connectors.removeValue(forKey: sourceID)
@@ -2972,6 +2999,7 @@ final class SourceManager {
            Self.isSameConnector(cached.connector, connector) {
             unavailableConnectors.removeValue(forKey: sourceID)
         }
+        guard disconnect else { return }
         retireConnectorAsynchronously(connector)
     }
 
@@ -3941,9 +3969,7 @@ final class SourceManager {
         if let song, let mvPath = normalizedMusicVideoPath(for: song) {
             keepKey = Self.musicVideoCacheKey(sourceID: song.sourceID, path: mvPath)
         }
-        for (key, task) in musicVideoCacheTasks where key != keepKey {
-            task.cancel()
-        }
+        musicVideoCacheDownloads.cancelAll { $0 != keepKey }
     }
 
     private static func musicVideoCacheKey(sourceID: String, path: String) -> String {
@@ -3973,18 +3999,18 @@ final class SourceManager {
                 scopedFingerprint: expectedScope
             )
         )
-        if let task = musicVideoCacheTasks[cacheKey],
-           musicVideoCacheTargets[cacheKey] == target {
-            return task
+        // 已取消的任务不能复用: 它的 `.value` 只会抛 CancellationError。
+        if let run = musicVideoCacheDownloads.value(forKey: cacheKey),
+           run.target == target,
+           !run.task.isCancelled {
+            return run.task
         }
-        musicVideoCacheTasks[cacheKey]?.cancel()
-        musicVideoCacheTasks[cacheKey] = nil
-        musicVideoCacheTargets[cacheKey] = nil
+        musicVideoCacheDownloads.remove(key: cacheKey)?.cancelRun()
 
+        let runID = UUID()
         let task = Task { [self] in
             defer {
-                self.musicVideoCacheTasks[cacheKey] = nil
-                self.musicVideoCacheTargets[cacheKey] = nil
+                self.finishMusicVideoCacheDownload(cacheKey: cacheKey, runID: runID)
             }
             return try await self.materializeCachedMusicVideoURL(
                 for: path,
@@ -3996,9 +4022,18 @@ final class SourceManager {
                 expectedSize: expectedSize
             )
         }
-        musicVideoCacheTasks[cacheKey] = task
-        musicVideoCacheTargets[cacheKey] = target
+        musicVideoCacheDownloads.register(
+            key: cacheKey,
+            value: MusicVideoCacheRun(task: task, target: target),
+            id: runID
+        )
         return task
+    }
+
+    /// 只有当前登记仍是自己这一次 run 时才注销 —— 迟到的旧任务不能删掉
+    /// 已经接手同一个 key 的替代下载。
+    private func finishMusicVideoCacheDownload(cacheKey: String, runID: UUID) {
+        musicVideoCacheDownloads.finish(key: cacheKey, runID: runID)
     }
 
     /// nonisolated —— 文件 IO(写盘/复制/校验)不占主线程; 需要 MainActor
@@ -4282,7 +4317,7 @@ final class SourceManager {
             paths.insert(URL(fileURLWithPath: u.path + ".partial").standardizedFileURL.path)
         }
         if let url { add(url) }
-        for target in musicVideoCacheTargets.values { add(target) }
+        for run in musicVideoCacheDownloads.values { add(run.target) }
         return paths
     }
 
@@ -4330,7 +4365,9 @@ final class SourceManager {
     private func deleteMusicVideoCache(for song: Song) {
         guard let mvPath = normalizedMusicVideoPath(for: song),
               URL(string: mvPath)?.scheme == nil else { return }
-        musicVideoCacheTasks[Self.musicVideoCacheKey(sourceID: song.sourceID, path: mvPath)]?.cancel()
+        musicVideoCacheDownloads.cancel(
+            key: Self.musicVideoCacheKey(sourceID: song.sourceID, path: mvPath)
+        )
         Self.removeCacheFileFamily(at: videoCacheURL(sourceID: song.sourceID, path: mvPath))
     }
 
@@ -4508,6 +4545,7 @@ final class SourceManager {
         Task { @MainActor [weak self] in
             guard let self, let sources = try? await self.sourcesProvider() else { return }
             self.discoverLegacyAudioCacheAdoptionCandidatesIfNeeded(from: sources)
+            var namespacesToPrewarm: [String: String] = [:]
             for source in sources where !source.isDeleted {
                 if MusicSourceSecurityRevision.hasPendingChange(for: source.id) {
                     self.requiredConnectorScopeFingerprints[source.id] =
@@ -4518,12 +4556,33 @@ final class SourceManager {
                     self.blockedAudioCacheSourceIDs.insert(source.id)
                     continue
                 }
+                let fingerprint = Self.audioCacheScopeSignature(for: source)
                 if !self.connectorScopeValidationPendingSourceIDs.contains(source.id) {
-                    self.requiredConnectorScopeFingerprints[source.id] =
-                        Self.audioCacheScopeSignature(for: source)
+                    self.requiredConnectorScopeFingerprints[source.id] = fingerprint
                     self.connectorSourceModifiedAtByID[source.id] = source.modifiedAt
                 }
+                namespacesToPrewarm[source.id] = fingerprint
                 self.scheduleAudioCacheScopeValidation(for: source.id)
+            }
+            self.prewarmCacheNamespaces(namespacesToPrewarm)
+        }
+    }
+
+    /// 提前把 cache namespace 登记落盘, 不要留给 `connector(for:)`。
+    /// `registerCacheNamespace` 在 namespace 变化时会走 persistDurably
+    /// (F_FULLFSYNC + 目录 fsync), 而 `connector(for:)` 是同步的、会在
+    /// SwiftUI body 求值时被调用 —— 那一次全量落盘就直接卡在渲染路径上。
+    /// 这里先在后台执行器上写好, body 上的调用命中相等短路 (一次锁 + 查表)。
+    /// 不改 `connector(for:)` 本身: 它保持同步 fail-closed, 没登记过的源
+    /// 仍然当场登记, 语义不变。
+    private func prewarmCacheNamespaces(_ fingerprintsBySourceID: [String: String]) {
+        guard !fingerprintsBySourceID.isEmpty else { return }
+        Task.detached(priority: .utility) {
+            for (sourceID, fingerprint) in fingerprintsBySourceID {
+                try? MusicSourceSecurityRevision.registerCacheNamespace(
+                    sourceID: sourceID,
+                    scopedFingerprint: fingerprint
+                )
             }
         }
     }
@@ -4650,11 +4709,7 @@ final class SourceManager {
             backgroundAudioCacheTasks[songID]?.task.cancel()
             backgroundAudioCacheTasks[songID] = nil
         }
-        let videoKeys = musicVideoCacheTasks.keys.filter { $0.hasPrefix("\(sourceID):") }
-        for key in videoKeys {
-            musicVideoCacheTasks[key]?.cancel()
-            musicVideoCacheTasks[key] = nil
-        }
+        musicVideoCacheDownloads.cancelAndRemoveAll { $0.hasPrefix("\(sourceID):") }
         releasePlaybackAudioCacheLeases(sourceID: sourceID)
     }
 
@@ -5487,8 +5542,52 @@ final class SourceManager {
         songs: [Song]
     ) async -> OfflineDownloadBatchResult {
         activeOfflineSourceCacheSourceIDs.insert(sourceID)
-        defer { activeOfflineSourceCacheSourceIDs.remove(sourceID) }
-        return await downloadForOfflineBatch(songs: songs)
+        // 批量任务单独存起来, 源被停用时才有东西可取消。外层调用者的取消
+        // 仍然要传下去, 所以用 withTaskCancellationHandler 桥接。
+        let batch = Task { @MainActor in
+            await self.downloadForOfflineBatch(songs: songs)
+        }
+        let runID = offlineSourceCacheBatches.register(
+            key: sourceID,
+            value: OfflineSourceCacheBatchRun(task: batch)
+        )
+        defer {
+            offlineSourceCacheBatches.finish(key: sourceID, runID: runID)
+            activeOfflineSourceCacheSourceIDs.remove(sourceID)
+        }
+        return await withTaskCancellationHandler {
+            await batch.value
+        } onCancel: {
+            batch.cancel()
+        }
+    }
+
+    /// 停用一个源时把它名下的后台流量全部停掉: 整源离线批量、单曲离线
+    /// 下载、后台音频缓存、MV 缓存下载。此前只取消了扫描, 用户在蜂窝网下
+    /// 关掉源仍会看到下载继续跑、卡片继续显示批量进行中。
+    ///
+    /// 与 `cancelAudioCacheWorkForScopeChange` 的区别: 这里不动 scope
+    /// generation / blocked 集合, 也不释放播放 lease —— 当前正在发声的歌
+    /// 由 `AudioPlayerService.sourceAvailabilityDidChange` 单独处理, 停用
+    /// 不等于凭据失效。
+    func sourceAvailabilityDidChange(sourceID: String, isEnabled: Bool) {
+        guard !isEnabled else { return }
+        offlineSourceCacheBatches.cancel(key: sourceID)
+        let prefix = "\(sourceID)/"
+        let offlineKeys = offlineDownloadTasks.keys.filter { $0.hasPrefix(prefix) }
+        for taskKey in offlineKeys {
+            offlineDownloadTasks[taskKey]?.task.cancel()
+            offlineDownloadTasks[taskKey] = nil
+        }
+        let backgroundSongIDs = backgroundAudioCacheTasks.compactMap { songID, record in
+            record.sourceID == sourceID ? songID : nil
+        }
+        for songID in backgroundSongIDs {
+            backgroundAudioCacheTasks[songID]?.task.cancel()
+            backgroundAudioCacheTasks[songID] = nil
+        }
+        musicVideoCacheDownloads.cancelAndRemoveAll { $0.hasPrefix("\(sourceID):") }
+        plog("⏹️ Source disabled: cancelled background transfers source=\(sourceID.prefix(8))")
     }
 
     func downloadForOfflineBatch(songs: [Song]) async -> OfflineDownloadBatchResult {
@@ -7096,12 +7195,32 @@ final class SourceManager {
     }
 
     /// 一键清掉所有 `.partial` / `.offline` 半成品 (无视 mtime, 等价于用户主动决定
-    /// 「不要任何半下载文件了」)。正在 streaming 的歌会立即变成 cache miss
-    /// 重新下, 但不会丢功能。
+    /// 「不要任何半下载文件了」)。正在播放的 streaming session 与正在跑的离线
+    /// 下载所写的那一份在途文件除外 —— 它们由 `audioCacheBreakdown` 单独算作
+    /// 「正在使用」, 删掉只会让当前这首歌反复重拉 / 让下载报错变红。
+    ///
+    /// 枚举与逐文件删除跑在后台执行器上: 整个 audio cache 目录可达 20GB,
+    /// 同步枚举会冻结主线程。
     @discardableResult
-    func purgeAllPartialFiles() -> (freedBytes: Int64, failedCount: Int) {
+    func purgeAllPartialFiles() async -> (freedBytes: Int64, failedCount: Int) {
         let basePath = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent(Self.audioCacheDirName)
+        let protectedAbsolutePaths = protectedInFlightAudioCachePaths(basePath: basePath)
+        let result = await Task.detached(priority: .utility) {
+            Self.removePartialFiles(
+                basePath: basePath,
+                protectedAbsolutePaths: protectedAbsolutePaths
+            )
+        }.value
+        plog("🧹 purgeAllPartialFiles: freed \(result.freedBytes / 1024 / 1024)MB, failed=\(result.failedCount)")
+        return result
+    }
+
+    /// nonisolated —— 只吃 Sendable 的 URL / Set, 供 `Task.detached` 在后台跑。
+    nonisolated static func removePartialFiles(
+        basePath: URL,
+        protectedAbsolutePaths: Set<String>
+    ) -> (freedBytes: Int64, failedCount: Int) {
         var freed: Int64 = 0
         var failed = 0
         guard let enumerator = FileManager.default.enumerator(
@@ -7111,6 +7230,7 @@ final class SourceManager {
         while let fileURL = enumerator.nextObject() as? URL {
             let name = fileURL.lastPathComponent
             guard name.hasSuffix(".partial") || name.hasSuffix(".partial.prewarmed") || name.hasSuffix(".offline") else { continue }
+            if protectedAbsolutePaths.contains(fileURL.path) { continue }
             let size = Int64((try? fileURL.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize) ?? 0)
             partials.append((fileURL, size))
         }
@@ -7122,8 +7242,29 @@ final class SourceManager {
                 failed += 1
             }
         }
-        plog("🧹 purgeAllPartialFiles: freed \(freed / 1024 / 1024)MB, failed=\(failed)")
         return (freed, failed)
+    }
+
+    /// 在途文件的绝对路径快照: 正在播放/暂停的 streaming session `.partial`
+    /// (含它的 prewarm marker), 以及正在跑的离线下载 `.offline` 暂存文件。
+    ///
+    /// 删掉这些文件不会让写入端立刻失败退出 —— CloudPlaybackSource 每次读写
+    /// 都重新打开 FileHandle, 于是这首歌之后每次读都 miss、写回永远合并不进
+    /// ranges, 播放退化成整块重复拉流且再也无法 promote; 离线任务则在下一个
+    /// chunk 抛错、行变红。所以「清缓存」必须跳过它们, 而不是指望 OS 拒绝
+    /// unlink。
+    private func protectedInFlightAudioCachePaths(basePath: URL) -> Set<String> {
+        let sessionPaths = CloudPlaybackSource.activeSessionPaths()
+        var protectedPaths = sessionPaths
+        for path in sessionPaths {
+            protectedPaths.insert(path + CloudPlaybackSource.prewarmMarkerSuffix)
+        }
+        for taskKey in offlineDownloadTasks.keys {
+            let canonical = basePath.appendingPathComponent(taskKey)
+            protectedPaths.insert(canonical.path + ".offline")
+            protectedPaths.insert(Self.refreshCacheURL(for: canonical).path + ".offline")
+        }
+        return protectedPaths
     }
 
     private func reconcilePathKeyedCaches(
@@ -7410,9 +7551,9 @@ final class SourceManager {
 
             if let mvPath = normalizedMusicVideoPath(for: song),
                URL(string: mvPath)?.scheme == nil {
-                musicVideoCacheTasks[
-                    Self.musicVideoCacheKey(sourceID: song.sourceID, path: mvPath)
-                ]?.cancel()
+                musicVideoCacheDownloads.cancel(
+                    key: Self.musicVideoCacheKey(sourceID: song.sourceID, path: mvPath)
+                )
                 cacheTargets.append(
                     cachesRoot
                         .appendingPathComponent(Self.videoCacheDirName)
@@ -7474,9 +7615,7 @@ final class SourceManager {
     ) {
         guard !sourceIDs.isEmpty else { return }
         removeOfflineAudioSnapshots(forSongIDs: songIDs)
-        for (key, task) in musicVideoCacheTasks where sourceIDs.contains(Self.sourceID(in: key, separator: ":")) {
-            task.cancel()
-        }
+        musicVideoCacheDownloads.cancelAll { sourceIDs.contains(Self.sourceID(in: $0, separator: ":")) }
 
         CachedArtworkView.clearMemoryCache()
 
@@ -7667,16 +7806,51 @@ final class SourceManager {
     /// `try?` 又吞错误 — 用户以为清了实际没动。现在先递归枚举每个文件
     /// 单独删, 把 in-flight 文件之外的都干掉, 只对 cache 目录的整个
     /// removeItem 是 best-effort 的最后一步。
+    ///
+    /// 「in-flight 文件删不掉」不能指望 OS: Darwin 上 unlink 一个还开着
+    /// 描述符的文件照样成功。所以正在播放的 session `.partial` 与正在跑的
+    /// 离线下载 `.offline` 由 `protectedInFlightAudioCachePaths` 显式跳过,
+    /// 既不删也不计入 failed。
+    ///
+    /// 主 actor 上只取 pinned / in-flight 快照, 枚举与逐文件 unlink 交给
+    /// 后台执行器 —— 整个 audio cache 目录可达 20GB, 同步删会冻结主线程。
     @discardableResult
     func clearAudioCache() async -> (freedBytes: Int64, failedCount: Int) {
         cancelBackgroundAudioCaching(keeping: [])
         let basePath = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent(Self.audioCacheDirName)
+        let smbCacheDir = Self.smbCacheDir
+        let pinnedRelativePaths = await AudioCacheManager.shared.pinnedRelativePaths()
+        let protectedAbsolutePaths = protectedInFlightAudioCachePaths(basePath: basePath)
+
+        let result = await Task.detached(priority: .utility) {
+            Self.removeUnpinnedAudioCacheFiles(
+                dirs: [basePath, smbCacheDir],
+                basePath: basePath,
+                removableDirPaths: [smbCacheDir.path],
+                pinnedRelativePaths: pinnedRelativePaths,
+                protectedAbsolutePaths: protectedAbsolutePaths
+            )
+        }.value
+
+        await AudioCacheManager.shared.clearUnpinnedAccessEntries()
+        plog("🧹 clearAudioCache: freed \(result.freedBytes / 1024 / 1024)MB, failed=\(result.failedCount)")
+        return result
+    }
+
+    /// nonisolated —— 只吃 Sendable 的 URL / Set, 供 `Task.detached` 在后台跑。
+    /// `removableDirPaths` 里的目录在本轮没有任何跳过文件时整体删掉。
+    nonisolated static func removeUnpinnedAudioCacheFiles(
+        dirs: [URL],
+        basePath: URL,
+        removableDirPaths: Set<String>,
+        pinnedRelativePaths: Set<String>,
+        protectedAbsolutePaths: Set<String>
+    ) -> (freedBytes: Int64, failedCount: Int) {
         var freed: Int64 = 0
         var failed = 0
-        let pinnedRelativePaths = await AudioCacheManager.shared.pinnedRelativePaths()
 
-        for dir in [basePath, Self.smbCacheDir] {
+        for dir in dirs {
             guard let enumerator = FileManager.default.enumerator(
                 at: dir,
                 includingPropertiesForKeys: [.totalFileAllocatedSizeKey, .isRegularFileKey],
@@ -7684,15 +7858,19 @@ final class SourceManager {
             ) else { continue }
 
             // 先收集再删, 避免 enumerator 边删边遍历崩。
+            var skipped = 0
             var files: [(URL, Int64)] = []
             while let fileURL = enumerator.nextObject() as? URL {
                 guard let values = try? fileURL.resourceValues(forKeys: [.totalFileAllocatedSizeKey, .isRegularFileKey]),
                       values.isRegularFile == true else { continue }
-                if fileURL.path.hasPrefix(basePath.path + "/") {
-                    let relative = String(fileURL.path.dropFirst(basePath.path.count + 1))
-                    if pinnedRelativePaths.contains(relative) {
-                        continue
-                    }
+                if audioCacheClearShouldSkip(
+                    fileURL: fileURL,
+                    basePath: basePath,
+                    pinnedRelativePaths: pinnedRelativePaths,
+                    protectedAbsolutePaths: protectedAbsolutePaths
+                ) {
+                    skipped += 1
+                    continue
                 }
                 files.append((fileURL, Int64(values.totalFileAllocatedSize ?? 0)))
             }
@@ -7706,15 +7884,28 @@ final class SourceManager {
                 }
             }
             // 文件都删完了, 临时目录可以一把删掉。主 audio cache 目录里可能
-            // 还保留离线固定文件, 不能递归删目录。
-            if dir == Self.smbCacheDir {
+            // 还保留离线固定文件, 不能递归删目录; 有跳过的在途文件时同理。
+            if skipped == 0, removableDirPaths.contains(dir.path) {
                 try? FileManager.default.removeItem(at: dir)
             }
         }
 
-        await AudioCacheManager.shared.clearUnpinnedAccessEntries()
-        plog("🧹 clearAudioCache: freed \(freed / 1024 / 1024)MB, failed=\(failed)")
         return (freed, failed)
+    }
+
+    /// 清缓存时必须留下的文件: 已 pin 的离线文件, 以及正在播放 / 正在下载
+    /// 的在途文件。pinned 只按 audio cache 根目录下的相对路径判断, 与
+    /// AudioCacheManager 的记账口径一致。
+    nonisolated static func audioCacheClearShouldSkip(
+        fileURL: URL,
+        basePath: URL,
+        pinnedRelativePaths: Set<String>,
+        protectedAbsolutePaths: Set<String>
+    ) -> Bool {
+        if protectedAbsolutePaths.contains(fileURL.path) { return true }
+        guard fileURL.path.hasPrefix(basePath.path + "/") else { return false }
+        let relative = String(fileURL.path.dropFirst(basePath.path.count + 1))
+        return pinnedRelativePaths.contains(relative)
     }
 
     /// 启动时清掉超过 `olderThanDays` 没动的 `.partial` 半成品 + 对应的
@@ -7783,8 +7974,15 @@ final class SourceManager {
         let dir = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent(Self.audioCacheDirName)
             .appendingPathComponent(sourceID)
-        try? FileManager.default.removeItem(at: dir)
-        Task { await AudioCacheManager.shared.removeAllEntries(forSourcePrefix: "\(sourceID)/") }
+        // 主 actor 上只做一次同卷 rename (纯元数据), 递归删除放到后台:
+        // 一个整源缓存可能有上万个文件, 同步 removeItem 会冻结主线程。
+        // staged 目录以 `.primuse-deleting-` 开头, 所有统计枚举都带
+        // `.skipsHiddenFiles`, 不会被重新计入。
+        let stagedPaths = Self.stageCacheDirectoriesForDeletion([dir])
+        Task.detached(priority: .background) { [stagedPaths, sourceID] in
+            await AudioCacheManager.shared.removeAllEntries(forSourcePrefix: "\(sourceID)/")
+            Self.deleteStagedCacheDirectories(stagedPaths)
+        }
     }
 
     /// Starts single-flight cache work for a song without waiting for it.
@@ -8383,8 +8581,28 @@ final class SourceManager {
     }
 
     private func cachedURLWithPlaybackLease(for song: Song) async -> URL? {
-        if playbackAudioCacheLeases[song.id] != nil {
-            return cachedURL(for: song)
+        if var record = playbackAudioCacheLeases[song.id] {
+            // 复用已有 lease 之前必须先消化掉挂起的 finalization (与
+            // retainAudioCacheLeaseForPlayback 同一套动作): 它记的是「这一代」
+            // lease, 不消化就直接复用的话, 它稍后回到主 actor 会把这次
+            // 播放正在用的 lease 释放掉, 文件随即失去驱逐保护。
+            var reusable = true
+            if let finalization = playbackAudioCacheLeaseFinalizations[song.id],
+               finalization.generation == record.generation {
+                playbackAudioCacheLeaseFinalizations[song.id] = nil
+                record.generation &+= 1
+                playbackAudioCacheLeases[song.id] = record
+                finalization.task.cancel()
+                await finalization.task.value
+                // 只有整条记录在等待期间被退场时才重新获取。若期间换成了
+                // 另一份 lease, 这首歌仍然被保护着, 再拿一把只会多计一次
+                // activePlaybackAudioCachePaths 并泄漏 lease。
+                reusable = playbackAudioCacheLeases[song.id] != nil
+            }
+            // lease 已经退场, 落到下面重新获取。
+            if reusable {
+                return cachedURL(for: song)
+            }
         }
         let relativePath = audioCacheRelativePath(for: song)
         guard let lease = await AudioCacheManager.shared.acquirePathFamilyLease(path: relativePath) else {
