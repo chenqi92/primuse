@@ -780,6 +780,16 @@ enum CloudPlaybackSource {
         matching.values.forEach { _ = $0.closeForRebuild() }
         matchingFills.values.forEach { $0.task.cancel() }
 
+        // An epoch-scoped mutation can have passed validation just before the
+        // bump above and still be writing. Draining its coordinator keeps the
+        // old guarantee that no retired epoch touches disk after this returns.
+        let epochReservation = reservePathMutation(
+            partialPath: streamEpochMutationKey(sourceID: sourceID)
+        )
+        epochReservation.coordinator.lock.lock()
+        epochReservation.coordinator.lock.unlock()
+        releasePathMutation(epochReservation)
+
         // Drain every mutation that passed validation before the epoch bump,
         // then revoke only the old epoch owner. A concurrently-created owner
         // in the new epoch remains valid and uses the same coordinator.
@@ -798,18 +808,36 @@ enum CloudPlaybackSource {
         }
     }
 
+    /// 只在校验瞬间持有 registryLock, 闭包本身改由「按 sourceID 的
+    /// coordinator」串行化。闭包里跑的是 4MB 分块写入与 removeItem/moveItem,
+    /// 之前它们全程占着全局锁, 会把解码线程的 `isCurrentStreamEpoch` 和主
+    /// actor 的 `streamEpochTicket`/`activeSessionPaths`/`finalizeSession`
+    /// 一起堵在磁盘 I/O 上。语义不变: `cancelSessions(sourceID:)` bump epoch
+    /// 之后会排干同一个 coordinator, 返回时仍然不可能有旧 epoch 的写入在飞。
     static func withCurrentStreamEpoch<T>(
         sourceID: String,
         epoch: UInt64,
         _ operation: () throws -> T
     ) rethrows -> T? {
-        registryLock.lock()
-        guard (streamEpochsBySourceID[sourceID] ?? 0) == epoch else {
-            registryLock.unlock()
-            return nil
+        let reservation = reservePathMutation(
+            partialPath: streamEpochMutationKey(sourceID: sourceID)
+        )
+        reservation.coordinator.lock.lock()
+        defer {
+            reservation.coordinator.lock.unlock()
+            releasePathMutation(reservation)
         }
-        defer { registryLock.unlock() }
+        registryLock.lock()
+        let isCurrent = (streamEpochsBySourceID[sourceID] ?? 0) == epoch
+        registryLock.unlock()
+        guard isCurrent else { return nil }
         return try operation()
+    }
+
+    /// epoch 级互斥复用 path coordinator 表。真实 partial 路径都是绝对文件
+    /// 路径, 这个前缀不会与它们冲突, 也不会进入 `activeSessionPaths()`。
+    private static func streamEpochMutationKey(sourceID: String) -> String {
+        "epoch:" + sourceID
     }
 
     fileprivate static func isCurrentStreamEpoch(sourceID: String, epoch: UInt64) -> Bool {

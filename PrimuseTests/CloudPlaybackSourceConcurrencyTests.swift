@@ -943,6 +943,185 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         }
         return await condition()
     }
+
+    // MARK: - Stream epoch registry
+
+    /// 4MB 分块写入放在 `withCurrentStreamEpoch` 的闭包里。闭包执行期间, 解码
+    /// 线程的 `isStreamEpochTicketCurrent` 与主 actor 的 `streamEpochTicket`/
+    /// `activeSessionPaths` 不能再被全局 registryLock 挡在磁盘 I/O 后面。
+    func testStreamEpochOperationDoesNotHoldTheRegistryDuringIO() async throws {
+        let sourceID = "cloud-epoch-io-\(UUID().uuidString)"
+        let otherSourceID = "cloud-epoch-other-\(UUID().uuidString)"
+        let ticket = CloudPlaybackSource.streamEpochTicket(sourceID: sourceID)
+        let entered = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let operationFinished = expectation(description: "epoch operation returned")
+        DispatchQueue.global(qos: .userInitiated).async {
+            let performed = CloudPlaybackSource.withCurrentStreamEpoch(
+                sourceID: sourceID,
+                epoch: ticket
+            ) {
+                entered.signal()
+                release.wait()
+                return true
+            }
+            XCTAssertTrue(performed == true)
+            operationFinished.fulfill()
+        }
+        XCTAssertEqual(entered.wait(timeout: .now() + 5), .success)
+
+        let registryReadsFinished = expectation(description: "registry reads returned")
+        DispatchQueue.global(qos: .userInitiated).async {
+            XCTAssertTrue(
+                CloudPlaybackSource.isStreamEpochTicketCurrent(sourceID: sourceID, ticket: ticket)
+            )
+            _ = CloudPlaybackSource.streamEpochTicket(sourceID: otherSourceID)
+            _ = CloudPlaybackSource.activeSessionPaths()
+            registryReadsFinished.fulfill()
+        }
+        await fulfillment(of: [registryReadsFinished], timeout: 1)
+
+        release.signal()
+        await fulfillment(of: [operationFinished], timeout: 5)
+        CloudPlaybackSource.cancelSessions(sourceID: sourceID)
+        CloudPlaybackSource.cancelSessions(sourceID: otherSourceID)
+    }
+
+    /// 排干语义不变: bump epoch 之后 `cancelSessions` 仍然要等已经通过校验的
+    /// 那次写入结束才返回, 返回后旧 ticket 再也拿不到写入许可。
+    func testCancelSessionsStillDrainsAnInFlightEpochOperation() async throws {
+        let sourceID = "cloud-epoch-drain-\(UUID().uuidString)"
+        let ticket = CloudPlaybackSource.streamEpochTicket(sourceID: sourceID)
+        let entered = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let cancelReturned = DispatchSemaphore(value: 0)
+        let operationFinished = expectation(description: "epoch operation returned")
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = CloudPlaybackSource.withCurrentStreamEpoch(
+                sourceID: sourceID,
+                epoch: ticket
+            ) {
+                entered.signal()
+                release.wait()
+                return true
+            }
+            operationFinished.fulfill()
+        }
+        XCTAssertEqual(entered.wait(timeout: .now() + 5), .success)
+
+        let cancelFinished = expectation(description: "cancelSessions returned")
+        DispatchQueue.global(qos: .userInitiated).async {
+            CloudPlaybackSource.cancelSessions(sourceID: sourceID)
+            cancelReturned.signal()
+            cancelFinished.fulfill()
+        }
+        XCTAssertEqual(
+            cancelReturned.wait(timeout: .now() + 0.3),
+            .timedOut,
+            "cancelSessions returned while an old-epoch write was still in flight"
+        )
+
+        release.signal()
+        await fulfillment(of: [operationFinished, cancelFinished], timeout: 5)
+        let afterCancel = CloudPlaybackSource.withCurrentStreamEpoch(
+            sourceID: sourceID,
+            epoch: ticket
+        ) { true }
+        XCTAssertNil(afterCancel)
+    }
+
+    // MARK: - Backfill batch selection
+
+    /// 选取仍然从 index 0 开始按资料库顺序取到 limit 为止 —— runWorker 的
+    /// 「同一批 ID 反复出现就停摆」保护依赖这个顺序; 同时它必须能在主 actor
+    /// 之外跑出同样的结果。
+    func testBackfillBatchSelectionKeepsLibraryOrderAndStopsAtTheLimit() async {
+        let songs = Self.makeSelectionFixtureSongs()
+        let input = Self.makeSelectionInput(songs: songs, limit: 8)
+        let selection = MetadataBackfillService.selectBatch(input)
+        XCTAssertEqual(selection.map(\.id), (0..<8).map { "bare-\($0)" })
+
+        let offMain = await Task.detached { MetadataBackfillService.selectBatch(input) }.value
+        XCTAssertEqual(offMain.map(\.id), selection.map(\.id))
+    }
+
+    func testBackfillBatchSelectionHonoursSourceGatesAndLimitFloor() {
+        let songs = Self.makeSelectionFixtureSongs()
+        XCTAssertEqual(
+            MetadataBackfillService.selectBatch(
+                Self.makeSelectionInput(songs: songs, limit: 0)
+            ).map(\.id),
+            ["bare-0"]
+        )
+        XCTAssertTrue(
+            MetadataBackfillService.selectBatch(
+                Self.makeSelectionInput(songs: songs, limit: 8, allowedSourceIDs: ["other"])
+            ).isEmpty
+        )
+        XCTAssertTrue(
+            MetadataBackfillService.selectBatch(
+                Self.makeSelectionInput(songs: songs, limit: 8, disabledSourceIDs: ["remote"])
+            ).isEmpty
+        )
+    }
+
+    /// 前 40 行被 failedSongIDs 排除, 后 10 行是可处理的空元数据行。
+    private static func makeSelectionFixtureSongs() -> [Song] {
+        var songs: [Song] = []
+        for index in 0..<40 {
+            songs.append(
+                Song(
+                    id: "skip-\(index)",
+                    title: "Skip \(index)",
+                    duration: 0,
+                    fileFormat: .mp3,
+                    filePath: "/skip-\(index).mp3",
+                    sourceID: "remote"
+                )
+            )
+        }
+        for index in 0..<10 {
+            songs.append(
+                Song(
+                    id: "bare-\(index)",
+                    title: "Bare \(index)",
+                    duration: 0,
+                    fileFormat: .mp3,
+                    filePath: "/bare-\(index).mp3",
+                    sourceID: "remote"
+                )
+            )
+        }
+        return songs
+    }
+
+    private static func makeSelectionInput(
+        songs: [Song],
+        limit: Int,
+        allowedSourceIDs: Set<String>? = nil,
+        disabledSourceIDs: Set<String> = []
+    ) -> MetadataBackfillService.BatchSelectionInput {
+        MetadataBackfillService.BatchSelectionInput(
+            songs: songs,
+            limit: limit,
+            scopedSourceID: nil,
+            allowedSourceIDs: allowedSourceIDs,
+            sourceIDs: ["remote"],
+            bareOnlySourceIDs: [],
+            disabledSourceIDs: disabledSourceIDs,
+            manuallyReadingSongIDs: [],
+            failedSongIDs: Set((0..<40).map { "skip-\($0)" }),
+            sourceIssueSongIDs: [],
+            sessionGivenUpIDs: [],
+            transientFailureCounts: [:],
+            sourceTransientFailureCounts: [:],
+            artworkGivenUpIDs: [],
+            titleCheckedIDs: [],
+            albumArtistCheckedIDs: [],
+            artistCheckedIDs: [],
+            incompleteSongIDs: []
+        )
+    }
 }
 
 private struct ReadResult: Sendable {

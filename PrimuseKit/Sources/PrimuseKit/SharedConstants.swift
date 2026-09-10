@@ -3285,6 +3285,37 @@ public enum MetadataBackfillNetworkPolicy {
     }
 }
 
+/// How `MetadataBackfillService.refreshQueue` reconciles the queue after
+/// marking it dirty. Every library publication (a scan flush) lands here, and
+/// the reconcile it triggers walks the whole library on the main actor, so the
+/// automatic path hands that pass to the existing off-main variant instead.
+public enum MetadataBackfillQueueRefreshPolicy {
+    public enum Reconciliation: Sendable, Equatable {
+        /// Only mark the queue dirty; no worker is requested.
+        case markDirtyOnly
+        /// Reconcile through the off-main variant first, then start.
+        case deferredOffMain
+        /// Start on the caller's turn; `start()` reconciles synchronously.
+        case synchronous
+    }
+
+    /// - Parameters:
+    ///   - startImmediately: the caller also wants a worker started.
+    ///   - workerIsRunning: `start()` is a no-op while a worker is in flight.
+    ///   - requiresSynchronousStart: a system background-processing session or
+    ///     a continued-processing grant is waiting on the worker. Those drains
+    ///     poll `worker != nil` (`waitUntilIdle`), so deferring `start()` to a
+    ///     later turn would let the background task complete without work.
+    public static func reconciliation(
+        startImmediately: Bool,
+        workerIsRunning: Bool,
+        requiresSynchronousStart: Bool
+    ) -> Reconciliation {
+        guard startImmediately, !workerIsRunning else { return .markDirtyOnly }
+        return requiresSynchronousStart ? .synchronous : .deferredOffMain
+    }
+}
+
 /// Chooses the format label for the DSP-free PCM graph after the output route
 /// has negotiated its real hardware rate. A preferred rate is only a request;
 /// feeding buffers labelled with a rejected source rate can make PCM render at

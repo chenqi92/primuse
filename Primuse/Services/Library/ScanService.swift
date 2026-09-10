@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import PrimuseKit
+import os
 #if os(iOS)
 import BackgroundTasks
 #if os(iOS)
@@ -9,6 +10,90 @@ import UIKit
 #endif
 
 typealias ServerMirrorApplyFence = @MainActor () -> Bool
+
+/// 启动期两份 JSON 的解码结果。ScanService 的契约不变 —— init 返回时状态
+/// 一定是完整的, 因为扫描恢复、Sources 列表与文件夹索引在首帧就会同步读它。
+/// 变的只是解码发生在哪条线程上: `ScanService.prewarmStartupState()` 可以
+/// 在 AppServices 构造之前就把解码丢到后台线程, 让它与 keychain 迁移、
+/// SourcesStore、MusicLibrary 快照装载这些主线程启动工作并行完成。
+struct ScanServiceStartupState: Sendable {
+    let checkpoints: [String: ScanCheckpoint]
+    let syncStates: [String: SourceSyncState]
+    /// 与旧 `loadSyncStates()` 的返回值同义: 磁盘上确实存在可解码的快照。
+    let syncStateSnapshotIsPersisted: Bool
+
+    static func load(checkpointURL: URL, syncStateURL: URL) -> ScanServiceStartupState {
+        let checkpoints = ScanCheckpointFileStore.load(from: checkpointURL)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let data = try? Data(contentsOf: syncStateURL),
+              let decoded = try? decoder.decode([String: SourceSyncState].self, from: data) else {
+            return ScanServiceStartupState(
+                checkpoints: checkpoints,
+                syncStates: [:],
+                syncStateSnapshotIsPersisted: false
+            )
+        }
+        return ScanServiceStartupState(
+            checkpoints: checkpoints,
+            syncStates: decoded,
+            syncStateSnapshotIsPersisted: true
+        )
+    }
+}
+
+/// 预热句柄。`start` 之后解码在后台线程进行; `take` 只有在预热过、且路径与
+/// 请求方一致时才交出结果 (必要时等待解码结束), 其余情况返回 nil, 调用方
+/// 原地解码 —— 测试里用临时目录构造的 ScanService 因此不会拿到 App 的状态。
+final class ScanServiceStartupPrewarm: Sendable {
+    static let shared = ScanServiceStartupPrewarm()
+
+    private struct Slot: Sendable {
+        var checkpointURL: URL?
+        var syncStateURL: URL?
+        var state: ScanServiceStartupState?
+    }
+
+    private let slot = OSAllocatedUnfairLock<Slot>(initialState: Slot())
+    private let group = DispatchGroup()
+
+    func start(checkpointURL: URL, syncStateURL: URL) {
+        let shouldStart = slot.withLock { slot -> Bool in
+            guard slot.checkpointURL == nil else { return false }
+            slot.checkpointURL = checkpointURL
+            slot.syncStateURL = syncStateURL
+            return true
+        }
+        guard shouldStart else { return }
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            let loaded = ScanServiceStartupState.load(
+                checkpointURL: checkpointURL,
+                syncStateURL: syncStateURL
+            )
+            self.slot.withLock { $0.state = loaded }
+            self.group.leave()
+        }
+    }
+
+    func take(checkpointURL: URL, syncStateURL: URL) -> ScanServiceStartupState? {
+        let matches = slot.withLock { slot -> Bool in
+            guard let prewarmedURL = slot.checkpointURL else {
+                // 还没预热过: 先占位, 免得之后再启动一次没人来取的解码。
+                slot.checkpointURL = checkpointURL
+                slot.syncStateURL = syncStateURL
+                return false
+            }
+            return prewarmedURL == checkpointURL && slot.syncStateURL == syncStateURL
+        }
+        guard matches else { return nil }
+        group.wait()
+        return slot.withLock { slot in
+            defer { slot.state = nil }
+            return slot.state
+        }
+    }
+}
 
 /// How much of the device a running scan may consume. Background audio keeps
 /// the process alive without a UIKit assertion, so a scan may continue while
@@ -221,7 +306,6 @@ final class ScanService {
     private let checkpointStore: ScanCheckpointFileStore
     private let pagedCatalogStore: PagedSongCatalogStagingStore?
     private let syncStateURL: URL
-    private let decoder = JSONDecoder()
     private var syncStates: [String: SourceSyncState] = [:]
     private var syncStateStore: SourceSyncStateFileStore!
     private var syncStateMutationEpochs: [String: UInt64] = [:]
@@ -248,14 +332,25 @@ final class ScanService {
     ) {
         self.connectorProvider = connectorProvider
         self.diagnosticProvider = diagnosticProvider
-        let appSupport = fileManager.primuseDirectoryURL(for: .applicationSupportDirectory)
-        let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
+        let directory = Self.startupDirectory(fileManager: fileManager)
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        let resolvedCheckpointURL = directory.appendingPathComponent("scan-checkpoints.json")
-        let loadedCheckpoints = ScanCheckpointFileStore.load(from: resolvedCheckpointURL)
+        let resolvedCheckpointURL = directory.appendingPathComponent(Self.checkpointFileName)
+        let resolvedSyncStateURL = directory.appendingPathComponent(Self.syncStateFileName)
+        // 预热命中时这里只是取走后台线程已经解码好的结果; 没预热(或路径不同)
+        // 就原地解码, 与以前完全一致。无论走哪条路, init 返回时 checkpoints /
+        // syncStates / scanStates 都是完整的。
+        let startedAt = Date()
+        let prewarmed = ScanServiceStartupPrewarm.shared.take(
+            checkpointURL: resolvedCheckpointURL,
+            syncStateURL: resolvedSyncStateURL
+        )
+        let startupState = prewarmed ?? ScanServiceStartupState.load(
+            checkpointURL: resolvedCheckpointURL,
+            syncStateURL: resolvedSyncStateURL
+        )
         checkpointStore = ScanCheckpointFileStore(
             checkpointURL: resolvedCheckpointURL,
-            initialCheckpoints: loadedCheckpoints
+            initialCheckpoints: startupState.checkpoints
         )
         do {
             pagedCatalogStore = try PagedSongCatalogStagingStore(
@@ -265,16 +360,42 @@ final class ScanService {
             pagedCatalogStore = nil
             plog("⚠️ Navidrome staging unavailable; compatibility scans will be merge-only: \(error.localizedDescription)")
         }
-        syncStateURL = directory.appendingPathComponent("source-sync-states.json")
-        decoder.dateDecodingStrategy = .iso8601
-        loadCheckpoints(loadedCheckpoints)
-        let loadedSyncStateSnapshot = loadSyncStates()
+        syncStateURL = resolvedSyncStateURL
+        loadCheckpoints(startupState.checkpoints)
+        applySyncStates(startupState.syncStates)
         syncStateStore = SourceSyncStateFileStore(
             url: syncStateURL,
             initialStates: syncStates,
-            initialSnapshotIsPersisted: loadedSyncStateSnapshot
+            initialSnapshotIsPersisted: startupState.syncStateSnapshotIsPersisted
+        )
+        let elapsedMilliseconds = Int(Date().timeIntervalSince(startedAt) * 1000)
+        plog(
+            "🗂️ Scan startup state ready in \(elapsedMilliseconds)ms "
+                + "prewarmed=\(prewarmed != nil) checkpoints=\(startupState.checkpoints.count) "
+                + "syncStates=\(startupState.syncStates.count)"
         )
         observeSourceConfigurationChanges()
+    }
+
+    private static let checkpointFileName = "scan-checkpoints.json"
+    private static let syncStateFileName = "source-sync-states.json"
+
+    private nonisolated static func startupDirectory(fileManager: FileManager) -> URL {
+        fileManager.primuseDirectoryURL(for: .applicationSupportDirectory)
+            .appendingPathComponent("Primuse", isDirectory: true)
+    }
+
+    /// 把两份启动 JSON 的解码提前到后台线程。必须在第一个 ScanService 被构造
+    /// 之前调用 (PrimuseApp.init 里 AppServices.shared 之前), 这样解码就与
+    /// AppServices 里的 keychain 迁移、SourcesStore 与 MusicLibrary 快照装载
+    /// 并行; ScanService.init 依旧同步拿到完整状态, 所以 hasResumableScanWork、
+    /// scanStates 与文件夹索引在首帧的语义没有任何变化。
+    nonisolated static func prewarmStartupState(fileManager: FileManager = .default) {
+        let directory = startupDirectory(fileManager: fileManager)
+        ScanServiceStartupPrewarm.shared.start(
+            checkpointURL: directory.appendingPathComponent(checkpointFileName),
+            syncStateURL: directory.appendingPathComponent(syncStateFileName)
+        )
     }
 
     /// Any persisted source edit can also represent a credential-only change
@@ -501,22 +622,22 @@ final class ScanService {
         if !resumeSongs.isEmpty, !resumesPagedCatalog {
             // resume 阶段恢复 checkpoint 内容, 是部分扫描结果, 不应触发"已删除"
             // 通知 (otherwise listener 会把还没扫到的歌的本地缓存全清)。
-            // 同样要带上 library 中该源的全部已知歌曲再 addSongs: 否则
-            // checkpoint 只含部分歌, addSongs 会把其余已知歌从 songs 移除,
-            // 进而 cleanPlaylist/cleanPlaybackHistory 把它们从歌单(含「我喜欢」)
-            // 与最近播放里永久剔除。checkpoint 条目(可能带更新后的元数据)优先,
-            // 已知歌仅用于补齐缺失项, 完整扫描结束后再做真正的删除对账。
-            let resumeIDs = Set(resumeSongs.map(\.id))
-            let knownExisting = library.songs.filter {
-                $0.sourceID == source.id && !resumeIDs.contains($0.id)
+            // 这次 addSongs 带 pruneMissingSongs: false, 不会移除任何没出现在
+            // 入参里的歌, 所以不需要再把该源的已知歌全量回灌 —— 那是一次跑在
+            // scenePhase 回调里的 O(资料库) 合并。这里只补齐资料库中还缺的
+            // checkpoint 行; 已存在行的元数据更新由扫描任务的首次增量 flush
+            // 与 completeScan 通过 existingForScan 一并提交, 完整扫描结束后
+            // 再做真正的删除对账。
+            let missingSongs = resumeSongs.filter { library.song(id: $0.id) == nil }
+            if !missingSongs.isEmpty {
+                library.addSongs(
+                    missingSongs,
+                    affectedSourceIDs: Set([source.id]),
+                    notifyRemovals: false,
+                    pruneMissingSongs: false
+                )
             }
-            library.addSongs(
-                resumeSongs + knownExisting,
-                affectedSourceIDs: Set([source.id]),
-                notifyRemovals: false,
-                pruneMissingSongs: false
-            )
-            let acceptedCount = library.songs.filter { $0.sourceID == source.id }.count
+            let acceptedCount = library.songCountsBySourceID()[source.id] ?? 0
             sourceStore.updateLocal(source.id) { $0.songCount = acceptedCount }
         }
 
@@ -3409,12 +3530,7 @@ final class ScanService {
         )
     }
 
-    private func loadSyncStates() -> Bool {
-        guard let data = try? Data(contentsOf: syncStateURL),
-              let decoded = try? decoder.decode([String: SourceSyncState].self, from: data) else {
-            syncStates = [:]
-            return false
-        }
+    private func applySyncStates(_ decoded: [String: SourceSyncState]) {
         syncStates = decoded
         for (sourceID, state) in decoded
         where state.reconciliation != nil && scanStates[sourceID] == nil {
@@ -3422,7 +3538,6 @@ final class ScanService {
                 reconciliation: state.reconciliation
             )
         }
-        return true
     }
 
     private static func completedScanState(

@@ -267,4 +267,39 @@ struct MetadataBackfillExecutionPolicyTests {
             offlineReadableSourceIDs: ["copied"]
         ) == nil)
     }
+
+    @Test("A library publication reconciles off the main actor before starting")
+    func automaticQueueRefreshDefersTheForcedReconcile() {
+        // 扫描每提交一批歌就会走一次 refreshQueue。没有 worker、也没有在等
+        // worker 的后台会话时, 那一次整库对账必须交给 off-main 变体, 不能占用
+        // 调用方(scenePhase 回调 / songs.count onChange)这一个主 actor turn。
+        #expect(MetadataBackfillQueueRefreshPolicy.reconciliation(
+            startImmediately: true,
+            workerIsRunning: false,
+            requiresSynchronousStart: false
+        ) == .deferredOffMain)
+        // BGProcessing 排干与 continued-processing 只看 worker != nil,
+        // 推迟 start() 会让它们判定"没有工作"而提前结束。
+        #expect(MetadataBackfillQueueRefreshPolicy.reconciliation(
+            startImmediately: true,
+            workerIsRunning: false,
+            requiresSynchronousStart: true
+        ) == .synchronous)
+        // 已经有 worker 在跑, 或调用方只要求标脏: 两种情况都不对账。
+        #expect(MetadataBackfillQueueRefreshPolicy.reconciliation(
+            startImmediately: true,
+            workerIsRunning: true,
+            requiresSynchronousStart: false
+        ) == .markDirtyOnly)
+        #expect(MetadataBackfillQueueRefreshPolicy.reconciliation(
+            startImmediately: false,
+            workerIsRunning: false,
+            requiresSynchronousStart: false
+        ) == .markDirtyOnly)
+        #expect(MetadataBackfillQueueRefreshPolicy.reconciliation(
+            startImmediately: false,
+            workerIsRunning: false,
+            requiresSynchronousStart: true
+        ) == .markDirtyOnly)
+    }
 }

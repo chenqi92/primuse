@@ -400,6 +400,8 @@ final class MetadataBackfillService {
     @ObservationIgnored private var queueStatePersistenceTask: Task<Void, Never>?
 
     @ObservationIgnored private var worker: Task<Void, Never>?
+    /// 自动路径上把整库对账挪到 off-main 之后再 start() 的那个任务。
+    @ObservationIgnored private var deferredQueueReconcileTask: Task<Void, Never>?
     @ObservationIgnored private var drainingWorker: Task<Void, Never>?
     @ObservationIgnored private var executionMode: MetadataBackfillExecutionMode = .standard
     @ObservationIgnored private var activeScheduler: MetadataReadScheduler<Song, BackfillOutcome>?
@@ -1545,6 +1547,8 @@ final class MetadataBackfillService {
     /// longer the "current" worker, so it must not touch shared state.
     func stop(preservingContinuation: Bool = false) {
         if !preservingContinuation { finishContinuedProcessing(success: false) }
+        deferredQueueReconcileTask?.cancel()
+        deferredQueueReconcileTask = nil
         workerGeneration += 1
         if let worker { drainingWorker = worker }
         worker?.cancel()
@@ -1876,7 +1880,47 @@ final class MetadataBackfillService {
     /// scan added new bare songs). Call after scan completion or song add.
     func refreshQueue(startImmediately: Bool = true) {
         markQueueDirty()
-        if startImmediately, worker == nil { start() }
+        switch MetadataBackfillQueueRefreshPolicy.reconciliation(
+            startImmediately: startImmediately,
+            workerIsRunning: worker != nil,
+            requiresSynchronousStart: hasBlockingBackgroundSession
+        ) {
+        case .markDirtyOnly:
+            return
+        case .synchronous:
+            start()
+        case .deferredOffMain:
+            scheduleDeferredQueueReconcile()
+        }
+    }
+
+    /// 后台处理会话 / continued-processing 授权期间, 调用方
+    /// (`BackgroundProcessingDrain` 的 start() + waitUntilIdle) 只看
+    /// `worker != nil`, 所以 start() 必须留在调用方这一个 turn 上。
+    private var hasBlockingBackgroundSession: Bool {
+        #if os(iOS)
+        !systemProcessingSessions.isEmpty || continuedProcessingSession != nil
+        #else
+        false
+        #endif
+    }
+
+    /// 资料库每发布一批扫描结果就会走一次 refreshQueue; 原来紧接着的 start()
+    /// 会在调用方这一个主 actor turn 上跑整库对账 (每个未完成行还要建一个展示
+    /// 项)。这里改成先跑已有的 off-main 变体, 回来时队列已经干净, start() 里的
+    /// force 变成 false 并被 5 秒节流跳过 —— 计数与 UI 语义不变。连续多次发布
+    /// 只有最后一次会真正把 worker 拉起来。
+    private func scheduleDeferredQueueReconcile() {
+        let generation = workerGeneration
+        deferredQueueReconcileTask?.cancel()
+        deferredQueueReconcileTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.refreshRemainingCountsOffMain(force: true)
+            guard !Task.isCancelled,
+                  self.worker == nil,
+                  self.workerGeneration == generation else { return }
+            self.start()
+        }
     }
 
     /// A genuinely new usable network path grants one more automatic attempt to
@@ -2921,12 +2965,10 @@ final class MetadataBackfillService {
                 break
             }
 
-            let snapshot = await MainActor.run { [self] in
-                return pickNextBatch(
-                    limit: limits.snapshotLimit,
-                    allowedSourceIDs: allowedSourceIDs
-                )
-            }
+            let snapshot = await pickNextBatchOffMain(
+                limit: limits.snapshotLimit,
+                allowedSourceIDs: allowedSourceIDs
+            )
             if snapshot.isEmpty { break }
 
             // Oscillation guard: if pickNextBatch keeps returning the
@@ -3278,6 +3320,14 @@ final class MetadataBackfillService {
             || reconciledQueueGeneration != queueMutationGeneration {
             refreshRemainingCounts(force: true)
         }
+        return backgroundWakeRequiresNetworkConnectivityFromCachedCounts
+    }
+
+    /// 同一个判定, 但只读上一次对账/持久化下来的 `remainingCountBySourceID`,
+    /// 不会触发整库遍历。scenePhase 提交与启动 .task 只是在决定 BGProcessing
+    /// 请求要不要网络; 真正跑起来的路径 (2 秒延后任务、BGProcessing handler)
+    /// 仍然用会强制刷新的那个属性, 稍旧的值会在那里被纠正。
+    var backgroundWakeRequiresNetworkConnectivityFromCachedCounts: Bool {
         let pendingSourceIDs = Set(remainingCountBySourceID.compactMap { sourceID, count in
             count > 0 ? sourceID : nil
         })
@@ -4417,28 +4467,33 @@ final class MetadataBackfillService {
 
     // MARK: - Queue selection
 
-    /// A song needs backfill if it has none of the metadata that file-header
-    /// extraction would produce (duration, bitRate). Songs in the failure
-    /// set are skipped. Limited to a batch so the queue doesn't grow
-    /// unbounded for huge libraries.
-    private func pickNextBatch(
+    /// `pickNextBatch` 的完整输入。全部是值语义快照 (Song 本身 Sendable),
+    /// 所以同一段筛选既能在主 actor 上跑, 也能丢进 detached task。
+    struct BatchSelectionInput: Sendable {
+        let songs: [Song]
+        let limit: Int
+        let scopedSourceID: String?
+        let allowedSourceIDs: Set<String>?
+        let sourceIDs: Set<String>
+        let bareOnlySourceIDs: Set<String>
+        let disabledSourceIDs: Set<String>
+        let manuallyReadingSongIDs: Set<String>
+        let failedSongIDs: Set<String>
+        let sourceIssueSongIDs: Set<String>
+        let sessionGivenUpIDs: Set<String>
+        let transientFailureCounts: [String: Int]
+        let sourceTransientFailureCounts: [String: Int]
+        let artworkGivenUpIDs: Set<String>
+        let titleCheckedIDs: Set<String>
+        let albumArtistCheckedIDs: Set<String>
+        let artistCheckedIDs: Set<String>
+        let incompleteSongIDs: Set<String>
+    }
+
+    private func makeBatchSelectionInput(
         limit: Int,
-        allowedSourceIDs: Set<String>? = nil
-    ) -> [Song] {
-        let sourceIDs = backfillableSourceIDs()
-        let bareOnlyIDs = bareOnlySourceIDs()
-        let failedIDs = failedSongIDs
-        let sourceIssueIDs = sourceIssueSongIDs
-        let sessionGivenUpSnapshot = sessionGivenUpIDs
-        let retryCountSnapshot = transientFailureCounts
-        let sourceRetryCountSnapshot = sourceTransientFailureCounts
-        let disabledSourceIDs = library.disabledSourceIDs
-        let artworkGivenUpSnapshot = artworkGivenUpIDs
-        let titleCheckedSnapshot = titleCheckedIDs
-        let albumArtistCheckedSnapshot = albumArtistCheckedIDs
-        let artistCheckedSnapshot = artistCheckedIDs
-        let incompleteSnapshot = incompleteSongIDs
-        let manuallyReadingSnapshot = manuallyReadingSongIDs
+        allowedSourceIDs: Set<String>?
+    ) -> BatchSelectionInput {
         let scopedSourceID: String?
         switch executionMode {
         case .userInitiated:
@@ -4450,36 +4505,107 @@ final class MetadataBackfillService {
         default:
             scopedSourceID = nil
         }
-        let songs = library.songs
-        let candidates = songs.lazy.filter { song in
-            if let scopedSourceID, song.sourceID != scopedSourceID { return false }
-            if let allowedSourceIDs,
+        return BatchSelectionInput(
+            songs: library.songs,
+            limit: limit,
+            scopedSourceID: scopedSourceID,
+            allowedSourceIDs: allowedSourceIDs,
+            sourceIDs: backfillableSourceIDs(),
+            bareOnlySourceIDs: bareOnlySourceIDs(),
+            disabledSourceIDs: library.disabledSourceIDs,
+            manuallyReadingSongIDs: manuallyReadingSongIDs,
+            failedSongIDs: failedSongIDs,
+            sourceIssueSongIDs: sourceIssueSongIDs,
+            sessionGivenUpIDs: sessionGivenUpIDs,
+            transientFailureCounts: transientFailureCounts,
+            sourceTransientFailureCounts: sourceTransientFailureCounts,
+            artworkGivenUpIDs: artworkGivenUpIDs,
+            titleCheckedIDs: titleCheckedIDs,
+            albumArtistCheckedIDs: albumArtistCheckedIDs,
+            artistCheckedIDs: artistCheckedIDs,
+            incompleteSongIDs: incompleteSongIDs
+        )
+    }
+
+    /// 与旧实现同序、同结果, 但显式循环只会对每行求值一次谓词 ——
+    /// `lazy.filter{}.prefix(n)` 先走一遍找结束下标, `Array(...)` 再走一遍。
+    /// 仍然从 index 0 开始扫, 所以 runWorker 里「同一批 ID 反复出现就停摆」
+    /// 的保护 (MetadataBackfillStallPolicy) 行为不变。
+    nonisolated static func selectBatch(_ input: BatchSelectionInput) -> [Song] {
+        let limit = max(1, input.limit)
+        var selection: [Song] = []
+        selection.reserveCapacity(min(limit, input.songs.count))
+        for song in input.songs {
+            if let scopedSourceID = input.scopedSourceID, song.sourceID != scopedSourceID { continue }
+            if let allowedSourceIDs = input.allowedSourceIDs,
                !allowedSourceIDs.contains(song.sourceID) {
-                return false
+                continue
             }
-            guard !manuallyReadingSnapshot.contains(song.id) else { return false }
-            guard !failedIDs.contains(song.id) else { return false }
-            guard !sourceIssueIDs.contains(song.id) else { return false }
-            guard !sessionGivenUpSnapshot.contains(song.id) else { return false }
+            guard !input.manuallyReadingSongIDs.contains(song.id) else { continue }
+            guard !input.failedSongIDs.contains(song.id) else { continue }
+            guard !input.sourceIssueSongIDs.contains(song.id) else { continue }
+            guard !input.sessionGivenUpIDs.contains(song.id) else { continue }
             guard !Self.automaticRetriesExhausted(
                 songID: song.id,
                 sourceID: song.sourceID,
-                retryCounts: retryCountSnapshot,
-                sourceRetryCounts: sourceRetryCountSnapshot
-            ) else { return false }
-            guard !disabledSourceIDs.contains(song.sourceID) else { return false }
-            guard sourceIDs.contains(song.sourceID) else { return false }
-            return Self.needsBackfill(
+                retryCounts: input.transientFailureCounts,
+                sourceRetryCounts: input.sourceTransientFailureCounts
+            ) else { continue }
+            guard !input.disabledSourceIDs.contains(song.sourceID) else { continue }
+            guard input.sourceIDs.contains(song.sourceID) else { continue }
+            guard Self.needsBackfill(
                 song,
-                restrictToBareRows: self.restrictsToBareRows(song, sourceIDs: bareOnlyIDs),
-                artworkGivenUpIDs: artworkGivenUpSnapshot,
-                titleCheckedIDs: titleCheckedSnapshot,
-                incompleteSongIDs: incompleteSnapshot,
-                albumArtistCheckedIDs: albumArtistCheckedSnapshot,
-                artistCheckedIDs: artistCheckedSnapshot
-            )
+                restrictToBareRows: MetadataBackfillEligibilityPolicy.restrictsToBareRows(
+                    sourceUsesBareInventory: input.bareOnlySourceIDs.contains(song.sourceID),
+                    isStreamDescriptor: song.isStreamDescriptor
+                ),
+                artworkGivenUpIDs: input.artworkGivenUpIDs,
+                titleCheckedIDs: input.titleCheckedIDs,
+                incompleteSongIDs: input.incompleteSongIDs,
+                albumArtistCheckedIDs: input.albumArtistCheckedIDs,
+                artistCheckedIDs: input.artistCheckedIDs
+            ) else { continue }
+            selection.append(song)
+            if selection.count == limit { break }
         }
-        return Array(candidates.prefix(max(1, limit)))
+        return selection
+    }
+
+    /// A song needs backfill if it has none of the metadata that file-header
+    /// extraction would produce (duration, bitRate). Songs in the failure
+    /// set are skipped. Limited to a batch so the queue doesn't grow
+    /// unbounded for huge libraries.
+    private func pickNextBatch(
+        limit: Int,
+        allowedSourceIDs: Set<String>? = nil
+    ) -> [Song] {
+        Self.selectBatch(
+            makeBatchSelectionInput(limit: limit, allowedSourceIDs: allowedSourceIDs)
+        )
+    }
+
+    /// 与 `refreshRemainingCountsOffMain` 同一套路: 输入是 Sendable 快照,
+    /// 整库筛选放到 detached task, 回到主 actor 再校验代次与源集合。期间资料库
+    /// 或队列变过就退回同步选取, 结果与今天逐字一致。worker 每取一个快照
+    /// (后台播放时只有 8 行) 就要扫一遍全库, 之前这一遍完全压在主 actor 上。
+    private func pickNextBatchOffMain(
+        limit: Int,
+        allowedSourceIDs: Set<String>?
+    ) async -> [Song] {
+        let input = makeBatchSelectionInput(limit: limit, allowedSourceIDs: allowedSourceIDs)
+        let songMutationGeneration = library.songMutationGenerationForMaintenance
+        let queueGeneration = queueMutationGeneration
+        let selection = await Task.detached(priority: .utility) {
+            Self.selectBatch(input)
+        }.value
+        guard library.songMutationGenerationForMaintenance == songMutationGeneration,
+              queueMutationGeneration == queueGeneration,
+              backfillableSourceIDs() == input.sourceIDs,
+              bareOnlySourceIDs() == input.bareOnlySourceIDs,
+              library.disabledSourceIDs == input.disabledSourceIDs else {
+            return pickNextBatch(limit: limit, allowedSourceIDs: allowedSourceIDs)
+        }
+        return selection
     }
 
     private func isStillEligible(_ song: Song) -> Bool {
@@ -4567,7 +4693,7 @@ final class MetadataBackfillService {
         )
     }
 
-    private static func needsBackfill(
+    private nonisolated static func needsBackfill(
         _ song: Song,
         restrictToBareRows: Bool,
         artworkGivenUpIDs: Set<String>,

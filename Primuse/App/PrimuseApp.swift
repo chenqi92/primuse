@@ -1271,6 +1271,11 @@ struct PrimuseApp: App {
     @State private var mediaRelayImportRequest: MediaRelayImportRequest?
 
     init() {
+        // 把 scan-checkpoints.json / source-sync-states.json 的解码提前丢到
+        // 后台线程, 与 AppServices 里 keychain 迁移、SourcesStore 与
+        // MusicLibrary 快照装载这些主线程构造并行。ScanService.init 仍然同步
+        // 取走结果, 首帧读到的 scanStates / 文件夹索引依旧是完整的。
+        ScanService.prewarmStartupState()
         let services = AppServices.shared
         _sourcesStore = State(initialValue: services.sourcesStore)
         _radioStationsStore = State(initialValue: services.radioStationsStore)
@@ -1495,7 +1500,7 @@ struct PrimuseApp: App {
                     // scans, scrape checkpoint replay, indexing and backfill.
                     scanService.scheduleBackgroundResumeIfNeeded(
                         backfillPending: metadataBackfill.hasPendingWork,
-                        backfillRequiresNetworkConnectivity: metadataBackfill.backgroundWakeRequiresNetworkConnectivity,
+                        backfillRequiresNetworkConnectivity: metadataBackfill.backgroundWakeRequiresNetworkConnectivityFromCachedCounts,
                         scrapePending: scraperService.hasPendingBackgroundContinuation,
                         localImportPending: LocalImportService.hasPendingScan,
                         sourceStore: sourcesStore
@@ -1704,7 +1709,7 @@ struct PrimuseApp: App {
                         // on macOS — BGTaskScheduler doesn't exist there.)
                         scanService.scheduleBackgroundResumeIfNeeded(
                             backfillPending: metadataBackfill.hasPendingWork,
-                            backfillRequiresNetworkConnectivity: metadataBackfill.backgroundWakeRequiresNetworkConnectivity,
+                            backfillRequiresNetworkConnectivity: metadataBackfill.backgroundWakeRequiresNetworkConnectivityFromCachedCounts,
                             scrapePending: scraperService.hasPendingBackgroundContinuation,
                             localImportPending: LocalImportService.hasPendingScan,
                             sourceStore: sourcesStore
@@ -1825,7 +1830,7 @@ struct PrimuseApp: App {
                         )
                         scanService.scheduleBackgroundResumeIfNeeded(
                             backfillPending: metadataBackfill.hasPendingWork,
-                            backfillRequiresNetworkConnectivity: metadataBackfill.backgroundWakeRequiresNetworkConnectivity,
+                            backfillRequiresNetworkConnectivity: metadataBackfill.backgroundWakeRequiresNetworkConnectivityFromCachedCounts,
                             scrapePending: scraperService.hasPendingBackgroundContinuation,
                             localImportPending: LocalImportService.hasPendingScan,
                             sourceStore: sourcesStore
@@ -1894,7 +1899,7 @@ struct PrimuseApp: App {
                     }
                     scanService.scheduleBackgroundResumeIfNeeded(
                         backfillPending: metadataBackfill.hasPendingWork,
-                        backfillRequiresNetworkConnectivity: metadataBackfill.backgroundWakeRequiresNetworkConnectivity,
+                        backfillRequiresNetworkConnectivity: metadataBackfill.backgroundWakeRequiresNetworkConnectivityFromCachedCounts,
                         scrapePending: scraperService.hasPendingBackgroundContinuation,
                         localImportPending: LocalImportService.hasPendingScan,
                         sourceStore: sourcesStore
