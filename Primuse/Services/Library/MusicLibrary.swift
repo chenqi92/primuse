@@ -2745,6 +2745,13 @@ enum LibraryReviewReconciliationPolicy {
     }
 }
 
+/// 库的发布状态。`.preparing` 表示可观察模型尚未装载完成:
+/// 此时既不落盘, 也不直接应用突变(见 MusicLibrary 的 S1/S2 不变量)。
+enum LibraryReadiness: Equatable, Sendable {
+    case preparing
+    case ready
+}
+
 @MainActor
 @Observable
 final class MusicLibrary {
@@ -3019,7 +3026,7 @@ final class MusicLibrary {
     /// artwork can still show representative embedded or album artwork.
     @ObservationIgnored private var preferredArtworkSongIDByArtistID: [String: String] = [:]
 
-    private struct PreparedVisibleCache: Sendable {
+    fileprivate struct PreparedVisibleCache: Sendable {
         let songs: [Song]
         let albums: [Album]
         let artists: [Artist]
@@ -3068,13 +3075,145 @@ final class MusicLibrary {
     private let playlistSyncWriterID: String
     /// Canonical device-local song rows. JSON is retained as an interoperable
     /// iCloud/Apple TV snapshot, but routine scan/backfill writes go here.
-    @ObservationIgnored private let songStore: IncrementalSongStore?
+    /// `var` 而非 `let`: `.preparing` 构造的库在 `publish(_:)` 时装入
+    /// 准备阶段已打开的存储句柄。同步路径下 init 后不再变化。
+    @ObservationIgnored private var songStore: IncrementalSongStore?
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
     @ObservationIgnored private var persistenceBlockedByCorruption = false
     @ObservationIgnored private var derivedIndexSignature: String?
-    private static let startupCacheFormatVersion = 1
-    private static let loadedSongMigrationVersion = 6
+    private nonisolated static let startupCacheFormatVersion = 1
+    private nonisolated static let loadedSongMigrationVersion = 6
+
+    // MARK: - Readiness
+
+    /// 可观察的发布状态。同步启动路径在 `loadSnapshot` 末尾即置为 `.ready`,
+    /// 因此当前行为与历史版本完全一致(init 返回前库已就绪)。
+    private(set) var readiness: LibraryReadiness = .preparing
+    var isReady: Bool { readiness == .ready }
+    @ObservationIgnored private var readinessContinuations: [CheckedContinuation<Void, Never>] = []
+    @ObservationIgnored private var readinessHandlers: [@MainActor () -> Void] = []
+    /// S2: `.preparing` 期间进入的顶层突变按 FIFO 排队, 发布后原样重放。
+    @ObservationIgnored private var deferredMutations: [@MainActor () -> Void] = []
+    /// S1: `.preparing` 期间被拦截的持久化请求, 发布后各补一次。
+    @ObservationIgnored private var deferredPortableSnapshotPersistRequested = false
+    @ObservationIgnored private var deferredStartupCacheWriteRequested = false
+    @ObservationIgnored private var deferredDerivedIndexCacheWriteRequested = false
+    @ObservationIgnored private var deferredPlaylistDurabilityWriteRequested = false
+    @ObservationIgnored private var deferredDeviceLocalExclusionWriteRequested = false
+
+    /// 已就绪时立即返回; 否则挂起到发布完成。
+    func whenReady() async {
+        guard readiness != .ready else { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            if readiness == .ready {
+                continuation.resume()
+            } else {
+                readinessContinuations.append(continuation)
+            }
+        }
+    }
+
+    /// 已就绪时立即执行; 否则按注册顺序在发布后执行一次。
+    func onReady(_ handler: @escaping @MainActor () -> Void) {
+        if readiness == .ready {
+            handler()
+        } else {
+            readinessHandlers.append(handler)
+        }
+    }
+
+    /// S1/S2 的统一判定入口。
+    private var isPreparing: Bool { readiness == .preparing }
+
+    /// 顶层突变入口的排队助手。返回 `true` 表示调用方应立刻返回,
+    /// 该次调用已被记录, 发布后按顺序重放。
+    private func deferringUntilReady(_ work: @escaping @MainActor () -> Void) -> Bool {
+        guard isPreparing else { return false }
+        deferredMutations.append(work)
+        return true
+    }
+
+    /// 发布步骤第 1 步: 只翻转状态, 不做任何补写。
+    /// 在可观察状态写入之后、耐久写入之前调用, 这样 `loadSnapshot` 末尾
+    /// 那几项落盘与历史版本一样正常执行(它们不会再被 S1 拦下)。
+    /// 被推迟的持久化必须等到排队突变重放完成后才补, 否则会写出一份
+    /// 缺少这些突变的快照。
+    private func markReadyBeforeDurableWrites() {
+        guard isPreparing else { return }
+        readiness = .ready
+    }
+
+    /// 发布步骤第 3 步: 按 FIFO 重放 `.preparing` 期间排队的顶层突变 (S2)。
+    /// 必须在 G5 的耐久写入之后、S1 的补写之前, 这样补写看到的是
+    /// "已发布的行 + 排队突变" 的最终状态。
+    private func replayDeferredMutations() {
+        while !deferredMutations.isEmpty {
+            let pending = deferredMutations
+            deferredMutations.removeAll(keepingCapacity: false)
+            for work in pending { work() }
+        }
+    }
+
+    /// 发布步骤第 5/6 步: 先跑 `onReady` 回调, 再唤醒 `whenReady()` 等待者。
+    /// 排在突变重放与补写之后, 观察者因此永远看到完整且已落盘的库。
+    private func notifyReadinessObservers() {
+        let handlers = readinessHandlers
+        readinessHandlers.removeAll(keepingCapacity: false)
+        for handler in handlers { handler() }
+        let continuations = readinessContinuations
+        readinessContinuations.removeAll(keepingCapacity: false)
+        for continuation in continuations { continuation.resume() }
+    }
+
+    /// 发布步骤第 4 步: 把 `.preparing` 期间被 S1 拦下的持久化各补一次。
+    private func flushDeferredPersistenceAfterReadiness() {
+        if deferredDeviceLocalExclusionWriteRequested {
+            deferredDeviceLocalExclusionWriteRequested = false
+            try? persistDeviceLocalExclusions()
+        }
+        if deferredPlaylistDurabilityWriteRequested {
+            deferredPlaylistDurabilityWriteRequested = false
+            _ = persistPlaylistDurabilityLedger()
+        }
+        if deferredDerivedIndexCacheWriteRequested {
+            deferredDerivedIndexCacheWriteRequested = false
+            persistDerivedIndexCache()
+        }
+        if deferredStartupCacheWriteRequested {
+            deferredStartupCacheWriteRequested = false
+            scheduleStartupCacheWrite(
+                snapshot: makeSnapshot(),
+                songStoreRevision: try? songStore?.startupState().contentRevision,
+                snapshotFingerprint: Self.snapshotFingerprint(at: snapshotURL)
+            )
+        }
+        if deferredPortableSnapshotPersistRequested {
+            deferredPortableSnapshotPersistRequested = false
+            persistNow()
+        }
+    }
+
+    /// 用未发布的准备结果构造一个处于 `.preparing` 的库。
+    /// 目前仅供测试与 Stage 2 使用, 生产代码仍走同步构造。
+    static func makePreparing(
+        storageDirectory: URL? = nil,
+        disabledSourceIDs: Set<String> = [],
+        artistNameConfiguration: ArtistNameConfiguration? = nil
+    ) -> MusicLibrary {
+        MusicLibrary(
+            disabledSourceIDs: disabledSourceIDs,
+            storageDirectory: storageDirectory,
+            artistNameConfiguration: artistNameConfiguration,
+            startsPreparing: true
+        )
+    }
+
+    /// 主线程上的唯一发布步骤: 装载准备结果、翻转就绪状态、重放排队突变。
+    func publish(_ prepared: PreparedStartup) {
+        guard isPreparing else { return }
+        loadSnapshot(preparedStartup: prepared)
+    }
 
     func updateDisabledSourceIDs(_ ids: Set<String>) {
         guard disabledSourceIDs != ids else { return }
@@ -3395,10 +3534,16 @@ final class MusicLibrary {
         storageDirectory: URL? = nil,
         artistNameConfiguration: ArtistNameConfiguration? = nil,
         preferExternalSnapshot: Bool = false,
+        preparedStartup: PreparedStartup? = nil,
         deferredMaintenanceAllowed: (@MainActor () -> Bool)? = nil,
         songStoreSnapshotWriter: @escaping @Sendable (IncrementalSongStore, [Song], String?) throws -> Int64 = {
             try $0.replaceAll(with: $1, snapshotImportID: $2)
-        }
+        },
+        /// 同步路径的身份前缀输入(sourceID → cloudAccountID)。
+        /// 传 nil 时沿用旧行为, 回落到 `sourceIdentityResolver`。
+        sourceIdentityPrefixes: [String: String]? = nil,
+        /// 以 `.preparing` 构造: 不读盘、不发布, 等待 `publish(_:)`。
+        startsPreparing: Bool = false
     ) {
         self.deferredMaintenanceAllowed = deferredMaintenanceAllowed ?? {
             #if os(iOS)
@@ -3408,19 +3553,15 @@ final class MusicLibrary {
             true
             #endif
         }
-        self.artistNameConfiguration = (
+        self.artistNameConfiguration = preparedStartup?.storage.artistNameConfiguration ?? (
             artistNameConfiguration
                 ?? ArtistNameConfiguration.load(from: .standard)
         ).normalized()
-        // tvOS 只允许写 Caches / tmp;须与 LibrarySnapshotSync / SourcesStore 同目录。
-        #if os(tvOS)
-        let appSupport = fileManager.primuseDirectoryURL(for: .cachesDirectory)
-        #else
-        let appSupport = fileManager.primuseDirectoryURL(for: .applicationSupportDirectory)
-        #endif
-        let directory = storageDirectory
-            ?? appSupport.appendingPathComponent("Primuse", isDirectory: true)
-        try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let directory = preparedStartup?.storage.directory
+            ?? storageDirectory ?? Self.defaultStorageDirectory(fileManager: fileManager)
+        if preparedStartup == nil {
+            try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
 
         snapshotURL = directory.appendingPathComponent("library-cache.json")
         backupSnapshotURL = directory.appendingPathComponent("library-cache.backup.json")
@@ -3430,33 +3571,46 @@ final class MusicLibrary {
         deviceLocalExclusionURL = directory
             .appendingPathComponent("library-device-local-excluded-songs.json")
         portableSnapshotNeedsInitialWrite = !fileManager.fileExists(atPath: snapshotURL.path)
-        let writerDefaultsKey = "primuse.playlist.syncWriterID"
-        if let existingWriterID = UserDefaults.standard.string(forKey: writerDefaultsKey),
-           !existingWriterID.isEmpty {
-            playlistSyncWriterID = existingWriterID
-        } else {
-            let newWriterID = UUID().uuidString
-            UserDefaults.standard.set(newWriterID, forKey: writerDefaultsKey)
-            playlistSyncWriterID = newWriterID
-        }
-        do {
-            songStore = try IncrementalSongStore(
-                path: directory.appendingPathComponent("library-songs.sqlite").path
-            )
-        } catch {
+        playlistSyncWriterID = preparedStartup?.storage.playlistSyncWriterID ?? Self.startupPlaylistWriterID()
+        if let preparedStartup {
+            songStore = preparedStartup.storage.songStore
+        } else if startsPreparing {
+            // 准备阶段的库不持有存储句柄, `publish(_:)` 会装入准备结果的实例,
+            // 避免同一个 SQLite 文件出现两个连接池。
             songStore = nil
-            plog("⚠️ Incremental song store unavailable; using JSON fallback: \(error.localizedDescription)")
+        } else {
+            do {
+                songStore = try IncrementalSongStore(path: directory.appendingPathComponent("library-songs.sqlite").path)
+            } catch {
+                songStore = nil
+                plog("⚠️ Incremental song store unavailable; using JSON fallback: \(error.localizedDescription)")
+            }
         }
-        self.disabledSourceIDs = disabledSourceIDs
+        // G2: 准备结果自带禁用源集合, 且可见缓存就是用它算出来的。
+        // 以准备结果为准, 避免已发布的可见缓存与禁用集合互相矛盾。
+        assert(
+            preparedStartup == nil || preparedStartup?.storage.disabledSourceIDs == disabledSourceIDs
+                || disabledSourceIDs.isEmpty,
+            "prepareStartup(disabledSourceIDs:) and MusicLibrary(disabledSourceIDs:) disagree"
+        )
+        self.disabledSourceIDs = preparedStartup?.storage.disabledSourceIDs ?? disabledSourceIDs
         encoder.outputFormatting = [.sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         decoder.dateDecodingStrategy = .iso8601
 
         self.songStoreSnapshotWriter = songStoreSnapshotWriter
-        // Must precede `loadSnapshot`: the loader filters the decoded rows
-        // through this set so an imported snapshot cannot resurrect them.
-        loadDeviceLocalExclusions()
-        loadSnapshot(preferExternalSnapshot: preferExternalSnapshot)
+        // `startsPreparing` 且没有准备结果时停在 `.preparing`:
+        // 不读盘、不发布、不落盘, 等待 `publish(_:)`。
+        if !startsPreparing || preparedStartup != nil {
+            // Must precede `loadSnapshot`: the loader filters the decoded rows
+            // through this set so an imported snapshot cannot resurrect them.
+            if preparedStartup == nil { loadDeviceLocalExclusions() }
+            loadSnapshot(
+                preferExternalSnapshot: preferExternalSnapshot,
+                preparedStartup: preparedStartup,
+                sourceIdentityPrefixes: sourceIdentityPrefixes
+            )
+        }
 
         #if os(iOS)
         for name in [UIApplication.didBecomeActiveNotification, ProcessInfo.thermalStateDidChangeNotification] {
@@ -3598,6 +3752,7 @@ final class MusicLibrary {
     /// needless main-actor work immediately after the lyrics UI appeared.
     func updateLyricsText(_ lyricsTextBySongID: [String: String]) {
         guard !lyricsTextBySongID.isEmpty else { return }
+        if deferringUntilReady({ [weak self] in self?.updateLyricsText(lyricsTextBySongID) }) { return }
         if isDeferringSceneTransitionPublications {
             pendingLyricsText.merge(lyricsTextBySongID) { _, latest in latest }
             return
@@ -3637,6 +3792,9 @@ final class MusicLibrary {
     /// artist, playlist, and history indexes. Scraped sidecar assets only
     /// change where UI loaders read media from; they don't affect grouping.
     func updateAssetReferences(songID: String, coverRef: String? = nil, lyricsRef: String? = nil) {
+        if deferringUntilReady({ [weak self] in
+            self?.updateAssetReferences(songID: songID, coverRef: coverRef, lyricsRef: lyricsRef)
+        }) { return }
         guard let index = songIndexByID[songID] else { return }
         var updatedSong = songs[index]
         let oldCoverRef = updatedSong.coverArtFileName
@@ -3715,6 +3873,17 @@ final class MusicLibrary {
         authoritativeIncomingIDs: Set<String>? = nil,
         mergeServerCatalogRows: Bool = false
     ) {
+        // S2: 发布前排队, 发布后按原顺序重放, 免得扫描/Siri 把结果并进空库。
+        if deferringUntilReady({ [weak self] in
+            self?.addSongs(
+                newSongs,
+                affectedSourceIDs: explicitAffectedSourceIDs,
+                notifyRemovals: notifyRemovals,
+                pruneMissingSongs: pruneMissingSongs,
+                authoritativeIncomingIDs: authoritativeIncomingIDs,
+                mergeServerCatalogRows: mergeServerCatalogRows
+            )
+        }) { return }
         // Merge semantics:
         //
         // - Drop songs from the affected sources that the new scan didn't
@@ -4098,6 +4267,7 @@ final class MusicLibrary {
     /// Delete a single song and rebuild index
     @discardableResult
     func deleteSong(_ song: Song) -> Int {
+        if deferringUntilReady({ [weak self] in _ = self?.deleteSong(song) }) { return 0 }
         discardRetainedSongs { $0.id == song.id }
         songs.removeAll { $0.id == song.id }
         songIndexByID = Self.makeSongIndex(songs)
@@ -4122,6 +4292,7 @@ final class MusicLibrary {
     @discardableResult
     func deleteSongs(_ songsToDelete: [Song]) -> [String: Int] {
         guard !songsToDelete.isEmpty else { return [:] }
+        if deferringUntilReady({ [weak self] in _ = self?.deleteSongs(songsToDelete) }) { return [:] }
         let idsToDelete = Set(songsToDelete.map(\.id))
         discardRetainedSongs { idsToDelete.contains($0.id) }
         let affectedSourceIDs = Set(songsToDelete.map(\.sourceID))
@@ -4149,6 +4320,9 @@ final class MusicLibrary {
     @discardableResult
     func removeSongsFromThisDevice(_ songsToRemove: [Song]) throws -> [String: Int] {
         guard !songsToRemove.isEmpty else { return [:] }
+        if deferringUntilReady({ [weak self] in _ = try? self?.removeSongsFromThisDevice(songsToRemove) }) {
+            return [:]
+        }
         let idsToRemove = Set(songsToRemove.map(\.id))
         let affectedSourceIDs = Set(songsToRemove.map(\.sourceID))
         let previousIdentities = deviceLocalExcludedSongIdentities
@@ -4200,6 +4374,11 @@ final class MusicLibrary {
     }
 
     private func persistDeviceLocalExclusions() throws {
+        // S1: 发布前不写设备本地排除账本。
+        guard !isPreparing else {
+            deferredDeviceLocalExclusionWriteRequested = true
+            return
+        }
         let ledger = DeviceLocalExclusionLedger(
             identities: deviceLocalExcludedSongIdentities.sorted(),
             retainedSongs: deviceLocalExcludedSongsByID.values.sorted { $0.id < $1.id }
@@ -4301,6 +4480,10 @@ final class MusicLibrary {
     @discardableResult
     func removeSongsForSources(_ sourceIDs: Set<String>) async -> Set<String> {
         guard !sourceIDs.isEmpty else { return [] }
+        // S2: 异步入口排队它的同步回退路径。
+        if deferringUntilReady({ [weak self] in
+            self?.removeSongsForSourcesSynchronously(sourceIDs)
+        }) { return [] }
 
         let prepared: PreparedSourceSongRemoval
         while true {
@@ -4320,6 +4503,22 @@ final class MusicLibrary {
             break
         }
 
+        return applyPreparedSourceSongRemoval(prepared, sourceIDs: sourceIDs)
+    }
+
+    /// `removeSongsForSources` 的同步回退: 就地准备后立即应用。
+    /// 仅在 S2 重放排队突变时使用, 此时没有并发突变需要代际围栏。
+    private func removeSongsForSourcesSynchronously(_ sourceIDs: Set<String>) {
+        guard !sourceIDs.isEmpty else { return }
+        let prepared = Self.prepareSourceSongRemoval(songs: songs, sourceIDs: sourceIDs)
+        _ = applyPreparedSourceSongRemoval(prepared, sourceIDs: sourceIDs)
+    }
+
+    @discardableResult
+    private func applyPreparedSourceSongRemoval(
+        _ prepared: PreparedSourceSongRemoval,
+        sourceIDs: Set<String>
+    ) -> Set<String> {
         let removedCatalog = sourceIDs.reduce(into: false) { removed, sourceID in
             if automaticArtistArtworkCatalogsBySource.removeValue(forKey: sourceID) != nil {
                 removed = true
@@ -6321,6 +6520,9 @@ final class MusicLibrary {
         maintenance: LibraryMaintenanceDisposition = .immediate
     ) {
         guard !updatedSongs.isEmpty else { return }
+        if deferringUntilReady({ [weak self] in
+            self?.replaceSongs(updatedSongs, maintenance: maintenance)
+        }) { return }
         let originalSongs = songs
         var nextSongs = originalSongs
         var idToIndex = songIndexByID
@@ -6472,6 +6674,10 @@ final class MusicLibrary {
         maintenance: LibraryMaintenanceDisposition = .deferred
     ) async {
         guard !updatedSongs.isEmpty else { return }
+        // S2: 异步入口排队它的同步回退路径。
+        if deferringUntilReady({ [weak self] in
+            self?.replaceSongs(updatedSongs, maintenance: maintenance)
+        }) { return }
 
         // A source toggle or another song mutation can land while preparation
         // is suspended. Rebase once on the newest immutable snapshots before
@@ -7055,313 +7261,733 @@ final class MusicLibrary {
         playlistCollectionRevision &+= 1
     }
 
-    private func loadSnapshot(preferExternalSnapshot: Bool = false) {
-        let loadStartedAt = ProcessInfo.processInfo.systemUptime
-        let hasCompatibilitySnapshot = FileManager.default.fileExists(atPath: snapshotURL.path)
-        let compatibilityFingerprint = hasCompatibilitySnapshot
-            ? Self.snapshotFingerprint(at: snapshotURL)
-            : nil
+    /// A complete, unpublished library. No observable model exists while disk
+    /// reads, migrations and whole-library indexes are being prepared.
+    struct PreparedStartup: Sendable {
+        fileprivate let storage: StartupStorage
+    }
 
-        let initialStoreState: IncrementalSongStoreStartupState? = {
-            guard !preferExternalSnapshot, let songStore else { return nil }
-            do {
-                return try songStore.startupState()
-            } catch {
-                plog("⚠️ Incremental song store metadata read failed; recovering from JSON: \(error.localizedDescription)")
-                return nil
+    /// G5: 准备阶段只做纯读取与内存迁移。所有耐久写入记录成意图,
+    /// 由主线程的发布步骤按与历史版本相同的顺序执行, 于是一次被丢弃的
+    /// 准备不会在磁盘上留下任何痕迹。
+    fileprivate enum PendingStoreWrite: Sendable {
+        case none
+        case replaceAll(importID: String?)
+        case upserts([Song])
+    }
+
+    fileprivate struct StartupStorage: Sendable {
+        let directory: URL
+        let artistNameConfiguration: ArtistNameConfiguration
+        let disabledSourceIDs: Set<String>
+        let playlistSyncWriterID: String
+        let songStore: IncrementalSongStore?
+        var sourceIdentityPrefixes: [String: String] = [:]
+        var previousVisibleSongs: [Song] = []
+        let songStoreSnapshotWriter: @Sendable (IncrementalSongStore, [Song], String?) throws -> Int64
+        var songs: [Song] = []
+        var albums: [Album] = []
+        var artists: [Artist] = []
+        var allPlaylists: [Playlist] = []
+        var allSmartPlaylists: [SmartPlaylist] = []
+        var playlistSongIDs: [String: [String]] = [:]
+        var recentPlaybackSongIDs: [String] = []
+        var deletedSongIdentities: Set<String> = []
+        var pendingPlaylistIdentities: [String: [PendingSongIdentity]] = [:]
+        var pendingHistoryIdentities: [PendingSongIdentity] = []
+        var automaticArtistArtworkCatalogsBySource: [String: SourceArtistArtworkCatalog] = [:]
+        var artworkOverridesByOwner: [String: LibraryArtworkOverride] = [:]
+        var libraryReviewsBySubject: [String: LibraryReview] = [:]
+        var mirrorPlaylistSuppressions: [String: MirrorPlaylistSuppression] = [:]
+        var deviceLocalExcludedSongIdentities: Set<String> = []
+        var deviceLocalExcludedSongsByID: [String: Song] = [:]
+        var songIndexByID: [String: Int] = [:]
+        var persistenceBlockedByCorruption = false
+        var songStoreRequiresReplacement = false
+        var pendingSnapshotImportID: String?
+        var derivedIndexSignature: String?
+        var visibleCache: PreparedVisibleCache?
+        var shouldWriteStartupCache = false
+        var shouldWriteDerivedCache = false
+        var shouldPersistSnapshot = false
+        /// 装载确实产出了一份快照(与历史版本 `guard let snapshot` 之后的路径对应)。
+        var didPublishSnapshot = false
+        // MARK: 推迟到发布步骤执行的耐久副作用 (G5)
+        var corruptSnapshotToArchive: URL?
+        var shouldPersistDeviceLocalExclusions = false
+        var shouldPersistPlaylistDurabilityLedger = false
+        var pendingStoreWrite: PendingStoreWrite = .none
+        var migrationVersionToMark: Int?
+        var pendingStoreExternalSnapshotImportID: String?
+
+        var snapshotURL: URL { directory.appendingPathComponent("library-cache.json") }
+        var backupSnapshotURL: URL { directory.appendingPathComponent("library-cache.backup.json") }
+        var startupCacheURL: URL { directory.appendingPathComponent("library-startup-cache.plist") }
+        var derivedIndexCacheURL: URL { directory.appendingPathComponent("library-derived-index.plist") }
+        var playlistDurabilityURL: URL { directory.appendingPathComponent("playlist-durability.json") }
+        var deviceLocalExclusionURL: URL { directory.appendingPathComponent("library-device-local-excluded-songs.json") }
+        var encoder: JSONEncoder {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            encoder.dateEncodingStrategy = .iso8601
+            return encoder
+        }
+        var decoder: JSONDecoder {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return decoder
+        }
+        var allArtworkOverrides: [LibraryArtworkOverride] {
+            artworkOverridesByOwner.values.sorted { $0.id < $1.id }
+        }
+        var hiddenMirrorPlaylists: [MirrorPlaylistSuppression] {
+            mirrorPlaylistSuppressions.values.sorted { $0.hiddenAt > $1.hiddenAt }
+        }
+        func identityKey(for song: Song) -> String {
+            "\(sourceIdentityPrefixes[song.sourceID] ?? song.sourceID):\(song.filePath)"
+        }
+        func isExcludedOnThisDevice(_ song: Song) -> Bool {
+            deviceLocalExcludedSongIdentities.contains(identityKey(for: song))
+                || deviceLocalExcludedSongIdentities.contains("\(song.sourceID):\(song.filePath)")
+        }
+        func songForSynchronization(id: String) -> Song? {
+            if let index = songIndexByID[id] { return songs[index] }
+            guard let song = deviceLocalExcludedSongsByID[id],
+                  !deletedSongIdentities.contains(identityKey(for: song)) else { return nil }
+            return song
+        }
+        mutating func cleanPlaylistEntries() {
+            for id in playlistSongIDs.keys {
+                playlistSongIDs[id] = playlistSongIDs[id]?.filter { songForSynchronization(id: $0) != nil }
             }
-        }()
-        let portableStartupCache = initialStoreState?.isAuthoritative == true
-            ? loadStartupCache(
-                snapshotFingerprint: compatibilityFingerprint
+        }
+        mutating func cleanPlaybackHistoryEntries() {
+            recentPlaybackSongIDs = recentPlaybackSongIDs.filter { songForSynchronization(id: $0) != nil }
+        }
+        mutating func rebuildVisibleCache() {
+            visibleCache = MusicLibrary.prepareVisibleCache(
+                songs: songs, albums: albums, artists: artists,
+                artistNameConfiguration: artistNameConfiguration,
+                disabledSourceIDs: disabledSourceIDs,
+                previousVisibleSongs: previousVisibleSongs
             )
-            : nil
-        let startupCache = portableStartupCache.flatMap { cache in
-            cache.songStoreRevision == initialStoreState?.contentRevision ? cache : nil
+        }
+        mutating func rebuildIndexSync(precomputedSignature: String) {
+            let result = MusicLibrary.computeAlbumsAndArtists(songs: songs, configuration: artistNameConfiguration)
+            albums = result.albums
+            artists = result.artists
+            derivedIndexSignature = precomputedSignature
+            rebuildVisibleCache()
         }
 
-        var canonicalSongs: [Song]?
-        var resolvedSnapshot: Snapshot?
-        var snapshotByteCount = 0
-        var externalSnapshotImportID: String?
-        var canRefreshStartupCache = false
-        var usedPortableStartupCache = false
-        var readFinishedAt = ProcessInfo.processInfo.systemUptime
-        var decodeFinishedAt = readFinishedAt
-        if let startupCache {
-            resolvedSnapshot = startupCache.snapshot
-            canonicalSongs = startupCache.snapshot.songs
-            canRefreshStartupCache = true
-            readFinishedAt = ProcessInfo.processInfo.systemUptime
-            decodeFinishedAt = readFinishedAt
-            persistenceBlockedByCorruption = false
-        } else {
-            // Ordinary metadata batches commit to SQLite immediately while the
-            // portable JSON snapshot is intentionally coalesced. The cached
-            // snapshot still exactly mirrors that JSON (playlists, tombstones,
-            // etc.), so reuse it and replace only its stale song array from the
-            // authoritative store. This avoids decoding a multi-megabyte JSON
-            // document on every launch during a long-running backfill.
-            if let portableStartupCache,
-               initialStoreState?.isAuthoritative == true,
-               let songStore {
+        mutating func loadSnapshot(preferExternalSnapshot: Bool = false) {
+            let loadStartedAt = ProcessInfo.processInfo.systemUptime
+            let hasCompatibilitySnapshot = FileManager.default.fileExists(atPath: snapshotURL.path)
+            let compatibilityFingerprint = hasCompatibilitySnapshot
+                ? MusicLibrary.snapshotFingerprint(at: snapshotURL)
+                : nil
+
+            let initialStoreState: IncrementalSongStoreStartupState? = {
+                guard !preferExternalSnapshot, let songStore else { return nil }
                 do {
-                    canonicalSongs = try songStore.loadSongs()
-                    resolvedSnapshot = portableStartupCache.snapshot
-                    canRefreshStartupCache = true
-                    usedPortableStartupCache = true
-                    persistenceBlockedByCorruption = false
-                    readFinishedAt = ProcessInfo.processInfo.systemUptime
-                    decodeFinishedAt = readFinishedAt
+                    return try songStore.startupState()
                 } catch {
-                    plog("⚠️ Incremental song store read failed; recovering from JSON: \(error.localizedDescription)")
+                    plog("⚠️ Incremental song store metadata read failed; recovering from JSON: \(error.localizedDescription)")
+                    return nil
                 }
+            }()
+            let portableStartupCache = initialStoreState?.isAuthoritative == true
+                ? loadStartupCache(
+                    snapshotFingerprint: compatibilityFingerprint
+                )
+                : nil
+            let startupCache = portableStartupCache.flatMap { cache in
+                cache.songStoreRevision == initialStoreState?.contentRevision ? cache : nil
             }
 
-            if resolvedSnapshot == nil,
-               initialStoreState?.isAuthoritative == true,
-               let songStore,
-               canonicalSongs == nil {
-                do {
-                    canonicalSongs = try songStore.loadSongs()
-                } catch {
-                    plog("⚠️ Incremental song store read failed; recovering from JSON: \(error.localizedDescription)")
-                }
-            }
-
-            if resolvedSnapshot != nil {
-                // The portable startup cache path above already supplied the
-                // non-song snapshot and canonical SQLite rows.
-            } else if !hasCompatibilitySnapshot {
-                persistenceBlockedByCorruption = false
-                if let canonicalSongs {
-                    resolvedSnapshot = Snapshot(
-                        songs: canonicalSongs,
-                        playlists: [],
-                        mirrorPlaylistSuppressions: nil,
-                        smartPlaylists: nil,
-                        playlistSongIDs: nil,
-                        recentPlaybackSongIDs: nil,
-                        deletedSongIdentities: nil,
-                        pendingPlaylistIdentities: nil,
-                        pendingHistoryIdentities: nil
-                    )
-                    canRefreshStartupCache = true
-                } else {
-                    loadPlaylistDurabilityLedger()
-                    return
-                }
+            var canonicalSongs: [Song]?
+            var resolvedSnapshot: Snapshot?
+            var snapshotByteCount = 0
+            var externalSnapshotImportID: String?
+            var canRefreshStartupCache = false
+            var usedPortableStartupCache = false
+            var readFinishedAt = ProcessInfo.processInfo.systemUptime
+            var decodeFinishedAt = readFinishedAt
+            if let startupCache {
+                resolvedSnapshot = startupCache.snapshot
+                canonicalSongs = startupCache.snapshot.songs
+                canRefreshStartupCache = true
                 readFinishedAt = ProcessInfo.processInfo.systemUptime
                 decodeFinishedAt = readFinishedAt
+                persistenceBlockedByCorruption = false
             } else {
-                guard let data = try? Data(contentsOf: snapshotURL) else {
-                    persistenceBlockedByCorruption = true
-                    plog("⛔ Library snapshot exists but cannot be read; persistence disabled to protect it")
-                    return
+                // Ordinary metadata batches commit to SQLite immediately while the
+                // portable JSON snapshot is intentionally coalesced. The cached
+                // snapshot still exactly mirrors that JSON (playlists, tombstones,
+                // etc.), so reuse it and replace only its stale song array from the
+                // authoritative store. This avoids decoding a multi-megabyte JSON
+                // document on every launch during a long-running backfill.
+                if let portableStartupCache,
+                   initialStoreState?.isAuthoritative == true,
+                   let songStore {
+                    do {
+                        canonicalSongs = try songStore.loadSongs()
+                        resolvedSnapshot = portableStartupCache.snapshot
+                        canRefreshStartupCache = true
+                        usedPortableStartupCache = true
+                        persistenceBlockedByCorruption = false
+                        readFinishedAt = ProcessInfo.processInfo.systemUptime
+                        decodeFinishedAt = readFinishedAt
+                    } catch {
+                        plog("⚠️ Incremental song store read failed; recovering from JSON: \(error.localizedDescription)")
+                    }
                 }
-                readFinishedAt = ProcessInfo.processInfo.systemUptime
-                snapshotByteCount = data.count
-                if let decoded = try? decoder.decode(Snapshot.self, from: data) {
-                    if preferExternalSnapshot { externalSnapshotImportID = Self.snapshotImportID(for: data) }
-                    resolvedSnapshot = decoded
-                    canRefreshStartupCache = true
-                    persistenceBlockedByCorruption = false
-                } else {
-                    let corruptURL = snapshotURL.deletingLastPathComponent()
-                        .appendingPathComponent("library-cache.corrupt-\(Int(Date().timeIntervalSince1970)).json")
-                    try? FileManager.default.copyItem(at: snapshotURL, to: corruptURL)
 
-                    guard let backupData = try? Data(contentsOf: backupSnapshotURL),
-                          let backup = try? decoder.decode(Snapshot.self, from: backupData) else {
-                        persistenceBlockedByCorruption = true
-                        plog("⛔ Library snapshot is corrupt and no valid backup exists; persistence disabled to prevent an empty overwrite")
+                if resolvedSnapshot == nil,
+                   initialStoreState?.isAuthoritative == true,
+                   let songStore,
+                   canonicalSongs == nil {
+                    do {
+                        canonicalSongs = try songStore.loadSongs()
+                    } catch {
+                        plog("⚠️ Incremental song store read failed; recovering from JSON: \(error.localizedDescription)")
+                    }
+                }
+
+                if resolvedSnapshot != nil {
+                    // The portable startup cache path above already supplied the
+                    // non-song snapshot and canonical SQLite rows.
+                } else if !hasCompatibilitySnapshot {
+                    persistenceBlockedByCorruption = false
+                    if let canonicalSongs {
+                        resolvedSnapshot = Snapshot(
+                            songs: canonicalSongs,
+                            playlists: [],
+                            mirrorPlaylistSuppressions: nil,
+                            smartPlaylists: nil,
+                            playlistSongIDs: nil,
+                            recentPlaybackSongIDs: nil,
+                            deletedSongIdentities: nil,
+                            pendingPlaylistIdentities: nil,
+                            pendingHistoryIdentities: nil
+                        )
+                        canRefreshStartupCache = true
+                    } else {
+                        loadPlaylistDurabilityLedger()
                         return
                     }
-                    resolvedSnapshot = backup
-                    canRefreshStartupCache = false
-                    persistenceBlockedByCorruption = false
-                    plog("⚠️ Library snapshot was corrupt; restored the last valid backup")
-                }
-                decodeFinishedAt = ProcessInfo.processInfo.systemUptime
-            }
-        }
-        guard let snapshot = resolvedSnapshot else { return }
-        Self.restorePortableArtworkAssets(snapshot, assetStore: .shared)
+                    readFinishedAt = ProcessInfo.processInfo.systemUptime
+                    decodeFinishedAt = readFinishedAt
+                } else {
+                    guard let data = try? Data(contentsOf: snapshotURL) else {
+                        persistenceBlockedByCorruption = true
+                        plog("⛔ Library snapshot exists but cannot be read; persistence disabled to protect it")
+                        return
+                    }
+                    readFinishedAt = ProcessInfo.processInfo.systemUptime
+                    snapshotByteCount = data.count
+                    if let decoded = try? decoder.decode(Snapshot.self, from: data) {
+                        if preferExternalSnapshot { externalSnapshotImportID = MusicLibrary.snapshotImportID(for: data) }
+                        resolvedSnapshot = decoded
+                        canRefreshStartupCache = true
+                        persistenceBlockedByCorruption = false
+                    } else {
+                        corruptSnapshotToArchive = snapshotURL.deletingLastPathComponent()
+                            .appendingPathComponent("library-cache.corrupt-\(Int(Date().timeIntervalSince1970)).json")
 
-        // Migrate the decoded value before publishing it. `songs` is backed by
-        // an immutable observable reference, so mutating `songs[i]` would run
-        // its setter once per item. With a 10K+ library that copied and
-        // published the complete array thousands of times during cold launch.
-        // Keeping the work local gives the array one copy-on-write mutation
-        // and the observable model one final publication.
-        var loadedSongs = canonicalSongs ?? snapshot.songs
-        // Device-local exclusions never travel inside the snapshot, so a
-        // snapshot imported from another device (LibrarySnapshotSync writes
-        // `library-cache.json` wholesale, then the library reloads from disk)
-        // still carries the rows this device removed locally. Re-apply the
-        // exclusion here — before the SQLite mirror is rewritten below — so
-        // the removal survives snapshot sync instead of bouncing back.
-        if !deviceLocalExcludedSongIdentities.isEmpty {
-            let tombstones = Set(snapshot.deletedSongIdentities ?? [])
-            for song in loadedSongs where isExcludedOnThisDevice(song)
-                && !tombstones.contains(identityKey(for: song)) {
-                deviceLocalExcludedSongsByID[song.id] = song
+                        guard let backupData = try? Data(contentsOf: backupSnapshotURL),
+                              let backup = try? decoder.decode(Snapshot.self, from: backupData) else {
+                            persistenceBlockedByCorruption = true
+                            plog("⛔ Library snapshot is corrupt and no valid backup exists; persistence disabled to prevent an empty overwrite")
+                            return
+                        }
+                        resolvedSnapshot = backup
+                        canRefreshStartupCache = false
+                        persistenceBlockedByCorruption = false
+                        plog("⚠️ Library snapshot was corrupt; restored the last valid backup")
+                    }
+                    decodeFinishedAt = ProcessInfo.processInfo.systemUptime
+                }
             }
-            deviceLocalExcludedSongsByID = deviceLocalExcludedSongsByID.filter {
-                !tombstones.contains(identityKey(for: $0.value))
+            guard let snapshot = resolvedSnapshot else { return }
+            didPublishSnapshot = true
+            MusicLibrary.restorePortableArtworkAssets(snapshot, assetStore: .shared)
+
+            // Migrate the decoded value before publishing it. `songs` is backed by
+            // an immutable observable reference, so mutating `songs[i]` would run
+            // its setter once per item. With a 10K+ library that copied and
+            // published the complete array thousands of times during cold launch.
+            // Keeping the work local gives the array one copy-on-write mutation
+            // and the observable model one final publication.
+            var loadedSongs = canonicalSongs ?? snapshot.songs
+            // Device-local exclusions never travel inside the snapshot, so a
+            // snapshot imported from another device (LibrarySnapshotSync writes
+            // `library-cache.json` wholesale, then the library reloads from disk)
+            // still carries the rows this device removed locally. Re-apply the
+            // exclusion here — before the SQLite mirror is rewritten below — so
+            // the removal survives snapshot sync instead of bouncing back.
+            if !deviceLocalExcludedSongIdentities.isEmpty {
+                let tombstones = Set(snapshot.deletedSongIdentities ?? [])
+                for song in loadedSongs where isExcludedOnThisDevice(song)
+                    && !tombstones.contains(identityKey(for: song)) {
+                    deviceLocalExcludedSongsByID[song.id] = song
+                }
+                deviceLocalExcludedSongsByID = deviceLocalExcludedSongsByID.filter {
+                    !tombstones.contains(identityKey(for: $0.value))
+                }
+                shouldPersistDeviceLocalExclusions = true
+                let beforeCount = loadedSongs.count
+                loadedSongs.removeAll { isExcludedOnThisDevice($0) }
+                let skipped = beforeCount - loadedSongs.count
+                if skipped > 0 {
+                    plog("ℹ️ Library load skipped \(skipped) song(s) excluded on this device")
+                }
             }
-            try? persistDeviceLocalExclusions()
-            let beforeCount = loadedSongs.count
-            loadedSongs.removeAll { isExcludedOnThisDevice($0) }
-            let skipped = beforeCount - loadedSongs.count
-            if skipped > 0 {
-                plog("ℹ️ Library load skipped \(skipped) song(s) excluded on this device")
+            let shouldInspectLoadedSongs = preferExternalSnapshot
+                || canonicalSongs == nil
+                || (initialStoreState?.completedMigrationVersion ?? 0) < MusicLibrary.loadedSongMigrationVersion
+            let migration = shouldInspectLoadedSongs
+                ? MusicLibrary.migrateLoadedSongs(
+                    &loadedSongs,
+                    configuration: artistNameConfiguration
+                )
+                : (
+                    repairedTextCount: 0,
+                    filledDerivedIDCount: 0,
+                    repairedDTSDurationCount: 0,
+                    changedSongs: []
+                )
+            let migrationFinishedAt = ProcessInfo.processInfo.systemUptime
+            if shouldInspectLoadedSongs, songStore != nil {
+                // G5: 记录意图, 发布步骤按历史顺序执行(先写库, 再标记迁移版本),
+                // 失败时的 `songStoreRequiresReplacement` / `pendingSnapshotImportID`
+                // 处理与历史版本完全一致。
+                if preferExternalSnapshot || canonicalSongs == nil {
+                    pendingStoreWrite = .replaceAll(importID: externalSnapshotImportID)
+                } else if !migration.changedSongs.isEmpty {
+                    pendingStoreWrite = .upserts(migration.changedSongs)
+                }
+                pendingStoreExternalSnapshotImportID = externalSnapshotImportID
+                migrationVersionToMark = MusicLibrary.loadedSongMigrationVersion
             }
-        }
-        let shouldInspectLoadedSongs = preferExternalSnapshot
-            || canonicalSongs == nil
-            || (initialStoreState?.completedMigrationVersion ?? 0) < Self.loadedSongMigrationVersion
-        let migration = shouldInspectLoadedSongs
-            ? Self.migrateLoadedSongs(
-                &loadedSongs,
+            songs = loadedSongs
+            songIndexByID = MusicLibrary.makeSongIndex(loadedSongs)
+            allPlaylists = snapshot.playlists
+            automaticArtistArtworkCatalogsBySource = Dictionary(
+                uniqueKeysWithValues: (snapshot.automaticArtistArtworkCatalogs ?? []).map {
+                    ($0.sourceID, $0)
+                }
+            )
+            artworkOverridesByOwner = Dictionary(
+                (snapshot.artworkOverrides ?? []).map { ($0.owner.storageKey, $0) },
+                uniquingKeysWith: { local, remote in
+                    LibraryArtworkOverrideReconciliationPolicy.winner(
+                        local: local,
+                        remote: remote
+                    ) == .local ? local : remote
+                }
+            )
+            libraryReviewsBySubject = Dictionary(
+                (snapshot.libraryReviews ?? []).map { ($0.subject.storageKey, $0) },
+                uniquingKeysWith: { local, remote in
+                    LibraryReviewReconciliationPolicy.winner(local: local, remote: remote)
+                }
+            )
+            mirrorPlaylistSuppressions = Dictionary(
+                uniqueKeysWithValues: (snapshot.mirrorPlaylistSuppressions ?? []).map { ($0.id, $0) }
+            )
+            loadPlaylistDurabilityLedger()
+            allSmartPlaylists = snapshot.smartPlaylists ?? []
+            playlistSongIDs = snapshot.playlistSongIDs ?? [:]
+            recentPlaybackSongIDs = snapshot.recentPlaybackSongIDs ?? []
+            // Old `deletedSongIDs` field stored mount-UUID-derived song.id
+            // tombstones — useless after re-OAuth changes the source UUID.
+            // Drop them silently; new identity-based tombstones replace.
+            deletedSongIdentities = Set(snapshot.deletedSongIdentities ?? [])
+            pendingPlaylistIdentities = snapshot.pendingPlaylistIdentities ?? [:]
+            pendingHistoryIdentities = snapshot.pendingHistoryIdentities ?? []
+            cleanPlaylistEntries()
+            cleanPlaybackHistoryEntries()
+            // Songs may already include matches for pending entries from a
+            // previous launch (e.g. user added the right cloud source between
+            // sessions). Try resolving them once on load.
+
+            let cleanupFinishedAt = ProcessInfo.processInfo.systemUptime
+            let currentDerivedSignature = MusicLibrary.derivedIndexSignature(
+                for: loadedSongs,
                 configuration: artistNameConfiguration
             )
-            : (
-                repairedTextCount: 0,
-                filledDerivedIDCount: 0,
-                repairedDTSDurationCount: 0,
-                changedSongs: []
-            )
-        let migrationFinishedAt = ProcessInfo.processInfo.systemUptime
-        if shouldInspectLoadedSongs, let songStore {
-            do {
-                if preferExternalSnapshot || canonicalSongs == nil {
-                    _ = try songStoreSnapshotWriter(songStore, loadedSongs, externalSnapshotImportID)
-                    songStoreRequiresReplacement = false
-                    pendingSnapshotImportID = nil
-                } else if !migration.changedSongs.isEmpty {
-                    try songStore.apply(upserts: migration.changedSongs)
-                }
-                try songStore.markMigrationCompleted(version: Self.loadedSongMigrationVersion)
-            } catch {
-                songStoreRequiresReplacement = true
-                pendingSnapshotImportID = externalSnapshotImportID
-                plog("⚠️ Incremental song store migration failed; JSON remains authoritative: \(error.localizedDescription)")
-            }
-        }
-        songs = loadedSongs
-        songIndexByID = Self.makeSongIndex(loadedSongs)
-        allPlaylists = snapshot.playlists
-        automaticArtistArtworkCatalogsBySource = Dictionary(
-            uniqueKeysWithValues: (snapshot.automaticArtistArtworkCatalogs ?? []).map {
-                ($0.sourceID, $0)
-            }
-        )
-        artworkOverridesByOwner = Dictionary(
-            (snapshot.artworkOverrides ?? []).map { ($0.owner.storageKey, $0) },
-            uniquingKeysWith: { local, remote in
-                LibraryArtworkOverrideReconciliationPolicy.winner(
-                    local: local,
-                    remote: remote
-                ) == .local ? local : remote
-            }
-        )
-        libraryReviewsBySubject = Dictionary(
-            (snapshot.libraryReviews ?? []).map { ($0.subject.storageKey, $0) },
-            uniquingKeysWith: { local, remote in
-                LibraryReviewReconciliationPolicy.winner(local: local, remote: remote)
-            }
-        )
-        mirrorPlaylistSuppressions = Dictionary(
-            uniqueKeysWithValues: (snapshot.mirrorPlaylistSuppressions ?? []).map { ($0.id, $0) }
-        )
-        loadPlaylistDurabilityLedger()
-        allSmartPlaylists = snapshot.smartPlaylists ?? []
-        playlistSongIDs = snapshot.playlistSongIDs ?? [:]
-        playlistCollectionRevision &+= 1
-        artworkOverrideRevision &+= 1
-        libraryReviewRevision &+= 1
-        recentPlaybackSongIDs = snapshot.recentPlaybackSongIDs ?? []
-        // Old `deletedSongIDs` field stored mount-UUID-derived song.id
-        // tombstones — useless after re-OAuth changes the source UUID.
-        // Drop them silently; new identity-based tombstones replace.
-        deletedSongIdentities = Set(snapshot.deletedSongIdentities ?? [])
-        pendingPlaylistIdentities = snapshot.pendingPlaylistIdentities ?? [:]
-        pendingHistoryIdentities = snapshot.pendingHistoryIdentities ?? []
-        cleanPlaylistEntries()
-        cleanPlaybackHistoryEntries()
-        // Songs may already include matches for pending entries from a
-        // previous launch (e.g. user added the right cloud source between
-        // sessions). Try resolving them once on load.
-        schedulePendingIdentityFlush()
-        let cleanupFinishedAt = ProcessInfo.processInfo.systemUptime
-        let currentDerivedSignature = Self.derivedIndexSignature(
-            for: loadedSongs,
-            configuration: artistNameConfiguration
-        )
-        let usedDerivedIndexCache: Bool
-        if let startupCache,
-           migration.changedSongs.isEmpty,
-           startupCache.derivedIndexSignature == currentDerivedSignature {
-            albums = startupCache.albums
-            artists = startupCache.artists
-            derivedIndexSignature = currentDerivedSignature
-            rebuildVisibleCache()
-            usedDerivedIndexCache = true
-        } else {
-            if let cachedIndex = loadDerivedIndexCache(matching: currentDerivedSignature) {
-                albums = cachedIndex.albums
-                artists = cachedIndex.artists
+            let usedDerivedIndexCache: Bool
+            if let startupCache,
+               migration.changedSongs.isEmpty,
+               startupCache.derivedIndexSignature == currentDerivedSignature {
+                albums = startupCache.albums
+                artists = startupCache.artists
                 derivedIndexSignature = currentDerivedSignature
                 rebuildVisibleCache()
                 usedDerivedIndexCache = true
             } else {
-                // The cache is disposable. An old installation pays the grouping
-                // cost once, then subsequent launches decode the compact binary
-                // index instead of sorting the whole library before the first frame.
-                rebuildIndexSync(precomputedSignature: currentDerivedSignature)
-                persistDerivedIndexCache()
-                usedDerivedIndexCache = false
+                if let cachedIndex = loadDerivedIndexCache(matching: currentDerivedSignature) {
+                    albums = cachedIndex.albums
+                    artists = cachedIndex.artists
+                    derivedIndexSignature = currentDerivedSignature
+                    rebuildVisibleCache()
+                    usedDerivedIndexCache = true
+                } else {
+                    // The cache is disposable. An old installation pays the grouping
+                    // cost once, then subsequent launches decode the compact binary
+                    // index instead of sorting the whole library before the first frame.
+                    rebuildIndexSync(precomputedSignature: currentDerivedSignature)
+                    shouldWriteDerivedCache = true
+                    usedDerivedIndexCache = false
+                }
+            }
+            let indexFinishedAt = ProcessInfo.processInfo.systemUptime
+
+            // `songStoreRequiresReplacement` 只有在发布步骤执行完推迟的存储写入后
+            // 才是最终值, 所以那一项条件留到发布步骤再判断。
+            if startupCache == nil, canRefreshStartupCache {
+                shouldWriteStartupCache = true
+            }
+            plog(String(
+                format: "🚀 library load total=%.0fms read=%.0f decode=%.0f migrate=%.0f cleanup=%.0f derived=%.0f startupCache=%@ derivedCache=%@ bytes=%d songs=%d",
+                (indexFinishedAt - loadStartedAt) * 1_000,
+                (readFinishedAt - loadStartedAt) * 1_000,
+                (decodeFinishedAt - readFinishedAt) * 1_000,
+                (migrationFinishedAt - decodeFinishedAt) * 1_000,
+                (cleanupFinishedAt - migrationFinishedAt) * 1_000,
+                (indexFinishedAt - cleanupFinishedAt) * 1_000,
+                startupCache != nil ? "hit" : (usedPortableStartupCache ? "partial" : "miss"),
+                usedDerivedIndexCache ? "hit" : "miss",
+                snapshotByteCount,
+                loadedSongs.count
+            ))
+            if migration.repairedTextCount > 0 {
+                plog("📚 repaired legacy Chinese metadata text for \(migration.repairedTextCount) song(s)")
+            }
+            if migration.repairedDTSDurationCount > 0 {
+                plog("📚 repaired missing or legacy DTS duration for \(migration.repairedDTSDurationCount) song(s)")
+            }
+            if migration.repairedTextCount > 0
+                || migration.filledDerivedIDCount > 0
+                || migration.repairedDTSDurationCount > 0 {
+                shouldPersistSnapshot = true
             }
         }
-        let indexFinishedAt = ProcessInfo.processInfo.systemUptime
 
-        if startupCache == nil, canRefreshStartupCache, !songStoreRequiresReplacement {
-            let currentStoreRevision = try? songStore?.startupState().contentRevision
+        mutating func loadPlaylistDurabilityLedger() {
+            if let data = try? Data(contentsOf: playlistDurabilityURL),
+               let ledger = try? decoder.decode(PlaylistDurabilityLedger.self, from: data) {
+                for durable in ledger.playlists {
+                    if let index = allPlaylists.firstIndex(where: { $0.id == durable.id }) {
+                        if PlaylistReconciliationPolicy.winner(
+                            local: allPlaylists[index],
+                            remote: durable
+                        ) == .remote {
+                            allPlaylists[index] = durable
+                        }
+                    } else {
+                        allPlaylists.append(durable)
+                    }
+                }
+                for suppression in ledger.mirrorPlaylistSuppressions {
+                    mirrorPlaylistSuppressions[suppression.id] = suppression
+                }
+                for durable in ledger.artworkOverrides ?? [] {
+                    if let current = artworkOverridesByOwner[durable.owner.storageKey],
+                       LibraryArtworkOverrideReconciliationPolicy.winner(
+                        local: current,
+                        remote: durable
+                       ) == .local {
+                        continue
+                    }
+                    artworkOverridesByOwner[durable.owner.storageKey] = durable
+                }
+            }
+
+            var migratedDurabilityState = false
+            for index in allPlaylists.indices
+            where allPlaylists[index].isDeleted
+                && MirrorPlaylistIdentity.isMirrorPlaylist(allPlaylists[index].id) {
+                let playlist = allPlaylists[index]
+                if let key = MirrorPlaylistSuppressionPolicy.key(forPlaylistID: playlist.id) {
+                    let suppression = MirrorPlaylistSuppression(
+                        key: key,
+                        playlistID: playlist.id,
+                        displayName: playlist.name,
+                        hiddenAt: playlist.deletedAt ?? playlist.updatedAt
+                    )
+                    mirrorPlaylistSuppressions[suppression.id] = suppression
+                }
+                allPlaylists[index].isDeleted = false
+                allPlaylists[index].deletedAt = nil
+                migratedDurabilityState = true
+            }
+            for index in allPlaylists.indices
+            where allPlaylists[index].isDeleted
+                && !MirrorPlaylistIdentity.isMirrorPlaylist(allPlaylists[index].id)
+                && allPlaylists[index].deleteOperationID == nil {
+                allPlaylists[index].syncRevision = max(1, allPlaylists[index].syncRevision)
+                allPlaylists[index].syncWriterID = playlistSyncWriterID
+                allPlaylists[index].syncOperationID = UUID().uuidString
+                allPlaylists[index].deleteOperationID = UUID().uuidString
+                migratedDurabilityState = true
+            }
+            if migratedDurabilityState {
+                shouldPersistPlaylistDurabilityLedger = true
+            }
+        }
+
+        private func loadStartupCache(
+            snapshotFingerprint: SnapshotFileFingerprint?
+        ) -> StartupCache? {
+            guard let data = try? Data(contentsOf: startupCacheURL),
+                  let cache = try? PropertyListDecoder().decode(StartupCache.self, from: data),
+                  cache.formatVersion == MusicLibrary.startupCacheFormatVersion,
+                  cache.snapshotFingerprint == snapshotFingerprint else {
+                return nil
+            }
+            return cache
+        }
+
+        private func loadDerivedIndexCache(matching signature: String) -> DerivedIndexCache? {
+            guard let data = try? Data(contentsOf: derivedIndexCacheURL),
+                  let cache = try? PropertyListDecoder().decode(DerivedIndexCache.self, from: data),
+                  cache.signature == signature else {
+                return nil
+            }
+            return cache
+        }
+
+        mutating func loadDeviceLocalExclusions() {
+            guard let data = try? Data(contentsOf: deviceLocalExclusionURL) else { return }
+            guard let ledger = try? JSONDecoder().decode(DeviceLocalExclusionLedger.self, from: data) else {
+                plog("Device-local song exclusions unreadable; keeping the file untouched")
+                return
+            }
+            deviceLocalExcludedSongIdentities = Set(ledger.identities)
+            deviceLocalExcludedSongsByID = Dictionary(
+                (ledger.retainedSongs ?? []).map { ($0.id, $0) },
+                uniquingKeysWith: { _, latest in latest }
+            )
+        }
+
+        // G5: 这里刻意不提供任何写盘方法。准备阶段只登记意图,
+        // 由主线程的发布步骤调用 MusicLibrary 上同名的持久化实现。
+    }
+
+    private func loadSnapshot(
+        preferExternalSnapshot: Bool = false,
+        preparedStartup: PreparedStartup? = nil,
+        sourceIdentityPrefixes: [String: String]? = nil
+    ) {
+        var storage: StartupStorage
+        if let preparedStartup {
+            storage = preparedStartup.storage
+            // G2: 准备结果的禁用源集合是可见缓存的计算依据, 以它为准。
+            disabledSourceIDs = storage.disabledSourceIDs
+            // `.preparing` 构造的库此时才拿到准备阶段打开的存储句柄。
+            songStore = storage.songStore
+        } else {
+            storage = StartupStorage(
+                directory: snapshotURL.deletingLastPathComponent(),
+                artistNameConfiguration: artistNameConfiguration,
+                disabledSourceIDs: disabledSourceIDs,
+                playlistSyncWriterID: playlistSyncWriterID,
+                songStore: songStore,
+                songStoreSnapshotWriter: songStoreSnapshotWriter
+            )
+            storage.songs = songs
+            storage.albums = albums
+            storage.artists = artists
+            storage.allPlaylists = allPlaylists
+            storage.allSmartPlaylists = allSmartPlaylists
+            storage.playlistSongIDs = playlistSongIDs
+            storage.recentPlaybackSongIDs = recentPlaybackSongIDs
+            storage.deletedSongIdentities = deletedSongIdentities
+            storage.pendingPlaylistIdentities = pendingPlaylistIdentities
+            storage.pendingHistoryIdentities = pendingHistoryIdentities
+            storage.automaticArtistArtworkCatalogsBySource = automaticArtistArtworkCatalogsBySource
+            storage.artworkOverridesByOwner = artworkOverridesByOwner
+            storage.libraryReviewsBySubject = libraryReviewsBySubject
+            storage.mirrorPlaylistSuppressions = mirrorPlaylistSuppressions
+            storage.deviceLocalExcludedSongIdentities = deviceLocalExcludedSongIdentities
+            storage.deviceLocalExcludedSongsByID = deviceLocalExcludedSongsByID
+            storage.persistenceBlockedByCorruption = persistenceBlockedByCorruption
+            storage.songStoreRequiresReplacement = songStoreRequiresReplacement
+            storage.pendingSnapshotImportID = pendingSnapshotImportID
+            storage.derivedIndexSignature = derivedIndexSignature
+            storage.songIndexByID = songIndexByID
+            storage.previousVisibleSongs = visibleSongs
+            // G3: 调用方(AppServices)在库构造前就能从 SourcesStore 算出身份前缀;
+            // 没有传入时沿用旧行为, 回落到构造后才安装的 resolver。
+            if let sourceIdentityPrefixes {
+                storage.sourceIdentityPrefixes = sourceIdentityPrefixes
+            } else {
+                let sourceIDs = Set(songCountBySourceID.keys)
+                    .union(deviceLocalExcludedSongsByID.values.map(\.sourceID))
+                for sourceID in sourceIDs {
+                    storage.sourceIdentityPrefixes[sourceID] = sourceIdentityResolver?(sourceID)
+                }
+            }
+            storage.loadSnapshot(preferExternalSnapshot: preferExternalSnapshot)
+        }
+        // C2: 历史版本的三条提前返回路径(快照不可读 / 损坏且无有效备份 /
+        // 既没有兼容快照也没有存储行)只写 `persistenceBlockedByCorruption`,
+        // 其中"无快照"那条还会把歌单耐久账本并进 `allPlaylists` /
+        // `mirrorPlaylistSuppressions` / `artworkOverridesByOwner`。它们不会
+        // 重新赋值 `songs`, 因此不会推进 `songMutationGeneration`、不会发布
+        // 新的数组引用、也不会回收旧引用。拷回必须保持同样的最小集合。
+        persistenceBlockedByCorruption = storage.persistenceBlockedByCorruption
+        allPlaylists = storage.allPlaylists
+        mirrorPlaylistSuppressions = storage.mirrorPlaylistSuppressions
+        artworkOverridesByOwner = storage.artworkOverridesByOwner
+        // 设备本地排除对应历史版本 init 里 `loadSnapshot` 之前的
+        // `loadDeviceLocalExclusions()`, 提前返回时它同样已经载入过,
+        // 所以这一对不受 `didPublishSnapshot` 约束。同步路径下这只是把
+        // 原值写回。
+        deviceLocalExcludedSongIdentities = storage.deviceLocalExcludedSongIdentities
+        deviceLocalExcludedSongsByID = storage.deviceLocalExcludedSongsByID
+        if storage.didPublishSnapshot {
+            songs = storage.songs
+            // G1: 历史版本每次 `songs =` 之后都显式重建索引, 拷回时同样必须带上。
+            songIndexByID = storage.songIndexByID
+            albums = storage.albums
+            artists = storage.artists
+            allSmartPlaylists = storage.allSmartPlaylists
+            playlistSongIDs = storage.playlistSongIDs
+            recentPlaybackSongIDs = storage.recentPlaybackSongIDs
+            deletedSongIdentities = storage.deletedSongIdentities
+            pendingPlaylistIdentities = storage.pendingPlaylistIdentities
+            pendingHistoryIdentities = storage.pendingHistoryIdentities
+            automaticArtistArtworkCatalogsBySource = storage.automaticArtistArtworkCatalogsBySource
+            libraryReviewsBySubject = storage.libraryReviewsBySubject
+            songStoreRequiresReplacement = storage.songStoreRequiresReplacement
+            pendingSnapshotImportID = storage.pendingSnapshotImportID
+            derivedIndexSignature = storage.derivedIndexSignature
+            if let visibleCache = storage.visibleCache {
+                applyPreparedVisibleCache(visibleCache)
+            }
+            playlistCollectionRevision &+= 1
+            artworkOverrideRevision &+= 1
+            libraryReviewRevision &+= 1
+        }
+
+        // 发布步骤 (1): 可观察模型到此为止已经完整, 翻转就绪状态。
+        // 之后的耐久写入与历史版本一样在 `loadSnapshot` 内部直接执行。
+        markReadyBeforeDurableWrites()
+
+        // 发布步骤 (2) — G5: 准备阶段登记的耐久副作用, 按历史版本的顺序补做。
+        if let corruptSnapshotToArchive = storage.corruptSnapshotToArchive {
+            try? FileManager.default.copyItem(at: snapshotURL, to: corruptSnapshotToArchive)
+        }
+        if storage.shouldPersistDeviceLocalExclusions {
+            try? persistDeviceLocalExclusions()
+        }
+        if let migrationVersionToMark = storage.migrationVersionToMark, let songStore {
+            do {
+                switch storage.pendingStoreWrite {
+                case .none:
+                    break
+                case .replaceAll(let importID):
+                    _ = try songStoreSnapshotWriter(songStore, storage.songs, importID)
+                    songStoreRequiresReplacement = false
+                    pendingSnapshotImportID = nil
+                case .upserts(let changedSongs):
+                    try songStore.apply(upserts: changedSongs)
+                }
+                try songStore.markMigrationCompleted(version: migrationVersionToMark)
+            } catch {
+                songStoreRequiresReplacement = true
+                pendingSnapshotImportID = storage.pendingStoreExternalSnapshotImportID
+                plog("⚠️ Incremental song store migration failed; JSON remains authoritative: \(error.localizedDescription)")
+            }
+        }
+        if storage.shouldPersistPlaylistDurabilityLedger {
+            _ = persistPlaylistDurabilityLedger()
+        }
+        if storage.didPublishSnapshot {
+            // Songs may already include matches for pending entries from a
+            // previous launch (e.g. user added the right cloud source between
+            // sessions). Try resolving them once on load.
+            schedulePendingIdentityFlush()
+        }
+        if storage.shouldWriteDerivedCache { persistDerivedIndexCache() }
+        if storage.shouldWriteStartupCache, !songStoreRequiresReplacement {
             scheduleStartupCacheWrite(
                 snapshot: makeSnapshot(),
-                songStoreRevision: currentStoreRevision,
+                songStoreRevision: try? songStore?.startupState().contentRevision,
                 snapshotFingerprint: Self.snapshotFingerprint(at: snapshotURL)
             )
         }
-        plog(String(
-            format: "🚀 library load total=%.0fms read=%.0f decode=%.0f migrate=%.0f cleanup=%.0f derived=%.0f startupCache=%@ derivedCache=%@ bytes=%d songs=%d",
-            (indexFinishedAt - loadStartedAt) * 1_000,
-            (readFinishedAt - loadStartedAt) * 1_000,
-            (decodeFinishedAt - readFinishedAt) * 1_000,
-            (migrationFinishedAt - decodeFinishedAt) * 1_000,
-            (cleanupFinishedAt - migrationFinishedAt) * 1_000,
-            (indexFinishedAt - cleanupFinishedAt) * 1_000,
-            startupCache != nil ? "hit" : (usedPortableStartupCache ? "partial" : "miss"),
-            usedDerivedIndexCache ? "hit" : "miss",
-            snapshotByteCount,
-            loadedSongs.count
-        ))
-        if migration.repairedTextCount > 0 {
-            plog("📚 repaired legacy Chinese metadata text for \(migration.repairedTextCount) song(s)")
-        }
-        if migration.repairedDTSDurationCount > 0 {
-            plog("📚 repaired missing or legacy DTS duration for \(migration.repairedDTSDurationCount) song(s)")
-        }
-        if migration.repairedTextCount > 0
-            || migration.filledDerivedIDCount > 0
-            || migration.repairedDTSDurationCount > 0 {
+        if storage.shouldPersistSnapshot {
             markPortableSnapshotDirty()
             persistNow()
         }
+
+        // 发布步骤 (3) 重放排队突变 → (4) 补齐被推迟的持久化 →
+        // (5) `onReady` 回调 → (6) 唤醒 `whenReady()`。
+        replayDeferredMutations()
+        flushDeferredPersistenceAfterReadiness()
+        notifyReadinessObservers()
     }
 
-    private static func migrateLoadedSongs(
+    /// 在主线程之外完成一次完整的库装载, 结果是不可变的 `PreparedStartup`。
+    /// 只做纯读取与内存迁移: 任何耐久写入都推迟到主线程的发布步骤(G5)。
+    static func prepareStartup(
+        disabledSourceIDs: Set<String> = [],
+        storageDirectory: URL? = nil,
+        artistNameConfiguration: ArtistNameConfiguration? = nil,
+        /// G3: sourceID → cloudAccountID。resolver 直到库构造之后才安装,
+        /// 因此账号型源的身份键必须由调用方在准备阶段直接提供。
+        sourceIdentityPrefixes: [String: String] = [:]
+    ) async -> PreparedStartup {
+        let configuration = (artistNameConfiguration ?? ArtistNameConfiguration.load(from: .standard)).normalized()
+        let writerID = startupPlaylistWriterID()
+        let directory = storageDirectory ?? defaultStorageDirectory()
+        return await Task.detached(priority: .userInitiated) {
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let songStore: IncrementalSongStore?
+            do {
+                songStore = try IncrementalSongStore(path: directory.appendingPathComponent("library-songs.sqlite").path)
+            } catch {
+                songStore = nil
+                plog("⚠️ Incremental song store unavailable; using JSON fallback: \(error.localizedDescription)")
+            }
+            var storage = StartupStorage(
+                directory: directory,
+                artistNameConfiguration: configuration,
+                disabledSourceIDs: disabledSourceIDs,
+                playlistSyncWriterID: writerID,
+                songStore: songStore,
+                songStoreSnapshotWriter: { try $0.replaceAll(with: $1, snapshotImportID: $2) }
+            )
+            storage.sourceIdentityPrefixes = sourceIdentityPrefixes
+            storage.loadDeviceLocalExclusions()
+            storage.loadSnapshot()
+            return PreparedStartup(storage: storage)
+        }.value
+    }
+
+    private static func defaultStorageDirectory(fileManager: FileManager = .default) -> URL {
+        #if os(tvOS)
+        let base = fileManager.primuseDirectoryURL(for: .cachesDirectory)
+        #else
+        let base = fileManager.primuseDirectoryURL(for: .applicationSupportDirectory)
+        #endif
+        return base.appendingPathComponent("Primuse", isDirectory: true)
+    }
+
+    private static func startupPlaylistWriterID() -> String {
+        let key = "primuse.playlist.syncWriterID"
+        if let value = UserDefaults.standard.string(forKey: key), !value.isEmpty { return value }
+        let value = UUID().uuidString
+        UserDefaults.standard.set(value, forKey: key)
+        return value
+    }
+
+
+    private nonisolated static func migrateLoadedSongs(
         _ songs: inout [Song],
         configuration: ArtistNameConfiguration
     ) -> (
@@ -7414,7 +8040,7 @@ final class MusicLibrary {
         )
     }
 
-    private static func repairedDTSDuration(
+    private nonisolated static func repairedDTSDuration(
         for song: Song
     ) -> (duration: TimeInterval, inferredCueEndTime: TimeInterval?)? {
         guard song.fileFormat == .dts,
@@ -7451,7 +8077,7 @@ final class MusicLibrary {
         ).map { ($0, nil) }
     }
 
-    static func repairLegacyChineseMetadataText(in song: inout Song) -> Bool {
+    nonisolated static func repairLegacyChineseMetadataText(in song: inout Song) -> Bool {
         guard song.userMetadataEditedAt == nil else { return false }
         let originalTitle = song.title
         let originalArtist = song.artistName
@@ -7484,14 +8110,14 @@ final class MusicLibrary {
         return changed
     }
 
-    private static func repairLegacyChineseText(_ text: inout String) -> Bool {
+    private nonisolated static func repairLegacyChineseText(_ text: inout String) -> Bool {
         let repaired = FileMetadataReader.repairLegacyChineseMojibake(text)
         guard repaired != text else { return false }
         text = repaired
         return true
     }
 
-    private static func repairLegacyChineseText(_ text: inout String?) -> Bool {
+    private nonisolated static func repairLegacyChineseText(_ text: inout String?) -> Bool {
         guard var value = text else { return false }
         let repaired = FileMetadataReader.repairLegacyChineseMojibake(value)
         guard repaired != value else { return false }
@@ -7537,23 +8163,16 @@ final class MusicLibrary {
         )
     }
 
-    private func loadStartupCache(
-        snapshotFingerprint: SnapshotFileFingerprint?
-    ) -> StartupCache? {
-        guard let data = try? Data(contentsOf: startupCacheURL),
-              let cache = try? PropertyListDecoder().decode(StartupCache.self, from: data),
-              cache.formatVersion == Self.startupCacheFormatVersion,
-              cache.snapshotFingerprint == snapshotFingerprint else {
-            return nil
-        }
-        return cache
-    }
-
     private func scheduleStartupCacheWrite(
         snapshot: Snapshot,
         songStoreRevision: Int64?,
         snapshotFingerprint: SnapshotFileFingerprint?
     ) {
+        // S1: 发布前不写启动缓存。
+        guard !isPreparing else {
+            deferredStartupCacheWriteRequested = true
+            return
+        }
         let cache = StartupCache(
             formatVersion: Self.startupCacheFormatVersion,
             songStoreRevision: songStoreRevision,
@@ -7585,16 +8204,12 @@ final class MusicLibrary {
         }
     }
 
-    private func loadDerivedIndexCache(matching signature: String) -> DerivedIndexCache? {
-        guard let data = try? Data(contentsOf: derivedIndexCacheURL),
-              let cache = try? PropertyListDecoder().decode(DerivedIndexCache.self, from: data),
-              cache.signature == signature else {
-            return nil
-        }
-        return cache
-    }
-
     private func persistDerivedIndexCache() {
+        // S1: 发布前不写派生索引缓存。
+        guard !isPreparing else {
+            deferredDerivedIndexCacheWriteRequested = true
+            return
+        }
         guard let derivedIndexSignature else { return }
         let cache = DerivedIndexCache(
             signature: derivedIndexSignature,
@@ -7623,6 +8238,12 @@ final class MusicLibrary {
         needsPromptCompatibilitySnapshot: Bool = false
     ) {
         guard !upserts.isEmpty || !deletingIDs.isEmpty else { return }
+        // S1: 发布前不落盘。产生这些改动的顶层突变本身已被排队(S2),
+        // 重放时会带着正确的参数再次走到这里。
+        guard !isPreparing else {
+            deferredPortableSnapshotPersistRequested = true
+            return
+        }
         // Persist the dirty generation before the song-store transaction can
         // start. A process exit can therefore leave extra recovery work, but
         // can never commit new songs while leaving the old index marked clean.
@@ -7694,6 +8315,11 @@ final class MusicLibrary {
     /// stall the main actor for hundreds of ms every few seconds while encoding
     /// the whole library inline.
     func persistNow() {
+        // S1: 发布前不落盘, 记账后在发布步骤补一次。
+        guard !isPreparing else {
+            deferredPortableSnapshotPersistRequested = true
+            return
+        }
         persistTask?.cancel()
         persistTask = nil
         _ = enqueueSnapshotWrite()
@@ -7706,10 +8332,20 @@ final class MusicLibrary {
     }
 
     private func markPortableSnapshotDirty() {
+        // S1: 发布前不推进可移植快照的写入代际。
+        guard !isPreparing else {
+            deferredPortableSnapshotPersistRequested = true
+            return
+        }
         portableSnapshotMutationGeneration &+= 1
     }
 
     private func enqueueSnapshotWrite() -> Task<Bool, Never>? {
+        // S1: 发布前不落盘。
+        guard !isPreparing else {
+            deferredPortableSnapshotPersistRequested = true
+            return nil
+        }
         guard !persistenceBlockedByCorruption else {
             plog("⛔ Library persistence skipped because the on-disk snapshot is corrupt")
             return nil
@@ -8273,6 +8909,12 @@ final class MusicLibrary {
 
     @discardableResult
     private func persistPlaylistDurabilityLedger() -> Bool {
+        // S1: 发布前不写歌单耐久账本。返回 true 让调用方的回滚分支
+        // 不被误触发, 写入在发布步骤补做。
+        guard !isPreparing else {
+            deferredPlaylistDurabilityWriteRequested = true
+            return true
+        }
         let ledger = PlaylistDurabilityLedger(
             playlists: allPlaylists.filter { !MirrorPlaylistIdentity.isMirrorPlaylist($0.id) },
             mirrorPlaylistSuppressions: hiddenMirrorPlaylists,
@@ -8285,69 +8927,6 @@ final class MusicLibrary {
         } catch {
             plog("⛔ Playlist durability write failed: \(error.localizedDescription)")
             return false
-        }
-    }
-
-    private func loadPlaylistDurabilityLedger() {
-        if let data = try? Data(contentsOf: playlistDurabilityURL),
-           let ledger = try? decoder.decode(PlaylistDurabilityLedger.self, from: data) {
-            for durable in ledger.playlists {
-                if let index = allPlaylists.firstIndex(where: { $0.id == durable.id }) {
-                    if PlaylistReconciliationPolicy.winner(
-                        local: allPlaylists[index],
-                        remote: durable
-                    ) == .remote {
-                        allPlaylists[index] = durable
-                    }
-                } else {
-                    allPlaylists.append(durable)
-                }
-            }
-            for suppression in ledger.mirrorPlaylistSuppressions {
-                mirrorPlaylistSuppressions[suppression.id] = suppression
-            }
-            for durable in ledger.artworkOverrides ?? [] {
-                if let current = artworkOverridesByOwner[durable.owner.storageKey],
-                   LibraryArtworkOverrideReconciliationPolicy.winner(
-                    local: current,
-                    remote: durable
-                   ) == .local {
-                    continue
-                }
-                artworkOverridesByOwner[durable.owner.storageKey] = durable
-            }
-        }
-
-        var migratedDurabilityState = false
-        for index in allPlaylists.indices
-        where allPlaylists[index].isDeleted
-            && MirrorPlaylistIdentity.isMirrorPlaylist(allPlaylists[index].id) {
-            let playlist = allPlaylists[index]
-            if let key = MirrorPlaylistSuppressionPolicy.key(forPlaylistID: playlist.id) {
-                let suppression = MirrorPlaylistSuppression(
-                    key: key,
-                    playlistID: playlist.id,
-                    displayName: playlist.name,
-                    hiddenAt: playlist.deletedAt ?? playlist.updatedAt
-                )
-                mirrorPlaylistSuppressions[suppression.id] = suppression
-            }
-            allPlaylists[index].isDeleted = false
-            allPlaylists[index].deletedAt = nil
-            migratedDurabilityState = true
-        }
-        for index in allPlaylists.indices
-        where allPlaylists[index].isDeleted
-            && !MirrorPlaylistIdentity.isMirrorPlaylist(allPlaylists[index].id)
-            && allPlaylists[index].deleteOperationID == nil {
-            allPlaylists[index].syncRevision = max(1, allPlaylists[index].syncRevision)
-            allPlaylists[index].syncWriterID = playlistSyncWriterID
-            allPlaylists[index].syncOperationID = UUID().uuidString
-            allPlaylists[index].deleteOperationID = UUID().uuidString
-            migratedDurabilityState = true
-        }
-        if migratedDurabilityState {
-            persistPlaylistDurabilityLedger()
         }
     }
 

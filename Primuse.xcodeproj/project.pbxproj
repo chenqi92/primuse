@@ -551,6 +551,7 @@
 		79F0E9CB426C2AF921C0FBA3 /* ServerMediaSharingConnectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC8C402A42935381C7C44E36 /* ServerMediaSharingConnectorTests.swift */; };
 		7A450140EE3C0A6CB9E3BCBC /* SSLTrustStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AD7C0A9B431AEBEC047E320 /* SSLTrustStore.swift */; };
 		7A8AE931F42C82A025F20511 /* AppIconService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A796306024AE3678DB56D02A /* AppIconService.swift */; };
+		7A8DDC29886428B70796B691 /* LibraryStartupPreparationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D520DE8AF4F732AF53B98E67 /* LibraryStartupPreparationTests.swift */; };
 		7A9A4A50102A6D2BD0F210A1 /* TrustedHTTPTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABB95B932C07091233475361 /* TrustedHTTPTransport.swift */; };
 		7A9DEF1B3E6DD0B7C5D1F722 /* SourcesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6723FC0B92EDA2CC1B5E3C83 /* SourcesView.swift */; };
 		7AAF33E1F9F2C1947DC17FD8 /* ArtistNameLibraryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 948BBEDC6689BACAA9EB91B3 /* ArtistNameLibraryTests.swift */; };
@@ -2004,6 +2005,7 @@
 		D48A906E5EF29F5A5D04B2FC /* FFmpeg-LGPL-2.1.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "FFmpeg-LGPL-2.1.txt"; sourceTree = "<group>"; };
 		D4999BBD97AF63761839AA42 /* WebDAVSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebDAVSource.swift; sourceTree = "<group>"; };
 		D506F3799C64A1F8FA9FE080 /* MacRadioBatchAddView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRadioBatchAddView.swift; sourceTree = "<group>"; };
+		D520DE8AF4F732AF53B98E67 /* LibraryStartupPreparationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryStartupPreparationTests.swift; sourceTree = "<group>"; };
 		D58A8EAF8B5EACE572269A93 /* HomeListeningRankingSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeListeningRankingSection.swift; sourceTree = "<group>"; };
 		D600178FBA2D47381847A3A4 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/SettingsSearch.strings"; sourceTree = "<group>"; };
 		D61C30E4C06780678CCDEBAC /* TagMetadataWritebackTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagMetadataWritebackTypes.swift; sourceTree = "<group>"; };
@@ -3393,6 +3395,7 @@
 				F11F8874E486A4FC4E629861 /* LibraryDisplayConfigurationTests.swift */,
 				7826427B3ABC3D7FA65097A8 /* LibraryPortableArtworkTests.swift */,
 				F3C14C6A1A8A4E15C1A2438D /* LibraryPreviewSessionTests.swift */,
+				D520DE8AF4F732AF53B98E67 /* LibraryStartupPreparationTests.swift */,
 				72EDF3F4D1CF10A41CE2DA3C /* LifecycleRegressionTests.swift */,
 				6C0340425B4875EC8A446D0D /* MacVolumeSliderTests.swift */,
 				84E23C9293FD5D2A2D5CB33F /* MediaServerSTRMRedirectTests.swift */,
@@ -4043,6 +4046,7 @@
 				953439D65552DF4F98DADC01 /* LibraryDisplayConfigurationTests.swift in Sources */,
 				099981F4529A8B42B8B8B80C /* LibraryPortableArtworkTests.swift in Sources */,
 				70CA13D65306908C0E27527C /* LibraryPreviewSessionTests.swift in Sources */,
+				7A8DDC29886428B70796B691 /* LibraryStartupPreparationTests.swift in Sources */,
 				B6BBC2FD980B62AF838C437F /* LifecycleRegressionTests.swift in Sources */,
 				C24664FF9B03E510B6F6ABB5 /* MacVolumeSliderTests.swift in Sources */,
 				95A46BF131D560E1897BAE8B /* MediaServerSTRMRedirectTests.swift in Sources */,

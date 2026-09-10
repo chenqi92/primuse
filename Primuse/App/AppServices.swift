@@ -574,7 +574,16 @@ final class AppServices {
         let initiallyDisabledSourceIDs = Set(
             store.sources.filter { !$0.isEnabled }.map(\.id)
         )
-        let library = MusicLibrary(disabledSourceIDs: initiallyDisabledSourceIDs)
+        // `sourceIdentityResolver` 直到库构造之后才安装, 但快照装载期间的
+        // 墓碑比较已经需要账号身份键。SourcesStore 先于库解码完成, 所以直接
+        // 把 sourceID → cloudAccountID 的映射作为装载输入传进去。
+        let sourceIdentityPrefixes = store.allSources.reduce(into: [String: String]()) { result, source in
+            if let accountID = source.cloudAccountID { result[source.id] = accountID }
+        }
+        let library = MusicLibrary(
+            disabledSourceIDs: initiallyDisabledSourceIDs,
+            sourceIdentityPrefixes: sourceIdentityPrefixes
+        )
         let libraryFinishedAt = ProcessInfo.processInfo.systemUptime
         let manager = SourceManager(sourcesProvider: {
             await MainActor.run { store.sources }

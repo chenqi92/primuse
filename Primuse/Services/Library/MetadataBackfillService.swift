@@ -705,6 +705,90 @@ final class MetadataBackfillService {
         loadRetryCounts()
         loadSourceRetryCounts()
 
+        // S3: 这些一次性修复都要遍历 `library.songs`。库若尚未发布,
+        // 它们会在空库上把各自的 done-key 永久标记为完成。改由就绪回调驱动:
+        // 同步启动路径下库在 init 返回前已就绪, 回调立即执行, 顺序保持不变。
+        library.onReady { [weak self] in
+            self?.runOneTimeRepairsAfterLibraryReady()
+        }
+
+        // A re-scan that found a path with new bytes wipes the failed
+        // mark so backfill re-attempts the song with the fresh file. The
+        // song's metadata in the library is already reset to bare by
+        // `MusicLibrary.addSongs`, so `start()` will pick it up next pass.
+        readingConfigurationChanged()
+        configurationObservers = Self.observeReadingConfigurationChanges { [weak self] name in
+            guard let self else { return }
+            if name == UserDefaults.didChangeNotification {
+                let mode = MetadataReadingMode.resolve(
+                    storedValue: UserDefaults.standard.string(forKey: MetadataBackfillExecutionPolicy.readingModeDefaultsKey),
+                    legacyFastEnabled: UserDefaults.standard.bool(forKey: MetadataBackfillExecutionPolicy.highPerformanceAfterScanDefaultsKey)
+                )
+                guard mode != self.readingMode else { return }
+            }
+            self.readingConfigurationChanged()
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: .primuseSongContentChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self else { return }
+            let songs = (note.userInfo?["songs"] as? [Song]) ?? []
+            guard !songs.isEmpty else { return }
+            MainActor.assumeIsolated {
+                let ids = Set(songs.map(\.id))
+                self.failedSongIDs.subtract(ids)
+                self.incompleteSongIDs.subtract(ids)
+                self.sourceIssueSongIDs.subtract(ids)
+                self.sessionGivenUpIDs.subtract(ids)
+                self.sessionNetworkParkedIDs.subtract(ids)
+                self.sessionStallParkedIDs.subtract(ids)
+                self.deferredRetrySongIDs.subtract(ids)
+                for id in ids { self.diagnosticRecords[id] = nil }
+                self.titleCheckedIDs.subtract(ids)
+                self.albumArtistCheckedIDs.subtract(ids)
+                self.artistCheckedIDs.subtract(ids)
+                for id in ids { self.transientFailureCounts[id] = nil }
+                for sourceID in Set(songs.map(\.sourceID)) {
+                    self.sourceTransientFailureCounts[sourceID] = nil
+                }
+                self.saveFailed()
+                self.saveDeferredRetries()
+                self.saveDiagnostics()
+                self.saveInspectionState()
+                self.saveRetryCounts()
+                self.refreshQueue(startImmediately: Self.canRunAutomaticMaintenance)
+            }
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: .primuseSourceDidSoftDelete,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self, let id = note.userInfo?["id"] as? String else { return }
+            MainActor.assumeIsolated {
+                self.discardWork(forSourceID: id)
+            }
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: .primuseSourceDidDelete,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self, let id = note.userInfo?["id"] as? String else { return }
+            MainActor.assumeIsolated {
+                self.discardWork(forSourceID: id)
+            }
+        }
+    }
+
+    /// 一次性修复 / 迁移。它们全部需要读取已发布的 `library.songs`,
+    /// 因此只在库就绪之后运行一次(D-Startup 的 S3 不变量)。
+    private func runOneTimeRepairsAfterLibraryReady() {
         // The first deferred-retry implementation persisted every song in a
         // source snapshot after one connector failure. That inflated a three-
         // request network interruption into hundreds of visible retries. Clear
@@ -1230,79 +1314,6 @@ final class MetadataBackfillService {
             }
             markQueueDirty()
             UserDefaults.standard.set(true, forKey: formatSpecificTitleKey)
-        }
-
-        // A re-scan that found a path with new bytes wipes the failed
-        // mark so backfill re-attempts the song with the fresh file. The
-        // song's metadata in the library is already reset to bare by
-        // `MusicLibrary.addSongs`, so `start()` will pick it up next pass.
-        readingConfigurationChanged()
-        configurationObservers = Self.observeReadingConfigurationChanges { [weak self] name in
-            guard let self else { return }
-            if name == UserDefaults.didChangeNotification {
-                let mode = MetadataReadingMode.resolve(
-                    storedValue: UserDefaults.standard.string(forKey: MetadataBackfillExecutionPolicy.readingModeDefaultsKey),
-                    legacyFastEnabled: UserDefaults.standard.bool(forKey: MetadataBackfillExecutionPolicy.highPerformanceAfterScanDefaultsKey)
-                )
-                guard mode != self.readingMode else { return }
-            }
-            self.readingConfigurationChanged()
-        }
-
-        NotificationCenter.default.addObserver(
-            forName: .primuseSongContentChanged,
-            object: nil,
-            queue: .main
-        ) { [weak self] note in
-            guard let self else { return }
-            let songs = (note.userInfo?["songs"] as? [Song]) ?? []
-            guard !songs.isEmpty else { return }
-            MainActor.assumeIsolated {
-                let ids = Set(songs.map(\.id))
-                self.failedSongIDs.subtract(ids)
-                self.incompleteSongIDs.subtract(ids)
-                self.sourceIssueSongIDs.subtract(ids)
-                self.sessionGivenUpIDs.subtract(ids)
-                self.sessionNetworkParkedIDs.subtract(ids)
-                self.sessionStallParkedIDs.subtract(ids)
-                self.deferredRetrySongIDs.subtract(ids)
-                for id in ids { self.diagnosticRecords[id] = nil }
-                self.titleCheckedIDs.subtract(ids)
-                self.albumArtistCheckedIDs.subtract(ids)
-                self.artistCheckedIDs.subtract(ids)
-                for id in ids { self.transientFailureCounts[id] = nil }
-                for sourceID in Set(songs.map(\.sourceID)) {
-                    self.sourceTransientFailureCounts[sourceID] = nil
-                }
-                self.saveFailed()
-                self.saveDeferredRetries()
-                self.saveDiagnostics()
-                self.saveInspectionState()
-                self.saveRetryCounts()
-                self.refreshQueue(startImmediately: Self.canRunAutomaticMaintenance)
-            }
-        }
-
-        NotificationCenter.default.addObserver(
-            forName: .primuseSourceDidSoftDelete,
-            object: nil,
-            queue: .main
-        ) { [weak self] note in
-            guard let self, let id = note.userInfo?["id"] as? String else { return }
-            MainActor.assumeIsolated {
-                self.discardWork(forSourceID: id)
-            }
-        }
-
-        NotificationCenter.default.addObserver(
-            forName: .primuseSourceDidDelete,
-            object: nil,
-            queue: .main
-        ) { [weak self] note in
-            guard let self, let id = note.userInfo?["id"] as? String else { return }
-            MainActor.assumeIsolated {
-                self.discardWork(forSourceID: id)
-            }
         }
     }
 
