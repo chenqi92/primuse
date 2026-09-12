@@ -195,9 +195,14 @@ final class RadioLogoDiscoveryService {
 
         // 图片已经下载并验证过了，直接写进封面缓存 —— 界面随后拿到的是本地字节，
         // 不必再为同一张图跑一次网络。
+        //
+        // 缓存键用远程台标专属的那个，不能用电台的播放 songID：那个位置属于
+        // 用户手选的台标，写进去就会把用户的图从磁盘上顶掉。
         await MetadataAssetStore.shared.cacheCover(
             outcome.imageData,
-            forSongID: current.playbackSong.id
+            forSongID: RadioStationArtworkResolutionPolicy.remoteLogoCacheSongID(
+                for: current.id
+            )
         )
         AppServices.shared.radioStationsStore.applyDiscoveredLogo(
             id: current.id,

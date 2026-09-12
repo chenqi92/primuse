@@ -350,6 +350,9 @@ struct MacRadioStationEditorView: View {
                 logoFileName = await MetadataAssetStore.shared.storeCover(logoData, for: "radio:\(id)")
             } else {
                 logoFileName = nil
+                // 用户把台标清掉了，磁盘上那张旧图得一起清 —— 否则锁屏与车机
+                // 仍会按电台的 songID 从缓存里把它读出来。
+                await MetadataAssetStore.shared.invalidateCoverCache(forSongID: "radio:\(id)")
             }
             let value = RadioStation(
                 id: id,

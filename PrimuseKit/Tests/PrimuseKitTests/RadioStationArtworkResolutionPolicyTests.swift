@@ -293,35 +293,28 @@ struct RadioStationArtworkResolutionPolicyTests {
 
     // MARK: - 自动发现来的远程台标
 
-    @Test("自动发现的台标排在用户可见来源之后")
-    func remoteLogoIsLastResort() {
-        let station = makeStation(
-            logoFileName: "station-cover.jpg",
-            remoteLogoURL: "https://cdn.example.test/logo.png"
+    @Test("没有自有台标时才用自动发现的那张")
+    func remoteLogoFillsInOnlyWhenNothingElseExists() {
+        let plan = RadioStationArtworkResolutionPolicy.makePlan(
+            for: makeStation(remoteLogoURL: "https://cdn.example.test/logo.png")
         )
-        let plan = RadioStationArtworkResolutionPolicy.makePlan(for: station)
-
-        #expect(plan.candidates.count == 2)
-        guard case .cachedOrSource(let first) = plan.candidates.first,
-              case .cachedOrSource(let second) = plan.candidates.last else {
-            Issue.record("Expected two reference candidates")
+        #expect(plan.candidates.count == 1)
+        guard case .cachedOrSource(let request) = plan.candidates[0] else {
+            Issue.record("Expected the remote candidate")
             return
         }
-        #expect(first.coverReference == "station-cover.jpg")
-        #expect(second.coverReference == "https://cdn.example.test/logo.png")
+        #expect(request.coverReference == "https://cdn.example.test/logo.png")
     }
 
     /// 这个地址属于公网，不属于任何音乐源。带上 sourceID 会让加载层先去问
     /// 一个不存在的连接器，而带上 filePath 会让它去翻不存在的本地缓存文件。
+    /// 这个地址属于公网，不属于任何音乐源。带上 sourceID 会让加载层先去问一个
+    /// 不存在的连接器，带上 filePath 会让它去翻不存在的本地缓存文件。
     @Test("远程台标候选不携带音乐源归属")
     func remoteLogoCandidateHasNoSourceOwnership() {
-        let station = makeStation(
-            sourceID: "jellyfin-main",
-            sourcePlaybackPath: "Audio/stream/42",
-            remoteLogoURL: "https://cdn.example.test/logo.png"
+        let plan = RadioStationArtworkResolutionPolicy.makePlan(
+            for: makeStation(remoteLogoURL: "https://cdn.example.test/logo.png")
         )
-        let plan = RadioStationArtworkResolutionPolicy.makePlan(for: station)
-
         guard case .cachedOrSource(let remote) = plan.candidates.last else {
             Issue.record("Expected a remote candidate")
             return
@@ -329,6 +322,45 @@ struct RadioStationArtworkResolutionPolicyTests {
         #expect(remote.coverReference == "https://cdn.example.test/logo.png")
         #expect(remote.sourceID == nil)
         #expect(remote.filePath == nil)
+    }
+
+    /// 用户自己选的图必须是终点：加载失败就显示占位符，绝不能悄悄换成一张
+    /// 网上抓来的图 —— 那会让用户以为自己的台标被顶掉了。
+    @Test("电台已有自己的台标时，远程台标彻底退场")
+    func ownedLogoSuppressesRemoteCandidate() {
+        let withInline = makeStation(
+            logoData: Data([0x01, 0x02]),
+            remoteLogoURL: "https://cdn.example.test/logo.png"
+        )
+        #expect(RadioStationArtworkResolutionPolicy.makePlan(for: withInline).candidates.count == 1)
+
+        let withFileName = makeStation(
+            logoFileName: "station-cover.jpg",
+            remoteLogoURL: "https://cdn.example.test/logo.png"
+        )
+        let plan = RadioStationArtworkResolutionPolicy.makePlan(for: withFileName)
+        #expect(plan.candidates.count == 1)
+        guard case .cachedOrSource(let request) = plan.candidates[0] else {
+            Issue.record("Expected the owned reference to be the only candidate")
+            return
+        }
+        #expect(request.coverReference == "station-cover.jpg")
+    }
+
+    /// 两者过去共用电台的播放 songID，而封面缓存按键寻址到同一个文件 ——
+    /// 远程台标被加载一次就会把用户的图从磁盘顶掉。
+    @Test("远程台标的缓存键与用户台标分开")
+    func remoteLogoUsesSeparateCacheKey() {
+        let station = makeStation(remoteLogoURL: "https://cdn.example.test/logo.png")
+        let plan = RadioStationArtworkResolutionPolicy.makePlan(for: station)
+        guard case .cachedOrSource(let remote) = plan.candidates.last else {
+            Issue.record("Expected a remote candidate")
+            return
+        }
+        #expect(remote.songID != station.playbackSong.id)
+        #expect(remote.songID == RadioStationArtworkResolutionPolicy.remoteLogoCacheSongID(
+            for: station.id
+        ))
     }
 
     @Test("坏地址不会变成候选")

@@ -299,8 +299,20 @@ public struct RadioStationArtworkResolutionPlan: Hashable, Sendable {
 /// surface. Inline bytes are preferred, but a corrupt inline image must still
 /// be allowed to fall through to the station's cached/source reference.
 public enum RadioStationArtworkResolutionPolicy {
+    /// 自动发现的远程台标在缓存里必须和用户台标分开存放。
+    ///
+    /// 两者过去共用电台的播放 songID 作为缓存键，而封面缓存是按键寻址到同一个
+    /// 文件的 —— 远程台标只要被加载过一次，就会把用户自己选的那张图从磁盘上
+    /// 顶掉。给远程候选一个独立前缀，两者从此互不覆盖。
+    public static func remoteLogoCacheSongID(for stationID: String) -> String {
+        "radio-remote:\(stationID)"
+    }
+
     public static func makePlan(for station: RadioStation) -> RadioStationArtworkResolutionPlan {
         var candidates: [RadioStationArtworkCandidate] = []
+        // 用户手选的图，以及音乐源自己提供的封面，都算「已经有主」的台标。
+        let hasOwnedLogo = station.logoData?.isEmpty == false
+            || cleaned(station.logoFileName) != nil
         if let data = station.logoData, !data.isEmpty {
             candidates.append(.inline(data))
         }
@@ -313,16 +325,21 @@ public enum RadioStationArtworkResolutionPolicy {
                 fileFormat: station.streamFormat.audioFormat
             )))
         }
-        // 自动发现/导入得到的远程台标排在最后：它是补位用的，任何用户可见的
-        // 来源(手选图、服务器封面)都比它优先。
+        // 自动发现/导入得到的远程台标只是补位：电台一旦有了自己的台标，
+        // 它就彻底退场 —— 连兜底都不做。
+        //
+        // 不做兜底是有意的：用户的图万一加载失败(文件被缓存清理、暂时读不到)，
+        // 悄悄换上一张网上抓来的图，比显示占位符更糟 —— 用户会以为自己选的图
+        // 被顶掉了，而且分不清眼前这张是哪来的。
         //
         // 这里刻意不带 `sourceID` 和 `filePath`：这个地址属于公网，不属于任何
         // 音乐源，带上 sourceID 只会让加载层先去问一个不存在的连接器。
-        if let remote = cleaned(station.remoteLogoURL),
+        if !hasOwnedLogo,
+           let remote = cleaned(station.remoteLogoURL),
            let normalized = RadioLogoURLPolicy.normalized(remote) {
             candidates.append(.cachedOrSource(RadioStationArtworkRemoteRequest(
                 coverReference: normalized,
-                songID: station.playbackSong.id,
+                songID: remoteLogoCacheSongID(for: station.id),
                 sourceID: nil,
                 filePath: nil,
                 fileFormat: station.streamFormat.audioFormat
