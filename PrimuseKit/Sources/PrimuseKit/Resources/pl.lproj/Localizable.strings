@@ -460,6 +460,7 @@
 "ext.widget.nowPlaying.empty.tapToPlay" = "Kliknij, aby rozpocząć odtwarzanie";
 "ext.widget.nowPlaying.empty.title" = "Nic nie jest odtwarzane";
 "ext.widget.nowPlaying.eyebrowFormat" = "Teraz odtwarzane · %@";
+"ext.widget.nowPlaying.pausedEyebrowFormat" = "Wstrzymano · %@";
 "ext.widget.nowPlaying.paused" = "Wstrzymano";
 "ext.widget.nowPlaying.playing" = "Teraz odtwarzane";
 "ext.widget.recent.description" = "Umieść ostatnio odtwarzane albumy bezpośrednio na ekranie głównym.";

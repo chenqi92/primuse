@@ -460,6 +460,7 @@
 "ext.widget.nowPlaying.empty.tapToPlay" = "اضغط لبدء اللتشغيل";
 "ext.widget.nowPlaying.empty.title" = "لا شيء يشغّل";
 "ext.widget.nowPlaying.eyebrowFormat" = "جاري التشغيل · %@";
+"ext.widget.nowPlaying.pausedEyebrowFormat" = "متوقف · %@";
 "ext.widget.nowPlaying.paused" = "متوقف";
 "ext.widget.nowPlaying.playing" = "قيد التشغيل الآن";
 "ext.widget.recent.description" = "ضع ألبوماتك التي تم تشغيلها مؤخرًا على شاشتك الرئيسية مباشرة.";

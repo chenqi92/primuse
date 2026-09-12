@@ -156,13 +156,18 @@ private struct MediumQuickAccessView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let coverSide = min(112, max(88, geometry.size.height - 32))
+            let size = geometry.size
+            let coverSide = min(112, max(88, size.height - 32))
 
             ZStack {
-                RecentAlbumCoverView(entry: featured, cornerRadius: 0, placeholderIndex: 0)
-                    .scaleEffect(1.18)
-                    .blur(radius: 30)
-                    .overlay(Color.black.opacity(0.42))
+                // 背景必须先钉到小组件尺寸再模糊: 正方形封面按 fill 放进 2:1 的
+                // medium 时会把 ZStack 撑成 宽×宽 的正方形, 前景随之下坠、被裁掉。
+                WidgetArtworkBackdrop(
+                    coverImageName: featured.coverImageName,
+                    size: size,
+                    blurRadius: 30,
+                    shadeOpacity: 0.42
+                )
 
                 HStack(spacing: 14) {
                     RecentAlbumCoverView(entry: featured, cornerRadius: 12, placeholderIndex: 0)
@@ -197,8 +202,9 @@ private struct MediumQuickAccessView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(16)
+                .widgetBounds(size)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .widgetBounds(size)
         }
     }
 }
@@ -211,15 +217,18 @@ private struct LargeQuickAccessView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let contentWidth = max(0, geometry.size.width - 36)
-            let coverSide = min(contentWidth, max(132, geometry.size.height * 0.48))
+            let size = geometry.size
+            let contentWidth = max(0, size.width - 36)
+            let coverSide = min(contentWidth, max(132, size.height * 0.48))
             let thumbSide = min(58, max(38, (contentWidth - 30) / 4))
 
             ZStack {
-                RecentAlbumCoverView(entry: featured, cornerRadius: 0, placeholderIndex: 0)
-                    .scaleEffect(1.18)
-                    .blur(radius: 38)
-                    .overlay(Color.black.opacity(0.46))
+                WidgetArtworkBackdrop(
+                    coverImageName: featured.coverImageName,
+                    size: size,
+                    blurRadius: 38,
+                    shadeOpacity: 0.46
+                )
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text(PMString("ext.widget.recent.eyebrow"))
@@ -255,8 +264,9 @@ private struct LargeQuickAccessView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(18)
+                .widgetBounds(size)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .widgetBounds(size)
         }
     }
 }

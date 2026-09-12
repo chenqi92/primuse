@@ -292,43 +292,48 @@ private struct SmallNowPlayingView: View {
     let progress: PlaybackProgress
 
     var body: some View {
-        ZStack {
-            // 封面填满整个 widget 当背景。.scaleEffect 是 WidgetArtworkBackdrop
-            // 同款手法,防止 blur 边缘露出透明。
-            WidgetCoverImageView(
-                coverImageName: state.coverImageName,
-                cornerRadius: 0,
-                placeholderIndex: 0
-            )
-            .scaleEffect(1.05)
-            // 底部偏暗的渐变保证标题可读
-            LinearGradient(
-                colors: [.black.opacity(0.0), .black.opacity(0.55)],
-                startPoint: .center,
-                endPoint: .bottom
-            )
+        GeometryReader { geometry in
+            let size = geometry.size
+            ZStack {
+                // 封面填满整个 widget 当背景。先钉到小组件尺寸再放大, 既防止
+                // 边缘露出透明, 也不会让 fill 后的封面把布局撑出容器。
+                WidgetCoverImageView(
+                    coverImageName: state.coverImageName,
+                    cornerRadius: 0,
+                    placeholderIndex: 0
+                )
+                .widgetBounds(size)
+                .scaleEffect(1.05)
+                // 底部偏暗的渐变保证标题可读
+                LinearGradient(
+                    colors: [.black.opacity(0.0), .black.opacity(0.55)],
+                    startPoint: .center,
+                    endPoint: .bottom
+                )
 
-            VStack(alignment: .leading, spacing: 6) {
-                Spacer()
-                Text(state.songTitle ?? PMString("ext.widget.unknownSong"))
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                Text(state.artistName ?? PMString("ext.widget.unknownArtist"))
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.78))
-                    .lineLimit(1)
-                if state.isLiveStream {
-                    LiveIndicatorLine(lightText: true)
-                        .padding(.top, 2)
-                } else {
-                    ProgressLine(progress: progress)
-                        .padding(.top, 2)
+                VStack(alignment: .leading, spacing: 6) {
+                    Spacer()
+                    Text(state.songTitle ?? PMString("ext.widget.unknownSong"))
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                    Text(state.artistName ?? PMString("ext.widget.unknownArtist"))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.78))
+                        .lineLimit(1)
+                    if state.isLiveStream {
+                        LiveIndicatorLine(lightText: true)
+                            .padding(.top, 2)
+                    } else {
+                        ProgressLine(progress: progress)
+                            .padding(.top, 2)
+                    }
                 }
+                .padding(14)
+                .widgetBounds(size, alignment: .bottomLeading)
             }
-            .padding(14)
+            .widgetBounds(size)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -480,7 +485,13 @@ private struct NowPlayingEyebrow: View {
         if state.isLiveStream { return PMString("ext.widget.live") }
         let format = state.fileFormat?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let format, !format.isEmpty {
-            return PMString("ext.widget.nowPlaying.eyebrowFormat", format.uppercased())
+            // 暂停时图标已经是 pause, 文案不能还写着"正在播放 · DTS"。
+            return PMString(
+                state.isPlaying
+                    ? "ext.widget.nowPlaying.eyebrowFormat"
+                    : "ext.widget.nowPlaying.pausedEyebrowFormat",
+                format.uppercased()
+            )
         }
         return state.isPlaying ? PMString("ext.widget.nowPlaying.playing") : PMString("ext.widget.nowPlaying.paused")
     }
@@ -624,40 +635,33 @@ private struct NowPlayingControls: View {
 private struct NowPlayingLyricsPreview: View {
     let snapshot: LyricsSnapshot?
 
-    private var lyricContent: (
-        lines: [WidgetLyricLine],
-        anchorIndex: Int,
-        preferredDirection: LyricWritingDirection?
-    ) {
-        guard let snapshot,
-              snapshot.lines.isEmpty == false else {
-            return (
-                lines: [
-                    WidgetLyricLine(time: 0, text: PMString("ext.widget.lyricsPreview.empty1")),
-                    WidgetLyricLine(time: 1, text: PMString("ext.widget.lyricsPreview.empty2")),
-                    WidgetLyricLine(time: 2, text: PMString("ext.widget.lyricsPreview.empty3")),
-                ],
-                anchorIndex: 1,
-                preferredDirection: nil
-            )
-        }
-
-        return (
-            lines: snapshot.lines,
-            anchorIndex: snapshot.anchorIndex,
-            preferredDirection: snapshot.writingDirection
-        )
-    }
-
     var body: some View {
-        let content = lyricContent
-        AdaptiveWidgetLyricsView(
-            lines: content.lines,
-            anchorIndex: content.anchorIndex,
-            preferredDirection: content.preferredDirection,
-            typography: .compact
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        Group {
+            if let snapshot, !snapshot.lines.isEmpty {
+                AdaptiveWidgetLyricsView(
+                    lines: snapshot.lines,
+                    anchorIndex: snapshot.anchorIndex,
+                    preferredDirection: snapshot.writingDirection,
+                    typography: .compact
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            } else {
+                // 没有歌词时不再把提示文案当成三行"假歌词"渲染(中间一行会被当作
+                // 当前句加粗), 而是一段安静的占位说明。
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(verbatim: PMString("ext.widget.lyricsPreview.empty1"))
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(WidgetDesign.secondaryText)
+                    Text(verbatim: PMString("ext.widget.lyricsPreview.empty2"))
+                    Text(verbatim: PMString("ext.widget.lyricsPreview.empty3"))
+                }
+                .font(.system(size: 11.5))
+                .foregroundStyle(WidgetDesign.tertiaryText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            }
+        }
         .clipped()
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

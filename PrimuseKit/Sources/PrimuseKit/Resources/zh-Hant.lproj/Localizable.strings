@@ -30,6 +30,7 @@
 "ext.widget.nowPlaying.displayName"        = "正在播放";
 "ext.widget.nowPlaying.description"        = "快速查看目前歌曲與播放進度";
 "ext.widget.nowPlaying.eyebrowFormat"      = "正在播放 · %@";
+"ext.widget.nowPlaying.pausedEyebrowFormat" = "已暫停 · %@";
 "ext.widget.nowPlaying.playing"            = "正在播放";
 "ext.widget.nowPlaying.paused"             = "已暫停";
 "ext.widget.like"                          = "添加到我的最愛";

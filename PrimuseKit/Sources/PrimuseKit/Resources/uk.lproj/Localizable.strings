@@ -289,6 +289,7 @@
 "ext.tv.sources.form.useSSL" = "Використовуйте HTTPS / SSL";
 "error.baidu.failedItems" = "Baidu диспетчер файлів не працює %@ елемент(и)";
 "ext.widget.nowPlaying.eyebrowFormat" = "Зараз грає · %@";
+"ext.widget.nowPlaying.pausedEyebrowFormat" = "Призупинено · %@";
 "ext.tv.immersive.style.cover" = "Обкладинка";
 "error.catalog.unrecognizedItem" = "Список треків містить нерозпізнаний елемент.";
 "ext.tv.home.recentlyPlayed" = "Нещодавно прослухані";

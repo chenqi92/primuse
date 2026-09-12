@@ -33,6 +33,7 @@
 "ext.widget.nowPlaying.displayName"        = "Aktuelle Wiedergabe";
 "ext.widget.nowPlaying.description"        = "Aktuellen Titel und Wiedergabefortschritt auf einen Blick sehen.";
 "ext.widget.nowPlaying.eyebrowFormat"      = "Läuft gerade · %@";
+"ext.widget.nowPlaying.pausedEyebrowFormat" = "Pausiert · %@";
 "ext.widget.nowPlaying.playing"            = "Läuft gerade";
 "ext.widget.nowPlaying.paused"             = "Pausiert";
 "ext.widget.like"                          = "Zu Lieblingssongs hinzufügen";

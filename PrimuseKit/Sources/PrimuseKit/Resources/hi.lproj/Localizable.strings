@@ -460,6 +460,7 @@
 "ext.widget.nowPlaying.empty.tapToPlay" = "खेलना शुरू करने के लिए टैप करें";
 "ext.widget.nowPlaying.empty.title" = "कुछ भी नहीं चल रहा है";
 "ext.widget.nowPlaying.eyebrowFormat" = "अभी चल रहा है · %@";
+"ext.widget.nowPlaying.pausedEyebrowFormat" = "रोका गया · %@";
 "ext.widget.nowPlaying.paused" = "रोका गया";
 "ext.widget.nowPlaying.playing" = "अभी चल रहा है";
 "ext.widget.recent.description" = "अपने हाल ही में चलाए गए एल्बम को सीधे अपनी होम स्क्रीन पर रखें।";

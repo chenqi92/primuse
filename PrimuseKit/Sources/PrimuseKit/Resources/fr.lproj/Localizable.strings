@@ -33,6 +33,7 @@
 "ext.widget.nowPlaying.displayName"        = "En cours de lecture";
 "ext.widget.nowPlaying.description"        = "Voyez le titre en cours et la progression d'un coup d'œil.";
 "ext.widget.nowPlaying.eyebrowFormat"      = "En cours · %@";
+"ext.widget.nowPlaying.pausedEyebrowFormat" = "En pause · %@";
 "ext.widget.nowPlaying.playing"            = "En cours de lecture";
 "ext.widget.nowPlaying.paused"             = "En pause";
 "ext.widget.like"                          = "Ajouter aux morceaux aimés";

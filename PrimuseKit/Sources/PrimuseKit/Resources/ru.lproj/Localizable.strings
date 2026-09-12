@@ -289,6 +289,7 @@
 "ext.tv.sources.form.useSSL" = "Используйте HTTPS / SSL.";
 "error.baidu.failedItems" = "Ошибка файлового менеджера Baidu Элемент(ы) %@";
 "ext.widget.nowPlaying.eyebrowFormat" = "Сейчас играет · %@";
+"ext.widget.nowPlaying.pausedEyebrowFormat" = "Приостановлено · %@";
 "ext.tv.immersive.style.cover" = "Обложка";
 "error.catalog.unrecognizedItem" = "Список треков содержит неизвестный элемент.";
 "ext.tv.home.recentlyPlayed" = "Недавно прослушанные";

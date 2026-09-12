@@ -149,7 +149,9 @@ struct WidgetCanvas<Content: View>: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay {
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
+            // 描边跟随系统给的容器形状: macOS 与 iOS 的小组件圆角不同, 写死
+            // 26pt 会在角落里露出一圈与裁切边缘不贴合的线。
+            ContainerRelativeShape()
                 .strokeBorder(
                     LinearGradient(
                         colors: [
@@ -197,34 +199,45 @@ struct WidgetPanel<Content: View>: View {
     }
 }
 
+/// Full-bleed album-art backdrop for cover-led widgets.
+///
+/// The artwork is pinned to the widget size and clipped *before* it is scaled
+/// and blurred. An aspect-fill image otherwise reports its inflated size to the
+/// enclosing ZStack, and a flexible frame never shrinks below its child, so a
+/// square cover inside a 2:1 medium widget used to grow the layout to a
+/// width × width square: the foreground was laid out in that square and the
+/// bottom half (cover, thumbnails) fell outside the widget on macOS.
 struct WidgetArtworkBackdrop: View {
     let coverImageName: String?
-    var blurRadius: CGFloat = 0
+    let size: CGSize
+    var scale: CGFloat = 1.18
+    var blurRadius: CGFloat = 30
     var shadeOpacity: Double = 0.42
+    var placeholderIndex: Int = 0
 
     var body: some View {
-        ZStack {
-            WidgetCanvas(padding: 0) {
-                Color.clear
-            }
+        WidgetCoverImageView(
+            coverImageName: coverImageName,
+            cornerRadius: 0,
+            placeholderIndex: placeholderIndex
+        )
+        .frame(width: size.width, height: size.height)
+        .clipped()
+        .scaleEffect(scale)
+        .blur(radius: blurRadius)
+        .overlay(Color.black.opacity(shadeOpacity))
+        .frame(width: size.width, height: size.height)
+        .clipped()
+    }
+}
 
-            WidgetCoverImageView(
-                coverImageName: coverImageName,
-                cornerRadius: 0,
-                placeholderIndex: 0
-            )
-            .scaleEffect(1.18)
-            .blur(radius: blurRadius)
-            .overlay(
-                LinearGradient(
-                    colors: [Color.black.opacity(0.08), Color.black.opacity(0.58)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-            .overlay(Color.black.opacity(shadeOpacity))
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+extension View {
+    /// Pins widget content to the exact container bounds. Children that report
+    /// a larger size (aspect-fill artwork, long single-line text) can no longer
+    /// grow the layout past the widget and shift everything else off-screen.
+    func widgetBounds(_ size: CGSize, alignment: Alignment = .topLeading) -> some View {
+        frame(width: size.width, height: size.height, alignment: alignment)
+            .clipped()
     }
 }
 

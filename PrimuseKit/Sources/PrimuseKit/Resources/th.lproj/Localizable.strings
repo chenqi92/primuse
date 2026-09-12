@@ -460,6 +460,7 @@
 "ext.widget.nowPlaying.empty.tapToPlay" = "แตะเพื่อเริ่มเล่น";
 "ext.widget.nowPlaying.empty.title" = "ไม่มีอะไรเล่น";
 "ext.widget.nowPlaying.eyebrowFormat" = "กำลังเล่น · %@";
+"ext.widget.nowPlaying.pausedEyebrowFormat" = "หยุดชั่วคราว · %@";
 "ext.widget.nowPlaying.paused" = "หยุดชั่วคราว";
 "ext.widget.nowPlaying.playing" = "กำลังเล่น";
 "ext.widget.recent.description" = "ใส่อัลบั้มที่เพิ่งเล่นไปบนหน้าจอหลักของคุณ";

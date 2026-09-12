@@ -33,6 +33,7 @@
 "ext.widget.nowPlaying.displayName"        = "재생 중";
 "ext.widget.nowPlaying.description"        = "현재 곡과 재생 진행 상황을 한눈에 확인하세요.";
 "ext.widget.nowPlaying.eyebrowFormat"      = "재생 중 · %@";
+"ext.widget.nowPlaying.pausedEyebrowFormat" = "일시 정지됨 · %@";
 "ext.widget.nowPlaying.playing"            = "재생 중";
 "ext.widget.nowPlaying.paused"             = "일시 정지됨";
 "ext.widget.like"                          = "좋아하는 음악에 추가";

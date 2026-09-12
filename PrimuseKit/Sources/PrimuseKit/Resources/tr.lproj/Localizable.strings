@@ -289,6 +289,7 @@
 "ext.tv.sources.form.useSSL" = "HTTPS / SSL'yi kullanın";
 "error.baidu.failedItems" = "Baidu dosya yöneticisi %@ öğelerinde başarısız oldu";
 "ext.widget.nowPlaying.eyebrowFormat" = "Şimdi Çalınıyor · %@";
+"ext.widget.nowPlaying.pausedEyebrowFormat" = "Duraklatıldı · %@";
 "ext.tv.immersive.style.cover" = "Kapak";
 "error.catalog.unrecognizedItem" = "Parça listesi tanınmayan bir öğe içeriyor.";
 "ext.tv.home.recentlyPlayed" = "Son çalınanlar";

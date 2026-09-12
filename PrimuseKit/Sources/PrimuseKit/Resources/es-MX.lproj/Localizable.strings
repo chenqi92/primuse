@@ -460,6 +460,7 @@
 "ext.widget.nowPlaying.empty.tapToPlay" = "Toca para empezar a jugar";
 "ext.widget.nowPlaying.empty.title" = "No se reproduce nada";
 "ext.widget.nowPlaying.eyebrowFormat" = "Reproduciendo ahora · %@";
+"ext.widget.nowPlaying.pausedEyebrowFormat" = "En pausa · %@";
 "ext.widget.nowPlaying.paused" = "En pausa";
 "ext.widget.nowPlaying.playing" = "En reproducción";
 "ext.widget.recent.description" = "Coloque los álbumes reproducidos recientemente directamente en su pantalla de inicio.";

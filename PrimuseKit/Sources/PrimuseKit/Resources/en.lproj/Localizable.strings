@@ -31,6 +31,7 @@
 "ext.widget.nowPlaying.displayName"        = "Now Playing";
 "ext.widget.nowPlaying.description"        = "See the current song and playback progress at a glance.";
 "ext.widget.nowPlaying.eyebrowFormat"      = "Now Playing · %@";
+"ext.widget.nowPlaying.pausedEyebrowFormat" = "Paused · %@";
 "ext.widget.nowPlaying.playing"            = "Now Playing";
 "ext.widget.nowPlaying.paused"             = "Paused";
 "ext.widget.like"                          = "Add to Liked Songs";

@@ -33,6 +33,7 @@
 "ext.widget.nowPlaying.displayName"        = "再生中";
 "ext.widget.nowPlaying.description"        = "再生中の曲と進行状況をひと目で確認できます。";
 "ext.widget.nowPlaying.eyebrowFormat"      = "再生中 · %@";
+"ext.widget.nowPlaying.pausedEyebrowFormat" = "一時停止中 · %@";
 "ext.widget.nowPlaying.playing"            = "再生中";
 "ext.widget.nowPlaying.paused"             = "一時停止中";
 "ext.widget.like"                          = "好きな曲に追加";
