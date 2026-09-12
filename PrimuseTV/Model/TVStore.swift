@@ -547,7 +547,6 @@ final class TVStore {
     @ObservationIgnored private var historyRequestID: UUID?
     @ObservationIgnored private var playbackRecoveryAttempt = 0
     @ObservationIgnored private var playbackRestoreAttempted = false
-    @ObservationIgnored private var accumulatedListeningTime: TimeInterval = 0
     @ObservationIgnored private var sessionStore = PlaybackSessionStore()
 
     // 单条查询索引:song(_:)/album(_:) 命中字典而非全量 map 整库。
@@ -3358,7 +3357,6 @@ final class TVStore {
               let raw = library.song(id: id) else { return }
         if historyRequestID != requestID {
             historyRequestID = requestID
-            accumulatedListeningTime = 0
             library.recordPlayback(of: id)
             PlayHistoryStore.shared.beginSession(song: raw)
             ScrobbleService.shared.serverScrobbleHandler = { [weak self] song, submission in
@@ -3379,8 +3377,7 @@ final class TVStore {
                 let now = ProcessInfo.processInfo.systemUptime
                 let delta = min(2, max(0, now - lastTick))
                 lastTick = now
-                self.accumulatedListeningTime += delta
-                PlayHistoryStore.shared.tick(elapsed: self.accumulatedListeningTime)
+                PlayHistoryStore.shared.tick(playedDelta: delta)
                 ScrobbleService.shared.handleProgressTick(playedDelta: delta)
                 ticks += 1
                 if ticks % 5 == 0 { self.persistPlaybackSession() }
@@ -3392,12 +3389,10 @@ final class TVStore {
         playbackMonitorTask?.cancel()
         playbackMonitorTask = nil
         guard historyRequestID != nil else { return }
-        PlayHistoryStore.shared.tick(elapsed: accumulatedListeningTime)
         PlayHistoryStore.shared.endSession()
         PlayHistoryStore.shared.flush()
         ScrobbleService.shared.handlePlaybackStopped()
         historyRequestID = nil
-        accumulatedListeningTime = 0
     }
 
     private func persistPlaybackSession() {

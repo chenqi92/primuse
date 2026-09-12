@@ -62,8 +62,10 @@ final class PlayHistoryStore {
     // 由 AudioPlayerService 在同样的 hook 点调用。
     private var currentSong: Song?
     private var currentStartedAt: Date?
-    /// 实听 high-water mark — 用 currentTime 近似, seek 回去不会让它降。
-    private var currentMaxElapsed: TimeInterval = 0
+    /// 实听累计秒数 — 由播放时钟按真实播放增量累加。不能用播放位置的
+    /// high-water mark: 那样把进度条拖过阈值再切歌也会记成一次完整播放,
+    /// 实听时长还会被记成拖到的位置。
+    private var currentListenedSec: TimeInterval = 0
 
     private init() {
         #if os(tvOS)
@@ -85,14 +87,14 @@ final class PlayHistoryStore {
         endSession()
         currentSong = song
         currentStartedAt = Date()
-        currentMaxElapsed = 0
+        currentListenedSec = 0
     }
 
-    /// 进度更新 — 跟 ScrobbleService 同步触发。维护 high-water mark
-    /// (seek 回去不应让累计变小)。
-    func tick(elapsed: TimeInterval) {
-        guard currentSong != nil else { return }
-        if elapsed > currentMaxElapsed { currentMaxElapsed = elapsed }
+    /// 进度更新 — 跟 ScrobbleService 同步触发, 传本次 tick 真实播放了多少秒。
+    /// 拖进度条跳过的区间不算实听, 回拖重听的区间也不会重复计。
+    func tick(playedDelta: TimeInterval) {
+        guard currentSong != nil, playedDelta.isFinite, playedDelta > 0 else { return }
+        currentListenedSec += playedDelta
     }
 
     /// 结束 session — 用户主动停 / 切歌 / 播完。低于阈值不写入。
@@ -101,10 +103,10 @@ final class PlayHistoryStore {
         defer {
             currentSong = nil
             currentStartedAt = nil
-            currentMaxElapsed = 0
+            currentListenedSec = 0
         }
-        guard currentMaxElapsed >= Self.recordedThresholdSec else { return }
-        record(song: song, startedAt: startedAt, listenedSec: currentMaxElapsed)
+        guard currentListenedSec >= Self.recordedThresholdSec else { return }
+        record(song: song, startedAt: startedAt, listenedSec: currentListenedSec)
     }
 
     // MARK: - 写入

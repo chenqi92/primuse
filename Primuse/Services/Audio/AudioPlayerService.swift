@@ -3125,9 +3125,15 @@ final class AudioPlayerService {
                 }
                 guard self.isPlaying else { return }
                 if time.seconds.isFinite {
+                    let previousTime = self.currentTime
                     self.currentTime = time.seconds.sanitizedDuration
                     ScrobbleService.shared.handleProgressTick(playedDelta: Self.timeUpdateInterval)
-                    PlayHistoryStore.shared.tick(elapsed: self.currentTime)
+                    PlayHistoryStore.shared.tick(
+                        playedDelta: min(
+                            Self.timeUpdateInterval,
+                            max(0, self.currentTime - previousTime)
+                        )
+                    )
                 }
                 if let item = player.currentItem {
                     let itemDuration = item.duration.seconds

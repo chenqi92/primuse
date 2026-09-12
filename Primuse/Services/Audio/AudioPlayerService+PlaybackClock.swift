@@ -39,8 +39,9 @@ extension AudioPlayerService {
                     isTransitioning: transitionWasActive
                 )
                 if let time = clockDecision.visibleTime {
+                    let previousSample = self.lastEngineProgressSample
                     self.currentTime = time.sanitizedDuration
-                    let madeProgress = self.lastEngineProgressSample.map {
+                    let madeProgress = previousSample.map {
                         self.currentTime > $0 + 0.01
                     } ?? true
                     self.lastEngineProgressSample = self.currentTime
@@ -84,12 +85,17 @@ extension AudioPlayerService {
                     // Scrobble 进度判断 — 50% 或 4 分钟阈值由 service 内部决定。
                     // 传真实 tick 增量而非 currentTime: 否则用户拖进度条到歌曲后段
                     // 一松手就立刻满足 50% 阈值, 一秒没真听就误上报到 Last.fm/Navidrome。
-                    // PlayHistoryStore.tick 维护的是 position high-water mark, 仍传 currentTime。
+                    // 本地播放历史同理, 传的是这一拍真实前进了多少: 向前拖产生的
+                    // 大跳跃截到一个 tick, 向后拖是负数按 0 计, 暂停时时钟不前进也是 0。
                     if clockDecision.shouldRecordListeningProgress {
                         ScrobbleService.shared.handleProgressTick(
                             playedDelta: Self.timeUpdateInterval
                         )
-                        PlayHistoryStore.shared.tick(elapsed: self.currentTime)
+                        PlayHistoryStore.shared.tick(
+                            playedDelta: previousSample.map {
+                                min(Self.timeUpdateInterval, max(0, self.currentTime - $0))
+                            } ?? 0
+                        )
                     }
                 }
                 if !transitionWasActive {
