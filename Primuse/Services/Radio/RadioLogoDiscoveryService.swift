@@ -53,7 +53,7 @@ final class RadioLogoDiscoveryService {
     private var queue: [String] = []
     private var manualRequests: Set<String> = []
     private var statePersistTask: Task<Void, Never>?
-    private var deletionObserver: NSObjectProtocol?
+    @ObservationIgnored nonisolated(unsafe) private var deletionObserver: NSObjectProtocol?
     private let stateURL: URL
 
     init(fileManager: FileManager = .default, stateURL: URL? = nil) {

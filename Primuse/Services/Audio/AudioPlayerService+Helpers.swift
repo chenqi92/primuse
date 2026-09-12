@@ -219,7 +219,7 @@ extension AudioPlayerService {
         return true
     }
 
-    private struct QueueTraversalTarget {
+    struct QueueTraversalTarget {
         let queueIndex: Int
         let shufflePosition: Int?
         let pendingShuffleRound: [Int]?

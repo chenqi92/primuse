@@ -827,7 +827,7 @@ final class AudioPlayerService {
     private var musicVideoFailedObserver: NSObjectProtocol?
     var musicVideoObserverGeneration: UInt64 = 0
     var pendingMusicVideoPlayID: UUID?
-    private struct MusicVideoSeekActivityEvidence {
+    struct MusicVideoSeekActivityEvidence {
         let itemID: String
         let playID: UUID
         let observerGeneration: UInt64
@@ -956,7 +956,7 @@ final class AudioPlayerService {
     }
     let assetReaderDecoder = AssetReaderDecoder()
     private let streamingDecoder = StreamingDownloadDecoder()
-    private struct ActiveStreamingDownloadPreparation {
+    struct ActiveStreamingDownloadPreparation {
         let id: UUID
         let song: Song
         let control: StreamingDownloadSessionControl
@@ -1045,7 +1045,7 @@ final class AudioPlayerService {
     @ObservationIgnored var interruptionResumePolicy = PlaybackInterruptionResumePolicy()
     @ObservationIgnored var playbackAdvancePolicy = PlaybackAdvanceEligibilityPolicy()
     @ObservationIgnored var localPipelineAdvanceTicket: PlaybackAdvanceTicket?
-    private struct ConfigurationRecoveryActivityEvidence {
+    struct ConfigurationRecoveryActivityEvidence {
         let itemID: String
         var rebuildPlayID: UUID?
     }
