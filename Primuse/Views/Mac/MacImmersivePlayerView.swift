@@ -577,9 +577,15 @@ struct MacImmersivePlayerView: View {
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(active ? artworkPalette.primary : chromeInk.opacity(0.54))
                 .frame(width: 36, height: 36)
+                .playbackToggleHighlight(
+                    isActive: active,
+                    tint: artworkPalette.primary,
+                    diameter: 30
+                )
         }
         .buttonStyle(.plain)
         .pmPointingHand()
+        .accessibilityValue(Text(active ? "a11y_value_on" : "a11y_value_off"))
     }
 
     private func advanceRepeatMode() {

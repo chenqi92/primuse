@@ -418,15 +418,23 @@ struct MacMiniPlayerView: View {
     private var transport: some View {
         HStack(spacing: 18) {
             // shuffle / repeat 带淡圆底,高亮时上强调色(随专辑色),跟设计稿一致。
+            // 底色跟着开关走：关闭是中性淡底,开启换成强调色底 —— 只换图标颜色
+            // 在深色封面下几乎看不出开没开。
             Button { player.shuffleEnabled.toggle() } label: {
                 Image(systemName: "shuffle")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(player.shuffleEnabled ? theme.accentColor : PMColor.textMuted)
                     .frame(width: 30, height: 30)
-                    .background(PMColor.text.opacity(0.06), in: .circle)
+                    .playbackToggleHighlight(
+                        isActive: player.shuffleEnabled,
+                        tint: theme.accentColor,
+                        diameter: 30,
+                        inactiveFill: PMColor.text.opacity(0.06)
+                    )
             }
             .buttonStyle(.plain)
             .pmPointingHand()
+            .accessibilityValue(Text(player.shuffleEnabled ? "a11y_value_on" : "a11y_value_off"))
 
             Button { Task { await player.previous() } } label: {
                 Image(systemName: "backward.end.fill")
@@ -471,10 +479,16 @@ struct MacMiniPlayerView: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(player.repeatMode != .off ? theme.accentColor : PMColor.textMuted)
                     .frame(width: 30, height: 30)
-                    .background(PMColor.text.opacity(0.06), in: .circle)
+                    .playbackToggleHighlight(
+                        isActive: player.repeatMode != .off,
+                        tint: theme.accentColor,
+                        diameter: 30,
+                        inactiveFill: PMColor.text.opacity(0.06)
+                    )
             }
             .buttonStyle(.plain)
             .pmPointingHand()
+            .accessibilityValue(Text(player.repeatMode != .off ? "a11y_value_on" : "a11y_value_off"))
         }
         .frame(maxWidth: .infinity)
     }

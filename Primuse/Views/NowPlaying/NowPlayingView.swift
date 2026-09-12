@@ -2942,6 +2942,11 @@ struct NowPlayingView: View {
         Button(action: action) {
             Image(systemName: icon).font(.body)
                 .foregroundStyle(active ? themedControlAccent : appearance.tertiary)
+                .playbackToggleHighlight(
+                    isActive: active,
+                    tint: themedControlAccent,
+                    diameter: 32
+                )
         }
         .frame(width: 44, height: 44)
         .accessibilityLabel(Self.iconA11yLabel(icon))

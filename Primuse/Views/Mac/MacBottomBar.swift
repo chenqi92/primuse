@@ -146,7 +146,8 @@ struct MacBottomBar: View {
         VStack(spacing: 4) {
             HStack(spacing: 6) {
                 if !player.isLiveRadio {
-                    transportBtn("shuffle", size: 13, active: player.shuffleEnabled, help: "shuffle") {
+                    transportBtn("shuffle", size: 13, active: player.shuffleEnabled,
+                                 isToggle: true, help: "shuffle") {
                         player.shuffleEnabled.toggle()
                     }
                 }
@@ -184,7 +185,8 @@ struct MacBottomBar: View {
                     }
                 }
                 if !player.isLiveRadio {
-                    transportBtn(repeatIconName, size: 13, active: player.repeatMode != .off, help: "repeat") {
+                    transportBtn(repeatIconName, size: 13, active: player.repeatMode != .off,
+                                 isToggle: true, help: "repeat") {
                         cycleRepeat()
                     }
                 }
@@ -213,19 +215,35 @@ struct MacBottomBar: View {
         }
     }
 
+    /// `isToggle` 区分开关型按钮(随机、循环)与普通传输键(上一首、下一首)。
+    /// 只有开关型才需要「关闭态压淡 + 开启态圆底」这套状态表达 —— 传输键没有
+    /// 状态可言，压淡只会让它看起来像被禁用。
     private func transportBtn(_ symbol: String, size: CGFloat,
                               active: Bool = false,
+                              isToggle: Bool = false,
                               help: LocalizedStringKey,
                               action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: size, weight: .semibold))
-                .foregroundStyle(active ? PMColor.brand : PMColor.text)
+                .foregroundStyle(
+                    active ? PMColor.brand : (isToggle ? PMColor.textMuted : PMColor.text)
+                )
                 .frame(width: 28, height: 28)
+                .playbackToggleHighlight(
+                    isActive: isToggle && active,
+                    tint: PMColor.brand,
+                    diameter: 24
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help(Text(help))
+        .accessibilityValue(
+            isToggle
+                ? Text(active ? "a11y_value_on" : "a11y_value_off")
+                : Text("")
+        )
     }
 
     // MARK: - Right column
