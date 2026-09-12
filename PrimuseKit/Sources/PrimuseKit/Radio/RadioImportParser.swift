@@ -20,19 +20,32 @@ public struct RadioImportCandidate: Identifiable, Hashable, Sendable {
     public var status: Status
     /// 重复时指向已有电台的名字，UI 用它说明"跟谁重了"。
     public var duplicateOfName: String?
+    /// 清单里写明的台标地址(`tvg-logo`)，或在线目录给的 favicon。
+    /// 批量添加页直接用它显示缩略图 —— 用户在勾选前就能看到台标。
+    public var logoURLString: String?
+    /// 电台主页。没有台标时留给后续的主页图标抓取当输入。
+    public var homepageURLString: String?
+    /// 台标是从哪来的，决定它在自动发现里的可信度。
+    public var logoSource: RadioLogoSource?
 
     public init(
         id: UUID = UUID(),
         name: String,
         urlString: String,
         status: Status,
-        duplicateOfName: String? = nil
+        duplicateOfName: String? = nil,
+        logoURLString: String? = nil,
+        homepageURLString: String? = nil,
+        logoSource: RadioLogoSource? = nil
     ) {
         self.id = id
         self.name = name
         self.urlString = urlString
         self.status = status
         self.duplicateOfName = duplicateOfName
+        self.logoURLString = logoURLString
+        self.homepageURLString = homepageURLString
+        self.logoSource = logoSource
     }
 
     public var isPlayable: Bool { status == .playable }
@@ -49,6 +62,30 @@ public enum RadioImportParser {
         case plainText
         case m3u
         case pls
+    }
+
+    /// 一条待判重的结构化条目。在线目录搜索不必把结果拼回文本再解析一遍 ——
+    /// 直接构造这个类型，就能和清单导入共用同一套判重与归一化。
+    public struct Entry: Equatable, Sendable {
+        public var name: String?
+        public var urlString: String
+        public var logoURLString: String?
+        public var homepageURLString: String?
+        public var logoSource: RadioLogoSource?
+
+        public init(
+            name: String? = nil,
+            urlString: String,
+            logoURLString: String? = nil,
+            homepageURLString: String? = nil,
+            logoSource: RadioLogoSource? = nil
+        ) {
+            self.name = name
+            self.urlString = urlString
+            self.logoURLString = logoURLString
+            self.homepageURLString = homepageURLString
+            self.logoSource = logoSource
+        }
     }
 
     /// 按内容特征猜格式，让"粘贴"和"选文件"走同一个入口。
@@ -68,13 +105,20 @@ public enum RadioImportParser {
         let normalized = text
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
-        let entries: [RawEntry]
+        let entries: [Entry]
         switch source ?? detectSource(normalized) {
         case .plainText: entries = parsePlainText(normalized)
         case .m3u: entries = parseM3U(normalized)
         case .pls: entries = parsePLS(normalized)
         }
+        return candidates(from: entries, existing: existing)
+    }
 
+    /// 结构化条目 → 候选。判重、归一化、名字推断都只有这一份实现。
+    public static func candidates(
+        from entries: [Entry],
+        existing: [RadioStation] = []
+    ) -> [RadioImportCandidate] {
         // 判重用归一化 URL 作键。库里同一个流可能被存过两次(名字不同)，
         // 取第一个作为"跟谁重了"的展示对象即可。
         var seen: [String: String] = [:]
@@ -84,11 +128,19 @@ public enum RadioImportParser {
         }
 
         return entries.map { entry in
+            let logo = RadioLogoURLPolicy.normalized(entry.logoURLString)
+            let homepage = RadioLogoURLPolicy.normalized(entry.homepageURLString)
+            // 只有真的拿到台标地址才记来源，否则来源字段会骗人。
+            let logoSource = logo == nil ? nil : (entry.logoSource ?? .importedManifest)
+
             guard let normalizedURL = RadioStationValidation.normalizedURLString(entry.urlString) else {
                 return RadioImportCandidate(
                     name: entry.name ?? entry.urlString,
                     urlString: entry.urlString,
-                    status: .invalid
+                    status: .invalid,
+                    logoURLString: logo,
+                    homepageURLString: homepage,
+                    logoSource: logoSource
                 )
             }
             let name = entry.name.map(RadioStationValidation.normalizedName)
@@ -96,18 +148,35 @@ public enum RadioImportParser {
                 ?? suggestedName(for: normalizedURL)
 
             guard let key = duplicateKey(normalizedURL) else {
-                return RadioImportCandidate(name: name, urlString: normalizedURL, status: .invalid)
+                return RadioImportCandidate(
+                    name: name,
+                    urlString: normalizedURL,
+                    status: .invalid,
+                    logoURLString: logo,
+                    homepageURLString: homepage,
+                    logoSource: logoSource
+                )
             }
             if let owner = seen[key] {
                 return RadioImportCandidate(
                     name: name,
                     urlString: normalizedURL,
                     status: .duplicate,
-                    duplicateOfName: owner
+                    duplicateOfName: owner,
+                    logoURLString: logo,
+                    homepageURLString: homepage,
+                    logoSource: logoSource
                 )
             }
             seen[key] = name
-            return RadioImportCandidate(name: name, urlString: normalizedURL, status: .playable)
+            return RadioImportCandidate(
+                name: name,
+                urlString: normalizedURL,
+                status: .playable,
+                logoURLString: logo,
+                homepageURLString: homepage,
+                logoSource: logoSource
+            )
         }
     }
 
@@ -152,12 +221,7 @@ public enum RadioImportParser {
 
     // MARK: - 各格式解析
 
-    private struct RawEntry {
-        var name: String?
-        var urlString: String
-    }
-
-    private static func parsePlainText(_ text: String) -> [RawEntry] {
+    private static func parsePlainText(_ text: String) -> [Entry] {
         text.components(separatedBy: .newlines).compactMap { rawLine in
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             guard !line.isEmpty, !line.hasPrefix("#"), !line.hasPrefix("//") else { return nil }
@@ -170,43 +234,63 @@ public enum RadioImportParser {
                     .trimmingCharacters(in: .whitespaces)
                 let tail = String(line[range.upperBound...]).trimmingCharacters(in: .whitespaces)
                 if looksLikeURL(tail), !head.isEmpty, !looksLikeURL(head) {
-                    return RawEntry(name: head, urlString: tail)
+                    return Entry(name: head, urlString: tail)
                 }
             }
-            return RawEntry(name: nil, urlString: line)
+            return Entry(urlString: line)
         }
     }
 
     /// `#EXTINF:<秒>,<名字>` 后面紧跟的那一行是 URL。没有 EXTINF 的裸 URL 也收。
-    private static func parseM3U(_ text: String) -> [RawEntry] {
-        var entries: [RawEntry] = []
+    ///
+    /// EXTINF 的属性区(`tvg-logo="..."`)是 IPTV/电台清单里最常见的台标来源，
+    /// 单独的 `#EXTIMG:` 行也有播放器在用 —— 两种都收，取先出现的那个。
+    private static func parseM3U(_ text: String) -> [Entry] {
+        var entries: [Entry] = []
         var pendingName: String?
+        var pendingLogo: String?
 
         for rawLine in text.components(separatedBy: .newlines) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             guard !line.isEmpty else { continue }
 
-            if line.lowercased().hasPrefix("#extinf") {
+            let lowered = line.lowercased()
+            if lowered.hasPrefix("#extinf") {
                 // 逗号后面才是名字；逗号前是时长和可选的属性(可能自带逗号，
                 // 所以取最后一个逗号之后的内容)。
                 if let commaIndex = line.lastIndex(of: ",") {
                     let name = String(line[line.index(after: commaIndex)...])
                         .trimmingCharacters(in: .whitespaces)
                     pendingName = name.isEmpty ? nil : name
+                    let attributes = String(line[line.startIndex..<commaIndex])
+                    pendingLogo = pendingLogo ?? logoAttribute(in: attributes)
                 }
                 continue
             }
+            if lowered.hasPrefix("#extimg") {
+                let value = line.drop(while: { $0 != ":" }).dropFirst()
+                    .trimmingCharacters(in: .whitespaces)
+                pendingLogo = pendingLogo ?? (value.isEmpty ? nil : value)
+                continue
+            }
             guard !line.hasPrefix("#") else { continue }
-            entries.append(RawEntry(name: pendingName, urlString: line))
+            entries.append(Entry(
+                name: pendingName,
+                urlString: line,
+                logoURLString: pendingLogo
+            ))
             pendingName = nil
+            pendingLogo = nil
         }
         return entries
     }
 
     /// `FileN=` 是 URL，`TitleN=` 是同一个 N 的名字，顺序不保证，所以先按序号收集。
-    private static func parsePLS(_ text: String) -> [RawEntry] {
+    /// `LogoN=` / `ImageN=` 不是 PLS 标准字段，但有导出工具会写，顺手收下。
+    private static func parsePLS(_ text: String) -> [Entry] {
         var urls: [Int: String] = [:]
         var titles: [Int: String] = [:]
+        var logos: [Int: String] = [:]
 
         for rawLine in text.components(separatedBy: .newlines) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
@@ -220,12 +304,49 @@ public enum RadioImportParser {
                 urls[index] = value
             } else if key.hasPrefix("title"), let index = Int(key.dropFirst(5)) {
                 titles[index] = value
+            } else if key.hasPrefix("logo"), let index = Int(key.dropFirst(4)) {
+                logos[index] = value
+            } else if key.hasPrefix("image"), let index = Int(key.dropFirst(5)) {
+                logos[index] = logos[index] ?? value
             }
         }
 
         return urls.keys.sorted().map { index in
-            RawEntry(name: titles[index], urlString: urls[index] ?? "")
+            Entry(
+                name: titles[index],
+                urlString: urls[index] ?? "",
+                logoURLString: logos[index]
+            )
         }
+    }
+
+    /// 从 EXTINF 属性区里取台标。`tvg-logo` 最常见，`logo` / `tvg-logo-small`
+    /// 之类的写法也见得到；值可能用双引号、单引号，或者干脆不加引号。
+    private static func logoAttribute(in attributes: String) -> String? {
+        for key in ["tvg-logo", "logo", "tvg-logo-small", "url-logo", "icon"] {
+            guard let range = attributes.range(of: "\(key)=", options: .caseInsensitive) else {
+                continue
+            }
+            // 属性名必须是完整的一段，否则 `logo=` 会命中 `tvg-logo=` 的尾巴，
+            // 把值切成半截。
+            if range.lowerBound > attributes.startIndex {
+                let previous = attributes[attributes.index(before: range.lowerBound)]
+                guard previous.isWhitespace || previous == ":" || previous == "," else { continue }
+            }
+            var rest = attributes[range.upperBound...]
+            guard let first = rest.first else { continue }
+            if first == "\"" || first == "'" {
+                rest = rest.dropFirst()
+                guard let end = rest.firstIndex(of: first) else { continue }
+                let value = String(rest[rest.startIndex..<end]).trimmingCharacters(in: .whitespaces)
+                if !value.isEmpty { return value }
+            } else {
+                let value = String(rest.prefix { !$0.isWhitespace })
+                    .trimmingCharacters(in: .whitespaces)
+                if !value.isEmpty { return value }
+            }
+        }
+        return nil
     }
 
     private static func looksLikeURL(_ value: String) -> Bool {

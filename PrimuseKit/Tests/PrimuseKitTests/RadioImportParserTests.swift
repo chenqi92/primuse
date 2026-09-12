@@ -175,4 +175,104 @@ struct RadioImportParserTests {
         #expect(RadioImportParser.detectSource("[playlist]\nFile1=https://a.example") == .pls)
         #expect(RadioImportParser.detectSource("https://a.example") == .plainText)
     }
+
+    // MARK: - 清单里的台标
+
+    @Test("EXTINF 的 tvg-logo 会被收下")
+    func parsesTvgLogo() {
+        let candidates = RadioImportParser.parse("""
+        #EXTM3U
+        #EXTINF:-1 tvg-id="a" tvg-logo="https://cdn.x/logo1.png" group-title="Music",Station One
+        https://a.com/one
+        #EXTINF:-1 tvg-logo=https://cdn.x/logo2.png,Station Two
+        https://a.com/two
+        #EXTINF:-1,Station Three
+        https://a.com/three
+        """)
+
+        #expect(candidates.count == 3)
+        #expect(candidates[0].name == "Station One")
+        #expect(candidates[0].logoURLString == "https://cdn.x/logo1.png")
+        #expect(candidates[0].logoSource == .importedManifest)
+        // 不带引号的写法同样常见
+        #expect(candidates[1].logoURLString == "https://cdn.x/logo2.png")
+        #expect(candidates[2].logoURLString == nil)
+        #expect(candidates[2].logoSource == nil)
+    }
+
+    @Test("独立的 #EXTIMG 行")
+    func parsesExtImg() {
+        let candidates = RadioImportParser.parse("""
+        #EXTM3U
+        #EXTINF:-1,Station
+        #EXTIMG:https://cdn.x/logo.jpg
+        https://a.com/one
+        """)
+        #expect(candidates[0].logoURLString == "https://cdn.x/logo.jpg")
+    }
+
+    @Test("台标不跨条目串味")
+    func doesNotLeakLogoToNextEntry() {
+        let candidates = RadioImportParser.parse("""
+        #EXTM3U
+        #EXTINF:-1 tvg-logo="https://cdn.x/one.png",One
+        https://a.com/one
+        #EXTINF:-1,Two
+        https://a.com/two
+        """)
+        #expect(candidates[0].logoURLString == "https://cdn.x/one.png")
+        #expect(candidates[1].logoURLString == nil)
+    }
+
+    @Test("坏的 logo 地址被丢掉，条目本身照常可用")
+    func dropsInvalidLogo() {
+        let candidates = RadioImportParser.parse("""
+        #EXTM3U
+        #EXTINF:-1 tvg-logo="javascript:alert(1)",One
+        https://a.com/one
+        """)
+        #expect(candidates[0].isPlayable)
+        #expect(candidates[0].logoURLString == nil)
+    }
+
+    @Test("PLS 的 LogoN")
+    func parsesPLSLogo() {
+        let candidates = RadioImportParser.parse("""
+        [playlist]
+        File1=https://a.com/one
+        Title1=One
+        Logo1=https://cdn.x/one.png
+        File2=https://a.com/two
+        Title2=Two
+        """)
+        #expect(candidates.count == 2)
+        #expect(candidates[0].logoURLString == "https://cdn.x/one.png")
+        #expect(candidates[1].logoURLString == nil)
+    }
+
+    @Test("结构化条目和清单共用同一套判重")
+    func structuredEntriesShareDeduplication() {
+        let candidates = RadioImportParser.candidates(
+            from: [
+                RadioImportParser.Entry(
+                    name: "Groove Salad",
+                    urlString: "https://ice1.somafm.com/groovesalad-128-mp3",
+                    logoURLString: "https://somafm.com/logo.png",
+                    homepageURLString: "https://somafm.com",
+                    logoSource: .directoryFavicon
+                ),
+                RadioImportParser.Entry(
+                    name: "Same Stream",
+                    urlString: "https://ice1.somafm.com/groovesalad-128-mp3"
+                ),
+                RadioImportParser.Entry(name: "Bad", urlString: "not a url"),
+            ],
+            existing: []
+        )
+
+        #expect(candidates[0].logoSource == .directoryFavicon)
+        #expect(candidates[0].homepageURLString == "https://somafm.com")
+        #expect(candidates[1].status == .duplicate)
+        #expect(candidates[2].status == .invalid)
+    }
 }

@@ -115,6 +115,12 @@ public struct RadioStation: Codable, Identifiable, Hashable, Sendable {
     /// persisting a credential-bearing URL in this value type.
     public var sourcePlaybackPath: String?
     public var homepageURL: String?
+    /// 自动发现或导入清单带来的远程台标地址。和 `logoData` 的关系是「兜底」：
+    /// 用户自己选过图就永远显示用户的图，这里只填补用户没选图的电台。
+    /// 存的是地址而不是字节 —— 台标可能几百 KB，没必要塞进每次 CloudKit 同步。
+    public var remoteLogoURL: String?
+    /// 远程台标是从哪来的。决定一个新发现的候选值不值得覆盖它。
+    public var remoteLogoSource: RadioLogoSource?
 
     public init(
         id: String = UUID().uuidString,
@@ -134,7 +140,9 @@ public struct RadioStation: Codable, Identifiable, Hashable, Sendable {
         serverStationID: String? = nil,
         sourceName: String? = nil,
         sourcePlaybackPath: String? = nil,
-        homepageURL: String? = nil
+        homepageURL: String? = nil,
+        remoteLogoURL: String? = nil,
+        remoteLogoSource: RadioLogoSource? = nil
     ) {
         self.id = id
         self.name = name
@@ -154,6 +162,8 @@ public struct RadioStation: Codable, Identifiable, Hashable, Sendable {
         self.sourceName = sourceName
         self.sourcePlaybackPath = sourcePlaybackPath
         self.homepageURL = homepageURL
+        self.remoteLogoURL = remoteLogoURL
+        self.remoteLogoSource = remoteLogoSource
     }
 
     public var isServerMirror: Bool {
@@ -196,7 +206,7 @@ public struct RadioStation: Codable, Identifiable, Hashable, Sendable {
             fileSize: 0,
             bitRate: bitRate,
             dateAdded: createdAt,
-            coverArtFileName: logoFileName
+            coverArtFileName: logoFileName ?? remoteLogoURL
         )
     }
 
@@ -300,6 +310,21 @@ public enum RadioStationArtworkResolutionPolicy {
                 songID: station.playbackSong.id,
                 sourceID: station.sourceID,
                 filePath: station.sourcePlaybackPath ?? station.streamURL,
+                fileFormat: station.streamFormat.audioFormat
+            )))
+        }
+        // 自动发现/导入得到的远程台标排在最后：它是补位用的，任何用户可见的
+        // 来源(手选图、服务器封面)都比它优先。
+        //
+        // 这里刻意不带 `sourceID` 和 `filePath`：这个地址属于公网，不属于任何
+        // 音乐源，带上 sourceID 只会让加载层先去问一个不存在的连接器。
+        if let remote = cleaned(station.remoteLogoURL),
+           let normalized = RadioLogoURLPolicy.normalized(remote) {
+            candidates.append(.cachedOrSource(RadioStationArtworkRemoteRequest(
+                coverReference: normalized,
+                songID: station.playbackSong.id,
+                sourceID: nil,
+                filePath: nil,
                 fileFormat: station.streamFormat.audioFormat
             )))
         }

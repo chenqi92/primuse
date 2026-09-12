@@ -291,13 +291,76 @@ struct RadioStationArtworkResolutionPolicyTests {
         #expect(iPadLandscape.itemWidth <= layout.maximumItemWidth)
     }
 
+    // MARK: - 自动发现来的远程台标
+
+    @Test("自动发现的台标排在用户可见来源之后")
+    func remoteLogoIsLastResort() {
+        let station = makeStation(
+            logoFileName: "station-cover.jpg",
+            remoteLogoURL: "https://cdn.example.test/logo.png"
+        )
+        let plan = RadioStationArtworkResolutionPolicy.makePlan(for: station)
+
+        #expect(plan.candidates.count == 2)
+        guard case .cachedOrSource(let first) = plan.candidates.first,
+              case .cachedOrSource(let second) = plan.candidates.last else {
+            Issue.record("Expected two reference candidates")
+            return
+        }
+        #expect(first.coverReference == "station-cover.jpg")
+        #expect(second.coverReference == "https://cdn.example.test/logo.png")
+    }
+
+    /// 这个地址属于公网，不属于任何音乐源。带上 sourceID 会让加载层先去问
+    /// 一个不存在的连接器，而带上 filePath 会让它去翻不存在的本地缓存文件。
+    @Test("远程台标候选不携带音乐源归属")
+    func remoteLogoCandidateHasNoSourceOwnership() {
+        let station = makeStation(
+            sourceID: "jellyfin-main",
+            sourcePlaybackPath: "Audio/stream/42",
+            remoteLogoURL: "https://cdn.example.test/logo.png"
+        )
+        let plan = RadioStationArtworkResolutionPolicy.makePlan(for: station)
+
+        guard case .cachedOrSource(let remote) = plan.candidates.last else {
+            Issue.record("Expected a remote candidate")
+            return
+        }
+        #expect(remote.coverReference == "https://cdn.example.test/logo.png")
+        #expect(remote.sourceID == nil)
+        #expect(remote.filePath == nil)
+    }
+
+    @Test("坏地址不会变成候选")
+    func rejectsInvalidRemoteLogo() {
+        for bad in ["0", "not a url", "ftp://a.com/l.png", "https://user:pw@a.com/l.png"] {
+            let plan = RadioStationArtworkResolutionPolicy.makePlan(
+                for: makeStation(remoteLogoURL: bad)
+            )
+            #expect(plan.usesPlaceholderOnly, "\(bad) should not become a candidate")
+        }
+    }
+
+    @Test("没有本地台标时，播放用的 Song 直接指向远程台标")
+    func playbackSongFallsBackToRemoteLogo() {
+        let station = makeStation(remoteLogoURL: "https://cdn.example.test/logo.png")
+        #expect(station.playbackSong.coverArtFileName == "https://cdn.example.test/logo.png")
+
+        let withLocal = makeStation(
+            logoFileName: "station-cover.jpg",
+            remoteLogoURL: "https://cdn.example.test/logo.png"
+        )
+        #expect(withLocal.playbackSong.coverArtFileName == "station-cover.jpg")
+    }
+
     private func makeStation(
         id: String = "station",
         logoData: Data? = nil,
         logoFileName: String? = nil,
         streamFormat: RadioStreamFormat = .aac,
         sourceID: String? = nil,
-        sourcePlaybackPath: String? = nil
+        sourcePlaybackPath: String? = nil,
+        remoteLogoURL: String? = nil
     ) -> RadioStation {
         RadioStation(
             id: id,
@@ -309,7 +372,9 @@ struct RadioStationArtworkResolutionPolicyTests {
             sourceID: sourceID,
             serverStationID: sourceID == nil ? nil : "server-station",
             sourceName: sourceID == nil ? nil : "Server",
-            sourcePlaybackPath: sourcePlaybackPath
+            sourcePlaybackPath: sourcePlaybackPath,
+            remoteLogoURL: remoteLogoURL,
+            remoteLogoSource: remoteLogoURL == nil ? nil : .icyHeader
         )
     }
 }
