@@ -156,9 +156,9 @@ final class DLNARendererService {
     private var activeHTTPConnections = 0
     /// HTTP listener 自愈状态机 ── 代际 + 单飞 + 退避, 防止固定端口 bind 持续
     /// 失败时 .failed → 立即重建 的死循环烧 CPU / 刷爆日志。
-    private var httpRestartMachine = ListenerRestartStateMachine()
+    @ObservationIgnored private var httpRestartMachine = ListenerRestartStateMachine()
     /// 当前排队中的重启任务; 只可能有一个 (状态机保证单飞)。
-    private var httpRetryTask: Task<Void, Never>?
+    @ObservationIgnored private var httpRetryTask: Task<Void, Never>?
     /// listener 的 bookkeeping 队列。放主队列会让失败回调直接压主线程。
     nonisolated private static let httpListenerQueue = DispatchQueue(
         label: "com.welape.yuanyin.dlna.http-listener"
@@ -234,9 +234,11 @@ final class DLNARendererService {
         )
     }
 
-    isolated deinit {
+    deinit {
         // 排队中的重启任务持有 weak self, 但没必要让它睡满退避再空跑一趟。
-        // Task.cancel() 是 nonisolated, 从 deinit 调安全。
+        // httpRetryTask / httpRestartMachine 标了 @ObservationIgnored, 是不进
+        // 观察跟踪的普通存储, nonisolated deinit 可以直接读;
+        // Task.cancel() 也是 nonisolated, 从 deinit 调安全。
         httpRetryTask?.cancel()
     }
 
