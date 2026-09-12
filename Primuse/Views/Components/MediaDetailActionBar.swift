@@ -162,13 +162,7 @@ struct LibraryReviewSection: View {
                         .accessibilityAddTraits(.isButton)
                 }
             }
-            .padding(.horizontal, usesCompactControls ? 12 : (compact ? 10 : 14))
-            .padding(.vertical, usesCompactControls ? 8 : (compact ? 10 : 14))
-            .background(reviewBackground, in: RoundedRectangle(cornerRadius: compact ? 12 : 16, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: compact ? 12 : 16, style: .continuous)
-                    .strokeBorder(onArtwork ? (foregroundColor ?? Color.white).opacity(0.14) : Color.primary.opacity(0.06), lineWidth: 0.5)
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, topSpacing)
             .sheet(isPresented: $showsCommentEditor) {
                 LibraryReviewCommentEditor(subject: subject)
@@ -198,17 +192,6 @@ struct LibraryReviewSection: View {
         .accessibilityLabel(Text(review?.comment.isEmpty == false
             ? "library_review_edit_comment" : "library_review_add_comment"))
         .accessibilityHint(Text("library_review_comment_hint"))
-    }
-
-    private var reviewBackground: AnyShapeStyle {
-        if onArtwork {
-            return AnyShapeStyle(.ultraThinMaterial)
-        }
-        #if os(iOS)
-        return AnyShapeStyle(Color(uiColor: .secondarySystemBackground))
-        #else
-        return AnyShapeStyle(Color(nsColor: .controlBackgroundColor))
-        #endif
     }
 }
 
