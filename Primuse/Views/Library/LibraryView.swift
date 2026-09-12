@@ -1279,21 +1279,32 @@ struct LibraryView: View {
         } description: {
             Text("welcome_desc")
         } actions: {
-            VStack(spacing: 10) {
+            // 两个按钮等宽：文案长度不同，让宽度跟着文字走会让它们上下参差。
+            // 图标沿用各自在设置页与电台页已有的符号，和上方标题的图标呼应。
+            VStack(spacing: 12) {
                 NavigationLink {
                     SourcesContentView()
                         #if os(iOS)
                         .minimalNavigationDetail()
                         #endif
                 } label: {
-                    Text("manage_sources")
+                    Label(
+                        "manage_sources",
+                        systemImage: "externaldrive.connected.to.line.below"
+                    )
+                    .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+
                 NavigationLink(value: LibrarySection.radio) {
-                    Text("radio_manage")
+                    Label("radio_manage", systemImage: "radio")
+                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
             }
+            .controlSize(.large)
+            // 空状态是整屏留白，不限宽的话按钮在 iPad 与桌面上会拉成一条横杠。
+            .frame(maxWidth: 280)
         }
     }
 
