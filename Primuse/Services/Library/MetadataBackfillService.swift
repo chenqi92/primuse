@@ -52,8 +52,17 @@ private final class MetadataContinuedProcessingSession: MetadataBackgroundContin
                 task.expirationHandler = { [weak self] in
                     Task { @MainActor in
                         guard let self, !self.finished else { return }
-                        plog("📥 Backfill: continued task expired or cancelled by system UI id=\(self.identifier)")
-                        self.finish(success: false)
+                        // 系统收回后台时间，不等于标签读取失败：app 还在前台时
+                        // 读取会照常继续（见 start() 里对 applicationState 的
+                        // 判断）。这时报失败，系统任务卡片会显示「任务失败」，
+                        // 而用户在应用里看到的进度仍在往前走，两边对不上。
+                        let continuesInForeground =
+                            UIApplication.shared.applicationState == .active
+                        plog("📥 Backfill: continued task expired id=\(self.identifier) foreground=\(continuesInForeground)")
+                        self.finish(
+                            success: continuesInForeground,
+                            completesProgress: false
+                        )
                         self.expired()
                     }
                 }
@@ -100,12 +109,20 @@ private final class MetadataContinuedProcessingSession: MetadataBackgroundContin
     }
 
     func finish(success: Bool) {
+        finish(success: success, completesProgress: true)
+    }
+
+    /// - Parameter completesProgress: 是否把进度条补满。只有真正读完才补；
+    ///   前台接手继续读时活儿还没干完，补满会让最后一眼的卡片说谎。
+    private func finish(success: Bool, completesProgress: Bool) {
         guard !finished else { return }
         finished = true
         plog("📥 Backfill: continued task finished id=\(identifier) success=\(success) processed=\(completed)/\(total) granted=\(task != nil)")
         if let task {
             task.expirationHandler = nil
-            if success { task.progress.completedUnitCount = task.progress.totalUnitCount }
+            if success, completesProgress {
+                task.progress.completedUnitCount = task.progress.totalUnitCount
+            }
             task.setTaskCompleted(success: success)
             self.task = nil
         } else {
