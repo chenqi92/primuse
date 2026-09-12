@@ -2312,6 +2312,7 @@
 "output_mode_high_fidelity_desc" = "Chemin du signal le plus court à gain unitaire, sans effets DSP, avec adaptation automatique de la fréquence d’échantillonnage.";
 "output_mode_effects_desc" = "Utilise toute la chaîne de traitement : égaliseur, dynamique, réverbération, audio spatial, ReplayGain, vitesse, fondu et visualisation.";
 "volume_high_fidelity_system_hint" = "Le mode Haute fidélité directe utilise un gain unitaire. Réglez le volume avec les commandes système.";
+"volume_output_device_hint" = "Règle le volume du périphérique de sortie ; le trajet direct reste bit-perfect.";
 "dsd_playback_mode" = "Lecture DSD";
 "dsd_mode_auto" = "Automatique";
 "dsd_mode_pcm" = "Convertir en PCM";

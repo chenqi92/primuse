@@ -2312,6 +2312,7 @@
 "output_mode_high_fidelity_desc" = "Kürzester Signalweg mit unveränderter Verstärkung; umgeht alle DSP-Effekte und passt die Abtastrate automatisch an.";
 "output_mode_effects_desc" = "Verwendet die vollständige Verarbeitungskette für EQ, Dynamik, Hall, Spatial Audio, ReplayGain, Tempo, Crossfade und Visualisierung.";
 "volume_high_fidelity_system_hint" = "Die Hi-Fi-Direktausgabe verwendet unveränderte Verstärkung. Regeln Sie die Lautstärke über das System.";
+"volume_output_device_hint" = "Regelt die Lautstärke des Ausgabegeräts; der Direktpfad bleibt bit-perfekt.";
 "dsd_playback_mode" = "DSD-Wiedergabe";
 "dsd_mode_auto" = "Automatisch";
 "dsd_mode_pcm" = "In PCM umwandeln";

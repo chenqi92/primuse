@@ -3369,6 +3369,7 @@
 "volume" = "ระดับเสียง";
 "volume_down" = "ลดระดับเสียง";
 "volume_high_fidelity_system_hint" = "High Fidelity Direct ใช้เอกภาพที่ได้รับ ปรับระดับเสียงด้วยส่วนควบคุมของระบบ";
+"volume_output_device_hint" = "ปรับระดับเสียงของอุปกรณ์เอาต์พุต โดยคงสัญญาณไดเรกต์ให้บิตเพอร์เฟกต์";
 "volume_up" = "เพิ่มระดับเสียง";
 "webdav_config" = "WebDAV การตั้งค่า";
 "weekday_friday_short" = "ศ.";

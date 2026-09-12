@@ -3369,6 +3369,7 @@
 "volume" = "المجلد";
 "volume_down" = "خفض مستوى الصوت";
 "volume_high_fidelity_system_hint" = "يستخدم High Fidelity Direct كسب الوحدة. اضبط مستوى الصوت باستخدام عناصر تحكم النظام.";
+"volume_output_device_hint" = "يضبط مستوى صوت جهاز الإخراج مع الحفاظ على المسار المباشر مطابقًا بتّيًا.";
 "volume_up" = "رفع الصوت";
 "webdav_config" = "WebDAV الإعدادات";
 "weekday_friday_short" = "ج";

@@ -832,6 +832,7 @@
 "sync_now" = "Şimdi Eşitle";
 "library_recommendations_title" = "Öneriler";
 "volume_high_fidelity_system_hint" = "High Fidelity Direct, birlik kazancını kullanır. Ses seviyesini sistem kontrolleriyle ayarlayın.";
+"volume_output_device_hint" = "Çıkış aygıtının ses düzeyini ayarlar; doğrudan sinyal yolu bit-perfect kalır.";
 "source_diag_summary_ok" = "Taramaya hazır";
 "ai_recommendation_status_authentication_local" = "Akıllı hizmet kimlik doğrulaması başarısız oldu; mevcut öneriler korundu";
 "ST-10 · Accept any certificate this domain presents" = "ST-10 · Bu alanın sunduğu tüm sertifikaları kabul edin";

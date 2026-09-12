@@ -227,7 +227,21 @@ final class AudioEngine {
     /// internal notification queue.
     func markHardwareConfigurationChanged() {
         hardwareConfigurationRecoveryState.configurationChanged()
+        #if os(macOS)
+        syncOutputDeviceVolumeBinding()
+        #endif
     }
+
+    #if os(macOS)
+    /// 高保真直通把音量交给输出设备的硬件音量，所以输出设备一变，
+    /// 音量控件绑定的设备也必须跟着换，否则拖动会去调另一台设备。
+    private func syncOutputDeviceVolumeBinding() {
+        let controller = OutputDeviceVolumeController.shared
+        // start() 幂等：音量条、快捷键和播放服务都可能第一个碰到它。
+        controller.start()
+        controller.preferredDeviceID = currentOutputDeviceID
+    }
+    #endif
 
     private func tearDownGraph() {
         cancelTransportFade(restoreVolume: false)
@@ -258,6 +272,9 @@ final class AudioEngine {
 
     func setUp() throws {
         guard !isSetUp else { return }
+        #if os(macOS)
+        defer { syncOutputDeviceVolumeBinding() }
+        #endif
 
         nodeRegistry.resetTimeline(for: .primary)
         nodeRegistry.resetTimeline(for: .crossfade)
@@ -1299,6 +1316,14 @@ final class AudioEngine {
         get { outputMode == .highFidelity ? 1 : requestedVolume }
         set { setVolume(newValue) }
     }
+
+    /// 用户设定的音量，不受当前播放图是否施加增益影响。
+    ///
+    /// `volume` 表达的是「直通图这一刻的实际增益」，高保真下恒为 1。那个语义
+    /// 只对本地直通链路成立，而电台、MV、系统回退播放各自走独立的 AVPlayer，
+    /// DLNA 上报的也是用户音量 —— 这些路径读 `volume` 会在切过一次高保真本地
+    /// 播放之后统统跳到满音量。它们要的是这个值。
+    var userVolume: Float { requestedVolume }
 
     func setVolume(_ value: Float, persist: Bool = true) {
         guard value.isFinite else { return }

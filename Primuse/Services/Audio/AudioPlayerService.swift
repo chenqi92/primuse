@@ -2848,7 +2848,7 @@ final class AudioPlayerService {
         item.allowedAudioSpatializationFormats = .multichannel
         let player = AVPlayer(playerItem: item)
         player.automaticallyWaitsToMinimizeStalling = true
-        player.volume = audioEngine.volume
+        player.volume = audioEngine.userVolume
         systemAudioPlayer = player
         systemAudioStreamingLoader = loader
         systemAudioFallbackContext = (song, url, sourceStreamEpoch)
@@ -3049,7 +3049,7 @@ final class AudioPlayerService {
                 player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
             }
             player.automaticallyWaitsToMinimizeStalling = true
-            player.volume = audioEngine.volume
+            player.volume = audioEngine.userVolume
             musicVideoPlayer = player
             isMusicVideoPlaybackActive = true
             isAtTrackEnd = false
@@ -3399,6 +3399,18 @@ final class AudioPlayerService {
     func setPlaybackVolume(_ value: Float, persist: Bool = true) {
         guard value.isFinite else { return }
         let clamped = min(max(value, 0), 1)
+        #if os(macOS)
+        // 高保真直通的图里没有增益节点 —— 在那儿改应用音量是无声的操作，
+        // 键盘快捷键和滑块都会看起来失灵。这种情况下音量由输出设备硬件承担。
+        if PlaybackVolumeControlPolicy.target(
+            isLiveRadio: isLiveRadio,
+            isHighFidelityDirect: playbackSettings.outputMode == .highFidelity,
+            outputDeviceVolumeIsControllable: OutputDeviceVolumeController.shared.isControllable
+        ) == .outputDevice {
+            OutputDeviceVolumeController.shared.setVolume(clamped)
+            return
+        }
+        #endif
         audioEngine.setVolume(clamped, persist: persist)
         radioPlaybackController.setVolume(clamped)
         activeSystemMediaPlayer?.volume = clamped

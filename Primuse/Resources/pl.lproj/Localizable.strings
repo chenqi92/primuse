@@ -3369,6 +3369,7 @@
 "volume" = "Głośność";
 "volume_down" = "Ciszej";
 "volume_high_fidelity_system_hint" = "High Fidelity Direct wykorzystuje wzmocnienie jednostkowe. Dostosuj głośność za pomocą elementów sterujących systemu.";
+"volume_output_device_hint" = "Reguluje głośność urządzenia wyjściowego, zachowując ścieżkę bit-perfect.";
 "volume_up" = "Zwiększ głośność";
 "webdav_config" = "Ustawienia WebDAV";
 "weekday_friday_short" = "Pt";

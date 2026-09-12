@@ -3369,6 +3369,7 @@
 "volume" = "वॉल्यूम";
 "volume_down" = "आवाज़ कम";
 "volume_high_fidelity_system_hint" = "हाई फिडेलिटी डायरेक्ट यूनिटी गेन का उपयोग करता है। सिस्टम नियंत्रण के साथ वॉल्यूम समायोजित करें।";
+"volume_output_device_hint" = "आउटपुट डिवाइस का वॉल्यूम बदलता है, डायरेक्ट सिग्नल बिट-परफेक्ट रहता है।";
 "volume_up" = "आवाज़ बढ़ाएँ";
 "webdav_config" = "WebDAV सेटिंग्स";
 "weekday_friday_short" = "शु";

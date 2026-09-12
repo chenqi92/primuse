@@ -2413,6 +2413,7 @@
 "output_mode_high_fidelity_desc" = "以单位增益使用最短信号路径，绕过均衡器、动态处理、混响、空间音频、回放增益、变速、淡入淡出、应用音量与可视化采样，并自动匹配采样率。";
 "output_mode_effects_desc" = "使用完整处理链，支持均衡器、动态处理、混响、空间音频、回放增益、变速、淡入淡出、应用音量与可视化。";
 "volume_high_fidelity_system_hint" = "高保真直通使用单位增益，请使用系统音量调节。";
+"volume_output_device_hint" = "调节输出设备音量，直通信号保持逐位精确。";
 "dsd_playback_mode" = "DSD 播放";
 "dsd_mode_auto" = "自动";
 "dsd_mode_pcm" = "转换为 PCM";

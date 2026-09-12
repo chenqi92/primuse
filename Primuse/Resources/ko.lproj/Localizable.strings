@@ -2312,6 +2312,7 @@
 "output_mode_high_fidelity_desc" = "유니티 게인의 최단 신호 경로로 모든 DSP를 우회하고 샘플 레이트를 자동으로 맞춥니다.";
 "output_mode_effects_desc" = "EQ, 다이내믹, 리버브, 공간 음향, ReplayGain, 속도, 크로스페이드 및 시각화를 사용합니다.";
 "volume_high_fidelity_system_hint" = "고음질 다이렉트는 유니티 게인을 사용합니다. 시스템 음량으로 조절하세요.";
+"volume_output_device_hint" = "출력 장치 음량을 조절하며 다이렉트 신호는 비트 퍼펙트로 유지됩니다.";
 "dsd_playback_mode" = "DSD 재생";
 "dsd_mode_auto" = "자동";
 "dsd_mode_pcm" = "PCM으로 변환";

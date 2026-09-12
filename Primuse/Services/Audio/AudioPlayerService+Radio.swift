@@ -224,7 +224,7 @@ extension AudioPlayerService {
             return
         }
         radioUsesDecodedTransport = false
-        radioPlaybackController.start(url: url, volume: audioEngine.volume) { [weak self] event in
+        radioPlaybackController.start(url: url, volume: audioEngine.userVolume) { [weak self] event in
             guard let self, self.playID == id, self.currentRadioStation?.id == station.id else { return }
             self.handleRadioEvent(event, station: station, playID: id)
         }

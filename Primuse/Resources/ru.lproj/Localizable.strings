@@ -832,6 +832,7 @@
 "sync_now" = "Синхронизировать сейчас";
 "library_recommendations_title" = "Рекомендации";
 "volume_high_fidelity_system_hint" = "High Fidelity Direct использует единичный коэффициент усиления. Отрегулируйте громкость с помощью элементов управления системы.";
+"volume_output_device_hint" = "Регулирует громкость устройства вывода, сохраняя прямой тракт бит-в-бит.";
 "source_diag_summary_ok" = "Готово к сканированию";
 "ai_recommendation_status_authentication_local" = "Не удалось выполнить аутентификацию интеллектуальной службы; существующие рекомендации сохранены";
 "ST-10 · Accept any certificate this domain presents" = "ST-10 · Принимать любой сертификат, представленный в этом домене.";

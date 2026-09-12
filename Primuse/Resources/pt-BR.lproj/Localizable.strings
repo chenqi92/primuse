@@ -3369,6 +3369,7 @@
 "volume" = "Volume";
 "volume_down" = "Diminuir volume";
 "volume_high_fidelity_system_hint" = "High Fidelity Direct usa ganho unitário. Ajuste o volume com os controles do sistema.";
+"volume_output_device_hint" = "Ajusta o volume do dispositivo de saída, mantendo o caminho direto bit-perfect.";
 "volume_up" = "Aumentar volume";
 "webdav_config" = "Configurações WebDAV";
 "weekday_friday_short" = "S";

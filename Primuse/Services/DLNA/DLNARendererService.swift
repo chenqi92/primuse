@@ -328,7 +328,7 @@ final class DLNARendererService {
                 _ = player.currentSong?.id
                 _ = player.isAtTrackEnd
                 _ = player.isCastingMode
-                _ = player.audioEngine.volume
+                _ = player.audioEngine.userVolume
                 _ = rendererMuted
                 _ = lastNonMutedVolume
             } onChange: { [weak self] in
@@ -353,7 +353,7 @@ final class DLNARendererService {
     }
 
     private func syncRenderingStateFromEngine() {
-        let currentVolume = player.audioEngine.volume
+        let currentVolume = player.audioEngine.userVolume
         if rendererMuted, currentVolume > 0.001 {
             rendererMuted = false
             lastNonMutedVolume = currentVolume
@@ -1369,7 +1369,7 @@ final class DLNARendererService {
     // MARK: - RenderingControl (音量同步)
 
     private var renderingVolumePercent: Int {
-        let volume = rendererMuted ? lastNonMutedVolume : player.audioEngine.volume
+        let volume = rendererMuted ? lastNonMutedVolume : player.audioEngine.userVolume
         return max(0, min(100, Double(volume * 100).rounded().finiteInt()))
     }
 
@@ -1385,7 +1385,7 @@ final class DLNARendererService {
 
     private func setRenderingMuted(_ muted: Bool) {
         if muted {
-            let currentVolume = player.audioEngine.volume
+            let currentVolume = player.audioEngine.userVolume
             if currentVolume > 0.001 {
                 lastNonMutedVolume = currentVolume
             }
