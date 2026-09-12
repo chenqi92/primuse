@@ -649,9 +649,9 @@ struct HomeView: View {
 
     /// 快照的取数上限。必须不小于设置里能调到的最大值,否则用户调大了也不会
     /// 多出内容,看起来就像设置没生效。
-    static let recentlyAddedAlbumPoolLimit = 24
-    static let playlistPoolLimit = 20
-    static let topArtistPoolLimit = 20
+    nonisolated static let recentlyAddedAlbumPoolLimit = 24
+    nonisolated static let playlistPoolLimit = 20
+    nonisolated static let topArtistPoolLimit = 20
 
     /// 用户没设过条目数时,沿用各排布原本按尺寸类给的默认值。
     private func sectionItemCount(_ section: HomeSectionKind, _ fallback: Int) -> Int {
