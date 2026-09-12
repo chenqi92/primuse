@@ -1250,3 +1250,91 @@ struct LyricTranslationGroupingPolicyTests {
         ))
     }
 }
+
+/// refs #105 —— 逐字原文与整行译文共用同一时间戳时的配对。
+@Suite("Bilingual pairing with word-level source lines")
+struct LyricBilingualWordLevelPairingTests {
+
+    /// Lyrico 之类的工具会把逐字原文和整行译文写成同一个时间戳的相邻两行。
+    /// 原文因为带音节曾被排除在配对之外，译文于是留成独立一行，高亮落在译文上。
+    private let bilingualWordLevelLRC = """
+    [00:12.00]<00:12.00>Hello <00:12.50>world
+    [00:12.00]你好世界
+    [00:15.00]<00:15.00>Second <00:15.40>line
+    [00:15.00]第二行歌词
+    [00:18.00]<00:18.00>Third <00:18.30>one
+    [00:18.00]第三行歌词
+    """
+
+    @Test("译文并入原文，而不是留成独立一行")
+    func mergesTranslationIntoWordLevelSource() {
+        let lines = LyricsContentParser.parse(bilingualWordLevelLRC)
+
+        #expect(lines.count == 3)
+        #expect(lines.allSatisfy { $0.manualTranslation != nil })
+        #expect(lines[0].text == "Hello world")
+        #expect(lines[0].manualTranslation?.text == "你好世界")
+        #expect(lines[0].manualTranslation?.source == .bilingualLRC)
+        #expect(lines[1].manualTranslation?.text == "第二行歌词")
+        #expect(lines[2].manualTranslation?.text == "第三行歌词")
+    }
+
+    /// 配对后逐字时间轴必须原样保留，否则原文的扫光和点按依然是坏的。
+    @Test("逐字时间轴在配对后完整保留")
+    func keepsSyllableTimingAfterPairing() {
+        let lines = LyricsContentParser.parse(bilingualWordLevelLRC)
+
+        #expect(lines.allSatisfy { $0.syllables?.isEmpty == false })
+        #expect(lines[0].syllables?.count == 2)
+        #expect(lines[0].syllables?.first?.text.trimmingCharacters(in: .whitespaces) == "Hello")
+        #expect(lines[0].isWordLevel)
+        // 高亮不再落到译文上：每个时间戳只剩一行，且它就是原文。
+        #expect(Set(lines.map(\.timestamp)).count == lines.count)
+    }
+
+    /// 两行都带音节时更像双声部或对唱，吞掉一行会真的丢内容。
+    @Test("两行都是逐字时不做配对")
+    func doesNotPairTwoWordLevelLines() {
+        let lines = LyricsContentParser.parse("""
+        [00:12.00]<00:12.00>Hello <00:12.50>world
+        [00:12.00]<00:12.00>你好 <00:12.50>世界
+        [00:15.00]<00:15.00>Second <00:15.40>line
+        [00:15.00]<00:15.00>第二 <00:15.40>行
+        """)
+
+        #expect(lines.count == 4)
+        #expect(lines.allSatisfy { $0.manualTranslation == nil })
+    }
+
+    /// 纯行级的双语 LRC 是既有能力，放宽原文侧不能把它弄坏。
+    @Test("纯行级双语仍然照常配对")
+    func stillPairsPlainBilingualLines() {
+        let lines = LyricsContentParser.parse("""
+        [00:12.00]Hello world
+        [00:12.00]你好世界
+        [00:15.00]Second line
+        [00:15.00]第二行歌词
+        [00:18.00]Third one
+        [00:18.00]第三行歌词
+        """)
+
+        #expect(lines.count == 3)
+        #expect(lines[0].manualTranslation?.text == "你好世界")
+        #expect(lines.allSatisfy { $0.syllables?.isEmpty != false })
+    }
+
+    /// 单语逐字歌词不该因为放宽判定就被两两吞并。
+    @Test("单语逐字歌词不受影响")
+    func leavesMonolingualWordLevelLyricsAlone() {
+        let lines = LyricsContentParser.parse("""
+        [00:12.00]<00:12.00>Hello <00:12.50>world
+        [00:15.00]<00:15.00>Second <00:15.40>line
+        [00:18.00]<00:18.00>Third <00:18.30>one
+        [00:21.00]<00:21.00>Fourth <00:21.30>line
+        """)
+
+        #expect(lines.count == 4)
+        #expect(lines.allSatisfy { $0.manualTranslation == nil })
+        #expect(lines.allSatisfy { $0.syllables?.isEmpty == false })
+    }
+}

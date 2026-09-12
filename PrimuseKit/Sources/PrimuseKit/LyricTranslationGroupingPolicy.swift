@@ -1066,7 +1066,7 @@ public enum LyricBilingualPairingPolicy {
         let tolerance = max(0, timestampTolerance)
         let clusters = adjacentTimestampClusters(in: lines, tolerance: tolerance)
         let timestampClusterCount = clusters.filter { cluster in
-            cluster.contains { isOrdinarySynchronizedLine(lines[$0]) }
+            cluster.contains { isPairableSourceLine(lines[$0]) }
         }.count
         let candidates = clusters.compactMap { cluster -> PairCandidate? in
             guard cluster.count == 2 else { return nil }
@@ -1074,7 +1074,11 @@ public enum LyricBilingualPairingPolicy {
             let secondIndex = cluster[1]
             let first = lines[firstIndex]
             let second = lines[secondIndex]
-            guard isOrdinarySynchronizedLine(first),
+            // 原文允许自带逐字时间轴：不少工具(如 Lyrico)会把逐字原文和整行
+            // 译文写成同一个时间戳的相邻两行。此前原文因为带音节而被排除在配对
+            // 之外，译文于是留成独立一行 —— 它和原文时间戳相同又排在后面，
+            // 高亮便落到译文上，原文的逐字扫光和点按都随之失效。
+            guard isPairableSourceLine(first),
                   isOrdinarySynchronizedLine(second),
                   !appearsSpeakerAttributed(first.text),
                   !appearsSpeakerAttributed(second.text),
@@ -1197,10 +1201,23 @@ public enum LyricBilingualPairingPolicy {
         return result
     }
 
+    /// 可以充当译文的行：必须是纯行级歌词。
+    ///
+    /// 译文侧不放宽到逐字 —— 两行都带音节时更可能是双声部或对唱，
+    /// 把其中一行吞成翻译会真的丢内容。
     private static func isOrdinarySynchronizedLine(_ line: LyricLine) -> Bool {
         line.isSynchronized
             && line.voice == .primary
             && line.syllables?.isEmpty != false
+            && line.background?.isEmpty != false
+            && !line.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// 可以充当原文的行：与译文侧的唯一区别是允许携带逐字时间轴，
+    /// 配对后这条时间轴会原样保留，逐字扫光照常工作。
+    private static func isPairableSourceLine(_ line: LyricLine) -> Bool {
+        line.isSynchronized
+            && line.voice == .primary
             && line.background?.isEmpty != false
             && !line.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }

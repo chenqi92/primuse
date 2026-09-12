@@ -629,7 +629,7 @@ struct NowPlayingView: View {
             uniquingKeysWith: { first, _ in first }
         )
         return library.artistNames(for: song).compactMap { name in
-            let id = MusicLibrary.hashID(name.lowercased())
+            let id = MusicLibrary.hashID(ArtistIdentityPolicy.groupingKey(name))
             if let artist = artistsByID[id] { return artist }
             return library.visibleArtists.first {
                 $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
@@ -6411,11 +6411,9 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         translatedTextByLineID = [:]
         activity = .idle
 
-        guard identity.isEnabled, !lyrics.isEmpty else {
-            activity = .notNeeded
-            return
-        }
-
+        // 歌词文件自带的译文是歌词内容的一部分，不是机器翻译的产物 ——
+        // 双语 LRC 把它和原文写在一起，用户不开「歌词翻译」也应该看得见。
+        // 那个开关管的是「要不要再去翻译一遍」，不该连内容一起藏掉。
         let translationLines = LyricVoiceTimelinePolicy.flattenedLines(lyrics)
         let manualTranslations = translationLines.reduce(into: [String: String]()) { result, line in
             guard let manualTranslation = LyricManualTranslationPolicy.preferredTranslation(
@@ -6427,6 +6425,11 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
             result[line.id] = text
         }
         translatedTextByLineID = manualTranslations
+
+        guard identity.isEnabled, !lyrics.isEmpty else {
+            activity = .notNeeded
+            return
+        }
         if LyricManualTranslationPolicy.hasCompleteCoverage(
             in: translationLines,
             targetLanguageCode: identity.targetLanguageCode
