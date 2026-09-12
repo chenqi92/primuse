@@ -17,6 +17,7 @@ DerivedData/
 # Local tooling
 .claude/
 .idea/
+.zed/
 .playwright-mcp/
 design/
 ScraperConfigs/**
