@@ -11,6 +11,14 @@ struct HomeListeningRankingSection: View {
     @State private var ranks: [HomeListeningRank] = []
     @State private var isLoading = true
     @State private var showsExpandedRanking = false
+    @AppStorage(HomeSectionLayoutConfiguration.storageKey) private var layoutRawValue = ""
+
+    /// 展开后列到第几名，可在界面编辑里调整；调到 5 及以下就不再提供展开
+    /// （展开反而比收起还少，那个按钮就没有意义了）。
+    private var expandedRankLimit: Int {
+        HomeSectionLayoutConfiguration.decode(layoutRawValue).itemCount(for: .listeningRanking)
+            ?? HomeSectionLayoutPolicy.defaultItemCount(for: .listeningRanking)
+    }
     @State private var preparedRequest: Request?
 
     private struct Request: Equatable {
@@ -44,7 +52,7 @@ struct HomeListeningRankingSection: View {
                     }
                 }
 
-                if ranks.count > 5 {
+                if ranks.count > 5, expandedRankLimit > 5 {
                     Button {
                         withAnimation(.snappy) {
                             showsExpandedRanking.toggle()
@@ -53,7 +61,10 @@ struct HomeListeningRankingSection: View {
                         Label(
                             showsExpandedRanking
                                 ? HomeDiscoveryText.string("collapse_ranking")
-                                : HomeDiscoveryText.string("expand_top_20"),
+                                : String(
+                                    format: HomeDiscoveryText.string("expand_top_n"),
+                                    expandedRankLimit
+                                ),
                             systemImage: showsExpandedRanking ? "chevron.up" : "chevron.down"
                         )
                         .font(.subheadline.weight(.semibold))
@@ -86,7 +97,7 @@ struct HomeListeningRankingSection: View {
     }
 
     private var visibleRanks: ArraySlice<HomeListeningRank> {
-        ranks.prefix(showsExpandedRanking ? 20 : 5)
+        ranks.prefix(showsExpandedRanking ? expandedRankLimit : 5)
     }
 
     private var heading: some View {

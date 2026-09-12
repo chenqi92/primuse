@@ -24,4 +24,5 @@
 "folder_ranking_scope" = "目錄排行僅統計目前可定位目錄的歌曲。";
 "folder_as_playlist" = "用作播放清單";
 "expand_top_20" = "展開前 20 名";
+"expand_top_n" = "展開前 %d 名";
 "collapse_ranking" = "收起排行";

@@ -288,7 +288,6 @@ private struct SettingsPageContent: View {
         case .duplicates: DuplicateSongsView()
         case .deleted: RecentlyDeletedView()
         case .storage: StorageManagementView()
-        case .home: HomeSectionsSettingsView()
         case .libraryDisplay: LibraryDisplaySettingsView()
         case .cloud: CloudSyncSettingsView()
         case .family: FamilySharingSettingsView()
@@ -304,7 +303,7 @@ private struct SettingsPageContent: View {
         case .licenses: LicensesView()
         #if os(iOS)
         case .appearance: AppearanceSettingsView()
-        case .interfaceEditor: InterfaceEditorView()
+        case .home: HomeInterfaceEditor()
         case .themeColor: ThemeColorSettingsView()
         case .player: PlayerAppearanceSettingsView()
         case .fullscreen: FullscreenPlayerEffectSettingsView()
@@ -314,7 +313,7 @@ private struct SettingsPageContent: View {
         case .carplay: CarPlaySettingsView()
         #else
         case .appearance, .themeColor, .player, .fullscreen, .appIcon, .cacheSync, .siri,
-             .carplay, .interfaceEditor: EmptyView()
+             .carplay, .home: EmptyView()
         #endif
         case .keyboard, .widgets: EmptyView()
         }
@@ -572,8 +571,16 @@ private struct PlayerAppearanceSettingsView: View {
                 .settingsAnchor("appearance.volumeBar")
                     .accessibilityHint(Text("player_volume_bar_description"))
             }
+            Section {
+                NavigationLink {
+                    FullscreenPlayerEffectSettingsView()
+                } label: {
+                    Label("fullscreen_effect_settings_title", systemImage: "viewfinder.rectangular")
+                }
+                .settingsAnchor("appearance.fullscreenEffect")
+            }
         }
-        .navigationTitle("player_appearance_title")
+        .navigationTitle("interface_editor_player")
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -853,7 +860,7 @@ private struct LibraryDisplaySettingsView: View {
         #if os(iOS)
         .environment(\.editMode, .constant(.active))
         #endif
-        .navigationTitle("library_display_settings_title")
+        .navigationTitle("interface_editor_library")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif

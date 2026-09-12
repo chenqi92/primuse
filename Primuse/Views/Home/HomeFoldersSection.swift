@@ -23,8 +23,18 @@ extension EnvironmentValues {
 
 struct HomeFoldersSection: View {
     @Environment(HomeDiscoveryModel.self) private var model
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @AppStorage(HomeFolderPinStorage.key) private var pinsRawValue = ""
     @AppStorage(HomeFolderPinStorage.displayCountKey) private var displayCount = HomeFolderPinStorage.defaultDisplayCount
+    @AppStorage(HomeSectionLayoutConfiguration.storageKey) private var layoutRawValue = ""
+
+    private var layout: HomeSectionLayoutConfiguration {
+        HomeSectionLayoutConfiguration.decode(layoutRawValue)
+    }
+
+    /// 与专辑卡一致的尺寸,好让文件夹换成网格/横排时和上下的专辑区块对得齐。
+    private var cardWidth: CGFloat { sizeClass == .regular ? 160 : 132 }
+    private var cardHeight: CGFloat { cardWidth + 42 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -51,19 +61,80 @@ struct HomeFoldersSection: View {
             if model.index == nil {
                 ProgressView().frame(maxWidth: .infinity).padding()
             } else {
-                let nodes = model.pins(from: pinsRawValue).compactMap { model.index?.node(withID: $0) }
-                ForEach(Array(nodes.prefix(HomeFolderPinStorage.displayCount(displayCount)))) { node in
-                    HomeFolderRow(node: node)
-                    Divider().padding(.leading, 68)
-                }
+                let nodes = Array(
+                    model.pins(from: pinsRawValue)
+                        .compactMap { model.index?.node(withID: $0) }
+                        .prefix(HomeFolderPinStorage.displayCount(displayCount))
+                )
                 if nodes.isEmpty {
                     Text(HomeDiscoveryText.string("no_pinned_folders"))
                         .font(.subheadline).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    folderBody(nodes)
                 }
             }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, layout.style(for: .folders) == .carousel ? 0 : 20)
+    }
+
+    @ViewBuilder
+    private func folderBody(_ nodes: [LibraryFolderNode]) -> some View {
+        switch layout.style(for: .folders) {
+        case .list:
+            ForEach(nodes) { node in
+                HomeFolderRow(node: node)
+                Divider().padding(.leading, 68)
+            }
+        case .grid:
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: cardWidth), spacing: 16, alignment: .top)],
+                spacing: 20
+            ) {
+                ForEach(nodes) { node in HomeFolderCard(node: node, width: cardWidth) }
+            }
+        case .carousel:
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHGrid(
+                    rows: Array(
+                        repeating: GridItem(.fixed(cardHeight), spacing: 14, alignment: .top),
+                        count: layout.rowCount(for: .folders)
+                    ),
+                    spacing: 14
+                ) {
+                    ForEach(nodes) { node in HomeFolderCard(node: node, width: cardWidth) }
+                }
+                .padding(.horizontal, 20)
+            }
+        }
+    }
+}
+
+/// 文件夹的卡片形态。和专辑卡同宽同高,换成网格或横排时能和相邻的专辑区块对齐。
+private struct HomeFolderCard: View {
+    let node: LibraryFolderNode
+    let width: CGFloat
+    @Environment(HomeDiscoveryModel.self) private var model
+
+    var body: some View {
+        let _ = model.revision
+        NavigationLink {
+            HomeFolderBrowser(nodeID: node.id)
+                .environment(model)
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                HomeFolderArtwork(node: node, size: width)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(HomeDiscoveryText.folderTitle(node))
+                        .font(.caption).fontWeight(.medium)
+                        .lineLimit(1).foregroundStyle(.primary)
+                    Text("\(node.descendantSongCount) " + String(localized: "songs_count"))
+                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            .frame(width: width, alignment: .leading)
+        }
+        .buttonStyle(.plain)
     }
 }
 

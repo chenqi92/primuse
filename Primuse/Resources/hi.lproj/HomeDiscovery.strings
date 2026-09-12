@@ -24,4 +24,5 @@
 "folder_ranking_scope" = "डायरेक्टरी रैंकिंग में वे गाने हैं जिनकी डायरेक्टरी अभी उपलब्ध है।";
 "folder_as_playlist" = "प्लेलिस्ट के रूप में उपयोग करें";
 "expand_top_20" = "Show Top 20";
+"expand_top_n" = "शीर्ष %d दिखाएँ";
 "collapse_ranking" = "Show Less";

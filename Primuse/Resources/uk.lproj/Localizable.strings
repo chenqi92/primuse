@@ -578,17 +578,15 @@
 "home_layout_carousel" = "Карусель";
 "home_layout_carouselDouble" = "Два ряди";
 "home_layout_grid" = "Сітка";
-"home_layout_label" = "Макет";
-"home_count_label" = "Елементів";
-"interface_editor_title" = "Редактор інтерфейсу";
-"interface_editor_footer" = "Відкрийте екран і впорядкуйте його просто на реальному вмісті — зміни видно одразу.";
+"home_rows_format" = "%d ряди";
 "interface_editor_home" = "Головна";
-"interface_editor_home_detail" = "Порядок, видимість, макет і кількість елементів кожного блоку";
 "interface_editor_library" = "Медіатека";
-"interface_editor_library_detail" = "Порядок перегляду та стиль карток";
 "interface_editor_player" = "Програвач";
-"interface_editor_player_detail" = "Елементи керування та відомості на екрані відтворення";
-"interface_editor_coming_soon" = "Незабаром";
+"interface_editor_settings" = "Екран налаштувань";
+"home_count_label" = "Елементів";
+"home_settings_title" = "Головна";
+"home_settings_sections_label" = "Видимі блоки";
+"home_settings_restore_default_order" = "Відновити типовий порядок";
 "interface_editor_unavailable" = "Відкрийте «Головну» один раз, потім поверніться, щоб редагувати.";
 "home_editor_hint" = "Перетягніть блок, щоб змінити порядок. Кнопками змінюються макет і кількість елементів або блок ховається.";
 "home_edit_move_up" = "Перемістити вгору";
@@ -2500,7 +2498,6 @@
 "relay_share_pending_cleanup" = "Неповне завантаження";
 "ai_compatibility_anthropic" = "Anthropic Повідомлення (рідний)";
 "smart_value_playlist" = "Виберіть список відтворення";
-"home_settings_sections_footer" = "Використовуйте перемикачі, щоб показати розділи, і перетягніть, щоб змінити їх порядок. Зона Героїв залишається вгорі.";
 "artwork_invalid_image" = "Виберіть дійсне зображення, яке може обробити Primuse.";
 "No matching genre in your library." = "У вашій бібліотеці немає відповідного жанру.";
 "smart_op_lessThan" = "менше ніж";
@@ -2859,7 +2856,6 @@
 "tag_editor_lyrics_summary_partial" = "Синхронізовано рядків: %1$d із %2$d";
 "library_quick_access_search_prompt" = "Пошук альбомів, виконавців або списків відтворення";
 "Drag to Reorder" = "Перетягніть, щоб змінити порядок";
-"home_settings_sections_label" = "Видимі розділи";
 "tag_editor_lyrics_delete_confirm_message" = "У доступних для запису джерелах також буде видалено однойменний файл тексту пісні. Для джерел лише для читання видаляється тільки кеш тексту в Primuse.";
 "s3_access_key" = "Ключ доступу";
 "cover_found" = "Знайдено обкладинку";
@@ -3027,7 +3023,6 @@
 "keyboard_shortcuts_restore_defaults" = "Відновити налаштування за замовчуванням";
 "ai_recommendation_custom_remove" = "Видалити фокус";
 "share_server_permission_denied" = "Цей обліковий запис не може ділитися з сервера";
-"home_settings_title" = "Головна";
 "rg_mode_album" = "Альбом";
 "fullscreen_effect_cover_flow" = "Cover Flow";
 "update_policy_macos_bundle_id" = "Оновлення macOS і iOS перевіряються окремо. Ідентифікатор Mac App Store не налаштовано, тому приймаються лише рідні записи Mac із kind=mac-software із пошуку ідентифікатора Bundle; рядок випуску iOS 1.x ігнорується.";
@@ -3267,7 +3262,6 @@
 "smart_playlist_new" = "Новий розумний список відтворення";
 "player_keep_screen_awake_for_lyrics_description" = "Запобігає автоматичному блокуванню лише тоді, коли тексти пісень видимі та Primuse активний.";
 "playlist_import_name_header" = "Назва списку відтворення";
-"home_settings_restore_default_order" = "Відновити порядок за замовчуванням";
 "new_rule_smart_playlist" = "Новий розумний список відтворення на основі правил";
 "error_oauth_token_exchange %@" = "Помилка обміну токенів: %@";
 "trust_domain" = "Довіра";

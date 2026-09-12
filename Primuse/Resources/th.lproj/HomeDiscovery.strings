@@ -24,4 +24,5 @@
 "folder_ranking_scope" = "อันดับไดเรกทอรีรวมเพลงที่มีไดเรกทอรีปัจจุบัน";
 "folder_as_playlist" = "ใช้เป็นเพลย์ลิสต์";
 "expand_top_20" = "Show Top 20";
+"expand_top_n" = "ดู %d อันดับแรก";
 "collapse_ranking" = "Show Less";

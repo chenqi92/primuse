@@ -24,4 +24,5 @@
 "folder_ranking_scope" = "Ranking katalogów obejmuje utwory z dostępnym katalogiem.";
 "folder_as_playlist" = "Użyj jako playlisty";
 "expand_top_20" = "Show Top 20";
+"expand_top_n" = "Pokaż top %d";
 "collapse_ranking" = "Show Less";

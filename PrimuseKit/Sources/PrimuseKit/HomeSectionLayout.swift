@@ -47,10 +47,9 @@ public enum HomeSectionKind: String, CaseIterable, Codable, Identifiable, Sendab
 public enum HomeSectionLayoutStyle: String, Codable, CaseIterable, Identifiable, Sendable {
     /// 纵向列表,一行一条,最省横向空间。
     case list
-    /// 单行横向滚动卡片。
+    /// 横向滚动。行数单独配置(1–3 行),不再为「双行」单开一个方案 ——
+    /// 双行本来就是横排的一个参数,当成两种排布只会让选项互相打架。
     case carousel
-    /// 双行横向滚动,同样高度里塞进一倍的条目。
-    case carouselDouble
     /// 纵向网格,视觉最重,适合封面本身就是内容的区域。
     case grid
 
@@ -60,10 +59,13 @@ public enum HomeSectionLayoutStyle: String, Codable, CaseIterable, Identifiable,
         switch self {
         case .list: "list.bullet"
         case .carousel: "rectangle.grid.1x2.fill"
-        case .carouselDouble: "square.grid.2x2.fill"
         case .grid: "square.grid.3x2.fill"
         }
     }
+
+    /// 老版本把「双行横排」当成独立方案存过。读回来映射成横排 + 2 行,
+    /// 而不是让整块配置解不出来退回默认。
+    public static let legacyDoubleCarouselRawValue = "carouselDouble"
 }
 
 public enum HomeSectionLayoutPolicy {
@@ -74,13 +76,14 @@ public enum HomeSectionLayoutPolicy {
     /// 区域就返回空数组 —— 编辑态据此不显示方案按钮。
     public static func supportedStyles(for section: HomeSectionKind) -> [HomeSectionLayoutStyle] {
         switch section {
-        case .continueListening: [.carouselDouble, .carousel, .list]
+        case .continueListening: [.carousel, .list]
         case .forYou: [.carousel, .list]
         case .playlists: [.list, .carousel, .grid]
         case .topArtists: [.carousel, .grid]
         case .recentlyAdded: [.grid, .carousel, .list]
         case .quickAccess: [.grid, .carousel]
-        case .radio, .folders, .listeningRanking, .stats: []
+        case .folders: [.list, .grid, .carousel]
+        case .radio, .listeningRanking, .stats: []
         }
     }
 
@@ -91,6 +94,20 @@ public enum HomeSectionLayoutPolicy {
 
     public static func isConfigurable(_ section: HomeSectionKind) -> Bool {
         supportedStyles(for: section).count > 1
+    }
+
+    /// 横排的行数范围。只有横排才有行数可言。
+    public static func rowsRange(
+        for section: HomeSectionKind,
+        style: HomeSectionLayoutStyle
+    ) -> ClosedRange<Int>? {
+        guard style == .carousel, supportedStyles(for: section).contains(.carousel) else { return nil }
+        return 1...3
+    }
+
+    /// 继续听原本就是双行,换成「横排 + 行数」之后默认值要维持原样。
+    public static func defaultRows(for section: HomeSectionKind) -> Int {
+        section == .continueListening ? 2 : 1
     }
 
     /// 可以自定义条目数的区域及其范围。
@@ -104,7 +121,9 @@ public enum HomeSectionLayoutPolicy {
         case .topArtists: 4...20
         case .recentlyAdded: 4...24
         case .forYou: 3...12
-        case .quickAccess, .folders, .listeningRanking, .stats, .radio: nil
+        // 展开后最多列到第几名。调到 0 就是不提供展开。
+        case .listeningRanking: 0...20
+        case .quickAccess, .folders, .stats, .radio: nil
         }
     }
 
@@ -120,7 +139,8 @@ public enum HomeSectionLayoutPolicy {
         case .topArtists: 8
         case .recentlyAdded: 6
         case .forYou: 5
-        case .quickAccess, .folders, .listeningRanking, .stats, .radio: 0
+        case .listeningRanking: 20
+        case .quickAccess, .folders, .stats, .radio: 0
         }
     }
 
@@ -151,9 +171,30 @@ public struct HomeSectionLayoutConfiguration: Codable, Equatable, Sendable {
     /// 给默认值 —— iPad 一行放得下更多,默认值本就该和 iPhone 不同。
     public var itemCounts: [String: Int]
 
-    public init(styles: [String: String] = [:], itemCounts: [String: Int] = [:]) {
+    /// 横排的行数,同样只存改过的。
+    public var rows: [String: Int]
+
+    public init(
+        styles: [String: String] = [:],
+        itemCounts: [String: Int] = [:],
+        rows: [String: Int] = [:]
+    ) {
         self.styles = styles
         self.itemCounts = itemCounts
+        self.rows = rows
+    }
+
+    public func rowCount(for section: HomeSectionKind) -> Int {
+        let style = style(for: section)
+        guard let range = HomeSectionLayoutPolicy.rowsRange(for: section, style: style) else { return 1 }
+        let stored = rows[section.rawValue] ?? HomeSectionLayoutPolicy.defaultRows(for: section)
+        return min(max(stored, range.lowerBound), range.upperBound)
+    }
+
+    public mutating func setRowCount(_ count: Int, for section: HomeSectionKind) {
+        let style = style(for: section)
+        guard let range = HomeSectionLayoutPolicy.rowsRange(for: section, style: style) else { return }
+        rows[section.rawValue] = min(max(count, range.lowerBound), range.upperBound)
     }
 
     /// 用户没设过就返回 nil,由调用方决定默认值。
@@ -174,10 +215,12 @@ public struct HomeSectionLayoutConfiguration: Codable, Equatable, Sendable {
     }
 
     public func style(for section: HomeSectionKind) -> HomeSectionLayoutStyle {
-        HomeSectionLayoutPolicy.resolved(
-            styles[section.rawValue].flatMap(HomeSectionLayoutStyle.init(rawValue:)),
-            for: section
-        )
+        let stored = styles[section.rawValue]
+        // 老存档里的「双行横排」现在是横排 + 2 行。
+        let parsed = stored == HomeSectionLayoutStyle.legacyDoubleCarouselRawValue
+            ? HomeSectionLayoutStyle.carousel
+            : stored.flatMap(HomeSectionLayoutStyle.init(rawValue:))
+        return HomeSectionLayoutPolicy.resolved(parsed, for: section)
     }
 
     /// 选回默认值时把条目删掉,而不是写一条等于默认的记录 —— 这样以后调整默认值,
@@ -201,12 +244,25 @@ public struct HomeSectionLayoutConfiguration: Codable, Equatable, Sendable {
     }
 
     // 老版本存下来的 JSON 没有 itemCounts 字段,缺省解成空字典而不是整份作废。
-    private enum CodingKeys: String, CodingKey { case styles, itemCounts }
+    private enum CodingKeys: String, CodingKey { case styles, itemCounts, rows }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        styles = try container.decodeIfPresent([String: String].self, forKey: .styles) ?? [:]
+        let storedStyles = try container.decodeIfPresent([String: String].self, forKey: .styles) ?? [:]
         itemCounts = try container.decodeIfPresent([String: Int].self, forKey: .itemCounts) ?? [:]
+        var migratedRows = try container.decodeIfPresent([String: Int].self, forKey: .rows) ?? [:]
+        // 把老的「双行横排」就地迁成横排 + 2 行,之后写回去的就是新格式。
+        var migratedStyles: [String: String] = [:]
+        for (key, value) in storedStyles {
+            if value == HomeSectionLayoutStyle.legacyDoubleCarouselRawValue {
+                migratedStyles[key] = HomeSectionLayoutStyle.carousel.rawValue
+                if migratedRows[key] == nil { migratedRows[key] = 2 }
+            } else {
+                migratedStyles[key] = value
+            }
+        }
+        styles = migratedStyles
+        rows = migratedRows
     }
 
     public static func decode(_ rawValue: String) -> Self {

@@ -24,4 +24,5 @@
 "folder_ranking_scope" = "ディレクトリのランキングには、現在の保存先を確認できる曲が含まれます。";
 "folder_as_playlist" = "Use as Playlist";
 "expand_top_20" = "Show Top 20";
+"expand_top_n" = "トップ %d を表示";
 "collapse_ranking" = "Show Less";

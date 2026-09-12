@@ -24,4 +24,5 @@
 "folder_ranking_scope" = "Le classement des dossiers inclut les titres dont le dossier est disponible.";
 "folder_as_playlist" = "Utiliser comme playlist";
 "expand_top_20" = "Show Top 20";
+"expand_top_n" = "Afficher le top %d";
 "collapse_ranking" = "Show Less";

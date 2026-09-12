@@ -24,4 +24,5 @@
 "folder_ranking_scope" = "Verzeichnis-Ranglisten enthalten Titel mit einem aktuellen Verzeichnis.";
 "folder_as_playlist" = "Als Wiedergabeliste verwenden";
 "expand_top_20" = "Show Top 20";
+"expand_top_n" = "Top %d anzeigen";
 "collapse_ranking" = "Show Less";

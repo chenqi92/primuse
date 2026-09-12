@@ -578,17 +578,15 @@
 "home_layout_carousel" = "Yatay şerit";
 "home_layout_carouselDouble" = "İki sıra";
 "home_layout_grid" = "Izgara";
-"home_layout_label" = "Düzen";
-"home_count_label" = "Öğe sayısı";
-"interface_editor_title" = "Arayüz düzenleme";
-"interface_editor_footer" = "Bir ekranı açın ve gerçek içerik üzerinde düzenleyin — her değişiklik anında görünür.";
+"home_rows_format" = "%d sıra";
 "interface_editor_home" = "Ana ekran";
-"interface_editor_home_detail" = "Her bloğun sırası, görünürlüğü, düzeni ve öğe sayısı";
 "interface_editor_library" = "Kitaplık";
-"interface_editor_library_detail" = "Gezinme sırası ve kart stili";
 "interface_editor_player" = "Çalar";
-"interface_editor_player_detail" = "Çalma ekranındaki denetimler ve bilgiler";
-"interface_editor_coming_soon" = "Yakında";
+"interface_editor_settings" = "Ayarlar ekranı";
+"home_count_label" = "Öğe sayısı";
+"home_settings_title" = "Ana ekran";
+"home_settings_sections_label" = "Görünen bloklar";
+"home_settings_restore_default_order" = "Varsayılan sırayı geri yükle";
 "interface_editor_unavailable" = "Ana ekranı bir kez açın, sonra düzenlemek için geri dönün.";
 "home_editor_hint" = "Sıralamayı değiştirmek için bir bloğu sürükleyin. Düğmelerle düzenini, öğe sayısını değiştirin veya gizleyin.";
 "home_edit_move_up" = "Yukarı taşı";
@@ -2500,7 +2498,6 @@
 "relay_share_pending_cleanup" = "Eksik yükleme";
 "ai_compatibility_anthropic" = "Anthropic Mesajlar (yerel)";
 "smart_value_playlist" = "Çalma listesini seç";
-"home_settings_sections_footer" = "Bölümleri göstermek için anahtarları kullanın ve yeniden sıralamak için sürükleyin. Kahraman alanı en üstte kalır.";
 "artwork_invalid_image" = "Primuse'nin işleyebileceği geçerli bir görüntü seçin.";
 "No matching genre in your library." = "Arşivinizde eşleşen tür yok.";
 "smart_op_lessThan" = "daha az";
@@ -2859,7 +2856,6 @@
 "tag_editor_lyrics_summary_partial" = "%2$d satırdan %1$d tanesi zamanlandı";
 "library_quick_access_search_prompt" = "Albümleri, sanatçıları veya çalma listelerini arayın";
 "Drag to Reorder" = "Yeniden Sıralamak için Sürükleyin";
-"home_settings_sections_label" = "Görünür bölümler";
 "tag_editor_lyrics_delete_confirm_message" = "Yazılabilir kaynaklarda aynı adlı şarkı sözü dosyası da silinir. Salt okunur kaynaklarda yalnızca Primuse'ın önbelleğindeki sözler kaldırılır.";
 "s3_access_key" = "Erişim Anahtarı";
 "cover_found" = "Kapak resmi bulundu";
@@ -3027,7 +3023,6 @@
 "keyboard_shortcuts_restore_defaults" = "Varsayılanları Geri Yükle";
 "ai_recommendation_custom_remove" = "Odağı Kaldır";
 "share_server_permission_denied" = "Bu hesap sunucudan paylaşım yapamaz";
-"home_settings_title" = "Ana sayfa";
 "rg_mode_album" = "Albüm";
 "fullscreen_effect_cover_flow" = "Kapak Akışı";
 "update_policy_macos_bundle_id" = "macOS ve iOS güncellemeleri ayrı ayrı kontrol edilir. Hiçbir Mac App Store Kimliği yapılandırılmadığından, Paket Kimliği aramasında yalnızca tür=mac-software içeren yerel Mac kayıtları kabul edilir; iOS 1.x sürüm satırı dikkate alınmaz.";
@@ -3267,7 +3262,6 @@
 "smart_playlist_new" = "Yeni Akıllı Çalma Listesi";
 "player_keep_screen_awake_for_lyrics_description" = "Otomatik kilitlemeyi yalnızca şarkı sözleri görünürken ve Primuse etkinken önler.";
 "playlist_import_name_header" = "Çalma listesi adı";
-"home_settings_restore_default_order" = "Varsayılan Sırayı Geri Yükle";
 "new_rule_smart_playlist" = "Yeni Kural Tabanlı Akıllı Çalma Listesi";
 "error_oauth_token_exchange %@" = "Jeton değişimi başarısız oldu: %@";
 "trust_domain" = "Güven";

@@ -277,6 +277,9 @@ struct HomeView: View {
     @AppStorage("primuse.home.showRadio") private var showRadioOnHome = true
     @State private var showRadioBatchAdd = false
     @State private var isHomeVisible = false
+    /// 文件夹的钉选管理原本挂在设置那张列表上，那张列表已被界面编辑取代，
+    /// 入口跟着搬到文件夹这一块的操作条里，免得整个功能没了去处。
+    @State private var showsFolderManager = false
 
     private var homeMode: HomeMode {
         guard showRadioOnHome else { return .music }
@@ -369,6 +372,9 @@ struct HomeView: View {
         Group {
             if editorMode {
                 observedHomeContent
+                    .sheet(isPresented: $showsFolderManager) {
+                        NavigationStack { HomeFolderManagementView() }
+                    }
             } else {
                 navigationRoot
             }
@@ -607,6 +613,7 @@ struct HomeView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 20)
+                homeEditorRadioToggle
             } else if model.snapshot.hasContent {
                 libraryHeroSection
             }
@@ -715,6 +722,35 @@ struct HomeView: View {
         }
     }
 
+    /// 行数在 1–3 之间轮换 —— 三档而已,一个按钮点过去比塞一对加减号省地方。
+    private func advanceSectionRows(_ section: HomeSectionKind) {
+        let style = homeLayout.style(for: section)
+        guard let range = HomeSectionLayoutPolicy.rowsRange(for: section, style: style) else { return }
+        var configuration = homeLayout
+        let next = homeLayout.rowCount(for: section) >= range.upperBound
+            ? range.lowerBound
+            : homeLayout.rowCount(for: section) + 1
+        configuration.setRowCount(next, for: section)
+        homeSectionLayoutRawValue = configuration.encoded()
+    }
+
+    /// 电台是首页的另一面（右上角切换），不参与区块排序，但用户在这里就想
+    /// 一并决定它显不显示，所以放在编辑态的最前面。
+    private var homeEditorRadioToggle: some View {
+        Toggle(isOn: $showRadioOnHome) {
+            Label("radio_home_visibility", systemImage: "radio")
+                .font(.subheadline.weight(.semibold))
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(homeCardSurface.opacity(0.55))
+        }
+        .padding(.horizontal, 12)
+        .accessibilityIdentifier("home.edit.radio")
+    }
+
     private func advanceSectionLayout(_ section: HomeSectionKind) {
         var configuration = homeLayout
         configuration.advanceStyle(for: section)
@@ -816,6 +852,18 @@ struct HomeView: View {
 
                 Spacer(minLength: 8)
 
+                if section == .folders {
+                    Button { showsFolderManager = true } label: {
+                        Image(systemName: "folder.badge.gearshape")
+                            .font(.footnote.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
+                    .accessibilityLabel(Text(HomeDiscoveryText.string("manage_folders")))
+                    .accessibilityIdentifier("home.edit.manageFolders")
+                }
+
                 Button {
                     withAnimation(.snappy) { setSectionVisible(section, !visible) }
                 } label: {
@@ -842,6 +890,24 @@ struct HomeView: View {
                         .buttonBorderShape(.capsule)
                         .controlSize(.small)
                         .accessibilityIdentifier("home.edit.layout." + section.rawValue)
+                    }
+
+                    if HomeSectionLayoutPolicy.rowsRange(for: section, style: style) != nil {
+                        Button {
+                            withAnimation(.snappy) { advanceSectionRows(section) }
+                        } label: {
+                            Text(
+                                String(
+                                    format: String(localized: "home_rows_format"),
+                                    homeLayout.rowCount(for: section)
+                                )
+                            )
+                            .font(.caption.weight(.semibold))
+                        }
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("home.edit.rows." + section.rawValue)
                     }
 
                     if let range {
@@ -2252,7 +2318,7 @@ struct HomeView: View {
                 // 横排档去掉整块底卡:一行图标本来就不高,再包一层圆角面板
                 // 会让它看着比内容重。
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(alignment: .top, spacing: 16) {
+                    LazyHGrid(rows: carouselRows(.quickAccess, height: 96, spacing: 16), spacing: 16) {
                         ForEach(model.snapshot.quickItems) { item in
                             homeQuickDockItem(item)
                                 .frame(width: 76)
@@ -2376,7 +2442,7 @@ struct HomeView: View {
             switch style {
             case .carousel:
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(alignment: .top, spacing: 14) {
+                    LazyHGrid(rows: carouselRows(.playlists, height: homeAlbumCardHeight), spacing: 14) {
                         ForEach(tiles.prefix(sectionItemCount(.playlists, sizeClass == .regular ? 16 : 12))) { tile in
                             NavigationLink(value: tile.playlist) {
                                 playlistCard(tile)
@@ -2386,7 +2452,7 @@ struct HomeView: View {
                     }
                     .padding(.horizontal, 20)
                 }
-            case .grid, .carouselDouble:
+            case .grid:
                 // 歌单封面是固定尺寸视图,撑不满自适应列宽,所以列宽直接按卡片宽
                 // 来定 —— 否则窄屏两列会在卡片之间裂开一道空隙。
                 LazyVGrid(
@@ -2649,9 +2715,11 @@ struct HomeView: View {
                 .font(.title3).fontWeight(.bold).padding(.horizontal, 20)
 
             switch style {
-            case .carousel:
+            // 继续听不提供网格：`resolved` 会把它夹回支持的方案，这里并到横排
+            // 只是不让任何意外取值渲染成一片空白。
+            case .carousel, .grid:
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: 10) {
+                    LazyHGrid(rows: carouselRows(.continueListening, height: 60, spacing: 10), spacing: 10) {
                         ForEach(songs.prefix(sectionItemCount(.continueListening, 12)), id: \.id) { song in
                             Button { playSong(song) } label: {
                                 continueListeningRow(song)
@@ -2671,24 +2739,6 @@ struct HomeView: View {
                     }
                 }
                 .padding(.horizontal, 20)
-            case .carouselDouble, .grid:
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHGrid(
-                        rows: [
-                            GridItem(.fixed(60), spacing: 10),
-                            GridItem(.fixed(60)),
-                        ],
-                        spacing: 10
-                    ) {
-                        ForEach(songs.prefix(sectionItemCount(.continueListening, 12)), id: \.id) { song in
-                            Button { playSong(song) } label: {
-                                continueListeningRow(song)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                }
             }
         }
     }
@@ -2759,6 +2809,21 @@ struct HomeView: View {
     /// 边缘不留半张卡,用户看不出这一行还能往右滑。
     private var homeAlbumCardWidth: CGFloat { sizeClass == .regular ? 160 : 132 }
 
+    /// 封面 + 两行说明文字。多行横排要用 LazyHGrid,而它要求行高固定。
+    private var homeAlbumCardHeight: CGFloat { homeAlbumCardWidth + 42 }
+
+    /// 横排的行数由用户配置,1 行时等价于原来的 LazyHStack。
+    private func carouselRows(
+        _ section: HomeSectionKind,
+        height: CGFloat,
+        spacing: CGFloat = 14
+    ) -> [GridItem] {
+        Array(
+            repeating: GridItem(.fixed(height), spacing: spacing, alignment: .top),
+            count: homeLayout.rowCount(for: section)
+        )
+    }
+
     @ViewBuilder
     private func recentlyAddedAlbumsSection(_ style: HomeSectionLayoutStyle) -> some View {
         let albums = model.snapshot.recentlyAddedAlbums
@@ -2786,7 +2851,7 @@ struct HomeView: View {
                 // 横排一次只占一张卡的高度,这正是 issue #106 想要的:同样的内容
                 // 不再吃掉整屏,后面的「继续听」还留在首屏里。
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(alignment: .top, spacing: 14) {
+                    LazyHGrid(rows: carouselRows(.recentlyAdded, height: homeAlbumCardHeight), spacing: 14) {
                         ForEach(albums.prefix(sectionItemCount(.recentlyAdded, sizeClass == .regular ? 16 : 12))) { tile in
                             NavigationLink(value: tile.album) {
                                 AlbumCardView(album: tile.album, showsSongCount: true)
@@ -2812,7 +2877,7 @@ struct HomeView: View {
                     }
                 }
                 .padding(.horizontal, 20)
-            case .grid, .carouselDouble:
+            case .grid:
                 LazyVGrid(
                     columns: sizeClass == .regular
                         ? [GridItem(.adaptive(minimum: 150), spacing: 16, alignment: .top)]
@@ -2895,7 +2960,7 @@ struct HomeView: View {
                 .padding(.horizontal, 20)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: 14) {
+                    LazyHGrid(rows: carouselRows(.topArtists, height: 104), spacing: 14) {
                         ForEach(displayed.prefix(sectionItemCount(.topArtists, sizeClass == .regular ? 16 : 8))) { artist in
                             NavigationLink(value: artist) { artistBubble(artist) }
                                 .buttonStyle(.plain)

@@ -24,4 +24,5 @@
 "folder_ranking_scope" = "Dizin sıralamaları, geçerli bir dizini olan şarkıları içerir.";
 "folder_as_playlist" = "Çalma listesi olarak kullan";
 "expand_top_20" = "Show Top 20";
+"expand_top_n" = "İlk %d’i göster";
 "collapse_ranking" = "Show Less";

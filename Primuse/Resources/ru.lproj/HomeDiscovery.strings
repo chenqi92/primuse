@@ -24,4 +24,5 @@
 "folder_ranking_scope" = "Рейтинг каталогов включает треки с доступным каталогом.";
 "folder_as_playlist" = "Использовать как плейлист";
 "expand_top_20" = "Show Top 20";
+"expand_top_n" = "Показать топ-%d";
 "collapse_ranking" = "Show Less";

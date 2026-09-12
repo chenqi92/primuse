@@ -24,4 +24,5 @@
 "folder_ranking_scope" = "O ranking de diretórios inclui músicas com um diretório atual.";
 "folder_as_playlist" = "Usar como playlist";
 "expand_top_20" = "Show Top 20";
+"expand_top_n" = "Ver o top %d";
 "collapse_ranking" = "Show Less";
