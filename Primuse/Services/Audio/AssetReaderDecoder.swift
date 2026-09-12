@@ -117,6 +117,9 @@ final class AssetReaderDecoder: Sendable {
 
                     var bufferCount = 0
                     var totalFrames: Int64 = 0
+                    // An AAC packet is 1024 frames, so a per-sample-buffer
+                    // handoff floods the pump; coalesce to native size first.
+                    let accumulator = PCMBufferAccumulator()
                     while reader.status == .reading {
                         guard !Task.isCancelled else {
                             reader.cancelReading()
@@ -130,10 +133,12 @@ final class AssetReaderDecoder: Sendable {
                         if let pcmBuffer = self.createPCMBuffer(from: sampleBuffer, format: outputFormat) {
                             bufferCount += 1
                             totalFrames += Int64(pcmBuffer.frameLength)
-                            try await AudioBufferStreamFactory.yieldWithBackpressure(
-                                pcmBuffer,
-                                to: continuation
-                            )
+                            for coalesced in try accumulator.absorb(pcmBuffer) {
+                                try await AudioBufferStreamFactory.yieldWithBackpressure(
+                                    coalesced,
+                                    to: continuation
+                                )
+                            }
                         }
                     }
                     plog("📖 AssetReader done: status=\(reader.status.rawValue) buffers=\(bufferCount) totalFrames=\(totalFrames)")
@@ -143,6 +148,13 @@ final class AssetReaderDecoder: Sendable {
                         plog("⚠️ AssetReader FAILED: \(errMsg)")
                         continuation.finish(throwing: AudioDecoderError.decodingFailed(errMsg))
                     } else {
+                        // Flush the tail only on the success path.
+                        for remainder in accumulator.finish() {
+                            try await AudioBufferStreamFactory.yieldWithBackpressure(
+                                remainder,
+                                to: continuation
+                            )
+                        }
                         continuation.finish()
                     }
                 } catch {

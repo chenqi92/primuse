@@ -1,5 +1,6 @@
 @preconcurrency import AVFoundation
 import Foundation
+import PrimuseKit
 
 private final class FFmpegOperationRace<Value: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
@@ -383,6 +384,204 @@ private final class FFmpegInputBufferBox: @unchecked Sendable {
     }
 }
 
+/// Coalesces small decoded PCM buffers into native-sized ones before they reach
+/// the playback pump. A DTS frame is 512 samples and an AAC packet 1024, so a
+/// per-frame handoff pushes roughly 20x more buffers per second than the native
+/// decoder's 8192-frame buffers, and every one of them costs the main actor
+/// several jobs. Instances are used from a single decode task only, so the
+/// scratch buffer needs no locking.
+final class PCMBufferAccumulator {
+    private let policy: PCMBufferCoalescingPolicy
+    private var plan: PCMBufferCoalescingPlan
+    private let maximumIncomingFrames: AVAudioFrameCount
+    private var scratch: AVAudioPCMBuffer?
+
+    init(
+        policy: PCMBufferCoalescingPolicy = PCMBufferCoalescingPolicy(),
+        maximumIncomingFrames: AVAudioFrameCount = 8192
+    ) {
+        self.policy = policy
+        self.plan = PCMBufferCoalescingPlan(policy: policy)
+        self.maximumIncomingFrames = max(1, maximumIncomingFrames)
+    }
+
+    /// Absorbs one decoded buffer and returns the buffers to yield, in order.
+    func absorb(_ buffer: AVAudioPCMBuffer) throws -> [AVAudioPCMBuffer] {
+        guard buffer.frameLength > 0 else { return [] }
+        let action = plan.absorb(
+            incomingFrames: Int(buffer.frameLength),
+            formatKey: Self.formatKey(for: buffer.format)
+        )
+        switch action {
+        case .passThrough:
+            return [buffer]
+        case .buffer:
+            try append(buffer)
+            return []
+        case .appendThenFlush:
+            try append(buffer)
+            return takeScratch().map { [$0] } ?? []
+        case .flushThenBuffer:
+            let flushed = takeScratch()
+            try append(buffer)
+            return flushed.map { [$0] } ?? []
+        }
+    }
+
+    /// End of stream: returns whatever is still accumulated.
+    func finish() -> [AVAudioPCMBuffer] {
+        guard plan.finish() else {
+            scratch = nil
+            return []
+        }
+        return takeScratch().map { [$0] } ?? []
+    }
+
+    /// Hands the accumulation buffer off to the caller. The pump retains a
+    /// yielded buffer until playback consumes it, so the next accumulation
+    /// always starts on a freshly allocated one.
+    private func takeScratch() -> AVAudioPCMBuffer? {
+        guard let scratch, scratch.frameLength > 0 else {
+            self.scratch = nil
+            return nil
+        }
+        self.scratch = nil
+        return scratch
+    }
+
+    private func append(_ buffer: AVAudioPCMBuffer) throws {
+        let destination = try scratchBuffer(
+            for: buffer.format,
+            appending: buffer.frameLength
+        )
+        try Self.copy(
+            buffer,
+            into: destination,
+            atFrameOffset: destination.frameLength
+        )
+        destination.frameLength += buffer.frameLength
+    }
+
+    /// Lazily allocates the accumulation buffer for the current output format.
+    /// Capacity is the target size plus one maximum input, which is the bound
+    /// the coalescing plan guarantees; an unexpectedly large input grows the
+    /// buffer instead of overflowing it.
+    private func scratchBuffer(
+        for format: AVAudioFormat,
+        appending incomingFrames: AVAudioFrameCount
+    ) throws -> AVAudioPCMBuffer {
+        let pending = scratch?.frameLength ?? 0
+        let required = pending + incomingFrames
+        if let scratch,
+           scratch.format == format,
+           scratch.frameCapacity >= required {
+            return scratch
+        }
+        let capacity = max(
+            AVAudioFrameCount(policy.targetFrameCount) + maximumIncomingFrames,
+            required
+        )
+        guard let allocated = AVAudioPCMBuffer(
+            pcmFormat: format,
+            frameCapacity: capacity
+        ) else {
+            throw AudioDecoderError.bufferAllocationFailed
+        }
+        allocated.frameLength = 0
+        if let scratch, scratch.frameLength > 0, scratch.format == format {
+            // Only reached when a single input is larger than the reserve.
+            try Self.copy(scratch, into: allocated, atFrameOffset: 0)
+            allocated.frameLength = scratch.frameLength
+        }
+        scratch = allocated
+        return allocated
+    }
+
+    static func formatKey(for format: AVAudioFormat) -> String {
+        "\(format.sampleRate)|\(format.channelCount)|\(format.commonFormat.rawValue)|\(format.isInterleaved)"
+    }
+
+    private static func copy(
+        _ source: AVAudioPCMBuffer,
+        into destination: AVAudioPCMBuffer,
+        atFrameOffset frameOffset: AVAudioFrameCount
+    ) throws {
+        let format = destination.format
+        guard source.format.commonFormat == format.commonFormat,
+              source.format.channelCount == format.channelCount,
+              source.format.isInterleaved == format.isInterleaved,
+              frameOffset + source.frameLength <= destination.frameCapacity else {
+            throw AudioDecoderError.bufferAllocationFailed
+        }
+        let frames = Int(source.frameLength)
+        let channelCount = Int(format.channelCount)
+        let offset = Int(frameOffset)
+        switch format.commonFormat {
+        case .pcmFormatFloat32:
+            try copyChannels(
+                from: source.floatChannelData,
+                to: destination.floatChannelData,
+                frames: frames,
+                channelCount: channelCount,
+                isInterleaved: format.isInterleaved,
+                frameOffset: offset
+            )
+        case .pcmFormatInt16:
+            try copyChannels(
+                from: source.int16ChannelData,
+                to: destination.int16ChannelData,
+                frames: frames,
+                channelCount: channelCount,
+                isInterleaved: format.isInterleaved,
+                frameOffset: offset
+            )
+        case .pcmFormatInt32:
+            try copyChannels(
+                from: source.int32ChannelData,
+                to: destination.int32ChannelData,
+                frames: frames,
+                channelCount: channelCount,
+                isInterleaved: format.isInterleaved,
+                frameOffset: offset
+            )
+        default:
+            // Float64 and the compressed common formats are never produced by
+            // these decoders' output format; refuse rather than copy garbage.
+            throw AudioDecoderError.bufferAllocationFailed
+        }
+    }
+
+    private static func copyChannels<Sample>(
+        from source: UnsafePointer<UnsafeMutablePointer<Sample>>?,
+        to destination: UnsafePointer<UnsafeMutablePointer<Sample>>?,
+        frames: Int,
+        channelCount: Int,
+        isInterleaved: Bool,
+        frameOffset: Int
+    ) throws {
+        guard let source, let destination, frames > 0, channelCount > 0 else {
+            throw AudioDecoderError.bufferAllocationFailed
+        }
+        let sampleStride = MemoryLayout<Sample>.stride
+        if isInterleaved {
+            // One packed block: every channel of a frame sits side by side.
+            memcpy(
+                destination[0].advanced(by: frameOffset * channelCount),
+                source[0],
+                frames * channelCount * sampleStride
+            )
+        } else {
+            for channel in 0..<channelCount {
+                memcpy(
+                    destination[channel].advanced(by: frameOffset),
+                    source[channel],
+                    frames * sampleStride
+                )
+            }
+        }
+    }
+}
+
 /// Broad compatibility fallback built on the LGPL-only FFmpeg runtime.
 /// SFBAudioEngine remains the first choice for formats it supports; this
 /// decoder covers DTS/DTS-HD, DTS-CD WAV, Dolby, WMA/ATRAC and other formats,
@@ -476,6 +675,9 @@ final class FFmpegAudioDecoder: PrimuseAudioDecoder {
 
                     var converter: AVAudioConverter?
                     var converterSourceFormat: AVAudioFormat?
+                    // One decoded frame per yielded buffer would hand the pump
+                    // ~94 buffers a second for DTS; coalesce to native size.
+                    let accumulator = PCMBufferAccumulator()
                     var exactSeekTarget = startTime.flatMap { $0 > 0 ? $0 : nil }
                     while !Task.isCancelled {
                         let result = try await worker.readNextBuffer()
@@ -515,10 +717,12 @@ final class FFmpegAudioDecoder: PrimuseAudioDecoder {
                                 converter: existingConverter,
                                 outputFormat: outputFormat
                             ) {
-                                try await AudioBufferStreamFactory.yieldWithBackpressure(
-                                    output,
-                                    to: continuation
-                                )
+                                for coalesced in try accumulator.absorb(output) {
+                                    try await AudioBufferStreamFactory.yieldWithBackpressure(
+                                        coalesced,
+                                        to: continuation
+                                    )
+                                }
                             }
                             converter = nil
                             converterSourceFormat = nil
@@ -548,10 +752,12 @@ final class FFmpegAudioDecoder: PrimuseAudioDecoder {
                             )
                         }
                         if outputBuffer.frameLength > 0 {
-                            try await AudioBufferStreamFactory.yieldWithBackpressure(
-                                outputBuffer,
-                                to: continuation
-                            )
+                            for coalesced in try accumulator.absorb(outputBuffer) {
+                                try await AudioBufferStreamFactory.yieldWithBackpressure(
+                                    coalesced,
+                                    to: continuation
+                                )
+                            }
                         }
                     }
                     if let converter {
@@ -559,13 +765,23 @@ final class FFmpegAudioDecoder: PrimuseAudioDecoder {
                             converter: converter,
                             outputFormat: outputFormat
                         ) {
-                            try await AudioBufferStreamFactory.yieldWithBackpressure(
-                                output,
-                                to: continuation
-                            )
+                            for coalesced in try accumulator.absorb(output) {
+                                try await AudioBufferStreamFactory.yieldWithBackpressure(
+                                    coalesced,
+                                    to: continuation
+                                )
+                            }
                         }
                     }
                     try Task.checkCancellation()
+                    // The tail of the track lives in the accumulator; it must
+                    // reach the pump before the stream closes.
+                    for remainder in accumulator.finish() {
+                        try await AudioBufferStreamFactory.yieldWithBackpressure(
+                            remainder,
+                            to: continuation
+                        )
+                    }
                     continuation.finish()
                 } catch is CancellationError {
                     continuation.finish()
