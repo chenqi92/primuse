@@ -2894,8 +2894,10 @@ struct NowPlayingView: View {
                 compact: true,
                 onArtwork: true,
                 foregroundColor: appearance.primary,
-                // Balance against the invisible upper half of the 44pt scrub target.
-                topSpacing: 28
+                // 抵消进度条 44pt 命中区里不可见的上半部分。这个值原本还要
+                // 兼顾评分卡片自己的外边界，卡片去掉之后星级直接暴露在页面上，
+                // 再留 28pt 就显得这一块从上文飘走了。
+                topSpacing: 14
             )
         }
     }
@@ -6363,7 +6365,12 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         let targetLanguageCode: String
         let mode: LyricsTranslationMode
         let systemPreparationRequestRevision: UInt
-        let regionRevision: UInt64
+        /// 只认真正影响翻译决策的那个结论，而不是地区服务的原始修订号。
+        ///
+        /// 地区服务每刷新一次会把修订号加两次（先置未知、再发布结果），而翻译
+        /// 准备唯一用到它的地方是这个布尔值 —— 拿原始修订号当重启键，等于每次
+        /// 商店信息抖动都白白重启两轮翻译准备，每轮都要再问一遍系统语言可用性。
+        let exposesRemoteConfiguration: Bool
     }
 
     private var translationTaskIdentity: TranslationTaskIdentity {
@@ -6376,7 +6383,7 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
             ),
             mode: settings.mode,
             systemPreparationRequestRevision: settings.systemPreparationRequestRevision,
-            regionRevision: intelligence.regionAvailability.revision
+            exposesRemoteConfiguration: intelligence.shouldExposeRemoteConfiguration
         )
     }
 
