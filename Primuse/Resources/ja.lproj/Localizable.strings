@@ -4,7 +4,7 @@
 "artist_name_settings_preview" = "プレビュー";
 "artist_name_settings_separators" = "分割区切り文字";
 "artist_name_settings_separator_placeholder" = "例：;";
-"artist_name_settings_separators_footer" = "区切り文字は入力どおりに照合されます。半角と全角のセミコロンが初期設定で有効です。";
+"artist_name_settings_separators_footer" = "区切り文字はそのまま一致します。半角・全角のセミコロン、スラッシュ、読点（、）が既定で有効です。";
 "artist_name_settings_protected_names" = "保護するアーティスト名";
 "artist_name_settings_protected_placeholder" = "例：AC/DC";
 "artist_name_settings_protected_footer" = "保護する名前は区切り文字より先に照合され、常に一組のアーティストとして維持されます。";

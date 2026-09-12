@@ -201,15 +201,7 @@ public struct SourceArtistArtworkCatalog: Codable, Equatable, Sendable {
     }
 
     public static func normalizedArtistName(_ value: String) -> String {
-        value
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .precomposedStringWithCanonicalMapping
-            .folding(
-                options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
-                locale: Locale(identifier: "en_US_POSIX")
-            )
-            .split(whereSeparator: { $0.isWhitespace })
-            .joined(separator: " ")
+        ArtistIdentityPolicy.groupingKey(value)
     }
 
     public func automaticReference(

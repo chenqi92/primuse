@@ -184,6 +184,41 @@ enum LibraryPinStorage {
             maximumCount: LibraryDisplayConfiguration.normalizedQuickAccessLimit(maximumCount)
         )
     }
+
+    /// Artist IDs changed key once (case/width/diacritic folding). A pinned
+    /// artist follows its new ID; the legacy pin is kept so nothing the user
+    /// chose disappears. Storage is rewritten at the widest configured limit,
+    /// the display limit still applies when the page decodes it.
+    @discardableResult
+    static func migrateArtistIdentities(
+        renames: [String: String],
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        guard !renames.isEmpty else { return false }
+        let rawValue = defaults.string(forKey: defaultsKey) ?? ""
+        guard !rawValue.isEmpty else { return false }
+        let ceiling = LibraryDisplayConfiguration.quickAccessLimitRange.upperBound
+        let pins = decode(rawValue, maximumCount: ceiling)
+        var existingArtistIDs = Set(
+            pins.filter { $0.kind == .artist }.map(\.itemID)
+        )
+
+        var updated: [LibraryPinReference] = []
+        updated.reserveCapacity(pins.count)
+        var changed = false
+        for pin in pins {
+            updated.append(pin)
+            guard pin.kind == .artist,
+                  let currentID = renames[pin.itemID],
+                  !existingArtistIDs.contains(currentID) else { continue }
+            existingArtistIDs.insert(currentID)
+            updated.append(LibraryPinReference(kind: .artist, itemID: currentID))
+            changed = true
+        }
+        guard changed else { return false }
+        defaults.set(encode(updated, maximumCount: ceiling), forKey: defaultsKey)
+        return true
+    }
 }
 
 private struct LibraryArtworkPreviewSelection: Sendable {

@@ -780,7 +780,7 @@
 "artist_name_settings_reset_confirm" = "Zresetować wszystkie reguły dotyczące nazw wykonawców do wartości domyślnych?";
 "artist_name_settings_separator_placeholder" = "Na przykład ;";
 "artist_name_settings_separators" = "Separatory dzielone";
-"artist_name_settings_separators_footer" = "Separatory dopasowywane są dosłownie. Średniki w obu szerokościach są domyślnie włączone.";
+"artist_name_settings_separators_footer" = "Separatory dopasowywane są dosłownie. Średniki w obu szerokościach, ukośnik i przecinek ideograficzny (、) są domyślnie włączone.";
 "artist_name_settings_title" = "Nazwiska wykonawców";
 "artist_name_settings_tv_read_only" = "Edytuj na iPhone, iPad lub Mac";
 "artist_name_settings_tv_summary" = "Separatory %1$d · Zabezpieczenie %2$d";

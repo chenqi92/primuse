@@ -4,7 +4,7 @@
 "artist_name_settings_preview" = "預覽";
 "artist_name_settings_separators" = "拆分分隔符";
 "artist_name_settings_separator_placeholder" = "例如 ;";
-"artist_name_settings_separators_footer" = "分隔符依原文比對，預設啟用半形與全形分號。";
+"artist_name_settings_separators_footer" = "分隔符依原文比對，預設啟用半形與全形分號、斜線與頓號。";
 "artist_name_settings_protected_names" = "受保護的藝人名稱";
 "artist_name_settings_protected_placeholder" = "例如 AC/DC";
 "artist_name_settings_protected_footer" = "受保護名稱會優先於分隔符比對，並始終保留為一位藝人。";

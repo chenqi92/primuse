@@ -4,7 +4,7 @@
 "artist_name_settings_preview" = "Preview";
 "artist_name_settings_separators" = "Split Separators";
 "artist_name_settings_separator_placeholder" = "For example, ;";
-"artist_name_settings_separators_footer" = "Separators are matched literally. Semicolons in both widths are enabled by default.";
+"artist_name_settings_separators_footer" = "Separators match literally. Semicolons in both widths, the slash and the ideographic comma (、) are enabled by default.";
 "artist_name_settings_protected_names" = "Protected Artist Names";
 "artist_name_settings_protected_placeholder" = "For example, AC/DC";
 "artist_name_settings_protected_footer" = "Protected names are matched before separators and always remain one artist.";

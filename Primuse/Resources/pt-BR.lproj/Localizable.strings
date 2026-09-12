@@ -780,7 +780,7 @@
 "artist_name_settings_reset_confirm" = "Redefinir todas as regras de nomes de artistas para seus padrões?";
 "artist_name_settings_separator_placeholder" = "Por exemplo, ;";
 "artist_name_settings_separators" = "Separadores Divididos";
-"artist_name_settings_separators_footer" = "Os separadores são correspondidos literalmente. Ponto e vírgula em ambas as larguras estão habilitados por padrão.";
+"artist_name_settings_separators_footer" = "Os separadores são correspondidos literalmente. Ponto e vírgula em ambas as larguras, a barra e a vírgula ideográfica (、) estão habilitados por padrão.";
 "artist_name_settings_title" = "Nomes de Artistas";
 "artist_name_settings_tv_read_only" = "Editar em iPhone, iPad ou Mac";
 "artist_name_settings_tv_summary" = "Separadores %1$d · Protegido %2$d";

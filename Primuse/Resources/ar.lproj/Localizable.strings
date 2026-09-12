@@ -780,7 +780,7 @@
 "artist_name_settings_reset_confirm" = "إعادة تعيين جميع قواعد اسم الفنان إلى إعداداتها الافتراضية؟";
 "artist_name_settings_separator_placeholder" = "على سبيل المثال؛";
 "artist_name_settings_separators" = "فواصل الانقسام";
-"artist_name_settings_separators_footer" = "تتم مطابقة الفواصل حرفيا. يتم تمكين الفواصل المنقوطة في كلا العرضين بشكل افتراضي.";
+"artist_name_settings_separators_footer" = "تتم مطابقة الفواصل حرفيًا. الفواصل المنقوطة بكلا العرضين والشرطة المائلة والفاصلة الأيدوغرافية (、) مُفعَّلة بشكل افتراضي.";
 "artist_name_settings_title" = "اسماء الفنانين";
 "artist_name_settings_tv_read_only" = "التعديل على iPhone أو iPad أو Mac";
 "artist_name_settings_tv_summary" = "%1$d فواصل · %2$d محمي";

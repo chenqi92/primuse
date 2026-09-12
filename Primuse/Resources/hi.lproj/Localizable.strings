@@ -780,7 +780,7 @@
 "artist_name_settings_reset_confirm" = "सभी कलाकार-नाम नियमों को उनके डिफ़ॉल्ट पर रीसेट करें?";
 "artist_name_settings_separator_placeholder" = "उदाहरण के लिए, ;";
 "artist_name_settings_separators" = "स्प्लिट सेपरेटर";
-"artist_name_settings_separators_footer" = "विभाजकों का शाब्दिक मिलान किया जाता है। दोनों चौड़ाई में अर्धविराम डिफ़ॉल्ट रूप से सक्षम हैं।";
+"artist_name_settings_separators_footer" = "विभाजकों का शाब्दिक मिलान किया जाता है। दोनों चौड़ाई के अर्धविराम, स्लैश और आइडियोग्राफ़िक अल्पविराम (、) डिफ़ॉल्ट रूप से सक्षम हैं।";
 "artist_name_settings_title" = "कलाकार के नाम";
 "artist_name_settings_tv_read_only" = "iPhone, iPad, या Mac पर संपादित करें";
 "artist_name_settings_tv_summary" = "%1$d विभाजक · %2$d संरक्षित";

@@ -2844,6 +2844,7 @@ final class MusicLibrary {
     private(set) var allPlaylists: [Playlist] = []
     private var artworkOverridesByOwner: [String: LibraryArtworkOverride] = [:]
     private var libraryReviewsBySubject: [String: LibraryReview] = [:]
+    @ObservationIgnored private var didMigrateLegacyArtistIdentities = false
     @ObservationIgnored
     private var automaticArtistArtworkCatalogsBySource: [String: SourceArtistArtworkCatalog] = [:]
     @ObservationIgnored private var automaticArtistArtworkCatalogRevision: UInt64 = 0
@@ -3193,7 +3194,7 @@ final class MusicLibrary {
     @ObservationIgnored private var persistenceBlockedByCorruption = false
     @ObservationIgnored private var derivedIndexSignature: String?
     private nonisolated static let startupCacheFormatVersion = 1
-    private nonisolated static let loadedSongMigrationVersion = 6
+    private nonisolated static let loadedSongMigrationVersion = 7
 
     // MARK: - Readiness
 
@@ -4519,6 +4520,8 @@ final class MusicLibrary {
                 )
                 newSong.dateAdded = existing.dateAdded
             }
+            // 扫描入库仍旧走逐首口径: 整批的目录兄弟关系由随后的整库重建
+            // 通过 `albumIDCorrections` 纠正。
             MusicLibrary.fillDerivedIDs(
                 &newSong,
                 configuration: artistNameConfiguration
@@ -5813,7 +5816,7 @@ final class MusicLibrary {
     }
 
     func artistIDs(for song: Song) -> [String] {
-        artistNames(for: song).map { Self.hashID($0.lowercased()) }
+        artistNames(for: song).map { Self.hashID(ArtistIdentityPolicy.groupingKey($0)) }
     }
 
     func song(_ song: Song, includesArtistID artistID: String) -> Bool {
@@ -5849,15 +5852,20 @@ final class MusicLibrary {
         var nextSongs = songs
         var changedSongs: [Song] = []
         changedSongs.reserveCapacity(nextSongs.count)
+        let inferred = Self.inferredAlbumArtists(for: nextSongs)
         for index in nextSongs.indices {
             let previousArtistID = nextSongs[index].artistID
+            let previousAlbumID = nextSongs[index].albumID
             let previousArtistArtwork = nextSongs[index].artistArtworkFileName
+            let inferredAlbumArtist = inferred[nextSongs[index].id]
             Self.fillDerivedIDs(
                 &nextSongs[index],
-                configuration: value
+                configuration: value,
+                inferredAlbumArtist: inferredAlbumArtist
             )
             applyAutomaticArtistArtwork(to: &nextSongs[index])
             if nextSongs[index].artistID != previousArtistID
+                || nextSongs[index].albumID != previousAlbumID
                 || nextSongs[index].artistArtworkFileName != previousArtistArtwork {
                 changedSongs.append(nextSongs[index])
             }
@@ -7428,9 +7436,13 @@ final class MusicLibrary {
         let previousSong = currentSongs[index]
         let oldCoverRef = previousSong.coverArtFileName
         var s = updatedSong
+        // 标签编辑要按它将要落在的那个目录来判专辑归属, 否则改完一首歌
+        // 它会先从合并后的专辑里弹出去, 等下一次整库重建才回来。
+        let inferred = MusicLibrary.inferredAlbumArtists(for: [s], among: currentSongs)
         MusicLibrary.fillDerivedIDs(
             &s,
-            configuration: artistNameConfiguration
+            configuration: artistNameConfiguration,
+            inferredAlbumArtist: inferred[s.id]
         )
         applyAutomaticArtistArtwork(to: &s)
         var nextSongs = currentSongs
@@ -7491,6 +7503,12 @@ final class MusicLibrary {
         let originalSongs = songs
         var nextSongs = originalSongs
         var idToIndex = songIndexByID
+        // 与 `replaceSong` 同一个理由: 整批一起判目录兄弟, 免得刚改完的行
+        // 短暂地掉出已经合并好的专辑。
+        let inferred = MusicLibrary.inferredAlbumArtists(
+            for: updatedSongs,
+            among: originalSongs
+        )
 
         var lastApplied: Song?
         var appliedIDs: Set<String> = []
@@ -7521,7 +7539,8 @@ final class MusicLibrary {
             var s = updated
             MusicLibrary.fillDerivedIDs(
                 &s,
-                configuration: artistNameConfiguration
+                configuration: artistNameConfiguration,
+                inferredAlbumArtist: inferred[s.id]
             )
             applyAutomaticArtistArtwork(to: &s)
             if LibraryIndexMaintenancePolicy.derivedCollectionsChanged(
@@ -7736,6 +7755,8 @@ final class MusicLibrary {
             let previousSong = nextSongs[index]
             let oldCoverReference = previousSong.coverArtFileName
             var song = updated
+            // 离主 actor 的稳定替换同样走逐首口径, 由整库重建的
+            // `albumIDCorrections` 纠正。
             fillDerivedIDs(&song, configuration: request.artistNameConfiguration)
             applyAutomaticArtistArtwork(
                 to: &song,
@@ -8025,6 +8046,7 @@ final class MusicLibrary {
         let signature: String
         let albums: [Album]
         let artists: [Artist]
+        let albumIDCorrections: [String: String]
         let visibleCache: PreparedVisibleCache
     }
 
@@ -8174,8 +8196,18 @@ final class MusicLibrary {
                     songs: request.songs,
                     configuration: request.artistNameConfiguration
                    ), !Task.isCancelled {
+                    // 可见缓存要看的是纠正后的 albumID, 否则刚合并的那几首会
+                    // 在下一次整库重建之前一直挂在旧专辑上。
+                    var correctedSongs = request.songs
+                    if !result.albumIDCorrections.isEmpty {
+                        for index in correctedSongs.indices {
+                            guard let albumID = result.albumIDCorrections[correctedSongs[index].id],
+                                  correctedSongs[index].albumID != albumID else { continue }
+                            correctedSongs[index].albumID = albumID
+                        }
+                    }
                     let visibleCache = MusicLibrary.prepareVisibleCache(
-                        songs: request.songs,
+                        songs: correctedSongs,
                         albums: result.albums,
                         artists: result.artists,
                         artistNameConfiguration: request.artistNameConfiguration,
@@ -8187,6 +8219,7 @@ final class MusicLibrary {
                             signature: signature,
                             albums: result.albums,
                             artists: result.artists,
+                            albumIDCorrections: result.albumIDCorrections,
                             visibleCache: visibleCache
                         )
                     }
@@ -8213,8 +8246,10 @@ final class MusicLibrary {
             artists = computation.artists
             derivedIndexSignature = computation.signature
             applyPreparedVisibleCache(computation.visibleCache)
+            applyAlbumIDCorrections(computation.albumIDCorrections)
             persistDerivedIndexCache()
             applied = true
+            migrateLegacyArtistIdentities(artists: computation.artists)
             // 落地一次即结束当前的丢弃连击, 下一轮重叠可以再立即补发一次。
             didRequeueAfterDiscard = false
         }
@@ -8273,7 +8308,64 @@ final class MusicLibrary {
                 for: songs,
                 configuration: artistNameConfiguration
             )
+        applyAlbumIDCorrections(result.albumIDCorrections)
         rebuildVisibleCache()
+        migrateLegacyArtistIdentities(artists: artists)
+    }
+
+    /// Artist IDs changed key once (case/width/diacritic folding). State that
+    /// is addressed by an artist ID follows the artist to its new ID; the old
+    /// entry is left in place so nothing is deleted remotely.
+    private func migrateLegacyArtistIdentities(artists: [Artist]) {
+        guard !didMigrateLegacyArtistIdentities else { return }
+        didMigrateLegacyArtistIdentities = true
+        var moved: [(legacy: LibraryArtworkOwner, current: LibraryArtworkOwner)] = []
+        for artist in artists {
+            let legacyID = Self.hashID(ArtistIdentityPolicy.legacyGroupingKey(artist.name))
+            guard legacyID != artist.id else { continue }
+            moved.append((
+                LibraryArtworkOwner(kind: .artist, id: legacyID),
+                LibraryArtworkOwner(kind: .artist, id: artist.id)
+            ))
+        }
+        guard !moved.isEmpty else { return }
+        for pair in moved {
+            if let legacy = artworkOverridesByOwner[pair.legacy.storageKey],
+               artworkOverridesByOwner[pair.current.storageKey] == nil {
+                _ = setArtworkOverride(
+                    owner: pair.current,
+                    mode: legacy.mode,
+                    selectedSongIdentity: legacy.selectedSongIdentity,
+                    uploadedContentID: legacy.uploadedContentID
+                )
+            }
+        }
+        #if !os(tvOS)
+        // 快捷入口只存在于 iOS / macOS 的资料库页, 固定项由它自己的存储改写。
+        LibraryPinStorage.migrateArtistIdentities(
+            renames: Dictionary(
+                moved.map { ($0.legacy.id, $0.current.id) },
+                uniquingKeysWith: { first, _ in first }
+            )
+        )
+        #endif
+    }
+
+    /// Songs added or edited one at a time got the per-song album ID; the full
+    /// rebuild knows their folder siblings and hands the corrected IDs back.
+    private func applyAlbumIDCorrections(_ corrections: [String: String]) {
+        guard !corrections.isEmpty else { return }
+        var next = songs
+        var changed: [Song] = []
+        for (songID, albumID) in corrections {
+            guard let index = songIndexByID[songID], next[index].albumID != albumID else { continue }
+            next[index].albumID = albumID
+            changed.append(next[index])
+        }
+        guard !changed.isEmpty else { return }
+        songs = next
+        persistSongChanges(upserts: changed)
+        markPortableSnapshotDirty()
     }
 
     /// tvOS 下载到新快照后重新从磁盘加载整库(songs/playlists 等)。
@@ -8436,7 +8528,44 @@ final class MusicLibrary {
             albums = result.albums
             artists = result.artists
             derivedIndexSignature = precomputedSignature
+            applyAlbumIDCorrections(result.albumIDCorrections)
             rebuildVisibleCache()
+        }
+
+        /// 与主 actor 上的同名方法一样: 整库知道兄弟文件, 逐首入库时算出的
+        /// albumID 在这里对账。装载阶段没有 store 句柄, 改动折进待写队列。
+        /// ID 不变、行序不变, `songIndexByID` 仍然有效。
+        mutating func applyAlbumIDCorrections(_ corrections: [String: String]) {
+            guard !corrections.isEmpty else { return }
+            var changed: [Song] = []
+            for (songID, albumID) in corrections {
+                guard let index = songIndexByID[songID],
+                      songs.indices.contains(index),
+                      songs[index].id == songID,
+                      songs[index].albumID != albumID else { continue }
+                songs[index].albumID = albumID
+                changed.append(songs[index])
+            }
+            guard !changed.isEmpty else { return }
+            switch pendingStoreWrite {
+            case .none:
+                pendingStoreWrite = .upserts(changed)
+            case .upserts(var list):
+                var indexByID: [String: Int] = [:]
+                for (offset, song) in list.enumerated() { indexByID[song.id] = offset }
+                for song in changed {
+                    if let offset = indexByID[song.id] {
+                        list[offset] = song
+                    } else {
+                        indexByID[song.id] = list.count
+                        list.append(song)
+                    }
+                }
+                pendingStoreWrite = .upserts(list)
+            case .replaceAll:
+                // 整库重写本来就会带上纠正后的行。
+                break
+            }
         }
 
         mutating func loadSnapshot(preferExternalSnapshot: Bool = false) {
@@ -9082,6 +9211,9 @@ final class MusicLibrary {
         var filledDerivedIDCount = 0
         var repairedDTSDurationCount = 0
         var changedSongs: [Song] = []
+        // 同一目录同名专辑的 album artist 归属只有整库口径才算得出来,
+        // 装载时算一次, 逐首复用。
+        let inferred = inferredAlbumArtists(for: songs)
 
         for index in songs.indices {
             var song = songs[index]
@@ -9090,7 +9222,8 @@ final class MusicLibrary {
             var songWithExpectedDerivedIDs = song
             fillDerivedIDs(
                 &songWithExpectedDerivedIDs,
-                configuration: configuration
+                configuration: configuration,
+                inferredAlbumArtist: inferred[song.id]
             )
             let needsDerivedIDs = song.artistID != songWithExpectedDerivedIDs.artistID
                 || song.albumID != songWithExpectedDerivedIDs.albumID
@@ -10162,24 +10295,25 @@ final class MusicLibrary {
 
         var seen = Set<String>()
         return resolvedArtistNames(for: song, configuration: configuration).compactMap { name in
-            let id = hashID(name.lowercased())
+            let id = hashID(ArtistIdentityPolicy.groupingKey(name))
             return seen.insert(id).inserted ? id : nil
         }
     }
 
     nonisolated static func fillDerivedIDs(
         _ song: inout Song,
-        configuration: ArtistNameConfiguration = .defaultValue
+        configuration: ArtistNameConfiguration = .defaultValue,
+        inferredAlbumArtist: String? = nil
     ) {
         let unknownArtist = String(localized: "unknown_artist")
         let artist = resolvedArtistNames(
             for: song,
             configuration: configuration
         ).first ?? unknownArtist
-        song.artistID = hashID(artist.lowercased())
+        song.artistID = hashID(ArtistIdentityPolicy.groupingKey(artist))
         if let identity = AlbumGroupingPolicy.identity(
             albumTitle: song.albumTitle,
-            albumArtistName: song.albumArtistName,
+            albumArtistName: inferredAlbumArtist ?? song.albumArtistName,
             trackArtistName: song.artistName,
             unknownArtistName: unknownArtist
         ) {
@@ -10189,12 +10323,110 @@ final class MusicLibrary {
         }
     }
 
+    nonisolated static func albumArtistInferenceTrack(
+        _ song: Song
+    ) -> AlbumArtistInferencePolicy.Track {
+        AlbumArtistInferencePolicy.Track(
+            id: song.id,
+            sourceID: song.sourceID,
+            directory: AlbumArtistInferencePolicy.directory(ofPath: song.filePath),
+            albumTitle: song.albumTitle,
+            albumArtistName: song.albumArtistName,
+            trackArtistName: song.artistName
+        )
+    }
+
+    /// 整库口径: 每个源的所有歌一起判定目录权威性与同目录同名专辑的归属。
+    nonisolated static func inferredAlbumArtists(for songs: [Song]) -> [String: String] {
+        AlbumArtistInferencePolicy.inferredAlbumArtists(
+            for: songs.map(albumArtistInferenceTrack)
+        )
+    }
+
+    /// Candidates being inserted/replaced, judged against the folder siblings
+    /// they will sit next to. `replaceSong` runs on every playback start (the
+    /// duration correction), so the library is only pre-filtered by source and
+    /// album title here; the directory split and the policy run on the few
+    /// rows that share a scope, and directory authority stops at the second
+    /// distinct folder of a source.
+    nonisolated static func inferredAlbumArtists(
+        for candidates: [Song],
+        among library: [Song]
+    ) -> [String: String] {
+        guard !candidates.isEmpty else { return [:] }
+        var titlesBySource: [String: Set<String>] = [:]
+        for song in candidates {
+            guard let title = albumArtistInferenceTitle(song.albumTitle) else { continue }
+            titlesBySource[song.sourceID, default: []].insert(title)
+        }
+        guard !titlesBySource.isEmpty else { return [:] }
+
+        let candidateIDs = Set(candidates.map(\.id))
+        let candidateTracks = candidates.map(albumArtistInferenceTrack)
+        var candidateScopeKeys: Set<String> = []
+        var directoriesBySource: [String: Set<String>] = [:]
+        var authoritative: Set<String> = []
+        for track in candidateTracks {
+            if let key = albumArtistInferenceScopeKey(track) {
+                candidateScopeKeys.insert(key)
+            }
+            directoriesBySource[track.sourceID, default: []].insert(track.directory)
+        }
+        guard !candidateScopeKeys.isEmpty else { return [:] }
+
+        var scoped: [AlbumArtistInferencePolicy.Track] = []
+        for song in library where !candidateIDs.contains(song.id) {
+            guard let titles = titlesBySource[song.sourceID] else { continue }
+            let needsAuthority = !authoritative.contains(song.sourceID)
+            let sharesTitle = albumArtistInferenceTitle(song.albumTitle)
+                .map { titles.contains($0) } ?? false
+            guard needsAuthority || sharesTitle else { continue }
+            let track = albumArtistInferenceTrack(song)
+            if needsAuthority {
+                directoriesBySource[song.sourceID, default: []].insert(track.directory)
+                if (directoriesBySource[song.sourceID]?.count ?? 0) >= 2 {
+                    authoritative.insert(song.sourceID)
+                }
+            }
+            if sharesTitle,
+               let key = albumArtistInferenceScopeKey(track),
+               candidateScopeKeys.contains(key) {
+                scoped.append(track)
+            }
+        }
+        for (sourceID, directories) in directoriesBySource where directories.count >= 2 {
+            authoritative.insert(sourceID)
+        }
+        guard !authoritative.isEmpty else { return [:] }
+        scoped.append(contentsOf: candidateTracks)
+
+        let inferred = AlbumArtistInferencePolicy.inferredAlbumArtists(
+            for: scoped,
+            directoryAuthoritativeSourceIDs: authoritative
+        )
+        return inferred.filter { candidateIDs.contains($0.key) }
+    }
+
+    private nonisolated static func albumArtistInferenceTitle(_ value: String?) -> String? {
+        guard let title = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !title.isEmpty else { return nil }
+        return title
+    }
+
+    /// 与 `AlbumArtistInferencePolicy` 内部的分组键一致: 源 + 目录 + 专辑名。
+    private nonisolated static func albumArtistInferenceScopeKey(
+        _ track: AlbumArtistInferencePolicy.Track
+    ) -> String? {
+        guard let albumTitle = albumArtistInferenceTitle(track.albumTitle) else { return nil }
+        return "\(track.sourceID)\u{1F}\(track.directory)\u{1F}\(albumTitle)"
+    }
+
     /// 后台 derive albums / artists 集合。纯函数 ── 给定 songs 数组, 算出
     /// 派生集合, 不操作 self。
     nonisolated static func computeAlbumsAndArtists(
         songs: [Song],
         configuration: ArtistNameConfiguration = .defaultValue
-    ) -> (albums: [Album], artists: [Artist]) {
+    ) -> (albums: [Album], artists: [Artist], albumIDCorrections: [String: String]) {
         computeAlbumsAndArtists(
             songs: songs,
             configuration: configuration,
@@ -10208,7 +10440,7 @@ final class MusicLibrary {
     private nonisolated static func computeAlbumsAndArtistsCancellable(
         songs: [Song],
         configuration: ArtistNameConfiguration
-    ) -> (albums: [Album], artists: [Artist])? {
+    ) -> (albums: [Album], artists: [Artist], albumIDCorrections: [String: String])? {
         computeAlbumsAndArtists(
             songs: songs,
             configuration: configuration,
@@ -10220,7 +10452,11 @@ final class MusicLibrary {
         songs: [Song],
         configuration: ArtistNameConfiguration,
         cancellationCheck: () -> Bool
-    ) -> (albums: [Album], artists: [Artist])? {
+    ) -> (albums: [Album], artists: [Artist], albumIDCorrections: [String: String])? {
+        guard !cancellationCheck() else { return nil }
+        // 整库才看得见同一目录里的兄弟文件, 所以 album artist 的补全在这里先
+        // 算一次, 下面两处 identity 与逐首 albumID 的对账都用同一份结果。
+        let inferredAlbumArtists = Self.inferredAlbumArtists(for: songs)
         guard !cancellationCheck() else { return nil }
         let unknownArtist = String(localized: "unknown_artist")
 
@@ -10232,7 +10468,7 @@ final class MusicLibrary {
             if offset.isMultiple(of: 64), cancellationCheck() { return nil }
             guard let identity = AlbumGroupingPolicy.identity(
                 albumTitle: song.albumTitle,
-                albumArtistName: song.albumArtistName,
+                albumArtistName: inferredAlbumArtists[song.id] ?? song.albumArtistName,
                 trackArtistName: song.artistName,
                 unknownArtistName: unknownArtist
             ) else { continue }
@@ -10253,7 +10489,7 @@ final class MusicLibrary {
             albums.append(Album(
                 id: hashID("\(identity.artistName):\(identity.albumTitle)"),
                 title: identity.albumTitle,
-                artistID: hashID(identity.artistName.lowercased()),
+                artistID: hashID(ArtistIdentityPolicy.groupingKey(identity.artistName)),
                 artistName: identity.artistName,
                 year: groupedSongs.first?.year,
                 genre: groupedSongs.first?.genre,
@@ -10272,7 +10508,7 @@ final class MusicLibrary {
         for (offset, song) in songs.enumerated() {
             if offset.isMultiple(of: 64), cancellationCheck() { return nil }
             for name in resolvedArtistNames(for: song, configuration: configuration) {
-                artistGroups[hashID(name.lowercased()), default: []].append((name, song))
+                artistGroups[hashID(ArtistIdentityPolicy.groupingKey(name)), default: []].append((name, song))
             }
         }
         guard !cancellationCheck() else { return nil }
@@ -10290,10 +10526,10 @@ final class MusicLibrary {
                 let song = artistEntry.song
                 if let identity = AlbumGroupingPolicy.identity(
                     albumTitle: song.albumTitle,
-                    albumArtistName: song.albumArtistName,
+                    albumArtistName: inferredAlbumArtists[song.id] ?? song.albumArtistName,
                     trackArtistName: song.artistName,
                     unknownArtistName: unknownArtist
-                ), hashID(identity.artistName.lowercased()) == id {
+                ), hashID(ArtistIdentityPolicy.groupingKey(identity.artistName)) == id {
                     albumIDs.insert(hashID("\(identity.artistName):\(identity.albumTitle)"))
                 }
                 if thumbnailPath == nil {
@@ -10308,7 +10544,7 @@ final class MusicLibrary {
                     } else if resolvedArtistNames(
                         for: song,
                         configuration: configuration
-                    ).first.map({ hashID($0.lowercased()) }) == id,
+                    ).first.map({ hashID(ArtistIdentityPolicy.groupingKey($0)) }) == id,
                     let reference = song.artistArtworkFileName {
                         thumbnailPath = SourceOwnedArtworkReference.make(
                             sourceID: song.sourceID,
@@ -10328,7 +10564,25 @@ final class MusicLibrary {
         artists.sort { $0.name.localizedCompare($1.name) == .orderedAscending }
         guard !cancellationCheck() else { return nil }
 
-        return (albums, artists)
+        // 逐首入库时只看得见自己那一行, albumID 可能停在未合并的旧值。整库
+        // 知道正确答案, 这里把差异交回给调用方去落地。
+        var albumIDCorrections: [String: String] = [:]
+        for (offset, song) in songs.enumerated() {
+            if offset.isMultiple(of: 64), cancellationCheck() { return nil }
+            guard let identity = AlbumGroupingPolicy.identity(
+                albumTitle: song.albumTitle,
+                albumArtistName: inferredAlbumArtists[song.id] ?? song.albumArtistName,
+                trackArtistName: song.artistName,
+                unknownArtistName: unknownArtist
+            ) else { continue }
+            let expected = hashID("\(identity.artistName):\(identity.albumTitle)")
+            if song.albumID != expected {
+                albumIDCorrections[song.id] = expected
+            }
+        }
+        guard !cancellationCheck() else { return nil }
+
+        return (albums, artists, albumIDCorrections)
     }
 
     /// Stable digest of every value consumed by `computeAlbumsAndArtists`.
@@ -10341,7 +10595,7 @@ final class MusicLibrary {
     ) -> String {
         var input = Data()
         input.reserveCapacity(max(128, songs.count * 96))
-        appendStableString("derived-index-v5", to: &input)
+        appendStableString("derived-index-v6", to: &input)
         appendStableString(String(localized: "unknown_artist"), to: &input)
         appendStableString(configuration.cacheSignature, to: &input)
 
@@ -10354,6 +10608,8 @@ final class MusicLibrary {
             appendStableString(song.genre, to: &input)
             appendStableInteger(song.duration.sanitizedDuration.bitPattern, to: &input)
             appendStableString(song.sourceID, to: &input)
+            // 专辑归属现在还看文件所在目录。
+            appendStableString(song.filePath, to: &input)
             appendStableString(song.artistArtworkFileName, to: &input)
         }
 

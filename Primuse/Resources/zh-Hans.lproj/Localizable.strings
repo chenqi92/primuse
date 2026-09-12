@@ -4,7 +4,7 @@
 "artist_name_settings_preview" = "预览";
 "artist_name_settings_separators" = "拆分分隔符";
 "artist_name_settings_separator_placeholder" = "例如 ;";
-"artist_name_settings_separators_footer" = "分隔符按原文匹配，默认启用半角和全角分号。";
+"artist_name_settings_separators_footer" = "分隔符按原文匹配，默认启用半角和全角分号、斜杠与顿号。";
 "artist_name_settings_protected_names" = "受保护的艺术家名";
 "artist_name_settings_protected_placeholder" = "例如 AC/DC";
 "artist_name_settings_protected_footer" = "受保护名称会优先于分隔符匹配，并始终保留为一位艺术家。";

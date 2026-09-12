@@ -780,7 +780,7 @@
 "artist_name_settings_reset_confirm" = "¿Restablecer todas las reglas de nombres de artistas a sus valores predeterminados?";
 "artist_name_settings_separator_placeholder" = "Por ejemplo, ;";
 "artist_name_settings_separators" = "Separadores Divididos";
-"artist_name_settings_separators_footer" = "Los separadores coinciden literalmente. Los puntos y coma en ambos anchos están habilitados de forma predeterminada.";
+"artist_name_settings_separators_footer" = "Los separadores coinciden literalmente. Los puntos y coma en ambos anchos, la barra diagonal y la coma ideográfica (、) están habilitados de forma predeterminada.";
 "artist_name_settings_title" = "Nombres de artistas";
 "artist_name_settings_tv_read_only" = "Editar en iPhone, iPad o Mac";
 "artist_name_settings_tv_summary" = "Separadores %1$d · %2$d protegidos";

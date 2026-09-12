@@ -15,6 +15,16 @@ import Testing
     #expect(names == ["A", "B"])
 }
 
+@Test func splitsDefaultSlashAndIdeographicCommaArtistText() {
+    #expect(ArtistNameParser.names(rawName: "周杰伦/费玉清") == ["周杰伦", "费玉清"])
+    #expect(ArtistNameParser.names(rawName: "周杰伦、费玉清") == ["周杰伦", "费玉清"])
+}
+
+@Test func defaultProtectedNameKeepsSlashedBandTogether() {
+    #expect(ArtistNameParser.names(rawName: "AC/DC") == ["AC/DC"])
+    #expect(ArtistNameParser.names(rawName: "AC/DC/周杰伦") == ["AC/DC", "周杰伦"])
+}
+
 @Test func preservesAuthoritativeNativeArtistBoundaries() {
     let configuration = ArtistNameConfiguration(
         separators: ["/", "&", ";"],

@@ -4,7 +4,7 @@
 "artist_name_settings_preview" = "Aperçu";
 "artist_name_settings_separators" = "Séparateurs de découpage";
 "artist_name_settings_separator_placeholder" = "Par exemple, ;";
-"artist_name_settings_separators_footer" = "Les séparateurs sont reconnus littéralement. Les deux largeurs de point-virgule sont activées par défaut.";
+"artist_name_settings_separators_footer" = "Les séparateurs sont reconnus littéralement. Les points-virgules dans les deux largeurs, la barre oblique et la virgule idéographique (、) sont activés par défaut.";
 "artist_name_settings_protected_names" = "Noms d’artistes protégés";
 "artist_name_settings_protected_placeholder" = "Par exemple, AC/DC";
 "artist_name_settings_protected_footer" = "Les noms protégés sont reconnus avant les séparateurs et restent toujours un seul artiste.";

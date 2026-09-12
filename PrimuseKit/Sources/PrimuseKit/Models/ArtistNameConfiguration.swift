@@ -5,8 +5,8 @@ public struct ArtistNameConfiguration: Codable, Hashable, Sendable {
     public static let storageKey = "primuse_artist_name_configuration_v1"
 
     public static let defaultValue = ArtistNameConfiguration(
-        separators: [";", "；"],
-        protectedNames: [],
+        separators: [";", "；", "/", "、"],
+        protectedNames: ["AC/DC"],
         displaySeparator: " / "
     )
 

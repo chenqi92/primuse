@@ -2837,7 +2837,7 @@
 "scrape_preview" = "Üst veri sonuçları";
 "song_info" = "Şarkı Bilgisi";
 "yearly_card_peak_month_unit" = "Ay";
-"artist_name_settings_separators_footer" = "Ayırıcılar tam anlamıyla eşleştirilmiştir. Her iki genişlikteki noktalı virgüller varsayılan olarak etkindir.";
+"artist_name_settings_separators_footer" = "Ayırıcılar tam anlamıyla eşleştirilir. Her iki genişlikteki noktalı virgüller, eğik çizgi ve ideografik virgül (、) varsayılan olarak etkindir.";
 "last_played_label" = "Son Oynanan";
 "lyrics_editor_shift_clamped" = "Zaten başlangıçta — daha fazla kaydırmak ilk satırı sıfırın önüne taşır.";
 "yearly_month_6" = "Haziran";

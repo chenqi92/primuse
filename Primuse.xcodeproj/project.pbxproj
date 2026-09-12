@@ -359,6 +359,7 @@
 		4B2BF38BCFB84F05C64395BB /* ScanService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 632A16B1EB87A560435B7039 /* ScanService.swift */; };
 		4B772087576B4514693E99FC /* NFSKit in Frameworks */ = {isa = PBXBuildFile; productRef = 182EE268F2CA5FABDFC768A5 /* NFSKit */; };
 		4BD73D0896517A5789F2EE45 /* MacDetailContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D09F74F18E7CED7C6CDC0960 /* MacDetailContainer.swift */; };
+		4BE8169AF4653387BD582295 /* AlbumArtistInferencePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D39A19435691BBF17DE43314 /* AlbumArtistInferencePolicy.swift */; };
 		4BEE145854D089F85EF61D72 /* VisualizerBarsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DF2B6809C0482D58CDE61E7 /* VisualizerBarsView.swift */; };
 		4C233E3EE22134B9B5EFD109 /* RecentlyDeletedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCF14896C5977140D504187F /* RecentlyDeletedView.swift */; };
 		4C4AE61F50C0DEE6BFA6B242 /* NowPlayingPlaybackProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12AD42B5CE1CE635F570F26F /* NowPlayingPlaybackProjection.swift */; };
@@ -1170,6 +1171,7 @@
 		FC03BF45CFF795C29718C5BC /* PlaylistExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 285C1472009479A6CC7B2177 /* PlaylistExporter.swift */; };
 		FC2744CFBE903B320EC18167 /* ThemeColorSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F805E78BE07CA73C5056348 /* ThemeColorSettingsView.swift */; };
 		FC72F4B54B644843ECA7D395 /* U115Source.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB4788BFEC669118576E7E2 /* U115Source.swift */; };
+		FCA457A092AA1FBB809DF26F /* ArtistIdentityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B61A94DA9CFE3D5B74EF40C0 /* ArtistIdentityPolicy.swift */; };
 		FD44254364FA0DB15420FBA1 /* AIPlaylistEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59AC4982B4765828C0F0817B /* AIPlaylistEditorView.swift */; };
 		FD625E01ED743F80F23B4A65 /* PrimuseKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B1E36F2FECF46E724081F983 /* PrimuseKit.framework */; };
 		FD93E0019C400B1CBD4C7D4A /* FFmpeg-LGPL-2.1.txt in Resources */ = {isa = PBXBuildFile; fileRef = D48A906E5EF29F5A5D04B2FC /* FFmpeg-LGPL-2.1.txt */; };
@@ -2033,6 +2035,7 @@
 		B51108012EB31DEEAD9431CB /* PrimuseTV-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "PrimuseTV-Bridging-Header.h"; sourceTree = "<group>"; };
 		B56809F1C697EF691877166D /* MetadataBackfillService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataBackfillService.swift; sourceTree = "<group>"; };
 		B5AF0A502ADBF66BB885795B /* LocalPlaybackResumePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalPlaybackResumePolicy.swift; sourceTree = "<group>"; };
+		B61A94DA9CFE3D5B74EF40C0 /* ArtistIdentityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtistIdentityPolicy.swift; sourceTree = "<group>"; };
 		B69EFAC9B373A6932F1B181C /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/CacheSync.strings"; sourceTree = "<group>"; };
 		B6A8760C804BC7713D41D365 /* FnMusicSourceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FnMusicSourceTests.swift; sourceTree = "<group>"; };
 		B6B2058920D0EF65AE514E1C /* DeviceCheck.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = DeviceCheck.framework; path = System/Library/Frameworks/DeviceCheck.framework; sourceTree = SDKROOT; };
@@ -2141,6 +2144,7 @@
 		D2F45D54CE3E2AA16C90E362 /* TVLibraryBrowseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVLibraryBrowseView.swift; sourceTree = "<group>"; };
 		D30358498866CAC1B9067691 /* tr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = tr; path = tr.lproj/SettingsSearch.strings; sourceTree = "<group>"; };
 		D34E04201479990BA80AEE2A /* CloudInputSourceObjC.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = CloudInputSourceObjC.m; sourceTree = "<group>"; };
+		D39A19435691BBF17DE43314 /* AlbumArtistInferencePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumArtistInferencePolicy.swift; sourceTree = "<group>"; };
 		D3AF04B176BDD4E0FE78D02B /* FnMusicSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FnMusicSource.swift; sourceTree = "<group>"; };
 		D3CFC2BB314F0A2BB166E280 /* AliyunDriveSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AliyunDriveSource.swift; sourceTree = "<group>"; };
 		D4328864E4951F496118B3B0 /* tr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = tr; path = tr.lproj/Localizable.strings; sourceTree = "<group>"; };
@@ -2646,6 +2650,8 @@
 			isa = PBXGroup;
 			children = (
 				B8201B4D10F3B60D364411E9 /* AI */,
+				D39A19435691BBF17DE43314 /* AlbumArtistInferencePolicy.swift */,
+				B61A94DA9CFE3D5B74EF40C0 /* ArtistIdentityPolicy.swift */,
 				C161382065B391D1C54B9209 /* Import */,
 				38CBDB962B370140AC75A17D /* Internal */,
 				CC568C1F987228DD17220D96 /* Library */,
@@ -4324,12 +4330,14 @@
 				223571A3D35282EEE8DC3CD8 /* AIRemoteProviderConfiguration.swift in Sources */,
 				4F143173989D3435C5DB1644 /* ActiveConnectionRouteOwnershipPolicy.swift in Sources */,
 				5D9C7448984A096646317144 /* Album.swift in Sources */,
+				4BE8169AF4653387BD582295 /* AlbumArtistInferencePolicy.swift in Sources */,
 				0263AA1D48551B4AD9E88687 /* AppReviewPromptPolicy.swift in Sources */,
 				26308C3D32A8ED124611376D /* AppleMusicCatalogSearchAvailabilityPolicy.swift in Sources */,
 				0F4FB86FA16FEF99A50DF566 /* AppleMusicLibraryAPI.swift in Sources */,
 				AB5430F0497D7D8B0CD41ABF /* AppleMusicLibraryAccess.swift in Sources */,
 				E1B22DA636C8C51DBCC4CE2A /* AppleMusicLocalAsset.swift in Sources */,
 				05FEEECAC78C364237505773 /* Artist.swift in Sources */,
+				FCA457A092AA1FBB809DF26F /* ArtistIdentityPolicy.swift in Sources */,
 				74DE67BEEAC95A373BD53B59 /* ArtistNameConfiguration.swift in Sources */,
 				4DD1902E0149F649BD06B9B4 /* ArtworkAnimation.swift in Sources */,
 				EC687A4F2368042B6F39DB9C /* ArtworkAnimationDiskCache.swift in Sources */,

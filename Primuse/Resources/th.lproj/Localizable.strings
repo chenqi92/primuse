@@ -780,7 +780,7 @@
 "artist_name_settings_reset_confirm" = "รีเซ็ตกฎชื่อศิลปินทั้งหมดเป็นค่าเริ่มต้นหรือไม่";
 "artist_name_settings_separator_placeholder" = "ตัวอย่างเช่น ;";
 "artist_name_settings_separators" = "เครื่องแยกแบบแยกส่วน";
-"artist_name_settings_separators_footer" = "ตัวแยกถูกจับคู่ตามตัวอักษร อัฒภาคในความกว้างทั้งสองจะเปิดใช้งานตามค่าเริ่มต้น";
+"artist_name_settings_separators_footer" = "ตัวแยกถูกจับคู่ตามตัวอักษร อัฒภาคทั้งสองความกว้าง เครื่องหมายทับ และจุลภาคแบบอักษรภาพ (、) เปิดใช้งานตามค่าเริ่มต้น";
 "artist_name_settings_title" = "ชื่อศิลปิน";
 "artist_name_settings_tv_read_only" = "แก้ไขเมื่อ iPhone, iPad หรือ Mac";
 "artist_name_settings_tv_summary" = "%1$d ตัวคั่น · %2$d ได้รับการป้องกัน";
