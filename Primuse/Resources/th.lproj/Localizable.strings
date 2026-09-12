@@ -1750,6 +1750,8 @@
 "lyrics_editor_timing_hint" = "แตะเมื่อเริ่มบรรทัดนี้ · เลื่อนไปบรรทัดถัดไปอัตโนมัติ";
 "lyrics_editor_timing_info_line" = "ไม่กำหนดเวลาให้บรรทัดชื่อเรื่องและเครดิต";
 "lyrics_editor_timing_progress %lld %lld" = "ซิงค์แล้ว %1$lld จาก %2$lld บรรทัด";
+"lyrics_editor_timing_stamp_word %lld" = "พยางค์ที่ %lld";
+"lyrics_editor_timing_stamp" = "จับเวลา";
 "lyrics_editor_timing_redo" = "กำหนดเวลาบรรทัดใหม่";
 "lyrics_editor_timing_skipped_info %lld" = "ข้าม %lld ชื่อ/วงเงินเครดิต";
 "lyrics_editor_timing_undo" = "เลิกทำบรรทัด";

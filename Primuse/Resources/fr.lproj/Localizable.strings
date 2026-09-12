@@ -2812,6 +2812,8 @@
 "lyrics_editor_mode_text" = "Texte";
 "lyrics_editor_more_actions" = "Plus d’actions";
 "lyrics_editor_timing_progress %lld %lld" = "%1$lld ligne(s) sur %2$lld minutée(s)";
+"lyrics_editor_timing_stamp_word %lld" = "Syllabe %lld";
+"lyrics_editor_timing_stamp" = "Marquer";
 "lyrics_editor_timing_hint" = "Touchez au début de la ligne · avance automatique";
 "lyrics_editor_timing_undo" = "Annuler la ligne";
 "lyrics_editor_timing_redo" = "Rétablir la ligne";

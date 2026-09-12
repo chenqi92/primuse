@@ -856,6 +856,8 @@
 "Import from URL" = "Импорт из URL";
 "ai_settings_unchanged" = "Текущие настройки сохранены.";
 "lyrics_editor_timing_progress %lld %lld" = "Синхронизировано строк: %1$lld из %2$lld";
+"lyrics_editor_timing_stamp_word %lld" = "Слог %lld";
+"lyrics_editor_timing_stamp" = "Отметить";
 "server_share_public_reachability_message" = "Получатели могут открыть ссылку только в том случае, если возвращенный адрес сервера доступен из их сети. Обратный прокси-сервер должен разрешать /share; частные адреса, адреса только для локальной сети или только для IPv6 могут работать не для всех.";
 "clear_metadata" = "Удалить кэш обложек и текстов";
 "tag_editor_writeback_notice_title" = "Отчет об обратной записи источника";

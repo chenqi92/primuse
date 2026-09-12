@@ -856,6 +856,8 @@
 "Import from URL" = "Імпорт із URL";
 "ai_settings_unchanged" = "Поточні налаштування збережено";
 "lyrics_editor_timing_progress %lld %lld" = "Синхронізовано рядків: %1$lld із %2$lld";
+"lyrics_editor_timing_stamp_word %lld" = "Склад %lld";
+"lyrics_editor_timing_stamp" = "Позначити";
 "server_share_public_reachability_message" = "Одержувачі можуть відкрити посилання, лише якщо повернута адреса сервера доступна з їхньої мережі. Зворотний проксі повинен дозволяти /share; приватні адреси, адреси лише для локальної мережі або лише для IPv6 можуть працювати не для всіх.";
 "clear_metadata" = "Видалити кеш обкладинок і текстів";
 "tag_editor_writeback_notice_title" = "Звіт про зворотний запис джерела";

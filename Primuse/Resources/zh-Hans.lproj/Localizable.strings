@@ -2913,6 +2913,8 @@
 "lyrics_editor_mode_text" = "文本";
 "lyrics_editor_more_actions" = "更多操作";
 "lyrics_editor_timing_progress %lld %lld" = "已打 %1$lld / %2$lld 行";
+"lyrics_editor_timing_stamp_word %lld" = "第 %lld 字";
+"lyrics_editor_timing_stamp" = "打点";
 "lyrics_editor_timing_hint" = "听到这句就按 · 自动跳下一句";
 "lyrics_editor_timing_undo" = "回退一句";
 "lyrics_editor_timing_redo" = "重做一句";

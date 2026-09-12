@@ -1750,6 +1750,8 @@
 "lyrics_editor_timing_hint" = "Toca cuando empiece esta línea; se avanza automáticamente";
 "lyrics_editor_timing_info_line" = "Los títulos y créditos no se incluyen en la sincronización";
 "lyrics_editor_timing_progress %lld %lld" = "%1$lld de %2$lld líneas sincronizadas";
+"lyrics_editor_timing_stamp_word %lld" = "Sílaba %lld";
+"lyrics_editor_timing_stamp" = "Marcar";
 "lyrics_editor_timing_redo" = "Rehacer línea";
 "lyrics_editor_timing_skipped_info %lld" = "Se omiten %lld líneas de títulos o créditos";
 "lyrics_editor_timing_undo" = "Deshacer Línea";

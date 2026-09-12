@@ -2812,6 +2812,8 @@
 "lyrics_editor_mode_text" = "Text";
 "lyrics_editor_more_actions" = "Weitere Aktionen";
 "lyrics_editor_timing_progress %lld %lld" = "%1$lld von %2$lld Zeilen getimt";
+"lyrics_editor_timing_stamp_word %lld" = "Silbe %lld";
+"lyrics_editor_timing_stamp" = "Setzen";
 "lyrics_editor_timing_hint" = "Beim Zeilenbeginn tippen · springt automatisch weiter";
 "lyrics_editor_timing_undo" = "Zeile zurück";
 "lyrics_editor_timing_redo" = "Zeile wiederholen";

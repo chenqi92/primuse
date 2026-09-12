@@ -856,6 +856,8 @@
 "Import from URL" = "URL'den içe aktar";
 "ai_settings_unchanged" = "Mevcut ayarlar kaydedilir";
 "lyrics_editor_timing_progress %lld %lld" = "%2$lld satırdan %1$lld tanesi zamanlandı";
+"lyrics_editor_timing_stamp_word %lld" = "%lld. hece";
+"lyrics_editor_timing_stamp" = "İşaretle";
 "server_share_public_reachability_message" = "Alıcılar, yalnızca döndürülen sunucu adresine kendi ağlarından ulaşılabiliyorsa bağlantıyı açabilirler. Ters proxy'nin izin vermesi/paylaşması gerekir; özel, yalnızca LAN veya yalnızca IPv6 adresleri herkes için işe yaramayabilir.";
 "clear_metadata" = "Kapak ve şarkı sözü önbelleğini temizle";
 "tag_editor_writeback_notice_title" = "Kaynak Geri Yazma Raporu";

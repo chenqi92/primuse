@@ -2813,6 +2813,8 @@
 "lyrics_editor_mode_text" = "テキスト";
 "lyrics_editor_more_actions" = "その他の操作";
 "lyrics_editor_timing_progress %lld %lld" = "%2$lld 行中 %1$lld 行に時刻あり";
+"lyrics_editor_timing_stamp_word %lld" = "%lld 文字目";
+"lyrics_editor_timing_stamp" = "打点";
 "lyrics_editor_timing_hint" = "この行が始まったらタップ · 自動で次へ";
 "lyrics_editor_timing_undo" = "1 行戻す";
 "lyrics_editor_timing_redo" = "1 行やり直す";

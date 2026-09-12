@@ -1750,6 +1750,8 @@
 "lyrics_editor_timing_hint" = "اضغط عند بدء هذا السطر · ينتقل تلقائيًا للسطر التالي";
 "lyrics_editor_timing_info_line" = "لا تُضاف طوابع زمنية إلى العناوين وبيانات المساهمين";
 "lyrics_editor_timing_progress %lld %lld" = "ضُبط توقيت %1$lld من %2$lld أسطر";
+"lyrics_editor_timing_stamp_word %lld" = "المقطع %lld";
+"lyrics_editor_timing_stamp" = "تحديد";
 "lyrics_editor_timing_redo" = "إعادة ضبط توقيت السطر";
 "lyrics_editor_timing_skipped_info %lld" = "تخطي %lld عنوان/خط (خطوط) ائتمان";
 "lyrics_editor_timing_undo" = "التراجع عن السطر";

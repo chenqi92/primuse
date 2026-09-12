@@ -2797,6 +2797,8 @@
 "lyrics_editor_mode_text" = "文字";
 "lyrics_editor_more_actions" = "更多操作";
 "lyrics_editor_timing_progress %lld %lld" = "已對時 %1$lld / %2$lld 行";
+"lyrics_editor_timing_stamp_word %lld" = "第 %lld 字";
+"lyrics_editor_timing_stamp" = "打點";
 "lyrics_editor_timing_hint" = "聽到這句就按 · 自動跳下一句";
 "lyrics_editor_timing_undo" = "退回一句";
 "lyrics_editor_timing_redo" = "重做一句";

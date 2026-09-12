@@ -1750,6 +1750,8 @@
 "lyrics_editor_timing_hint" = "Dotknij, gdy zaczyna się ten wers — następny zostanie wybrany automatycznie";
 "lyrics_editor_timing_info_line" = "Tytuły i informacje o autorach nie są synchronizowane";
 "lyrics_editor_timing_progress %lld %lld" = "Zsynchronizowane wersy: %1$lld z %2$lld";
+"lyrics_editor_timing_stamp_word %lld" = "Sylaba %lld";
+"lyrics_editor_timing_stamp" = "Znacznik";
 "lyrics_editor_timing_redo" = "Powtórz wers";
 "lyrics_editor_timing_skipped_info %lld" = "Pomijane wersy z tytułem lub autorami: %lld";
 "lyrics_editor_timing_undo" = "Cofnij wers";

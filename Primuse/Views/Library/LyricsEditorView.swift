@@ -2156,6 +2156,8 @@ struct LyricsEditorView: View {
             Divider()
 
             VStack(spacing: 0) {
+                // 行内进度只在当前字下方出现一次 —— 这里再放一份「逐字 9/9」
+                // 是同一个信息的第二次显示，还占着强调色。
                 HStack(spacing: 10) {
                     Text(String(
                         format: String(localized: "lyrics_editor_timing_progress %lld %lld"),
@@ -2171,20 +2173,35 @@ struct LyricsEditorView: View {
                             skippedTimingLineCount
                         ))
                         .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
-
-                    if let context = timingWordContext {
-                        Text("\(String(localized: "lyrics_word_level_badge")) \(context.syllableIndex + 1)/\(context.syllables.count)")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(.tertiary)
                     }
                 }
                 .padding(.top, 18)
 
-                Spacer(minLength: 12)
+                // 让正在打的那个字吃掉全部剩余高度。原先两个弹性 Spacer 把它
+                // 挤在中间，屏幕越大上下越空，而打轴时眼睛只落在这一块。
                 timingLineContext
-                Spacer(minLength: 18)
+                    .frame(maxHeight: .infinity)
+                    .padding(.vertical, 12)
+
+                // 跟随状态紧贴正在打的那一行 —— 它描述的就是这一行是否跟着
+                // 播放走。跟随中只是状态，用弱色；脱离时才是一个「回到播放
+                // 位置」的动作，这时候才需要跳出来。
+                Button {
+                    followPlaybackLine()
+                } label: {
+                    Label(
+                        String(localized: timingFollowsPlayback
+                               ? "lyrics_editor_following_playback"
+                               : "lyrics_editor_return_to_playback"),
+                        systemImage: timingFollowsPlayback ? "location.fill" : "scope"
+                    )
+                    .font(.caption.weight(.medium))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(timingFollowsPlayback ? Color.secondary : Color.accentColor)
+                .disabled(!isLinkedToPlayback || playbackTimingIndex == nil)
+                .padding(.bottom, 10)
 
                 HStack(spacing: 14) {
                     timingNavigationButton(
@@ -2193,28 +2210,27 @@ struct LyricsEditorView: View {
                         enabled: canSelectPreviousTimingUnit
                     ) { selectPreviousTimingUnit() }
 
+                    // 主标题是动作，副标题说明这一下打在哪 —— 此前主标题写的是
+                    // 模式名(「打轴」/「逐字」)，逐字模式的副标题更是一句状态
+                    // 说明，两行都没告诉用户按下去会发生什么。
+                    //
+                    // 样式改为实心：整屏强调色出现在好几处，靠「同色」已经分不出
+                    // 主次，靠「最重」才分得出。
                     Button {
                         stampTimingUnit()
                     } label: {
                         VStack(spacing: 5) {
-                            Text(String(localized: timingWordContext == nil
-                                        ? "lyrics_editor_mode_timing"
-                                        : "lyrics_word_level_badge"))
+                            Text("lyrics_editor_timing_stamp")
                                 .font(.system(size: 23, weight: .bold, design: .rounded))
-                            Text(String(localized: timingWordContext == nil
-                                        ? "lyrics_editor_timing_hint"
-                                        : "lyrics_editor_word_level_hint"))
+                            Text(stampButtonSubtitle)
                                 .font(.caption2)
                                 .fontWeight(.medium)
+                                .opacity(0.85)
                         }
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(.white)
                         .frame(maxWidth: 270)
                         .frame(height: 90)
-                        .background(Color.accentColor.opacity(0.12), in: .rect(cornerRadius: 18))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .stroke(Color.accentColor.opacity(0.82), lineWidth: 1.5)
-                        }
+                        .background(Color.accentColor, in: .rect(cornerRadius: 18))
                         .contentShape(.rect(cornerRadius: 18))
                     }
                     .buttonStyle(.plain)
@@ -2229,24 +2245,10 @@ struct LyricsEditorView: View {
                 }
                 .padding(.horizontal, 22)
 
-                HStack(spacing: 12) {
-                    Button {
-                        followPlaybackLine()
-                    } label: {
-                        Label(
-                            String(localized: timingFollowsPlayback
-                                   ? "lyrics_editor_following_playback"
-                                   : "lyrics_editor_return_to_playback"),
-                            systemImage: timingFollowsPlayback ? "location.fill" : "scope"
-                        )
-                        .font(.caption.weight(.medium))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(timingFollowsPlayback ? Color.accentColor : Color.secondary)
-                    .disabled(!isLinkedToPlayback || playbackTimingIndex == nil)
-
-                    Spacer()
-
+                // 撤销/重做与微调合成一排：原先「跟随播放 …… 撤销 重做」那一排
+                // 中间是大片空白，把打点按钮和微调按钮推得很远。跟随状态已经
+                // 移到正在打的那一行下面，本来就该跟着它。
+                HStack(spacing: 8) {
                     timingHistoryButton(
                         systemImage: "arrow.uturn.backward",
                         label: String(localized: "lyrics_editor_timing_undo"),
@@ -2258,11 +2260,7 @@ struct LyricsEditorView: View {
                         label: String(localized: "lyrics_editor_timing_redo"),
                         enabled: timingSession.canRedo
                     ) { redoTimingChange() }
-                }
-                .padding(.horizontal, 22)
-                .padding(.top, 14)
 
-                HStack(spacing: 8) {
                     timingFineTuneButton(
                         title: "− 0.1s",
                         accessibilityLabel: String(localized: "lyrics_editor_nudge_earlier")
@@ -2291,7 +2289,7 @@ struct LyricsEditorView: View {
                     .opacity(document.stampedCount == 0 ? 0.4 : 1)
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 18)
+                .padding(.top, 16)
                 .padding(.bottom, 14)
             }
         }
@@ -2299,6 +2297,17 @@ struct LyricsEditorView: View {
         .padding(.horizontal, PMSpace.l24)
         .padding(.vertical, PMSpace.m14)
         #endif
+    }
+
+    /// 打点按钮的副标题：说明这一下会打在哪。
+    private var stampButtonSubtitle: String {
+        guard let context = timingWordContext else {
+            return String(localized: "lyrics_editor_timing_hint")
+        }
+        return String(
+            format: String(localized: "lyrics_editor_timing_stamp_word %lld"),
+            context.syllableIndex + 1
+        )
     }
 
     @ViewBuilder
@@ -2341,14 +2350,14 @@ struct LyricsEditorView: View {
                 timingWordUnit(context.current, role: .current)
                 timingWordUnit(context.next, role: .next)
             }
-            .frame(maxWidth: .infinity, minHeight: 72)
+            .frame(maxWidth: .infinity, minHeight: 92)
 
             Text("\(context.syllableIndex + 1)/\(context.syllables.count) · \(timeLabel(context.current.start))")
                 .font(.system(size: 11, design: .monospaced))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, minHeight: 158)
+        .frame(maxWidth: .infinity, minHeight: 186)
         .padding(.horizontal, 28)
     }
 
@@ -2359,13 +2368,14 @@ struct LyricsEditorView: View {
         role: TimingLineRole
     ) -> some View {
         Text(syllable.map { visibleSyllableText($0.text) } ?? " ")
+            // 正在打的这个字是全屏唯一需要一直盯着的东西，给足字号。
             .font(role == .current
-                  ? .system(size: 32, weight: .bold)
-                  : .system(size: 18, weight: .medium))
+                  ? .system(size: 44, weight: .bold)
+                  : .system(size: 22, weight: .medium))
             .foregroundStyle(role == .current ? Color.accentColor : Color.secondary)
             .lineLimit(1)
             .minimumScaleFactor(0.65)
-            .frame(maxWidth: role == .current ? 180 : 80)
+            .frame(maxWidth: role == .current ? 200 : 92)
             .opacity(syllable == nil ? 0 : 1)
     }
 
@@ -2376,8 +2386,8 @@ struct LyricsEditorView: View {
                  ? String(localized: "lyrics_editor_line_placeholder")
                  : document.lines[index].text)
                 .font(role == .current
-                      ? .system(size: 28, weight: .bold)
-                      : .system(size: 17, weight: .medium))
+                      ? .system(size: 32, weight: .bold)
+                      : .system(size: 18, weight: .medium))
                 .foregroundStyle(role == .current ? Color.primary : Color.secondary)
                 .multilineTextAlignment(.center)
                 .lineLimit(role == .current ? 3 : 2)

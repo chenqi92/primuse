@@ -1750,6 +1750,8 @@
 "lyrics_editor_timing_hint" = "यह पंक्ति शुरू होते ही टैप करें · अगली पंक्ति अपने-आप आएगी";
 "lyrics_editor_timing_info_line" = "शीर्षक और श्रेय की पंक्तियों का समय नहीं मिलाया जाता";
 "lyrics_editor_timing_progress %lld %lld" = "%2$lld में से %1$lld लाइनें समयबद्ध";
+"lyrics_editor_timing_stamp_word %lld" = "अक्षर %lld";
+"lyrics_editor_timing_stamp" = "मार्क करें";
 "lyrics_editor_timing_redo" = "पंक्ति का समय फिर मिलाएँ";
 "lyrics_editor_timing_skipped_info %lld" = "स्किपिंग %lld शीर्षक/क्रेडिट लाइन";
 "lyrics_editor_timing_undo" = "पंक्ति पूर्ववत करें";
