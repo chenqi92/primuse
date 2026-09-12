@@ -3,7 +3,6 @@ import PrimuseKit
 
 struct QueueView: View {
     let player: AudioPlayerService
-    @Environment(SourceManager.self) private var sourceManager
     @Environment(MusicLibrary.self) private var library
     @State private var dropTarget: QueueReorderOccurrenceID?
 
@@ -111,19 +110,7 @@ struct QueueView: View {
             }
             .joined(separator: ", ")
 
-        let row = HStack(spacing: 10) {
-            if let reorderID {
-                Image(systemName: "line.3.horizontal")
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 32, height: 44)
-                    .contentShape(Rectangle())
-                    .draggable(reorderID.dragPayload) {
-                        queueDragPreview(song)
-                    }
-                    .accessibilityHidden(true)
-            }
-
+        let row = HStack(alignment: .center, spacing: 10) {
             ZStack {
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,
@@ -157,27 +144,32 @@ struct QueueView: View {
 
             Spacer(minLength: 8)
 
-            if song.duration > 0 {
-                Text(song.duration.formattedDuration)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-
-            if let reorderID, allowsRemoval {
-                Button {
-                    withAnimation(.snappy(duration: 0.22)) {
-                        _ = player.removeUpcomingQueueEntry(reorderID)
-                    }
-                } label: {
-                    Image(systemName: "trash")
-                        .font(.caption.weight(.semibold))
+            // 时长与删除键放进同一个固定高度的容器, 与 44pt 封面同高居中,
+            // 不再各自按内容高度对齐而显得偏上。
+            HStack(spacing: 2) {
+                if song.duration > 0 {
+                    Text(song.duration.formattedDuration)
+                        .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
-                        .frame(width: 32, height: 36)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .accessibilityHidden(true)
+
+                if let reorderID, allowsRemoval {
+                    Button {
+                        withAnimation(.snappy(duration: 0.22)) {
+                            _ = player.removeUpcomingQueueEntry(reorderID)
+                        }
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 36, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHidden(true)
+                }
             }
+            .frame(height: 44)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -205,6 +197,10 @@ struct QueueView: View {
 
         if let reorderID {
             let accessibleRow = row
+                // 整行长按即可拖动排序, 不再显示拖动把手。默认预览直接复用行本身,
+                // 不再进入独立的预览宿主 —— 那个宿主拿不到 MusicLibrary 等环境
+                // 对象, 曾在拖起时触发 SwiftUI 致命错误闪退。
+                .draggable(reorderID.dragPayload)
                 .dropDestination(for: String.self) { payloads, _ in
                     defer { dropTarget = nil }
                     guard let payload = payloads.first,
@@ -245,43 +241,6 @@ struct QueueView: View {
                 .accessibilityAddTraits(.isButton)
                 .accessibilityAction { playEntry(entry) }
         }
-    }
-
-    private func queueDragPreview(_ song: Song) -> some View {
-        HStack(spacing: 10) {
-            CachedArtworkView(
-                coverRef: song.coverArtFileName,
-                songID: song.id,
-                size: 42,
-                cornerRadius: 6,
-                sourceID: song.sourceID,
-                filePath: song.filePath,
-                fileFormat: song.fileFormat
-            )
-            VStack(alignment: .leading, spacing: 2) {
-                Text(song.title)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                Text(library.artistDisplayName(for: song) ?? song.albumTitle ?? "")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 8)
-            Image(systemName: "line.3.horizontal")
-                .foregroundStyle(.secondary)
-        }
-        .padding(10)
-        .frame(width: 260)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.accentColor.opacity(0.55), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.18), radius: 12, y: 5)
-        // SwiftUI renders custom drag previews in a separate host that does
-        // not reliably inherit type-based observable environments.
-        .environment(sourceManager)
     }
 
     private func playEntry(_ entry: QueueEntry) {

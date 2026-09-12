@@ -45,3 +45,6 @@ Marketing
 # Local QA plans, execution evidence, and design notes
 Docs/
 /BAIDU_PAN_FIX/
+
+# App 运行时诊断报告 (MetricKit / 崩溃 JSON)
+/logs/

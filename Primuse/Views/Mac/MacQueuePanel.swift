@@ -11,7 +11,6 @@ struct MacQueuePanel: View {
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
-    @Environment(SourceManager.self) private var sourceManager
     @State private var dropTarget: QueueReorderOccurrenceID?
 
     var body: some View {
@@ -155,22 +154,7 @@ struct MacQueuePanel: View {
         let accessibilityLabel = [song.title, library.artistDisplayName(for: song)]
             .compactMap { $0?.isEmpty == false ? $0 : nil }
             .joined(separator: ", ")
-        let row = HStack(spacing: 8) {
-            if let reorderID {
-                Image(systemName: "line.3.horizontal")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(PMColor.textFaint)
-                    .frame(width: 14)
-                    .contentShape(Rectangle())
-                    .draggable(reorderID.dragPayload) {
-                        queueDragPreview(song)
-                    }
-                    .help(Text("reorder"))
-                    .accessibilityHidden(true)
-            } else {
-                Color.clear.frame(width: 14)
-            }
-
+        let row = HStack(alignment: .center, spacing: 8) {
             CachedArtworkView(
                 coverRef: song.coverArtFileName,
                 songID: song.id,
@@ -194,27 +178,30 @@ struct MacQueuePanel: View {
 
             Spacer(minLength: 8)
 
-            Text(song.duration.formattedDuration)
-                .font(.system(size: 10.5, design: .monospaced))
-                .monospacedDigit()
-                .foregroundStyle(PMColor.textFaint)
+            HStack(spacing: 2) {
+                Text(song.duration.formattedDuration)
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(PMColor.textFaint)
 
-            if let reorderID, allowsRemoval {
-                Button {
-                    withAnimation(.snappy(duration: 0.2)) {
-                        _ = player.removeUpcomingQueueEntry(reorderID)
+                if let reorderID, allowsRemoval {
+                    Button {
+                        withAnimation(.snappy(duration: 0.2)) {
+                            _ = player.removeUpcomingQueueEntry(reorderID)
+                        }
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(PMColor.textFaint)
+                            .frame(width: 22, height: 32)
+                            .contentShape(Rectangle())
                     }
-                } label: {
-                    Image(systemName: "trash")
-                        .font(.system(size: 10.5, weight: .semibold))
-                        .foregroundStyle(PMColor.textFaint)
-                        .frame(width: 22, height: 24)
-                        .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .help(Text("remove_from_queue"))
+                    .accessibilityHidden(true)
                 }
-                .buttonStyle(.plain)
-                .help(Text("remove_from_queue"))
-                .accessibilityHidden(true)
             }
+            .frame(height: 32)
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 5)
@@ -239,9 +226,10 @@ struct MacQueuePanel: View {
 
         if let reorderID {
             let accessibleRow = row
-                // Pointer dragging starts on the visible handle so it cannot
-                // compete with the row's tap-to-play gesture. The complete row
-                // remains the drop target and exposes keyboard/VoiceOver moves.
+                // 整行按住拖动即可排序, 不再显示拖动把手; 默认预览复用行本身,
+                // 不进入拿不到 MusicLibrary 环境对象的独立预览宿主(曾在此闪退)。
+                // 整行仍是放置目标, 并保留键盘 / VoiceOver 的移动操作。
+                .draggable(reorderID.dragPayload)
                 .dropDestination(for: String.self) { payloads, _ in
                     defer { dropTarget = nil }
                     guard let payload = payloads.first,
@@ -278,42 +266,6 @@ struct MacQueuePanel: View {
         } else {
             row
         }
-    }
-
-    private func queueDragPreview(_ song: Song) -> some View {
-        HStack(spacing: 8) {
-            CachedArtworkView(
-                coverRef: song.coverArtFileName,
-                songID: song.id,
-                size: 34,
-                cornerRadius: 5,
-                sourceID: song.sourceID,
-                filePath: song.filePath,
-                fileFormat: song.fileFormat
-            )
-            VStack(alignment: .leading, spacing: 1) {
-                Text(song.title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .lineLimit(1)
-                Text(library.artistDisplayName(for: song) ?? song.albumTitle ?? "")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(PMColor.textFaint)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 6)
-            Image(systemName: "line.3.horizontal")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(PMColor.textFaint)
-        }
-        .padding(8)
-        .frame(width: 220)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9))
-        .overlay {
-            RoundedRectangle(cornerRadius: 9)
-                .stroke(PMColor.brand.opacity(0.55), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
-        .environment(sourceManager)
     }
 
     private var footer: some View {
