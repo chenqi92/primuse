@@ -890,6 +890,9 @@ struct ContentView: View {
                 LibraryPreparingView()
             }
         }
+        // 首页模型放进环境：设置里的界面编辑器要就地渲染真实首页，编辑的必须是
+        // 同一份状态，另起一个实例会看到不一样的快照。
+        .environment(homeModel)
         // Spotlight 点击 ── identifier 形如 "song:<id>" / "album:<id>" 等。
         // song 直接播; album / artist / playlist 推进资料库对应详情页。
         //

@@ -304,6 +304,7 @@ private struct SettingsPageContent: View {
         case .licenses: LicensesView()
         #if os(iOS)
         case .appearance: AppearanceSettingsView()
+        case .interfaceEditor: InterfaceEditorView()
         case .themeColor: ThemeColorSettingsView()
         case .player: PlayerAppearanceSettingsView()
         case .fullscreen: FullscreenPlayerEffectSettingsView()
@@ -312,7 +313,8 @@ private struct SettingsPageContent: View {
         case .siri: SiriSettingsView()
         case .carplay: CarPlaySettingsView()
         #else
-        case .appearance, .themeColor, .player, .fullscreen, .appIcon, .cacheSync, .siri, .carplay: EmptyView()
+        case .appearance, .themeColor, .player, .fullscreen, .appIcon, .cacheSync, .siri,
+             .carplay, .interfaceEditor: EmptyView()
         #endif
         case .keyboard, .widgets: EmptyView()
         }

@@ -219,6 +219,9 @@ struct HomeView: View {
     var switchToSettingsTab: (() -> Void)?
     let model: Model
     let openLibrarySongs: () -> Void
+    /// 由「设置 › 外观 › 界面编辑」嵌入时为 true：去掉自己的导航栈与工具栏，
+    /// 每个区块套上编辑操作条，内容本身不可点 —— 编辑的是版面，不是内容。
+    var editorMode = false
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(CoverTintProvider.self) private var tintProvider
@@ -283,7 +286,7 @@ struct HomeView: View {
     private var observedHomeContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                if homeMode == .radio {
+                if homeMode == .radio, !editorMode {
                     radioModeContent
                         .transition(homeFaceTransition)
                 } else if !model.isPrepared {
@@ -363,6 +366,17 @@ struct HomeView: View {
     }
 
     var body: some View {
+        Group {
+            if editorMode {
+                observedHomeContent
+            } else {
+                navigationRoot
+            }
+        }
+        .environment(model.discovery)
+    }
+
+    private var navigationRoot: some View {
         NavigationStack {
             observedHomeContent
             .navigationTitle("home_title")
@@ -449,7 +463,6 @@ struct HomeView: View {
             }
             #endif
         }
-        .environment(model.discovery)
     }
 
     // MARK: - Content
@@ -588,13 +601,18 @@ struct HomeView: View {
     private var contentView: some View {
         // Section contents are bounded. Stable vertical sizes avoid lazy
         // placement loops when a ranking card changes height near the viewport.
-        VStack(alignment: .leading, spacing: 24) {
-            if model.snapshot.hasContent {
+        VStack(alignment: .leading, spacing: editorMode ? 12 : 24) {
+            if editorMode {
+                Text("home_editor_hint")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 20)
+            } else if model.snapshot.hasContent {
                 libraryHeroSection
             }
 
-            ForEach(homeSectionOrder) { section in
-                homeSectionContent(section)
+            ForEach(editorMode ? editableHomeSections : homeSectionOrder) { section in
+                homeSectionRow(section)
             }
         }
     }
@@ -641,8 +659,9 @@ struct HomeView: View {
         }
     }
 
-    /// 每块区域选定的排布。编辑入口在「设置 › 外观 › 首页」—— 调整是低频操作，
-    /// 而首页是高频界面，把按钮常驻在这里只会挡路。
+    /// 每块区域选定的排布。编辑入口在「设置 › 外观 › 界面编辑」—— 调整是低频
+    /// 操作，而首页是高频界面，把按钮常驻在这里只会挡路；但编辑时看到的必须是
+    /// 真实首页，所以那个入口把这张页面原样嵌进去，只多套一层操作条。
     private var homeLayout: HomeSectionLayoutConfiguration {
         HomeSectionLayoutConfiguration.decode(homeSectionLayoutRawValue)
     }
@@ -656,6 +675,204 @@ struct HomeView: View {
     /// 用户没设过条目数时,沿用各排布原本按尺寸类给的默认值。
     private func sectionItemCount(_ section: HomeSectionKind, _ fallback: Int) -> Int {
         homeLayout.itemCount(for: section) ?? fallback
+    }
+
+    // MARK: - 编辑态
+
+    /// 编辑态列出全部可配置区块,包括已隐藏和当前没内容的 —— 否则关掉一块之后
+    /// 它就从界面上消失了,用户没有任何入口把它开回来。
+    private var editableHomeSections: [HomeSectionKind] {
+        homeSectionOrder.filter(\.isUserConfigurable)
+    }
+
+    private func isSectionVisible(_ section: HomeSectionKind) -> Bool {
+        switch section {
+        case .continueListening: showContinueListening
+        case .quickAccess: showQuickAccess
+        case .forYou: showForYou
+        case .playlists: showPlaylists
+        case .folders: showFolders
+        case .listeningRanking: showListeningRanking
+        case .topArtists: showTopArtists
+        case .recentlyAdded: showRecentlyAdded
+        case .stats: showStatsGlimpse
+        case .radio: true
+        }
+    }
+
+    private func setSectionVisible(_ section: HomeSectionKind, _ visible: Bool) {
+        switch section {
+        case .continueListening: showContinueListening = visible
+        case .quickAccess: showQuickAccess = visible
+        case .forYou: showForYou = visible
+        case .playlists: showPlaylists = visible
+        case .folders: showFolders = visible
+        case .listeningRanking: showListeningRanking = visible
+        case .topArtists: showTopArtists = visible
+        case .recentlyAdded: showRecentlyAdded = visible
+        case .stats: showStatsGlimpse = visible
+        case .radio: break
+        }
+    }
+
+    private func advanceSectionLayout(_ section: HomeSectionKind) {
+        var configuration = homeLayout
+        configuration.advanceStyle(for: section)
+        homeSectionLayoutRawValue = configuration.encoded()
+    }
+
+    private func adjustSectionCount(_ section: HomeSectionKind, by delta: Int) {
+        guard let range = HomeSectionLayoutPolicy.itemCountRange(for: section) else { return }
+        let current = homeLayout.itemCount(for: section)
+            ?? HomeSectionLayoutPolicy.defaultItemCount(for: section)
+        var configuration = homeLayout
+        configuration.setItemCount(min(max(current + delta, range.lowerBound), range.upperBound), for: section)
+        homeSectionLayoutRawValue = configuration.encoded()
+    }
+
+    private func moveSection(_ section: HomeSectionKind, by offset: Int) {
+        var order = homeSectionOrder
+        guard let from = order.firstIndex(of: section) else { return }
+        let to = from + offset
+        guard order.indices.contains(to) else { return }
+        order.swapAt(from, to)
+        homeSectionOrderRawValue = HomeSectionConfiguration.encode(order)
+    }
+
+    /// 把 `moved` 放到 `target` 原来的位置上。拖放只给得到「落在谁身上」,具体是
+    /// 插到前面还是后面由两者当前的先后决定,这样上拖下拖都落在手指所指那一块。
+    private func moveSection(_ moved: HomeSectionKind, onto target: HomeSectionKind) {
+        guard moved != target else { return }
+        var order = homeSectionOrder
+        guard let from = order.firstIndex(of: moved),
+              let to = order.firstIndex(of: target) else { return }
+        order.remove(at: from)
+        order.insert(moved, at: to)
+        homeSectionOrderRawValue = HomeSectionConfiguration.encode(order)
+    }
+
+    @ViewBuilder
+    private func homeSectionRow(_ section: HomeSectionKind) -> some View {
+        if editorMode {
+            VStack(alignment: .leading, spacing: 10) {
+                homeSectionEditBar(section)
+                if isSectionVisible(section) {
+                    // 编辑的是版面，不是内容：区块里的封面和按钮一律不响应，
+                    // 免得一边排版一边误触播放或跳转。
+                    homeSectionContent(section)
+                        .allowsHitTesting(false)
+                }
+            }
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(homeCardSurface.opacity(isSectionVisible(section) ? 0.55 : 0.28))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(
+                        .tint.opacity(isSectionVisible(section) ? 0.45 : 0.18),
+                        style: StrokeStyle(lineWidth: 1, dash: [5, 4])
+                    )
+            }
+            .opacity(isSectionVisible(section) ? 1 : 0.55)
+            .padding(.horizontal, 12)
+            .draggable(section.rawValue)
+            .dropDestination(for: String.self) { items, _ in
+                guard let raw = items.first, let moved = HomeSectionKind(rawValue: raw) else { return false }
+                withAnimation(.snappy) { moveSection(moved, onto: section) }
+                return true
+            }
+            .contextMenu {
+                Button {
+                    withAnimation(.snappy) { moveSection(section, by: -1) }
+                } label: { Label("home_edit_move_up", systemImage: "arrow.up") }
+                Button {
+                    withAnimation(.snappy) { moveSection(section, by: 1) }
+                } label: { Label("home_edit_move_down", systemImage: "arrow.down") }
+            }
+        } else {
+            homeSectionContent(section)
+        }
+    }
+
+    private func homeSectionEditBar(_ section: HomeSectionKind) -> some View {
+        let visible = isSectionVisible(section)
+        let style = homeLayout.style(for: section)
+        let range = HomeSectionLayoutPolicy.itemCountRange(for: section)
+        let count = homeLayout.itemCount(for: section)
+            ?? HomeSectionLayoutPolicy.defaultItemCount(for: section)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: "line.3.horizontal")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+
+                Text(section.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+
+                Spacer(minLength: 8)
+
+                Button {
+                    withAnimation(.snappy) { setSectionVisible(section, !visible) }
+                } label: {
+                    Image(systemName: visible ? "eye" : "eye.slash")
+                        .font(.footnote.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .controlSize(.small)
+                .accessibilityLabel(section.title)
+                .accessibilityIdentifier("home.edit.visibility." + section.rawValue)
+            }
+
+            if visible, HomeSectionLayoutPolicy.isConfigurable(section) || range != nil {
+                HStack(spacing: 10) {
+                    if HomeSectionLayoutPolicy.isConfigurable(section) {
+                        Button {
+                            withAnimation(.snappy) { advanceSectionLayout(section) }
+                        } label: {
+                            Label(LocalizedStringKey(style.titleKey), systemImage: style.icon)
+                                .font(.caption.weight(.semibold))
+                        }
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("home.edit.layout." + section.rawValue)
+                    }
+
+                    if let range {
+                        Spacer(minLength: 4)
+                        Text("home_count_label")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                        Text(count.formatted())
+                            .font(.caption.weight(.semibold))
+                            .monospacedDigit()
+                        Button { adjustSectionCount(section, by: -1) } label: {
+                            Image(systemName: "minus").font(.caption2.weight(.bold))
+                        }
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.circle)
+                        .controlSize(.mini)
+                        .disabled(count <= range.lowerBound)
+                        .accessibilityIdentifier("home.edit.count.decrement." + section.rawValue)
+                        Button { adjustSectionCount(section, by: 1) } label: {
+                            Image(systemName: "plus").font(.caption2.weight(.bold))
+                        }
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.circle)
+                        .controlSize(.mini)
+                        .disabled(count >= range.upperBound)
+                        .accessibilityIdentifier("home.edit.count.increment." + section.rawValue)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 20)
     }
 
     private var selectedHomeRadio: RadioStation? {

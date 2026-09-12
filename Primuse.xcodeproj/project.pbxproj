@@ -338,6 +338,7 @@
 		46ECE921B62C7BD398BEAA1A /* SMBSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEF1C4D090D0F65114B8F0D5 /* SMBSource.swift */; };
 		476ABB1A64AC9D81950EA6CD /* OpenAICompatibleProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 182840B263E637C233CBB7DE /* OpenAICompatibleProvider.swift */; };
 		47739E0B4A1BF80DBFEAEACB /* HomeSectionsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F9BAE1D915901E05BF85719 /* HomeSectionsSettingsView.swift */; };
+		22BD0402C09A5F28F8B78808 /* InterfaceEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAE1C2AFB386A8CFD6D36406 /* InterfaceEditorView.swift */; };
 		47D2853E3C737B32D25E9E6E /* libswresample.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 8F8034D1C470B837DB46D3E0 /* libswresample.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		480E140B24CE0B9EEF4CF606 /* CarPlayEditorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63EBB09B5F6B03143A59F27A /* CarPlayEditorModel.swift */; };
 		482624D7B354423C31CEB08D /* ExternalDisplaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D3CF7E2A5E7D4B7274BDB17 /* ExternalDisplaySceneDelegate.swift */; };
@@ -483,6 +484,7 @@
 		62C65C9B1C8577B7FDCBA92F /* PrimuseWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = FC0B19BA1149E4C3F22F6BF9 /* PrimuseWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		63259BF946E30D768662FE86 /* AppSecrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C551F72C30C0410A874441AA /* AppSecrets.swift */; };
 		632CD8EEB3DB977BBEF96472 /* HomeSectionsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F9BAE1D915901E05BF85719 /* HomeSectionsSettingsView.swift */; };
+		5B71B9421F903A903BD5CCDE /* InterfaceEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAE1C2AFB386A8CFD6D36406 /* InterfaceEditorView.swift */; };
 		63A8681ED1A2091DC4C1004B /* AudioDurationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 448C0693B4F051488B4E0CD1 /* AudioDurationPolicy.swift */; };
 		63B5A50955FF23FF9A9F573C /* EmbeddedMetadataWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D8687352CA14B5A8B9D5A2 /* EmbeddedMetadataWriter.swift */; };
 		63B644114A2323B84171A57D /* DuplicateDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 276291DFC8586CF0AE46A9EB /* DuplicateDetectorTests.swift */; };
@@ -1697,6 +1699,7 @@
 		4F07A220780BCFB3D8E6F4EF /* SettingsActionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsActionService.swift; sourceTree = "<group>"; };
 		4F953DC4532B85C7AD604EF9 /* AudioPlayerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayerService.swift; sourceTree = "<group>"; };
 		4F9BAE1D915901E05BF85719 /* HomeSectionsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeSectionsSettingsView.swift; sourceTree = "<group>"; };
+		FAE1C2AFB386A8CFD6D36406 /* InterfaceEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterfaceEditorView.swift; sourceTree = "<group>"; };
 		4FC226D745AC023E7E54BF0F /* ScrobbleSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrobbleSettingsView.swift; sourceTree = "<group>"; };
 		500B008F1BDDBF8A9479807F /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		51E683B96F169512351E3ACE /* ScrobbleService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrobbleService.swift; sourceTree = "<group>"; };
@@ -3709,6 +3712,7 @@
 				181EE28124D9CD151E0338E1 /* EqualizerView.swift */,
 				DEDB221148662EB8D4E7918D /* FullscreenPlayerEffectSettingsView.swift */,
 				4F9BAE1D915901E05BF85719 /* HomeSectionsSettingsView.swift */,
+				FAE1C2AFB386A8CFD6D36406 /* InterfaceEditorView.swift */,
 				70AF95E5E81784D9E3FB8D36 /* ListeningStatsView.swift */,
 				4EE3B2E6C5B0B89258193D97 /* LyricsTranslationSettingsView.swift */,
 				B203F3A47D1C2D90996E818D /* PlaylistImportView.swift */,
@@ -4702,6 +4706,7 @@
 				9B7F2B5D35C992AA95A93735 /* HomeFoldersSection.swift in Sources */,
 				855F531A2B63BA3F028FA596 /* HomeListeningRankingSection.swift in Sources */,
 				47739E0B4A1BF80DBFEAEACB /* HomeSectionsSettingsView.swift in Sources */,
+				22BD0402C09A5F28F8B78808 /* InterfaceEditorView.swift in Sources */,
 				7514AE9FA845FCDE3CE8AE6E /* HomeView.swift in Sources */,
 				9DDF813005BEC7D6D53E4BB7 /* ITunesScraper.swift in Sources */,
 				B3C5916D2A8452DC747DA1FF /* ImageCache.swift in Sources */,
@@ -5170,6 +5175,7 @@
 				8DB09314546C2B60BB2EF852 /* HomeFoldersSection.swift in Sources */,
 				A7114C499C9E9DAF57F1FECE /* HomeListeningRankingSection.swift in Sources */,
 				632CD8EEB3DB977BBEF96472 /* HomeSectionsSettingsView.swift in Sources */,
+				5B71B9421F903A903BD5CCDE /* InterfaceEditorView.swift in Sources */,
 				BE77E1812F27C8479B2F9EC9 /* HomeView.swift in Sources */,
 				ED5197E708CC23A311F0D6B6 /* ITunesScraper.swift in Sources */,
 				3DB35BA7BA5DF8173F45CA98 /* ImageCache.swift in Sources */,

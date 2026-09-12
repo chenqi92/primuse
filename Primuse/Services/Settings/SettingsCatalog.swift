@@ -39,6 +39,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable, Sendable {
 enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
     case playback, equalizer, effects, lyrics, transcription
     case appearance, themeColor, player, fullscreen, appIcon, home, libraryDisplay
+    case interfaceEditor
     case sources, scraping, artists, duplicates, deleted, storage
     case cacheSync, cloud, family, appleTV, relay, dlna
     case intelligence, appleMusic, scrobble, statistics, siri, carplay
@@ -54,7 +55,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .sources, .scraping, .artists, .duplicates, .deleted, .storage, .cacheSync,
              .statistics: .library
         case .appearance, .themeColor, .player, .fullscreen, .appIcon, .home, .libraryDisplay,
-             .widgets: .appearance
+             .interfaceEditor, .widgets: .appearance
         case .cloud, .family: .sync
         // Apple TV 与投放本就是对外连接的一种，不值得单开一个只有两项的分类。
         case .intelligence, .appleMusic, .scrobble, .dlna, .appleTV, .relay: .integrations
@@ -75,6 +76,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .fullscreen: "fullscreen_effect_settings_title"
         case .appIcon: "app_icon"
         case .home: "home_settings_title"
+        case .interfaceEditor: "interface_editor_title"
         case .libraryDisplay: "library_display_settings_title"
         case .sources: "manage_sources"
         case .scraping: "metadata_scraping"
@@ -118,6 +120,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .fullscreen: "viewfinder.rectangular"
         case .appIcon: "app.badge"
         case .home: "house"
+        case .interfaceEditor: "slider.horizontal.below.rectangle"
         case .libraryDisplay: "rectangle.grid.1x2"
         case .sources: "externaldrive.connected.to.line.below"
         case .scraping: "wand.and.stars"
@@ -155,7 +158,9 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
     /// 入口 —— 它们在根菜单里再列一遍，只会让人以为是别的东西。两者仍是有效的
     /// 跳转目标，设置搜索直接命中。
     var isListed: Bool {
-        self != .cacheSync && self != .transcription
+        // 首页的顺序、显隐、排布与条目数已经全部收进「界面编辑」，在那里改能
+        // 当场看到效果；再留一个抽象的开关列表只会分叉成两个入口。仍可搜索到。
+        ![.cacheSync, .transcription, .home].contains(self)
     }
 
     var available: Bool {
