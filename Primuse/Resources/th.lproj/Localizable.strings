@@ -1431,10 +1431,7 @@
 "home_layout_carousel" = "แถบแนวนอน";
 "home_layout_carouselDouble" = "สองแถว";
 "home_layout_grid" = "ตาราง";
-"home_edit_layout" = "แก้ไขเลย์เอาต์";
-"home_edit_hint" = "ลากบล็อกเพื่อจัดลำดับใหม่ แตะปุ่มเลย์เอาต์เพื่อเปลี่ยนรูปแบบการแสดง หรือแตะรูปตาเพื่อซ่อน";
-"home_edit_move_up" = "ย้ายขึ้น";
-"home_edit_move_down" = "ย้ายลง";
+"home_layout_label" = "เลย์เอาต์";
 "home_section_quick_access" = "การเข้าถึงด่วน";
 "home_section_recently_added" = "เพิ่มล่าสุด";
 "home_section_top_artists" = "ฟังบ่อยๆ";
@@ -1798,7 +1795,6 @@
 "lyrics_offset_hint" = "ค่าบวก = ความล่าช้า";
 "lyrics_reload_from_source" = "โหลดเนื้อเพลงจากแหล่งเพลงอีกครั้ง";
 "lyrics_settings_title" = "การตั้งค่าเนื้อเพลง";
-"lyrics_appearance_title" = "รูปแบบเนื้อเพลง";
 "lyrics_source_reload_empty_kept" = "แหล่งที่มาของเพลงไม่ได้ส่งคืนเนื้อเพลง เนื้อเพลงปัจจุบันไม่เปลี่ยนแปลง";
 "lyrics_source_reload_failed_kept" = "ไม่สามารถโหลดเนื้อเพลงซ้ำจากแหล่งเพลงได้ เนื้อเพลงปัจจุบันไม่เปลี่ยนแปลง";
 "lyrics_source_reload_success" = "เนื้อเพลงได้รับการรีเฟรชจากแหล่งเพลง";

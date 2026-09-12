@@ -578,10 +578,7 @@
 "home_layout_carousel" = "Карусель";
 "home_layout_carouselDouble" = "Два ряда";
 "home_layout_grid" = "Сетка";
-"home_edit_layout" = "Изменить макет";
-"home_edit_hint" = "Перетащите блок, чтобы изменить порядок. Нажмите кнопку макета, чтобы сменить вид, или значок глаза, чтобы скрыть блок.";
-"home_edit_move_up" = "Переместить вверх";
-"home_edit_move_down" = "Переместить вниз";
+"home_layout_label" = "Макет";
 "ai_audio_transcription_success_format" = "%@ закончил транскрипт. Перед сохранением просмотрите его в редакторе.";
 "Reading tags" = "Чтение тегов";
 "Valid format" = "Действительный формат";
@@ -1135,7 +1132,6 @@
 "album_changed" = "Альбом обновлен.";
 "audio_output_follow_system" = "Следовать системным настройкам по умолчанию.";
 "lyrics_settings_title" = "Настройки текста";
-"lyrics_appearance_title" = "Вид текста песни";
 "ok" = "ОК";
 "player_lyrics_color_default" = "По умолчанию";
 "player_tap_lyrics_to_seek_description" = "Коснитесь синхронизированной строки текста, чтобы перейти к этому моменту. Пролистывание текстов никогда не ищет.";

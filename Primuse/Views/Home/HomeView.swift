@@ -265,8 +265,6 @@ struct HomeView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showUpdateSheet: Bool = false
-    /// 首页就地编辑态:排序、显隐与每块的排布都在真实内容上直接改。
-    @State private var isEditingHome = false
     @State private var selectedHomeRadioID: String?
     @State private var pendingInsecureHomeStation: RadioStation?
     @State private var homeModeSwitchTurn = 0
@@ -374,11 +372,6 @@ struct HomeView: View {
             #endif
             .toolbar {
                 #if os(iOS)
-                if homeMode == .music {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        homeEditButton
-                    }
-                }
                 if showRadioOnHome && appNavigationMode != .minimal {
                     if #available(iOS 26.0, *) {
                         ToolbarItem(placement: .topBarTrailing) {
@@ -392,21 +385,12 @@ struct HomeView: View {
                     }
                 }
                 #else
-                if homeMode == .music {
-                    ToolbarItem(placement: .primaryAction) {
-                        homeEditButton
-                    }
-                }
                 if showRadioOnHome {
                     ToolbarItem(placement: .primaryAction) {
                         modeToggleButton
                     }
                 }
                 #endif
-            }
-            // 切到电台态时编辑没有意义 —— 电台面不参与音乐区块排序。
-            .onChange(of: homeMode) { _, mode in
-                if mode != .music { isEditingHome = false }
             }
             .sheet(isPresented: $showRadioBatchAdd) {
                 RadioBatchAddView()
@@ -466,20 +450,6 @@ struct HomeView: View {
             #endif
         }
         .environment(model.discovery)
-    }
-
-    private var homeEditButton: some View {
-        Button {
-            withAnimation(.snappy) { isEditingHome.toggle() }
-        } label: {
-            if isEditingHome {
-                Text("done").fontWeight(.semibold)
-            } else {
-                Label("home_edit_layout", systemImage: "slider.horizontal.3")
-            }
-        }
-        .accessibilityLabel(isEditingHome ? Text("done") : Text("home_edit_layout"))
-        .accessibilityIdentifier("home.editLayout")
     }
 
     // MARK: - Content
@@ -618,18 +588,13 @@ struct HomeView: View {
     private var contentView: some View {
         // Section contents are bounded. Stable vertical sizes avoid lazy
         // placement loops when a ranking card changes height near the viewport.
-        VStack(alignment: .leading, spacing: isEditingHome ? 12 : 24) {
-            if isEditingHome {
-                Text("home_edit_hint")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 20)
-            } else if model.snapshot.hasContent {
+        VStack(alignment: .leading, spacing: 24) {
+            if model.snapshot.hasContent {
                 libraryHeroSection
             }
 
-            ForEach(isEditingHome ? editableHomeSections : homeSectionOrder) { section in
-                homeSectionRow(section)
+            ForEach(homeSectionOrder) { section in
+                homeSectionContent(section)
             }
         }
     }
@@ -676,167 +641,10 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - 首页就地编辑
-    //
-    // 排布改完要马上在真实内容上看到效果,所以编辑态不跳设置页,而是就在首页把
-    // 每块套上一条操作栏。设置页那份列表仍然保留 —— 它能一次看完全部区域,
-    // 也是用户找得到「恢复默认顺序」的地方。
-
+    /// 每块区域选定的排布。编辑入口在「设置 › 外观 › 首页」—— 调整是低频操作，
+    /// 而首页是高频界面，把按钮常驻在这里只会挡路。
     private var homeLayout: HomeSectionLayoutConfiguration {
         HomeSectionLayoutConfiguration.decode(homeSectionLayoutRawValue)
-    }
-
-    /// 编辑态列出全部可配置区域,包括已隐藏和当前没内容的 —— 否则关掉一块之后
-    /// 它就从界面上消失了,用户没有任何入口把它开回来。
-    private var editableHomeSections: [HomeSectionKind] {
-        homeSectionOrder.filter(\.isUserConfigurable)
-    }
-
-    private func isSectionVisible(_ section: HomeSectionKind) -> Bool {
-        switch section {
-        case .continueListening: showContinueListening
-        case .quickAccess: showQuickAccess
-        case .forYou: showForYou
-        case .playlists: showPlaylists
-        case .folders: showFolders
-        case .listeningRanking: showListeningRanking
-        case .topArtists: showTopArtists
-        case .recentlyAdded: showRecentlyAdded
-        case .stats: showStatsGlimpse
-        case .radio: true
-        }
-    }
-
-    private func setSectionVisible(_ section: HomeSectionKind, _ visible: Bool) {
-        switch section {
-        case .continueListening: showContinueListening = visible
-        case .quickAccess: showQuickAccess = visible
-        case .forYou: showForYou = visible
-        case .playlists: showPlaylists = visible
-        case .folders: showFolders = visible
-        case .listeningRanking: showListeningRanking = visible
-        case .topArtists: showTopArtists = visible
-        case .recentlyAdded: showRecentlyAdded = visible
-        case .stats: showStatsGlimpse = visible
-        case .radio: break
-        }
-    }
-
-    private func advanceSectionLayout(_ section: HomeSectionKind) {
-        var configuration = homeLayout
-        configuration.advanceStyle(for: section)
-        homeSectionLayoutRawValue = configuration.encoded()
-    }
-
-    private func moveSection(_ section: HomeSectionKind, by offset: Int) {
-        var order = homeSectionOrder
-        guard let from = order.firstIndex(of: section) else { return }
-        let to = from + offset
-        guard order.indices.contains(to) else { return }
-        order.swapAt(from, to)
-        homeSectionOrderRawValue = HomeSectionConfiguration.encode(order)
-    }
-
-    /// 把 `moved` 放到 `target` 原来的位置上。拖放只给得到「落在谁身上」,
-    /// 具体是插到前面还是后面由两者当前的先后决定,这样从上往下拖和从下往上拖
-    /// 都落在手指所指的那一块。
-    private func moveSection(_ moved: HomeSectionKind, onto target: HomeSectionKind) {
-        guard moved != target else { return }
-        var order = homeSectionOrder
-        guard let from = order.firstIndex(of: moved),
-              let to = order.firstIndex(of: target) else { return }
-        order.remove(at: from)
-        order.insert(moved, at: to)
-        homeSectionOrderRawValue = HomeSectionConfiguration.encode(order)
-    }
-
-    @ViewBuilder
-    private func homeSectionRow(_ section: HomeSectionKind) -> some View {
-        if isEditingHome {
-            VStack(alignment: .leading, spacing: 10) {
-                homeSectionEditBar(section)
-                if isSectionVisible(section) {
-                    homeSectionContent(section)
-                        .allowsHitTesting(false)
-                }
-            }
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(homeCardSurface.opacity(isSectionVisible(section) ? 0.55 : 0.28))
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(
-                        .tint.opacity(isSectionVisible(section) ? 0.45 : 0.18),
-                        style: StrokeStyle(lineWidth: 1, dash: [5, 4])
-                    )
-            }
-            .opacity(isSectionVisible(section) ? 1 : 0.55)
-            .padding(.horizontal, 12)
-            .draggable(section.rawValue)
-            .dropDestination(for: String.self) { items, _ in
-                guard let raw = items.first, let moved = HomeSectionKind(rawValue: raw) else { return false }
-                withAnimation(.snappy) { moveSection(moved, onto: section) }
-                return true
-            }
-            .contextMenu {
-                Button {
-                    withAnimation(.snappy) { moveSection(section, by: -1) }
-                } label: { Label("home_edit_move_up", systemImage: "arrow.up") }
-                Button {
-                    withAnimation(.snappy) { moveSection(section, by: 1) }
-                } label: { Label("home_edit_move_down", systemImage: "arrow.down") }
-            }
-        } else {
-            homeSectionContent(section)
-        }
-    }
-
-    private func homeSectionEditBar(_ section: HomeSectionKind) -> some View {
-        let visible = isSectionVisible(section)
-        let style = homeLayout.style(for: section)
-        return HStack(spacing: 10) {
-            Image(systemName: "line.3.horizontal")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-
-            Text(section.title)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
-
-            Spacer(minLength: 8)
-
-            if HomeSectionLayoutPolicy.isConfigurable(section) {
-                Button {
-                    withAnimation(.snappy) { advanceSectionLayout(section) }
-                } label: {
-                    Label(LocalizedStringKey(style.titleKey), systemImage: style.icon)
-                        .font(.caption.weight(.semibold))
-                        .labelStyle(.titleAndIcon)
-                }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.capsule)
-                .controlSize(.small)
-                .disabled(!visible)
-                .accessibilityIdentifier("home.edit.layout." + section.rawValue)
-            }
-
-            Button {
-                withAnimation(.snappy) { setSectionVisible(section, !visible) }
-            } label: {
-                Image(systemName: visible ? "eye" : "eye.slash")
-                    .font(.footnote.weight(.semibold))
-            }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.capsule)
-            .controlSize(.small)
-            .accessibilityLabel(section.title)
-            .accessibilityIdentifier("home.edit.visibility." + section.rawValue)
-        }
-        .padding(.horizontal, 20)
     }
 
     private var selectedHomeRadio: RadioStation? {

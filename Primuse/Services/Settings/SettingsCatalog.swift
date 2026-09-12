@@ -8,7 +8,7 @@ enum SettingsStrings {
 }
 
 enum SettingsCategory: String, CaseIterable, Identifiable, Hashable, Sendable {
-    case library, playback, lyrics, appearance, sync, integrations, security, about
+    case library, playback, appearance, sync, integrations, security, about
     var id: String { rawValue }
 
     var title: String { Bundle.main.localizedString(forKey: titleKey, value: titleKey, table: nil) }
@@ -16,7 +16,6 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable, Sendable {
         switch self {
         case .library: "library"
         case .playback: "playback"
-        case .lyrics: "lyrics_settings_title"
         case .appearance: "appearance"
         case .sync: "sync"
         case .integrations: "services_integrations"
@@ -27,7 +26,6 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable, Sendable {
     var icon: String {
         switch self {
         case .playback: "waveform"
-        case .lyrics: "character.bubble"
         case .appearance: "paintpalette"
         case .library: "books.vertical"
         case .sync: "arrow.triangle.2.circlepath"
@@ -39,7 +37,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable, Sendable {
 }
 
 enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
-    case playback, equalizer, effects, lyrics, transcription, lyricsAppearance
+    case playback, equalizer, effects, lyrics, transcription
     case appearance, themeColor, player, fullscreen, appIcon, home, libraryDisplay
     case sources, scraping, artists, duplicates, deleted, storage
     case cacheSync, cloud, family, appleTV, relay, dlna
@@ -49,10 +47,10 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
     var id: String { "page." + rawValue }
     var category: SettingsCategory {
         switch self {
-        case .playback, .equalizer, .effects, .keyboard, .siri, .carplay: .playback
-        // 歌词自成一类：来源与刮削、翻译、转写、外观此前散在资料库与外观两处，
-        // 想调字色要去「外观」，想开翻译要去「资料库」，都是同一件事。
-        case .lyrics, .transcription, .lyricsAppearance: .lyrics
+        // 歌词的来源、翻译、转写、外观本就是同一件事，合成一页挂在播放下面；
+        // 在根菜单里拆成并列的几项，反而要来回找。
+        case .playback, .equalizer, .effects, .lyrics, .transcription,
+             .keyboard, .siri, .carplay: .playback
         case .sources, .scraping, .artists, .duplicates, .deleted, .storage, .cacheSync,
              .statistics: .library
         case .appearance, .themeColor, .player, .fullscreen, .appIcon, .home, .libraryDisplay,
@@ -71,7 +69,6 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .effects: "audio_effects"
         case .lyrics: "lyrics_settings_title"
         case .transcription: "lyrics_transcription_settings_title"
-        case .lyricsAppearance: "lyrics_appearance_title"
         case .appearance: "appearance"
         case .themeColor: "theme_color_title"
         case .player: "player_appearance_title"
@@ -115,7 +112,6 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .effects: "waveform.badge.plus"
         case .lyrics: "character.bubble"
         case .transcription: "waveform.and.person.filled"
-        case .lyricsAppearance: "textformat"
         case .appearance: "circle.lefthalf.filled"
         case .themeColor: "paintpalette"
         case .player: "play.rectangle"
@@ -153,9 +149,17 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         if self == .siri { return SettingsStrings.text(titleKey) }
         return Bundle.main.localizedString(forKey: titleKey, value: titleKey, table: self == .cacheSync ? "CacheSync" : nil)
     }
+    /// 是否在设置根列表里单独占一行。
+    ///
+    /// 缓存同步就是「存储」页开着同步面板的同一个视图，转写是「歌词」页里的一个
+    /// 入口 —— 它们在根菜单里再列一遍，只会让人以为是别的东西。两者仍是有效的
+    /// 跳转目标，设置搜索直接命中。
+    var isListed: Bool {
+        self != .cacheSync && self != .transcription
+    }
+
     var available: Bool {
         #if os(macOS)
-        // 歌词外观目前只有 iOS 有独立入口，macOS 设置窗仍走自己的分栏。
         return [.playback, .equalizer, .effects, .lyrics, .transcription,
                 .appearance, .scraping, .artists,
                 .deleted, .storage, .cacheSync, .cloud, .intelligence, .appleMusic, .domains, .about, .keyboard, .widgets, .siri].contains(self)

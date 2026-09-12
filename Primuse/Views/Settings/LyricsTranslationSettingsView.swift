@@ -68,6 +68,13 @@ struct LyricsSettingsView: View {
                 }
             }
 
+            // 歌词外观（字色、对齐、模糊、常亮、点按跳转）此前是「播放器外观」
+            // 里的一个区块，和这里的来源与翻译分在两个分类下 —— 同一件事要去两个
+            // 地方找。并到这一页里。
+            #if os(iOS)
+            LyricsAppearanceSections()
+            #endif
+
             Section {
                 NavigationLink {
                     GoogleLyricsTranscriptionSettingsView()

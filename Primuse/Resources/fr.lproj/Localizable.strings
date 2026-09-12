@@ -1259,10 +1259,7 @@
 "home_layout_carousel" = "Carrousel";
 "home_layout_carouselDouble" = "Deux rangées";
 "home_layout_grid" = "Grille";
-"home_edit_layout" = "Modifier la disposition";
-"home_edit_hint" = "Faites glisser un bloc pour le réordonner. Touchez le bouton de disposition pour changer l’affichage, ou l’œil pour le masquer.";
-"home_edit_move_up" = "Déplacer vers le haut";
-"home_edit_move_down" = "Déplacer vers le bas";
+"home_layout_label" = "Disposition";
 "home_settings_title" = "Accueil";
 "home_settings_sections_label" = "Sections visibles";
 "home_settings_sections_footer" = "Affichez les sections et faites-les glisser pour les réorganiser. La zone Hero reste en haut.";
@@ -3371,7 +3368,6 @@
 "recently_deleted_clear_all_failed_title" = "Certains éléments n’ont pas été supprimés";
 "recently_deleted_clear_all_failed_format" = "%d éléments n’ont pas pu être supprimés et restent dans les suppressions récentes.";
 "lyrics_settings_title" = "Réglages des paroles";
-"lyrics_appearance_title" = "Apparence des paroles";
 "lyrics_translation_section" = "Traduction";
 "lyrics_display_section" = "Affichage";
 "lyrics_audio_tools_section" = "Paroles depuis l’audio";

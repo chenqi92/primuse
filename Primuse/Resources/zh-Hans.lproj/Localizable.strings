@@ -1114,10 +1114,7 @@
 "home_layout_carousel" = "横排";
 "home_layout_carouselDouble" = "双行横排";
 "home_layout_grid" = "网格";
-"home_edit_layout" = "编辑布局";
-"home_edit_hint" = "拖动区块可调整顺序。点方案按钮切换排布,点眼睛隐藏该区块。";
-"home_edit_move_up" = "上移";
-"home_edit_move_down" = "下移";
+"home_layout_label" = "布局";
 "home_settings_title" = "首页";
 "home_settings_sections_label" = "显示板块";
 "home_settings_sections_footer" = "使用开关控制显示，拖动调整顺序。Hero 区域始终固定在顶部。";
@@ -3472,7 +3469,6 @@
 "recently_deleted_clear_all_failed_title" = "部分项目未能清除";
 "recently_deleted_clear_all_failed_format" = "%d 个项目未能清除，已保留在最近删除中。";
 "lyrics_settings_title" = "歌词设置";
-"lyrics_appearance_title" = "歌词外观";
 "lyrics_translation_section" = "歌词翻译";
 "lyrics_display_section" = "显示";
 "lyrics_audio_tools_section" = "从音频生成歌词";

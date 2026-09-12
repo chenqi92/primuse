@@ -207,7 +207,7 @@ struct SettingsView: View {
         // 却在某一端看不见，正是这么来的。
         ForEach(SettingsCategory.allCases) { category in
             let pages = SettingsPage.allCases.filter {
-                $0.category == category && $0.available
+                $0.category == category && $0.available && $0.isListed
             }
             if category != .about, !pages.isEmpty {
                 Section {
@@ -306,7 +306,6 @@ private struct SettingsPageContent: View {
         case .appearance: AppearanceSettingsView()
         case .themeColor: ThemeColorSettingsView()
         case .player: PlayerAppearanceSettingsView()
-        case .lyricsAppearance: LyricsAppearanceSettingsView()
         case .fullscreen: FullscreenPlayerEffectSettingsView()
         case .appIcon: AppIconSettingsView()
         case .cacheSync: StorageManagementView(opensCacheSync: true)
@@ -321,9 +320,9 @@ private struct SettingsPageContent: View {
 }
 
 #if os(iOS)
-/// 歌词外观。此前它是「播放器外观」里的一个区块，而歌词的来源、翻译与转写又在
-/// 「资料库」下 —— 同一件事分在两个分类里，调字色和开翻译要去两个地方找。
-private struct LyricsAppearanceSettingsView: View {
+/// 歌词外观区块。由「歌词」页直接内嵌 —— 字色、对齐、模糊与歌词的来源、翻译
+/// 本就是同一件事，各占一个菜单项反而要来回找。颜色取值用到 UIKit，故限 iOS。
+struct LyricsAppearanceSections: View {
     @AppStorage(PlayerAppearancePreferences.lyricsAlignmentKey)
     private var lyricsAlignmentRawValue = PlayerLyricsAlignment.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.lyricsColorModeKey)
@@ -401,86 +400,82 @@ private struct LyricsAppearanceSettingsView: View {
     }
 
     var body: some View {
-        Form {
-            Section {
-                Picker("player_current_lyric_color", selection: lyricsColorMode) {
-                    ForEach(PlayerLyricsColorMode.allCases) { mode in
-                        Text(mode.localizedTitle)
-                            .tag(mode)
-                    }
+        Section {
+            Picker("player_current_lyric_color", selection: lyricsColorMode) {
+                ForEach(PlayerLyricsColorMode.allCases) { mode in
+                    Text(mode.localizedTitle)
+                        .tag(mode)
                 }
-                .settingsAnchor("lyrics.colorMode")
-                .pickerStyle(.menu)
-                .accessibilityHint(Text("player_current_lyric_color_description"))
-                .accessibilityIdentifier("playerLyricsColorModePicker")
-
-                switch selectedLyricsColorMode {
-                case .defaultColor:
-                    EmptyView()
-                case .custom:
-                    ColorPicker(
-                        "player_lyrics_custom_color",
-                        selection: customLyricsColor,
-                        supportsOpacity: false
-                    )
-                    .accessibilityIdentifier("playerLyricsCustomColorPicker")
-                case .gradient:
-                    ColorPicker(
-                        "player_lyrics_gradient_start_color",
-                        selection: gradientLyricsStartColor,
-                        supportsOpacity: false
-                    )
-                    .accessibilityIdentifier("playerLyricsGradientStartColorPicker")
-
-                    ColorPicker(
-                        "player_lyrics_gradient_end_color",
-                        selection: gradientLyricsEndColor,
-                        supportsOpacity: false
-                    )
-                    .accessibilityIdentifier("playerLyricsGradientEndColorPicker")
-                }
-
-                HStack(spacing: 12) {
-                    Text("player_lyrics_color_preview")
-                    Spacer(minLength: 12)
-                    Text("player_lyrics_color_preview_sample")
-                        .font(.headline.weight(.bold))
-                        .foregroundStyle(lyricsColorPreviewStyle)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                }
-
-                Picker("player_lyrics_alignment", selection: lyricsAlignment) {
-                    ForEach(PlayerLyricsAlignment.allCases) { alignment in
-                        Text(alignment.localizedTitle)
-                            .tag(alignment)
-                    }
-                }
-                .settingsAnchor("lyrics.alignment")
-                .pickerStyle(.segmented)
-
-                Toggle("player_blur_inactive_lyrics", isOn: $blursInactiveLyrics)
-                .settingsAnchor("lyrics.blurInactive")
-                    .accessibilityHint(Text("player_blur_inactive_lyrics_description"))
-
-                Toggle(
-                    "player_keep_screen_awake_for_lyrics",
-                    isOn: $keepsScreenAwakeForLyrics
-                )
-                .settingsAnchor("lyrics.keepScreenAwake")
-                .accessibilityHint(Text("player_keep_screen_awake_for_lyrics_description"))
-                .accessibilityIdentifier("playerKeepScreenAwakeForLyricsToggle")
-
-                Toggle("player_tap_lyrics_to_seek", isOn: $tapLyricsToSeek)
-                .settingsAnchor("lyrics.tapToSeek")
-                    .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
-                    .accessibilityIdentifier("playerTapLyricsToSeekToggle")
-            } header: {
-                Text("player_lyrics_section")
             }
+            .settingsAnchor("lyrics.colorMode")
+            .pickerStyle(.menu)
+            .accessibilityHint(Text("player_current_lyric_color_description"))
+            .accessibilityIdentifier("playerLyricsColorModePicker")
+
+            switch selectedLyricsColorMode {
+            case .defaultColor:
+                EmptyView()
+            case .custom:
+                ColorPicker(
+                    "player_lyrics_custom_color",
+                    selection: customLyricsColor,
+                    supportsOpacity: false
+                )
+                .accessibilityIdentifier("playerLyricsCustomColorPicker")
+            case .gradient:
+                ColorPicker(
+                    "player_lyrics_gradient_start_color",
+                    selection: gradientLyricsStartColor,
+                    supportsOpacity: false
+                )
+                .accessibilityIdentifier("playerLyricsGradientStartColorPicker")
+
+                ColorPicker(
+                    "player_lyrics_gradient_end_color",
+                    selection: gradientLyricsEndColor,
+                    supportsOpacity: false
+                )
+                .accessibilityIdentifier("playerLyricsGradientEndColorPicker")
+            }
+
+            HStack(spacing: 12) {
+                Text("player_lyrics_color_preview")
+                Spacer(minLength: 12)
+                Text("player_lyrics_color_preview_sample")
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(lyricsColorPreviewStyle)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+
+            Picker("player_lyrics_alignment", selection: lyricsAlignment) {
+                ForEach(PlayerLyricsAlignment.allCases) { alignment in
+                    Text(alignment.localizedTitle)
+                        .tag(alignment)
+                }
+            }
+            .settingsAnchor("lyrics.alignment")
+            .pickerStyle(.segmented)
+
+            Toggle("player_blur_inactive_lyrics", isOn: $blursInactiveLyrics)
+            .settingsAnchor("lyrics.blurInactive")
+                .accessibilityHint(Text("player_blur_inactive_lyrics_description"))
+
+            Toggle(
+                "player_keep_screen_awake_for_lyrics",
+                isOn: $keepsScreenAwakeForLyrics
+            )
+            .settingsAnchor("lyrics.keepScreenAwake")
+            .accessibilityHint(Text("player_keep_screen_awake_for_lyrics_description"))
+            .accessibilityIdentifier("playerKeepScreenAwakeForLyricsToggle")
+
+            Toggle("player_tap_lyrics_to_seek", isOn: $tapLyricsToSeek)
+            .settingsAnchor("lyrics.tapToSeek")
+                .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
+                .accessibilityIdentifier("playerTapLyricsToSeekToggle")
+        } header: {
+            Text("player_lyrics_section")
         }
-        .navigationTitle("lyrics_appearance_title")
-        .navigationBarTitleDisplayMode(.inline)
     }
 
     private func color(from storedHex: String, fallback: String) -> Color {

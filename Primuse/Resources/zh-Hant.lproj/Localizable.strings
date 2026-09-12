@@ -1034,10 +1034,7 @@
 "home_layout_carousel" = "橫排";
 "home_layout_carouselDouble" = "雙行橫排";
 "home_layout_grid" = "網格";
-"home_edit_layout" = "編輯版面";
-"home_edit_hint" = "拖動區塊可調整順序。點方案按鈕切換排布,點眼睛隱藏該區塊。";
-"home_edit_move_up" = "上移";
-"home_edit_move_down" = "下移";
+"home_layout_label" = "版面";
 "home_settings_title" = "首頁";
 "home_settings_sections_label" = "顯示區塊";
 "home_settings_sections_footer" = "使用開關控制顯示，拖曳調整順序。Hero 區域固定在頂端。";
@@ -3356,7 +3353,6 @@
 "recently_deleted_clear_all_failed_title" = "部分項目未能清除";
 "recently_deleted_clear_all_failed_format" = "%d 個項目未能清除，已保留在最近刪除中。";
 "lyrics_settings_title" = "歌詞設定";
-"lyrics_appearance_title" = "歌詞外觀";
 "lyrics_translation_section" = "歌詞翻譯";
 "lyrics_display_section" = "顯示";
 "lyrics_audio_tools_section" = "從音訊產生歌詞";

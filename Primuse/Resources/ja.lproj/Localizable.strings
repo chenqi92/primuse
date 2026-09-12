@@ -1260,10 +1260,7 @@
 "home_layout_carousel" = "横スクロール";
 "home_layout_carouselDouble" = "2段横スクロール";
 "home_layout_grid" = "グリッド";
-"home_edit_layout" = "レイアウトを編集";
-"home_edit_hint" = "ブロックをドラッグすると並べ替えられます。レイアウトボタンで表示方法を切り替え、目のアイコンで非表示にできます。";
-"home_edit_move_up" = "上へ移動";
-"home_edit_move_down" = "下へ移動";
+"home_layout_label" = "レイアウト";
 "home_settings_title" = "ホーム";
 "home_settings_sections_label" = "表示するセクション";
 "home_settings_sections_footer" = "スイッチで表示を切り替え、ドラッグして並べ替えます。ヒーローエリアは上部に固定されます。";
@@ -3372,7 +3369,6 @@
 "recently_deleted_clear_all_failed_title" = "一部の項目を消去できませんでした";
 "recently_deleted_clear_all_failed_format" = "%d 件の項目を消去できなかったため、最近削除した項目に残しました。";
 "lyrics_settings_title" = "歌詞設定";
-"lyrics_appearance_title" = "歌詞の外観";
 "lyrics_translation_section" = "翻訳";
 "lyrics_display_section" = "表示";
 "lyrics_audio_tools_section" = "音声から歌詞を作成";

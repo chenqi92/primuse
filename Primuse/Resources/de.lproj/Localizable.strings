@@ -1259,10 +1259,7 @@
 "home_layout_carousel" = "Karussell";
 "home_layout_carouselDouble" = "Zwei Reihen";
 "home_layout_grid" = "Raster";
-"home_edit_layout" = "Layout bearbeiten";
-"home_edit_hint" = "Ziehe einen Block, um ihn umzusortieren. Tippe auf die Layout-Taste, um die Darstellung zu wechseln, oder auf das Auge zum Ausblenden.";
-"home_edit_move_up" = "Nach oben";
-"home_edit_move_down" = "Nach unten";
+"home_layout_label" = "Anordnung";
 "home_settings_title" = "Start";
 "home_settings_sections_label" = "Sichtbare Bereiche";
 "home_settings_sections_footer" = "Bereiche ein- oder ausblenden und durch Ziehen neu anordnen. Der Hero-Bereich bleibt oben.";
@@ -3371,7 +3368,6 @@
 "recently_deleted_clear_all_failed_title" = "Einige Elemente wurden nicht gelöscht";
 "recently_deleted_clear_all_failed_format" = "%d Elemente konnten nicht gelöscht werden und verbleiben unter „Zuletzt gelöscht“.";
 "lyrics_settings_title" = "Liedtexteinstellungen";
-"lyrics_appearance_title" = "Songtext-Darstellung";
 "lyrics_translation_section" = "Übersetzung";
 "lyrics_display_section" = "Darstellung";
 "lyrics_audio_tools_section" = "Liedtext aus Audio";

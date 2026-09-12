@@ -1113,10 +1113,7 @@
 "home_layout_carousel" = "Carousel";
 "home_layout_carouselDouble" = "Two rows";
 "home_layout_grid" = "Grid";
-"home_edit_layout" = "Edit layout";
-"home_edit_hint" = "Drag a block to reorder it. Tap the layout chip to change how it lays out, or the eye to hide it.";
-"home_edit_move_up" = "Move up";
-"home_edit_move_down" = "Move down";
+"home_layout_label" = "Layout";
 "home_settings_title" = "Home";
 "home_settings_sections_label" = "Visible sections";
 "home_settings_sections_footer" = "Use the switches to show sections and drag to reorder them. The Hero area stays at the top.";
@@ -3156,7 +3153,6 @@
 "recently_deleted_clear_all_failed_title" = "Some Items Were Not Cleared";
 "recently_deleted_clear_all_failed_format" = "%d items could not be cleared and remain in Recently Deleted.";
 "lyrics_settings_title" = "Lyrics Settings";
-"lyrics_appearance_title" = "Lyrics Appearance";
 "lyrics_translation_section" = "Translation";
 "lyrics_display_section" = "Display";
 "lyrics_audio_tools_section" = "Lyrics from Audio";

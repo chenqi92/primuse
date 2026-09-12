@@ -1431,10 +1431,7 @@
 "home_layout_carousel" = "شريط أفقي";
 "home_layout_carouselDouble" = "صفّان";
 "home_layout_grid" = "شبكة";
-"home_edit_layout" = "تحرير التخطيط";
-"home_edit_hint" = "اسحب كتلة لإعادة ترتيبها. المس زر التخطيط لتغيير طريقة العرض، أو رمز العين لإخفائها.";
-"home_edit_move_up" = "تحريك لأعلى";
-"home_edit_move_down" = "تحريك لأسفل";
+"home_layout_label" = "التخطيط";
 "home_section_quick_access" = "الوصول السريع";
 "home_section_recently_added" = "أضيف مؤخرا";
 "home_section_top_artists" = "استمع كثيرا";
@@ -1798,7 +1795,6 @@
 "lyrics_offset_hint" = "موجب = تأخير";
 "lyrics_reload_from_source" = "إعادة تحميل الأغاني من مصدر الموسيقى";
 "lyrics_settings_title" = "إعدادات كلمات الأغاني";
-"lyrics_appearance_title" = "مظهر كلمات الأغنية";
 "lyrics_source_reload_empty_kept" = "لم يُرجع مصدر الموسيقى أي كلمات. الكلمات الحالية لم تتغير.";
 "lyrics_source_reload_failed_kept" = "لا يمكن إعادة تحميل الكلمات من مصدر الموسيقى. الكلمات الحالية لم تتغير.";
 "lyrics_source_reload_success" = "تم تحديث الكلمات من مصدر الموسيقى.";

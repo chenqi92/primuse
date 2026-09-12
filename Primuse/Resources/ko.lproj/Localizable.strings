@@ -1259,10 +1259,7 @@
 "home_layout_carousel" = "가로 스크롤";
 "home_layout_carouselDouble" = "2줄 가로 스크롤";
 "home_layout_grid" = "그리드";
-"home_edit_layout" = "레이아웃 편집";
-"home_edit_hint" = "블록을 드래그해 순서를 바꿉니다. 레이아웃 버튼으로 표시 방식을 바꾸고, 눈 아이콘으로 숨길 수 있습니다.";
-"home_edit_move_up" = "위로 이동";
-"home_edit_move_down" = "아래로 이동";
+"home_layout_label" = "레이아웃";
 "home_settings_title" = "홈";
 "home_settings_sections_label" = "표시할 섹션";
 "home_settings_sections_footer" = "스위치로 표시 여부를 정하고 드래그하여 순서를 변경합니다. Hero 영역은 맨 위에 고정됩니다.";
@@ -3371,7 +3368,6 @@
 "recently_deleted_clear_all_failed_title" = "일부 항목을 지우지 못했습니다";
 "recently_deleted_clear_all_failed_format" = "%d개 항목을 지우지 못해 최근 삭제 항목에 남겨 두었습니다.";
 "lyrics_settings_title" = "가사 설정";
-"lyrics_appearance_title" = "가사 모양";
 "lyrics_translation_section" = "번역";
 "lyrics_display_section" = "표시";
 "lyrics_audio_tools_section" = "오디오에서 가사 만들기";

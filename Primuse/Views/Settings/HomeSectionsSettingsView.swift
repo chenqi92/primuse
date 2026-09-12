@@ -81,11 +81,66 @@ struct HomeSectionsSettingsView: View {
     @AppStorage("primuse.home.showFolders") private var showFolders = true
     @AppStorage("primuse.home.showListeningRanking") private var showListeningRanking = true
     @AppStorage(HomeSectionConfiguration.orderKey) private var sectionOrderRawValue = ""
+    @AppStorage(HomeSectionLayoutConfiguration.storageKey) private var sectionLayoutRawValue = ""
     @AppStorage(HomeFolderPinStorage.displayCountKey) private var folderDisplayCount = HomeFolderPinStorage.defaultDisplayCount
     @State private var showsFolderManager = false
 
     private var sectionOrder: [HomeSectionKind] {
         HomeSectionConfiguration.decode(sectionOrderRawValue)
+    }
+
+    private var sectionLayout: HomeSectionLayoutConfiguration {
+        HomeSectionLayoutConfiguration.decode(sectionLayoutRawValue)
+    }
+
+    private func setLayout(_ style: HomeSectionLayoutStyle, for section: HomeSectionKind) {
+        var configuration = sectionLayout
+        configuration.setStyle(style, for: section)
+        sectionLayoutRawValue = configuration.encoded()
+    }
+
+    /// 每块区域的排布选择。
+    ///
+    /// 这张列表常驻编辑态(为了拖动排序),NavigationLink 在编辑态里点不动,所以
+    /// 用一排 Button 直接选,不做二级页面 —— 顺带也省了一次跳转。给不出第二种
+    /// 像样排布的区域(统计概览、文件夹、听歌排行)不显示这一行。
+    @ViewBuilder
+    private func layoutOptions(for section: HomeSectionKind) -> some View {
+        let options = HomeSectionLayoutPolicy.supportedStyles(for: section)
+        if options.count > 1 {
+            let current = sectionLayout.style(for: section)
+            HStack(spacing: 8) {
+                Text("home_layout_label")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                ForEach(options) { style in
+                    Button {
+                        setLayout(style, for: section)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: style.icon).font(.caption2)
+                            Text(LocalizedStringKey(style.titleKey))
+                                .font(.caption)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.85)
+                        }
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .foregroundStyle(style == current ? Color.accentColor : Color.secondary)
+                        .background {
+                            Capsule().fill(
+                                style == current
+                                    ? Color.accentColor.opacity(0.16)
+                                    : Color.secondary.opacity(0.10)
+                            )
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("home.layout.\(section.rawValue).\(style.rawValue)")
+                }
+            }
+            .padding(.leading, 2)
+        }
     }
 
     /// 电台使用上方的独立开关控制整张首页背面，因此不参与音乐面板块排序。
@@ -105,10 +160,15 @@ struct HomeSectionsSettingsView: View {
 
             Section {
                 ForEach(editableSections) { section in
-                    Toggle(isOn: visibilityBinding(for: section)) {
-                        Label(section.title, systemImage: section.icon)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle(isOn: visibilityBinding(for: section)) {
+                            Label(section.title, systemImage: section.icon)
+                        }
+                        .accessibilityHint(Text("home_settings_sections_footer"))
+                        if visibilityBinding(for: section).wrappedValue {
+                            layoutOptions(for: section)
+                        }
                     }
-                    .accessibilityHint(Text("home_settings_sections_footer"))
                     .settingsAnchor("home." + section.rawValue)
                 }
                 .onMove(perform: moveSections)

@@ -578,10 +578,7 @@
 "home_layout_carousel" = "Yatay şerit";
 "home_layout_carouselDouble" = "İki sıra";
 "home_layout_grid" = "Izgara";
-"home_edit_layout" = "Düzeni düzenle";
-"home_edit_hint" = "Sıralamayı değiştirmek için bir bloğu sürükleyin. Görünümü değiştirmek için düzen düğmesine, gizlemek için göz simgesine dokunun.";
-"home_edit_move_up" = "Yukarı taşı";
-"home_edit_move_down" = "Aşağı taşı";
+"home_layout_label" = "Düzen";
 "ai_audio_transcription_success_format" = "%@ transkripti tamamladı. Kaydetmeden önce düzenleyicide inceleyin.";
 "Reading tags" = "Etiketleri okuma";
 "Valid format" = "Geçerli format";
@@ -1135,7 +1132,6 @@
 "album_changed" = "Albüm güncellendi";
 "audio_output_follow_system" = "Sistem varsayılanını takip et";
 "lyrics_settings_title" = "Şarkı Sözü Ayarları";
-"lyrics_appearance_title" = "Şarkı sözü görünümü";
 "ok" = "Tamam";
 "player_lyrics_color_default" = "Varsayılan";
 "player_tap_lyrics_to_seek_description" = "O noktaya atlamak için senkronize edilmiş bir şarkı sözü satırına dokunun. Şarkı sözlerini kaydırmak asla aramaz.";

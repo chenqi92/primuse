@@ -1431,10 +1431,7 @@
 "home_layout_carousel" = "Carrossel";
 "home_layout_carouselDouble" = "Duas linhas";
 "home_layout_grid" = "Grade";
-"home_edit_layout" = "Editar layout";
-"home_edit_hint" = "Arraste um bloco para reordená-lo. Toque no botão de layout para mudar a apresentação, ou no olho para ocultá-lo.";
-"home_edit_move_up" = "Mover para cima";
-"home_edit_move_down" = "Mover para baixo";
+"home_layout_label" = "Disposição";
 "home_section_quick_access" = "Acesso rápido";
 "home_section_recently_added" = "Adicionado recentemente";
 "home_section_top_artists" = "Ouvido com frequência";
@@ -1798,7 +1795,6 @@
 "lyrics_offset_hint" = "Positivo = atraso";
 "lyrics_reload_from_source" = "Recarregar letras da origem";
 "lyrics_settings_title" = "Ajustes de letras";
-"lyrics_appearance_title" = "Aparência da letra";
 "lyrics_source_reload_empty_kept" = "A origem de música não retornou letras. As letras atuais não foram alteradas.";
 "lyrics_source_reload_failed_kept" = "Não foi possível recarregar as letras da origem. As letras atuais não foram alteradas.";
 "lyrics_source_reload_success" = "As letras foram atualizadas a partir da origem de música.";

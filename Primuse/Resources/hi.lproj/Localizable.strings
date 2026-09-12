@@ -1431,10 +1431,7 @@
 "home_layout_carousel" = "क्षैतिज पट्टी";
 "home_layout_carouselDouble" = "दो पंक्तियाँ";
 "home_layout_grid" = "ग्रिड";
-"home_edit_layout" = "लेआउट संपादित करें";
-"home_edit_hint" = "क्रम बदलने के लिए किसी ब्लॉक को खींचें। प्रस्तुति बदलने के लिए लेआउट बटन दबाएँ, या छिपाने के लिए आँख का चिह्न।";
-"home_edit_move_up" = "ऊपर ले जाएँ";
-"home_edit_move_down" = "नीचे ले जाएँ";
+"home_layout_label" = "लेआउट";
 "home_section_quick_access" = "त्वरित पहुंच";
 "home_section_recently_added" = "हाल ही में जोड़ा गया";
 "home_section_top_artists" = "बार-बार सुना गया";
@@ -1798,7 +1795,6 @@
 "lyrics_offset_hint" = "सकारात्मक = विलंब";
 "lyrics_reload_from_source" = "संगीत के बोल स्रोत से गीत के बोल पुनः लोड करें";
 "lyrics_settings_title" = "गीत के बोल सेटिंग्स";
-"lyrics_appearance_title" = "बोल का रूप";
 "lyrics_source_reload_empty_kept" = "संगीत के बोल स्रोत ने कोई गीत के बोल नहीं लौटाया। वर्तमान गीत के बोल अपरिवर्तित थे.";
 "lyrics_source_reload_failed_kept" = "गीत के बोल को संगीत के बोल स्रोत से पुनः लोड नहीं किया जा सका। वर्तमान गीत के बोल अपरिवर्तित थे.";
 "lyrics_source_reload_success" = "गीत के बोल संगीत के बोल स्रोत से ताज़ा किए गए थे।";
