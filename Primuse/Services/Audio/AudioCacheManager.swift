@@ -941,17 +941,18 @@ actor AudioCacheManager {
 
         guard currentSize > target else { return true }
 
-        struct EvictCandidate { let url: URL; let relativePath: String; let size: Int64; let lastUsed: Date }
-        var candidates: [EvictCandidate] = []
         let protectedPaths = protectedRelativePaths()
         let activeStreamingPaths = activeStreamingRelativePaths()
+        var excludedPaths = protectedPaths
+        excludedPaths.formUnion(activeStreamingPaths)
+        for (path, count) in leasedPathCounts where count > 0 {
+            excludedPaths.insert(path)
+        }
+
+        var candidates: [AudioCacheEvictionPlanPolicy.Candidate] = []
         candidates.reserveCapacity(trackedFileSizes.count)
-        for (relative, size) in trackedFileSizes where size > 0 {
-            guard !protectedPaths.contains(relative),
-                  !activeStreamingPaths.contains(relative),
-                  (leasedPathCounts[relative] ?? 0) == 0 else { continue }
-            candidates.append(EvictCandidate(
-                url: basePath.appendingPathComponent(relative),
+        for (relative, size) in trackedFileSizes {
+            candidates.append(AudioCacheEvictionPlanPolicy.Candidate(
                 relativePath: relative,
                 size: size,
                 lastUsed: accessLog[relative]
@@ -960,20 +961,25 @@ actor AudioCacheManager {
             ))
         }
 
-        // 最旧的优先 evict
-        candidates.sort { $0.lastUsed < $1.lastUsed }
-        var freed: Int64 = 0
+        // 最旧的优先 evict, 攒够 needed 就停。
         let needed = currentSize - target
-        for cand in candidates {
+        let plan = AudioCacheEvictionPlanPolicy.plan(
+            candidates: candidates,
+            excludedPaths: excludedPaths,
+            neededBytes: needed
+        )
+        var freed: Int64 = 0
+        for cand in plan {
             if freed >= needed { break }
-            // Playback registration and transfer leases can change after the
-            // candidate snapshot. Recheck immediately before the destructive
-            // operation so an active path family cannot be evicted.
+            // 本方法从快照到删除之间没有挂起点, 活跃流路径不可能变化, 所以
+            // 复用循环外那份快照, 不再逐个候选重算(每次都要对所有活跃会话
+            // 做 fileExists + resolvingSymlinksInPath)。播放注册与传输租约
+            // 的检查照旧保留。
             guard !protectedPaths.contains(cand.relativePath),
-                  !activeStreamingRelativePaths().contains(cand.relativePath),
+                  !activeStreamingPaths.contains(cand.relativePath),
                   (leasedPathCounts[cand.relativePath] ?? 0) == 0 else { continue }
             do {
-                try FileManager.default.removeItem(at: cand.url)
+                try FileManager.default.removeItem(at: basePath.appendingPathComponent(cand.relativePath))
                 let removedSize = trackedFileSizes.removeValue(forKey: cand.relativePath) ?? cand.size
                 trackedFileModificationDates.removeValue(forKey: cand.relativePath)
                 trackedTotalSize = max(0, trackedTotalSize - removedSize)

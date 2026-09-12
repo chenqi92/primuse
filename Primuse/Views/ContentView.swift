@@ -149,6 +149,12 @@ private struct AppNavigationModeEnvironmentKey: EnvironmentKey {
     static let defaultValue = AppNavigationMode.standard
 }
 
+/// 叠加式 mini player 是否正在占住底部。只有这种情况下列表才需要自己让位；
+/// 系统 accessory / safeAreaInset 面板 / safeAreaBar 都已经计入安全区。
+private struct LegacyBottomChromeOverlayActiveEnvironmentKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
 private struct MinimalNavigationDetailScopeEnvironmentKey: EnvironmentKey {
     static let defaultValue: MinimalNavigationDetailScope? = nil
 }
@@ -187,6 +193,11 @@ extension EnvironmentValues {
     var appNavigationMode: AppNavigationMode {
         get { self[AppNavigationModeEnvironmentKey.self] }
         set { self[AppNavigationModeEnvironmentKey.self] = newValue }
+    }
+
+    var legacyBottomChromeOverlayActive: Bool {
+        get { self[LegacyBottomChromeOverlayActiveEnvironmentKey.self] }
+        set { self[LegacyBottomChromeOverlayActiveEnvironmentKey.self] = newValue }
     }
 
     var minimalNavigationDetailScope: MinimalNavigationDetailScope? {
@@ -553,6 +564,19 @@ struct ContentView: View {
     private var hiddenLibrarySectionsRawValue = ""
     @State private var showInitialOnboarding = false
     private let legacyTabBarClearance: CGFloat = 49
+
+    /// 与 mainContent 里 LegacyNowPlayingAccessory 的挂载条件同源。
+    private var legacyBottomChromeOverlayActive: Bool {
+        var systemAccessoryAvailable = false
+        if #available(iOS 26.1, *) {
+            systemAccessoryAvailable = true
+        }
+        return BottomChromeClearancePolicy.usesLegacyOverlayAccessory(
+            rootLayoutIsStandardTabs: rootLayout == .standardTabs,
+            miniPlayerVisible: miniPlayerVisible,
+            systemAccessoryAvailable: systemAccessoryAvailable
+        )
+    }
 
     private var navigationMode: AppNavigationMode {
         AppNavigationMode.resolve(navigationModeRawValue)
@@ -930,6 +954,7 @@ struct ContentView: View {
         }
         .environment(\.librarySearchNavigation, searchNavigation)
         .environment(\.appNavigationMode, navigationMode)
+        .environment(\.legacyBottomChromeOverlayActive, legacyBottomChromeOverlayActive)
         .onPreferenceChange(CarPlayEditorActivePreferenceKey.self) { carPlayEditorActive = $0 }
         .songBatchRemovalFeedback()
         .onPreferenceChange(SongBatchSelectionActivePreferenceKey.self) { isActive in
@@ -1536,6 +1561,15 @@ private struct MinimalTopNavigationBar: View {
     @FocusState private var searchFieldFocused: Bool
     @Namespace private var librarySelectionIndicator
 
+    // 固定高度与字号跟随 Dynamic Type；默认字号下数值与原来一致。
+    @ScaledMetric(relativeTo: .subheadline) private var chipRowHeight: CGFloat = 37
+    @ScaledMetric(relativeTo: .subheadline) private var chipHeight: CGFloat = 34
+    @ScaledMetric(relativeTo: .subheadline) private var collapsedChipHeight: CGFloat = 44
+    @ScaledMetric(relativeTo: .subheadline) private var searchFieldMinHeight: CGFloat = 44
+    @ScaledMetric(relativeTo: .subheadline) private var chipFontSize: CGFloat = 14.5
+    @ScaledMetric(relativeTo: .subheadline) private var collapsedChipFontSize: CGFloat = 14
+    @ScaledMetric(relativeTo: .subheadline) private var searchFontSize: CGFloat = 15.5
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
@@ -1578,7 +1612,7 @@ private struct MinimalTopNavigationBar: View {
                         }
                         .padding(.horizontal, 12)
                     }
-                    .frame(height: 37)
+                    .frame(height: chipRowHeight)
                     .padding(.top, 9)
                     .onChange(of: selection.id, initial: true) { _, pageID in
                         guard libraryPages.contains(where: { $0.id == pageID }) else { return }
@@ -1636,7 +1670,7 @@ private struct MinimalTopNavigationBar: View {
                 .foregroundStyle(searchFieldFocused ? Color.accentColor : Color.secondary)
 
             TextField(searchPrompt, text: $searchText)
-                .font(.system(size: 15.5))
+                .font(.system(size: searchFontSize))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
@@ -1665,7 +1699,7 @@ private struct MinimalTopNavigationBar: View {
         }
         .padding(.leading, 14)
         .padding(.trailing, searchText.isEmpty ? 14 : 6)
-        .frame(maxWidth: .infinity, minHeight: 44)
+        .frame(maxWidth: .infinity, minHeight: searchFieldMinHeight)
         .background(.thinMaterial, in: Capsule())
         .background(Color.secondary.opacity(0.08), in: Capsule())
         .overlay {
@@ -1746,12 +1780,12 @@ private struct MinimalTopNavigationBar: View {
             select(page)
         } label: {
             pageTitle(page)
-                .font(.system(size: 14.5, weight: isSelected ? .semibold : .regular))
+                .font(.system(size: chipFontSize, weight: isSelected ? .semibold : .regular))
                 .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
                 .padding(.horizontal, 15)
-                .frame(height: 34)
+                .frame(height: chipHeight)
                 .background {
                     if isSelected {
                         Capsule()
@@ -1786,7 +1820,7 @@ private struct MinimalTopNavigationBar: View {
         } label: {
             HStack(spacing: 5) {
                 pageTitle(page)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: collapsedChipFontSize, weight: .semibold))
                     .lineLimit(1)
 
                 Image(systemName: "chevron.down")
@@ -1794,7 +1828,7 @@ private struct MinimalTopNavigationBar: View {
             }
             .foregroundStyle(Color.accentColor)
             .padding(.horizontal, 12)
-            .frame(height: 44)
+            .frame(height: collapsedChipHeight)
             .background(Color.accentColor.opacity(0.16), in: Capsule())
             .overlay {
                 Capsule()

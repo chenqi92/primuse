@@ -8,6 +8,9 @@ struct MiniPlayerView: View {
     var showsNextButton = true
     var showsSubtitle = false
 
+    /// 固定条高跟随 Dynamic Type，与 PadNowPlayingAccessory 一致。
+    @ScaledMetric(relativeTo: .subheadline) private var contentHeight: CGFloat = 44
+
     var body: some View {
         HStack(spacing: 0) {
             MiniPlayerSwipeContent(
@@ -16,7 +19,8 @@ struct MiniPlayerView: View {
                 artworkCornerRadius: 6,
                 artworkTrailingSpacing: 8,
                 titleFont: .subheadline,
-                showsSubtitle: showsSubtitle
+                showsSubtitle: showsSubtitle,
+                contentHeight: contentHeight
             )
 
             MiniPlayerTransportControls(showsNextButton: showsNextButton)

@@ -47,6 +47,10 @@ struct AIRecommendationLibraryView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicIntelligenceService.self) private var intelligence
     @Environment(\.scenePhase) private var scenePhase
+    #if os(iOS)
+    @Environment(\.legacyBottomChromeOverlayActive)
+    private var legacyBottomChromeOverlayActive
+    #endif
     @AppStorage(AIRecommendationIntentStoragePolicy.storageKey)
     private var customIntentsRawValue = ""
     @AppStorage(AIRecommendationIntentPresetVisibilityPolicy.storageKey)
@@ -189,6 +193,20 @@ struct AIRecommendationLibraryView: View {
         }
     }
 
+    /// 只有 iOS 的叠加式 mini player 需要列表自己让位；macOS 不走这条路径，沿用原值。
+    private var bottomChromeClearance: CGFloat {
+        #if os(iOS)
+        let overlayActive = legacyBottomChromeOverlayActive
+        #else
+        let overlayActive = true
+        #endif
+        return BottomChromeClearancePolicy.clearance(
+            legacyOverlayActive: overlayActive,
+            legacy: 96,
+            baseline: 16
+        )
+    }
+
     private var recommendationContent: some View {
         #if os(macOS)
         let showsIndicators = false
@@ -206,7 +224,7 @@ struct AIRecommendationLibraryView: View {
             }
             .padding(.horizontal, platformHorizontalPadding)
             .padding(.top, platformTopPadding)
-            .padding(.bottom, 96)
+            .padding(.bottom, bottomChromeClearance)
         }
     }
 

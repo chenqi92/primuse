@@ -226,7 +226,23 @@ struct HomeView: View {
     @Environment(ThemeService.self) private var theme
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
+    @Environment(\.legacyBottomChromeOverlayActive)
+    private var legacyBottomChromeOverlayActive
     #endif
+
+    /// 只有 iOS 的叠加式 mini player 需要列表自己让位；macOS 不走这条路径，沿用原值。
+    private var bottomChromeClearance: CGFloat {
+        #if os(iOS)
+        let overlayActive = legacyBottomChromeOverlayActive
+        #else
+        let overlayActive = true
+        #endif
+        return BottomChromeClearancePolicy.clearance(
+            legacyOverlayActive: overlayActive,
+            legacy: 100,
+            baseline: 16
+        )
+    }
 
     /// 音乐态是否有内容可展示。电台不再计入 —— 它有独立模式，光有电台
     /// 不该让音乐态藏起"去添加音乐源"的引导。
@@ -281,7 +297,7 @@ struct HomeView: View {
                         .transition(homeFaceTransition)
                 }
             }
-            .padding(.bottom, 100)
+            .padding(.bottom, bottomChromeClearance)
             .animation(.easeOut(duration: 0.24), value: model.isPrepared)
         }
         .task {

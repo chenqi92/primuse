@@ -24,6 +24,10 @@ final class FileLogger: @unchecked Sendable {
     /// 当前日志文件的累计字节数。只在 `queue` 上读写。
     private var currentBytes: Int = 0
 
+    /// 常驻写句柄, 首次写入时惰性打开; 轮转或写失败后置空重开。
+    /// 与 `currentBytes` 一样只在 `queue` 上读写(`init` 早于任何队列作业)。
+    private var handle: FileHandle?
+
     private init() {
         let docs = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
         fileURL = docs.appendingPathComponent("primuse_debug.log")
@@ -40,34 +44,9 @@ final class FileLogger: @unchecked Sendable {
         appendToFile(header)
     }
 
+    /// 保留给既有调用方的入口; 规则与正则实例都在 PrimuseKit 里常驻复用。
     static func redactSensitiveData(_ message: String) -> String {
-        var redacted = message
-        let replacements: [(pattern: String, template: String)] = [
-            // 1. URL / 查询串里的 key=value。key 后紧跟 = 语义明确, 即便是 code/state/k
-            //    这类短名, 出现在 query 串里也几乎一定是凭证, 故保留全集。
-            (#"(?i)([?&](?:access_token|refresh_token|api_key|x-plex-token|token|code|state|k|client_secret|password|pwd|pass|sid|_sid|authorization|cookie)=)[^&#\s"')\]]+"#, "$1<redacted>"),
-            // 2. HTTP 头 Authorization / Cookie
-            (#"(?i)\b(Authorization|Cookie)\s*[:=]\s*[^,\]\n]+"#, "$1=<redacted>"),
-            // 3. Bearer token
-            (#"(?i)\b(Bearer)\s+[A-Za-z0-9._~+/=-]+"#, "$1 <redacted>"),
-            // 4. JSON 体里的 "key":"value"(覆盖 OAuth 错误体等带引号的结构化日志)。
-            (#"(?i)("(?:access_token|refresh_token|client_secret|api_key|code|password|token)"\s*:\s*)"[^"]*""#, "$1\"<redacted>\""),
-            // 5. 裸 key=value / key: value。仅限不会与正常日志词冲突的明确凭证名,
-            //    不再包含 code/state/pass/token/k —— 它们在普通日志里太常见(如
-            //    "state: playing"、"scan code: 42"), 会误删正常内容。URL 与 JSON
-            //    形态分别由规则 1、4 兜底。
-            (#"(?i)\b(access_token|refresh_token|client_secret|api_key|password)\b\s*[:=]\s*[^,\]\s"')}]+"#, "$1=<redacted>"),
-        ]
-        for replacement in replacements {
-            guard let regex = try? NSRegularExpression(pattern: replacement.pattern) else { continue }
-            let range = NSRange(redacted.startIndex..<redacted.endIndex, in: redacted)
-            redacted = regex.stringByReplacingMatches(
-                in: redacted,
-                range: range,
-                withTemplate: replacement.template
-            )
-        }
-        return redacted
+        LogRedactionPolicy.redact(message)
     }
 
     func log(_ message: String, file: String = #file, line: Int = #line) {
@@ -83,7 +62,9 @@ final class FileLogger: @unchecked Sendable {
             let safeMessage = Self.redactSensitiveData(message)
             let timestamp = self.dateFormatter.string(from: Date())
             let entry = "[\(timestamp)] [\(fileName):\(line)] \(safeMessage)\n"
+            #if DEBUG
             print(safeMessage)
+            #endif
             self.appendToFile(entry)
         }
     }
@@ -96,21 +77,54 @@ final class FileLogger: @unchecked Sendable {
             rotate()
         }
 
-        if FileManager.default.fileExists(atPath: fileURL.path) {
-            if let handle = try? FileHandle(forWritingTo: fileURL) {
-                handle.seekToEndOfFile()
-                handle.write(data)
-                handle.closeFile()
-                currentBytes += data.count
-            }
-        } else {
-            try? data.write(to: fileURL, options: .atomic)
-            currentBytes = data.count
+        guard let handle = openHandleIfNeeded() else { return }
+        if write(data, to: handle) {
+            currentBytes += data.count
+            return
+        }
+        // 写失败一般意味着句柄背后的文件已经不可写(被替换 / 描述符失效)。
+        // 关掉重开一次, 再失败就丢掉这一行, 不在日志路径上继续放大故障。
+        closeHandle()
+        guard let reopened = openHandleIfNeeded(), write(data, to: reopened) else {
+            closeHandle()
+            return
+        }
+        currentBytes += data.count
+    }
+
+    /// 惰性打开并常驻写句柄。之前每行日志都要 fileExists + open + seek +
+    /// close 一轮系统调用, 元数据回填这种高频日志下白白占用 IO。
+    private func openHandleIfNeeded() -> FileHandle? {
+        if let handle { return handle }
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: fileURL.path) {
+            guard fm.createFile(atPath: fileURL.path, contents: nil) else { return nil }
+            currentBytes = 0
+        }
+        guard let opened = try? FileHandle(forWritingTo: fileURL) else { return nil }
+        opened.seekToEndOfFile()
+        handle = opened
+        return opened
+    }
+
+    private func write(_ data: Data, to handle: FileHandle) -> Bool {
+        do {
+            try handle.write(contentsOf: data)
+            return true
+        } catch {
+            return false
         }
     }
 
+    private func closeHandle() {
+        try? handle?.close()
+        handle = nil
+    }
+
     /// 把当前日志改名为 .1(覆盖上一代), 计数器清零。下次写入会新建文件。
+    /// 常驻句柄必须先关闭, 否则改名后还会继续写进上一代文件。
     private func rotate() {
+        closeHandle()
         let fm = FileManager.default
         try? fm.removeItem(at: rotatedURL)
         try? fm.moveItem(at: fileURL, to: rotatedURL)

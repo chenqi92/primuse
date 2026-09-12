@@ -5073,6 +5073,10 @@ final class MusicLibrary {
         let removedSongIDs: Set<String>
     }
 
+    /// 仅供测试注入: 拉长离主线程准备的时长, 好让并发的歌曲突变确定性地
+    /// 抢在这次整源移除前面落地。生产路径保持 nil。
+    @ObservationIgnored var sourceSongRemovalPreparationDelayForTesting: Duration?
+
     private nonisolated static func prepareSourceSongRemoval(
         songs: [Song],
         sourceIDs: Set<String>
@@ -5106,7 +5110,8 @@ final class MusicLibrary {
     /// removeAll/playlist cleanup/index rebuild made rapid source deletion
     /// O(sourceCount × librarySize) on the main actor. Partitioning and the
     /// replacement lookup are prepared off-main; a generation fence retries
-    /// if another scan/backfill mutation landed while that snapshot was read.
+    /// (at most twice) if another scan/backfill mutation landed while that
+    /// snapshot was read, then falls back to in-place preparation.
     @discardableResult
     func removeSongsForSources(_ sourceIDs: Set<String>) async -> Set<String> {
         guard !sourceIDs.isEmpty else { return [] }
@@ -5115,24 +5120,25 @@ final class MusicLibrary {
             self?.removeSongsForSourcesSynchronously(sourceIDs)
         }) { return [] }
 
-        let prepared: PreparedSourceSongRemoval
-        while true {
+        // 持续的扫描 / 回填突变会一直推进 songMutationGeneration。无上限重试
+        // 会被这种突变流活活拖住, 所以只离主线程准备两次, 之后退回就地准备:
+        // 主线程上快照与应用之间没有窗口, 必然一次成功。
+        for _ in 0..<2 {
             let snapshot = songs
             let generation = songMutationGeneration
+            let preparationDelay = sourceSongRemovalPreparationDelayForTesting
             let candidate = await Task.detached(priority: .userInitiated) {
-                Self.prepareSourceSongRemoval(
+                if let preparationDelay { try? await Task.sleep(for: preparationDelay) }
+                return Self.prepareSourceSongRemoval(
                     songs: snapshot,
                     sourceIDs: sourceIDs
                 )
             }.value
-            guard generation == songMutationGeneration else {
-                await Task.yield()
-                continue
-            }
-            prepared = candidate
-            break
+            guard generation == songMutationGeneration else { continue }
+            return applyPreparedSourceSongRemoval(candidate, sourceIDs: sourceIDs)
         }
 
+        let prepared = Self.prepareSourceSongRemoval(songs: songs, sourceIDs: sourceIDs)
         return applyPreparedSourceSongRemoval(prepared, sourceIDs: sourceIDs)
     }
 
@@ -5754,7 +5760,7 @@ final class MusicLibrary {
             return previous != nil
         }
         persistSnapshot()
-        notifyArtworkOverrideChanged(remote)
+        notifyArtworkOverrideChanged(remote, origin: "remote")
         return false
     }
 
@@ -5772,11 +5778,18 @@ final class MusicLibrary {
         artworkOverrideRevision &+= 1
     }
 
-    private func notifyArtworkOverrideChanged(_ value: LibraryArtworkOverride) {
+    /// `origin` 与源表同一套约定: "remote" 表示这次变更是在应用 CloudKit
+    /// 刚送来的记录, 云同步的保存队列要忽略它, 否则两台设备会把同一份封面
+    /// 覆盖来回推送。UI 观察者两种来源都照常刷新。
+    private func notifyArtworkOverrideChanged(
+        _ value: LibraryArtworkOverride,
+        origin: String = "local"
+    ) {
         artworkOverrideRevision &+= 1
         var userInfo: [AnyHashable: Any] = [
             "ids": [value.cloudRecordID],
             "ownerIDs": [value.owner.id],
+            "origin": origin,
         ]
         if let contentID = value.uploadedContentID {
             userInfo["contentID"] = contentID

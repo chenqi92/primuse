@@ -203,7 +203,7 @@ struct ImmersivePlayerView: View {
             currentLyric: currentLyricText,
             nextLyric: nextLyricText,
             lyricsWritingDirection: lyricsWritingDirection,
-            levels: spectrumLevels,
+            levelsProvider: { spectrumLevels },
             galleryArtworkCount: gallerySongs.count,
             galleryArtwork: { index, side in
                 guard gallerySongs.indices.contains(index) else { return AnyView(Color.clear) }
@@ -930,6 +930,7 @@ struct ImmersivePlayerView: View {
     }
 
     /// 只转发真实采样结果；静音或无 tap 时保持零值，不生成替代循环。
+    /// 由舞台叶子视图按需调用，读取被限制在消费频谱的那一层。
     private var spectrumLevels: [CGFloat] {
         guard visualActivityPolicy.shouldRunVisualizer else { return [] }
         return visualizer.bandLevels.map { min(max(CGFloat($0), 0), 1) }

@@ -2,6 +2,7 @@
 // Mac app 没有 Watch 伴侣关系 ── Watch app 跟 Mac 桌面端不配对。
 #if os(iOS)
 import Foundation
+import Observation
 import UIKit
 import SwiftUI
 @preconcurrency import WatchConnectivity
@@ -103,14 +104,65 @@ final class WatchSessionBridge: NSObject {
         // 0.5s tick ── 状态推送 (歌词行 / 播放状态变化) 和 队列推送 各自
         // 跑一遍。两者都有 hash 去重, 没变化就不发; 都独立检测, 互不
         // 阻塞 (queue 变化但 state 没变也能被推到)。
+        //
+        // 只在播放/加载中才轮询: 暂停或空闲时歌词行和时间基准都不会自己
+        // 变, ticker 挂起等播放状态变化 (见 `waitForPlaybackStateChange`),
+        // 进入挂起前后各推一次, 不丢任何一次快照。
         stateTickerTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 guard !Task.isCancelled, let self else { return }
+                guard let player = self.player else { continue }
+                self.pushIfMeaningfulChange()
+                self.pushLibraryDigest()
+
+                let shouldKeepTicking = WatchStateTickerPolicy.shouldRunTicker(
+                    isPlaying: player.isPlaying,
+                    isLoading: player.isLoading,
+                    hasCurrentSong: player.currentSong != nil
+                ) || self.hasPendingQueueDeliveryRetry
+                guard !shouldKeepTicking else { continue }
+
+                await self.waitForPlaybackStateChange()
+                guard !Task.isCancelled else { return }
+                // 恢复后立刻补一次, 不等下一个 0.5s。
                 self.pushIfMeaningfulChange()
                 self.pushLibraryDigest()
             }
         }
+    }
+
+    /// 队列投递失败后的退避重试仍然要靠 tick 驱动, 有待重试就别挂起。
+    private var hasPendingQueueDeliveryRetry: Bool {
+        guard let queueDeliveryRetryNotBefore else { return false }
+        return Date() < queueDeliveryRetryNotBefore
+    }
+
+    /// 挂起 ticker, 直到播放状态 (播放/加载/换歌/seek) 或队列发生变化。
+    ///
+    /// `withObservationTracking` 是一次性的, 所以每次挂起都重新注册一次;
+    /// 首次触发即返回, 由调用方的循环在下一次挂起时重新武装。任务被取消时
+    /// `for await` 会立即结束, ticker 不会滞留。
+    private func waitForPlaybackStateChange() async {
+        guard let player else { return }
+        let theme = self.theme
+        let wakeUps = AsyncStream<Void> { continuation in
+            withObservationTracking {
+                _ = player.isPlaying
+                _ = player.isLoading
+                _ = player.currentSong?.id
+                _ = player.currentTime
+                // queueEntries 的任何改动 (含重排) 都会触发, 暂停时改队列
+                // 也能把新快照推到 watch。
+                _ = player.queueCount
+                // 封面主色是异步提取的: 暂停时换歌, 颜色可能比状态晚到,
+                // 这里跟一下免得 watch 停在上一首的主色。
+                _ = theme?.accentColor
+            } onChange: {
+                continuation.yield(())
+            }
+        }
+        for await _ in wakeUps { break }
     }
 
     /// 检查"meaningful state" 是否变了 (排除 currentTime 这种自然流逝的字段)。
@@ -423,8 +475,9 @@ final class WatchSessionBridge: NSObject {
         return ([line.text] + activeBackground.map(\.text)).joined(separator: "\n")
     }
 
-    /// 换歌时调用 ── 异步把当前曲歌词读进 bridge 内部, 之后 1Hz tick 直接
-    /// sync 用。读 lyrics 文件 IO 走 detached Task 避开 main actor 阻塞。
+    /// 换歌时调用 ── 异步把当前曲歌词读进 bridge 内部, 之后播放中的 0.5s
+    /// tick 直接 sync 用。读 lyrics 文件 IO 走 detached Task 避开 main
+    /// actor 阻塞。
     private func refreshLyricsCache(for song: Song?) {
         guard let song else {
             cachedLyricsForSongID = nil
@@ -443,6 +496,9 @@ final class WatchSessionBridge: NSObject {
                 guard Self.shared.player?.currentSong?.id == songID else { return }
                 Self.shared.cachedLyricsForSongID = songID
                 Self.shared.cachedLyrics = lines
+                // 歌词是异步读进来的, 暂停时 ticker 已挂起, 这里补推一次
+                // (内部有 hash 去重, 行没变就不发)。
+                Self.shared.pushIfMeaningfulChange()
             }
         }
     }
@@ -537,7 +593,8 @@ extension WatchSessionBridge: WCSessionDelegate {
     }
 
     /// Reachability 改变 (e.g. watch app 进入前台) ── 立刻推一份最新状态,
-    /// 而不是等下一次 1Hz tick。这能让 watch 切回前台立刻看到当前曲目。
+    /// 而不是等下一次 tick (播放中 0.5s, 暂停时 ticker 已挂起)。这能让
+    /// watch 切回前台立刻看到当前曲目。
     nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
         Task { @MainActor in
             if session.isReachable {

@@ -237,6 +237,8 @@ struct HomeFolderBrowser: View {
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
     @Environment(\.editMode) private var editMode
+    @Environment(\.legacyBottomChromeOverlayActive)
+    private var legacyBottomChromeOverlayActive
     #endif
     #if os(macOS)
     @Environment(\.dismiss) private var dismiss
@@ -291,7 +293,13 @@ struct HomeFolderBrowser: View {
 
     private var legacyBottomClearance: CGFloat {
         #if os(iOS)
-        appNavigationMode == .minimal ? 0 : 90
+        appNavigationMode == .minimal
+            ? 0
+            : BottomChromeClearancePolicy.clearance(
+                legacyOverlayActive: legacyBottomChromeOverlayActive,
+                legacy: 90,
+                baseline: 0
+            )
         #else
         0
         #endif

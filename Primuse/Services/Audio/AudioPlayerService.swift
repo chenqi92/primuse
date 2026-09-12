@@ -215,14 +215,32 @@ private final class GaplessTransitionState: @unchecked Sendable {
     var prepared: GaplessPreparedTrack?
     var bufferGate: AsyncBufferGate?
     var didBoundaryFire = false
-    var shouldCancelPreparation = false
-    var isFullyScheduled = false
-    var didFail = false
+    /// Signalled once this boundary reaches a terminal state, so the follow-up
+    /// preparation can wait instead of polling for the rest of the track.
+    let settlement = PlaybackScheduleSettlement()
+    var shouldCancelPreparation = false {
+        didSet { if shouldCancelPreparation { settle() } }
+    }
+    var isFullyScheduled = false {
+        didSet { if isFullyScheduled { settle() } }
+    }
+    var didFail = false {
+        didSet { if didFail { settle() } }
+    }
     var boundary: PlaybackTimelineTracker.BoundaryToken?
 
     init(queueGeneration: Int, advanceTicket: PlaybackAdvanceTicket) {
         self.queueGeneration = queueGeneration
         self.advanceTicket = advanceTicket
+    }
+
+    /// 类型本身不带 actor 隔离, 而 settlement 是 MainActor 的; 这里跳一次
+    /// MainActor 再落闩。settle 幂等, 等待方唤醒后还会重查所有 guard,
+    /// 所以晚一个 hop 不影响正确性。
+    private func settle() {
+        Task { @MainActor [settlement] in
+            settlement.settle()
+        }
     }
 }
 
@@ -9453,14 +9471,15 @@ final class AudioPlayerService {
     ) {
         gaplessFollowupTask?.cancel()
         gaplessFollowupTask = Task { [id, completedTransition, followingTransition] in
-            while !Task.isCancelled {
-                guard self.playID == id,
-                      self.queueGeneration == completedTransition.queueGeneration,
-                      !completedTransition.shouldCancelPreparation,
-                      !completedTransition.didFail else { return }
-                if completedTransition.isFullyScheduled { break }
-                try? await Task.sleep(for: .milliseconds(100))
-            }
+            // 等当前边界落定再排下一首, 不再 100ms 轮询一整首歌。
+            await completedTransition.settlement.waitUntilSettled()
+
+            guard !Task.isCancelled,
+                  self.playID == id,
+                  self.queueGeneration == completedTransition.queueGeneration,
+                  !completedTransition.shouldCancelPreparation,
+                  !completedTransition.didFail,
+                  completedTransition.isFullyScheduled else { return }
 
             guard !Task.isCancelled,
                   self.playID == id,
@@ -11300,6 +11319,9 @@ final class AudioPlayerService {
     @ObservationIgnored private var systemLyricsEmptyResultCount = 0
     @ObservationIgnored private var systemLyricsSongID: String?
     @ObservationIgnored private var systemLyrics: [LyricLine] = []
+    /// `systemLyrics` 里能驱动锁屏行的子集。锁屏每 0.5s 刷一次,
+    /// 过滤只跟歌词文档有关, 所以随 `systemLyrics` 一起缓存。
+    @ObservationIgnored private var systemSynchronizedLyrics: [LyricLine] = []
     @ObservationIgnored private var lastPublishedLockScreenLyricsPresentation:
         NowPlayingLyricsMetadataPresentation?
     /// 最近一次把歌词行发布给 MediaRemote 的时刻, 用于 1 秒限流。
@@ -11422,6 +11444,7 @@ final class AudioPlayerService {
         systemLyricsEmptyResultCount = 0
         systemLyricsSongID = nil
         systemLyrics = []
+        systemSynchronizedLyrics = []
         lastPublishedLockScreenLyricsPresentation = nil
         lockScreenLyricsCatchUpTask?.cancel()
         lockScreenLyricsCatchUpTask = nil
@@ -11475,6 +11498,8 @@ final class AudioPlayerService {
             self.systemLyricsLoadTask = nil
             self.systemLyricsSongID = expectedSongID
             self.systemLyrics = lyrics
+            self.systemSynchronizedLyrics = NowPlayingLyricsMetadataPolicy
+                .synchronizedLines(lyrics)
             if lyrics.isEmpty {
                 self.scheduleSystemLyricsRetryIfNeeded(
                     forSongID: expectedSongID,
@@ -11513,6 +11538,7 @@ final class AudioPlayerService {
             self.systemLyricsRetryTask = nil
             self.systemLyricsSongID = nil
             self.systemLyrics = []
+            self.systemSynchronizedLyrics = []
             self.loadLyricsForSystemSurfacesIfNeeded(for: self.currentSong)
         }
     }
@@ -11535,11 +11561,11 @@ final class AudioPlayerService {
         guard let song = currentSong else {
             return NowPlayingLyricsMetadataPresentation(title: "", artist: "", lyricLineID: nil)
         }
-        let lyrics = systemLyricsSongID == song.id ? systemLyrics : []
+        let lyrics = systemLyricsSongID == song.id ? systemSynchronizedLyrics : []
         return NowPlayingLyricsMetadataPolicy.presentation(
             canonicalTitle: song.title,
             artistName: displayedArtistName(for: song),
-            lyrics: lyrics,
+            synchronizedLyrics: lyrics,
             playbackTime: currentTime,
             isEnabled: playbackSettings.lockScreenLyricsEnabled,
             isLiveStream: isLiveRadio,

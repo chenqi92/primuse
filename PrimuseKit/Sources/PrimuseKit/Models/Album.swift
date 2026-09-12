@@ -224,25 +224,46 @@ public enum LibraryArtworkOverrideConflictWinner: Equatable, Sendable {
     case remote
 }
 
+/// 比 `LibraryArtworkOverrideConflictWinner` 多一档 `equivalent`: 所有参与
+/// 比较的字段都相等。`winner` 这时按惯例判本地胜出, 调用方如果据此回推本地
+/// 值, 两台设备就会围着同一条记录来回保存。
+public enum LibraryArtworkOverrideReconciliationOutcome: Equatable, Sendable {
+    case localWins
+    case remoteWins
+    case equivalent
+}
+
 public enum LibraryArtworkOverrideReconciliationPolicy {
     public static func winner(
         local: LibraryArtworkOverride,
         remote: LibraryArtworkOverride
     ) -> LibraryArtworkOverrideConflictWinner {
+        switch outcome(local: local, remote: remote) {
+        case .remoteWins:
+            return .remote
+        case .localWins, .equivalent:
+            return .local
+        }
+    }
+
+    public static func outcome(
+        local: LibraryArtworkOverride,
+        remote: LibraryArtworkOverride
+    ) -> LibraryArtworkOverrideReconciliationOutcome {
         precondition(local.owner == remote.owner)
         if local.syncRevision != remote.syncRevision {
-            return local.syncRevision > remote.syncRevision ? .local : .remote
+            return local.syncRevision > remote.syncRevision ? .localWins : .remoteWins
         }
         if local.syncWriterID != remote.syncWriterID {
-            return local.syncWriterID > remote.syncWriterID ? .local : .remote
+            return local.syncWriterID > remote.syncWriterID ? .localWins : .remoteWins
         }
         if local.syncOperationID != remote.syncOperationID {
-            return local.syncOperationID > remote.syncOperationID ? .local : .remote
+            return local.syncOperationID > remote.syncOperationID ? .localWins : .remoteWins
         }
         if local.syncRevision == 0, local.updatedAt != remote.updatedAt {
-            return local.updatedAt > remote.updatedAt ? .local : .remote
+            return local.updatedAt > remote.updatedAt ? .localWins : .remoteWins
         }
-        return .local
+        return .equivalent
     }
 }
 

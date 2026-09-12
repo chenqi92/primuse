@@ -200,7 +200,7 @@ struct MacImmersivePlayerView: View {
             currentLyric: currentLyric,
             nextLyric: nextLyric,
             lyricsWritingDirection: LyricWritingDirectionPolicy.resolve(in: lyrics),
-            levels: spectrumLevels,
+            levelsProvider: { spectrumLevels },
             galleryArtworkCount: gallerySongs.count,
             galleryArtwork: { index, side in
                 guard gallerySongs.indices.contains(index) else { return AnyView(Color.clear) }
@@ -845,6 +845,7 @@ struct MacImmersivePlayerView: View {
         }
     }
 
+    /// 由舞台叶子视图按需调用，读取被限制在消费频谱的那一层。
     private var spectrumLevels: [CGFloat] {
         guard visualActivityPolicy.shouldRunVisualizer else { return [] }
         return visualizer.bandLevels.map { min(max(CGFloat($0), 0), 1) }

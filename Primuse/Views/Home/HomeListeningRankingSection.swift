@@ -299,11 +299,19 @@ private struct HomeRankedSongsView: View {
     @Environment(AudioPlayerService.self) private var player
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
+    @Environment(\.legacyBottomChromeOverlayActive)
+    private var legacyBottomChromeOverlayActive
     #endif
 
     private var legacyBottomClearance: CGFloat {
         #if os(iOS)
-        appNavigationMode == .minimal ? 0 : 90
+        appNavigationMode == .minimal
+            ? 0
+            : BottomChromeClearancePolicy.clearance(
+                legacyOverlayActive: legacyBottomChromeOverlayActive,
+                legacy: 90,
+                baseline: 0
+            )
         #else
         90
         #endif

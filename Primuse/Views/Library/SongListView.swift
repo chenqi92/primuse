@@ -4389,6 +4389,8 @@ private enum LibraryFolderNodePresentation {
 private struct LibraryFolderRootView: View {
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
+    @Environment(\.legacyBottomChromeOverlayActive)
+    private var legacyBottomChromeOverlayActive
     #endif
     let folderCache: LibraryFolderBrowserCache
     let listCache: SongListCache
@@ -4408,7 +4410,13 @@ private struct LibraryFolderRootView: View {
             )
             .padding(.horizontal, 12)
             #if os(iOS)
-            .padding(.bottom, appNavigationMode == .minimal ? 16 : 112)
+            .padding(.bottom, appNavigationMode == .minimal
+                ? 16
+                : BottomChromeClearancePolicy.clearance(
+                    legacyOverlayActive: legacyBottomChromeOverlayActive,
+                    legacy: 112,
+                    baseline: 16
+                ))
             #else
             .padding(.bottom, 112)
             #endif

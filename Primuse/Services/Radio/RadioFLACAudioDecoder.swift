@@ -1,9 +1,10 @@
 @preconcurrency import AVFoundation
 import Foundation
+import PrimuseKit
 
 #if os(tvOS)
 extension AVAudioPCMBuffer: @unchecked @retroactive Sendable {}
-typealias RadioFLACBufferStream = AsyncThrowingStream<AVAudioPCMBuffer, Error>
+typealias RadioFLACBufferStream = BoundedAsyncChannel<AVAudioPCMBuffer>
 #else
 typealias RadioFLACBufferStream = AudioBufferStream
 #endif
@@ -28,16 +29,13 @@ private final class RadioFLACConverterInput: @unchecked Sendable {
 /// the fixed format required by the active playback graph.
 final class RadioFLACAudioDecoder: Sendable {
     private static let bufferingLimit = 8
-    private static let backpressureDelay: UInt64 = 10_000_000
 
     func decode(
         from source: RadioLiveStreamSource,
         prepared: RadioLiveStreamSource.Prepared,
         outputFormat: AVAudioFormat
     ) -> RadioFLACBufferStream {
-        RadioFLACBufferStream(
-            bufferingPolicy: .bufferingOldest(Self.bufferingLimit)
-        ) { continuation in
+        RadioFLACBufferStream(capacity: Self.bufferingLimit) { continuation in
             let task = Task.detached(priority: .userInitiated) {
                 do {
                     let bridge = try RadioFLACDecoderBridge(
@@ -148,23 +146,13 @@ final class RadioFLACAudioDecoder: Sendable {
         return output
     }
 
+    /// 有界通道满了就挂起等播放端取走缓冲, 不再按 10ms 定时重试。
     private static func yieldWithBackpressure(
         _ buffer: AVAudioPCMBuffer,
         to continuation: RadioFLACBufferStream.Continuation
     ) async throws {
-        while true {
-            try Task.checkCancellation()
-            switch continuation.yield(buffer) {
-            case .enqueued:
-                return
-            case .dropped:
-                try await Task.sleep(nanoseconds: backpressureDelay)
-            case .terminated:
-                throw CancellationError()
-            @unknown default:
-                throw CancellationError()
-            }
-        }
+        try Task.checkCancellation()
+        try await continuation.send(buffer)
     }
 
     private static func error(code: Int, message: String) -> NSError {

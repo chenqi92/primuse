@@ -17,6 +17,24 @@ struct RadioBatchAddView: View {
     @Environment(RadioStationsStore.self) private var store
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.dismiss) private var dismiss
+    #if os(iOS)
+    @Environment(\.legacyBottomChromeOverlayActive)
+    private var legacyBottomChromeOverlayActive
+    #endif
+
+    /// 只有 iOS 的叠加式 mini player 需要列表自己让位；macOS 不走这条路径，沿用原值。
+    private var bottomChromeClearance: CGFloat {
+        #if os(iOS)
+        let overlayActive = legacyBottomChromeOverlayActive
+        #else
+        let overlayActive = true
+        #endif
+        return BottomChromeClearancePolicy.clearance(
+            legacyOverlayActive: overlayActive,
+            legacy: 120,
+            baseline: 16
+        )
+    }
 
     private enum Entry: String, CaseIterable, Identifiable {
         case paste, file, directory
@@ -84,7 +102,7 @@ struct RadioBatchAddView: View {
                         }
                     }
                     .padding(16)
-                    .padding(.bottom, 120)
+                    .padding(.bottom, bottomChromeClearance)
                 }
             }
             .safeAreaInset(edge: .bottom) { addBar }

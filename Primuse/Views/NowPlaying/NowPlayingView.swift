@@ -1073,14 +1073,14 @@ struct NowPlayingView: View {
                         backgroundGradient.ignoresSafeArea()
 
                         if player.isLiveRadio {
-                            liveRadioLayout(geo: geo)
+                            liveRadioLayout(geo: geo, safeInsets: safeInsets)
                         } else {
                             switch landscapeMode {
                             case .musicVideo:
                                 if let videoPlayer = player.musicVideoPlayer {
-                                    landscapeMusicVideoLayout(videoPlayer: videoPlayer)
+                                    landscapeMusicVideoLayout(videoPlayer: videoPlayer, safeInsets: safeInsets)
                                 } else {
-                                    portraitLayout(geo: geo, artSize: artSize)
+                                    portraitLayout(geo: geo, artSize: artSize, safeInsets: safeInsets)
                                 }
                             case .immersiveLyrics:
                                 immersiveLandscapeLyricsLayout(geo: geo)
@@ -1090,14 +1090,14 @@ struct NowPlayingView: View {
                             case .none:
                                 switch playerLayoutMode {
                                 case .portrait:
-                                    portraitLayout(geo: geo, artSize: artSize)
+                                    portraitLayout(geo: geo, artSize: artSize, safeInsets: safeInsets)
                                 case .compactLandscape:
                                     compactLandscapePlayerLayout(
                                         geo: geo,
                                         safeInsets: safeInsets
                                     )
                                 case .wideLandscape:
-                                    wideLandscapeLayout(geo: geo)
+                                    wideLandscapeLayout(geo: geo, safeInsets: safeInsets)
                                 }
                             }
                         }
@@ -1402,7 +1402,7 @@ struct NowPlayingView: View {
     }
 
     @ViewBuilder
-    private func liveRadioLayout(geo: GeometryProxy) -> some View {
+    private func liveRadioLayout(geo: GeometryProxy, safeInsets: EdgeInsets) -> some View {
         let artworkSize = min(geo.size.width * (geo.size.width > geo.size.height ? 0.30 : 0.72), 430)
 
         VStack(spacing: 0) {
@@ -1521,6 +1521,9 @@ struct NowPlayingView: View {
             .padding(.top, 10)
             .padding(.bottom, max(bottomSafeArea, 16))
         }
+        // 侧边安全区按侧取值，内容不会压到侧置系统控件或摄像头区域下面。
+        .padding(.leading, safeInsets.leading)
+        .padding(.trailing, safeInsets.trailing)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -1697,7 +1700,7 @@ struct NowPlayingView: View {
     // VStack 钉到左半屏。歌词复用 `lyricsFullView`。
 
     @ViewBuilder
-    private func wideLandscapeLayout(geo: GeometryProxy) -> some View {
+    private func wideLandscapeLayout(geo: GeometryProxy, safeInsets: EdgeInsets) -> some View {
         let halfWidth = geo.size.width / 2
         // 左侧封面留 80pt 内边距,大小不超过列高 60%。这套尺寸在 iPad Pro
         // 13" 横屏 (1366x1024) 下封面 ~ 580pt,既不显空也不溢出。
@@ -1705,6 +1708,8 @@ struct NowPlayingView: View {
 
         HStack(spacing: 0) {
             wideLeftPane(artSize: artSize)
+                // 侧边安全区加在栏内，中缝仍按整幅宽度居中，两栏保持等宽。
+                .padding(.leading, safeInsets.leading)
                 .frame(width: halfWidth)
 
             // 中缝细分隔,跟随播放器前景色并保持低对比度
@@ -1714,6 +1719,7 @@ struct NowPlayingView: View {
                 .padding(.vertical, 40)
 
             wideRightPane()
+                .padding(.trailing, safeInsets.trailing)
                 .frame(maxWidth: .infinity)
         }
     }
@@ -1936,7 +1942,11 @@ struct NowPlayingView: View {
         let playerWidth = min(max(geo.size.width * 0.34, 260), 410)
         let artSize = min(max(0, playerWidth - 52), geo.size.height * 0.56)
 
-        immersiveLyricsExperience(isLandscape: true) {
+        immersiveLyricsExperience(
+            isLandscape: true,
+            leadingSafeInset: safeInsets.leading,
+            trailingSafeInset: safeInsets.trailing
+        ) {
             HStack(spacing: 28) {
                 VStack(spacing: 18) {
                     Spacer(minLength: 0)
@@ -1987,13 +1997,9 @@ struct NowPlayingView: View {
     }
 
     @ViewBuilder
-    private func landscapeMusicVideoLayout(videoPlayer: AVPlayer) -> some View {
+    private func landscapeMusicVideoLayout(videoPlayer: AVPlayer, safeInsets: EdgeInsets) -> some View {
         ZStack(alignment: .topTrailing) {
-            Color.black.ignoresSafeArea()
-            MusicVideoSurface(player: videoPlayer)
-                .aspectRatio(16.0 / 9.0, contentMode: .fit)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .ignoresSafeArea()
+            Color.clear
 
             #if os(iOS)
             Button {
@@ -2009,10 +2015,21 @@ struct NowPlayingView: View {
                     }
             }
             .buttonStyle(.plain)
-            .padding(.top, 16)
-            .padding(.trailing, 20)
+            // 外层播放器容器整幅铺满，按钮改按解析出的安全区排布。
+            .padding(.top, safeInsets.top + 16)
+            .padding(.trailing, safeInsets.trailing + 20)
             .accessibilityLabel(Text("exit_landscape_video"))
             #endif
+        }
+        // 只有黑底与画面越过安全区；退出按钮仍按安全区排布。
+        .background {
+            ZStack {
+                Color.black
+                MusicVideoSurface(player: videoPlayer)
+                    .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .ignoresSafeArea()
         }
         #if os(iOS)
         .statusBarHidden(true)
@@ -2022,7 +2039,7 @@ struct NowPlayingView: View {
     // MARK: - 原 portrait layout (iPhone + iPad 竖屏 + 分屏小窗)
 
     @ViewBuilder
-    private func portraitLayout(geo: GeometryProxy, artSize: CGFloat) -> some View {
+    private func portraitLayout(geo: GeometryProxy, artSize: CGFloat, safeInsets: EdgeInsets) -> some View {
         // MV 是 16:9，若沿用方形封面按高度推导出的宽度，会在竖屏里显得
         // 明显偏小。视频改为尽量吃满屏宽；方形封面仍保持原来的视觉尺度。
         let mediaWidth = player.isMusicVideoPlaybackActive
@@ -2256,11 +2273,16 @@ struct NowPlayingView: View {
                         }
                     }
                 }
+                // 侧边安全区按侧取值；上下仍沿用窗口安全区的既有处理。
+                .padding(.leading, safeInsets.leading)
+                .padding(.trailing, safeInsets.trailing)
     }
 
     @ViewBuilder
     private func immersiveLyricsExperience<Content: View>(
         isLandscape: Bool,
+        leadingSafeInset: CGFloat = 0,
+        trailingSafeInset: CGFloat = 0,
         @ViewBuilder content: () -> Content
     ) -> some View {
         ZStack {
@@ -2274,12 +2296,20 @@ struct NowPlayingView: View {
                     .onTapGesture { handleImmersiveContentTap() }
             }
 
-            immersiveLyricsChrome(isLandscape: isLandscape)
+            immersiveLyricsChrome(
+                isLandscape: isLandscape,
+                leadingSafeInset: leadingSafeInset,
+                trailingSafeInset: trailingSafeInset
+            )
         }
     }
 
     @ViewBuilder
-    private func immersiveLyricsChrome(isLandscape: Bool) -> some View {
+    private func immersiveLyricsChrome(
+        isLandscape: Bool,
+        leadingSafeInset: CGFloat,
+        trailingSafeInset: CGFloat
+    ) -> some View {
         if immersiveControlsState.showsPrimaryControls {
             VStack(spacing: 0) {
                 HStack(spacing: 10) {
@@ -2318,14 +2348,16 @@ struct NowPlayingView: View {
                         dismissImmersiveLyrics()
                     }
                 }
-                .padding(.horizontal, isLandscape ? 24 : 20)
+                .padding(.leading, leadingSafeInset + (isLandscape ? 24 : 20))
+                .padding(.trailing, trailingSafeInset + (isLandscape ? 24 : 20))
                 .padding(.top, max(topSafeArea, 10) + (isLandscape ? 0 : 8))
 
                 Spacer()
 
                 floatingPlaybackDock
                     .frame(maxWidth: isLandscape ? 440 : 520)
-                    .padding(.horizontal, isLandscape ? 28 : 20)
+                    .padding(.leading, leadingSafeInset + (isLandscape ? 28 : 20))
+                    .padding(.trailing, trailingSafeInset + (isLandscape ? 28 : 20))
                     .padding(.bottom, max(bottomSafeArea, 12) + (isLandscape ? 0 : 8))
             }
             .transition(.opacity.combined(with: .scale(scale: 0.98)))
@@ -2345,7 +2377,7 @@ struct NowPlayingView: View {
 
                 Spacer()
             }
-            .padding(.leading, isLandscape ? max(24, topSafeArea) : 20)
+            .padding(.leading, leadingSafeInset + (isLandscape ? max(24, topSafeArea) : 20))
             .transition(.opacity.combined(with: .move(edge: .leading)))
             .zIndex(2)
         }
@@ -3573,11 +3605,7 @@ struct MusicVideoFullScreenView: View {
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            Color.black.ignoresSafeArea()
-            MusicVideoSurface(player: player)
-                .aspectRatio(16.0 / 9.0, contentMode: .fit)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .ignoresSafeArea()
+            Color.clear
 
             Button {
                 onDismiss()
@@ -3596,6 +3624,16 @@ struct MusicVideoFullScreenView: View {
             .padding(.top, 24)
             .padding(.trailing, 24)
             .accessibilityLabel(Text("close"))
+        }
+        // 只有黑底与画面越过安全区；关闭按钮仍按安全区排布。
+        .background {
+            ZStack {
+                Color.black
+                MusicVideoSurface(player: player)
+                    .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .ignoresSafeArea()
         }
         #if os(iOS)
         .statusBarHidden(true)
@@ -3624,8 +3662,10 @@ private enum MusicVideoOrientationController {
     private static var restoreMask: UIInterfaceOrientationMask?
 
     static func enterLandscape() {
+        // 宽内屏是 regular 宽度，不接受界面朝向请求，只在 compact 宽度下切换。
         guard UIDevice.current.userInterfaceIdiom == .phone,
-              let scene = foregroundWindowScene else { return }
+              let scene = foregroundWindowScene,
+              scene.traitCollection.horizontalSizeClass == .compact else { return }
 
         if restoreMask == nil {
             restoreMask = mask(for: scene.interfaceOrientation)
@@ -3641,7 +3681,8 @@ private enum MusicVideoOrientationController {
     static func restorePreviousOrientation() {
         guard let restoreMask,
               UIDevice.current.userInterfaceIdiom == .phone,
-              let scene = foregroundWindowScene else { return }
+              let scene = foregroundWindowScene,
+              scene.traitCollection.horizontalSizeClass == .compact else { return }
         self.restoreMask = nil
         request(restoreMask, in: scene)
     }
@@ -5077,6 +5118,24 @@ private enum LyricsTranslationActivity: Equatable {
     case systemUnavailable
 }
 
+/// 暂停后的歌词定位刷新只依赖这一层的 currentTime/isPlaying 读取。
+private struct LyricsPausedTimeObserver: View {
+    let player: AudioPlayerService
+    let isEnabled: Bool
+    let onPausedTick: () -> Void
+
+    var body: some View {
+        let isPaused = !player.isPlaying
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onChange(of: player.currentTime) { _, _ in
+                if isEnabled, isPaused {
+                    onPausedTick()
+                }
+            }
+    }
+}
+
 struct LyricsScrollView: View {
     let lyrics: [LyricLine]
     let lyricsWritingDirection: LyricWritingDirection
@@ -5277,8 +5336,12 @@ struct LyricsScrollView: View {
                 updateCurrentLine()
             }
         }
-        .onChange(of: player.currentTime) { _, _ in
-            if hasSynchronizedLyrics, isSceneActive, !player.isPlaying {
+        .background {
+            // 只有这个零尺寸子视图跟随播放时间，整棵歌词树不再随 currentTime 失效。
+            LyricsPausedTimeObserver(
+                player: player,
+                isEnabled: hasSynchronizedLyrics && isSceneActive
+            ) {
                 updateCurrentLine(disableAnimations: true)
             }
         }

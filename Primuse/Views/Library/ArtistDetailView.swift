@@ -13,6 +13,10 @@ struct ArtistDetailView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    #if os(iOS)
+    @Environment(\.legacyBottomChromeOverlayActive)
+    private var legacyBottomChromeOverlayActive
+    #endif
 
     let artist: Artist
     private let onMacInlineBack: (() -> Void)?
@@ -195,7 +199,11 @@ struct ArtistDetailView: View {
                 }
             }
             .padding(.top, 26)
-            .padding(.bottom, 64)
+            .padding(.bottom, BottomChromeClearancePolicy.clearance(
+                legacyOverlayActive: legacyBottomChromeOverlayActive,
+                legacy: 64,
+                baseline: 16
+            ))
         }
     }
 

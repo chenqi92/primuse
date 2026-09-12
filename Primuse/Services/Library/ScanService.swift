@@ -1495,7 +1495,8 @@ final class ScanService {
         library: MusicLibrary,
         sourceStore: SourcesStore,
         scraperService: MusicScraperService?,
-        checkpoint: ScanCheckpoint?
+        checkpoint: ScanCheckpoint?,
+        trustedRetryCount: Int = 0
     ) async {
         let scopeFingerprint = Self.scopeFingerprint(
             for: source,
@@ -1595,7 +1596,10 @@ final class ScanService {
                     } catch {
                         return
                     }
-                    if trusted {
+                    // 域名早已受信时 handleSSLErrorIfNeeded 会立刻返回 true,
+                    // 所以必须给自动重启封顶, 否则一直握手失败的主机会让扫描
+                    // 无限自我重启。超限后落到下面的失败上报 + 退避。
+                    if trusted, ScanTLSTrustRetryPolicy.shouldRetry(afterTrustedRetries: trustedRetryCount) {
                         scanStates[source.id] = ScanState(isScanning: true)
                         await scanSynology(
                             source: source,
@@ -1607,7 +1611,8 @@ final class ScanService {
                             library: library,
                             sourceStore: sourceStore,
                             scraperService: scraperService,
-                            checkpoint: checkpoints[source.id] ?? checkpoint
+                            checkpoint: checkpoints[source.id] ?? checkpoint,
+                            trustedRetryCount: trustedRetryCount + 1
                         )
                         return
                     }
@@ -1837,8 +1842,9 @@ final class ScanService {
             } catch {
                 return
             }
-            if trusted {
-                // Retry scan after user trusted the domain
+            // Retry scan after user trusted the domain, 但自动重启只给一次:
+            // 受信域名的 SSL 错误会立刻返回 trusted, 不封顶就是死循环。
+            if trusted, ScanTLSTrustRetryPolicy.shouldRetry(afterTrustedRetries: trustedRetryCount) {
                 scanStates[source.id] = ScanState(isScanning: true)
                 await scanSynology(
                     source: source,
@@ -1850,7 +1856,8 @@ final class ScanService {
                     library: library,
                     sourceStore: sourceStore,
                     scraperService: scraperService,
-                    checkpoint: checkpoints[source.id] ?? checkpoint
+                    checkpoint: checkpoints[source.id] ?? checkpoint,
+                    trustedRetryCount: trustedRetryCount + 1
                 )
                 return
             }
@@ -1875,7 +1882,8 @@ final class ScanService {
         scraperService: MusicScraperService?,
         mode: SourceSyncMode,
         snapshotExecutionContext: BaiduSnapshotExecutionContext,
-        checkpoint: ScanCheckpoint?
+        checkpoint: ScanCheckpoint?,
+        trustedRetryCount: Int = 0
     ) async {
         let connector = connectorProvider?(source) ?? sourceManager.connector(for: source)
         let scanner = ConnectorScanner(connector: connector, sourceID: source.id)
@@ -2509,8 +2517,8 @@ final class ScanService {
             }
             let trusted = await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
             guard scanFenceIsValid() else { return }
-            if trusted {
-                // Retry scan after user trusted the domain
+            // Retry scan after user trusted the domain, 自动重启同样封顶一次。
+            if trusted, ScanTLSTrustRetryPolicy.shouldRetry(afterTrustedRetries: trustedRetryCount) {
                 scanStates[source.id] = ScanState(isScanning: true)
                 await scanConnectorSource(
                     source: source,
@@ -2523,7 +2531,8 @@ final class ScanService {
                     scraperService: scraperService,
                     mode: mode,
                     snapshotExecutionContext: snapshotExecutionContext,
-                    checkpoint: checkpoints[source.id] ?? checkpoint
+                    checkpoint: checkpoints[source.id] ?? checkpoint,
+                    trustedRetryCount: trustedRetryCount + 1
                 )
                 return
             }

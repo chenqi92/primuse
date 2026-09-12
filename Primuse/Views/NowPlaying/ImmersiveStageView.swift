@@ -51,6 +51,8 @@ struct ImmersiveStageView<Artwork: View>: View {
     var nextLyric: String?
     var lyricsWritingDirection: LyricWritingDirection = .natural
     var levels: [CGFloat] = []
+    /// 首选输入：只在消费频谱的叶子视图内求值，避免 25 Hz 采样让整棵沉浸树重算。
+    var levelsProvider: (@MainActor () -> [CGFloat])?
     var galleryArtworkCount = 0
     var galleryArtwork: (Int, CGFloat) -> AnyView = { _, _ in AnyView(Color.clear) }
     var typographyFieldLines: [String] = []
@@ -142,15 +144,31 @@ struct ImmersiveStageView<Artwork: View>: View {
         }
     }
 
-    private var horizontalInset: CGFloat {
+    /// 未提供闭包时退回静态数组，与旧的 levels 输入行为一致。
+    private var spectrumProvider: @MainActor () -> [CGFloat] {
+        if let levelsProvider { return levelsProvider }
+        let snapshot = levels
+        return { snapshot }
+    }
+
+    private var baseHorizontalInset: CGFloat {
         switch metrics.layout {
         case .phonePortrait:
-            max(metrics.safeArea.leading, metrics.s(24))
+            metrics.s(24)
         case .phoneLandscape:
-            max(metrics.safeArea.leading, metrics.s(36))
+            metrics.s(36)
         case .wide:
-            max(metrics.safeArea.leading, metrics.s(platform == .tvOS ? 118 : 76))
+            metrics.s(platform == .tvOS ? 118 : 76)
         }
+    }
+
+    /// 前后缘分别取各自的安全区，避免把一侧的系统控件或摄像头区域套到另一侧。
+    private var leadingInset: CGFloat {
+        max(metrics.safeArea.leading, baseHorizontalInset)
+    }
+
+    private var trailingInset: CGFloat {
+        max(metrics.safeArea.trailing, baseHorizontalInset)
     }
 
     private var topInset: CGFloat {
@@ -200,7 +218,8 @@ struct ImmersiveStageView<Artwork: View>: View {
                     Spacer()
                     singleLyric(fontSize: metrics.s(17))
                 }
-                .padding(.horizontal, horizontalInset)
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
                 .padding(.top, topInset)
                 .padding(.bottom, bottomInset + metrics.s(30))
             } else {
@@ -221,7 +240,8 @@ struct ImmersiveStageView<Artwork: View>: View {
                         availableWidth: metrics.size.width * 0.72
                     )
                 }
-                .padding(.horizontal, horizontalInset)
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
                 .padding(.top, topInset)
                 .padding(.bottom, bottomInset + metrics.s(10))
             }
@@ -255,7 +275,8 @@ struct ImmersiveStageView<Artwork: View>: View {
                     singleLyric(fontSize: metrics.s(16))
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, horizontalInset)
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
                 .padding(.top, topInset + metrics.s(22))
                 .padding(.bottom, bottomInset)
             } else {
@@ -273,7 +294,8 @@ struct ImmersiveStageView<Artwork: View>: View {
                     }
                     .frame(maxWidth: metrics.size.width * 0.48, alignment: .leading)
                 }
-                .padding(.horizontal, horizontalInset)
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
                 .padding(.top, topInset)
                 .padding(.bottom, bottomInset)
             }
@@ -317,7 +339,8 @@ struct ImmersiveStageView<Artwork: View>: View {
                     singleLyric(fontSize: metrics.s(16))
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, horizontalInset)
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
                 .padding(.top, topInset + metrics.s(18))
                 .padding(.bottom, bottomInset)
             } else {
@@ -335,7 +358,8 @@ struct ImmersiveStageView<Artwork: View>: View {
                     }
                     .frame(maxWidth: metrics.size.width * 0.46, alignment: .leading)
                 }
-                .padding(.horizontal, horizontalInset)
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
                 .padding(.top, topInset)
                 .padding(.bottom, bottomInset)
             }
@@ -362,7 +386,8 @@ struct ImmersiveStageView<Artwork: View>: View {
                     Spacer()
                     titleBlock(size: metrics.s(44), weight: .semibold)
                 }
-                .padding(.horizontal, horizontalInset)
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
                 .padding(.top, topInset)
                 .padding(.bottom, bottomInset + metrics.s(12))
             } else {
@@ -391,7 +416,8 @@ struct ImmersiveStageView<Artwork: View>: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
-                .padding(.horizontal, horizontalInset)
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
                 .padding(.top, topInset)
                 .padding(.bottom, bottomInset)
             }
@@ -414,11 +440,12 @@ struct ImmersiveStageView<Artwork: View>: View {
                     titleBlock(size: metrics.s(43), weight: .semibold)
                     formatAndLyric(
                         fontSize: metrics.s(14),
-                        availableWidth: metrics.size.width - horizontalInset * 2
+                        availableWidth: metrics.size.width - leadingInset - trailingInset
                     )
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, horizontalInset)
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
                 .padding(.top, topInset + metrics.s(12))
                 .padding(.bottom, bottomInset)
             } else {
@@ -436,7 +463,8 @@ struct ImmersiveStageView<Artwork: View>: View {
                     }
                     .frame(maxWidth: metrics.size.width * 0.43, alignment: .leading)
                 }
-                .padding(.horizontal, horizontalInset)
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
                 .padding(.top, topInset)
                 .padding(.bottom, bottomInset)
             }
@@ -483,10 +511,10 @@ struct ImmersiveStageView<Artwork: View>: View {
             desiredLyricCenterY,
             metrics.size.height - controlsInset - estimatedLyricHeight / 2 - metrics.s(18)
         )
-        let titleCenterX = horizontalInset + titleWidth / 2
+        let titleCenterX = leadingInset + titleWidth / 2
         let lyricCenterX = currentDirection == .rightToLeft
-            ? metrics.size.width - horizontalInset - lyricWidth / 2
-            : horizontalInset + lyricWidth / 2
+            ? metrics.size.width - trailingInset - lyricWidth / 2
+            : leadingInset + lyricWidth / 2
 
         return ZStack {
             palette.secondary
@@ -590,11 +618,12 @@ struct ImmersiveStageView<Artwork: View>: View {
                     titleBlock(size: metrics.s(43), weight: .semibold)
                     formatAndLyric(
                         fontSize: metrics.s(12),
-                        availableWidth: metrics.size.width - horizontalInset * 2
+                        availableWidth: metrics.size.width - leadingInset - trailingInset
                     )
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, horizontalInset)
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
                 .padding(.top, topInset + metrics.s(14))
                 .padding(.bottom, bottomInset)
             } else {
@@ -609,7 +638,8 @@ struct ImmersiveStageView<Artwork: View>: View {
                     }
                     .frame(maxWidth: metrics.size.width * 0.38, alignment: .leading)
                 }
-                .padding(.horizontal, horizontalInset)
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
                 .padding(.top, topInset)
                 .padding(.bottom, bottomInset)
             }
@@ -618,8 +648,8 @@ struct ImmersiveStageView<Artwork: View>: View {
 
     private func radialArtwork(diameter: CGFloat) -> some View {
         ZStack {
-            ImmersiveSpectrumRing(
-                levels: levels,
+            ImmersiveSpectrumRingHost(
+                levelsProvider: spectrumProvider,
                 barWidth: max(1.4, metrics.f(platform == .tvOS ? 5 : 3)),
                 isAnimating: sceneIsAnimating,
                 tint: palette.primary,
@@ -649,7 +679,8 @@ struct ImmersiveStageView<Artwork: View>: View {
                     singleLyric(fontSize: metrics.s(16))
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, horizontalInset)
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
                 .padding(.top, topInset + metrics.s(14))
                 .padding(.bottom, bottomInset)
             } else {
@@ -668,7 +699,8 @@ struct ImmersiveStageView<Artwork: View>: View {
                     }
                     .frame(maxWidth: metrics.size.width * 0.46, alignment: .leading)
                 }
-                .padding(.horizontal, horizontalInset)
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
                 .padding(.top, topInset)
                 .padding(.bottom, bottomInset)
             }
@@ -677,7 +709,7 @@ struct ImmersiveStageView<Artwork: View>: View {
 
     private func waveformPanel(height: CGFloat) -> some View {
         ImmersiveWaveformPlaybackPanel(
-            levels: levels,
+            levelsProvider: spectrumProvider,
             initialElapsed: track.elapsed,
             duration: track.duration,
             isPlaying: playbackClockIsActive,
@@ -787,7 +819,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         let lines = resolvedFocusLyrics
         let width = max(
             1,
-            availableWidth ?? (metrics.size.width - horizontalInset * 2)
+            availableWidth ?? (metrics.size.width - leadingInset - trailingInset)
         )
         let typography = ImmersiveLyricTypographyPolicy.metrics(
             for: resolvedCurrentLyric,
@@ -1046,8 +1078,27 @@ private struct ImmersiveHairlinePlaybackProgress: View {
     }
 }
 
+/// 频谱环的取数宿主：把 bandLevels 的读取限制在这一层，环本体仍收静态数组。
+private struct ImmersiveSpectrumRingHost: View {
+    let levelsProvider: @MainActor () -> [CGFloat]
+    let barWidth: CGFloat
+    let isAnimating: Bool
+    let tint: Color
+    let isPlaying: Bool
+
+    var body: some View {
+        ImmersiveSpectrumRing(
+            levels: levelsProvider(),
+            barWidth: barWidth,
+            isAnimating: isAnimating,
+            tint: tint,
+            isPlaying: isPlaying
+        )
+    }
+}
+
 private struct ImmersiveWaveformPlaybackPanel: View {
-    let levels: [CGFloat]
+    let levelsProvider: @MainActor () -> [CGFloat]
     let initialElapsed: TimeInterval
     let duration: TimeInterval
     let isPlaying: Bool
@@ -1067,7 +1118,7 @@ private struct ImmersiveWaveformPlaybackPanel: View {
             let progress = ImmersivePlaybackClock.fraction(elapsed: elapsed, duration: duration)
             VStack(spacing: spacing) {
                 ImmersiveLiveWaveform(
-                    levels: levels,
+                    levelsProvider: levelsProvider,
                     progress: progress,
                     active: active,
                     inactive: inactive
@@ -1603,12 +1654,14 @@ private struct ImmersiveTypographyFieldRenderItem: Identifiable {
 }
 
 private struct ImmersiveLiveWaveform: View {
-    let levels: [CGFloat]
+    let levelsProvider: @MainActor () -> [CGFloat]
     let progress: Double
     let active: Color
     let inactive: Color
 
     var body: some View {
+        // 频段采样只在这一层读取，整块沉浸场景不随 25 Hz 刷新失效。
+        let levels = levelsProvider()
         Canvas(rendersAsynchronously: true) { canvas, size in
             let preferredWidth = max(size.height * 0.045, 3)
             let preferredSpacing = max(preferredWidth * 0.82, 2.2)

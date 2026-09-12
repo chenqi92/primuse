@@ -202,10 +202,43 @@ public struct NowPlayingLyricsMetadataPresentation: Equatable, Sendable {
 }
 
 public enum NowPlayingLyricsMetadataPolicy {
+    /// Lines that can drive a lock-screen/now-playing update.
+    ///
+    /// The result only depends on the lyric document, so callers that refresh
+    /// on a timer should filter once per song instead of once per tick.
+    public static func synchronizedLines(_ lyrics: [LyricLine]) -> [LyricLine] {
+        lyrics.filter {
+            $0.isSynchronized
+                && $0.timestamp.isFinite
+                && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
     public static func presentation(
         canonicalTitle: String,
         artistName: String?,
         lyrics: [LyricLine],
+        playbackTime: TimeInterval,
+        isEnabled: Bool,
+        isLiveStream: Bool,
+        prefersStableTitle: Bool = false
+    ) -> NowPlayingLyricsMetadataPresentation {
+        presentation(
+            canonicalTitle: canonicalTitle,
+            artistName: artistName,
+            synchronizedLyrics: synchronizedLines(lyrics),
+            playbackTime: playbackTime,
+            isEnabled: isEnabled,
+            isLiveStream: isLiveStream,
+            prefersStableTitle: prefersStableTitle
+        )
+    }
+
+    /// Variant for callers that already hold `synchronizedLines(_:)` output.
+    public static func presentation(
+        canonicalTitle: String,
+        artistName: String?,
+        synchronizedLyrics: [LyricLine],
         playbackTime: TimeInterval,
         isEnabled: Bool,
         isLiveStream: Bool,
@@ -224,11 +257,6 @@ public enum NowPlayingLyricsMetadataPolicy {
               playbackTime.isFinite,
               playbackTime >= 0 else { return canonical }
 
-        let synchronizedLyrics = lyrics.filter {
-            $0.isSynchronized
-                && $0.timestamp.isFinite
-                && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
         guard let firstLine = synchronizedLyrics.first,
               playbackTime >= firstLine.timestamp,
               let activeIndex = LyricPlaybackPositionPolicy.activeLineIndex(

@@ -2023,6 +2023,10 @@ private struct GenreArtworkMosaic: View {
 }
 
 private struct GenreDetailView: View {
+    #if os(iOS)
+    @Environment(\.legacyBottomChromeOverlayActive)
+    private var legacyBottomChromeOverlayActive
+    #endif
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
@@ -2053,7 +2057,11 @@ private struct GenreDetailView: View {
                     if !songs.isEmpty { songSection }
                 }
                 .padding(.top, 28)
-                .padding(.bottom, 64)
+                .padding(.bottom, BottomChromeClearancePolicy.clearance(
+                    legacyOverlayActive: legacyBottomChromeOverlayActive,
+                    legacy: 64,
+                    baseline: 16
+                ))
             }
             .navigationTitle("")
             #else

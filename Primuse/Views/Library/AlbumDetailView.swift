@@ -10,6 +10,10 @@ struct AlbumDetailView: View {
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(ScraperSettingsStore.self) private var scraperSettings
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    #if os(iOS)
+    @Environment(\.legacyBottomChromeOverlayActive)
+    private var legacyBottomChromeOverlayActive
+    #endif
     let album: Album
     private let onMacInlineBack: (() -> Void)?
 
@@ -123,7 +127,11 @@ struct AlbumDetailView: View {
             }
             .padding(.horizontal, 16)
             .padding(.top, 16)
-            .padding(.bottom, 64)
+            .padding(.bottom, BottomChromeClearancePolicy.clearance(
+                legacyOverlayActive: legacyBottomChromeOverlayActive,
+                legacy: 64,
+                baseline: 16
+            ))
         }
         .background(Color(uiColor: .systemBackground).ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)

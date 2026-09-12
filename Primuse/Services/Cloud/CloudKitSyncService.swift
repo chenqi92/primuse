@@ -896,6 +896,9 @@ final class CloudKitSyncService {
             Task { @MainActor in self?.playlistDeleted(id: id) }
         })
         observerTokens.append(nc.addObserver(forName: .primuseArtworkOverridesDidChange, object: nil, queue: .main) { [weak self] note in
+            // 与 `.primuseSourcesDidChange` 同理: 刚落地的远端封面覆盖不能再
+            // 入队保存, 否则两台设备会围着同一条记录来回推送。
+            guard !Self.notificationCameFromRemote(note) else { return }
             let ids = (note.userInfo?["ids"] as? [String]) ?? []
             Task { @MainActor in self?.artworkOverridesChanged(ids: ids) }
         })
@@ -2028,19 +2031,23 @@ final class CloudKitSyncService {
         guard let envelope = decodeArtworkOverrideEnvelope(record, owner: owner) else {
             return library.artworkOverride(for: owner) != nil
         }
-        if let local = library.artworkOverride(for: owner),
-           LibraryArtworkOverrideReconciliationPolicy.winner(
-            local: local,
-            remote: envelope.override
-           ) == .local {
-            // A metadata snapshot can arrive before CloudKit's image bytes.
-            // Equal uploaded values still get a chance to repair the missing
-            // local asset even though the local logical value wins the tie.
-            if local.mode == .uploaded,
-               local.uploadedContentID == envelope.override.uploadedContentID {
-                _ = installArtworkAssetIfNeeded(from: envelope)
+        if let local = library.artworkOverride(for: owner) {
+            let outcome = LibraryArtworkOverrideReconciliationPolicy.outcome(
+                local: local,
+                remote: envelope.override
+            )
+            if outcome != .remoteWins {
+                // A metadata snapshot can arrive before CloudKit's image bytes.
+                // Equal uploaded values still get a chance to repair the missing
+                // local asset even though the local logical value wins the tie.
+                if local.mode == .uploaded,
+                   local.uploadedContentID == envelope.override.uploadedContentID {
+                    _ = installArtworkAssetIfNeeded(from: envelope)
+                }
+                // 完全相等时不能请求回推: 两台设备都会这么判, 于是同一条记录
+                // 被无休止地互相保存。只有本地确实更新才让冲突路径重申它。
+                return outcome == .localWins
             }
-            return true
         }
         guard installArtworkAssetIfNeeded(from: envelope) else {
             return library.artworkOverride(for: owner) != nil
