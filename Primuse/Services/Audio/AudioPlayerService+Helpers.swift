@@ -576,4 +576,61 @@ extension AudioPlayerService {
         }
         throw SourceError.fileNotFound(song.filePath)
     }
+
+    // MARK: - Recovery materialization
+
+    /// 播放恢复(流中断续播 / 首块超时回退 / 远程 seek)要等整文件物化完成才能
+    /// 继续, 这段等待必须有界: 连接器仍接受连接却不再返回字节时, 离线下载会把
+    /// 每块 60s 的请求超时和重试预算全部耗完, 期间 isLoading 一直为 true, 播放键
+    /// 被禁用, 用户只看到无尽的加载。离线快照(状态 / 进度)连续 45s 没有任何变化
+    /// 就取消物化, 交给既有的失败处理。
+    func materializeCachedURLForPlaybackRecovery(
+        _ song: Song,
+        trigger: String
+    ) async -> URL? {
+        guard let sourceManager else { return nil }
+        // 用 race 而不是 task group: 底层传输不一定响应取消, 停滞判定后必须
+        // 立刻返回, 不能再等那个下载任务真正退出。
+        let race = CancellableResultRace<URL?>()
+        let materialization = Task { @MainActor in
+            let cached = await sourceManager.materializeCachedURLForSeeking(for: song)
+            race.resolve(.success(cached))
+        }
+        let watchdog = Task { @MainActor in
+            var monitor = PlaybackRecoveryMaterializationStallMonitor(
+                startedAt: ProcessInfo.processInfo.systemUptime
+            )
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(1))
+                } catch {
+                    return
+                }
+                let snapshot = sourceManager.offlineAudioSnapshot(for: song)
+                let stalled = monitor.observe(
+                    progress: snapshot.progress,
+                    isDownloading: snapshot.isDownloading,
+                    at: ProcessInfo.processInfo.systemUptime
+                )
+                guard stalled else { continue }
+                plog("⚠️ Recovery materialization stalled for '\(song.title)' trigger=\(trigger) after \(Int(monitor.stallTimeout))s without progress; abandoning")
+                materialization.cancel()
+                race.resolve(.success(nil))
+                return
+            }
+        }
+        defer { watchdog.cancel() }
+        do {
+            return try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    race.install(continuation)
+                }
+            } onCancel: {
+                materialization.cancel()
+                race.cancel()
+            }
+        } catch {
+            return nil
+        }
+    }
 }

@@ -4903,7 +4903,10 @@ final class AudioPlayerService {
 
         guard playbackSettings.audioCacheEnabled else { return false }
         plog("↳ cloud chunked-stream failed; materializing a complete connector file")
-        guard let cached = await manager.materializeCachedURLForSeeking(for: song) else {
+        guard let cached = await materializeCachedURLForPlaybackRecovery(
+            song,
+            trigger: "cloud-materialization-fallback"
+        ) else {
             return false
         }
         guard isLocalTransportStartAuthorized(
@@ -4937,7 +4940,7 @@ final class AudioPlayerService {
         playID id: UUID,
         frozenResumeTime: TimeInterval? = nil
     ) {
-        guard let manager = sourceManager, playID == id else { return }
+        guard sourceManager != nil, playID == id else { return }
         stopTimeUpdater()
         let resumeTime: TimeInterval
         if let frozenResumeTime {
@@ -4960,6 +4963,7 @@ final class AudioPlayerService {
             reason: "remote-recovery-pending"
         )
         audioEngine.stopPlayback()
+        hasPreparedLocalPlayback = false
         isPlaying = false
         isLoading = true
         updateNowPlayingInfo()
@@ -4967,8 +4971,15 @@ final class AudioPlayerService {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            guard let cached = await manager.materializeCachedURLForSeeking(for: song) else {
+            guard let cached = await self.materializeCachedURLForPlaybackRecovery(
+                song,
+                trigger: "remote-mid-stream-recovery"
+            ) else {
                 guard self.playID == id, self.currentSong?.id == song.id else { return }
+                // 物化失败或停滞: 保留同位置的恢复票据, 网络恢复后用户按播放能从
+                // 中断处继续, 而不是从头开始或"播放"一个空节点。
+                self.pendingRecoveryTime = resumeTime
+                self.needsPlaybackRecovery = true
                 self.isLoading = false
                 self.showPlaybackError(String(localized: "playback_error_connection"))
                 await self.autoAdvanceAfterFailure(

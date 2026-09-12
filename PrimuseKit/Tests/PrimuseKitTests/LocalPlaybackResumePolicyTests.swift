@@ -229,4 +229,31 @@ struct LocalPlaybackResumePolicyTests {
             needsRecovery: true
         ) == .preserve)
     }
+
+    @Test("Recovery materialization abandons a transfer whose snapshot never changes")
+    func materializationStallAbandonsFrozenTransfer() {
+        var monitor = PlaybackRecoveryMaterializationStallMonitor(startedAt: 100, stallTimeout: 45)
+        #expect(monitor.observe(progress: nil, isDownloading: false, at: 101) == false)
+        #expect(monitor.observe(progress: nil, isDownloading: false, at: 144) == false)
+        #expect(monitor.observe(progress: nil, isDownloading: false, at: 145) == true)
+    }
+
+    @Test("Recovery materialization activity resets the stall clock")
+    func materializationActivityResetsStallClock() {
+        var monitor = PlaybackRecoveryMaterializationStallMonitor(startedAt: 0, stallTimeout: 45)
+        #expect(monitor.observe(progress: 0, isDownloading: true, at: 40) == false)
+        #expect(monitor.observe(progress: 0, isDownloading: true, at: 84) == false)
+        #expect(monitor.observe(progress: 0.1, isDownloading: true, at: 85) == false)
+        #expect(monitor.observe(progress: 0.1, isDownloading: true, at: 129) == false)
+        #expect(monitor.observe(progress: 0.1, isDownloading: true, at: 130) == true)
+    }
+
+    @Test("Recovery materialization treats the transfer finishing as activity")
+    func materializationCompletionCountsAsActivity() {
+        var monitor = PlaybackRecoveryMaterializationStallMonitor(startedAt: 0, stallTimeout: 45)
+        #expect(monitor.observe(progress: 0.5, isDownloading: true, at: 10) == false)
+        #expect(monitor.observe(progress: nil, isDownloading: false, at: 54) == false)
+        #expect(monitor.observe(progress: nil, isDownloading: false, at: 98) == false)
+        #expect(monitor.observe(progress: nil, isDownloading: false, at: 99) == true)
+    }
 }

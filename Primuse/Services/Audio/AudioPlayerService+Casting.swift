@@ -1062,7 +1062,10 @@ extension AudioPlayerService {
                 if activeDecoderKind == .streaming {
                     var cached = sourceManager?.cachedURL(for: song)
                     if cached == nil, isRecovery, !isColdSessionRestore {
-                        cached = await sourceManager?.materializeCachedURLForSeeking(for: song)
+                        cached = await materializeCachedURLForPlaybackRecovery(
+                            song,
+                            trigger: "streaming-recovery-seek"
+                        )
                     }
                     guard playID == id else { return }
                     guard let cached else {
@@ -1093,7 +1096,10 @@ extension AudioPlayerService {
                        cacheEnabled: playbackSettings.audioCacheEnabled,
                        isColdSessionRestore: isColdSessionRestore
                    ) == .materializeCompleteFile,
-                   let cached = await sourceManager?.materializeCachedURLForSeeking(for: song) {
+                   let cached = await materializeCachedURLForPlaybackRecovery(
+                       song,
+                       trigger: "remote-seek"
+                   ) {
                     guard !Task.isCancelled, playID == id else { return }
                     seekURL = cached
                     seekDecoderKind = await ffmpegCanDecodeOffMain(cached) ? .ffmpeg : .native

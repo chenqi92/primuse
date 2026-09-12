@@ -173,6 +173,10 @@ struct MacImmersivePlayerView: View {
                 revealChrome()
             }
         }
+        .onChange(of: player.lastPlaybackError) { _, error in
+            guard error != nil else { return }
+            revealChrome()
+        }
         .onChange(of: showsEffectPicker) { _, isPresented in
             if isPresented {
                 chromeTask?.cancel()
@@ -328,6 +332,11 @@ struct MacImmersivePlayerView: View {
             .padding(.horizontal, 26)
             .padding(.top, 22)
 
+            if let error = player.lastPlaybackError {
+                playbackErrorBanner(error)
+                    .padding(.top, 12)
+            }
+
             Spacer()
 
             macBottomChrome(metrics: metrics)
@@ -464,6 +473,18 @@ struct MacImmersivePlayerView: View {
         }
     }
 
+    /// 沉浸页原本不显示播放错误: 网络 / 解码失败后只剩一个被禁用的播放键,
+    /// 用户分不清"还在加载"和"已经失败"。与标准播放页同款的提示胶囊。
+    private func playbackErrorBanner(_ message: String) -> some View {
+        Text(message)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.red.opacity(0.82), in: Capsule())
+            .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
     private var effectMenu: some View {
         Button {
             chromeTask?.cancel()
@@ -534,12 +555,20 @@ struct MacImmersivePlayerView: View {
                 revealChrome()
                 player.togglePlayPause()
             } label: {
-                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 22, weight: .medium))
-                    .contentTransition(.symbolEffect(.replace))
-                    .foregroundStyle(chromeInk)
-                    .frame(width: 58, height: 58)
-                    .overlay { Circle().strokeBorder(chromeInk.opacity(0.64), lineWidth: 1.4) }
+                ZStack {
+                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 22, weight: .medium))
+                        .contentTransition(.symbolEffect(.replace))
+                        .opacity(player.isLoading ? 0 : 1)
+                    if player.isLoading {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(chromeInk)
+                    }
+                }
+                .foregroundStyle(chromeInk)
+                .frame(width: 58, height: 58)
+                .overlay { Circle().strokeBorder(chromeInk.opacity(0.64), lineWidth: 1.4) }
             }
             .buttonStyle(.plain)
             .pmPointingHand()

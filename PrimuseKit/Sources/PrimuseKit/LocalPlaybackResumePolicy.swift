@@ -132,3 +132,44 @@ public enum LocalPlaybackResumePolicy {
         return hasPreparedAudio ? .resumePreparedAudio : .restartCurrentSong
     }
 }
+
+/// Bounds the complete-file materialization that playback recovery waits on.
+/// A connector that keeps accepting connections but never returns bytes would
+/// otherwise hold the visible loading state for the transfer's entire retry
+/// budget (minutes) with the transport controls disabled. Any change in the
+/// observed offline snapshot counts as activity; a snapshot that stays the
+/// same for `stallTimeout` abandons the wait so ordinary failure handling runs.
+public struct PlaybackRecoveryMaterializationStallMonitor: Equatable, Sendable {
+    public static let defaultStallTimeout: TimeInterval = 45
+
+    public let stallTimeout: TimeInterval
+    public private(set) var lastObservedProgress: Double?
+    public private(set) var lastObservedIsDownloading: Bool
+    public private(set) var lastActivityAt: TimeInterval
+
+    public init(
+        startedAt: TimeInterval,
+        stallTimeout: TimeInterval = Self.defaultStallTimeout
+    ) {
+        self.stallTimeout = max(1, stallTimeout)
+        lastObservedProgress = nil
+        lastObservedIsDownloading = false
+        lastActivityAt = startedAt
+    }
+
+    /// Records one snapshot observation. Returns `true` once no activity has
+    /// been observed for `stallTimeout`.
+    public mutating func observe(
+        progress: Double?,
+        isDownloading: Bool,
+        at now: TimeInterval
+    ) -> Bool {
+        if progress != lastObservedProgress || isDownloading != lastObservedIsDownloading {
+            lastObservedProgress = progress
+            lastObservedIsDownloading = isDownloading
+            lastActivityAt = now
+            return false
+        }
+        return now - lastActivityAt >= stallTimeout
+    }
+}

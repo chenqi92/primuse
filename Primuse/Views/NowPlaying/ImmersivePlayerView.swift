@@ -152,6 +152,11 @@ struct ImmersivePlayerView: View {
                 revealChrome()
             }
         }
+        .onChange(of: player.lastPlaybackError) { _, error in
+            guard error != nil, isSceneActive else { return }
+            exitAmbientRest()
+            revealChrome()
+        }
         .onChange(of: isSceneActive) { _, isActive in
             handleSceneActivityChange(isActive: isActive)
         }
@@ -280,6 +285,11 @@ struct ImmersivePlayerView: View {
             .padding(.horizontal, max(max(metrics.safeArea.leading, metrics.safeArea.trailing) + 16, 20))
             .padding(.top, topChromeInset(metrics))
 
+            if let error = player.lastPlaybackError {
+                playbackErrorBanner(error)
+                    .padding(.top, 12)
+            }
+
             Spacer()
 
             bottomChrome(metrics: metrics)
@@ -296,6 +306,18 @@ struct ImmersivePlayerView: View {
             effectChromeMenu(metrics: metrics)
             queueChromeButton
         }
+    }
+
+    /// 沉浸页原本不显示播放错误: 网络 / 解码失败后只剩一个被禁用的播放键,
+    /// 用户分不清"还在加载"和"已经失败"。与标准播放页同款的提示胶囊。
+    private func playbackErrorBanner(_ message: String) -> some View {
+        Text(message)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.red.opacity(0.82), in: Capsule())
+            .transition(.move(edge: .top).combined(with: .opacity))
     }
 
     @ViewBuilder
@@ -610,17 +632,24 @@ struct ImmersivePlayerView: View {
             revealChrome()
             player.togglePlayPause()
         } label: {
-            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                .font(.system(size: diameter * 0.38, weight: .semibold))
-                .contentTransition(.symbolEffect(.replace))
-                .foregroundStyle(emphasis)
-                .frame(width: diameter, height: diameter)
-                .background(outlined ? emphasis.opacity(0.06) : .clear, in: Circle())
-                .overlay {
-                    if outlined {
-                        Circle().strokeBorder(emphasis.opacity(0.72), lineWidth: 1.2)
-                    }
+            ZStack {
+                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: diameter * 0.38, weight: .semibold))
+                    .contentTransition(.symbolEffect(.replace))
+                    .opacity(player.isLoading ? 0 : 1)
+                if player.isLoading {
+                    ProgressView()
+                        .tint(emphasis)
                 }
+            }
+            .foregroundStyle(emphasis)
+            .frame(width: diameter, height: diameter)
+            .background(outlined ? emphasis.opacity(0.06) : .clear, in: Circle())
+            .overlay {
+                if outlined {
+                    Circle().strokeBorder(emphasis.opacity(0.72), lineWidth: 1.2)
+                }
+            }
         }
         .buttonStyle(.plain)
         .disabled(player.isLoading)
