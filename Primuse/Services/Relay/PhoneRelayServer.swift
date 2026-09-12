@@ -1,6 +1,7 @@
 #if os(iOS) || os(macOS)
 import Foundation
 import Network
+import os
 import PrimuseKit
 
 /// Phase 3:iPhone / Mac 局域网 HTTP 中继。让 Apple TV 播放本地 / SMB / SFTP / NFS /
@@ -17,7 +18,10 @@ final class PhoneRelayServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.welape.primuse.relay")
     private var listener: NWListener?
     private let token = UUID().uuidString
-    private var boundPort: UInt16?
+    /// `endpoint()` 会被主 actor(设置页轮询)和通用执行线程(凭据包组装)
+    /// 读到,而写入只发生在 `queue` 上。用锁而不是 `queue.sync`:中继队列
+    /// 同时跑连接的收发回调,主线程同步等它可能被一段网络传输拖住。
+    private let boundPort = OSAllocatedUnfairLock<UInt16?>(initialState: nil)
 
     /// 半开连接防护:凑齐请求头前的 idle 超时 + 并发连接上限,防 LAN 端
     /// slow-loris 式拖死 fd。计数与连接处理同跑 `queue`(串行),无需额外锁。
@@ -50,13 +54,13 @@ final class PhoneRelayServer: @unchecked Sendable {
         queue.async { [weak self] in
             self?.listener?.cancel()
             self?.listener = nil
-            self?.boundPort = nil
+            self?.boundPort.withLock { $0 = nil }
         }
     }
 
     /// 当前中继端点(供凭据包同步给 TV)。未运行 / 无 Wi-Fi 时 nil。
     func endpoint() -> RelayEndpoint? {
-        guard let port = boundPort, let ip = Self.wifiIPv4() else { return nil }
+        guard let port = boundPort.withLock({ $0 }), let ip = Self.wifiIPv4() else { return nil }
         return RelayEndpoint(host: ip, port: Int(port), token: token)
     }
 
@@ -67,7 +71,11 @@ final class PhoneRelayServer: @unchecked Sendable {
         do {
             let l = try NWListener(using: .tcp)
             l.stateUpdateHandler = { [weak self, weak l] state in
-                if case .ready = state { self?.boundPort = l?.port?.rawValue }
+                guard case .ready = state else { return }
+                // 先把端口取成不可变值再进锁: 弱捕获在闭包里是可变的, 直接在
+                // withLock 的闭包体里读它会跨并发域引用一个 var。
+                let boundPortValue = l?.port?.rawValue
+                self?.boundPort.withLock { $0 = boundPortValue }
             }
             l.newConnectionHandler = { [weak self] conn in
                 guard let self else { conn.cancel(); return }

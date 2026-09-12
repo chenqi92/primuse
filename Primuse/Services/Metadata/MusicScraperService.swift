@@ -72,6 +72,17 @@ private actor SidecarWriteCircuitBreaker {
     }
 }
 
+/// 续刮时"检查点已经没意义了, 可以删"的判定。抽成纯函数是为了让
+/// Stage 2b 的回归(准备中的库永远不许清检查点)能被直接盯住 —— 服务本身
+/// 要 MainActor 加一整套依赖, 单测里立不起来。
+enum ScrapeResumePolicy {
+    /// 只有库已经发布、并且检查点里的歌一首都没落回库里时, 才清检查点。
+    /// 库还在 `.preparing` 时 `visibleSongs` 是空的, "一首都没匹配上"是假象。
+    static func clearsCheckpoint(libraryIsReady: Bool, matchedSongs: Int) -> Bool {
+        libraryIsReady && matchedSongs == 0
+    }
+}
+
 @MainActor
 @Observable
 final class MusicScraperService {
@@ -871,6 +882,19 @@ final class MusicScraperService {
         in library: MusicLibrary,
         allowBackgroundExecution: Bool = false
     ) {
+        // Stage 2b: 库还在准备时 `visibleSongs` 是空的, 检查点里的歌一首都匹配
+        // 不上, 下面那一步会把上一轮批量刮削的检查点直接删掉 —— 而且没有任何
+        // 人会把它恢复回来。守卫放在入口, 后台 settle / 场景切换 / BGProcessing
+        // 所有调用方一起覆盖。
+        guard library.isReady else {
+            library.onReady { [weak self] in
+                self?.resumePendingScrape(
+                    in: library,
+                    allowBackgroundExecution: allowBackgroundExecution
+                )
+            }
+            return
+        }
         if allowBackgroundExecution {
             isPausedForSceneTransition = false
         }
@@ -889,10 +913,16 @@ final class MusicScraperService {
             : 0
         let songs = checkpoint.songIDs.compactMap { songsByID[$0] }
         let pendingSongs = checkpoint.songIDs.dropFirst(startIndex).compactMap { songsByID[$0] }
-        guard !songs.isEmpty else {
+        if ScrapeResumePolicy.clearsCheckpoint(
+            libraryIsReady: library.isReady,
+            matchedSongs: songs.count
+        ) {
             clearScrapeCheckpoint()
             return
         }
+        // 上面的判定已经覆盖了"已就绪且一首都没匹配上"; 这一条只是不让空队列
+        // 进入 `startScraping`。
+        guard !songs.isEmpty else { return }
         startScraping(
             songs: songs,
             pendingSongs: pendingSongs,

@@ -302,4 +302,116 @@ struct MetadataBackfillExecutionPolicyTests {
             requiresSynchronousStart: true
         ) == .markDirtyOnly)
     }
+
+    @Test("A dirty queue answers the wake requirement from the source set")
+    func cachedCountWakeRequirementFallsBackToSources() {
+        // 缓存是新的: 和原来的判定逐字一致 —— 混合队列先不要网络地唤醒,
+        // 只剩远端行时才要求联网。
+        #expect(!MetadataBackfillNetworkPolicy.backgroundWakeRequiresNetworkFromCachedCounts(
+            queueNeedsReconcile: false,
+            hasPendingWork: true,
+            pendingSourceIDs: ["copied", "file-provider"],
+            backfillableSourceIDs: ["copied", "file-provider"],
+            offlineReadableSourceIDs: ["copied"]
+        ))
+        #expect(MetadataBackfillNetworkPolicy.backgroundWakeRequiresNetworkFromCachedCounts(
+            queueNeedsReconcile: false,
+            hasPendingWork: true,
+            pendingSourceIDs: ["file-provider"],
+            backfillableSourceIDs: ["copied", "file-provider"],
+            offlineReadableSourceIDs: ["copied"]
+        ))
+        // 队列刚被标脏, 每源剩余数还是上一轮的 (这里退化成空集): 不能再用
+        // "空集与任何集合 disjoint" 得出需要网络的结论。全部可回填的源都是
+        // 离线可读时, 这次唤醒不要求网络, 本地导入的行在无网设备上也能排干。
+        #expect(!MetadataBackfillNetworkPolicy.backgroundWakeRequiresNetworkFromCachedCounts(
+            queueNeedsReconcile: true,
+            hasPendingWork: true,
+            pendingSourceIDs: [],
+            backfillableSourceIDs: ["copied"],
+            offlineReadableSourceIDs: ["copied"]
+        ))
+        // 只要还有一个源不是离线可读, 脏队列就保守地按需要网络申请。
+        #expect(MetadataBackfillNetworkPolicy.backgroundWakeRequiresNetworkFromCachedCounts(
+            queueNeedsReconcile: true,
+            hasPendingWork: true,
+            pendingSourceIDs: ["copied"],
+            backfillableSourceIDs: ["copied", "webdav"],
+            offlineReadableSourceIDs: ["copied"]
+        ))
+        // 没有可回填的源 / 没有待办工作时都不要求网络。
+        #expect(!MetadataBackfillNetworkPolicy.backgroundWakeRequiresNetworkFromCachedCounts(
+            queueNeedsReconcile: true,
+            hasPendingWork: true,
+            pendingSourceIDs: [],
+            backfillableSourceIDs: [],
+            offlineReadableSourceIDs: []
+        ))
+        #expect(!MetadataBackfillNetworkPolicy.backgroundWakeRequiresNetworkFromCachedCounts(
+            queueNeedsReconcile: true,
+            hasPendingWork: false,
+            pendingSourceIDs: [],
+            backfillableSourceIDs: ["webdav"],
+            offlineReadableSourceIDs: []
+        ))
+    }
+
+    @Test("A superseded reconcile keeps the remaining-count throttle in force")
+    func supersededReconcileDoesNotResetTheThrottle() {
+        // 被顶替的那次刷新不回退节流时间戳, 否则接管者的 start() 会在主 actor
+        // 上把整库对账再同步做一遍。
+        #expect(!MetadataBackfillRemainingCountRefreshPolicy.throttleResetsAfterFailure(
+            reason: .supersededComputation
+        ))
+        // 资料库/队列真的变了: 缓存的计数已经不可信, 下一次对账必须放行。
+        #expect(MetadataBackfillRemainingCountRefreshPolicy.throttleResetsAfterFailure(
+            reason: .inputsChanged
+        ))
+    }
+
+    @Test("A song-generation move publishes the counts but keeps the queue dirty")
+    func songGenerationMoveStillPublishesCounts() {
+        // 扫描每 1.5 s 发布一次库, detached 计算几乎必然跨过一次歌曲代次变化。
+        // 结果仍然是一份自洽的过去状态, 源卡片可以照它刷新。
+        #expect(MetadataBackfillRemainingCountRefreshPolicy.application(
+            superseded: false,
+            songGenerationChanged: true,
+            queueGenerationChanged: false,
+            semanticInputsChanged: false
+        ) == .applyKeepingQueueDirty)
+    }
+
+    @Test("Nothing moved reconciles the queue")
+    func unchangedInputsReconcile() {
+        #expect(MetadataBackfillRemainingCountRefreshPolicy.application(
+            superseded: false,
+            songGenerationChanged: false,
+            queueGenerationChanged: false,
+            semanticInputsChanged: false
+        ) == .apply)
+    }
+
+    @Test("A superseded or semantically different snapshot is discarded")
+    func supersededOrSemanticChangeDiscards() {
+        #expect(MetadataBackfillRemainingCountRefreshPolicy.application(
+            superseded: true,
+            songGenerationChanged: false,
+            queueGenerationChanged: false,
+            semanticInputsChanged: false
+        ) == .discard)
+        // 队列代次动了: 结果回答的是另一批待办。
+        #expect(MetadataBackfillRemainingCountRefreshPolicy.application(
+            superseded: false,
+            songGenerationChanged: true,
+            queueGenerationChanged: true,
+            semanticInputsChanged: false
+        ) == .discard)
+        // 源集合 / 禁用集合 / Wi-Fi 等待状态变了, 同理。
+        #expect(MetadataBackfillRemainingCountRefreshPolicy.application(
+            superseded: false,
+            songGenerationChanged: false,
+            queueGenerationChanged: false,
+            semanticInputsChanged: true
+        ) == .discard)
+    }
 }

@@ -1302,9 +1302,41 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
         )
 
         try manager.credentialsDidChange(for: sourceID)
-        await manager.refreshConnector(for: sourceID)
+        // 凭据真的换过: 调用方显式 force, 和视图层保存密码后的调用一致。
+        await manager.refreshConnector(for: sourceID, force: true)
         XCTAssertFalse(
             manager.connector(for: source) is NoAvailableConnectionSourceConnector
+        )
+        await manager.disconnectAll()
+    }
+
+    /// 只改显示名这类保存不能掐掉正在播放的流: refreshConnector 默认先比对
+    /// 作用域指纹, 只有明确 force 的调用方 (重新认证 / 改连接字段) 才推进
+    /// stream epoch 并退休连接器。
+    @MainActor
+    func testNonSecurityConnectorRefreshKeepsActiveStream() async throws {
+        let sourceID = "refresh-scope-\(UUID().uuidString)"
+        let source = MusicSource(
+            id: sourceID,
+            name: "Local",
+            type: .local,
+            basePath: "/tmp",
+            modifiedAt: Date(timeIntervalSinceReferenceDate: 100)
+        )
+        let manager = SourceManager(sourcesProvider: { [source] in [source] })
+
+        // 先让管理器读到这个源的权威指纹。
+        await manager.refreshConnector(for: sourceID, force: true)
+
+        let ticket = CloudPlaybackSource.streamEpochTicket(sourceID: sourceID)
+        await manager.refreshConnector(for: sourceID)
+        XCTAssertTrue(
+            CloudPlaybackSource.isStreamEpochTicketCurrent(sourceID: sourceID, ticket: ticket)
+        )
+
+        await manager.refreshConnector(for: sourceID, force: true)
+        XCTAssertFalse(
+            CloudPlaybackSource.isStreamEpochTicketCurrent(sourceID: sourceID, ticket: ticket)
         )
         await manager.disconnectAll()
     }
@@ -1677,10 +1709,15 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: staged[0].path))
     }
 
-    /// 清缓存的枚举 + 删除必须能在后台执行器上跑 (nonisolated static 本身
-    /// 就是编译期护栏), 并且跳过 pinned 与在途文件: 正在播放的 `.partial`
-    /// 与正在下载的 `.offline` 被删掉不会让写入端退出, 只会让这首歌之后
-    /// 每次读都 miss、离线任务报错变红。
+    /// 清缓存的枚举 + 删除必须真的不占主 actor (nonisolated static 只是编译期
+    /// 护栏, 这里要的是运行期的行为证据), 并且跳过 pinned 与在途文件: 正在
+    /// 播放的 `.partial` 与正在下载的 `.offline` 被删掉不会让写入端退出, 只会
+    /// 让这首歌之后每次读都 miss、离线任务报错变红。
+    ///
+    /// 不能用 `Thread.isMainThread` 判断: 它在异步上下文里不可用, 而且挂起点
+    /// 之后的线程本来就和任务隔离域不是一回事。这里改成量真正的契约 —— 删除
+    /// 进行期间主 actor 必须仍然能被调度。主 actor 上先挂一个心跳任务, 删除跑
+    /// 在游离任务上; 如果删除占着主 actor, 心跳一次都推进不了。
     func testClearAudioCacheHelperSkipsPinnedAndInFlightFiles() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "PrimuseAudioCacheClearTests-\(UUID().uuidString)",
@@ -1693,6 +1730,14 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
         try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: smbDirectory, withIntermediateDirectories: true)
 
+        // 多放一些可删文件, 让删除有真实的工作量, 心跳才有可观测的窗口。
+        var bulkRemovable: [URL] = []
+        for index in 0..<300 {
+            let url = sourceDirectory.appendingPathComponent("bulk-\(index).cache")
+            try Data(repeating: 3, count: 4096).write(to: url)
+            bulkRemovable.append(url)
+        }
+
         let removable = sourceDirectory.appendingPathComponent("gone.cache")
         let pinned = sourceDirectory.appendingPathComponent("pinned.cache")
         let streaming = sourceDirectory.appendingPathComponent("live.flac.partial")
@@ -1703,21 +1748,32 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
             try Data(repeating: 7, count: 1024).write(to: url)
         }
 
-        let outcome = await Task.detached(priority: .utility) { () -> (Bool, Int64, Int) in
-            let ranOffMainThread = !Thread.isMainThread
-            let result = SourceManager.removeUnpinnedAudioCacheFiles(
+        let heartbeat = await MainActorHeartbeat()
+        let ticker = Task { @MainActor in await heartbeat.run() }
+
+        let outcome = await Task.detached(priority: .utility) { () async -> (Int64, Int) in
+            let result = await SourceManager.removeUnpinnedAudioCacheFiles(
                 dirs: [basePath, smbDirectory],
                 basePath: basePath,
                 removableDirPaths: [smbDirectory.path],
                 pinnedRelativePaths: ["source-a/pinned.cache"],
                 protectedAbsolutePaths: [streaming.path, offline.path]
             )
-            return (ranOffMainThread, result.freedBytes, result.failedCount)
+            return (result.freedBytes, result.failedCount)
         }.value
 
-        XCTAssertTrue(outcome.0)
-        XCTAssertGreaterThan(outcome.1, 0)
-        XCTAssertEqual(outcome.2, 0)
+        await heartbeat.stop()
+        await ticker.value
+        let ticks = await heartbeat.ticks
+        XCTAssertGreaterThan(
+            ticks, 0,
+            "删除期间主 actor 一次都没被调度到, 说明这段阻塞的文件操作占了主 actor"
+        )
+        XCTAssertGreaterThan(outcome.0, 0)
+        XCTAssertEqual(outcome.1, 0)
+        for url in bulkRemovable {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+        }
         XCTAssertTrue(FileManager.default.fileExists(atPath: pinned.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: streaming.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: offline.path))
@@ -1741,8 +1797,8 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
         let live = smbDirectory.appendingPathComponent("live.flac.partial")
         try Data(repeating: 3, count: 512).write(to: live)
 
-        let failed = await Task.detached(priority: .utility) { () -> Int in
-            SourceManager.removeUnpinnedAudioCacheFiles(
+        let failed = await Task.detached(priority: .utility) { () async -> Int in
+            await SourceManager.removeUnpinnedAudioCacheFiles(
                 dirs: [basePath, smbDirectory],
                 basePath: basePath,
                 removableDirPaths: [smbDirectory.path],
@@ -1775,8 +1831,8 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
             try Data(repeating: 5, count: 1024).write(to: url)
         }
 
-        let result = await Task.detached(priority: .utility) { () -> (Int64, Int) in
-            let purged = SourceManager.removePartialFiles(
+        let result = await Task.detached(priority: .utility) { () async -> (Int64, Int) in
+            let purged = await SourceManager.removePartialFiles(
                 basePath: basePath,
                 protectedAbsolutePaths: [livePartial.path, liveOffline.path]
             )
@@ -1791,6 +1847,128 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: stalePartial.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: staleMarker.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: staleOffline.path))
+    }
+
+    /// 后台自动缓存的「整文件」模式写的是同一份 `<canonical>.offline`, 却只
+    /// 登记在 `backgroundAudioCacheTasks` 里。保护集只看 `offlineDownloadTasks`
+    /// 的话, 「清理半成品」会在预热跑到一半时 unlink 掉暂存文件, 下一个
+    /// chunk 重开 FileHandle 直接 ENOENT。
+    func testProtectedInFlightPathsCoverBackgroundPrewarmStagingFiles() {
+        let basePath = URL(
+            fileURLWithPath: "/tmp/primuse-protected-in-flight",
+            isDirectory: true
+        )
+        let sessionPartial = basePath
+            .appendingPathComponent("source-a/playing.flac.partial").path
+        let offlineTaskKey = "source-a/manual.flac"
+        let backgroundTaskKey = "source-b/prewarm.flac"
+
+        let protectedPaths = SourceManager.protectedInFlightAudioCachePaths(
+            basePath: basePath,
+            sessionPaths: [sessionPartial],
+            offlineDownloadTaskKeys: [offlineTaskKey],
+            backgroundAudioCacheTaskKeys: [backgroundTaskKey]
+        )
+
+        func stagingPath(_ taskKey: String, suffix: String = "") -> String {
+            basePath.appendingPathComponent(taskKey).path + suffix + ".offline"
+        }
+        XCTAssertTrue(protectedPaths.contains(sessionPartial))
+        XCTAssertTrue(
+            protectedPaths.contains(sessionPartial + CloudPlaybackSource.prewarmMarkerSuffix)
+        )
+        XCTAssertTrue(protectedPaths.contains(stagingPath(offlineTaskKey)))
+        XCTAssertTrue(protectedPaths.contains(stagingPath(offlineTaskKey, suffix: ".refresh")))
+        XCTAssertTrue(protectedPaths.contains(stagingPath(backgroundTaskKey)))
+        XCTAssertTrue(protectedPaths.contains(stagingPath(backgroundTaskKey, suffix: ".refresh")))
+        XCTAssertFalse(protectedPaths.contains(stagingPath("source-a/idle.flac")))
+    }
+
+    /// 清缓存在后台要跑好几秒, 期间主 actor 完全可以开新的 streaming session
+    /// 或让一次离线下载 pin 成功。删除必须按批复核保护集: 复核之后才受保护
+    /// 的文件要留下, 而且不能算成「删除失败」吓用户。
+    func testClearAudioCacheHelperRevalidatesProtectionBetweenBatches() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "PrimuseAudioCacheRevalidateTests-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let basePath = root.appendingPathComponent("primuse_audio_cache", isDirectory: true)
+        let sourceDirectory = basePath.appendingPathComponent("source-a", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+
+        var files: [URL] = []
+        for index in 0..<3 {
+            let url = sourceDirectory.appendingPathComponent("track-\(index).cache")
+            try Data(repeating: 4, count: 1024).write(to: url)
+            files.append(url)
+        }
+        let everyPath = Set(files.map(\.path))
+        let probe = AudioCacheProtectionRefreshProbe()
+
+        let result = await Task.detached(priority: .utility) { () async -> (Int64, Int) in
+            let outcome = await SourceManager.removeUnpinnedAudioCacheFiles(
+                dirs: [basePath],
+                basePath: basePath,
+                removableDirPaths: [],
+                pinnedRelativePaths: [],
+                protectedAbsolutePaths: [],
+                batchSize: 1,
+                refreshProtection: {
+                    // 第一批删完之后主 actor 又开了播放 / pin: 剩下的全部受保护。
+                    let call = await probe.record()
+                    let refreshed: Set<String> = call > 1 ? everyPath : []
+                    return (pinned: [], protected: refreshed)
+                }
+            )
+            return (outcome.freedBytes, outcome.failedCount)
+        }.value
+
+        XCTAssertGreaterThan(result.0, 0)
+        XCTAssertEqual(result.1, 0)
+        let survivors = files.filter { FileManager.default.fileExists(atPath: $0.path) }
+        XCTAssertEqual(survivors.count, 2)
+        let refreshCount = await probe.count
+        XCTAssertEqual(refreshCount, 3)
+    }
+
+    /// 「清理半成品」同样要按批复核 —— 点下按钮之后才开始播的那首歌, 它的
+    /// `.partial` 不能被这一轮删掉。
+    func testPurgePartialHelperRevalidatesProtectionBetweenBatches() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "PrimusePartialPurgeRevalidateTests-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let basePath = root.appendingPathComponent("primuse_audio_cache", isDirectory: true)
+        let sourceDirectory = basePath.appendingPathComponent("source-a", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+
+        var partials: [URL] = []
+        for index in 0..<3 {
+            let url = sourceDirectory.appendingPathComponent("track-\(index).flac.partial")
+            try Data(repeating: 6, count: 1024).write(to: url)
+            partials.append(url)
+        }
+        let everyPath = Set(partials.map(\.path))
+        let probe = AudioCacheProtectionRefreshProbe()
+
+        let failed = await Task.detached(priority: .utility) { () async -> Int in
+            await SourceManager.removePartialFiles(
+                basePath: basePath,
+                protectedAbsolutePaths: [],
+                batchSize: 1,
+                refreshProtection: {
+                    let call = await probe.record()
+                    let refreshed: Set<String> = call > 1 ? everyPath : []
+                    return (pinned: [], protected: refreshed)
+                }
+            ).failedCount
+        }.value
+
+        XCTAssertEqual(failed, 0)
+        let survivors = partials.filter { FileManager.default.fileExists(atPath: $0.path) }
+        XCTAssertEqual(survivors.count, 2)
     }
 
     /// 整源清理必须在主 actor 上只做一次 rename, 递归删除交给后台。
@@ -1809,7 +1987,7 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
         }
 
         let manager = SourceManager(sourcesProvider: { [] })
-        manager.purgeAudioCache(forSourceID: sourceID)
+        manager.deleteSourceCaches(sourceID: sourceID)
 
         // rename 是同步完成的: 调用返回时规范目录已经离开命名空间。
         XCTAssertFalse(FileManager.default.fileExists(atPath: sourceDirectory.path))
@@ -1886,6 +2064,71 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
         XCTAssertLessThan(attempts, songs.count)
     }
 
+    /// 同一个源第二次「整源缓存」是替换语义 (UI 直接丢掉上一轮的 run):
+    /// 旧那一轮必须被取消并排空, 否则它脱离登记表继续下载, 停用源也停不掉;
+    /// 同时旧 run 收尾不能提前抹掉「正在缓存」状态, 新那一轮还在跑。
+    @MainActor
+    func testSecondSourceOfflineBatchReplacesRunningBatch() async throws {
+        let sourceID = "offline-replace-\(UUID().uuidString)"
+        let source = MusicSource(
+            id: sourceID, name: "Replace fixture", type: .webdav,
+            host: "nas.invalid", authType: .none
+        )
+        let songs = (0..<6).map { index in
+            Song(
+                id: "\(sourceID)-\(index)", title: "Song \(index)",
+                fileFormat: .flac, filePath: "/music/song-\(index).flac",
+                sourceID: sourceID, fileSize: 4_096
+            )
+        }
+        let connector = SuspendingOfflineConnector(sourceID: sourceID)
+        let manager = SourceManager(
+            sourcesProvider: { [source] },
+            songsProvider: { songs },
+            connectorFactory: { _ in connector }
+        )
+        defer {
+            try? FileManager.default.removeItem(
+                at: FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+                    .appendingPathComponent("primuse_audio_cache", isDirectory: true)
+                    .appendingPathComponent(sourceID, isDirectory: true)
+            )
+        }
+        await manager.ensureOfflineAudioSnapshot(for: songs[0])
+
+        let first = Task { @MainActor in
+            await manager.downloadSourceForOffline(sourceID: sourceID, songs: songs)
+        }
+        var started = 0
+        let deadline = Date().addingTimeInterval(5)
+        while started == 0, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+            started = await connector.connectAttempts
+        }
+        guard started > 0 else {
+            first.cancel()
+            _ = await first.value
+            throw XCTSkip("离线下载在本环境没有走到 connector, 无法验证替换语义")
+        }
+        XCTAssertTrue(manager.activeOfflineSourceCacheSourceIDs.contains(sourceID))
+
+        // 第二轮登记后会取消并等待第一轮退出, 所以 first 只可能因为被替换而返回。
+        let second = Task { @MainActor in
+            await manager.downloadSourceForOffline(sourceID: sourceID, songs: songs)
+        }
+        let firstResult = await first.value
+        XCTAssertEqual(firstResult.completedCount, 0)
+        let cancelledAfterReplacement = await connector.cancelledCount
+        XCTAssertGreaterThan(cancelledAfterReplacement, 0)
+        // 旧 run 的收尾不能把新 run 的「正在缓存」状态一起抹掉。
+        XCTAssertTrue(manager.activeOfflineSourceCacheSourceIDs.contains(sourceID))
+
+        // 登记表里现在是新那一轮, 停用源必须能取消到它。
+        manager.sourceAvailabilityDidChange(sourceID: sourceID, isEnabled: false)
+        _ = await second.value
+        XCTAssertFalse(manager.activeOfflineSourceCacheSourceIDs.contains(sourceID))
+    }
+
     private static func boundedDownloadTemporaryFiles() -> Set<String> {
         let names = (try? FileManager.default.contentsOfDirectory(
             atPath: FileManager.default.temporaryDirectory.path
@@ -1920,6 +2163,17 @@ private actor SuspendingOfflineConnector: MusicSourceConnector {
     }
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
         AsyncThrowingStream { $0.finish() }
+    }
+}
+
+/// 记录「每批删除前复核保护集」这个回调被调了几次, 顺便让第一批之后的
+/// 复核把剩下的文件全部标成受保护。
+private actor AudioCacheProtectionRefreshProbe {
+    private(set) var count = 0
+
+    func record() -> Int {
+        count += 1
+        return count
     }
 }
 
@@ -2034,4 +2288,22 @@ final class LibrarySearchNavigationTests: XCTestCase {
         navigation.remove(owner: child)
         XCTAssertEqual(navigation.scope(for: 1)?.songIDs, ["a", "b"])
     }
+}
+
+/// 主 actor 心跳: 只要主 actor 还能被调度, `ticks` 就会增长。用来证明某段
+/// 阻塞工作确实没有占着主 actor —— 比在异步上下文里看线程身份更贴近契约。
+@MainActor
+private final class MainActorHeartbeat {
+    private(set) var ticks = 0
+    private var isStopped = false
+
+    func run() async {
+        // 上限只是防止调用方忘记 stop 时空转, 正常路径由 `stop()` 结束。
+        while !isStopped, ticks < 1_000_000 {
+            ticks += 1
+            await Task.yield()
+        }
+    }
+
+    func stop() { isStopped = true }
 }

@@ -942,6 +942,11 @@ final class AudioCacheSyncService {
         guard let sourceManager, let sourcesStore, let library else {
             return AudioCacheSyncLocalManifest(files: [])
         }
+        // Stage 2b: 冷启动的 `.active` 就会把 LAN 收发端拉起来, 而库这时还在
+        // 主线程之外装载。空的 `library.songs` 会让本机对外声称"一个缓存都
+        // 没有"。协议里没有"稍后重试"的应答, 所以在这里等发布 —— 白跑一轮的
+        // 代价比错误的空清单大得多。
+        await library.whenReady()
         let sourceByID = Dictionary(
             sourcesStore.sources.lazy
                 .filter {
@@ -1045,6 +1050,9 @@ final class AudioCacheSyncService {
                 itemsByID: [:]
             )
         }
+        // 同 `buildLocalManifest`: 库没发布之前 `songsByID` 是空的, 对端推来的
+        // 每一项都会被当成"库里没有这首歌"拒掉。
+        await library.whenReady()
 
         let sourcesByID = Dictionary(
             sourcesStore.sources.filter {

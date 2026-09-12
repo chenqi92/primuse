@@ -7,6 +7,41 @@ public enum LibraryIndexMaintenancePolicy {
     /// every small persistence flush.
     public static let maximumDeferredMaintenanceInterval: TimeInterval = 60
 
+    /// Incremental scan flushes land every 1.5 s (200 songs). Rebuilding the
+    /// derived collections for each of them republished the whole visible
+    /// catalogue while the user was scrolling. Coalescing them with a short
+    /// cap keeps the catalogue visibly fresh during a scan while cutting the
+    /// number of whole-library applies roughly in half.
+    public static let incrementalScanMaintenanceInterval: TimeInterval = 3
+
+    /// Whether deferred maintenance may run while the device-busy gate (app
+    /// not active, thermal state not nominal) is closed.
+    ///
+    /// The gate exists for hours-long metadata backfills. A scan's intermediate
+    /// flush belongs to work the user just started, and the catalogue it feeds
+    /// is what the scan is for: gating it leaves songs, albums and artists at
+    /// the pre-scan snapshot for the whole scan on a warm or backgrounded
+    /// device, so the short timer both arms and fires regardless of the gate.
+    public static func allowsDeferredMaintenance(
+        isIncrementalScanFlush: Bool,
+        deviceMaintenanceAllowed: Bool
+    ) -> Bool {
+        isIncrementalScanFlush || deviceMaintenanceAllowed
+    }
+
+    /// Earliest-deadline-wins arming for the deferred maintenance timer.
+    ///
+    /// Returns `nil` when the already scheduled flush fires no later than the
+    /// new request — re-arming in that case would push the deadline forward on
+    /// every flush and a continuous scan would never reach it.
+    public static func deferredMaintenanceRearmInterval(
+        secondsUntilScheduledFlush: TimeInterval?,
+        requestedInterval: TimeInterval
+    ) -> TimeInterval? {
+        guard let scheduled = secondsUntilScheduledFlush else { return requestedInterval }
+        return requestedInterval < scheduled ? requestedInterval : nil
+    }
+
     /// Values consumed by MusicLibrary's album/artist derivation and prepared
     /// visible caches. Technical metadata such as bitrate and sample rate
     /// deliberately stays out so it cannot schedule an unrelated regroup.
@@ -23,6 +58,12 @@ public enum LibraryIndexMaintenancePolicy {
             || old.artistArtworkFileName != new.artistArtworkFileName
             || old.discNumber != new.discNumber
             || old.trackNumber != new.trackNumber
+    }
+
+    /// Generation allocation wraps rather than overflowing. Zero stays reserved
+    /// for "never prepared", so the successor of `Int.max` is 1.
+    public static func nextPreparationGeneration(current: Int) -> Int {
+        current == .max ? 1 : current + 1
     }
 
     /// Incremental completion is safe only when it directly follows the last

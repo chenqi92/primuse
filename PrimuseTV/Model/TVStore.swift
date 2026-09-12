@@ -494,6 +494,9 @@ final class TVStore {
         let state: SourceScanResumeState
     }
     private var isApplyingSnapshot = false
+    /// 每次进入 `installSnapshot` 自增。安装的纯计算挪到主 actor 之外后,回到主
+    /// actor 的那一段要靠它确认自己仍然是当前这次安装。
+    private var installGeneration = 0
     private var hasPendingSnapshotImport = false
     private var hasPendingSnapshotRecovery = false
     private var canMutateLibrary: Bool {
@@ -1464,10 +1467,19 @@ final class TVStore {
         guard sourcesStore.hasCompleteSnapshot else { return false }
         isApplyingSnapshot = true
         defer { isApplyingSnapshot = false }
+        installGeneration &+= 1
+        let generation = installGeneration
         // A downloaded payload is staged; it cannot race scan writes or use a
         // baseline captured before those writes completed.
         _ = await scanTask?.value
         guard case .success = await library.persistNowAndWait() else { return false }
+        // 栅栏必须在这一刻关上 —— 之后 preparedSnapshotFiles 会让出主 actor,
+        // 播放记账与生命周期落盘都能在那段时间里出发自己的后台写入, 而它们
+        // 写的是事务要整份替换的同一个 library-cache.json。栅栏一关: 在途的
+        // 写入已经等干净, 新的写入要么推迟要么排队, 直到整库装好并重载完成。
+        await library.beginExternalSnapshotWrite()
+        var holdsSnapshotWrite = true
+        defer { if holdsSnapshotWrite { library.endExternalSnapshotWrite() } }
         guard let localSources = try? sourcesStore.validatedSourcesForSnapshot() else { return false }
         let before = library.songs
         let previousCredentialReference = try? Data(contentsOf: TVCredentialStore.pairedBundleReferenceURL)
@@ -1484,11 +1496,18 @@ final class TVStore {
             guard let staged = TVCredentialStore.stagePairedBundle(baseline) else { return false }
             reference = staged
         }
-        guard LibrarySnapshotSync.shared.installTVPayload(
+        // 安装拆成两段:gunzip + 多次 JSON 解析/编码 放到主 actor 之外算,事务写盘
+        // 仍留在主 actor 上,不与 MusicLibrary 的持久化交叉。区间名对 Instruments
+        // 稳定不要改。
+        let installSignpost = PrimuseSignposts.hitch.beginInterval("tv.installPayload")
+        let prepared = await preparedSnapshotFiles(
             payload, credentialReference: reference, fromCloud: fromCloud,
             preservingSongs: before.filter { locallyScannedSourceIDs.contains($0.sourceID) },
-            localSources: localSources
-        ) else {
+            localSources: localSources, generation: generation
+        )
+        let didInstall = prepared.map { LibrarySnapshotSync.shared.applyTVPayloadInstall($0) } ?? false
+        PrimuseSignposts.hitch.endInterval("tv.installPayload", installSignpost)
+        guard didInstall else {
             if let reference { TVCredentialStore.discardInactiveStagedBundle(reference: reference) }
             return false
         }
@@ -1502,8 +1521,17 @@ final class TVStore {
                          forKey: fromCloud ? "tv.credentialSources.cloud" : "tv.credentialSources.paired")
             if fromCloud { cloudCredentialSourceIDs = Set(incoming.entries.keys) }
         }
+        // 与安装步骤对照:reloadFromDisk 是设计上就同步的整库重载,先量清楚
+        // 两者各占多少,再决定要不要动安装步骤。
+        let reloadSignpost = PrimuseSignposts.hitch.beginInterval("tv.reloadMerging")
         reloadMerging(before: before)
+        PrimuseSignposts.hitch.endInterval("tv.reloadMerging", reloadSignpost)
         await library.waitForPendingIndex()
+        // 重载 + 合并之后内存里就是导入结果与本地改动合并后的真相, 这时候放行
+        // 被挡住的写入方是安全的 —— 它们写的正是这份结果。栅栏必须在下面那次
+        // 屏障落盘之前交还, 否则那次落盘会等一个永远不会到来的放行。
+        holdsSnapshotWrite = false
+        library.endExternalSnapshotWrite()
         guard case .success = await library.persistNowAndWait() else { return false }
         do { try LibrarySnapshotSync.finishTVSnapshotImport() }
         catch { return false }
@@ -1511,6 +1539,57 @@ final class TVStore {
         refreshVisibility()
         sourcesRevision += 1
         return true
+    }
+
+    /// 安装的纯计算部分:先在主 actor 上读基线并记下 `library-cache.json` 的身份,
+    /// 算完回到主 actor 再确认这次安装仍然是当前这次、自己仍持有 `isApplyingSnapshot`、
+    /// 且基线没被中途的持久化改写,才把结果交给事务落盘。基线对不上就整段重算一次,
+    /// 仍然对不上就放弃这次安装,由调用方按失败处理(LAN 发送端会重传,云端下次
+    /// 引导会重新下载)。
+    /// 离开主 actor 算出来的安装结果, 外加算它时用的两份基线身份。
+    private struct PreparedSnapshotInstall: Sendable {
+        let files: [URL: Data]
+        let libraryIdentity: SnapshotFileIdentity?
+        let sourcesIdentity: SnapshotFileIdentity?
+    }
+
+    private func preparedSnapshotFiles(
+        _ payload: LANSyncPayload, credentialReference: Data?, fromCloud: Bool,
+        preservingSongs: [Song], localSources: [MusicSource], generation: Int
+    ) async -> [URL: Data]? {
+        let sync = LibrarySnapshotSync.shared
+        for attempt in 0..<2 {
+            // 基线的读取也放进这个任务: `library-cache.json` 可以有几十 MB,
+            // 在主 actor 上读它 (而且负载无效时白读一次、重算时再读一次) 正是
+            // 这次改动要去掉的开销。身份仍然先于字节抓取, 落盘前再回主 actor 复核。
+            let prepared = await Task.detached(priority: .userInitiated) { () -> PreparedSnapshotInstall? in
+                guard let baseline = sync.readTVPayloadInstallBaseline(localSources: localSources) else {
+                    return nil
+                }
+                guard let files = sync.prepareTVPayloadInstall(
+                    payload, credentialReference: credentialReference, fromCloud: fromCloud,
+                    preservingSongs: preservingSongs, localSources: localSources,
+                    existingLibraryData: baseline.existingLibraryData,
+                    existingSourcesData: baseline.existingSourcesData
+                ) else { return nil }
+                return PreparedSnapshotInstall(files: files,
+                                               libraryIdentity: baseline.libraryIdentity,
+                                               sourcesIdentity: baseline.sourcesIdentity)
+            }.value
+            guard generation == installGeneration, isApplyingSnapshot else { return nil }
+            guard let prepared else { return nil }
+            // 事务会重写 library-cache.json 和 sources.json 两个文件, 两份基线
+            // 都要还没被改过才能落盘。
+            if SnapshotBaselineGate.isStillValid(captured: prepared.libraryIdentity,
+                                                 current: sync.currentTVLibraryIdentity()),
+               SnapshotBaselineGate.isStillValid(captured: prepared.sourcesIdentity,
+                                                 current: sync.currentTVSourcesIdentity()) {
+                return prepared.files
+            }
+            if attempt == 0 { plog("TVStore: library baseline changed during install, recomputing") }
+        }
+        plog("TVStore: library baseline kept changing during install, snapshot deferred")
+        return nil
     }
 
     func retryPendingSnapshotImport() async -> Bool {
@@ -1522,6 +1601,11 @@ final class TVStore {
             self.isApplyingSnapshot = true
             defer { self.isApplyingSnapshot = false }
             if self.hasPendingSnapshotRecovery {
+                // 恢复同样是整份替换 (完成或回滚上一次事务), 走同一道栅栏,
+                // 否则一笔在途的后台写入可以盖掉刚恢复出来的文件。
+                await self.library.beginExternalSnapshotWrite()
+                var holdsSnapshotWrite = true
+                defer { if holdsSnapshotWrite { self.library.endExternalSnapshotWrite() } }
                 do {
                     self.hasPendingSnapshotImport = try self.snapshotRecovery()
                     self.hasPendingSnapshotRecovery = false
@@ -1532,6 +1616,8 @@ final class TVStore {
                     self.playbackIssue = .failed(PMString("ext.tv.persistence.failed"))
                     return false
                 }
+                holdsSnapshotWrite = false
+                self.library.endExternalSnapshotWrite()
             }
             guard self.hasPendingSnapshotImport else { return true }
             guard case .success = await self.library.persistNowAndWait() else {

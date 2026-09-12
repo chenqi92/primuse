@@ -52,6 +52,8 @@ final class PlayHistoryStore {
     static let maxRetainedEntries = 5000
 
     private(set) var entries: [Entry] = []
+    /// 单调递增, `entries` 每变一次就 +1。云同步用它判断预先编码好的
+    /// payload 还配不配得上当前这份历史。
     @ObservationIgnored private(set) var revision = 0
     private let storeURL: URL
     private var saveTask: Task<Void, Never>?
@@ -140,6 +142,7 @@ final class PlayHistoryStore {
 
     func mergeRemoteEntries(_ remoteEntries: [Entry]) {
         guard !remoteEntries.isEmpty else { return }
+        let previous = entries
         let before = Set(entries.map(\.id))
         var mergedByID = Dictionary(
             entries.map { ($0.id, $0) },
@@ -150,7 +153,16 @@ final class PlayHistoryStore {
         }
         let merged = mergedByID.values.sorted { $0.playedAt > $1.playedAt }
         entries = Array(merged.prefix(Self.maxRetainedEntries))
-        guard Set(entries.map(\.id)) != before else { return }
+        guard entries != previous else { return }
+        guard Set(entries.map(\.id)) != before else {
+            // 同一批 id, 但实听时长以远端为准被改写了。不广播 (否则跟远端
+            // 来回触发), 可 revision 必须动: 任何按 revision 缓存这份历史的
+            // 编码结果都已经过期。改写过的时长同样要落盘, 否则下次冷启动
+            // 又会读回旧值。
+            revision &+= 1
+            scheduleSave()
+            return
+        }
         scheduleSave()
         notifyChanged()
     }

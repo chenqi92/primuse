@@ -573,6 +573,7 @@
 "playback_settings" = "재생 설정";
 "audio_output" = "오디오 출력";
 "library" = "라이브러리";
+"library_preparing" = "라이브러리 준비 중…";
 "cache_size" = "캐시 크기";
 "clear_cache" = "캐시 지우기";
 "clear_cache_confirm" = "캐시된 파일을 모두 지우시겠습니까?";

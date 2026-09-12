@@ -4,21 +4,36 @@ import CryptoKit
 import Foundation
 import PrimuseKit
 
+/// 谁发起了这次整库上传。场景切换只被允许打断「自动」那一类,用户显式点的
+/// 「推送到 Apple TV」/「立即同步」必须跑完。
+enum SnapshotUploadOwner: Sendable {
+    case automatic
+    case explicit
+}
+
 /// Coalesces repeated full-snapshot requests onto one task. Scene transitions
 /// and manual sync actions can arrive close together; every caller receives the
 /// same result instead of rebuilding the complete payload again.
 private actor SnapshotUploadSingleFlight {
     typealias UploadResult = Result<Void, AppleTVTransferFailure>
-    private var inFlight: (id: UUID, task: Task<UploadResult, Never>)?
+    private var inFlight: (id: UUID, owner: SnapshotUploadOwner, task: Task<UploadResult, Never>)?
 
-    func run(_ operation: @escaping @Sendable () async -> UploadResult) async -> UploadResult {
+    func run(
+        owner: SnapshotUploadOwner,
+        _ operation: @escaping @Sendable () async -> UploadResult
+    ) async -> UploadResult {
         if let inFlight {
+            // 显式上传加入一次正在跑的自动上传时,把归属升级为显式:这一次的
+            // 结果会直接返回给用户,场景切换不能再把它取消掉。
+            if owner == .explicit, inFlight.owner == .automatic {
+                self.inFlight?.owner = .explicit
+            }
             return await inFlight.task.value
         }
 
         let id = UUID()
         let task = Task { await operation() }
-        inFlight = (id, task)
+        inFlight = (id, owner, task)
         let result = await task.value
         if inFlight?.id == id {
             inFlight = nil
@@ -26,9 +41,18 @@ private actor SnapshotUploadSingleFlight {
         return result
     }
 
-    func cancel() {
-        inFlight?.task.cancel()
-        inFlight = nil
+    /// 正在跑的那次上传此刻的归属。显式调用者中途加入会把它升级,所以运行中的
+    /// 操作要以这个值为准,而不是它启动时拿到的那个。
+    func currentOwner() -> SnapshotUploadOwner? {
+        inFlight?.owner
+    }
+
+    /// 只取消自动上传。显式上传由用户发起(且正在等待真实结果),不受生命周期
+    /// 切换影响。
+    func cancelAutomatic() {
+        guard let inFlight, inFlight.owner == .automatic else { return }
+        inFlight.task.cancel()
+        self.inFlight = nil
     }
 }
 
@@ -176,7 +200,7 @@ final class LibrarySnapshotSync: Sendable {
     func uploadAutomaticallyIfNeeded(now: Date = Date()) async -> Bool {
         guard shouldAttemptAutomaticUpload(now: now) else { return false }
         UserDefaults.standard.set(now, forKey: Self.automaticUploadLastAttemptKey)
-        return await uploadNow()
+        return await uploadNow(owner: .automatic)
     }
 
     private func automaticUploadFingerprint() -> AutomaticUploadFingerprint? {
@@ -213,6 +237,20 @@ final class LibrarySnapshotSync: Sendable {
         guard let fingerprint,
               let data = try? PropertyListEncoder().encode(fingerprint) else { return }
         UserDefaults.standard.set(data, forKey: Self.automaticUploadFingerprintKey)
+    }
+
+    /// 自动上传被空曲库护栏拦下时,仍然把这次的指纹记成「已完成」。
+    /// 否则 `hasPendingAutomaticUpload()` 永远为真,每小时的生命周期重试都会
+    /// 把整份 library-cache.json 重新解码、过滤,再拉一次云端记录,然后再次
+    /// 拒绝。指纹一旦随曲库变化,重试自然恢复。
+    private func parkRefusedAutomaticUpload(
+        fingerprint: AutomaticUploadFingerprint?,
+        reason: String
+    ) {
+        recordCompletedAutomaticUpload(fingerprint: fingerprint)
+        plog(
+            "LibrarySnapshotSync: refused automatic upload of an empty library over the existing cloud snapshot (\(reason)); parked until the local library changes"
+        )
     }
 
     private static func fileIdentity(at url: URL) -> FileIdentity? {
@@ -266,29 +304,35 @@ final class LibrarySnapshotSync: Sendable {
     /// 把本地快照覆盖上传到 iCloud。无本地快照则跳过。返回是否真正上传成功
     /// (供 UI 给出真实反馈;失败/跳过都返回 false)。
     @discardableResult
-    func uploadNow() async -> Bool {
-        if case .success = await uploadNowResult() { return true }
+    func uploadNow(owner: SnapshotUploadOwner = .explicit) async -> Bool {
+        if case .success = await uploadNowResult(owner: owner) { return true }
         return false
     }
 
     /// 与 `uploadNow()` 相同的上传，但保留失败阶段与底层 CloudKit / Keychain
     /// 详情，供显式用户操作显示真实错误。后台调用仍可继续使用 Bool 兼容入口。
-    func uploadNowResult() async -> Result<Void, AppleTVTransferFailure> {
-        await fullUploadSingleFlight.run { [self] in
+    func uploadNowResult(
+        owner: SnapshotUploadOwner = .explicit
+    ) async -> Result<Void, AppleTVTransferFailure> {
+        await fullUploadSingleFlight.run(owner: owner) { [self] in
             await withCloudMutationLock {
-                await self.performUploadNowResult()
+                await self.performUploadNowResult(owner: owner)
             }
         }
     }
 
     /// Scene transitions may begin while a delayed foreground upload is still
     /// running. Cancel it so snapshot CPU/network work cannot leak into UIKit's
-    /// scene-update watchdog window.
+    /// scene-update watchdog window. Only the automatic lifecycle upload is
+    /// cancellable — a user-initiated push must survive an incoming call or a
+    /// Control Center pull-down.
     func cancelUpload() async {
-        await fullUploadSingleFlight.cancel()
+        await fullUploadSingleFlight.cancelAutomatic()
     }
 
-    private func performUploadNowResult() async -> Result<Void, AppleTVTransferFailure> {
+    private func performUploadNowResult(
+        owner: SnapshotUploadOwner
+    ) async -> Result<Void, AppleTVTransferFailure> {
         guard !Task.isCancelled else { return .failure(.cancelled) }
         let uploadedFingerprint = automaticUploadFingerprint()
         guard let database else {
@@ -315,14 +359,40 @@ final class LibrarySnapshotSync: Sendable {
         let fm = FileManager.default
 
         let record: CKRecord
+        var serverHasLibraryPayload = false
         do {
             record = try await database.record(for: recordID)
+            serverHasLibraryPayload = record["libraryGz"] != nil || record["library"] != nil
         } catch is CancellationError {
             return .failure(.cancelled)
         } catch {
             record = CKRecord(recordType: recordType, recordID: recordID)
         }
         guard !Task.isCancelled else { return .failure(.cancelled) }
+
+        // 一台刚装好、同步默认开着、还没扫描过的设备,光靠 CloudKit 拉回来的
+        // 源与歌单就能写出一份「零首歌」的 library-cache.json。自动上传把它盖到
+        // 账号唯一的那条快照上,Apple TV 下次引导就只剩空曲库。显式推送保持
+        // 原行为(用户自己知道在推什么)——包括中途加入这次自动上传、把归属
+        // 升级成显式的那种。
+        var effectiveOwner = await fullUploadSingleFlight.currentOwner() ?? owner
+        if effectiveOwner == .automatic,
+           !LibrarySnapshotUploadPolicy.automaticUploadAllowed(
+               eligibleSongCount: preparedSnapshot.eligibleSongCount,
+               hasCloudEligibleSources: preparedSnapshot.hasCloudEligibleSources,
+               serverHasLibraryPayload: serverHasLibraryPayload
+           ) {
+            // 显式上传可能在上面那次读取之后才加入并把归属升级。重读一次:
+            // 已经变成用户发起的推送就照常上传,不能把自动护栏的拒绝还给他。
+            effectiveOwner = await fullUploadSingleFlight.currentOwner() ?? owner
+            if effectiveOwner == .automatic {
+                parkRefusedAutomaticUpload(
+                    fingerprint: uploadedFingerprint,
+                    reason: "server snapshot fetch"
+                )
+                return .failure(.snapshotPreparationFailed)
+            }
+        }
 
         // Work on the fetched record (and its change tag) instead of deleting
         // the last known-good snapshot first. Explicitly clear both alternate
@@ -384,6 +454,25 @@ final class LibrarySnapshotSync: Sendable {
 
         var outcome = await saveChangedRecord(record, in: database)
         if case .conflict(let serverRecord) = outcome {
+            // The conflict carries the authoritative server state, which is the
+            // only evidence available when the fetch above failed for a reason
+            // other than "no record yet". Re-run the same guard before rebasing.
+            if effectiveOwner == .automatic,
+               !LibrarySnapshotUploadPolicy.automaticUploadAllowed(
+                   eligibleSongCount: preparedSnapshot.eligibleSongCount,
+                   hasCloudEligibleSources: preparedSnapshot.hasCloudEligibleSources,
+                   serverHasLibraryPayload: serverRecord["libraryGz"] != nil
+                       || serverRecord["library"] != nil
+               ) {
+                effectiveOwner = await fullUploadSingleFlight.currentOwner() ?? owner
+                if effectiveOwner == .automatic {
+                    parkRefusedAutomaticUpload(
+                        fingerprint: uploadedFingerprint,
+                        reason: "conflict rebase"
+                    )
+                    return .failure(.snapshotPreparationFailed)
+                }
+            }
             // Another device changed the singleton after our fetch. Rebase the
             // complete local snapshot fields onto its current change tag and
             // retry once, preserving any future/unknown server fields.
@@ -1956,11 +2045,99 @@ final class LibrarySnapshotSync: Sendable {
         return nil
     }
 
+    /// tvOS 安装的对外入口:读基线 → 纯计算 → 事务落盘。三段都留了单独的入口,
+    /// 让调用方(TVStore)可以把中间那段挪到主 actor 之外算,而把读基线和落盘
+    /// 留在主 actor 上,这里保持同步语义不变。
     func installTVPayload(_ payload: LANSyncPayload, credentialReference: Data?,
                           fromCloud: Bool = false, preservingSongs: [Song] = [],
                           localSources: [MusicSource]? = nil,
                           destinationDirectory: URL? = nil,
                           fileWriter: (Data, URL) throws -> Void = { try $0.write(to: $1, options: .atomic) }) -> Bool {
+        guard let baseline = readTVPayloadInstallBaseline(localSources: localSources,
+                                                          destinationDirectory: destinationDirectory),
+              let files = prepareTVPayloadInstall(
+                  payload, credentialReference: credentialReference, fromCloud: fromCloud,
+                  preservingSongs: preservingSongs, localSources: localSources,
+                  existingLibraryData: baseline.existingLibraryData,
+                  existingSourcesData: baseline.existingSourcesData,
+                  destinationDirectory: destinationDirectory
+              ) else { return false }
+        return applyTVPayloadInstall(files, destinationDirectory: destinationDirectory,
+                                     fileWriter: fileWriter)
+    }
+
+    /// 安装要合并的两份基线字节,外加读它们时 `library-cache.json` 的身份。
+    struct TVPayloadInstallBaseline: Sendable {
+        let existingLibraryData: Data?
+        let existingSourcesData: Data?
+        let libraryIdentity: SnapshotFileIdentity?
+        let sourcesIdentity: SnapshotFileIdentity?
+    }
+
+    private static func snapshotFileIdentity(at url: URL) -> SnapshotFileIdentity? {
+        fileIdentity(at: url).map {
+            SnapshotFileIdentity(size: $0.size,
+                                 modificationNanoseconds: $0.modificationNanoseconds,
+                                 fileNumber: $0.fileNumber)
+        }
+    }
+
+    /// 读取安装要合并的本地基线。快照目录归 `LibrarySnapshotSync` 自己管,所以
+    /// 想把合并挪出主 actor 的调用方从这里取基线。身份先于字节取:两者之间落进
+    /// 一次写入时,身份会比字节旧,`SnapshotBaselineGate` 在落盘前就会判定失效
+    /// 而不是放过一次基于旧字节的合并。
+    nonisolated func readTVPayloadInstallBaseline(
+        localSources: [MusicSource]? = nil,
+        destinationDirectory: URL? = nil
+    ) -> TVPayloadInstallBaseline? {
+        do {
+            let root = destinationDirectory ?? directory
+            let sourceDestination = root.appendingPathComponent("sources.json")
+            let libraryDestination = root.appendingPathComponent("library-cache.json")
+            let identity = Self.snapshotFileIdentity(at: libraryDestination)
+            let sourcesIdentity = Self.snapshotFileIdentity(at: sourceDestination)
+            var sourcesData: Data?
+            if localSources == nil, FileManager.default.fileExists(atPath: sourceDestination.path) {
+                sourcesData = try Data(contentsOf: sourceDestination)
+            }
+            var libraryData: Data?
+            if FileManager.default.fileExists(atPath: libraryDestination.path) {
+                libraryData = try Data(contentsOf: libraryDestination)
+            }
+            return TVPayloadInstallBaseline(existingLibraryData: libraryData,
+                                            existingSourcesData: sourcesData,
+                                            libraryIdentity: identity,
+                                            sourcesIdentity: sourcesIdentity)
+        } catch {
+            plog("TV snapshot transaction failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// `library-cache.json` 此刻的身份,用来和安装开始时抓的那份比对。
+    nonisolated func currentTVLibraryIdentity(destinationDirectory: URL? = nil) -> SnapshotFileIdentity? {
+        Self.snapshotFileIdentity(at: (destinationDirectory ?? directory)
+            .appendingPathComponent("library-cache.json"))
+    }
+
+    /// `sources.json` 此刻的身份。事务同样会用安装开始前抓的那份音乐源快照
+    /// 覆盖这个文件,所以它和曲库缓存一样要参与失效判定 —— 否则期间 SourcesStore
+    /// 的一次持久化会被悄悄回退。
+    nonisolated func currentTVSourcesIdentity(destinationDirectory: URL? = nil) -> SnapshotFileIdentity? {
+        Self.snapshotFileIdentity(at: (destinationDirectory ?? directory)
+            .appendingPathComponent("sources.json"))
+    }
+
+    /// 安装里的纯计算部分:解压、校验、与基线合并、挑行、重新编码,算出事务要写
+    /// 的每个文件的内容。不读盘、不碰共享状态,可以整段放到主 actor 之外算。
+    nonisolated func prepareTVPayloadInstall(
+        _ payload: LANSyncPayload, credentialReference: Data?,
+        fromCloud: Bool = false, preservingSongs: [Song] = [],
+        localSources: [MusicSource]? = nil,
+        existingLibraryData: Data? = nil,
+        existingSourcesData: Data? = nil,
+        destinationDirectory: URL? = nil
+    ) -> [URL: Data]? {
         do {
             let root = destinationDirectory ?? directory
             let sourceDestination = root.appendingPathComponent("sources.json")
@@ -1971,38 +2148,43 @@ final class LibrarySnapshotSync: Sendable {
                 let encoder = JSONEncoder()
                 encoder.dateEncodingStrategy = .iso8601
                 localSourceData = try encoder.encode(localSources)
-            } else if FileManager.default.fileExists(atPath: sourceDestination.path) {
-                let data = try Data(contentsOf: sourceDestination)
-                _ = try decoder.decode([MusicSource].self, from: data)
-                localSourceData = data
+            } else if let existingSourcesData {
+                _ = try decoder.decode([MusicSource].self, from: existingSourcesData)
+                localSourceData = existingSourcesData
             } else { localSourceData = nil }
             guard let libraryGz = payload.libraryGz, let sourcesGz = payload.sourcesGz,
                   var libraryData = Self.gunzip(libraryGz),
                   MusicLibrary.isValidSnapshotData(libraryData),
                   let sourceData = Self.gunzip(sourcesGz, maxOutputBytes: Self.maxSourcesRawBytes),
                   let merged = mergeSourcesJSON(localData: localSourceData,
-                                                incomingData: sourceData) else { return false }
-            let libraryDestination = root.appendingPathComponent("library-cache.json")
-            if FileManager.default.fileExists(atPath: libraryDestination.path) {
+                                                incomingData: sourceData) else { return nil }
+            if let existingLibraryData {
                 let originalRows = try JSONSerialization.jsonObject(with: libraryData) as? [String: Any]
                 let incomingIDs = Set((originalRows?["songs"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String })
                 libraryData = try MusicLibrary.mergingSnapshotUserState(
-                    localData: Data(contentsOf: libraryDestination), incomingData: libraryData,
+                    localData: existingLibraryData, incomingData: libraryData,
                     locallyRetainedSongIDs: Set(preservingSongs.map(\.id)).subtracting(incomingIDs)
                 )
             }
             let sourceIDs = Set(try decoder.decode([MusicSource].self, from: merged.data).map(\.id))
             guard var object = try JSONSerialization.jsonObject(with: libraryData) as? [String: Any],
-                  let rows = object["songs"] as? [[String: Any]] else { return false }
-            let knownRows = rows.filter { ($0["sourceID"] as? String).map(sourceIDs.contains) == true }
-            guard fromCloud || knownRows.count == rows.count else { return false }
-            if !preservingSongs.isEmpty || knownRows.count != rows.count {
-                let incomingIDs = Set(knownRows.compactMap { $0["id"] as? String })
-                let retained = preservingSongs.filter { !incomingIDs.contains($0.id) && sourceIDs.contains($0.sourceID) }
+                  let rows = object["songs"] as? [[String: Any]] else { return nil }
+            guard let selection = TVSnapshotRowSelection.select(
+                incomingRows: rows.map {
+                    TVSnapshotIncomingRow(id: $0["id"] as? String, sourceID: $0["sourceID"] as? String)
+                },
+                knownSourceIDs: sourceIDs,
+                retainedSongIDs: preservingSongs.map {
+                    TVSnapshotLocalSong(id: $0.id, sourceID: $0.sourceID)
+                },
+                fromCloud: fromCloud
+            ) else { return nil }
+            if selection.requiresRewrite {
+                let retained = selection.retainedLocalIndices.map { preservingSongs[$0] }
                 let encoder = JSONEncoder()
                 encoder.dateEncodingStrategy = .iso8601
                 let retainedRows = try JSONSerialization.jsonObject(with: encoder.encode(retained)) as? [[String: Any]] ?? []
-                object["songs"] = knownRows + retainedRows
+                object["songs"] = selection.keptIncomingIndices.map { rows[$0] } + retainedRows
                 libraryData = try JSONSerialization.data(withJSONObject: object, options: .sortedKeys)
             }
             var files: [URL: Data] = [root.appendingPathComponent("library-cache.json"): libraryData,
@@ -2013,11 +2195,11 @@ final class LibrarySnapshotSync: Sendable {
             }
             if let gz = payload.radioStationsGz {
                 guard let raw = Self.gunzip(gz, maxOutputBytes: Self.maxRadioStationsRawBytes),
-                      Self.radioStations(from: raw) != nil else { return false }
+                      Self.radioStations(from: raw) != nil else { return nil }
                 files[root.appendingPathComponent("radio-stations.json")] = raw
             }
             if let gz = payload.lyricsGz {
-                guard let raw = Self.gunzip(gz, maxOutputBytes: Self.maxLyricsBlobRawBytes) else { return false }
+                guard let raw = Self.gunzip(gz, maxOutputBytes: Self.maxLyricsBlobRawBytes) else { return nil }
                 let lyrics = try JSONDecoder().decode([String: String].self, from: raw)
                 for (name, encoded) in lyrics {
                     guard Self.isSafeLyricsFileName(name),
@@ -2025,10 +2207,25 @@ final class LibrarySnapshotSync: Sendable {
                                                               ?? MetadataAssetStore.shared.lyricsDirectoryURL,
                                                               fileName: name),
                           let bytes = Data(base64Encoded: encoded),
-                          bytes.count <= Self.maxSingleLyricsFileBytes else { return false }
+                          bytes.count <= Self.maxSingleLyricsFileBytes else { return nil }
                     files[destination] = bytes
                 }
             }
+            return files
+        } catch {
+            plog("TV snapshot transaction failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// 把算好的文件内容一次性事务落盘。与准备步骤分开,是为了让这一步留在持有
+    /// 曲库持久化的那个 actor 上,不与 MusicLibrary 的写盘交叉。
+    nonisolated func applyTVPayloadInstall(
+        _ files: [URL: Data], destinationDirectory: URL? = nil,
+        fileWriter: (Data, URL) throws -> Void = { try $0.write(to: $1, options: .atomic) }
+    ) -> Bool {
+        do {
+            let root = destinationDirectory ?? directory
             try SnapshotFileTransaction(directory: root.appendingPathComponent("snapshot-transaction"))
                 .apply(files, writer: fileWriter)
             return true

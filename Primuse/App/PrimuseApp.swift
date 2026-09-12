@@ -117,6 +117,7 @@ private enum BackgroundScanResumeTask {
         processingSession: UUID
     ) -> BackgroundProcessingDrain.Dependencies {
         BackgroundProcessingDrain.Dependencies(
+            waitForLibraryReady: { await AppServices.shared.musicLibrary.whenReady() },
             isPlaybackActive: { AppServices.shared.playerService.isPlaybackActive },
             isApplicationActive: { LiveApplicationState.isActive },
             hasResumableScanWork: { AppServices.shared.scanService.hasResumableScanWork },
@@ -749,6 +750,10 @@ protocol BackgroundTaskCompleting: AnyObject, Sendable {
 @MainActor
 final class BackgroundProcessingDrain {
     struct Dependencies: Sendable {
+        /// Stage 2: the library is loaded off the main actor and published
+        /// once. Every dependency below reads or mutates it, so the drain
+        /// waits for publication before it decides there is nothing to do.
+        var waitForLibraryReady: @MainActor @Sendable () async -> Void = {}
         var isPlaybackActive: @MainActor @Sendable () -> Bool = { false }
         var isApplicationActive: @MainActor @Sendable () -> Bool = { false }
         var hasResumableScanWork: @MainActor @Sendable () -> Bool = { false }
@@ -789,6 +794,7 @@ final class BackgroundProcessingDrain {
     }
 
     func run() async {
+        await dependencies.waitForLibraryReady()
         guard !completion.isCompleted else { return }
         if dependencies.isPlaybackActive() {
             await drainDuringPlayback()
@@ -1431,10 +1437,27 @@ struct PrimuseApp: App {
                 }
                 #endif
                 .task {
+                    // Stage 2b: 只是把已经构造好的服务挂到 AppDelegate 上。
+                    // CloudKit 静默推送在资料库发布之前就可能到达, 那时
+                    // `Self.sync` 还是 nil 的话这次推送就白丢了, 所以这一行
+                    // 必须排在所有等待之前。
+                    PrimuseAppDelegate.sync = cloudSync
                     // Let SwiftUI commit and accept input before restoring a
                     // potentially 10K+ queue or starting network maintenance.
                     try? await Task.sleep(for: .milliseconds(350))
                     guard !Task.isCancelled else { return }
+                    // Stage 2b: DLNA 渲染器只起 HTTP/SSDP 与播放器观察, 不读
+                    // 资料库, 没有理由排在库发布之后。
+                    if dlnaRendererEnabled {
+                        // keepAlive 开关由 @AppStorage("dlna.keepAlive") 持久;重启后
+                        // renderer.keepAliveInBackground 默认是 false,必须在这里回读
+                        // 应用,否则后台保活设置重启后静默失效。start() 内部的
+                        // syncKeepAliveState 会兜底调度,set 顺序不敏感。
+                        dlnaRenderer.setKeepAliveInBackground(
+                            UserDefaults.standard.bool(forKey: "dlna.keepAlive")
+                        )
+                        dlnaRenderer.start()
+                    }
                     await AppServices.shared.completeDeferredStartup()
                     // This task keeps the `scenePhase` copy captured when the
                     // scene was first built, which can still be `.inactive`
@@ -1446,7 +1469,6 @@ struct PrimuseApp: App {
                     audioCacheSync.setApplicationActive(!LiveApplicationState.isBackground)
                     #endif
 
-                    PrimuseAppDelegate.sync = cloudSync
                     // Apple Watch 桥 ── 启动 WCSession, 1Hz 推 Now Playing
                     // 状态到 Watch, 接收 Watch 端的播控指令。
                     // macOS 上 WatchConnectivity 不可用, attach 内部已做
@@ -1458,17 +1480,11 @@ struct PrimuseApp: App {
                         theme: themeService
                     )
                     #endif
+                    // iCloud 同步留在发布之后: `CloudKitSyncService.start()` 首装
+                    // 时会走 `scheduleInitialUpload()`, 那一步直接读
+                    // `library.allPlaylists` / `allSmartPlaylists` / 封面覆盖, 空库
+                    // 上传完还会把 `didCompleteInitialUpload` 永久置真。
                     if iCloudSyncEnabled { await cloudSync.start() }
-                    if dlnaRendererEnabled {
-                        // keepAlive 开关由 @AppStorage("dlna.keepAlive") 持久;重启后
-                        // renderer.keepAliveInBackground 默认是 false,必须在这里回读
-                        // 应用,否则后台保活设置重启后静默失效。start() 内部的
-                        // syncKeepAliveState 会兜底调度,set 顺序不敏感。
-                        dlnaRenderer.setKeepAliveInBackground(
-                            UserDefaults.standard.bool(forKey: "dlna.keepAlive")
-                        )
-                        dlnaRenderer.start()
-                    }
                     // macOS can refresh MusicKit while its window is active.
                     // On iOS a full request is reserved for explicit source
                     // sync or the playback cache-miss path, so launch never
@@ -1540,48 +1556,41 @@ struct PrimuseApp: App {
                     // (绝大多数预热的歌不会被听), 所以砍掉。play(song:)
                     // 路径里的 cacheInBackground 会按需 prewarm 用户实际
                     // 点的歌, 行为退化为「点啥热啥」, 总体盘可控。
+                    // 预热本身交给 SourceManager 持有: 它和播放器的 prefetch
+                    // 共用同一张单飞表, 取消自动缓存 / 切歌都能真正停下来。
                     Task.detached(priority: .background) {
                         try? await Task.sleep(for: .seconds(1))
                         guard !Task.isCancelled else { return }
-                        // 1. currentSong (resume): 优先级最高,提到 .userInitiated
-                        //    用户立刻按 play 时大概率就是这首
-                        let resumeSong = await MainActor.run { playerService.currentSong }
-                        if let song = resumeSong {
-                            await Task.detached(priority: .userInitiated) {
-                                await sourceManager.prewarmCloudSongPublic(song: song)
-                            }.value
-                        }
+                        await MainActor.run {
+                            // 1. currentSong (resume): 排在最前, 用户立刻按 play
+                            //    时大概率就是这首。
+                            var songs: [Song] = []
+                            let resumeSong = playerService.currentSong
+                            if let resumeSong { songs.append(resumeSong) }
 
-                        // 2. queue 接下来的歌: 已经摆好播放队列时,继续往后跑很可能
-                        // 只投影实际需要的几首，避免恢复超大队列后一秒在 main actor
-                        // 物化完整 [Song]，与 Watch 队列摘要形成第二个延迟卡顿点。
-                        let resumeID = resumeSong?.id
-                        let queueOrder = await MainActor.run {
+                            // 2. queue 接下来的歌: 已经摆好播放队列时,继续往后跑很可能
+                            // 只投影实际需要的几首，避免恢复超大队列后一秒在 main actor
+                            // 物化完整 [Song]，与 Watch 队列摘要形成第二个延迟卡顿点。
                             let requested = max(
                                 0,
                                 playerService.playbackSettings.prewarmQueueCount
                             )
-                            guard requested > 0 else { return [Song]() }
-
-                            var songs: [Song] = []
-                            songs.reserveCapacity(requested)
-                            let inspectionLimit = min(
-                                playerService.queueCount,
-                                max(16, requested * 4)
-                            )
-                            for index in 0..<inspectionLimit {
-                                guard songs.count < requested else { break }
-                                guard let song = playerService.queuedSong(at: index),
-                                      song.id != resumeID else { continue }
-                                songs.append(song)
+                            if requested > 0 {
+                                songs.reserveCapacity(songs.count + requested)
+                                let inspectionLimit = min(
+                                    playerService.queueCount,
+                                    max(16, requested * 4)
+                                )
+                                var appended = 0
+                                for index in 0..<inspectionLimit {
+                                    guard appended < requested else { break }
+                                    guard let song = playerService.queuedSong(at: index),
+                                          song.id != resumeSong?.id else { continue }
+                                    songs.append(song)
+                                    appended += 1
+                                }
                             }
-                            return songs
-                        }
-                        for song in queueOrder {
-                            if Task.isCancelled { return }
-                            let done = await MainActor.run { sourceManager.isPrewarmed(song: song) }
-                            if done { continue }
-                            await sourceManager.prewarmCloudSongPublic(song: song)
+                            sourceManager.prewarmStartupQueue(songs)
                         }
                     }
                 }
@@ -1684,8 +1693,19 @@ struct PrimuseApp: App {
                         musicLibrary.beginSceneTransitionQuiescence()
                         scraperService.pauseForSceneTransition()
                         scanService.pauseFolderTopologyRebuildScheduling()
-                        scanService.cancelAllActiveScans()
-                        metadataBackfill.stop(preservingContinuation: true)
+                        // Control Center, an incoming call, a Face ID prompt and
+                        // every return from the background all raise `.inactive`.
+                        // Arm the scan cancellation instead of running it: it
+                        // fires on the real `.background` below, and `.active`
+                        // disarms it. Every other quiesce call above is
+                        // unchanged. Backfill takes the same transition through
+                        // its own policy — a cancelled worker throws away the
+                        // bytes of every read that finished just before the flip.
+                        scanService.sceneTransitionPhaseChanged(.inactive)
+                        metadataBackfill.applySceneTransition(
+                            phase: .inactive,
+                            isPlaybackActive: playerService.isPlaybackActive
+                        )
                         playerService.handleAppWillResignActive()
                         #else
                         // Window focus changes map to inactive on macOS and are
@@ -1694,9 +1714,33 @@ struct PrimuseApp: App {
                         playerService.handleAppWillResignActive()
                         musicLibrary.persistNow()
                         #endif
+                        // Every platform: a coalesced source counter must not
+                        // wait out its window once the scene is leaving.
+                        sourcesStore.flushCoalescedPersist()
 
                     case .background:
+                        // Every platform: flush the coalesced source counters
+                        // before the scene is gone.
+                        sourcesStore.flushCoalescedPersist()
                         #if os(iOS)
+                        // Only iOS suspends the process, and it can do so while
+                        // a cancelled scan task is still unwinding — so from
+                        // here coalesced counters write straight through. Set
+                        // before the cancel so a counter published during that
+                        // unwind is covered too. macOS keeps coalescing: a
+                        // hidden Mac app keeps running and is never suspended.
+                        sourcesStore.setSceneBackgrounded(true)
+                        // The scene really is leaving: close the `.inactive`
+                        // debounce window synchronously, before anything
+                        // suspension-related, so every checkpoint and the
+                        // coalesced source counters are durable by the time iOS
+                        // can suspend us. This is exactly the cancellation
+                        // `.inactive` used to run unconditionally.
+                        scanService.sceneTransitionPhaseChanged(.background)
+                        metadataBackfill.applySceneTransition(
+                            phase: .background,
+                            isPlaybackActive: playerService.isPlaybackActive
+                        )
                         metadataBackfill.setExecutionMode(
                             playerService.isPlaybackActive
                                 ? .backgroundDuringPlayback
@@ -1737,7 +1781,14 @@ struct PrimuseApp: App {
                                 // for the foreground. Scraping, Spotlight and
                                 // lyrics stay postponed as before.
                                 scanService.setBackgroundPlaybackActive(true)
-                                if scanService.hasResumableScanWork {
+                                // Stage 2: 续扫要等库发布, 否则合并进的是空模型。
+                                musicLibrary.onReady {
+                                    guard scanService.hasResumableScanWork else { return }
+                                    // #99: 后台音频让窗口无限, 这个守卫在这条腿
+                                    // 上永远放行 —— 播放绝不能把扫描停掉。
+                                    guard scanService.shouldResumeInCurrentBackgroundWindow(
+                                        isBackgroundPlaybackActive: playerService.isPlaybackActive
+                                    ) else { return }
                                     scanService.resumePendingScans(
                                         context: .background,
                                         sourceManager: sourceManager,
@@ -1766,7 +1817,15 @@ struct PrimuseApp: App {
                                 library: musicLibrary
                             )
                             AppServices.shared.resumePendingLocalImportScanIfNeeded()
-                            if scanService.hasResumableScanWork {
+                            // Stage 2: 同上, 续扫推迟到发布之后。
+                            musicLibrary.onReady {
+                                guard scanService.hasResumableScanWork else { return }
+                                // 没有音频时窗口只有几十秒。连预检都装不下、而且
+                                // 上面已经排好了 BGProcessing 唤醒, 就把这轮让给
+                                // 那次唤醒, 别只花窗口做开销。没排上唤醒则照常续扫。
+                                guard scanService.shouldResumeInCurrentBackgroundWindow(
+                                    isBackgroundPlaybackActive: playerService.isPlaybackActive
+                                ) else { return }
                                 scanService.resumePendingScans(
                                     context: .background,
                                     sourceManager: sourceManager,
@@ -1775,7 +1834,12 @@ struct PrimuseApp: App {
                                     scraperService: scraperService
                                 )
                             }
-                            if scraperService.hasPendingBackgroundContinuation {
+                            // Stage 2b: 与上面的续扫同理 —— 续刮读的是
+                            // `visibleSongs`, 就绪之前进去会把上一轮的检查点当成
+                            // "歌一首都不在了"清掉。服务入口也有同样的守卫, 这里
+                            // 与相邻的续扫保持一致的写法。
+                            musicLibrary.onReady {
+                                guard scraperService.hasPendingBackgroundContinuation else { return }
                                 scraperService.resumeBackgroundContinuation(in: musicLibrary)
                             }
                             if metadataBackfill.hasPendingWork {
@@ -1806,12 +1870,21 @@ struct PrimuseApp: App {
 
                     case .active:
                         #if os(iOS)
+                        sourcesStore.setSceneBackgrounded(false)
                         musicLibrary.endSceneTransitionQuiescence()
                         LifecycleSnapshotUploadCoordinator.shared.cancelScheduledUpload()
                         BackgroundLibraryMaintenanceCoordinator.shared.cancel()
                         AppServices.shared.spotlightIndex.suspendSynchronization()
                         AppServices.shared.lyricsTextBackfill.stop()
-                        metadataBackfill.stop(preservingContinuation: true)
+                        // The scene never really left: re-admit readers into the
+                        // same worker and queue instead of cancelling them. The
+                        // resume chain below is unchanged; a worker the
+                        // background settle started is re-scoped by
+                        // `resumeAutomaticForegroundIfNeeded()` before it starts.
+                        metadataBackfill.applySceneTransition(
+                            phase: .active,
+                            isPlaybackActive: playerService.isPlaybackActive
+                        )
                         if !metadataBackfill.resumeUserInitiatedIfNeeded(),
                            !metadataBackfill.resumeAutomaticForegroundIfNeeded() {
                             metadataBackfill.setExecutionMode(.standard)
@@ -1821,13 +1894,22 @@ struct PrimuseApp: App {
                         // Back in the foreground: full scan cadence and the
                         // normal assertion policy apply again.
                         scanService.setBackgroundPlaybackActive(false)
-                        scanService.resumePendingScans(
-                            context: .foregroundResume,
-                            sourceManager: sourceManager,
-                            library: musicLibrary,
-                            sourceStore: sourcesStore,
-                            scraperService: scraperService
-                        )
+                        // A Control Center / call / Face ID flip ends here: the
+                        // armed cancellation is dropped and the scans that were
+                        // running keep running.
+                        scanService.sceneTransitionPhaseChanged(.active)
+                        // Stage 2: 续扫会往库里合并行。就绪前进去只会看到空
+                        // 模型, 所以推迟到发布之后 (已就绪时 onReady 立即执行,
+                        // 行为与历史版本一致)。
+                        musicLibrary.onReady {
+                            scanService.resumePendingScans(
+                                context: .foregroundResume,
+                                sourceManager: sourceManager,
+                                library: musicLibrary,
+                                sourceStore: sourcesStore,
+                                scraperService: scraperService
+                            )
+                        }
                         scanService.scheduleBackgroundResumeIfNeeded(
                             backfillPending: metadataBackfill.hasPendingWork,
                             backfillRequiresNetworkConnectivity: metadataBackfill.backgroundWakeRequiresNetworkConnectivityFromCachedCounts,
@@ -1845,12 +1927,15 @@ struct PrimuseApp: App {
                         )
                         AppServices.shared.resumePendingLocalImportScanIfNeeded()
                         #endif
-                        scanService.startFolderTopologyRebuildsIfNeeded(
-                            sourceManager: sourceManager,
-                            library: musicLibrary,
-                            sourceStore: sourcesStore,
-                            scraperService: scraperService
-                        )
+                        // 同上: 目录拓扑重建同样以库为输入。
+                        musicLibrary.onReady {
+                            scanService.startFolderTopologyRebuildsIfNeeded(
+                                sourceManager: sourceManager,
+                                library: musicLibrary,
+                                sourceStore: sourcesStore,
+                                scraperService: scraperService
+                            )
+                        }
                         playerService.handleAppDidBecomeActive()
                         Task { await appleMusicLibrary.refreshAfterAccountChange() }
                         Task { await updateChecker.checkForUpdate() }
@@ -1879,7 +1964,11 @@ struct PrimuseApp: App {
                         // Playback postpones maintenance, but the pending scene
                         // settlement must still release publications and persist.
                         BackgroundLibraryMaintenanceCoordinator.shared.cancelMaintenance()
-                        if scanService.hasResumableScanWork, !scanService.hasActiveScans {
+                        // Stage 2: 远程播控可能在冷启动还没发布时就到, 续扫
+                        // 同样要等发布。
+                        musicLibrary.onReady {
+                            guard scanService.hasResumableScanWork,
+                                  !scanService.hasActiveScans else { return }
                             scanService.resumePendingScans(
                                 context: .background,
                                 sourceManager: sourceManager,

@@ -19,9 +19,70 @@ private final class ConverterInputBuffer: @unchecked Sendable {
     }
 }
 
+/// Carries the InputSource — and the decoder opened on top of it — across the
+/// hop onto the decode session's blocking lane. Both live entirely inside one
+/// session: the lane creates, uses and closes the decoder, and the async pump
+/// only reads its frame position between two awaited lane operations, so no
+/// two threads ever touch either value at the same time.
 private final class InputSourceBox: @unchecked Sendable {
     let value: InputSource
+    var decoder: (any SFBAudioEngine.PCMDecoding)?
     init(_ value: InputSource) { self.value = value }
+}
+
+/// Per-session serial lane for SFBAudioEngine's synchronous InputSource calls.
+///
+/// `decode(from inputSource:)` is nonisolated, so its `Task` runs on the
+/// default cooperative executor. SFB then serves every byte read through
+/// `CloudPlaybackSource.serve`, which parks the calling thread on a semaphore
+/// until the asynchronous range fetch returns. Doing that on the cooperative
+/// pool takes a thread away from the very fetch it is waiting for, so the
+/// blocking SFB calls hop onto a dedicated queue instead — the same shape
+/// `MusicVideoStreamingLoader` and `FFmpegAudioDecoder` already use. One lane
+/// per session, so the current pump, gapless and crossfade preparation never
+/// serialize against each other.
+private struct SFBInputSourceDecodeLane: Sendable {
+    let queue: DispatchQueue
+    let source: InputSourceBox
+
+    init(source: InputSourceBox) {
+        self.source = source
+        queue = DispatchQueue(
+            label: "com.welape.primuse.sfb-input-decode",
+            qos: .userInitiated
+        )
+    }
+
+    func perform<Value: Sendable>(
+        _ operation: @escaping @Sendable (InputSourceBox) throws -> Value
+    ) async throws -> Value {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async { [source] in
+                continuation.resume(with: Result { try operation(source) })
+            }
+        }
+    }
+
+    func decodeChunk(
+        into buffer: AVAudioPCMBuffer,
+        length: AVAudioFrameCount
+    ) async throws {
+        try await perform { box in
+            guard let decoder = box.decoder else {
+                throw AudioDecoderError.decodingFailed("Native input source closed")
+            }
+            try decoder.decode(into: buffer, length: length)
+        }
+    }
+
+    func closeDecoder() async {
+        _ = try? await perform { box in
+            if let decoder = box.decoder {
+                try? decoder.close()
+            }
+            box.decoder = nil
+        }
+    }
 }
 
 final class NativeAudioDecoder: PrimuseAudioDecoder {
@@ -100,28 +161,80 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         // safe to hand off across one Task boundary — the decoder owns
         // it from then on. Box it to silence the strict-concurrency check.
         let inputBox = InputSourceBox(inputSource)
+        // Reads served by a synchronous bridge over an asynchronous fetch
+        // must not park a cooperative-pool thread; give them their own lane.
+        let lane = AudioDecodeBlockingLanePolicy.requiresDedicatedBlockingLane(
+            sourceKind: Self.decodeSourceKind(of: inputSource)
+        ) ? SFBInputSourceDecodeLane(source: inputBox) : nil
         return AudioBufferStreamFactory.make { continuation in
             let task = Task {
                 do {
-                    let prepared = try self.prepareDecoder(
-                        startingAt: startTime,
-                        reopenAfterFailedSeek: false,
-                        allowDecodeAndDiscardFallback: false
-                    ) {
-                        try Self.makeSafeDecoder(inputSource: inputBox.value)
+                    let decoder: any SFBAudioEngine.PCMDecoding
+                    let framesToDiscard: AVAudioFramePosition
+                    if let lane {
+                        framesToDiscard = try await self.openDecoder(
+                            on: lane,
+                            startingAt: startTime
+                        )
+                        guard let opened = inputBox.decoder else {
+                            throw AudioDecoderError.decodingFailed("Native input source closed")
+                        }
+                        decoder = opened
+                    } else {
+                        let prepared = try self.prepareDecoder(
+                            startingAt: startTime,
+                            reopenAfterFailedSeek: false,
+                            allowDecodeAndDiscardFallback: false
+                        ) {
+                            try Self.makeSafeDecoder(inputSource: inputBox.value)
+                        }
+                        decoder = prepared.decoder
+                        framesToDiscard = prepared.framesToDiscard
                     }
                     try await self.runDecode(
-                        decoder: prepared.decoder,
+                        decoder: decoder,
                         outputFormat: outputFormat,
-                        framesToDiscard: prepared.framesToDiscard,
+                        framesToDiscard: framesToDiscard,
                         continuation: continuation,
-                        onResolveSourceLength: onResolveSourceLength
+                        onResolveSourceLength: onResolveSourceLength,
+                        blockingLane: lane
                     )
                 } catch {
                     continuation.finish(throwing: error)
                 }
             }
             continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// Opens the session's decoder on its blocking lane. Only the Sendable
+    /// discard count crosses back; the decoder itself stays in the box the
+    /// lane owns.
+    private func openDecoder(
+        on lane: SFBInputSourceDecodeLane,
+        startingAt startTime: TimeInterval?
+    ) async throws -> AVAudioFramePosition {
+        try await lane.perform { box in
+            let prepared = try self.prepareDecoder(
+                startingAt: startTime,
+                reopenAfterFailedSeek: false,
+                allowDecodeAndDiscardFallback: false
+            ) {
+                try Self.makeSafeDecoder(inputSource: box.value)
+            }
+            box.decoder = prepared.decoder
+            return prepared.framesToDiscard
+        }
+    }
+
+    private static func decodeSourceKind(of inputSource: InputSource) -> AudioDecodeSourceKind {
+        guard let url = inputSource.url else { return .cloudInputSource }
+        if url.isFileURL { return .localFileURL }
+        switch url.scheme {
+        case "http", "https", "primuse-http":
+            return .httpInputSource
+        default:
+            return .cloudInputSource
         }
     }
 
@@ -237,12 +350,17 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
 
     /// Shared decode loop. Reads PCM from the open `decoder`, converts to
     /// `outputFormat` if needed, yields buffers via the continuation.
+    /// `blockingLane` is non-nil only for InputSource-backed sessions, whose
+    /// reads block; every other part of the loop stays on the caller's
+    /// executor either way. Frame positions are read between two awaited lane
+    /// operations, never while one is in flight.
     private func runDecode(
         decoder: any SFBAudioEngine.PCMDecoding,
         outputFormat: AVAudioFormat,
         framesToDiscard initialFramesToDiscard: AVAudioFramePosition = 0,
         continuation: AudioBufferStream.Continuation,
-        onResolveSourceLength: (@Sendable (TimeInterval) -> Void)? = nil
+        onResolveSourceLength: (@Sendable (TimeInterval) -> Void)? = nil,
+        blockingLane: SFBInputSourceDecodeLane? = nil
     ) async throws {
         let sourceFormat = decoder.processingFormat
         let totalFrames = decoder.length
@@ -277,7 +395,11 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                     return
                 }
                 let positionBefore = decoder.position
-                try decoder.decode(into: buffer, length: framesToRead)
+                if let blockingLane {
+                    try await blockingLane.decodeChunk(into: buffer, length: framesToRead)
+                } else {
+                    try decoder.decode(into: buffer, length: framesToRead)
+                }
                 if buffer.frameLength > 0 {
                     stallNanos = 0
                     if framesToDiscard > 0 {
@@ -335,7 +457,11 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                     return
                 }
                 let positionBefore = decoder.position
-                try decoder.decode(into: inputBuffer, length: framesToRead)
+                if let blockingLane {
+                    try await blockingLane.decodeChunk(into: inputBuffer, length: framesToRead)
+                } else {
+                    try decoder.decode(into: inputBuffer, length: framesToRead)
+                }
                 if inputBuffer.frameLength == 0 {
                     if decoder.position > positionBefore {
                         stallNanos = 0
@@ -397,7 +523,11 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
             )
         }
 
-        try? decoder.close()
+        if let blockingLane {
+            await blockingLane.closeDecoder()
+        } else {
+            try? decoder.close()
+        }
         continuation.finish()
     }
 
@@ -568,6 +698,19 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         let format = decoder.processingFormat
         try? decoder.close()
         return format
+    }
+
+    /// Same probe, off the caller's executor. Opening a DSD decoder reads the
+    /// file header synchronously, which on a network mount or a Files
+    /// provider is a real I/O wait — the callers negotiating the output
+    /// pipeline are on the main actor.
+    nonisolated func dsdOutputFormatOffMain(
+        for url: URL,
+        mode: DSDPlaybackMode
+    ) async throws -> AVAudioFormat? {
+        try await Task.detached(priority: .userInitiated) {
+            try self.dsdOutputFormat(for: url, mode: mode)
+        }.value
     }
 
     func isDSD(_ url: URL) -> Bool {

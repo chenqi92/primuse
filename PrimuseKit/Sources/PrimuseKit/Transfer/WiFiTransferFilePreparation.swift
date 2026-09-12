@@ -85,6 +85,64 @@ public enum WiFiTransferFilePreparation {
             throw WiFiTransferError.notEnoughSpace
         }
     }
+
+    // MARK: - Off-main filesystem primitives
+
+    /// Staging a library selection touches the filesystem once per song and, on
+    /// teardown, unlinks a tree proportional to the staged bytes. Callers that
+    /// live on the main actor `await` these wrappers, so their revalidation
+    /// guards keep the exact order they have today while the syscalls run on a
+    /// utility thread.
+    ///
+    /// Cancellation is observed before the operation starts, so a cancelled
+    /// caller fails fast instead of extending the staging tree. `removeItem` is
+    /// deliberately exempt: it is the cleanup path, and a cancelled caller still
+    /// needs the partially staged folder gone before the tree is enumerated.
+    public static func createDirectory(at url: URL) async throws {
+        try await offMain {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+    }
+
+    public static func moveItem(at source: URL, to destination: URL) async throws {
+        try await offMain {
+            try FileManager.default.moveItem(at: source, to: destination)
+        }
+    }
+
+    public static func removeItem(at url: URL) async throws {
+        try await offMain(honoringCancellation: false) {
+            try FileManager.default.removeItem(at: url)
+        }
+    }
+
+    public static func checkSpaceAsync(at directory: URL, additionalBytes: Int64) async throws {
+        try await offMain {
+            try checkSpace(at: directory, additionalBytes: additionalBytes)
+        }
+    }
+
+    public static func write(_ data: Data, to url: URL, options: Data.WritingOptions = .atomic) async throws {
+        try await offMain {
+            try data.write(to: url, options: options)
+        }
+    }
+
+    /// The cancellation check happens here, before the worker exists: a
+    /// detached task does not inherit cancellation, so checking inside the
+    /// body would race `onCancel` and let an already-cancelled caller still
+    /// extend the staging tree. `honoringCancellation: false` is the cleanup
+    /// path, which must run to completion precisely when the caller was
+    /// cancelled.
+    private static func offMain(
+        honoringCancellation: Bool = true,
+        _ body: @escaping @Sendable () throws -> Void
+    ) async throws {
+        if honoringCancellation { try Task.checkCancellation() }
+        let worker = Task.detached(priority: .utility, operation: body)
+        guard honoringCancellation else { return try await worker.value }
+        try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
+    }
 }
 
 public struct WiFiTransferLibraryGroupID: Hashable, Sendable {

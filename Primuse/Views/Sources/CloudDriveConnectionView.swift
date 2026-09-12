@@ -627,7 +627,7 @@ struct CloudDriveConnectionView: View {
                 switch await tokenManager.lookupTokens() {
                 case .found:
                     do {
-                        await sourceManager.refreshConnector(for: source.id)
+                        await sourceManager.refreshConnector(for: source.id, force: true)
                         try await sourceManager.connector(for: source).connect()
                         await linkMountToCloudAccount()
                         try await prepareDirectoryBrowser()
@@ -720,7 +720,7 @@ struct CloudDriveConnectionView: View {
                     sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
                     throw error
                 }
-                await sourceManager.refreshConnector(for: source.id)
+                await sourceManager.refreshConnector(for: source.id, force: true)
                 let connector = sourceManager.connector(for: source)
                 try await connector.connect()
                 // Authentication alone does not prove that a restricted token
@@ -839,7 +839,7 @@ struct CloudDriveConnectionView: View {
                 }
 
                 // Refresh the connector so it picks up the new tokens
-                await sourceManager.refreshConnector(for: source.id)
+                await sourceManager.refreshConnector(for: source.id, force: true)
 
                 // Stage 4a: identify the upstream OAuth account and
                 // link this mount to a CloudAccount entity. Same

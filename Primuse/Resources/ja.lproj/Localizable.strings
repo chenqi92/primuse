@@ -574,6 +574,7 @@
 "playback_settings" = "再生設定";
 "audio_output" = "オーディオ出力";
 "library" = "ライブラリ";
+"library_preparing" = "ライブラリを準備しています…";
 "cache_size" = "キャッシュサイズ";
 "clear_cache" = "キャッシュを消去";
 "clear_cache_confirm" = "すべてのキャッシュファイルを消去しますか？";

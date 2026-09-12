@@ -1932,7 +1932,10 @@ struct RelaySettingsView: View {
         guard iCloudSyncEnabled else { return }   // iCloud 同步关闭时不上传(中继端点也无从下发)
         Task {
             if relayOn { _ = await waitForEndpoint() }
-            await LibrarySnapshotSync.shared.uploadNow()
+            // 这里推的是凭据包,不是用户主动要推曲库:必须按「自动」归属走,
+            // 空曲库护栏与场景切换取消才继续生效,否则刚装好还没扫描的设备
+            // 翻一下中继开关就能把账号快照覆盖成空曲库。
+            await LibrarySnapshotSync.shared.uploadNow(owner: .automatic)
         }
     }
 

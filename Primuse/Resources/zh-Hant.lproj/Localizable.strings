@@ -346,6 +346,7 @@
 "playback_settings" = "播放設定";
 "audio_output" = "音訊輸出";
 "library" = "資料庫";
+"library_preparing" = "正在準備資料庫…";
 "cache_size" = "快取大小";
 "clear_cache" = "清除快取";
 "clear_cache_confirm" = "確定要清除所有快取檔案嗎？";

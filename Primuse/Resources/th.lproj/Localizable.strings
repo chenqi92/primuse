@@ -1543,6 +1543,7 @@
 "last_synced" = "ซิงค์ครั้งล่าสุด";
 "later" = "ต่อมา";
 "library" = "คลังเพลง";
+"library_preparing" = "กำลังเตรียมคลังเพลง...";
 "library_add_quick_access" = "เพิ่มทางลัด";
 "library_browse" = "เรียกดูคลังเพลง";
 "library_browse_flat" = "แบน";

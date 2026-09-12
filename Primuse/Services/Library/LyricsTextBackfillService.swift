@@ -23,6 +23,10 @@ final class LyricsTextBackfillService {
     /// 升版号触发重跑。当前 v1 = 首次全量。
     private static let migrationKey = "primuse.lyricsTextBackfill.v1_initial"
     private static let batchSize = 50
+    /// 解码分块仍然是 50 首 (一次后台 IO 的粒度), 但发布要攒够这么多首才
+    /// 回主线程: `updateLyricsText` 每次都会整份拷 songs / visibleSongs,
+    /// 每 50 首发一次等于整个迁移过程里每几百毫秒卡一下主线程。
+    private static let publishBatchSize = 500
 
     private let library: MusicLibrary
     private(set) var isRunning: Bool = false
@@ -40,6 +44,15 @@ final class LyricsTextBackfillService {
         guard !UserDefaults.standard.bool(forKey: Self.migrationKey),
               !isRunning,
               worker == nil else { return }
+        // Stage 2b: 库还在准备时 `library.songs` 是空的, `run()` 会把"没有候选"
+        // 当成迁移完成并永久写下标记位 —— 真正该解析的歌词从此再也不会进
+        // FTS 索引。守卫放在入口, 后台 settle 与 macOS 的延后任务一起覆盖。
+        guard library.isReady else {
+            library.onReady { [weak self] in
+                self?.startIfNeeded()
+            }
+            return
+        }
         isRunning = true
         processedCount = 0
         indexedCount = 0
@@ -66,6 +79,9 @@ final class LyricsTextBackfillService {
             guard song.lyricsText == nil, song.lyricsFileName?.isEmpty == false else { return nil }
             return Candidate(id: song.id, lyricsFileName: song.lyricsFileName)
         }
+        // 二道闸: `startIfNeeded()` 之后到这里之间理论上不会翻回 `.preparing`,
+        // 但写标记位是一次性的、不可逆的, 所以再确认一次。
+        guard library.isReady else { return }
         guard !candidates.isEmpty else {
             UserDefaults.standard.set(true, forKey: Self.migrationKey)
             return
@@ -74,21 +90,41 @@ final class LyricsTextBackfillService {
         // 循环本身留在可取消的 worker (MainActor) 上推进, 但把每个 chunk
         // 的磁盘读取 / 解码整批丢到后台线程, 每 chunk 只跨 actor 一次:
         // 既不在主线程上做 IO, 又能让 stop() 取消 worker 时立刻停下。
+        // 取消时先把已经解码好的这一批发布出去: 发布批次是 500 首, 每次进
+        // 后台都丢弃等于白读几百个歌词文件, 下次前台还要重读一遍。迁移标记位
+        // 仍然只在跑完整轮之后才写, 没发布的歌 (lyricsText 仍是 nil) 下次启动
+        // 会重新入选。
+        var pending: [String: String] = [:]
+        // indexedCount 只在这一批真的交给 updateLyricsText 时推进, 否则被取消
+        // 的那几批会让进度虚报成"已入索引"。
+        func publishPending() {
+            guard !pending.isEmpty else { return }
+            indexedCount += pending.count
+            library.updateLyricsText(pending)
+            pending.removeAll(keepingCapacity: true)
+        }
+
         for start in stride(from: 0, to: candidates.count, by: Self.batchSize) {
-            if Task.isCancelled { return }
+            if Task.isCancelled {
+                publishPending()
+                return
+            }
             let end = min(start + Self.batchSize, candidates.count)
             let chunk = Array(candidates[start..<end])
 
             let batch = await Self.decodeChunk(chunk)
-            if Task.isCancelled { return }
-
             processedCount += chunk.count
-            indexedCount += batch.count
-            if !batch.isEmpty {
-                library.updateLyricsText(batch)
+            pending.merge(batch) { _, latest in latest }
+            if Task.isCancelled {
+                publishPending()
+                return
+            }
+            if pending.count >= Self.publishBatchSize {
+                publishPending()
             }
         }
 
+        publishPending()
         if Task.isCancelled { return }
         UserDefaults.standard.set(true, forKey: Self.migrationKey)
     }

@@ -52,8 +52,12 @@ struct KeyedRunRegistryTests {
 
     @Test func cancelAllLeavesRegistrationsInPlace() async {
         var registry = KeyedRunRegistry<Task<Void, Never>>()
-        let kept = Task { try? await Task.sleep(for: .seconds(60)) }
-        let cancelled = Task { try? await Task.sleep(for: .seconds(60)) }
+        let kept = Task<Void, Never> {
+            _ = try? await Task.sleep(for: .seconds(60))
+        }
+        let cancelled = Task<Void, Never> {
+            _ = try? await Task.sleep(for: .seconds(60))
+        }
         registry.register(key: "s1:keep", value: kept)
         let cancelledRun = registry.register(key: "s2:cancel", value: cancelled)
 
@@ -73,7 +77,9 @@ struct KeyedRunRegistryTests {
 
     @Test func cancelAndRemoveAllUnregistersImmediately() async {
         var registry = KeyedRunRegistry<Task<Void, Never>>()
-        let task = Task { try? await Task.sleep(for: .seconds(60)) }
+        let task = Task<Void, Never> {
+            _ = try? await Task.sleep(for: .seconds(60))
+        }
         let runID = registry.register(key: "s1:mv", value: task)
 
         let removed = registry.cancelAndRemoveAll { $0.hasPrefix("s1:") }

@@ -473,6 +473,24 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
     }
 }
 
+/// Stage 2 的启动占位。资料库发布之前渲染它, 所以这里一行库内容都不能读:
+/// 只有 App 背景 + 进度指示 + 一句本地化文案。
+private struct LibraryPreparingView: View {
+    var body: some View {
+        ZStack {
+            Color(.systemBackground)
+                .ignoresSafeArea()
+            VStack(spacing: 16) {
+                ProgressView()
+                    .controlSize(.large)
+                Text("library_preparing")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
 struct ContentView: View {
     @State private var homeModel = HomeView.Model()
     @Environment(AudioPlayerService.self) private var player
@@ -838,6 +856,35 @@ struct ContentView: View {
     }
 
     var body: some View {
+        // Stage 2: 资料库在主线程之外装载。就绪之前不渲染任何读库的界面 ——
+        // 既不能闪 onboarding (它由 SourcesStore 驱动, 但入口在下面这棵树的
+        // `.task` 里), 也不能闪"空资料库"状态。
+        Group {
+            if library.isReady {
+                mainContent
+            } else {
+                LibraryPreparingView()
+            }
+        }
+        // Spotlight 点击 ── identifier 形如 "song:<id>" / "album:<id>" 等。
+        // song 直接播; album / artist / playlist 推进资料库对应详情页。
+        //
+        // Stage 2b: 系统会把启动时的 Spotlight / Handoff 活动随场景连接选项
+        // 一起投递, 那一刻挂在树上的只有占位界面。处理器因此必须挂在外层 ——
+        // 挂在 `mainContent` 上这次点击会被整个丢掉。库还没发布时先交给
+        // `onReady` 存着, 发布之后重放(已就绪时立即执行, 与历史版本一致)。
+        .onContinueUserActivity("com.apple.corespotlight.searchableitem") { activity in
+            guard let item = SpotlightIndexService.identifier(from: activity) else { return }
+            library.onReady { handleSpotlightItem(item) }
+        }
+        // Handoff ── 从另一台设备过来时拿到完整播放上下文 (当前歌 / 队列 /
+        // 播放位置 / 播放或暂停 / shuffle / repeat),无缝接着播下去。
+        .onContinueUserActivity("com.welape.yuanyin.nowplaying") { activity in
+            library.onReady { handleHandoffActivity(activity) }
+        }
+    }
+
+    private var mainContent: some View {
         ZStack(alignment: .bottom) {
             switch rootLayout {
             case .standardSidebar:
@@ -939,17 +986,6 @@ struct ContentView: View {
         // 让老用户重看一次)
         .fullScreenCover(isPresented: $showInitialOnboarding) {
             OnboardingView()
-        }
-        // Spotlight 点击 ── identifier 形如 "song:<id>" / "album:<id>" 等。
-        // song 直接播; album / artist / playlist 推进资料库对应详情页。
-        .onContinueUserActivity("com.apple.corespotlight.searchableitem") { activity in
-            guard let item = SpotlightIndexService.identifier(from: activity) else { return }
-            handleSpotlightItem(item)
-        }
-        // Handoff ── 从另一台设备过来时拿到完整播放上下文 (当前歌 / 队列 /
-        // 播放位置 / 播放或暂停 / shuffle / repeat),无缝接着播下去。
-        .onContinueUserActivity("com.welape.yuanyin.nowplaying") { activity in
-            handleHandoffActivity(activity)
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseRequestShowNowPlaying)) { _ in
             presentNowPlaying()

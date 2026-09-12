@@ -2212,6 +2212,11 @@ final class SourceManager {
     /// a read-only SMB scrape reliably hit that upstream lifetime bug.
     @ObservationIgnored private var sidecarConnectors: [String: any MusicSourceConnector] = [:]
     @ObservationIgnored private var sidecarConnectorScopeFingerprints: [String: String] = [:]
+    /// 缓存里那个连接器实例是用哪一份源行构建出来的。作用域指纹只描述
+    /// 「字节命名空间」, 不包含加密方式、协议版本、认证方式、设备信任这些
+    /// 会被烧进实例的字段, 所以换连接器的判断要用这份构建签名。
+    @ObservationIgnored private var connectorConstructionSignatures: [String: String] = [:]
+    @ObservationIgnored private var sidecarConnectorConstructionSignatures: [String: String] = [:]
     /// A replaced SMB connector cannot be safely destroyed after a failed C
     /// request on AMSMB2 4.0.3. Keep the rare retired instance alive until the
     /// process exits; normal playback and scrape paths remain bounded at one
@@ -2245,6 +2250,23 @@ final class SourceManager {
     @ObservationIgnored var automaticOfflineDownloadRemovedHandler: ((String) -> Void)?
     @ObservationIgnored private var automaticPlaylistPinnedSongsByID: [String: Song] = [:]
     private var backgroundAudioCacheTasks: [String: BackgroundAudioCacheTaskRecord] = [:]
+    /// 启动时的队列预热由 SourceManager 持有: 它必须和 prefetch 共用
+    /// `backgroundAudioCacheTasks` 单飞表, 并且能被 `cancelBackgroundAudioCaching`
+    /// 与关闭自动缓存一起停掉。
+    @ObservationIgnored private var startupPrewarmTask: Task<Void, Never>?
+    @ObservationIgnored private var startupPrewarmRunID: UUID?
+    /// 已经处理过 (采纳或拒绝) 的旧版缓存文件名, 按源分组。拒绝同样要记住,
+    /// 否则每次解析缓存路径都会重新走一遍全库比对。
+    @ObservationIgnored private var resolvedLegacyAudioCacheNames: [String: Set<String>] = [:]
+    /// 路径迁移的串行链: 相继两次位置变更通知必须按顺序落盘。
+    @ObservationIgnored private var pathKeyedReconcileTask: Task<Void, Never>?
+    /// 当前迁移批次占用的目标相对路径。迁移会连带删掉目标旁边的
+    /// `.partial` / `.offline`, 所以这几个路径在批次做完之前不能有新的写入方
+    /// 开工 —— 它们等这一批结束, 而不是被丢掉。
+    @ObservationIgnored private var pathKeyedReconcileReservedDestinations: Set<String> = []
+    /// 当前缓存中的连接器在路由回调里的身份。被换掉的连接器晚到的回调
+    /// 不能再写这个源的活动路由。
+    @ObservationIgnored private var connectionRouteOwners: [String: UUID] = [:]
     @ObservationIgnored private var playbackAudioCacheLeases: [String: PlaybackAudioCacheLeaseRecord] = [:]
     @ObservationIgnored private var playbackAudioCacheLeaseFinalizations: [String: PlaybackAudioCacheLeaseFinalization] = [:]
     @ObservationIgnored private var activePlaybackAudioCachePaths: [String: Int] = [:]
@@ -2270,6 +2292,9 @@ final class SourceManager {
     private var musicVideoCacheDownloads = KeyedRunRegistry<MusicVideoCacheRun>()
     /// 整源离线批量任务, 便于源被停用时整批取消。
     private var offlineSourceCacheBatches = KeyedRunRegistry<OfflineSourceCacheBatchRun>()
+    /// 每个源当前在跑的整源缓存 run 身份, 支撑 `activeOfflineSourceCacheSourceIDs`
+    /// 在「替换」期间的引用计数。
+    @ObservationIgnored private var offlineSourceCacheRunIDs: [String: Set<UUID>] = [:]
 
     init(database: LibraryDatabase) {
         self.connectorFactory = nil
@@ -2329,7 +2354,7 @@ final class SourceManager {
             let previousSongs = (note.userInfo?["previousSongs"] as? [Song]) ?? []
             let currentSongs = (note.userInfo?["songs"] as? [Song]) ?? []
             MainActor.assumeIsolated {
-                self.reconcilePathKeyedCaches(
+                self.enqueuePathKeyedCacheReconciliation(
                     previousSongs: previousSongs,
                     currentSongs: currentSongs
                 )
@@ -2468,6 +2493,7 @@ final class SourceManager {
             }
             connectors[source.id] = nil
             connectorScopeFingerprints[source.id] = nil
+            connectorConstructionSignatures[source.id] = nil
             retireConnectorAsynchronously(existing)
         }
         if cache, let unavailable = unavailableConnectors[source.id] {
@@ -2479,10 +2505,12 @@ final class SourceManager {
                 return unavailable.connector
             }
             unavailableConnectors.removeValue(forKey: source.id)
+            connectorConstructionSignatures[source.id] = nil
             retireConnectorAsynchronously(unavailable.connector)
         }
 
-        let connector = routedConnector(for: source)
+        let build = routedConnector(for: source)
+        let connector = build.connector
         if cache {
             if connector is CredentialUnavailableSourceConnector {
                 unavailableConnectors[source.id] = UnavailableConnectorCacheEntry(
@@ -2490,23 +2518,44 @@ final class SourceManager {
                     capturedAt: Date(),
                     scopeFingerprint: scopeFingerprint
                 )
+                connectorConstructionSignatures[source.id] =
+                    Self.connectorConstructionSignature(for: source)
             } else if !(connector is NoAvailableConnectionSourceConnector) {
                 connectors[source.id] = connector
                 connectorScopeFingerprints[source.id] = scopeFingerprint
+                // 记下这个实例是用哪一份源行建出来的: 加密方式 / 协议版本 /
+                // 认证方式 / 设备信任这些字段不在作用域指纹里, 改了以后必须换实例。
+                connectorConstructionSignatures[source.id] =
+                    Self.connectorConstructionSignature(for: source)
+                // 只有真正进入缓存的那一次构建才拥有这个源的活动路由。
+                connectionRouteOwners[source.id] = build.routeOwner
             }
         }
         return connector
     }
 
-    private func routedConnector(for source: MusicSource) -> any MusicSourceConnector {
+    /// A routed build carries the identity its route callback publishes with.
+    /// Only the build that becomes the cached connector claims it.
+    private struct RoutedConnectorBuild {
+        let connector: any MusicSourceConnector
+        let routeOwner: UUID?
+    }
+
+    private func routedConnector(for source: MusicSource) -> RoutedConnectorBuild {
         guard source.type.supportsAdaptiveConnections,
               source.connectionConfiguration != nil else {
-            return directConnector(for: source)
+            return RoutedConnectorBuild(
+                connector: directConnector(for: source),
+                routeOwner: nil
+            )
         }
 
         let configuredCandidates = source.connectionCandidates
         guard configuredCandidates.isEmpty == false else {
-            return NoAvailableConnectionSourceConnector(sourceID: source.id)
+            return RoutedConnectorBuild(
+                connector: NoAvailableConnectionSourceConnector(sourceID: source.id),
+                routeOwner: nil
+            )
         }
 
         let routedCandidates = configuredCandidates.map { candidate in
@@ -2517,19 +2566,23 @@ final class SourceManager {
             )
         }
         guard routedCandidates.count > 1 else {
-            return routedCandidates[0].connector
+            return RoutedConnectorBuild(
+                connector: routedCandidates[0].connector,
+                routeOwner: nil
+            )
         }
         if let unavailable = routedCandidates.lazy.map(\.connector).first(where: {
             $0 is CredentialUnavailableSourceConnector
         }) {
-            return unavailable
+            return RoutedConnectorBuild(connector: unavailable, routeOwner: nil)
         }
 
+        let routeOwner = UUID()
         let routing = SourceConnectionRouter(
             sourceID: source.id,
             candidates: routedCandidates
         ) { [weak self] kind in
-            self?.setActiveConnectionRoute(kind, for: source.id)
+            self?.setActiveConnectionRoute(kind, for: source.id, owner: routeOwner)
         }
         let supportsSidecarWriting = routedCandidates[0].connector.supportsSidecarWriting
         let preferredDeleteBatchSize = routedCandidates[0].connector.preferredDeleteBatchSize
@@ -2548,9 +2601,10 @@ final class SourceManager {
             mediaServerLyricsCapabilities = .unavailable
         }
 
+        let connector: any MusicSourceConnector
         switch source.type {
         case .jellyfin, .emby, .plex:
-            return RoutedMediaServerConnector(
+            connector = RoutedMediaServerConnector(
                 sourceID: source.id,
                 routing: routing,
                 routedSupportsSidecarWriting: supportsSidecarWriting,
@@ -2558,41 +2612,42 @@ final class SourceManager {
                 serverLyricsCapabilities: mediaServerLyricsCapabilities
             )
         case .subsonic, .navidrome, .airsonic, .gonic:
-            return RoutedSubsonicConnector(
+            connector = RoutedSubsonicConnector(
                 sourceID: source.id,
                 routing: routing,
                 routedSupportsSidecarWriting: supportsSidecarWriting,
                 routedPreferredDeleteBatchSize: preferredDeleteBatchSize
             )
         case .fnMusic:
-            return RoutedFnMusicConnector(
+            connector = RoutedFnMusicConnector(
                 sourceID: source.id,
                 routing: routing,
                 routedSupportsSidecarWriting: supportsSidecarWriting,
                 routedPreferredDeleteBatchSize: preferredDeleteBatchSize
             )
         case .daoliyu:
-            return RoutedDaoLiYuConnector(
+            connector = RoutedDaoLiYuConnector(
                 sourceID: source.id,
                 routing: routing,
                 routedSupportsSidecarWriting: supportsSidecarWriting,
                 routedPreferredDeleteBatchSize: preferredDeleteBatchSize
             )
         case .songloft:
-            return RoutedSongloftConnector(
+            connector = RoutedSongloftConnector(
                 sourceID: source.id,
                 routing: routing,
                 routedSupportsSidecarWriting: supportsSidecarWriting,
                 routedPreferredDeleteBatchSize: preferredDeleteBatchSize
             )
         default:
-            return RoutedMusicSourceConnector(
+            connector = RoutedMusicSourceConnector(
                 sourceID: source.id,
                 routing: routing,
                 routedSupportsSidecarWriting: supportsSidecarWriting,
                 routedPreferredDeleteBatchSize: preferredDeleteBatchSize
             )
         }
+        return RoutedConnectorBuild(connector: connector, routeOwner: routeOwner)
     }
 
     private func directConnector(for source: MusicSource) -> any MusicSourceConnector {
@@ -2993,11 +3048,14 @@ final class SourceManager {
         if let cached = connectors[sourceID], Self.isSameConnector(cached, connector) {
             connectors.removeValue(forKey: sourceID)
             connectorScopeFingerprints.removeValue(forKey: sourceID)
+            connectorConstructionSignatures.removeValue(forKey: sourceID)
             activeConnectionRoutes.removeValue(forKey: sourceID)
+            connectionRouteOwners.removeValue(forKey: sourceID)
         }
         if let cached = unavailableConnectors[sourceID],
            Self.isSameConnector(cached.connector, connector) {
             unavailableConnectors.removeValue(forKey: sourceID)
+            connectorConstructionSignatures.removeValue(forKey: sourceID)
         }
         guard disconnect else { return }
         retireConnectorAsynchronously(connector)
@@ -4533,6 +4591,46 @@ final class SourceManager {
         MusicSourceSecurityRevision.scopedFingerprint(for: source)
     }
 
+    /// 一个已缓存的连接器实例是否还对得上当前这行源配置。
+    ///
+    /// 作用域指纹 (`audioCacheScopeSignature`) 只回答「字节命名空间有没有变」,
+    /// 刻意不含那些不改命名空间、却在 `directConnector(for:)` 里被写进实例的
+    /// 字段。这里的清单是照着 `directConnector` 与 `routedConnector` 逐个
+    /// 分支读出来的: host / port / useSsl / basePath / shareName / exportPath /
+    /// username / alternateTLSValidationHostname / authType / ftpEncryption /
+    /// nfsVersion / s3Region / extraConfig / rememberDevice / deviceId /
+    /// 群晖与飞牛的有效连接模式。多端点的候选线路来自 connectionConfiguration,
+    /// 已经包含在作用域指纹里。宁可多重建一次, 也不能让用户改完加密方式后
+    /// 还在用旧实例。
+    private nonisolated static func connectorConstructionSignature(
+        for source: MusicSource
+    ) -> String {
+        let components: [String] = [
+            audioCacheScopeSignature(for: source),
+            source.host?.lowercased() ?? "",
+            source.port.map(String.init) ?? "",
+            source.useSsl ? "tls" : "plain",
+            source.basePath ?? "",
+            source.shareName ?? "",
+            source.exportPath ?? "",
+            source.username ?? "",
+            source.alternateTLSValidationHostname ?? "",
+            source.authType.rawValue,
+            source.ftpEncryption?.rawValue ?? "",
+            source.nfsVersion?.rawValue ?? "",
+            source.s3Region ?? "",
+            source.extraConfig ?? "",
+            source.rememberDevice ? "trusted" : "untrusted",
+            source.deviceId ?? "",
+            source.effectiveSynologyConnectionMode.rawValue,
+            source.effectiveFnMusicConnectionMode.rawValue,
+        ]
+        let digest = SHA256.hash(
+            data: Data(components.joined(separator: "\u{1E}").utf8)
+        )
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
     private func audioCacheReadsAreAllowed(for sourceID: String) -> Bool {
         SourceAudioCacheScopePolicy.allowsRead(
             sourceID: sourceID,
@@ -4575,16 +4673,47 @@ final class SourceManager {
     /// 这里先在后台执行器上写好, body 上的调用命中相等短路 (一次锁 + 查表)。
     /// 不改 `connector(for:)` 本身: 它保持同步 fail-closed, 没登记过的源
     /// 仍然当场登记, 语义不变。
+    ///
+    /// 落盘前必须回主 actor 复核一次: `registerCacheNamespace` 是
+    /// last-writer-wins, 而这个循环每个源都要付一次 F_FULLSYNC, 很容易落在
+    /// 一次凭据编辑 / iCloud 同步之后。那时 `connector(for:)` 已经登记了新
+    /// 指纹的 namespace, 循环再写回启动时那份旧指纹, 所有不走
+    /// `connector(for:)` 的消费方 (videoCacheURL / deleteConnectorTempCaches /
+    /// reconcilePathKeyedCaches / connector init) 就会解析到上一套凭据的
+    /// 目录, namespace 隔离直接失效。校验未过的源同样跳过 ——
+    /// `connector(for:)` 本来也不会为它们登记。
     private func prewarmCacheNamespaces(_ fingerprintsBySourceID: [String: String]) {
         guard !fingerprintsBySourceID.isEmpty else { return }
-        Task.detached(priority: .utility) {
+        Task.detached(priority: .utility) { [weak self] in
             for (sourceID, fingerprint) in fingerprintsBySourceID {
+                guard let self else { return }
+                let stillCurrent = await MainActor.run {
+                    self.cacheNamespacePrewarmIsStillCurrent(
+                        sourceID: sourceID,
+                        fingerprint: fingerprint
+                    )
+                }
+                guard stillCurrent else { continue }
                 try? MusicSourceSecurityRevision.registerCacheNamespace(
                     sourceID: sourceID,
                     scopedFingerprint: fingerprint
                 )
             }
         }
+    }
+
+    /// 预热登记是否还代表当前这套凭据作用域。
+    private func cacheNamespacePrewarmIsStillCurrent(
+        sourceID: String,
+        fingerprint: String
+    ) -> Bool {
+        guard requiredConnectorScopeFingerprints[sourceID] == fingerprint,
+              !credentialChangesInProgress.contains(sourceID),
+              !connectorScopeValidationPendingSourceIDs.contains(sourceID),
+              !MusicSourceSecurityRevision.hasPendingChange(for: sourceID) else {
+            return false
+        }
+        return true
     }
 
     private func classifySourceConfigurationChanges(
@@ -4656,6 +4785,10 @@ final class SourceManager {
             connectorScopeValidationPendingSourceIDs.insert(sourceID)
             activeConnectionRoutes[sourceID] = nil
             lastSuccessfulConnectionRoutes[sourceID] = nil
+            connectionRouteOwners[sourceID] = nil
+            connectorConstructionSignatures[sourceID] = nil
+            sidecarConnectorConstructionSignatures[sourceID] = nil
+            resolvedLegacyAudioCacheNames[sourceID] = nil
 
             if let connector = connectors.removeValue(forKey: sourceID) {
                 retireConnectorAsynchronously(connector)
@@ -4978,30 +5111,66 @@ final class SourceManager {
         return "\(sanitized).\(ext)"
     }
 
+    /// 同一个源里还有几首歌会落到这个旧文件名上。第二个命中就足以判定
+    /// 歧义, 不需要走完整个曲库 —— 这个函数在缓存路径解析的热路径上。
+    private func legacyAudioCacheMatchCount(
+        legacyName: String,
+        sourceID: String,
+        stoppingAfter limit: Int
+    ) -> Int {
+        var matches = 0
+        for candidate in songsProvider() where candidate.sourceID == sourceID {
+            guard legacyAudioCacheFileName(for: candidate) == legacyName else { continue }
+            matches += 1
+            if matches >= limit { break }
+        }
+        return matches
+    }
+
+    /// 拒绝也要记住: 大小对不上的旧文件不会自己变好, 再扫一遍全库只是
+    /// 白花主线程时间。作用域变化 / 歌曲位置变化时这份记录会被清掉。
+    private func rememberResolvedLegacyAudioCacheName(_ legacyName: String, sourceID: String) {
+        resolvedLegacyAudioCacheNames[sourceID, default: []].insert(legacyName)
+    }
+
     private func migrateLegacyAudioCacheIfUnambiguous(for song: Song, destination: URL) {
         guard !FileManager.default.fileExists(atPath: destination.path) else { return }
         let legacyName = legacyAudioCacheFileName(for: song)
+        guard resolvedLegacyAudioCacheNames[song.sourceID]?.contains(legacyName) != true else { return }
         let legacyURL = audioCacheDirectory(for: song.sourceID).appendingPathComponent(legacyName)
         guard FileManager.default.fileExists(atPath: legacyURL.path) else { return }
-        let matchingSongs = songsProvider().lazy.filter {
-            $0.sourceID == song.sourceID && self.legacyAudioCacheFileName(for: $0) == legacyName
-        }.prefix(2)
-        guard matchingSongs.count == 1 else { return }
 
         let attributes = try? FileManager.default.attributesOfItem(atPath: legacyURL.path)
         let byteCount = (attributes?[.size] as? NSNumber)?.int64Value
             ?? attributes?[.size] as? Int64
-        if song.fileSize > 0, let byteCount {
-            let tolerance = max(Int64(4 * 1024), song.fileSize / 100)
-            guard abs(byteCount - song.fileSize) <= tolerance else { return }
-        }
-        do {
-            try FileManager.default.moveItem(at: legacyURL, to: destination)
-            let oldPath = "\(song.sourceID)/\(legacyName)"
-            let newPath = audioCacheRelativePath(for: song)
-            Task { await AudioCacheManager.shared.migrateEntry(from: oldPath, to: newPath, byteCount: byteCount) }
-        } catch {
-            plog("⚠️ Legacy audio cache migration failed for '\(song.title)': \(error.localizedDescription)")
+        switch LegacyAudioCacheMigrationPolicy.decision(
+            destinationExists: false,
+            legacyExists: true,
+            matchCount: legacyAudioCacheMatchCount(
+                legacyName: legacyName,
+                sourceID: song.sourceID,
+                stoppingAfter: 2
+            ),
+            legacyByteCount: byteCount,
+            expectedSize: song.fileSize,
+            alreadyResolved: false
+        ) {
+        case .skip:
+            return
+        case .rejectAndRemember:
+            // 来源无法确认的字节留在磁盘上, 只是不再重复比对。
+            rememberResolvedLegacyAudioCacheName(legacyName, sourceID: song.sourceID)
+        case .move:
+            do {
+                try FileManager.default.moveItem(at: legacyURL, to: destination)
+                rememberResolvedLegacyAudioCacheName(legacyName, sourceID: song.sourceID)
+                let oldPath = "\(song.sourceID)/\(legacyName)"
+                let newPath = audioCacheRelativePath(for: song)
+                Task { await AudioCacheManager.shared.migrateEntry(from: oldPath, to: newPath, byteCount: byteCount) }
+            } catch {
+                rememberResolvedLegacyAudioCacheName(legacyName, sourceID: song.sourceID)
+                plog("⚠️ Legacy audio cache migration failed for '\(song.title)': \(error.localizedDescription)")
+            }
         }
     }
 
@@ -5537,28 +5706,63 @@ final class SourceManager {
         }
     }
 
+    /// 同一个源再点一次「整源缓存」按替换处理: UI (`SourcesView.startCaching`)
+    /// 直接丢掉上一轮的 run, 记账也必须跟上。`KeyedRunRegistry.register`
+    /// 只换登记、不取消旧 run, 所以这里显式取消并等旧那一轮退出 ——
+    /// 否则旧 run 脱离 `sourceAvailabilityDidChange` 的取消范围, 关掉源之后
+    /// 还在继续下载。等待放在新 run 的 task 里做, 新登记先落下去, 这样
+    /// 排空期间源被停用一样能取消到。
     func downloadSourceForOffline(
         sourceID: String,
         songs: [Song]
     ) async -> OfflineDownloadBatchResult {
-        activeOfflineSourceCacheSourceIDs.insert(sourceID)
+        let runID = UUID()
+        beginOfflineSourceCacheRun(sourceID: sourceID, runID: runID)
+        let previousRun = offlineSourceCacheBatches.value(forKey: sourceID)
+        if previousRun != nil {
+            plog("🔁 Offline source cache restarted, draining previous batch source=\(sourceID.prefix(8))")
+        }
         // 批量任务单独存起来, 源被停用时才有东西可取消。外层调用者的取消
         // 仍然要传下去, 所以用 withTaskCancellationHandler 桥接。
         let batch = Task { @MainActor in
-            await self.downloadForOfflineBatch(songs: songs)
+            if let previousRun {
+                previousRun.cancelRun()
+                _ = await previousRun.task.value
+            }
+            return await self.downloadForOfflineBatch(songs: songs)
         }
-        let runID = offlineSourceCacheBatches.register(
+        offlineSourceCacheBatches.register(
             key: sourceID,
-            value: OfflineSourceCacheBatchRun(task: batch)
+            value: OfflineSourceCacheBatchRun(task: batch),
+            id: runID
         )
         defer {
             offlineSourceCacheBatches.finish(key: sourceID, runID: runID)
-            activeOfflineSourceCacheSourceIDs.remove(sourceID)
+            endOfflineSourceCacheRun(sourceID: sourceID, runID: runID)
         }
         return await withTaskCancellationHandler {
             await batch.value
         } onCancel: {
             batch.cancel()
+        }
+    }
+
+    /// `activeOfflineSourceCacheSourceIDs` 是给 UI 看的「这个源正在跑整源
+    /// 缓存」。替换期间会短暂有两轮并存, 所以按 run 计数: 旧 run 收尾时
+    /// 不能把新 run 的进行中状态一起抹掉 (卡片会提前变回「可缓存」)。
+    private func beginOfflineSourceCacheRun(sourceID: String, runID: UUID) {
+        offlineSourceCacheRunIDs[sourceID, default: []].insert(runID)
+        activeOfflineSourceCacheSourceIDs.insert(sourceID)
+    }
+
+    private func endOfflineSourceCacheRun(sourceID: String, runID: UUID) {
+        var runIDs = offlineSourceCacheRunIDs[sourceID] ?? []
+        runIDs.remove(runID)
+        if runIDs.isEmpty {
+            offlineSourceCacheRunIDs[sourceID] = nil
+            activeOfflineSourceCacheSourceIDs.remove(sourceID)
+        } else {
+            offlineSourceCacheRunIDs[sourceID] = runIDs
         }
     }
 
@@ -6068,6 +6272,9 @@ final class SourceManager {
     ) async -> OfflineDownloadTransferResult {
         let startedAt = Date()
         let relativePath = audioCacheRelativePath(for: song)
+        // 迁移批次正拿着这个目标路径时先等它做完: 中途开工的暂存文件会被
+        // 迁移顺手删掉, 然后以 ENOENT 收场。请求本身不会被丢弃。
+        await awaitPathKeyedReconcileReservation(for: relativePath)
         let canonicalTarget = cacheURL(for: song)
         let target = refreshDisposition != .none
             ? Self.refreshCacheURL(for: canonicalTarget)
@@ -6297,6 +6504,15 @@ final class SourceManager {
                         canonical: canonicalTarget
                     )
                 }.value
+            }
+            // 安装与发布之间隔着挂起点: 期间取消 (removeOfflineDownload) 已经
+            // 删掉文件并把状态置为未下载, 这里绝不能再把它登记成已下载/已固定。
+            // 抛出 CancellationError 走既有的取消分支恢复快照。
+            guard OfflineDownloadCommitPolicy.commitsInstalledArtifact(
+                isCancelled: Task.isCancelled,
+                installSucceeded: true
+            ) == .commit else {
+                throw CancellationError()
             }
             let size = fileSize(at: canonicalTarget)
             preservingAutomaticRefreshPaths.remove(relativePath)
@@ -7071,9 +7287,10 @@ final class SourceManager {
     struct AudioCacheBreakdown {
         var completedBytes: Int64 = 0
         var pinnedBytes: Int64 = 0
-        /// 「正在播放/缓存中」—— 当前还有活跃 streaming session 的 .partial。
-        /// 用户暂停 / 切到下一首前都算这类, 不该跟「真中断」混在一起让人
-        /// 误以为出问题。session 结束后会自动 finalize / 落入 partialBytes。
+        /// 「正在播放/缓存中」—— 当前还有活跃 streaming session 的 .partial,
+        /// 以及正在下载 / 后台预热的 `.offline` 暂存文件。用户暂停 / 切到
+        /// 下一首前都算这类, 不该跟「真中断」混在一起让人误以为出问题。
+        /// session 或下载结束后会自动 finalize / 落入 partialBytes。
         var activeBytes: Int64 = 0
         /// 「真半成品」—— 用户播到一半切走的, 或下载失败的。下次还有用
         /// (sparse cache 复用) 但用户视角是「中断了」。
@@ -7100,6 +7317,10 @@ final class SourceManager {
         // 「正在播放」而不是「中断」。
         let activeSessionPaths = CloudPlaybackSource.activeSessionPaths()
         let pinnedRelativePaths = await AudioCacheManager.shared.pinnedRelativePaths()
+        // 「半成品」这一栏是用户点「清理」时期望能腾出来的量, 所以口径必须
+        // 跟 purgeAllPartialFiles 的保护集一致: 正在下载 / 正在后台预热的
+        // `.offline` 清不掉, 就不能算进 partialBytes。
+        let protectedInFlightPaths = protectedInFlightAudioCachePaths(basePath: basePath)
 
         // 主 actor 上只采集需要隔离的输入 (sources / pinned / active session),
         // 把真正会 walk 整个 cache 目录的部分丢到后台线程, 避免冻结 UI。
@@ -7108,7 +7329,8 @@ final class SourceManager {
                 basePath: basePath,
                 aliveSourceIDs: aliveSourceIDs,
                 activeSessionPaths: activeSessionPaths,
-                pinnedRelativePaths: pinnedRelativePaths
+                pinnedRelativePaths: pinnedRelativePaths,
+                protectedInFlightPaths: protectedInFlightPaths
             )
         }.value
     }
@@ -7117,7 +7339,8 @@ final class SourceManager {
         basePath: URL,
         aliveSourceIDs: Set<String>,
         activeSessionPaths: Set<String>,
-        pinnedRelativePaths: Set<String>
+        pinnedRelativePaths: Set<String>,
+        protectedInFlightPaths: Set<String>
     ) -> AudioCacheBreakdown {
         var result = AudioCacheBreakdown()
 
@@ -7160,7 +7383,13 @@ final class SourceManager {
                     // marker 本身, 算到 prewarm 类
                     result.prewarmSeedBytes += size
                 } else if name.hasSuffix(".offline") {
-                    result.partialBytes += size
+                    if protectedInFlightPaths.contains(fileURL.path) {
+                        // 正在跑的离线下载 / 后台整文件预热的暂存文件,
+                        // 清理半成品会跳过它 —— 算「正在使用」而不是可清。
+                        result.activeBytes += size
+                    } else {
+                        result.partialBytes += size
+                    }
                 } else if name.hasSuffix(".partial") {
                     let markerPath = fileURL.path + CloudPlaybackSource.prewarmMarkerSuffix
                     if activeSessionPaths.contains(fileURL.path) {
@@ -7189,8 +7418,44 @@ final class SourceManager {
     /// 一键清掉所有孤立 sourceID 的整个 cache 子目录。
     func purgeOrphanedAudioCache() async {
         let breakdown = await audioCacheBreakdown()
-        for sid in breakdown.orphanedSourceIDs {
-            purgeAudioCache(forSourceID: sid)
+        guard !breakdown.orphanedSourceIDs.isEmpty else { return }
+        // 目录枚举期间用户可能重新添加了同 id 的源: 结论要跟当前的源表
+        // 再核对一次, 不能按开始扫描时的快照下手。
+        let liveSourceIDs = Set(((try? await sourcesProvider()) ?? []).map(\.id))
+        // 在途传输先取消: 目录一旦被 stage 走, 还在写的下载只会 ENOENT 失败。
+        cancelAudioTransfers(forSourceIDs: breakdown.orphanedSourceIDs.subtracting(liveSourceIDs))
+        let purgeable = OrphanedSourceCachePurgePolicy.sourceIDsToPurge(
+            observedOrphans: breakdown.orphanedSourceIDs,
+            liveSourceIDs: liveSourceIDs,
+            sourceIDsWithInFlightTransfers: sourceIDsWithInFlightAudioTransfers()
+        )
+        guard !purgeable.isEmpty else { return }
+        deleteSourceCaches(sourceIDs: purgeable)
+    }
+
+    /// 当前还有音频传输在写的源 (离线下载 / 后台缓存)。
+    private func sourceIDsWithInFlightAudioTransfers() -> Set<String> {
+        var sourceIDs = Set(backgroundAudioCacheTasks.values.map(\.sourceID))
+        for key in offlineDownloadTasks.keys {
+            sourceIDs.insert(Self.sourceID(in: key, separator: "/"))
+        }
+        return sourceIDs
+    }
+
+    private func cancelAudioTransfers(forSourceIDs sourceIDs: Set<String>) {
+        guard !sourceIDs.isEmpty else { return }
+        for record in backgroundAudioCacheTasks.values where sourceIDs.contains(record.sourceID) {
+            record.task.cancel()
+        }
+        backgroundAudioCacheTasks = backgroundAudioCacheTasks.filter {
+            !sourceIDs.contains($0.value.sourceID)
+        }
+        let offlineTaskKeys = offlineDownloadTasks.keys.filter {
+            sourceIDs.contains(Self.sourceID(in: $0, separator: "/"))
+        }
+        for key in offlineTaskKeys {
+            offlineDownloadTasks[key]?.task.cancel()
+            offlineDownloadTasks[key] = nil
         }
     }
 
@@ -7200,16 +7465,22 @@ final class SourceManager {
     /// 「正在使用」, 删掉只会让当前这首歌反复重拉 / 让下载报错变红。
     ///
     /// 枚举与逐文件删除跑在后台执行器上: 整个 audio cache 目录可达 20GB,
-    /// 同步枚举会冻结主线程。
+    /// 同步枚举会冻结主线程。删除按批进行, 每批之前回主 actor 复核一次
+    /// 保护集 —— 后台删的这几秒里用户完全可能开始播另一首歌。
     @discardableResult
     func purgeAllPartialFiles() async -> (freedBytes: Int64, failedCount: Int) {
         let basePath = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent(Self.audioCacheDirName)
         let protectedAbsolutePaths = protectedInFlightAudioCachePaths(basePath: basePath)
+        let refreshProtection = audioCacheProtectionRefresher(
+            basePath: basePath,
+            fallbackProtected: protectedAbsolutePaths
+        )
         let result = await Task.detached(priority: .utility) {
-            Self.removePartialFiles(
+            await Self.removePartialFiles(
                 basePath: basePath,
-                protectedAbsolutePaths: protectedAbsolutePaths
+                protectedAbsolutePaths: protectedAbsolutePaths,
+                refreshProtection: refreshProtection
             )
         }.value
         plog("🧹 purgeAllPartialFiles: freed \(result.freedBytes / 1024 / 1024)MB, failed=\(result.failedCount)")
@@ -7217,10 +7488,16 @@ final class SourceManager {
     }
 
     /// nonisolated —— 只吃 Sendable 的 URL / Set, 供 `Task.detached` 在后台跑。
+    ///
+    /// `refreshProtection` 每批删除前复核一次 pinned / 在途集合, 详见
+    /// `AudioCacheProtectionRefresher`。复核新增的文件只是跳过, 不计入
+    /// `failedCount` —— 用户没做错任何事, 不该看到「N 个文件删除失败」。
     nonisolated static func removePartialFiles(
         basePath: URL,
-        protectedAbsolutePaths: Set<String>
-    ) -> (freedBytes: Int64, failedCount: Int) {
+        protectedAbsolutePaths: Set<String>,
+        batchSize: Int = audioCacheDeletionBatchSize,
+        refreshProtection: AudioCacheProtectionRefresher? = nil
+    ) async -> (freedBytes: Int64, failedCount: Int) {
         var freed: Int64 = 0
         var failed = 0
         guard let enumerator = FileManager.default.enumerator(
@@ -7234,13 +7511,32 @@ final class SourceManager {
             let size = Int64((try? fileURL.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize) ?? 0)
             partials.append((fileURL, size))
         }
-        for (url, size) in partials {
-            do {
-                try FileManager.default.removeItem(at: url)
-                freed += size
-            } catch {
-                failed += 1
+        var pinned: Set<String> = []
+        var protectedPaths = protectedAbsolutePaths
+        var index = 0
+        let batchStride = max(1, batchSize)
+        while index < partials.count {
+            if let refreshProtection {
+                let refreshed = await refreshProtection()
+                pinned = refreshed.pinned
+                protectedPaths = refreshed.protected
             }
+            let upperBound = min(index + batchStride, partials.count)
+            for (url, size) in partials[index..<upperBound] {
+                if audioCacheClearShouldSkip(
+                    fileURL: url,
+                    basePath: basePath,
+                    pinnedRelativePaths: pinned,
+                    protectedAbsolutePaths: protectedPaths
+                ) { continue }
+                do {
+                    try FileManager.default.removeItem(at: url)
+                    freed += size
+                } catch {
+                    failed += 1
+                }
+            }
+            index = upperBound
         }
         return (freed, failed)
     }
@@ -7253,34 +7549,129 @@ final class SourceManager {
     /// ranges, 播放退化成整块重复拉流且再也无法 promote; 离线任务则在下一个
     /// chunk 抛错、行变红。所以「清缓存」必须跳过它们, 而不是指望 OS 拒绝
     /// unlink。
+    ///
+    /// 后台自动缓存的「整文件」模式复用同一个 `performOfflineDownload`, 写的
+    /// 是同一份 `<canonical>.offline`, 但只登记在 `backgroundAudioCacheTasks`
+    /// 里 (`backgroundAudioCacheTask` 明确要求 `offlineDownloadTasks` 里没有
+    /// 同 key 的任务), 所以它的 taskKey 必须一起算进保护集 —— 否则「清理
+    /// 半成品」会 unlink 掉正在预热的暂存文件, 预热任务在下一个 chunk
+    /// 重开 FileHandle 时直接 ENOENT 失败。
     private func protectedInFlightAudioCachePaths(basePath: URL) -> Set<String> {
-        let sessionPaths = CloudPlaybackSource.activeSessionPaths()
+        Self.protectedInFlightAudioCachePaths(
+            basePath: basePath,
+            sessionPaths: CloudPlaybackSource.activeSessionPaths(),
+            offlineDownloadTaskKeys: Set(offlineDownloadTasks.keys),
+            backgroundAudioCacheTaskKeys: Set(backgroundAudioCacheTasks.values.map(\.taskKey))
+        )
+    }
+
+    /// nonisolated —— 只吃 Sendable 的快照, 两类在途下载的 taskKey 分开传,
+    /// 让「后台预热写的 `.offline` 也受保护」可以被单测直接钉住。
+    nonisolated static func protectedInFlightAudioCachePaths(
+        basePath: URL,
+        sessionPaths: Set<String>,
+        offlineDownloadTaskKeys: Set<String>,
+        backgroundAudioCacheTaskKeys: Set<String>
+    ) -> Set<String> {
         var protectedPaths = sessionPaths
         for path in sessionPaths {
             protectedPaths.insert(path + CloudPlaybackSource.prewarmMarkerSuffix)
         }
-        for taskKey in offlineDownloadTasks.keys {
+        for taskKey in offlineDownloadTaskKeys.union(backgroundAudioCacheTaskKeys) {
             let canonical = basePath.appendingPathComponent(taskKey)
             protectedPaths.insert(canonical.path + ".offline")
-            protectedPaths.insert(Self.refreshCacheURL(for: canonical).path + ".offline")
+            protectedPaths.insert(refreshCacheURL(for: canonical).path + ".offline")
         }
         return protectedPaths
+    }
+
+    /// 后台删除跑到一半时用来重新取保护快照的回调。
+    ///
+    /// 枚举 + unlink 整个 audio cache 目录可以跑好几秒, 这期间主 actor
+    /// 完全可以开新的 streaming session、或让一次离线下载完成并 pin。用
+    /// 最开始那一份快照一路删到底, 等于把这些「快照之后才出现」的在途文件
+    /// unlink 掉 —— 写入端 (`writeToCacheInCurrentEpoch` / `writeOfflineChunk`)
+    /// 每次都按路径重开 FileHandle, 于是之后每次写都静默丢进被删掉的 inode,
+    /// 这首歌再也 promote 不了。所以每批删除前都回主 actor 复核一次。
+    typealias AudioCacheProtectionRefresher =
+        @Sendable () async -> (pinned: Set<String>, protected: Set<String>)
+
+    /// 每删多少个文件复核一次保护集。复核要回主 actor, 太小会让清缓存被
+    /// 主线程的渲染节奏拖住; 256 个文件的 unlink 通常在几十毫秒级。
+    private nonisolated static let audioCacheDeletionBatchSize = 256
+
+    /// 组装 `AudioCacheProtectionRefresher`: pinned 走 AudioCacheManager
+    /// 这个 actor, 在途集合回主 actor 重算。SourceManager 已经释放时退回
+    /// 调用方最初那份快照 —— 宁可少删, 不能误删在途文件。
+    private func audioCacheProtectionRefresher(
+        basePath: URL,
+        fallbackProtected: Set<String>
+    ) -> AudioCacheProtectionRefresher {
+        { [weak self] in
+            let pinned = await AudioCacheManager.shared.pinnedRelativePaths()
+            let refreshedProtected = await MainActor.run { () -> Set<String>? in
+                self?.protectedInFlightAudioCachePaths(basePath: basePath)
+            }
+            return (pinned, refreshedProtected ?? fallbackProtected)
+        }
+    }
+
+    /// 一次整库改名会带来上千首歌的迁移决定。决定、任务取消和保护集合
+    /// 全部留在主 actor 上, 真正的文件系统调用 (每首歌二十多个 syscall)
+    /// 交给后台执行器, 结果再回主 actor 更新 LRU 账本。
+    private struct PathKeyedCacheReconciliation: Sendable {
+        let plan: PathKeyedCacheReconciliationPlan
+        let previousAudioURL: URL
+        let currentAudioURL: URL
+        let previousCloudURL: URL
+        let currentCloudURL: URL
+        let previousRelativePath: String
+        let currentRelativePath: String
+    }
+
+    private struct PathKeyedCacheReconciliationOutcome: Sendable {
+        let plan: PathKeyedCacheReconciliationPlan
+        let previousRelativePath: String
+        let currentRelativePath: String
+        let migratedAudioBytes: Int64?
+    }
+
+    /// 连续两次位置变更必须按到达顺序落盘, 所以串成一条链而不是各起一个
+    /// 任务: 后一次迁移不能抢在前一次的重命名之前。
+    private func enqueuePathKeyedCacheReconciliation(
+        previousSongs: [Song],
+        currentSongs: [Song]
+    ) {
+        let pending = pathKeyedReconcileTask
+        pathKeyedReconcileTask = Task { @MainActor [weak self] in
+            await pending?.value
+            guard let self else { return }
+            await self.reconcilePathKeyedCaches(
+                previousSongs: previousSongs,
+                currentSongs: currentSongs
+            )
+        }
     }
 
     private func reconcilePathKeyedCaches(
         previousSongs: [Song],
         currentSongs: [Song]
-    ) {
+    ) async {
         let currentByID = Dictionary(
             currentSongs.map { ($0.id, $0) },
             uniquingKeysWith: { _, latest in latest }
         )
         let cachesRoot = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+        let activeSessionPaths = CloudPlaybackSource.activeSessionPaths()
+        var work: [PathKeyedCacheReconciliation] = []
 
         for previous in previousSongs {
             guard let current = currentByID[previous.id],
                   current.sourceID == previous.sourceID,
                   current.filePath != previous.filePath else { continue }
+
+            // 改了位置的源, 旧文件名比对结果不再可信。
+            resolvedLegacyAudioCacheNames[previous.sourceID] = nil
 
             let previousTaskKey = audioCacheRelativePath(for: previous)
             offlineDownloadTasks[previousTaskKey]?.task.cancel()
@@ -7319,46 +7710,125 @@ final class SourceManager {
                 CloudDriveHelper.cacheFileName(for: current.filePath)
             )
 
-            switch decision {
-            case .none:
+            // 迁移会连带删掉目标位置的 `.partial` / `.offline` 兄弟文件,
+            // 所以目标路径一旦已经有人在写, 这一份就不能动: 新写入的字节
+            // 比旧位置的缓存更值钱, 旧文件留给常规 LRU 回收。
+            let plan = PathKeyedCacheReconciliationPolicy.plan(
+                decision: decision,
+                hasInFlightOfflineDownloadAtDestination: offlineDownloadTasks[currentRelativePath] != nil,
+                hasInFlightBackgroundCacheForSong: backgroundAudioCacheTasks.values.contains {
+                    $0.taskKey == currentRelativePath
+                },
+                hasActivePlaybackUseAtDestination: (activePlaybackAudioCachePaths[currentRelativePath] ?? 0) > 0,
+                hasActiveStreamingSessionAtDestination: activeSessionPaths.contains(
+                    currentAudioURL.path + ".partial"
+                )
+            )
+            guard plan != .skip else { continue }
+            if plan == .invalidate {
+                setOfflineAudioSnapshot(.notCached, for: previous.id)
+            }
+            work.append(PathKeyedCacheReconciliation(
+                plan: plan,
+                previousAudioURL: previousAudioURL,
+                currentAudioURL: currentAudioURL,
+                previousCloudURL: previousCloudURL,
+                currentCloudURL: currentCloudURL,
+                previousRelativePath: previousRelativePath,
+                currentRelativePath: currentRelativePath
+            ))
+        }
+
+        guard !work.isEmpty else { return }
+        // 主 actor 让出去之前先占住目标路径: 这一批在后台搬文件的几秒里,
+        // 自动离线下载与后台缓存完全可能就着新路径开工, 而迁移会把它们的
+        // 暂存文件一起删掉。占用在本函数退出时一定释放 (含出错路径)。
+        let reservedDestinations = Set(work.map(\.currentRelativePath))
+            .subtracting(pathKeyedReconcileReservedDestinations)
+        pathKeyedReconcileReservedDestinations.formUnion(reservedDestinations)
+        defer { pathKeyedReconcileReservedDestinations.subtract(reservedDestinations) }
+        let outcomes = await Task.detached(priority: .utility) { [work] in
+            Self.applyPathKeyedCacheReconciliation(work)
+        }.value
+
+        for outcome in outcomes {
+            switch outcome.plan {
+            case .skip:
+                continue
+            case .migrate:
+                guard let migratedAudioBytes = outcome.migratedAudioBytes else { continue }
+                await AudioCacheManager.shared.migrateEntry(
+                    from: outcome.previousRelativePath,
+                    to: outcome.currentRelativePath,
+                    byteCount: migratedAudioBytes
+                )
+            case .invalidate:
+                await AudioCacheManager.shared.removeEntry(path: outcome.previousRelativePath)
+            }
+        }
+    }
+
+    /// 等到迁移批次放开这个目标路径为止。等待上限是这条串行链本身, 中途
+    /// 不做任何写入决定 —— 调用方回来后照常重新检查缓存是否已经存在。
+    private func awaitPathKeyedReconcileReservation(for relativePath: String) async {
+        var awaitedBatches = 0
+        while pathKeyedReconcileReservedDestinations.contains(relativePath),
+              let batch = pathKeyedReconcileTask,
+              awaitedBatches < 4 {
+            awaitedBatches += 1
+            await batch.value
+        }
+        if pathKeyedReconcileReservedDestinations.contains(relativePath) {
+            plog("⚠️ Cache: destination still held by a path migration, continuing for \(relativePath)")
+        }
+    }
+
+    nonisolated private static func applyPathKeyedCacheReconciliation(
+        _ work: [PathKeyedCacheReconciliation]
+    ) -> [PathKeyedCacheReconciliationOutcome] {
+        var outcomes: [PathKeyedCacheReconciliationOutcome] = []
+        outcomes.reserveCapacity(work.count)
+        for item in work {
+            switch item.plan {
+            case .skip:
                 continue
             case .migrate:
                 let migratedAudioBytes: Int64?
                 do {
                     migratedAudioBytes = try SourceStableCacheFileMigration.migrateCompletedFile(
-                        from: previousAudioURL,
-                        to: currentAudioURL
+                        from: item.previousAudioURL,
+                        to: item.currentAudioURL
                     )
                 } catch {
                     migratedAudioBytes = nil
                     plog("⚠️ Stable audio cache migration failed: \(error.localizedDescription)")
                 }
-                if let migratedAudioBytes {
-                    Task {
-                        await AudioCacheManager.shared.migrateEntry(
-                            from: previousRelativePath,
-                            to: currentRelativePath,
-                            byteCount: migratedAudioBytes
-                        )
-                    }
-                }
                 do {
                     try SourceStableCacheFileMigration.migrateCompletedFile(
-                        from: previousCloudURL,
-                        to: currentCloudURL
+                        from: item.previousCloudURL,
+                        to: item.currentCloudURL
                     )
                 } catch {
                     plog("⚠️ Stable cloud cache migration failed: \(error.localizedDescription)")
                 }
+                outcomes.append(PathKeyedCacheReconciliationOutcome(
+                    plan: item.plan,
+                    previousRelativePath: item.previousRelativePath,
+                    currentRelativePath: item.currentRelativePath,
+                    migratedAudioBytes: migratedAudioBytes
+                ))
             case .invalidate:
-                Self.removeCacheFileFamily(at: previousAudioURL)
-                try? FileManager.default.removeItem(at: previousCloudURL)
-                Task {
-                    await AudioCacheManager.shared.removeEntry(path: previousRelativePath)
-                }
-                setOfflineAudioSnapshot(.notCached, for: previous.id)
+                Self.removeCacheFileFamily(at: item.previousAudioURL)
+                try? FileManager.default.removeItem(at: item.previousCloudURL)
+                outcomes.append(PathKeyedCacheReconciliationOutcome(
+                    plan: item.plan,
+                    previousRelativePath: item.previousRelativePath,
+                    currentRelativePath: item.currentRelativePath,
+                    migratedAudioBytes: nil
+                ))
             }
         }
+        return outcomes
     }
 
     func deleteAudioCache(for song: Song) {
@@ -7726,8 +8196,14 @@ final class SourceManager {
         deleteSourceCaches(sourceIDs: [sourceID])
     }
 
+    /// 删除这些源的全部 per-source 缓存目录 (音频、视频、云盘、S3、封面与
+    /// 各传输的临时目录) + LRU 里属于它们的记录。用户删源、停用源, 以及
+    /// 清理孤立缓存都走这里。
     func deleteSourceCaches(sourceIDs: Set<String>) {
         guard !sourceIDs.isEmpty else { return }
+        for sourceID in sourceIDs {
+            resolvedLegacyAudioCacheNames[sourceID] = nil
+        }
         preservingAutomaticRefreshPaths = preservingAutomaticRefreshPaths.filter { path in
             !sourceIDs.contains(Self.sourceID(in: path, separator: "/"))
         }
@@ -7814,6 +8290,9 @@ final class SourceManager {
     ///
     /// 主 actor 上只取 pinned / in-flight 快照, 枚举与逐文件 unlink 交给
     /// 后台执行器 —— 整个 audio cache 目录可达 20GB, 同步删会冻结主线程。
+    /// 但快照只能代表按下按钮那一刻: 删除按批进行, 每批之前回主 actor
+    /// 复核一次 pinned / 在途集合, 期间新建的 session `.partial` 与刚
+    /// 下完 pin 住的文件都不会被这一轮误删。
     @discardableResult
     func clearAudioCache() async -> (freedBytes: Int64, failedCount: Int) {
         cancelBackgroundAudioCaching(keeping: [])
@@ -7822,14 +8301,19 @@ final class SourceManager {
         let smbCacheDir = Self.smbCacheDir
         let pinnedRelativePaths = await AudioCacheManager.shared.pinnedRelativePaths()
         let protectedAbsolutePaths = protectedInFlightAudioCachePaths(basePath: basePath)
+        let refreshProtection = audioCacheProtectionRefresher(
+            basePath: basePath,
+            fallbackProtected: protectedAbsolutePaths
+        )
 
         let result = await Task.detached(priority: .utility) {
-            Self.removeUnpinnedAudioCacheFiles(
+            await Self.removeUnpinnedAudioCacheFiles(
                 dirs: [basePath, smbCacheDir],
                 basePath: basePath,
                 removableDirPaths: [smbCacheDir.path],
                 pinnedRelativePaths: pinnedRelativePaths,
-                protectedAbsolutePaths: protectedAbsolutePaths
+                protectedAbsolutePaths: protectedAbsolutePaths,
+                refreshProtection: refreshProtection
             )
         }.value
 
@@ -7840,13 +8324,20 @@ final class SourceManager {
 
     /// nonisolated —— 只吃 Sendable 的 URL / Set, 供 `Task.detached` 在后台跑。
     /// `removableDirPaths` 里的目录在本轮没有任何跳过文件时整体删掉。
+    ///
+    /// `refreshProtection` 每批删除前复核一次 pinned / 在途集合, 详见
+    /// `AudioCacheProtectionRefresher`; 复核期间新受保护的文件只是跳过,
+    /// 不计入 `failedCount`, 但会让本轮 `skipped` 变成非零 —— 目录整删的
+    /// 前提同样是「这一轮真的什么都没留下」。
     nonisolated static func removeUnpinnedAudioCacheFiles(
         dirs: [URL],
         basePath: URL,
         removableDirPaths: Set<String>,
         pinnedRelativePaths: Set<String>,
-        protectedAbsolutePaths: Set<String>
-    ) -> (freedBytes: Int64, failedCount: Int) {
+        protectedAbsolutePaths: Set<String>,
+        batchSize: Int = audioCacheDeletionBatchSize,
+        refreshProtection: AudioCacheProtectionRefresher? = nil
+    ) async -> (freedBytes: Int64, failedCount: Int) {
         var freed: Int64 = 0
         var failed = 0
 
@@ -7874,14 +8365,36 @@ final class SourceManager {
                 }
                 files.append((fileURL, Int64(values.totalFileAllocatedSize ?? 0)))
             }
-            for (url, size) in files {
-                do {
-                    try FileManager.default.removeItem(at: url)
-                    freed += size
-                } catch {
-                    failed += 1
-                    plog("⚠️ clearAudioCache: cannot remove \(url.lastPathComponent): \(error.localizedDescription)")
+            var pinned = pinnedRelativePaths
+            var protectedPaths = protectedAbsolutePaths
+            var index = 0
+            let batchStride = max(1, batchSize)
+            while index < files.count {
+                if let refreshProtection {
+                    let refreshed = await refreshProtection()
+                    pinned = refreshed.pinned
+                    protectedPaths = refreshed.protected
                 }
+                let upperBound = min(index + batchStride, files.count)
+                for (url, size) in files[index..<upperBound] {
+                    if audioCacheClearShouldSkip(
+                        fileURL: url,
+                        basePath: basePath,
+                        pinnedRelativePaths: pinned,
+                        protectedAbsolutePaths: protectedPaths
+                    ) {
+                        skipped += 1
+                        continue
+                    }
+                    do {
+                        try FileManager.default.removeItem(at: url)
+                        freed += size
+                    } catch {
+                        failed += 1
+                        plog("⚠️ clearAudioCache: cannot remove \(url.lastPathComponent): \(error.localizedDescription)")
+                    }
+                }
+                index = upperBound
             }
             // 文件都删完了, 临时目录可以一把删掉。主 audio cache 目录里可能
             // 还保留离线固定文件, 不能递归删目录; 有跳过的在途文件时同理。
@@ -7951,40 +8464,6 @@ final class SourceManager {
         return true
     }
 
-    /// 删除指定 source 的整个 audio cache 子目录 + LRU 里属于这个源的记录。
-    /// 只在 LibraryService.removeSource() 流程里用 —— 用户主动删源时一并
-    /// 回收磁盘, 不然 caches/primuse_audio_cache/<sourceID>/ 里的整本歌
-    /// + `.partial` 半成品永远没人动。
-    func purgeAudioCache(forSourceID sourceID: String) {
-        preservingAutomaticRefreshPaths = preservingAutomaticRefreshPaths.filter {
-            !$0.hasPrefix("\(sourceID)/")
-        }
-        contentChangeProtectionPendingPaths = contentChangeProtectionPendingPaths.filter {
-            !$0.hasPrefix("\(sourceID)/")
-        }
-        contentChangeInvalidationGenerationByPath = contentChangeInvalidationGenerationByPath.filter {
-            !$0.key.hasPrefix("\(sourceID)/")
-        }
-        blockedUntrustedAudioCachePaths = blockedUntrustedAudioCachePaths.filter {
-            !$0.hasPrefix("\(sourceID)/")
-        }
-        for record in backgroundAudioCacheTasks.values where record.sourceID == sourceID {
-            record.task.cancel()
-        }
-        let dir = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
-            .appendingPathComponent(Self.audioCacheDirName)
-            .appendingPathComponent(sourceID)
-        // 主 actor 上只做一次同卷 rename (纯元数据), 递归删除放到后台:
-        // 一个整源缓存可能有上万个文件, 同步 removeItem 会冻结主线程。
-        // staged 目录以 `.primuse-deleting-` 开头, 所有统计枚举都带
-        // `.skipsHiddenFiles`, 不会被重新计入。
-        let stagedPaths = Self.stageCacheDirectoriesForDeletion([dir])
-        Task.detached(priority: .background) { [stagedPaths, sourceID] in
-            await AudioCacheManager.shared.removeAllEntries(forSourcePrefix: "\(sourceID)/")
-            Self.deleteStagedCacheDirectories(stagedPaths)
-        }
-    }
-
     /// Starts single-flight cache work for a song without waiting for it.
     /// Streamable Range formats only seed their sparse head/tail cache. Formats
     /// that require a complete local file (notably DTS/FFmpeg) materialize the
@@ -7995,9 +8474,71 @@ final class SourceManager {
 
     /// Queue prefetch awaits each song in order so a large complete-file format
     /// cannot split bandwidth with the second and third queued tracks.
-    func cacheForUpcomingPlayback(song: Song, cacheEnabled: Bool = true) async {
-        guard let task = backgroundAudioCacheTask(for: song, cacheEnabled: cacheEnabled) else { return }
+    /// `rangePrewarmOnly` keeps a sweep to sparse head/tail seeds: the startup
+    /// sweep must never turn into a full download of a complete-file format.
+    func cacheForUpcomingPlayback(
+        song: Song,
+        cacheEnabled: Bool = true,
+        rangePrewarmOnly: Bool = false
+    ) async {
+        guard let task = backgroundAudioCacheTask(
+            for: song,
+            cacheEnabled: cacheEnabled,
+            rangePrewarmOnly: rangePrewarmOnly
+        ) else { return }
         await task.value
+    }
+
+    /// Startup queue prewarm. The caller supplies the resume song first and the
+    /// bounded queue projection after it; every admitted song is routed through
+    /// the same single-flight registry as queue prefetch, so it deduplicates
+    /// against `prefetchNextSong` and stops with `cancelBackgroundAudioCaching`.
+    func prewarmStartupQueue(_ songs: [Song]) {
+        cancelStartupPrewarm()
+        // 需要完整本地文件的格式 (DTS / FFmpeg) 根本不适合稀疏种子, 直接在
+        // 登记之前剔除: 否则这条只做种子的记录会被随后的 prefetch 加入,
+        // 让那首歌的完整下载在本轮被跳过。
+        let songs = songs.filter { !FileFormatRouter.requiresCompleteLocalFile($0.fileFormat) }
+        guard automaticAudioCachingEnabled, !songs.isEmpty else { return }
+
+        let admittedIDs = StartupPrewarmAdmissionPolicy.songsToPrewarm(
+            resumeSongID: songs.first?.id,
+            queueSongIDs: songs.dropFirst().map(\.id),
+            alreadyPrewarmedIDs: Set(songs.filter { isPrewarmed(song: $0) }.map(\.id)),
+            inFlightBackgroundCacheSongIDs: Set(backgroundAudioCacheTasks.keys),
+            requestedCount: max(0, songs.count - 1),
+            automaticCachingEnabled: automaticAudioCachingEnabled
+        )
+        guard !admittedIDs.isEmpty else { return }
+        let songsByID = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let admitted = admittedIDs.compactMap { songsByID[$0] }
+        guard !admitted.isEmpty else { return }
+
+        let runID = UUID()
+        startupPrewarmRunID = runID
+        startupPrewarmTask = Task { @MainActor [weak self] in
+            for song in admitted {
+                guard let self, !Task.isCancelled, self.automaticAudioCachingEnabled else { break }
+                await self.cacheForUpcomingPlayback(
+                    song: song,
+                    cacheEnabled: true,
+                    rangePrewarmOnly: true
+                )
+            }
+            self?.finishStartupPrewarm(runID: runID)
+        }
+    }
+
+    private func cancelStartupPrewarm() {
+        startupPrewarmTask?.cancel()
+        startupPrewarmTask = nil
+        startupPrewarmRunID = nil
+    }
+
+    private func finishStartupPrewarm(runID: UUID) {
+        guard startupPrewarmRunID == runID else { return }
+        startupPrewarmTask = nil
+        startupPrewarmRunID = nil
     }
 
     /// If a user selects a song while its prefetch is still running, join that
@@ -8019,6 +8560,8 @@ final class SourceManager {
     }
 
     func cancelBackgroundAudioCaching(keeping songIDs: Set<String>) {
+        // 启动预热整体让位: 播放器紧接着会为它真正需要的歌重新排 prefetch。
+        cancelStartupPrewarm()
         for (songID, record) in backgroundAudioCacheTasks where !songIDs.contains(songID) {
             record.task.cancel()
         }
@@ -8034,7 +8577,8 @@ final class SourceManager {
 
     private func backgroundAudioCacheTask(
         for song: Song,
-        cacheEnabled: Bool
+        cacheEnabled: Bool,
+        rangePrewarmOnly: Bool = false
     ) -> Task<Void, Never>? {
         guard cacheEnabled,
               automaticAudioCachingEnabled,
@@ -8048,7 +8592,11 @@ final class SourceManager {
         let runID = UUID()
         let task = Task(priority: .utility) { @MainActor [weak self] in
             guard let self else { return }
-            await self.performBackgroundAudioCache(song: song, cacheEnabled: cacheEnabled)
+            await self.performBackgroundAudioCache(
+                song: song,
+                cacheEnabled: cacheEnabled,
+                rangePrewarmOnly: rangePrewarmOnly
+            )
             self.finishBackgroundAudioCacheTask(songID: song.id, runID: runID)
         }
         backgroundAudioCacheTasks[song.id] = BackgroundAudioCacheTaskRecord(
@@ -8065,8 +8613,16 @@ final class SourceManager {
         backgroundAudioCacheTasks[songID] = nil
     }
 
-    private func performBackgroundAudioCache(song: Song, cacheEnabled: Bool) async {
+    private func performBackgroundAudioCache(
+        song: Song,
+        cacheEnabled: Bool,
+        rangePrewarmOnly: Bool = false
+    ) async {
         do {
+            try Task.checkCancellation()
+            // 任务已经登记在单飞表里, 这里只是让它等迁移批次放开目标路径,
+            // 不会被丢掉; 等完照常重新判断缓存是否已经就位。
+            await awaitPathKeyedReconcileReservation(for: audioCacheRelativePath(for: song))
             try Task.checkCancellation()
             guard await ensureAudioCacheScopeValidated(for: song.sourceID) else { return }
             guard cachedURL(for: song) == nil else { return }
@@ -8110,6 +8666,8 @@ final class SourceManager {
             case .rangePrewarm:
                 await prewarmCloudSong(song: song, connector: conn)
             case .completeFile:
+                // 只做稀疏种子的清扫 (启动预热) 不允许升级成整曲下载。
+                guard !rangePrewarmOnly else { return }
                 _ = await performOfflineDownload(song)
             }
         } catch {
@@ -8290,7 +8848,7 @@ final class SourceManager {
             let (head, tail) = try await (headData, tailData)
             try Task.checkCancellation()
             guard automaticAudioCachingEnabled else { return }
-            seedPrewarmCache(song: song, head: head, tail: tail, fileSize: fileSize)
+            await seedPrewarmCache(song: song, head: head, tail: tail, fileSize: fileSize)
         } catch {
             if Task.isCancelled {
                 plog("↩️ Prewarm cancelled for '\(song.title)'")
@@ -8709,24 +9267,91 @@ final class SourceManager {
     /// 兼容旧调用方 (MetadataBackfillService 拿到 head bytes 时只 seed head)。
     /// 新代码应使用 `seedPrewarmCache(song:head:tail:fileSize:)`。
     func seedPrewarmCache(song: Song, head: Data) {
-        seedPrewarmCache(song: song, head: head, tail: Data(), fileSize: 0)
+        guard let work = prewarmSeedWork(song: song, head: head, tail: Data(), fileSize: 0) else { return }
+        do {
+            try Self.writePrewarmSeed(work)
+            try Self.publishPrewarmSeed(work)
+            plog("⏩ Prewarm: '\(song.title)' head=\(head.count / 1024)KB tail=0KB cached")
+        } catch {
+            Self.discardPrewarmSeed(work)
+            plog("⚠️ Prewarm seed failed for '\(song.title)': \(error.localizedDescription)")
+        }
     }
 
     /// Write `head` (+ optional `tail`) to the song's sparse `.partial` cache
     /// and place the prewarm marker JSON. Used by `prewarmCloudSong` and
     /// MetadataBackfillService (head-only, via the compatibility overload).
     /// fileSize=0 means "tail unknown, only seed head".
-    func seedPrewarmCache(song: Song, head: Data, tail: Data, fileSize: Int64) {
+    ///
+    /// 归属判定与所有字典读取留在主 actor 上, 只有 ~1.25MB 的落盘放到
+    /// 后台执行器。写完再复核一次: 写的这几毫秒里如果有播放会话认领了
+    /// 这个路径, 刚写的种子必须撤掉, 不能压在活跃会话的文件上。
+    func seedPrewarmCache(song: Song, head: Data, tail: Data, fileSize: Int64) async {
+        guard let work = prewarmSeedWork(song: song, head: head, tail: tail, fileSize: fileSize) else { return }
+        do {
+            try await Task.detached(priority: .utility) { [work] in
+                try Self.writePrewarmSeed(work)
+            }.value
+        } catch {
+            plog("⚠️ Prewarm seed failed for '\(song.title)': \(error.localizedDescription)")
+            return
+        }
+
+        let relativePath = audioCacheRelativePath(for: song)
+        guard AudioCachePrewarmSeedPolicy.keepsSeedAfterWrite(
+            isActiveSessionPath: CloudPlaybackSource.activeSessionPaths().contains(work.partial.path),
+            activePlaybackUses: activePlaybackAudioCachePaths[relativePath] ?? 0,
+            hasPlaybackLease: playbackAudioCacheLeases[song.id] != nil
+        ) else {
+            Self.discardPrewarmSeed(work)
+            plog("⏭ Prewarm seed skipped for '\(song.title)': cache path is owned by an active playback session")
+            return
+        }
+        // 复核与改名之间没有 await: 会话不可能在这两步之间认领这个路径。
+        // 改名只是一次 rename, 1.25MB 的写盘已经在上面的后台任务里做完了。
+        do {
+            try Self.publishPrewarmSeed(work)
+        } catch {
+            Self.discardPrewarmSeed(work)
+            plog("⚠️ Prewarm seed failed for '\(song.title)': \(error.localizedDescription)")
+            return
+        }
+        plog("⏩ Prewarm: '\(song.title)' head=\(head.count / 1024)KB tail=\(tail.count / 1024)KB cached")
+    }
+
+    private struct PrewarmSeedWork: Sendable {
+        let partial: URL
+        let marker: URL
+        let head: Data
+        let tail: Data
+        let fileSize: Int64
+
+        /// 种子先写到暂存路径, 确认没有会话认领目标路径之后才改名发布。
+        /// 这样写盘的那一段时间里活跃会话的 `.partial` 完全不受影响。
+        var stagedPartial: URL { URL(fileURLWithPath: partial.path + Self.stageSuffix) }
+        var stagedMarker: URL { URL(fileURLWithPath: marker.path + Self.stageSuffix) }
+
+        static let stageSuffix = ".seedstage"
+    }
+
+    /// 主 actor 上的准入判定: 缓存是否开启、作用域是否可读、是否已经预热,
+    /// 以及这个路径当前是不是被播放会话持有。
+    private func prewarmSeedWork(
+        song: Song,
+        head: Data,
+        tail: Data,
+        fileSize: Int64
+    ) -> PrewarmSeedWork? {
         guard automaticAudioCachingEnabled,
               audioCacheReadsAreAllowed(for: song.sourceID),
-              !head.isEmpty else { return }
+              !head.isEmpty else { return nil }
         let cache = cacheURL(for: song)
         let partial = URL(fileURLWithPath: cache.path + ".partial")
         let marker = URL(fileURLWithPath: partial.path + CloudPlaybackSource.prewarmMarkerSuffix)
 
         // Already seeded with at least equivalent ranges? Skip.
         if isPrewarmed(song: song) {
-            return
+            return nil
         }
         // A streaming session records the ranges it wrote in memory and reads
         // them back from this very path; replacing the file underneath it
@@ -8738,39 +9363,62 @@ final class SourceManager {
             hasPlaybackLease: playbackAudioCacheLeases[song.id] != nil
         ) else {
             plog("⏭ Prewarm seed skipped for '\(song.title)': cache path is owned by an active playback session")
-            return
+            return nil
         }
+        return PrewarmSeedWork(
+            partial: partial,
+            marker: marker,
+            head: head,
+            tail: tail,
+            fileSize: fileSize
+        )
+    }
 
+    nonisolated private static func writePrewarmSeed(_ work: PrewarmSeedWork) throws {
         try? FileManager.default.createDirectory(
-            at: partial.deletingLastPathComponent(),
+            at: work.partial.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try? FileManager.default.removeItem(at: partial)
-        try? FileManager.default.removeItem(at: marker)
+        try? FileManager.default.removeItem(at: work.stagedPartial)
+        try? FileManager.default.removeItem(at: work.stagedMarker)
 
-        do {
-            // 写 sparse partial: head 在 offset 0, tail 在 fileSize-tail.count
-            // (中间 byte hole, file system 自动 sparse, 不占实际空间)
-            FileManager.default.createFile(atPath: partial.path, contents: nil)
-            let handle = try FileHandle(forWritingTo: partial)
-            try handle.write(contentsOf: head)
-            var ranges: [[Int64]] = [[0, Int64(head.count)]]
-            if !tail.isEmpty, fileSize > Int64(head.count) {
-                let tailOffset = fileSize - Int64(tail.count)
-                if tailOffset >= Int64(head.count) {  // 不覆盖 head
-                    try handle.seek(toOffset: UInt64(tailOffset))
-                    try handle.write(contentsOf: tail)
-                    ranges.append([tailOffset, fileSize])
-                }
-            }
-            try handle.close()
-            // marker JSON 必须最后写 —— 如果中间崩溃, 没 marker 就不信任 partial。
-            let m = CloudPlaybackSource.PrewarmMarker(v: CloudPlaybackSource.PrewarmMarker.currentVersion, ranges: ranges)
-            try m.write(to: marker)
-            plog("⏩ Prewarm: '\(song.title)' head=\(head.count / 1024)KB tail=\(tail.count / 1024)KB cached")
-        } catch {
-            plog("⚠️ Prewarm seed failed for '\(song.title)': \(error.localizedDescription)")
+        // 写 sparse partial: head 在 offset 0, tail 在 fileSize-tail.count
+        // (中间 byte hole, file system 自动 sparse, 不占实际空间)
+        FileManager.default.createFile(atPath: work.stagedPartial.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: work.stagedPartial)
+        try handle.write(contentsOf: work.head)
+        let ranges = AudioCachePrewarmSeedPolicy.seedRanges(
+            headCount: Int64(work.head.count),
+            tailCount: Int64(work.tail.count),
+            fileSize: work.fileSize
+        )
+        if let tailRange = ranges.dropFirst().first, let tailOffset = tailRange.first {
+            try handle.seek(toOffset: UInt64(tailOffset))  // 不覆盖 head
+            try handle.write(contentsOf: work.tail)
         }
+        try handle.close()
+        // marker JSON 必须最后写 —— 如果中间崩溃, 没 marker 就不信任 partial。
+        let m = CloudPlaybackSource.PrewarmMarker(
+            v: CloudPlaybackSource.PrewarmMarker.currentVersion,
+            ranges: ranges
+        )
+        try m.write(to: work.stagedMarker)
+    }
+
+    /// 发布暂存的种子。只有在主 actor 上复核过没有播放会话持有目标路径之后
+    /// 才会调用, 并且整段没有挂起点 —— 两次改名之间不会有新会话插进来。
+    /// marker 最后发布: 中途失败留下的 partial 没有 marker, 本来就不被信任。
+    nonisolated private static func publishPrewarmSeed(_ work: PrewarmSeedWork) throws {
+        try? FileManager.default.removeItem(at: work.marker)
+        try? FileManager.default.removeItem(at: work.partial)
+        try FileManager.default.moveItem(at: work.stagedPartial, to: work.partial)
+        try FileManager.default.moveItem(at: work.stagedMarker, to: work.marker)
+    }
+
+    /// 只清理暂存文件。活跃会话自己的 `.partial` 与 marker 绝不能在这里删掉。
+    nonisolated private static func discardPrewarmSeed(_ work: PrewarmSeedWork) {
+        try? FileManager.default.removeItem(at: work.stagedMarker)
+        try? FileManager.default.removeItem(at: work.stagedPartial)
     }
 
     /// Build a streaming `SFBInputSource` for `song`. Used by
@@ -9445,6 +10093,7 @@ final class SourceManager {
             }
             sidecarConnectors[source.id] = nil
             sidecarConnectorScopeFingerprints[source.id] = nil
+            sidecarConnectorConstructionSignatures[source.id] = nil
             retireSidecarConnector(existing)
         }
         let conn = connector(for: source, cache: false)
@@ -9456,6 +10105,8 @@ final class SourceManager {
         // context while the failure is unwinding.
         sidecarConnectors[source.id] = conn
         sidecarConnectorScopeFingerprints[source.id] = scopeFingerprint
+        sidecarConnectorConstructionSignatures[source.id] =
+            Self.connectorConstructionSignature(for: source)
         if !(conn is SMBSource) {
             try await conn.connect()
         }
@@ -9826,11 +10477,50 @@ final class SourceManager {
         }
     }
 
-    func refreshConnector(for sourceID: String) async {
-        // Ordinary reconnects, source renames and device-trust updates do not
-        // change the byte namespace. The source notification already fences
-        // endpoint/configuration edits through the public scope fingerprint.
-        invalidateConnectorCachesForSourceConfigurationChange([sourceID])
+    /// A pure display save (name / autoConnect / isEnabled) must not cancel a
+    /// live stream. Everything else must reach the transport: the scope
+    /// fingerprint decides whether sessions are cancelled and offline bytes
+    /// distrusted, while the construction signature decides whether the cached
+    /// connector instance still matches the row (加密方式 / 协议版本 / 认证方式 /
+    /// 设备信任 / 类型专属配置 都不在作用域指纹里). `force` is for call sites that
+    /// already know the account/endpoint/credential identity moved.
+    func refreshConnector(for sourceID: String, force: Bool = false) async {
+        if force {
+            invalidateConnectorCachesForSourceConfigurationChange([sourceID])
+            await finishConnectorScopeRefresh(for: sourceID)
+            return
+        }
+
+        let previousFingerprint = requiredConnectorScopeFingerprints[sourceID]
+            ?? connectorScopeFingerprints[sourceID]
+            ?? sidecarConnectorScopeFingerprints[sourceID]
+            ?? recordedAudioCacheScopeSignatures[sourceID]
+        let currentSource = (try? await sourcesProvider())?
+            .first(where: { $0.id == sourceID && !$0.isDeleted })
+        let currentFingerprint = currentSource.map(Self.audioCacheScopeSignature(for:))
+        let currentConstruction = currentSource.map(Self.connectorConstructionSignature(for:))
+        let tearsDownTransport = ConnectorRefreshInvalidationPolicy.invalidatesTransport(
+            previousScopeFingerprint: previousFingerprint,
+            currentScopeFingerprint: currentFingerprint,
+            forcedByCaller: false
+        )
+        // 缓存里的实例 (播放连接器 / 凭据占位 / sidecar) 任何一个对不上当前源行
+        // 就必须换掉: 用户改了 FTP 加密、S3 区域、NFS 版本、设备信任之后,
+        // 不能继续用启动时那一份实例。
+        let rebuildsConnector = ConnectorRefreshInvalidationPolicy.rebuildsConnector(
+            hasCachedConnector: connectors[sourceID] != nil || unavailableConnectors[sourceID] != nil,
+            cachedConstructionSignature: connectorConstructionSignatures[sourceID],
+            currentConstructionSignature: currentConstruction
+        ) || ConnectorRefreshInvalidationPolicy.rebuildsConnector(
+            hasCachedConnector: sidecarConnectors[sourceID] != nil,
+            cachedConstructionSignature: sidecarConnectorConstructionSignatures[sourceID],
+            currentConstructionSignature: currentConstruction
+        )
+        if tearsDownTransport || rebuildsConnector {
+            invalidateConnectorCachesForSourceConfigurationChange([sourceID])
+        } else {
+            plog("🛡️ Source row update kept active transport source=\(sourceID.prefix(8)) scope=unchanged")
+        }
         await finishConnectorScopeRefresh(for: sourceID)
     }
 
@@ -9939,19 +10629,29 @@ final class SourceManager {
         }
         sidecarConnectors.removeAll()
         sidecarConnectorScopeFingerprints.removeAll()
+        connectorConstructionSignatures.removeAll()
+        sidecarConnectorConstructionSignatures.removeAll()
         requiredConnectorScopeFingerprints.removeAll()
         connectorSourceModifiedAtByID.removeAll()
         connectorScopeValidationPendingSourceIDs.removeAll()
         connectorScopeValidationGenerationBySourceID.removeAll()
         activeConnectionRoutes.removeAll()
         lastSuccessfulConnectionRoutes.removeAll()
+        connectionRouteOwners.removeAll()
         playbackSourceAvailability = PlaybackSourceAvailabilityPolicy()
     }
 
     private func setActiveConnectionRoute(
         _ kind: SourceConnectionCandidateKind?,
-        for sourceID: String
+        for sourceID: String,
+        owner: UUID? = nil
     ) {
+        // 一个已经被换掉的连接器在后台慢慢断开时还会回调一次 nil,
+        // 那时这个源的活动路由已经属于新连接器, 不能被抹掉。
+        guard ActiveConnectionRouteOwnershipPolicy.acceptsRouteUpdate(
+            updateOwner: owner,
+            currentOwner: connectionRouteOwners[sourceID]
+        ) else { return }
         if let kind {
             activeConnectionRoutes[sourceID] = kind
             lastSuccessfulConnectionRoutes[sourceID] = kind

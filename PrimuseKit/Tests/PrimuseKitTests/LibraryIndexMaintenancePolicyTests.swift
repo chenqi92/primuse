@@ -144,6 +144,40 @@ struct LibraryIndexMaintenancePolicyTests {
         ))
     }
 
+    @Test("preparation generations advance by one and wrap past Int.max")
+    func preparationGenerationWrapsAtIntMax() {
+        #expect(LibraryIndexMaintenancePolicy.nextPreparationGeneration(current: 0) == 1)
+        #expect(LibraryIndexMaintenancePolicy.nextPreparationGeneration(current: 41) == 42)
+        #expect(LibraryIndexMaintenancePolicy.nextPreparationGeneration(current: .max) == 1)
+    }
+
+    @Test("a generation sequence is accepted in order and rejected when one is skipped")
+    func generationSequenceCompletesContiguously() {
+        var completed = 0
+        for _ in 0..<4 {
+            let next = LibraryIndexMaintenancePolicy.nextPreparationGeneration(current: completed)
+            #expect(LibraryIndexMaintenancePolicy.canCompleteIncrementally(
+                completedGeneration: completed,
+                firstPendingGeneration: next
+            ))
+            completed = next
+        }
+        let skipped = LibraryIndexMaintenancePolicy.nextPreparationGeneration(
+            current: LibraryIndexMaintenancePolicy.nextPreparationGeneration(current: completed)
+        )
+        #expect(!LibraryIndexMaintenancePolicy.canCompleteIncrementally(
+            completedGeneration: completed,
+            firstPendingGeneration: skipped
+        ))
+        // The wrapped successor of Int.max is the one generation that may
+        // follow a completed Int.max.
+        #expect(LibraryIndexMaintenancePolicy.canCompleteIncrementally(
+            completedGeneration: .max,
+            firstPendingGeneration: LibraryIndexMaintenancePolicy
+                .nextPreparationGeneration(current: .max)
+        ))
+    }
+
     private func song() -> Song {
         Song(
             id: "song",

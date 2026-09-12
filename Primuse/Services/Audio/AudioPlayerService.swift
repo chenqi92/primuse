@@ -635,6 +635,12 @@ final class AudioPlayerService {
     @ObservationIgnored private var playbackMetadataFailureCounts: [PlaybackMetadataIdentity: Int] = [:]
     @ObservationIgnored private var artistNameConfiguration: ArtistNameConfiguration
     private let playbackSessionStore: PlaybackSessionStore
+    /// 快照仍然在主 actor 上采集, 但 JSON 编码与原子写交给这个协调器在后台
+    /// 完成。它用递增的 generation 合并请求: 只有最新的状态会落盘, 更新的
+    /// 请求会顶掉还没写出去的旧请求, 最终状态永远不会丢。
+    @ObservationIgnored private let playbackSessionPersistence:
+        PlaybackSessionPersistenceCoordinator
+    @ObservationIgnored private var playbackSessionPersistGeneration: UInt64 = 0
     private var playbackSessionRestoreLifecycle = PlaybackSessionRestoreLifecycle()
     private var isRestoringPlaybackSession = false
 
@@ -1019,6 +1025,9 @@ final class AudioPlayerService {
         let song: Song
         let url: URL
         let decoderKind: DecoderKind
+        /// 提交交叉淡入时正在播放的那一首的 playID。ramp 结束前它仍然拥有
+        /// primary 节点, 解码泵靠它判断自己还能不能继续投递。
+        let outgoingPlayID: UUID
     }
     private enum CrossfadeCompletionMode: Equatable {
         case activePlayback
@@ -1071,6 +1080,9 @@ final class AudioPlayerService {
     }
     private struct StreamingDownloadRetirement {
         let id: UUID
+        /// 退役任务收尾时要 finalize 的曲目。finalizeStreamingSession 是按
+        /// .partial 路径定位会话的, 所以重新播放同一首之前必须先等它跑完。
+        let songID: String
         let task: Task<Void, Never>
     }
     @ObservationIgnored private var activeStreamingDownloadPreparation:
@@ -1294,6 +1306,9 @@ final class AudioPlayerService {
             ?? ArtistNameConfiguration.load(from: .standard)
         self.playbackSettings = playbackSettings
         self.playbackSessionStore = playbackSessionStore
+        self.playbackSessionPersistence = PlaybackSessionPersistenceCoordinator(
+            store: playbackSessionStore
+        )
         self.activateAudioSession = activateAudioSession
         audioEngine = AudioEngine()
         equalizerService = EqualizerService(audioEngine: audioEngine)
@@ -1636,16 +1651,28 @@ final class AudioPlayerService {
     private func configureOutputPipeline(
         for song: Song,
         url: URL,
+        expectedPlayID: UUID,
         reacquiringLocalRouteFocus: Bool = false
     ) async throws -> DSDPlaybackMode {
         let settings = playbackSettings.snapshot()
         let isLocalDSD = url.isFileURL && nativeDecoder.isDSD(url)
         try activateAudioSession(reacquiringLocalRouteFocus)
+        // 打开 DSD 解码器要同步读文件头, 在 NAS / Files provider 上是真实
+        // I/O。放到主线程外做, 回来后必须重新校验代次, 否则被顶掉的请求会
+        // 继续去配置引擎。
+        let probe = DSDOutputProbePolicy.required(
+            isLocalDSD: isLocalDSD,
+            outputModeIsHighFidelity: settings.outputMode == .highFidelity,
+            dsdPlaybackModeIsPCM: settings.dsdPlaybackMode == .pcm
+        )
 
-        if isLocalDSD,
-           settings.outputMode == .highFidelity,
-           settings.dsdPlaybackMode != .pcm,
-           let dopFormat = try? nativeDecoder.dsdOutputFormat(for: url, mode: .dop) {
+        var dopFormat: AVAudioFormat?
+        if probe == .dopThenPCM {
+            dopFormat = try? await nativeDecoder.dsdOutputFormatOffMain(for: url, mode: .dop)
+            // 探测是否拿到格式都已经挂起过, 被顶掉的请求不能继续往下配置。
+            guard playID == expectedPlayID else { throw CancellationError() }
+        }
+        if let dopFormat {
             _ = audioEngine.prepareHardwareSampleRate(dopFormat.sampleRate)
             if audioEngine.hardwareSupportsDirectFormat(dopFormat) {
                 try audioEngine.configure(outputMode: .highFidelity, directSourceFormat: dopFormat)
@@ -1656,8 +1683,12 @@ final class AudioPlayerService {
         }
 
         var directPCMFormat: AVAudioFormat?
-        if isLocalDSD,
-           let pcmFormat = try? nativeDecoder.dsdOutputFormat(for: url, mode: .pcm) {
+        var dsdPCMFormat: AVAudioFormat?
+        if probe != .none {
+            dsdPCMFormat = try? await nativeDecoder.dsdOutputFormatOffMain(for: url, mode: .pcm)
+            guard playID == expectedPlayID else { throw CancellationError() }
+        }
+        if let pcmFormat = dsdPCMFormat {
             _ = audioEngine.prepareHardwareSampleRate(pcmFormat.sampleRate)
             directPCMFormat = safeDirectPCMFormat(
                 requestedSourceSampleRate: pcmFormat.sampleRate,
@@ -1671,6 +1702,7 @@ final class AudioPlayerService {
                     url: url
                 ) ? ffmpegDecoder : nativeDecoder
                 sourceSampleRate = try? await decoder.fileInfo(for: url).sampleRate
+                guard playID == expectedPlayID else { throw CancellationError() }
             }
             if (settings.matchOutputSampleRate || settings.outputMode == .highFidelity),
                let sourceSampleRate,
@@ -1695,14 +1727,16 @@ final class AudioPlayerService {
     private func preparePCMOutputAfterDoPFailure(
         song: Song,
         url: URL,
-        wasUsingDoP: Bool
-    ) -> AVAudioFormat? {
+        wasUsingDoP: Bool,
+        expectedPlayID: UUID
+    ) async -> AVAudioFormat? {
         guard wasUsingDoP else { return audioEngine.outputFormat }
         audioEngine.stopPlayback()
-        let decodedPCMFormat = try? nativeDecoder.dsdOutputFormat(
+        let decodedPCMFormat = try? await nativeDecoder.dsdOutputFormatOffMain(
             for: url,
             mode: .pcm
         )
+        guard playID == expectedPlayID else { return nil }
         _ = AudioSessionManager.shared.activatePlaybackSession()
         if let decodedPCMFormat {
             _ = audioEngine.prepareHardwareSampleRate(decodedPCMFormat.sampleRate)
@@ -3512,6 +3546,12 @@ final class AudioPlayerService {
 
         let id = UUID()
         playID = id
+        // 拖动进度触发的整文件物化会一直下到底, 切到电台同样要取消, 否则被
+        // 放弃的传输继续占用带宽和缓存配额 (它只在下载完成后才检查 playID)。
+        // 重入说明同 play(song:): 唯一能从 seek 任务走到这里的是
+        // handleTrackEnd → next()/previous() 的电台分支, 那里已先摘掉句柄。
+        seekTask?.cancel()
+        seekTask = nil
         resetDecodedBufferHealth(resetRecoveryAttempts: true)
         beginPlaybackErrorScope()
         clearPendingPlaybackRecovery()
@@ -3549,9 +3589,13 @@ final class AudioPlayerService {
         isPrimuseManagingAppleMusicQueue = false
 
         let deferredStreamingDownloadSongID = retireStreamingDownloadPreparation()
-        if let previous = currentSong,
-           !isLiveRadio,
-           previous.id != deferredStreamingDownloadSongID {
+        if !isLiveRadio,
+           StreamingDownloadRetirementPolicy.shouldFinalizePreviousSession(
+            previousSongID: currentSong?.id,
+            newSongID: nil,
+            retiredSongID: deferredStreamingDownloadSongID
+           ),
+           let previous = currentSong {
             sourceManager?.finalizeStreamingSession(for: previous)
             ScrobbleService.shared.handlePlaybackStopped()
             PlayHistoryStore.shared.endSession()
@@ -4087,13 +4131,29 @@ final class AudioPlayerService {
         }
         let id = UUID()
         playID = id
+        // 拖动进度触发的整文件物化会一直下到底, 切歌 / 停止时必须一并取消,
+        // 否则被放弃的传输继续占用带宽和缓存配额。Apple Music / 投屏分支在
+        // 下面直接 return, 取消必须排在它们前面。
+        // 重入说明: seek 任务自身会经「拖到曲尾自动续播」和「冷启动重播」
+        // 回到这里, 那两个调用点都先把 seekTask 句柄摘成 nil, 所以这里永远
+        // 不会取消正在执行本函数的那个任务。
+        seekTask?.cancel()
+        seekTask = nil
         let transportTicket = beginAutomaticAdvanceTransport(
             itemID: song.id,
             reason: "play-request"
         )
-        _ = retireStreamingDownloadPreparation()
-        await awaitStreamingDownloadRetirement()
-        guard playID == id else { return }
+        // 退役是同步的 (只取消 control 并派生退役任务), 切到另一首时不必等上
+        // 一首的整文件下载彻底收尾才发布 —— 那个等待留在唯一需要它的地方:
+        // playWithStreamingDownload 安装新 session control 之前。
+        // 唯一的例外是重新播放同一首: 退役任务的 finalizeStreamingSession 按
+        // .partial 路径定位会话, 若不等它跑完, 它会把这一首刚建立的新流式
+        // 会话当成自己的那个结束掉 (取消前台 Range 取数并释放缓存租约)。
+        let deferredStreamingDownloadSongID = retireStreamingDownloadPreparation()
+        if streamingDownloadRetirement?.songID == song.id {
+            await awaitStreamingDownloadRetirement()
+            guard playID == id else { return }
+        }
         resetDecodedBufferHealth(resetRecoveryAttempts: true)
         beginPlaybackErrorScope()
         cancelCrossfadeAttempt()
@@ -4179,8 +4239,13 @@ final class AudioPlayerService {
         isPrimuseManagingAppleMusicQueue = false
 
         // 切到新歌前主动触发上一首的 streaming session finalize, 让它有机会
-        // 把 .partial 转成 final (如果缺口在 50MB 自动补齐阈值内)。
-        if let prev = currentSong, prev.id != song.id {
+        // 把 .partial 转成 final (如果缺口在 50MB 自动补齐阈值内)。已被退役的
+        // 那首由退役任务在下载与解码泵收尾后 finalize, 这里不能抢在前面。
+        if StreamingDownloadRetirementPolicy.shouldFinalizePreviousSession(
+            previousSongID: currentSong?.id,
+            newSongID: song.id,
+            retiredSongID: deferredStreamingDownloadSongID
+        ), let prev = currentSong {
             sourceManager?.finalizeStreamingSession(for: prev)
         }
 
@@ -4854,7 +4919,12 @@ final class AudioPlayerService {
         }
 
         do {
-            activeDSDMode = try await configureOutputPipeline(for: song, url: url)
+            activeDSDMode = try await configureOutputPipeline(
+                for: song,
+                url: url,
+                expectedPlayID: id
+            )
+            guard playID == id else { return }
             activeDSDPlaybackMode = activeDSDMode
             applySpatialAudioSettings()
             applyPlaybackRate()
@@ -5153,11 +5223,13 @@ final class AudioPlayerService {
                         )
                     }
                 } else if !isCloudStream {
-                    let safeOutputFormat = preparePCMOutputAfterDoPFailure(
+                    let safeOutputFormat = await preparePCMOutputAfterDoPFailure(
                         song: song,
                         url: url,
-                        wasUsingDoP: activeDSDMode == .dop
+                        wasUsingDoP: activeDSDMode == .dop,
+                        expectedPlayID: id
                     ) ?? outputFormat
+                    guard playID == id else { return }
                     activeDSDPlaybackMode = .pcm
                     await playWithFallbackDecoder(
                         song: song,
@@ -5357,7 +5429,7 @@ final class AudioPlayerService {
 
                 do {
                     while let buffer = try await iteratorBox.next() {
-                        guard !Task.isCancelled, self.playID == id else { return }
+                        guard !Task.isCancelled, self.primaryPumpMayContinue(id) else { return }
 
                         if let prev = lastBuffer {
                             // Backpressure: block once the duration/count window
@@ -5369,7 +5441,7 @@ final class AudioPlayerService {
                                 duration: bufferedDuration,
                                 byteCount: bufferedByteCount
                             )
-                            guard !Task.isCancelled, self.playID == id else { return }
+                            guard !Task.isCancelled, self.primaryPumpMayContinue(id) else { return }
                             self.audioEngine.scheduleBuffer(
                                 prev,
                                 completionCallbackType: .dataPlayedBack
@@ -5402,6 +5474,9 @@ final class AudioPlayerService {
                     }
                 }
 
+                if !midStreamError, let finalBuffer = lastBuffer, !Task.isCancelled {
+                    if self.scheduleOutgoingCrossfadeTailBuffer(finalBuffer, playID: id) { return }
+                }
                 guard !Task.isCancelled, self.playID == id else { return }
                 if midStreamError {
                     // Cap the post-error grace period at `midStreamErrorGrace`.
@@ -5638,6 +5713,7 @@ final class AudioPlayerService {
         }
         streamingDownloadRetirement = StreamingDownloadRetirement(
             id: retirementID,
+            songID: active.song.id,
             task: task
         )
         return active.song.id
@@ -5823,7 +5899,7 @@ final class AudioPlayerService {
                 defer { Task { await gate.drain() } }
                 do {
                     while let buffer = try await iteratorBox.next() {
-                        guard !Task.isCancelled, self.playID == id else { return }
+                        guard !Task.isCancelled, self.primaryPumpMayContinue(id) else { return }
                         if let prev = lastBuffer {
                             let bufferedDuration = Self.decodedBufferDuration(prev)
                             let bufferedByteCount = Self.decodedBufferByteCount(prev)
@@ -5831,7 +5907,7 @@ final class AudioPlayerService {
                                 duration: bufferedDuration,
                                 byteCount: bufferedByteCount
                             )
-                            guard !Task.isCancelled, self.playID == id else { return }
+                            guard !Task.isCancelled, self.primaryPumpMayContinue(id) else { return }
                             self.audioEngine.scheduleBuffer(
                                 prev,
                                 completionCallbackType: .dataPlayedBack
@@ -5859,7 +5935,9 @@ final class AudioPlayerService {
                     }
                 }
                 if let finalBuffer = lastBuffer {
-                    guard !Task.isCancelled, self.playID == id else { return }
+                    guard !Task.isCancelled else { return }
+                    if self.scheduleOutgoingCrossfadeTailBuffer(finalBuffer, playID: id) { return }
+                    guard self.playID == id else { return }
                     await self.scheduleDecodedFinalBuffer(finalBuffer, playID: id)
                 }
             }
@@ -6593,7 +6671,7 @@ final class AudioPlayerService {
 
                 do {
                     while let buffer = try await iteratorBox.next() {
-                        guard !Task.isCancelled, self.playID == id else { return }
+                        guard !Task.isCancelled, self.primaryPumpMayContinue(id) else { return }
 
                         if let prev = lastBuffer {
                             let bufferedDuration = Self.decodedBufferDuration(prev)
@@ -6602,7 +6680,7 @@ final class AudioPlayerService {
                                 duration: bufferedDuration,
                                 byteCount: bufferedByteCount
                             )
-                            guard !Task.isCancelled, self.playID == id else { return }
+                            guard !Task.isCancelled, self.primaryPumpMayContinue(id) else { return }
                             self.audioEngine.scheduleBuffer(
                                 prev,
                                 completionCallbackType: .dataPlayedBack
@@ -6622,7 +6700,9 @@ final class AudioPlayerService {
                 }
 
                 if let finalBuffer = lastBuffer {
-                    guard !Task.isCancelled, self.playID == id else { return }
+                    guard !Task.isCancelled else { return }
+                    if self.scheduleOutgoingCrossfadeTailBuffer(finalBuffer, playID: id) { return }
+                    guard self.playID == id else { return }
                     await self.scheduleDecodedFinalBuffer(finalBuffer, playID: id)
                 }
             }
@@ -7538,6 +7618,14 @@ final class AudioPlayerService {
 
     func stop() {
         registerPauseOrStopIntent()
+        // 拖动进度触发的整文件物化会一直下到底, 切歌 / 停止时必须一并取消,
+        // 否则被放弃的传输继续占用带宽和缓存配额。直播电台 / Apple Music
+        // 分支在下面直接 return, 取消必须排在它们前面。
+        // 重入说明: seek 任务只可能经 handleTrackEnd 那条链走到 stop()
+        // (performTrackEnd → play/next → 失败 → autoAdvanceAfterFailure →
+        // 投屏分支), 而那个调用点已经先把 seekTask 句柄摘成 nil, 取消不到自己。
+        seekTask?.cancel()
+        seekTask = nil
         if isLiveRadio {
             playID = UUID()
             resetDecodedBufferHealth(resetRecoveryAttempts: true)
@@ -7582,7 +7670,11 @@ final class AudioPlayerService {
         // 主动结束当前 streaming session (切走 / 用户点停止时), 让 .partial
         // 有机会转 final。
         let deferredStreamingDownloadSongID = retireStreamingDownloadPreparation()
-        if let cur = currentSong, cur.id != deferredStreamingDownloadSongID {
+        if StreamingDownloadRetirementPolicy.shouldFinalizePreviousSession(
+            previousSongID: currentSong?.id,
+            newSongID: nil,
+            retiredSongID: deferredStreamingDownloadSongID
+        ), let cur = currentSong {
             sourceManager?.finalizeStreamingSession(for: cur)
         }
         // Invalidate buffer completion callbacks before stop/reset fires them.
@@ -7626,7 +7718,11 @@ final class AudioPlayerService {
         prefetchTask = nil
         sourceManager?.cancelBackgroundAudioCaching(keeping: [])
         let deferredStreamingDownloadSongID = retireStreamingDownloadPreparation()
-        if let currentSong, currentSong.id != deferredStreamingDownloadSongID {
+        if StreamingDownloadRetirementPolicy.shouldFinalizePreviousSession(
+            previousSongID: currentSong?.id,
+            newSongID: nil,
+            retiredSongID: deferredStreamingDownloadSongID
+        ), let currentSong {
             sourceManager?.finalizeStreamingSession(for: currentSong)
         }
         stopTimeUpdater()
@@ -7636,6 +7732,10 @@ final class AudioPlayerService {
             syncPlaybackProgressFromEngine()
         }
         pendingRecoveryTime = currentTime
+        // 拖动进度触发的整文件物化会一直下到底, 切歌 / 停止时必须一并
+        // 取消, 否则被放弃的传输继续占用带宽和缓存配额。
+        seekTask?.cancel()
+        seekTask = nil
         decodingTask?.cancel()
         decodingTask = nil
         cancelGaplessTasks()
@@ -7690,6 +7790,10 @@ final class AudioPlayerService {
         prefetchTask?.cancel()
         prefetchTask = nil
         sourceManager?.cancelBackgroundAudioCaching(keeping: [])
+        // 拖动进度触发的整文件物化会一直下到底, 切歌 / 停止时必须一并
+        // 取消, 否则被放弃的传输继续占用带宽和缓存配额。
+        seekTask?.cancel()
+        seekTask = nil
         decodingTask?.cancel()
         decodingTask = nil
         cancelGaplessTasks()
@@ -8075,6 +8179,7 @@ final class AudioPlayerService {
                 activeDSDPlaybackMode = try await configureOutputPipeline(
                     for: song,
                     url: url,
+                    expectedPlayID: id,
                     reacquiringLocalRouteFocus: reacquiringLocalRouteFocus
                 )
                 guard !Task.isCancelled, playID == id else { return }
@@ -8344,6 +8449,11 @@ final class AudioPlayerService {
                     if seekEndAction == .advance,
                        shouldStartPlaying,
                        playbackAdvancePolicy.activeTicket == seekAdvanceTicket {
+                        // 自动续播会经 performTrackEnd 重入 next() / play(song:) /
+                        // stopAtTrackEnd, 而它们都会取消 seekTask —— 此刻句柄正
+                        // 指向本任务。先摘掉句柄, 下一首才不会在自己触发的
+                        // Task.isCancelled 守卫上原地夭折 (停在 isLoading 无声)。
+                        seekTask = nil
                         await handleTrackEnd(
                             advanceTicket: seekAdvanceTicket,
                             trigger: "seek-reached-end",
@@ -8435,7 +8545,7 @@ final class AudioPlayerService {
 
                         do {
                             while let buffer = try await iteratorBox.next() {
-                                guard !Task.isCancelled, self.playID == id else { return }
+                                guard !Task.isCancelled, self.primaryPumpMayContinue(id) else { return }
 
                                 if let prev = lastBuffer {
                                     let bufferedDuration = Self.decodedBufferDuration(prev)
@@ -8444,7 +8554,7 @@ final class AudioPlayerService {
                                         duration: bufferedDuration,
                                         byteCount: bufferedByteCount
                                     )
-                                    guard !Task.isCancelled, self.playID == id else { return }
+                                    guard !Task.isCancelled, self.primaryPumpMayContinue(id) else { return }
                                     self.audioEngine.scheduleBuffer(
                                         prev,
                                         completionCallbackType: .dataPlayedBack
@@ -8462,7 +8572,9 @@ final class AudioPlayerService {
                         }
 
                         if let finalBuffer = lastBuffer {
-                            guard !Task.isCancelled, self.playID == id else { return }
+                            guard !Task.isCancelled else { return }
+                            if self.scheduleOutgoingCrossfadeTailBuffer(finalBuffer, playID: id) { return }
+                            guard self.playID == id else { return }
                             await self.scheduleDecodedFinalBuffer(finalBuffer, playID: id)
                         }
                     }
@@ -8492,6 +8604,9 @@ final class AudioPlayerService {
                     currentTime = 0
                     clearPendingPlaybackRecovery()
                     invalidateAutomaticAdvance(reason: "cold-remote-resume-fallback")
+                    // play(song:) 会取消 seekTask, 而此刻句柄正指向本任务。
+                    // 先摘掉句柄, 冷启动重播才不会被自己的取消打断。
+                    seekTask = nil
                     await play(song: song)
                     return
                 }
@@ -8522,7 +8637,8 @@ final class AudioPlayerService {
             || hasMusicVideoSeekActivityEvidence
         syncPlaybackProgressFromEngine()
         updateNowPlayingInfo()
-        updatePlaybackState()
+        // 退到后台后进程随时可能被挂起, 这一次会话快照必须在返回前落盘。
+        updatePlaybackState(flushPlaybackSessionImmediately: true)
         // AVFAudio can stop the graph before delivering its interruption
         // notification. Preserve the last backend-validated active publication
         // across that ordering window. Explicit Pause/Stop has already cleared
@@ -9519,6 +9635,40 @@ final class AudioPlayerService {
 
     // MARK: - Crossfade
 
+    /// 交叉淡入在 commit 时就把 playID 轮换给下一首, 但换出的那一首还要
+    /// 继续播放完整段 ramp。喂 primary 节点的解码泵因此在转场结束(或被
+    /// 取消)之前保留调度资格, 否则 overlap 超过 `decodedAudioLookahead`
+    /// 时淡出轨会在 ramp 中途断流, 直接变成静音。
+    private func primaryPumpMayContinue(_ id: UUID) -> Bool {
+        CrossfadePumpContinuationPolicy.mayContinue(
+            playID: id,
+            currentPlayID: playID,
+            isCrossfading: isCrossfading,
+            outgoingPlayID: committedCrossfade?.outgoingPlayID
+        )
+    }
+
+    /// 换出的那一首在 ramp 期间解码到自然结尾时, 手里还留着一块"最后缓冲"。
+    /// 它不能走 `scheduleDecodedFinalBuffer` —— track-end / gapless 回调属于
+    /// 已经轮换走的 playID; 但直接丢掉会让淡出轨在 ramp 收尾前少一块音频。
+    /// 这里按普通缓冲补给 primary 节点 (宽限期内它仍归换出轨所有), 不挂任何
+    /// 回调; 这块缓冲从未占用 gate 配额, 所以也不需要 release。
+    /// 返回 true 表示已排好, 调用方直接收工。
+    private func scheduleOutgoingCrossfadeTailBuffer(
+        _ buffer: AVAudioPCMBuffer,
+        playID id: UUID
+    ) -> Bool {
+        guard PrimaryPumpFinalBufferPolicy.disposition(
+            playID: id,
+            currentPlayID: playID,
+            isCrossfading: isCrossfading,
+            outgoingPlayID: committedCrossfade?.outgoingPlayID
+        ) == .scheduleOutgoingTail else { return false }
+        audioEngine.scheduleBuffer(buffer)
+        plog("🎚️ Crossfade grace: scheduled outgoing tail buffer playID=\(id.uuidString.prefix(8))")
+        return true
+    }
+
     private func isCurrentCrossfadeAttempt(
         _ attemptID: UUID,
         sourcePlayID: UUID,
@@ -9880,7 +10030,8 @@ final class AudioPlayerService {
                 playID: nextPlayID,
                 song: activatedSong,
                 url: nextURL,
-                decoderKind: nextDecoderKind
+                decoderKind: nextDecoderKind,
+                outgoingPlayID: sourcePlayID
             )
             playID = nextPlayID
             beginAutomaticAdvanceTransport(
@@ -11151,6 +11302,16 @@ final class AudioPlayerService {
     @ObservationIgnored private var systemLyrics: [LyricLine] = []
     @ObservationIgnored private var lastPublishedLockScreenLyricsPresentation:
         NowPlayingLyricsMetadataPresentation?
+    /// 最近一次把歌词行发布给 MediaRemote 的时刻, 用于 1 秒限流。
+    @ObservationIgnored private var lastLockScreenLyricsPublishAt: Date?
+    /// 限流窗口内到达的那一行: 不丢弃, 窗口结束后补发(通常 0.5 秒的时钟
+    /// tick 会先到并发出去)。
+    @ObservationIgnored private var pendingLockScreenLyricsPublish = false
+    @ObservationIgnored private var lockScreenLyricsCatchUpTask: Task<Void, Never>?
+    /// 标识当前补发任务的归属。任务句柄本身无法在闭包里和自己比较, 用这个
+    /// 单调递增的令牌代替身份比较: 只有仍然是最新一次调度的任务才可以清空
+    /// 句柄, 否则被取消的旧任务会抹掉后继任务的句柄。
+    @ObservationIgnored private var lockScreenLyricsCatchUpToken: UInt64 = 0
     @ObservationIgnored private var lastPublishedWidgetLyricsSignature: String?
     @ObservationIgnored private var lyricsWidgetConfigurationRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var lastLyricsWidgetConfigurationRefreshAt = Date.distantPast
@@ -11262,6 +11423,10 @@ final class AudioPlayerService {
         systemLyricsSongID = nil
         systemLyrics = []
         lastPublishedLockScreenLyricsPresentation = nil
+        lockScreenLyricsCatchUpTask?.cancel()
+        lockScreenLyricsCatchUpTask = nil
+        lockScreenLyricsCatchUpToken &+= 1
+        pendingLockScreenLyricsPublish = false
         clearWidgetLyricsSnapshotIfNeeded()
         publishLyricsActivityProbe()
     }
@@ -11390,8 +11555,48 @@ final class AudioPlayerService {
               !systemLyrics.isEmpty else { return }
 
         let presentation = lockScreenLyricsPresentation()
-        guard presentation != lastPublishedLockScreenLyricsPresentation else { return }
-        updateNowPlayingInfo()
+        let lineChanged = presentation != lastPublishedLockScreenLyricsPresentation
+        guard lineChanged || pendingLockScreenLyricsPublish else { return }
+
+        // 每次 nowPlayingInfo 赋值都是主线程上的同步 XPC, 歌词行 2~6 秒一换
+        // 时会和滚动抢主线程。限流到 1 秒一次, 被压住的那一行随后补发。
+        let now = Date()
+        guard NowPlayingLyricsPublishPolicy.shouldPublish(
+            lastPublishedAt: lastLockScreenLyricsPublishAt,
+            now: now,
+            lineChanged: true
+        ) else {
+            pendingLockScreenLyricsPublish = true
+            scheduleLockScreenLyricsCatchUp(
+                after: NowPlayingLyricsPublishPolicy.delayUntilNextPublish(
+                    lastPublishedAt: lastLockScreenLyricsPublishAt,
+                    now: now
+                )
+            )
+            return
+        }
+        updateNowPlayingInfo(lyricsLineOnly: true)
+    }
+
+    /// 播放时 0.5 秒的时钟 tick 通常会先把补发做掉; 暂停、路由切换等没有
+    /// tick 的场景靠这个一次性任务保证当前歌词行仍然会被发布出去。
+    private func scheduleLockScreenLyricsCatchUp(after delay: TimeInterval) {
+        guard lockScreenLyricsCatchUpTask == nil else { return }
+        lockScreenLyricsCatchUpToken &+= 1
+        let token = lockScreenLyricsCatchUpToken
+        lockScreenLyricsCatchUpTask = Task { @MainActor [weak self] in
+            if delay > 0 {
+                try? await Task.sleep(for: .seconds(delay))
+            }
+            guard let self else { return }
+            // 取消后的 sleep 会立刻返回, 但这一段要等到之后的某个主 actor
+            // 轮次才执行; 那时句柄可能已经属于新一次调度, 清空它会让单飞
+            // 不变量失效并允许重复补发。
+            guard self.lockScreenLyricsCatchUpToken == token else { return }
+            self.lockScreenLyricsCatchUpTask = nil
+            guard !Task.isCancelled else { return }
+            self.publishLockScreenLyricsIfNeeded()
+        }
     }
 
     private func publishLyricsActivityProbe() {
@@ -11548,6 +11753,15 @@ final class AudioPlayerService {
         return cache
     }()
 
+    /// 最近一次发布给 MediaRemote 的完整 nowPlayingInfo 快照及其身份。歌词
+    /// 行推进时直接在这份字典上改标题/副标题与进度, 其余键(尤其是封面)原样
+    /// 复用, 避免每行都重建字典并让系统重新序列化封面位图。
+    @ObservationIgnored private var cachedNowPlayingInfo: [String: Any]?
+    @ObservationIgnored private var cachedNowPlayingInfoKey: NowPlayingInfoSnapshotKey?
+    /// 快照里当前携带的封面对象。它换成另一个实例时封面版本号才前进。
+    @ObservationIgnored private var cachedNowPlayingArtwork: MPMediaItemArtwork?
+    @ObservationIgnored private var nowPlayingArtworkRevision: Int = 0
+
     /// 正在预取封面的 songID, 防止对同一首歌重复启动预取任务。
     @ObservationIgnored private var prefetchingArtworkSongID: String?
 
@@ -11568,10 +11782,26 @@ final class AudioPlayerService {
         coverRevision &+= 1
     }
 
+    /// 标识一份 nowPlayingInfo 快照里"除歌词行与进度之外"的全部内容。只有
+    /// 这些值都没变时, 歌词行推进才可以复用上一份字典和同一个封面对象。
+    private struct NowPlayingInfoSnapshotKey: Equatable {
+        let songID: String
+        let artworkRevision: Int
+        let albumTitle: String
+        let duration: TimeInterval
+        let isLiveStream: Bool
+        let isMusicVideo: Bool
+        let queueCount: Int
+        let queueIndex: Int
+    }
+
     private func updateNowPlayingInfo(
         artwork: MPMediaItemArtwork? = nil,
-        artworkSongID: String? = nil
+        artworkSongID: String? = nil,
+        lyricsLineOnly: Bool = false
     ) {
+        let signpost = PrimuseSignposts.hitch.beginInterval("player.nowPlayingPublish")
+        defer { PrimuseSignposts.hitch.endInterval("player.nowPlayingPublish", signpost) }
         #if os(iOS)
         publishLyricsActivityProbe()
         #endif
@@ -11593,6 +11823,31 @@ final class AudioPlayerService {
             return
         }
         let nowPlayingCenter = MPNowPlayingInfoCenter.default()
+
+        #if os(iOS)
+        // 歌词行推进只改标题/副标题与进度。复用上一份快照与其中同一个
+        // MPMediaItemArtwork 实例, MediaRemote 就不必在主线程上重新序列化
+        // 768 px 位图; 快照身份不一致时照常走下面的完整重建。
+        if lyricsLineOnly,
+           artwork == nil,
+           let cachedKey = cachedNowPlayingInfoKey,
+           cachedKey == currentNowPlayingInfoSnapshotKey(),
+           var info = cachedNowPlayingInfo {
+            let lyricsPresentation = lockScreenLyricsPresentation()
+            info[MPMediaItemPropertyTitle] = lyricsPresentation.title
+            info[MPMediaItemPropertyArtist] = lyricsPresentation.artist
+            info[MPNowPlayingInfoPropertyPlaybackRate] = projection.playbackRate
+            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = max(
+                0,
+                min(currentTime, duration > 0 ? duration : currentTime)
+            )
+            nowPlayingCenter.nowPlayingInfo = info
+            cachedNowPlayingInfo = info
+            lastPublishedLockScreenLyricsPresentation = lyricsPresentation
+            noteLockScreenLyricsPublished()
+            return
+        }
+        #endif
 
         // Build a fresh snapshot; artwork is carried forward only when its
         // ownership still matches the current song.
@@ -11647,10 +11902,54 @@ final class AudioPlayerService {
         }
 
         nowPlayingCenter.nowPlayingInfo = info
+        // 记住这份完整快照与它携带的封面对象: 下一次歌词行推进直接在它上面
+        // 改两个字符串和进度, 不再重建字典, 也不再换封面。
+        let publishedArtwork = info[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork
+        if publishedArtwork !== cachedNowPlayingArtwork {
+            cachedNowPlayingArtwork = publishedArtwork
+            nowPlayingArtworkRevision &+= 1
+        }
+        cachedNowPlayingInfo = info
+        cachedNowPlayingInfoKey = currentNowPlayingInfoSnapshotKey()
+        #if os(iOS)
+        noteLockScreenLyricsPublished()
+        #endif
         #if os(macOS)
         nowPlayingCenter.playbackState = actualPlaybackIsActive && !isLoading ? .playing : .paused
         #endif
     }
+
+    private func currentNowPlayingInfoSnapshotKey() -> NowPlayingInfoSnapshotKey? {
+        guard let songID = currentSong?.id else { return nil }
+        let hasQueuePosition = !isLiveRadio && queueEntries.indices.contains(currentIndex)
+        return NowPlayingInfoSnapshotKey(
+            songID: songID,
+            artworkRevision: nowPlayingArtworkRevision,
+            albumTitle: (isLiveRadio ? currentRadioStation?.name : currentSong?.albumTitle) ?? "",
+            duration: duration,
+            isLiveStream: isLiveRadio,
+            isMusicVideo: isMusicVideoPlaybackActive,
+            queueCount: hasQueuePosition ? queueEntries.count : 0,
+            queueIndex: hasQueuePosition ? currentIndex : -1
+        )
+    }
+
+    /// 丢弃增量发布用的快照缓存。任何绕过 `updateNowPlayingInfo` 改动系统
+    /// 快照的地方都必须调用它, 下一次发布会重新构建完整字典。
+    private func invalidateCachedNowPlayingInfo() {
+        cachedNowPlayingInfo = nil
+        cachedNowPlayingInfoKey = nil
+        cachedNowPlayingArtwork = nil
+        nowPlayingArtworkRevision &+= 1
+    }
+
+    #if os(iOS)
+    /// 任何一次完整或增量发布都重置歌词限流窗口, 并清掉待补发标记。
+    private func noteLockScreenLyricsPublished() {
+        lastLockScreenLyricsPublishAt = Date()
+        pendingLockScreenLyricsPublish = false
+    }
+    #endif
 
     private func clearNowPlayingInfo() {
         nowPlayingArtworkLoadTask?.cancel()
@@ -11661,6 +11960,7 @@ final class AudioPlayerService {
         nowPlayingArtworkLoadTokens.removeAll()
         lastArtworkSongID = nil
         publishedArtworkSongID = nil
+        invalidateCachedNowPlayingInfo()
         let nowPlayingCenter = MPNowPlayingInfoCenter.default()
         nowPlayingCenter.nowPlayingInfo = nil
         #if os(macOS)
@@ -11668,22 +11968,60 @@ final class AudioPlayerService {
         #endif
     }
 
+    /// 远程控制中心各命令的可用性投影。每个属性写入都是一次 MediaRemote
+    /// XPC, 而歌词行推进每隔几秒就会走一遍发布路径 —— 先把状态投影出来,
+    /// 只有真的变了才写。
+    private struct RemoteCommandAvailability: Equatable {
+        let play: Bool
+        let pause: Bool
+        let togglePlayPause: Bool
+        let changePlaybackPosition: Bool
+        let nextTrack: Bool
+        let previousTrack: Bool
+        let like: Bool
+        let likeIsActive: Bool
+    }
+
+    @ObservationIgnored private var lastWrittenRemoteCommandAvailability:
+        RemoteCommandAvailability?
+
     private func synchronizeRemoteCommandAvailability(
         _ projection: NowPlayingPlaybackProjection
     ) {
-        let center = MPRemoteCommandCenter.shared()
-        center.playCommand.isEnabled = projection.playCommandEnabled
-        center.pauseCommand.isEnabled = projection.pauseCommandEnabled
-        center.togglePlayPauseCommand.isEnabled = currentSong != nil
-        center.changePlaybackPositionCommand.isEnabled = playbackCapabilities.canSeek
-        center.nextTrackCommand.isEnabled = !isLiveRadio || radioStationOrder.count > 1
-        center.previousTrackCommand.isEnabled = !isLiveRadio || radioStationOrder.count > 1
         #if os(iOS)
         let canLikeCurrentSong = !isLiveRadio
             && currentSong.flatMap { library?.song(id: $0.id) } != nil
-        center.likeCommand.isEnabled = canLikeCurrentSong
-        center.likeCommand.isActive = canLikeCurrentSong
+        let likeIsActive = canLikeCurrentSong
             && (currentSong.map { library?.isLiked(songID: $0.id) ?? false } ?? false)
+        #else
+        let canLikeCurrentSong = false
+        let likeIsActive = false
+        #endif
+        let availability = RemoteCommandAvailability(
+            play: projection.playCommandEnabled,
+            pause: projection.pauseCommandEnabled,
+            togglePlayPause: currentSong != nil,
+            changePlaybackPosition: playbackCapabilities.canSeek,
+            nextTrack: !isLiveRadio || radioStationOrder.count > 1,
+            previousTrack: !isLiveRadio || radioStationOrder.count > 1,
+            like: canLikeCurrentSong,
+            likeIsActive: likeIsActive
+        )
+        // 本进程是这些属性的唯一写者, 缓存值因此就是系统当前状态。切歌、
+        // 队列变化、喜欢状态变化都会让投影变化并立刻写下去。
+        guard availability != lastWrittenRemoteCommandAvailability else { return }
+        lastWrittenRemoteCommandAvailability = availability
+
+        let center = MPRemoteCommandCenter.shared()
+        center.playCommand.isEnabled = availability.play
+        center.pauseCommand.isEnabled = availability.pause
+        center.togglePlayPauseCommand.isEnabled = availability.togglePlayPause
+        center.changePlaybackPositionCommand.isEnabled = availability.changePlaybackPosition
+        center.nextTrackCommand.isEnabled = availability.nextTrack
+        center.previousTrackCommand.isEnabled = availability.previousTrack
+        #if os(iOS)
+        center.likeCommand.isEnabled = availability.like
+        center.likeCommand.isActive = availability.likeIsActive
         #endif
     }
 
@@ -11712,6 +12050,9 @@ final class AudioPlayerService {
             )
         if shouldClearArtwork {
             publishedArtworkSongID = nil
+            // 缓存的那份快照还带着上一张封面; 让下一次发布重建完整快照,
+            // 否则歌词行的增量发布会把已经撤下的封面又贴回去。
+            invalidateCachedNowPlayingInfo()
         }
 
         // 内存缓存命中: 立即随完整快照发布新歌封面, 不经过"无封面"的
@@ -11734,6 +12075,7 @@ final class AudioPlayerService {
             var nowInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
             nowInfo[MPMediaItemPropertyArtwork] = nil
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nowInfo
+            invalidateCachedNowPlayingInfo()
         }
 
         guard let songID else { return }
@@ -12333,7 +12675,21 @@ final class AudioPlayerService {
         updatePlaybackState()
     }
 
-    private func persistPlaybackSession(clearWhenEmpty: Bool = false) {
+    private func persistPlaybackSession(
+        clearWhenEmpty: Bool = false,
+        flushImmediately: Bool = false
+    ) {
+        let signpost = PrimuseSignposts.hitch.beginInterval("player.sessionPersist")
+        defer { PrimuseSignposts.hitch.endInterval("player.sessionPersist", signpost) }
+        // 退到后台这类切换必须在返回前把在飞的写入排干。下面的提前返回(正在
+        // 恢复 / 直播流 / 空状态还不允许清空)都不会再提交新请求, 但上一次
+        // save 可能还停在后台任务里, 而进程马上就要被挂起。
+        var didDrainSynchronously = false
+        defer {
+            if flushImmediately, !didDrainSynchronously {
+                Self.reportPlaybackSessionPersistence(playbackSessionPersistence.drain())
+            }
+        }
         guard !isRestoringPlaybackSession else { return }
         guard !isLiveRadio else { return }
         guard let song = currentSong else {
@@ -12344,11 +12700,8 @@ final class AudioPlayerService {
                 // transient UI state, not an explicit Stop request.
                 return
             }
-            do {
-                try playbackSessionStore.clear()
-            } catch {
-                plog("⚠️ Playback session clear failed: \(error.localizedDescription)")
-            }
+            submitPlaybackSessionPersistence(.clear, flushImmediately: flushImmediately)
+            didDrainSynchronously = flushImmediately
             return
         }
 
@@ -12389,12 +12742,69 @@ final class AudioPlayerService {
             repeatMode: repeatMode,
             isAtTrackEnd: isAtTrackEnd
         )
-        do {
-            try playbackSessionStore.save(snapshot)
-            playbackSessionRestoreLifecycle.didPersistCurrentSession()
-        } catch {
-            plog("⚠️ Playback session save failed: \(error.localizedDescription)")
+        // 只有在协调器确认这一代(或更顶掉它的更新一代)真的落盘之后, 才允许
+        // 后续的空状态清空旧快照: 写失败时上一次启动留下的有效快照必须保留。
+        submitPlaybackSessionPersistence(
+            .save(snapshot),
+            flushImmediately: flushImmediately,
+            promotesRestoreLifecycleOnSuccess: true
+        )
+        didDrainSynchronously = flushImmediately
+    }
+
+    /// 把最新状态交给后台写入协调器。`flushImmediately` 只给退到后台这类
+    /// 生命周期切换用: 那一刻进程可能马上被挂起, 必须在返回前落盘。
+    private func submitPlaybackSessionPersistence(
+        _ request: PlaybackSessionPersistenceRequest,
+        flushImmediately: Bool,
+        promotesRestoreLifecycleOnSuccess: Bool = false
+    ) {
+        playbackSessionPersistGeneration &+= 1
+        let generation = playbackSessionPersistGeneration
+        let coordinator = playbackSessionPersistence
+        coordinator.enqueue(request, generation: generation)
+        guard !flushImmediately else {
+            let outcome = coordinator.drain()
+            Self.reportPlaybackSessionPersistence(outcome)
+            if promotesRestoreLifecycleOnSuccess {
+                promotePlaybackSessionRestoreLifecycle(
+                    outcome,
+                    requestedGeneration: generation
+                )
+            }
+            return
         }
+        Task.detached(priority: .utility) { [weak self] in
+            let outcome = coordinator.drain()
+            Self.reportPlaybackSessionPersistence(outcome)
+            guard promotesRestoreLifecycleOnSuccess else { return }
+            // 写盘发生在后台, 生命周期状态只属于主 actor, 因此回到主 actor
+            // 再推进; 服务已经销毁时没有需要推进的状态。
+            await self?.promotePlaybackSessionRestoreLifecycle(
+                outcome,
+                requestedGeneration: generation
+            )
+        }
+    }
+
+    /// 写入成功才把"当前会话已经落盘"的结论交给生命周期。协调器合并请求,
+    /// 所以只要有不老于本次请求的一代落盘, 本次请求的状态就已经被更新的
+    /// 状态取代, 同样满足"旧快照可以被替换"的前提。
+    private func promotePlaybackSessionRestoreLifecycle(
+        _ outcome: PlaybackSessionPersistenceOutcome,
+        requestedGeneration: UInt64
+    ) {
+        guard outcome.persisted(generation: requestedGeneration) else { return }
+        playbackSessionRestoreLifecycle.didPersistCurrentSession()
+    }
+
+    /// 写入合并之后无法把失败精确归给某一次请求(更新的状态会顶掉旧的),
+    /// 因此保存与清空共用一条失败日志。
+    private nonisolated static func reportPlaybackSessionPersistence(
+        _ outcome: PlaybackSessionPersistenceOutcome
+    ) {
+        guard let failure = outcome.failureDescription else { return }
+        plog("⚠️ Playback session persist failed: \(failure)")
     }
 
     /// Tracks the last songID for which we wrote a widget cover, to avoid redundant writes.
@@ -12409,8 +12819,11 @@ final class AudioPlayerService {
         updatePlaybackState()
     }
 
-    private func updatePlaybackState() {
-        persistPlaybackSession(clearWhenEmpty: currentSong == nil)
+    private func updatePlaybackState(flushPlaybackSessionImmediately: Bool = false) {
+        persistPlaybackSession(
+            clearWhenEmpty: currentSong == nil,
+            flushImmediately: flushPlaybackSessionImmediately
+        )
         #if os(macOS)
         let sampledCurrentTime = currentTime
         let sampledAt = Date()
@@ -12432,6 +12845,10 @@ final class AudioPlayerService {
         }
         return
         #else
+        // 非 macOS 分支整段(封面写盘 + RecentAlbums + PlaybackState)都在
+        // 主 actor 上同步跑, 每次切歌 / gapless / 交叉淡入边界各一次。
+        let widgetPublishSignpost = PrimuseSignposts.hitch.beginInterval("player.widgetPublish")
+        defer { PrimuseSignposts.hitch.endInterval("player.widgetPublish", widgetPublishSignpost) }
         #if os(iOS)
         refreshInstalledLyricsWidgetDemand()
         #endif
@@ -12559,6 +12976,10 @@ final class AudioPlayerService {
     /// 否则桌面 widget 永远只显示占位渐变。
     @discardableResult
     private func writeWidgetCover(song: Song, fileName: String, size: CGFloat = 300) -> String? {
+        // 封面解码 / 重绘 / JPEG 编码 / 原子写盘目前都在主 actor 上完成,
+        // 先把这段开销标成独立区间, 设备上才能量出它在切歌时占了多少帧。
+        let coverSignpost = PrimuseSignposts.hitch.beginInterval("player.widgetCover")
+        defer { PrimuseSignposts.hitch.endInterval("player.widgetCover", coverSignpost) }
         guard let containerURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
         ) else { return nil }

@@ -1543,6 +1543,7 @@
 "last_synced" = "آخر مزامنة";
 "later" = "فيما بعد";
 "library" = "المكتبة";
+"library_preparing" = "يتم تحضير المكتبة...";
 "library_add_quick_access" = "إضافة اختصار";
 "library_browse" = "تصفح المكتبة";
 "library_browse_flat" = "مسطحة";

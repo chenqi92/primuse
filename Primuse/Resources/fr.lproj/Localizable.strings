@@ -573,6 +573,7 @@
 "playback_settings" = "Réglages de lecture";
 "audio_output" = "Sortie audio";
 "library" = "Bibliothèque";
+"library_preparing" = "Préparation de la bibliothèque…";
 "cache_size" = "Taille du cache";
 "clear_cache" = "Vider le cache";
 "clear_cache_confirm" = "Supprimer tous les fichiers en cache ?";

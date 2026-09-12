@@ -1830,7 +1830,7 @@ struct SourcesContentView: View {
                 onPasswordSaved: {
                     do {
                         try sourceManager.credentialsDidChange(for: source.id)
-                        await sourceManager.refreshConnector(for: source.id)
+                        await sourceManager.refreshConnector(for: source.id, force: true)
                         return true
                     } catch {
                         sourceManager.credentialsChangeOutcomeUncertain(for: source.id)

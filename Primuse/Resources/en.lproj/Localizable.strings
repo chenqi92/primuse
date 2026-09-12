@@ -359,6 +359,7 @@
 "playback_settings" = "Playback Settings";
 "audio_output" = "Audio Output";
 "library" = "Library";
+"library_preparing" = "Preparing your library…";
 "cache_size" = "Cache Size";
 "clear_cache_confirm" = "Clear all cached files?";
 "clear" = "Clear";

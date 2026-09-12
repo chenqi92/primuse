@@ -2185,6 +2185,7 @@
 "onboarding_later" = "Belki daha sonra";
 "playback_rate_reset" = "Normale sıfırla";
 "library" = "Arşiv";
+"library_preparing" = "Arşiv hazırlanıyor…";
 "tag_editor_writeback_error_title" = "Müzik Dosyası Yazılamıyor";
 "family_sharing_title" = "Aile Paylaşımı";
 "in progress" = "devam ediyor";

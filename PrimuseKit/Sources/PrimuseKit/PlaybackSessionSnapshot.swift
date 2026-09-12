@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Durable playback context used to reconstruct the queue after a process
 /// restart. Queue positions are stored instead of song IDs alone because the
@@ -272,5 +273,147 @@ public struct PlaybackSessionStore: Sendable {
     public func clear() throws {
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         try FileManager.default.removeItem(at: url)
+    }
+}
+
+/// The durable state a caller wants the session file to end up in.
+public enum PlaybackSessionPersistenceRequest: Sendable, Equatable {
+    case save(PlaybackSessionSnapshot)
+    case clear
+}
+
+/// Result of one drain, kept `Sendable` so a background writer can report a
+/// failure back to the caller's isolation domain without moving an `Error`.
+public struct PlaybackSessionPersistenceOutcome: Sendable, Equatable {
+    public let performedWrites: Int
+    public let failureDescription: String?
+    /// Highest generation whose state is durable on disk once this drain
+    /// returned, including generations a previous drain already wrote. A
+    /// caller may treat its own request as persisted once this is at least
+    /// its own generation, because a newer generation supersedes it. `nil`
+    /// means nothing has ever been written successfully.
+    public let lastSuccessfulGeneration: UInt64?
+
+    public init(
+        performedWrites: Int,
+        failureDescription: String?,
+        lastSuccessfulGeneration: UInt64? = nil
+    ) {
+        self.performedWrites = performedWrites
+        self.failureDescription = failureDescription
+        self.lastSuccessfulGeneration = lastSuccessfulGeneration
+    }
+
+    /// Whether the state requested with `generation` is durable. A newer
+    /// generation counts: it superseded this request, so the file already
+    /// holds state at least as new as the one the caller handed over.
+    public func persisted(generation: UInt64) -> Bool {
+        guard let lastSuccessfulGeneration else { return false }
+        return lastSuccessfulGeneration >= generation
+    }
+}
+
+/// Keeps the JSON encode and the atomic write off the caller's thread while
+/// preserving the caller's ordering.
+///
+/// The caller captures its snapshot (on its own actor), hands it over with a
+/// monotonically increasing generation and then drains from a background task.
+/// Only the newest state is written: a request still waiting when a newer one
+/// arrives is superseded, and the newest request is always the one left on
+/// disk. `clear` travels the same path, so an empty-session clear can never be
+/// overtaken by an older in-flight save.
+public final class PlaybackSessionPersistenceCoordinator: Sendable {
+    private struct PendingRequest: Sendable {
+        let generation: UInt64
+        let request: PlaybackSessionPersistenceRequest
+    }
+
+    private struct State: Sendable {
+        var pending: PendingRequest?
+        var acceptedGeneration: UInt64 = 0
+        var completedWriteCount = 0
+        var lastSuccessfulGeneration: UInt64?
+    }
+
+    private let store: PlaybackSessionStore
+    /// Guards the pending state only; never held across file I/O, so an
+    /// enqueue from a latency-critical thread cannot wait for a write.
+    private let state = OSAllocatedUnfairLock<State>(initialState: State())
+    /// Serialises the writes themselves so two drains cannot interleave.
+    private let writeLock = NSLock()
+
+    public init(store: PlaybackSessionStore) {
+        self.store = store
+    }
+
+    public var url: URL { store.url }
+
+    /// Number of file operations actually performed. Superseded requests never
+    /// reach the disk, so this stays well below the number of enqueues.
+    public var performedWriteCount: Int {
+        state.withLock { $0.completedWriteCount }
+    }
+
+    /// Highest generation that actually reached the disk, or `nil` while no
+    /// write has succeeded yet.
+    public var lastSuccessfulGeneration: UInt64? {
+        state.withLock { $0.lastSuccessfulGeneration }
+    }
+
+    /// Records the newest requested state. O(1) and lock-free of any I/O.
+    public func enqueue(
+        _ request: PlaybackSessionPersistenceRequest,
+        generation: UInt64
+    ) {
+        state.withLock { state in
+            guard generation >= state.acceptedGeneration else { return }
+            state.acceptedGeneration = generation
+            state.pending = PendingRequest(generation: generation, request: request)
+        }
+    }
+
+    /// Writes the newest pending state on the calling thread. Safe to call from
+    /// several tasks: the first one in performs the work, the others find
+    /// nothing left to do. The outcome always reports the newest generation
+    /// that is durable, so a caller whose own request was superseded or was
+    /// written by another drain still learns that its state is on disk.
+    @discardableResult
+    public func drain() -> PlaybackSessionPersistenceOutcome {
+        writeLock.lock()
+        defer { writeLock.unlock() }
+        var writes = 0
+        var failureDescription: String?
+        while let next = takePending() {
+            do {
+                switch next.request {
+                case let .save(snapshot):
+                    try store.save(snapshot)
+                case .clear:
+                    try store.clear()
+                }
+                writes += 1
+                state.withLock { state in
+                    state.completedWriteCount += 1
+                    if next.generation > (state.lastSuccessfulGeneration ?? 0) {
+                        state.lastSuccessfulGeneration = next.generation
+                    }
+                }
+            } catch {
+                failureDescription = error.localizedDescription
+            }
+        }
+        return PlaybackSessionPersistenceOutcome(
+            performedWrites: writes,
+            failureDescription: failureDescription,
+            lastSuccessfulGeneration: state.withLock { $0.lastSuccessfulGeneration }
+        )
+    }
+
+    private func takePending() -> PendingRequest? {
+        state.withLock { (state: inout State) -> PendingRequest? in
+            guard let next = state.pending else { return nil }
+            state.pending = nil
+            return next
+        }
     }
 }

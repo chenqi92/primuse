@@ -2185,6 +2185,7 @@
 "onboarding_later" = "Возможно позже";
 "playback_rate_reset" = "Сброс в нормальное состояние.";
 "library" = "Медиатека";
+"library_preparing" = "Подготовка медиатеки…";
 "tag_editor_writeback_error_title" = "Невозможно записать музыкальный файл";
 "family_sharing_title" = "Семейный доступ";
 "in progress" = "в процессе";

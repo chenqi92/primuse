@@ -32,6 +32,10 @@ final class AudioSessionManager {
     }
 
     func requirePlaybackSession(reacquiringLocalRouteFocus: Bool = false) throws {
+        // setActive 是同步的跨进程调用, 蓝牙 / AirPlay 路由下可能耗时很久,
+        // 而它跑在主 actor 上。先标出区间, 设备上才能把卡顿归因到会话激活。
+        let signpost = PrimuseSignposts.hitch.beginInterval("player.sessionActivate")
+        defer { PrimuseSignposts.hitch.endInterval("player.sessionActivate", signpost) }
         let session = AVAudioSession.sharedInstance()
         if reacquiringLocalRouteFocus {
             do {
@@ -110,6 +114,9 @@ final class AudioSessionManager {
     /// 时返回当前值)。Hz 单位。0 / 不合理值会被忽略。
     @discardableResult
     func setPreferredSampleRate(_ targetHz: Double) -> Double {
+        // 硬件采样率协商同样是同步 IPC, 与会话激活分开计量。
+        let signpost = PrimuseSignposts.hitch.beginInterval("player.hardwareRate")
+        defer { PrimuseSignposts.hitch.endInterval("player.hardwareRate", signpost) }
         let session = AVAudioSession.sharedInstance()
         guard targetHz >= 8000, targetHz <= 384_000 else {
             return session.sampleRate
@@ -123,6 +130,10 @@ final class AudioSessionManager {
     }
 
     func deactivate() {
+        // .notifyOthersOnDeactivation 会让系统通知其他 app, 停止路径上的这次
+        // 同步调用同样可能拖住主 actor。
+        let signpost = PrimuseSignposts.hitch.beginInterval("player.sessionDeactivate")
+        defer { PrimuseSignposts.hitch.endInterval("player.sessionDeactivate", signpost) }
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setActive(false, options: .notifyOthersOnDeactivation)

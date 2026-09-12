@@ -3283,6 +3283,91 @@ public enum MetadataBackfillNetworkPolicy {
         hasPendingWork
             && pendingSourceIDs.isDisjoint(with: offlineReadableSourceIDs)
     }
+
+    /// 同一个判定, 但调用方只拿得到上一次对账缓存下来的每源剩余数。
+    ///
+    /// 队列被标脏之后 (扫描每发布一批歌就会标一次, 而对账已经推到主 actor
+    /// 之外) 那份缓存可能还没跟上: `pendingSourceIDs` 可能是空集或上一轮的
+    /// 集合, 空集与任何集合都 disjoint, 上面的判定会直接回答"需要网络"——
+    /// 于是只剩沙盒行要读的设备也会被要求联网才唤醒。这里在不遍历资料库的
+    /// 前提下给一个保守答案: 只要还有一个可回填的源不是"离线可读", 就按需要
+    /// 网络申请; 全是离线可读 (或根本没有可回填的源) 时就不要求网络, 让本地
+    /// 行能在没有网络的设备上被唤醒。缓存是新的 (队列不脏) 时行为不变。
+    ///
+    /// - Parameters:
+    ///   - queueNeedsReconcile: 队列被标脏 / 已对账代次落后于变更代次,
+    ///     也就是缓存的每源剩余数可能已经过期。
+    ///   - backfillableSourceIDs: 当前参与回填的全部源。
+    public static func backgroundWakeRequiresNetworkFromCachedCounts(
+        queueNeedsReconcile: Bool,
+        hasPendingWork: Bool,
+        pendingSourceIDs: Set<String>,
+        backfillableSourceIDs: Set<String>,
+        offlineReadableSourceIDs: Set<String>
+    ) -> Bool {
+        guard hasPendingWork else { return false }
+        guard queueNeedsReconcile else {
+            return backgroundWakeRequiresNetwork(
+                hasPendingWork: true,
+                pendingSourceIDs: pendingSourceIDs,
+                offlineReadableSourceIDs: offlineReadableSourceIDs
+            )
+        }
+        return !backfillableSourceIDs.subtracting(offlineReadableSourceIDs).isEmpty
+    }
+}
+
+/// 整库剩余数对账的节流策略。off-main 变体回到主 actor 时会重新校验代次与
+/// 输入集合, 校验失败就丢弃这次结果; 问题是失败之后要不要把节流时间戳退回
+/// `.distantPast` (等于放行下一次对账立刻整库重算)。
+public enum MetadataBackfillRemainingCountRefreshPolicy {
+    public enum StaleReason: Sendable, Equatable {
+        /// 计算代次被顶替: 又有一次刷新在跑 (例如连续两批扫描结果各自触发了
+        /// 一次延后对账, 后一次取消了前一次, 但前一次的 detached 计算仍会跑完
+        /// 并先回到主 actor)。接管的那一次会自己负责发布结果。
+        case supersededComputation
+        /// 计算期间资料库 / 队列 / 源集合真的变了, 这次结果对不上现状。
+        case inputsChanged
+    }
+
+    /// 只有输入真的变了才回退节流时间戳。被顶替的那次若也回退, 接管者随后
+    /// 调用的 `start()` 会发现节流已失效, 又在主 actor 上把整库对账同步做一遍
+    /// —— 正是把对账挪到主 actor 之外想避免的那次开销。
+    public static func throttleResetsAfterFailure(reason: StaleReason) -> Bool {
+        switch reason {
+        case .supersededComputation: false
+        case .inputsChanged: true
+        }
+    }
+
+    /// 这次 off-main 计算结果的处置。
+    public enum Application: Sendable, Equatable {
+        /// 什么都没动: 数字与队列对账一起落地。
+        case apply
+        /// 只有歌曲代次动了 (扫描 flush、回填自己的发布): 数字是一份一致的
+        /// 过去状态, 可以发布给源卡片; 但队列仍然脏着, 下一次对账照旧要跑。
+        case applyKeepingQueueDirty
+        /// 结果回答的已经是另一个问题: 丢弃。
+        case discard
+    }
+
+    /// 把"快照稍微旧了一点"和"快照回答的是另一个问题"分开。
+    ///
+    /// 扫描期间资料库每 1.5 s 就发布一次, 歌曲代次几乎必然在 detached 计算
+    /// 跑完之前就动了。把它和源集合 / 禁用集合 / 队列代次这些语义变化归成
+    /// 同一类丢弃, 结果就是整场扫描里源卡片的剩余数一直冻着, 而队列对账也
+    /// 永远补不上, 下一次 `start()` 只能在主 actor 上把整库同步走一遍。
+    public static func application(
+        superseded: Bool,
+        songGenerationChanged: Bool,
+        queueGenerationChanged: Bool,
+        semanticInputsChanged: Bool
+    ) -> Application {
+        if superseded || queueGenerationChanged || semanticInputsChanged {
+            return .discard
+        }
+        return songGenerationChanged ? .applyKeepingQueueDirty : .apply
+    }
 }
 
 /// How `MetadataBackfillService.refreshQueue` reconciles the queue after
@@ -3538,6 +3623,126 @@ public enum MetadataBackfillDeferredRetryPolicy {
         case .repeatedSnapshot:
             return []
         }
+    }
+}
+
+/// 延迟重试集合及其成员版本号。歌曲行只需要知道"这首歌是不是重试中",
+/// 而背景对账每 5 秒都会跑一遍; 把成员关系和版本号封装在一起, 版本号
+/// 只在集合真的发生变化时前进, 行视图就不会被一次没有变化的对账重绘。
+public struct DeferredRetryMembership: Equatable, Sendable {
+    public private(set) var songIDs: Set<String>
+    /// 单调前进(到达 `Int.max` 后回绕到 1), 仅在成员关系变化时改变。
+    public private(set) var revision: Int
+
+    public init(songIDs: Set<String> = [], revision: Int = 0) {
+        self.songIDs = songIDs
+        self.revision = revision
+    }
+
+    public var isEmpty: Bool { songIDs.isEmpty }
+    public var count: Int { songIDs.count }
+
+    public func contains(_ songID: String) -> Bool {
+        songIDs.contains(songID)
+    }
+
+    @discardableResult
+    public mutating func insert(_ songID: String) -> Bool {
+        guard songIDs.insert(songID).inserted else { return false }
+        advance()
+        return true
+    }
+
+    @discardableResult
+    public mutating func remove(_ songID: String) -> Bool {
+        guard songIDs.remove(songID) != nil else { return false }
+        advance()
+        return true
+    }
+
+    @discardableResult
+    public mutating func formUnion(_ ids: some Sequence<String>) -> Bool {
+        let previousCount = songIDs.count
+        songIDs.formUnion(ids)
+        guard songIDs.count != previousCount else { return false }
+        advance()
+        return true
+    }
+
+    @discardableResult
+    public mutating func subtract(_ ids: some Sequence<String>) -> Bool {
+        let previousCount = songIDs.count
+        songIDs.subtract(ids)
+        guard songIDs.count != previousCount else { return false }
+        advance()
+        return true
+    }
+
+    @discardableResult
+    public mutating func removeAll() -> Bool {
+        guard !songIDs.isEmpty else { return false }
+        songIDs.removeAll()
+        advance()
+        return true
+    }
+
+    /// 从磁盘恢复或整体替换。内容相同的一份集合不算变化。
+    @discardableResult
+    public mutating func replace(with ids: Set<String>) -> Bool {
+        guard ids != songIDs else { return false }
+        songIDs = ids
+        advance()
+        return true
+    }
+
+    private mutating func advance() {
+        revision = revision == .max ? 1 : revision + 1
+    }
+}
+
+/// 状态展示行集合的廉价指纹。对账在后台线程上逐条折叠出一个 64 位摘要,
+/// 主 actor 只比较这一个值, 取代成千上万条带标题/路径字符串的展示行字典
+/// 相等比较。摘要相同即视为界面没有变化, 因此不推进 `statusRevision`,
+/// 也就不会在一次没有用户可见变化的 flush 里重新渲染状态界面。
+///
+/// 顺序敏感: 展示行按歌曲数组顺序生成, 顺序变化本身就是界面变化。
+/// 来源集合用异或折叠, 与遍历顺序无关(集合本身是无序的)。
+public struct MetadataBackfillStatusSignature: Equatable, Sendable {
+    private static let offsetBasis: UInt64 = 0xcbf2_9ce4_8422_2325
+    private static let prime: UInt64 = 0x0000_0100_0000_01b3
+
+    private var ordered: UInt64 = MetadataBackfillStatusSignature.offsetBasis
+    private var unordered: UInt64 = 0
+    private var itemCount: Int = 0
+
+    public init() {}
+
+    public mutating func combine(item: MetadataBackfillStatusDisplayItem, sourceID: String) {
+        var hasher = Hasher()
+        hasher.combine(sourceID)
+        hasher.combine(item.songID)
+        hasher.combine(item.title)
+        hasher.combine(item.artistName)
+        hasher.combine(item.filePath)
+        hasher.combine(item.fileFormat)
+        hasher.combine(item.hasMissingDuration)
+        hasher.combine(item.state)
+        hasher.combine(item.workReasons.rawValue)
+        hasher.combine(item.diagnostic?.state)
+        hasher.combine(item.diagnostic?.reason)
+        hasher.combine(item.diagnostic?.attemptCount)
+        hasher.combine(item.diagnostic?.lastAttemptAt)
+        hasher.combine(item.attemptCount)
+        ordered = (ordered ^ UInt64(bitPattern: Int64(hasher.finalize())))
+            &* MetadataBackfillStatusSignature.prime
+        itemCount += 1
+    }
+
+    /// 记录"这个来源有一份快照"(哪怕是空的), 使来源增删同样被视为变化。
+    public mutating func combine(sourceID: String) {
+        var hasher = Hasher()
+        hasher.combine(sourceID)
+        unordered ^= UInt64(bitPattern: Int64(hasher.finalize()))
     }
 }
 
@@ -4663,6 +4868,38 @@ public enum NowPlayingArtworkPublicationPolicy {
     }
 }
 
+/// 锁屏歌词是按"行"重新发布 `nowPlayingInfo` 的: MediaRemote 会在调用线程
+/// (主线程) 上同步做 XPC, 因此把歌词行引起的重发限制成每秒最多一次。被限流
+/// 的那一行不会丢失 —— 调用方在窗口结束后(或下一个时钟 tick)把当时的行发
+/// 出去, 锁屏始终显示当前行。播放/暂停/切歌/拖动等状态变化不走这里。
+public enum NowPlayingLyricsPublishPolicy {
+    public static let minimumPublishInterval: TimeInterval = 1
+
+    public static func shouldPublish(
+        lastPublishedAt: Date?,
+        now: Date,
+        lineChanged: Bool
+    ) -> Bool {
+        guard lineChanged else { return false }
+        guard let lastPublishedAt else { return true }
+        let elapsed = now.timeIntervalSince(lastPublishedAt)
+        // 系统时钟被回拨时不能把发布无限期卡住。
+        guard elapsed >= 0 else { return true }
+        return elapsed >= minimumPublishInterval
+    }
+
+    /// 距离下一次允许发布还要等多久。0 表示现在就可以发布。
+    public static func delayUntilNextPublish(
+        lastPublishedAt: Date?,
+        now: Date
+    ) -> TimeInterval {
+        guard let lastPublishedAt else { return 0 }
+        let elapsed = now.timeIntervalSince(lastPublishedAt)
+        guard elapsed >= 0 else { return 0 }
+        return max(0, minimumPublishInterval - elapsed)
+    }
+}
+
 /// Validates the non-query portion of an OAuth callback URL.
 ///
 /// Providers that redirect straight back to the app must return the registered
@@ -5362,6 +5599,57 @@ public enum PlaybackEndIdentityPolicy {
         currentItemID: ItemID?
     ) -> Bool {
         endedItemID == activeItemID && endedItemID == currentItemID
+    }
+}
+
+/// Decides whether a primary-node decode pump may keep scheduling audio.
+///
+/// A committed crossfade rotates the play ID to the incoming track while the
+/// outgoing track still has to play the whole ramp, so strict play-ID equality
+/// would retire the outgoing pump at the commit boundary and let the fading
+/// track run dry once its decoded lookahead is exhausted. The outgoing owner
+/// keeps a scheduling grace for exactly as long as the transition is live;
+/// completing, failing or cancelling it clears the grace.
+public enum CrossfadePumpContinuationPolicy {
+    public static func mayContinue<ID: Equatable>(
+        playID: ID,
+        currentPlayID: ID?,
+        isCrossfading: Bool,
+        outgoingPlayID: ID?
+    ) -> Bool {
+        if currentPlayID == playID { return true }
+        guard isCrossfading else { return false }
+        return outgoingPlayID == playID
+    }
+}
+
+/// 解码泵手里那块「保留到最后」的缓冲该如何收尾。当前所有者要挂 track-end /
+/// gapless 回调; 交叉淡入宽限期内的换出泵只补音频、不挂回调 (那些回调属于
+/// 已经轮换走的 playID, 否则会替已退休的曲目推进队列); 其余情况一律丢弃。
+public enum PrimaryPumpFinalBufferPolicy {
+    public enum Disposition: Equatable, Sendable {
+        /// 当前所有者: 正常走带 track-end / gapless 回调的收尾调度。
+        case scheduleWithTrackEnd
+        /// 交叉淡入换出轨: 按普通缓冲补上, 不挂任何回调。
+        case scheduleOutgoingTail
+        /// 已被取代且没有宽限资格: 丢弃。
+        case drop
+    }
+
+    public static func disposition<ID: Equatable>(
+        playID: ID,
+        currentPlayID: ID?,
+        isCrossfading: Bool,
+        outgoingPlayID: ID?
+    ) -> Disposition {
+        if currentPlayID == playID { return .scheduleWithTrackEnd }
+        guard CrossfadePumpContinuationPolicy.mayContinue(
+            playID: playID,
+            currentPlayID: currentPlayID,
+            isCrossfading: isCrossfading,
+            outgoingPlayID: outgoingPlayID
+        ) else { return .drop }
+        return .scheduleOutgoingTail
     }
 }
 

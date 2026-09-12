@@ -359,6 +359,7 @@
 "playback_settings" = "播放设置";
 "audio_output" = "音频输出";
 "library" = "资料库";
+"library_preparing" = "正在准备资料库…";
 "cache_size" = "缓存大小";
 "clear_cache_confirm" = "确定要清除所有缓存文件吗？";
 "clear" = "清除";

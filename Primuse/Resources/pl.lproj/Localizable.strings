@@ -1543,6 +1543,7 @@
 "last_synced" = "Ostatnia synchronizacja";
 "later" = "Później";
 "library" = "Biblioteka";
+"library_preparing" = "Przygotowywanie biblioteki…";
 "library_add_quick_access" = "Dodaj skrót";
 "library_browse" = "Przeglądaj bibliotekę";
 "library_browse_flat" = "Płaskie";

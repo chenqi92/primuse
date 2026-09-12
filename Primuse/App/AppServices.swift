@@ -522,6 +522,9 @@ final class AppServices {
     let musicIntelligence: MusicIntelligenceService
 
     private var sourceLifecycleObserverTokens: [NSObjectProtocol] = []
+    /// Stage 2: 把离线准备结果送进主线程发布的那一步。生产环境不取消它 ——
+    /// 库不发布就永远停在 `.preparing`; 句柄保留下来只为让测试可以 await。
+    private var startupPublication: Task<Void, Never>?
     private struct SourceCleanupRequest {
         var purgePersistentCaches = false
         var removeImportedFiles = false
@@ -580,10 +583,37 @@ final class AppServices {
         let sourceIdentityPrefixes = store.allSources.reduce(into: [String: String]()) { result, source in
             if let accountID = source.cloudAccountID { result[source.id] = accountID }
         }
-        let library = MusicLibrary(
-            disabledSourceIDs: initiallyDisabledSourceIDs,
-            sourceIdentityPrefixes: sourceIdentityPrefixes
-        )
+        // Stage 2: 整库装载移出主线程。准备任务在这里起跑, 服务图谱继续在主
+        // 线程构造; 发布是 init 末尾唯一的主线程步骤 (见文件末尾的
+        // `startupPublication`)。`prepareStartup` 内部自己 detach。
+        // Stage 2b: 这里必须用 `Task.detached` —— 普通 `Task {}` 会继承
+        // `init` 的 MainActor 隔离, 于是装载要排在整个服务图谱(以及主线程上
+        // 已经排队的工作)之后才起跑, 重叠根本不会发生。
+        // DEBUG 逃生舱: A/B 测量时可以退回今天的同步构造。
+        #if DEBUG
+        let usesSynchronousLibraryStartup =
+            ProcessInfo.processInfo.environment["PRIMUSE_SYNC_LIBRARY_STARTUP"] == "1"
+        #else
+        let usesSynchronousLibraryStartup = false
+        #endif
+        let preparation: Task<MusicLibrary.PreparedStartup, Never>?
+        let library: MusicLibrary
+        if usesSynchronousLibraryStartup {
+            preparation = nil
+            library = MusicLibrary(
+                disabledSourceIDs: initiallyDisabledSourceIDs,
+                sourceIdentityPrefixes: sourceIdentityPrefixes
+            )
+        } else {
+            preparation = Task.detached(priority: .userInitiated) {
+                await MusicLibrary.prepareStartup(
+                    disabledSourceIDs: initiallyDisabledSourceIDs,
+                    sourceIdentityPrefixes: sourceIdentityPrefixes
+                )
+            }
+            library = MusicLibrary.makePreparing(disabledSourceIDs: initiallyDisabledSourceIDs)
+        }
+        // 异步路径下这一项只测 `makePreparing` (不读盘), 同步路径下含义不变。
         let libraryFinishedAt = ProcessInfo.processInfo.systemUptime
         let manager = SourceManager(sourcesProvider: {
             await MainActor.run { store.sources }
@@ -845,6 +875,19 @@ final class AppServices {
             (playbackRestoreFinishedAt - auxiliaryServicesFinishedAt) * 1_000,
             (startupFinishedAt - playbackRestoreFinishedAt) * 1_000
         ))
+
+        // 发布步骤。必须是 init 的最后一件事, 并且只依赖准备任务本身 ——
+        // 任何会 await `persistNowAndWait()` / `whenReady()` 的调用都要等这里
+        // 先跑完, 放进来就是死锁。
+        if let preparation {
+            startupPublication = Task { @MainActor [library] in
+                library.publish(await preparation.value)
+                plog(String(
+                    format: "🚀 library published %.0fms after launch services",
+                    (ProcessInfo.processInfo.systemUptime - startupFinishedAt) * 1_000
+                ))
+            }
+        }
     }
 
     /// Runs after SwiftUI has had a chance to present the first frame. Queue
@@ -854,6 +897,10 @@ final class AppServices {
     func completeDeferredStartup() async {
         guard !didCompleteDeferredStartup else { return }
         didCompleteDeferredStartup = true
+        // Stage 2: 播放恢复、源/歌曲对账、修剪、PhoneRelay、Navidrome 冷刷新
+        // 全都读库。等发布完成再开工 —— 等待时间不计入下面的耗时统计, 这样
+        // `🚀 deferred startup` 的含义与历史版本保持一致。
+        await musicLibrary.whenReady()
         let startedAt = ProcessInfo.processInfo.systemUptime
 
         #if os(iOS)
@@ -995,6 +1042,15 @@ final class AppServices {
     /// imports out of the launch path. macOS can resume after startup settles.
     func resumePendingLocalImportScanIfNeeded() {
         #if os(iOS) || os(macOS)
+        // Stage 2b: 库还在准备时 `library.song(id:)` 对每一行检查点都返回 nil,
+        // 续扫会把整份检查点重新播种一遍, 并把源的 songCount 写成 0。守卫放在
+        // 入口, 后台 settle、非 iOS 的 .active 与 drain 三个调用方一起覆盖。
+        guard musicLibrary.isReady else {
+            musicLibrary.onReady { [weak self] in
+                self?.resumePendingLocalImportScanIfNeeded()
+            }
+            return
+        }
         #if os(macOS)
         guard didFinishDeferredStartup, LocalImportService.hasPendingScan else { return }
         #endif
@@ -1058,11 +1114,22 @@ final class AppServices {
             nc.addObserver(forName: .primuseSourceDidSoftDelete, object: nil, queue: .main) { [weak self] note in
                 guard let self, let id = note.userInfo?["id"] as? String else { return }
                 let capturedTombstone = note.userInfo?["source"] as? MusicSource
+                // 这条墓碑是从 CloudKit 拉回来应用到本地的:云端已经有一模一样
+                // 的记录,再走一次清理日志只会把它原样存回去,抬高 changeTag,
+                // 逼所有其他设备再拉一遍。origin 必须在 Task 跳转之前同步读,
+                // 跟 CloudKitSyncService 的观察者用同一份约定。
+                let cameFromRemote = (note.userInfo?["origin"] as? String) == "remote"
                 Task { @MainActor in
                     self.navidromeAutoRefresh.sourceWasDeleted(id)
                     let tombstone = capturedTombstone ?? self.sourcesStore.source(id: id)
                     if let tombstone, tombstone.isDeleted {
-                        self.enqueueSourceCloudCleanup(tombstone)
+                        if cameFromRemote {
+                            // 本地那一半照做:删除账本要留下这条墓碑,源列表也
+                            // 要跟着对齐,只是不再往云端回写。
+                            self.sourcesStore.registerDeletionTombstone(tombstone)
+                        } else {
+                            self.enqueueSourceCloudCleanup(tombstone)
+                        }
                     }
                     // 只有“复制到猿音”的托管来源拥有沙箱副本；文件夹引用、
                     // File Provider 和远端来源都只移除资料库记录，不碰源文件。
@@ -1540,10 +1607,18 @@ final class AppServices {
         // 等 CloudKit 先拉一拨远端歌单 / 设置，服务自身还会再做一次去抖。
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_000_000_000)
-            index.synchronizeIfNeeded(library: library)
+            // Stage 2: 这条定时器可能早于库发布。空模型会让恢复中的同步把整份
+            // Spotlight 索引当成"全部已删除"提交掉, 发布后再全量重建一遍。
+            library.onReady { index.synchronizeIfNeeded(library: library) }
         }
 
-        observeSpotlightLibraryToken(library: library, index: index)
+        // Stage 2b: token 观察者同样要等发布。同步启动时这次 revision bump
+        // 发生在 `MusicLibrary.init` 内部(观察者还没装), 干净的 manifest 因此
+        // 能跨启动保持干净; 异步路径下 bump 挪到了发布那一刻, 装在发布之前
+        // 就等于每次冷启动都把索引标脏, 再在下一个后台窗口跑一次整库比对。
+        library.onReady { [weak self] in
+            self?.observeSpotlightLibraryToken(library: library, index: index)
+        }
     }
 
     private func observeSpotlightLibraryToken(
@@ -1588,6 +1663,7 @@ final class AppServices {
         }
 
         bridge.playSong = { [self] title, artist in
+            await awaitLibraryForIntent()
             let query = SiriMediaSearchQuery(
                 kind: .song,
                 mediaName: title,
@@ -1617,6 +1693,7 @@ final class AppServices {
         }
 
         bridge.playAlbum = { [self] title, artist in
+            await awaitLibraryForIntent()
             guard let result = SiriMediaSearchResolver.resolve(
                 query: SiriMediaSearchQuery(
                     kind: .album,
@@ -1634,6 +1711,7 @@ final class AppServices {
         }
 
         bridge.playArtist = { [self] name in
+            await awaitLibraryForIntent()
             guard let result = SiriMediaSearchResolver.resolve(
                 query: SiriMediaSearchQuery(kind: .artist, mediaName: name),
                 songs: library.visibleSongs
@@ -1647,6 +1725,7 @@ final class AppServices {
         }
 
         bridge.playGenre = { [self] name in
+            await awaitLibraryForIntent()
             guard let result = SiriMediaSearchResolver.resolve(
                 query: SiriMediaSearchQuery(kind: .genre, genreNames: [name]),
                 songs: library.visibleSongs
@@ -1660,6 +1739,7 @@ final class AppServices {
         }
 
         bridge.playPlaylist = { [self] name in
+            await awaitLibraryForIntent()
             let items = library.playlists.map {
                 SiriNamedMediaItem(id: $0.id, name: $0.name)
             } + library.smartPlaylists.map {
@@ -1739,7 +1819,10 @@ final class AppServices {
         }
 
         bridge.playSongRadio = { [self] in
+            // Stage 2b: 种子取自播放器。没有正在播的歌就直接返回, 不必为一个
+            // 根本不会读的资料库占掉 Intents 的预算。
             guard let seed = player.currentSong, !player.isLiveRadio else { return nil }
+            await awaitLibraryForIntent()
             let queue = MusicDiscoveryEngine.songRadio(
                 from: seed,
                 in: library,
@@ -1753,6 +1836,7 @@ final class AppServices {
         }
 
         bridge.shuffleLibrary = { [self] in
+            await awaitLibraryForIntent()
             let pool = library.visibleSongs.filteredPlayable()
             _ = startIntentQueue(pool, shuffled: true)
         }
@@ -1779,6 +1863,13 @@ final class AppServices {
             // 会在下一次刷新时被旧数据打回去。
             player.republishNowPlayingSurfaces()
         }
+    }
+
+    /// Stage 2: 冷启动时资料库可能还在主线程之外装载, 而 Widget / Shortcuts /
+    /// 控制中心的 intent 随时会到。与 SiriKit 同样的有界等待(Intents 的预算
+    /// 约 10 秒), 超时后按今天的路径继续 —— 空库自然返回"没找到"。
+    private func awaitLibraryForIntent() async {
+        _ = await musicLibrary.whenReady(timeout: .seconds(8))
     }
 
     /// Queue acceptance is synchronous; remote URL resolution and first-buffer

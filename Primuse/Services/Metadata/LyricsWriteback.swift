@@ -704,8 +704,12 @@ enum LyricsWriteback {
         // Merge only the lyric fields into the latest library row so a tag,
         // artwork, favorite, or background refresh completed in that window
         // is not replaced by the editor's older Song snapshot.
+        // 刮削会把封面 / 歌词指针先排进资料库的合批窗口 (updateAssetReferences),
+        // 窗口内读到的还是旧行。整行替换之前先把窗口里的补丁落地, 否则这里
+        // 读到的旧封面会被原样写回去, 调用方拿到的 committedSong 也是旧值。
+        library.flushPendingAssetReferencePatches()
         var committedSong = updated
-        if var latestSong = library.songs.first(where: { $0.id == updated.id }) {
+        if var latestSong = library.song(id: updated.id) {
             latestSong.lyricsFileName = updated.lyricsFileName
             latestSong.lyricsText = updated.lyricsText
             library.replaceSong(latestSong)

@@ -137,6 +137,17 @@ final class SpotlightIndexService {
     /// launch into a new dirty event. On iOS this remains deferred until the
     /// scene enters a non-playing background window.
     func synchronizeIfNeeded(library: MusicLibrary) {
+        // Stage 2b: 准备中的库快照是空的。空快照与上一份 manifest 一比, 所有
+        // 已索引的条目都会落进 `identifiersToDelete`, 整份 Spotlight 索引被
+        // 提交删除, 发布之后再花几分钟重建。守卫放在这里, 启动定时器、后台
+        // settle 与非 iOS 的 `.active` 三个入口(含 `resumePendingSynchronization`)
+        // 一起覆盖。
+        guard library.isReady else {
+            library.onReady { [weak self] in
+                self?.synchronizeIfNeeded(library: library)
+            }
+            return
+        }
         needsSynchronization = needsSynchronization || Self.isSynchronizationPending
         guard needsSynchronization, !isSynchronizationSuspended else { return }
         enqueueSynchronization(library: library, delay: Self.debounceDuration)
@@ -159,6 +170,8 @@ final class SpotlightIndexService {
     /// Restarts work canceled for an iOS scene transition without performing a
     /// redundant full-library comparison after every foreground activation.
     func resumePendingSynchronization(library: MusicLibrary) {
+        // 解除挂起是纯标志位, 立刻生效; 真正的快照由 `synchronizeIfNeeded`
+        // 的就绪守卫推迟到发布之后。
         isSynchronizationSuspended = false
         synchronizeIfNeeded(library: library)
     }

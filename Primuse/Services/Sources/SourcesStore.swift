@@ -97,6 +97,14 @@ final class SourcesStore {
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
+    /// Armed while a coalesced scan-counter write is waiting for its window.
+    /// Any other persist path subsumes it: the encode always covers the whole
+    /// `allSources` array, so there is never a partially-written generation.
+    @ObservationIgnored private var coalescedPersistTask: Task<Void, Never>?
+    @ObservationIgnored private var lastCoalescedPersistAt = Date.distantPast
+    /// True once the scene left the foreground; see `setSceneBackgrounded`.
+    @ObservationIgnored private var isSceneBackgrounded = false
+
     init(
         fileManager: FileManager = .default,
         storageDirectoryURL: URL? = nil,
@@ -275,6 +283,62 @@ final class SourcesStore {
         guard let index = allSources.firstIndex(where: { $0.id == sourceID }) else { return }
         mutate(&allSources[index])
         persist()
+    }
+
+    /// Same as `updateLocal`, but for derived counters a scan republishes every
+    /// flush. `allSources` is updated immediately — every reader still sees the
+    /// new count in the same turn — while the JSON encode + atomic write are
+    /// coalesced into one write per debounce window. The value is device-local
+    /// derived state: a process exit inside the window costs at most the
+    /// intermediate counter, which the next flush or the terminal commit
+    /// rewrites exactly. Terminal commits, cancellation and leaving the
+    /// foreground all force the write through.
+    func updateLocalCoalesced(_ sourceID: String, mutate: (inout MusicSource) -> Void) {
+        guard let index = allSources.firstIndex(where: { $0.id == sourceID }) else { return }
+        mutate(&allSources[index])
+        guard !SourcePersistCoalescingPolicy.shouldPersistNow(
+            isFinalCommit: false,
+            isBackgrounded: isSceneBackgrounded,
+            secondsSinceLastPersist: Date().timeIntervalSince(lastCoalescedPersistAt)
+        ) else {
+            persist()
+            return
+        }
+        guard coalescedPersistTask == nil else { return }
+        coalescedPersistTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(
+                for: .seconds(SourcePersistCoalescingPolicy.debounceInterval)
+            )
+            guard !Task.isCancelled, let self else { return }
+            // 不在这里清 token: 只有真正落盘成功的那次写入才有资格解除武装
+            // (`persistThrowing`)。写失败时 token 留着, 后面的
+            // `flushCoalescedPersist()` 与下一次合并更新才能重试。
+            self.persist()
+        }
+    }
+
+    /// Write any coalesced source edit right now. Called on the terminal scan
+    /// commit, on cancellation, and whenever the scene leaves `.active` — after
+    /// that point iOS may suspend the process at any moment.
+    func flushCoalescedPersist() {
+        guard coalescedPersistTask != nil else { return }
+        guard SourcePersistCoalescingPolicy.shouldPersistNow(
+            isFinalCommit: true,
+            isBackgrounded: isSceneBackgrounded,
+            secondsSinceLastPersist: Date().timeIntervalSince(lastCoalescedPersistAt)
+        ) else { return }
+        persist()
+    }
+
+    /// Once the scene has left the foreground the process can be suspended at
+    /// any moment, and a scan task that is still unwinding its cancellation can
+    /// publish one more counter after the scene-leave flushes have run. From
+    /// that point every coalesced update writes straight through instead of
+    /// arming a window nothing will close.
+    func setSceneBackgrounded(_ isBackgrounded: Bool) {
+        guard isSceneBackgrounded != isBackgrounded else { return }
+        isSceneBackgrounded = isBackgrounded
+        if isBackgrounded { flushCoalescedPersist() }
     }
 
     @discardableResult
@@ -512,7 +576,7 @@ final class SourcesStore {
                 allSources[index].modifiedAt = max(allSources[index].modifiedAt, deletedAt)
                 recordSourceDeletion(tombstone: allSources[index])
                 persist()
-                notifyChanged([id])
+                notifyChanged([id], origin: "remote")
             } else {
                 recordSourceDeletion(tombstone: allSources[index])
             }
@@ -524,11 +588,11 @@ final class SourcesStore {
         let tombstone = allSources[index]
         recordSourceDeletion(tombstone: tombstone)
         persist()
-        notifyChanged([id])
+        notifyChanged([id], origin: "remote")
         NotificationCenter.default.post(
             name: .primuseSourceDidSoftDelete,
             object: nil,
-            userInfo: ["id": id, "source": tombstone]
+            userInfo: ["id": id, "source": tombstone, "origin": "remote"]
         )
     }
 
@@ -571,12 +635,12 @@ final class SourcesStore {
             merged.deviceId = allSources[index].deviceId
             allSources[index] = merged
             persist()
-            notifyChanged([remote.id])
+            notifyChanged([remote.id], origin: "remote")
             if wasActive {
                 NotificationCenter.default.post(
                     name: .primuseSourceDidSoftDelete,
                     object: nil,
-                    userInfo: ["id": remote.id, "source": merged]
+                    userInfo: ["id": remote.id, "source": merged, "origin": "remote"]
                 )
             }
             return
@@ -629,10 +693,14 @@ final class SourcesStore {
             removeSourceDeletionRecord(id: remote.id)
         }
         persist()
-        notifyChanged([remote.id])
+        notifyChanged([remote.id], origin: "remote")
     }
 
-    private func notifyChanged(_ ids: [String]) {
+    /// `origin` tells observers whether the change was produced locally or is
+    /// the result of applying a record that CloudKit just handed us. The sync
+    /// enqueue paths use it to avoid echoing a fetched record straight back as
+    /// a save; UI observers ignore it and refresh either way.
+    private func notifyChanged(_ ids: [String], origin: String = "local") {
         let scopeFingerprints: [String: String] = Dictionary(
             uniqueKeysWithValues: ids.compactMap { sourceID in
                 guard let source = allSources.first(where: {
@@ -650,6 +718,7 @@ final class SourcesStore {
             userInfo: [
                 "ids": ids,
                 "scopeFingerprints": scopeFingerprints,
+                "origin": origin,
             ]
         )
     }
@@ -867,6 +936,12 @@ final class SourcesStore {
         #endif
         let data = try encoder.encode(allSources)
         try sourceDataWriter(data, storeURL)
+        // Whatever a coalesced counter was still waiting to write is part of
+        // `allSources` already, so this write subsumes it. Only a write that
+        // actually landed disarms it — a failed one must stay armed to retry.
+        coalescedPersistTask?.cancel()
+        coalescedPersistTask = nil
+        lastCoalescedPersistAt = Date()
     }
 
     // MARK: - CloudAccount CRUD (stage 2: internal, not exposed to UI)

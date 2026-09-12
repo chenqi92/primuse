@@ -149,6 +149,14 @@ final class CloudKitSyncService {
     /// 死循环。
     private var systemFieldsCache: [String: Data] = [:]
     private var systemFieldsCacheLoaded = false
+    /// 每次整份清空 system-fields 缓存都会 +1(退出登录/切换账号、云端 zone 被
+    /// 删除后的重新播种)。缓存存的是「服务器已经接受的那份 etag」,清空之后
+    /// 再被一台早已摘掉的 engine 用旧账号的 etag 填回去,下次登录就会拿别人的
+    /// changeTag 去 save。
+    private var systemFieldsCacheGeneration = 0
+    /// 最近一次创建 engine 时的 `systemFieldsCacheGeneration`。两者相等说明
+    /// 这台 engine 出生之后缓存没有被清过,它报回来的保存结果仍然可信。
+    private var engineCacheGeneration = 0
 
     /// In-memory marker so callers know whether a remote update is currently being
     /// applied — local stores can bail out of their own `markChanged` loop.
@@ -157,7 +165,27 @@ final class CloudKitSyncService {
     /// Coalesces playback-history pushes to at most once per 5 minutes.
     private var pendingHistoryFlush: Task<Void, Never>?
     private var pendingListeningStatsFlush: Task<Void, Never>?
+    /// Identifies the one armed flush that is allowed to cross the throttle
+    /// sleep. `Task.sleep`'s cancellation error is swallowed by `try?`, so a
+    /// task cancelled in `stop()` still resumes; without a token it would clear
+    /// the handle a restarted service had just armed and push immediately.
+    private var historyFlushToken: UUID?
+    private var listeningStatsFlushToken: UUID?
     private static let historyThrottle: Duration = .seconds(300)
+
+    /// The debounced radio-station snapshot upload, owned so `stop()` can take
+    /// it down and so an import burst collapses into a single write.
+    private var pendingRadioSnapshotUpload: Task<Void, Never>?
+    private var radioSnapshotToken: UUID?
+    private var radioSnapshotFirstPendingAt: ContinuousClock.Instant?
+
+    /// Listening-stats payload precomputed by the throttled flush, keyed by the
+    /// store revision it was built from. A miss simply encodes synchronously.
+    private struct StatsPayload: Sendable {
+        let payload: Data
+        let entryCount: Int
+    }
+    private var statsPayloadCache: (revision: Int, payload: StatsPayload)?
 
     /// Set true once the consumer calls `start()`. While false we don't propagate
     /// local changes to CloudKit.
@@ -254,6 +282,7 @@ final class CloudKitSyncService {
 
         let engine = CKSyncEngine(configuration)
         self.engine = engine
+        self.engineCacheGeneration = systemFieldsCacheGeneration
         self.isStarted = true
         self.status = .syncing
 
@@ -285,6 +314,9 @@ final class CloudKitSyncService {
             plog("CloudKitSync: starting fetchChanges()")
             try await engine.fetchChanges()
             plog("CloudKitSync: fetchChanges OK, starting sendChanges()")
+            // 用户可能刚好在 fetch 期间关掉同步 / 切换账号。此时这条 pass 必须
+            // 停在这里,不能再把本地数据推上去。
+            guard self.engine === engine, startAttemptID == attemptID else { return }
             let drained = try await sendChangesResolvingRecoverableFailures(using: engine)
             plog("CloudKitSync: sendChanges OK")
             guard self.engine === engine, startAttemptID == attemptID else { return }
@@ -477,6 +509,7 @@ final class CloudKitSyncService {
         config.automaticallySync = true
         let eng = CKSyncEngine(config)
         sharedEngine = eng
+        engineCacheGeneration = systemFieldsCacheGeneration
         do {
             try await eng.fetchChanges()
             plog("☁️ Shared engine initial fetchChanges OK")
@@ -557,8 +590,14 @@ final class CloudKitSyncService {
         startAttemptID = nil
         pendingHistoryFlush?.cancel()
         pendingHistoryFlush = nil
+        historyFlushToken = nil
         pendingListeningStatsFlush?.cancel()
         pendingListeningStatsFlush = nil
+        listeningStatsFlushToken = nil
+        pendingRadioSnapshotUpload?.cancel()
+        pendingRadioSnapshotUpload = nil
+        radioSnapshotToken = nil
+        radioSnapshotFirstPendingAt = nil
         for token in observerTokens {
             NotificationCenter.default.removeObserver(token)
         }
@@ -616,10 +655,15 @@ final class CloudKitSyncService {
         status = .syncing
         do {
             try await engine.fetchChanges()
+            // 同上:stop() 之后这条 pass 既不能继续上传,也不能把 `.disabled`
+            // 状态改回来。
+            guard self.engine === engine else { return }
             let drained = try await sendChangesResolvingRecoverableFailures(using: engine)
+            guard self.engine === engine else { return }
             status = drained ? .upToDate : .syncing
             if drained { lastSyncedAt = Date() }
         } catch {
+            guard self.engine === engine else { return }
             status = mapToSyncStatus(error)
         }
     }
@@ -834,6 +878,13 @@ final class CloudKitSyncService {
         return parts.joined(separator: " ")
     }
 
+    /// True when the posting store was applying a record fetched from CloudKit
+    /// rather than a user edit. Read synchronously inside the observer block —
+    /// it must not depend on when the follow-up main-actor task runs.
+    nonisolated private static func notificationCameFromRemote(_ note: Notification) -> Bool {
+        (note.userInfo?["origin"] as? String) == "remote"
+    }
+
     private func attachLocalChangeObservers() {
         let nc = NotificationCenter.default
         observerTokens.append(nc.addObserver(forName: .primusePlaylistsDidChange, object: nil, queue: .main) { [weak self] note in
@@ -857,6 +908,12 @@ final class CloudKitSyncService {
             Task { @MainActor in self?.smartPlaylistDeleted(id: id) }
         })
         observerTokens.append(nc.addObserver(forName: .primuseSourcesDidChange, object: nil, queue: .main) { [weak self] note in
+            // `isApplyingRemote` only covers direct calls: the observer's
+            // `Task { @MainActor }` runs after the current main-actor job, i.e.
+            // after the flag was reset, so a record we just fetched would be
+            // enqueued again as a save and ping-pong between devices forever.
+            // The origin the store carries survives that hop.
+            guard !Self.notificationCameFromRemote(note) else { return }
             let ids = (note.userInfo?["ids"] as? [String]) ?? []
             Task { @MainActor in self?.sourcesChanged(ids: ids) }
         })
@@ -868,6 +925,10 @@ final class CloudKitSyncService {
         // payload. The independent deletion ledger keeps it available even
         // after the user-facing row is pruned.
         observerTokens.append(nc.addObserver(forName: .primuseSourceDidSoftDelete, object: nil, queue: .main) { [weak self] note in
+            // A tombstone that arrived from CloudKit must not be re-saved; the
+            // durable cleanup journal in AppServices still observes this signal
+            // and keeps its own catch-up behaviour.
+            guard !Self.notificationCameFromRemote(note) else { return }
             guard let id = note.userInfo?["id"] as? String else { return }
             Task { @MainActor in self?.sourceDeleted(id: id) }
         })
@@ -988,6 +1049,13 @@ final class CloudKitSyncService {
 
     func radioStationsChanged(ids: [String]) {
         guard CloudSyncChannel.isEnabled(.sources) else { return }
+        enqueueRadioStationRecords(ids: ids)
+        scheduleRadioSnapshotUpload()
+    }
+
+    /// Per-station record sync on its own. This is the channel that carries an
+    /// edit to other devices; the snapshot copy is a bootstrap convenience.
+    private func enqueueRadioStationRecords(ids: [String]) {
         var active: [String] = []
         var deleted: [String] = []
         for id in Set(ids) {
@@ -1000,8 +1068,39 @@ final class CloudKitSyncService {
         }
         enqueueSaves(recordType: RecordType.radioStation, ids: active)
         enqueueDeletes(recordType: RecordType.radioStation, ids: deleted)
-        Task {
+    }
+
+    /// Collapse a burst of station edits into one snapshot write. Re-arming
+    /// cancels the previous task, so the last change is always the one that
+    /// uploads, and the task stays owned so `stop()` can take it down.
+    private func scheduleRadioSnapshotUpload() {
+        guard RadioSnapshotUploadPolicy.shouldSchedule(
+            isStarted: isStarted,
+            isChannelEnabled: CloudSyncChannel.isEnabled(.sources)
+        ) else { return }
+        let token = UUID()
+        let now = ContinuousClock.now
+        // 第一次改动的时刻要留住: 用户连续编辑时每次都重新计时的话, 快照
+        // 会被无限推后, 所以超过上限就不再等下一次改动了。
+        let firstPending = radioSnapshotFirstPendingAt ?? now
+        radioSnapshotFirstPendingAt = firstPending
+        let delay = RadioSnapshotUploadPolicy.delay(sinceFirstPendingChange: firstPending.duration(to: now))
+        radioSnapshotToken = token
+        pendingRadioSnapshotUpload?.cancel()
+        pendingRadioSnapshotUpload = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard let self else { return }
+            guard RadioSnapshotUploadPolicy.shouldUpload(
+                isStarted: self.isStarted,
+                isCancelled: Task.isCancelled,
+                currentToken: self.radioSnapshotToken,
+                taskToken: token
+            ) else { return }
+            self.radioSnapshotFirstPendingAt = nil
             _ = await LibrarySnapshotSync.shared.uploadRadioStationsOnly()
+            guard self.radioSnapshotToken == token else { return }
+            self.radioSnapshotToken = nil
+            self.pendingRadioSnapshotUpload = nil
         }
     }
 
@@ -1026,9 +1125,17 @@ final class CloudKitSyncService {
         guard CloudSyncChannel.isEnabled(.playbackHistory) else { return }
         guard pendingHistoryFlush == nil else { return }
 
+        let token = UUID()
+        historyFlushToken = token
         pendingHistoryFlush = Task { [weak self] in
             try? await Task.sleep(for: Self.historyThrottle)
-            guard let self else { return }
+            guard let self,
+                  CloudFlushGate.shouldFlush(
+                      isCancelled: Task.isCancelled,
+                      currentToken: self.historyFlushToken,
+                      taskToken: token
+                  ) else { return }
+            self.historyFlushToken = nil
             self.pendingHistoryFlush = nil
             self.enqueueSaves(
                 recordType: RecordType.playbackHistory,
@@ -1042,15 +1149,50 @@ final class CloudKitSyncService {
         guard CloudSyncChannel.isEnabled(.listeningStats) else { return }
         guard pendingListeningStatsFlush == nil else { return }
 
+        let token = UUID()
+        listeningStatsFlushToken = token
         pendingListeningStatsFlush = Task { [weak self] in
             try? await Task.sleep(for: Self.historyThrottle)
-            guard let self else { return }
+            guard let self,
+                  CloudFlushGate.shouldFlush(
+                      isCancelled: Task.isCancelled,
+                      currentToken: self.listeningStatsFlushToken,
+                      taskToken: token
+                  ) else { return }
+            // The whole history is encoded and compressed for the record. This
+            // task owns a 5-minute budget, so do it here instead of leaving it
+            // to the synchronous record build the sync engine asks for.
+            //
+            // 令牌要等这一段挂起结束之后再消费: 压缩期间如果同步被关掉再打开,
+            // 这条已经退休的任务既不能把新任务的句柄清掉, 也不能往新引擎投递。
+            await self.precomputeListeningStatsPayload()
+            guard CloudFlushGate.shouldFlush(
+                isCancelled: Task.isCancelled,
+                currentToken: self.listeningStatsFlushToken,
+                taskToken: token
+            ) else { return }
+            self.listeningStatsFlushToken = nil
             self.pendingListeningStatsFlush = nil
             self.enqueueSaves(
                 recordType: RecordType.listeningStats,
                 ids: [Self.listeningStatsRecordName]
             )
         }
+    }
+
+    /// Encode the listening-stats payload off the main actor and keep it keyed
+    /// by the store revision it was built from. Anything that mutates the store
+    /// afterwards makes the entry unusable, and `populateListeningStatsRecord`
+    /// then falls back to encoding from live state.
+    private func precomputeListeningStatsPayload() async {
+        let store = PlayHistoryStore.shared
+        let revision = store.revision
+        let entries = store.entriesForSync
+        let encoded = await Task.detached(priority: .utility) {
+            Self.encodeTrimmedStatsPayload(entries)
+        }.value
+        guard let encoded, store.revision == revision else { return }
+        statsPayloadCache = (revision: revision, payload: encoded)
     }
 
     private typealias SyncIDResolution = (active: [String], deleted: [String])
@@ -1310,7 +1452,11 @@ final class CloudKitSyncService {
         smartPlaylistsChanged(ids: library.allSmartPlaylists.map(\.id))
         sourcesChanged(ids: sourceIDsForCatchUp())
         cloudAccountsChanged(ids: sourcesStore.allAccounts.map(\.id))
-        radioStationsChanged(ids: radioStationsStore.allStations.map(\.id))
+        // Records only: the lifecycle full upload already carries
+        // radio-stations.json, so a first start needs no snapshot rewrite.
+        if CloudSyncChannel.isEnabled(.sources) {
+            enqueueRadioStationRecords(ids: radioStationsStore.allStations.map(\.id))
+        }
         scraperConfigsChanged(ids: scraperConfigStore.allConfigsIncludingDeleted.map(\.id))
         // Push history at startup too (bypass the 5-min throttle, but still
         // honour the channel toggle).
@@ -1451,6 +1597,7 @@ final class CloudKitSyncService {
     private func clearSystemFieldsCache() {
         systemFieldsCache.removeAll()
         systemFieldsCacheLoaded = true
+        systemFieldsCacheGeneration &+= 1
         try? FileManager.default.removeItem(at: systemFieldsURL)
     }
 
@@ -1510,7 +1657,7 @@ final class CloudKitSyncService {
         }
     }
 
-    fileprivate func applyRemoteRecord(_ record: CKRecord) {
+    fileprivate func applyRemoteRecord(_ record: CKRecord, decodedListeningStats: [PlayHistoryStore.Entry]? = nil) {
         if record.recordType == RecordType.musicSource,
            let source = decodedSource(from: record),
            !MusicSourceCloudSyncPolicy.isEligible(source) {
@@ -1545,7 +1692,7 @@ final class CloudKitSyncService {
         case RecordType.playbackHistory:
             applyPlaybackHistoryRecord(record)
         case RecordType.listeningStats:
-            applyListeningStatsRecord(record)
+            applyListeningStatsRecord(record, decodedEntries: decodedListeningStats)
         default:
             break
         }
@@ -1557,7 +1704,11 @@ final class CloudKitSyncService {
     /// so the subsequent save contained only the remote side of a concurrent
     /// edit. Merge the set-like record types while their save is pending.
     @MainActor
-    fileprivate func applyFetchedRecord(_ record: CKRecord, syncEngine: CKSyncEngine) {
+    fileprivate func applyFetchedRecord(
+        _ record: CKRecord,
+        decodedListeningStats: [PlayHistoryStore.Entry]? = nil,
+        syncEngine: CKSyncEngine
+    ) {
         if record.recordType == RecordType.musicSource,
            let source = decodedSource(from: record),
            !MusicSourceCloudSyncPolicy.isEligible(source) {
@@ -1590,7 +1741,7 @@ final class CloudKitSyncService {
                 }
                 return
             }
-            applyRemoteRecord(record)
+            applyRemoteRecord(record, decodedListeningStats: decodedListeningStats)
             return
         }
 
@@ -2094,43 +2245,71 @@ final class CloudKitSyncService {
 
     /// CloudKit 单字段 ~1MB 上限, 留余量。听歌历史最多 5000 条, 原始 JSON 接近上限,
     /// gzip 后约 100-200KB —— 内联压缩既稳过限又向后兼容。
-    private static let statsInlineLimit = 900_000
+    /// 这个上限是编译期常量, 且压缩后的裁剪判定要在主 actor 之外做, 所以
+    /// 显式声明为 nonisolated —— 值本身不可变, 不需要任何隔离。
+    private nonisolated static let statsInlineLimit = 900_000
 
     private func populateListeningStatsRecord(_ record: CKRecord) -> Bool {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .secondsSince1970
-        var entries = PlayHistoryStore.shared.entriesForSync
-        guard var payload = Self.encodeStatsPayload(entries, encoder: encoder) else { return false }
-        if payload.count > Self.statsInlineLimit {
-            // 几乎不可能(gzip 后远小于上限), 但仍兜底: 只保留最近条目再压。
-            // entries 为最新在前, prefix 即保留最近的。
-            entries = Array(entries.prefix(2000))
-            guard let trimmed = Self.encodeStatsPayload(entries, encoder: encoder),
-                  trimmed.count <= Self.statsInlineLimit else {
-                plog("⚠️ Listening stats payload still over limit after trim — skipping sync")
-                return false
-            }
-            payload = trimmed
+        // 最多 5000 条历史的 JSON 编码 + zlib 压缩。节流刷新会提前把这份 payload
+        // 算好, 这里只在缓存跟当前 revision 对不上时才现编。名字对 Instruments
+        // 稳定不要改。
+        let signpost = PrimuseSignposts.hitch.beginInterval("sync.statsEncode")
+        defer { PrimuseSignposts.hitch.endInterval("sync.statsEncode", signpost) }
+        let revision = PlayHistoryStore.shared.revision
+        let encoded: StatsPayload
+        if let cache = statsPayloadCache,
+           ListeningStatsPayloadCache.isUsable(cachedRevision: cache.revision, currentRevision: revision) {
+            encoded = cache.payload
+        } else {
+            guard let fresh = Self.encodeTrimmedStatsPayload(PlayHistoryStore.shared.entriesForSync) else { return false }
+            encoded = fresh
+            statsPayloadCache = (revision: revision, payload: fresh)
         }
-        record["payloadGz"] = payload as CKRecordValue
+        record["payloadGz"] = encoded.payload as CKRecordValue
         // 清掉旧的未压缩字段, 避免更新既有记录时残留的超大 payload 把记录顶过 1MB。
         record["payload"] = nil
-        record["entryCount"] = entries.count
+        record["entryCount"] = encoded.entryCount
         record["updatedAt"] = Date()
         return true
     }
 
-    private static func encodeStatsPayload(_ entries: [PlayHistoryStore.Entry], encoder: JSONEncoder) -> Data? {
+    /// Pure: entries in, compressed payload out. Safe to run off the main actor,
+    /// which is what the throttled flush does before the record is ever built.
+    private nonisolated static func encodeTrimmedStatsPayload(_ entries: [PlayHistoryStore.Entry]) -> StatsPayload? {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        var entries = entries
+        guard var payload = encodeStatsPayload(entries, encoder: encoder) else { return nil }
+        if payload.count > statsInlineLimit {
+            // 几乎不可能(gzip 后远小于上限), 但仍兜底: 只保留最近条目再压。
+            // entries 为最新在前, prefix 即保留最近的。
+            entries = Array(entries.prefix(2000))
+            guard let trimmed = encodeStatsPayload(entries, encoder: encoder),
+                  trimmed.count <= statsInlineLimit else {
+                plog("⚠️ Listening stats payload still over limit after trim — skipping sync")
+                return nil
+            }
+            payload = trimmed
+        }
+        return StatsPayload(payload: payload, entryCount: entries.count)
+    }
+
+    private nonisolated static func encodeStatsPayload(_ entries: [PlayHistoryStore.Entry], encoder: JSONEncoder) -> Data? {
         guard let data = try? encoder.encode(entries) else { return nil }
         return try? (data as NSData).compressed(using: .zlib) as Data
     }
 
-    private func applyListeningStatsRecord(_ record: CKRecord) {
-        guard let entries = decodeListeningStatsEntries(record) else { return }
+    private func applyListeningStatsRecord(_ record: CKRecord, decodedEntries: [PlayHistoryStore.Entry]? = nil) {
+        guard let entries = decodedEntries ?? Self.decodeListeningStatsEntries(record) else { return }
         PlayHistoryStore.shared.mergeRemoteEntries(entries)
     }
 
-    private func decodeListeningStatsEntries(_ record: CKRecord) -> [PlayHistoryStore.Entry]? {
+    /// Pure: record in, entries out. The fetch handler runs it before it hops to
+    /// the main actor; the conflict merge still calls it inline.
+    private nonisolated static func decodeListeningStatsEntries(_ record: CKRecord) -> [PlayHistoryStore.Entry]? {
+        // 解压 + 整表解码;冲突合并一次会调用两遍(本地 + 服务端)。
+        let signpost = PrimuseSignposts.hitch.beginInterval("sync.statsDecode")
+        defer { PrimuseSignposts.hitch.endInterval("sync.statsDecode", signpost) }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .secondsSince1970
         if let gzField = record["payloadGz"] as? Data {
@@ -2190,8 +2369,26 @@ final class CloudKitSyncService {
 
 extension CloudKitSyncService: CKSyncEngineDelegate {
     nonisolated func handleEvent(_ event: CKSyncEngine.Event, syncEngine: CKSyncEngine) async {
+        // `stop()` (sync toggled off, sign-out)只是把 engine 摘掉,CKSyncEngine
+        // 内部已经在路上的回调不会跟着消失。用 engine 身份而不是取消状态来做栅栏:
+        // 一个已经被摘掉的 engine 不允许再落地远端记录、也不允许改写 state 游标
+        // (`handleAccountChange` 刚删掉的那份)。`.accountChange` 例外——拆除流程
+        // 本身要靠它。
+        let (isCurrentEngine, acceptsSystemFieldUpdates) = await MainActor.run {
+            () -> (Bool, Bool) in
+            let current = syncEngine === self.engine || syncEngine === self.sharedEngine
+            // system fields 只是「服务器已接受的 etag」缓存,不是本地数据改写:
+            // 一台被摘掉的 engine 报回来的保存结果照样要记下来,否则下次 start()
+            // 第一笔 save 就撞 serverRecordChanged,走合并把用户删掉的歌单曲目
+            // 从服务器副本并回来。唯一不能记的是这台 engine 退役之后缓存又被
+            // 整份清空的情况(退出登录/切账号),那时旧账号的 etag 必须留在过去。
+            let accepts = current
+                || self.systemFieldsCacheGeneration == self.engineCacheGeneration
+            return (current, accepts)
+        }
         switch event {
         case .stateUpdate(let event):
+            guard isCurrentEngine else { return }
             await MainActor.run {
                 // private engine 跟 sharedEngine state 分开存, 否则下次启动
                 // 一个 engine 用错 state cursor 会重 fetch 全量。
@@ -2202,9 +2399,22 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
                 }
             }
         case .fetchedRecordZoneChanges(let event):
+            guard isCurrentEngine else { return }
             for modification in event.modifications {
+                let record = modification.record
+                // 听歌统计整表解压 + 解码放在跳回主 actor 之前做完, 主 actor 只做
+                // 合并。这多出一个挂起点, 所以身份栅栏必须在真正落地的那次
+                // `MainActor.run` 里重新判一遍, 不能只靠进入 handleEvent 时那次。
+                if record.recordType == RecordType.listeningStats {
+                    let entries = Self.decodeListeningStatsEntries(record)
+                    await MainActor.run {
+                        guard syncEngine === self.engine || syncEngine === self.sharedEngine else { return }
+                        self.applyFetchedRecord(record, decodedListeningStats: entries, syncEngine: syncEngine)
+                    }
+                    continue
+                }
                 await MainActor.run {
-                    self.applyFetchedRecord(modification.record, syncEngine: syncEngine)
+                    self.applyFetchedRecord(record, syncEngine: syncEngine)
                 }
             }
             for deletion in event.deletions {
@@ -2221,6 +2431,7 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             // (user wiped CloudKit data on another device, or container reset).
             // We re-create our zone if it's gone and force a re-seed on next
             // start so the local data ends up back in CloudKit.
+            guard isCurrentEngine else { return }
             for deletion in event.deletions where deletion.zoneID == Self.zoneID {
                 plog("CloudKitSync: PrimuseSync zone was deleted remotely — recreating + re-seeding")
                 await MainActor.run {
@@ -2230,14 +2441,19 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
                 }
             }
         case .sentRecordZoneChanges(let event):
-            for saved in event.savedRecords {
-                await MainActor.run {
-                    self.storeSystemFields(saved)
-                    self.acknowledgeSavedSourceTombstone(saved)
+            if acceptsSystemFieldUpdates {
+                for saved in event.savedRecords {
+                    await MainActor.run { self.storeSystemFields(saved) }
+                }
+                for deletedID in event.deletedRecordIDs {
+                    await MainActor.run { self.removeSystemFields(for: deletedID) }
                 }
             }
-            for deletedID in event.deletedRecordIDs {
-                await MainActor.run { self.removeSystemFields(for: deletedID) }
+            // 重新入队、墓碑回执这些会改本地状态 / 再次上传的动作,仍然只允许
+            // 当前 engine 触发。
+            guard isCurrentEngine else { return }
+            for saved in event.savedRecords {
+                await MainActor.run { self.acknowledgeSavedSourceTombstone(saved) }
             }
             for failed in event.failedRecordSaves {
                 await MainActor.run {
@@ -2281,6 +2497,13 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         _ context: CKSyncEngine.SendChangesContext,
         syncEngine: CKSyncEngine
     ) async -> CKSyncEngine.RecordZoneChangeBatch? {
+        // 同一个身份栅栏:被摘掉的 engine 不允许再往上传任何本地记录。
+        // 判定先落到局部量再 guard: `MainActor.run` 的闭包是带标签的 `body:`,
+        // 只有尾随闭包写法能省掉标签, 而 guard 条件里不能直接跟尾随闭包。
+        let syncEngineIsCurrent = await MainActor.run {
+            syncEngine === self.engine || syncEngine === self.sharedEngine
+        }
+        guard syncEngineIsCurrent else { return nil }
         let scope = context.options.scope
         let scopedPending = syncEngine.state.pendingRecordZoneChanges.filter { scope.contains($0) }
         let filtered = await MainActor.run {
@@ -2327,7 +2550,14 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
 
         switch ckError.code {
         case .serverRecordChanged:
-            resolveServerRecordChanged(local: failed.record, error: ckError, syncEngine: syncEngine)
+            // `failed.record` is the snapshot `makeRecord` built when the batch
+            // was assembled. Edits made while the save was in flight are not in
+            // it, and the merge below writes its membership back, so merging the
+            // batch-time record would revert them. Rebuild from live state and
+            // only fall back when the entity is gone — this mirrors
+            // `applyFetchedRecord`, which already rebuilds fresh.
+            let current = makeRecord(for: recordID) ?? failed.record
+            resolveServerRecordChanged(local: current, error: ckError, syncEngine: syncEngine)
         case .zoneNotFound, .userDeletedZone:
             // Re-create the zone and try again.
             syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: recordID.zoneID))])
@@ -2527,8 +2757,8 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
 
     @MainActor
     private func mergeListeningStatsRecord(local: CKRecord, server: CKRecord) {
-        let localEntries = decodeListeningStatsEntries(local) ?? []
-        let serverEntries = decodeListeningStatsEntries(server) ?? []
+        let localEntries = Self.decodeListeningStatsEntries(local) ?? []
+        let serverEntries = Self.decodeListeningStatsEntries(server) ?? []
 
         applyRemoteEnvelope {
             PlayHistoryStore.shared.mergeRemoteEntries(localEntries + serverEntries)

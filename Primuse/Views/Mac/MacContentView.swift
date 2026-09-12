@@ -3,6 +3,24 @@ import SwiftUI
 import AppKit
 import PrimuseKit
 
+/// Stage 2 的启动占位。资料库发布之前渲染它, 所以这里一行库内容都不能读:
+/// 只有窗口底色 / 窗口装饰 + 进度指示 + 一句本地化文案。
+private struct LibraryPreparingView: View {
+    var body: some View {
+        ZStack {
+            PMColor.bg.ignoresSafeArea()
+            VStack(spacing: 16) {
+                ProgressView()
+                Text("library_preparing")
+                    .font(.subheadline)
+                    .foregroundStyle(PMColor.textMuted)
+            }
+        }
+        .background(PMWindowChromeConfigurator())
+        .ignoresSafeArea(.container, edges: .top)
+    }
+}
+
 /// 1.6 重设计后的 macOS 根布局: 自定义 TitleBar + Sidebar + Detail + BottomBar 四件套,
 /// 不再依赖 NavigationSplitView。标题栏背景透明且内容延伸至顶部,导航和搜索由
 /// `PMTitleBar` 绘制,窗口控制保留 AppKit 原生实现。
@@ -85,6 +103,16 @@ struct MacContentView: View {
     }
 
     var body: some View {
+        // Stage 2: 资料库在主线程之外装载。就绪之前不渲染任何读库的界面 ——
+        // 既不能闪 onboarding, 也不能闪"空资料库"状态。
+        if library.isReady {
+            mainContent
+        } else {
+            LibraryPreparingView()
+        }
+    }
+
+    private var mainContent: some View {
         VStack(spacing: 0) {
             if !isFullScreenNowPlaying {
                 PMTitleBar(

@@ -1708,6 +1708,9 @@ struct ScrapeOptionsView: View {
             if metadataChanged {
                 lib.replaceSong(appliedFinal)
             } else {
+                // 只改旁挂资源时走合批窗口。后面歌词回写的整行替换会先把窗口
+                // 里的补丁落地再读行 (LyricsWriteback.performSave), 所以这张
+                // 刚刮到的封面不会被回写的旧行盖掉。
                 lib.updateAssetReferences(
                     songID: appliedFinal.id,
                     coverRef: appliedFinal.coverArtFileName,

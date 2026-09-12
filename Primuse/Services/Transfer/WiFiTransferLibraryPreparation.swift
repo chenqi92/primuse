@@ -36,9 +36,28 @@ enum WiFiTransferLibraryPreparation {
         progress: @escaping @MainActor @Sendable (String, Int, Int, Int64, Int64) -> Void
     ) async throws -> Result {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("primuse-library-transfer-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        var ownershipTransferred = false
-        defer { if !ownershipTransferred { try? FileManager.default.removeItem(at: directory) } }
+        try await WiFiTransferFilePreparation.createDirectory(at: directory)
+        do {
+            return try await stage(
+                into: directory,
+                songIDs: songIDs, library: library, sources: sources, sourceManager: sourceManager,
+                progress: progress
+            )
+        } catch {
+            // 取消或失败都在这里等待清理真正完成。暂存目录和整份选区一样大,
+            // 交给不等待的后台任务清理时, 用户取消后立刻切后台就可能还没被
+            // 调度, 几 GB 的 primuse-library-transfer-* 会一直留在 tmp 里。
+            // 卸载的字节仍然不在主 actor 上: removeItem 自己就是离开主 actor 的。
+            try? await WiFiTransferFilePreparation.removeItem(at: directory)
+            throw error
+        }
+    }
+
+    private static func stage(
+        into directory: URL,
+        songIDs: [String], library: MusicLibrary, sources: SourcesStore, sourceManager: SourceManager,
+        progress: @escaping @MainActor @Sendable (String, Int, Int, Int64, Int64) -> Void
+    ) async throws -> Result {
         var failures: [String: String] = [:]
         var warnings: [String] = []
         var songDirectories: [String: URL] = [:]
@@ -58,7 +77,7 @@ enum WiFiTransferLibraryPreparation {
             let folder = directory.appendingPathComponent(WiFiTransferFilePreparation.safeComponent(song.title) + " - " + String(UUID().uuidString.prefix(8)))
             let audio = folder.appendingPathComponent(WiFiTransferFilePreparation.fileName(for: song))
             do {
-                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                try await WiFiTransferFilePreparation.createDirectory(at: folder)
                 progress(song.title, index, songIDs.count, 0, song.fileSize)
                 let report: @Sendable (Int64) async -> Void = { bytes in
                     await progress(song.title, index, songIDs.count, bytes, song.fileSize)
@@ -69,14 +88,14 @@ enum WiFiTransferLibraryPreparation {
                     let selection = try await WiFiTransferSelection.prepare([url])
                     guard let file = selection.files.first, selection.files.count == 1,
                           song.fileSize <= 0 || file.size == song.fileSize else { throw WiFiTransferError.invalidRequest }
-                    try WiFiTransferFilePreparation.checkSpace(at: folder, additionalBytes: file.size * 2)
+                    try await WiFiTransferFilePreparation.checkSpaceAsync(at: folder, additionalBytes: file.size * 2)
                     let copy = try await WiFiTransferSelection.stage(file, in: folder)
-                    try FileManager.default.moveItem(at: copy, to: audio)
+                    try await WiFiTransferFilePreparation.moveItem(at: copy, to: audio)
                     await report(file.size)
                 } else if try await copyCompleteCache(song: song, to: audio, sourceManager: sourceManager) == false {
                     let connector = try await sourceManager.connectorForSong(song)
                     // Reserve room for the completed export and the sender's coordinated upload copy.
-                    try WiFiTransferFilePreparation.checkSpace(at: folder, additionalBytes: song.fileSize * 2)
+                    try await WiFiTransferFilePreparation.checkSpaceAsync(at: folder, additionalBytes: song.fileSize * 2)
                     try await WiFiTransferFilePreparation.download(to: audio, size: song.fileSize, read: { offset, length in
                         try await connector.fetchRange(path: song.filePath, offset: offset, length: length, priority: .background)
                     }, progress: report)
@@ -105,14 +124,16 @@ enum WiFiTransferLibraryPreparation {
                 versions[id] = Version(song: finalSong, source: finalSource)
                 progress(song.title, index, songIDs.count, song.fileSize, song.fileSize)
             } catch {
-                try? FileManager.default.removeItem(at: folder)
+                // Awaited, never fire-and-forget: `prepareTemporaryDirectory`
+                // below enumerates the staging tree and would otherwise sweep
+                // a half-written folder into the outgoing selection.
+                try? await WiFiTransferFilePreparation.removeItem(at: folder)
                 if Task.isCancelled { throw CancellationError() }
                 failures[id] = song.title + ": " + WiFiTransferText.error(error)
             }
         }
         try Task.checkCancellation()
         let selection = try await WiFiTransferSelection.prepareTemporaryDirectory(directory)
-        ownershipTransferred = true
         let songFiles = songDirectories.mapValues { folder in
             Set(selection.files.filter { $0.url.deletingLastPathComponent().standardizedFileURL.path == folder.standardizedFileURL.path }.map(\.id))
         }
@@ -127,10 +148,10 @@ enum WiFiTransferLibraryPreparation {
                 await AudioCacheManager.shared.releasePathFamilyLease(lease)
                 return false
             }
-            try WiFiTransferFilePreparation.checkSpace(at: destination.deletingLastPathComponent(), additionalBytes: song.fileSize * 2)
+            try await WiFiTransferFilePreparation.checkSpaceAsync(at: destination.deletingLastPathComponent(), additionalBytes: song.fileSize * 2)
             let copy = try await WiFiTransferSelection.stage(.init(url: candidate, path: destination.lastPathComponent, size: song.fileSize),
                                                            in: destination.deletingLastPathComponent())
-            try FileManager.default.moveItem(at: copy, to: destination)
+            try await WiFiTransferFilePreparation.moveItem(at: copy, to: destination)
             await AudioCacheManager.shared.releasePathFamilyLease(lease)
             return true
         } catch {
@@ -154,7 +175,7 @@ enum WiFiTransferLibraryPreparation {
         try Task.checkCancellation()
         if let lyrics, !lyrics.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let fileExtension = lyrics.contains("<tt") ? "ttml" : "lrc"
-            do { try Data(lyrics.utf8).write(to: stem.appendingPathExtension(fileExtension), options: .atomic) }
+            do { try await WiFiTransferFilePreparation.write(Data(lyrics.utf8), to: stem.appendingPathExtension(fileExtension)) }
             catch { warnings.append(song.title + ": " + WiFiTransferText.string("libraryLyricsUnavailable")) }
         }
         var cover: Data?
@@ -173,7 +194,7 @@ enum WiFiTransferLibraryPreparation {
                let identifier = CGImageSourceGetType(image),
                let fileExtension = UTType(identifier as String)?.preferredFilenameExtension,
                PrimuseConstants.supportedCoverExtensions.contains(fileExtension) {
-                do { try cover.write(to: stem.appendingPathExtension(fileExtension), options: .atomic) }
+                do { try await WiFiTransferFilePreparation.write(cover, to: stem.appendingPathExtension(fileExtension)) }
                 catch { warnings.append(song.title + ": " + WiFiTransferText.string("libraryCoverUnavailable")) }
             } else {
                 warnings.append(song.title + ": " + WiFiTransferText.string("libraryCoverUnavailable"))

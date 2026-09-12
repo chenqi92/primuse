@@ -1388,7 +1388,7 @@ private struct DuplicateDeletionFailuresView: View {
     private func restoreLocalAccess(_ source: MusicSource, urls: [URL]) {
         do {
             try LocalBookmarkStore.reauthorize(source: latest(source), urls: urls)
-            Task { await sourceManager.refreshConnector(for: source.id) }
+            Task { await sourceManager.refreshConnector(for: source.id, force: true) }
             localSource = nil
         } catch {
             #if os(macOS)

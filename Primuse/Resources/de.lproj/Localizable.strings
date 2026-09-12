@@ -573,6 +573,7 @@
 "playback_settings" = "Wiedergabeeinstellungen";
 "audio_output" = "Audioausgabe";
 "library" = "Mediathek";
+"library_preparing" = "Mediathek wird vorbereitet …";
 "cache_size" = "Cachegröße";
 "clear_cache" = "Cache leeren";
 "clear_cache_confirm" = "Alle zwischengespeicherten Dateien löschen?";

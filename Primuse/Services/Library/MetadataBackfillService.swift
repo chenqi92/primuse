@@ -165,6 +165,24 @@ extension MetadataReadCompletionKind {
 /// - Failed songs (corrupt / missing / decoder rejected) are recorded so we
 ///   don't retry them every launch. Successful ones are replaced in the
 ///   library and persist via `MusicLibrary.persistSnapshot()`.
+/// 一次性闩: 把"worker 跑完了"和"这活已经不归我管了"收敛成同一次唤醒。
+/// `Task<Void, Never>.value` 既不接受超时也不理会等待方的取消, 所以后者只能
+/// 从外面把等待放掉。全部在主 actor 上 resume, 不存在重复 resume。
+@MainActor
+private final class MetadataBackfillWorkerWaitLatch {
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    init(_ continuation: CheckedContinuation<Void, Never>) {
+        self.continuation = continuation
+    }
+
+    func resume() {
+        guard let continuation else { return }
+        self.continuation = nil
+        continuation.resume()
+    }
+}
+
 @MainActor
 @Observable
 final class MetadataBackfillService {
@@ -247,7 +265,25 @@ final class MetadataBackfillService {
     /// not suppress queueing: it survives relaunch only so the UI can explain
     /// that these requests are retries rather than a new scan. A successful or
     /// terminal inspection removes the marker.
-    @ObservationIgnored private var deferredRetrySongIDs: Set<String> = []
+    @ObservationIgnored private var deferredRetryMembership = DeferredRetryMembership()
+
+    /// 只读投影, 让原有的读取点保持不变(Set 是写时复制, 取用是 O(1))。
+    private var deferredRetrySongIDs: Set<String> {
+        deferredRetryMembership.songIDs
+    }
+
+    /// 只在延迟重试集合的成员关系真的变化时前进。歌曲行订阅的是这个版本号
+    /// 而不是 `statusRevision`, 因此每 5 秒一次的状态对账不会再让所有可见行
+    /// 重新求值 body。
+    private(set) var deferredRetryRevision: Int = 0
+
+    /// 所有集合改动都经由这里: 变化才发布, 未变化则连版本号都不动。
+    private func mutateDeferredRetries(
+        _ body: (inout DeferredRetryMembership) -> Bool
+    ) {
+        guard body(&deferredRetryMembership) else { return }
+        deferredRetryRevision = deferredRetryMembership.revision
+    }
 
     /// Exact context for the latest failed attempt. Queue membership remains in
     /// the dedicated ID sets above; these records exist so the source detail UI
@@ -357,6 +393,9 @@ final class MetadataBackfillService {
     @ObservationIgnored private var statusDisplayItemsBySourceID: [
         String: [MetadataBackfillStatusDisplayItem]
     ] = [:]
+    /// 当前已发布的展示行指纹, 见 `MetadataBackfillStatusSignature`。
+    @ObservationIgnored private var statusDisplayItemsSignature =
+        MetadataBackfillStatusSignature()
     /// Sources represented by the worker's current fixed snapshot. Per-source
     /// cards use this rather than the global worker flag, so an idle source does
     /// not show a spinner while another provider is being processed.
@@ -403,6 +442,18 @@ final class MetadataBackfillService {
     /// 自动路径上把整库对账挪到 off-main 之后再 start() 的那个任务。
     @ObservationIgnored private var deferredQueueReconcileTask: Task<Void, Never>?
     @ObservationIgnored private var drainingWorker: Task<Void, Never>?
+    /// Generation of the task parked in `drainingWorker`, so that task's own
+    /// MainActor cleanup can clear it. Without this the handle outlives the
+    /// drain until the next `start()`, and any await-based idle wait would
+    /// never terminate.
+    @ObservationIgnored private var drainingWorkerGeneration: Int?
+    /// Set while the scene is only temporarily obscured (Control Center, a
+    /// call, Face ID). Reads already in flight finish and are recorded; no new
+    /// read is admitted and no interim batch is published.
+    @ObservationIgnored private var isSceneTransitionPaused = false
+    /// Parked `waitUntilIdle` callers, woken by the worker's completion or by
+    /// `stop()`; see `awaitWorkerCompletionOrRelease`.
+    @ObservationIgnored private var workerWaitLatches: [MetadataBackfillWorkerWaitLatch] = []
     @ObservationIgnored private var executionMode: MetadataBackfillExecutionMode = .standard
     @ObservationIgnored private var activeScheduler: MetadataReadScheduler<Song, BackfillOutcome>?
     @ObservationIgnored private var batchSchedulers: [String: MetadataReadScheduler<String, MetadataTagRereadBatch.Outcome>] = [:]
@@ -430,12 +481,18 @@ final class MetadataBackfillService {
         // in flight, so the automatic queue only takes the slots they leave
         // free instead of the full budget.
         let manualInFlight = batchSchedulers.values.reduce(0) { $0 + $1.inFlightCount }
-        return budget.withWorkerCount(Self.automaticWorkerCount(
+        let automaticWorkerCount = Self.automaticWorkerCount(
             budgetWorkerCount: budget.workerCount,
             hasRegisteredManualBatch: !batchSchedulers.isEmpty,
             applicationIsActive: Self.applicationIsActive,
             manualInFlightCount: manualInFlight
-        ))
+        )
+        return budget.withWorkerCount(
+            MetadataBackfillSceneTransitionPolicy.workerCount(
+                base: automaticWorkerCount,
+                isPaused: isSceneTransitionPaused
+            )
+        )
     }
 
     /// A registered manual/explicit reread batch owns the shared worker budget
@@ -747,7 +804,7 @@ final class MetadataBackfillService {
                 self.sessionGivenUpIDs.subtract(ids)
                 self.sessionNetworkParkedIDs.subtract(ids)
                 self.sessionStallParkedIDs.subtract(ids)
-                self.deferredRetrySongIDs.subtract(ids)
+                self.mutateDeferredRetries { $0.subtract(ids) }
                 for id in ids { self.diagnosticRecords[id] = nil }
                 self.titleCheckedIDs.subtract(ids)
                 self.albumArtistCheckedIDs.subtract(ids)
@@ -791,6 +848,10 @@ final class MetadataBackfillService {
     /// 一次性修复 / 迁移。它们全部需要读取已发布的 `library.songs`,
     /// 因此只在库就绪之后运行一次(D-Startup 的 S3 不变量)。
     private func runOneTimeRepairsAfterLibraryReady() {
+        // 这些一次性修复原本写在 init 里, 抽出来之后 `defaults` 必须在本方法
+        // 内重新取得 —— 仍然是同一个 `UserDefaults.standard`, 各修复的判定与
+        // 落标语义不变。
+        let defaults = UserDefaults.standard
         // The first deferred-retry implementation persisted every song in a
         // source snapshot after one connector failure. That inflated a three-
         // request network interruption into hundreds of visible retries. Clear
@@ -800,7 +861,7 @@ final class MetadataBackfillService {
         if !UserDefaults.standard.bool(forKey: deferredBatchRepairKey) {
             if !deferredRetrySongIDs.isEmpty {
                 plog("📥 Backfill: clearing \(deferredRetrySongIDs.count) inflated deferred retry markers")
-                deferredRetrySongIDs.removeAll()
+                mutateDeferredRetries { $0.removeAll() }
                 saveDeferredRetries()
             }
             UserDefaults.standard.set(true, forKey: deferredBatchRepairKey)
@@ -1264,7 +1325,7 @@ final class MetadataBackfillService {
                 sessionGivenUpIDs.subtract(retryIDs)
                 sessionNetworkParkedIDs.subtract(retryIDs)
                 sessionStallParkedIDs.subtract(retryIDs)
-                deferredRetrySongIDs.subtract(retryIDs)
+                mutateDeferredRetries { $0.subtract(retryIDs) }
                 titleCheckedIDs.subtract(retryIDs)
                 albumArtistCheckedIDs.subtract(retryIDs)
                 artistCheckedIDs.subtract(retryIDs)
@@ -1305,7 +1366,7 @@ final class MetadataBackfillService {
                 sessionGivenUpIDs.subtract(retryIDs)
                 sessionNetworkParkedIDs.subtract(retryIDs)
                 sessionStallParkedIDs.subtract(retryIDs)
-                deferredRetrySongIDs.subtract(retryIDs)
+                mutateDeferredRetries { $0.subtract(retryIDs) }
                 titleCheckedIDs.subtract(retryIDs)
                 for id in retryIDs { transientFailureCounts[id] = nil }
                 saveFailed()
@@ -1369,6 +1430,13 @@ final class MetadataBackfillService {
     /// running this is a no-op. A durable clean state returns before touching
     /// the library array. Wi-Fi-only gating remains enforced before dispatch.
     func start() {
+        // Stage 2: 库异步发布。就绪之前 `hasPendingWork` 与剩余计数都算在空
+        // 模型上, 这一轮会被当成"没有待办"直接收尾 (并清掉续跑状态)。改为
+        // 等发布后重试; 下面 `worker == nil` 的幂等守卫让重复注册无害。
+        guard library.isReady else {
+            library.onReady { [weak self] in self?.start() }
+            return
+        }
         #if os(iOS)
         guard !backgroundExecutionExpired || UIApplication.shared.applicationState == .active else { return }
         #endif
@@ -1444,14 +1512,33 @@ final class MetadataBackfillService {
         plog("📥 Backfill: gen=\(generation) mode=\(String(describing: executionMode)) bareInLib=\(remainingCount) batchHead=\(needsBackfill.count)")
         let previousWorker = drainingWorker
         drainingWorker = nil
+        drainingWorkerGeneration = nil
         worker = Task { [weak self] in
             // Cancellation is cooperative. Let the previous parser release
             // its buffers and shared scheduler before admitting a new worker.
             await previousWorker?.value
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                // 还在等上一个 worker 收尾时就被 stop() 取消: 这个任务再也走不到
+                // 下面的清理块, 而 stop() 已经把它挂到了 drainingWorker 上,
+                // 所以那个句柄要在这里摘掉, 否则等待方只能一直等到宽限期。
+                await MainActor.run { [weak self] in
+                    guard let self,
+                          self.drainingWorkerGeneration == generation else { return }
+                    self.drainingWorker = nil
+                    self.drainingWorkerGeneration = nil
+                }
+                return
+            }
             await self?.runWorker()
             await MainActor.run { [weak self] in
-                guard let self, self.workerGeneration == generation else { return }
+                guard let self else { return }
+                // A stopped worker parks itself in `drainingWorker`; clear that
+                // handle here so a waiter can tell "still draining" from "done".
+                if self.drainingWorkerGeneration == generation {
+                    self.drainingWorker = nil
+                    self.drainingWorkerGeneration = nil
+                }
+                guard self.workerGeneration == generation else { return }
                 let processed = self.processedTotal
                 self.processedCount = processed
                 self.worker = nil
@@ -1549,8 +1636,15 @@ final class MetadataBackfillService {
         if !preservingContinuation { finishContinuedProcessing(success: false) }
         deferredQueueReconcileTask?.cancel()
         deferredQueueReconcileTask = nil
+        // A hard stop ends any scene-transition pause: the parked worker is
+        // being cancelled, and its final flush must be allowed to publish.
+        isSceneTransitionPaused = false
+        let drainedGeneration = workerGeneration
         workerGeneration += 1
-        if let worker { drainingWorker = worker }
+        if let worker {
+            drainingWorker = worker
+            drainingWorkerGeneration = drainedGeneration
+        }
         worker?.cancel()
         worker = nil
         isRunning = false
@@ -1565,6 +1659,9 @@ final class MetadataBackfillService {
         if executionMode == .foregroundAfterSourceScan {
             setExecutionMode(.standard)
         }
+        // The live worker just became a draining one. Anyone parked on it is
+        // now waiting on work this service no longer owns.
+        releaseWorkerWaits()
     }
 
     /// Starts a source-scoped foreground job only after an explicit user
@@ -1639,6 +1736,12 @@ final class MetadataBackfillService {
     @discardableResult
     func resumeAutomaticForegroundIfNeeded() -> Bool {
         guard automaticDeviceLocalSourceID != nil || !automaticForegroundSourceIDs.isEmpty else { return false }
+        // 后台档位起的 worker 作用域是全库 (`makeBatchSelectionInput` 只给
+        // `.userInitiated` 缩过范围)。`start()` 遇到在跑的 worker 是幂等的,
+        // 所以不先停掉的话, 前台自动续跑设的新作用域要等下一批快照才生效,
+        // 等于白等一整批。场景切换的暂停/恢复不受影响: 那时的档位不是后台档。
+        let wasBackgroundScoped = worker != nil
+            && (executionMode == .background || executionMode == .backgroundDuringPlayback)
         refreshRemainingCounts(force: true)
         let readable = backfillableSourceIDs().subtracting(library.disabledSourceIDs)
         automaticForegroundSourceIDs = automaticForegroundSourceIDs.filter {
@@ -1654,6 +1757,7 @@ final class MetadataBackfillService {
             guard !automaticForegroundSourceIDs.isEmpty else { return false }
             setExecutionMode(.foregroundAfterSourceScan)
         }
+        if wasBackgroundScoped { stop(preservingContinuation: true) }
         start()
         return true
     }
@@ -1851,7 +1955,7 @@ final class MetadataBackfillService {
         sessionGivenUpIDs.subtract(songIDs)
         sessionNetworkParkedIDs.subtract(songIDs)
         sessionStallParkedIDs.subtract(songIDs)
-        deferredRetrySongIDs.subtract(songIDs)
+        mutateDeferredRetries { $0.subtract(songIDs) }
         for songID in songIDs { diagnosticRecords[songID] = nil }
         titleCheckedIDs.subtract(songIDs)
         albumArtistCheckedIDs.subtract(songIDs)
@@ -1970,12 +2074,144 @@ final class MetadataBackfillService {
         refreshRemainingCounts(force: true)
     }
 
+    /// True when the system background-processing window this service was
+    /// running in has already expired, so the system is taking the execution
+    /// time back regardless of what the scene is doing.
+    private var hasExpiredSystemBackgroundProcessing: Bool {
+        #if os(iOS)
+        backgroundExecutionExpired
+        #else
+        false
+        #endif
+    }
+
+    /// Single entry point for the scene handler: the policy decides, this
+    /// applies. Keeping the decision in `MetadataBackfillSceneTransitionPolicy`
+    /// is what makes the shipped behaviour the behaviour its suite exercises.
+    func applySceneTransition(phase: ScenePhaseKind, isPlaybackActive: Bool) {
+        switch MetadataBackfillSceneTransitionPolicy.disposition(
+            phase: phase,
+            isPlaybackActive: isPlaybackActive,
+            isSystemBackgroundProcessing: hasExpiredSystemBackgroundProcessing
+        ) {
+        case .pause:
+            pauseForSceneTransition()
+        case .hardStop:
+            // `stop()` also clears the pause flag, so an expired background
+            // window returning through `.active` cannot leave a parked worker
+            // behind with a zero budget.
+            stop(preservingContinuation: true)
+        case .resume:
+            resumeAfterSceneTransition()
+        }
+    }
+
+    /// Suspend reading for a scene transition that may not be a real
+    /// backgrounding.
+    ///
+    /// Cancelling the worker on `.inactive` throws away the bytes of every read
+    /// that completed microseconds earlier: the scheduler's consumer loop
+    /// breaks on `Task.isCancelled` before it drains the queued events, so a
+    /// finished read is converted to `.cancelled` and its `completed` callback
+    /// never runs. Dropping the worker count to zero instead keeps the worker,
+    /// the snapshot and the accumulated batch alive while admitting no new I/O.
+    private func pauseForSceneTransition() {
+        guard !isSceneTransitionPaused else { return }
+        isSceneTransitionPaused = true
+        activeScheduler?.configurationChanged()
+        for other in batchSchedulers.values { other.configurationChanged() }
+        plog("📥 Backfill: paused for scene transition (gen=\(workerGeneration))")
+    }
+
+    /// The scene is back in the foreground: re-admit readers and let the
+    /// accumulated batch publish on the next completion.
+    private func resumeAfterSceneTransition() {
+        guard isSceneTransitionPaused else { return }
+        isSceneTransitionPaused = false
+        activeScheduler?.configurationChanged()
+        for other in batchSchedulers.values { other.configurationChanged() }
+        plog("📥 Backfill: resumed after scene transition (gen=\(workerGeneration))")
+    }
+
     /// Block until the worker finishes draining the current queue. Used by
     /// the BGProcessingTask handler so iOS doesn't yank us mid-work.
-    func waitUntilIdle() async {
-        while worker != nil {
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
+    ///
+    /// A live worker is awaited directly and without a bound, which is the
+    /// historical meaning and removes the up-to-five-second gap between the
+    /// worker's last flush and the handler's `finish()`. After `stop()` the
+    /// live task is parked in `drainingWorker`, still running its in-flight
+    /// reads and final flush; the old `worker != nil` test returned
+    /// immediately there and let the handler complete on top of that work.
+    /// That drain is waited out too, but only up to `drainGrace`, so an
+    /// expired BGProcessing task can never be held open by it.
+    func waitUntilIdle(drainGrace: TimeInterval = MetadataBackfillDrainWaitPolicy.drainGrace) async {
+        // 宽限只约束"没有活着的 worker、只剩收尾任务"的那一段, 所以从观察到
+        // 这个状态的那一刻开始计时, 而不是从进入等待开始。
+        var drainStartedAt: ContinuousClock.Instant?
+        while true {
+            let liveWorker = worker
+            if liveWorker != nil {
+                drainStartedAt = nil
+            } else if drainStartedAt == nil {
+                drainStartedAt = ContinuousClock.now
+            }
+            guard MetadataBackfillDrainWaitPolicy.shouldKeepWaiting(
+                hasWorker: liveWorker != nil,
+                hasDrainingWorker: drainingWorker != nil,
+                elapsedSinceStop: drainStartedAt.map { Self.seconds(since: $0) } ?? 0,
+                grace: drainGrace,
+                callerCancelled: Task.isCancelled
+            ) else { return }
+            if let live = liveWorker {
+                await awaitWorkerCompletionOrRelease(live)
+                continue
+            }
+            // The draining task is already cancelled; awaiting its value would
+            // ignore the grace entirely (`Task<Void, Never>.value` cannot be
+            // interrupted), so poll it at a sub-frame interval instead.
+            try? await Task.sleep(
+                for: .seconds(MetadataBackfillDrainWaitPolicy.drainPollInterval)
+            )
         }
+    }
+
+    /// Wait for the live worker, but let `stop()` (which is what a
+    /// BGProcessing expiry runs) and the caller's own cancellation end the wait
+    /// immediately.
+    ///
+    /// `Task<Void, Never>.value` ignores the awaiting task's cancellation and
+    /// takes no deadline, so a bare `await live.value` keeps standing guard over
+    /// a worker that has already been moved aside and cancelled — the loop head,
+    /// where the grace is enforced, is never reached again. Parking on a latch
+    /// that `stop()` also releases keeps the completion itself as the primary
+    /// signal while making "this is no longer my work" observable.
+    private func awaitWorkerCompletionOrRelease(_ live: Task<Void, Never>) async {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                let latch = MetadataBackfillWorkerWaitLatch(continuation)
+                workerWaitLatches.append(latch)
+                Task { @MainActor [weak self] in
+                    await live.value
+                    self?.workerWaitLatches.removeAll { $0 === latch }
+                    latch.resume()
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.releaseWorkerWaits() }
+        }
+    }
+
+    /// Wake every parked `waitUntilIdle`; each one re-evaluates at its loop head.
+    private func releaseWorkerWaits() {
+        let latches = workerWaitLatches
+        workerWaitLatches.removeAll()
+        for latch in latches { latch.resume() }
+    }
+
+    private nonisolated static func seconds(since instant: ContinuousClock.Instant) -> TimeInterval {
+        let components = (ContinuousClock.now - instant).components
+        return TimeInterval(components.seconds)
+            + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
     }
 
     /// Duration is the load-bearing signal for legacy rows, but the worker also
@@ -2087,8 +2323,10 @@ final class MetadataBackfillService {
     }
 
     func isDeferredRetry(songID: String) -> Bool {
-        _ = statusRevision
-        return deferredRetrySongIDs.contains(songID)
+        // 只依赖成员版本号。`statusRevision` 每次状态对账都会前进, 让每一行
+        // 都跟着重绘; 这里关心的只是"这首歌在不在重试集合里"。
+        _ = deferredRetryRevision
+        return deferredRetryMembership.contains(songID)
     }
 
     func refreshStatusSnapshot() {
@@ -2137,6 +2375,9 @@ final class MetadataBackfillService {
         let statusBySource: [String: Int]
         let summaries: [String: MetadataBackfillSourceSummary]
         let displayItemsBySource: [String: [MetadataBackfillStatusDisplayItem]]
+        /// 在这趟(通常在后台执行器上的)遍历里顺带折出的展示行指纹。主 actor
+        /// 只比较这一个值, 不再对成千上万条带字符串的展示行做字典相等比较。
+        let displayItemsSignature: MetadataBackfillStatusSignature
         let remainingTotal: Int
         let deferredTotal: Int
         let statusTotal: Int
@@ -2168,6 +2409,11 @@ final class MetadataBackfillService {
     }
 
     private func refreshRemainingCounts(force: Bool = false) {
+        // Stage 2b: 库还在准备时整库是空的, 这一轮会把"0 条待办"对账并把
+        // `needsRefresh: false` 写进 backfill-queue-state.json —— 之后没有任何
+        // 人会把队列重新标脏(后台唤醒的进程里根本没有 SwiftUI 场景)。保持脏
+        // 状态原样返回, 发布之后的任意一次对账都会重算。
+        guard library.isReady else { return }
         let now = Date()
         guard force
                 || now.timeIntervalSince(lastRemainingCountRefreshAt)
@@ -2178,6 +2424,8 @@ final class MetadataBackfillService {
     }
 
     private func refreshRemainingCountsOffMain(force: Bool = false) async {
+        // 同 `refreshRemainingCounts`: 准备中的库不参与对账, 也不落盘。
+        guard library.isReady else { return }
         let now = Date()
         guard force
                 || now.timeIntervalSince(lastRemainingCountRefreshAt)
@@ -2191,17 +2439,40 @@ final class MetadataBackfillService {
         let computation = await Task.detached(priority: .utility) {
             Self.computeRemainingCounts(input)
         }.value
-        guard remainingCountComputationGeneration == computationGeneration,
-              library.songMutationGenerationForMaintenance == songMutationGeneration,
-              queueMutationGeneration == queueGeneration,
-              backfillableSourceIDs() == input.sourceIDs,
-              bareOnlySourceIDs() == input.bareOnlySourceIDs,
-              library.disabledSourceIDs == input.disabledSourceIDs,
-              isWaitingForWiFi == input.isWaitingForWiFi else {
+        // 代次被顶替与"输入真的变了"必须分开: 被顶替时接管的那次刷新还在跑,
+        // 把节流时间戳退回 .distantPast 会让它之后的 start() 再次整库同步对账。
+        // "歌曲代次动了"又要再分出来: 扫描每 1.5 s 发布一次库, 整场扫描里
+        // 几乎每一次 off-main 对账都会跨过一次发布。那只说明快照稍微旧了,
+        // 数字仍然自洽, 可以发给源卡片; 队列则保持脏着, 下一轮照旧对账。
+        let superseded = remainingCountComputationGeneration != computationGeneration
+        let application = MetadataBackfillRemainingCountRefreshPolicy.application(
+            superseded: superseded,
+            songGenerationChanged:
+                library.songMutationGenerationForMaintenance != songMutationGeneration,
+            queueGenerationChanged: queueMutationGeneration != queueGeneration,
+            semanticInputsChanged: backfillableSourceIDs() != input.sourceIDs
+                || bareOnlySourceIDs() != input.bareOnlySourceIDs
+                || library.disabledSourceIDs != input.disabledSourceIDs
+                || isWaitingForWiFi != input.isWaitingForWiFi
+        )
+        switch application {
+        case .discard:
+            let staleReason: MetadataBackfillRemainingCountRefreshPolicy.StaleReason =
+                superseded ? .supersededComputation : .inputsChanged
+            if MetadataBackfillRemainingCountRefreshPolicy
+                .throttleResetsAfterFailure(reason: staleReason) {
+                lastRemainingCountRefreshAt = .distantPast
+            }
+        case .applyKeepingQueueDirty:
+            // 这份快照算在一次资料库发布之前, 数字只能少算不会多算。发布给
+            // 源卡片没问题, 但节流必须像 HEAD 上的 `.inputsChanged` 那样退回,
+            // 否则接下来最多一个刷新间隔里, 谁都拿不到更新的数 —— 后台唤醒
+            // 里没有 SwiftUI 场景去把队列重新标脏, 那就再没有别的信号了。
             lastRemainingCountRefreshAt = .distantPast
-            return
+            applyRemainingCounts(computation, precedesLibraryPublication: true)
+        case .apply:
+            applyRemainingCounts(computation, precedesLibraryPublication: false)
         }
-        applyRemainingCounts(computation)
     }
 
     private nonisolated static func computeRemainingCounts(
@@ -2212,6 +2483,7 @@ final class MetadataBackfillService {
         var statusBySource: [String: Int] = [:]
         var summaries: [String: MetadataBackfillSourceSummary] = [:]
         var displayItemsBySource: [String: [MetadataBackfillStatusDisplayItem]] = [:]
+        var displayItemsSignature = MetadataBackfillStatusSignature()
         bySource.reserveCapacity(input.sourceIDs.count)
         deferredBySource.reserveCapacity(input.sourceIDs.count)
         statusBySource.reserveCapacity(input.sourceIDs.count)
@@ -2219,6 +2491,8 @@ final class MetadataBackfillService {
         displayItemsBySource.reserveCapacity(input.sourceIDs.count)
         for sourceID in input.sourceIDs {
             displayItemsBySource[sourceID] = []
+            // 来源集合本身无序, 用异或折叠, 使增删来源同样算作变化。
+            displayItemsSignature.combine(sourceID: sourceID)
         }
         var total = 0
         var deferredTotal = 0
@@ -2283,26 +2557,26 @@ final class MetadataBackfillService {
                 summaries[song.sourceID, default: MetadataBackfillSourceSummary()]
                     .record(itemState)
                 let diagnostic = input.diagnosticRecords[song.id]
-                displayItemsBySource[song.sourceID, default: []].append(
-                    MetadataBackfillStatusDisplayItem(
-                        songID: song.id,
-                        title: song.title,
-                        artistName: song.artistName,
-                        filePath: song.filePath,
-                        fileFormat: song.fileFormat.rawValue.uppercased(),
-                        hasMissingDuration: song.duration <= 0,
-                        state: itemState,
-                        workReasons: workReasons,
-                        diagnostic: diagnostic,
-                        attemptCount: max(
-                            diagnostic?.attemptCount ?? 0,
-                            max(
-                                input.transientFailureCounts[song.id] ?? 0,
-                                input.sourceTransientFailureCounts[song.sourceID] ?? 0
-                            )
+                let displayItem = MetadataBackfillStatusDisplayItem(
+                    songID: song.id,
+                    title: song.title,
+                    artistName: song.artistName,
+                    filePath: song.filePath,
+                    fileFormat: song.fileFormat.rawValue.uppercased(),
+                    hasMissingDuration: song.duration <= 0,
+                    state: itemState,
+                    workReasons: workReasons,
+                    diagnostic: diagnostic,
+                    attemptCount: max(
+                        diagnostic?.attemptCount ?? 0,
+                        max(
+                            input.transientFailureCounts[song.id] ?? 0,
+                            input.sourceTransientFailureCounts[song.sourceID] ?? 0
                         )
                     )
                 )
+                displayItemsBySource[song.sourceID, default: []].append(displayItem)
+                displayItemsSignature.combine(item: displayItem, sourceID: song.sourceID)
             }
 
             let hasFailed = hasTerminalOrSourceFailure
@@ -2331,6 +2605,7 @@ final class MetadataBackfillService {
             statusBySource: statusBySource,
             summaries: summaries,
             displayItemsBySource: displayItemsBySource,
+            displayItemsSignature: displayItemsSignature,
             remainingTotal: total,
             deferredTotal: deferredTotal,
             statusTotal: statusTotal,
@@ -2338,7 +2613,19 @@ final class MetadataBackfillService {
         )
     }
 
-    private func applyRemainingCounts(_ computation: RemainingCountsComputation) {
+    /// - Parameter precedesLibraryPublication: pass `true` when the computation
+    ///   ran across a library publication. The published numbers are then a
+    ///   consistent past state — good enough for the source card — but the
+    ///   queue stays dirty so `hasPendingWork` keeps answering honestly and the
+    ///   next reconcile still runs, the queue-state file is not rewritten with a
+    ///   total that is known to under-report, and a `0` total is not taken as
+    ///   proof that there is nothing left to do.
+    private func applyRemainingCounts(
+        _ computation: RemainingCountsComputation,
+        precedesLibraryPublication: Bool = false
+    ) {
+        let signpost = PrimuseSignposts.hitch.beginInterval("backfill.remainingCounts")
+        defer { PrimuseSignposts.hitch.endInterval("backfill.remainingCounts", signpost) }
         var presentationChanged = false
         if remainingCountBySourceID != computation.remainingBySource {
             remainingCountBySourceID = computation.remainingBySource
@@ -2368,12 +2655,21 @@ final class MetadataBackfillService {
             sourceStatusSummaries = computation.summaries
             presentationChanged = true
         }
-        if statusDisplayItemsBySourceID != computation.displayItemsBySource {
+        // 指纹相同就连赋值都省掉: 内容等价, 换一份新字典只会让主 actor 再去
+        // 释放上一份的上千条展示行。
+        if statusDisplayItemsSignature != computation.displayItemsSignature {
+            statusDisplayItemsSignature = computation.displayItemsSignature
             statusDisplayItemsBySourceID = computation.displayItemsBySource
             presentationChanged = true
         }
         if presentationChanged {
             statusRevision = statusRevision == .max ? 1 : statusRevision + 1
+        }
+        guard !precedesLibraryPublication else {
+            // 只把数字发出去。落盘会把这个偏小的总数写进 backfill-queue-state.json,
+            // 而后台唤醒里那份文件就是唯一的信号; `remainingTotal == 0` 同理,
+            // 不能拿一个已知偏小的零去收掉 Wi-Fi 等待与蜂窝提示。
+            return
         }
         reconciledQueueGeneration = queueMutationGeneration
         queueNeedsRefresh = false
@@ -2503,7 +2799,7 @@ final class MetadataBackfillService {
         // inspection. Keeping every source-parked row in the deferred set would
         // recreate the misleading "hundreds of retries" count after one
         // connector failure.
-        deferredRetrySongIDs.subtract(retryIDs)
+        mutateDeferredRetries { $0.subtract(retryIDs) }
         artworkGivenUpIDs.subtract(retryIDs)
         titleCheckedIDs.subtract(retryIDs)
         albumArtistCheckedIDs.subtract(retryIDs)
@@ -2785,7 +3081,7 @@ final class MetadataBackfillService {
         sessionGivenUpIDs.remove(songID)
         sessionNetworkParkedIDs.remove(songID)
         sessionStallParkedIDs.remove(songID)
-        deferredRetrySongIDs.insert(songID)
+        mutateDeferredRetries { $0.insert(songID) }
         artworkGivenUpIDs.remove(songID)
         titleCheckedIDs.remove(songID)
         albumArtistCheckedIDs.remove(songID)
@@ -2843,7 +3139,7 @@ final class MetadataBackfillService {
             )
         }
         if outcome.transientFailure {
-            deferredRetrySongIDs.insert(songID)
+            mutateDeferredRetries { $0.insert(songID) }
             sessionGivenUpIDs.insert(songID)
             sessionNetworkParkedIDs.insert(songID)
             transientFailureCounts[songID] = MetadataBackfillRetryPolicy
@@ -2876,7 +3172,7 @@ final class MetadataBackfillService {
             if outcome.artistInspected { markArtistInspected(songID: songID) }
             markMetadataInspected(songID: songID)
             clearAutomaticRetryState(songID: songID, sourceID: song.sourceID)
-            deferredRetrySongIDs.remove(songID)
+            mutateDeferredRetries { $0.remove(songID) }
             if !outcome.markFailed && !outcome.detailsIncomplete && !outcome.sourceIssue {
                 failedSongIDs.remove(songID)
                 incompleteSongIDs.remove(songID)
@@ -2897,7 +3193,7 @@ final class MetadataBackfillService {
             failedSongIDs.remove(songID)
             incompleteSongIDs.remove(songID)
             sourceIssueSongIDs.remove(songID)
-            deferredRetrySongIDs.remove(songID)
+            mutateDeferredRetries { $0.remove(songID) }
             clearAutomaticRetryState(songID: songID, sourceID: song.sourceID)
             clearDiagnostic(songID: songID)
         }
@@ -2991,7 +3287,7 @@ final class MetadataBackfillService {
                     snapshotSongIDs: snapIDs,
                     cause: .repeatedSnapshot
                 )
-                deferredRetrySongIDs.formUnion(deferredIDs)
+                mutateDeferredRetries { $0.formUnion(deferredIDs) }
                 if !deferredIDs.isEmpty { saveDeferredRetries() }
                 await refreshRemainingCountsOffMain(force: true)
                 plog("⚠️ Backfill: pickNextBatch returned the same \(snapIDs.count) IDs after a full round — parked for this session")
@@ -3093,7 +3389,7 @@ final class MetadataBackfillService {
                         snapshotSongIDs: sourceSongIDs,
                         cause: .sourceUnavailable
                     )
-                    deferredRetrySongIDs.formUnion(deferredIDs)
+                    mutateDeferredRetries { $0.formUnion(deferredIDs) }
                     recordDiagnostic(
                         songID: songID,
                         state: .sourceUnavailable,
@@ -3117,7 +3413,7 @@ final class MetadataBackfillService {
                     failedSongIDs.insert(songID)
                     incompleteSongIDs.remove(songID)
                     sourceIssueSongIDs.remove(songID)
-                    deferredRetrySongIDs.remove(songID)
+                    mutateDeferredRetries { $0.remove(songID) }
                     clearAutomaticRetryState(songID: songID, sourceID: result.song.sourceID)
                     recordDiagnostic(
                         songID: songID,
@@ -3132,7 +3428,7 @@ final class MetadataBackfillService {
                     incompleteSongIDs.insert(songID)
                     failedSongIDs.remove(songID)
                     sourceIssueSongIDs.remove(songID)
-                    deferredRetrySongIDs.remove(songID)
+                    mutateDeferredRetries { $0.remove(songID) }
                     clearAutomaticRetryState(songID: songID, sourceID: result.song.sourceID)
                     recordDiagnostic(
                         songID: songID,
@@ -3147,7 +3443,7 @@ final class MetadataBackfillService {
                     sourceIssueSongIDs.insert(songID)
                     failedSongIDs.remove(songID)
                     incompleteSongIDs.remove(songID)
-                    deferredRetrySongIDs.remove(songID)
+                    mutateDeferredRetries { $0.remove(songID) }
                     clearAutomaticRetryState(songID: songID, sourceID: result.song.sourceID)
                     recordDiagnostic(
                         songID: songID,
@@ -3164,7 +3460,7 @@ final class MetadataBackfillService {
                     isTransient: result.outcome.transientFailure
                    ),
                    canRecordOutcome {
-                    deferredRetrySongIDs.insert(songID)
+                    mutateDeferredRetries { $0.insert(songID) }
                     sessionGivenUpIDs.insert(songID)
                     sessionNetworkParkedIDs.insert(songID)
                     let count = MetadataBackfillRetryPolicy.attemptCountAfterFailure(
@@ -3226,10 +3522,13 @@ final class MetadataBackfillService {
                 // Flush when the batch is full OR the interval has elapsed。
                 // 在 main actor 上, library.replaceSongs 调一次即可。
                 let flushInterval = executionLimits.flushInterval
-                let shouldFlush = pendingFlush.count >= Self.flushBatchSize
+                let shouldFlush = MetadataBackfillSceneTransitionPolicy.shouldPublishFlush(
+                    isPaused: isSceneTransitionPaused,
+                    isFinalFlush: false
+                ) && (pendingFlush.count >= Self.flushBatchSize
                     || pendingMetadataInspectionIDs.count >= Self.flushBatchSize
                     || pendingArtistInspectionIDs.count >= Self.flushBatchSize
-                    || Date().timeIntervalSince(lastFlushAt) >= flushInterval
+                    || Date().timeIntervalSince(lastFlushAt) >= flushInterval)
                 if shouldFlush,
                    (!pendingFlush.isEmpty
                     || !pendingMetadataInspectionIDs.isEmpty
@@ -3238,6 +3537,8 @@ final class MetadataBackfillService {
                     // (for example TIT2 parsed but duration did not). Failure
                     // membership must stop future network retries, not discard
                     // the useful result we already have.
+                    let flushSignpost = PrimuseSignposts.hitch
+                        .beginInterval("backfill.flushApply")
                     let batch = pendingFlush.compactMap(backfillResultForApply)
                     let batchIDs = Set(batch.map(\.id))
                     pendingFlush.removeAll(keepingCapacity: true)
@@ -3258,6 +3559,10 @@ final class MetadataBackfillService {
                     artistInspectionIDsRequiringReplacement.subtract(batchIDs)
                     markMetadataInspected(songIDs: pendingMetadataInspectionIDs)
                     pendingMetadataInspectionIDs.removeAll(keepingCapacity: true)
+                    PrimuseSignposts.hitch.endInterval(
+                        "backfill.flushApply",
+                        flushSignpost
+                    )
                     await refreshRemainingCountsOffMain()
                 }
 
@@ -3316,6 +3621,11 @@ final class MetadataBackfillService {
     /// Once only connector/File Provider work remains, the next request asks
     /// BGTaskScheduler for network connectivity.
     var backgroundWakeRequiresNetworkConnectivity: Bool {
+        // Stage 2b: 准备中的库走遍的是空模型。改用只读缓存的那个变体 —— 它对
+        // "队列还脏着"给的是保守答案(需要网络), 不会把空对账固化下来。
+        guard library.isReady else {
+            return backgroundWakeRequiresNetworkConnectivityFromCachedCounts
+        }
         if queueNeedsRefresh
             || reconciledQueueGeneration != queueMutationGeneration {
             refreshRemainingCounts(force: true)
@@ -3327,13 +3637,20 @@ final class MetadataBackfillService {
     /// 不会触发整库遍历。scenePhase 提交与启动 .task 只是在决定 BGProcessing
     /// 请求要不要网络; 真正跑起来的路径 (2 秒延后任务、BGProcessing handler)
     /// 仍然用会强制刷新的那个属性, 稍旧的值会在那里被纠正。
+    ///
+    /// 队列已经标脏 (扫描刚发布一批歌, 对账被推到主 actor 之外) 时那份缓存
+    /// 可能已经过期, 空的/上一轮的 pendingSourceIDs 会让判定一律回答"需要
+    /// 网络"。这种情况下改用只看源集合的保守答案 —— 仍然不遍历资料库。
     var backgroundWakeRequiresNetworkConnectivityFromCachedCounts: Bool {
         let pendingSourceIDs = Set(remainingCountBySourceID.compactMap { sourceID, count in
             count > 0 ? sourceID : nil
         })
-        return MetadataBackfillNetworkPolicy.backgroundWakeRequiresNetwork(
+        return MetadataBackfillNetworkPolicy.backgroundWakeRequiresNetworkFromCachedCounts(
+            queueNeedsReconcile: queueNeedsRefresh
+                || reconciledQueueGeneration != queueMutationGeneration,
             hasPendingWork: hasPendingWork,
             pendingSourceIDs: pendingSourceIDs,
+            backfillableSourceIDs: backfillableSourceIDs(),
             offlineReadableSourceIDs: offlineReadableSourceIDs()
         )
     }
@@ -4810,7 +5127,7 @@ final class MetadataBackfillService {
     private func loadDeferredRetries() {
         guard let data = try? Data(contentsOf: deferredRetryURL),
               let decoded = try? JSONDecoder().decode([String].self, from: data) else { return }
-        deferredRetrySongIDs = Set(decoded)
+        mutateDeferredRetries { $0.replace(with: Set(decoded)) }
     }
 
     private func loadDiagnostics() {
@@ -4869,9 +5186,12 @@ final class MetadataBackfillService {
     }
 
     private func clearDeferredRetries(in songs: [Song]) {
-        let previousCount = deferredRetrySongIDs.count
-        deferredRetrySongIDs.subtract(songs.map(\.id))
-        if deferredRetrySongIDs.count != previousCount {
+        var changed = false
+        mutateDeferredRetries {
+            changed = $0.subtract(songs.map(\.id))
+            return changed
+        }
+        if changed {
             saveDeferredRetries()
         }
     }

@@ -55,7 +55,16 @@ final class ScanServiceStartupPrewarm: Sendable {
     }
 
     private let slot = OSAllocatedUnfairLock<Slot>(initialState: Slot())
-    private let group = DispatchGroup()
+    /// 解码跑在这条私有串行队列上, `take` 用同一条队列的 `sync` 等待。
+    /// `DispatchGroup.wait()` / 信号量都不会把等待方的优先级借给被等的块,
+    /// 主线程 (userInteractive) 于是干等一个 userInitiated 的解码; 而
+    /// `DispatchQueue.sync` 会对串行队列里还在排队/正在执行的块做优先级覆盖,
+    /// 正是这里需要的防优先级反转。(`DispatchWorkItem.wait()` 有同样的覆盖
+    /// 语义, 但 DispatchWorkItem 不是 Sendable, 放不进这个 Sendable 单例。)
+    private let decodeQueue = DispatchQueue(
+        label: "com.primuse.scanservice.startup-prewarm",
+        qos: .userInitiated
+    )
 
     func start(checkpointURL: URL, syncStateURL: URL) {
         let shouldStart = slot.withLock { slot -> Bool in
@@ -65,14 +74,12 @@ final class ScanServiceStartupPrewarm: Sendable {
             return true
         }
         guard shouldStart else { return }
-        group.enter()
-        DispatchQueue.global(qos: .userInitiated).async { [self] in
+        decodeQueue.async { [self] in
             let loaded = ScanServiceStartupState.load(
                 checkpointURL: checkpointURL,
                 syncStateURL: syncStateURL
             )
             self.slot.withLock { $0.state = loaded }
-            self.group.leave()
         }
     }
 
@@ -87,7 +94,10 @@ final class ScanServiceStartupPrewarm: Sendable {
             return prewarmedURL == checkpointURL && slot.syncStateURL == syncStateURL
         }
         guard matches else { return nil }
-        group.wait()
+        // 串行队列: 这个空块一定排在解码之后, sync 返回时结果已经写回 slot,
+        // 期间主线程的优先级被借给还没跑完的解码 (见 decodeQueue 的说明)。
+        // 没有预热过的路径在上面就返回了, 所以这里不会凭空等一个空队列。
+        decodeQueue.sync {}
         return slot.withLock { slot in
             defer { slot.state = nil }
             return slot.state
@@ -162,6 +172,30 @@ enum ScanExecutionProfilePolicy {
 
 /// Manages music source scanning state and tasks.
 /// Lives in the SwiftUI environment so scan progress persists across navigation.
+/// 扫描等待被唤醒的原因。等待方要能分辨"这个任务真的跑完了"和"它已经不是
+/// 这个源在册的任务了", 否则一次取消会让它把还活着的别的源也当成等完了。
+private enum ScanWaitWake: Sendable {
+    case taskFinished
+    case registrationChanged
+}
+
+/// 一次性闩。`Task<Void, Never>.value` 不理会等待方的取消, 所以"这活已经被
+/// 取消掉了"只能从外面把等待放掉。全部在主 actor 上 resume。
+@MainActor
+private final class ScanWaitLatch {
+    private var continuation: CheckedContinuation<ScanWaitWake, Never>?
+
+    init(_ continuation: CheckedContinuation<ScanWaitWake, Never>) {
+        self.continuation = continuation
+    }
+
+    func resume(_ wake: ScanWaitWake) {
+        guard let continuation else { return }
+        self.continuation = nil
+        continuation.resume(returning: wake)
+    }
+}
+
 @MainActor
 @Observable
 final class ScanService {
@@ -319,6 +353,20 @@ final class ScanService {
     /// automatic-resume backoff becomes eligible again. Cancelled together with
     /// the active scans when the scene leaves the foreground.
     @ObservationIgnored private var deferredForegroundResumeTask: Task<Void, Never>?
+    /// Armed on `.inactive`, disarmed on `.active`, fired synchronously on
+    /// `.background`. iOS raises `.inactive` for Control Center, an incoming
+    /// call, a Face ID prompt and every foreground return, none of which is a
+    /// reason to throw away a running scan's preflight and directory walk.
+    @ObservationIgnored private var deferredSceneTransitionCancelTask: Task<Void, Never>?
+    /// Parked `waitForActiveScansToComplete` callers, woken by a scan task's
+    /// completion or by `cancelScan`; see `awaitScanTask`.
+    @ObservationIgnored private var scanWaitLatches: [ScanWaitLatch] = []
+    /// The store the running scans publish their counter to. Only used to force
+    /// a coalesced source write through on cancellation.
+    @ObservationIgnored private weak var coalescingSourceStore: SourcesStore?
+    /// True while a BGProcessing wake request is actually on file. A finite
+    /// background window may only defer a resume when this later wake exists.
+    @ObservationIgnored private(set) var hasScheduledBackgroundResume = false
     @ObservationIgnored private let connectorProvider: ((MusicSource) -> any MusicSourceConnector)?
     @ObservationIgnored private let diagnosticProvider: ((MusicSource, [String]) async -> SourceDiagnosticReport)?
     /// Invalidates folder indexes when a committed provider scan changes the
@@ -377,8 +425,8 @@ final class ScanService {
         observeSourceConfigurationChanges()
     }
 
-    private static let checkpointFileName = "scan-checkpoints.json"
-    private static let syncStateFileName = "source-sync-states.json"
+    private nonisolated static let checkpointFileName = "scan-checkpoints.json"
+    private nonisolated static let syncStateFileName = "source-sync-states.json"
 
     private nonisolated static func startupDirectory(fileManager: FileManager) -> URL {
         fileManager.primuseDirectoryURL(for: .applicationSupportDirectory)
@@ -625,20 +673,28 @@ final class ScanService {
             // 这次 addSongs 带 pruneMissingSongs: false, 不会移除任何没出现在
             // 入参里的歌, 所以不需要再把该源的已知歌全量回灌 —— 那是一次跑在
             // scenePhase 回调里的 O(资料库) 合并。这里只补齐资料库中还缺的
-            // checkpoint 行; 已存在行的元数据更新由扫描任务的首次增量 flush
-            // 与 completeScan 通过 existingForScan 一并提交, 完整扫描结束后
-            // 再做真正的删除对账。
-            let missingSongs = resumeSongs.filter { library.song(id: $0.id) == nil }
-            if !missingSongs.isEmpty {
+            // checkpoint 行, 外加路径/大小/版本已经和 checkpoint 对不上的行 ——
+            // 后者不能等首次增量 flush: 这次续扫要是在 flush 之前就失败
+            // (登录/诊断失败、后台窗口到期、checkScanCommitFence 抛错),
+            // 资料库会继续留着旧的 filePath/fileSize/revision,
+            // MetadataBackfill.isStillReadable 会据此把这些行的读取结果全丢掉。
+            // 其余字段的更新仍由首次增量 flush 与 completeScan 通过
+            // existingForScan 一并提交, 完整扫描结束后再做真正的删除对账。
+            let seedSongs = resumeSongs.filter { row in
+                guard let existing = library.song(id: row.id) else { return true }
+                return Self.resumeSeedNeedsUpdate(checkpointRow: row, libraryRow: existing)
+            }
+            if !seedSongs.isEmpty {
                 library.addSongs(
-                    missingSongs,
+                    seedSongs,
                     affectedSourceIDs: Set([source.id]),
                     notifyRemovals: false,
                     pruneMissingSongs: false
                 )
             }
             let acceptedCount = library.songCountsBySourceID()[source.id] ?? 0
-            sourceStore.updateLocal(source.id) { $0.songCount = acceptedCount }
+            rememberCoalescingSourceStore(sourceStore)
+            sourceStore.updateLocalCoalesced(source.id) { $0.songCount = acceptedCount }
         }
 
         scanStates[source.id] = ScanState(
@@ -1179,6 +1235,7 @@ final class ScanService {
             BGTaskScheduler.shared.cancel(
                 taskRequestWithIdentifier: Self.backgroundTaskIdentifier
             )
+            hasScheduledBackgroundResume = false
             return
         }
 
@@ -1199,9 +1256,12 @@ final class ScanService {
         do {
             BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.backgroundTaskIdentifier)
             try BGTaskScheduler.shared.submit(request)
+            hasScheduledBackgroundResume = true
         } catch {
             // BGTaskScheduler.Error.unavailable on simulator and when entitlement missing.
             // Don't crash — auto-resume on foreground still works.
+            // Without a wake on file the finite-window gate must never defer.
+            hasScheduledBackgroundResume = false
             plog("⚠️ BGProcessing submit failed: \(error)")
         }
         #endif
@@ -1214,6 +1274,14 @@ final class ScanService {
         scanGenerations[sourceID] == generation
     }
 
+    /// `cancelScan` has no store in hand, so record the one the intermediate
+    /// counters publish to. Held weakly — a released store has nothing to
+    /// flush.
+    private func rememberCoalescingSourceStore(_ sourceStore: SourcesStore) {
+        guard coalescingSourceStore !== sourceStore else { return }
+        coalescingSourceStore = sourceStore
+    }
+
     func cancelScan(for sourceID: String) {
         activeTasks[sourceID]?.cancel()
         activeTasks[sourceID] = nil
@@ -1224,17 +1292,102 @@ final class ScanService {
         scanStates[sourceID]?.isScanning = false
         scanStates[sourceID]?.hasPendingWork = checkpoints[sourceID] != nil
         persistCheckpoints(force: true)
+        // The source card's counter stops moving here, so its last coalesced
+        // value must reach disk with the checkpoint rather than wait out the
+        // debounce window that nothing will close.
+        coalescingSourceStore?.flushCoalescedPersist()
         endBackgroundTask(for: sourceID)
+        // 这条记录已经从 activeTasks 摘掉了。任何正挂在它上面的等待现在等的
+        // 都是一个不再属于本服务的任务, 放它们回去重新判断。
+        releaseScanWaits()
     }
 
     /// Cancel every in-flight scan. Used by the BGProcessingTask expiration
     /// handler so iOS doesn't kill us mid-write.
     func cancelAllActiveScans() {
+        deferredSceneTransitionCancelTask?.cancel()
+        deferredSceneTransitionCancelTask = nil
         deferredForegroundResumeTask?.cancel()
         deferredForegroundResumeTask = nil
         for sourceID in Array(activeTasks.keys) {
             cancelScan(for: sourceID)
         }
+    }
+
+    /// Single entry point for the scene handler. `.inactive` arms the
+    /// debounce; `.active` and `.background` are handed to the policy as the
+    /// phase observed inside that window, which is what decides whether the
+    /// cancellation happens at all.
+    func sceneTransitionPhaseChanged(_ phase: ScenePhaseKind) {
+        guard phase != .inactive else {
+            scheduleSceneTransitionScanCancel()
+            return
+        }
+        switch SceneTransitionScanQuiescePolicy
+            .cancelDisposition(nextPhaseWithinDebounce: phase) {
+        case .skip:
+            abortSceneTransitionScanCancel()
+        case .cancelNow:
+            // `.background`: run it synchronously, ahead of anything
+            // suspension-related, so every checkpoint and the coalesced source
+            // counters are durable by the time iOS can suspend us.
+            cancelAllActiveScans()
+        }
+    }
+
+    /// Arm the `.inactive` scan cancellation instead of running it now.
+    ///
+    /// A Control Center pull, an incoming call, a Face ID prompt and every
+    /// return from the background all raise `.inactive`. Cancelling there costs
+    /// the preflight, the login and the directory walk already done, and the
+    /// checkpoint carries no automatic-resume failure, so the restart is
+    /// immediate — pure churn. The window deliberately leaves scan library
+    /// mutations running for up to `inactiveCancelDebounce` inside
+    /// `beginSceneTransitionQuiescence()`; that only defers the portable
+    /// snapshot write, and iOS always delivers `.background` before suspending,
+    /// where `sceneTransitionPhaseChanged(.background)` closes the window.
+    private func scheduleSceneTransitionScanCancel() {
+        // The deferred foreground retry is a timer, not a scan. Drop it now so
+        // it cannot start fresh work inside the debounce window.
+        deferredForegroundResumeTask?.cancel()
+        deferredForegroundResumeTask = nil
+        guard !activeTasks.isEmpty else { return }
+        deferredSceneTransitionCancelTask?.cancel()
+        deferredSceneTransitionCancelTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(
+                for: .seconds(SceneTransitionScanQuiescePolicy.inactiveCancelDebounce)
+            )
+            guard !Task.isCancelled, let self else { return }
+            self.deferredSceneTransitionCancelTask = nil
+            guard SceneTransitionScanQuiescePolicy
+                .cancelDisposition(nextPhaseWithinDebounce: nil) == .cancelNow else { return }
+            self.cancelAllActiveScans()
+        }
+    }
+
+    /// The scene came back to the foreground inside the debounce window: the
+    /// app never really left, so the scans keep running.
+    private func abortSceneTransitionScanCancel() {
+        guard deferredSceneTransitionCancelTask != nil else { return }
+        deferredSceneTransitionCancelTask?.cancel()
+        deferredSceneTransitionCancelTask = nil
+        plog("📂 Scene returned to the foreground — keeping \(activeTasks.count) scan(s) running")
+    }
+
+    /// True when a finite background window is long enough to make a resume
+    /// worthwhile. Background audio keeps the window unbounded (#99: playback
+    /// must not stop scanning); without it, a window that cannot even cover the
+    /// preflight is left to the BGProcessing wake that is already on file.
+    func shouldResumeInCurrentBackgroundWindow(isBackgroundPlaybackActive: Bool) -> Bool {
+        #if os(iOS)
+        return SceneTransitionScanQuiescePolicy.shouldResumeInFiniteBackgroundWindow(
+            secondsRemaining: UIApplication.shared.backgroundTimeRemaining,
+            isBackgroundPlaybackActive: isBackgroundPlaybackActive,
+            hasScheduledProcessingWake: hasScheduledBackgroundResume
+        )
+        #else
+        return true
+        #endif
     }
 
     /// Baidu refresh is a foreground-only snapshot walk. If the user leaves
@@ -1248,12 +1401,65 @@ final class ScanService {
         }
     }
 
-    /// Polls until no scan is active. Used inside the BGProcessingTask handler
+    /// Waits until no scan is active. Used inside the BGProcessingTask handler
     /// so we can mark the task complete only after work finishes.
+    ///
+    /// Awaiting the task itself instead of polling gives back the up-to-five
+    /// seconds of background budget every wake used to burn between the last
+    /// scan finishing and scraping starting. A finished scan clears its own
+    /// `activeTasks` entry in the task body's `defer` (only while it is still
+    /// the current generation) and `cancelScan` removes the entry
+    /// synchronously, so a cancelled task is never awaited; awaiting from the
+    /// main actor yields it, so scans that resume during the wait are simply
+    /// picked up by the next iteration. Deliberately no `Task.isCancelled`
+    /// early return — the drain must not abandon a live scan.
     func waitForActiveScansToComplete() async {
-        while !activeTasks.isEmpty {
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
+        // 记下已经等过的 (源, 任务), 这样即使某条记录因为代次不再是当前的而
+        // 没被它自己的 defer 摘掉, 也不会在一个已完成的任务上空转; 同一个源
+        // 换了新任务仍然会被等到。
+        var settled: [String: Task<Void, Never>] = [:]
+        while let pending = activeTasks.first(where: { settled[$0.key] != $0.value }) {
+            switch await awaitScanTask(pending.value) {
+            case .taskFinished:
+                settled[pending.key] = pending.value
+            case .registrationChanged:
+                // 有源被取消了。被取消的那个已经从 activeTasks 摘掉、代次也
+                // 推进过了 (检查点在 cancelScan 里同步落盘), 等它把在飞的网络
+                // 请求走完没有意义; 还挂在册上的那个则重新挂回去接着等。
+                guard activeTasks[pending.key] != pending.value else { continue }
+                settled[pending.key] = pending.value
+            }
         }
+    }
+
+    /// Wait for one scan task, but let a cancellation of that task — or of the
+    /// caller — end the wait instead of standing guard until an in-flight
+    /// WebDAV/Synology request unwinds. Swift cancellation is cooperative and
+    /// `Task<Void, Never>.value` ignores the awaiting task's cancellation, so
+    /// the completion stays the primary signal and `cancelScan` supplies the
+    /// second one.
+    private func awaitScanTask(_ task: Task<Void, Never>) async -> ScanWaitWake {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<ScanWaitWake, Never>) in
+                let latch = ScanWaitLatch(continuation)
+                scanWaitLatches.append(latch)
+                Task { @MainActor [weak self] in
+                    await task.value
+                    self?.scanWaitLatches.removeAll { $0 === latch }
+                    latch.resume(.taskFinished)
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.releaseScanWaits() }
+        }
+    }
+
+    /// Wake every parked `waitForActiveScansToComplete`; each one re-checks
+    /// whether the task it was waiting on is still the registered one.
+    private func releaseScanWaits() {
+        let latches = scanWaitLatches
+        scanWaitLatches.removeAll()
+        for latch in latches { latch.resume(.registrationChanged) }
     }
 
     func removeCheckpoint(for sourceID: String) {
@@ -1546,10 +1752,17 @@ final class ScanService {
                         lastSongs,
                         affectedSourceIDs: Set([source.id]),
                         notifyRemovals: false,
-                        pruneMissingSongs: false
+                        pruneMissingSongs: false,
+                        // 中间 flush 每 1.5 s 一次。派生集合与 Spotlight 脏位
+                        // 合并到短上限的延后维护里, 免得滚动时每次 flush 都
+                        // 在主线程上重发一遍整库可见集合; 最终提交仍然立即维护。
+                        indexMaintenance: .deferredIncremental
                     )
-                    let acceptedCount = library.songs.filter { $0.sourceID == source.id }.count
-                    sourceStore.updateLocal(source.id) { $0.songCount = acceptedCount }
+                    // 不用 `songs.filter {}.count`: 那会为了一个计数临时分配
+                    // 一整份匹配歌曲数组 (整库 retain 一遍)。
+                    let acceptedCount = library.songCountsBySourceID()[source.id] ?? 0
+                    rememberCoalescingSourceStore(sourceStore)
+                    sourceStore.updateLocalCoalesced(source.id) { $0.songCount = acceptedCount }
                     if update.resumeState == nil {
                         persistCheckpoint(
                             sourceID: source.id,
@@ -2200,10 +2413,17 @@ final class ScanService {
                         lastSongs,
                         affectedSourceIDs: Set([source.id]),
                         notifyRemovals: false,
-                        pruneMissingSongs: false
+                        pruneMissingSongs: false,
+                        // 中间 flush 每 1.5 s 一次。派生集合与 Spotlight 脏位
+                        // 合并到短上限的延后维护里, 免得滚动时每次 flush 都
+                        // 在主线程上重发一遍整库可见集合; 最终提交仍然立即维护。
+                        indexMaintenance: .deferredIncremental
                     )
-                    let acceptedCount = library.songs.filter { $0.sourceID == source.id }.count
-                    sourceStore.updateLocal(source.id) { $0.songCount = acceptedCount }
+                    // 不用 `songs.filter {}.count`: 那会为了一个计数临时分配
+                    // 一整份匹配歌曲数组 (整库 retain 一遍)。
+                    let acceptedCount = library.songCountsBySourceID()[source.id] ?? 0
+                    rememberCoalescingSourceStore(sourceStore)
+                    sourceStore.updateLocalCoalesced(source.id) { $0.songCount = acceptedCount }
                     if update.resumeState == nil, !requiresAtomicCatalogCommit {
                         persistCheckpoint(
                             sourceID: source.id,
@@ -2619,12 +2839,13 @@ final class ScanService {
                             affectedSourceIDs: Set([source.id]),
                             notifyRemovals: false,
                             pruneMissingSongs: false,
-                            mergeServerCatalogRows: true
+                            mergeServerCatalogRows: true,
+                            // 分页提交同样是中间结果, 终态快照才做对账。
+                            indexMaintenance: .deferredIncremental
                         )
-                        let acceptedCount = library.songs.lazy.filter {
-                            $0.sourceID == source.id
-                        }.count
-                        sourceStore.updateLocal(source.id) { $0.songCount = acceptedCount }
+                        let acceptedCount = library.songCountsBySourceID()[source.id] ?? 0
+                        rememberCoalescingSourceStore(sourceStore)
+                        sourceStore.updateLocalCoalesced(source.id) { $0.songCount = acceptedCount }
                     }
                     publishScanProgress(
                         sourceID: source.id,
@@ -3013,7 +3234,10 @@ final class ScanService {
                 directories: directories, syncState: candidateState,
                 library: library, sourceStore: sourceStore
             )
-            let acceptedCount = library.songs.filter { $0.sourceID == source.id }.count
+            // 最终提交: 用精确计数, 不吃缓存聚合的"总数相等就复用"启发式 ──
+            // 并发扫描下另一个源的中间 flush 可能刚好补平总数, 源卡片就会一直
+            // 停在提交前的数字。
+            let acceptedCount = library.exactSongCount(forSourceID: source.id)
             sourceStore.updateLocal(source.id) {
                 $0.songCount = acceptedCount
                 $0.lastScannedAt = Date()
@@ -3279,7 +3503,9 @@ final class ScanService {
         // Use the post-tombstone count from the library, not the raw scan
         // count — otherwise a deleted-then-rescanned song shows as still
         // present in the source card while the library actually filters it.
-        let acceptedCount = library.songs.filter { $0.sourceID == sourceID }.count
+        // 最终提交要精确值: 缓存聚合只在"总数相等"时才被认为是新的, 并发扫描
+        // 下这个条件可能被另一个源的中间 flush 偶然满足。
+        let acceptedCount = library.exactSongCount(forSourceID: sourceID)
         sourceStore.updateLocal(sourceID) {
             $0.songCount = acceptedCount
             $0.lastScannedAt = Date()
@@ -3766,6 +3992,22 @@ final class ScanService {
 
     private func normalizedDirectories(_ directories: [String]) -> [String] {
         SynologyScanner.deduplicateDirectories(directories).sorted()
+    }
+
+    /// 续扫播种时 checkpoint 行与资料库行的取舍。checkpoint 行是这次扫描刚
+    /// 走到的真相, 所以只要定位用的三个字段 (相对路径、文件大小、provider
+    /// revision) 有一个对不上, 就立刻用 checkpoint 行纠正资料库, 而不是等
+    /// 首次增量 flush —— 首次 flush 之前失败的续扫会把旧值一直留着,
+    /// MetadataBackfill 的 isStillReadable / backfillResultForApply 正是拿这
+    /// 三个字段判断结果还属不属于同一个文件。其余字段相同的行一律跳过,
+    /// 续扫仍然不会做 O(资料库) 的全量回灌。
+    nonisolated static func resumeSeedNeedsUpdate(
+        checkpointRow: Song,
+        libraryRow: Song
+    ) -> Bool {
+        checkpointRow.filePath != libraryRow.filePath
+            || checkpointRow.fileSize != libraryRow.fileSize
+            || checkpointRow.revision != libraryRow.revision
     }
 
     nonisolated static func scopeFingerprint(

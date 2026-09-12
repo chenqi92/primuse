@@ -327,22 +327,78 @@ extension CarPlaySceneDelegate: CPTemplateApplicationSceneDelegate {
             interfaceController.delegate = self
             CarPlayFolderLibrary.shared.acquire(self.folderLibraryOwner)
             CarPlayEditorCatalog.shared.acquire(self.folderLibraryOwner)
-            let root = self.makeRootTabBar()
-            carplayLog.notice("📱 root tab bar built, setting as root template")
-            interfaceController.setRootTemplate(root, animated: false) { [weak self] success, _ in
-                Task { @MainActor in
-                    guard let self, success, self.connectionGeneration == generation,
-                          self.layout.opensNowPlayingOnConnect else { return }
-                    self.showExistingNowPlaying()
+            let library = AppServices.shared.musicLibrary
+            guard library.isReady else {
+                // Stage 2: 冷启动时资料库还在主线程之外装载。先装一个只读的
+                // "正在准备"根模板 —— 每一个真正的标签页都要读库, 这时候建
+                // 出来的只会是空列表。Now Playing 模板照常配置, 从 CarPlay
+                // 直接恢复播放的路径不受影响。
+                carplayLog.notice("📱 library still preparing — installing the loading root template")
+                interfaceController.setRootTemplate(
+                    Self.makeLibraryPreparingTemplate(),
+                    animated: false
+                ) { _, _ in }
+                self.configureNowPlayingTemplate()
+                library.onReady { [weak self] in
+                    // 与其它观察者同样的世代守卫: 期间断开 / 重连过就不再改
+                    // 这一代的模板。
+                    guard let self, self.interfaceController != nil,
+                          self.connectionGeneration == generation else { return }
+                    self.installRootTabBar(on: interfaceController, generation: generation)
+                    // Stage 2b: 观察者到这一刻才注册, 而 `withObservationTracking`
+                    // 只会在"下一次"变更时触发。占位根模板挂着的这段时间里, 用户
+                    // 完全可能在手机上切了 shuffle / repeat / 喜欢, 或者改了 CarPlay
+                    // 布局。根模板本身刚由 `installRootTabBar` 按最新布局重建, 这里
+                    // 补一次 Now Playing 按钮的刷新, 再装观察者。
+                    self.refreshNowPlayingButtons()
+                    self.installConnectionObservers(generation: generation)
                 }
+                return
             }
+            self.installRootTabBar(on: interfaceController, generation: generation)
             self.configureNowPlayingTemplate()
-            self.observeLibraryChanges(generation: generation)
-            self.observePlayerState(generation: generation)
-            self.observeLikeChanges()
-            self.observeLayoutChanges(generation: generation)
-            carplayLog.notice("📱 CarPlay scene fully initialized ✅")
+            self.installConnectionObservers(generation: generation)
         }
+    }
+
+    /// 真正的根模板: 与历史版本逐行一致, 只是被抽出来供"准备完成"路径复用。
+    @MainActor
+    private func installRootTabBar(
+        on interfaceController: CPInterfaceController,
+        generation: Int
+    ) {
+        let root = makeRootTabBar()
+        carplayLog.notice("📱 root tab bar built, setting as root template")
+        interfaceController.setRootTemplate(root, animated: false) { [weak self] success, _ in
+            Task { @MainActor in
+                guard let self, success, self.connectionGeneration == generation,
+                      self.layout.opensNowPlayingOnConnect else { return }
+                self.showExistingNowPlaying()
+            }
+        }
+    }
+
+    /// 连接期的全部观察者注册。顺序与历史版本一致。
+    @MainActor
+    private func installConnectionObservers(generation: Int) {
+        observeLibraryChanges(generation: generation)
+        observePlayerState(generation: generation)
+        observeLikeChanges()
+        observeLayoutChanges(generation: generation)
+        carplayLog.notice("📱 CarPlay scene fully initialized ✅")
+    }
+
+    /// 装载期的占位根模板: 一行不可选中的"正在准备资料库"。标题沿用既有的
+    /// `library` 本地化键, 行文案是 Stage 2 新增的 `library_preparing`。
+    @MainActor
+    private static func makeLibraryPreparingTemplate() -> CPListTemplate {
+        let item = CPListItem(text: String(localized: "library_preparing"), detailText: nil)
+        item.isEnabled = false
+        let template = CPListTemplate(
+            title: String(localized: "library"),
+            sections: [CPListSection(items: [item])]
+        )
+        return template
     }
 
     nonisolated func templateApplicationScene(

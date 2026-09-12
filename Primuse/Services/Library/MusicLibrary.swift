@@ -140,6 +140,38 @@ private enum LibraryArrayReclaimer {
             withExtendedLifetime(reference) {}
         }
     }
+
+    /// Same contract for a holder that owns several displaced containers at
+    /// once (the derived-index lookups). `approximateElementCount` keeps the
+    /// 512-element threshold: small libraries stay synchronous and therefore
+    /// deterministic.
+    static func release<Holder: AnyObject & Sendable>(
+        holder: Holder,
+        approximateElementCount: Int
+    ) {
+        guard approximateElementCount >= asynchronousReleaseThreshold else { return }
+        queue.async {
+            withExtendedLifetime(holder) {}
+        }
+    }
+}
+
+/// Ownership handle for the lookup dictionaries one derived-index apply
+/// displaces. Retaining them here before the new ones are stored turns the
+/// dozen assignments into plain pointer writes: the recursive teardown of the
+/// previous 10K-entry dictionaries (tens of thousands of String/Song releases)
+/// then happens on the reclaimer's utility queue instead of the main actor,
+/// which is where it used to show up as a scroll hitch.
+///
+/// Every displaced container is a dictionary of Sendable values, so the holder
+/// is checked-`Sendable`: immutable storage of `any Sendable`, never exposed
+/// again, which is all the deferred release needs.
+private final class DisplacedLibraryLookups: Sendable {
+    private let retained: [any Sendable]
+
+    init(_ retained: [any Sendable]) {
+        self.retained = retained
+    }
 }
 
 enum LibrarySearchMatchKind: Sendable {
@@ -628,33 +660,49 @@ actor LibrarySearchIndex {
     /// generation closes the crash window between a song mutation and the next
     /// background index pass, while still letting a clean index skip all 14K
     /// metadata/lyrics fingerprint reads on later launches.
+    ///
+    /// `defaults` 是可注入的偏好存储 (与 AppReviewPromptCoordinator /
+    /// CarPlaySettingsStore / AudioEngine 同一写法); 不传时就是 `.standard`,
+    /// 生产行为不变。
     @discardableResult
-    nonisolated static func persistLibraryChangePending() -> Int {
-        let defaults = UserDefaults.standard
+    nonisolated static func persistLibraryChangePending(
+        defaults: UserDefaults = .standard
+    ) -> Int {
         let current = defaults.integer(forKey: preparationGenerationKey)
-        let generation = current == .max ? 1 : current + 1
+        let generation = LibraryIndexMaintenancePolicy.nextPreparationGeneration(current: current)
         defaults.set(generation, forKey: preparationGenerationKey)
         defaults.set(true, forKey: preparationPendingKey)
         return generation
     }
 
-    private nonisolated static var isPreparationPending: Bool {
-        let defaults = UserDefaults.standard
-        return (defaults.object(forKey: preparationPendingKey) as? Bool ?? true)
+    private nonisolated static func isPreparationPending(
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        (defaults.object(forKey: preparationPendingKey) as? Bool ?? true)
             || defaults.integer(forKey: completedPreparationGenerationKey)
                 != defaults.integer(forKey: preparationGenerationKey)
     }
 
     nonisolated static var hasPendingPreparation: Bool {
-        isPreparationPending
+        isPreparationPending()
     }
 
-    nonisolated static var pendingPreparationGeneration: Int {
-        UserDefaults.standard.integer(forKey: preparationGenerationKey)
+    nonisolated static func hasPendingPreparation(
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        isPreparationPending(defaults: defaults)
     }
 
-    private nonisolated static func markPreparationCompleted(generation: Int) {
-        let defaults = UserDefaults.standard
+    nonisolated static func pendingPreparationGeneration(
+        defaults: UserDefaults = .standard
+    ) -> Int {
+        defaults.integer(forKey: preparationGenerationKey)
+    }
+
+    private nonisolated static func markPreparationCompleted(
+        generation: Int,
+        defaults: UserDefaults = .standard
+    ) {
         defaults.set(generation, forKey: completedPreparationGenerationKey)
         if generation == defaults.integer(forKey: preparationGenerationKey) {
             defaults.set(false, forKey: preparationPendingKey)
@@ -663,9 +711,9 @@ actor LibrarySearchIndex {
 
     private nonisolated static func markIncrementalPreparationCompleted(
         firstGeneration: Int,
-        lastGeneration: Int
+        lastGeneration: Int,
+        defaults: UserDefaults = .standard
     ) {
-        let defaults = UserDefaults.standard
         let completed = defaults.integer(forKey: completedPreparationGenerationKey)
         // Never mark a crash-recovery gap clean merely because a later delta
         // succeeded. A launch-time full pass remains responsible for the gap.
@@ -673,7 +721,7 @@ actor LibrarySearchIndex {
             completedGeneration: completed,
             firstPendingGeneration: firstGeneration
         ) else { return }
-        markPreparationCompleted(generation: lastGeneration)
+        markPreparationCompleted(generation: lastGeneration, defaults: defaults)
     }
 
     private init(fileManager: FileManager = .default) {
@@ -839,7 +887,7 @@ actor LibrarySearchIndex {
     /// for first launch, schema migration, or crash recovery. Routine library
     /// mutations enter through `applyChanges` and touch only changed rows.
     func prepare(songs: [Song], generation: Int) async {
-        guard dbPool != nil, !Task.isCancelled, Self.isPreparationPending else { return }
+        guard dbPool != nil, !Task.isCancelled, Self.isPreparationPending() else { return }
         pendingFullPreparation = PendingFullPreparation(
             songs: songs,
             generation: generation
@@ -1199,7 +1247,7 @@ actor LibrarySearchIndex {
                 if albumResults.count == albumLimit { break }
             }
 
-            let lyricsComplete = !Self.isPreparationPending
+            let lyricsComplete = !Self.isPreparationPending()
             return LibraryIndexedSearchOutput(
                 output: LibrarySearchOutput(
                     songResults: songResults,
@@ -2681,9 +2729,14 @@ enum MusicDiscoveryEngine {
 }
 
 /// Global in-memory music library shared across the app
-enum LibraryMaintenanceDisposition: Sendable {
+enum LibraryMaintenanceDisposition: Sendable, Equatable {
     case immediate
+    /// Long cap (`maximumDeferredMaintenanceInterval`): hours-long backfills.
     case deferred
+    /// Short cap (`incrementalScanMaintenanceInterval`): a scan's intermediate
+    /// flushes. They still coalesce, but the visible catalogue can never lag
+    /// the scan by more than a few seconds.
+    case deferredIncremental
 }
 
 enum LibraryReviewKind: String, Codable, CaseIterable, Sendable {
@@ -2912,7 +2965,21 @@ final class MusicLibrary {
     /// for OAuth mounts, falling back to the sourceID itself for
     /// local/NAS sources where there's no account concept.
     /// Set by `AppServices` at startup; nil-safe for tests.
-    var sourceIdentityResolver: ((_ sourceID: String) -> String?)?
+    var sourceIdentityResolver: ((_ sourceID: String) -> String?)? {
+        didSet {
+            // 换了 resolver, 之前解析不出来的云账号身份可能就能解析出来了。
+            artworkSongIDResolutions.removeAll(keepingCapacity: true)
+        }
+    }
+
+    /// 封面覆盖解析的记忆化结果, 按 owner 存一条。解析 `.selectedSong` 覆盖时
+    /// 的慢路径 (跨设备挂载导致 songID 不同, 且模糊匹配也落空) 要整库扫一遍,
+    /// 而它的答案在 `songs` 不变之前不可能改变 —— 卡片 body 却会随
+    /// `songReplacementToken` 在整轮回填里反复求值。失败结果同样缓存, 慢的
+    /// 正是失败那一支。
+    @ObservationIgnored
+    private var artworkSongIDResolutions:
+        [String: (generation: UInt64, identity: SongIdentity, songID: String?)] = [:]
 
     /// AppServices wires supported server-favorite persistence here. Local
     /// liked state is updated synchronously for responsive UI; the handler
@@ -2923,8 +2990,11 @@ final class MusicLibrary {
     private(set) var serverFavoriteErrorMessage: String?
 
     private func identityKey(for song: Song) -> String {
-        let prefix = sourceIdentityResolver?(song.sourceID) ?? song.sourceID
-        return "\(prefix):\(song.filePath)"
+        LibrarySongAdmissionPolicy.identityKey(
+            prefix: sourceIdentityResolver?(song.sourceID),
+            sourceID: song.sourceID,
+            filePath: song.filePath
+        )
     }
 
     /// A song is kept out of the library when the user tombstoned it globally
@@ -2933,6 +3003,22 @@ final class MusicLibrary {
     private func isBlockedFromLibrary(_ song: Song) -> Bool {
         deletedSongIdentities.contains(identityKey(for: song))
             || isExcludedOnThisDevice(song)
+    }
+
+    /// 批量准入。`prefixes` 在一批的开头按源解析一次, 于是一首歌只构造一次
+    /// 身份键, 也不再为每一行在源表里线性找一遍账号 ID。判定与
+    /// `isBlockedFromLibrary(_:)` 完全一致。
+    private func isBlockedFromLibrary(
+        _ song: Song,
+        prefixes: [String: String]
+    ) -> Bool {
+        LibrarySongAdmissionPolicy.isBlocked(
+            sourceID: song.sourceID,
+            filePath: song.filePath,
+            prefixes: prefixes,
+            tombstones: deletedSongIdentities,
+            deviceExclusions: deviceLocalExcludedSongIdentities
+        )
     }
 
     /// Exposed for callers (and tests) that need to know whether a row was
@@ -3032,6 +3118,24 @@ final class MusicLibrary {
     /// artwork can still show representative embedded or album artwork.
     @ObservationIgnored private var preferredArtworkSongIDByArtistID: [String: String] = [:]
 
+    /// 一首歌的旁挂资源补丁。`nil` = 不改这一项; MV 的"清空"是有意义的写入,
+    /// 所以额外用 `updatesMusicVideo` 区分"不改"与"改成 nil"。
+    private struct PendingAssetReferencePatch {
+        var coverRef: String? = nil
+        var lyricsRef: String? = nil
+        var musicVideoPath: String? = nil
+        var updatesMusicVideo: Bool = false
+
+        mutating func merge(_ other: PendingAssetReferencePatch) {
+            if let coverRef = other.coverRef { self.coverRef = coverRef }
+            if let lyricsRef = other.lyricsRef { self.lyricsRef = lyricsRef }
+            if other.updatesMusicVideo {
+                musicVideoPath = other.musicVideoPath
+                updatesMusicVideo = true
+            }
+        }
+    }
+
     fileprivate struct PreparedVisibleCache: Sendable {
         let songs: [Song]
         let albums: [Album]
@@ -3098,9 +3202,31 @@ final class MusicLibrary {
     private(set) var readiness: LibraryReadiness = .preparing
     var isReady: Bool { readiness == .ready }
     @ObservationIgnored private var readinessContinuations: [CheckedContinuation<Void, Never>] = []
+    /// `whenReady(timeout:)` 的等待者。按 id 登记, 这样超时的一方能只摘掉
+    /// 自己那一条, 不影响其它等待者。
+    @ObservationIgnored private var boundedReadinessContinuations: [UUID: CheckedContinuation<Void, Never>] = [:]
     @ObservationIgnored private var readinessHandlers: [@MainActor () -> Void] = []
     /// S2: `.preparing` 期间进入的顶层突变按 FIFO 排队, 发布后原样重放。
+    ///
+    /// 规则: **每一个会改写可观察 / 持久化状态的顶层入口都必须排队**。发布时
+    /// `loadSnapshot` 用准备结果整体覆盖 songs / 歌单成员 / 智能歌单 / 播放历史 /
+    /// 评分评论 / 封面覆盖 / 镜像隐藏 / 同步墓碑 / 设备本地排除, 没排队的突变会被
+    /// 这次拷回悄悄抹掉, 紧接着的补写再把丢失固化到磁盘上。例外只有三类:
+    ///
+    /// 1. **配置 setter 在发布时对账, 不排队**: `updateDisabledSourceIDs` /
+    ///    `updateArtistNameConfiguration` 是可见缓存与派生索引的计算依据, 准备结果
+    ///    正是用存储里的值算出来的。准备期间只记录最新值, 拷回之后再用普通 setter
+    ///    重放差异, 于是重建可见缓存 / bump `spotlightIndexRevision` 的路径与
+    ///    "启动之后用户改设置"完全一致;
+    /// 2. `publish(_:)` 与 `reloadFromDisk()` 本身就是装载入口, 不能排进自己的队列;
+    /// 3. 不在拷回范围内的瞬时信号立即生效, 不会丢: `presentServerFavoriteError` /
+    ///    `dismissServerFavoriteError` / `sourceSyncDidComplete` /
+    ///    `updateAppleMusicLibrarySyncEnabled` / `suspendPendingIdentityResolution` /
+    ///    `resumePendingIdentityResolution` / 场景切换静默与派生维护调度。
     @ObservationIgnored private var deferredMutations: [@MainActor () -> Void] = []
+    /// S2 例外 1: `.preparing` 期间记录下来的配置最新值, 发布后对账用。
+    @ObservationIgnored private var preparingDisabledSourceIDs: Set<String>?
+    @ObservationIgnored private var preparingArtistNameConfiguration: ArtistNameConfiguration?
     /// S1: `.preparing` 期间被拦截的持久化请求, 发布后各补一次。
     @ObservationIgnored private var deferredPortableSnapshotPersistRequested = false
     @ObservationIgnored private var deferredStartupCacheWriteRequested = false
@@ -3118,6 +3244,66 @@ final class MusicLibrary {
                 readinessContinuations.append(continuation)
             }
         }
+    }
+
+    /// 有界等待: 就绪与超时哪个先到都立刻返回, 输的一方当场清掉 ——
+    /// 就绪先到时取消还在睡的计时任务, 超时先到时把自己这条续体从登记表里
+    /// 摘走(不连累其它等待者)。返回值就是返回时刻的 `isReady`。
+    ///
+    /// SiriKit 只给约 10 秒预算, 所以调用方用它代替无界的 `whenReady()`:
+    /// 超时后按今天的代码路径继续, 空库自然落到既有的"没找到"应答。
+    func whenReady(timeout: Duration) async -> Bool {
+        guard readiness != .ready else { return true }
+        let id = UUID()
+        let timer = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: timeout)
+            guard !Task.isCancelled else { return }
+            self?.resumeBoundedReadinessWaiter(id: id)
+        }
+        // 取消是第三个"先到者": 调用方的任务(Siri 的 Task、视图的 .task)被
+        // 拆掉时必须当场摘掉自己这条续体并停掉计时任务, 否则被取消的调用方
+        // 还要白等满整个 timeout。两个方向都要覆盖 —— 登记之后才取消走
+        // `onCancel`, 登记之前就已取消则由闭包里的 `Task.isCancelled` 兜住。
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                if readiness == .ready || Task.isCancelled {
+                    continuation.resume()
+                } else {
+                    boundedReadinessContinuations[id] = continuation
+                }
+            }
+        } onCancel: {
+            // 弱引用在这条主 actor 跳转里现取: 取消处理器本身不隔离, 若由它
+            // 捕获再交给主 actor 闭包, 就是把任务隔离的库送进另一个隔离域。
+            Task { @MainActor [weak self] in
+                self?.resumeBoundedReadinessWaiter(id: id)
+            }
+        }
+        timer.cancel()
+        return isReady
+    }
+
+    /// 超时侧的唤醒。已经被发布唤醒过就什么都不做(续体只能 resume 一次)。
+    private func resumeBoundedReadinessWaiter(id: UUID) {
+        guard let continuation = boundedReadinessContinuations.removeValue(forKey: id) else { return }
+        continuation.resume()
+    }
+
+    /// 库在等待者还挂着的时候被释放(测试里只 `makePreparing` 不 `publish`,
+    /// 或者一次被丢弃的准备): 续体不能就这么丢掉 —— `CheckedContinuation`
+    /// 会报 misuse, 调用方则永远挂在那里。`deinit` 对 `self` 是独占访问,
+    /// 这里只搬走两张续体表并逐个唤醒; `onReady` 回调不必再跑, 它们要看的
+    /// 库已经没了。
+    deinit {
+        let unbounded = readinessContinuations
+        readinessContinuations = []
+        let bounded = boundedReadinessContinuations
+        boundedReadinessContinuations = [:]
+        let snapshotWriteWaiters = externalSnapshotWriteWaiters
+        externalSnapshotWriteWaiters = []
+        for continuation in unbounded { continuation.resume() }
+        for continuation in bounded.values { continuation.resume() }
+        for continuation in snapshotWriteWaiters { continuation.resume() }
     }
 
     /// 已就绪时立即执行; 否则按注册顺序在发布后执行一次。
@@ -3161,6 +3347,21 @@ final class MusicLibrary {
         }
     }
 
+    /// 发布步骤第 2.5 步: 配置对账 (S2 例外 1)。准备期间记录的最新配置在这里
+    /// 通过普通 setter 重放一次差异 —— 拷回已经把存储里的值装进来了, 所以
+    /// 这一步要么什么都不做, 要么走出与"启动后改设置"完全相同的重建路径。
+    /// 必须排在排队突变重放之前: 突变看到的应当是最终配置下的可见缓存。
+    private func reconcilePreparingConfiguration() {
+        if let ids = preparingDisabledSourceIDs {
+            preparingDisabledSourceIDs = nil
+            updateDisabledSourceIDs(ids)
+        }
+        if let configuration = preparingArtistNameConfiguration {
+            preparingArtistNameConfiguration = nil
+            updateArtistNameConfiguration(configuration)
+        }
+    }
+
     /// 发布步骤第 5/6 步: 先跑 `onReady` 回调, 再唤醒 `whenReady()` 等待者。
     /// 排在突变重放与补写之后, 观察者因此永远看到完整且已落盘的库。
     private func notifyReadinessObservers() {
@@ -3170,6 +3371,9 @@ final class MusicLibrary {
         let continuations = readinessContinuations
         readinessContinuations.removeAll(keepingCapacity: false)
         for continuation in continuations { continuation.resume() }
+        let bounded = boundedReadinessContinuations
+        boundedReadinessContinuations.removeAll(keepingCapacity: false)
+        for continuation in bounded.values { continuation.resume() }
     }
 
     /// 发布步骤第 4 步: 把 `.preparing` 期间被 S1 拦下的持久化各补一次。
@@ -3222,6 +3426,12 @@ final class MusicLibrary {
     }
 
     func updateDisabledSourceIDs(_ ids: Set<String>) {
+        // S2 例外 1: 配置不排队。准备结果的可见缓存是用存储里的禁用集合算的,
+        // 这里只记下最新值, 发布拷回之后再对账。
+        if isPreparing {
+            preparingDisabledSourceIDs = ids
+            return
+        }
         guard disabledSourceIDs != ids else { return }
         disabledSourceIDs = ids
         rebuildVisibleCache()
@@ -3256,6 +3466,50 @@ final class MusicLibrary {
     }
 
     private func applyPreparedVisibleCache(_ prepared: PreparedVisibleCache) {
+        let signpost = PrimuseSignposts.hitch.beginInterval("library.applyVisibleCache")
+        defer { PrimuseSignposts.hitch.endInterval("library.applyVisibleCache", signpost) }
+        // 先把上一代查找表整体 retain 到一个持有者里, 再做下面的赋值:
+        // 这样每次赋值只是指针写入, 上一代字典的递归释放交给
+        // LibraryArrayReclaimer 的 utility 队列, 不再同步压在主线程上。
+        // 释放门限要看这一组里最大的那本字典: 禁用源的歌只在 songIndexByID /
+        // songCountBySourceID 里, 可见库很小而全库很大的时候 (大半资料库在
+        // 禁用源里) 才不会被当成"小库"同步拆掉。
+        let displacedLookupCount = max(visibleSongByID.count, songIndexByID.count)
+        let displacedLookups = DisplacedLibraryLookups([
+            songIndexByID,
+            visibleSongIndexByID,
+            visibleSongByID,
+            visibleAlbumByID,
+            visibleArtistByID,
+            visibleSongIDsByArtistID,
+            visibleSongIDsByGenreID,
+            visibleAlbumIDsByGenreID,
+            visibleSongsBySourceID,
+            visiblePlayableSongsBySourceID,
+            visibleSongCountBySourceID,
+            songCountBySourceID,
+            preferredArtworkSongIDByAlbumID,
+            preferredArtworkSongIDByArtistID,
+        ])
+        // Album/artist artwork surfaces only care about the fallback song
+        // lookups. A regroup that leaves both untouched (the common case
+        // while a backfill only refreshes technical metadata) must not
+        // invalidate every mounted album card.
+        // 映射没变不代表封面没变: 回填给"已经是首选"的那一首写入内嵌封面时
+        // 歌曲 ID 不动, 只有它解析出来的 coverArtFileName 变了。漏掉这一次
+        // bump, 只盯这个 revision 的读者 (资料库快捷入口、CarPlay 编辑器预览)
+        // 会一直显示占位图。
+        let artworkLookupsChanged =
+            preferredArtworkSongIDByAlbumID != prepared.preferredArtworkSongIDByAlbumID
+                || preferredArtworkSongIDByArtistID != prepared.preferredArtworkSongIDByArtistID
+                || Self.preferredArtworkReferencesChanged(
+                    currentSongByID: visibleSongByID,
+                    preparedSongByID: prepared.songByID,
+                    preferredSongIDs: [
+                        prepared.preferredArtworkSongIDByAlbumID,
+                        prepared.preferredArtworkSongIDByArtistID,
+                    ]
+                )
         visibleSongs = prepared.songs
         visibleAlbums = prepared.albums
         visibleArtists = prepared.artists
@@ -3277,10 +3531,33 @@ final class MusicLibrary {
         songCountBySourceID = prepared.allCountBySourceID
         preferredArtworkSongIDByAlbumID = prepared.preferredArtworkSongIDByAlbumID
         preferredArtworkSongIDByArtistID = prepared.preferredArtworkSongIDByArtistID
-        albumArtworkLookupRevision &+= 1
+        if artworkLookupsChanged {
+            albumArtworkLookupRevision &+= 1
+        }
         if prepared.orderedIDsChanged {
             visibleSongCollectionRevision &+= 1
         }
+        LibraryArrayReclaimer.release(
+            holder: displacedLookups,
+            approximateElementCount: displacedLookupCount
+        )
+    }
+
+    /// O(专辑 + 歌手) 地比一遍"首选回退歌解析出来的封面引用"。映射本身不同时
+    /// 不会走到这里 —— 那一步已经判定要 bump 了。
+    private nonisolated static func preferredArtworkReferencesChanged(
+        currentSongByID: [String: Song],
+        preparedSongByID: [String: Song],
+        preferredSongIDs: [[String: String]]
+    ) -> Bool {
+        for lookup in preferredSongIDs {
+            for songID in lookup.values
+            where currentSongByID[songID]?.coverArtFileName
+                != preparedSongByID[songID]?.coverArtFileName {
+                return true
+            }
+        }
+        return false
     }
 
     private nonisolated static func prepareVisibleCache(
@@ -3495,9 +3772,15 @@ final class MusicLibrary {
     /// A later mutation therefore cannot be marked complete by an older full
     /// snapshot, even if the search actor is busy when this request is made.
     func prepareSearchIndexIfNeeded() async {
-        guard LibrarySearchIndex.hasPendingPreparation else { return }
+        // S3: 全量准备会把这份快照当成索引的全部内容, 并在结束时把 pending
+        // 标记置为已完成。`.preparing` 期间 songs 还是空的, 那一次就会永久地
+        // 把搜索索引标成"已经准备好的空索引"。标记留着, 下一次机会再跑。
+        guard isReady else { return }
+        guard LibrarySearchIndex.hasPendingPreparation(defaults: searchIndexDefaults) else { return }
         let snapshot = songs
-        let generation = LibrarySearchIndex.pendingPreparationGeneration
+        let generation = LibrarySearchIndex.pendingPreparationGeneration(
+            defaults: searchIndexDefaults
+        )
         let previous = searchIndexUpdateTask
         let pendingSongStoreWrite = songStoreWriteTask
         let task = Task.detached(priority: .utility) {
@@ -3518,11 +3801,23 @@ final class MusicLibrary {
         }
     }
 
+    /// 搜索索引准备代际的偏好存储。测试注入独立 suite, 生产是 `.standard`。
+    @ObservationIgnored private let searchIndexDefaults: UserDefaults
+    /// 歌词索引刷新的注入点。非 nil 时替代 `LibrarySearchIndex.shared`,
+    /// 让"代际分配与入链发生在同一个主线程轮次"这条不变量可以被确定性地断言。
+    @ObservationIgnored private let lyricsSearchIndexRefresh: (
+        @MainActor (_ songID: String, _ fallbackText: String?, _ generation: Int) -> Void
+    )?
+
     private func enqueueLyricsSearchIndexRefresh(
         songID: String,
         fallbackText: String?,
         generation: Int
     ) {
+        if let lyricsSearchIndexRefresh {
+            lyricsSearchIndexRefresh(songID, fallbackText, generation)
+            return
+        }
         let previous = searchIndexUpdateTask
         searchIndexUpdateTask = Task.detached(priority: .utility) {
             _ = await previous?.value
@@ -3548,9 +3843,18 @@ final class MusicLibrary {
         /// 同步路径的身份前缀输入(sourceID → cloudAccountID)。
         /// 传 nil 时沿用旧行为, 回落到 `sourceIdentityResolver`。
         sourceIdentityPrefixes: [String: String]? = nil,
+        /// 搜索索引准备代际所用的偏好存储。默认 `.standard` = 生产行为。
+        searchIndexDefaults: UserDefaults = .standard,
+        /// 歌词缓存到达后的索引刷新接缝。为 nil 时走
+        /// `LibrarySearchIndex.shared`, 即生产路径。
+        lyricsSearchIndexRefresh: (
+            @MainActor (_ songID: String, _ fallbackText: String?, _ generation: Int) -> Void
+        )? = nil,
         /// 以 `.preparing` 构造: 不读盘、不发布, 等待 `publish(_:)`。
         startsPreparing: Bool = false
     ) {
+        self.searchIndexDefaults = searchIndexDefaults
+        self.lyricsSearchIndexRefresh = lyricsSearchIndexRefresh
         self.deferredMaintenanceAllowed = deferredMaintenanceAllowed ?? {
             #if os(iOS)
             UIApplication.shared.applicationState == .active
@@ -3659,7 +3963,9 @@ final class MusicLibrary {
             // markIncrementalPreparationCompleted 的连续性检查永久失败, 增量
             // 索引再也无法结账, 每次启动 / 退到后台都要跑全库 prepare。
             MainActor.assumeIsolated {
-                let generation = LibrarySearchIndex.persistLibraryChangePending()
+                let generation = LibrarySearchIndex.persistLibraryChangePending(
+                    defaults: self.searchIndexDefaults
+                )
                 self.enqueueLyricsSearchIndexRefresh(
                     songID: songID,
                     fallbackText: fallbackText,
@@ -3675,11 +3981,24 @@ final class MusicLibrary {
     /// flush 时只用最新值, 中间快照丢弃。
     private var pendingLyricsText: [String: String] = [:]
     private var pendingLyricsFlushTask: Task<Void, Never>?
+    /// 一批资源引用补丁的最长等待时间。刮削逐首回调, 这个窗口把一轮刮削
+    /// 压成一次发布, 又短到用户看不出封面是"批量"刷新的。
+    private static let pendingAssetPatchFlushDelay: TimeInterval = 0.3
+    /// 等待应用的 (songID → 旁挂资源补丁)。同一首歌多次入队按字段合并,
+    /// 最后一次写入获胜。
+    private var pendingAssetPatches: [String: PendingAssetReferencePatch] = [:]
+    private var pendingAssetPatchFlushTask: Task<Void, Never>?
     private var searchIndexUpdateTask: Task<Void, Never>?
     private var lyricsSearchInvalidationTask: Task<Void, Never>?
     private var deferredLyricsSearchInvalidation = false
     private var isDeferringSceneTransitionPublications = false
     private var deferredPersistRequested = false
+    /// Apple TV 安装整库快照时, 事务会整份替换 `library-cache.json`。那次写入
+    /// 不走本类的写入链, 所以安装区间内本类自己的快照写入必须让路: 否则一笔
+    /// 在安装开始之前就出发的后台写入完全可以在事务落盘之后才写完, 把刚装好
+    /// 的整库覆盖回安装前的内容, 随后的重载再把这份旧内容当成导入结果。
+    @ObservationIgnored private var externalSnapshotWriteOwners = 0
+    @ObservationIgnored private var externalSnapshotWriteWaiters: [CheckedContinuation<Void, Never>] = []
 
     /// SwiftUI scene commits have a strict watchdog budget. Keep incoming
     /// lyrics-search updates buffered while iOS moves active → background;
@@ -3687,6 +4006,9 @@ final class MusicLibrary {
     /// arrays are not republished in that narrow window.
     func beginSceneTransitionQuiescence() {
         guard !isDeferringSceneTransitionPublications else { return }
+        // 攒着的资源补丁在这里落地, 这样紧接着的持久化屏障能带上它们 ——
+        // 逐首发布时它们本来就已经写进 songs 了。
+        flushPendingAssetReferencePatches()
         isDeferringSceneTransitionPublications = true
         pendingLyricsFlushTask?.cancel()
         pendingLyricsFlushTask = nil
@@ -3704,6 +4026,52 @@ final class MusicLibrary {
             persistNow()
         }
         plog("📚 Deferring library publications during scene transition")
+    }
+
+    /// 外部要整份替换快照文件时取得写入所有权。返回时: 已武装的防抖写入被
+    /// 收起(记账留到交还时补), 在途的整份写入与启动缓存写入都已经落完。
+    /// 之后本类的快照写入要么推迟、要么阻塞, 直到 `endExternalSnapshotWrite`。
+    func beginExternalSnapshotWrite() async {
+        externalSnapshotWriteOwners += 1
+        if externalSnapshotWriteOwners == 1 {
+            let armed = persistTask != nil || deferredPersistRequested
+            persistTask?.cancel()
+            persistTask = nil
+            persistDeadline = nil
+            deferredPersistRequested = armed
+        }
+        // 在途的写入是真正的危险:它早于栅栏出发, 却可能晚于事务落盘。
+        _ = await persistWriteTask?.value
+        _ = await startupCacheWriteTask?.value
+    }
+
+    /// 交还写入所有权: 放行被挡住的写入方, 并补上区间内攒下的那次防抖写入。
+    func endExternalSnapshotWrite() {
+        guard externalSnapshotWriteOwners > 0 else { return }
+        externalSnapshotWriteOwners -= 1
+        guard externalSnapshotWriteOwners == 0 else { return }
+        let waiters = externalSnapshotWriteWaiters
+        externalSnapshotWriteWaiters = []
+        for waiter in waiters { waiter.resume() }
+        if deferredPersistRequested {
+            deferredPersistRequested = false
+            persistSnapshot(marksMutation: false)
+        }
+    }
+
+    var isExternalSnapshotWriteOwned: Bool { externalSnapshotWriteOwners > 0 }
+
+    /// 正在等待栅栏交还的屏障写入方数量。回归测试用它作为真实的同步点,
+    /// 不必靠 sleep 去猜"被挡住的那个调用有没有跑到等待点"。
+    var blockedSnapshotWriterCount: Int { externalSnapshotWriteWaiters.count }
+
+    /// 屏障语义的写入方在这里排队等安装结束, 而不是被丢掉: 调用方要的是
+    /// "返回时已落盘", 空写成功会让它提交一个磁盘上并不存在的状态。
+    private func awaitExternalSnapshotWriteRelease() async {
+        guard externalSnapshotWriteOwners > 0 else { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            externalSnapshotWriteWaiters.append(continuation)
+        }
     }
 
     func endSceneTransitionQuiescence() {
@@ -3768,6 +4136,8 @@ final class MusicLibrary {
             pendingLyricsText.merge(lyricsTextBySongID) { _, latest in latest }
             return
         }
+        let signpost = PrimuseSignposts.hitch.beginInterval("library.lyricsTextBatch")
+        defer { PrimuseSignposts.hitch.endInterval("library.lyricsTextBatch", signpost) }
 
         var nextSongs = songs
         var nextVisibleSongs = visibleSongs
@@ -3802,68 +4172,173 @@ final class MusicLibrary {
     /// Update cached artwork / lyrics references without rebuilding album,
     /// artist, playlist, and history indexes. Scraped sidecar assets only
     /// change where UI loaders read media from; they don't affect grouping.
+    ///
+    /// 刮削一轮会对几十首歌各调一次这里。逐首发布等于每首都把 `songs` 与
+    /// `visibleSongs` 整份拷贝一遍并触发一次全局发布, 所以补丁先攒进
+    /// `pendingAssetPatches`, 最多 `pendingAssetPatchFlushDelay` 秒后一次性
+    /// 应用: 一批只拷一次、发布一次、落盘一次。需要立刻看到结果的调用方
+    /// (整行替换与持久化屏障) 会先同步 flush。
     func updateAssetReferences(songID: String, coverRef: String? = nil, lyricsRef: String? = nil) {
         if deferringUntilReady({ [weak self] in
             self?.updateAssetReferences(songID: songID, coverRef: coverRef, lyricsRef: lyricsRef)
         }) { return }
-        guard let index = songIndexByID[songID] else { return }
-        var updatedSong = songs[index]
-        let oldCoverRef = updatedSong.coverArtFileName
-        var changed = false
-
-        if coverRef != nil, updatedSong.coverArtFileName != coverRef {
-            updatedSong.coverArtFileName = coverRef
-            changed = true
-        }
-        if lyricsRef != nil, updatedSong.lyricsFileName != lyricsRef {
-            updatedSong.lyricsFileName = lyricsRef
-            changed = true
-        }
-        guard changed else { return }
-
-        var nextSongs = songs
-        nextSongs[index] = updatedSong
-        songs = nextSongs
-        if let visibleIndex = visibleSongIndexByID[songID] {
-            var nextVisibleSongs = visibleSongs
-            nextVisibleSongs[visibleIndex] = updatedSong
-            visibleSongs = nextVisibleSongs
-        }
-        visibleSongByID[songID] = updatedSong
-        patchSourceAssetReferences(songIDs: [songID])
-        promotePreferredArtworkSongIfNeeded(updatedSong)
-        lastReplacedSong = updatedSong
-        lastReplacedSongIDs = [songID]
-        songReplacementToken = UUID()
-        if oldCoverRef != updatedSong.coverArtFileName {
-            postArtworkInvalidation(songID: songID, oldRef: oldCoverRef, newRef: updatedSong.coverArtFileName)
-        }
-        persistSongChanges(upserts: [updatedSong])
+        guard coverRef != nil || lyricsRef != nil else { return }
+        enqueueAssetReferencePatch(
+            songID: songID,
+            patch: PendingAssetReferencePatch(coverRef: coverRef, lyricsRef: lyricsRef)
+        )
     }
 
     /// Update the optional MV reference without rebuilding album, artist,
     /// playlist, and history indexes. `nil` is meaningful here: it clears a
     /// stale video sidecar discovered during playback or scanning.
     func updateMusicVideoReference(songID: String, mvPath: String?) {
-        guard let index = songIndexByID[songID],
-              songs[index].mvPath != mvPath else { return }
+        // S2: 与 updateAssetReferences / updateLyricsText 同批排队, 否则这条
+        // 编辑会因为空库查不到行而被直接丢掉。
+        if deferringUntilReady({ [weak self] in
+            self?.updateMusicVideoReference(songID: songID, mvPath: mvPath)
+        }) { return }
+        // 与封面/歌词引用共用同一个批次: 两者改的都是同一行的旁挂资源指针,
+        // 合批后刮削期间的 MV 清理不会再多拷一遍整库数组。
+        enqueueAssetReferencePatch(
+            songID: songID,
+            patch: PendingAssetReferencePatch(musicVideoPath: mvPath, updatesMusicVideo: true)
+        )
+    }
 
-        var updatedSong = songs[index]
-        updatedSong.mvPath = mvPath
+    private func enqueueAssetReferencePatch(
+        songID: String,
+        patch: PendingAssetReferencePatch
+    ) {
+        pendingAssetPatches[songID, default: PendingAssetReferencePatch()].merge(patch)
+        // 故意不做"每次调用都重排": 刮削的间隔可能短于窗口, 重排会让这批
+        // 补丁一直等不到落地。第一条补丁定下截止时间, 窗口内的其余补丁搭车。
+        guard pendingAssetPatchFlushTask == nil else { return }
+        pendingAssetPatchFlushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.pendingAssetPatchFlushDelay))
+            guard !Task.isCancelled else { return }
+            self?.flushPendingAssetReferencePatches()
+        }
+    }
+
+    /// 立刻应用攒下的资源引用补丁。整行替换 (`replaceSong(s)`)、场景切换静默
+    /// 与持久化屏障都要先走这里, 这样"先补丁后整行替换"的顺序与逐首发布时
+    /// 完全一致, 落盘也不会漏掉窗口内的补丁。
+    func flushPendingAssetReferencePatches() {
+        pendingAssetPatchFlushTask?.cancel()
+        pendingAssetPatchFlushTask = nil
+        guard !pendingAssetPatches.isEmpty else { return }
+        let pending = pendingAssetPatches
+        pendingAssetPatches.removeAll(keepingCapacity: true)
+        applyAssetReferencePatches(pending)
+    }
+
+    /// 整行替换的输入通常读自补丁入队之前的 `songs` 快照: 只 flush 会让补丁
+    /// 先落地, 再被这一行的旧封面 / 旧歌词指针整行盖回去 (丢更新)。所以先把
+    /// 受影响歌曲的待落地补丁取出来, flush 之后再把补丁写过的字段叠回整行 ——
+    /// 补丁总是比调用方手里的那次读取更新, 与两者的调用先后无关。
+    private func flushPendingAssetReferencePatches(overlaying incoming: [Song]) -> [Song] {
+        var overlays: [String: PendingAssetReferencePatch] = [:]
+        if !pendingAssetPatches.isEmpty {
+            for song in incoming {
+                guard let patch = pendingAssetPatches[song.id] else { continue }
+                overlays[song.id] = patch
+            }
+        }
+        flushPendingAssetReferencePatches()
+        guard !overlays.isEmpty else { return incoming }
+        return incoming.map { song in
+            guard let patch = overlays[song.id] else { return song }
+            var merged = song
+            if let coverRef = patch.coverRef { merged.coverArtFileName = coverRef }
+            if let lyricsRef = patch.lyricsRef { merged.lyricsFileName = lyricsRef }
+            // MV 的"清空"是有意义的写入, 只有带 updatesMusicVideo 的补丁才叠。
+            if patch.updatesMusicVideo { merged.mvPath = patch.musicVideoPath }
+            return merged
+        }
+    }
+
+    private func applyAssetReferencePatches(_ patches: [String: PendingAssetReferencePatch]) {
+        let signpost = PrimuseSignposts.hitch.beginInterval("library.assetPatchBatch")
+        defer { PrimuseSignposts.hitch.endInterval("library.assetPatchBatch", signpost) }
         var nextSongs = songs
-        nextSongs[index] = updatedSong
+        var nextVisibleSongs = visibleSongs
+        var visibleChanged = false
+        var appliedIDs: [String] = []
+        var updatedSongs: [Song] = []
+        var promotableSongs: [Song] = []
+        var artworkChanges: [(songID: String, oldRef: String?, newRef: String?)] = []
+        appliedIDs.reserveCapacity(patches.count)
+        updatedSongs.reserveCapacity(patches.count)
+        for (songID, patch) in patches {
+            guard let index = songIndexByID[songID] else { continue }
+            var updatedSong = nextSongs[index]
+            let oldCoverRef = updatedSong.coverArtFileName
+            // 封面 / 歌词引用的改动才参与封面回退提升 —— 逐首发布时
+            // `updateMusicVideoReference` 从不调用 promote。
+            var assetReferenceChanged = false
+            if let coverRef = patch.coverRef, updatedSong.coverArtFileName != coverRef {
+                updatedSong.coverArtFileName = coverRef
+                assetReferenceChanged = true
+            }
+            if let lyricsRef = patch.lyricsRef, updatedSong.lyricsFileName != lyricsRef {
+                updatedSong.lyricsFileName = lyricsRef
+                assetReferenceChanged = true
+            }
+            var changed = assetReferenceChanged
+            if patch.updatesMusicVideo, updatedSong.mvPath != patch.musicVideoPath {
+                updatedSong.mvPath = patch.musicVideoPath
+                changed = true
+            }
+            guard changed else { continue }
+            nextSongs[index] = updatedSong
+            if let visibleIndex = visibleSongIndexByID[songID] {
+                nextVisibleSongs[visibleIndex] = updatedSong
+                visibleChanged = true
+            }
+            appliedIDs.append(songID)
+            updatedSongs.append(updatedSong)
+            if assetReferenceChanged {
+                promotableSongs.append(updatedSong)
+            }
+            if oldCoverRef != updatedSong.coverArtFileName {
+                artworkChanges.append(
+                    (songID: songID, oldRef: oldCoverRef, newRef: updatedSong.coverArtFileName)
+                )
+            }
+        }
+        guard !appliedIDs.isEmpty else { return }
+
         songs = nextSongs
-        if let visibleIndex = visibleSongIndexByID[songID] {
-            var nextVisibleSongs = visibleSongs
-            nextVisibleSongs[visibleIndex] = updatedSong
+        if visibleChanged {
             visibleSongs = nextVisibleSongs
         }
-        visibleSongByID[songID] = updatedSong
-        patchSourceAssetReferences(songIDs: [songID])
-        lastReplacedSong = updatedSong
-        lastReplacedSongIDs = [songID]
+        for song in updatedSongs {
+            visibleSongByID[song.id] = song
+        }
+        patchSourceAssetReferences(songIDs: appliedIDs)
+        let artworkRevisionBeforePromotion = albumArtworkLookupRevision
+        for song in promotableSongs {
+            promotePreferredArtworkSongIfNeeded(song)
+        }
+        // 提升只在"优先级变好"时 bump。首选那一首把封面从一个引用换成另一个
+        // (sidecar 落盘后回写路径) 时优先级不变, 仍然要让卡片失效。
+        if albumArtworkLookupRevision == artworkRevisionBeforePromotion {
+            bumpArtworkLookupRevisionIfPreferred(songIDs: artworkChanges.map(\.songID))
+        }
+        lastReplacedSong = updatedSongs.count == 1 ? updatedSongs.first : nil
+        lastReplacedSongIDs = Set(appliedIDs)
         songReplacementToken = UUID()
-        persistSongChanges(upserts: [updatedSong])
+        // 每首受影响的歌仍然各发一条失效通知 (object / userInfo 与逐首发布
+        // 时完全一样), 只是发生在整批应用之后。
+        for change in artworkChanges {
+            postArtworkInvalidation(
+                songID: change.songID,
+                oldRef: change.oldRef,
+                newRef: change.newRef
+            )
+        }
+        persistSongChanges(upserts: updatedSongs)
     }
 
     /// Add songs from a scan result and rebuild albums/artists.
@@ -3882,7 +4357,10 @@ final class MusicLibrary {
         notifyRemovals: Bool = true,
         pruneMissingSongs: Bool = true,
         authoritativeIncomingIDs: Set<String>? = nil,
-        mergeServerCatalogRows: Bool = false
+        mergeServerCatalogRows: Bool = false,
+        // 中间 flush 传 `.deferredIncremental`: 合并连续 flush 的整库重建与
+        // Spotlight 脏位, 最终提交仍然用 `.immediate`。
+        indexMaintenance: LibraryMaintenanceDisposition = .immediate
     ) {
         // S2: 发布前排队, 发布后按原顺序重放, 免得扫描/Siri 把结果并进空库。
         if deferringUntilReady({ [weak self] in
@@ -3892,9 +4370,12 @@ final class MusicLibrary {
                 notifyRemovals: notifyRemovals,
                 pruneMissingSongs: pruneMissingSongs,
                 authoritativeIncomingIDs: authoritativeIncomingIDs,
-                mergeServerCatalogRows: mergeServerCatalogRows
+                mergeServerCatalogRows: mergeServerCatalogRows,
+                indexMaintenance: indexMaintenance
             )
         }) { return }
+        let signpost = PrimuseSignposts.hitch.beginInterval("library.addSongs")
+        defer { PrimuseSignposts.hitch.endInterval("library.addSongs", signpost) }
         // Merge semantics:
         //
         // - Drop songs from the affected sources that the new scan didn't
@@ -3938,7 +4419,27 @@ final class MusicLibrary {
         if pruneMissingSongs, authoritativeIncomingIDs == nil {
             incomingIDs.reserveCapacity(newSongs.count)
         }
-        for song in newSongs where !isBlockedFromLibrary(song) {
+        // 中间 flush 会把整份累积目录再交上来一次, 所以准入判定跑在每一首上、
+        // 每一批两遍。身份前缀按源解析一次即可 (与离主线程装载路径同形),
+        // 判定结果也只算一遍, 第二遍复用被拒集合: 被拒行通常是空的, 这比再
+        // 物化一份 `[Song]` 便宜, 后者会让每次远端增量 flush 的内存峰值翻倍。
+        let hasAdmissionFilters = LibrarySongAdmissionPolicy.hasAdmissionFilters(
+            tombstones: deletedSongIdentities,
+            deviceExclusions: deviceLocalExcludedSongIdentities
+        )
+        var identityPrefixBySourceID: [String: String] = [:]
+        if hasAdmissionFilters {
+            for sourceID in Set(newSongs.map(\.sourceID)) {
+                identityPrefixBySourceID[sourceID] = sourceIdentityResolver?(sourceID)
+            }
+        }
+        var blockedIDs: Set<String> = []
+        for song in newSongs {
+            if hasAdmissionFilters,
+               isBlockedFromLibrary(song, prefixes: identityPrefixBySourceID) {
+                blockedIDs.insert(song.id)
+                continue
+            }
             if pruneMissingSongs {
                 if authoritativeIncomingIDs == nil {
                     incomingIDs.insert(song.id)
@@ -4007,7 +4508,7 @@ final class MusicLibrary {
             persistedSongIDs.insert(song.id)
         }
 
-        for song in newSongs where !isBlockedFromLibrary(song) {
+        for song in newSongs where !blockedIDs.contains(song.id) {
             var newSong = song
             if mergeServerCatalogRows,
                let idx = existingIndexByID[newSong.id] {
@@ -4130,7 +4631,7 @@ final class MusicLibrary {
         // a CloudKit playlist/history record arrived before the local scan.
         schedulePendingIdentityFlush()
         invalidateSearchCaches()
-        requestLibraryIndexMaintenance(.immediate)
+        requestLibraryIndexMaintenance(indexMaintenance)
         let persistedIncoming = persistedSongIDs.compactMap { id in
             existingIndexByID[id].map { mergedSongs[$0] }
         }
@@ -4211,6 +4712,8 @@ final class MusicLibrary {
     }
 
     func rollbackScanPruning(_ recovery: ScanPruningRecovery) {
+        // S2: 成员回滚必须在发布后的歌单集合上做, 否则整段回滚落在空库上。
+        if deferringUntilReady({ [weak self] in self?.rollbackScanPruning(recovery) }) { return }
         let removedIDs = Set(recovery.songs.map(\.id))
         addSongs(recovery.songs.filter { songIndexByID[$0.id] == nil },
                  notifyRemovals: false, pruneMissingSongs: false)
@@ -4275,6 +4778,100 @@ final class MusicLibrary {
             || old.revision != new.revision
     }
 
+    /// 删除路径必须在同一个主线程轮次里把被删的行从可见查找表里摘掉。
+    /// `requestLibraryIndexMaintenance(.immediate)` 触发的重建是去抖之后的
+    /// 异步任务, 在它落地之前 `song(id:)` / `visibleSong(id:)` /
+    /// `visibleSongCount(forSourceID:)` / `playableSongs(forSourceID:)` 仍然
+    /// 会从旧字典里答出已经删掉的行; 紧接着运行的 `cleanPlaylistEntries()` /
+    /// `cleanPlaybackHistoryEntries()` 也因此认为这些歌还在, 把歌单与最近
+    /// 播放里的条目原样留下, 随后的快照又把它们写回磁盘。
+    ///
+    /// 只摘除以 ID 为键的查找表与按源分组的切片, 代价 O(可见行), 与
+    /// `songs.removeAll` 同量级。派生的歌手 / 流派 ID 列表不重建: 它们都通过
+    /// `visibleSongByID` 解析, 字典里没有了行就已经看不见, 重建那些列表要额外
+    /// 付 O(全部歌手) 的开销。
+    private func pruneVisibleCachesAfterRemoval(
+        removedIDs: Set<String>,
+        affectedSourceIDs: Set<String>,
+        remainingCountsBySource: [String: Int]
+    ) {
+        guard !removedIDs.isEmpty else { return }
+        // 全库计数含禁用源, 因此即使被删的行都不可见也要对齐。
+        for sourceID in affectedSourceIDs {
+            let remaining = remainingCountsBySource[sourceID] ?? 0
+            if remaining > 0 {
+                songCountBySourceID[sourceID] = remaining
+            } else {
+                songCountBySourceID.removeValue(forKey: sourceID)
+            }
+        }
+        let removedVisibleIDs = removedIDs.filter { visibleSongByID[$0] != nil }
+        guard !removedVisibleIDs.isEmpty else { return }
+
+        let displacedIndexByID = visibleSongIndexByID
+        let retainedCount = max(visibleSongs.count - removedVisibleIDs.count, 0)
+        var nextVisibleSongs: [Song] = []
+        nextVisibleSongs.reserveCapacity(retainedCount)
+        // 下标会整体前移, 索引必须为保留下来的行重建。
+        var rebuiltIndexByID: [String: Int] = [:]
+        rebuiltIndexByID.reserveCapacity(retainedCount)
+        for song in visibleSongs where !removedVisibleIDs.contains(song.id) {
+            rebuiltIndexByID[song.id] = nextVisibleSongs.count
+            nextVisibleSongs.append(song)
+        }
+        visibleSongs = nextVisibleSongs
+        visibleSongIndexByID = rebuiltIndexByID
+        for id in removedVisibleIDs {
+            visibleSongByID.removeValue(forKey: id)
+        }
+
+        for sourceID in affectedSourceIDs {
+            guard let sourceSongs = visibleSongsBySourceID[sourceID] else { continue }
+            let retained = sourceSongs.filter { !removedVisibleIDs.contains($0.id) }
+            guard retained.count != sourceSongs.count else { continue }
+            // 整组重建不会为空源留下键, 摘除也保持一致。
+            if retained.isEmpty {
+                visibleSongsBySourceID.removeValue(forKey: sourceID)
+                visibleSongCountBySourceID.removeValue(forKey: sourceID)
+            } else {
+                visibleSongsBySourceID[sourceID] = retained
+                visibleSongCountBySourceID[sourceID] = retained.count
+            }
+            let retainedPlayable = retained.filteredPlayable()
+            if retainedPlayable.isEmpty {
+                visiblePlayableSongsBySourceID.removeValue(forKey: sourceID)
+            } else {
+                visiblePlayableSongsBySourceID[sourceID] = retainedPlayable
+            }
+            // `replacedIDs: nil` = 成员发生变化, 与整组重建的发布形状一致。
+            sourceSongListStates[sourceID]?.publish(retained, replacedIDs: nil)
+        }
+
+        // 兜底封面指向被删的那一首时先摘掉映射, 卡片会在随后的异步重建里拿到
+        // 新的回退歌; 留着它只会让读者解析出空封面。
+        var artworkLookupsChanged = false
+        let staleArtworkAlbumIDs = preferredArtworkSongIDByAlbumID.compactMap {
+            removedVisibleIDs.contains($0.value) ? $0.key : nil
+        }
+        for albumID in staleArtworkAlbumIDs {
+            preferredArtworkSongIDByAlbumID.removeValue(forKey: albumID)
+            artworkLookupsChanged = true
+        }
+        let staleArtworkArtistIDs = preferredArtworkSongIDByArtistID.compactMap {
+            removedVisibleIDs.contains($0.value) ? $0.key : nil
+        }
+        for artistID in staleArtworkArtistIDs {
+            preferredArtworkSongIDByArtistID.removeValue(forKey: artistID)
+            artworkLookupsChanged = true
+        }
+        if artworkLookupsChanged { albumArtworkLookupRevision &+= 1 }
+        visibleSongCollectionRevision &+= 1
+        LibraryArrayReclaimer.release(
+            holder: DisplacedLibraryLookups([displacedIndexByID]),
+            approximateElementCount: displacedIndexByID.count
+        )
+    }
+
     /// Delete a single song and rebuild index
     @discardableResult
     func deleteSong(_ song: Song) -> Int {
@@ -4286,12 +4883,18 @@ final class MusicLibrary {
         // mount-UUID+path) so re-adding the same Baidu account on
         // a fresh source UUID doesn't bypass it.
         deletedSongIdentities.insert(identityKey(for: song))
+        let remaining = songs.filter { $0.sourceID == song.sourceID }.count
+        pruneVisibleCachesAfterRemoval(
+            removedIDs: [song.id],
+            affectedSourceIDs: [song.sourceID],
+            remainingCountsBySource: [song.sourceID: remaining]
+        )
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
         requestLibraryIndexMaintenance(.immediate)
         persistSongChanges(deletingIDs: [song.id], needsPromptCompatibilitySnapshot: true)
         postSongsRemoved([song], songIDs: [song.id])
-        return songs.filter { $0.sourceID == song.sourceID }.count
+        return remaining
     }
 
     /// Batch delete. Calling `deleteSong` in a 3000-song loop did
@@ -4318,6 +4921,13 @@ final class MusicLibrary {
         for song in songs where affectedSourceIDs.contains(song.sourceID) {
             remainingCounts[song.sourceID, default: 0] += 1
         }
+        // 必须早于歌单 / 最近播放清理: 那两步经 `song(id:)` 解析成员, 可见缓存
+        // 还留着被删的行时它们会判定条目仍然有效。
+        pruneVisibleCachesAfterRemoval(
+            removedIDs: idsToDelete,
+            affectedSourceIDs: affectedSourceIDs,
+            remainingCountsBySource: remainingCounts
+        )
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
         requestLibraryIndexMaintenance(.immediate)
@@ -4359,6 +4969,11 @@ final class MusicLibrary {
         for song in songs where affectedSourceIDs.contains(song.sourceID) {
             remainingCounts[song.sourceID, default: 0] += 1
         }
+        pruneVisibleCachesAfterRemoval(
+            removedIDs: idsToRemove,
+            affectedSourceIDs: affectedSourceIDs,
+            remainingCountsBySource: remainingCounts
+        )
         requestLibraryIndexMaintenance(.immediate)
         persistSongChanges(deletingIDs: idsToRemove, needsPromptCompatibilitySnapshot: true)
         postSongsRemoved(songsToRemove, songIDs: idsToRemove)
@@ -4405,6 +5020,8 @@ final class MusicLibrary {
         for song in removed {
             deviceLocalExcludedSongsByID[song.id] = nil
         }
+        // 覆盖解析的 2b / 3b 层读的就是这份保留目录。
+        artworkSongIDResolutions.removeAll(keepingCapacity: true)
         // A genuine source deletion or authoritative rescan must not export
         // stale records retained only for a previous local exclusion.
         do { try persistDeviceLocalExclusions() }
@@ -4416,6 +5033,8 @@ final class MusicLibrary {
     /// path. Caller passes the same Song object that was deleted (or
     /// any Song with the same source/path).
     func restoreDeletedSong(_ song: Song) {
+        // S2: 墓碑集合在发布时整体拷回, 排队后重放才能真正撤销删除。
+        if deferringUntilReady({ [weak self] in self?.restoreDeletedSong(song) }) { return }
         let key = identityKey(for: song)
         guard deletedSongIdentities.contains(key) else { return }
         deletedSongIdentities.remove(key)
@@ -4551,6 +5170,13 @@ final class MusicLibrary {
 
         songs = prepared.retainedSongs
         songIndexByID = prepared.retainedIndexByID
+        // 整源移除后这些源不再有任何行, 剩余计数一律为 0。同样必须早于歌单 /
+        // 最近播放清理。
+        pruneVisibleCachesAfterRemoval(
+            removedIDs: prepared.removedSongIDs,
+            affectedSourceIDs: sourceIDs,
+            remainingCountsBySource: [:]
+        )
         invalidateSearchCaches()
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
@@ -4665,6 +5291,14 @@ final class MusicLibrary {
         return visibleSongCountBySourceID[sourceID, default: 0]
     }
 
+    /// 精确的单源计数, 不吃 `songCountsBySourceID()` 的"总数相等就复用缓存"
+    /// 启发式: 扫描的最终提交写进源卡片的数字必须是这一刻的真值, 而缓存聚合
+    /// 可能还落后几秒的派生重建。`lazy` 让它只走一遍 `songs`, 不为计数分配
+    /// 一整份匹配歌曲数组。
+    func exactSongCount(forSourceID sourceID: String) -> Int {
+        songs.lazy.filter { $0.sourceID == sourceID }.count
+    }
+
     /// Snapshot-sized dictionary (normally only a handful of sources), backed
     /// by the cached all-library aggregate prepared with the song lookups.
     func songCountsBySourceID() -> [String: Int] {
@@ -4721,6 +5355,15 @@ final class MusicLibrary {
         comment: String,
         updatedAt: Date = Date()
     ) {
+        // S2: 评分评论在发布时被存储里的值整体覆盖, 必须排队重放。
+        if deferringUntilReady({ [weak self] in
+            self?.updateLibraryReview(
+                for: subject,
+                rating: rating,
+                comment: comment,
+                updatedAt: updatedAt
+            )
+        }) { return }
         let rating = LibraryReviewPreferences.normalizedRating(rating)
         let comment = LibraryReviewPreferences.normalizedComment(comment)
         let existing = libraryReview(for: subject)
@@ -4782,6 +5425,28 @@ final class MusicLibrary {
         if changed { albumArtworkLookupRevision &+= 1 }
     }
 
+    /// 首选回退歌的 ID 没变、变的是它自己的封面引用时, 回退映射一模一样, 但
+    /// 每一张用它兜底的专辑 / 歌手卡片都要重新取图。只盯
+    /// `albumArtworkLookupRevision` 的读者 (资料库快捷入口、CarPlay 编辑器
+    /// 预览) 否则会一直停在旧图 / 占位图上。O(改动行)。
+    private func bumpArtworkLookupRevisionIfPreferred(songIDs: [String]) {
+        for songID in songIDs {
+            guard let song = visibleSongByID[songID] else { continue }
+            if let albumID = song.albumID,
+               !albumID.isEmpty,
+               preferredArtworkSongIDByAlbumID[albumID] == songID {
+                albumArtworkLookupRevision &+= 1
+                return
+            }
+            if artistIDs(for: song).contains(where: {
+                preferredArtworkSongIDByArtistID[$0] == songID
+            }) {
+                albumArtworkLookupRevision &+= 1
+                return
+            }
+        }
+    }
+
     // MARK: - User-selected library artwork
 
     func artworkOverride(for owner: LibraryArtworkOwner) -> LibraryArtworkOverride? {
@@ -4800,7 +5465,7 @@ final class MusicLibrary {
         let override = artworkOverride(for: owner)
         return LibraryArtworkOverridePolicy.resolve(override: override) {
             guard let identity = override?.selectedSongIdentity,
-                  let resolvedSongID = resolveArtworkSongID(identity) else {
+                  let resolvedSongID = resolveArtworkSongID(identity, for: owner) else {
                 return nil
             }
             return (
@@ -4829,7 +5494,7 @@ final class MusicLibrary {
         var selectedSong: Song?
         let resolution = LibraryArtworkOverridePolicy.resolve(override: override) {
             guard let identity = override?.selectedSongIdentity,
-                  let resolvedSongID = resolveArtworkSongID(identity) else {
+                  let resolvedSongID = resolveArtworkSongID(identity, for: owner) else {
                 return nil
             }
             guard let song = visibleSong(id: resolvedSongID) else {
@@ -4872,6 +5537,10 @@ final class MusicLibrary {
     /// first-scan rows are resolved later by `replaceSong(s)` after metadata
     /// backfill fills their artist names.
     func updateAutomaticArtistArtworkCatalog(_ catalog: SourceArtistArtworkCatalog) {
+        // S2: 目录表与它改写的 songs 都在发布时被拷回覆盖。
+        if deferringUntilReady({ [weak self] in
+            self?.updateAutomaticArtistArtworkCatalog(catalog)
+        }) { return }
         guard !catalog.sourceID.isEmpty,
               automaticArtistArtworkCatalogsBySource[catalog.sourceID] != catalog else {
             return
@@ -4892,11 +5561,34 @@ final class MusicLibrary {
             persistSnapshot()
             return
         }
+        // 这个突变只写 `artistArtworkFileName`: 歌曲 ID 与顺序都不变, 所以
+        // `songIndexByID` 已经是对的, 可见成员与排序也没变。整库重组一遍
+        // (分组 + 排序 + 每一本查找表) 是同步压在主线程上的 O(全库) 工作,
+        // 而且紧接着的 `.immediate` 重建会在几百毫秒内再算一次同样的结果。
+        // 改成 O(改动行) 的就地补丁, 与旁挂资源补丁走同一条已验证的路径。
+        let changedSongIDs = changedSongs.map(\.id)
+        var nextVisible = visibleSongs
+        var visibleChanged = false
+        for song in changedSongs {
+            guard let visibleIndex = visibleSongIndexByID[song.id] else { continue }
+            nextVisible[visibleIndex] = song
+            visibleChanged = true
+        }
         songs = nextSongs
-        songIndexByID = Self.makeSongIndex(nextSongs)
-        rebuildVisibleCache()
+        if visibleChanged { visibleSongs = nextVisible }
+        for song in changedSongs where visibleSongIndexByID[song.id] != nil {
+            visibleSongByID[song.id] = song
+        }
+        // 按源分组的切片与 macOS 源详情列表由这条既有接缝保持一致。
+        patchSourceAssetReferences(songIDs: changedSongIDs)
+        // 回退映射本身不会变 (`artworkFallbackPrecedes` 只看封面 / 碟号 /
+        // 音轨号 / ID), 但被选为回退的那一首自己的歌手图引用变了时, 只盯
+        // `albumArtworkLookupRevision` 的读者仍然要失效。
+        bumpArtworkLookupRevisionIfPreferred(songIDs: changedSongIDs)
+        // 不动 `visibleSongCollectionRevision`: 成员与顺序都没变, bump 它会让
+        // 每一个大列表白白重建。
         lastReplacedSong = changedSongs.count == 1 ? changedSongs.first : nil
-        lastReplacedSongIDs = Set(changedSongs.map(\.id))
+        lastReplacedSongIDs = Set(changedSongIDs)
         songReplacementToken = UUID()
         requestLibraryIndexMaintenance(.immediate)
         persistSongChanges(upserts: changedSongs)
@@ -4974,6 +5666,17 @@ final class MusicLibrary {
         uploadedContentID: String?
     ) -> Bool {
         guard !owner.id.isEmpty else { return false }
+        // S2: `setAutomaticArtwork` / `setArtwork` / `setUploadedArtwork` 三个入口
+        // 共用这里, 排队一次即可。返回 true 表示"已接受", 与 S1 下
+        // `persistPlaylistDurabilityLedger()` 返回 true 的约定一致。
+        if deferringUntilReady({ [weak self] in
+            _ = self?.setArtworkOverride(
+                owner: owner,
+                mode: mode,
+                selectedSongIdentity: selectedSongIdentity,
+                uploadedContentID: uploadedContentID
+            )
+        }) { return true }
         let existing = artworkOverridesByOwner[owner.storageKey]
         if existing?.mode == mode,
            existing?.selectedSongIdentity == selectedSongIdentity,
@@ -5032,6 +5735,11 @@ final class MusicLibrary {
     @discardableResult
     func applyRemoteArtworkOverride(_ remote: LibraryArtworkOverride) -> Bool {
         guard !remote.owner.id.isEmpty else { return false }
+        // S2: 本地值要等发布后才存在, 冲突判定必须在重放时做; 返回 false
+        // (= 远端值胜出) 让调用方不要立刻回推本地值。
+        if deferringUntilReady({ [weak self] in
+            _ = self?.applyRemoteArtworkOverride(remote)
+        }) { return false }
         if let local = artworkOverridesByOwner[remote.owner.storageKey],
            LibraryArtworkOverrideReconciliationPolicy.winner(
             local: local,
@@ -5051,6 +5759,10 @@ final class MusicLibrary {
     }
 
     func deleteArtworkOverrideFromRemote(owner: LibraryArtworkOwner) {
+        // S2: 封面覆盖表在发布时整体拷回, 现在删只会删到空表。
+        if deferringUntilReady({ [weak self] in
+            self?.deleteArtworkOverrideFromRemote(owner: owner)
+        }) { return }
         guard let removed = artworkOverridesByOwner.removeValue(forKey: owner.storageKey) else { return }
         guard persistPlaylistDurabilityLedger() else {
             artworkOverridesByOwner[owner.storageKey] = removed
@@ -5111,6 +5823,12 @@ final class MusicLibrary {
     }
 
     func updateArtistNameConfiguration(_ value: ArtistNameConfiguration) {
+        // S2 例外 1: 配置不排队。准备结果的 artistID / albums / artists 都是用
+        // 存储里的命名配置算出来的, 这里只记下最新值, 发布拷回之后再对账。
+        if isPreparing {
+            preparingArtistNameConfiguration = value
+            return
+        }
         let value = value.normalized()
         guard artistNameConfiguration != value else { return }
         artistNameConfiguration = value
@@ -5202,6 +5920,8 @@ final class MusicLibrary {
     }
 
     func recordPlayback(of songID: String) {
+        // S2: 空库里 `songs.contains` 必然为 false, 不排队这条播放记录就没了。
+        if deferringUntilReady({ [weak self] in self?.recordPlayback(of: songID) }) { return }
         guard songs.contains(where: { $0.id == songID }) else { return }
 
         recentPlaybackSongIDs.removeAll { $0 == songID }
@@ -5254,6 +5974,8 @@ final class MusicLibrary {
     }
 
     func hideMirrorPlaylist(id: String) {
+        // S2: 镜像隐藏表在发布时整体拷回, 且这里要找的镜像歌单此刻还不存在。
+        if deferringUntilReady({ [weak self] in self?.hideMirrorPlaylist(id: id) }) { return }
         guard MirrorPlaylistIdentity.isMirrorPlaylist(id),
               let key = MirrorPlaylistSuppressionPolicy.key(forPlaylistID: id),
               let playlist = allPlaylists.first(where: { $0.id == id }) else { return }
@@ -5273,6 +5995,10 @@ final class MusicLibrary {
     }
 
     func restoreHiddenMirrorPlaylist(_ suppression: MirrorPlaylistSuppression) {
+        // S2: 同上, 取消隐藏要落在发布后的抑制表上。
+        if deferringUntilReady({ [weak self] in
+            self?.restoreHiddenMirrorPlaylist(suppression)
+        }) { return }
         let suppressionID = keyID(suppression.key)
         guard let removed = mirrorPlaylistSuppressions.removeValue(forKey: suppressionID) else { return }
         guard persistPlaylistDurabilityLedger() else {
@@ -5297,6 +6023,19 @@ final class MusicLibrary {
         folderBinding: PlaylistFolderBinding? = nil
     ) -> Playlist {
         let playlist = stampedPlaylist(Playlist(name: name, folderBinding: folderBinding))
+        // S2: 返回值必须当场给出 (调用方拿着它继续加歌 / 跳转), 所以只把插入
+        // 排队 —— 重放用的是同一个 playlist 值, id 与时间戳都不会变。成员过滤
+        // 也留到重放: 空库上 `validUniqueSongIDs` 会把每一首都滤掉。
+        if deferringUntilReady({ [weak self] in
+            self?.insertCreatedPlaylist(playlist, songIDs: songIDs)
+        }) { return playlist }
+        insertCreatedPlaylist(playlist, songIDs: songIDs)
+        return allPlaylists.first(where: { $0.id == playlist.id }) ?? playlist
+    }
+
+    /// `createPlaylist` / `createFolderPlaylist` / `ensurePlaylist` 新建分支共用的
+    /// 插入尾巴, 也正是 S2 重放时执行的那一份。
+    private func insertCreatedPlaylist(_ playlist: Playlist, songIDs: [String]) {
         let entries = validUniqueSongIDs(songIDs)
         allPlaylists.append(playlist)
         playlistSongIDs[playlist.id] = entries
@@ -5304,7 +6043,6 @@ final class MusicLibrary {
         persistPlaylistDurabilityLedger()
         persistSnapshot()
         notifyPlaylistsChanged([playlist.id])
-        return allPlaylists.first(where: { $0.id == playlist.id }) ?? playlist
     }
 
     @discardableResult
@@ -5317,6 +6055,18 @@ final class MusicLibrary {
         let binding = PlaylistFolderBinding(nodeID: nodeID, cloudAccountID: cloudAccountID)
         if let existing = allPlaylists.first(where: { !$0.isDeleted && $0.folderBinding == binding }) {
             return existing
+        }
+        // S2: 绑定去重必须在发布后的歌单集合上再判一次, 否则重放会插进第二份。
+        if isPreparing {
+            let playlist = stampedPlaylist(Playlist(name: name, folderBinding: binding))
+            _ = deferringUntilReady { [weak self] in
+                guard let self,
+                      !self.allPlaylists.contains(where: {
+                          !$0.isDeleted && $0.folderBinding == binding
+                      }) else { return }
+                self.insertCreatedPlaylist(playlist, songIDs: songIDs)
+            }
+            return playlist
         }
         return createPlaylist(name: name, songIDs: songIDs, folderBinding: binding)
     }
@@ -5335,6 +6085,14 @@ final class MusicLibrary {
         expectedBindings: [String: PlaylistFolderBinding],
         previousMemberships: [String: [String]] = [:]
     ) -> Bool {
+        // S2: 成员替换要比对发布后的歌单与歌曲, 空库上这个循环什么都匹配不到。
+        if deferringUntilReady({ [weak self] in
+            _ = self?.applyFolderPlaylistMemberships(
+                memberships,
+                expectedBindings: expectedBindings,
+                previousMemberships: previousMemberships
+            )
+        }) { return false }
         var changedIDs: [String] = []
         for index in allPlaylists.indices {
             let playlist = allPlaylists[index]
@@ -5363,6 +6121,22 @@ final class MusicLibrary {
     /// 镜像歌单的可见性由 suppression 独立控制；本地歌单若已删除，只能走显式恢复。
     @discardableResult
     func ensurePlaylist(id: String, name: String) -> Playlist {
+        // S2: 空库上必然落到"新建"分支。排队时保留同一个 playlist 值,
+        // 重放时若存储里已经有这一行, 就改走正常的改名 / 取消删除路径。
+        if isPreparing {
+            let playlist = MirrorPlaylistIdentity.isMirrorPlaylist(id)
+                ? Playlist(id: id, name: name)
+                : stampedPlaylist(Playlist(id: id, name: name))
+            _ = deferringUntilReady { [weak self] in
+                guard let self else { return }
+                if self.allPlaylists.contains(where: { $0.id == id }) {
+                    _ = self.ensurePlaylist(id: id, name: name)
+                } else {
+                    self.insertCreatedPlaylist(playlist, songIDs: [])
+                }
+            }
+            return playlist
+        }
         if let idx = allPlaylists.firstIndex(where: { $0.id == id }) {
             var p = allPlaylists[idx]
             let isMirror = MirrorPlaylistIdentity.isMirrorPlaylist(id)
@@ -5399,6 +6173,10 @@ final class MusicLibrary {
     /// 整体替换普通用户歌单（例如手动重排或把当前队列另存为歌单）。镜像歌单
     /// 必须走 `replaceMirrorPlaylistSongs`，防止任一遗漏的 UI 入口改写只读镜像。
     func replacePlaylistSongs(playlistID: String, songIDs: [String]) {
+        // S2: 下面的 guard 读的是发布后才存在的歌单行。
+        if deferringUntilReady({ [weak self] in
+            self?.replacePlaylistSongs(playlistID: playlistID, songIDs: songIDs)
+        }) { return }
         guard !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID),
               let playlist = allPlaylists.first(where: { $0.id == playlistID }),
               !playlist.isDeleted, playlist.allowsManualSongMembership
@@ -5413,6 +6191,14 @@ final class MusicLibrary {
         songIDs: [String],
         coverArtPath: String?
     ) {
+        // S2: 同上, 镜像歌单与它的歌曲都要等发布之后才在库里。
+        if deferringUntilReady({ [weak self] in
+            self?.replaceMirrorPlaylistSongs(
+                playlistID: playlistID,
+                songIDs: songIDs,
+                coverArtPath: coverArtPath
+            )
+        }) { return }
         guard MirrorPlaylistIdentity.isMirrorPlaylist(playlistID) else { return }
         replacePlaylistSongsUnchecked(
             playlistID: playlistID,
@@ -5464,6 +6250,14 @@ final class MusicLibrary {
         coverArtPath: String?,
         forceRefresh: Bool = false
     ) {
+        // S2: 封面刷新落在发布后的镜像歌单行上。
+        if deferringUntilReady({ [weak self] in
+            self?.updateMirrorPlaylistArtwork(
+                playlistID: playlistID,
+                coverArtPath: coverArtPath,
+                forceRefresh: forceRefresh
+            )
+        }) { return }
         guard MirrorPlaylistIdentity.isMirrorPlaylist(playlistID),
               let index = allPlaylists.firstIndex(where: { $0.id == playlistID }) else { return }
         let normalized = normalizedArtworkReference(coverArtPath)
@@ -5496,6 +6290,8 @@ final class MusicLibrary {
     /// change notification. Calling `deletePlaylist` in a selection loop makes
     /// a nominal batch operation perform a full persistence pass per row.
     func deletePlaylists(ids: Set<String>) {
+        // S2: 软删除要打在发布后的歌单行上 (`deletePlaylist(id:)` 也走这里)。
+        if deferringUntilReady({ [weak self] in self?.deletePlaylists(ids: ids) }) { return }
         let editableIDs = Set(ids.filter { !MirrorPlaylistIdentity.isMirrorPlaylist($0) })
         guard !editableIDs.isEmpty else { return }
         var changedIDs: [String] = []
@@ -5522,6 +6318,8 @@ final class MusicLibrary {
 
     /// Restore a soft-deleted playlist (e.g. from the Recently Deleted view).
     func restorePlaylist(id: String) {
+        // S2: 恢复的目标行要等发布之后才存在。
+        if deferringUntilReady({ [weak self] in self?.restorePlaylist(id: id) }) { return }
         guard let index = allPlaylists.firstIndex(where: { $0.id == id }),
               allPlaylists[index].isDeleted,
               !allPlaylists[index].isPurged,
@@ -5548,6 +6346,12 @@ final class MusicLibrary {
     /// Compact several deleted playlists with the same tombstone semantics as
     /// the single-item action, but only one durability and snapshot write.
     func permanentlyDeletePlaylists(ids: Set<String>) {
+        // S2: 彻底删除同样要落在发布后的歌单集合上
+        // (`permanentlyDeletePlaylist(id:)` / `prunePlaylists(deletedBefore:)`
+        // 都汇到这里)。
+        if deferringUntilReady({ [weak self] in
+            self?.permanentlyDeletePlaylists(ids: ids)
+        }) { return }
         let targetIDs = Set(allPlaylists.lazy.filter {
             ids.contains($0.id) && $0.isDeleted
         }.map(\.id))
@@ -5574,6 +6378,10 @@ final class MusicLibrary {
     /// Sweep playlists whose `deletedAt` is older than `threshold` and remove
     /// them for good. Called on launch with a 30-day threshold.
     func prunePlaylists(deletedBefore threshold: Date) {
+        // S2: 回收站清理要扫发布后的歌单集合。
+        if deferringUntilReady({ [weak self] in
+            self?.prunePlaylists(deletedBefore: threshold)
+        }) { return }
         let toPrune = allPlaylists.filter { $0.isDeleted && ($0.deletedAt ?? .distantFuture) < threshold }
         guard !toPrune.isEmpty else { return }
         for playlist in toPrune {
@@ -5598,6 +6406,11 @@ final class MusicLibrary {
 
     private func prunePlaylists(withIDPrefixes prefixes: Set<String>, keepingIDs: Set<String>) {
         guard !prefixes.isEmpty else { return }
+        // S2: `prunePlaylists(withIDPrefix:)` 与 `pruneServerPlaylistMirrors` 共用
+        // 这里; 镜像歌单要等发布之后才在集合里。
+        if deferringUntilReady({ [weak self] in
+            self?.prunePlaylists(withIDPrefixes: prefixes, keepingIDs: keepingIDs)
+        }) { return }
         let staleIDs = allPlaylists
             .filter { playlist in
                 !keepingIDs.contains(playlist.id)
@@ -5624,6 +6437,8 @@ final class MusicLibrary {
     /// 创建 / 更新一份智能歌单。Caller 自己构造 SmartPlaylist (含 rules), 这里
     /// 只负责存进 allSmartPlaylists 并刷新 updatedAt + 触发同步。
     func saveSmartPlaylist(_ smart: SmartPlaylist) {
+        // S2: 智能歌单集合在发布时被存储里的值整体覆盖。
+        if deferringUntilReady({ [weak self] in self?.saveSmartPlaylist(smart) }) { return }
         var stored = smart
         stored.updatedAt = Date()
         if let idx = allSmartPlaylists.firstIndex(where: { $0.id == smart.id }) {
@@ -5639,6 +6454,8 @@ final class MusicLibrary {
     /// Soft-delete: 跟 Playlist 一致, mark deleted 并保留 30 天给 CloudKit
     /// 多设备收敛时间窗。
     func deleteSmartPlaylist(id: String) {
+        // S2: 目标行要等发布之后才在集合里。
+        if deferringUntilReady({ [weak self] in self?.deleteSmartPlaylist(id: id) }) { return }
         guard let idx = allSmartPlaylists.firstIndex(where: { $0.id == id }) else { return }
         allSmartPlaylists[idx].isDeleted = true
         allSmartPlaylists[idx].deletedAt = Date()
@@ -5648,6 +6465,8 @@ final class MusicLibrary {
     }
 
     func restoreSmartPlaylist(id: String) {
+        // S2: 同上。
+        if deferringUntilReady({ [weak self] in self?.restoreSmartPlaylist(id: id) }) { return }
         guard let idx = allSmartPlaylists.firstIndex(where: { $0.id == id }) else { return }
         allSmartPlaylists[idx].isDeleted = false
         allSmartPlaylists[idx].deletedAt = nil
@@ -5661,6 +6480,10 @@ final class MusicLibrary {
     }
 
     func permanentlyDeleteSmartPlaylists(ids: Set<String>) {
+        // S2: `permanentlyDeleteSmartPlaylist(id:)` / `pruneSmartPlaylists` 都汇到这里。
+        if deferringUntilReady({ [weak self] in
+            self?.permanentlyDeleteSmartPlaylists(ids: ids)
+        }) { return }
         let targetIDs = Set(allSmartPlaylists.lazy.filter {
             ids.contains($0.id)
         }.map(\.id))
@@ -5673,6 +6496,10 @@ final class MusicLibrary {
     }
 
     func pruneSmartPlaylists(deletedBefore threshold: Date) {
+        // S2: 清理要扫发布后的智能歌单集合。
+        if deferringUntilReady({ [weak self] in
+            self?.pruneSmartPlaylists(deletedBefore: threshold)
+        }) { return }
         let toPrune = allSmartPlaylists.filter { $0.isDeleted && ($0.deletedAt ?? .distantFuture) < threshold }
         guard !toPrune.isEmpty else { return }
         for smart in toPrune {
@@ -5704,6 +6531,15 @@ final class MusicLibrary {
         toPlaylist playlistID: String,
         propagatesLikedMutation: Bool
     ) {
+        // S2: `add(songID:toPlaylist:)` / `add(songIDs:toPlaylist:)` 共用这里。
+        // 歌单行与歌曲行都要等发布之后才存在, 不排队这批插入就没了。
+        if deferringUntilReady({ [weak self] in
+            self?.add(
+                songIDs: songIDs,
+                toPlaylist: playlistID,
+                propagatesLikedMutation: propagatesLikedMutation
+            )
+        }) { return }
         guard !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID),
               !songIDs.isEmpty,
               let existingIndex = allPlaylists.firstIndex(where: { $0.id == playlistID }),
@@ -5768,6 +6604,9 @@ final class MusicLibrary {
     }
 
     func toggleLiked(songID: String) {
+        // S2: 空库里 `isLiked` 恒为 false, 不排队的话取反结果会是错的 ——
+        // 当前状态必须在发布之后再读一次。
+        if deferringUntilReady({ [weak self] in self?.toggleLiked(songID: songID) }) { return }
         let previous = isLiked(songID: songID)
         setLiked(songID: songID, isLiked: !previous, propagatesServerMutation: true)
     }
@@ -5781,6 +6620,14 @@ final class MusicLibrary {
         isLiked desired: Bool,
         propagatesServerMutation: Bool
     ) {
+        // S2: 目标歌曲与「我喜欢」歌单都要等发布之后才在库里。
+        if deferringUntilReady({ [weak self] in
+            self?.setLiked(
+                songID: songID,
+                isLiked: desired,
+                propagatesServerMutation: propagatesServerMutation
+            )
+        }) { return }
         guard song(id: songID) != nil else { return }
         let previous = isLiked(songID: songID)
         guard previous != desired else { return }
@@ -5808,6 +6655,10 @@ final class MusicLibrary {
         fromSourceID sourceID: String,
         with authoritativeSongIDs: [String]
     ) {
+        // S2: 该源的歌曲与「我喜欢」歌单成员都要等发布之后才存在。
+        if deferringUntilReady({ [weak self] in
+            self?.replaceLikedSongs(fromSourceID: sourceID, with: authoritativeSongIDs)
+        }) { return }
         let sourceSongIDs = Set(songs.lazy.filter { $0.sourceID == sourceID }.map(\.id))
         let authoritative = validUniqueSongIDs(authoritativeSongIDs).filter {
             sourceSongIDs.contains($0)
@@ -5861,6 +6712,14 @@ final class MusicLibrary {
         fromPlaylist playlistID: String,
         propagatesLikedMutation: Bool
     ) {
+        // S2: `remove(songID:fromPlaylist:)` / `remove(songIDs:fromPlaylist:)` 共用这里。
+        if deferringUntilReady({ [weak self] in
+            self?.remove(
+                songIDs: songIDs,
+                fromPlaylist: playlistID,
+                propagatesLikedMutation: propagatesLikedMutation
+            )
+        }) { return }
         guard !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID),
               !songIDs.isEmpty,
               let existingIndex = allPlaylists.firstIndex(where: { $0.id == playlistID }),
@@ -6000,6 +6859,8 @@ final class MusicLibrary {
 
     /// Wipe playback history (in response to a remote deletion).
     func clearPlaybackHistory() {
+        // S2: 播放历史在发布时被存储里的值整体覆盖, 现在清只会清到空数组。
+        if deferringUntilReady({ [weak self] in self?.clearPlaybackHistory() }) { return }
         recentPlaybackSongIDs.removeAll()
         persistSnapshot()
     }
@@ -6025,6 +6886,11 @@ final class MusicLibrary {
         songIDs: [String],
         identities: [SongIdentity]? = nil
     ) -> Bool {
+        // S2: 冲突判定要比对发布后的本地行, 身份解析也要在有歌之后再做;
+        // 返回 false (= 远端值胜出) 让调用方不要立刻回推本地值。
+        if deferringUntilReady({ [weak self] in
+            _ = self?.applyRemotePlaylist(playlist, songIDs: songIDs, identities: identities)
+        }) { return false }
         if let index = allPlaylists.firstIndex(where: { $0.id == playlist.id }) {
             if PlaylistReconciliationPolicy.winner(
                 local: allPlaylists[index],
@@ -6067,6 +6933,14 @@ final class MusicLibrary {
         baseSongIDs: [String],
         additionalIdentities: [SongIdentity]
     ) -> Bool {
+        // S2: 同 `applyRemotePlaylist`; 返回 false 表示本地没有胜出。
+        if deferringUntilReady({ [weak self] in
+            _ = self?.mergeRemotePlaylist(
+                playlist,
+                baseSongIDs: baseSongIDs,
+                additionalIdentities: additionalIdentities
+            )
+        }) { return false }
         var localWon = false
         var reconciled = playlist
         if let index = allPlaylists.firstIndex(where: { $0.id == playlist.id }) {
@@ -6108,6 +6982,10 @@ final class MusicLibrary {
         songIDs: [String],
         identities: [SongIdentity]? = nil
     ) {
+        // S2: 播放历史在发布时整体拷回, 身份解析也需要发布后的歌曲行。
+        if deferringUntilReady({ [weak self] in
+            self?.applyRemotePlaybackHistory(songIDs: songIDs, identities: identities)
+        }) { return }
         if let identities, !identities.isEmpty {
             let (resolved, unresolved) = resolveIdentitiesPartitioned(identities)
             recentPlaybackSongIDs = Array(resolved.prefix(100))
@@ -6124,6 +7002,13 @@ final class MusicLibrary {
         baseSongIDs: [String],
         additionalIdentities: [SongIdentity]
     ) {
+        // S2: 同上。
+        if deferringUntilReady({ [weak self] in
+            self?.mergeRemotePlaybackHistory(
+                baseSongIDs: baseSongIDs,
+                additionalIdentities: additionalIdentities
+            )
+        }) { return }
         let (resolved, unresolved) = resolveIdentitiesPartitioned(additionalIdentities)
         var seen = Set<String>()
         let merged = (baseSongIDs + resolved).filter { seen.insert($0).inserted }
@@ -6176,13 +7061,21 @@ final class MusicLibrary {
         if needsCloudPathLookup { songIDByCloudPath.reserveCapacity(min(songs.count, identities.count)) }
         songIndicesByTitle.reserveCapacity(requestedTitles.count)
 
+        // resolver 在源表里线性查找, 逐首调用会把这一遍扫描变成 O(歌 × 源)。
+        var accountIDBySourceID: [String: String] = [:]
+        if needsCloudPathLookup {
+            for sourceID in Set(songs.map(\.sourceID)) {
+                accountIDBySourceID[sourceID] = sourceIdentityResolver?(sourceID)
+            }
+        }
+
         for (songIndex, song) in songs.enumerated() {
             if requestedTitles.contains(song.title) {
                 songIndicesByTitle[song.title, default: []].append(songIndex)
             }
             if needsCloudPathLookup,
                !song.filePath.isEmpty,
-               let accountID = sourceIdentityResolver?(song.sourceID) {
+               let accountID = accountIDBySourceID[song.sourceID] {
                 let key = IdentityCloudPathKey(accountID: accountID, filePath: song.filePath)
                 if songIDByCloudPath[key] == nil { songIDByCloudPath[key] = song.id }
             }
@@ -6241,12 +7134,27 @@ final class MusicLibrary {
         return nil
     }
 
-    private func resolveArtworkSongID(_ identity: SongIdentity) -> String? {
+    private func resolveArtworkSongID(
+        _ identity: SongIdentity,
+        for owner: LibraryArtworkOwner
+    ) -> String? {
         if songIndexByID[identity.songID] != nil {
             return identity.songID
         }
+        let key = owner.storageKey
+        if let cached = artworkSongIDResolutions[key],
+           cached.generation == songMutationGeneration,
+           cached.identity == identity {
+            return cached.songID
+        }
         let index = makeIdentityResolutionIndex(for: [identity])
-        return resolveIdentity(identity, using: index)
+        let resolved = resolveIdentity(identity, using: index)
+        artworkSongIDResolutions[key] = (
+            generation: songMutationGeneration,
+            identity: identity,
+            songID: resolved
+        )
+        return resolved
     }
 
     /// Merge a fresh batch of unresolved identities into the existing
@@ -6393,6 +7301,10 @@ final class MusicLibrary {
     /// caller re-uploads it so old offline clients cannot later recreate it.
     @discardableResult
     func deletePlaylistFromRemote(id: String) -> Bool {
+        // S2: 要墓碑化的行要等发布之后才存在; 返回 false 让调用方稍后重试回推。
+        if deferringUntilReady({ [weak self] in
+            _ = self?.deletePlaylistFromRemote(id: id)
+        }) { return false }
         guard let index = allPlaylists.firstIndex(where: { $0.id == id }) else { return false }
         let original = allPlaylists[index]
         if !allPlaylists[index].isDeleted {
@@ -6446,6 +7358,10 @@ final class MusicLibrary {
     /// 删除来自远端 (CloudKit) 的智能歌单。不触发 changed notification 避免
     /// 回声同步。
     func deleteSmartPlaylistFromRemote(id: String) {
+        // S2: 目标行要等发布之后才在集合里。
+        if deferringUntilReady({ [weak self] in
+            self?.deleteSmartPlaylistFromRemote(id: id)
+        }) { return }
         guard allSmartPlaylists.contains(where: { $0.id == id }) else { return }
         allSmartPlaylists.removeAll { $0.id == id }
         playlistCollectionRevision &+= 1
@@ -6455,6 +7371,8 @@ final class MusicLibrary {
     /// 应用来自远端 (CloudKit) 的智能歌单更新。比 Playlist 简单很多 ── 没有
     /// songID 解析问题, 因为 SmartPlaylist 只存规则定义不存歌曲列表。
     func applyRemoteSmartPlaylist(_ smart: SmartPlaylist) {
+        // S2: 智能歌单集合在发布时整体拷回。
+        if deferringUntilReady({ [weak self] in self?.applyRemoteSmartPlaylist(smart) }) { return }
         if let idx = allSmartPlaylists.firstIndex(where: { $0.id == smart.id }) {
             guard allSmartPlaylists[idx] != smart else { return }
             allSmartPlaylists[idx] = smart
@@ -6483,6 +7401,15 @@ final class MusicLibrary {
     private(set) var songReplacementToken = UUID()
 
     func replaceSong(_ updatedSong: Song) {
+        // S2: 与 `replaceSongs` 一致地排队。空库上 `validatedSongIndex` 返回 nil,
+        // 不排队的话标签编辑 / 歌词回写 / 播放时长纠正会被直接丢掉。
+        if deferringUntilReady({ [weak self] in self?.replaceSong(updatedSong) }) { return }
+        // 整行替换必须排在已入队的旁挂资源补丁之后, 否则窗口内的补丁会把
+        // 这次替换里的封面/歌词/MV 指针盖回旧值; 反过来, 调用方拿到的整行
+        // 往往读自补丁入队之前, 所以 flush 之后还要把补丁叠回这一行。
+        let updatedSong = flushPendingAssetReferencePatches(
+            overlaying: [updatedSong]
+        ).first ?? updatedSong
         let currentSongs = songs
         guard let index = validatedSongIndex(for: updatedSong.id, in: currentSongs) else { return }
         let previousSong = currentSongs[index]
@@ -6517,6 +7444,7 @@ final class MusicLibrary {
         songReplacementToken = UUID()
         if oldCoverRef != s.coverArtFileName {
             postArtworkInvalidation(songID: s.id, oldRef: oldCoverRef, newRef: s.coverArtFileName)
+            bumpArtworkLookupRevisionIfPreferred(songIDs: [s.id])
         }
         invalidateSearchCaches()
         requestLibraryIndexMaintenance(
@@ -6545,6 +7473,8 @@ final class MusicLibrary {
         if deferringUntilReady({ [weak self] in
             self?.replaceSongs(updatedSongs, maintenance: maintenance)
         }) { return }
+        // 与 `replaceSong` 同一个约定: 先取出窗口内的补丁, flush 之后叠回整行。
+        let updatedSongs = flushPendingAssetReferencePatches(overlaying: updatedSongs)
         let originalSongs = songs
         var nextSongs = originalSongs
         var idToIndex = songIndexByID
@@ -6625,6 +7555,7 @@ final class MusicLibrary {
         songReplacementToken = UUID()
         if !artworkChanges.isEmpty {
             postArtworkInvalidations(artworkChanges)
+            bumpArtworkLookupRevisionIfPreferred(songIDs: artworkChanges.map(\.songID))
         }
         invalidateSearchCaches()
         requestLibraryIndexMaintenance(
@@ -6705,6 +7636,9 @@ final class MusicLibrary {
         if deferringUntilReady({ [weak self] in
             self?.replaceSongs(updatedSongs, maintenance: maintenance)
         }) { return }
+        // 先落地补丁再快照: 离主线程准备的整行替换必须看到窗口内的补丁, 并且
+        // 补丁写过的字段要叠回这一批整行, 否则更早的读取会把它们盖回去。
+        let updatedSongs = flushPendingAssetReferencePatches(overlaying: updatedSongs)
 
         // A source toggle or another song mutation can land while preparation
         // is suspended. Rebase once on the newest immutable snapshots before
@@ -6925,6 +7859,9 @@ final class MusicLibrary {
                     ($0.songID, $0.oldReference, $0.newReference)
                 }
             )
+            bumpArtworkLookupRevisionIfPreferred(
+                songIDs: prepared.artworkChanges.map(\.songID)
+            )
         }
         invalidateSearchCaches()
         requestLibraryIndexMaintenance(
@@ -7084,7 +8021,18 @@ final class MusicLibrary {
     private var pendingRebuildIndexRequest: DerivedIndexRequest?
     private var deferredLibraryMaintenancePending = false
     private var deferredDerivedIndexMaintenancePending = false
+    /// 这一批待落地的维护里是否包含扫描的中间 flush。中间 flush 不受
+    /// `deferredMaintenanceAllowed()` 闸门约束, 见 requestLibraryIndexMaintenance。
+    private var deferredIncrementalScanMaintenancePending = false
     private var deferredLibraryMaintenanceTask: Task<Void, Never>?
+    /// 已排期的延后维护截止时间。用于"更早的截止时间获胜"的重排判定。
+    @ObservationIgnored private var deferredLibraryMaintenanceDeadline: Date?
+    /// 一次"丢弃连击"里是否已经立即补发过一次派生重建。落地一次就清零。
+    @ObservationIgnored private var didRequeueAfterDiscard = false
+    /// 只统计"丢弃后立即补发"的次数, 单调递增。与
+    /// `songMutationGenerationForMaintenance` 一样只读暴露, 供维护与回归测试
+    /// 观察补发是否被合并。
+    @ObservationIgnored private(set) var immediateIndexRequeueCountForMaintenance = 0
     @ObservationIgnored private let deferredMaintenanceAllowed: @MainActor () -> Bool
     /// Collapse mutations published in the same run-loop burst before starting
     /// a full-library grouping/sort. More importantly, cancellation can happen
@@ -7101,24 +8049,47 @@ final class MusicLibrary {
                 || deferredDerivedIndexMaintenancePending
             deferredLibraryMaintenanceTask?.cancel()
             deferredLibraryMaintenanceTask = nil
+            deferredLibraryMaintenanceDeadline = nil
             deferredLibraryMaintenancePending = false
             deferredDerivedIndexMaintenancePending = false
+            deferredIncrementalScanMaintenancePending = false
             spotlightIndexRevision &+= 1
             if shouldRebuildDerivedCollections { rebuildIndex() }
-        case .deferred:
+        case .deferred, .deferredIncremental:
             deferredLibraryMaintenancePending = true
             deferredDerivedIndexMaintenancePending =
                 deferredDerivedIndexMaintenancePending || rebuildDerivedCollections
-            guard deferredMaintenanceAllowed() else { return }
-            guard deferredLibraryMaintenanceTask == nil else { return }
+            // 扫描的中间 flush 不看"设备忙"闸门: 闸门是给数小时的 backfill 准备
+            // 的, 而扫描是用户刚刚发起、已经在跑的工作。挡住它等于热状态不是
+            // nominal / app 不在前台时, 整个扫描期间可见资料库一直停在扫描前。
+            let isIncrementalScanFlush = disposition == .deferredIncremental
+            if isIncrementalScanFlush {
+                deferredIncrementalScanMaintenancePending = true
+            }
+            guard LibraryIndexMaintenancePolicy.allowsDeferredMaintenance(
+                isIncrementalScanFlush: isIncrementalScanFlush,
+                deviceMaintenanceAllowed: deferredMaintenanceAllowed()
+            ) else { return }
+            let requestedInterval = isIncrementalScanFlush
+                ? LibraryIndexMaintenancePolicy.incrementalScanMaintenanceInterval
+                : LibraryIndexMaintenancePolicy.maximumDeferredMaintenanceInterval
+            // 已排期的 flush 更早就沿用它: 每次 flush 都重排会把截止时间一直
+            // 往后推, 连续扫描下这个定时器永远等不到。
+            let scheduled = deferredLibraryMaintenanceTask == nil
+                ? nil
+                : deferredLibraryMaintenanceDeadline.map {
+                    max(0, $0.timeIntervalSinceNow)
+                }
+            guard let interval = LibraryIndexMaintenancePolicy.deferredMaintenanceRearmInterval(
+                secondsUntilScheduledFlush: scheduled,
+                requestedInterval: requestedInterval
+            ) else { return }
+            deferredLibraryMaintenanceTask?.cancel()
+            deferredLibraryMaintenanceDeadline = Date().addingTimeInterval(interval)
             deferredLibraryMaintenanceTask = Task { @MainActor [weak self] in
                 guard let self else { return }
                 do {
-                    try await Task.sleep(
-                        for: .seconds(
-                            LibraryIndexMaintenancePolicy.maximumDeferredMaintenanceInterval
-                        )
-                    )
+                    try await Task.sleep(for: .seconds(interval))
                 } catch {
                     return
                 }
@@ -7134,9 +8105,15 @@ final class MusicLibrary {
     func flushDeferredLibraryMaintenance(force: Bool = false) {
         deferredLibraryMaintenanceTask?.cancel()
         deferredLibraryMaintenanceTask = nil
+        deferredLibraryMaintenanceDeadline = nil
         guard deferredLibraryMaintenancePending else { return }
-        guard force || deferredMaintenanceAllowed() else { return }
+        // 定时器为扫描的中间 flush 武装过, 到点的这次重建同样不看闸门。
+        guard force || LibraryIndexMaintenancePolicy.allowsDeferredMaintenance(
+            isIncrementalScanFlush: deferredIncrementalScanMaintenancePending,
+            deviceMaintenanceAllowed: deferredMaintenanceAllowed()
+        ) else { return }
         deferredLibraryMaintenancePending = false
+        deferredIncrementalScanMaintenancePending = false
         let shouldRebuildDerivedCollections = deferredDerivedIndexMaintenancePending
         deferredDerivedIndexMaintenancePending = false
         spotlightIndexRevision &+= 1
@@ -7225,6 +8202,8 @@ final class MusicLibrary {
             applyPreparedVisibleCache(computation.visibleCache)
             persistDerivedIndexCache()
             applied = true
+            // 落地一次即结束当前的丢弃连击, 下一轮重叠可以再立即补发一次。
+            didRequeueAfterDiscard = false
         }
 
         let nextGeneration = rebuildIndexWorkState.complete(generation: request.generation)
@@ -7248,8 +8227,19 @@ final class MusicLibrary {
         // spotlightIndexRevision; 后台 / 高热时只置位标志, 交给
         // didBecomeActive / 热状态观察者或 backfill 结束时的 flush 接手。
         guard computation != nil, !applied else { return }
-        if deferredMaintenanceAllowed() {
+        let maintenanceAllowed = deferredMaintenanceAllowed()
+        if maintenanceAllowed, !didRequeueAfterDiscard {
+            // 一次连击只允许一次立即补发。刮削 / 回填批量跑的时候几乎每一次
+            // 分组都会撞上新的 mutation, 无条件补发会让整库分组背靠背连跑到
+            // 扫描结束, 而每次落地又会作废正在准备的 off-main 补丁。
+            didRequeueAfterDiscard = true
+            immediateIndexRequeueCountForMaintenance &+= 1
             rebuildIndex()
+        } else if maintenanceAllowed {
+            // 之后的丢弃交回 60s 维护节奏
+            // (LibraryIndexMaintenancePolicy.maximumDeferredMaintenanceInterval),
+            // 它设计出来针对的正是这种连续抖动。
+            requestLibraryIndexMaintenance(.deferred)
         } else {
             deferredLibraryMaintenancePending = true
             deferredDerivedIndexMaintenancePending = true
@@ -7289,6 +8279,9 @@ final class MusicLibrary {
 
     func remapSongIDs(_ replacements: [String: String]) {
         guard !replacements.isEmpty else { return }
+        // S2: 换 ID 要作用在发布后的 songs / 歌单成员 / 播放历史上, 空库上做
+        // 等于什么都没做, 而随后的拷回还会把旧 ID 原样带回来。
+        if deferringUntilReady({ [weak self] in self?.remapSongIDs(replacements) }) { return }
         var seen = Set<String>()
         songs = songs.compactMap { original in
             var song = original
@@ -7839,6 +8832,11 @@ final class MusicLibrary {
             storage = preparedStartup.storage
             // G2: 准备结果的禁用源集合是可见缓存的计算依据, 以它为准。
             disabledSourceIDs = storage.disabledSourceIDs
+            // 同理, 拷回的 songs.artistID / albums / artists / 派生索引签名全都
+            // 是用准备阶段那份命名配置算出来的; 配置不一起换过来的话,
+            // songs(forArtist:) 与 visibleArtists 会按另一份配置分组, 直到下一次
+            // 全量重建才纠正。`.preparing` 期间进来的新配置由第 2.5 步对账。
+            artistNameConfiguration = storage.artistNameConfiguration
             // `.preparing` 构造的库此时才拿到准备阶段打开的存储句柄。
             songStore = storage.songStore
         } else {
@@ -7978,6 +8976,10 @@ final class MusicLibrary {
             persistNow()
         }
 
+        // 发布步骤 (2.5): 配置对账 —— 准备期间记录的禁用源 / 命名配置在这里
+        // 按普通 setter 重放差异, 必须早于排队突变的重放。
+        reconcilePreparingConfiguration()
+
         // 发布步骤 (3) 重放排队突变 → (4) 补齐被推迟的持久化 →
         // (5) `onReady` 回调 → (6) 唤醒 `whenReady()`。
         replayDeferredMutations()
@@ -7987,7 +8989,12 @@ final class MusicLibrary {
 
     /// 在主线程之外完成一次完整的库装载, 结果是不可变的 `PreparedStartup`。
     /// 只做纯读取与内存迁移: 任何耐久写入都推迟到主线程的发布步骤(G5)。
-    static func prepareStartup(
+    ///
+    /// Stage 2b: 必须是 `nonisolated` 的。留在 `@MainActor` 上时, 调用方
+    /// (`AppServices.init`) 建的准备任务要等主线程空出来才能跑到下面那句
+    /// `Task.detached` —— 也就是要等整个服务图谱构造完, 装载与构造根本没有
+    /// 重叠。前导部分只读 UserDefaults 与 FileManager, 两者都是线程安全的。
+    nonisolated static func prepareStartup(
         disabledSourceIDs: Set<String> = [],
         storageDirectory: URL? = nil,
         artistNameConfiguration: ArtistNameConfiguration? = nil,
@@ -8022,7 +9029,7 @@ final class MusicLibrary {
         }.value
     }
 
-    private static func defaultStorageDirectory(fileManager: FileManager = .default) -> URL {
+    private nonisolated static func defaultStorageDirectory(fileManager: FileManager = .default) -> URL {
         #if os(tvOS)
         let base = fileManager.primuseDirectoryURL(for: .cachesDirectory)
         #else
@@ -8031,8 +9038,17 @@ final class MusicLibrary {
         return base.appendingPathComponent("Primuse", isDirectory: true)
     }
 
-    private static func startupPlaylistWriterID() -> String {
+    /// Stage 2b: 准备任务与主线程上的 `makePreparing` 现在是真并发了, 而首次
+    /// 启动时两边都会看到"键还不存在"并各自铸一个 UUID —— 写赢的那个与库内存
+    /// 里用的那个可能不是同一个, 于是同一台设备的歌单会带上两个 writer ID,
+    /// LWW 会把它们当成两台设备的改动。UserDefaults 本身线程安全, 但这里是
+    /// 一个读-铸-写序列, 用进程内的锁把它合成一步。
+    private nonisolated static let startupPlaylistWriterIDLock = NSLock()
+
+    private nonisolated static func startupPlaylistWriterID() -> String {
         let key = "primuse.playlist.syncWriterID"
+        startupPlaylistWriterIDLock.lock()
+        defer { startupPlaylistWriterIDLock.unlock() }
         if let value = UserDefaults.standard.string(forKey: key), !value.isEmpty { return value }
         let value = UUID().uuidString
         UserDefaults.standard.set(value, forKey: key)
@@ -8303,22 +9319,28 @@ final class MusicLibrary {
         // Persist the dirty generation before the song-store transaction can
         // start. A process exit can therefore leave extra recovery work, but
         // can never commit new songs while leaving the old index marked clean.
-        let searchIndexGeneration = LibrarySearchIndex.persistLibraryChangePending()
+        let searchIndexGeneration = LibrarySearchIndex.persistLibraryChangePending(
+            defaults: searchIndexDefaults
+        )
 
         if let songStore {
             let previous = songStoreWriteTask
-            let recoverySnapshot = songs
-            songStoreWriteTask = Task.detached(priority: .utility) {
+            songStoreWriteTask = Task.detached(priority: .utility) { [weak self] in
                 let previousSucceeded = await previous?.value != nil
+                // A failed earlier delta may have left unknown rows stale, so
+                // this delta must not commit a cursor over that gap. Hand the
+                // gap to `flushIncrementalSongStore()` instead of freezing a
+                // full `[Song]` copy per queued write: the chain is serial, so
+                // an eager capture keeps one complete library buffer alive for
+                // every queued delta, and recovering from a snapshot taken at
+                // enqueue time would also roll back everything that landed
+                // between the failure and the recovery.
+                guard previous == nil || previousSucceeded else {
+                    await MainActor.run { self?.songStoreRequiresReplacement = true }
+                    return nil
+                }
                 do {
-                    if previous == nil || previousSucceeded {
-                        return try songStore.apply(upserts: upserts, deletingIDs: deletingIDs)
-                    } else {
-                        // A failed earlier delta may have left unknown rows
-                        // stale. Reconcile from the current immutable snapshot
-                        // instead of committing a cursor over that gap.
-                        return try songStore.replaceAll(with: recoverySnapshot)
-                    }
+                    return try songStore.apply(upserts: upserts, deletingIDs: deletingIDs)
                 } catch {
                     plog("⛔ Incremental song persistence failed: \(error.localizedDescription)")
                     return nil
@@ -8351,7 +9373,7 @@ final class MusicLibrary {
         marksMutation: Bool = true
     ) {
         if marksMutation { markPortableSnapshotDirty() }
-        if isDeferringSceneTransitionPublications {
+        if isDeferringSceneTransitionPublications || externalSnapshotWriteOwners > 0 {
             deferredPersistRequested = true
             return
         }
@@ -8380,6 +9402,12 @@ final class MusicLibrary {
         // S1: 发布前不落盘, 记账后在发布步骤补一次。
         guard !isPreparing else {
             deferredPortableSnapshotPersistRequested = true
+            return
+        }
+        // 整份替换进行中: 这是不等结果的写入方, 记下欠一次即可, 交还所有权
+        // 时会按重载之后的内存状态补写。
+        guard externalSnapshotWriteOwners == 0 else {
+            deferredPersistRequested = true
             return
         }
         persistTask?.cancel()
@@ -8438,9 +9466,18 @@ final class MusicLibrary {
         let task = Task.detached(priority: .utility) {
             // Chain after any in-flight write so the atomic file is updated in
             // call order and we never run two encodes against the same path.
-            _ = await previous?.value
+            // 前一笔的结果同时说明"磁盘上那份字节是它写的、而且有效", 备份提升
+            // 就不必再解码一次整份快照。
+            let previousSucceeded = await previous?.value
+            let existingFileIsKnownValid = LibrarySnapshotBackupPolicy
+                .existingFileIsKnownValid(previousChainedWriteSucceeded: previousSucceeded)
             let songStoreRevision = await pendingSongStoreWrite?.value ?? capturedStoreRevision
-            guard Self.writeSnapshot(snapshot, to: url, backupURL: backupURL) else {
+            guard Self.writeSnapshot(
+                snapshot,
+                to: url,
+                backupURL: backupURL,
+                existingFileIsKnownValid: existingFileIsKnownValid
+            ) else {
                 return false
             }
             _ = await previousStartupCacheWrite?.value
@@ -8509,6 +9546,17 @@ final class MusicLibrary {
     /// asynchronous `persistNow()` against an immediate file read.
     func persistNowAndWait() async -> Result<Void, AppleTVTransferFailure> {
         guard !Task.isCancelled else { return .failure(.cancelled) }
+        // `.preparing` 期间 songStore 还是 nil, S1 又会拦下快照写入, 于是这里
+        // 会在一个字节都没写的情况下返回 .success —— 把 addSongs 提交的行当成
+        // 已落盘, 调用方 (扫描游标 / Apple TV 传输检查点) 就会提交一个磁盘上
+        // 并不存在的检查点。屏障语义要求先等发布 (含排队突变重放) 完成。
+        await whenReady()
+        // 整份替换进行中就先等它结束: 这个调用的契约是"返回时已落盘", 既不能
+        // 空写成功, 也不能和事务抢同一个文件。
+        await awaitExternalSnapshotWriteRelease()
+        guard !Task.isCancelled else { return .failure(.cancelled) }
+        // 屏障语义: 窗口内的资源补丁也必须进这次落盘。
+        flushPendingAssetReferencePatches()
         persistTask?.cancel()
         persistTask = nil
         persistDeadline = nil
@@ -8538,6 +9586,10 @@ final class MusicLibrary {
     /// debounced until iCloud/TV export or a lifecycle flush requests it.
     func persistIncrementalNowAndWait() async -> Result<Void, AppleTVTransferFailure> {
         guard !Task.isCancelled else { return .failure(.cancelled) }
+        // 同 `persistNowAndWait`: 存储句柄要等发布才装入, 分支判断也必须在
+        // 发布之后做, 否则增量提交会退回 JSON 路径并同样空写成功。
+        await whenReady()
+        flushPendingAssetReferencePatches()
         guard songStore != nil else {
             // Older/unsupported environments retain the proven JSON path.
             return await persistNowAndWait()
@@ -8593,10 +9645,17 @@ final class MusicLibrary {
 
     /// Encode + atomically write a snapshot. `nonisolated` so it runs off the
     /// main actor; uses a fresh encoder rather than sharing the main-actor one.
+    ///
+    /// `existingFileIsKnownValid` 只在这条串行写入链的前一笔刚刚把同一份字节
+    /// 写进 `url` 并报告成功时为真; 那一次解码是纯粹的重复劳动 (整份快照含
+    /// 内嵌歌词, 一次解码就是一遍完整的 `Song` 反序列化)。其它任何来源 ——
+    /// 上一次启动、`reloadFromDisk`、iCloud / Apple TV 快照导入、失败的写入 ——
+    /// 都走原来的解码校验, 它是"损坏文件不得被提升为备份"的那道保险。
     private nonisolated static func writeSnapshot(
         _ snapshot: Snapshot,
         to url: URL,
-        backupURL: URL
+        backupURL: URL,
+        existingFileIsKnownValid: Bool
     ) -> Bool {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -8608,12 +9667,20 @@ final class MusicLibrary {
             plog("⚠️ Library snapshot encoding failed: \(error.localizedDescription)")
             return false
         }
-        let shouldPreserveCurrentAsBackup: Bool
-        if let currentData = try? Data(contentsOf: url) {
-            shouldPreserveCurrentAsBackup = isValidSnapshotData(currentData)
+        let existingFileIsValid: Bool?
+        if LibrarySnapshotBackupPolicy.shouldValidateExistingFile(
+            existingFileIsKnownValid: existingFileIsKnownValid
+        ) {
+            existingFileIsValid = (try? Data(contentsOf: url))
+                .map(isValidSnapshotData) ?? false
         } else {
-            shouldPreserveCurrentAsBackup = false
+            existingFileIsValid = nil
         }
+        let shouldPreserveCurrentAsBackup = LibrarySnapshotBackupPolicy
+            .shouldPreserveExistingAsBackup(
+                existingFileIsKnownValid: existingFileIsKnownValid,
+                existingFileIsValid: existingFileIsValid
+            )
         do {
             try AtomicBackupFileWriter.write(
                 data,
@@ -8718,6 +9785,16 @@ final class MusicLibrary {
         /// Nil keeps the LAN transfer's historical all-lyrics behavior. A set
         /// limits CloudKit to songs retained after device-local filtering.
         let eligibleLyricsFileNames: Set<String>?
+        /// Songs left in the payload after cloud-source filtering. Callers that
+        /// overwrite a shared cloud snapshot use this to refuse an automatic
+        /// upload that would replace a real library with an empty one.
+        let eligibleSongCount: Int
+        /// True when the payload's source list still carries at least one
+        /// cloud-sync-eligible source. A library assembled only from device-local
+        /// imports and the Apple Music Library always filters down to zero
+        /// eligible songs, so the empty-library guard must not read that as a
+        /// library that was wiped.
+        let hasCloudEligibleSources: Bool
     }
 
     /// The local snapshot stays metadata-only. Transport copies include bounded,
@@ -8734,7 +9811,13 @@ final class MusicLibrary {
         guard var snapshot = try? decoder.decode(Snapshot.self, from: data) else { return nil }
 
         var eligibleLyricsFileNames: Set<String>?
+        // Without a cloud source list nothing is filtered out, so the payload is
+        // not the device-local-only case the automatic upload guard looks for.
+        var hasCloudEligibleSources = true
         if let cloudSources {
+            hasCloudEligibleSources = cloudSources.contains(
+                where: MusicSourceCloudSyncPolicy.isEligible
+            )
             snapshot.songs = MusicSourceCloudSyncPolicy.eligibleSongs(
                 snapshot.songs,
                 sources: cloudSources
@@ -8881,7 +9964,9 @@ final class MusicLibrary {
            encoded.count <= maximumEncodedSnapshotBytes {
             return PortableSnapshotTransferData(
                 data: encoded,
-                eligibleLyricsFileNames: eligibleLyricsFileNames
+                eligibleLyricsFileNames: eligibleLyricsFileNames,
+                eligibleSongCount: snapshot.songs.count,
+                hasCloudEligibleSources: hasCloudEligibleSources
             )
         }
 
@@ -8894,7 +9979,9 @@ final class MusicLibrary {
               encoded.count <= 64 * 1024 * 1024 else { return nil }
         return PortableSnapshotTransferData(
             data: encoded,
-            eligibleLyricsFileNames: eligibleLyricsFileNames
+            eligibleLyricsFileNames: eligibleLyricsFileNames,
+            eligibleSongCount: snapshot.songs.count,
+            hasCloudEligibleSources: hasCloudEligibleSources
         )
     }
 

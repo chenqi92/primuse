@@ -1543,6 +1543,7 @@
 "last_synced" = "अंतिम बार समन्वयित किया गया";
 "later" = "बाद में";
 "library" = "लाइब्रेरी";
+"library_preparing" = "लाइब्रेरी तैयार की जा रही है...";
 "library_add_quick_access" = "शॉर्टकट जोड़ें";
 "library_browse" = "लाइब्रेरी ब्राउज़ करें";
 "library_browse_flat" = "सपाट";

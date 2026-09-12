@@ -42,6 +42,16 @@ final class PlayMediaIntentHandler: NSObject,
                 return
             }
 
+            // Stage 2: 冷启动时资料库仍在后台装载。Intents 只给约 10 秒预算,
+            // 所以有界等待 8 秒; 超时后按今天的代码路径继续 —— 空库自然落到
+            // 既有的"没解析出目标"应答。
+            // Stage 2b: 但只为真的要读库的目标等。电台与"继续播放"用的是
+            // radioStationsStore / 播放器, 白等 8 秒会把预算耗光, 紧接着的流
+            // 地址解析(网络)就再也来不及了。
+            if Self.targetNeedsLibrary(query: query, identifierGroups: identifierGroups) {
+                _ = await AppServices.shared.musicLibrary.whenReady(timeout: .seconds(8))
+            }
+
             guard let target = Self.resolveTarget(
                 intent: intent,
                 query: query,
@@ -130,6 +140,12 @@ final class PlayMediaIntentHandler: NSObject,
             let query = Self.query(for: intent)
             let identifierGroups = Self.selectedIdentifierGroups(for: intent)
             let identifiers = identifierGroups.flatMap { $0 }
+            // 同 `handle(intent:completion:)`: 歌单 / 专辑 / 艺术家 / 歌曲候选
+            // 全部来自资料库, 发布之前列表是空的; 电台候选与 `.notRequired`
+            // 的两类则完全不读库, 不为它们花预算。
+            if Self.mediaItemResolutionNeedsLibrary(query.kind) {
+                _ = await AppServices.shared.musicLibrary.whenReady(timeout: .seconds(8))
+            }
 
             switch query.kind {
             case .playlist:
@@ -376,6 +392,37 @@ final class PlayMediaIntentHandler: NSObject,
             options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
             locale: Locale(identifier: "en_US_POSIX")
         ).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Stage 2b: 这次请求的目标到底读不读 `MusicLibrary`。
+    /// 电台走 `radioStationsStore` / `sourcesStore`, 与资料库无关。
+    private static func targetNeedsLibrary(
+        query: SiriMediaSearchQuery,
+        identifierGroups: [[String]]
+    ) -> Bool {
+        if query.kind == .radioStation { return false }
+        let groups = identifierGroups.filter { !$0.isEmpty }
+        guard !groups.isEmpty else { return true }
+        guard query.kind == .music || query.kind == .unsupported else { return true }
+        // `resolveTarget` 对非空 identifier 组是逐组解析的: 每一组的每一条都
+        // 落在电台命名空间时, 这条路径不会碰资料库。
+        return !groups.allSatisfy { group in
+            group.allSatisfy { identifier in
+                let namespace = SiriMediaIdentifier.namespace(from: identifier)
+                return namespace == "radio" || namespace == "station"
+            }
+        }
+    }
+
+    /// `resolveMediaItems` 的同款判定: 电台候选来自电台目录,
+    /// algorithmic / unsupported 两类直接回 `.notRequired`。
+    private static func mediaItemResolutionNeedsLibrary(_ kind: SiriMediaSearchKind) -> Bool {
+        switch kind {
+        case .radioStation, .algorithmicRadioStation, .unsupported:
+            return false
+        case .song, .album, .artist, .genre, .playlist, .music:
+            return true
+        }
     }
 
     @MainActor
