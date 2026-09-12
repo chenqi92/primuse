@@ -5545,7 +5545,7 @@ struct LyricsScrollView: View {
                                     .smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0),
                                     value: currentLineIndex
                                 )
-                                .padding(.vertical, 2)
+                                .padding(.vertical, 5)
 
                             if LyricPlaybackPositionPolicy.hasLongInterlude(
                                 afterLine: index,
@@ -5674,7 +5674,7 @@ struct LyricsScrollView: View {
                                 .smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0),
                                 value: currentLineIndex
                             )
-                            .padding(.vertical, 2)
+                            .padding(.vertical, 5)
 
                             if LyricPlaybackPositionPolicy.hasLongInterlude(
                                 afterLine: index,
@@ -5914,7 +5914,10 @@ struct LyricsScrollView: View {
         let alignment = lyricsAlignment.horizontalAlignment
         let frameAlignment = lyricsAlignment.frameAlignment
 
-        VStack(alignment: alignment, spacing: 4) {
+        // 组内(原文与其译文)贴紧，组间(不同时间轴的两句)拉开 —— 两者此前都是
+        // 4pt，一句歌词和它的译文看起来跟相邻的另一句一样远，读的时候要自己
+        // 分辨哪一行属于哪一句。
+        VStack(alignment: alignment, spacing: 3) {
             singleLineContent(
                 line: line,
                 isActive: isActive,
