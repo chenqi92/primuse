@@ -3179,8 +3179,21 @@ public enum MetadataBackfillExecutionPolicy {
             flush = 10
         }
         if environment.playbackActive {
-            let playbackCeiling = environment.device.platform == .television ? 1
-                : (offline || preference == .fast ? 2 : 1)
+            // 全速是用户主动选的偏好，播放期间给它三个读取位而不是两个。
+            //
+            // 远程标签读取绝大部分时间花在等网络上，真正占 CPU 的解析很短；
+            // 缓冲调度也已经不在主线程上，播放不再受读取节奏牵动。两个读取位
+            // 会让内网 NAS 的整库读取慢到肉眼可见，而第三个位带来的额外压力
+            // 主要落在网络等待上。其余偏好保持原样：自动仍是保守的单位，
+            // 电视只有一个位。
+            let playbackCeiling: Int
+            if environment.device.platform == .television {
+                playbackCeiling = 1
+            } else if preference == .fast {
+                playbackCeiling = 3
+            } else {
+                playbackCeiling = offline ? 2 : 1
+            }
             workers = min(workers, playbackCeiling)
         }
         if environment.lowPowerMode {

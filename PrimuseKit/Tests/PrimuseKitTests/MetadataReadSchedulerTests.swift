@@ -200,7 +200,8 @@ struct MetadataReadSchedulerTests {
                 for: .userInitiated, preference: preference,
                 environment: .init(playbackActive: true)
             )
-            #expect(playback.workerCount == (preference == .fast ? 2 : 1))
+            // 全速在播放期间保留三个读取位；自动与省电仍是一个。
+            #expect(playback.workerCount == (preference == .fast ? 3 : 1))
             let lowPower = MetadataBackfillExecutionPolicy.limits(
                 for: .userInitiated, preference: preference,
                 environment: .init(lowPowerMode: true)
