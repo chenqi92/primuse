@@ -141,14 +141,14 @@ struct ImmersiveDeepStarField: View {
                 let seedA = ImmersiveSeed.unit(index, salt: layerIndex * 7 + 1)
                 let seedB = ImmersiveSeed.unit(index, salt: layerIndex * 7 + 2)
                 let seedC = ImmersiveSeed.unit(index, salt: layerIndex * 7 + 3)
-                let drift = isAnimating ? time * layer.speed : 0
-                let x = ImmersiveSeed.wrapped(seedA + drift * (0.6 + seedC * 0.8))
-                let y = ImmersiveSeed.wrapped(seedB + drift * 0.28)
-                let twinkle = isAnimating
+                let drift: Double = isAnimating ? time * layer.speed : 0
+                let x: Double = ImmersiveSeed.wrapped(seedA + drift * (0.6 + seedC * 0.8))
+                let y: Double = ImmersiveSeed.wrapped(seedB + drift * 0.28)
+                let twinkle: Double = isAnimating
                     ? (sin(time * (0.7 + seedC * 1.6) + seedA * 6.28) + 1) / 2
                     : 0.6
-                let radius = layer.minRadius + CGFloat(seedC) * (layer.maxRadius - layer.minRadius)
-                let alpha = layer.alpha * (0.45 + twinkle * 0.55)
+                let radius: CGFloat = layer.minRadius + CGFloat(seedC) * (layer.maxRadius - layer.minRadius)
+                let alpha: Double = layer.alpha * (0.45 + twinkle * 0.55)
                 let center = CGPoint(x: CGFloat(x) * size.width, y: CGFloat(y) * size.height)
                 let tint = seedB < 0.18 ? palette.primary : ImmersiveStagePalette.ink
 
@@ -274,19 +274,22 @@ struct ImmersiveOrganicContourField: View {
                 var quietRings = Path()
                 for ring in 0..<ringCount {
                     let ringPhase = Double(ring)
-                    let radius = base + CGFloat(ring) * step
+                    let radius: CGFloat = base + CGFloat(ring) * step
                     var path = Path()
                     for point in 0...pointCount {
-                        let angle = Double(point) / Double(pointCount) * 2 * .pi
-                        let first = sin(angle * 3 + time * 0.31 + ringPhase * 0.29) * 0.075
-                        let second = cos(angle * 5 - time * 0.19 + ringPhase * 0.17) * 0.04
-                        let third = sin(angle * 2 + time * 0.12 - ringPhase * 0.11) * 0.05
-                        let scaled = radius * (1 + CGFloat(first + second + third))
-                        let drift = CGFloat(sin(time * 0.17 + ringPhase * 0.5)) * radius * 0.05
-                        let value = CGPoint(
-                            x: origin.x + cos(angle) * scaled * 1.12 + drift,
-                            y: origin.y + sin(angle) * scaled * 0.88
-                        )
+                        // 每个中间量都标注类型:这里 Double 与 CGFloat 混算,
+                        // 两者之间存在隐式转换,不标注的话类型检查器要在一个
+                        // 长表达式里穷举所有组合,直接超时编译失败。
+                        let angle: Double = Double(point) / Double(pointCount) * 2 * .pi
+                        let first: Double = sin(angle * 3 + time * 0.31 + ringPhase * 0.29) * 0.075
+                        let second: Double = cos(angle * 5 - time * 0.19 + ringPhase * 0.17) * 0.04
+                        let third: Double = sin(angle * 2 + time * 0.12 - ringPhase * 0.11) * 0.05
+                        let wobble: CGFloat = CGFloat(first + second + third)
+                        let scaled: CGFloat = radius * (1 + wobble)
+                        let drift: CGFloat = CGFloat(sin(time * 0.17 + ringPhase * 0.5)) * radius * 0.05
+                        let valueX: CGFloat = origin.x + CGFloat(cos(angle)) * scaled * 1.12 + drift
+                        let valueY: CGFloat = origin.y + CGFloat(sin(angle)) * scaled * 0.88
+                        let value = CGPoint(x: valueX, y: valueY)
                         if point == 0 { path.move(to: value) } else { path.addLine(to: value) }
                     }
                     path.closeSubpath()
@@ -373,32 +376,33 @@ struct ImmersiveLightRays: View {
             let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
             Canvas(rendersAsynchronously: true) { canvas, size in
                 let source = CGPoint(x: size.width * origin.x, y: size.height * origin.y)
-                let reach = (size.width * size.width + size.height * size.height).squareRoot() * 1.2
+                let reach: CGFloat = (size.width * size.width + size.height * size.height).squareRoot() * 1.2
                 canvas.blendMode = .plusLighter
                 for index in 0..<rayCount {
-                    let seed = ImmersiveSeed.unit(index, salt: 3)
-                    let baseAngle = 0.30 + Double(index) / Double(max(rayCount - 1, 1)) * 1.05
-                    let sway = isAnimating
+                    let seed: Double = ImmersiveSeed.unit(index, salt: 3)
+                    let baseAngle: Double = 0.30 + Double(index) / Double(max(rayCount - 1, 1)) * 1.05
+                    let sway: Double = isAnimating
                         ? sin(time / (17 + seed * 9) * 2 * .pi + seed * 6.28) * 0.05
                         : 0
-                    let angle = baseAngle + sway
-                    let halfWidth = 0.03 + seed * 0.05
+                    let angle: Double = baseAngle + sway
+                    let halfWidth: Double = 0.03 + seed * 0.05
+                    // 顶点坐标先各自算成 CGFloat 再组装,理由同上。
+                    let leadX: CGFloat = source.x + CGFloat(cos(angle - halfWidth)) * reach
+                    let leadY: CGFloat = source.y + CGFloat(sin(angle - halfWidth)) * reach
+                    let trailX: CGFloat = source.x + CGFloat(cos(angle + halfWidth)) * reach
+                    let trailY: CGFloat = source.y + CGFloat(sin(angle + halfWidth)) * reach
                     var wedge = Path()
                     wedge.move(to: source)
-                    wedge.addLine(to: CGPoint(
-                        x: source.x + CGFloat(cos(angle - halfWidth)) * reach,
-                        y: source.y + CGFloat(sin(angle - halfWidth)) * reach
-                    ))
-                    wedge.addLine(to: CGPoint(
-                        x: source.x + CGFloat(cos(angle + halfWidth)) * reach,
-                        y: source.y + CGFloat(sin(angle + halfWidth)) * reach
-                    ))
+                    wedge.addLine(to: CGPoint(x: leadX, y: leadY))
+                    wedge.addLine(to: CGPoint(x: trailX, y: trailY))
                     wedge.closeSubpath()
 
-                    let shimmer = isAnimating
+                    let shimmer: Double = isAnimating
                         ? (sin(time / (5 + seed * 4) * 2 * .pi + Double(index)) + 1) / 2
                         : 0.5
-                    let alpha = 0.05 + shimmer * 0.09
+                    let alpha: Double = 0.05 + shimmer * 0.09
+                    let endX: CGFloat = source.x + CGFloat(cos(angle)) * reach * 0.8
+                    let endY: CGFloat = source.y + CGFloat(sin(angle)) * reach * 0.8
                     canvas.fill(wedge, with: .linearGradient(
                         Gradient(colors: [
                             palette.primary.opacity(alpha),
@@ -406,10 +410,7 @@ struct ImmersiveLightRays: View {
                             .clear,
                         ]),
                         startPoint: source,
-                        endPoint: CGPoint(
-                            x: source.x + CGFloat(cos(angle)) * reach * 0.8,
-                            y: source.y + CGFloat(sin(angle)) * reach * 0.8
-                        )
+                        endPoint: CGPoint(x: endX, y: endY)
                     ))
                 }
             }
@@ -901,10 +902,12 @@ struct ImmersiveAuroraCurtains: View {
                         let offset = Double(index)
                         var curtain = Path()
                         for sample in 0...samples {
-                            let x = Double(sample) / Double(samples)
-                            let wave = sin(x * 5.2 + time * 0.23 * band.speed + offset * 1.7) * 0.06
-                                + sin(x * 11.3 - time * 0.17 * band.speed + offset) * 0.03
-                                + cos(x * 2.1 + time * 0.09 * band.speed) * 0.05
+                            let x: Double = Double(sample) / Double(samples)
+                            // 三段波分开写:合成一个长加法式会让类型检查超时。
+                            let waveA: Double = sin(x * 5.2 + time * 0.23 * band.speed + offset * 1.7) * 0.06
+                            let waveB: Double = sin(x * 11.3 - time * 0.17 * band.speed + offset) * 0.03
+                            let waveC: Double = cos(x * 2.1 + time * 0.09 * band.speed) * 0.05
+                            let wave: Double = waveA + waveB + waveC
                             let point = CGPoint(
                                 x: CGFloat(x) * size.width,
                                 y: CGFloat(band.baseY + wave) * size.height
@@ -912,9 +915,10 @@ struct ImmersiveAuroraCurtains: View {
                             if sample == 0 { curtain.move(to: point) } else { curtain.addLine(to: point) }
                         }
                         for sample in stride(from: samples, through: 0, by: -1) {
-                            let x = Double(sample) / Double(samples)
-                            let wave = sin(x * 4.1 - time * 0.19 * band.speed + offset * 0.9) * 0.05
-                                + cos(x * 9.7 + time * 0.13 * band.speed) * 0.025
+                            let x: Double = Double(sample) / Double(samples)
+                            let waveA: Double = sin(x * 4.1 - time * 0.19 * band.speed + offset * 0.9) * 0.05
+                            let waveB: Double = cos(x * 9.7 + time * 0.13 * band.speed) * 0.025
+                            let wave: Double = waveA + waveB
                             curtain.addLine(to: CGPoint(
                                 x: CGFloat(x) * size.width,
                                 y: CGFloat(band.baseY + band.height + wave) * size.height
@@ -1088,19 +1092,18 @@ struct ImmersiveParticleField: View {
                     let seedA = ImmersiveSeed.unit(index, salt: 31)
                     let seedB = ImmersiveSeed.unit(index, salt: 32)
                     let seedC = ImmersiveSeed.unit(index, salt: 33)
-                    let period = 5.0 + seedA * 7.0
-                    let phase = isAnimating
+                    let period: Double = 5.0 + seedA * 7.0
+                    let phase: Double = isAnimating
                         ? ImmersiveSeed.wrapped(time / period + seedB)
                         : ImmersiveSeed.wrapped(seedB + 0.3 * seedC)
-                    let angle = seedC * 2 * .pi + (isAnimating ? time * 0.03 * (seedA - 0.5) : 0)
-                    let distance = CGFloat(pow(phase, 0.8)) * maxDistance * CGFloat(0.35 + seedA * 0.65)
-                    let point = CGPoint(
-                        x: origin.x + CGFloat(cos(angle)) * distance * 1.08,
-                        y: origin.y + CGFloat(sin(angle)) * distance * 0.92
-                    )
-                    let fade = (1 - phase) * min(1, phase * 6)
-                    let alpha = fade * (0.22 + Double(energy) * 0.62)
-                    let radius = CGFloat(0.8 + seedB * 1.8) * (1 + bass * 0.9)
+                    let angle: Double = seedC * 2 * .pi + (isAnimating ? time * 0.03 * (seedA - 0.5) : 0)
+                    let distance: CGFloat = CGFloat(pow(phase, 0.8)) * maxDistance * CGFloat(0.35 + seedA * 0.65)
+                    let pointX: CGFloat = origin.x + CGFloat(cos(angle)) * distance * 1.08
+                    let pointY: CGFloat = origin.y + CGFloat(sin(angle)) * distance * 0.92
+                    let point = CGPoint(x: pointX, y: pointY)
+                    let fade: Double = (1 - phase) * min(1, phase * 6)
+                    let alpha: Double = fade * (0.22 + Double(energy) * 0.62)
+                    let radius: CGFloat = CGFloat(0.8 + seedB * 1.8) * (1 + bass * 0.9)
                     let tint = seedA < 0.28 ? palette.primary : ImmersiveStagePalette.ink
 
                     if seedB > 0.82 {
