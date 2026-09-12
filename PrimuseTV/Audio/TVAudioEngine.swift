@@ -429,14 +429,16 @@ final class TVAudioEngine {
         let source = RadioLiveStreamSource(
             url: request.url,
             headers: request.headers
-        ) { [weak self] title in
+        ) { [weak self] metadata in
             Task { @MainActor [weak self] in
                 guard let self,
                       self.isLiveStream,
                       self.liveRequest?.id == request.id,
                       self.radioLiveStreamSource != nil else { return }
-                self.npArtist = title
-                self.onLiveMetadata?(title)
+                // 带内元数据现在还带着配图地址等信息，tvOS 这一屏只用得上文本。
+                guard let text = metadata.displayText else { return }
+                self.npArtist = text
+                self.onLiveMetadata?(text)
                 self.updateNowPlayingInfo()
             }
         }

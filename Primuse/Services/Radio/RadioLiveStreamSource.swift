@@ -43,7 +43,7 @@ final class RadioLiveStreamSource: NSObject, URLSessionDataDelegate, @unchecked 
         }
     }
 
-    typealias MetadataHandler = @Sendable (String) -> Void
+    typealias MetadataHandler = @Sendable (RadioLiveMetadata) -> Void
 
     private static let maximumSniffBytes = 64 * 1_024
     private static let maximumBufferedBytes = 2 * 1_024 * 1_024
@@ -430,20 +430,13 @@ final class RadioLiveStreamSource: NSObject, URLSessionDataDelegate, @unchecked 
         }
     }
 
+    /// 带内元数据不只有曲名 —— `StreamUrl` / `StreamArtwork` 里常常躺着
+    /// 一张当前曲目或电台的图。解析交给 `RadioICYMetadataParser`，
+    /// 这里只负责把结果交出去。
     private func publishICYMetadata(_ data: Data) {
-        let trimmed = Data(data.prefix { $0 != 0 })
-        guard !trimmed.isEmpty,
-              let text = String(data: trimmed, encoding: .utf8)
-                ?? String(data: trimmed, encoding: .isoLatin1),
-              let marker = text.range(of: "StreamTitle='", options: .caseInsensitive) else {
-            return
-        }
-        let suffix = text[marker.upperBound...]
-        let title = suffix.split(separator: "'", maxSplits: 1).first?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let title, !title.isEmpty {
-            metadataHandler?(title)
-        }
+        let metadata = RadioLiveMetadata(icy: RadioICYMetadataParser.parse(data))
+        guard !metadata.isEmpty else { return }
+        metadataHandler?(metadata)
     }
 
     private func appendAudio(_ data: Data) {

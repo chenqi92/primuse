@@ -678,6 +678,19 @@ final class AudioPlayerService {
     private(set) var playbackKind: PlaybackKind = .track
     private(set) var currentRadioStation: RadioStation?
     private(set) var radioMetadataTitle: String?
+    /// 电台此刻推送的完整元数据(拆好的艺术家/曲名 + 配图地址)。
+    /// 播放页要做「正在播放」这类展示时用它，而不是自己再解析一遍文本。
+    private(set) var radioNowPlaying: RadioLiveMetadata?
+    /// 当前曲目的配图。电台给了就用它盖住台标 —— 那是此刻更贴切的画面。
+    private(set) var radioNowPlayingArtworkURL: String?
+    /// 本次收听里出现过的曲目/节目，最新的在最前。电台没有播放列表，
+    /// 这条历史就是听众唯一能回看「刚才那首叫什么」的地方。
+    private(set) var radioTitleHistory: [RadioTitleHistoryEntry] = []
+    /// 这条流带的字幕轨。广播电台基本都是空的。
+    private(set) var radioSubtitleTracks: [RadioSubtitleTrack] = []
+    private(set) var radioSelectedSubtitleTrackID: String?
+    /// 当前该显示的字幕文本。
+    private(set) var radioSubtitleText: String?
     private(set) var radioStreamFormat: RadioStreamFormat = .automatic
     private(set) var radioBitRate: Int?
     var isLiveRadio: Bool { playbackKind == .liveRadio }
@@ -3633,7 +3646,7 @@ final class AudioPlayerService {
 
         playbackKind = .liveRadio
         currentRadioStation = station
-        radioMetadataTitle = nil
+        clearRadioMetadataState()
         radioStreamFormat = station.streamFormat
         radioBitRate = station.bitRate
         radioStationOrder = RadioStationOrdering.sorted(
@@ -3659,6 +3672,8 @@ final class AudioPlayerService {
         updateNowPlayingArtworkIfNeeded()
         updatePlaybackState()
         startRadioTransport(station: station, playID: id)
+        // 正在听的这个台最值得有一张图。发现全程在后台，起播不等它。
+        RadioLogoDiscoveryService.shared.discoverIfNeeded(for: [station])
         return true
     }
 
@@ -3737,12 +3752,12 @@ final class AudioPlayerService {
         playID id: UUID
     ) {
         radioUsesDecodedTransport = true
-        let source = RadioLiveStreamSource(url: url) { [weak self] title in
+        let source = RadioLiveStreamSource(url: url) { [weak self] metadata in
             Task { @MainActor [weak self] in
                 guard let self,
                       self.playID == id,
                       self.currentRadioStation?.id == station.id else { return }
-                self.handleRadioEvent(.metadata(title: title), station: station, playID: id)
+                self.handleRadioEvent(.metadata(metadata), station: station, playID: id)
             }
         }
         radioLiveStreamSource = source
@@ -3967,9 +3982,18 @@ final class AudioPlayerService {
         case .buffering:
             isLoading = true
             isPlaying = false
-        case .metadata(let title):
-            radioMetadataTitle = title
-            updateRadioPresentation()
+        case .metadata(let metadata):
+            applyRadioMetadata(metadata, station: station)
+
+        case .subtitleTracks(let tracks):
+            radioSubtitleTracks = tracks
+            // 字幕不参与锁屏信息，直接返回，别为它重算一遍 now playing。
+            return
+
+        case .subtitle(let text):
+            // 字幕一秒可能来好几条，绝不能每条都去刷锁屏和播放状态。
+            radioSubtitleText = text
+            return
         case .failed(let message, let shouldReconnect):
             if !radioUsesDecodedTransport,
                !radioDidAttemptDecodedFallback,
@@ -3993,6 +4017,43 @@ final class AudioPlayerService {
         updatePlaybackState()
     }
 
+    /// 把电台推来的一条元数据落到界面状态上。
+    ///
+    /// 电台每隔几秒就会重复推送同一条，所以这里对「没有变化」的情况直接返回：
+    /// 一次无谓的 `currentSong` 赋值会连带刷新锁屏信息和一整屏 SwiftUI。
+    private func applyRadioMetadata(_ metadata: RadioLiveMetadata, station: RadioStation) {
+        let isSameTitle = RadioStreamTitleParser.isSameTrack(
+            radioNowPlaying?.title,
+            metadata.title
+        )
+        let artwork = metadata.artworkURL ?? radioNowPlayingArtworkURL
+        guard !isSameTitle || artwork != radioNowPlayingArtworkURL else { return }
+
+        radioTitleHistory = RadioTitleHistoryPolicy.appending(metadata, to: radioTitleHistory)
+        radioNowPlaying = metadata
+        radioMetadataTitle = metadata.displayText ?? radioMetadataTitle
+        radioNowPlayingArtworkURL = artwork
+        updateRadioPresentation()
+    }
+
+    private func clearRadioMetadataState() {
+        radioMetadataTitle = nil
+        radioNowPlaying = nil
+        radioNowPlayingArtworkURL = nil
+        radioTitleHistory = []
+        radioSubtitleTracks = []
+        radioSelectedSubtitleTrackID = nil
+        radioSubtitleText = nil
+    }
+
+    /// 播放页切字幕轨。没有字幕轨的流上调用是安全的空操作。
+    func selectRadioSubtitleTrack(id: String?) {
+        guard isLiveRadio else { return }
+        radioSelectedSubtitleTrackID = id
+        if id == nil { radioSubtitleText = nil }
+        radioPlaybackController.selectSubtitleTrack(id: id)
+    }
+
     private func updateRadioPresentation() {
         guard var station = currentRadioStation else { return }
         station.streamFormat = radioStreamFormat
@@ -4000,8 +4061,13 @@ final class AudioPlayerService {
         currentRadioStation = station
         var song = station.playbackSong
         song.artistName = radioMetadataTitle ?? station.playbackSubtitle
+        // 电台给了当前曲目的配图就用它 —— 比一张一成不变的台标更贴合此刻在放的内容。
+        if let artwork = radioNowPlayingArtworkURL {
+            song.coverArtFileName = artwork
+        }
         currentSong = song
         updateNowPlayingInfo()
+        updateNowPlayingArtworkIfNeeded()
         updatePlaybackState()
     }
 
@@ -4069,7 +4135,7 @@ final class AudioPlayerService {
         radioPlaybackStartedAt = nil
         if clearSelection {
             currentRadioStation = nil
-            radioMetadataTitle = nil
+            clearRadioMetadataState()
             radioStreamFormat = .automatic
             radioBitRate = nil
             radioStationOrder = []
@@ -4117,6 +4183,9 @@ final class AudioPlayerService {
         currentRadioStation = updated
         var song = updated.playbackSong
         song.artistName = radioMetadataTitle ?? updated.playbackSubtitle
+        if let artwork = radioNowPlayingArtworkURL {
+            song.coverArtFileName = artwork
+        }
         currentSong = song
         updateNowPlayingInfo()
         updateNowPlayingArtworkIfNeeded()

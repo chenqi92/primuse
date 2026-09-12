@@ -1716,11 +1716,16 @@ struct CachedArtworkView: View {
     ) async -> Data? {
         let maximumArtworkBytes = 8 * 1024 * 1024
 
+        // 直播电台用的是一个虚拟 sourceID：它背后没有连接器，台标是一个普通
+        // 公网地址。把它当成「无归属」处理，否则 Case 1 会去问一个不存在的
+        // 连接器，Case 2 又因为 sourceID 非空而被跳过 —— 台标就永远加载不出来。
+        let isLiveRadioReference = sourceID == RadioStation.playbackSourceID
+
         // Case 1: Any source-owned reference, including a historical absolute
         // LAN URL, stays inside the connector operation until its bytes arrive.
         // This lets adaptive routing observe the actual image failure and retry
         // the complete request through the alternate endpoint.
-        if let ref, !ref.isEmpty, let sourceID {
+        if let ref, !ref.isEmpty, let sourceID, !isLiveRadioReference {
             if let data = await sourceManager.artworkData(
                 for: ref,
                 sourceID: sourceID,
@@ -1732,7 +1737,7 @@ struct CachedArtworkView: View {
 
         // Case 2: A URL without source ownership (for example a scraper CDN)
         // cannot be rebased, but it is still bounded and response-validated.
-        if sourceID == nil,
+        if sourceID == nil || isLiveRadioReference,
            let ref,
            ref.contains("://"),
            let url = URL(string: ref) {
@@ -1751,7 +1756,8 @@ struct CachedArtworkView: View {
         }
 
         // Case 3: No ref — try embedded extraction from locally cached audio file only
-        if let sourceID, let filePath {
+        // 直播流没有「本地缓存的音频文件」可供抽取内嵌封面，跳过。
+        if let sourceID, !isLiveRadioReference, let filePath {
             let inferredFormat = fileFormat
                 ?? AudioFormat.from(fileExtension: (filePath as NSString).pathExtension)
                 ?? .mp3

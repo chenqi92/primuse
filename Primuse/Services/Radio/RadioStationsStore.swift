@@ -110,6 +110,51 @@ final class RadioStationsStore {
         notifyChanged(ids: [id])
     }
 
+    /// 写回自动发现到的台标。
+    ///
+    /// 走独立入口而不是 `update` 是有意的：这条路径由后台任务触发，
+    /// 必须保证它既不能改动用户正在编辑的字段，也不能把用户自己选的图顶掉 ——
+    /// 所以这里只碰 `remoteLogoURL` / `remoteLogoSource` 和缺失的主页地址。
+    func applyDiscoveredLogo(
+        id: String,
+        urlString: String,
+        source: RadioLogoSource,
+        homepageURL: String? = nil
+    ) {
+        guard let index = allStations.firstIndex(where: { $0.id == id }),
+              !allStations[index].isServerMirror,
+              !allStations[index].isDeleted,
+              let normalized = RadioLogoURLPolicy.normalized(urlString) else {
+            return
+        }
+        // 用户在发现期间自己选了图就作废这次结果。
+        guard allStations[index].logoData?.isEmpty ?? true,
+              allStations[index].logoFileName?.isEmpty ?? true else {
+            return
+        }
+
+        var changed = false
+        if allStations[index].remoteLogoURL != normalized {
+            allStations[index].remoteLogoURL = normalized
+            changed = true
+        }
+        if allStations[index].remoteLogoSource != source {
+            allStations[index].remoteLogoSource = source
+            changed = true
+        }
+        // 主页只在原本没有时补上 —— 它也是后续再次发现的输入。
+        if allStations[index].homepageURL?.isEmpty ?? true,
+           let homepage = RadioLogoURLPolicy.normalized(homepageURL) {
+            allStations[index].homepageURL = homepage
+            changed = true
+        }
+        guard changed else { return }
+
+        allStations[index].modifiedAt = Date()
+        persist()
+        notifyChanged(ids: [id])
+    }
+
     /// Device-local recency is intentionally not pushed through CloudKit.
     func markPlayed(_ id: String, at date: Date = Date()) {
         guard let index = allStations.firstIndex(where: { $0.id == id }) else { return }
@@ -437,6 +482,8 @@ final class RadioStationsStore {
             && lhs.sourceName == rhs.sourceName
             && lhs.sourcePlaybackPath == rhs.sourcePlaybackPath
             && lhs.homepageURL == rhs.homepageURL
+            && lhs.remoteLogoURL == rhs.remoteLogoURL
+            && lhs.remoteLogoSource == rhs.remoteLogoSource
     }
 }
 
