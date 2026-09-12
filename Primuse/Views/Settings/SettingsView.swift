@@ -382,8 +382,8 @@ private struct LyricsAppearanceSettingsView: View {
 
     private var lyricsColorPreviewStyle: AnyShapeStyle {
         switch selectedLyricsColorMode {
-        case .theme:
-            AnyShapeStyle(Color.accentColor)
+        case .defaultColor:
+            AnyShapeStyle(Color.primary)
         case .custom:
             AnyShapeStyle(color(from: customLyricsColorHex, fallback: PlayerAppearancePreferences.defaultCustomLyricsColorHex))
         case .gradient:
