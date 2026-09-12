@@ -1432,6 +1432,8 @@
 "home_layout_carouselDouble" = "Duas linhas";
 "home_layout_grid" = "Grade";
 "home_layout_label" = "Disposição";
+"home_count_label" = "Itens";
+"home_settings_restore_all" = "Restaurar a disposição padrão";
 "home_section_quick_access" = "Acesso rápido";
 "home_section_recently_added" = "Adicionado recentemente";
 "home_section_top_artists" = "Ouvido com frequência";

@@ -1432,6 +1432,8 @@
 "home_layout_carouselDouble" = "صفّان";
 "home_layout_grid" = "شبكة";
 "home_layout_label" = "التخطيط";
+"home_count_label" = "عدد العناصر";
+"home_settings_restore_all" = "استعادة التخطيط الافتراضي";
 "home_section_quick_access" = "الوصول السريع";
 "home_section_recently_added" = "أضيف مؤخرا";
 "home_section_top_artists" = "استمع كثيرا";

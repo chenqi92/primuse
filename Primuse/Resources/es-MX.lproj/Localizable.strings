@@ -1432,6 +1432,8 @@
 "home_layout_carouselDouble" = "Dos filas";
 "home_layout_grid" = "Cuadrícula";
 "home_layout_label" = "Diseño";
+"home_count_label" = "Elementos";
+"home_settings_restore_all" = "Restablecer el diseño predeterminado";
 "home_section_quick_access" = "Acceso Rápido";
 "home_section_recently_added" = "Agregado recientemente";
 "home_section_top_artists" = "Escuchado frecuentemente";

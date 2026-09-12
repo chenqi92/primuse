@@ -1260,6 +1260,8 @@
 "home_layout_carouselDouble" = "Zwei Reihen";
 "home_layout_grid" = "Raster";
 "home_layout_label" = "Anordnung";
+"home_count_label" = "Einträge";
+"home_settings_restore_all" = "Standardanordnung wiederherstellen";
 "home_settings_title" = "Start";
 "home_settings_sections_label" = "Sichtbare Bereiche";
 "home_settings_sections_footer" = "Bereiche ein- oder ausblenden und durch Ziehen neu anordnen. Der Hero-Bereich bleibt oben.";

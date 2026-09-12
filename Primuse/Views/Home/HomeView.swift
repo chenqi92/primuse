@@ -647,6 +647,17 @@ struct HomeView: View {
         HomeSectionLayoutConfiguration.decode(homeSectionLayoutRawValue)
     }
 
+    /// 快照的取数上限。必须不小于设置里能调到的最大值,否则用户调大了也不会
+    /// 多出内容,看起来就像设置没生效。
+    static let recentlyAddedAlbumPoolLimit = 24
+    static let playlistPoolLimit = 20
+    static let topArtistPoolLimit = 20
+
+    /// 用户没设过条目数时,沿用各排布原本按尺寸类给的默认值。
+    private func sectionItemCount(_ section: HomeSectionKind, _ fallback: Int) -> Int {
+        homeLayout.itemCount(for: section) ?? fallback
+    }
+
     private var selectedHomeRadio: RadioStation? {
         let stations = radioStationsStore.stations
         if let selectedHomeRadioID,
@@ -1437,7 +1448,7 @@ struct HomeView: View {
                 let albumTiles = Self.makeRecentlyAddedAlbumTiles(
                     songs: songs,
                     albums: albums,
-                    limit: 12
+                    limit: Self.recentlyAddedAlbumPoolLimit
                 )
                 let resolvedRecentSongs = recentSongs.isEmpty
                     ? Array(songs.sorted { $0.dateAdded > $1.dateAdded }.prefix(30))
@@ -1519,7 +1530,7 @@ struct HomeView: View {
         let snapshotStartedAt = Date()
         let recentSongs = makeRecentSongs()
         let summary = PlayHistoryStore.shared.statisticsSummary(in: .week)
-        let topArtistHistory = PlayHistoryStore.shared.topArtists(in: .month, limit: 8)
+        let topArtistHistory = PlayHistoryStore.shared.topArtists(in: .month, limit: Self.topArtistPoolLimit)
         let allPlaylists = library.playlists
         let likedPlaylist = allPlaylists.first {
             $0.id == MusicLibrary.likedSongsPlaylistID
@@ -1527,7 +1538,7 @@ struct HomeView: View {
         let regularPlaylists = allPlaylists
             .filter { $0.id != MusicLibrary.likedSongsPlaylistID }
             .sorted { $0.updatedAt > $1.updatedAt }
-        let playlistTiles = regularPlaylists.prefix(10).map(makeHomePlaylistTile)
+        let playlistTiles = regularPlaylists.prefix(Self.playlistPoolLimit).map(makeHomePlaylistTile)
         let baseFinishedAt = Date()
 
         let heroFinishedAt = Date()
@@ -2149,7 +2160,7 @@ struct HomeView: View {
             case .carousel:
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 14) {
-                        ForEach(tiles.prefix(sizeClass == .regular ? 16 : 12)) { tile in
+                        ForEach(tiles.prefix(sectionItemCount(.playlists, sizeClass == .regular ? 16 : 12))) { tile in
                             NavigationLink(value: tile.playlist) {
                                 playlistCard(tile)
                             }
@@ -2165,7 +2176,7 @@ struct HomeView: View {
                     columns: [GridItem(.adaptive(minimum: homeAlbumCardWidth), spacing: 16, alignment: .top)],
                     spacing: 20
                 ) {
-                    ForEach(tiles.prefix(sizeClass == .regular ? 12 : 6)) { tile in
+                    ForEach(tiles.prefix(sectionItemCount(.playlists, sizeClass == .regular ? 12 : 6))) { tile in
                         NavigationLink(value: tile.playlist) {
                             playlistCard(tile)
                         }
@@ -2175,7 +2186,7 @@ struct HomeView: View {
                 .padding(.horizontal, 20)
             case .list:
                 VStack(spacing: 0) {
-                    let displayed = Array(tiles.prefix(sizeClass == .regular ? 5 : 4))
+                    let displayed = Array(tiles.prefix(sectionItemCount(.playlists, sizeClass == .regular ? 5 : 4)))
                     ForEach(Array(displayed.enumerated()), id: \.element.id) { index, tile in
                         NavigationLink(value: tile.playlist) {
                             playlistListRow(tile)
@@ -2277,7 +2288,7 @@ struct HomeView: View {
 
             if style == .list {
                 VStack(spacing: 8) {
-                    ForEach(displayedForYouResults.prefix(sizeClass == .regular ? 8 : 5)) { result in
+                    ForEach(displayedForYouResults.prefix(sectionItemCount(.forYou, sizeClass == .regular ? 8 : 5))) { result in
                         Button { playSong(result.song) } label: {
                             forYouListRow(result)
                         }
@@ -2424,7 +2435,7 @@ struct HomeView: View {
             case .carousel:
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 10) {
-                        ForEach(songs.prefix(12), id: \.id) { song in
+                        ForEach(songs.prefix(sectionItemCount(.continueListening, 12)), id: \.id) { song in
                             Button { playSong(song) } label: {
                                 continueListeningRow(song)
                             }
@@ -2435,7 +2446,7 @@ struct HomeView: View {
                 }
             case .list:
                 VStack(spacing: 8) {
-                    ForEach(songs.prefix(sizeClass == .regular ? 8 : 5), id: \.id) { song in
+                    ForEach(songs.prefix(sectionItemCount(.continueListening, sizeClass == .regular ? 8 : 5)), id: \.id) { song in
                         Button { playSong(song) } label: {
                             continueListeningRow(song, fillsWidth: true)
                         }
@@ -2452,7 +2463,7 @@ struct HomeView: View {
                         ],
                         spacing: 10
                     ) {
-                        ForEach(songs.prefix(12), id: \.id) { song in
+                        ForEach(songs.prefix(sectionItemCount(.continueListening, 12)), id: \.id) { song in
                             Button { playSong(song) } label: {
                                 continueListeningRow(song)
                             }
@@ -2559,7 +2570,7 @@ struct HomeView: View {
                 // 不再吃掉整屏,后面的「继续听」还留在首屏里。
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 14) {
-                        ForEach(albums.prefix(sizeClass == .regular ? 16 : 12)) { tile in
+                        ForEach(albums.prefix(sectionItemCount(.recentlyAdded, sizeClass == .regular ? 16 : 12))) { tile in
                             NavigationLink(value: tile.album) {
                                 AlbumCardView(album: tile.album, showsSongCount: true)
                                     .frame(width: homeAlbumCardWidth)
@@ -2571,7 +2582,7 @@ struct HomeView: View {
                 }
             case .list:
                 VStack(spacing: 0) {
-                    let displayed = Array(albums.prefix(sizeClass == .regular ? 8 : 6))
+                    let displayed = Array(albums.prefix(sectionItemCount(.recentlyAdded, sizeClass == .regular ? 8 : 6)))
                     ForEach(Array(displayed.enumerated()), id: \.element.id) { index, tile in
                         NavigationLink(value: tile.album) {
                             albumListRow(tile.album)
@@ -2594,7 +2605,7 @@ struct HomeView: View {
                         ],
                     spacing: 20
                 ) {
-                    ForEach(albums.prefix(sizeClass == .regular ? 12 : 6)) { tile in
+                    ForEach(albums.prefix(sectionItemCount(.recentlyAdded, sizeClass == .regular ? 12 : 6))) { tile in
                         NavigationLink(value: tile.album) {
                             AlbumCardView(album: tile.album, showsSongCount: true)
                         }
@@ -2659,7 +2670,7 @@ struct HomeView: View {
                     columns: [GridItem(.adaptive(minimum: 92), spacing: 14, alignment: .top)],
                     spacing: 16
                 ) {
-                    ForEach(displayed) { artist in
+                    ForEach(displayed.prefix(sectionItemCount(.topArtists, sizeClass == .regular ? 16 : 8))) { artist in
                         NavigationLink(value: artist) { artistBubble(artist) }
                             .buttonStyle(.plain)
                     }
@@ -2668,7 +2679,7 @@ struct HomeView: View {
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 14) {
-                        ForEach(displayed) { artist in
+                        ForEach(displayed.prefix(sectionItemCount(.topArtists, sizeClass == .regular ? 16 : 8))) { artist in
                             NavigationLink(value: artist) { artistBubble(artist) }
                                 .buttonStyle(.plain)
                         }
@@ -2692,7 +2703,7 @@ struct HomeView: View {
     /// history doesn't fill the row.
     private func topArtistsForHome(history: [PlayHistoryStore.RankedItem]) -> [Artist] {
         guard !history.isEmpty else {
-            return Array(library.visibleArtists.prefix(8))
+            return Array(library.visibleArtists.prefix(Self.topArtistPoolLimit))
         }
         let byName = Dictionary(library.visibleArtists.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
         var result: [Artist] = []
@@ -2703,11 +2714,11 @@ struct HomeView: View {
                 seen.insert(a.id)
             }
         }
-        if result.count < 8 {
+        if result.count < Self.topArtistPoolLimit {
             for a in library.visibleArtists where !seen.contains(a.id) {
                 result.append(a)
                 seen.insert(a.id)
-                if result.count >= 8 { break }
+                if result.count >= Self.topArtistPoolLimit { break }
             }
         }
         return result

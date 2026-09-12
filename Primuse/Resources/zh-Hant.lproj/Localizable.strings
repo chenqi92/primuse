@@ -1035,6 +1035,8 @@
 "home_layout_carouselDouble" = "雙行橫排";
 "home_layout_grid" = "網格";
 "home_layout_label" = "版面";
+"home_count_label" = "項目數";
+"home_settings_restore_all" = "恢復預設版面";
 "home_settings_title" = "首頁";
 "home_settings_sections_label" = "顯示區塊";
 "home_settings_sections_footer" = "使用開關控制顯示，拖曳調整順序。Hero 區域固定在頂端。";

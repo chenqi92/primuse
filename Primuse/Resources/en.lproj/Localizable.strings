@@ -1114,6 +1114,8 @@
 "home_layout_carouselDouble" = "Two rows";
 "home_layout_grid" = "Grid";
 "home_layout_label" = "Layout";
+"home_count_label" = "Items";
+"home_settings_restore_all" = "Restore default layout";
 "home_settings_title" = "Home";
 "home_settings_sections_label" = "Visible sections";
 "home_settings_sections_footer" = "Use the switches to show sections and drag to reorder them. The Hero area stays at the top.";

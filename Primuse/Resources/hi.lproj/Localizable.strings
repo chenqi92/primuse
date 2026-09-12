@@ -1432,6 +1432,8 @@
 "home_layout_carouselDouble" = "दो पंक्तियाँ";
 "home_layout_grid" = "ग्रिड";
 "home_layout_label" = "लेआउट";
+"home_count_label" = "आइटम";
+"home_settings_restore_all" = "डिफ़ॉल्ट लेआउट पुनर्स्थापित करें";
 "home_section_quick_access" = "त्वरित पहुंच";
 "home_section_recently_added" = "हाल ही में जोड़ा गया";
 "home_section_top_artists" = "बार-बार सुना गया";

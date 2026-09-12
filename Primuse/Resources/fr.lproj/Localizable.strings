@@ -1260,6 +1260,8 @@
 "home_layout_carouselDouble" = "Deux rangées";
 "home_layout_grid" = "Grille";
 "home_layout_label" = "Disposition";
+"home_count_label" = "Éléments";
+"home_settings_restore_all" = "Rétablir la disposition par défaut";
 "home_settings_title" = "Accueil";
 "home_settings_sections_label" = "Sections visibles";
 "home_settings_sections_footer" = "Affichez les sections et faites-les glisser pour les réorganiser. La zone Hero reste en haut.";

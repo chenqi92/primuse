@@ -67,8 +67,12 @@ enum HomeSectionConfiguration {
     }
 }
 
-/// Hero remains fixed at the top. Every other Home section can be hidden
-/// independently and reordered with the native list drag handle.
+/// 首页布局编辑。
+///
+/// 每个区块一张卡：左边是该区块当前排布的缩略图，右边是开关、排布与条目数。
+/// 缩略图跟着选择实时变，拖动卡片就是在排首页的顺序 —— 不再需要边改边退回
+/// 首页看效果。这张列表常驻编辑态（为了拖动），编辑态下 NavigationLink 点不动，
+/// 所以所有操作都用 Button 完成。
 struct HomeSectionsSettingsView: View {
     @AppStorage("primuse.home.showStatsGlimpse") private var showStatsGlimpse = true
     @AppStorage("primuse.home.showForYou") private var showForYou = true
@@ -89,21 +93,84 @@ struct HomeSectionsSettingsView: View {
         HomeSectionConfiguration.decode(sectionOrderRawValue)
     }
 
+    /// 电台有自己的整页模式（首页右上角切换），不参与音乐面的区块排序。
+    private var editableSections: [HomeSectionKind] {
+        sectionOrder.filter(\.isUserConfigurable)
+    }
+
     private var sectionLayout: HomeSectionLayoutConfiguration {
         HomeSectionLayoutConfiguration.decode(sectionLayoutRawValue)
     }
 
-    private func setLayout(_ style: HomeSectionLayoutStyle, for section: HomeSectionKind) {
-        var configuration = sectionLayout
-        configuration.setStyle(style, for: section)
-        sectionLayoutRawValue = configuration.encoded()
+    var body: some View {
+        List {
+            Section {
+                Toggle(isOn: $showRadio) {
+                    Label("radio_home_visibility", systemImage: "radio")
+                }
+                .accessibilityHint(Text("radio_home_visibility_description"))
+                .settingsAnchor("home.radio")
+            } header: {
+                Text("radio_title")
+            } footer: {
+                Text("radio_home_visibility_description")
+            }
+
+            Section {
+                ForEach(editableSections) { section in
+                    sectionCard(section)
+                        .settingsAnchor("home." + section.rawValue)
+                }
+                .onMove(perform: moveSections)
+            } header: {
+                Text("home_settings_sections_label")
+            } footer: {
+                Text("home_settings_sections_footer")
+            }
+            .settingsAnchor("home.order")
+
+            Section {
+                Button("home_settings_restore_all", role: .destructive) {
+                    restoreDefaults()
+                }
+                .settingsAnchor("home.restoreOrder")
+            }
+        }
+        .navigationDestination(isPresented: $showsFolderManager) {
+            HomeFolderManagementView()
+        }
+        #if os(iOS)
+        .environment(\.editMode, .constant(.active))
+        #endif
+        .navigationTitle("home_settings_title")
     }
 
-    /// 每块区域的排布选择。
-    ///
-    /// 这张列表常驻编辑态(为了拖动排序),NavigationLink 在编辑态里点不动,所以
-    /// 用一排 Button 直接选,不做二级页面 —— 顺带也省了一次跳转。给不出第二种
-    /// 像样排布的区域(统计概览、文件夹、听歌排行)不显示这一行。
+    // MARK: - 区块卡片
+
+    @ViewBuilder
+    private func sectionCard(_ section: HomeSectionKind) -> some View {
+        let visible = visibilityBinding(for: section)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 14) {
+                HomeSectionMiniature(style: sectionLayout.style(for: section))
+                    .opacity(visible.wrappedValue ? 1 : 0.3)
+                Toggle(isOn: visible) {
+                    Label(section.title, systemImage: section.icon)
+                        .lineLimit(1)
+                }
+                .accessibilityIdentifier("home.visible." + section.rawValue)
+            }
+
+            if visible.wrappedValue {
+                layoutOptions(for: section)
+                countControl(for: section)
+                if section == .folders { manageFoldersButton }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    /// 排布选择。给不出第二种像样排布的区域（统计概览、文件夹、听歌排行）不显示。
     @ViewBuilder
     private func layoutOptions(for section: HomeSectionKind) -> some View {
         let options = HomeSectionLayoutPolicy.supportedStyles(for: section)
@@ -122,7 +189,7 @@ struct HomeSectionsSettingsView: View {
                             Text(LocalizedStringKey(style.titleKey))
                                 .font(.caption)
                                 .lineLimit(1)
-                                .minimumScaleFactor(0.85)
+                                .minimumScaleFactor(0.8)
                         }
                         .padding(.horizontal, 9)
                         .padding(.vertical, 5)
@@ -139,92 +206,98 @@ struct HomeSectionsSettingsView: View {
                     .accessibilityIdentifier("home.layout.\(section.rawValue).\(style.rawValue)")
                 }
             }
-            .padding(.leading, 2)
         }
     }
 
-    /// 电台使用上方的独立开关控制整张首页背面，因此不参与音乐面板块排序。
-    private var editableSections: [HomeSectionKind] {
-        sectionOrder.filter(\.isUserConfigurable)
+    /// 条目数。Stepper 在常驻编辑态里不一定响应，用两个 Button 自己做。
+    @ViewBuilder
+    private func countControl(for section: HomeSectionKind) -> some View {
+        if let (binding, range) = countBinding(for: section) {
+            HStack(spacing: 8) {
+                Text("home_count_label")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                Text(binding.wrappedValue.formatted())
+                    .font(.caption.weight(.semibold))
+                    .monospacedDigit()
+                    .frame(minWidth: 22)
+                Spacer(minLength: 8)
+                countButton("minus", enabled: binding.wrappedValue > range.lowerBound) {
+                    binding.wrappedValue = max(range.lowerBound, binding.wrappedValue - 1)
+                }
+                .accessibilityIdentifier("home.count.decrement." + section.rawValue)
+                countButton("plus", enabled: binding.wrappedValue < range.upperBound) {
+                    binding.wrappedValue = min(range.upperBound, binding.wrappedValue + 1)
+                }
+                .accessibilityIdentifier("home.count.increment." + section.rawValue)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityValue(binding.wrappedValue.formatted())
+        }
     }
 
-    var body: some View {
-        List {
-            Section {
-                Toggle(isOn: $showRadio) {
-                    Label("radio_home_visibility", systemImage: "radio")
-                }
-                .accessibilityHint(Text("radio_home_visibility_description"))
-            }
-            .settingsAnchor("home.radio")
+    private func countButton(_ symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.caption.weight(.semibold))
+                .frame(width: 26, height: 24)
+                .background { Capsule().fill(Color.secondary.opacity(0.12)) }
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .foregroundStyle(enabled ? Color.accentColor : Color.secondary.opacity(0.5))
+    }
 
-            Section {
-                ForEach(editableSections) { section in
-                    VStack(alignment: .leading, spacing: 8) {
-                        Toggle(isOn: visibilityBinding(for: section)) {
-                            Label(section.title, systemImage: section.icon)
-                        }
-                        .accessibilityHint(Text("home_settings_sections_footer"))
-                        if visibilityBinding(for: section).wrappedValue {
-                            layoutOptions(for: section)
-                        }
-                    }
-                    .settingsAnchor("home." + section.rawValue)
-                }
-                .onMove(perform: moveSections)
-            } header: {
-                Text("home_settings_sections_label")
-            }
-            .settingsAnchor("home.order")
-
-            Section(HomeDiscoveryText.string("folders")) {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text(HomeDiscoveryText.string("folder_display_count"))
-                        Spacer()
-                        Text(HomeFolderPinStorage.displayCount(folderDisplayCount).formatted())
-                            .monospacedDigit().foregroundStyle(.secondary)
-                    }
-                    Slider(value: Binding(
-                        get: { Double(HomeFolderPinStorage.displayCount(folderDisplayCount)) },
-                        set: { folderDisplayCount = HomeFolderPinStorage.displayCount(Int($0)) }
-                    ), in: Double(HomeFolderPinStorage.displayCountRange.lowerBound)...Double(HomeFolderPinStorage.displayCountRange.upperBound), step: 1)
-                    .accessibilityLabel(HomeDiscoveryText.string("folder_display_count"))
-                    .accessibilityValue(HomeFolderPinStorage.displayCount(folderDisplayCount).formatted())
-                    .accessibilityIdentifier("home.folderDisplayCount")
-                }
-                .settingsAnchor("home.folderDisplayCount")
-                // This list stays in edit mode for reordering, which disables
-                // ordinary NavigationLinks. Keep management available there.
-                Button {
-                    showsFolderManager = true
-                } label: {
-                    HStack {
-                        Label(HomeDiscoveryText.string("manage_folders"), systemImage: "folder.badge.gearshape")
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("home.manageFolders")
-            }
-
-            Section {
-                Button("home_settings_restore_default_order") {
-                    sectionOrderRawValue = HomeSectionConfiguration.encode(
-                        HomeSectionConfiguration.defaultOrder
-                    )
-                }
-                .settingsAnchor("home.restoreOrder")
+    private var manageFoldersButton: some View {
+        Button {
+            showsFolderManager = true
+        } label: {
+            HStack {
+                Label(HomeDiscoveryText.string("manage_folders"), systemImage: "folder.badge.gearshape")
+                    .font(.caption)
+                Spacer()
+                Image(systemName: "chevron.right").font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
             }
         }
-        .navigationDestination(isPresented: $showsFolderManager) {
-            HomeFolderManagementView()
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("home.manageFolders")
+    }
+
+    // MARK: - 读写
+
+    /// 文件夹另有自己的条目数存储（管理页也在用），不在统一配置里再存一份。
+    private func countBinding(for section: HomeSectionKind) -> (Binding<Int>, ClosedRange<Int>)? {
+        if let range = HomeSectionLayoutPolicy.itemCountRange(for: section) {
+            return (Binding(
+                get: {
+                    sectionLayout.itemCount(for: section)
+                        ?? HomeSectionLayoutPolicy.defaultItemCount(for: section)
+                },
+                set: { newValue in
+                    var configuration = sectionLayout
+                    configuration.setItemCount(newValue, for: section)
+                    sectionLayoutRawValue = configuration.encoded()
+                }
+            ), range)
         }
-        #if os(iOS)
-        .environment(\.editMode, .constant(.active))
-        #endif
-        .navigationTitle("home_settings_title")
+        if section == .folders {
+            return (Binding(
+                get: { HomeFolderPinStorage.displayCount(folderDisplayCount) },
+                set: { folderDisplayCount = HomeFolderPinStorage.displayCount($0) }
+            ), HomeFolderPinStorage.displayCountRange)
+        }
+        return nil
+    }
+
+    private func setLayout(_ style: HomeSectionLayoutStyle, for section: HomeSectionKind) {
+        var configuration = sectionLayout
+        configuration.setStyle(style, for: section)
+        sectionLayoutRawValue = configuration.encoded()
+    }
+
+    private func restoreDefaults() {
+        sectionOrderRawValue = HomeSectionConfiguration.encode(HomeSectionConfiguration.defaultOrder)
+        sectionLayoutRawValue = ""
     }
 
     private func visibilityBinding(for section: HomeSectionKind) -> Binding<Bool> {
@@ -254,5 +327,55 @@ struct HomeSectionsSettingsView: View {
             section.isUserConfigurable ? (iterator.next() ?? section) : section
         }
         sectionOrderRawValue = HomeSectionConfiguration.encode(merged)
+    }
+}
+
+/// 区块排布的缩略图。用色块把「横排 / 双行 / 网格 / 列表」画出来 —— 光看名字
+/// 分不清双行横排和网格差在哪，画出来一眼就知道各自占多高。
+private struct HomeSectionMiniature: View {
+    let style: HomeSectionLayoutStyle
+
+    private var tint: Color { Color.accentColor.opacity(0.55) }
+    private var faded: Color { Color.accentColor.opacity(0.22) }
+
+    var body: some View {
+        Group {
+            switch style {
+            case .list:
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(0..<3, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: 1.5).fill(tint).frame(height: 5)
+                    }
+                }
+            case .carousel:
+                HStack(spacing: 4) {
+                    ForEach(0..<2, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: 2.5).fill(tint).frame(width: 17, height: 17)
+                    }
+                    RoundedRectangle(cornerRadius: 2.5).fill(faded).frame(width: 6, height: 17)
+                }
+            case .carouselDouble:
+                VStack(spacing: 4) {
+                    ForEach(0..<2, id: \.self) { _ in
+                        HStack(spacing: 4) {
+                            RoundedRectangle(cornerRadius: 1.5).fill(tint).frame(width: 24, height: 7)
+                            RoundedRectangle(cornerRadius: 1.5).fill(faded).frame(width: 6, height: 7)
+                        }
+                    }
+                }
+            case .grid:
+                VStack(spacing: 4) {
+                    ForEach(0..<2, id: \.self) { _ in
+                        HStack(spacing: 4) {
+                            ForEach(0..<2, id: \.self) { _ in
+                                RoundedRectangle(cornerRadius: 2).fill(tint).frame(width: 15, height: 12)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .frame(width: 40, height: 34, alignment: .leading)
+        .accessibilityHidden(true)
     }
 }

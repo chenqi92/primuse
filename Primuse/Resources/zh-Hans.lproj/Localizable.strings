@@ -1115,6 +1115,8 @@
 "home_layout_carouselDouble" = "双行横排";
 "home_layout_grid" = "网格";
 "home_layout_label" = "布局";
+"home_count_label" = "条目数";
+"home_settings_restore_all" = "恢复默认布局";
 "home_settings_title" = "首页";
 "home_settings_sections_label" = "显示板块";
 "home_settings_sections_footer" = "使用开关控制显示，拖动调整顺序。Hero 区域始终固定在顶部。";

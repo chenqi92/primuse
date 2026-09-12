@@ -1432,6 +1432,8 @@
 "home_layout_carouselDouble" = "Dwa rzędy";
 "home_layout_grid" = "Siatka";
 "home_layout_label" = "Układ";
+"home_count_label" = "Elementy";
+"home_settings_restore_all" = "Przywróć domyślny układ";
 "home_section_quick_access" = "Szybki dostęp";
 "home_section_recently_added" = "Ostatnio dodane";
 "home_section_top_artists" = "Często słuchane";

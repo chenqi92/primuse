@@ -1261,6 +1261,8 @@
 "home_layout_carouselDouble" = "2段横スクロール";
 "home_layout_grid" = "グリッド";
 "home_layout_label" = "レイアウト";
+"home_count_label" = "表示数";
+"home_settings_restore_all" = "レイアウトを既定に戻す";
 "home_settings_title" = "ホーム";
 "home_settings_sections_label" = "表示するセクション";
 "home_settings_sections_footer" = "スイッチで表示を切り替え、ドラッグして並べ替えます。ヒーローエリアは上部に固定されます。";

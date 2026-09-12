@@ -1432,6 +1432,8 @@
 "home_layout_carouselDouble" = "สองแถว";
 "home_layout_grid" = "ตาราง";
 "home_layout_label" = "เลย์เอาต์";
+"home_count_label" = "จำนวนรายการ";
+"home_settings_restore_all" = "คืนค่าเลย์เอาต์เริ่มต้น";
 "home_section_quick_access" = "การเข้าถึงด่วน";
 "home_section_recently_added" = "เพิ่มล่าสุด";
 "home_section_top_artists" = "ฟังบ่อยๆ";

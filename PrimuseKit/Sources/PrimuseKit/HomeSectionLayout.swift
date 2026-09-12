@@ -93,6 +93,37 @@ public enum HomeSectionLayoutPolicy {
         supportedStyles(for: section).count > 1
     }
 
+    /// 可以自定义条目数的区域及其范围。
+    ///
+    /// 上限受首页快照本身的取数上限约束 —— 调到比快照更多没有意义,只会让用户
+    /// 以为设置没生效。文件夹与快捷入口另有自己的条目数设置,不在这里重复一份。
+    public static func itemCountRange(for section: HomeSectionKind) -> ClosedRange<Int>? {
+        switch section {
+        case .continueListening: 4...24
+        case .playlists: 3...20
+        case .topArtists: 4...20
+        case .recentlyAdded: 4...24
+        case .forYou: 3...12
+        case .quickAccess, .folders, .listeningRanking, .stats, .radio: nil
+        }
+    }
+
+    /// 用户没设过条目数时，设置页显示的基准值。
+    ///
+    /// 首页真正用的默认值还要看尺寸类（iPad 一行放得下更多），这里给的是紧凑
+    /// 宽度那一档 —— 设置页不知道首页当下有多宽，与其编一个数，不如取用户
+    /// 手机上最常见的那个。
+    public static func defaultItemCount(for section: HomeSectionKind) -> Int {
+        switch section {
+        case .continueListening: 12
+        case .playlists: 4
+        case .topArtists: 8
+        case .recentlyAdded: 6
+        case .forYou: 5
+        case .quickAccess, .folders, .listeningRanking, .stats, .radio: 0
+        }
+    }
+
     /// 把存下来的值夹回该区域真正支持的范围。
     ///
     /// 存盘的是字符串,后续版本删掉某个方案、或某块不再支持某个方案时,旧值必须
@@ -116,8 +147,30 @@ public struct HomeSectionLayoutConfiguration: Codable, Equatable, Sendable {
     /// 只存用户改过的区域,没有条目就按默认走。
     public var styles: [String: String]
 
-    public init(styles: [String: String] = [:]) {
+    /// 用户自定义的显示条目数,同样只存改过的。没有条目时由界面按当前尺寸类
+    /// 给默认值 —— iPad 一行放得下更多,默认值本就该和 iPhone 不同。
+    public var itemCounts: [String: Int]
+
+    public init(styles: [String: String] = [:], itemCounts: [String: Int] = [:]) {
         self.styles = styles
+        self.itemCounts = itemCounts
+    }
+
+    /// 用户没设过就返回 nil,由调用方决定默认值。
+    public func itemCount(for section: HomeSectionKind) -> Int? {
+        guard let range = HomeSectionLayoutPolicy.itemCountRange(for: section),
+              let stored = itemCounts[section.rawValue] else { return nil }
+        return min(max(stored, range.lowerBound), range.upperBound)
+    }
+
+    public mutating func setItemCount(_ count: Int, for section: HomeSectionKind) {
+        guard let range = HomeSectionLayoutPolicy.itemCountRange(for: section) else { return }
+        itemCounts[section.rawValue] = min(max(count, range.lowerBound), range.upperBound)
+    }
+
+    /// 恢复到「跟随默认」而不是写死一个数字。
+    public mutating func clearItemCount(for section: HomeSectionKind) {
+        itemCounts.removeValue(forKey: section.rawValue)
     }
 
     public func style(for section: HomeSectionKind) -> HomeSectionLayoutStyle {
@@ -145,6 +198,15 @@ public struct HomeSectionLayoutConfiguration: Codable, Equatable, Sendable {
         let current = style(for: section)
         let next = options[((options.firstIndex(of: current) ?? 0) + 1) % options.count]
         setStyle(next, for: section)
+    }
+
+    // 老版本存下来的 JSON 没有 itemCounts 字段,缺省解成空字典而不是整份作废。
+    private enum CodingKeys: String, CodingKey { case styles, itemCounts }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        styles = try container.decodeIfPresent([String: String].self, forKey: .styles) ?? [:]
+        itemCounts = try container.decodeIfPresent([String: Int].self, forKey: .itemCounts) ?? [:]
     }
 
     public static func decode(_ rawValue: String) -> Self {
