@@ -58,27 +58,33 @@ struct SettingsView: View {
             List {
                 if search.content == .results {
                     searchResults
-                } else if search.content == .recent && !recentItems.isEmpty {
-                    Section {
-                        ForEach(recentItems) { item in
-                            Button { open(item) } label: { SettingsSearchResultRow(item: item) }
-                                .buttonStyle(.plain)
-                        }
-                    } header: {
-                        HStack {
-                            Text(SettingsStrings.text("Recently used"))
-                            Spacer()
-                            Button(SettingsStrings.text("Clear")) { SettingsSearchHistory.shared.clear() }
-                                .textCase(nil)
-                        }
-                    }
-                } else {
+                }
+                if search.content == .recent, !recentItems.isEmpty {
+                    recentItemsSection
+                }
+                if search.showsSettingsRows {
                     settingsRows
                 }
             }
             .scrollDismissesKeyboard(.interactively)
         }
         .id(rootFocusRevision)
+    }
+
+    private var recentItemsSection: some View {
+        Section {
+            ForEach(recentItems) { item in
+                Button { open(item) } label: { SettingsSearchResultRow(item: item) }
+                    .buttonStyle(.plain)
+            }
+        } header: {
+            HStack {
+                Text(SettingsStrings.text("Recently used"))
+                Spacer()
+                Button(SettingsStrings.text("Clear")) { SettingsSearchHistory.shared.clear() }
+                    .textCase(nil)
+            }
+        }
     }
 
     @ViewBuilder private var searchableContent: some View {
@@ -118,6 +124,12 @@ struct SettingsView: View {
                             if itemID == nil { SettingsSearchHistory.shared.record(page.id) }
                         }
                 }
+            }
+            // 从子页返回根页时结束搜索会话, 免得设置页停在搜索态里,
+            // 让人以为完整设置列表消失了。
+            .onChange(of: path.isEmpty) { _, isRoot in
+                guard isRoot else { return }
+                search.endSession()
             }
             .onChange(of: scraperSettingsRoute.isMetadataScrapingPresented, initial: true) { _, requested in
                 guard requested else { return }

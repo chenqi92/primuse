@@ -24,6 +24,16 @@ final class SettingsSearchState {
         guard isPresented else { return .settings }
         return query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .recent : .results
     }
+
+    /// 只有正在展示搜索结果时才隐藏完整设置列表。搜索框处于激活状态但没有
+    /// 查询词时, "最近使用" 只是列表顶部的附加分组, 完整列表照常显示。
+    var showsSettingsRows: Bool { content != .results }
+
+    /// 结束一次搜索会话: 收起搜索框并清空查询, 让设置页回到完整列表。
+    func endSession() {
+        query = ""
+        isPresented = false
+    }
 }
 
 @MainActor

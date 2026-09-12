@@ -63,6 +63,33 @@ final class SettingsDiscoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testActiveEmptySearchKeepsFullSettingsListVisible() {
+        let search = SettingsSearchState()
+        search.isPresented = true
+
+        XCTAssertEqual(search.content, .recent)
+        XCTAssertTrue(search.showsSettingsRows)
+
+        search.query = "歌词"
+        XCTAssertEqual(search.content, .results)
+        XCTAssertFalse(search.showsSettingsRows)
+    }
+
+    @MainActor
+    func testEndingSearchSessionRestoresFullSettingsList() {
+        let search = SettingsSearchState()
+        search.isPresented = true
+        search.query = "歌词"
+
+        search.endSession()
+
+        XCTAssertFalse(search.isPresented)
+        XCTAssertEqual(search.query, "")
+        XCTAssertEqual(search.content, .settings)
+        XCTAssertTrue(search.showsSettingsRows)
+    }
+
+    @MainActor
     func testInactiveSettingsSearchNeverShowsStaleResults() {
         let search = SettingsSearchState()
         search.query = "歌词"
