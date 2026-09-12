@@ -206,8 +206,18 @@ struct ImmersiveStageView<Artwork: View>: View {
 
     // MARK: - 1. 封面流光
 
+    /// 居中构图：悬浮封面在正中，标题与歌词居中排在其下；手机横屏高度不够，
+    /// 退回左封面右文字。
     private var coverFlowScene: some View {
-        ZStack {
+        let isPhoneLandscape = metrics.layout == .phoneLandscape
+        let side = metrics.isPortrait
+            ? min(metrics.size.width * 0.72, metrics.size.height * 0.36)
+            : (isPhoneLandscape
+                ? min(metrics.size.height * 0.56, metrics.size.width * 0.30)
+                : min(metrics.size.height * 0.40, metrics.size.width * 0.28))
+        let textWidth = metrics.isPortrait ? nil : metrics.size.width * 0.62
+
+        return ZStack {
             ImmersivePaletteFlowBackdrop(palette: palette, isAnimating: sceneIsAnimating)
             ImmersiveArtworkAtmosphere(
                 isAnimating: sceneIsAnimating,
@@ -220,40 +230,38 @@ struct ImmersiveStageView<Artwork: View>: View {
             ImmersiveFlowingLightRibbons(palette: palette, isAnimating: sceneIsAnimating)
             ImmersiveVignette(color: palette.secondary, center: .center, clearStop: 0.22, strength: 0.66)
 
-            if metrics.isPortrait {
-                VStack(alignment: .leading, spacing: metrics.s(26)) {
-                    levitatingArtwork(
-                        side: min(metrics.size.width * 0.72, metrics.size.height * 0.36),
-                        radius: metrics.f(18)
-                    )
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    titleBlock(size: metrics.s(46), weight: .semibold)
-                    singleLyric(fontSize: metrics.s(17))
-                    Spacer(minLength: 0)
-                }
-                .padding(.leading, leadingInset)
-                .padding(.trailing, trailingInset)
-                .padding(.top, topInset + metrics.s(16))
-                .padding(.bottom, bottomInset)
-            } else {
-                HStack(spacing: metrics.s(platform == .tvOS ? 96 : 56)) {
-                    VStack(alignment: .leading, spacing: metrics.s(22)) {
-                        titleBlock(size: metrics.s(platform == .tvOS ? 104 : 66), weight: .semibold)
-                        singleLyric(
-                            fontSize: metrics.s(platform == .tvOS ? 31 : 20),
-                            availableWidth: metrics.size.width * 0.44
-                        )
+            if isPhoneLandscape {
+                HStack(spacing: metrics.s(56)) {
+                    levitatingArtwork(side: side, radius: metrics.f(20))
+                    VStack(alignment: .leading, spacing: metrics.s(20)) {
+                        titleBlock(size: metrics.s(56), weight: .semibold)
+                        singleLyric(fontSize: metrics.s(19), availableWidth: metrics.size.width * 0.46)
                     }
-                    .frame(maxWidth: metrics.size.width * 0.44, alignment: .leading)
-                    Spacer(minLength: 0)
-                    levitatingArtwork(
-                        side: min(metrics.size.height * 0.58, metrics.size.width * 0.34),
-                        radius: metrics.f(24)
-                    )
+                    .frame(maxWidth: metrics.size.width * 0.46, alignment: .leading)
                 }
                 .padding(.leading, leadingInset)
                 .padding(.trailing, trailingInset)
                 .padding(.top, topInset)
+                .padding(.bottom, bottomInset)
+            } else {
+                VStack(spacing: metrics.s(metrics.isPortrait ? 28 : 22)) {
+                    levitatingArtwork(side: side, radius: metrics.f(metrics.isPortrait ? 18 : 22))
+                    titleBlock(
+                        size: metrics.s(metrics.isPortrait ? 44 : (platform == .tvOS ? 84 : 54)),
+                        weight: .semibold,
+                        maxWidth: textWidth,
+                        alignment: .center
+                    )
+                    singleLyric(
+                        fontSize: metrics.s(metrics.isPortrait ? 17 : (platform == .tvOS ? 30 : 19)),
+                        availableWidth: textWidth,
+                        alignment: .center
+                    )
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: metrics.isPortrait ? .top : .center)
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
+                .padding(.top, topInset + metrics.s(metrics.isPortrait ? 16 : 0))
                 .padding(.bottom, bottomInset)
             }
         }
@@ -347,6 +355,8 @@ struct ImmersiveStageView<Artwork: View>: View {
 
     // MARK: - 3. 星夜
 
+    /// 杂志式构图：左上小封面与艺人，正中一行细体大标题，底部一句歌词，
+    /// 让文字像浮在夜空里。
     private var starryNightScene: some View {
         ZStack {
             ImmersiveDeepStarField(palette: palette, isAnimating: sceneIsAnimating)
@@ -354,37 +364,38 @@ struct ImmersiveStageView<Artwork: View>: View {
 
             if metrics.isPortrait {
                 VStack(alignment: .leading, spacing: metrics.s(24)) {
-                    portraitArtworkPlate(
-                        side: min(metrics.size.width * 0.69, metrics.size.height * 0.36),
-                        radius: metrics.f(10)
-                    )
-                    titleBlock(size: metrics.s(48), weight: .light)
-                    singleLyric(fontSize: metrics.s(16))
-                    Spacer(minLength: 0)
-                }
-                .padding(.leading, leadingInset)
-                .padding(.trailing, trailingInset)
-                .padding(.top, topInset + metrics.s(18))
-                .padding(.bottom, bottomInset)
-            } else {
-                HStack(spacing: metrics.s(platform == .tvOS ? 82 : 48)) {
-                    artworkPlate(
-                        side: min(metrics.size.height * 0.50, metrics.size.width * 0.31),
-                        radius: metrics.f(10)
-                    )
-                    VStack(alignment: .leading, spacing: metrics.s(18)) {
-                        titleBlock(size: metrics.s(platform == .tvOS ? 96 : 60), weight: .light)
-                        singleLyric(
-                            fontSize: metrics.s(platform == .tvOS ? 28 : 18),
-                            availableWidth: metrics.size.width * 0.46
-                        )
-                    }
-                    .frame(maxWidth: metrics.size.width * 0.46, alignment: .leading)
+                    compactHeader(artSide: metrics.s(58))
+                    Spacer(minLength: metrics.s(44))
+                    titleBlock(size: metrics.s(58), weight: .light)
+                    Spacer()
+                    singleLyric(fontSize: metrics.s(17))
                 }
                 .padding(.leading, leadingInset)
                 .padding(.trailing, trailingInset)
                 .padding(.top, topInset)
-                .padding(.bottom, bottomInset)
+                .padding(.bottom, bottomInset + metrics.s(30))
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(alignment: .top) {
+                        compactHeader(artSide: metrics.s(platform == .tvOS ? 94 : 60))
+                        Spacer()
+                    }
+                    Spacer()
+                    titleBlock(
+                        size: metrics.s(platform == .tvOS ? 132 : 82),
+                        weight: .light,
+                        maxWidth: metrics.size.width * 0.68
+                    )
+                    Spacer()
+                    singleLyric(
+                        fontSize: metrics.s(platform == .tvOS ? 31 : 20),
+                        availableWidth: metrics.size.width * 0.72
+                    )
+                }
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
+                .padding(.top, topInset)
+                .padding(.bottom, bottomInset + metrics.s(10))
             }
         }
     }
@@ -737,6 +748,7 @@ struct ImmersiveStageView<Artwork: View>: View {
 
     // MARK: - 8. 实时波形
 
+    /// 控制台式构图：顶部一行小封面加标题，下面整幅宽的波形面板，再下是歌词。
     private var liveWaveformScene: some View {
         ZStack {
             ImmersivePaletteFlowBackdrop(palette: palette, isAnimating: sceneIsAnimating, intensity: 0.50)
@@ -751,7 +763,7 @@ struct ImmersiveStageView<Artwork: View>: View {
             ImmersiveEnergyGlow(
                 levelsProvider: spectrumProvider,
                 palette: palette,
-                center: metrics.isPortrait ? UnitPoint(x: 0.5, y: 0.28) : UnitPoint(x: 0.22, y: 0.5),
+                center: UnitPoint(x: 0.5, y: metrics.isPortrait ? 0.40 : 0.46),
                 radius: max(metrics.size.width, metrics.size.height) * 0.42,
                 baseOpacity: 0.10,
                 reactiveOpacity: 0.30
@@ -759,14 +771,10 @@ struct ImmersiveStageView<Artwork: View>: View {
             ImmersiveVignette(color: palette.secondary, clearStop: 0.14, strength: 0.70)
 
             if metrics.isPortrait {
-                VStack(alignment: .leading, spacing: metrics.s(22)) {
-                    portraitArtworkPlate(
-                        side: min(metrics.size.width * 0.76, metrics.size.height * 0.37),
-                        radius: metrics.f(20)
-                    )
-                    titleBlock(size: metrics.s(42), weight: .semibold)
-                    waveformPanel(height: metrics.s(76))
-                    singleLyric(fontSize: metrics.s(16))
+                VStack(alignment: .leading, spacing: metrics.s(24)) {
+                    deckHeader(artSide: metrics.s(96), titleSize: metrics.s(26))
+                    waveformPanel(height: metrics.s(132))
+                    singleLyric(fontSize: metrics.s(17))
                     Spacer(minLength: 0)
                 }
                 .padding(.leading, leadingInset)
@@ -774,26 +782,30 @@ struct ImmersiveStageView<Artwork: View>: View {
                 .padding(.top, topInset + metrics.s(14))
                 .padding(.bottom, bottomInset)
             } else {
-                HStack(spacing: metrics.s(platform == .tvOS ? 82 : 48)) {
-                    artworkPlate(
-                        side: min(metrics.size.height * 0.55, metrics.size.width * 0.34),
-                        radius: metrics.f(20)
+                VStack(alignment: .leading, spacing: metrics.s(platform == .tvOS ? 34 : 24)) {
+                    deckHeader(
+                        artSide: metrics.s(platform == .tvOS ? 150 : 96),
+                        titleSize: metrics.s(platform == .tvOS ? 54 : 34)
                     )
-                    VStack(alignment: .leading, spacing: metrics.s(22)) {
-                        titleBlock(size: metrics.s(platform == .tvOS ? 92 : 58), weight: .semibold)
-                        waveformPanel(height: metrics.s(platform == .tvOS ? 124 : 78))
-                        singleLyric(
-                            fontSize: metrics.s(platform == .tvOS ? 27 : 17),
-                            availableWidth: metrics.size.width * 0.46
-                        )
-                    }
-                    .frame(maxWidth: metrics.size.width * 0.46, alignment: .leading)
+                    waveformPanel(height: metrics.s(platform == .tvOS ? 220 : 130))
+                    singleLyric(
+                        fontSize: metrics.s(platform == .tvOS ? 30 : 19),
+                        availableWidth: metrics.size.width * 0.62
+                    )
+                    Spacer(minLength: 0)
                 }
                 .padding(.leading, leadingInset)
                 .padding(.trailing, trailingInset)
-                .padding(.top, topInset)
+                .padding(.top, topInset + metrics.s(platform == .tvOS ? 40 : 20))
                 .padding(.bottom, bottomInset)
             }
+        }
+    }
+
+    private func deckHeader(artSide: CGFloat, titleSize: CGFloat) -> some View {
+        HStack(alignment: .center, spacing: metrics.s(platform == .tvOS ? 30 : 18)) {
+            artworkPlate(side: artSide, radius: metrics.f(platform == .tvOS ? 18 : 12))
+            titleBlock(size: titleSize, weight: .semibold)
         }
     }
 
@@ -891,6 +903,7 @@ struct ImmersiveStageView<Artwork: View>: View {
 
     // MARK: - 10. 镜面展台
 
+    /// 横屏时文字在左、封面立在右侧镜面地板上；竖屏封面居中立于地板，文字在地平线下。
     private var mirrorStageScene: some View {
         let side = metrics.isPortrait
             ? min(metrics.size.width * 0.60, metrics.size.height * 0.30)
@@ -902,7 +915,7 @@ struct ImmersiveStageView<Artwork: View>: View {
             : availableTop + (availableBottom - availableTop) * 0.5 + side * 0.42
         let plateX: CGFloat = metrics.isPortrait
             ? metrics.size.width / 2
-            : leadingInset + side / 2 + metrics.s(12)
+            : metrics.size.width - trailingInset - side / 2 - metrics.s(12)
         let radius = metrics.f(10)
         let textGap = metrics.s(platform == .tvOS ? 90 : 56)
 
@@ -957,7 +970,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 }
                 .frame(width: metrics.size.width * 0.42, alignment: .leading)
                 .position(
-                    x: plateX + side / 2 + textGap + metrics.size.width * 0.21,
+                    x: plateX - side / 2 - textGap - metrics.size.width * 0.21,
                     y: horizonY - side / 2
                 )
             }
@@ -1010,9 +1023,21 @@ struct ImmersiveStageView<Artwork: View>: View {
 
     // MARK: - 12. 声场地平线
 
+    /// 舞台式构图：封面居中立在发光地平线上，频谱天际线在它身后升起，
+    /// 标题与歌词居中排在封面上方。
     private var spectrumHorizonScene: some View {
-        let horizonY = metrics.size.height * (metrics.isPortrait ? 0.82 : 0.76)
-        let barHeight = metrics.size.height * (metrics.isPortrait ? 0.20 : 0.22)
+        let isPhoneLandscape = metrics.layout == .phoneLandscape
+        let horizonY = metrics.size.height - bottomInset + metrics.s(6)
+        let side = metrics.isPortrait
+            ? min(metrics.size.width * 0.58, metrics.size.height * 0.28)
+            : (isPhoneLandscape
+                ? min(metrics.size.height * 0.34, metrics.size.width * 0.22)
+                : min(metrics.size.height * 0.40, metrics.size.width * 0.26))
+        let barHeight = metrics.size.height * (metrics.isPortrait ? 0.20 : 0.24)
+        let textRegionTop = topInset
+        let textRegionHeight = max(1, horizonY - side - metrics.s(16) - textRegionTop)
+        let textWidth = metrics.isPortrait ? nil : metrics.size.width * 0.64
+
         return ZStack {
             LinearGradient(
                 colors: [palette.secondary.opacity(0.92), ImmersiveStagePalette.obsidian],
@@ -1022,7 +1047,7 @@ struct ImmersiveStageView<Artwork: View>: View {
             ImmersiveEnergyGlow(
                 levelsProvider: spectrumProvider,
                 palette: palette,
-                center: UnitPoint(x: 0.5, y: horizonY / metrics.size.height),
+                center: UnitPoint(x: 0.5, y: horizonY / max(metrics.size.height, 1)),
                 radius: max(metrics.size.width, metrics.size.height) * 0.55,
                 baseOpacity: 0.14,
                 reactiveOpacity: 0.30
@@ -1035,46 +1060,32 @@ struct ImmersiveStageView<Artwork: View>: View {
             )
             ImmersiveVignette(color: ImmersiveStagePalette.obsidian, clearStop: 0.30, strength: 0.42)
 
-            if metrics.isPortrait {
-                VStack(alignment: .leading, spacing: metrics.s(20)) {
-                    portraitArtworkPlate(
-                        side: min(metrics.size.width * 0.58, metrics.size.height * 0.28),
-                        radius: metrics.f(16)
-                    )
-                    titleBlock(size: metrics.s(40), weight: .semibold)
-                    singleLyric(fontSize: metrics.s(16))
-                    Spacer(minLength: 0)
-                }
-                .padding(.leading, leadingInset)
-                .padding(.trailing, trailingInset)
-                .padding(.top, topInset + metrics.s(10))
-                .padding(.bottom, bottomInset)
-            } else {
-                HStack(spacing: metrics.s(platform == .tvOS ? 82 : 48)) {
-                    artworkPlate(
-                        side: min(metrics.size.height * 0.44, metrics.size.width * 0.28),
-                        radius: metrics.f(18)
-                    )
-                    VStack(alignment: .leading, spacing: metrics.s(18)) {
-                        titleBlock(size: metrics.s(platform == .tvOS ? 90 : 56), weight: .semibold)
-                        singleLyric(
-                            fontSize: metrics.s(platform == .tvOS ? 27 : 17),
-                            availableWidth: metrics.size.width * 0.44
-                        )
-                    }
-                    .frame(maxWidth: metrics.size.width * 0.44, alignment: .leading)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .padding(.leading, leadingInset)
-                .padding(.trailing, trailingInset)
-                .padding(.top, topInset + metrics.s(platform == .tvOS ? 40 : 24))
-                .padding(.bottom, bottomInset)
+            artworkPlate(side: side, radius: metrics.f(metrics.isPortrait ? 16 : 20))
+                .position(x: metrics.size.width / 2, y: horizonY - side / 2)
+
+            VStack(spacing: metrics.s(14)) {
+                titleBlock(
+                    size: metrics.s(metrics.isPortrait ? 40 : (isPhoneLandscape ? 34 : (platform == .tvOS ? 84 : 56))),
+                    weight: .semibold,
+                    maxWidth: textWidth,
+                    alignment: .center
+                )
+                singleLyric(
+                    fontSize: metrics.s(metrics.isPortrait ? 16 : (isPhoneLandscape ? 16 : (platform == .tvOS ? 30 : 19))),
+                    availableWidth: textWidth,
+                    alignment: .center
+                )
             }
+            .padding(.leading, leadingInset)
+            .padding(.trailing, trailingInset)
+            .frame(width: metrics.size.width, height: textRegionHeight, alignment: .center)
+            .position(x: metrics.size.width / 2, y: textRegionTop + textRegionHeight / 2)
         }
     }
 
     // MARK: - 13. 星尘律动
 
+    /// 横屏时文字在左、发射粒子的圆形封面在右；竖屏封面居中在上，文字在下。
     private var particleBloomScene: some View {
         let diameter = metrics.isPortrait
             ? min(metrics.size.width * 0.56, metrics.size.height * 0.28)
@@ -1087,7 +1098,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 y: (availableTop + metrics.s(20) + diameter / 2) / max(metrics.size.height, 1)
             )
             : UnitPoint(
-                x: (leadingInset + diameter / 2) / max(metrics.size.width, 1),
+                x: (metrics.size.width - trailingInset - diameter / 2) / max(metrics.size.width, 1),
                 y: (availableTop + (availableBottom - availableTop) / 2) / max(metrics.size.height, 1)
             )
 
@@ -1122,7 +1133,6 @@ struct ImmersiveStageView<Artwork: View>: View {
                 .padding(.bottom, bottomInset)
             } else {
                 HStack(spacing: metrics.s(platform == .tvOS ? 88 : 54)) {
-                    pulsingArtwork(diameter: diameter)
                     VStack(alignment: .leading, spacing: metrics.s(18)) {
                         titleBlock(size: metrics.s(platform == .tvOS ? 92 : 58), weight: .semibold)
                         formatAndLyric(
@@ -1131,6 +1141,8 @@ struct ImmersiveStageView<Artwork: View>: View {
                         )
                     }
                     .frame(maxWidth: metrics.size.width * 0.40, alignment: .leading)
+                    Spacer(minLength: 0)
+                    pulsingArtwork(diameter: diameter)
                 }
                 .padding(.leading, leadingInset)
                 .padding(.trailing, trailingInset)
@@ -1170,21 +1182,30 @@ struct ImmersiveStageView<Artwork: View>: View {
     private func titleBlock(
         size: CGFloat,
         weight: Font.Weight,
-        maxWidth: CGFloat? = nil
+        maxWidth: CGFloat? = nil,
+        alignment: HorizontalAlignment = .leading
     ) -> some View {
-        VStack(alignment: .leading, spacing: metrics.s(8)) {
+        let textAlignment: TextAlignment = alignment == .center
+            ? .center
+            : (alignment == .trailing ? .trailing : .leading)
+        return VStack(alignment: alignment, spacing: metrics.s(8)) {
             Text(track.title)
                 .font(.system(size: size, weight: weight))
                 .tracking(-size * 0.028)
+                .multilineTextAlignment(textAlignment)
                 .lineLimit(2)
                 .minimumScaleFactor(0.44)
             Text(track.subtitle)
                 .font(.system(size: max(size * 0.27, metrics.s(12)), weight: .regular))
                 .foregroundStyle(ImmersiveStagePalette.text.opacity(0.62))
+                .multilineTextAlignment(textAlignment)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         }
-        .frame(maxWidth: maxWidth ?? .infinity, alignment: .leading)
+        .frame(
+            maxWidth: maxWidth ?? .infinity,
+            alignment: Alignment(horizontal: alignment, vertical: .center)
+        )
     }
 
     private func artworkPlate(side: CGFloat, radius: CGFloat) -> some View {
@@ -1218,10 +1239,11 @@ struct ImmersiveStageView<Artwork: View>: View {
 
     private func singleLyric(
         fontSize: CGFloat,
-        availableWidth: CGFloat? = nil
+        availableWidth: CGFloat? = nil,
+        alignment: TextAlignment = .leading
     ) -> some View {
         focusedLyrics(
-            alignment: .leading,
+            alignment: alignment,
             proposedCurrentFontSize: fontSize,
             availableWidth: availableWidth
         )
@@ -1261,7 +1283,10 @@ struct ImmersiveStageView<Artwork: View>: View {
             CGFloat(typography.adjacentFontSize),
             min(currentFontSize * 0.64, proposedCurrentFontSize)
         )
-        return VStack(alignment: .leading, spacing: CGFloat(typography.verticalSpacing)) {
+        let stackAlignment: HorizontalAlignment = alignment == .trailing
+            ? .trailing
+            : (alignment == .center ? .center : .leading)
+        return VStack(alignment: stackAlignment, spacing: CGFloat(typography.verticalSpacing)) {
             ForEach(lines) { line in
                 let direction = writingDirection(for: line)
                 let resolvedAlignment: TextAlignment = direction == .rightToLeft
@@ -1269,7 +1294,9 @@ struct ImmersiveStageView<Artwork: View>: View {
                     : alignment
                 let frameAlignment: Alignment = resolvedAlignment == .trailing
                     ? .trailing
-                    : (direction == .rightToLeft ? .trailing : .leading)
+                    : (resolvedAlignment == .center
+                        ? .center
+                        : (direction == .rightToLeft ? .trailing : .leading))
                 lyricLine(
                     line,
                     fontSize: line.isActive ? currentFontSize : adjacentFontSize,
@@ -1283,7 +1310,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         }
         .frame(
             maxWidth: width,
-            alignment: alignment == .trailing ? .trailing : .leading
+            alignment: Alignment(horizontal: stackAlignment, vertical: .center)
         )
         .animation(
             .easeOut(duration: lyricsMotionEnabled && !reduceMotion ? 0.28 : 0.01),

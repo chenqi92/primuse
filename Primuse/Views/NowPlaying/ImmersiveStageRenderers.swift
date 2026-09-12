@@ -430,7 +430,10 @@ struct ImmersiveBreathingHalo: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 20, paused: !isAnimating)) { context in
             let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
-            let breath = isAnimating ? (sin(time / period * 2 * .pi) + 1) / 2 : 0.5
+            // Double 与 CGFloat 分开标注,避免类型检查器在混算表达式里穷举组合。
+            let breath: Double = isAnimating ? (sin(time / period * 2 * .pi) + 1) / 2 : 0.5
+            let ringScale: CGFloat = CGFloat(1.10 + breath * 0.06)
+            let bodyScale: CGFloat = CGFloat(0.98 + breath * 0.05)
             ZStack {
                 Circle()
                     .fill(
@@ -456,13 +459,13 @@ struct ImmersiveBreathingHalo: View {
                         lineWidth: max(1, diameter * 0.006)
                     )
                     .frame(
-                        width: diameter * (1.10 + breath * 0.06),
-                        height: diameter * (1.10 + breath * 0.06)
+                        width: diameter * ringScale,
+                        height: diameter * ringScale
                     )
                     .rotationEffect(.degrees(time / 40 * 360))
                     .blur(radius: 1.2)
             }
-            .scaleEffect(0.98 + breath * 0.05)
+            .scaleEffect(bodyScale)
         }
         .allowsHitTesting(false)
     }
@@ -482,9 +485,9 @@ struct ImmersiveLevitatingPlate<Content: View>: View {
         TimelineView(.animation(minimumInterval: 1 / 24, paused: !isAnimating)) { context in
             let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
             let amplitude = side * 0.028
-            let lift = CGFloat(sin(time / 5.6 * 2 * .pi)) * amplitude
-            let tilt = sin(time / 7.3 * 2 * .pi) * 1.8
-            let sweep = ImmersiveSeed.wrapped(time / 7.5)
+            let lift: CGFloat = CGFloat(sin(time / 5.6 * 2 * .pi)) * amplitude
+            let tilt: Double = sin(time / 7.3 * 2 * .pi) * 1.8
+            let sweep: Double = ImmersiveSeed.wrapped(time / 7.5)
             let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
 
             content()

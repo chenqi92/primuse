@@ -1127,7 +1127,7 @@ struct ImmersivePlayerView: View {
         }
 
         guard let engine = player.audioEngine.engineForVisualizer,
-              let mixer = player.audioEngine.mainMixerForVisualizer,
+              let tapNode = player.audioEngine.visualizerTapNode,
               engine.isRunning else {
             visualizer.release(owner: visualizerOwnerID)
             scheduleVisualizerRetry(allowRetry: allowRetry)
@@ -1137,7 +1137,7 @@ struct ImmersivePlayerView: View {
         guard visualizer.acquire(
             owner: visualizerOwnerID,
             engine: engine,
-            on: mixer
+            on: tapNode
         ) else {
             visualizer.release(owner: visualizerOwnerID)
             scheduleVisualizerRetry(allowRetry: allowRetry)

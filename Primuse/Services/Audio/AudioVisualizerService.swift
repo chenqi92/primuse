@@ -28,7 +28,7 @@ final class AudioVisualizerService {
     private(set) var bandLevels: [Float] = Array(repeating: 0, count: bandCount)
 
     private weak var engine: AVAudioEngine?
-    private var tappedNode: AVAudioMixerNode?
+    private var tappedNode: AVAudioNode?
     private let buffer = SharedSampleBuffer(capacity: fftSize)
     private var pollTask: Task<Void, Never>?
     private var ownerIDs: Set<UUID> = []
@@ -44,7 +44,7 @@ final class AudioVisualizerService {
     }
 
     @discardableResult
-    func acquire(owner: UUID, engine: AVAudioEngine, on node: AVAudioMixerNode) -> Bool {
+    func acquire(owner: UUID, engine: AVAudioEngine, on node: AVAudioNode) -> Bool {
         guard engine.isRunning else { return false }
 
         if let currentEngine = self.engine,
@@ -59,7 +59,7 @@ final class AudioVisualizerService {
         guard format.sampleRate.isFinite,
               format.sampleRate > 0,
               format.channelCount > 0 else {
-            plog("⚠️ Visualizer skipped: invalid mixer format sr=\(format.sampleRate) ch=\(format.channelCount)")
+            plog("⚠️ Visualizer skipped: invalid tap format sr=\(format.sampleRate) ch=\(format.channelCount)")
             return false
         }
 
@@ -85,13 +85,18 @@ final class AudioVisualizerService {
         )
         pollGeneration &+= 1
         let generation = pollGeneration
+        let sampleRate = format.sampleRate
         pollTask = Task.detached(priority: .userInitiated) { [weak self, buffer, analyzer] in
             var samples = [Float](repeating: 0, count: Self.fftSize)
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(40))
                 guard !Task.isCancelled else { break }
                 guard buffer.copyLatest(into: &samples) else { continue }
-                let levels = analyzer.bandLevels(samples: samples, bandCount: Self.bandCount)
+                let levels = analyzer.bandLevels(
+                    samples: samples,
+                    bandCount: Self.bandCount,
+                    sampleRate: sampleRate
+                )
                 await MainActor.run { [weak self] in
                     guard let self, self.pollGeneration == generation else { return }
                     self.bandLevels = levels
@@ -127,7 +132,7 @@ final class AudioVisualizerService {
 /// closure on Core Audio's realtime queue.
 private enum AudioVisualizerTap {
     static func install(
-        on node: AVAudioMixerNode,
+        on node: AVAudioNode,
         bufferSize: AVAudioFrameCount,
         format: AVAudioFormat,
         buffer: SharedSampleBuffer
@@ -231,7 +236,7 @@ private final class FFTAnalyzer: @unchecked Sendable {
         self.temporallySmoothed = Array(repeating: 0, count: bandCount)
     }
 
-    func bandLevels(samples: [Float], bandCount: Int) -> [Float] {
+    func bandLevels(samples: [Float], bandCount: Int, sampleRate: Double = 0) -> [Float] {
         guard samples.count >= n, fft != nil else {
             return Array(repeating: 0, count: bandCount)
         }
@@ -284,8 +289,14 @@ private final class FFTAnalyzer: @unchecked Sendable {
         }
 
         let binCount = n / 2
-        let minBin = 2
-        let maxBin = binCount - 1
+        // 频段按可听范围映射。直通图的 tap 拿到的是 88.2 / 96 kHz 的原样采样,
+        // 若仍按 bin 序号等分,近一半频段会落在 20 kHz 以上的空白区,
+        // 画面只剩左侧几根柱子在动。
+        let binWidth = sampleRate > 0 ? Float(sampleRate) / Float(n) : 0
+        let minBin = binWidth > 0 ? max(1, Int((94 / binWidth).rounded())) : 2
+        let maxBin = binWidth > 0
+            ? min(binCount - 1, max(minBin + bandCount, Int(20_000 / binWidth)))
+            : binCount - 1
         let logMin = log(Float(minBin))
         let logMax = log(Float(maxBin))
         let step = (logMax - logMin) / Float(bandCount)

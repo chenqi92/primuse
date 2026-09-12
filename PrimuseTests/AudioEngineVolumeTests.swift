@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import Observation
 import XCTest
@@ -17,7 +18,7 @@ final class AudioEngineVolumeTests: XCTestCase {
                 XCTAssertEqual(engine.volume, volume, accuracy: 0.0001)
                 XCTAssertEqual(defaults.float(forKey: "primuse_volume"), volume, accuracy: 0.0001)
                 XCTAssertNil(engine.outputFormat)
-                XCTAssertNil(engine.mainMixerForVisualizer)
+                XCTAssertNil(engine.effectsMainMixer)
             }
         }
     }
@@ -114,11 +115,11 @@ final class AudioEngineVolumeTests: XCTestCase {
             try engine.configure(outputMode: .effects)
             engine.setVolume(0.72, persist: false)
 
-            XCTAssertEqual(try XCTUnwrap(engine.mainMixerForVisualizer).outputVolume, 0.72, accuracy: 0.0001)
+            XCTAssertEqual(try XCTUnwrap(engine.effectsMainMixer).outputVolume, 0.72, accuracy: 0.0001)
             XCTAssertEqual(defaults.float(forKey: "primuse_volume"), 0.3, accuracy: 0.0001)
             engine.markHardwareConfigurationChanged()
             try engine.configure(outputMode: .effects)
-            XCTAssertEqual(try XCTUnwrap(engine.mainMixerForVisualizer).outputVolume, 0.72, accuracy: 0.0001)
+            XCTAssertEqual(try XCTUnwrap(engine.effectsMainMixer).outputVolume, 0.72, accuracy: 0.0001)
 
             engine.persistVolume()
             XCTAssertEqual(AudioEngine(volumeDefaults: defaults).volume, 0.72, accuracy: 0.0001)
@@ -146,7 +147,7 @@ final class AudioEngineVolumeTests: XCTestCase {
             let engine = AudioEngine(volumeDefaults: defaults)
             engine.volume = 0.32
             try engine.configure(outputMode: .effects)
-            let originalMixer = try XCTUnwrap(engine.mainMixerForVisualizer)
+            let originalMixer = try XCTUnwrap(engine.effectsMainMixer)
             XCTAssertEqual(originalMixer.outputVolume, 0.32, accuracy: 0.0001)
 
             engine.volume = 0.58
@@ -154,7 +155,7 @@ final class AudioEngineVolumeTests: XCTestCase {
             engine.markHardwareConfigurationChanged()
             try engine.configure(outputMode: .effects)
 
-            let rebuiltMixer = try XCTUnwrap(engine.mainMixerForVisualizer)
+            let rebuiltMixer = try XCTUnwrap(engine.effectsMainMixer)
             XCTAssertFalse(rebuiltMixer === originalMixer)
             XCTAssertEqual(rebuiltMixer.outputVolume, 0.58, accuracy: 0.0001)
             XCTAssertEqual(engine.volume, 0.58, accuracy: 0.0001)
@@ -168,12 +169,15 @@ final class AudioEngineVolumeTests: XCTestCase {
             engine.volume = 0.43
             try engine.configure(outputMode: .highFidelity)
             XCTAssertEqual(engine.volume, 1)
-            XCTAssertNil(engine.mainMixerForVisualizer)
+            XCTAssertNil(engine.effectsMainMixer)
+            // 直通图没有混音器,频谱 tap 改挂在主播放节点上,否则声音响应画面永远静止。
+            XCTAssertTrue(engine.visualizerTapNode is AVAudioPlayerNode)
 
             try engine.configure(outputMode: .effects)
             XCTAssertEqual(engine.volume, 0.43, accuracy: 0.0001)
-            let mixer = try XCTUnwrap(engine.mainMixerForVisualizer)
+            let mixer = try XCTUnwrap(engine.effectsMainMixer)
             XCTAssertEqual(mixer.outputVolume, 0.43, accuracy: 0.0001)
+            XCTAssertTrue(engine.visualizerTapNode === mixer)
         }
     }
     #endif

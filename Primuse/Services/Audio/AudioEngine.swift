@@ -1370,10 +1370,20 @@ final class AudioEngine {
         #endif
     }
 
-    /// 给 visualizer 用的 ── mainMixerNode 是输出前最后一站,挂 tap 拿到的
-    /// buffer 已经过 EQ / compressor / reverb / volume,跟 user 实际听到的一致。
+    /// 给 visualizer 挂 tap 的节点。效果图取 mainMixerNode ── 输出前最后一站,
+    /// 挂 tap 拿到的 buffer 已经过 EQ / compressor / reverb / volume,跟 user 实际
+    /// 听到的一致。高保真直通图没有混音器(访问 mainMixerNode 会让 AVAudioEngine
+    /// 凭空创建并接线),改取主播放节点的输出:直通时那就是送去硬件的原样信号。
     /// nil 表示 engine 还没 setup,visualizer 直接 stop。
-    var mainMixerForVisualizer: AVAudioMixerNode? {
+    var visualizerTapNode: AVAudioNode? {
+        if outputMode == .effects {
+            return effectsMainMixer
+        }
+        return playerNode
+    }
+
+    /// 效果图的主混音器;高保真直通图没有混音器,返回 nil。
+    var effectsMainMixer: AVAudioMixerNode? {
         outputMode == .effects ? engine?.mainMixerNode : nil
     }
 

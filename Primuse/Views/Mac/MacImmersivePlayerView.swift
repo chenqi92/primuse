@@ -970,14 +970,14 @@ struct MacImmersivePlayerView: View {
               player.isPlaying,
               value.usesRealtimeSpectrum,
               let audioEngine = player.audioEngine.engineForVisualizer,
-              let mixer = player.audioEngine.mainMixerForVisualizer else {
+              let tapNode = player.audioEngine.visualizerTapNode else {
             visualizer.release(owner: visualizerOwnerID)
             return
         }
         guard visualizer.acquire(
             owner: visualizerOwnerID,
             engine: audioEngine,
-            on: mixer
+            on: tapNode
         ) else {
             visualizer.release(owner: visualizerOwnerID)
             return
