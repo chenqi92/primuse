@@ -1202,6 +1202,16 @@ struct TagEditorView: View {
                 systemImage: "exclamationmark.triangle"
             )
             .foregroundStyle(.red)
+        case .temporarilyUnavailable(let reason):
+            // 这次没连上，不代表源不可写 —— 用可重试的说法和不那么告警的颜色。
+            Label(
+                String(
+                    format: String(localized: "tag_editor_lyrics_writeback_retry"),
+                    reason
+                ),
+                systemImage: "arrow.clockwise"
+            )
+            .foregroundStyle(.orange)
         }
     }
 

@@ -152,6 +152,7 @@
 "tag_editor_lyrics_writeback_server" = "Enregistre dans Primuse et renvoie les paroles au serveur multimédia.";
 "tag_editor_lyrics_writeback_read_only" = "Source en lecture seule : les modifications sont enregistrées dans Primuse et synchronisées via iCloud, sans écriture directe sur la source.";
 "tag_editor_lyrics_writeback_unavailable" = "La source musicale n’est pas accessible en écriture : %@";
+"tag_editor_lyrics_writeback_retry" = "La source musicale n'a pas répondu cette fois (%@). Vos modifications sont enregistrées dans Primuse ; réessayez la réécriture dans un instant.";
 "tag_editor_lyrics_server_unsupported" = "Ce serveur multimédia ne prend pas en charge l’écriture des paroles.";
 "tag_editor_lyrics_error_title" = "Impossible d’enregistrer les paroles";
 "tag_editor_lyrics_empty_error" = "Confirmez la suppression des paroles existantes.";

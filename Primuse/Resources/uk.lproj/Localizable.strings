@@ -1066,6 +1066,7 @@
 "scrobble_mac_waiting_authorization" = "Очікування авторизації";
 "fullscreen_effect_light_field_subtitle" = "Повільне плетене світло та рух призми";
 "tag_editor_lyrics_writeback_unavailable" = "Джерело музики наразі неможливе для запису: %@";
+"tag_editor_lyrics_writeback_retry" = "Цього разу не вдалося зв'язатися з джерелом музики (%@). Зміни збережено в Primuse — повторіть запис трохи згодом.";
 "carplay_empty_library_subtitle" = "Щоб почати, додайте джерело музики на свій iPhone";
 "artwork_upload" = "Завантажте зображення";
 "ai_transcription_model" = "Модель транскрипції аудіо";

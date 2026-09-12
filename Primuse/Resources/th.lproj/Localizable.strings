@@ -3258,6 +3258,7 @@
 "tag_editor_lyrics_writeback_sidecar_new" = "ตรวจสอบเป้าหมายแล้ว %@ ใหม่จะถูกเขียนข้างเสียง";
 "tag_editor_lyrics_writeback_sidecar_replace" = "ตรวจสอบเป้าหมายแล้ว %@ ที่มีอยู่จะได้รับการอัปเดต";
 "tag_editor_lyrics_writeback_unavailable" = "ไม่สามารถเขียนแหล่งที่มาของเพลงได้ในขณะนี้: %@";
+"tag_editor_lyrics_writeback_retry" = "ครั้งนี้เชื่อมต่อแหล่งเพลงไม่สำเร็จ (%@) การแก้ไขถูกบันทึกไว้ใน Primuse แล้ว ลองเขียนกลับอีกครั้งในอีกสักครู่";
 "tag_editor_mac_change_cover" = "เปลี่ยนปก";
 "tag_editor_mac_changed_format" = "● %d การเปลี่ยนแปลง";
 "tag_editor_mac_field_changed" = "เปลี่ยนไป";

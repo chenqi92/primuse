@@ -3258,6 +3258,7 @@
 "tag_editor_lyrics_writeback_sidecar_new" = "Objetivo marcado. Se escribirá un nuevo %@ al lado del audio.";
 "tag_editor_lyrics_writeback_sidecar_replace" = "Objetivo marcado. El %@ existente se actualizará.";
 "tag_editor_lyrics_writeback_unavailable" = "Actualmente no se puede escribir en la fuente de música: %@";
+"tag_editor_lyrics_writeback_retry" = "Esta vez no se pudo conectar con la fuente de música (%@). Tus cambios están guardados en Primuse; vuelve a intentar la escritura en un momento.";
 "tag_editor_mac_change_cover" = "Cambiar portada";
 "tag_editor_mac_changed_format" = "● Cambio(s) %d";
 "tag_editor_mac_field_changed" = "Cambiado";

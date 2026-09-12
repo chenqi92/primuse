@@ -1191,6 +1191,7 @@
 "tag_editor_lyrics_writeback_server" = "Saves to Primuse and writes lyrics back to the media server.";
 "tag_editor_lyrics_writeback_read_only" = "Read-only source: saves in Primuse and syncs via iCloud, but cannot be written back directly.";
 "tag_editor_lyrics_writeback_unavailable" = "The music source is not currently writable: %@";
+"tag_editor_lyrics_writeback_retry" = "Could not reach the music source this time (%@). Your changes are saved in Primuse — try writing back again in a moment.";
 "tag_editor_lyrics_server_unsupported" = "This media server does not support lyrics writeback.";
 "tag_editor_lyrics_error_title" = "Couldn’t Save Lyrics";
 "tag_editor_lyrics_empty_error" = "Confirm whether to remove the existing lyrics.";

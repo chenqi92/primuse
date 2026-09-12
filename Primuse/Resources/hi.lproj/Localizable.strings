@@ -3258,6 +3258,7 @@
 "tag_editor_lyrics_writeback_sidecar_new" = "लक्ष्य की जाँच की गई। ऑडियो के बगल में एक नया %@ लिखा होगा.";
 "tag_editor_lyrics_writeback_sidecar_replace" = "लक्ष्य की जाँच की गई। मौजूदा %@ को अपडेट किया जाएगा।";
 "tag_editor_lyrics_writeback_unavailable" = "संगीत स्रोत वर्तमान में लिखने योग्य नहीं है: %@";
+"tag_editor_lyrics_writeback_retry" = "इस बार म्यूज़िक स्रोत से संपर्क नहीं हो सका (%@)। आपके बदलाव Primuse में सहेजे गए हैं — थोड़ी देर बाद फिर से लिखने का प्रयास करें।";
 "tag_editor_mac_change_cover" = "कवर बदलें";
 "tag_editor_mac_changed_format" = "● %d परिवर्तन";
 "tag_editor_mac_field_changed" = "बदला गया";

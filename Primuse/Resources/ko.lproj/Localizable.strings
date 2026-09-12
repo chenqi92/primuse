@@ -152,6 +152,7 @@
 "tag_editor_lyrics_writeback_server" = "Primuse에 저장하고 가사를 미디어 서버에 다시 씁니다.";
 "tag_editor_lyrics_writeback_read_only" = "읽기 전용 소스: 변경 사항은 Primuse에 저장되어 iCloud로 동기화되지만 소스에 직접 쓸 수 없습니다.";
 "tag_editor_lyrics_writeback_unavailable" = "현재 음악 소스에 쓸 수 없습니다: %@";
+"tag_editor_lyrics_writeback_retry" = "이번에는 음악 소스에 연결하지 못했습니다(%@). 변경 사항은 Primuse에 저장되었으니 잠시 후 다시 기록해 보세요.";
 "tag_editor_lyrics_server_unsupported" = "이 미디어 서버는 가사 쓰기를 지원하지 않습니다.";
 "tag_editor_lyrics_error_title" = "가사를 저장할 수 없음";
 "tag_editor_lyrics_empty_error" = "기존 가사를 삭제할지 확인해 주세요.";

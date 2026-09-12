@@ -53,6 +53,10 @@ enum LyricsWriteback {
         case localOnly(reason: String?)
         /// 探测失败或源明确不支持，附带原因。
         case unavailable(String)
+        /// 这次没连上(超时、连接被占满)，但源本身可能是可写的。
+        /// 与 `unavailable` 分开，是因为给用户的话完全不同：一个该去查权限，
+        /// 一个只需要过会儿再试。
+        case temporarilyUnavailable(String)
 
         var isLocalStructuredOnly: Bool {
             if case .localOnly = self { return true }
@@ -66,7 +70,7 @@ enum LyricsWriteback {
                 return .localOnly(reason: nil)
             case .mediaServer:
                 return .unavailable(String(localized: "tag_editor_lyrics_server_unsupported"))
-            case .checking, .localOnly, .unavailable:
+            case .checking, .localOnly, .unavailable, .temporarilyUnavailable:
                 return self
             }
         }
@@ -170,7 +174,7 @@ enum LyricsWriteback {
                     && (cached == nil || cacheIsExplicitLocalOverride)
                 ? .absent
                 : .unknown
-        case .unavailable:
+        case .unavailable, .temporarilyUnavailable:
             sourceText = LyricsLoader.locallyMaterializedSourceText(
                 for: song,
                 sourceManager: sourceManager
@@ -301,14 +305,19 @@ enum LyricsWriteback {
     ) async -> Mode {
         if await sourceManager.supportsSidecarWriting(for: song) {
             do {
+                // 全库扫描期间音乐源的连接预算已被占住，预检要排队。
+                // 十秒对内网 NAS 在扫描中的响应来说不够，而这是用户主动发起的
+                // 一次操作，多等一会儿远好过误报成不可写。
                 let preflight = try await MusicScraperService.preflightLyricsWriteWithTimeout(
-                    seconds: 10,
+                    seconds: 20,
                     sourceManager: sourceManager,
                     for: song
                 )
                 return .sidecar(preflight)
             } catch {
-                return .unavailable(error.localizedDescription)
+                return SourceWriteProbeFailure.isTransient(error)
+                    ? .temporarilyUnavailable(error.localizedDescription)
+                    : .unavailable(error.localizedDescription)
             }
         }
 
@@ -330,7 +339,9 @@ enum LyricsWriteback {
                 }
                 return .localOnly(reason: nil)
             } catch {
-                return .unavailable(error.localizedDescription)
+                return SourceWriteProbeFailure.isTransient(error)
+                    ? .temporarilyUnavailable(error.localizedDescription)
+                    : .unavailable(error.localizedDescription)
             }
         }
 
@@ -805,6 +816,16 @@ enum LyricsWriteback {
             return String(localized: "tag_editor_lyrics_writeback_checking")
         case .unavailable(let reason):
             return reason
+        case .temporarilyUnavailable(let reason):
+            return String(
+                format: String(localized: "tag_editor_lyrics_writeback_retry"),
+                reason
+            )
+        case .temporarilyUnavailable(let reason):
+            return String(
+                format: String(localized: "tag_editor_lyrics_writeback_retry"),
+                reason
+            )
         case .sidecar(let target):
             do {
                 let result = try await MusicScraperService.writeSidecarWithTimeout(

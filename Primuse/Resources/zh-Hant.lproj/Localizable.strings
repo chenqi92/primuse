@@ -1111,6 +1111,7 @@
 "tag_editor_lyrics_writeback_server" = "儲存至猿音，並將歌詞寫回媒體伺服器。";
 "tag_editor_lyrics_writeback_read_only" = "唯讀音樂來源：修改會儲存在猿音並透過 iCloud 同步，但無法直接寫回來源檔案。";
 "tag_editor_lyrics_writeback_unavailable" = "目前無法寫回音樂來源：%@";
+"tag_editor_lyrics_writeback_retry" = "這次沒能連上音樂來源（%@）。變更已儲存在猿音，稍後再試一次寫回即可。";
 "tag_editor_lyrics_server_unsupported" = "此媒體伺服器不支援歌詞寫回。";
 "tag_editor_lyrics_error_title" = "無法儲存歌詞";
 "tag_editor_lyrics_empty_error" = "請確認是否刪除現有歌詞。";

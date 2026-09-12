@@ -1066,6 +1066,7 @@
 "scrobble_mac_waiting_authorization" = "Yetkilendirme bekleniyor";
 "fullscreen_effect_light_field_subtitle" = "Yavaş dokuma ışık ve prizma hareketi";
 "tag_editor_lyrics_writeback_unavailable" = "Müzik kaynağı şu anda yazılabilir değil: %@";
+"tag_editor_lyrics_writeback_retry" = "Bu kez müzik kaynağına ulaşılamadı (%@). Değişiklikleriniz Primuse'da kayıtlı; birazdan geri yazmayı yeniden deneyin.";
 "carplay_empty_library_subtitle" = "Başlamak için iPhone cihazınıza bir müzik kaynağı ekleyin";
 "artwork_upload" = "Resim Yükle";
 "ai_transcription_model" = "Ses transkripsiyon modeli";

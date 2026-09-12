@@ -152,6 +152,7 @@
 "tag_editor_lyrics_writeback_server" = "Speichert in Primuse und schreibt den Songtext auf den Medienserver zurück.";
 "tag_editor_lyrics_writeback_read_only" = "Schreibgeschützte Quelle: Änderungen werden in Primuse gespeichert und über iCloud synchronisiert, können aber nicht direkt zurückgeschrieben werden.";
 "tag_editor_lyrics_writeback_unavailable" = "Die Musikquelle ist derzeit nicht beschreibbar: %@";
+"tag_editor_lyrics_writeback_retry" = "Die Musikquelle war diesmal nicht erreichbar (%@). Deine Änderungen sind in Primuse gesichert – versuche das Zurückschreiben gleich noch einmal.";
 "tag_editor_lyrics_server_unsupported" = "Dieser Medienserver unterstützt das Zurückschreiben von Songtexten nicht.";
 "tag_editor_lyrics_error_title" = "Songtext konnte nicht gespeichert werden";
 "tag_editor_lyrics_empty_error" = "Bitte das Entfernen des vorhandenen Songtexts bestätigen.";

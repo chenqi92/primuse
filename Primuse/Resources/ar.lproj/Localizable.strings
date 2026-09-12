@@ -3258,6 +3258,7 @@
 "tag_editor_lyrics_writeback_sidecar_new" = "تم التحقق من الهدف. سيتم كتابة %@ جديد بجانب الصوت.";
 "tag_editor_lyrics_writeback_sidecar_replace" = "تم التحقق من الهدف. سيتم تحديث ⁨%@⁩ الموجود.";
 "tag_editor_lyrics_writeback_unavailable" = "مصدر الموسيقى غير قابل للكتابة حاليا: %@";
+"tag_editor_lyrics_writeback_retry" = "تعذّر الوصول إلى مصدر الموسيقى هذه المرة (%@). تم حفظ تغييراتك في Primuse، أعد محاولة الكتابة بعد قليل.";
 "tag_editor_mac_change_cover" = "تغيير الغلاف";
 "tag_editor_mac_changed_format" = "● %d التغيير";
 "tag_editor_mac_field_changed" = "تم التغيير";

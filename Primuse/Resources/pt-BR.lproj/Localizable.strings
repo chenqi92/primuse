@@ -3258,6 +3258,7 @@
 "tag_editor_lyrics_writeback_sidecar_new" = "Alvo verificado. Um novo %@ será escrito ao lado do áudio.";
 "tag_editor_lyrics_writeback_sidecar_replace" = "Alvo verificado. O %@ existente será atualizado.";
 "tag_editor_lyrics_writeback_unavailable" = "A fonte da música não é gravável no momento: %@";
+"tag_editor_lyrics_writeback_retry" = "Não foi possível acessar a fonte de música desta vez (%@). Suas alterações estão salvas no Primuse; tente gravar novamente em instantes.";
 "tag_editor_mac_change_cover" = "Alterar capa";
 "tag_editor_mac_changed_format" = "● Alteração(ões) %d";
 "tag_editor_mac_field_changed" = "Alterado";

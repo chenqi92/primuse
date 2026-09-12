@@ -1066,6 +1066,7 @@
 "scrobble_mac_waiting_authorization" = "Ожидание авторизации";
 "fullscreen_effect_light_field_subtitle" = "Медленное плетеное движение света и призмы.";
 "tag_editor_lyrics_writeback_unavailable" = "Источник музыки в настоящее время недоступен для записи: %@.";
+"tag_editor_lyrics_writeback_retry" = "В этот раз не удалось связаться с источником музыки (%@). Изменения сохранены в Primuse — повторите запись чуть позже.";
 "carplay_empty_library_subtitle" = "Для начала добавьте источник музыки на свой iPhone.";
 "artwork_upload" = "Загрузите изображение";
 "ai_transcription_model" = "Модель транскрипции аудио";

@@ -3258,6 +3258,7 @@
 "tag_editor_lyrics_writeback_sidecar_new" = "Cel sprawdzony. Obok dźwięku zostanie zapisany nowy %@.";
 "tag_editor_lyrics_writeback_sidecar_replace" = "Cel sprawdzony. Istniejący %@ zostanie zaktualizowany.";
 "tag_editor_lyrics_writeback_unavailable" = "Aktualnie nie można zapisać źródła muzyki: %@";
+"tag_editor_lyrics_writeback_retry" = "Tym razem nie udało się połączyć ze źródłem muzyki (%@). Zmiany zapisano w Primuse — spróbuj zapisać ponownie za chwilę.";
 "tag_editor_mac_change_cover" = "Zmień okładkę";
 "tag_editor_mac_changed_format" = "● Zmiany %d";
 "tag_editor_mac_field_changed" = "Zmieniono";

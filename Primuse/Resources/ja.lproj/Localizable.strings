@@ -153,6 +153,7 @@
 "tag_editor_lyrics_writeback_server" = "Primuse に保存し、メディアサーバーへ歌詞を書き戻します。";
 "tag_editor_lyrics_writeback_read_only" = "読み取り専用ソース：Primuse に保存して iCloud で同期しますが、ソースへ直接書き戻すことはできません。";
 "tag_editor_lyrics_writeback_unavailable" = "現在この音楽ソースには書き込めません：%@";
+"tag_editor_lyrics_writeback_retry" = "今回は音楽ソースに接続できませんでした（%@）。変更は Primuse に保存済みです。しばらくしてから書き戻しをお試しください。";
 "tag_editor_lyrics_server_unsupported" = "このメディアサーバーは歌詞の書き戻しに対応していません。";
 "tag_editor_lyrics_error_title" = "歌詞を保存できませんでした";
 "tag_editor_lyrics_empty_error" = "既存の歌詞を削除するか確認してください。";
