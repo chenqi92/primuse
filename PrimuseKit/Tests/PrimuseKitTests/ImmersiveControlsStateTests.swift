@@ -191,6 +191,7 @@ struct ImmersivePresentationFallbackPolicyTests {
         for selected in [
             "coverFlow", "coverGallery", "starryNight", "flowingLines",
             "lightRhythm", "kineticTitle", "radialPulse", "liveWaveform",
+            "vinylDeck", "mirrorStage", "auroraVeil", "spectrumHorizon", "particleBloom",
         ] {
             #expect(ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
                 selectedRawValue: selected,
@@ -212,6 +213,27 @@ struct ImmersivePresentationFallbackPolicyTests {
             hasSynchronizedLyrics: true,
             hasArtwork: true
         ) == "radialPulse")
+        #expect(ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
+            selectedRawValue: "vinyl",
+            hasSynchronizedLyrics: true,
+            hasArtwork: true
+        ) == "vinylDeck")
+        #expect(ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
+            selectedRawValue: "auroraDrift",
+            hasSynchronizedLyrics: true,
+            hasArtwork: true
+        ) == "auroraVeil")
+    }
+
+    @Test("Artwork-dependent new groups remain selected without artwork")
+    func newArtworkGroupsRemainSelected() {
+        for selected in ["vinylDeck", "mirrorStage", "particleBloom"] {
+            #expect(ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
+                selectedRawValue: selected,
+                hasSynchronizedLyrics: false,
+                hasArtwork: false
+            ) == selected)
+        }
     }
 }
 

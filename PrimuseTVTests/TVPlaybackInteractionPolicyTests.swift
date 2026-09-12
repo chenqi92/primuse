@@ -1062,6 +1062,8 @@ final class TVImmersivePresentationActivityTests: XCTestCase {
             FullscreenPlayerEffect.kineticTitle,
             .radialPulse,
             .liveWaveform,
+            .spectrumHorizon,
+            .particleBloom,
         ] {
             var activity = TVImmersivePresentationActivity()
             activity.handle(.appeared)

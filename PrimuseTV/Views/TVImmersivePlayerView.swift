@@ -510,9 +510,10 @@ struct TVImmersivePlayerView: View {
 
     private var tvShowcaseControlAlignment: Alignment {
         switch presentationEffect {
-        case .radialPulse:
+        case .radialPulse, .vinylDeck, .particleBloom:
             .leading
-        case .coverFlow, .coverGallery, .starryNight, .flowingLines, .lightRhythm, .kineticTitle, .liveWaveform:
+        case .coverFlow, .coverGallery, .starryNight, .flowingLines, .lightRhythm, .kineticTitle, .liveWaveform,
+             .mirrorStage, .auroraVeil, .spectrumHorizon:
             .trailing
         case .native:
             .center

@@ -244,16 +244,21 @@ enum AmbientLightOverlayPolicy {
     }
 }
 
-/// 用户可选择的八类沉浸画面。名称描述效果机制，不再暴露设计稿编号。
+/// 用户可选择的十三类沉浸画面。名称描述效果机制，不再暴露设计稿编号。
 enum ImmersiveEffectScene: Sendable {
     case coverFlow
     case coverGallery
+    case vinylDeck
+    case mirrorStage
     case starryNight
     case flowingLines
     case lightRhythm
+    case auroraVeil
     case kineticTitle
     case radialPulse
     case liveWaveform
+    case spectrumHorizon
+    case particleBloom
 }
 
 /// 保留控制层语义，便于三端共用同一套容器。
@@ -297,7 +302,8 @@ enum FullscreenEffectCollection: Int, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// 三端共享的全屏效果目录。原生播放器保持默认，其余八项对应八种实际渲染机制。
+/// 三端共享的全屏效果目录。原生播放器保持默认，其余十三项对应十三种实际渲染机制。
+/// 新增效果追加在末尾，保证 macOS 数字快捷键与既有顺序一致。
 enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     case native
     case coverFlow
@@ -308,6 +314,11 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     case kineticTitle
     case radialPulse
     case liveWaveform
+    case vinylDeck
+    case mirrorStage
+    case auroraVeil
+    case spectrumHorizon
+    case particleBloom
 
     static let storageKey = "primuse.fullscreenPlayerEffect"
     static let defaultValue = FullscreenPlayerEffect.native
@@ -327,6 +338,11 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .kineticTitle: "kineticTitle"
         case .radialPulse: "radialPulse"
         case .liveWaveform: "liveWaveform"
+        case .vinylDeck: "vinylDeck"
+        case .mirrorStage: "mirrorStage"
+        case .auroraVeil: "auroraVeil"
+        case .spectrumHorizon: "spectrumHorizon"
+        case .particleBloom: "particleBloom"
         }
     }
 
@@ -344,14 +360,24 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
             self = .starryNight
         case "flowingLines", "contour":
             self = .flowingLines
-        case "lightRhythm", "lightField", "auroraDrift", "liquidChrome":
+        case "lightRhythm", "lightField", "liquidChrome":
             self = .lightRhythm
         case "kineticTitle", "typography", "typeWall", "lyricStage", "lyrics":
             self = .kineticTitle
-        case "radialPulse", "radialSpectrum", "vinyl":
+        case "radialPulse", "radialSpectrum":
             self = .radialPulse
         case "liveWaveform", "spectrum", "visualizer":
             self = .liveWaveform
+        case "vinylDeck", "vinyl":
+            self = .vinylDeck
+        case "mirrorStage":
+            self = .mirrorStage
+        case "auroraVeil", "auroraDrift":
+            self = .auroraVeil
+        case "spectrumHorizon":
+            self = .spectrumHorizon
+        case "particleBloom":
+            self = .particleBloom
         default:
             return nil
         }
@@ -360,9 +386,9 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     var collection: FullscreenEffectCollection {
         switch self {
         case .native: .native
-        case .coverFlow, .coverGallery: .coverReactive
-        case .starryNight, .flowingLines, .lightRhythm, .kineticTitle: .sceneMotion
-        case .radialPulse, .liveWaveform: .audioReactive
+        case .coverFlow, .coverGallery, .vinylDeck, .mirrorStage: .coverReactive
+        case .starryNight, .flowingLines, .lightRhythm, .auroraVeil, .kineticTitle: .sceneMotion
+        case .radialPulse, .liveWaveform, .spectrumHorizon, .particleBloom: .audioReactive
         }
     }
 
@@ -376,15 +402,25 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .kineticTitle: .kineticTitle
         case .radialPulse: .radialPulse
         case .liveWaveform: .liveWaveform
+        case .vinylDeck: .vinylDeck
+        case .mirrorStage: .mirrorStage
+        case .auroraVeil: .auroraVeil
+        case .spectrumHorizon: .spectrumHorizon
+        case .particleBloom: .particleBloom
         }
     }
 
-    /// 新的八类画面共用同一套浮动按钮外观，避免同级操作有无底色不一致。
+    /// 所有沉浸画面共用同一套浮动按钮外观，避免同级操作有无底色不一致。
     var chromeFamily: ImmersiveEffectChromeFamily { .showcase }
     var lyricsOverlay: ImmersiveLyricsOverlayKind { .none }
     var displaysLyrics: Bool { !isNative }
     var prefersLightContent: Bool { false }
-    var usesRealtimeSpectrum: Bool { self == .radialPulse || self == .liveWaveform }
+    var usesRealtimeSpectrum: Bool {
+        switch self {
+        case .radialPulse, .liveWaveform, .spectrumHorizon, .particleBloom: true
+        default: false
+        }
+    }
     var usesShowcaseChrome: Bool { !isNative }
 
     func advanced(by offset: Int) -> FullscreenPlayerEffect {
@@ -406,6 +442,11 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .kineticTitle: "kinetic_title"
         case .radialPulse: "radial_pulse"
         case .liveWaveform: "live_waveform"
+        case .vinylDeck: "vinyl_deck"
+        case .mirrorStage: "mirror_stage"
+        case .auroraVeil: "aurora_veil"
+        case .spectrumHorizon: "spectrum_horizon"
+        case .particleBloom: "particle_bloom"
         }
     }
 
@@ -436,6 +477,11 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .kineticTitle: "textformat.size"
         case .radialPulse: "waveform.circle.fill"
         case .liveWaveform: "waveform"
+        case .vinylDeck: "opticaldisc.fill"
+        case .mirrorStage: "rectangle.portrait.bottomhalf.inset.filled"
+        case .auroraVeil: "moon.haze.fill"
+        case .spectrumHorizon: "chart.bar.xaxis"
+        case .particleBloom: "aqi.medium"
         }
     }
 }

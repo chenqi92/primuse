@@ -617,6 +617,7 @@ targets:
       - path: Primuse/Services/FullscreenPlayerEffectSettings.swift
       - path: Primuse/Views/Components/AnimatedArtworkDataView.swift
       - path: Primuse/Views/NowPlaying/ImmersiveStageScenery.swift
+      - path: Primuse/Views/NowPlaying/ImmersiveStageRenderers.swift
       - path: Primuse/Views/NowPlaying/ImmersiveStageView.swift
       - path: SiriVocabulary
         buildPhase: resources

@@ -157,6 +157,7 @@
 		1EE5E389A8FE771DA64B8810 /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4F6B266B199B4973F7A9134 /* NetworkMonitor.swift */; };
 		1F47DB3FE4EE61F5E3D5C8B9 /* BaiduPanStreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13DF5DE888D6B46DD9A60F16 /* BaiduPanStreamResolver.swift */; };
 		1F557C87A502FBCD8DC01038 /* ImmersiveStageScenery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 471FBD82B7B84A3591677C6D /* ImmersiveStageScenery.swift */; };
+		3609CE36D79DA5BA2F0F8C04 /* ImmersiveStageRenderers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93D8F93C11C5FE1A45FAB247 /* ImmersiveStageRenderers.swift */; };
 		1FBA61CFD8F9EEC38167C64E /* UpdateBannerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 428DCE75417C9BAE087880F9 /* UpdateBannerSheet.swift */; };
 		1FCDA0A721D4974C059E97C6 /* CloudPlaybackSourceConcurrencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08B67A4A4DBE2C02BA72027B /* CloudPlaybackSourceConcurrencyTests.swift */; };
 		1FE2BC706AA7F2A36C401F13 /* LibraryStartupPreparationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6501ADF2A78A679B038D1826 /* LibraryStartupPreparationTests.swift */; };
@@ -380,10 +381,12 @@
 		4FABD6C4480CDBD874EC8F79 /* SettingsDiscoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 366DFF0895E102E8E4A21111 /* SettingsDiscoveryTests.swift */; };
 		4FB14E7A46B6F5209325B94F /* ScrobbleSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA12C906FD443EE450488F7 /* ScrobbleSettings.swift */; };
 		5013F5DB3AEFE10C17DCC8F1 /* ImmersiveStageScenery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 471FBD82B7B84A3591677C6D /* ImmersiveStageScenery.swift */; };
+		90329CC449401BE5EF3F8CCC /* ImmersiveStageRenderers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93D8F93C11C5FE1A45FAB247 /* ImmersiveStageRenderers.swift */; };
 		50144B56101B234A57AC9838 /* PlaylistImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E7EDECE3E00B23E95AC7D4B /* PlaylistImporter.swift */; };
 		502EFCB9A2F34C686EDA533C /* LastFmAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9428B24AB2EAE7BA15C6C5CA /* LastFmAuthService.swift */; };
 		50365BFC8958108CADBFC46E /* MacContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29D19414C60A995E2BAE6B3F /* MacContentView.swift */; };
 		5049BF06A280BC7DC440AF62 /* ImmersiveStageScenery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 471FBD82B7B84A3591677C6D /* ImmersiveStageScenery.swift */; };
+		24E36FABD172C1B2C9281866 /* ImmersiveStageRenderers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93D8F93C11C5FE1A45FAB247 /* ImmersiveStageRenderers.swift */; };
 		5059BBCF57B472D7E8BFE619 /* MediaDetailActionBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3305EA479E0347F99584ABAE /* MediaDetailActionBar.swift */; };
 		507AA6C3F829E444FD797DCD /* FFmpegAudioDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E083139645350B81D8E8C645 /* FFmpegAudioDecoder.swift */; };
 		5087F05D0D7C94B494DD6775 /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF83CE305219EDE25101007A /* SearchView.swift */; };
@@ -1658,6 +1661,7 @@
 		46612482DDCA658420EB9BB6 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = ru.lproj/SettingsSearch.strings; sourceTree = "<group>"; };
 		466AF990FCB1B871B4D60DE5 /* CloudSyncSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncSettingsView.swift; sourceTree = "<group>"; };
 		471FBD82B7B84A3591677C6D /* ImmersiveStageScenery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveStageScenery.swift; sourceTree = "<group>"; };
+		93D8F93C11C5FE1A45FAB247 /* ImmersiveStageRenderers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveStageRenderers.swift; sourceTree = "<group>"; };
 		475C1FE8058D8223F7F7B0B6 /* CloudOAuthAccountSelectionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudOAuthAccountSelectionPolicy.swift; sourceTree = "<group>"; };
 		47748DA5FBA423FEABD1BDA1 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		47E59B77B48BB80E013B77B3 /* th */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = th; path = th.lproj/WiFiTransfer.strings; sourceTree = "<group>"; };
@@ -2902,6 +2906,7 @@
 				363F869C6171BAEF3E787B3A /* ArtworkView.swift */,
 				694F8F3DCD98021DF67ED95D /* ImmersivePlayerView.swift */,
 				471FBD82B7B84A3591677C6D /* ImmersiveStageScenery.swift */,
+				93D8F93C11C5FE1A45FAB247 /* ImmersiveStageRenderers.swift */,
 				4BD6D04DA8CE429DC75434F6 /* ImmersiveStageView.swift */,
 				8AC7465EC4D7BFF7A5D825BF /* KaraokeLineView.swift */,
 				973D5A18BC4228928E42C0C1 /* MiniPlayerView.swift */,
@@ -4698,6 +4703,7 @@
 				B3C5916D2A8452DC747DA1FF /* ImageCache.swift in Sources */,
 				AFE8B1D83B0A404411167743 /* ImmersivePlayerView.swift in Sources */,
 				1F557C87A502FBCD8DC01038 /* ImmersiveStageScenery.swift in Sources */,
+				3609CE36D79DA5BA2F0F8C04 /* ImmersiveStageRenderers.swift in Sources */,
 				08FBFE2A8180B6A0AEF02D3B /* ImmersiveStageView.swift in Sources */,
 				6A2605583566E7C549DED890 /* JellyfinSourceCreationTransaction.swift in Sources */,
 				2E8D2AA64CC077D5625523F5 /* KaraokeLineView.swift in Sources */,
@@ -4942,6 +4948,7 @@
 				55164191B7E54C83ED6BD3B6 /* FullscreenPlayerEffectSettings.swift in Sources */,
 				6FD343D31FDCA5EB52F81D2C /* ITunesScraper.swift in Sources */,
 				5013F5DB3AEFE10C17DCC8F1 /* ImmersiveStageScenery.swift in Sources */,
+				90329CC449401BE5EF3F8CCC /* ImmersiveStageRenderers.swift in Sources */,
 				851E6702527455803F1ACB6B /* ImmersiveStageView.swift in Sources */,
 				B94F720537A1813FAC3ACA53 /* KeychainService.swift in Sources */,
 				5961CDB6711D704E941D41E9 /* LRCLIBScraper.swift in Sources */,
@@ -5164,6 +5171,7 @@
 				3DB35BA7BA5DF8173F45CA98 /* ImageCache.swift in Sources */,
 				2C61D7F37B8D2158EDFC1B45 /* ImmersivePlayerView.swift in Sources */,
 				5049BF06A280BC7DC440AF62 /* ImmersiveStageScenery.swift in Sources */,
+				24E36FABD172C1B2C9281866 /* ImmersiveStageRenderers.swift in Sources */,
 				173ECEA29447C32D1D305203 /* ImmersiveStageView.swift in Sources */,
 				5F57F340B615890225768BCE /* JellyfinSourceCreationTransaction.swift in Sources */,
 				E1F03B0F5F84CD3EC3339D8D /* KaraokeLineView.swift in Sources */,

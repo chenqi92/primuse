@@ -421,9 +421,10 @@ struct ImmersivePlayerView: View {
     private func showcaseControlAlignment(_ metrics: ImmersiveStageMetrics) -> Alignment {
         guard metrics.layout != .phonePortrait else { return .center }
         switch presentationEffect {
-        case .radialPulse:
+        case .radialPulse, .vinylDeck, .particleBloom:
             return .leading
-        case .coverFlow, .coverGallery, .starryNight, .flowingLines, .lightRhythm, .kineticTitle, .liveWaveform:
+        case .coverFlow, .coverGallery, .starryNight, .flowingLines, .lightRhythm, .kineticTitle, .liveWaveform,
+             .mirrorStage, .auroraVeil, .spectrumHorizon:
             return .trailing
         case .native:
             return .center

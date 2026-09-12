@@ -6064,6 +6064,7 @@ public enum ImmersivePresentationFallbackPolicy {
         let supported = [
             "native", "coverFlow", "coverGallery", "starryNight", "flowingLines",
             "lightRhythm", "kineticTitle", "radialPulse", "liveWaveform",
+            "vinylDeck", "mirrorStage", "auroraVeil", "spectrumHorizon", "particleBloom",
         ]
         if supported.contains(selectedRawValue) {
             return selectedRawValue
@@ -6079,12 +6080,16 @@ public enum ImmersivePresentationFallbackPolicy {
             return "starryNight"
         case "contour":
             return "flowingLines"
-        case "lightField", "auroraDrift", "liquidChrome":
+        case "lightField", "liquidChrome":
             return "lightRhythm"
+        case "auroraDrift":
+            return "auroraVeil"
         case "typography", "typeWall", "lyricStage", "lyrics":
             return "kineticTitle"
-        case "radialSpectrum", "vinyl":
+        case "radialSpectrum":
             return "radialPulse"
+        case "vinyl":
+            return "vinylDeck"
         case "spectrum", "visualizer":
             return "liveWaveform"
         default:

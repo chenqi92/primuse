@@ -418,9 +418,10 @@ struct MacImmersivePlayerView: View {
 
     private var macShowcaseControlAlignment: Alignment {
         switch presentationEffect {
-        case .radialPulse:
+        case .radialPulse, .vinylDeck, .particleBloom:
             .leading
-        case .coverFlow, .coverGallery, .starryNight, .flowingLines, .lightRhythm, .kineticTitle, .liveWaveform:
+        case .coverFlow, .coverGallery, .starryNight, .flowingLines, .lightRhythm, .kineticTitle, .liveWaveform,
+             .mirrorStage, .auroraVeil, .spectrumHorizon:
             .trailing
         case .native:
             .center
@@ -944,7 +945,9 @@ struct MacImmersivePlayerView: View {
             selectEffect(.native)
             return .handled
         }
-        if let number = Int(characters), (1...8).contains(number) {
+        if let number = Int(characters),
+           (1...9).contains(number),
+           FullscreenPlayerEffect.immersiveCases.indices.contains(number - 1) {
             selectEffect(FullscreenPlayerEffect.immersiveCases[number - 1])
             return .handled
         }

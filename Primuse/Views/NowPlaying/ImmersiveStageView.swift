@@ -36,7 +36,7 @@ struct ImmersiveStageLyric: Identifiable, Equatable {
     }
 }
 
-/// iOS、macOS 与 tvOS 共用的八类动态播放舞台。封面、封面墙与实时频谱由平台容器注入。
+/// iOS、macOS 与 tvOS 共用的十三类动态播放舞台。封面、封面墙与实时频谱由平台容器注入。
 struct ImmersiveStageView<Artwork: View>: View {
     var style: FullscreenPlayerEffect
     var platform: ImmersiveStagePlatform = .iOS
@@ -141,6 +141,16 @@ struct ImmersiveStageView<Artwork: View>: View {
             radialPulseScene
         case .liveWaveform:
             liveWaveformScene
+        case .vinylDeck:
+            vinylDeckScene
+        case .mirrorStage:
+            mirrorStageScene
+        case .auroraVeil:
+            auroraVeilScene
+        case .spectrumHorizon:
+            spectrumHorizonScene
+        case .particleBloom:
+            particleBloomScene
         }
     }
 
@@ -202,50 +212,63 @@ struct ImmersiveStageView<Artwork: View>: View {
             ImmersiveArtworkAtmosphere(
                 isAnimating: sceneIsAnimating,
                 blur: metrics.s(platform == .tvOS ? 82 : 58),
-                opacity: 0.24,
+                opacity: 0.26,
                 saturation: 1.5,
                 artwork: artwork
             )
             .blendMode(.screen)
             ImmersiveFlowingLightRibbons(palette: palette, isAnimating: sceneIsAnimating)
-            ImmersiveVignette(color: palette.secondary, center: .center, clearStop: 0.22, strength: 0.68)
+            ImmersiveVignette(color: palette.secondary, center: .center, clearStop: 0.22, strength: 0.66)
 
             if metrics.isPortrait {
-                VStack(alignment: .leading, spacing: metrics.s(24)) {
-                    compactHeader(artSide: metrics.s(58))
-                    Spacer(minLength: metrics.s(44))
-                    titleBlock(size: metrics.s(58), weight: .light)
-                    Spacer()
+                VStack(alignment: .leading, spacing: metrics.s(26)) {
+                    levitatingArtwork(
+                        side: min(metrics.size.width * 0.72, metrics.size.height * 0.36),
+                        radius: metrics.f(18)
+                    )
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    titleBlock(size: metrics.s(46), weight: .semibold)
                     singleLyric(fontSize: metrics.s(17))
+                    Spacer(minLength: 0)
                 }
                 .padding(.leading, leadingInset)
                 .padding(.trailing, trailingInset)
-                .padding(.top, topInset)
-                .padding(.bottom, bottomInset + metrics.s(30))
+                .padding(.top, topInset + metrics.s(16))
+                .padding(.bottom, bottomInset)
             } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack(alignment: .top) {
-                        compactHeader(artSide: metrics.s(platform == .tvOS ? 94 : 60))
-                        Spacer()
+                HStack(spacing: metrics.s(platform == .tvOS ? 96 : 56)) {
+                    VStack(alignment: .leading, spacing: metrics.s(22)) {
+                        titleBlock(size: metrics.s(platform == .tvOS ? 104 : 66), weight: .semibold)
+                        singleLyric(
+                            fontSize: metrics.s(platform == .tvOS ? 31 : 20),
+                            availableWidth: metrics.size.width * 0.44
+                        )
                     }
-                    Spacer()
-                    titleBlock(
-                        size: metrics.s(platform == .tvOS ? 132 : 82),
-                        weight: .light,
-                        maxWidth: metrics.size.width * 0.68
-                    )
-                    Spacer()
-                    singleLyric(
-                        fontSize: metrics.s(platform == .tvOS ? 31 : 20),
-                        availableWidth: metrics.size.width * 0.72
+                    .frame(maxWidth: metrics.size.width * 0.44, alignment: .leading)
+                    Spacer(minLength: 0)
+                    levitatingArtwork(
+                        side: min(metrics.size.height * 0.58, metrics.size.width * 0.34),
+                        radius: metrics.f(24)
                     )
                 }
                 .padding(.leading, leadingInset)
                 .padding(.trailing, trailingInset)
                 .padding(.top, topInset)
-                .padding(.bottom, bottomInset + metrics.s(10))
+                .padding(.bottom, bottomInset)
             }
         }
+    }
+
+    private func levitatingArtwork(side: CGFloat, radius: CGFloat) -> some View {
+        ImmersiveLevitatingPlate(
+            isAnimating: sceneIsAnimating,
+            side: side,
+            cornerRadius: radius,
+            glow: palette.primary
+        ) {
+            artworkPlate(side: side, radius: radius)
+        }
+        .frame(width: side, height: side)
     }
 
     // MARK: - 2. 流动封面墙
@@ -259,17 +282,23 @@ struct ImmersiveStageView<Artwork: View>: View {
                 artwork: galleryArtwork
             )
             LinearGradient(
-                colors: [palette.secondary.opacity(0.44), palette.secondary.opacity(0.90)],
+                colors: [palette.secondary.opacity(0.40), palette.secondary.opacity(0.88)],
                 startPoint: .top,
                 endPoint: .bottom
             )
-            ImmersiveVignette(color: .black, clearStop: 0.08, strength: 0.62)
+            RadialGradient(
+                colors: [palette.primary.opacity(0.28), .clear],
+                center: metrics.isPortrait ? UnitPoint(x: 0.5, y: 0.30) : UnitPoint(x: 0.24, y: 0.5),
+                startRadius: 0,
+                endRadius: max(metrics.size.width, metrics.size.height) * 0.5
+            )
+            ImmersiveVignette(color: .black, clearStop: 0.08, strength: 0.60)
 
             if metrics.isPortrait {
                 VStack(alignment: .leading, spacing: metrics.s(22)) {
                     portraitArtworkPlate(
                         side: min(metrics.size.width * 0.63, metrics.size.height * 0.31),
-                        radius: metrics.f(8)
+                        radius: metrics.f(12)
                     )
                     galleryTrackBlock
                     singleLyric(fontSize: metrics.s(16))
@@ -283,7 +312,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 HStack(spacing: metrics.s(platform == .tvOS ? 82 : 46)) {
                     artworkPlate(
                         side: min(metrics.size.height * 0.48, metrics.size.width * 0.30),
-                        radius: metrics.f(10)
+                        radius: metrics.f(14)
                     )
                     VStack(alignment: .leading, spacing: metrics.s(18)) {
                         galleryTrackBlock
@@ -320,20 +349,14 @@ struct ImmersiveStageView<Artwork: View>: View {
 
     private var starryNightScene: some View {
         ZStack {
-            ImmersiveMovingStarField(palette: palette, isAnimating: sceneIsAnimating)
-            RadialGradient(
-                colors: [palette.primary.opacity(0.34), .clear],
-                center: .bottomTrailing,
-                startRadius: 0,
-                endRadius: max(metrics.size.width, metrics.size.height) * 0.76
-            )
-            ImmersiveVignette(color: palette.secondary, clearStop: 0.25, strength: 0.64)
+            ImmersiveDeepStarField(palette: palette, isAnimating: sceneIsAnimating)
+            ImmersiveVignette(color: palette.secondary, clearStop: 0.28, strength: 0.58)
 
             if metrics.isPortrait {
                 VStack(alignment: .leading, spacing: metrics.s(24)) {
                     portraitArtworkPlate(
                         side: min(metrics.size.width * 0.69, metrics.size.height * 0.36),
-                        radius: metrics.f(8)
+                        radius: metrics.f(10)
                     )
                     titleBlock(size: metrics.s(48), weight: .light)
                     singleLyric(fontSize: metrics.s(16))
@@ -347,7 +370,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 HStack(spacing: metrics.s(platform == .tvOS ? 82 : 48)) {
                     artworkPlate(
                         side: min(metrics.size.height * 0.50, metrics.size.width * 0.31),
-                        radius: metrics.f(8)
+                        radius: metrics.f(10)
                     )
                     VStack(alignment: .leading, spacing: metrics.s(18)) {
                         titleBlock(size: metrics.s(platform == .tvOS ? 96 : 60), weight: .light)
@@ -369,59 +392,70 @@ struct ImmersiveStageView<Artwork: View>: View {
     // MARK: - 4. 流动声纹
 
     private var flowingLinesScene: some View {
-        ZStack {
+        let diameter = metrics.isPortrait
+            ? min(metrics.size.width * 0.54, metrics.size.height * 0.28)
+            : min(metrics.size.height * 0.54, metrics.size.width * 0.34)
+        let fieldCenter = metrics.isPortrait
+            ? UnitPoint(x: 0.5, y: 0.42)
+            : UnitPoint(x: 0.53, y: 0.44)
+
+        return ZStack {
             LinearGradient(
                 colors: [palette.secondary, ImmersiveStagePalette.obsidian.opacity(0.82)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
-            ImmersiveFlowingContourField(palette: palette, isAnimating: sceneIsAnimating)
-            ImmersiveVignette(color: .black, clearStop: 0.30, strength: 0.56)
+            ImmersiveOrganicContourField(
+                palette: palette,
+                isAnimating: sceneIsAnimating,
+                center: fieldCenter
+            )
+            ImmersiveVignette(color: .black, clearStop: 0.30, strength: 0.54)
 
-            if metrics.isPortrait {
-                VStack(spacing: metrics.s(18)) {
-                    threeLineLyrics(alignment: .trailing, fontSize: metrics.s(13))
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                    rotatingCircularArtwork(diameter: min(metrics.size.width * 0.54, metrics.size.height * 0.28))
-                    Spacer()
-                    titleBlock(size: metrics.s(44), weight: .semibold)
-                }
-                .padding(.leading, leadingInset)
-                .padding(.trailing, trailingInset)
-                .padding(.top, topInset)
-                .padding(.bottom, bottomInset + metrics.s(12))
-            } else {
-                ZStack {
-                    rotatingCircularArtwork(
-                        diameter: min(metrics.size.height * 0.54, metrics.size.width * 0.34)
+            orbitingArtwork(diameter: diameter)
+                .position(
+                    x: metrics.size.width * fieldCenter.x,
+                    y: metrics.size.height * fieldCenter.y
+                )
+
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top) {
+                    Spacer(minLength: 0)
+                    threeLineLyrics(
+                        alignment: .trailing,
+                        fontSize: metrics.s(metrics.isPortrait ? 13 : (platform == .tvOS ? 27 : 17)),
+                        availableWidth: metrics.size.width * (metrics.isPortrait ? 0.66 : 0.34)
                     )
-                    .offset(x: metrics.size.width * 0.03, y: -metrics.size.height * 0.05)
-
-                    VStack {
-                        HStack(alignment: .top) {
-                            Spacer()
-                            threeLineLyrics(
-                                alignment: .trailing,
-                                fontSize: metrics.s(platform == .tvOS ? 27 : 17),
-                                availableWidth: metrics.size.width * 0.34
-                            )
-                            .frame(maxWidth: metrics.size.width * 0.34, alignment: .trailing)
-                        }
-                        Spacer()
-                        titleBlock(
-                            size: metrics.s(platform == .tvOS ? 94 : 58),
-                            weight: .semibold,
-                            maxWidth: metrics.size.width * 0.46
-                        )
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+                    .frame(
+                        maxWidth: metrics.size.width * (metrics.isPortrait ? 0.66 : 0.34),
+                        alignment: .trailing
+                    )
                 }
-                .padding(.leading, leadingInset)
-                .padding(.trailing, trailingInset)
-                .padding(.top, topInset)
-                .padding(.bottom, bottomInset)
+                Spacer()
+                titleBlock(
+                    size: metrics.s(metrics.isPortrait ? 44 : (platform == .tvOS ? 94 : 58)),
+                    weight: .semibold,
+                    maxWidth: metrics.isPortrait ? nil : metrics.size.width * 0.46
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .padding(.leading, leadingInset)
+            .padding(.trailing, trailingInset)
+            .padding(.top, topInset)
+            .padding(.bottom, bottomInset + metrics.s(metrics.isPortrait ? 12 : 0))
         }
+    }
+
+    private func orbitingArtwork(diameter: CGFloat) -> some View {
+        ZStack {
+            ImmersiveOrbitRing(
+                palette: palette,
+                isAnimating: sceneIsAnimating,
+                diameter: diameter * 1.16
+            )
+            rotatingCircularArtwork(diameter: diameter)
+        }
+        .frame(width: diameter * 1.16, height: diameter * 1.16)
     }
 
     // MARK: - 5. 光影呼吸
@@ -429,14 +463,20 @@ struct ImmersiveStageView<Artwork: View>: View {
     private var lightRhythmScene: some View {
         ZStack {
             ImmersivePaletteFlowBackdrop(palette: palette, isAnimating: sceneIsAnimating, isLuminous: true)
-            ImmersiveVignette(color: palette.secondary, clearStop: 0.18, strength: 0.58)
+            ImmersiveLightRays(
+                palette: palette,
+                isAnimating: sceneIsAnimating,
+                origin: metrics.isPortrait ? UnitPoint(x: 0.92, y: -0.10) : UnitPoint(x: 0.08, y: -0.12)
+            )
+            ImmersiveVignette(color: palette.secondary, clearStop: 0.18, strength: 0.56)
 
             if metrics.isPortrait {
                 VStack(alignment: .leading, spacing: metrics.s(22)) {
-                    portraitArtworkPlate(
-                        side: min(metrics.size.width * 0.73, metrics.size.height * 0.37),
+                    haloArtwork(
+                        side: min(metrics.size.width * 0.70, metrics.size.height * 0.36),
                         radius: metrics.f(18)
                     )
+                    .frame(maxWidth: .infinity, alignment: .center)
                     titleBlock(size: metrics.s(43), weight: .semibold)
                     formatAndLyric(
                         fontSize: metrics.s(14),
@@ -446,29 +486,41 @@ struct ImmersiveStageView<Artwork: View>: View {
                 }
                 .padding(.leading, leadingInset)
                 .padding(.trailing, trailingInset)
-                .padding(.top, topInset + metrics.s(12))
+                .padding(.top, topInset + metrics.s(16))
                 .padding(.bottom, bottomInset)
             } else {
-                HStack(spacing: metrics.s(platform == .tvOS ? 82 : 48)) {
-                    artworkPlate(
-                        side: min(metrics.size.height * 0.56, metrics.size.width * 0.35),
+                HStack(spacing: metrics.s(platform == .tvOS ? 96 : 60)) {
+                    haloArtwork(
+                        side: min(metrics.size.height * 0.54, metrics.size.width * 0.33),
                         radius: metrics.f(22)
                     )
                     VStack(alignment: .leading, spacing: metrics.s(22)) {
                         titleBlock(size: metrics.s(platform == .tvOS ? 98 : 62), weight: .semibold)
                         formatAndLyric(
                             fontSize: metrics.s(platform == .tvOS ? 24 : 15),
-                            availableWidth: metrics.size.width * 0.43
+                            availableWidth: metrics.size.width * 0.42
                         )
                     }
-                    .frame(maxWidth: metrics.size.width * 0.43, alignment: .leading)
+                    .frame(maxWidth: metrics.size.width * 0.42, alignment: .leading)
                 }
-                .padding(.leading, leadingInset)
+                .padding(.leading, leadingInset + metrics.s(platform == .tvOS ? 40 : 24))
                 .padding(.trailing, trailingInset)
                 .padding(.top, topInset)
                 .padding(.bottom, bottomInset)
             }
         }
+    }
+
+    private func haloArtwork(side: CGFloat, radius: CGFloat) -> some View {
+        ZStack {
+            ImmersiveBreathingHalo(
+                palette: palette,
+                isAnimating: sceneIsAnimating,
+                diameter: side * 1.36
+            )
+            artworkPlate(side: side, radius: radius)
+        }
+        .frame(width: side, height: side)
     }
 
     private func formatAndLyric(fontSize: CGFloat, availableWidth: CGFloat) -> some View {
@@ -605,12 +657,15 @@ struct ImmersiveStageView<Artwork: View>: View {
         )
         return ZStack {
             palette.secondary
-            RadialGradient(
-                colors: [palette.primary.opacity(0.38), .clear],
+            ImmersiveEnergyGlow(
+                levelsProvider: spectrumProvider,
+                palette: palette,
                 center: metrics.isPortrait ? .top : .leading,
-                startRadius: 0,
-                endRadius: diameter * 1.2
+                radius: diameter * 1.2,
+                baseOpacity: 0.26,
+                reactiveOpacity: 0.34
             )
+            ImmersiveVignette(color: ImmersiveStagePalette.obsidian, clearStop: 0.34, strength: 0.46)
 
             if metrics.isPortrait {
                 VStack(spacing: metrics.s(28)) {
@@ -647,10 +702,29 @@ struct ImmersiveStageView<Artwork: View>: View {
     }
 
     private func radialArtwork(diameter: CGFloat) -> some View {
-        ZStack {
+        let barWidth = max(1.4, metrics.f(platform == .tvOS ? 5 : 3))
+        return ZStack {
+            ImmersiveBassRipples(
+                levelsProvider: spectrumProvider,
+                palette: palette,
+                isAnimating: sceneIsAnimating,
+                startRatio: 0.60 / 1.4
+            )
+            .frame(width: diameter * 1.4, height: diameter * 1.4)
+
             ImmersiveSpectrumRingHost(
                 levelsProvider: spectrumProvider,
-                barWidth: max(1.4, metrics.f(platform == .tvOS ? 5 : 3)),
+                barWidth: barWidth,
+                isAnimating: sceneIsAnimating,
+                tint: palette.primary,
+                isPlaying: playbackClockIsActive
+            )
+            .blur(radius: max(4, metrics.f(12)))
+            .opacity(0.9)
+
+            ImmersiveSpectrumRingHost(
+                levelsProvider: spectrumProvider,
+                barWidth: barWidth,
                 isAnimating: sceneIsAnimating,
                 tint: palette.primary,
                 isPlaying: playbackClockIsActive
@@ -666,7 +740,23 @@ struct ImmersiveStageView<Artwork: View>: View {
     private var liveWaveformScene: some View {
         ZStack {
             ImmersivePaletteFlowBackdrop(palette: palette, isAnimating: sceneIsAnimating, intensity: 0.50)
-            ImmersiveVignette(color: palette.secondary, clearStop: 0.14, strength: 0.72)
+            ImmersiveArtworkAtmosphere(
+                isAnimating: sceneIsAnimating,
+                blur: metrics.s(platform == .tvOS ? 90 : 64),
+                opacity: 0.22,
+                saturation: 1.4,
+                artwork: artwork
+            )
+            .blendMode(.screen)
+            ImmersiveEnergyGlow(
+                levelsProvider: spectrumProvider,
+                palette: palette,
+                center: metrics.isPortrait ? UnitPoint(x: 0.5, y: 0.28) : UnitPoint(x: 0.22, y: 0.5),
+                radius: max(metrics.size.width, metrics.size.height) * 0.42,
+                baseOpacity: 0.10,
+                reactiveOpacity: 0.30
+            )
+            ImmersiveVignette(color: palette.secondary, clearStop: 0.14, strength: 0.70)
 
             if metrics.isPortrait {
                 VStack(alignment: .leading, spacing: metrics.s(22)) {
@@ -675,7 +765,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                         radius: metrics.f(20)
                     )
                     titleBlock(size: metrics.s(42), weight: .semibold)
-                    waveformPanel(height: metrics.s(72))
+                    waveformPanel(height: metrics.s(76))
                     singleLyric(fontSize: metrics.s(16))
                     Spacer(minLength: 0)
                 }
@@ -691,7 +781,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                     )
                     VStack(alignment: .leading, spacing: metrics.s(22)) {
                         titleBlock(size: metrics.s(platform == .tvOS ? 92 : 58), weight: .semibold)
-                        waveformPanel(height: metrics.s(platform == .tvOS ? 118 : 74))
+                        waveformPanel(height: metrics.s(platform == .tvOS ? 124 : 78))
                         singleLyric(
                             fontSize: metrics.s(platform == .tvOS ? 27 : 17),
                             availableWidth: metrics.size.width * 0.46
@@ -721,6 +811,342 @@ struct ImmersiveStageView<Artwork: View>: View {
             spacing: metrics.s(8)
         )
         .accessibilityLabel(visualizerDisclosure)
+    }
+
+    // MARK: - 9. 黑胶唱机
+
+    private var vinylDeckScene: some View {
+        let diameter = min(
+            metrics.size.height * (metrics.isPortrait ? 0.44 : 0.78),
+            metrics.size.width * (metrics.isPortrait ? 0.74 : 0.44)
+        )
+        return ZStack {
+            LinearGradient(
+                colors: [palette.secondary.opacity(0.96), ImmersiveStagePalette.obsidian],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            RadialGradient(
+                colors: [palette.primary.opacity(0.34), .clear],
+                center: metrics.isPortrait ? UnitPoint(x: 0.5, y: 0.22) : UnitPoint(x: 0.26, y: 0.42),
+                startRadius: 0,
+                endRadius: diameter * 1.1
+            )
+            ImmersiveVignette(color: .black, clearStop: 0.20, strength: 0.70)
+
+            if metrics.isPortrait {
+                VStack(alignment: .leading, spacing: metrics.s(24)) {
+                    turntable(diameter: diameter)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                    titleBlock(size: metrics.s(40), weight: .semibold)
+                    formatAndLyric(
+                        fontSize: metrics.s(13),
+                        availableWidth: metrics.size.width - leadingInset - trailingInset
+                    )
+                    Spacer(minLength: 0)
+                }
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
+                .padding(.top, topInset + metrics.s(8))
+                .padding(.bottom, bottomInset)
+            } else {
+                HStack(spacing: metrics.s(platform == .tvOS ? 90 : 52)) {
+                    turntable(diameter: diameter)
+                    VStack(alignment: .leading, spacing: metrics.s(20)) {
+                        titleBlock(size: metrics.s(platform == .tvOS ? 92 : 58), weight: .semibold)
+                        formatAndLyric(
+                            fontSize: metrics.s(platform == .tvOS ? 23 : 14),
+                            availableWidth: metrics.size.width * 0.40
+                        )
+                    }
+                    .frame(maxWidth: metrics.size.width * 0.40, alignment: .leading)
+                }
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
+                .padding(.top, topInset)
+                .padding(.bottom, bottomInset)
+            }
+        }
+    }
+
+    private func turntable(diameter: CGFloat) -> some View {
+        let canvas = ImmersiveVinylTonearm.canvasSize(recordDiameter: diameter)
+        return ZStack(alignment: .topLeading) {
+            ImmersiveVinylRecord(
+                palette: palette,
+                isSpinning: playbackClockIsActive,
+                reduceMotion: reduceMotion,
+                diameter: diameter
+            ) { side in
+                artwork(side)
+            }
+            ImmersiveVinylTonearm(
+                recordDiameter: diameter,
+                isPlaying: track.isPlaying,
+                tint: palette.primary
+            )
+        }
+        .frame(width: canvas.width, height: canvas.height, alignment: .topLeading)
+    }
+
+    // MARK: - 10. 镜面展台
+
+    private var mirrorStageScene: some View {
+        let side = metrics.isPortrait
+            ? min(metrics.size.width * 0.60, metrics.size.height * 0.30)
+            : min(metrics.size.height * 0.46, metrics.size.width * 0.30)
+        let availableTop = topInset
+        let availableBottom = metrics.size.height - bottomInset
+        let horizonY: CGFloat = metrics.isPortrait
+            ? availableTop + metrics.s(36) + side
+            : availableTop + (availableBottom - availableTop) * 0.5 + side * 0.42
+        let plateX: CGFloat = metrics.isPortrait
+            ? metrics.size.width / 2
+            : leadingInset + side / 2 + metrics.s(12)
+        let radius = metrics.f(10)
+        let textGap = metrics.s(platform == .tvOS ? 90 : 56)
+
+        return ZStack {
+            ImmersiveMirrorFloor(
+                palette: palette,
+                isAnimating: sceneIsAnimating,
+                horizonY: horizonY,
+                spotlightX: plateX
+            )
+            ImmersiveVignette(color: .black, clearStop: 0.30, strength: 0.50)
+
+            artwork(side)
+                .frame(width: side, height: side)
+                .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+                .scaleEffect(y: -1)
+                .mask {
+                    LinearGradient(
+                        stops: [
+                            .init(color: .black.opacity(0.55), location: 0),
+                            .init(color: .black.opacity(0.12), location: 0.45),
+                            .init(color: .clear, location: 0.75),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+                .blur(radius: max(1, metrics.f(1.5)))
+                .position(x: plateX, y: horizonY + side / 2 + metrics.f(2))
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+
+            artworkPlate(side: side, radius: radius)
+                .position(x: plateX, y: horizonY - side / 2)
+
+            if metrics.isPortrait {
+                VStack(alignment: .leading, spacing: metrics.s(14)) {
+                    titleBlock(size: metrics.s(40), weight: .semibold)
+                    singleLyric(fontSize: metrics.s(16))
+                }
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(.top, horizonY + metrics.s(30))
+            } else {
+                VStack(alignment: .leading, spacing: metrics.s(20)) {
+                    titleBlock(size: metrics.s(platform == .tvOS ? 92 : 58), weight: .semibold)
+                    singleLyric(
+                        fontSize: metrics.s(platform == .tvOS ? 28 : 18),
+                        availableWidth: metrics.size.width * 0.42
+                    )
+                }
+                .frame(width: metrics.size.width * 0.42, alignment: .leading)
+                .position(
+                    x: plateX + side / 2 + textGap + metrics.size.width * 0.21,
+                    y: horizonY - side / 2
+                )
+            }
+        }
+    }
+
+    // MARK: - 11. 极光帷幕
+
+    private var auroraVeilScene: some View {
+        ZStack {
+            ImmersiveAuroraCurtains(palette: palette, isAnimating: sceneIsAnimating)
+            ImmersiveVignette(color: ImmersiveStagePalette.obsidian, clearStop: 0.34, strength: 0.46)
+
+            if metrics.isPortrait {
+                VStack(alignment: .leading, spacing: metrics.s(16)) {
+                    compactHeader(artSide: metrics.s(64))
+                    Spacer()
+                    titleBlock(size: metrics.s(40), weight: .semibold)
+                    singleLyric(fontSize: metrics.s(20))
+                }
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
+                .padding(.top, topInset)
+                .padding(.bottom, bottomInset + metrics.s(16))
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    compactHeader(artSide: metrics.s(platform == .tvOS ? 100 : 66))
+                    Spacer()
+                    HStack(alignment: .bottom, spacing: metrics.s(48)) {
+                        titleBlock(
+                            size: metrics.s(platform == .tvOS ? 90 : 58),
+                            weight: .semibold,
+                            maxWidth: metrics.size.width * 0.40
+                        )
+                        Spacer(minLength: 0)
+                        singleLyric(
+                            fontSize: metrics.s(platform == .tvOS ? 30 : 20),
+                            availableWidth: metrics.size.width * 0.36
+                        )
+                        .frame(maxWidth: metrics.size.width * 0.36, alignment: .leading)
+                    }
+                }
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
+                .padding(.top, topInset)
+                .padding(.bottom, bottomInset)
+            }
+        }
+    }
+
+    // MARK: - 12. 声场地平线
+
+    private var spectrumHorizonScene: some View {
+        let horizonY = metrics.size.height * (metrics.isPortrait ? 0.82 : 0.76)
+        let barHeight = metrics.size.height * (metrics.isPortrait ? 0.20 : 0.22)
+        return ZStack {
+            LinearGradient(
+                colors: [palette.secondary.opacity(0.92), ImmersiveStagePalette.obsidian],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            ImmersiveEnergyGlow(
+                levelsProvider: spectrumProvider,
+                palette: palette,
+                center: UnitPoint(x: 0.5, y: horizonY / metrics.size.height),
+                radius: max(metrics.size.width, metrics.size.height) * 0.55,
+                baseOpacity: 0.14,
+                reactiveOpacity: 0.30
+            )
+            ImmersiveSpectrumSkyline(
+                levelsProvider: spectrumProvider,
+                palette: palette,
+                horizonY: horizonY,
+                maxBarHeight: barHeight
+            )
+            ImmersiveVignette(color: ImmersiveStagePalette.obsidian, clearStop: 0.30, strength: 0.42)
+
+            if metrics.isPortrait {
+                VStack(alignment: .leading, spacing: metrics.s(20)) {
+                    portraitArtworkPlate(
+                        side: min(metrics.size.width * 0.58, metrics.size.height * 0.28),
+                        radius: metrics.f(16)
+                    )
+                    titleBlock(size: metrics.s(40), weight: .semibold)
+                    singleLyric(fontSize: metrics.s(16))
+                    Spacer(minLength: 0)
+                }
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
+                .padding(.top, topInset + metrics.s(10))
+                .padding(.bottom, bottomInset)
+            } else {
+                HStack(spacing: metrics.s(platform == .tvOS ? 82 : 48)) {
+                    artworkPlate(
+                        side: min(metrics.size.height * 0.44, metrics.size.width * 0.28),
+                        radius: metrics.f(18)
+                    )
+                    VStack(alignment: .leading, spacing: metrics.s(18)) {
+                        titleBlock(size: metrics.s(platform == .tvOS ? 90 : 56), weight: .semibold)
+                        singleLyric(
+                            fontSize: metrics.s(platform == .tvOS ? 27 : 17),
+                            availableWidth: metrics.size.width * 0.44
+                        )
+                    }
+                    .frame(maxWidth: metrics.size.width * 0.44, alignment: .leading)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
+                .padding(.top, topInset + metrics.s(platform == .tvOS ? 40 : 24))
+                .padding(.bottom, bottomInset)
+            }
+        }
+    }
+
+    // MARK: - 13. 星尘律动
+
+    private var particleBloomScene: some View {
+        let diameter = metrics.isPortrait
+            ? min(metrics.size.width * 0.56, metrics.size.height * 0.28)
+            : min(metrics.size.height * 0.52, metrics.size.width * 0.30)
+        let availableTop = topInset
+        let availableBottom = metrics.size.height - bottomInset
+        let emitter = metrics.isPortrait
+            ? UnitPoint(
+                x: 0.5,
+                y: (availableTop + metrics.s(20) + diameter / 2) / max(metrics.size.height, 1)
+            )
+            : UnitPoint(
+                x: (leadingInset + diameter / 2) / max(metrics.size.width, 1),
+                y: (availableTop + (availableBottom - availableTop) / 2) / max(metrics.size.height, 1)
+            )
+
+        return ZStack {
+            LinearGradient(
+                colors: [palette.secondary.opacity(0.94), ImmersiveStagePalette.obsidian],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            ImmersiveParticleField(
+                levelsProvider: spectrumProvider,
+                palette: palette,
+                isAnimating: sceneIsAnimating,
+                emitter: emitter
+            )
+            ImmersiveVignette(color: ImmersiveStagePalette.obsidian, clearStop: 0.26, strength: 0.52)
+
+            if metrics.isPortrait {
+                VStack(alignment: .leading, spacing: metrics.s(26)) {
+                    pulsingArtwork(diameter: diameter)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                    titleBlock(size: metrics.s(42), weight: .semibold)
+                    formatAndLyric(
+                        fontSize: metrics.s(13),
+                        availableWidth: metrics.size.width - leadingInset - trailingInset
+                    )
+                    Spacer(minLength: 0)
+                }
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
+                .padding(.top, topInset + metrics.s(20))
+                .padding(.bottom, bottomInset)
+            } else {
+                HStack(spacing: metrics.s(platform == .tvOS ? 88 : 54)) {
+                    pulsingArtwork(diameter: diameter)
+                    VStack(alignment: .leading, spacing: metrics.s(18)) {
+                        titleBlock(size: metrics.s(platform == .tvOS ? 92 : 58), weight: .semibold)
+                        formatAndLyric(
+                            fontSize: metrics.s(platform == .tvOS ? 23 : 14),
+                            availableWidth: metrics.size.width * 0.40
+                        )
+                    }
+                    .frame(maxWidth: metrics.size.width * 0.40, alignment: .leading)
+                }
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
+                .padding(.top, topInset)
+                .padding(.bottom, bottomInset)
+            }
+        }
+    }
+
+    private func pulsingArtwork(diameter: CGFloat) -> some View {
+        ImmersivePulsingArtwork(
+            levelsProvider: spectrumProvider,
+            palette: palette,
+            diameter: diameter,
+            artwork: artwork
+        )
     }
 
     // MARK: - Shared content
@@ -775,15 +1201,17 @@ struct ImmersiveStageView<Artwork: View>: View {
             .frame(maxWidth: .infinity, alignment: .center)
     }
 
+    /// 旋转角取自同一时钟：暂停时停在当前角度，恢复时从原处继续，不会跳回起点。
     private func rotatingCircularArtwork(diameter: CGFloat) -> some View {
         TimelineView(.animation(minimumInterval: 1 / 24, paused: !sceneIsAnimating)) { context in
-            let seconds = sceneIsAnimating ? context.date.timeIntervalSinceReferenceDate : 0
+            let seconds = context.date.timeIntervalSinceReferenceDate
+            let angle = reduceMotion ? 0 : seconds.truncatingRemainder(dividingBy: 22) / 22 * 360
             artwork(diameter)
                 .frame(width: diameter, height: diameter)
                 .clipShape(Circle())
                 .overlay { Circle().strokeBorder(.white.opacity(0.18), lineWidth: 1) }
                 .shadow(color: palette.primary.opacity(0.38), radius: diameter * 0.12)
-                .rotationEffect(.degrees(seconds.truncatingRemainder(dividingBy: 22) / 22 * 360))
+                .rotationEffect(.degrees(angle))
         }
         .frame(width: diameter, height: diameter)
     }
@@ -1321,6 +1749,7 @@ private struct ImmersiveGalleryBackdrop: View {
                 let rows = max(1, Int(ceil(Double(max(visualCount, 1)) / Double(columns))))
                 let contentHeight = CGFloat(rows) * (side * 1.22 + gap)
 
+                let isWide = geometry.size.width > geometry.size.height
                 ZStack {
                     LinearGradient(
                         colors: [palette.secondary.opacity(0.82), ImmersiveStagePalette.obsidian],
@@ -1328,30 +1757,40 @@ private struct ImmersiveGalleryBackdrop: View {
                         endPoint: .bottomTrailing
                     )
 
-                    ForEach(0..<visualCount, id: \.self) { index in
-                        let column = index % columns
-                        let row = index / columns
-                        let phase = isAnimating
-                            ? CGFloat((time / (72 + Double(column) * 9)).truncatingRemainder(dividingBy: 1))
-                            : 0.28
-                        let direction: CGFloat = column.isMultiple(of: 2) ? 1 : -1
-                        let loopHeight = max(contentHeight, geometry.size.height + side + gap)
-                        let baseY = CGFloat(row) * (side * 1.22 + gap) + side / 2
-                        let y = wrapped(baseY + phase * loopHeight * direction, modulus: loopHeight) - side / 2
+                    // 封面墙带透视倾斜：近端放大、远端收缩，画面有纵深而不是一张平铺贴图。
+                    ZStack {
+                        ForEach(0..<visualCount, id: \.self) { index in
+                            let column = index % columns
+                            let row = index / columns
+                            let phase = isAnimating
+                                ? CGFloat((time / (72 + Double(column) * 9)).truncatingRemainder(dividingBy: 1))
+                                : 0.28
+                            let direction: CGFloat = column.isMultiple(of: 2) ? 1 : -1
+                            let loopHeight = max(contentHeight, geometry.size.height + side + gap)
+                            let baseY = CGFloat(row) * (side * 1.22 + gap) + side / 2
+                            let y = wrapped(baseY + phase * loopHeight * direction, modulus: loopHeight) - side / 2
 
-                        artwork(index % count, side)
-                            .frame(width: side, height: side * 1.17)
-                            .clipShape(RoundedRectangle(cornerRadius: side * 0.07, style: .continuous))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: side * 0.07, style: .continuous)
-                                    .strokeBorder(.white.opacity(0.12), lineWidth: 0.7)
-                            }
-                            .position(
-                                x: gap + side / 2 + CGFloat(column) * (side + gap),
-                                y: y
-                            )
-                            .opacity(0.50)
+                            artwork(index % count, side)
+                                .frame(width: side, height: side * 1.17)
+                                .clipShape(RoundedRectangle(cornerRadius: side * 0.07, style: .continuous))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: side * 0.07, style: .continuous)
+                                        .strokeBorder(.white.opacity(0.12), lineWidth: 0.7)
+                                }
+                                .position(
+                                    x: gap + side / 2 + CGFloat(column) * (side + gap),
+                                    y: y
+                                )
+                                .opacity(0.50)
+                        }
                     }
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .rotation3DEffect(
+                        .degrees(isWide ? -12 : -7),
+                        axis: (x: 0, y: 1, z: 0),
+                        perspective: 0.5
+                    )
+                    .scaleEffect(1.34)
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .clipped()
@@ -1364,88 +1803,6 @@ private struct ImmersiveGalleryBackdrop: View {
         guard modulus > 0 else { return value }
         let remainder = value.truncatingRemainder(dividingBy: modulus)
         return remainder < 0 ? remainder + modulus : remainder
-    }
-}
-
-private struct ImmersiveMovingStarField: View {
-    let palette: ImmersiveArtworkPalette
-    let isAnimating: Bool
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 18, paused: !isAnimating)) { context in
-            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
-            Canvas(rendersAsynchronously: true) { canvas, size in
-                canvas.fill(Path(CGRect(origin: .zero, size: size)), with: .linearGradient(
-                    Gradient(colors: [ImmersiveStagePalette.obsidian, palette.secondary.opacity(0.72)]),
-                    startPoint: .zero,
-                    endPoint: CGPoint(x: size.width, y: size.height)
-                ))
-
-                for index in 0..<112 {
-                    let seed = Double((index &* 1103515245 &+ 12345) & 0x7fffffff) / Double(Int32.max)
-                    let seed2 = Double((index &* 214013 &+ 2531011) & 0x7fffffff) / Double(Int32.max)
-                    let drift = isAnimating ? time * (0.0025 + seed * 0.006) : 0
-                    let xRatio = (seed + drift).truncatingRemainder(dividingBy: 1)
-                    let yRatio = (seed2 + drift * (0.35 + seed)).truncatingRemainder(dividingBy: 1)
-                    let pulse = isAnimating ? (sin(time * (0.55 + seed) + Double(index)) + 1) / 2 : 0.55
-                    let radius = CGFloat(0.7 + seed2 * 1.8)
-                    let rect = CGRect(
-                        x: CGFloat(xRatio) * size.width,
-                        y: CGFloat(yRatio) * size.height,
-                        width: radius * 2,
-                        height: radius * 2
-                    )
-                    let color = index.isMultiple(of: 4) ? palette.primary : ImmersiveStagePalette.ink
-                    canvas.fill(Path(ellipseIn: rect), with: .color(color.opacity(0.20 + pulse * 0.62)))
-                }
-            }
-        }
-        .allowsHitTesting(false)
-    }
-}
-
-private struct ImmersiveFlowingContourField: View {
-    let palette: ImmersiveArtworkPalette
-    let isAnimating: Bool
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 18, paused: !isAnimating)) { context in
-            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
-            Canvas(rendersAsynchronously: true) { canvas, size in
-                let center = CGPoint(x: size.width * 0.52, y: size.height * 0.43)
-                let base = min(size.width, size.height) * 0.11
-                for ring in 0..<24 {
-                    var path = Path()
-                    let ringScale = base + CGFloat(ring) * min(size.width, size.height) * 0.035
-                    let points = 128
-                    for point in 0...points {
-                        let angle = Double(point) / Double(points) * 2 * .pi
-                        let ringPhase = Double(ring)
-                        let primaryPhase = angle * 3 + time * 0.34 + ringPhase * 0.31
-                        let secondaryPhase = angle * 5 - time * 0.22 + ringPhase * 0.18
-                        let primaryWave = sin(primaryPhase) * 0.08
-                        let secondaryWave = cos(secondaryPhase) * 0.045
-                        let wave = primaryWave + secondaryWave
-                        let xRadius = ringScale * (1.18 + CGFloat(wave))
-                        let yRadius = ringScale * (0.82 + CGFloat(wave * 0.72))
-                        let driftPhase = time * 0.19 + ringPhase
-                        let horizontalDrift = CGFloat(sin(driftPhase)) * ringScale * 0.07
-                        let pointValue = CGPoint(
-                            x: center.x + cos(angle) * xRadius + horizontalDrift,
-                            y: center.y + sin(angle) * yRadius
-                        )
-                        if point == 0 { path.move(to: pointValue) } else { path.addLine(to: pointValue) }
-                    }
-                    path.closeSubpath()
-                    canvas.stroke(
-                        path,
-                        with: .color((ring.isMultiple(of: 3) ? palette.primary : ImmersiveStagePalette.text).opacity(0.16 + Double(ring % 4) * 0.045)),
-                        lineWidth: ring.isMultiple(of: 3) ? 1.4 : 0.75
-                    )
-                }
-            }
-        }
-        .allowsHitTesting(false)
     }
 }
 
