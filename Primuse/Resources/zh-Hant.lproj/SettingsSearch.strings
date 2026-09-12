@@ -35,9 +35,9 @@
 "Open Shortcuts" = "開啟捷徑";
 "Setting" = "設定項目";
 "Settings" = "設定";
-"Open a specific Primuse setting without changing it." = "開啟指定的猿音設定，保留目前設定值。";
-"Read a Primuse setting and its current availability." = "讀取猿音設定及其目前可用狀態。";
-"Turn a supported Primuse setting on or off." = "開啟或關閉支援的猿音設定。";
+"Open a specific Primuse setting without changing it." = "開啟指定的 Primuse 設定，保留目前設定值。";
+"Read a Primuse setting and its current availability." = "讀取 Primuse 設定及其目前可用狀態。";
+"Turn a supported Primuse setting on or off." = "開啟或關閉支援的 Primuse 設定。";
 "Direction" = "切歌方向";
 "Next" = "下一首";
 "Previous" = "上一首";

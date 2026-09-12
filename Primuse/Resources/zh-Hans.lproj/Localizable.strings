@@ -75,7 +75,7 @@
 "navidrome_server_scan_on_launch" = "启动时请求完整服务端扫描";
 "navidrome_server_scan_on_launch_description" = "Primuse 启动时请求 Navidrome 完整扫描资料库。需要管理员账号；不支持或无权限时会自动回退为仅检查状态。";
 "see_all" = "查看全部";
-"welcome_title" = "欢迎使用猿音";
+"welcome_title" = "欢迎使用 Primuse";
 "welcome_desc" = "添加音乐源 — NAS、WebDAV 或本地文件夹 — 开始聆听";
 "tab_artists" = "艺术家";
 "tab_songs" = "歌曲";
@@ -203,7 +203,7 @@
 "synology_connection_address" = "服务器地址";
 "synology_quickconnect_id" = "QuickConnect ID";
 "synology_address" = "域名或 IP 地址";
-"synology_quickconnect_hint" = "只需输入 DSM 控制面板中的 QuickConnect ID；猿音会自动选择直连、Smart DNS 或中继。";
+"synology_quickconnect_hint" = "只需输入 DSM 控制面板中的 QuickConnect ID；Primuse 会自动选择直连、Smart DNS 或中继。";
 "port" = "端口";
 "port_optional" = "端口（可选）";
 "use_ssl" = "使用 SSL/TLS";
@@ -252,7 +252,7 @@
 "open" = "打开";
 "delete" = "删除";
 "delete_playlist" = "删除歌单";
-"hide_playlist_from_primuse" = "从猿音隐藏";
+"hide_playlist_from_primuse" = "从 Primuse 隐藏";
 "hidden_source_playlists" = "已隐藏的来源歌单";
 "hidden_source_playlists_desc" = "这些歌单仍保留在 Apple Music 或音乐服务器中；恢复后会重新显示。";
 "restore_hidden_playlist" = "恢复显示";
@@ -415,15 +415,15 @@
 "similar_section_lastfm" = "听众也喜欢 (Last.fm)";
 "play_similar_radio" = "播放相似电台";
 "similar_subtitle_format" = "基于「%@」· %@";
-"apple_music_needs_subscription" = "需要 Apple Music 订阅才能在猿音里播放，可以去 Apple Music App 开通后再试。";
+"apple_music_needs_subscription" = "需要 Apple Music 订阅才能在 Primuse 里播放，可以去 Apple Music App 开通后再试。";
 "apple_music_unavailable" = "当前账号或地区不支持 Apple Music 订阅播放。";
 "apple_music_notice_notDetermined" = "Apple Music 尚未授权，去 设置 → Apple Music 启用后可同步显示曲库搜索结果。";
 "apple_music_notice_denied" = "Apple Music 权限被拒绝，去系统 设置 → 隐私 → 媒体与 Apple Music 重新开启。";
 "apple_music_notice_no_results" = "Apple Music 没有匹配的结果（可能是地区曲库没有这首歌）。";
 "apple_music_open_in_app" = "在 Apple Music 中打开";
-"apple_music_now_playing_hint" = "Apple Music 在系统侧播放，刮削 / 标签编辑 / 均衡器等猿音功能不适用。";
+"apple_music_now_playing_hint" = "Apple Music 在系统侧播放，刮削 / 标签编辑 / 均衡器等 Primuse 功能不适用。";
 "apple_music_library_section" = "Apple Music 资料库";
-"apple_music_library_footer" = "把 Apple Music 你已加入资料库的歌拉到猿音 Library，跟 NAS / 云盘歌一起显示。播放走系统播放器，不占本地存储。";
+"apple_music_library_footer" = "把 Apple Music 你已加入资料库的歌拉到 Primuse Library，跟 NAS / 云盘歌一起显示。播放走系统播放器，不占本地存储。";
 "apple_music_library_idle" = "尚未同步";
 "apple_music_library_syncing" = "正在同步 Apple Music 资料库…";
 "apple_music_library_done_format" = "已同步 %d 首，%@";
@@ -845,7 +845,7 @@
 "scrobble_lastfm_signout_confirm" = "断开 Last.fm 连接? API Key/Secret 会保留, 重新连接不用再粘。";
 "scrobble_lastfm_register_app" = "去 last.fm 注册一个 application 拿 key";
 "scrobble_lastfm_setup_footer" = "首次使用请到 last.fm/api/account/create 注册一个 application (Callback URL 随便填一个 https, 比如你的仓库地址 — Primuse 走 desktop auth flow 不需要回调)。粘 API Key + Shared Secret 后点连接。";
-"scrobble_lastfm_default_footer" = "点击连接后会在应用内打开 Last.fm。登录并点 Allow 后, 轻点 Done 返回猿音, 应用会自动完成连接。";
+"scrobble_lastfm_default_footer" = "点击连接后会在应用内打开 Last.fm。登录并点 Allow 后, 轻点 Done 返回 Primuse, 应用会自动完成连接。";
 "scrobble_lastfm_open_login" = "先登录 Last.fm";
 "scrobble_lastfm_advanced_title" = "使用我自己的 application";
 "scrobble_lastfm_advanced_hint" = "想用自己注册的 Last.fm application (独立配额) 在这里粘 API Key + Shared Secret, 留空就用 app 内置的。";
@@ -853,8 +853,8 @@
 "scrobble_lastfm_err_missing_creds" = "请先填写 API Key 和 API Secret。";
 "scrobble_lastfm_err_token_format" = "拿不到 token: %@";
 "scrobble_lastfm_err_not_authorized_format" = "授权未完成, 请在浏览器里点 Allow 后再试: %@";
-"scrobble_lastfm_err_not_authorized" = "授权未完成 — 请确认在 Last.fm 页面点了 Allow, 然后点 Done 返回猿音。";
-"scrobble_lastfm_pending_hint" = "Last.fm 授权进行中。登录并点 Allow 后, 点 Done 返回猿音即可自动完成。";
+"scrobble_lastfm_err_not_authorized" = "授权未完成 — 请确认在 Last.fm 页面点了 Allow, 然后点 Done 返回 Primuse。";
+"scrobble_lastfm_pending_hint" = "Last.fm 授权进行中。登录并点 Allow 后, 点 Done 返回 Primuse 即可自动完成。";
 "scrobble_lastfm_reopen_authorization" = "重新打开授权页";
 "scrobble_lastfm_confirm_authorized" = "检查授权状态";
 "scrobble_lastfm_cancel_pending" = "取消";
@@ -1081,7 +1081,7 @@
 "backfill_done_body" = "已检查 %d 首歌的文件标签。";
 "backfill_keep_app_alive_hint" = "播放任意一首歌曲可让标签持续读取";
 "notify_backfill_complete" = "标签读取完成时通知我";
-"notify_permission_denied_hint" = "通知权限已被拒绝。请到系统「设置 → 猿音」中允许通知。";
+"notify_permission_denied_hint" = "通知权限已被拒绝。请到系统「设置 → Primuse」中允许通知。";
 
 // MARK: - 年度音乐报告
 "yearly_report_title" = "年度音乐报告";
@@ -1089,7 +1089,7 @@
 "yearly_report_entry_subtitle" = "看看今年你和音乐发生了什么";
 
 // MARK: - App Store update banner
-"update_banner_title" = "猿音有新版本可更新";
+"update_banner_title" = "Primuse 有新版本可更新";
 "update_banner_version_format" = "App Store 最新版本：%@";
 "update_banner_now" = "立即更新";
 "update_banner_later" = "稍后提醒";
@@ -1118,7 +1118,7 @@
 "start_song_radio" = "启动歌曲电台";
 "start_similar_mix" = "播放相似歌曲";
 "similar_songs_empty" = "暂时没有相似歌曲";
-"similar_songs_empty_desc" = "补充艺术家、专辑、流派或年份标签后，猿音就能找到更接近的歌曲。";
+"similar_songs_empty_desc" = "补充艺术家、专辑、流派或年份标签后，Primuse 就能找到更接近的歌曲。";
 "discovery_reason_sameArtist" = "同一艺术家";
 "discovery_reason_sameAlbum" = "同一专辑";
 "discovery_reason_sameGenre" = "同一流派";
@@ -1129,11 +1129,11 @@
 "discovery_reason_notRecentlyPlayed" = "最近没听过";
 "discovery_reason_newToLibrary" = "新加入资料库";
 "discovery_reason_libraryPick" = "资料库推荐";
-"update_modal_title_format" = "猿音 %@ 已发布";
+"update_modal_title_format" = "Primuse %@ 已发布";
 "update_modal_subtitle" = "立即升级体验最新功能与改进";
 "update_whats_new" = "本次更新";
-"spotlight_artist_subtitle" = "猿音内的艺术家";
-"spotlight_playlist_subtitle_format" = "猿音歌单 · %d 首";
+"spotlight_artist_subtitle" = "Primuse 内的艺术家";
+"spotlight_playlist_subtitle_format" = "Primuse 歌单 · %d 首";
 "smart_value_format_none" = "不限格式";
 "smart_value_source_none" = "不限音乐源";
 "tag_editor_menu" = "编辑标签";
@@ -1149,7 +1149,7 @@
 "tag_editor_disc" = "碟片号";
 "tag_editor_reset" = "恢复为原始信息";
 "tag_editor_reset_confirm" = "放弃你的修改？";
-"tag_editor_footer" = "标签、封面和歌词是否写回源端以上方提示为准；保存成功的修改也会保留在猿音本地库。";
+"tag_editor_footer" = "标签、封面和歌词是否写回源端以上方提示为准；保存成功的修改也会保留在 Primuse 本地库。";
 "tag_editor_metadata_writeback_checking" = "正在检查标签与封面的保存位置…";
 "tag_editor_metadata_writeback_embedded" = "标签和封面将写入源音频文件；保存前会检查版本，保存后会重新下载并校验文件与内嵌元数据。";
 "tag_editor_metadata_writeback_server_api" = "标签和封面将通过媒体服务器 API 写回；不受支持的字段和每项失败原因会分别报告。";
@@ -1159,8 +1159,8 @@
 "metadata_writeback_plex_missing_artist" = "Plex 中这首歌没有可写的艺术家项目。";
 "metadata_writeback_plex_genre_unsupported" = "Plex 稳定 API 不支持音乐流派写回。";
 "metadata_writeback_media_readback_mismatch" = "写入后从媒体服务器回读的字段与请求值不一致。";
-"tag_editor_metadata_writeback_sidecar_only" = "此音乐源不能修改音频内嵌标签；标签只保存在猿音，选中的封面会写入源端旁路文件并回读校验。";
-"tag_editor_metadata_writeback_local_only" = "只读音乐源：标签和封面只保存在猿音，不会修改源文件。";
+"tag_editor_metadata_writeback_sidecar_only" = "此音乐源不能修改音频内嵌标签；标签只保存在 Primuse，选中的封面会写入源端旁路文件并回读校验。";
+"tag_editor_metadata_writeback_local_only" = "只读音乐源：标签和封面只保存在 Primuse，不会修改源文件。";
 "tag_editor_writeback_error_title" = "无法写回音乐文件";
 "tag_editor_cover_cache_failed" = "无法保存新的本地封面缓存。请重新扫描音乐源后再试。";
 "metadata_writeback_error_unsupported" = "此音乐源或音频格式不支持内嵌标签写回。";
@@ -1186,13 +1186,13 @@
 "tag_editor_lyrics_placeholder" = "输入纯文本、LRC 或 ELRC 歌词…";
 "tag_editor_lyrics_format_hint" = "支持纯文本、LRC [分:秒.xxx] 和 ELRC <分:秒.xxx>逐字格式；已有时间戳会被保留。";
 "tag_editor_lyrics_writeback_checking" = "正在检查音乐源写入权限…";
-"tag_editor_lyrics_writeback_sidecar" = "保存到猿音，并在音频旁写入同名 .lrc 文件。";
+"tag_editor_lyrics_writeback_sidecar" = "保存到 Primuse，并在音频旁写入同名 .lrc 文件。";
 "tag_editor_lyrics_writeback_sidecar_new" = "已检查目标，将新建并写回 %@。";
 "tag_editor_lyrics_writeback_sidecar_replace" = "已检查目标，将更新现有的 %@。";
-"tag_editor_lyrics_writeback_server" = "保存到猿音，并把歌词写回媒体服务器。";
-"tag_editor_lyrics_writeback_read_only" = "只读音乐源：修改会保存在猿音并通过 iCloud 同步，但无法直接写回源文件。";
+"tag_editor_lyrics_writeback_server" = "保存到 Primuse，并把歌词写回媒体服务器。";
+"tag_editor_lyrics_writeback_read_only" = "只读音乐源：修改会保存在 Primuse 并通过 iCloud 同步，但无法直接写回源文件。";
 "tag_editor_lyrics_writeback_unavailable" = "当前无法写回音乐源：%@";
-"tag_editor_lyrics_writeback_retry" = "这次没能连上音乐源（%@）。改动已保存在猿音，稍后再试一次写回即可。";
+"tag_editor_lyrics_writeback_retry" = "这次没能连上音乐源（%@）。改动已保存在 Primuse，稍后再试一次写回即可。";
 "tag_editor_lyrics_server_unsupported" = "此媒体服务器不支持歌词写回。";
 "tag_editor_lyrics_error_title" = "无法保存歌词";
 "tag_editor_lyrics_empty_error" = "请确认是否删除现有歌词。";
@@ -1203,7 +1203,7 @@
 "tag_editor_lyrics_clear" = "清空";
 "tag_editor_lyrics_invalid_lines_format" = "以下行的时间格式无效或顺序错误：%@";
 "tag_editor_lyrics_delete_confirm_title" = "删除这首歌的歌词？";
-"tag_editor_lyrics_delete_confirm_message" = "可写音乐源中的同名歌词文件也会被删除；只读来源仅删除猿音中的歌词缓存。";
+"tag_editor_lyrics_delete_confirm_message" = "可写音乐源中的同名歌词文件也会被删除；只读来源仅删除 Primuse 中的歌词缓存。";
 "tag_editor_lyrics_delete" = "删除歌词";
 "tag_editor_lyrics_add" = "添加歌词";
 "tag_editor_lyrics_edit" = "编辑歌词";
@@ -1243,7 +1243,7 @@
 "tag_editor_pick_cover" = "从相册中选择…";
 "tag_editor_cover_revert" = "保留原封面";
 "onboarding_welcome_title" = "你的音乐，存在你的服务器";
-"onboarding_welcome_subtitle" = "猿音从你自己的 NAS、云盘和家里的网络播放音乐 —— 不上传任何文件到任何人。";
+"onboarding_welcome_subtitle" = "Primuse 从你自己的 NAS、云盘和家里的网络播放音乐 —— 不上传任何文件到任何人。";
 "onboarding_sources_title" = "把音乐聚合到一处";
 "onboarding_sources_nas" = "群晖、威联通及 SMB / NFS 共享 · 通用绿联/fnOS 文件接口等待公开 API，飞牛音乐服务可单独添加";
 "onboarding_sources_cloud" = "123 云盘、百度网盘、阿里云盘等云端音乐";
@@ -1302,12 +1302,12 @@
 "settings_apple_music_section" = "Apple Music";
 "settings_apple_music_connect" = "连接 Apple Music";
 "settings_apple_music_connected" = "已连接 Apple Music";
-"settings_apple_music_denied" = "Apple Music 访问被拒。请到系统设置 → 猿音 中开启。";
-"settings_apple_music_footer" = "授权后猿音可以搜索 Apple Music 曲库;若你已订阅,点搜索结果会调用系统 Music 播放器播放。";
+"settings_apple_music_denied" = "Apple Music 访问被拒。请到系统设置 → Primuse 中开启。";
+"settings_apple_music_footer" = "授权后 Primuse 可以搜索 Apple Music 曲库;若你已订阅,点搜索结果会调用系统 Music 播放器播放。";
 "source_apple_music_open_settings" = "打开 Apple Music 设置";
 "source_cache_all_short" = "缓存";
 "source_cache_all_title" = "缓存此音乐源？";
-"source_cache_all_message_format" = "「%@」有 %d 首可播放歌曲，预计还需下载 %@。猿音会下载并固定为离线可用。";
+"source_cache_all_message_format" = "「%@」有 %d 首可播放歌曲，预计还需下载 %@。Primuse 会下载并固定为离线可用。";
 "source_cache_all_message_with_cached_format" = "「%@」有 %d 首可播放歌曲，预计还需下载 %@；已有 %d 首会自动跳过。";
 "source_cache_all_confirm" = "全部缓存";
 "source_cache_all_loading" = "缓存中";
@@ -1324,16 +1324,16 @@
 "playlist_liked_name" = "我喜欢";
 "settings_dlna_section" = "DLNA 接收";
 "settings_dlna_enable" = "接受同一 Wi-Fi 的投送";
-"settings_dlna_footer" = "同 Wi-Fi 下的其它设备(VLC、群晖音频中心、Plex、Hi-Fi Cast 等)可以发现猿音并把音频推过来播放。";
+"settings_dlna_footer" = "同 Wi-Fi 下的其它设备(VLC、群晖音频中心、Plex、Hi-Fi Cast 等)可以发现 Primuse 并把音频推过来播放。";
 "settings_dlna_keepalive" = "后台接收推送";
-"settings_dlna_keepalive_footer" = "开启后即使猿音退到后台、没有正在播放音乐,也能持续接收 LAN 内其他设备推过来的音频。代价: 锁屏 / 控制中心会显示猿音在播,耗电略增。";
+"settings_dlna_keepalive_footer" = "开启后即使 Primuse 退到后台、没有正在播放音乐,也能持续接收 LAN 内其他设备推过来的音频。代价: 锁屏 / 控制中心会显示 Primuse 在播,耗电略增。";
 "settings_relay_section" = "Apple TV 中继";
 "settings_relay_enable" = "允许 Apple TV 经本机播放";
-"settings_relay_footer" = "开启后,登录同一 Apple ID 的 Apple TV 可经本机局域网播放本地、SMB、SFTP、NFS、WebDAV 等无法直连的音乐源。需保持猿音在前台运行,且两台设备处于同一 Wi-Fi。";
+"settings_relay_footer" = "开启后,登录同一 Apple ID 的 Apple TV 可经本机局域网播放本地、SMB、SFTP、NFS、WebDAV 等无法直连的音乐源。需保持 Primuse 在前台运行,且两台设备处于同一 Wi-Fi。";
 "settings_relay_waiting" = "正在获取局域网地址…(请确认已连接 Wi-Fi)";
 "settings_appletv_section" = "Apple TV";
 "settings_push_to_tv" = "立即推送到 Apple TV";
-"settings_push_to_tv_footer" = "在 Apple TV 上安装猿音并登录同一 iCloud 账号,即可看到这里的曲库与音乐源——含密码 / token,无需重新输入。平时退到后台会自动上传,点「立即推送」可马上更新。本机文件、SMB / SFTP / NFS / WebDAV 等 TV 无法直连的源,需开启下方「中继」,由这台手机在同一 Wi-Fi 下转发播放。";
+"settings_push_to_tv_footer" = "在 Apple TV 上安装 Primuse 并登录同一 iCloud 账号,即可看到这里的曲库与音乐源——含密码 / token,无需重新输入。平时退到后台会自动上传,点「立即推送」可马上更新。本机文件、SMB / SFTP / NFS / WebDAV 等 TV 无法直连的源,需开启下方「中继」,由这台手机在同一 Wi-Fi 下转发播放。";
 "settings_push_to_tv_done" = "已推送";
 "settings_push_to_tv_failed" = "推送失败";
 "send_to_tv_title" = "发送到 Apple TV";
@@ -1376,13 +1376,13 @@
 "dlna_status_error_format" = "错误: %@";
 "dlna_stream_title_fallback" = "流媒体";
 "settings_dlna_devices_section" = "连接设备";
-"settings_dlna_devices_empty" = "暂无连接设备。请在同一 Wi-Fi 的控制点 app 里选择猿音。";
+"settings_dlna_devices_empty" = "暂无连接设备。请在同一 Wi-Fi 的控制点 app 里选择 Primuse。";
 "dlna_device_casting" = "正在投送";
 "settings_dlna_log_section" = "实时活动";
-"settings_dlna_log_empty" = "暂无事件。打开控制点 app,在其设备列表里找猿音以验证发现是否生效。";
+"settings_dlna_log_empty" = "暂无事件。打开控制点 app,在其设备列表里找 Primuse 以验证发现是否生效。";
 "diagnostics_title" = "诊断报告";
 "diagnostics_empty_title" = "暂无诊断报告";
-"diagnostics_empty_subtitle" = "猿音崩溃或卡顿时，iOS 会在此留下报告供你分享给开发者。";
+"diagnostics_empty_subtitle" = "Primuse 崩溃或卡顿时，iOS 会在此留下报告供你分享给开发者。";
 "diagnostics_footer" = "报告仅保存在本机。点击通过邮件 / AirDrop 分享给开发者。";
 "diagnostics_clear" = "清空全部报告";
 "diagnostics_clear_confirm" = "确定要删除所有报告吗？";
@@ -1432,7 +1432,7 @@
 "source_diag_advice_timeout_message" = "音乐源没有在限定时间内响应。";
 "source_diag_advice_timeout_suggestion" = "检查 Wi-Fi/VPN、服务器是否休眠、端口转发和 NAS 唤醒状态。";
 "source_diag_advice_network_title" = "网络不可达";
-"source_diag_advice_network_message" = "猿音在当前网络下无法访问这个音乐源。";
+"source_diag_advice_network_message" = "Primuse 在当前网络下无法访问这个音乐源。";
 "source_diag_advice_network_suggestion" = "确认手机和音乐源在同一局域网或 VPN 下，并检查主机和端口。";
 "source_diag_advice_path_title" = "路径问题";
 "source_diag_advice_path_message" = "所选路径无法打开。";
@@ -1440,7 +1440,7 @@
 "source_diag_advice_path_suggestion" = "重新选择文件夹，或确认当前账号有读取权限。";
 "source_diag_advice_oauth_title" = "云盘授权过期";
 "source_diag_advice_oauth_message" = "云盘令牌缺失或已过期。";
-"source_diag_advice_oauth_suggestion" = "重新连接这个云盘，并再次授权猿音访问。";
+"source_diag_advice_oauth_suggestion" = "重新连接这个云盘，并再次授权 Primuse 访问。";
 "source_diag_advice_rate_title" = "服务限流";
 "source_diag_advice_rate_message" = "服务方正在临时限制请求。";
 "source_diag_advice_rate_suggestion" = "等待几分钟后重试，并避免短时间内连续扫描或播放。";
@@ -1462,7 +1462,7 @@
 "volume_down" = "音量减小";
 
 // MARK: - macOS Home dashboard / Player empty / Keychain
-"home_dashboard_title" = "猿音";
+"home_dashboard_title" = "Primuse";
 "home_dashboard_subtitle" = "你的本地、NAS、云盘和 Apple Music 都在这里。";
 "home_health_title" = "资料库健康度";
 "home_cover_art" = "封面完整度";
@@ -1508,16 +1508,16 @@
 "choose_folder" = "选择文件夹";
 "open_folder" = "打开文件夹";
 "no_folder_selected" = "未选择文件夹";
-"apple_music_library_hint" = "已加入资料库的 Apple Music 歌曲会一起出现在猿音里。";
+"apple_music_library_hint" = "已加入资料库的 Apple Music 歌曲会一起出现在 Primuse 里。";
 "audio_output_follow_system" = "跟随系统默认输出";
 "eq_preset" = "均衡器预设";
 "rank_by" = "排序方式";
 "mini_player" = "迷你播放程序";
-"menu_bar_show_title" = "在菜单栏显示猿音";
+"menu_bar_show_title" = "在菜单栏显示 Primuse";
 "open_main_window" = "打开主窗口";
-"quit_app" = "退出猿音";
+"quit_app" = "退出 Primuse";
 "metadata_scraping_desc" = "为你已扫描的歌补封面、歌词、专辑、艺术家等元数据。可选数据源，遇到错误自动回退。";
-"trusted_domains_desc" = "允许猿音访问以下域名的 HTTPS 资源（音乐源 / 封面下载 / 歌词），即便证书是自签或主机名不匹配。仅添加你信任的域。";
+"trusted_domains_desc" = "允许 Primuse 访问以下域名的 HTTPS 资源（音乐源 / 封面下载 / 歌词），即便证书是自签或主机名不匹配。仅添加你信任的域。";
 "icloud_quota_exceeded" = "iCloud 容量已满";
 
 // MARK: - Desktop Lyrics / Menu Bar
@@ -1534,19 +1534,19 @@
 
 // MARK: - Desktop Widget Sync
 "desktop_widget_sync_enabled" = "启用桌面小组件同步";
-"desktop_widget_sync_footer" = "把当前播放状态推到 macOS 桌面小组件，让你不用切回猿音也能看到歌曲信息和控制播放。";
+"desktop_widget_sync_footer" = "把当前播放状态推到 macOS 桌面小组件，让你不用切回 Primuse 也能看到歌曲信息和控制播放。";
 "desktop_widget_sync_status_enabled" = "已启用";
 "desktop_widget_sync_status_disabled" = "已禁用";
 "desktop_widget_sync_update_now" = "立即推送一次";
 "desktop_widget_sync_privacy_footer" = "状态数据只写到本机的小组件容器，不会上传任何服务器。";
 "desktop_widget_sync_explanation_title" = "启用桌面小组件同步";
-"desktop_widget_sync_explanation_message" = "猿音会把当前播放的歌曲信息（标题、艺术家、封面、进度）写入 macOS 桌面小组件，方便你在桌面上看到正在播放。仅本机存储，不会上传任何服务器。";
+"desktop_widget_sync_explanation_message" = "Primuse 会把当前播放的歌曲信息（标题、艺术家、封面、进度）写入 macOS 桌面小组件，方便你在桌面上看到正在播放。仅本机存储，不会上传任何服务器。";
 "desktop_widget_sync_continue" = "继续";
 
 // MARK: - Auth / connection
 "password_required_title" = "需要密码";
 "password_wrong_hint" = "密码不正确，请重新输入。";
-"scrobble_lastfm_signin_browser_prompt" = "正在打开浏览器完成 Last.fm 授权，授权后回到猿音点「我已完成授权」。";
+"scrobble_lastfm_signin_browser_prompt" = "正在打开浏览器完成 Last.fm 授权，授权后回到 Primuse 点「我已完成授权」。";
 
 // MARK: - Search prompts
 "search_songs_prompt" = "搜索歌曲";
@@ -1626,7 +1626,7 @@
 "fullscreen_effect_live_waveform" = "实时波形";
 "fullscreen_effect_live_waveform_subtitle" = "横向频谱按实际播放音频实时变化";
 "fullscreen_effect_live_waveform_motion" = "实时频谱驱动 · 无音频时保持静止";
-"immersive_demo_title" = "猿音";
+"immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "图言吐语";
 "immersive_demo_album" = "soundisle";
 "lyrics_full_screen" = "全屏歌词";
@@ -1973,7 +1973,7 @@
 "Title + Artist + Cover + Progress" = "标题 + 艺术家 + 封面 + 进度";
 "Title + Artist" = "标题 + 艺术家";
 "Clickable Interaction" = "可点击交互";
-"WidgetKit still manages the system widget gallery; checked items control which data Primuse pushes." = "系统小组件库仍由 WidgetKit 管理; 勾选项控制猿音推送的数据范围";
+"WidgetKit still manages the system widget gallery; checked items control which data Primuse pushes." = "系统小组件库仍由 WidgetKit 管理; 勾选项控制 Primuse 推送的数据范围";
 "Software Update" = "软件更新";
 "Diagnostic Logs" = "诊断日志";
 "Update Available" = "有新版本可用";
@@ -2050,10 +2050,10 @@
 "cloud_setup_needs_creds_title" = "需要配置开发者凭证";
 "cloud_setup_needs_creds_desc" = "请先在「编辑源」中填写 Client ID，然后再回来授权连接。";
 "cloud_setup_step_create_app" = "创建应用，获取 Client ID（和 Client Secret）";
-"cloud_setup_step_back_to_app" = "回到猿音，编辑此源，填入凭证";
+"cloud_setup_step_back_to_app" = "回到 Primuse，编辑此源，填入凭证";
 "cloud_setup_step_connect" = "再次点击「连接」即可授权";
 "cloud_pending_unavailable_format" = "%@ 暂未开放";
-"cloud_pending_desc_format" = "猿音正在向 %@ 开放平台申请官方接入资质，审核通过后即可直接登录使用，敬请期待。若你已自有该平台的开发者应用，也可按下方步骤填入凭证先行试用。";
+"cloud_pending_desc_format" = "Primuse 正在向 %@ 开放平台申请官方接入资质，审核通过后即可直接登录使用，敬请期待。若你已自有该平台的开发者应用，也可按下方步骤填入凭证先行试用。";
 "cloud_guide_baidu" = "前往 pan.baidu.com/union 注册开发者应用";
 "cloud_guide_aliyun" = "前往 alipan.com/developer 申请接入";
 "cloud_guide_google" = "前往 console.cloud.google.com 创建 OAuth 凭证";
@@ -2063,8 +2063,8 @@
 "cloud_guide_pan123" = "前往 123pan.cn/developer 申请开发者应用";
 "cloud_guide_default" = "前往对应平台的开发者中心注册";
 "cloud_auth_connect_format" = "连接 %@";
-"cloud_auth_prompt_mac" = "点击「授权连接」，将在系统浏览器中打开授权页。\n登录并同意授权后会自动返回猿音。";
-"cloud_auth_prompt_ios" = "点击下方按钮，将在浏览器中打开授权页面。\n登录并同意授权后，猿音即可访问您的文件。";
+"cloud_auth_prompt_mac" = "点击「授权连接」，将在系统浏览器中打开授权页。\n登录并同意授权后会自动返回 Primuse。";
+"cloud_auth_prompt_ios" = "点击下方按钮，将在浏览器中打开授权页面。\n登录并同意授权后，Primuse 即可访问您的文件。";
 "cloud_auth_button" = "授权连接";
 "cloud_account_use_signed_in" = "使用已登录账号";
 "cloud_account_login_other" = "登录其他账号";
@@ -2075,7 +2075,7 @@
 "cloud_authorizing_step1_format" = "已在系统浏览器打开 %@";
 "cloud_authorizing_step2" = "登录账号并确认读取音乐文件权限";
 "cloud_authorizing_step3_format" = "浏览器重定向到 %@";
-"cloud_authorizing_step4" = "猿音接收回调并保存访问令牌";
+"cloud_authorizing_step4" = "Primuse 接收回调并保存访问令牌";
 "cloud_authorizing_listening_format" = "正在监听 URL Scheme · %@";
 "cloud_authorizing_hint" = "授权完成后此窗口会自动进入目录浏览器。请不要关闭系统浏览器中的回调页。";
 "cloud_host_default" = "授权服务";
@@ -2110,7 +2110,7 @@
 "onboarding_mac_skip" = "跳过引导";
 "onboarding_mac_done" = "完成";
 "onboarding_mac_continue" = "继续";
-"onboarding_mac_welcome_title" = "欢迎使用猿音 Primuse";
+"onboarding_mac_welcome_title" = "欢迎使用 Primuse Primuse";
 "onboarding_mac_welcome_desc" = "一个为 NAS / 媒体服务器烧友打造的原生 macOS 播放器。让你的 FLAC、DSD、APE 在一个统一的资料库里安家。";
 "onboarding_mac_privacy_title" = "隐私承诺";
 "onboarding_mac_privacy_desc" = "Primuse 不会上传你的资料库到任何云服务。所有播放历史、统计、设置都只通过你的 iCloud 同步。OAuth 授权一律走系统浏览器，我们绝不嵌 WebView 收集你的密码。";
@@ -2160,7 +2160,7 @@
 "yearly_wrapped_brand" = "Primuse Wrapped";
 "yearly_share_card" = "分享卡片";
 "yearly_next_card" = "下一张";
-"yearly_share_footer" = "由 Primuse · 猿音 生成";
+"yearly_share_footer" = "由 Primuse · Primuse 生成";
 "yearly_no_record" = "暂无记录";
 "yearly_no_artist" = "暂无艺术家";
 "yearly_no_song" = "暂无歌曲";
@@ -2261,7 +2261,7 @@
 "yearly_card_peak_month_unit" = "月";
 "yearly_card_peak_month_top_format" = "那个月你最常听: %@";
 "yearly_card_closing_subtitle" = "今年与音乐相伴";
-"yearly_card_closing_thanks" = "感谢你与猿音的每一次相遇";
+"yearly_card_closing_thanks" = "感谢你与 Primuse 的每一次相遇";
 "yearly_card_closing_next_format" = "%@, 继续吧";
 "yearly_month_1" = "一月";
 "yearly_month_2" = "二月";
@@ -2276,7 +2276,7 @@
 "yearly_month_11" = "十一月";
 "yearly_month_12" = "十二月";
 "yearly_month_n_format" = "%d 月";
-"app_name" = "猿音";
+"app_name" = "Primuse";
 
 // 蜂窝网络回填/缓存提示
 "cellular_backfill_title" = "蜂窝网络";
@@ -2343,7 +2343,7 @@
 "local_import_done_message_format" = "已导入 %1$d 首，跳过 %2$d 个。正在扫描导入文件。";
 "local_import_failed_count_format" = "失败：%d 个。";
 "local_import_none_added_message_format" = "本次处理 %1$d 个项目，未导入任何音频。失败 %2$d 个。";
-"local_import_provider_failure_message_format" = "本次选择 %1$d 个项目，失败 %2$d 个。文件 App/网盘交给猿音的是占位或错误内容，不是音频原文件。\n\n失败示例：%3$@\n\n可以这样处理：\n1. 如果文件 App 里已经显示已下载，请先在文件 App 或网盘 App 中把歌曲“存储到文件”的“我的 iPhone”本地文件夹。\n2. 回到猿音，从这个本地文件夹重新导入。\n3. 如果仍失败，可以改用猿音内的对应云盘音乐源。";
+"local_import_provider_failure_message_format" = "本次选择 %1$d 个项目，失败 %2$d 个。文件 App/网盘交给 Primuse 的是占位或错误内容，不是音频原文件。\n\n失败示例：%3$@\n\n可以这样处理：\n1. 如果文件 App 里已经显示已下载，请先在文件 App 或网盘 App 中把歌曲“存储到文件”的“我的 iPhone”本地文件夹。\n2. 回到 Primuse，从这个本地文件夹重新导入。\n3. 如果仍失败，可以改用 Primuse 内的对应云盘音乐源。";
 "local_import_failure_reason_format" = "主要原因：%@";
 "local_import_provider_hint" = "如果文件来自网盘，请先保存到“文件”App 的“我的 iPhone”本地文件夹后再导入；也可以改用应用内的云盘音乐源。";
 "local_import_failure_item_format" = "%1$@：%2$@";
@@ -2356,7 +2356,7 @@
 "local_import_reason_provider_error" = "网盘返回的是错误响应，不是音频文件";
 "local_import_reason_database" = "导入索引写入失败";
 "local_import_provider_error_title" = "网盘未返回音频";
-"local_import_provider_error_message_format" = "本次选择 %1$d 个项目，失败 %2$d 个。网盘交给猿音的是一段错误响应，不是音频原文件——通常是该文件需要会员、被防盗链限制，或没有下载权限。\n\n失败示例：%3$@\n\n建议：\n1. 优先改用猿音内置的对应云盘音乐源（走网盘自身接口下载），这类文件经系统“文件”导入无法绕过。\n2. 或在网盘 App 里把歌曲“存储到文件”的“我的 iPhone”本地文件夹后再导入（若网盘允许导出原文件）。";
+"local_import_provider_error_message_format" = "本次选择 %1$d 个项目，失败 %2$d 个。网盘交给 Primuse 的是一段错误响应，不是音频原文件——通常是该文件需要会员、被防盗链限制，或没有下载权限。\n\n失败示例：%3$@\n\n建议：\n1. 优先改用 Primuse 内置的对应云盘音乐源（走网盘自身接口下载），这类文件经系统“文件”导入无法绕过。\n2. 或在网盘 App 里把歌曲“存储到文件”的“我的 iPhone”本地文件夹后再导入（若网盘允许导出原文件）。";
 "local_import_reason_copy" = "拷贝失败";
 "filter_songs_placeholder" = "过滤歌曲…";
 "filter_albums_placeholder" = "过滤专辑…";
@@ -2603,7 +2603,7 @@
 "source_remove_confirm_message" = "会从资料库移除该源及其歌曲记录，本地和远端文件不受影响。";
 "source_remove_managed_confirm_title" = "移除音乐源并删除复制文件？";
 "source_remove_managed_confirm_action" = "移除音乐源并删除复制文件";
-"source_remove_managed_confirm_message" = "会从资料库移除此音乐源，并删除所有复制到猿音的文件以释放设备空间。原始文件不受影响；复制文件删除后无法恢复。";
+"source_remove_managed_confirm_message" = "会从资料库移除此音乐源，并删除所有复制到 Primuse 的文件以释放设备空间。原始文件不受影响；复制文件删除后无法恢复。";
 "playlist_reorder_title" = "调整播放顺序";
 "playlist_reorder_changed" = "顺序已更改";
 "playlist_reorder_hint" = "使用箭头移动歌曲";
@@ -2931,8 +2931,8 @@
 
 /* MARK: - Siri 与 App Intents */
 "siri_examples_title" = "语音示例";
-"siri_play_song_example" = "先说“嘿 Siri，用猿音播放歌曲”，再告诉 Siri 歌曲名。";
-"siri_shortcuts_hint" = "打开猿音快捷指令，可以测试“播放歌曲”或自定义口令。";
+"siri_play_song_example" = "先说“嘿 Siri，用 Primuse 播放歌曲”，再告诉 Siri 歌曲名。";
+"siri_shortcuts_hint" = "打开 Primuse 快捷指令，可以测试“播放歌曲”或自定义口令。";
 "intent_playing_album_format" = "正在播放专辑 %@。";
 "intent_playing_artist_format" = "正在播放 %@。";
 "intent_playing_genre_format" = "正在播放 %@ 类型的音乐。";
@@ -2941,45 +2941,45 @@
 "intent_scrape_started_lyrics_format" = "已开始为 %@ 查找歌词。";
 "intent_scrape_started_metadata_format" = "已开始为 %@ 补全缺失信息。";
 "intent_scrape_busy" = "已有刮削任务正在运行。";
-"intent_scrape_deferred" = "猿音进入前台后会开始刮削。";
+"intent_scrape_deferred" = "Primuse 进入前台后会开始刮削。";
 "intent_scrape_nothing_missing_format" = "%@ 没有需要补全的信息。";
-"intent_scrape_no_source" = "请先在猿音中启用一个刮削源。";
+"intent_scrape_no_source" = "请先在 Primuse 中启用一个刮削源。";
 "intent_scrape_live_radio_unsupported" = "直播电台不支持刮削。";
 "Resume Playback" = "继续播放";
-"Resume the current Primuse song or radio station." = "继续播放猿音当前的歌曲或电台。";
+"Resume the current Primuse song or radio station." = "继续播放 Primuse 当前的歌曲或电台。";
 "Resuming playback." = "正在继续播放。";
-"There is no Primuse playback session to resume." = "当前没有可继续的猿音播放会话。";
+"There is no Primuse playback session to resume." = "当前没有可继续的 Primuse 播放会话。";
 "Play Album" = "播放专辑";
-"Find an album in Primuse and play it in track order." = "在猿音中查找专辑并按曲目顺序播放。";
+"Find an album in Primuse and play it in track order." = "在 Primuse 中查找专辑并按曲目顺序播放。";
 "Album" = "专辑";
 "Optional, narrows albums with the same name." = "可选，用于区分同名专辑。";
 "No matching album in your library." = "资料库中没有匹配的专辑。";
 "Play Artist" = "播放歌手";
-"Find an artist in Primuse and play their songs." = "在猿音中查找歌手并播放其歌曲。";
+"Find an artist in Primuse and play their songs." = "在 Primuse 中查找歌手并播放其歌曲。";
 "No matching artist in your library." = "资料库中没有匹配的歌手。";
 "Play Genre" = "按类型播放";
-"Play songs matching a genre in Primuse." = "播放猿音中符合指定类型的歌曲。";
+"Play songs matching a genre in Primuse." = "播放 Primuse 中符合指定类型的歌曲。";
 "Genre" = "类型";
 "No matching genre in your library." = "资料库中没有匹配的音乐类型。";
 "Play Radio Station" = "播放电台";
-"Play a saved internet-radio station in Primuse." = "播放猿音中已保存的网络电台。";
+"Play a saved internet-radio station in Primuse." = "播放 Primuse 中已保存的网络电台。";
 "Station" = "电台";
 "No matching saved radio station." = "没有匹配的已保存电台。";
 "Play Similar Songs" = "播放相似歌曲";
-"Build a song radio from the current Primuse song." = "根据猿音当前歌曲生成相似歌曲电台。";
+"Build a song radio from the current Primuse song." = "根据 Primuse 当前歌曲生成相似歌曲电台。";
 "Play a song first, then try again." = "请先播放一首歌曲，然后重试。";
 "Repeat Mode" = "循环模式";
 "Repeat All" = "列表循环";
 "Repeat One" = "单曲循环";
 "Set Repeat Mode" = "设置循环模式";
-"Change the Primuse repeat mode." = "更改猿音的循环模式。";
+"Change the Primuse repeat mode." = "更改 Primuse 的循环模式。";
 "Mode" = "模式";
 "Set Playback Speed" = "设置播放速度";
-"Set Primuse playback speed from 0.5 to 2 times." = "将猿音播放速度设置为 0.5 到 2 倍。";
+"Set Primuse playback speed from 0.5 to 2 times." = "将 Primuse 播放速度设置为 0.5 到 2 倍。";
 "Speed" = "速度";
 "Playback speed set to %1$@ times." = "播放速度已设置为 %1$@ 倍。";
 "Scrape Current Song" = "刮削当前歌曲";
-"Fill missing metadata, artwork, and lyrics for the current Primuse song." = "补全猿音当前歌曲缺失的元数据、封面和歌词。";
+"Fill missing metadata, artwork, and lyrics for the current Primuse song." = "补全 Primuse 当前歌曲缺失的元数据、封面和歌词。";
 "This may contact metadata providers and write artwork, lyrics, or tags. Continue?" = "此操作可能访问元数据服务并写入封面、歌词或标签。是否继续？";
 "There is no current song to scrape." = "当前没有可刮削的歌曲。";
 "Resume" = "继续播放";
@@ -3490,7 +3490,7 @@
 "search_result_path_accessibility_format" = "路径：%@";
 "Radio Station" = "电台";
 "Search Radio Stations" = "搜索电台";
-"Search saved radio stations in Primuse without starting playback." = "在猿音中搜索已保存的电台，但不开始播放。";
+"Search saved radio stations in Primuse without starting playback." = "在 Primuse 中搜索已保存的电台，但不开始播放。";
 "Keyword" = "关键词";
 "The radio station's source is disabled." = "该电台所属的音乐源已停用。";
 "The radio station is currently unavailable." = "该电台当前不可用。";

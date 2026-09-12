@@ -201,7 +201,7 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleDisplayName: "猿音"
+        CFBundleDisplayName: "Primuse"
         CFBundleName: "Primuse"
         LSApplicationCategoryType: "public.app-category.music"
         UIFileSharingEnabled: true
@@ -231,7 +231,7 @@ targets:
         PrimuseLastFmAPISecret: "$(LASTFM_API_SECRET)"
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false
-        NSSiriUsageDescription: "用 Siri 语音点播、控制猿音播放。"
+        NSSiriUsageDescription: "用 Siri 语音点播、控制 Primuse 播放。"
         INIntentsSupported:
           - INPlayMediaIntent
           - INSearchForMediaIntent
@@ -254,7 +254,7 @@ targets:
                 UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).ExternalDisplaySceneDelegate
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
-        NSLocalNetworkUsageDescription: "猿音需要访问本地网络，以发现并连接您的 NAS、媒体服务器、其他音乐源及附近的猿音设备。"
+        NSLocalNetworkUsageDescription: "Primuse 需要访问本地网络，以发现并连接您的 NAS、媒体服务器、其他音乐源及附近的 Primuse 设备。"
         NSBonjourServices:
           - "_primuse-xfer._tcp"
           - "_primuse-cache._tcp"
@@ -346,7 +346,7 @@ targets:
     info:
       path: PrimuseWidgetExtension/Info.plist
       properties:
-        CFBundleDisplayName: "猿音小组件"
+        CFBundleDisplayName: "Primuse 小组件"
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         NSExtension:
@@ -377,7 +377,7 @@ targets:
     info:
       path: PrimuseWatch/Info.plist
       properties:
-        CFBundleDisplayName: "猿音"
+        CFBundleDisplayName: "Primuse"
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         WKApplication: true
@@ -416,7 +416,7 @@ targets:
     info:
       path: PrimuseWatchWidgets/Info.plist
       properties:
-        CFBundleDisplayName: "猿音表盘"
+        CFBundleDisplayName: "Primuse 表盘"
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         NSExtension:
@@ -546,7 +546,7 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SWIFT_EMIT_LOC_STRINGS: YES
         # Universal Purchase: 跟 iOS 共用同一个 bundle ID,这样上传后会
-        # 自动落到 App Store Connect 现有"猿音"record 的 macOS 槽位下,
+        # 自动落到 App Store Connect 现有"Primuse"record 的 macOS 槽位下,
         # 用户买一次两端都能用,共享评分 / 评论 / 通知池。
         PRODUCT_NAME: Primuse
         PRODUCT_BUNDLE_IDENTIFIER: com.welape.yuanyin
@@ -674,7 +674,7 @@ targets:
           - pl
         # 只用 HTTPS / 标准 OS 加密(豁免类),声明免出口合规,免去每次上传都要填。
         ITSAppUsesNonExemptEncryption: false
-        NSSiriUsageDescription: "用 Siri 语音点播、控制猿音播放。"
+        NSSiriUsageDescription: "用 Siri 语音点播、控制 Primuse 播放。"
         INIntentsSupported:
           - INPlayMediaIntent
           - INSearchForMediaIntent
@@ -684,7 +684,7 @@ targets:
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         # TV 起局域网监听接收 iPhone 扫码直传的源配置(TVConfigServer)+ Bonjour 发现 NAS,需声明本地网络用途
-        NSLocalNetworkUsageDescription: "猿音需要访问本地网络,以便从 iPhone 扫码直接接收音乐源配置、并自动发现局域网内的 NAS。"
+        NSLocalNetworkUsageDescription: "Primuse 需要访问本地网络,以便从 iPhone 扫码直接接收音乐源配置、并自动发现局域网内的 NAS。"
         # 内网自动发现要浏览的 Bonjour 服务类型(与 NetworkDiscoveryService.serviceTypes 一致)
         NSBonjourServices:
           - "_primuse-xfer._tcp"

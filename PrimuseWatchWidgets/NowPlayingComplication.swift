@@ -1,7 +1,7 @@
 import SwiftUI
 import WidgetKit
 
-/// 表盘上的"猿音正在播放"复杂功能。
+/// 表盘上的"Primuse 正在播放"复杂功能。
 ///
 /// 支持的 family:
 /// - accessoryCircular: 表盘圆形小角, 显示一个图标 (播放 / 暂停)

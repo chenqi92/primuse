@@ -30,7 +30,7 @@ enum AppleMusicFeatureSettings {
 /// 不试图把 Apple Music 歌混进 MusicLibrary。原因:
 /// - Apple Music 是 DRM 流, 必须经 `ApplicationMusicPlayer` 才能播,我们自己
 ///   的 `AudioPlayerService` 走 AVAudioEngine 不能解。两个 player 各管各
-///   的,共享的只有"用户在猿音 UI 里选了一首 Apple Music 歌就跳到系统侧
+///   的,共享的只有"用户在 Primuse UI 里选了一首 Apple Music 歌就跳到系统侧
 ///   开播"这一刻。
 /// - 把 Apple Music 歌持久化进库会让 CloudKit 同步逻辑、本地缓存策略、
 ///   metadata backfill 都得理解一种新 song type, 改动面巨大。
@@ -527,7 +527,7 @@ final class AppleMusicService {
              )
              return
          }
-         // caller (AudioPlayerService.playAppleMusicSong) 已经把猿音自己的
+         // caller (AudioPlayerService.playAppleMusicSong) 已经把 Primuse 自己的
          // engine 停掉了, 这里直接接管 audio session。
          let player = ApplicationMusicPlayer.shared
 #if os(iOS)
@@ -626,7 +626,7 @@ final class AppleMusicService {
 
     func play(_ song: MusicKit.Song) async {
         let requestID = beginPlaybackRequest()
-        // 让猿音自家播放器先停掉, audio session 让给 ApplicationMusicPlayer。
+        // 让 Primuse 自家播放器先停掉, audio session 让给 ApplicationMusicPlayer。
         // 否则: 本地正在播 → 用户点 Apple Music row → ApplicationMusicPlayer 接管
         // audio session, 但 AudioPlayerService.currentSong 还在, mini player
         // 一直显示本地歌, 看不出切换了 (Apple Music 才是当前的实际播放)。

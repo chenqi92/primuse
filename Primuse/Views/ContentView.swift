@@ -510,7 +510,7 @@ struct ContentView: View {
     @Environment(AppleMusicService.self) private var appleMusic
     @Environment(MetadataBackfillService.self) private var backfill
 
-    /// Mini player 是否应该显示 — 猿音自家在播 或 Apple Music 在系统侧播。
+    /// Mini player 是否应该显示 — Primuse 自家在播 或 Apple Music 在系统侧播。
     /// 这两路是独立 player, 任一非空都显示 accessory。
     private var miniPlayerActive: Bool {
         player.currentSong != nil || appleMusic.nowPlayingSong != nil

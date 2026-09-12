@@ -1,8 +1,8 @@
 "title" = "Wi-Fi 传输";
-"subtitle" = "通过浏览器将音乐传入猿音。";
-"scope" = "管理已复制到猿音本地音乐目录的文件。请让应用保持打开，并将两台设备接入同一网络。";
+"subtitle" = "通过浏览器将音乐传入 Primuse。";
+"scope" = "管理已复制到 Primuse 本地音乐目录的文件。请让应用保持打开，并将两台设备接入同一网络。";
 "code" = "访问码";
-"codeHint" = "输入猿音中显示的六位访问码。";
+"codeHint" = "输入 Primuse 中显示的六位访问码。";
 "connect" = "连接";
 "files" = "选择文件";
 "folder" = "选择文件夹";
@@ -16,7 +16,7 @@
 "size" = "大小";
 "delete" = "删除";
 "empty" = "这里还没有文件。选择文件或文件夹即可上传。";
-"deleteConfirm" = "从猿音中删除此文件？删除后无法撤销。";
+"deleteConfirm" = "从 Primuse 中删除此文件？删除后无法撤销。";
 "deleteFolderConfirm" = "删除此空文件夹？非空文件夹需要先清空。";
 "cancel" = "取消";
 "uploading" = "正在上传";
@@ -37,7 +37,7 @@
 "tooLarge" = "单个文件最大支持 8 GB。";
 "unauthorized" = "访问码不正确或传输会话已结束。";
 "tooManyAttempts" = "访问码错误次数过多，请等待 30 秒后重试。";
-"unavailable" = "连接已断开，请保持猿音打开，并检查两台设备是否在同一网络。";
+"unavailable" = "连接已断开，请保持 Primuse 打开，并检查两台设备是否在同一网络。";
 "start" = "开始传输";
 "stop" = "停止传输";
 "address" = "浏览器地址";
@@ -46,15 +46,15 @@
 "copied" = "地址已复制";
 "sessionCode" = "访问码仅在本次传输会话开启期间有效。";
 "stored" = "已完成的文件将在曲库刷新后出现在“本地音乐”中。";
-"keepOpen" = "请保持此页面打开。离开页面或将猿音切到后台会停止传输。请使用可信的 Wi-Fi 或有线局域网。";
-"network" = "请连接 Wi-Fi 或有线网络，并在系统设置中允许猿音访问本地网络。";
+"keepOpen" = "请保持此页面打开。离开页面或将 Primuse 切到后台会停止传输。请使用可信的 Wi-Fi 或有线局域网。";
+"network" = "请连接 Wi-Fi 或有线网络，并在系统设置中允许 Primuse 访问本地网络。";
 "enableSource" = "请先启用“本地音乐”来源，再开始传输。";
 
 "nativeTitle" = "设备传输";
-"nativeSubtitle" = "在同一局域网内，将音乐、歌词和文件夹发送到另一台猿音设备。";
+"nativeSubtitle" = "在同一局域网内，将音乐、歌词和文件夹发送到另一台 Primuse 设备。";
 "send" = "发送到设备";
 "receive" = "接收文件";
-"receiveHint" = "开启接收后，在发送端猿音中选择本机并输入访问码，然后在这里确认接收。";
+"receiveHint" = "开启接收后，在发送端 Primuse 中选择本机并输入访问码，然后在这里确认接收。";
 "browserAccess" = "浏览器访问";
 "browserHint" = "开启后，可从其他设备的浏览器上传和管理本地文件。应用内互传可独立使用。";
 "nearby" = "附近设备";
@@ -95,12 +95,12 @@
 "receiveEmptyHint" = "接收音乐、歌词和封面，自动加入本地曲库。";
 "sameNetwork" = "同一局域网";
 "webSubtitle" = "在浏览器中整理你的本地音乐";
-"webIntro" = "把音乐传入猿音曲库";
-"connectTitle" = "连接到猿音";
+"webIntro" = "把音乐传入 Primuse 曲库";
+"connectTitle" = "连接到 Primuse";
 "webConnectHint" = "在接收设备开启“浏览器访问”，访问码会显示在传输页面。";
 "searchFiles" = "搜索当前文件夹";
 "noMatches" = "没有匹配的文件";
-"sessionHint" = "请保持猿音在前台。切到后台会停止传输，已完成的文件会保留。";
+"sessionHint" = "请保持 Primuse 在前台。切到后台会停止传输，已完成的文件会保留。";
 "folderType" = "文件夹";
 "receiveActivity" = "接收动态";
 "receiveCompleted" = "接收完成";
@@ -118,7 +118,7 @@
 "keepTransferring" = "继续传输";
 "closeReceiverHint" = "接收将停止，当前访问码会失效。已完成的文件会保留，未完成的文件需要重新发送。";
 "closeSenderHint" = "发送将停止，对方已经收到的文件会保留。";
-"backgroundStopped" = "猿音切到后台，传输已停止。已完成的文件会保留；重新开启接收后请使用新的访问码。";
+"backgroundStopped" = "Primuse 切到后台，传输已停止。已完成的文件会保留；重新开启接收后请使用新的访问码。";
 "receiveTimedOut" = "发送设备长时间没有响应，已完成的文件会保留。请在发送端重试剩余文件。";
 "receiveHistory" = "之前的接收";
 
@@ -149,7 +149,7 @@
 "libraryPartiallySelected" = "部分选中";
 "librarySelectionLimit" = "每次最多选择 3,000 首歌曲，请选择较小的分组。";
 "librarySelectedSummary" = "已选 %d 首歌曲 · %d 个附加文件";
-"discoveryPermission" = "本地网络访问被拒绝，请在系统设置中允许猿音访问后重试。";
+"discoveryPermission" = "本地网络访问被拒绝，请在系统设置中允许 Primuse 访问后重试。";
 "discoveryBonjour" = "Bonjour 设备发现未获授权（NoAuth）。请重新打开当前版本后重试；直连仍需要本地网络权限。";
 "discoveryNetwork" = "当前没有可用的局域网，请连接 Wi-Fi 或有线网络后重试。";
 "discoveryUnavailable" = "附近设备发现暂不可用，请重试或输入接收地址。";

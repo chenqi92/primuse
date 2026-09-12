@@ -2,14 +2,14 @@ import AppIntents
 import Foundation
 import PrimuseKit
 
-/// 猿音的 App Intents 集合 ── iOS 16+ Shortcuts / Siri 入口 + iOS 17+
+/// Primuse 的 App Intents 集合 ── iOS 16+ Shortcuts / Siri 入口 + iOS 17+
 /// Live Activity / iOS 18 Control Center 按钮入口。
 ///
 /// 跟老 SiriKit (`INPlayMediaIntent`, 见 `PlayMediaIntentHandler`) 并存:
 /// - 老 SiriKit 主要给 CarPlay 语音 / 系统媒体快捷键 (锁屏 / 灵动岛) 用,
 ///   API 受 Apple 媒体 intent schema 约束。
 /// - 这里的 App Intents 是面向用户在 Shortcuts.app 里搭流程, 也支持 Siri
-///   直接说"用猿音 [动作]"。可以自由定义参数和返回值。
+///   直接说"用 Primuse [动作]"。可以自由定义参数和返回值。
 ///
 /// **跨进程注意**:
 /// 这份文件同时被 widget extension target 引用 (供 Control Widget /
@@ -327,7 +327,7 @@ struct PrimuseSetPlaybackSpeedIntent: AudioPlaybackIntent {
 // MARK: - App Shortcuts (Siri phrases)
 
 /// 给系统注册一组语音短语让 Siri 直接说出来。Apple 要求每个 phrase 必须含
-/// `.applicationName` token, 跟 app 显示名拼起来 (例如 "用 猿音 暂停")。
+/// `.applicationName` token, 跟 app 显示名拼起来 (例如 "用 Primuse 暂停")。
 #if os(macOS) && !PRIMUSE_WIDGET_EXTENSION
 struct PrimuseShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {

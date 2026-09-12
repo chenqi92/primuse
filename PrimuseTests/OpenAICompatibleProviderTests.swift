@@ -379,7 +379,7 @@ final class OpenAICompatibleProviderTests: XCTestCase {
                 mimeType: "audio/mpeg",
                 displayName: "故乡.mp3",
                 languageCodes: ["zh-CN"],
-                customVocabulary: ["故乡", "猿音"]
+                customVocabulary: ["故乡", "Primuse"]
             )
         )
 
@@ -415,7 +415,7 @@ final class OpenAICompatibleProviderTests: XCTestCase {
             generation["transcription_config"] as? [String: Any]
         )
         XCTAssertEqual(transcription["language_codes"] as? [String], ["zh-CN"])
-        XCTAssertEqual(transcription["custom_vocabulary"] as? [String], ["故乡", "猿音"])
+        XCTAssertEqual(transcription["custom_vocabulary"] as? [String], ["故乡", "Primuse"])
         let mode = try XCTUnwrap(transcription["mode"] as? [String: Any])
         XCTAssertEqual(mode["type"] as? String, "verbatim")
         XCTAssertEqual(mode["timestamp_granularities"] as? [String], ["word"])

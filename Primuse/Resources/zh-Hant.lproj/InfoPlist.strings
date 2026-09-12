@@ -1,8 +1,8 @@
 // 繁體中文（台灣）：App 資訊覆寫。此處缺少的鍵會回退到 Info.plist 的英文預設值。
-"CFBundleDisplayName" = "猿音";
+"CFBundleDisplayName" = "Primuse";
 
 // 系統權限對話框中顯示的用途說明。Apple 要求與功能相符。
-"NSSiriUsageDescription" = "用 Siri 語音點播、控制猿音播放。";
-"NSAppleMusicUsageDescription" = "猿音需要存取您的 Apple Music / iTunes 資料庫，以將本機音樂匯入為播放來源。";
-"NSLocalNetworkUsageDescription" = "猿音需要存取區域網路，以探索並連接您的 NAS 裝置、媒體伺服器及其他音樂來源。";
-"NSMotionUsageDescription" = "猿音會使用支援的耳機動作資料，讓空間音訊在您轉動頭部時保持穩定定位。";
+"NSSiriUsageDescription" = "用 Siri 語音點播、控制 Primuse 播放。";
+"NSAppleMusicUsageDescription" = "Primuse 需要存取您的 Apple Music / iTunes 資料庫，以將本機音樂匯入為播放來源。";
+"NSLocalNetworkUsageDescription" = "Primuse 需要存取區域網路，以探索並連接您的 NAS 裝置、媒體伺服器及其他音樂來源。";
+"NSMotionUsageDescription" = "Primuse 會使用支援的耳機動作資料，讓空間音訊在您轉動頭部時保持穩定定位。";

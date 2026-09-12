@@ -9,8 +9,25 @@
 	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>INAlternativeAppNames</key>
+	<array>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>猿音</string>
+		</dict>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>普瑞缪斯</string>
+		</dict>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>Primuse</string>
+			<key>INAlternativeAppNamePronunciationHint</key>
+			<string>pry muse</string>
+		</dict>
+	</array>
 	<key>CFBundleDisplayName</key>
-	<string>猿音</string>
+	<string>Primuse</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -90,11 +107,11 @@
 		<string>_https._tcp.</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>猿音需要访问本地网络，以发现并连接您的 NAS、媒体服务器、其他音乐源及附近的猿音设备。</string>
+	<string>Primuse 需要访问本地网络，以发现并连接您的 NAS、媒体服务器、其他音乐源及附近的 Primuse 设备。</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Primuse uses headphone motion to keep Spatial Audio anchored while you move your head.</string>
 	<key>NSSiriUsageDescription</key>
-	<string>用 Siri 语音点播、控制猿音播放。</string>
+	<string>用 Siri 语音点播、控制 Primuse 播放。</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>NSUserActivityTypes</key>

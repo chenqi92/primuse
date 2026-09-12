@@ -81,9 +81,9 @@
 		<string>_https._tcp.</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>猿音需要访问本地网络,以便从 iPhone 扫码直接接收音乐源配置、并自动发现局域网内的 NAS。</string>
+	<string>Primuse 需要访问本地网络,以便从 iPhone 扫码直接接收音乐源配置、并自动发现局域网内的 NAS。</string>
 	<key>NSSiriUsageDescription</key>
-	<string>用 Siri 语音点播、控制猿音播放。</string>
+	<string>用 Siri 语音点播、控制 Primuse 播放。</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

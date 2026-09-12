@@ -10,7 +10,7 @@ import iTunesLibrary
 #endif
 
 /// 把 Apple Music user library (用户已收藏 / 已添加到资料库的歌) 拉进
-/// 猿音 MusicLibrary, 跟 NAS / 云盘的歌一起出现在 Library 视图。
+/// Primuse MusicLibrary, 跟 NAS / 云盘的歌一起出现在 Library 视图。
 ///
 /// 系统侧由 `ApplicationMusicPlayer` 负责 DRM 流播放, 我们这里只做:
 /// - iOS 用 `MusicLibraryRequest`, macOS 用 Apple Music API 分页拉完整云资料库
@@ -26,7 +26,7 @@ import iTunesLibrary
 @MainActor
 @Observable
 final class AppleMusicLibraryService {
-    /// Apple Music 那个虚拟 source 的固定 ID — 全猿音里 hard-code 这个值,
+    /// Apple Music 那个虚拟 source 的固定 ID — 全 Primuse 里 hard-code 这个值,
     /// 不走 UUID, 让 song.sourceID 一致, 多次启动 / 重装也能 match 上。
     nonisolated static let systemSourceID = AppleMusicLibraryIdentity.sourceID
 

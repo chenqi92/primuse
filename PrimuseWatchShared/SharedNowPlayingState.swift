@@ -82,14 +82,14 @@ enum WatchLoc {
     ]
 
     static let zhHans: [String: String] = [
-        "ext.watch.appName": "猿音",
+        "ext.watch.appName": "Primuse",
         "ext.watch.complication.description": "快速看到正在播放的曲目",
         "ext.watch.demo.track": "曲目名",
         "ext.watch.demo.artist": "艺术家",
         "ext.watch.nowPlaying.none": "暂无播放",
         "ext.watch.nowPlaying.empty.title": "还没有播放",
         "ext.watch.nowPlaying.empty.reachable": "在 iPhone 上选一首歌开始播放",
-        "ext.watch.nowPlaying.empty.unreachable": "请确认 iPhone 已解锁并打开猿音",
+        "ext.watch.nowPlaying.empty.unreachable": "请确认 iPhone 已解锁并打开 Primuse",
         "ext.watch.queue.title": "播放列表",
         "ext.watch.queue.empty.title": "队列为空",
         "ext.watch.queue.empty.subtitle": "在 iPhone 上选歌播放后这里会显示队列",
@@ -99,14 +99,14 @@ enum WatchLoc {
     ]
 
     static let zhHant: [String: String] = [
-        "ext.watch.appName": "猿音",
+        "ext.watch.appName": "Primuse",
         "ext.watch.complication.description": "快速看到正在播放的曲目",
         "ext.watch.demo.track": "曲目名",
         "ext.watch.demo.artist": "演出者",
         "ext.watch.nowPlaying.none": "暫無播放",
         "ext.watch.nowPlaying.empty.title": "還沒有播放",
         "ext.watch.nowPlaying.empty.reachable": "在 iPhone 上選一首歌開始播放",
-        "ext.watch.nowPlaying.empty.unreachable": "請確認 iPhone 已解鎖並開啟猿音",
+        "ext.watch.nowPlaying.empty.unreachable": "請確認 iPhone 已解鎖並開啟 Primuse",
         "ext.watch.queue.title": "播放清單",
         "ext.watch.queue.empty.title": "佇列為空",
         "ext.watch.queue.empty.subtitle": "在 iPhone 上選歌播放後這裡會顯示佇列",

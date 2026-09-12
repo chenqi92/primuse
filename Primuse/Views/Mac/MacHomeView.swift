@@ -577,7 +577,7 @@ struct MacHomeView: View {
     }
 
     /// "今晚, 你的资料库里藏着 11,248 个故事" 这样的动态叙事。
-    /// 1.6 重设计后用它替代静态 "猿音", 把首页从"应用展示页"变成"用户专属仪表盘"。
+    /// 1.6 重设计后用它替代静态 "Primuse", 把首页从"应用展示页"变成"用户专属仪表盘"。
     private var heroNarrative: String {
         let count = model.snapshot.songCount
         let formatter = NumberFormatter()

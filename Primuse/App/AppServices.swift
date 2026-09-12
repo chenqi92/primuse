@@ -1131,7 +1131,7 @@ final class AppServices {
                             self.enqueueSourceCloudCleanup(tombstone)
                         }
                     }
-                    // 只有“复制到猿音”的托管来源拥有沙箱副本；文件夹引用、
+                    // 只有“复制到 Primuse”的托管来源拥有沙箱副本；文件夹引用、
                     // File Provider 和远端来源都只移除资料库记录，不碰源文件。
                     self.removeSourceLibraryData(
                         id: id,

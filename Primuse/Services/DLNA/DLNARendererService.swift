@@ -36,7 +36,7 @@ private let dlnaRemoteRendererSearchTargets = [
     "ssdp:all",
 ]
 
-/// 把猿音宣告成局域网里的 UPnP/AV MediaRenderer ── 别的设备 (VLC / Synology
+/// 把 Primuse 宣告成局域网里的 UPnP/AV MediaRenderer ── 别的设备 (VLC / Synology
 /// Audio Station / Plex / Hi-Fi Cast 等控制点) 可以发现这台手机, 把音乐
 /// URL 推过来, 我们就播。
 ///
@@ -183,7 +183,7 @@ final class DLNARendererService {
     /// 成"新设备"重新订阅 (有些控制点会缓存 UUID)。
     private let deviceUUID: String
 
-    /// 我们暴露的友好名称 ── 默认 "猿音 · <设备名>"。
+    /// 我们暴露的友好名称 ── 默认 "Primuse · <设备名>"。
     private let friendlyName: String
 
     /// 主 player 引用,SetAVTransportURI 时把 URL 推过去。
@@ -246,7 +246,7 @@ final class DLNARendererService {
 
     /// 后台保活开关。开了之后 audio session 会被静默音流撑住, app 即使没在
     /// 播音乐, 退到后台后 NWListener 也能继续接 SSDP/control。代价: 锁屏 /
-    /// 控制中心会显示猿音"在播", 电量略增 ── footer 里写明。
+    /// 控制中心会显示 Primuse"在播", 电量略增 ── footer 里写明。
     /// 状态走 @AppStorage 由 UI 侧持久, 这里只暴露 set 入口让设置页 onChange 调。
     private(set) var keepAliveInBackground = false
 

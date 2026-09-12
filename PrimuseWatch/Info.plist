@@ -4,8 +4,25 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>INAlternativeAppNames</key>
+	<array>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>猿音</string>
+		</dict>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>普瑞缪斯</string>
+		</dict>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>Primuse</string>
+			<key>INAlternativeAppNamePronunciationHint</key>
+			<string>pry muse</string>
+		</dict>
+	</array>
 	<key>CFBundleDisplayName</key>
-	<string>猿音</string>
+	<string>Primuse</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

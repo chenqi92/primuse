@@ -51,7 +51,7 @@ struct AppleMusicSettingsView: View {
         #endif
     }
 
-    /// 把 Apple Music 用户资料库拉进猿音 Library。state 切换时直接 reflect
+    /// 把 Apple Music 用户资料库拉进 Primuse Library。state 切换时直接 reflect
     /// 在 UI 上, 用户能看到 syncing / 完成数 / 失败原因。
     private var librarySection: some View {
         Section {

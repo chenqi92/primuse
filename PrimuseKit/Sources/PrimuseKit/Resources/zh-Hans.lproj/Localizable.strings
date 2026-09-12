@@ -21,7 +21,7 @@
 "src.subtitle.pan123"        = "123 开放平台 OAuth";
 
 // 小组件与控制中心扩展
-"ext.widget.appName"                       = "猿音";
+"ext.widget.appName"                       = "Primuse";
 "ext.widget.unknownSong"                   = "未知歌曲";
 "ext.widget.unknownArtist"                 = "未知艺术家";
 "ext.widget.unknownAlbum"                  = "未知专辑";
@@ -35,11 +35,11 @@
 "ext.widget.like"                          = "添加到我喜欢";
 "ext.widget.unlike"                        = "从我喜欢中移除";
 "ext.widget.nowPlaying.empty.title"        = "尚未播放";
-"ext.widget.nowPlaying.empty.openShort"    = "打开猿音继续";
-"ext.widget.nowPlaying.empty.openMedium"   = "打开猿音继续上次的旋律";
+"ext.widget.nowPlaying.empty.openShort"    = "打开 Primuse 继续";
+"ext.widget.nowPlaying.empty.openMedium"   = "打开 Primuse 继续上次的旋律";
 "ext.widget.nowPlaying.empty.openLarge"    = "连接你的音乐源,这里会显示当前歌曲和播放进度。";
 "ext.widget.nowPlaying.empty.tapToPlay"    = "点击开始播放";
-"ext.widget.nowPlaying.empty.inline"       = "猿音 — 暂未播放";
+"ext.widget.nowPlaying.empty.inline"       = "Primuse — 暂未播放";
 
 "ext.widget.lyricsPreview.empty1"          = "暂无歌词预览";
 "ext.widget.lyricsPreview.empty2"          = "播放含歌词的曲目后";
@@ -85,31 +85,31 @@
 "ext.control.shuffle"                      = "随机播放";
 "ext.control.next"                         = "下一首";
 "ext.control.previous"                     = "上一首";
-"ext.control.playPause.displayName"        = "猿音 播放 / 暂停";
-"ext.control.playPause.description"        = "一键控制猿音播放";
-"ext.control.shuffle.displayName"          = "猿音 随机播放";
+"ext.control.playPause.displayName"        = "Primuse 播放 / 暂停";
+"ext.control.playPause.description"        = "一键控制 Primuse 播放";
+"ext.control.shuffle.displayName"          = "Primuse 随机播放";
 "ext.control.shuffle.description"          = "随机打散整库并开始播放";
-"ext.control.next.displayName"             = "猿音 下一首";
+"ext.control.next.displayName"             = "Primuse 下一首";
 "ext.control.next.description"             = "跳到下一首";
-"ext.control.previous.displayName"         = "猿音 上一首";
+"ext.control.previous.displayName"         = "Primuse 上一首";
 "ext.control.previous.description"         = "回到上一首";
 
 // watchOS app & complication
-"ext.watch.appName"                        = "猿音";
+"ext.watch.appName"                        = "Primuse";
 "ext.watch.complication.description"       = "快速看到正在播放的曲目";
 "ext.watch.demo.track"                     = "曲目名";
 "ext.watch.demo.artist"                    = "艺术家";
 "ext.watch.nowPlaying.none"                = "暂无播放";
 "ext.watch.nowPlaying.empty.title"         = "还没有播放";
 "ext.watch.nowPlaying.empty.reachable"     = "在 iPhone 上选一首歌开始播放";
-"ext.watch.nowPlaying.empty.unreachable"   = "请确认 iPhone 已解锁并打开猿音";
+"ext.watch.nowPlaying.empty.unreachable"   = "请确认 iPhone 已解锁并打开 Primuse";
 "ext.watch.queue.title"                    = "播放列表";
 "ext.watch.queue.empty.title"              = "队列为空";
 "ext.watch.queue.empty.subtitle"           = "在 iPhone 上选歌播放后这里会显示队列";
 "ext.watch.queue.truncationNotice"         = "仅显示前 %d 首，共 %d 首";
 
 // tvOS app
-"ext.tv.appName"                           = "猿音";
+"ext.tv.appName"                           = "Primuse";
 "ext.tv.unknownArtist"                     = "未知艺术家";
 "ext.tv.nav.home"                          = "首页";
 "ext.tv.nav.library"                       = "资料库";
@@ -405,7 +405,7 @@
 "synology_connection_address" = "服务器地址";
 "synology_quickconnect_id" = "QuickConnect ID";
 "synology_address" = "域名或 IP 地址";
-"synology_quickconnect_hint" = "输入 DSM 控制面板中的 QuickConnect ID，猿音会自动选择直连、Smart DNS 或中继。";
+"synology_quickconnect_hint" = "输入 DSM 控制面板中的 QuickConnect ID，Primuse 会自动选择直连、Smart DNS 或中继。";
 "ext.synology.quickconnect.error.invalidID" = "QuickConnect ID 格式不正确。";
 "ext.synology.quickconnect.error.serverNotFound" = "找不到这个 QuickConnect ID。";
 "ext.synology.quickconnect.error.serviceUnavailable" = "此 NAS 未开放 DSM QuickConnect 服务。";
@@ -631,7 +631,7 @@
 "fullscreen_effect_live_waveform" = "实时波形";
 "fullscreen_effect_live_waveform_subtitle" = "横向频谱按实际播放音频实时变化";
 "fullscreen_effect_live_waveform_motion" = "实时频谱驱动 · 无音频时保持静止";
-"immersive_demo_title" = "猿音";
+"immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "图言吐语";
 "immersive_demo_album" = "soundisle";
 "immersive_lyrics_motion_title" = "沉浸文字动效";

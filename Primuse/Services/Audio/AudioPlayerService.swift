@@ -3690,7 +3690,7 @@ final class AudioPlayerService {
         }
     }
 
-    /// Apple Music 歌路由 — 把猿音自家播放器停掉, 让 AppleMusicLibraryService
+    /// Apple Music 歌路由 — 把 Primuse 自家播放器停掉, 让 AppleMusicLibraryService
     /// 通过 ApplicationMusicPlayer 接手 DRM 流播放。currentSong **保留**为这首
     /// Apple Music 歌, 让 NowPlayingView / MiniPlayer 复用同一份实现; mirror
     /// task 会持续把 ApplicationMusicPlayer 的状态同步到 self 的字段。
@@ -3699,7 +3699,7 @@ final class AudioPlayerService {
         playID id: UUID,
         transportTicket: PlaybackAdvanceTicket
     ) async {
-        // 停猿音自家 engine, audio session 让给 ApplicationMusicPlayer。
+        // 停 Primuse 自家 engine, audio session 让给 ApplicationMusicPlayer。
         decodingTask?.cancel(); decodingTask = nil
         cancelGaplessTasks()
         cancelCrossfadeAttempt()
