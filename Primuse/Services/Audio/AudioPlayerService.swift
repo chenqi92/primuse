@@ -76,6 +76,10 @@ final class GaplessTransitionState: @unchecked Sendable {
         didSet { if didFail { settle() } }
     }
     var boundary: PlaybackTimelineTracker.BoundaryToken?
+    /// Set when a gapless boundary activates the track this preparation
+    /// scheduled. The loop then keeps decoding the *current* track, so
+    /// traversal edits must no longer treat it as a successor preparation.
+    var isFeedingCurrentTrack = false
 
     init(queueGeneration: Int, advanceTicket: PlaybackAdvanceTicket) {
         self.queueGeneration = queueGeneration
@@ -972,6 +976,17 @@ final class AudioPlayerService {
     var prefetchTask: Task<Void, Never>?
     var gaplessPreparationTask: Task<Void, Never>?
     var gaplessFollowupTask: Task<Void, Never>?
+    /// The boundary transition whose successor `gaplessPreparationTask` is
+    /// decoding. A cancellation marks it stale once its buffers already sit
+    /// behind the current track's final buffer.
+    @ObservationIgnored var gaplessPreparationTransition: GaplessTransitionState?
+    struct ActiveGaplessFeed {
+        let playID: UUID
+        let transition: GaplessTransitionState
+    }
+    /// The preparation loop that a gapless boundary promoted to the current
+    /// track's decoder, so a traversal edit can re-arm its follow-up.
+    @ObservationIgnored var activeGaplessFeed: ActiveGaplessFeed?
     var crossfadeStartupTask: Task<Void, Never>?
     var crossfadeDecodingTask: Task<Void, Never>?
     var crossfadeAttemptID: UUID?
@@ -6241,17 +6256,35 @@ final class AudioPlayerService {
     }
 
     func cancelGaplessTasks() {
-        gaplessPreparationTask?.cancel()
-        gaplessPreparationTask = nil
+        cancelGaplessPreparation()
         gaplessFollowupTask?.cancel()
         gaplessFollowupTask = nil
     }
 
+    /// Cancels only the successor preparation. A loop that already put part of
+    /// the successor behind the current track's final buffer is marked stale:
+    /// the boundary must then fall back to a normal advance instead of
+    /// activating a track nobody keeps feeding.
+    func cancelGaplessPreparation() {
+        gaplessPreparationTask?.cancel()
+        gaplessPreparationTask = nil
+        guard let transition = gaplessPreparationTransition else { return }
+        gaplessPreparationTransition = nil
+        if GaplessSuccessorDiscardPolicy.marksPreparationStale(
+            hasScheduledBuffers: transition.prepared != nil,
+            isFullyScheduled: transition.isFullyScheduled
+        ) {
+            transition.shouldCancelPreparation = true
+        }
+    }
+
     /// Traversal-only changes must discard the prepared successor without
     /// invalidating the current track's completion ticket or rebuilding its
-    /// decoder. The next prefetch uses the freshly rebuilt shuffle order.
+    /// decoder. A loop that a gapless boundary promoted to the current track's
+    /// decoder keeps running; only the successor is dropped and, where it can
+    /// be, prepared again from the freshly rebuilt shuffle order.
     private func cancelPreparedQueueSuccessor() {
-        cancelGaplessTasks()
+        discardPreparedSuccessorForTraversalChange()
         cancelCrossfadeAttempt(finishingCommittedTransition: true)
     }
 

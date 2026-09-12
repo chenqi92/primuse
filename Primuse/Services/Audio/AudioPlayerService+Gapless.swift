@@ -19,7 +19,8 @@ extension AudioPlayerService {
     // MARK: - Gapless Playback
 
     func startGaplessPreparation(playID id: UUID, transition: GaplessTransitionState) {
-        gaplessPreparationTask?.cancel()
+        cancelGaplessPreparation()
+        gaplessPreparationTransition = transition
         gaplessPreparationTask = Task { [id, transition] in
             await self.prepareGaplessNextTrack(playID: id, transition: transition)
         }
@@ -81,8 +82,7 @@ extension AudioPlayerService {
         // the transition and will swap nodes; do not also advance here.
         if shouldUseCrossfade(settings), crossfadeTriggered {
             transition.shouldCancelPreparation = true
-            gaplessPreparationTask?.cancel()
-            gaplessPreparationTask = nil
+            cancelGaplessPreparation()
             return
         }
 
@@ -96,11 +96,11 @@ extension AudioPlayerService {
 
         guard shouldAttemptGapless(settings: settings),
               queueGeneration == transition.queueGeneration,
+              !transition.shouldCancelPreparation,
               let prepared = transition.prepared,
               nextQueueEntryInQueue()?.id == prepared.queueEntryID else {
             transition.shouldCancelPreparation = true
-            gaplessPreparationTask?.cancel()
-            gaplessPreparationTask = nil
+            cancelGaplessPreparation()
             await handleTrackEnd(
                 advanceTicket: transition.advanceTicket,
                 trigger: "gapless-fallback"
@@ -139,6 +139,20 @@ extension AudioPlayerService {
         if let gate = completedTransition.bufferGate {
             installDecodedBufferGate(gate, playID: id)
         }
+
+        // The loop that prepared this track keeps decoding it until the song
+        // ends, so from here on it is the current track's decoder rather than
+        // a successor preparation. Move it out of the successor slot: shuffle
+        // toggles and Up Next edits discard the prepared successor and must
+        // not starve the track that is audible.
+        completedTransition.isFeedingCurrentTrack = true
+        if let feeder = gaplessPreparationTask {
+            decodingTask?.cancel()
+            decodingTask = feeder
+            gaplessPreparationTask = nil
+        }
+        gaplessPreparationTransition = nil
+        activeGaplessFeed = ActiveGaplessFeed(playID: id, transition: completedTransition)
 
         if let previous = currentSong {
             sourceManager?.finalizeStreamingSession(for: previous)
@@ -240,6 +254,56 @@ extension AudioPlayerService {
         }
     }
 
+    /// Shuffle toggles and Up Next edits change which song follows, not the
+    /// track that is playing. Drop the successor preparation and, while no
+    /// stale successor audio sits on the node yet, arm it again so the next
+    /// boundary can still be gapless. Once a cancelled preparation has
+    /// scheduled buffers, the boundary itself falls back to a normal advance.
+    func discardPreparedSuccessorForTraversalChange() {
+        let inFlight = gaplessPreparationTransition
+        let feed = activeGaplessFeed
+        let following = feed?.transition.prepared?.followingTransition
+        let inFlightSnapshot = inFlight.map(Self.discardSnapshot)
+        let feedSnapshot = feed.map { feed in
+            GaplessSuccessorDiscardPolicy.FeedSnapshot(
+                ownsCurrentPlayback: feed.playID == playID,
+                isStale: feed.transition.shouldCancelPreparation || feed.transition.didFail,
+                following: following.map(Self.discardSnapshot)
+            )
+        }
+        cancelGaplessTasks()
+        guard let id = playID else { return }
+
+        switch GaplessSuccessorDiscardPolicy.action(
+            inFlight: inFlightSnapshot,
+            feed: feedSnapshot,
+            queueGeneration: queueGeneration
+        ) {
+        case .restartPreparation:
+            guard let inFlight else { return }
+            startGaplessPreparation(playID: id, transition: inFlight)
+        case .rearmFollowup:
+            guard let feed, let following else { return }
+            startGaplessFollowupPreparation(
+                playID: id,
+                after: feed.transition,
+                followingTransition: following
+            )
+        case .leaveToBoundary:
+            break
+        }
+    }
+
+    nonisolated private static func discardSnapshot(
+        _ transition: GaplessTransitionState
+    ) -> GaplessSuccessorDiscardPolicy.PreparationSnapshot {
+        GaplessSuccessorDiscardPolicy.PreparationSnapshot(
+            hasScheduledBuffers: transition.prepared != nil,
+            isStale: transition.shouldCancelPreparation,
+            queueGeneration: transition.queueGeneration
+        )
+    }
+
     private func prepareGaplessNextTrack(
         playID id: UUID,
         transition: GaplessTransitionState
@@ -327,12 +391,20 @@ extension AudioPlayerService {
             plog("🔄 gapless prepared next track '\(nextSong.title)'")
         }
 
+        // Until the boundary activates the prepared track, any queue
+        // generation change discards it. Once the loop feeds the current
+        // track, only losing the play ID or an explicit cancellation stops it.
+        func mayContinue() -> Bool {
+            guard !Task.isCancelled,
+                  playID == id,
+                  !transition.shouldCancelPreparation else { return false }
+            return transition.isFeedingCurrentTrack
+                || queueGeneration == transition.queueGeneration
+        }
+
         do {
             for try await buffer in stream {
-                guard !Task.isCancelled,
-                      playID == id,
-                      queueGeneration == transition.queueGeneration,
-                      !transition.shouldCancelPreparation else { return }
+                guard mayContinue() else { return }
 
                 if let prev = lastBuffer {
                     let bufferedDuration = Self.decodedBufferDuration(prev)
@@ -341,10 +413,7 @@ extension AudioPlayerService {
                         duration: bufferedDuration,
                         byteCount: bufferedByteCount
                     )
-                    guard !Task.isCancelled,
-                          playID == id,
-                          queueGeneration == transition.queueGeneration,
-                          !transition.shouldCancelPreparation else { return }
+                    guard mayContinue() else { return }
                     audioEngine.scheduleBuffer(
                         prev,
                         completionCallbackType: .dataPlayedBack
@@ -359,10 +428,7 @@ extension AudioPlayerService {
                 lastBuffer = buffer
             }
         } catch {
-            guard !Task.isCancelled,
-                  playID == id,
-                  queueGeneration == transition.queueGeneration,
-                  !transition.shouldCancelPreparation else { return }
+            guard mayContinue() else { return }
             transition.didFail = true
             plog("Gapless prepare decode error: \(error.localizedDescription)")
             if let tailBuffer = lastBuffer {
@@ -384,11 +450,7 @@ extension AudioPlayerService {
             return
         }
 
-        guard !Task.isCancelled,
-              playID == id,
-              queueGeneration == transition.queueGeneration,
-              !transition.shouldCancelPreparation,
-              let finalBuffer = lastBuffer else { return }
+        guard mayContinue(), let finalBuffer = lastBuffer else { return }
 
         followingTransition.boundary = audioEngine.scheduleBuffer(
             finalBuffer,
