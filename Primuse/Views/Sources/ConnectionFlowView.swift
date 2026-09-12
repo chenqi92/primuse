@@ -430,30 +430,49 @@ struct ConnectionFlowView: View {
     private var passwordView: some View {
         ScrollView {
             VStack(spacing: 20) {
-                Spacer().frame(height: 30)
-
                 Image(systemName: "key.fill")
-                    .font(.system(size: 44))
-                    .foregroundStyle(.blue.gradient)
+                    .font(.system(size: 40))
+                    // 跟随应用强调色。写死蓝色会让它成为整屏里唯一一处
+                    // 与主题无关的颜色，和下方的连接按钮对不上。
+                    .foregroundStyle(.tint)
+                    .padding(.top, 4)
 
-                VStack(spacing: 6) {
-                    Text("password_required_title").font(.title3).fontWeight(.semibold)
-                    Text("\(source.username ?? "") @ \(activeSynologySource?.host ?? source.host ?? "")")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .monospaced()
-                }
+                // 标题由导航栏承担，这里只回答「在给谁输密码」——
+                // 两处都写「需要密码」会让人以为自己看重了。
+                Text("\(source.username ?? "") @ \(activeSynologySource?.host ?? source.host ?? "")")
+                    .font(.callout)
+                    .monospaced()
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .textSelection(.enabled)
 
-                SecureField(String(localized: "password"), text: $passwordInput)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($passwordFocused)
-                    .onSubmit { submitPassword() }
-                    .padding(.horizontal, 30)
+                VStack(alignment: .leading, spacing: 8) {
+                    SecureField(String(localized: "password"), text: $passwordInput)
+                        .textFieldStyle(.plain)
+                        .focused($passwordFocused)
+                        .onSubmit { submitPassword() }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        // 深色下的 roundedBorder 近乎全黑，输入框和背景糊在一起。
+                        // 给它一块看得见的底，出错时再补一圈红描边。
+                        .background(
+                            .quaternary,
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .strokeBorder(
+                                    errorMessage.isEmpty ? Color.clear : Color.red.opacity(0.65),
+                                    lineWidth: 1
+                                )
+                        }
 
-                if !errorMessage.isEmpty {
-                    Text(errorMessage)
-                        .font(.caption).foregroundStyle(.red)
-                        .padding(.horizontal, 30)
-                        .multilineTextAlignment(.center)
+                    if !errorMessage.isEmpty {
+                        // 错误紧贴输入框，指向出问题的那个控件。
+                        Label(errorMessage, systemImage: "exclamationmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
                 }
 
                 Button {
@@ -464,10 +483,12 @@ struct ConnectionFlowView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .disabled(passwordInput.isEmpty)
-                .padding(.horizontal, 30)
-
-                Spacer().frame(height: 30)
             }
+            .padding(.horizontal, 28)
+            .padding(.vertical, 28)
+            // 不限宽的话，这一小组控件在 iPad 与桌面窗口里会被拉得很散。
+            .frame(maxWidth: 420)
+            .frame(maxWidth: .infinity)
         }
         .scrollDismissesKeyboard(.interactively)
         .onAppear {
