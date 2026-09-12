@@ -51,6 +51,11 @@ struct CachedArtworkView: View {
     /// disk/source IO; the requested bucket is upgraded once the transition
     /// has settled.
     var loadsHighResolution = true
+    /// Let the caller own the frame: `size` still selects the decode bucket,
+    /// but no fixed frame is applied inside the body. Required when a
+    /// matched-geometry frame outside this view has to resize the content
+    /// continuously during a transition.
+    var fillsProposedSize: Bool = false
     /// 当外部数据源 (e.g. AudioPlayerService.coverRevision) 想强制 view 重新加载,
     /// 但 coverRef / songID 这些 key 字段没变, onChange 不会触发时使用。
     /// 调用方传 player.coverRevision, 任意 bump 都会让本 view 重 loadImage。
@@ -196,6 +201,7 @@ struct CachedArtworkView: View {
          isPlaying: Bool = true,
          isAnimationVisible: Bool = true,
          loadsHighResolution: Bool = true,
+         fillsProposedSize: Bool = false,
          revisionToken: Int = 0,
          onResolutionChange: @escaping (Bool) -> Void = { _ in }) {
         self.coverRef = coverFileName
@@ -210,6 +216,7 @@ struct CachedArtworkView: View {
         self.isPlaying = isPlaying
         self.isAnimationVisible = isAnimationVisible
         self.loadsHighResolution = loadsHighResolution
+        self.fillsProposedSize = fillsProposedSize
         self.revisionToken = revisionToken
         self.onResolutionChange = onResolutionChange
     }
@@ -225,6 +232,7 @@ struct CachedArtworkView: View {
          isPlaying: Bool = true,
          isAnimationVisible: Bool = true,
          loadsHighResolution: Bool = true,
+         fillsProposedSize: Bool = false,
          revisionToken: Int = 0,
          onResolutionChange: @escaping (Bool) -> Void = { _ in }) {
         self.coverRef = coverRef
@@ -241,6 +249,7 @@ struct CachedArtworkView: View {
         self.isPlaying = isPlaying
         self.isAnimationVisible = isAnimationVisible
         self.loadsHighResolution = loadsHighResolution
+        self.fillsProposedSize = fillsProposedSize
         self.revisionToken = revisionToken
         self.onResolutionChange = onResolutionChange
     }
@@ -255,6 +264,7 @@ struct CachedArtworkView: View {
          animationRequiresPlayback: Bool = false,
          isPlaying: Bool = true,
          isAnimationVisible: Bool = true,
+         fillsProposedSize: Bool = false,
          onResolutionChange: @escaping (Bool) -> Void = { _ in }) {
         self.coverRef = nil
         self.albumID = albumID
@@ -270,6 +280,7 @@ struct CachedArtworkView: View {
         self.animationRequiresPlayback = animationRequiresPlayback
         self.isPlaying = isPlaying
         self.isAnimationVisible = isAnimationVisible
+        self.fillsProposedSize = fillsProposedSize
         self.onResolutionChange = onResolutionChange
     }
 
@@ -278,6 +289,7 @@ struct CachedArtworkView: View {
     init(artistID: String, artistName: String, artworkReference: String? = nil,
          size: CGFloat? = nil, cornerRadius: CGFloat = 12,
          showsPlaceholder: Bool = true,
+         fillsProposedSize: Bool = false,
          onResolutionChange: @escaping (Bool) -> Void = { _ in }) {
         self.coverRef = artworkReference
         self.artistID = artistID
@@ -286,12 +298,13 @@ struct CachedArtworkView: View {
         self.cornerRadius = cornerRadius
         self.placeholderIcon = "music.mic"
         self.showsPlaceholder = showsPlaceholder
+        self.fillsProposedSize = fillsProposedSize
         self.onResolutionChange = onResolutionChange
     }
 
     var body: some View {
         coverContent
-        .if(size != nil) { view in
+        .if(size != nil && !fillsProposedSize) { view in
             view.frame(width: size!, height: size!)
         }
         .aspectRatio(1, contentMode: .fit)

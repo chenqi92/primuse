@@ -670,17 +670,23 @@ struct NowPlayingView: View {
         "now-playing-lyrics-artwork:\(player.currentSong?.id ?? "none")"
     }
 
+    /// 只有非沉浸式歌词才会渲染紧凑小封面。沉浸式歌词布局 (横屏) 仍然显示大封面
+    /// 且没有小封面, 此时大封面必须继续充当匹配几何的源, 否则命名空间里没有源。
+    private var isLyricsCompactArtworkVisible: Bool {
+        showLyrics && !isLyricsImmersive
+    }
+
     private var standardLyricsAnimation: Animation {
         reduceMotion
             ? .easeInOut(duration: 0.16)
             : .spring(response: 0.48, dampingFraction: 0.82, blendDuration: 0.08)
     }
 
+    /// 头部封面由 matchedGeometryEffect 负责位移与缩放, 这里只做淡入淡出,
+    /// 避免两套动画互相争抢导致封面先平移后突变。
     private var lyricsHeaderTransition: AnyTransition {
         guard !reduceMotion else { return .opacity }
-        return .move(edge: .top)
-            .combined(with: .scale(scale: 0.94, anchor: .top))
-            .combined(with: .opacity)
+        return .opacity
     }
 
     private var lyricsPanelTransition: AnyTransition {
@@ -695,16 +701,11 @@ struct NowPlayingView: View {
         )
     }
 
+    /// 大封面同样交给 matchedGeometryEffect 驱动, 额外的 offset / scale 只会
+    /// 和匹配几何冲突, 所以这里保持纯淡入淡出。
     private var playerArtworkTransition: AnyTransition {
         guard !reduceMotion else { return .opacity }
-        return .asymmetric(
-            insertion: .offset(y: -20)
-                .combined(with: .scale(scale: 0.90, anchor: .top))
-                .combined(with: .opacity),
-            removal: .offset(y: -34)
-                .combined(with: .scale(scale: 0.86, anchor: .top))
-                .combined(with: .opacity)
-        )
+        return .opacity
     }
 
     private var canOpenCurrentAlbum: Bool {
@@ -1883,12 +1884,15 @@ struct NowPlayingView: View {
                                 sourceID: player.currentSong?.sourceID,
                                 filePath: player.currentSong?.filePath,
                                 fileFormat: player.currentSong?.fileFormat,
+                                fillsProposedSize: true,
                                 revisionToken: player.coverRevision
                             )
                             .matchedGeometryEffect(
                                 id: lyricsArtworkTransitionID,
-                                in: lyricsArtworkNamespace
+                                in: lyricsArtworkNamespace,
+                                isSource: isLyricsCompactArtworkVisible
                             )
+                            .frame(width: 40, height: 40)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(player.currentSong?.title ?? "")
                                     .font(.subheadline.weight(.semibold))
@@ -2085,12 +2089,15 @@ struct NowPlayingView: View {
                                         sourceID: player.currentSong?.sourceID,
                                         filePath: player.currentSong?.filePath,
                                         fileFormat: player.currentSong?.fileFormat,
+                                        fillsProposedSize: true,
                                         revisionToken: player.coverRevision
                                     )
                                     .matchedGeometryEffect(
                                         id: lyricsArtworkTransitionID,
-                                        in: lyricsArtworkNamespace
+                                        in: lyricsArtworkNamespace,
+                                        isSource: isLyricsCompactArtworkVisible
                                     )
+                                    .frame(width: 44, height: 44)
 
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(player.currentSong?.title ?? "")
@@ -2469,12 +2476,17 @@ struct NowPlayingView: View {
                 isPlaying: player.isPlaying,
                 isAnimationVisible: isNowPlayingSurfaceExposed,
                 loadsHighResolution: isPresentationSettled,
+                fillsProposedSize: true,
                 revisionToken: player.coverRevision
             )
+            // 尺寸约束放在 matchedGeometryEffect 之外: 内容只接受被匹配到的
+            // frame, 切歌词时才能一边位移一边连续缩小到小图位置。
             .matchedGeometryEffect(
                 id: lyricsArtworkTransitionID,
-                in: lyricsArtworkNamespace
+                in: lyricsArtworkNamespace,
+                isSource: !isLyricsCompactArtworkVisible
             )
+            .frame(width: size, height: size)
             #if os(iOS)
             .modifier(
                 NowPlayingAlbumTransitionSourceModifier(
