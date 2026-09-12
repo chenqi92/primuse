@@ -2255,6 +2255,7 @@
 "radio_live_error_no_frames" = "Strumień radiowy nie zwrócił żadnych ramek audio.";
 "radio_live_error_output" = "Nie można skonfigurować wyjścia audio na żywo.";
 "radio_logo_invalid" = "Wybierz obraz mniejszy niż 750 KB.";
+"radio_logo_fetch" = "Pobierz logo";
 "radio_logo_optional" = "Logo (opcjonalnie)";
 "radio_mac_count %lld" = "Stacje %lld";
 "radio_mac_now_playing %@" = "Teraz odtwarzane · %@";

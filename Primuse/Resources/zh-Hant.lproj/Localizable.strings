@@ -2363,6 +2363,7 @@
 "radio_test_success" = "直播串流可以播放。";
 "radio_test_failed %@" = "無法播放該直播串流：%@";
 "radio_logo_invalid" = "請選擇小於 750 KB 的圖片。";
+"radio_logo_fetch" = "取得電台標誌";
 "radio_invalid_url" = "請輸入有效的 HTTP 或 HTTPS 直播串流 URL。";
 "radio_stream_ended" = "直播串流已中斷。";
 "radio_stations_count" = "個電台";

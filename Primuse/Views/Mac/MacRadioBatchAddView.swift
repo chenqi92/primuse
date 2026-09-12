@@ -381,6 +381,8 @@ struct MacRadioBatchAddView: View {
                     .font(.system(size: 15))
                     .foregroundStyle(isSelected ? PMColor.brand : PMColor.textFaint)
 
+                RadioCandidateLogoView(urlString: candidate.logoURLString, size: 34)
+
                 VStack(alignment: .leading, spacing: 2) {
                     Text(candidate.name)
                         .font(PMFont.bodyS)
@@ -525,13 +527,18 @@ struct MacRadioBatchAddView: View {
                 name: candidate.name,
                 streamURL: candidate.urlString,
                 streamFormat: URL(string: candidate.urlString)
-                    .map { RadioStreamFormat.inferred(from: $0) } ?? .automatic
+                    .map { RadioStreamFormat.inferred(from: $0) } ?? .automatic,
+                homepageURL: candidate.homepageURLString,
+                remoteLogoURL: candidate.logoURLString,
+                remoteLogoSource: candidate.logoSource
             )
             store.upsert(station)
             added.append(station)
         }
 
         dismiss()
+        // 清单/目录没给台标的，交给后台自己去找一张。
+        RadioLogoDiscoveryService.shared.discoverIfNeeded(for: added)
         // 探测每个流要几秒，放到关窗之后跑，不让用户干等。
         Task {
             for station in added {

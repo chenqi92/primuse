@@ -2255,6 +2255,7 @@
 "radio_live_error_no_frames" = "لم يُرجع تيار الراديو أي إطارات صوتية.";
 "radio_live_error_output" = "غير قادر على تكوين إخراج الصوت المباشر.";
 "radio_logo_invalid" = "اختر صورة أصغر من 750 كيلو بايت.";
+"radio_logo_fetch" = "جلب الشعار";
 "radio_logo_optional" = "الشعار (اختياري)";
 "radio_mac_count %lld" = "%lld محطة";
 "radio_mac_now_playing %@" = "قيد التشغيل الآن · %@";

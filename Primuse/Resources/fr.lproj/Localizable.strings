@@ -2378,6 +2378,7 @@
 "radio_test_success" = "Le flux peut être lu.";
 "radio_test_failed %@" = "Impossible de lire ce flux : %@";
 "radio_logo_invalid" = "Choisissez une image de moins de 750 Ko.";
+"radio_logo_fetch" = "Récupérer le logo";
 "radio_invalid_url" = "Saisissez une URL de flux HTTP ou HTTPS valide.";
 "radio_stream_ended" = "Le flux en direct est terminé.";
 "radio_stations_count" = "stations";

@@ -403,6 +403,8 @@ struct RadioBatchAddView: View {
                     .font(.system(size: 20))
                     .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.5))
 
+                RadioCandidateLogoView(urlString: candidate.logoURLString, size: 38)
+
                 VStack(alignment: .leading, spacing: 3) {
                     Text(candidate.name)
                         .font(.subheadline.weight(.medium))
@@ -564,9 +566,12 @@ struct RadioBatchAddView: View {
         for candidate in chosen {
             let station = RadioStation(
                 name: candidate.name,
-				streamURL: candidate.urlString,
-				streamFormat: URL(string: candidate.urlString)
-					.map { RadioStreamFormat.inferred(from: $0) } ?? .automatic
+                streamURL: candidate.urlString,
+                streamFormat: URL(string: candidate.urlString)
+                    .map { RadioStreamFormat.inferred(from: $0) } ?? .automatic,
+                homepageURL: candidate.homepageURLString,
+                remoteLogoURL: candidate.logoURLString,
+                remoteLogoSource: candidate.logoSource
             )
             store.upsert(station)
             added.append(station)
@@ -576,6 +581,8 @@ struct RadioBatchAddView: View {
         // 试连放在关页之后跑：探测每个流要几秒，用户没必要为此等在这一屏。
         // 探测本身只用来把明确失败的流标出来，不改动用户已确认的添加结果。
         Task { await probe(added) }
+        // 清单/目录没给台标的，交给后台自己去找一张。
+        RadioLogoDiscoveryService.shared.discoverIfNeeded(for: added)
     }
 
     private func probe(_ stations: [RadioStation]) async {

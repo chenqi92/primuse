@@ -2255,6 +2255,7 @@
 "radio_live_error_no_frames" = "रेडियो स्ट्रीम ने कोई ऑडियो फ़्रेम नहीं लौटाया।";
 "radio_live_error_output" = "लाइव ऑडियो आउटपुट कॉन्फ़िगर करने में असमर्थ।";
 "radio_logo_invalid" = "750 केबी से छोटी छवि चुनें।";
+"radio_logo_fetch" = "लोगो प्राप्त करें";
 "radio_logo_optional" = "लोगो (वैकल्पिक)";
 "radio_mac_count %lld" = "%lld स्टेशन";
 "radio_mac_now_playing %@" = "अभी चल रहा है · %@";

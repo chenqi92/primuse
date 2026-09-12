@@ -27,6 +27,10 @@ struct MacRadioStationsView: View {
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // 进列表时给还没有台标的电台排一次自动发现，重复进入由服务自己去重。
+        .task {
+            RadioLogoDiscoveryService.shared.discoverIfNeeded(for: stations)
+        }
         .sheet(isPresented: $showAddStation) {
             MacRadioStationEditorView(station: nil)
         }
@@ -354,6 +358,14 @@ private struct MacRadioStationCard: View {
                 .disabled(!canMoveUp)
             Button { onMoveDown() } label: { Label("radio_priority_move_down", systemImage: "arrow.down") }
                 .disabled(!canMoveDown)
+            // 退避期里的台在这里可以被手动催一次；用户自己选过图的不提供。
+            if !station.isServerMirror, station.logoData == nil, station.logoFileName == nil {
+                Button {
+                    RadioLogoDiscoveryService.shared.discoverNow(for: station)
+                } label: {
+                    Label("radio_logo_fetch", systemImage: "photo.badge.arrow.down")
+                }
+            }
             if !station.isServerMirror {
                 Divider()
                 Button(role: .destructive) { onDelete() } label: {

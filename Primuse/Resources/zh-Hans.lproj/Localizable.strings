@@ -2479,6 +2479,7 @@
 "radio_test_success" = "直播流可以播放。";
 "radio_test_failed %@" = "无法播放该直播流：%@";
 "radio_logo_invalid" = "请选择小于 750 KB 的图片。";
+"radio_logo_fetch" = "获取台标";
 "radio_invalid_url" = "请输入有效的 HTTP 或 HTTPS 直播流 URL。";
 "radio_stream_ended" = "直播流已断开。";
 "radio_stations_count" = "个电台";

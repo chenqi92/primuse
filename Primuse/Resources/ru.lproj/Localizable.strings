@@ -3047,6 +3047,7 @@
 "Restore" = "Восстановить";
 "scrobble_mac_user_token_login" = "Вход с использованием токена пользователя.";
 "radio_logo_invalid" = "Выберите изображение размером менее 750 КБ.";
+"radio_logo_fetch" = "Получить логотип";
 "add_source" = "Добавить источник";
 "DTS / DTS-HD and additional format decoding" = "DTS/DTS-HD и дополнительное декодирование формата";
 "lyrics_editor_mark_line" = "Отметить эту строку";

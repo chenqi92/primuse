@@ -2378,6 +2378,7 @@
 "radio_test_success" = "Der Stream ist abspielbar.";
 "radio_test_failed %@" = "Dieser Stream kann nicht abgespielt werden: %@";
 "radio_logo_invalid" = "Wähle ein Bild unter 750 KB.";
+"radio_logo_fetch" = "Logo abrufen";
 "radio_invalid_url" = "Gib eine gültige HTTP- oder HTTPS-Stream-URL ein.";
 "radio_stream_ended" = "Der Livestream wurde beendet.";
 "radio_stations_count" = "Sender";

@@ -65,6 +65,11 @@ struct RadioStationsView: View {
         }
         .navigationTitle(navigationTitleText)
         .toolbar { toolbarContent }
+        // 进列表时给还没有台标的电台排一次自动发现。重复进入是安全的 ——
+        // 已有台标的、正在找的、还在退避期的都会被服务自己挡掉。
+        .task {
+            RadioLogoDiscoveryService.shared.discoverIfNeeded(for: store.stations)
+        }
         .sheet(isPresented: $showingNewStation) {
             RadioStationEditorView(station: nil)
         }
@@ -498,6 +503,13 @@ private struct RadioStationCard: View {
             .disabled(!canMoveUp)
         Button("radio_priority_move_down", systemImage: "arrow.down", action: onMoveDown)
             .disabled(!canMoveDown)
+        // 自动发现失败过的台在退避期里不会再自己去找，这里给用户一个
+        // 「现在就再试一次」的出口。用户自己选过图的台不提供 —— 那会覆盖他的选择。
+        if !station.isServerMirror, station.logoData == nil, station.logoFileName == nil {
+            Button("radio_logo_fetch", systemImage: "photo.badge.arrow.down") {
+                RadioLogoDiscoveryService.shared.discoverNow(for: station)
+            }
+        }
         if !station.isServerMirror {
             Divider()
             Button("delete", systemImage: "trash", role: .destructive, action: onDelete)
@@ -972,7 +984,10 @@ struct RadioStationEditorView: View {
                 createdAt: station?.createdAt ?? Date(),
                 modifiedAt: Date(),
                 lastPlayedAt: station?.lastPlayedAt,
-                sortOrder: station?.sortOrder
+                sortOrder: station?.sortOrder,
+                homepageURL: station?.homepageURL,
+                remoteLogoURL: station?.remoteLogoURL,
+                remoteLogoSource: station?.remoteLogoSource
             )
             store.upsert(value)
             isSaving = false

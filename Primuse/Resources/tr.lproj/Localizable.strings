@@ -3047,6 +3047,7 @@
 "Restore" = "Geri yükle";
 "scrobble_mac_user_token_login" = "Kullanıcı belirteci oturum açma";
 "radio_logo_invalid" = "750 KB'tan küçük bir resim seçin.";
+"radio_logo_fetch" = "Logoyu getir";
 "add_source" = "Kaynak Ekle";
 "DTS / DTS-HD and additional format decoding" = "DTS / DTS-HD ve ek format kod çözme";
 "lyrics_editor_mark_line" = "Bu satırı işaretle";

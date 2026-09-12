@@ -2379,6 +2379,7 @@
 "radio_test_success" = "このストリームは再生できます。";
 "radio_test_failed %@" = "このストリームを再生できません：%@";
 "radio_logo_invalid" = "750 KB 未満の画像を選択してください。";
+"radio_logo_fetch" = "ロゴを取得";
 "radio_invalid_url" = "有効な HTTP または HTTPS のストリーム URL を入力してください。";
 "radio_stream_ended" = "ライブストリームが終了しました。";
 "radio_stations_count" = "局";

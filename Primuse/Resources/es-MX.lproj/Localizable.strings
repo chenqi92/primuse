@@ -2255,6 +2255,7 @@
 "radio_live_error_no_frames" = "La transmisión de radio no devolvió cuadros de audio.";
 "radio_live_error_output" = "No se puede configurar la salida de audio en vivo.";
 "radio_logo_invalid" = "Elija una imagen de menos de 750 KB.";
+"radio_logo_fetch" = "Obtener logotipo";
 "radio_logo_optional" = "Logotipo (Opcional)";
 "radio_mac_count %lld" = "Estaciones %lld";
 "radio_mac_now_playing %@" = "Reproduciendo ahora · %@";

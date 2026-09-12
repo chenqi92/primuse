@@ -2255,6 +2255,7 @@
 "radio_live_error_no_frames" = "สตรีมวิทยุไม่มีเฟรมเสียงกลับมา";
 "radio_live_error_output" = "ไม่สามารถกำหนดค่าเอาต์พุตเสียงสดได้";
 "radio_logo_invalid" = "เลือกรูปภาพที่มีขนาดเล็กกว่า 750 KB";
+"radio_logo_fetch" = "ดึงโลโก้";
 "radio_logo_optional" = "โลโก้ (อุปกรณ์เสริม)";
 "radio_mac_count %lld" = "%lld สถานี";
 "radio_mac_now_playing %@" = "กำลังเล่น · %@";

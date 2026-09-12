@@ -362,7 +362,10 @@ struct MacRadioStationEditorView: View {
                 createdAt: station?.createdAt ?? Date(),
                 modifiedAt: Date(),
                 lastPlayedAt: station?.lastPlayedAt,
-                sortOrder: station?.sortOrder
+                sortOrder: station?.sortOrder,
+                homepageURL: station?.homepageURL,
+                remoteLogoURL: station?.remoteLogoURL,
+                remoteLogoSource: station?.remoteLogoSource
             )
             store.upsert(value)
             isSaving = false
