@@ -234,7 +234,7 @@ final class DLNARendererService {
         )
     }
 
-    deinit {
+    isolated deinit {
         // 排队中的重启任务持有 weak self, 但没必要让它睡满退避再空跑一趟。
         // Task.cancel() 是 nonisolated, 从 deinit 调安全。
         httpRetryTask?.cancel()
