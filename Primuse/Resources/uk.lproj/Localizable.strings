@@ -1127,6 +1127,7 @@
 "album_changed" = "Альбом оновлено";
 "audio_output_follow_system" = "Дотримуйтеся системних умов";
 "lyrics_settings_title" = "Налаштування тексту пісень";
+"lyrics_appearance_title" = "Вигляд тексту пісні";
 "ok" = "Добре";
 "player_lyrics_color_default" = "За замовчуванням";
 "player_tap_lyrics_to_seek_description" = "Торкніться синхронізованого текстового рядка, щоб перейти до цього місця. Прокрутка тексту ніколи не шукає.";

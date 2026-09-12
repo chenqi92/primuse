@@ -8,7 +8,7 @@ enum SettingsStrings {
 }
 
 enum SettingsCategory: String, CaseIterable, Identifiable, Hashable, Sendable {
-    case library, playback, appearance, sync, integrations, appleTV, security, about
+    case library, playback, lyrics, appearance, sync, integrations, security, about
     var id: String { rawValue }
 
     var title: String { Bundle.main.localizedString(forKey: titleKey, value: titleKey, table: nil) }
@@ -16,10 +16,10 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable, Sendable {
         switch self {
         case .library: "library"
         case .playback: "playback"
+        case .lyrics: "lyrics_settings_title"
         case .appearance: "appearance"
         case .sync: "sync"
         case .integrations: "services_integrations"
-        case .appleTV: "settings_appletv_section"
         case .security: "security"
         case .about: "about"
         }
@@ -27,11 +27,11 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable, Sendable {
     var icon: String {
         switch self {
         case .playback: "waveform"
+        case .lyrics: "character.bubble"
         case .appearance: "paintpalette"
         case .library: "books.vertical"
         case .sync: "arrow.triangle.2.circlepath"
         case .integrations: "sparkles"
-        case .appleTV: "appletv"
         case .security: "lock.shield"
         case .about: "info.circle"
         }
@@ -39,7 +39,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable, Sendable {
 }
 
 enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
-    case playback, equalizer, effects, lyrics, transcription
+    case playback, equalizer, effects, lyrics, transcription, lyricsAppearance
     case appearance, themeColor, player, fullscreen, appIcon, home, libraryDisplay
     case sources, scraping, artists, duplicates, deleted, storage
     case cacheSync, cloud, family, appleTV, relay, dlna
@@ -50,11 +50,16 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
     var category: SettingsCategory {
         switch self {
         case .playback, .equalizer, .effects, .keyboard, .siri, .carplay: .playback
-        case .lyrics, .transcription, .sources, .scraping, .artists, .duplicates, .deleted, .storage, .cacheSync: .library
-        case .appearance, .themeColor, .player, .fullscreen, .appIcon, .home, .libraryDisplay, .widgets: .appearance
+        // 歌词自成一类：来源与刮削、翻译、转写、外观此前散在资料库与外观两处，
+        // 想调字色要去「外观」，想开翻译要去「资料库」，都是同一件事。
+        case .lyrics, .transcription, .lyricsAppearance: .lyrics
+        case .sources, .scraping, .artists, .duplicates, .deleted, .storage, .cacheSync,
+             .statistics: .library
+        case .appearance, .themeColor, .player, .fullscreen, .appIcon, .home, .libraryDisplay,
+             .widgets: .appearance
         case .cloud, .family: .sync
-        case .appleTV, .relay: .appleTV
-        case .intelligence, .appleMusic, .scrobble, .statistics, .dlna: .integrations
+        // Apple TV 与投放本就是对外连接的一种，不值得单开一个只有两项的分类。
+        case .intelligence, .appleMusic, .scrobble, .dlna, .appleTV, .relay: .integrations
         case .domains: .security
         case .about, .diagnostics, .licenses: .about
         }
@@ -66,6 +71,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .effects: "audio_effects"
         case .lyrics: "lyrics_settings_title"
         case .transcription: "lyrics_transcription_settings_title"
+        case .lyricsAppearance: "lyrics_appearance_title"
         case .appearance: "appearance"
         case .themeColor: "theme_color_title"
         case .player: "player_appearance_title"
@@ -99,13 +105,59 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .widgets: "Widgets"
         }
     }
+
+    /// 列表行的符号。此前每一行在 iOS 设置页里各写各的，页面与图标的对应关系
+    /// 散落在视图里，分组一改就得逐行跟着搬。
+    var icon: String {
+        switch self {
+        case .playback: "play.circle"
+        case .equalizer: "slider.horizontal.3"
+        case .effects: "waveform.badge.plus"
+        case .lyrics: "character.bubble"
+        case .transcription: "waveform.and.person.filled"
+        case .lyricsAppearance: "textformat"
+        case .appearance: "circle.lefthalf.filled"
+        case .themeColor: "paintpalette"
+        case .player: "play.rectangle"
+        case .fullscreen: "viewfinder.rectangular"
+        case .appIcon: "app.badge"
+        case .home: "house"
+        case .libraryDisplay: "rectangle.grid.1x2"
+        case .sources: "externaldrive.connected.to.line.below"
+        case .scraping: "wand.and.stars"
+        case .artists: "person.2"
+        case .duplicates: "square.stack.3d.up.badge.automatic"
+        case .deleted: "trash"
+        case .storage: "internaldrive"
+        case .cacheSync: "arrow.triangle.2.circlepath"
+        case .cloud: "icloud"
+        case .family: "person.2.fill"
+        case .appleTV: "appletv"
+        case .relay: "arrow.up.forward.app"
+        case .dlna: "antenna.radiowaves.left.and.right"
+        case .intelligence: "sparkles"
+        case .appleMusic: "applelogo"
+        case .scrobble: "music.note.list"
+        case .statistics: "chart.bar.xaxis"
+        case .siri: "waveform"
+        case .carplay: "car"
+        case .domains: "lock.shield"
+        case .about: "info.circle"
+        case .diagnostics: "stethoscope"
+        case .licenses: "doc.text"
+        case .keyboard: "keyboard"
+        case .widgets: "rectangle.grid.2x2"
+        }
+    }
     var title: String {
         if self == .siri { return SettingsStrings.text(titleKey) }
         return Bundle.main.localizedString(forKey: titleKey, value: titleKey, table: self == .cacheSync ? "CacheSync" : nil)
     }
     var available: Bool {
         #if os(macOS)
-        return [.playback, .equalizer, .effects, .lyrics, .transcription, .appearance, .scraping, .artists,
+        // 歌词外观目前只有 iOS 有独立入口，macOS 设置窗仍走自己的分栏。
+        return [.playback, .equalizer, .effects, .lyrics, .transcription,
+                .appearance, .scraping, .artists,
                 .deleted, .storage, .cacheSync, .cloud, .intelligence, .appleMusic, .domains, .about, .keyboard, .widgets, .siri].contains(self)
         #else
         return self != .keyboard && self != .widgets

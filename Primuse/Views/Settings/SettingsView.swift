@@ -172,147 +172,57 @@ struct SettingsView: View {
         }
     }
 
-    @ViewBuilder private var settingsRows: some View {
-        Section("library") {
-            NavigationLink(value: SettingsDestination.page(.sources, nil)) {
-                Label("manage_sources", systemImage: "externaldrive.connected.to.line.below")
-            }
-
-            NavigationLink(value: SettingsDestination.page(.scraping, nil)) {
-                Label("metadata_scraping", systemImage: "wand.and.stars")
-            }
-
-            NavigationLink(value: SettingsDestination.page(.artists, nil)) {
-                Label("artist_name_settings_title", systemImage: "person.2")
-            }
-
-            NavigationLink(value: SettingsDestination.page(.lyrics, nil)) {
-                Label("lyrics_settings_title", systemImage: "character.bubble")
-            }
-
-            NavigationLink(value: SettingsDestination.page(.duplicates, nil)) {
-                Label("dup_title", systemImage: "square.stack.3d.up.badge.automatic")
-            }
-
-            NavigationLink(value: SettingsDestination.page(.storage, nil)) {
-                Label("storage_management", systemImage: "internaldrive")
-            }
-
-            NavigationLink(value: SettingsDestination.page(.deleted, nil)) {
-                Label("recently_deleted", systemImage: "trash")
-            }
-        }
-
-        Section("playback") {
-            NavigationLink(value: SettingsDestination.page(.playback, nil)) {
-                Label("playback_settings", systemImage: "play.circle")
-            }
-
-            NavigationLink(value: SettingsDestination.page(.equalizer, nil)) {
-                Label("equalizer", systemImage: "slider.horizontal.3")
-            }
-
-            NavigationLink(value: SettingsDestination.page(.effects, nil)) {
-                Label("audio_effects", systemImage: "waveform.badge.plus")
-            }
-
-            #if os(iOS)
-            NavigationLink(value: SettingsDestination.page(.carplay, nil)) {
-                Label("CarPlay", systemImage: "car")
-            }
-            NavigationLink(value: SettingsDestination.page(.siri, nil)) {
-                Label("Siri", systemImage: "waveform")
-            }
-            #endif
-        }
-
-        Section("appearance") {
-            #if os(iOS)
-            NavigationLink(value: SettingsDestination.page(.appearance, nil)) {
-                Label("appearance", systemImage: "circle.lefthalf.filled")
-            }
-
-            NavigationLink(value: SettingsDestination.page(.themeColor, nil)) {
-                Label("theme_color_title", systemImage: "paintpalette")
-            }
-
-            NavigationLink(value: SettingsDestination.page(.player, nil)) {
-                Label("player_appearance_title", systemImage: "play.rectangle")
-            }
-
-            NavigationLink(value: SettingsDestination.page(.fullscreen, nil)) {
-                Label("fullscreen_effect_settings_title", systemImage: "viewfinder.rectangular")
-            }
-
-            NavigationLink(value: SettingsDestination.page(.appIcon, nil)) {
-                Label("app_icon", systemImage: "app.badge")
-            }
-            #endif
-
-            NavigationLink(value: SettingsDestination.page(.home, nil)) {
-                Label("home_settings_title", systemImage: "house")
-            }
-
-            NavigationLink(value: SettingsDestination.page(.libraryDisplay, nil)) {
-                Label("library_display_settings_title", systemImage: "rectangle.grid.1x2")
-            }
-        }
-
-        Section("sync") {
-            NavigationLink(value: SettingsDestination.page(.cloud, nil)) {
-                Label("icloud_sync_title", systemImage: "icloud")
-            }
-
-            NavigationLink(value: SettingsDestination.page(.family, nil)) {
-                Label("family_sharing_title", systemImage: "person.2.fill")
-            }
-        }
-
-        Section("services_integrations") {
+    /// 单行设置入口。标题与图标由 SettingsCatalog 提供，这里只处理三处例外。
+    @ViewBuilder
+    private func settingsRow(for page: SettingsPage) -> some View {
+        switch page {
+        case .intelligence:
+            // 未开放远程配置的地区不显示这一项。
             if musicIntelligence.shouldExposeRemoteConfiguration {
-                NavigationLink(value: SettingsDestination.page(.intelligence, nil)) {
-                    Label("ai_settings_title", systemImage: "sparkles")
-                }
+                settingsPageLink(page)
             }
-
-            NavigationLink(value: SettingsDestination.page(.appleMusic, nil)) {
-                Label("settings_apple_music_section", systemImage: "applelogo")
-            }
-
-            NavigationLink(value: SettingsDestination.page(.scrobble, nil)) {
-                Label("scrobble_title", systemImage: "music.note.list")
-            }
-
-            NavigationLink(value: SettingsDestination.page(.statistics, nil)) {
-                Label("stats_title", systemImage: "chart.bar.xaxis")
-            }
-
-            NavigationLink(value: SettingsDestination.page(.dlna, nil)) {
-                Label("settings_dlna_section", systemImage: "antenna.radiowaves.left.and.right")
-            }
-        }
-
-        Section {
-            AppleTVPushRow()
-
-            NavigationLink(value: SettingsDestination.page(.relay, nil)) {
-                Label("settings_relay_section", systemImage: "appletv")
-            }
-        } header: {
-            Text("settings_appletv_section")
-        }
-        .settingsAnchor("page.appleTV")
-
-        Section("security") {
-            NavigationLink(value: SettingsDestination.page(.domains, nil)) {
+        case .domains:
+            NavigationLink(value: SettingsDestination.page(page, nil)) {
                 HStack {
-                    Label("trusted_domains", systemImage: "lock.shield")
+                    Label(LocalizedStringKey(page.titleKey), systemImage: page.icon)
                     Spacer()
                     Text("\(SSLTrustStore.shared.trustedDomains.count + SSLTrustStore.shared.insecureHTTPDomains.count)")
                         .foregroundStyle(.secondary)
                 }
             }
+        default:
+            settingsPageLink(page)
         }
+    }
+
+    private func settingsPageLink(_ page: SettingsPage) -> some View {
+        NavigationLink(value: SettingsDestination.page(page, nil)) {
+            Label(LocalizedStringKey(page.titleKey), systemImage: page.icon)
+        }
+    }
+
+    @ViewBuilder private var settingsRows: some View {
+        // 分组与顺序全部来自 SettingsCatalog。此前这里是一份手写的 Section
+        // 列表，和 macOS 侧栏各持一套定义，改一边不会同步另一边 —— 页面加了
+        // 却在某一端看不见，正是这么来的。
+        ForEach(SettingsCategory.allCases) { category in
+            let pages = SettingsPage.allCases.filter {
+                $0.category == category && $0.available
+            }
+            if category != .about, !pages.isEmpty {
+                Section {
+                    ForEach(pages) { page in
+                        settingsRow(for: page)
+                    }
+                    if category == .integrations {
+                        AppleTVPushRow()
+                    }
+                } header: {
+                    Text(LocalizedStringKey(category.titleKey))
+                }
+            }
+        }
+
 
         Section {
             HStack {
@@ -396,6 +306,7 @@ private struct SettingsPageContent: View {
         case .appearance: AppearanceSettingsView()
         case .themeColor: ThemeColorSettingsView()
         case .player: PlayerAppearanceSettingsView()
+        case .lyricsAppearance: LyricsAppearanceSettingsView()
         case .fullscreen: FullscreenPlayerEffectSettingsView()
         case .appIcon: AppIconSettingsView()
         case .cacheSync: StorageManagementView(opensCacheSync: true)
@@ -410,17 +321,9 @@ private struct SettingsPageContent: View {
 }
 
 #if os(iOS)
-private struct PlayerAppearanceSettingsView: View {
-    @AppStorage(PlayerAppearancePreferences.animatedArtworkEnabledKey)
-    private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
-    @AppStorage(PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyKey)
-    private var animatedArtworkUnmeteredOnly = PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyByDefault
-    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEnabledKey)
-    private var motionArtworkServiceEnabled = PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault
-    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEndpointKey)
-    private var motionArtworkServiceEndpoint = PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
-    @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
-    private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
+/// 歌词外观。此前它是「播放器外观」里的一个区块，而歌词的来源、翻译与转写又在
+/// 「资料库」下 —— 同一件事分在两个分类里，调字色和开翻译要去两个地方找。
+private struct LyricsAppearanceSettingsView: View {
     @AppStorage(PlayerAppearancePreferences.lyricsAlignmentKey)
     private var lyricsAlignmentRawValue = PlayerLyricsAlignment.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.lyricsColorModeKey)
@@ -434,16 +337,13 @@ private struct PlayerAppearanceSettingsView: View {
     @AppStorage(PlayerAppearancePreferences.blursInactiveLyricsKey)
     private var blursInactiveLyrics = PlayerAppearancePreferences.blursInactiveLyricsByDefault
     @AppStorage(PlayerAppearancePreferences.keepsScreenAwakeForLyricsKey)
-    private var keepsScreenAwakeForLyrics =
-        PlayerAppearancePreferences.keepsScreenAwakeForLyricsByDefault
+    private var keepsScreenAwakeForLyrics = PlayerAppearancePreferences.keepsScreenAwakeForLyricsByDefault
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
 
     private var lyricsAlignment: Binding<PlayerLyricsAlignment> {
         Binding(
-            get: {
-                PlayerLyricsAlignment(rawValue: lyricsAlignmentRawValue) ?? .defaultValue
-            },
+            get: { PlayerLyricsAlignment(rawValue: lyricsAlignmentRawValue) ?? .defaultValue },
             set: { lyricsAlignmentRawValue = $0.rawValue }
         )
     }
@@ -460,21 +360,21 @@ private struct PlayerAppearanceSettingsView: View {
     }
 
     private var customLyricsColor: Binding<Color> {
-        storedColorBinding(
+        colorBinding(
             $customLyricsColorHex,
             fallback: PlayerAppearancePreferences.defaultCustomLyricsColorHex
         )
     }
 
     private var gradientLyricsStartColor: Binding<Color> {
-        storedColorBinding(
+        colorBinding(
             $gradientLyricsStartColorHex,
             fallback: PlayerAppearancePreferences.defaultGradientLyricsStartColorHex
         )
     }
 
     private var gradientLyricsEndColor: Binding<Color> {
-        storedColorBinding(
+        colorBinding(
             $gradientLyricsEndColorHex,
             fallback: PlayerAppearancePreferences.defaultGradientLyricsEndColorHex
         )
@@ -482,22 +382,16 @@ private struct PlayerAppearanceSettingsView: View {
 
     private var lyricsColorPreviewStyle: AnyShapeStyle {
         switch selectedLyricsColorMode {
-        case .defaultColor:
-            AnyShapeStyle(Color.primary)
+        case .theme:
+            AnyShapeStyle(Color.accentColor)
         case .custom:
             AnyShapeStyle(color(from: customLyricsColorHex, fallback: PlayerAppearancePreferences.defaultCustomLyricsColorHex))
         case .gradient:
             AnyShapeStyle(
                 LinearGradient(
                     colors: [
-                        color(
-                            from: gradientLyricsStartColorHex,
-                            fallback: PlayerAppearancePreferences.defaultGradientLyricsStartColorHex
-                        ),
-                        color(
-                            from: gradientLyricsEndColorHex,
-                            fallback: PlayerAppearancePreferences.defaultGradientLyricsEndColorHex
-                        ),
+                        color(from: gradientLyricsStartColorHex, fallback: PlayerAppearancePreferences.defaultGradientLyricsStartColorHex),
+                        color(from: gradientLyricsEndColorHex, fallback: PlayerAppearancePreferences.defaultGradientLyricsEndColorHex),
                     ],
                     startPoint: .leading,
                     endPoint: .trailing
@@ -508,44 +402,6 @@ private struct PlayerAppearanceSettingsView: View {
 
     var body: some View {
         Form {
-            Section {
-                Toggle("player_animated_artwork", isOn: $animatedArtworkEnabled)
-                .settingsAnchor("appearance.animatedArtwork")
-                    .accessibilityHint(Text("player_animated_artwork_description"))
-                Toggle(
-                    "player_animated_artwork_unmetered_only",
-                    isOn: $animatedArtworkUnmeteredOnly
-                )
-                .settingsAnchor("appearance.animatedArtworkUnmeteredOnly")
-                .disabled(!animatedArtworkEnabled)
-                .accessibilityHint(Text("player_animated_artwork_unmetered_only_description"))
-            }
-
-            Section {
-                Toggle(
-                    "motion_artwork_service_enabled",
-                    isOn: $motionArtworkServiceEnabled
-                )
-                .settingsAnchor("appearance.motionArtworkService")
-                TextField(
-                    "motion_artwork_service_endpoint",
-                    text: $motionArtworkServiceEndpoint
-                )
-                .settingsAnchor("appearance.motionArtworkEndpoint")
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .keyboardType(.URL)
-                .disabled(!motionArtworkServiceEnabled)
-            } footer: {
-                Text("motion_artwork_service_description")
-            }
-
-            Section {
-                Toggle("player_volume_bar", isOn: $showsVolumeBar)
-                .settingsAnchor("appearance.volumeBar")
-                    .accessibilityHint(Text("player_volume_bar_description"))
-            }
-
             Section {
                 Picker("player_current_lyric_color", selection: lyricsColorMode) {
                     ForEach(PlayerLyricsColorMode.allCases) { mode in
@@ -621,6 +477,103 @@ private struct PlayerAppearanceSettingsView: View {
                     .accessibilityIdentifier("playerTapLyricsToSeekToggle")
             } header: {
                 Text("player_lyrics_section")
+            }
+        }
+        .navigationTitle("lyrics_appearance_title")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func color(from storedHex: String, fallback: String) -> Color {
+        Color(
+            hex: PlayerAppearancePreferences.normalizedLyricsColorHex(
+                storedHex,
+                fallback: fallback
+            )
+        )
+    }
+
+    private func colorBinding(_ storage: Binding<String>, fallback: String) -> Binding<Color> {
+        Binding(
+            get: { color(from: storage.wrappedValue, fallback: fallback) },
+            set: { storage.wrappedValue = Self.hex(from: $0, fallback: fallback) }
+        )
+    }
+
+    private static func hex(from color: Color, fallback: String) -> String {
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        guard UIColor(color).getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return fallback
+        }
+
+        return String(
+            format: "%02X%02X%02X",
+            Int(round(red * 255)),
+            Int(round(green * 255)),
+            Int(round(blue * 255))
+        )
+    }
+}
+
+private struct PlayerAppearanceSettingsView: View {
+    @AppStorage(PlayerAppearancePreferences.animatedArtworkEnabledKey)
+    private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
+    @AppStorage(PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyKey)
+    private var animatedArtworkUnmeteredOnly = PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyByDefault
+    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEnabledKey)
+    private var motionArtworkServiceEnabled = PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault
+    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEndpointKey)
+    private var motionArtworkServiceEndpoint = PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
+    @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
+    private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
+
+
+
+
+
+
+
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("player_animated_artwork", isOn: $animatedArtworkEnabled)
+                .settingsAnchor("appearance.animatedArtwork")
+                    .accessibilityHint(Text("player_animated_artwork_description"))
+                Toggle(
+                    "player_animated_artwork_unmetered_only",
+                    isOn: $animatedArtworkUnmeteredOnly
+                )
+                .settingsAnchor("appearance.animatedArtworkUnmeteredOnly")
+                .disabled(!animatedArtworkEnabled)
+                .accessibilityHint(Text("player_animated_artwork_unmetered_only_description"))
+            }
+
+            Section {
+                Toggle(
+                    "motion_artwork_service_enabled",
+                    isOn: $motionArtworkServiceEnabled
+                )
+                .settingsAnchor("appearance.motionArtworkService")
+                TextField(
+                    "motion_artwork_service_endpoint",
+                    text: $motionArtworkServiceEndpoint
+                )
+                .settingsAnchor("appearance.motionArtworkEndpoint")
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.URL)
+                .disabled(!motionArtworkServiceEnabled)
+            } footer: {
+                Text("motion_artwork_service_description")
+            }
+
+            Section {
+                Toggle("player_volume_bar", isOn: $showsVolumeBar)
+                .settingsAnchor("appearance.volumeBar")
+                    .accessibilityHint(Text("player_volume_bar_description"))
             }
         }
         .navigationTitle("player_appearance_title")

@@ -3333,6 +3333,7 @@
 "recently_deleted_clear_all_failed_title" = "部分項目未能清除";
 "recently_deleted_clear_all_failed_format" = "%d 個項目未能清除，已保留在最近刪除中。";
 "lyrics_settings_title" = "歌詞設定";
+"lyrics_appearance_title" = "歌詞外觀";
 "lyrics_translation_section" = "歌詞翻譯";
 "lyrics_display_section" = "顯示";
 "lyrics_audio_tools_section" = "從音訊產生歌詞";

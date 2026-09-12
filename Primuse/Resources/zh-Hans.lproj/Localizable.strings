@@ -3449,6 +3449,7 @@
 "recently_deleted_clear_all_failed_title" = "部分项目未能清除";
 "recently_deleted_clear_all_failed_format" = "%d 个项目未能清除，已保留在最近删除中。";
 "lyrics_settings_title" = "歌词设置";
+"lyrics_appearance_title" = "歌词外观";
 "lyrics_translation_section" = "歌词翻译";
 "lyrics_display_section" = "显示";
 "lyrics_audio_tools_section" = "从音频生成歌词";

@@ -1775,6 +1775,7 @@
 "lyrics_offset_hint" = "Positivo = retraso";
 "lyrics_reload_from_source" = "Volver a cargar letras desde el origen";
 "lyrics_settings_title" = "Configuración de letras";
+"lyrics_appearance_title" = "Apariencia de la letra";
 "lyrics_source_reload_empty_kept" = "El origen de música no devolvió letras. Las letras actuales no cambiaron.";
 "lyrics_source_reload_failed_kept" = "No se pudieron volver a cargar las letras desde el origen. Las letras actuales no cambiaron.";
 "lyrics_source_reload_success" = "Se actualizaron las letras desde el origen de música.";

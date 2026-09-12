@@ -1775,6 +1775,7 @@
 "lyrics_offset_hint" = "Dodatni = opóźnienie";
 "lyrics_reload_from_source" = "Wczytaj tekst ponownie ze źródła";
 "lyrics_settings_title" = "Ustawienia tekstu";
+"lyrics_appearance_title" = "Wygląd tekstu";
 "lyrics_source_reload_empty_kept" = "Źródło muzyki nie zwróciło tekstu. Bieżący tekst nie został zmieniony.";
 "lyrics_source_reload_failed_kept" = "Nie udało się ponownie wczytać tekstu ze źródła. Bieżący tekst nie został zmieniony.";
 "lyrics_source_reload_success" = "Tekst został odświeżony ze źródła muzyki.";

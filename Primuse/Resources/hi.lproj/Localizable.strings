@@ -1775,6 +1775,7 @@
 "lyrics_offset_hint" = "सकारात्मक = विलंब";
 "lyrics_reload_from_source" = "संगीत के बोल स्रोत से गीत के बोल पुनः लोड करें";
 "lyrics_settings_title" = "गीत के बोल सेटिंग्स";
+"lyrics_appearance_title" = "बोल का रूप";
 "lyrics_source_reload_empty_kept" = "संगीत के बोल स्रोत ने कोई गीत के बोल नहीं लौटाया। वर्तमान गीत के बोल अपरिवर्तित थे.";
 "lyrics_source_reload_failed_kept" = "गीत के बोल को संगीत के बोल स्रोत से पुनः लोड नहीं किया जा सका। वर्तमान गीत के बोल अपरिवर्तित थे.";
 "lyrics_source_reload_success" = "गीत के बोल संगीत के बोल स्रोत से ताज़ा किए गए थे।";

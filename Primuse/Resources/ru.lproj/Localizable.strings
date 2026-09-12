@@ -1127,6 +1127,7 @@
 "album_changed" = "Альбом обновлен.";
 "audio_output_follow_system" = "Следовать системным настройкам по умолчанию.";
 "lyrics_settings_title" = "Настройки текста";
+"lyrics_appearance_title" = "Вид текста песни";
 "ok" = "ОК";
 "player_lyrics_color_default" = "По умолчанию";
 "player_tap_lyrics_to_seek_description" = "Коснитесь синхронизированной строки текста, чтобы перейти к этому моменту. Пролистывание текстов никогда не ищет.";

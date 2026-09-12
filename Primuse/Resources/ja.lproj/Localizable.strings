@@ -3349,6 +3349,7 @@
 "recently_deleted_clear_all_failed_title" = "一部の項目を消去できませんでした";
 "recently_deleted_clear_all_failed_format" = "%d 件の項目を消去できなかったため、最近削除した項目に残しました。";
 "lyrics_settings_title" = "歌詞設定";
+"lyrics_appearance_title" = "歌詞の外観";
 "lyrics_translation_section" = "翻訳";
 "lyrics_display_section" = "表示";
 "lyrics_audio_tools_section" = "音声から歌詞を作成";

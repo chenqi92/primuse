@@ -1775,6 +1775,7 @@
 "lyrics_offset_hint" = "موجب = تأخير";
 "lyrics_reload_from_source" = "إعادة تحميل الأغاني من مصدر الموسيقى";
 "lyrics_settings_title" = "إعدادات كلمات الأغاني";
+"lyrics_appearance_title" = "مظهر كلمات الأغنية";
 "lyrics_source_reload_empty_kept" = "لم يُرجع مصدر الموسيقى أي كلمات. الكلمات الحالية لم تتغير.";
 "lyrics_source_reload_failed_kept" = "لا يمكن إعادة تحميل الكلمات من مصدر الموسيقى. الكلمات الحالية لم تتغير.";
 "lyrics_source_reload_success" = "تم تحديث الكلمات من مصدر الموسيقى.";

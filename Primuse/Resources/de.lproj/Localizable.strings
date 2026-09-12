@@ -3348,6 +3348,7 @@
 "recently_deleted_clear_all_failed_title" = "Einige Elemente wurden nicht gelöscht";
 "recently_deleted_clear_all_failed_format" = "%d Elemente konnten nicht gelöscht werden und verbleiben unter „Zuletzt gelöscht“.";
 "lyrics_settings_title" = "Liedtexteinstellungen";
+"lyrics_appearance_title" = "Songtext-Darstellung";
 "lyrics_translation_section" = "Übersetzung";
 "lyrics_display_section" = "Darstellung";
 "lyrics_audio_tools_section" = "Liedtext aus Audio";

@@ -3348,6 +3348,7 @@
 "recently_deleted_clear_all_failed_title" = "Certains éléments n’ont pas été supprimés";
 "recently_deleted_clear_all_failed_format" = "%d éléments n’ont pas pu être supprimés et restent dans les suppressions récentes.";
 "lyrics_settings_title" = "Réglages des paroles";
+"lyrics_appearance_title" = "Apparence des paroles";
 "lyrics_translation_section" = "Traduction";
 "lyrics_display_section" = "Affichage";
 "lyrics_audio_tools_section" = "Paroles depuis l’audio";
