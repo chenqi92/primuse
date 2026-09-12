@@ -574,6 +574,14 @@
 "keyboard_shortcuts_changes_apply_immediately" = "Değişiklikler anında uygulanır.";
 "ai_resolved_endpoint" = "Bitiş noktası isteği";
 "home_section_playlists" = "Çalma Listelerim";
+"home_layout_list" = "Liste";
+"home_layout_carousel" = "Yatay şerit";
+"home_layout_carouselDouble" = "İki sıra";
+"home_layout_grid" = "Izgara";
+"home_edit_layout" = "Düzeni düzenle";
+"home_edit_hint" = "Sıralamayı değiştirmek için bir bloğu sürükleyin. Görünümü değiştirmek için düzen düğmesine, gizlemek için göz simgesine dokunun.";
+"home_edit_move_up" = "Yukarı taşı";
+"home_edit_move_down" = "Aşağı taşı";
 "ai_audio_transcription_success_format" = "%@ transkripti tamamladı. Kaydetmeden önce düzenleyicide inceleyin.";
 "Reading tags" = "Etiketleri okuma";
 "Valid format" = "Geçerli format";

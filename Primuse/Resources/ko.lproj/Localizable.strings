@@ -1255,6 +1255,14 @@
 "home_section_continue_listening" = "이어서 듣기";
 "home_section_quick_access" = "빠른 접근";
 "home_section_playlists" = "내 플레이리스트";
+"home_layout_list" = "목록";
+"home_layout_carousel" = "가로 스크롤";
+"home_layout_carouselDouble" = "2줄 가로 스크롤";
+"home_layout_grid" = "그리드";
+"home_edit_layout" = "레이아웃 편집";
+"home_edit_hint" = "블록을 드래그해 순서를 바꿉니다. 레이아웃 버튼으로 표시 방식을 바꾸고, 눈 아이콘으로 숨길 수 있습니다.";
+"home_edit_move_up" = "위로 이동";
+"home_edit_move_down" = "아래로 이동";
 "home_settings_title" = "홈";
 "home_settings_sections_label" = "표시할 섹션";
 "home_settings_sections_footer" = "스위치로 표시 여부를 정하고 드래그하여 순서를 변경합니다. Hero 영역은 맨 위에 고정됩니다.";

@@ -1256,6 +1256,14 @@
 "home_section_continue_listening" = "続きを聴く";
 "home_section_quick_access" = "クイックアクセス";
 "home_section_playlists" = "マイプレイリスト";
+"home_layout_list" = "リスト";
+"home_layout_carousel" = "横スクロール";
+"home_layout_carouselDouble" = "2段横スクロール";
+"home_layout_grid" = "グリッド";
+"home_edit_layout" = "レイアウトを編集";
+"home_edit_hint" = "ブロックをドラッグすると並べ替えられます。レイアウトボタンで表示方法を切り替え、目のアイコンで非表示にできます。";
+"home_edit_move_up" = "上へ移動";
+"home_edit_move_down" = "下へ移動";
 "home_settings_title" = "ホーム";
 "home_settings_sections_label" = "表示するセクション";
 "home_settings_sections_footer" = "スイッチで表示を切り替え、ドラッグして並べ替えます。ヒーローエリアは上部に固定されます。";

@@ -1427,6 +1427,14 @@
 "home_section_continue_listening" = "ฟังต่อ";
 "home_section_for_you" = "เพื่อคุณ";
 "home_section_playlists" = "เพลย์ลิสต์ของฉัน";
+"home_layout_list" = "รายการ";
+"home_layout_carousel" = "แถบแนวนอน";
+"home_layout_carouselDouble" = "สองแถว";
+"home_layout_grid" = "ตาราง";
+"home_edit_layout" = "แก้ไขเลย์เอาต์";
+"home_edit_hint" = "ลากบล็อกเพื่อจัดลำดับใหม่ แตะปุ่มเลย์เอาต์เพื่อเปลี่ยนรูปแบบการแสดง หรือแตะรูปตาเพื่อซ่อน";
+"home_edit_move_up" = "ย้ายขึ้น";
+"home_edit_move_down" = "ย้ายลง";
 "home_section_quick_access" = "การเข้าถึงด่วน";
 "home_section_recently_added" = "เพิ่มล่าสุด";
 "home_section_top_artists" = "ฟังบ่อยๆ";

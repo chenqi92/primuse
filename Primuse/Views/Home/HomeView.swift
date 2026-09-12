@@ -265,6 +265,8 @@ struct HomeView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showUpdateSheet: Bool = false
+    /// 首页就地编辑态:排序、显隐与每块的排布都在真实内容上直接改。
+    @State private var isEditingHome = false
     @State private var selectedHomeRadioID: String?
     @State private var pendingInsecureHomeStation: RadioStation?
     @State private var homeModeSwitchTurn = 0
@@ -372,6 +374,11 @@ struct HomeView: View {
             #endif
             .toolbar {
                 #if os(iOS)
+                if homeMode == .music {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        homeEditButton
+                    }
+                }
                 if showRadioOnHome && appNavigationMode != .minimal {
                     if #available(iOS 26.0, *) {
                         ToolbarItem(placement: .topBarTrailing) {
@@ -385,12 +392,21 @@ struct HomeView: View {
                     }
                 }
                 #else
+                if homeMode == .music {
+                    ToolbarItem(placement: .primaryAction) {
+                        homeEditButton
+                    }
+                }
                 if showRadioOnHome {
                     ToolbarItem(placement: .primaryAction) {
                         modeToggleButton
                     }
                 }
                 #endif
+            }
+            // 切到电台态时编辑没有意义 —— 电台面不参与音乐区块排序。
+            .onChange(of: homeMode) { _, mode in
+                if mode != .music { isEditingHome = false }
             }
             .sheet(isPresented: $showRadioBatchAdd) {
                 RadioBatchAddView()
@@ -452,6 +468,20 @@ struct HomeView: View {
         .environment(model.discovery)
     }
 
+    private var homeEditButton: some View {
+        Button {
+            withAnimation(.snappy) { isEditingHome.toggle() }
+        } label: {
+            if isEditingHome {
+                Text("done").fontWeight(.semibold)
+            } else {
+                Label("home_edit_layout", systemImage: "slider.horizontal.3")
+            }
+        }
+        .accessibilityLabel(isEditingHome ? Text("done") : Text("home_edit_layout"))
+        .accessibilityIdentifier("home.editLayout")
+    }
+
     // MARK: - Content
 
     // Section toggles. Hero is mandatory (always shown).
@@ -465,6 +495,7 @@ struct HomeView: View {
     @AppStorage("primuse.home.showFolders") private var showFolders = true
     @AppStorage("primuse.home.showListeningRanking") private var showListeningRanking = true
     @AppStorage(HomeSectionConfiguration.orderKey) private var homeSectionOrderRawValue = ""
+    @AppStorage(HomeSectionLayoutConfiguration.storageKey) private var homeSectionLayoutRawValue = ""
     @AppStorage(LibraryPinStorage.defaultsKey) private var quickAccessRawValue = ""
     @AppStorage(LibraryDisplayConfiguration.quickAccessLimitKey)
     private var configuredQuickAccessLimit = LibraryDisplayConfiguration.defaultQuickAccessLimit
@@ -587,38 +618,44 @@ struct HomeView: View {
     private var contentView: some View {
         // Section contents are bounded. Stable vertical sizes avoid lazy
         // placement loops when a ranking card changes height near the viewport.
-        VStack(alignment: .leading, spacing: 24) {
-            if model.snapshot.hasContent {
+        VStack(alignment: .leading, spacing: isEditingHome ? 12 : 24) {
+            if isEditingHome {
+                Text("home_edit_hint")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 20)
+            } else if model.snapshot.hasContent {
                 libraryHeroSection
             }
 
-            ForEach(homeSectionOrder) { section in
-                homeSectionContent(section)
+            ForEach(isEditingHome ? editableHomeSections : homeSectionOrder) { section in
+                homeSectionRow(section)
             }
         }
     }
 
     @ViewBuilder
     private func homeSectionContent(_ section: HomeSectionKind) -> some View {
+        let style = homeLayout.style(for: section)
         switch section {
         case .continueListening:
             if showContinueListening, !model.snapshot.recentSongs.isEmpty {
-                continueListeningSection
+                continueListeningSection(style)
             }
         case .radio:
             // 电台有自己的模式(右上角切换)，音乐态里不再重复一块。
             EmptyView()
         case .quickAccess:
             if showQuickAccess, !model.snapshot.quickItems.isEmpty {
-                quickAccessSection
+                quickAccessSection(style)
             }
         case .forYou:
             if showForYou, !model.snapshot.forYouResults.isEmpty {
-                forYouSection
+                forYouSection(style)
             }
         case .playlists:
             if showPlaylists, !model.snapshot.playlists.isEmpty {
-                playlistsSection
+                playlistsSection(style)
             }
         case .folders:
             if showFolders { HomeFoldersSection() }
@@ -626,17 +663,180 @@ struct HomeView: View {
             if showListeningRanking { HomeListeningRankingSection() }
         case .topArtists:
             if showTopArtists, !model.snapshot.topArtists.isEmpty {
-                artistsSection
+                artistsSection(style)
             }
         case .recentlyAdded:
             if showRecentlyAdded, !model.snapshot.recentlyAddedAlbums.isEmpty {
-                recentlyAddedAlbumsSection
+                recentlyAddedAlbumsSection(style)
             }
         case .stats:
             if showStatsGlimpse, let summary = model.snapshot.statsGlimpse {
                 statsGlimpseSection(summary)
             }
         }
+    }
+
+    // MARK: - 首页就地编辑
+    //
+    // 排布改完要马上在真实内容上看到效果,所以编辑态不跳设置页,而是就在首页把
+    // 每块套上一条操作栏。设置页那份列表仍然保留 —— 它能一次看完全部区域,
+    // 也是用户找得到「恢复默认顺序」的地方。
+
+    private var homeLayout: HomeSectionLayoutConfiguration {
+        HomeSectionLayoutConfiguration.decode(homeSectionLayoutRawValue)
+    }
+
+    /// 编辑态列出全部可配置区域,包括已隐藏和当前没内容的 —— 否则关掉一块之后
+    /// 它就从界面上消失了,用户没有任何入口把它开回来。
+    private var editableHomeSections: [HomeSectionKind] {
+        homeSectionOrder.filter(\.isUserConfigurable)
+    }
+
+    private func isSectionVisible(_ section: HomeSectionKind) -> Bool {
+        switch section {
+        case .continueListening: showContinueListening
+        case .quickAccess: showQuickAccess
+        case .forYou: showForYou
+        case .playlists: showPlaylists
+        case .folders: showFolders
+        case .listeningRanking: showListeningRanking
+        case .topArtists: showTopArtists
+        case .recentlyAdded: showRecentlyAdded
+        case .stats: showStatsGlimpse
+        case .radio: true
+        }
+    }
+
+    private func setSectionVisible(_ section: HomeSectionKind, _ visible: Bool) {
+        switch section {
+        case .continueListening: showContinueListening = visible
+        case .quickAccess: showQuickAccess = visible
+        case .forYou: showForYou = visible
+        case .playlists: showPlaylists = visible
+        case .folders: showFolders = visible
+        case .listeningRanking: showListeningRanking = visible
+        case .topArtists: showTopArtists = visible
+        case .recentlyAdded: showRecentlyAdded = visible
+        case .stats: showStatsGlimpse = visible
+        case .radio: break
+        }
+    }
+
+    private func advanceSectionLayout(_ section: HomeSectionKind) {
+        var configuration = homeLayout
+        configuration.advanceStyle(for: section)
+        homeSectionLayoutRawValue = configuration.encoded()
+    }
+
+    private func moveSection(_ section: HomeSectionKind, by offset: Int) {
+        var order = homeSectionOrder
+        guard let from = order.firstIndex(of: section) else { return }
+        let to = from + offset
+        guard order.indices.contains(to) else { return }
+        order.swapAt(from, to)
+        homeSectionOrderRawValue = HomeSectionConfiguration.encode(order)
+    }
+
+    /// 把 `moved` 放到 `target` 原来的位置上。拖放只给得到「落在谁身上」,
+    /// 具体是插到前面还是后面由两者当前的先后决定,这样从上往下拖和从下往上拖
+    /// 都落在手指所指的那一块。
+    private func moveSection(_ moved: HomeSectionKind, onto target: HomeSectionKind) {
+        guard moved != target else { return }
+        var order = homeSectionOrder
+        guard let from = order.firstIndex(of: moved),
+              let to = order.firstIndex(of: target) else { return }
+        order.remove(at: from)
+        order.insert(moved, at: to)
+        homeSectionOrderRawValue = HomeSectionConfiguration.encode(order)
+    }
+
+    @ViewBuilder
+    private func homeSectionRow(_ section: HomeSectionKind) -> some View {
+        if isEditingHome {
+            VStack(alignment: .leading, spacing: 10) {
+                homeSectionEditBar(section)
+                if isSectionVisible(section) {
+                    homeSectionContent(section)
+                        .allowsHitTesting(false)
+                }
+            }
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(homeCardSurface.opacity(isSectionVisible(section) ? 0.55 : 0.28))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(
+                        .tint.opacity(isSectionVisible(section) ? 0.45 : 0.18),
+                        style: StrokeStyle(lineWidth: 1, dash: [5, 4])
+                    )
+            }
+            .opacity(isSectionVisible(section) ? 1 : 0.55)
+            .padding(.horizontal, 12)
+            .draggable(section.rawValue)
+            .dropDestination(for: String.self) { items, _ in
+                guard let raw = items.first, let moved = HomeSectionKind(rawValue: raw) else { return false }
+                withAnimation(.snappy) { moveSection(moved, onto: section) }
+                return true
+            }
+            .contextMenu {
+                Button {
+                    withAnimation(.snappy) { moveSection(section, by: -1) }
+                } label: { Label("home_edit_move_up", systemImage: "arrow.up") }
+                Button {
+                    withAnimation(.snappy) { moveSection(section, by: 1) }
+                } label: { Label("home_edit_move_down", systemImage: "arrow.down") }
+            }
+        } else {
+            homeSectionContent(section)
+        }
+    }
+
+    private func homeSectionEditBar(_ section: HomeSectionKind) -> some View {
+        let visible = isSectionVisible(section)
+        let style = homeLayout.style(for: section)
+        return HStack(spacing: 10) {
+            Image(systemName: "line.3.horizontal")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+
+            Text(section.title)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+
+            Spacer(minLength: 8)
+
+            if HomeSectionLayoutPolicy.isConfigurable(section) {
+                Button {
+                    withAnimation(.snappy) { advanceSectionLayout(section) }
+                } label: {
+                    Label(LocalizedStringKey(style.titleKey), systemImage: style.icon)
+                        .font(.caption.weight(.semibold))
+                        .labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .controlSize(.small)
+                .disabled(!visible)
+                .accessibilityIdentifier("home.edit.layout." + section.rawValue)
+            }
+
+            Button {
+                withAnimation(.snappy) { setSectionVisible(section, !visible) }
+            } label: {
+                Image(systemName: visible ? "eye" : "eye.slash")
+                    .font(.footnote.weight(.semibold))
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+            .controlSize(.small)
+            .accessibilityLabel(section.title)
+            .accessibilityIdentifier("home.edit.visibility." + section.rawValue)
+        }
+        .padding(.horizontal, 20)
     }
 
     private var selectedHomeRadio: RadioStation? {
@@ -2005,33 +2205,48 @@ struct HomeView: View {
 
     // MARK: - Quick Access
 
-    private var quickAccessSection: some View {
+    @ViewBuilder
+    private func quickAccessSection(_ style: HomeSectionLayoutStyle) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("home_section_quick_access")
                 .font(.title3.weight(.bold))
                 .padding(.horizontal, 20)
 
-            LazyVGrid(
-                columns: Array(
-                    repeating: GridItem(.flexible(), spacing: 10),
-                    count: 3
-                ),
-                spacing: 14
-            ) {
-                ForEach(model.snapshot.quickItems) { item in
-                    homeQuickDockItem(item)
-                }
-            }
-            .padding(14)
-            .background {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(homeCardSurface)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(.primary.opacity(0.06), lineWidth: 0.5)
+            if style == .carousel {
+                // 横排档去掉整块底卡:一行图标本来就不高,再包一层圆角面板
+                // 会让它看着比内容重。
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: 16) {
+                        ForEach(model.snapshot.quickItems) { item in
+                            homeQuickDockItem(item)
+                                .frame(width: 76)
+                        }
                     }
+                    .padding(.horizontal, 20)
+                }
+            } else {
+                LazyVGrid(
+                    columns: Array(
+                        repeating: GridItem(.flexible(), spacing: 10),
+                        count: 3
+                    ),
+                    spacing: 14
+                ) {
+                    ForEach(model.snapshot.quickItems) { item in
+                        homeQuickDockItem(item)
+                    }
+                }
+                .padding(14)
+                .background {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(homeCardSurface)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(.primary.opacity(0.06), lineWidth: 0.5)
+                        }
+                }
+                .padding(.horizontal, 20)
             }
-            .padding(.horizontal, 20)
         }
     }
 
@@ -2113,28 +2328,81 @@ struct HomeView: View {
 
     // MARK: - Playlists
 
-    private var playlistsSection: some View {
+    @ViewBuilder
+    private func playlistsSection(_ style: HomeSectionLayoutStyle) -> some View {
+        let tiles = model.snapshot.playlists
+
         VStack(alignment: .leading, spacing: 10) {
             Text("home_section_playlists")
                 .font(.title3.weight(.bold))
                 .padding(.horizontal, 20)
 
-            VStack(spacing: 0) {
-                let displayed = Array(model.snapshot.playlists.prefix(sizeClass == .regular ? 5 : 4))
-                ForEach(Array(displayed.enumerated()), id: \.element.id) { index, tile in
-                    NavigationLink(value: tile.playlist) {
-                        playlistListRow(tile)
+            switch style {
+            case .carousel:
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: 14) {
+                        ForEach(tiles.prefix(sizeClass == .regular ? 16 : 12)) { tile in
+                            NavigationLink(value: tile.playlist) {
+                                playlistCard(tile)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
-                    .buttonStyle(.plain)
-
-                    if index < displayed.count - 1 {
-                        Divider()
-                            .padding(.leading, 66)
+                    .padding(.horizontal, 20)
+                }
+            case .grid, .carouselDouble:
+                // 歌单封面是固定尺寸视图,撑不满自适应列宽,所以列宽直接按卡片宽
+                // 来定 —— 否则窄屏两列会在卡片之间裂开一道空隙。
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: homeAlbumCardWidth), spacing: 16, alignment: .top)],
+                    spacing: 20
+                ) {
+                    ForEach(tiles.prefix(sizeClass == .regular ? 12 : 6)) { tile in
+                        NavigationLink(value: tile.playlist) {
+                            playlistCard(tile)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
+                .padding(.horizontal, 20)
+            case .list:
+                VStack(spacing: 0) {
+                    let displayed = Array(tiles.prefix(sizeClass == .regular ? 5 : 4))
+                    ForEach(Array(displayed.enumerated()), id: \.element.id) { index, tile in
+                        NavigationLink(value: tile.playlist) {
+                            playlistListRow(tile)
+                        }
+                        .buttonStyle(.plain)
+
+                        if index < displayed.count - 1 {
+                            Divider()
+                                .padding(.leading, 66)
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
             }
-            .padding(.horizontal, 20)
         }
+    }
+
+    /// 横排与网格共用一张卡,宽度固定 —— 否则 LazyHStack 会按内容自适应,
+    /// 长短不一的歌单名把这一行撑得参差不齐。
+    private func playlistCard(_ tile: HomePlaylistTile) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            homePlaylistArtwork(tile, size: homeAlbumCardWidth, cornerRadius: 10)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(tile.playlist.name)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+                Text("\(tile.songCount) " + String(localized: "songs_count"))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(width: homeAlbumCardWidth, alignment: .leading)
     }
 
     @ViewBuilder
@@ -2191,13 +2459,25 @@ struct HomeView: View {
 
     private var forYouPicks: [Song] { displayedForYouResults.map(\.song) }
 
-    private var forYouSection: some View {
+    @ViewBuilder
+    private func forYouSection(_ style: HomeSectionLayoutStyle) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("home_for_you_title")
                 .font(.title3)
                 .fontWeight(.bold)
                 .padding(.horizontal, 20)
 
+            if style == .list {
+                VStack(spacing: 8) {
+                    ForEach(displayedForYouResults.prefix(sizeClass == .regular ? 8 : 5)) { result in
+                        Button { playSong(result.song) } label: {
+                            forYouListRow(result)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 20)
+            } else {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 14) {
                     ForEach(displayedForYouResults) { result in
@@ -2253,7 +2533,54 @@ struct HomeView: View {
                 .scrollTargetLayout()
             }
             .scrollTargetBehavior(.viewAligned)
+            }
         }
+    }
+
+    /// 列表档只保留一条推荐理由 —— 竖排里理由标签一多就把标题挤成两行,
+    /// 反而不如横排卡片好读。
+    private func forYouListRow(_ result: MusicDiscoveryResult) -> some View {
+        let song = result.song
+        return HStack(spacing: 12) {
+            CachedArtworkView(
+                coverRef: song.coverArtFileName,
+                songID: song.id,
+                size: 54,
+                cornerRadius: 9,
+                sourceID: song.sourceID,
+                filePath: song.filePath,
+                fileFormat: song.fileFormat
+            )
+
+            VStack(alignment: .leading, spacing: 3) {
+                DiscoveryReasonsView(reasons: result.reasons, maxCount: 1)
+                Text(song.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(
+                    library.artistDisplayName(for: song)
+                        ?? String(localized: "unknown_artist")
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            Image(systemName: "play.circle.fill")
+                .font(.title3)
+                .foregroundStyle(.tint)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .background {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(homeCardSurface)
+        }
+        .contentShape(Rectangle())
     }
 
     @ViewBuilder
@@ -2277,33 +2604,61 @@ struct HomeView: View {
 
     // MARK: - Continue Listening (formerly Recently Played)
 
-    private var continueListeningSection: some View {
+    @ViewBuilder
+    private func continueListeningSection(_ style: HomeSectionLayoutStyle) -> some View {
+        let songs = model.snapshot.recentSongs
+
         VStack(alignment: .leading, spacing: 10) {
             Text("home_continue_listening")
                 .font(.title3).fontWeight(.bold).padding(.horizontal, 20)
 
-            let songs = model.snapshot.recentSongs
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHGrid(
-                    rows: [
-                        GridItem(.fixed(60), spacing: 10),
-                        GridItem(.fixed(60)),
-                    ],
-                    spacing: 10
-                ) {
-                    ForEach(songs.prefix(12), id: \.id) { song in
+            switch style {
+            case .carousel:
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 10) {
+                        ForEach(songs.prefix(12), id: \.id) { song in
+                            Button { playSong(song) } label: {
+                                continueListeningRow(song)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
+            case .list:
+                VStack(spacing: 8) {
+                    ForEach(songs.prefix(sizeClass == .regular ? 8 : 5), id: \.id) { song in
                         Button { playSong(song) } label: {
-                            continueListeningRow(song)
+                            continueListeningRow(song, fillsWidth: true)
                         }
                         .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, 20)
+            case .carouselDouble, .grid:
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHGrid(
+                        rows: [
+                            GridItem(.fixed(60), spacing: 10),
+                            GridItem(.fixed(60)),
+                        ],
+                        spacing: 10
+                    ) {
+                        ForEach(songs.prefix(12), id: \.id) { song in
+                            Button { playSong(song) } label: {
+                                continueListeningRow(song)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
             }
         }
     }
 
-    private func continueListeningRow(_ song: Song) -> some View {
+    /// 纵向列表里要铺满一行 —— 沿用横排的固定宽度会在右侧留一条空白。
+    private func continueListeningRow(_ song: Song, fillsWidth: Bool = false) -> some View {
         HStack(spacing: 10) {
             CachedArtworkView(
                 coverRef: song.coverArtFileName,
@@ -2336,7 +2691,11 @@ struct HomeView: View {
                 .foregroundStyle(.tint)
         }
         .padding(.horizontal, 6)
-        .frame(width: sizeClass == .regular ? 300 : 250, height: 60)
+        .frame(
+            width: fillsWidth ? nil : (sizeClass == .regular ? 300 : 250),
+            height: 60
+        )
+        .frame(maxWidth: fillsWidth ? .infinity : nil)
         .background {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(homeCardSurface)
@@ -2360,8 +2719,15 @@ struct HomeView: View {
 
     // MARK: - Recently Added Albums
 
-    private var recentlyAddedAlbumsSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
+    /// 横排卡片的宽度。窄屏下比网格的一半略窄,好让第三张卡露出一角 ——
+    /// 边缘不留半张卡,用户看不出这一行还能往右滑。
+    private var homeAlbumCardWidth: CGFloat { sizeClass == .regular ? 160 : 132 }
+
+    @ViewBuilder
+    private func recentlyAddedAlbumsSection(_ style: HomeSectionLayoutStyle) -> some View {
+        let albums = model.snapshot.recentlyAddedAlbums
+
+        VStack(alignment: .leading, spacing: style == .grid ? 14 : 10) {
             HStack(alignment: .firstTextBaseline) {
                 Text(HomeDiscoveryText.string("recent_albums"))
                     .font(.title3).fontWeight(.bold)
@@ -2377,25 +2743,88 @@ struct HomeView: View {
                 }
                 .accessibilityIdentifier("home.recentAlbums.viewAll")
             }
+            .padding(.horizontal, 20)
 
-            LazyVGrid(
-                columns: sizeClass == .regular
-                    ? [GridItem(.adaptive(minimum: 150), spacing: 16, alignment: .top)]
-                    : [
-                        GridItem(.flexible(), spacing: 16, alignment: .top),
-                        GridItem(.flexible(), spacing: 16, alignment: .top),
-                    ],
-                spacing: 20
-            ) {
-                ForEach(model.snapshot.recentlyAddedAlbums.prefix(sizeClass == .regular ? 12 : 6)) { tile in
-                    NavigationLink(value: tile.album) {
-                        AlbumCardView(album: tile.album, showsSongCount: true)
+            switch style {
+            case .carousel:
+                // 横排一次只占一张卡的高度,这正是 issue #106 想要的:同样的内容
+                // 不再吃掉整屏,后面的「继续听」还留在首屏里。
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: 14) {
+                        ForEach(albums.prefix(sizeClass == .regular ? 16 : 12)) { tile in
+                            NavigationLink(value: tile.album) {
+                                AlbumCardView(album: tile.album, showsSongCount: true)
+                                    .frame(width: homeAlbumCardWidth)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
-                    .buttonStyle(.plain)
+                    .padding(.horizontal, 20)
                 }
+            case .list:
+                VStack(spacing: 0) {
+                    let displayed = Array(albums.prefix(sizeClass == .regular ? 8 : 6))
+                    ForEach(Array(displayed.enumerated()), id: \.element.id) { index, tile in
+                        NavigationLink(value: tile.album) {
+                            albumListRow(tile.album)
+                        }
+                        .buttonStyle(.plain)
+
+                        if index < displayed.count - 1 {
+                            Divider().padding(.leading, 66)
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+            case .grid, .carouselDouble:
+                LazyVGrid(
+                    columns: sizeClass == .regular
+                        ? [GridItem(.adaptive(minimum: 150), spacing: 16, alignment: .top)]
+                        : [
+                            GridItem(.flexible(), spacing: 16, alignment: .top),
+                            GridItem(.flexible(), spacing: 16, alignment: .top),
+                        ],
+                    spacing: 20
+                ) {
+                    ForEach(albums.prefix(sizeClass == .regular ? 12 : 6)) { tile in
+                        NavigationLink(value: tile.album) {
+                            AlbumCardView(album: tile.album, showsSongCount: true)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 20)
             }
         }
-        .padding(.horizontal, 20)
+    }
+
+    private func albumListRow(_ album: Album) -> some View {
+        HStack(spacing: 12) {
+            AlbumArtworkView(album: album, size: 54, cornerRadius: 9)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(album.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(
+                    (album.artistName ?? String(localized: "unknown_artist"))
+                        + " · \(album.songCount) "
+                        + String(localized: "songs_count")
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 7)
+        .contentShape(Rectangle())
     }
 
     // MARK: - Top Artists
@@ -2406,34 +2835,46 @@ struct HomeView: View {
     /// scrobble threshold). Section title swaps between
     /// "frequently listened" and the generic "artists" depending
     /// which path produced the data.
-    private var artistsSection: some View {
+    @ViewBuilder
+    private func artistsSection(_ style: HomeSectionLayoutStyle) -> some View {
         let displayed = model.snapshot.topArtists
         let titleKey: LocalizedStringKey = model.snapshot.topArtistsHasHistory ? "home_top_artists_title" : "tab_artists"
 
-        return VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
             Text(titleKey)
                 .font(.title3)
                 .fontWeight(.bold)
                 .padding(.horizontal, 20)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 14) {
+            if style == .grid {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 92), spacing: 14, alignment: .top)],
+                    spacing: 16
+                ) {
                     ForEach(displayed) { artist in
-                        NavigationLink(value: artist) {
-                            VStack(spacing: 6) {
-                                ArtistArtworkView(
-                                    artist: artist,
-                                    size: 80,
-                                    cornerRadius: 40
-                                )
-                                Text(artist.name).font(.caption).lineLimit(1).frame(width: 80)
-                            }
-                        }
-                        .buttonStyle(.plain)
+                        NavigationLink(value: artist) { artistBubble(artist) }
+                            .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, 20)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 14) {
+                        ForEach(displayed) { artist in
+                            NavigationLink(value: artist) { artistBubble(artist) }
+                                .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
             }
+        }
+    }
+
+    private func artistBubble(_ artist: Artist) -> some View {
+        VStack(spacing: 6) {
+            ArtistArtworkView(artist: artist, size: 80, cornerRadius: 40)
+            Text(artist.name).font(.caption).lineLimit(1).frame(width: 80)
         }
     }
 

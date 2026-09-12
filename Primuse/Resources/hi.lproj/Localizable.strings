@@ -1427,6 +1427,14 @@
 "home_section_continue_listening" = "सुनना जारी रखें";
 "home_section_for_you" = "आपके लिए";
 "home_section_playlists" = "मेरी प्लेलिस्ट";
+"home_layout_list" = "सूची";
+"home_layout_carousel" = "क्षैतिज पट्टी";
+"home_layout_carouselDouble" = "दो पंक्तियाँ";
+"home_layout_grid" = "ग्रिड";
+"home_edit_layout" = "लेआउट संपादित करें";
+"home_edit_hint" = "क्रम बदलने के लिए किसी ब्लॉक को खींचें। प्रस्तुति बदलने के लिए लेआउट बटन दबाएँ, या छिपाने के लिए आँख का चिह्न।";
+"home_edit_move_up" = "ऊपर ले जाएँ";
+"home_edit_move_down" = "नीचे ले जाएँ";
 "home_section_quick_access" = "त्वरित पहुंच";
 "home_section_recently_added" = "हाल ही में जोड़ा गया";
 "home_section_top_artists" = "बार-बार सुना गया";

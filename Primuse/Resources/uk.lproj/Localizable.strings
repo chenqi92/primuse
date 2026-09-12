@@ -574,6 +574,14 @@
 "keyboard_shortcuts_changes_apply_immediately" = "Зміни застосовуються негайно.";
 "ai_resolved_endpoint" = "Кінцева точка запиту";
 "home_section_playlists" = "Мої списки відтворення";
+"home_layout_list" = "Список";
+"home_layout_carousel" = "Карусель";
+"home_layout_carouselDouble" = "Два ряди";
+"home_layout_grid" = "Сітка";
+"home_edit_layout" = "Змінити макет";
+"home_edit_hint" = "Перетягніть блок, щоб змінити порядок. Натисніть кнопку макета, щоб змінити вигляд, або значок ока, щоб приховати блок.";
+"home_edit_move_up" = "Перемістити вгору";
+"home_edit_move_down" = "Перемістити вниз";
 "ai_audio_transcription_success_format" = "%@ закінчив стенограму. Перегляньте його в редакторі перед збереженням.";
 "Reading tags" = "Читання тегів";
 "Valid format" = "Дійсний формат";

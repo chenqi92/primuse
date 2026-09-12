@@ -1255,6 +1255,14 @@
 "home_section_continue_listening" = "Weiterhören";
 "home_section_quick_access" = "Schnellzugriff";
 "home_section_playlists" = "Meine Playlists";
+"home_layout_list" = "Liste";
+"home_layout_carousel" = "Karussell";
+"home_layout_carouselDouble" = "Zwei Reihen";
+"home_layout_grid" = "Raster";
+"home_edit_layout" = "Layout bearbeiten";
+"home_edit_hint" = "Ziehe einen Block, um ihn umzusortieren. Tippe auf die Layout-Taste, um die Darstellung zu wechseln, oder auf das Auge zum Ausblenden.";
+"home_edit_move_up" = "Nach oben";
+"home_edit_move_down" = "Nach unten";
 "home_settings_title" = "Start";
 "home_settings_sections_label" = "Sichtbare Bereiche";
 "home_settings_sections_footer" = "Bereiche ein- oder ausblenden und durch Ziehen neu anordnen. Der Hero-Bereich bleibt oben.";

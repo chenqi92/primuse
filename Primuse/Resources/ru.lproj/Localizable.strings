@@ -574,6 +574,14 @@
 "keyboard_shortcuts_changes_apply_immediately" = "Изменения вступают в силу немедленно.";
 "ai_resolved_endpoint" = "Конечная точка запроса";
 "home_section_playlists" = "Мои плейлисты";
+"home_layout_list" = "Список";
+"home_layout_carousel" = "Карусель";
+"home_layout_carouselDouble" = "Два ряда";
+"home_layout_grid" = "Сетка";
+"home_edit_layout" = "Изменить макет";
+"home_edit_hint" = "Перетащите блок, чтобы изменить порядок. Нажмите кнопку макета, чтобы сменить вид, или значок глаза, чтобы скрыть блок.";
+"home_edit_move_up" = "Переместить вверх";
+"home_edit_move_down" = "Переместить вниз";
 "ai_audio_transcription_success_format" = "%@ закончил транскрипт. Перед сохранением просмотрите его в редакторе.";
 "Reading tags" = "Чтение тегов";
 "Valid format" = "Действительный формат";

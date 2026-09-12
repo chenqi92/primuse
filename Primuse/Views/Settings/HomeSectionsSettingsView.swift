@@ -1,25 +1,9 @@
 import SwiftUI
 import PrimuseKit
 
-enum HomeSectionKind: String, CaseIterable, Codable, Identifiable {
-    case continueListening
-    case radio
-    case quickAccess
-    case forYou
-    case playlists
-    case folders
-    case listeningRanking
-    case topArtists
-    case recentlyAdded
-    case stats
-
-    var id: String { rawValue }
-
-    /// 电台不再是首页的一个分区 —— 它有了自己的模式(右上角切换)，音乐态里
-    /// 再放一块电台就是重复内容。case 本身保留，否则老用户存下来的排序 JSON
-    /// 解不出来会被整个丢弃、自定义顺序全丢。
-    var isUserConfigurable: Bool { self != .radio }
-
+/// 分区标题要走 SwiftUI 的本地化键,而枚举本身存在 Kit 里(顺序与方案都按
+/// rawValue 存盘),所以标题留在 app 侧作为扩展。
+extension HomeSectionKind {
     var title: LocalizedStringKey {
         switch self {
         case .continueListening: return "home_section_continue_listening"
@@ -32,21 +16,6 @@ enum HomeSectionKind: String, CaseIterable, Codable, Identifiable {
         case .topArtists: return "home_section_top_artists"
         case .recentlyAdded: return LocalizedStringKey(HomeDiscoveryText.string("recent_albums"))
         case .stats: return "stats_title"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .continueListening: return "play.circle"
-        case .radio: return "radio.fill"
-        case .quickAccess: return "pin"
-        case .forYou: return "sparkles"
-        case .playlists: return "music.note.list"
-        case .folders: return "folder"
-        case .listeningRanking: return "chart.bar.fill"
-        case .topArtists: return "music.mic"
-        case .recentlyAdded: return "clock.badge.checkmark"
-        case .stats: return "chart.bar.xaxis"
         }
     }
 }

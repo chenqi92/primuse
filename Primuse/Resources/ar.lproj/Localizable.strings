@@ -1427,6 +1427,14 @@
 "home_section_continue_listening" = "متابعة الاستماع";
 "home_section_for_you" = "لك";
 "home_section_playlists" = "قوائم التشغيل الخاصة بي";
+"home_layout_list" = "قائمة";
+"home_layout_carousel" = "شريط أفقي";
+"home_layout_carouselDouble" = "صفّان";
+"home_layout_grid" = "شبكة";
+"home_edit_layout" = "تحرير التخطيط";
+"home_edit_hint" = "اسحب كتلة لإعادة ترتيبها. المس زر التخطيط لتغيير طريقة العرض، أو رمز العين لإخفائها.";
+"home_edit_move_up" = "تحريك لأعلى";
+"home_edit_move_down" = "تحريك لأسفل";
 "home_section_quick_access" = "الوصول السريع";
 "home_section_recently_added" = "أضيف مؤخرا";
 "home_section_top_artists" = "استمع كثيرا";

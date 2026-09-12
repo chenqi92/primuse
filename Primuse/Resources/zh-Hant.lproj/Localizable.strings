@@ -1030,6 +1030,14 @@
 "home_section_continue_listening" = "繼續聽";
 "home_section_quick_access" = "快捷收藏";
 "home_section_playlists" = "我的歌單";
+"home_layout_list" = "列表";
+"home_layout_carousel" = "橫排";
+"home_layout_carouselDouble" = "雙行橫排";
+"home_layout_grid" = "網格";
+"home_edit_layout" = "編輯版面";
+"home_edit_hint" = "拖動區塊可調整順序。點方案按鈕切換排布,點眼睛隱藏該區塊。";
+"home_edit_move_up" = "上移";
+"home_edit_move_down" = "下移";
 "home_settings_title" = "首頁";
 "home_settings_sections_label" = "顯示區塊";
 "home_settings_sections_footer" = "使用開關控制顯示，拖曳調整順序。Hero 區域固定在頂端。";

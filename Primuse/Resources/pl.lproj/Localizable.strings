@@ -1427,6 +1427,14 @@
 "home_section_continue_listening" = "Kontynuuj słuchanie";
 "home_section_for_you" = "Dla Ciebie";
 "home_section_playlists" = "Moje listy odtwarzania";
+"home_layout_list" = "Lista";
+"home_layout_carousel" = "Karuzela";
+"home_layout_carouselDouble" = "Dwa rzędy";
+"home_layout_grid" = "Siatka";
+"home_edit_layout" = "Edytuj układ";
+"home_edit_hint" = "Przeciągnij blok, aby zmienić kolejność. Dotknij przycisku układu, aby zmienić sposób wyświetlania, lub oka, aby ukryć blok.";
+"home_edit_move_up" = "Przenieś w górę";
+"home_edit_move_down" = "Przenieś w dół";
 "home_section_quick_access" = "Szybki dostęp";
 "home_section_recently_added" = "Ostatnio dodane";
 "home_section_top_artists" = "Często słuchane";
