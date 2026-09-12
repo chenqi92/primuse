@@ -174,7 +174,7 @@ enum LyricsWriteback {
                     && (cached == nil || cacheIsExplicitLocalOverride)
                 ? .absent
                 : .unknown
-        case .unavailable, .temporarilyUnavailable:
+        case .unavailable:
             sourceText = LyricsLoader.locallyMaterializedSourceText(
                 for: song,
                 sourceManager: sourceManager
@@ -425,7 +425,7 @@ enum LyricsWriteback {
             return song.sourceID + "\u{0}sidecar\u{0}" + target.targetPath
         case .mediaServer:
             return song.sourceID + "\u{0}server\u{0}" + song.filePath
-        case .checking, .localOnly, .unavailable:
+        case .checking, .localOnly, .unavailable, .temporarilyUnavailable:
             return song.sourceID + "\u{0}cache\u{0}" + song.id
         }
     }
@@ -505,7 +505,7 @@ enum LyricsWriteback {
                         persistence: requestedPersistence
                     )
                 }
-            case .checking, .localOnly, .unavailable:
+            case .checking, .localOnly, .unavailable, .temporarilyUnavailable:
                 externalMutationToken = nil
             }
             if Task.isCancelled {
@@ -744,7 +744,7 @@ enum LyricsWriteback {
         sourceManager: SourceManager
     ) async -> Bool {
         switch mode {
-        case .checking, .unavailable:
+        case .checking, .unavailable, .temporarilyUnavailable:
             return false
         case .localOnly:
             if case .unknown = expected { return true }
@@ -821,11 +821,6 @@ enum LyricsWriteback {
                 format: String(localized: "tag_editor_lyrics_writeback_retry"),
                 reason
             )
-        case .temporarilyUnavailable(let reason):
-            return String(
-                format: String(localized: "tag_editor_lyrics_writeback_retry"),
-                reason
-            )
         case .sidecar(let target):
             do {
                 let result = try await MusicScraperService.writeSidecarWithTimeout(
@@ -889,6 +884,11 @@ enum LyricsWriteback {
             return String(localized: "tag_editor_lyrics_writeback_checking")
         case .unavailable(let reason):
             return reason
+        case .temporarilyUnavailable(let reason):
+            return String(
+                format: String(localized: "tag_editor_lyrics_writeback_retry"),
+                reason
+            )
         case .sidecar(let target):
             do {
                 let result = try await MusicScraperService.removeLyricsSidecarWithTimeout(
@@ -1031,7 +1031,7 @@ enum LyricsWriteback {
                         || $0.voice != .primary
                         || $0.background?.isEmpty == false
                 }
-        case .checking, .mediaServer, .unavailable:
+        case .checking, .mediaServer, .unavailable, .temporarilyUnavailable:
             return false
         }
     }
@@ -1059,7 +1059,7 @@ enum LyricsWriteback {
                 result.manualTranslation = translation
                 return result
             }
-        case .checking, .localOnly, .unavailable:
+        case .checking, .localOnly, .unavailable, .temporarilyUnavailable:
             return lines
         }
     }
@@ -1068,7 +1068,7 @@ enum LyricsWriteback {
         switch mode {
         case .sidecar, .mediaServer:
             return true
-        case .checking, .localOnly, .unavailable:
+        case .checking, .localOnly, .unavailable, .temporarilyUnavailable:
             return false
         }
     }
@@ -1147,7 +1147,7 @@ enum LyricsWriteback {
             return .sidecar
         case .mediaServer:
             return .mediaServer
-        case .checking, .localOnly, .unavailable:
+        case .checking, .localOnly, .unavailable, .temporarilyUnavailable:
             return .localOnly
         }
     }
