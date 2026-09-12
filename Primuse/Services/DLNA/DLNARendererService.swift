@@ -154,6 +154,15 @@ final class DLNARendererService {
     private static let minSubscriptionTimeout = 60
     private static let maxSubscriptionTimeout = 1_800
     private var activeHTTPConnections = 0
+    /// HTTP listener 自愈状态机 ── 代际 + 单飞 + 退避, 防止固定端口 bind 持续
+    /// 失败时 .failed → 立即重建 的死循环烧 CPU / 刷爆日志。
+    private var httpRestartMachine = ListenerRestartStateMachine()
+    /// 当前排队中的重启任务; 只可能有一个 (状态机保证单飞)。
+    private var httpRetryTask: Task<Void, Never>?
+    /// listener 的 bookkeeping 队列。放主队列会让失败回调直接压主线程。
+    nonisolated private static let httpListenerQueue = DispatchQueue(
+        label: "com.welape.yuanyin.dlna.http-listener"
+    )
     /// NOTIFY alive 周期任务。`ssdp:byebye` 在 stop() 里同步发掉。
     private var notifyTask: Task<Void, Never>?
 
@@ -225,6 +234,12 @@ final class DLNARendererService {
         )
     }
 
+    deinit {
+        // 排队中的重启任务持有 weak self, 但没必要让它睡满退避再空跑一趟。
+        // Task.cancel() 是 nonisolated, 从 deinit 调安全。
+        httpRetryTask?.cancel()
+    }
+
     // MARK: - Lifecycle
 
     /// 后台保活开关。开了之后 audio session 会被静默音流撑住, app 即使没在
@@ -256,7 +271,10 @@ final class DLNARendererService {
     func start() {
         guard !isRunning else { return }
         do {
-            try startHTTP()
+            let action = httpRestartMachine.start()
+            if case .startListener(let generation) = action {
+                try startHTTP(generation: generation)
+            }
             try startSSDP()
             syncRenderingStateFromEngine()
             installPlayerObservation()
@@ -354,6 +372,10 @@ final class DLNARendererService {
     func stop() {
         // 优雅下线: 先发 byebye 让控制点立刻把我们从设备列表移除,再关 listener
         sendByebyeBatch()
+        // 先停重启状态机: 代际 +1 后, 任何在途的 listener 回调都变成 stale,
+        // 不会在 teardown 之后又把 listener 拉起来。
+        httpRetryTask?.cancel(); httpRetryTask = nil
+        httpRestartMachine.stop()
         notifyTask?.cancel(); notifyTask = nil
         discoveryTask?.cancel(); discoveryTask = nil
         playerObservationToken?.cancel(); playerObservationToken = nil
@@ -1135,21 +1157,34 @@ final class DLNARendererService {
 
     // MARK: - HTTP
 
-    private func startHTTP() throws {
+    /// 起 HTTP control listener。`generation` 是本次 listener 的代际标记,
+    /// 所有回调都带着它回来 ── 只有跟状态机当前代际一致的回调才算数,
+    /// 被 cancel 掉的老 listener 的迟到回调一律丢弃。
+    private func startHTTP(generation: UInt64) throws {
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
         let listener = try NWListener(using: params, on: httpPort)
         listener.stateUpdateHandler = { [weak self] state in
             Task { @MainActor in
+                guard let self else { return }
+                // stale 回调: 不改状态、不记日志、不排重启。持续 bind 失败时
+                // 这一条是防止旧 listener 回调放大成日志洪水的关键。
+                guard self.isRunning, generation == self.httpRestartMachine.currentGeneration else { return }
                 switch state {
                 case .ready:
-                    self?.logEvent(.event, "HTTP control server ready on TCP \(self?.httpPort.rawValue ?? 0)")
+                    let recovered = self.httpRestartMachine.currentAttempt > 0
+                    _ = self.httpRestartMachine.listenerReady(generation: generation)
+                    if recovered {
+                        self.logEvent(.event, "HTTP control server restarted after failure")
+                    } else {
+                        self.logEvent(.event, "HTTP control server ready on TCP \(self.httpPort.rawValue)")
+                    }
                 case .failed(let error):
-                    self?.logEvent(.error, "HTTP control server failed: \(error.localizedDescription)")
-                    // NWListener 在网络切换后进 .failed 不会自愈; SSDP 仍在广播
-                    // 指向这个死 server 的 LOCATION, 必须重启 HTTP 监听 (固定端口
-                    // 49152, LOCATION 不变), 否则控制点拉 device.xml 必失败。
-                    self?.restartHTTPAfterFailure(error: error)
+                    self.logEvent(.error, "HTTP control server failed: \(error.localizedDescription)")
+                    // NWListener 进 .failed 不会自愈; SSDP 仍在广播指向这个死
+                    // server 的 LOCATION, 必须重建 (固定端口 49152, LOCATION 不变)。
+                    // 但重建要走退避 + 单飞, 不能在回调里立刻重来。
+                    self.handleHTTPListenerFailure(error, generation: generation)
                 default:
                     break
                 }
@@ -1158,27 +1193,57 @@ final class DLNARendererService {
         listener.newConnectionHandler = { [weak self] conn in
             Task { @MainActor in self?.handleHTTPConnection(conn) }
         }
-        listener.start(queue: .main)
+        listener.start(queue: Self.httpListenerQueue)
         httpListener = listener
     }
 
-    /// HTTP control listener 失效后的自愈: cancel 旧 listener, 在同端口重建。
-    /// 重建失败则把服务标记为出错状态, 让 UI 能反映 "投不出去" 而非静默假活。
-    private func restartHTTPAfterFailure(error: NWError) {
-        guard isRunning else { return }
-        httpListener?.cancel(); httpListener = nil
-        // 旧 listener 已接受但未收尾的连接, 其递减 Task 可能永不触发(NWConnection 在
-        // 网络抖动下可能静默失效、不进 .cancelled/.failed)。重建前归零, 否则计数只增
-        // 不减、累积到上限后永久拒绝新连接, 控制点再也连不上且无自愈。
-        activeHTTPConnections = 0
-        do {
-            try startHTTP()
-            logEvent(.event, "HTTP control server restarted after failure")
-        } catch {
-            isRunning = false
+    /// HTTP control listener 失效后的自愈调度: 退避重试, 次数用尽后停在一个
+    /// 稳定的降级态 (SSDP/GENA/保活保持原样, 只把错误摆到 UI 上), 不再重试。
+    private func handleHTTPListenerFailure(_ error: Error, generation: UInt64) {
+        switch httpRestartMachine.listenerFailed(generation: generation, jitterUnit: Double.random(in: 0..<1)) {
+        case .scheduleRetry(let delay, let retryGeneration):
+            cancelHTTPListener()
+            httpRetryTask?.cancel()
+            httpRetryTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(delay))
+                guard let self, !Task.isCancelled else { return }
+                self.performHTTPRetry(generation: retryGeneration)
+            }
+        case .enterDegraded(let attempts):
+            cancelHTTPListener()
+            httpRetryTask?.cancel(); httpRetryTask = nil
+            // 不做 teardown: isRunning 留 true 反映用户意图, 设置页才看得到
+            // 这条错误, 也不会在每次进页面时把整轮重试再跑一遍。
             statusText = String(format: String(localized: "dlna_status_error_format"), error.localizedDescription)
-            logEvent(.error, "HTTP control server restart failed: \(error.localizedDescription)")
+            logEvent(
+                .error,
+                "HTTP control server unavailable after \(attempts) attempts: \(error.localizedDescription)"
+            )
+        case .startListener, .ignore:
+            break
         }
+    }
+
+    /// 退避到点后重建 listener。构造阶段同步抛错等同于这一代的一次失败,
+    /// 走同一条退避路径, 不在这里递归重试。
+    private func performHTTPRetry(generation: UInt64) {
+        guard isRunning else { return }
+        guard case .startListener(let newGeneration) = httpRestartMachine.retryDue(generation: generation) else { return }
+        do {
+            try startHTTP(generation: newGeneration)
+        } catch {
+            logEvent(.error, "HTTP control server restart failed: \(error.localizedDescription)")
+            // 构造失败没有 listener 回调, 手动把它算作这一代的一次失败。
+            handleHTTPListenerFailure(error, generation: newGeneration)
+        }
+    }
+
+    /// 丢掉当前 listener。旧 listener 已接受但未收尾的连接, 其递减 Task 可能永不
+    /// 触发(NWConnection 在网络抖动下可能静默失效、不进 .cancelled/.failed)。重建前
+    /// 归零, 否则计数只增不减、累积到上限后永久拒绝新连接, 控制点再也连不上。
+    private func cancelHTTPListener() {
+        httpListener?.cancel(); httpListener = nil
+        activeHTTPConnections = 0
     }
 
     private func handleHTTPConnection(_ connection: NWConnection) {
