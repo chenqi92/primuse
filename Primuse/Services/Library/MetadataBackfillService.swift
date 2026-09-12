@@ -643,6 +643,9 @@ final class MetadataBackfillService {
     /// that ran between cancel and Task.value resumption.
     @ObservationIgnored private var workerGeneration: Int = 0
 
+    /// 速率采样与平台无关 ── iOS 和 macOS 的读取都要能看到这行日志。
+    @ObservationIgnored private var throughputSampler = MetadataReadThroughputSampler()
+
     /// Worker 持有的 UIBackgroundTask ID, app 切到后台时给 backfill ~30 秒额外
     /// 收尾时间。worker 完成 / stop 时释放。expirationHandler 兜底 ── 系统提前
     /// 回收时主动 stop, 不留半挂状态。
@@ -653,7 +656,6 @@ final class MetadataBackfillService {
     @ObservationIgnored private var backgroundAssertionGeneration: UUID?
     @ObservationIgnored private var continuedProcessingSession: (any MetadataBackgroundContinuation)?
     @ObservationIgnored private var systemProcessingSessions: Set<UUID> = []
-    @ObservationIgnored private var throughputSampler = MetadataReadThroughputSampler()
     @ObservationIgnored private var backgroundExecutionExpired = false
     #endif
 
