@@ -653,6 +653,7 @@ final class MetadataBackfillService {
     @ObservationIgnored private var backgroundAssertionGeneration: UUID?
     @ObservationIgnored private var continuedProcessingSession: (any MetadataBackgroundContinuation)?
     @ObservationIgnored private var systemProcessingSessions: Set<UUID> = []
+    @ObservationIgnored private var throughputSampler = MetadataReadThroughputSampler()
     @ObservationIgnored private var backgroundExecutionExpired = false
     #endif
 
@@ -709,6 +710,28 @@ final class MetadataBackfillService {
         if isRunning { beginBackgroundTaskIfNeeded() }
     }
     #endif
+
+    /// 定期把实测读取速率和当时的限制条件打在同一行。
+    ///
+    /// 速率慢下来的原因有好几个互不相干的来源：读取位被压、正在播放、机器发热、
+    /// 低电量。单看「慢」分不出是哪一个，凑在一行就能直接对号入座。
+    private func logReadThroughputIfDue(totalCompleted: Int) {
+        guard let sample = throughputSampler.record(totalCompleted: totalCompleted) else {
+            return
+        }
+        let limits = executionLimits
+        let environment = readingEnvironment()
+        plog(
+            "📥 Backfill throughput "
+                + String(format: "%.0f", sample.itemsPerMinute) + "/min "
+                + "(\(sample.processedInWindow) in "
+                + String(format: "%.0f", sample.windowSeconds) + "s) "
+                + "workers=\(limits.workerCount) delay=\(limits.interRequestDelay) "
+                + "mode=\(readingMode.rawValue) exec=\(executionMode) "
+                + "playback=\(environment.playbackActive) offline=\(environment.offlineSource) "
+                + "thermal=\(environment.thermalState) lowPower=\(environment.lowPowerMode)"
+        )
+    }
 
     private func finishContinuedProcessing(success: Bool) {
         #if os(iOS)
@@ -1517,6 +1540,7 @@ final class MetadataBackfillService {
         pendingCount = needsBackfill.count
         processedTotal = 0
         processedCount = 0
+        throughputSampler.reset()
         isRunning = true
         workerGeneration += 1
         let generation = workerGeneration
@@ -3378,6 +3402,7 @@ final class MetadataBackfillService {
                 }
                 for other in batchSchedulers.values { other.configurationChanged() }
                 processedTotal += 1
+                logReadThroughputIfDue(totalCompleted: processedTotal)
                 // UI progress does not need per-file granularity. Publishing
                 // every ten results prevents an Observable invalidation storm
                 // while retaining responsive feedback.
