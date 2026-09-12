@@ -256,4 +256,13 @@ struct LocalPlaybackResumePolicyTests {
         #expect(monitor.observe(progress: nil, isDownloading: false, at: 98) == false)
         #expect(monitor.observe(progress: nil, isDownloading: false, at: 99) == true)
     }
+
+    @Test("Recovery materialization stall clock pauses while an external decision is pending")
+    func materializationExternalWaitCountsAsActivity() {
+        var monitor = PlaybackRecoveryMaterializationStallMonitor(startedAt: 0, stallTimeout: 45)
+        #expect(monitor.observe(progress: nil, isDownloading: false, at: 30) == false)
+        monitor.recordActivity(at: 60)
+        #expect(monitor.observe(progress: nil, isDownloading: false, at: 104) == false)
+        #expect(monitor.observe(progress: nil, isDownloading: false, at: 105) == true)
+    }
 }

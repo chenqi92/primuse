@@ -606,6 +606,12 @@ extension AudioPlayerService {
                 } catch {
                     return
                 }
+                // 证书 / 明文 HTTP 确认弹窗挂起时, 传输在等用户而不是网络,
+                // 这段时间不计入停滞。
+                if SSLTrustStore.shared.isAwaitingTransportDecision {
+                    monitor.recordActivity(at: ProcessInfo.processInfo.systemUptime)
+                    continue
+                }
                 let snapshot = sourceManager.offlineAudioSnapshot(for: song)
                 let stalled = monitor.observe(
                     progress: snapshot.progress,

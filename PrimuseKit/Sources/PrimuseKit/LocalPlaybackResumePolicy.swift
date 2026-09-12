@@ -172,4 +172,10 @@ public struct PlaybackRecoveryMaterializationStallMonitor: Equatable, Sendable {
         }
         return now - lastActivityAt >= stallTimeout
     }
+
+    /// Treats an external wait that legitimately blocks the transfer, such as a
+    /// certificate prompt awaiting the user, as activity.
+    public mutating func recordActivity(at now: TimeInterval) {
+        lastActivityAt = now
+    }
 }

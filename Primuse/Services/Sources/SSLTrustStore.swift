@@ -8,6 +8,10 @@ import SwiftUI
 import AppKit
 #endif
 
+#if os(iOS)
+import UIKit
+#endif
+
 /// Serializes the app-wide alert classes that can be raised by background
 /// networking. UIKit cannot safely attach two alert controllers to the same
 /// presentation hierarchy while one of them is still dismissing.
@@ -217,6 +221,12 @@ final class SSLTrustStore {
     /// warning still applies before the first cleartext request is sent.
     private var pendingInsecureHTTPTrustRequest: InsecureHTTPTrustRequest?
     private var waitingInsecureHTTPTrustRequests: [InsecureHTTPTrustRequest] = []
+
+    /// True while a certificate or cleartext-HTTP confirmation is waiting for
+    /// the user. Transfers blocked on it wait for a decision, not for bytes.
+    var isAwaitingTransportDecision: Bool {
+        pendingTrustRequest != nil || pendingInsecureHTTPTrustRequest != nil
+    }
 
     private static let defaultDomains: [String] = []
 
@@ -461,19 +471,24 @@ final class SSLTrustStore {
         return domains.contains(legacyHost)
     }
 
-    /// Thread-safe synchronous read of the pinned leaf-certificate SHA256 for a trusted domain.
-    /// Returns nil when the domain has no recorded fingerprint yet (TOFU first contact).
-    nonisolated static func pinnedFingerprintSync(domain: String) -> String? {
+    /// Thread-safe synchronous read of the pinned certificate record for a trusted domain.
+    nonisolated static func pinnedCertificateSync(domain: String) -> TrustedCertificateInfo? {
         let normalized = normalizeDomain(domain)
         guard let data = UserDefaults.standard.data(forKey: certificateDefaultsKey),
               let decoded = try? JSONDecoder().decode([TrustedCertificateInfo].self, from: data) else {
             return nil
         }
         if let exact = decoded.first(where: { normalizeDomain($0.domain) == normalized }) {
-            return exact.fingerprintSHA256
+            return exact
         }
         guard let legacyHost = legacyHost(for: normalized) else { return nil }
-        return decoded.first { normalizeDomain($0.domain) == legacyHost }?.fingerprintSHA256
+        return decoded.first { normalizeDomain($0.domain) == legacyHost }
+    }
+
+    /// Thread-safe synchronous read of the pinned leaf-certificate SHA256 for a trusted domain.
+    /// Returns nil when the domain has no recorded fingerprint yet (TOFU first contact).
+    nonisolated static func pinnedFingerprintSync(domain: String) -> String? {
+        pinnedCertificateSync(domain: domain)?.fingerprintSHA256
     }
 
     /// Show a trust prompt to the user. Returns `true` if user chose to trust the domain.
@@ -557,6 +572,7 @@ final class SSLTrustStore {
                     waitingTrustRequests[index].waiters.append(waiter)
                     return
                 }
+                plog("🔐 Certificate trust prompt requested domain=\(domain) reason=\(reason) queuedBehindPrompt=\(pendingTrustRequest != nil)")
                 let request = TrustRequest(
                     domain: domain,
                     certificateInfo: certificateInfo,
@@ -581,6 +597,7 @@ final class SSLTrustStore {
     /// Resume the pending trust request with the user's choice, then present the next queued request.
     func resolveTrustRequest(approved: Bool) {
         guard let request = pendingTrustRequest else { return }
+        plog("🔐 Certificate trust prompt resolved domain=\(request.domain) approved=\(approved)")
         if approved {
             trust(domain: request.domain, certificateInfo: request.certificateInfo)
         }
@@ -600,6 +617,7 @@ final class SSLTrustStore {
            let waiterIndex = request.waiters.firstIndex(where: { $0.id == id }) {
             let waiter = request.waiters.remove(at: waiterIndex)
             if request.waiters.isEmpty {
+                plog("🔐 Certificate trust prompt dropped domain=\(request.domain) (all requesters cancelled)")
                 let nextRequest = waitingTrustRequests.isEmpty ? nil : waitingTrustRequests.removeFirst()
                 pendingTrustRequest = nextRequest
                 AppAlertCoordinator.shared.cancel(.transport(request.id))
@@ -924,12 +942,29 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
             let info = SSLTrustStore.certificateInfo(domain: trustTarget, trust: trust)
             let pinnedFingerprint = SSLTrustStore.pinnedFingerprintSync(domain: trustTarget)
             var trustError: CFError?
+            let systemTrustSucceeded = SecTrustEvaluateWithError(trust, &trustError)
             let action = ServerCertificateTrustPolicy.action(
-                systemTrustSucceeded: SecTrustEvaluateWithError(trust, &trustError),
+                systemTrustSucceeded: systemTrustSucceeded,
                 endpointWasTrusted: endpointWasTrusted,
                 currentFingerprint: info?.fingerprintSHA256,
                 pinnedFingerprint: pinnedFingerprint
             )
+            if action == .requestChangedCertificateTrust,
+               let info,
+               let hostname = ServerCertificateRenewalPolicy.renewalValidationHostname(
+                   pinnedSubject: SSLTrustStore.pinnedCertificateSync(domain: trustTarget)?.subjectSummary,
+                   currentSubject: info.subjectSummary
+               ),
+               systemTrustedCredential(for: trust, hostname: hostname) != nil,
+               let credential = explicitlyTrustedCredential(for: trust) {
+                // 内网地址上的公网域名证书续期: 新证书主体不变, 且证书链对该域名
+                // 可被系统验证, 直接接受并更新指纹, 不再打断播放去确认。
+                plog("TLS accepted renewed certificate for pinned endpoint \(trustTarget) subject=\(hostname)")
+                Task { @MainActor in
+                    SSLTrustStore.shared.trust(domain: trustTarget, certificateInfo: info)
+                }
+                return (.useCredential, credential)
+            }
             switch action {
             case .useSystemTrust:
                 return (.performDefaultHandling, nil)
@@ -939,6 +974,7 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
                 }
                 return (.useCredential, credential)
             case .requestInitialTrust:
+                plog("TLS awaiting user decision for \(trustTarget) reason=initial")
                 let approved = await SSLTrustStore.shared.requestTrustForPresentedCertificate(
                     domain: trustTarget,
                     certificateInfo: info
@@ -948,6 +984,7 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
                 }
                 return (.useCredential, credential)
             case .requestChangedCertificateTrust:
+                plog("TLS awaiting user decision for \(trustTarget) reason=changed")
                 let approved = await SSLTrustStore.shared.requestTrustForChangedCertificate(
                     domain: trustTarget,
                     certificateInfo: info
@@ -1079,6 +1116,81 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
 
 }
 
+#if os(iOS)
+/// Presents the transport prompt from the top-most view controller so a sheet,
+/// full-screen cover or hidden tab can never swallow it. A SwiftUI `.alert` is
+/// bound to one view and fails silently whenever that view's hosting controller
+/// is already presenting something else; the URLSession challenge behind the
+/// prompt would then wait forever and playback would look stuck loading.
+@MainActor
+private final class IOSTransportPromptPresenter {
+    private(set) var promptID: UUID?
+    private weak var controller: UIAlertController?
+
+    /// Returns false when no view controller can present right now.
+    func present(
+        _ prompt: SSLTrustStore.TransportPrompt,
+        title: String,
+        message: String,
+        confirmTitle: String,
+        cancelTitle: String,
+        resolve: @escaping @MainActor @Sendable (UUID, Bool) -> Void
+    ) -> Bool {
+        if promptID == prompt.id, controller != nil { return true }
+        guard let presenter = Self.topMostViewController() else { return false }
+        let requestID = prompt.id
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: cancelTitle, style: .cancel) { _ in
+            Task { @MainActor in resolve(requestID, false) }
+        })
+        alert.addAction(UIAlertAction(title: confirmTitle, style: .destructive) { _ in
+            Task { @MainActor in resolve(requestID, true) }
+        })
+        presenter.present(alert, animated: true)
+        promptID = requestID
+        controller = alert
+        plog("🔐 Certificate trust prompt presented natively id=\(requestID.uuidString.prefix(8))")
+        return true
+    }
+
+    func dismissIfStale(activePromptID: UUID?) {
+        guard let promptID, promptID != activePromptID else { return }
+        dismiss()
+    }
+
+    func dismiss() {
+        controller?.dismiss(animated: true)
+        controller = nil
+        promptID = nil
+    }
+
+    private static func topMostViewController() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let orderedScenes = scenes.sorted { lhs, rhs in
+            (lhs.activationState == .foregroundActive ? 0 : 1)
+                < (rhs.activationState == .foregroundActive ? 0 : 1)
+        }
+        var window: UIWindow?
+        for scene in orderedScenes {
+            if let candidate = scene.keyWindow
+                ?? scene.windows.first(where: \.isKeyWindow)
+                ?? scene.windows.first {
+                window = candidate
+                break
+            }
+        }
+        guard var top = window?.rootViewController else { return nil }
+        while let presented = top.presentedViewController {
+            top = presented
+        }
+        guard !top.isBeingDismissed, !top.isBeingPresented, top.viewIfLoaded?.window != nil else {
+            return nil
+        }
+        return top
+    }
+}
+#endif
+
 private struct TransportTrustAlertsModifier: ViewModifier {
     @State private var presenterID = UUID()
     @State private var store = SSLTrustStore.shared
@@ -1086,6 +1198,10 @@ private struct TransportTrustAlertsModifier: ViewModifier {
     @State private var presentedPrompt: SSLTrustStore.TransportPrompt?
     #if os(macOS)
     @State private var macOSPresentedPromptID: UUID?
+    #endif
+    #if os(iOS)
+    @State private var iosPresenter = IOSTransportPromptPresenter()
+    @State private var iosRetryTask: Task<Void, Never>?
     #endif
 
     func body(content: Content) -> some View {
@@ -1096,6 +1212,9 @@ private struct TransportTrustAlertsModifier: ViewModifier {
                 // on macOS, so transport prompts use the window sheet below.
                 return nil
                 #else
+                if let presentedPrompt, iosPresenter.promptID == presentedPrompt.id {
+                    return nil
+                }
                 return presentedPrompt
                 #endif
             },
@@ -1119,6 +1238,11 @@ private struct TransportTrustAlertsModifier: ViewModifier {
                    case .transport(let requestID) = coordinator.activeRequest {
                     store.resolveTransportPrompt(id: requestID, approved: false)
                 }
+                #if os(iOS)
+                iosRetryTask?.cancel()
+                iosRetryTask = nil
+                iosPresenter.dismiss()
+                #endif
                 coordinator.unregisterTransportPresenter(presenterID)
             }
             .alert(item: swiftUIPrompt) { prompt in
@@ -1167,6 +1291,11 @@ private struct TransportTrustAlertsModifier: ViewModifier {
         guard coordinator.activeTransportPresenterID == presenterID,
               case .transport(let requestID) = coordinator.activeRequest else {
             presentedPrompt = nil
+            #if os(iOS)
+            iosRetryTask?.cancel()
+            iosRetryTask = nil
+            iosPresenter.dismissIfStale(activePromptID: nil)
+            #endif
             return
         }
         presentedPrompt = store.transportPrompt(id: requestID)
@@ -1174,7 +1303,68 @@ private struct TransportTrustAlertsModifier: ViewModifier {
         if let presentedPrompt {
             presentMacOSPrompt(presentedPrompt)
         }
+        #elseif os(iOS)
+        iosPresenter.dismissIfStale(activePromptID: presentedPrompt?.id)
+        if let presentedPrompt {
+            presentIOSPrompt(presentedPrompt)
+        }
         #endif
+    }
+
+    #if os(iOS)
+    @MainActor
+    private func presentIOSPrompt(_ prompt: SSLTrustStore.TransportPrompt) {
+        iosRetryTask?.cancel()
+        iosRetryTask = nil
+        let texts = promptTexts(prompt)
+        let presented = iosPresenter.present(
+            prompt,
+            title: texts.title,
+            message: texts.message,
+            confirmTitle: texts.confirm,
+            cancelTitle: texts.cancel
+        ) { id, approved in
+            store.resolveTransportPrompt(id: id, approved: approved)
+        }
+        guard !presented else { return }
+        // 顶层控制器正在转场或窗口尚未就绪: 稍后重试, 期间 SwiftUI 弹窗作为兜底。
+        iosRetryTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .milliseconds(500))
+            } catch {
+                return
+            }
+            synchronizePrompt()
+        }
+    }
+    #endif
+
+    private func promptTexts(
+        _ prompt: SSLTrustStore.TransportPrompt
+    ) -> (title: String, message: String, confirm: String, cancel: String) {
+        switch prompt {
+        case .certificate(_, _, _, _, let reason):
+            return (
+                String(
+                    localized: reason == .certificateChanged
+                        ? "ssl_trust_changed_title"
+                        : "ssl_trust_title"
+                ),
+                certificatePromptMessage(prompt),
+                String(localized: "trust_domain"),
+                String(localized: "dont_trust")
+            )
+        case .insecureHTTP(_, let endpoint):
+            return (
+                String(localized: "insecure_http_warning_title"),
+                String(
+                    format: String(localized: "insecure_http_warning_message %@"),
+                    endpoint
+                ),
+                String(localized: "insecure_http_continue"),
+                String(localized: "cancel")
+            )
+        }
     }
 
     #if os(macOS)
