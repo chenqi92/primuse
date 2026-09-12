@@ -23,7 +23,7 @@ extension Notification.Name {
 #endif
 
 /// Mutable counter that can be captured by @Sendable closures (e.g. Timer callbacks wrapped in Task).
-private final class StepCounter: @unchecked Sendable {
+final class StepCounter: @unchecked Sendable {
     var value = 0
 }
 
@@ -37,7 +37,7 @@ private final class StepCounter: @unchecked Sendable {
 ///
 /// If this invariant changes (e.g. multiple consumers), replace `@unchecked Sendable`
 /// with an actor wrapper or protect `iterator` with `os_unfair_lock`.
-private final class BufferIteratorBox: @unchecked Sendable {
+final class BufferIteratorBox: @unchecked Sendable {
     private var iterator: AudioBufferStream.AsyncIterator
 
     init(_ iterator: AudioBufferStream.AsyncIterator) {
@@ -57,7 +57,7 @@ private struct PCMBufferBox: @unchecked Sendable {
 /// Mutable handoff state for one gapless boundary. The audio scheduling
 /// callback and decoder task both touch it, but all mutations are routed
 /// back through `AudioPlayerService` on MainActor.
-private final class GaplessTransitionState: @unchecked Sendable {
+final class GaplessTransitionState: @unchecked Sendable {
     let queueGeneration: Int
     let advanceTicket: PlaybackAdvanceTicket
     var prepared: GaplessPreparedTrack?
@@ -92,7 +92,7 @@ private final class GaplessTransitionState: @unchecked Sendable {
     }
 }
 
-private struct GaplessPreparedTrack: @unchecked Sendable {
+struct GaplessPreparedTrack: @unchecked Sendable {
     let queueEntryID: UUID
     let song: Song
     let url: URL
@@ -133,7 +133,7 @@ struct WatchQueueDigestSnapshot: Sendable {
 }
 #endif
 
-private struct PreparedPlaybackSessionRestore: Sendable {
+struct PreparedPlaybackSessionRestore: Sendable {
     let plan: PlaybackSessionRestorationPlan
     let entries: [QueueEntry]
     let loadFinishedAt: TimeInterval
@@ -164,7 +164,7 @@ struct QueuePresentationEntry: Sendable, Identifiable {
 /// changes. App Group and image I/O must never run on the main actor: a stalled
 /// shared-container write would otherwise freeze the complete macOS UI while
 /// audio continues in the background.
-private struct MacWidgetPlaybackPublishRequest: Sendable {
+struct MacWidgetPlaybackPublishRequest: Sendable {
     let currentSong: Song?
     let artistDisplayName: String?
     let isPlaying: Bool
@@ -185,7 +185,7 @@ private struct MacWidgetPlaybackPublishRequest: Sendable {
 /// spawning more writers. If macOS stalls one filesystem call, the player UI
 /// remains responsive and the pending memory footprint stays bounded to one
 /// snapshot.
-private actor MacWidgetPlaybackPublisher {
+actor MacWidgetPlaybackPublisher {
     static let shared = MacWidgetPlaybackPublisher()
 
     private struct PublicationContext: Sendable {
@@ -491,26 +491,26 @@ final class AudioPlayerService {
     let audioEngine: AudioEngine
     let equalizerService: EqualizerService
     let audioEffectsService: AudioEffectsService
-    private let sourceManager: SourceManager?
-    private let library: MusicLibrary?
+    let sourceManager: SourceManager?
+    let library: MusicLibrary?
     @ObservationIgnored private weak var playbackMetadataBackfill: MetadataBackfillService?
-    @ObservationIgnored private var playbackMetadataSourceType: ((String) -> MusicSourceType?)?
+    @ObservationIgnored var playbackMetadataSourceType: ((String) -> MusicSourceType?)?
     @ObservationIgnored private var playbackMetadataTask: Task<Void, Never>?
     @ObservationIgnored private var playbackMetadataTaskIdentity: PlaybackMetadataIdentity?
     @ObservationIgnored private var playbackMetadataTaskToken: UUID?
     @ObservationIgnored private var playbackMetadataFailureCounts: [PlaybackMetadataIdentity: Int] = [:]
-    @ObservationIgnored private var artistNameConfiguration: ArtistNameConfiguration
-    private let playbackSessionStore: PlaybackSessionStore
+    @ObservationIgnored var artistNameConfiguration: ArtistNameConfiguration
+    let playbackSessionStore: PlaybackSessionStore
     /// 快照仍然在主 actor 上采集, 但 JSON 编码与原子写交给这个协调器在后台
     /// 完成。它用递增的 generation 合并请求: 只有最新的状态会落盘, 更新的
     /// 请求会顶掉还没写出去的旧请求, 最终状态永远不会丢。
-    @ObservationIgnored private let playbackSessionPersistence:
+    @ObservationIgnored let playbackSessionPersistence:
         PlaybackSessionPersistenceCoordinator
-    @ObservationIgnored private var playbackSessionPersistGeneration: UInt64 = 0
-    private var playbackSessionRestoreLifecycle = PlaybackSessionRestoreLifecycle()
-    private var isRestoringPlaybackSession = false
+    @ObservationIgnored var playbackSessionPersistGeneration: UInt64 = 0
+    var playbackSessionRestoreLifecycle = PlaybackSessionRestoreLifecycle()
+    var isRestoringPlaybackSession = false
 
-    private(set) var currentSong: Song? {
+    var currentSong: Song? {
         didSet {
             #if os(iOS)
             prepareLyricsForSystemSurfaces(previousSong: oldValue)
@@ -518,29 +518,29 @@ final class AudioPlayerService {
             playbackMetadataSongDidChange(from: oldValue, to: currentSong)
         }
     }
-    private(set) var isPlaying = false {
+    var isPlaying = false {
         didSet {
             if isPlaying && !isLoading { schedulePlaybackMetadataReadIfNeeded() }
         }
     }
-    private(set) var playbackKind: PlaybackKind = .track
-    private(set) var currentRadioStation: RadioStation?
-    private(set) var radioMetadataTitle: String?
+    var playbackKind: PlaybackKind = .track
+    var currentRadioStation: RadioStation?
+    var radioMetadataTitle: String?
     /// 电台此刻推送的完整元数据(拆好的艺术家/曲名 + 配图地址)。
     /// 播放页要做「正在播放」这类展示时用它，而不是自己再解析一遍文本。
-    private(set) var radioNowPlaying: RadioLiveMetadata?
+    var radioNowPlaying: RadioLiveMetadata?
     /// 当前曲目的配图。电台给了就用它盖住台标 —— 那是此刻更贴切的画面。
-    private(set) var radioNowPlayingArtworkURL: String?
+    var radioNowPlayingArtworkURL: String?
     /// 本次收听里出现过的曲目/节目，最新的在最前。电台没有播放列表，
     /// 这条历史就是听众唯一能回看「刚才那首叫什么」的地方。
-    private(set) var radioTitleHistory: [RadioTitleHistoryEntry] = []
+    var radioTitleHistory: [RadioTitleHistoryEntry] = []
     /// 这条流带的字幕轨。广播电台基本都是空的。
-    private(set) var radioSubtitleTracks: [RadioSubtitleTrack] = []
-    private(set) var radioSelectedSubtitleTrackID: String?
+    var radioSubtitleTracks: [RadioSubtitleTrack] = []
+    var radioSelectedSubtitleTrackID: String?
     /// 当前该显示的字幕文本。
-    private(set) var radioSubtitleText: String?
-    private(set) var radioStreamFormat: RadioStreamFormat = .automatic
-    private(set) var radioBitRate: Int?
+    var radioSubtitleText: String?
+    var radioStreamFormat: RadioStreamFormat = .automatic
+    var radioBitRate: Int?
     var isLiveRadio: Bool { playbackKind == .liveRadio }
     var canSwitchRadioStation: Bool { isLiveRadio && radioStationOrder.count > 1 }
     var playbackCapabilities: PlaybackPresentationCapabilities {
@@ -555,10 +555,10 @@ final class AudioPlayerService {
     ///
     /// 触发: handleTrackEnd .off + nextSongInQueue() == nil
     /// 退出: play(song:) / stop() / resume() (resume 会把当前歌重新 play)
-    private(set) var isAtTrackEnd = false
+    var isAtTrackEnd = false
     /// `currentTimeAnchor` 在 didSet 里自动同步 wall-clock，配合 `interpolatedTime(at:)`
     /// 在 0.5s 引擎采样间隙内做线性外推，让 60Hz 字级歌词动画无抖。
-    private(set) var currentTime: TimeInterval = 0 {
+    var currentTime: TimeInterval = 0 {
         didSet {
             currentTimeAnchor = Date()
             handoffCurrentTime = currentTime
@@ -567,8 +567,8 @@ final class AudioPlayerService {
             #endif
         }
     }
-    private(set) var duration: TimeInterval = 0
-    private(set) var isLoading = false {
+    var duration: TimeInterval = 0
+    var isLoading = false {
         didSet {
             if !isLoading && isPlaying { schedulePlaybackMetadataReadIfNeeded() }
         }
@@ -576,7 +576,7 @@ final class AudioPlayerService {
     private(set) var lastPlaybackError: String?
     /// `currentSong` is published before remote resolution finishes, so it
     /// cannot tell resume whether a local decoder has scheduled any audio.
-    @ObservationIgnored private var hasPreparedLocalPlayback = false
+    @ObservationIgnored var hasPreparedLocalPlayback = false
     private(set) var musicVideoPlayer: AVPlayer?
     private(set) var isMusicVideoModeEnabled = false
     private(set) var isMusicVideoPlaybackActive = false
@@ -597,26 +597,26 @@ final class AudioPlayerService {
 
     @ObservationIgnored private var systemAudioPlayer: AVPlayer?
     @ObservationIgnored private var systemAudioStreamingLoader: SystemAudioStreamingLoader?
-    @ObservationIgnored private var systemAudioStartupWatchdog: Task<Void, Never>?
-    @ObservationIgnored private var systemAudioPlaybackDidStart = false
-    @ObservationIgnored private var pendingSystemAudioSeek: (
+    @ObservationIgnored var systemAudioStartupWatchdog: Task<Void, Never>?
+    @ObservationIgnored var systemAudioPlaybackDidStart = false
+    @ObservationIgnored var pendingSystemAudioSeek: (
         playID: UUID,
         songID: String,
         time: TimeInterval,
         shouldStart: Bool
     )?
-    private var isSystemAudioPlaybackActive = false
+    var isSystemAudioPlaybackActive = false
     private var systemAudioFallbackContext: (
         song: Song,
         url: URL,
         streamEpoch: UInt64
     )?
 
-    private var isSystemMediaPlaybackActive: Bool {
+    var isSystemMediaPlaybackActive: Bool {
         isMusicVideoPlaybackActive || isSystemAudioPlaybackActive
     }
 
-    private var activeSystemMediaPlayer: AVPlayer? {
+    var activeSystemMediaPlayer: AVPlayer? {
         isSystemAudioPlaybackActive ? systemAudioPlayer : musicVideoPlayer
     }
 
@@ -641,7 +641,7 @@ final class AudioPlayerService {
     /// `clearQueue`, `moveQueueItems`, or `syncSongMetadata`; do NOT
     /// hand-edit from outside.
     @ObservationIgnored private var queueSnapshotRevision = 0
-    private(set) var queueEntries: [QueueEntry] = [] {
+    var queueEntries: [QueueEntry] = [] {
         didSet { queueSnapshotRevision &+= 1 }
     }
     /// Backward-compatible read-only view over the queue's songs.
@@ -766,37 +766,37 @@ final class AudioPlayerService {
 
     /// mirror task 写自己字段时设为 true, 让 didSet 跳过"再写回 Apple Music"
     /// 的副作用, 避免 mirror → setRepeat/setShuffle → polling → mirror 的回环。
-    private var isMirroringFromAppleMusic = false
+    var isMirroringFromAppleMusic = false
 
     /// MusicKit renders a contiguous segment; Primuse retains the complete
     /// queue and each occurrence's identity across providers and edits.
-    private var isPrimuseManagingAppleMusicQueue = false
-    @ObservationIgnored private var appleMusicQueueUpdateTask: Task<Void, Never>?
+    var isPrimuseManagingAppleMusicQueue = false
+    @ObservationIgnored var appleMusicQueueUpdateTask: Task<Void, Never>?
 
     // MARK: - DLNA Casting (推到外部 Renderer)
 
     /// 当前正在投屏的 RemoteRenderer。nil = 本机播放。
     /// 跟 isAppleMusicMode 一样作为路由开关: togglePlayPause / next / previous /
     /// seek 检测到 isCastingMode 后走 RemoteRendererController 而不是 audioEngine。
-    private(set) var castingRenderer: RemoteRenderer?
+    var castingRenderer: RemoteRenderer?
 
     /// 跟当前 castingRenderer 对应的 SOAP controller。生命周期跟 castingRenderer 绑定。
-    private var castingController: RemoteRendererController?
+    var castingController: RemoteRendererController?
     /// Orders asynchronous renderer commands. Any newer Play/Pause/ownership
     /// change makes an older network response observationally stale.
-    private var castingCommandGeneration: UInt64 = 0
+    var castingCommandGeneration: UInt64 = 0
 
     /// 1Hz 轮询 GetPositionInfo + GetTransportInfo 同步进度 / 播放状态。
-    private var castingPositionTask: Task<Void, Never>?
+    var castingPositionTask: Task<Void, Never>?
     /// Replacement Apple Music requests await the same renderer Stop instead
     /// of observing a temporarily detached controller and starting early.
-    private var appleMusicCastingHandoffTask: Task<Bool, Never>?
-    private var appleMusicCastingHandoffID = UUID()
-    private var appleMusicCastingHandoffController: RemoteRendererController?
-    private var appleMusicCastingHandoffRenderer: RemoteRenderer?
+    var appleMusicCastingHandoffTask: Task<Bool, Never>?
+    var appleMusicCastingHandoffID = UUID()
+    var appleMusicCastingHandoffController: RemoteRendererController?
+    var appleMusicCastingHandoffRenderer: RemoteRenderer?
 
     var isCastingMode: Bool { castingRenderer != nil }
-    private var isPlaybackActuallyActive: Bool {
+    var isPlaybackActuallyActive: Bool {
         if isLiveRadio || isAppleMusicMode || isCastingMode || isSystemMediaPlaybackActive {
             return isPlaying
         }
@@ -806,10 +806,10 @@ final class AudioPlayerService {
     /// `isPlaying` is retained as the mirrored backend flag; this additionally
     /// verifies local engine output so a stopped engine cannot show Pause.
     var isPlaybackActive: Bool { isPlaybackActuallyActive }
-    private var appleMusicPlaybackTask: Task<Void, Never>?
-    private var appleMusicTimeoutTask: Task<Void, Never>?
-    private var activeAppleMusicRequestID: UUID?
-    private var pendingAppleMusicRestoredPosition: (songID: String, time: TimeInterval)?
+    var appleMusicPlaybackTask: Task<Void, Never>?
+    var appleMusicTimeoutTask: Task<Void, Never>?
+    var activeAppleMusicRequestID: UUID?
+    var pendingAppleMusicRestoredPosition: (songID: String, time: TimeInterval)?
     private var appleMusicMirrorTask: Task<Void, Never>?
     /// Invalidates suspended observation tasks when playback changes owner.
     /// Cancellation alone is insufficient because a checked continuation can
@@ -821,29 +821,29 @@ final class AudioPlayerService {
     private var musicVideoStatusObservation: NSKeyValueObservation?
     private var musicVideoTimeControlObservation: NSKeyValueObservation?
     private var musicVideoFailedObserver: NSObjectProtocol?
-    private var musicVideoObserverGeneration: UInt64 = 0
-    private var pendingMusicVideoPlayID: UUID?
+    var musicVideoObserverGeneration: UInt64 = 0
+    var pendingMusicVideoPlayID: UUID?
     private struct MusicVideoSeekActivityEvidence {
         let itemID: String
         let playID: UUID
         let observerGeneration: UInt64
     }
-    private var musicVideoSeekActivityEvidence: MusicVideoSeekActivityEvidence?
-    private let radioPlaybackController = RadioPlaybackController()
-    private var radioLiveStreamSource: RadioLiveStreamSource?
-    private var radioUsesDecodedTransport = false
-    private var radioPrefersDecodedTransport = false
-    private var radioDidAttemptDecodedFallback = false
-    private var radioDecodedFallbackNeedsValidation = false
+    var musicVideoSeekActivityEvidence: MusicVideoSeekActivityEvidence?
+    let radioPlaybackController = RadioPlaybackController()
+    var radioLiveStreamSource: RadioLiveStreamSource?
+    var radioUsesDecodedTransport = false
+    var radioPrefersDecodedTransport = false
+    var radioDidAttemptDecodedFallback = false
+    var radioDecodedFallbackNeedsValidation = false
     /// Ephemeral direct URL for the active station. Source-backed streams can
     /// contain access tokens, so this value never enters `RadioStation`,
     /// persistence, widgets, or CloudKit payloads.
-    private var radioResolvedStreamURL: URL?
-    private var pendingRadioResolutionID: UUID?
-    private var radioStationOrder: [RadioStation] = []
-    private var radioReconnectTask: Task<Void, Never>?
-    private var radioReconnectAttempt = 0
-    private var radioPlaybackStartedAt: Date?
+    var radioResolvedStreamURL: URL?
+    var pendingRadioResolutionID: UUID?
+    var radioStationOrder: [RadioStation] = []
+    var radioReconnectTask: Task<Void, Never>?
+    var radioReconnectAttempt = 0
+    var radioPlaybackStartedAt: Date?
     /// AVAssetResourceLoader 对 delegate 是弱引用, 流式播放期间必须强持有。
     private var musicVideoStreamingLoader: MusicVideoStreamingLoader?
     #if os(iOS)
@@ -879,15 +879,15 @@ final class AudioPlayerService {
     #endif
 
     // MARK: - Shuffle Order
-    private var shuffledIndices: [Int] = []
-    private var shufflePosition: Int = 0
+    var shuffledIndices: [Int] = []
+    var shufflePosition: Int = 0
     /// Pre-computed next round used by repeat-all wrap-around. Generated on
     /// first demand from queue preview or prefetch so `nextSongInQueue` and
     /// `advanceToNextIndex` adopt exactly the visible order. Cleared on any
     /// structural change to `queue` / shuffle state.
-    @ObservationIgnored private var pendingNextShuffleIndices: [Int]?
+    @ObservationIgnored var pendingNextShuffleIndices: [Int]?
     /// Invalidates prepared gapless transitions when queue order changes.
-    private var queueGeneration = 0
+    var queueGeneration = 0
 
     // MARK: - Decoder Tracking (for seek)
     /// Tracks which decoder pipeline produced the currently-playing audio
@@ -897,8 +897,8 @@ final class AudioPlayerService {
     /// requires building a NEW `InputSource` — feeding the
     /// `primuse-stream://` URL to SFB's URL-based opener fails because
     /// the scheme isn't registered with the file system.
-    fileprivate enum DecoderKind: Sendable, Equatable { case native, ffmpeg, streaming, httpStream, cloudStream, assetReader }
-    private struct CommittedCrossfade {
+    enum DecoderKind: Sendable, Equatable { case native, ffmpeg, streaming, httpStream, cloudStream, assetReader }
+    struct CommittedCrossfade {
         let attemptID: UUID
         let playID: UUID
         let song: Song
@@ -908,34 +908,34 @@ final class AudioPlayerService {
         /// primary 节点, 解码泵靠它判断自己还能不能继续投递。
         let outgoingPlayID: UUID
     }
-    private enum CrossfadeCompletionMode: Equatable {
+    enum CrossfadeCompletionMode: Equatable {
         case activePlayback
         case preserveCachedProgress
     }
-    private var activeDecoderKind: DecoderKind = .native
-    private var activeDSDPlaybackMode: DSDPlaybackMode = .pcm
+    var activeDecoderKind: DecoderKind = .native
+    var activeDSDPlaybackMode: DSDPlaybackMode = .pcm
 
     // MARK: - Sleep Timer
-    private(set) var sleepTimerEndDate: Date?
-    private var sleepTimerTask: Task<Void, Never>?
+    var sleepTimerEndDate: Date?
+    var sleepTimerTask: Task<Void, Never>?
     /// "曲终停止" 模式: 持有当前歌曲的 id, 一旦切到下一首 (或 currentSong
     /// 变 nil) 立即 pause。比固定分钟数更智能 ── 不会在曲子中间硬切。
-    private(set) var sleepStopAfterSongID: String? {
+    var sleepStopAfterSongID: String? {
         didSet { if sleepStopAfterSongID != oldValue { synchronizeAppleMusicQueue() } }
     }
     var isSleepTimerActive: Bool { sleepTimerEndDate != nil || sleepStopAfterSongID != nil }
 
-    private var displayLink: Timer?
-    @ObservationIgnored private var playbackClockTickGate = PlaybackClockTickGate()
+    var displayLink: Timer?
+    @ObservationIgnored var playbackClockTickGate = PlaybackClockTickGate()
     /// Completion callbacks from AVAudioPlayerNode are occasionally lost after
     /// route changes. Keep a near-end progress watchdog so a drained first
     /// track cannot leave a non-empty queue stuck forever.
-    private var lastEngineProgressSample: TimeInterval?
-    private var nearEndStallSampleCount = 0
-    private static let trackEndStallSampleThreshold = 4
-    private let nativeDecoder = NativeAudioDecoder()
-    private let ffmpegDecoder = FFmpegAudioDecoder()
-    private let radioFLACDecoder = RadioFLACAudioDecoder()
+    var lastEngineProgressSample: TimeInterval?
+    var nearEndStallSampleCount = 0
+    static let trackEndStallSampleThreshold = 4
+    let nativeDecoder = NativeAudioDecoder()
+    let ffmpegDecoder = FFmpegAudioDecoder()
+    let radioFLACDecoder = RadioFLACAudioDecoder()
 
     /// 一次性 hint: 搜索页点歌词命中结果时填入, NowPlayingView 加载好歌词后
     /// 用这串文本 fuzzy match 找到对应 LyricLine.timestamp 并 seek。命中后
@@ -950,7 +950,7 @@ final class AudioPlayerService {
     func clearPendingLyricsJump() {
         pendingLyricsJump = nil
     }
-    private let assetReaderDecoder = AssetReaderDecoder()
+    let assetReaderDecoder = AssetReaderDecoder()
     private let streamingDecoder = StreamingDownloadDecoder()
     private struct ActiveStreamingDownloadPreparation {
         let id: UUID
@@ -964,18 +964,18 @@ final class AudioPlayerService {
         let songID: String
         let task: Task<Void, Never>
     }
-    @ObservationIgnored private var activeStreamingDownloadPreparation:
+    @ObservationIgnored var activeStreamingDownloadPreparation:
         ActiveStreamingDownloadPreparation?
     @ObservationIgnored private var streamingDownloadRetirement:
         StreamingDownloadRetirement?
-    private var decodingTask: Task<Void, Never>?
-    private var prefetchTask: Task<Void, Never>?
-    private var gaplessPreparationTask: Task<Void, Never>?
-    private var gaplessFollowupTask: Task<Void, Never>?
-    private var crossfadeStartupTask: Task<Void, Never>?
-    private var crossfadeDecodingTask: Task<Void, Never>?
-    private var crossfadeAttemptID: UUID?
-    private var committedCrossfade: CommittedCrossfade? {
+    var decodingTask: Task<Void, Never>?
+    var prefetchTask: Task<Void, Never>?
+    var gaplessPreparationTask: Task<Void, Never>?
+    var gaplessFollowupTask: Task<Void, Never>?
+    var crossfadeStartupTask: Task<Void, Never>?
+    var crossfadeDecodingTask: Task<Void, Never>?
+    var crossfadeAttemptID: UUID?
+    var committedCrossfade: CommittedCrossfade? {
         didSet { syncPumpLease() }
     }
     /// swapPlayerNodes() 之后, crossfade 解码任务正在喂的那个物理节点已经
@@ -984,12 +984,12 @@ final class AudioPlayerService {
     /// 节点上, 导致 swap 后剩余音频丢失(歌中途静音)。completeCrossfade 置
     /// true, startCrossfade 每次重置为 false。两者都在 MainActor, 不会
     /// 与解码循环的单条 schedule 语句交错。
-    private var crossfadeSwapDone = false
-    private var crossfadeTimer: Timer?
-    private var crossfadeTimerAttemptID: UUID?
-    private var crossfadeTriggered = false
-    @ObservationIgnored private var silenceProfiles: [String: AudioSilenceProfile] = [:]
-    @ObservationIgnored private var smartMixAnalyses: [String: SmartMixTrackAnalysis] = [:]
+    var crossfadeSwapDone = false
+    var crossfadeTimer: Timer?
+    var crossfadeTimerAttemptID: UUID?
+    var crossfadeTriggered = false
+    @ObservationIgnored var silenceProfiles: [String: AudioSilenceProfile] = [:]
+    @ObservationIgnored var smartMixAnalyses: [String: SmartMixTrackAnalysis] = [:]
     private struct SmartMixPlatformAnalysisTask {
         let id: UUID
         let task: Task<Void, Never>
@@ -1000,10 +1000,10 @@ final class AudioPlayerService {
     /// Crossfade 提交后 currentSong 已经切到淡入曲, 但 primary node 在 ramp
     /// 完成前仍属于淡出曲。进度更新据此改读 crossfade node 的独立时钟,
     /// swap 后再无缝回到 primary node。
-    private var isCrossfading = false {
+    var isCrossfading = false {
         didSet { syncPumpLease() }
     }
-    private var playID: UUID? {
+    var playID: UUID? {
         didSet { syncPumpLease() }
     }
     /// 解码泵不再跑在 MainActor 上, 所以它们无法直接读 playID / crossfade 状态。
@@ -1014,33 +1014,33 @@ final class AudioPlayerService {
     /// 播放完整段 ramp。喂 primary 节点的解码泵因此在转场结束(或被取消)之前
     /// 保留调度资格, 否则 overlap 超过 `decodedAudioLookahead` 时淡出轨会在
     /// ramp 中途断流, 直接变成静音。
-    @ObservationIgnored private let pumpLease = PlaybackOwnershipLease<UUID>()
-    @ObservationIgnored private var activeDecodedBufferGate: DecodedBufferGate?
-    private var activeDecodedBufferGatePlayID: UUID?
-    private var decodedBufferUnhealthySampleCount = 0
-    private var decodedBufferHealthySampleCount = 0
-    private var decodedBufferRecoveryAttempts = 0
-    private var decodedBufferRecoveryInProgress = false
-    private var lastDecodedBufferSampleUptime: TimeInterval?
-    private var decodedBufferDiagnosticUnderflowStartedAt: TimeInterval?
-    private var decodedBufferDiagnosticEpisodeCount = 0
-    private var lastDecodedBufferRecoveryAt: Date?
+    @ObservationIgnored let pumpLease = PlaybackOwnershipLease<UUID>()
+    @ObservationIgnored var activeDecodedBufferGate: DecodedBufferGate?
+    var activeDecodedBufferGatePlayID: UUID?
+    var decodedBufferUnhealthySampleCount = 0
+    var decodedBufferHealthySampleCount = 0
+    var decodedBufferRecoveryAttempts = 0
+    var decodedBufferRecoveryInProgress = false
+    var lastDecodedBufferSampleUptime: TimeInterval?
+    var decodedBufferDiagnosticUnderflowStartedAt: TimeInterval?
+    var decodedBufferDiagnosticEpisodeCount = 0
+    var lastDecodedBufferRecoveryAt: Date?
 
     private var errorDismissTask: Task<Void, Never>?
-    @ObservationIgnored private var interruptionResumePolicy = PlaybackInterruptionResumePolicy()
-    @ObservationIgnored private var playbackAdvancePolicy = PlaybackAdvanceEligibilityPolicy()
-    @ObservationIgnored private var localPipelineAdvanceTicket: PlaybackAdvanceTicket?
+    @ObservationIgnored var interruptionResumePolicy = PlaybackInterruptionResumePolicy()
+    @ObservationIgnored var playbackAdvancePolicy = PlaybackAdvanceEligibilityPolicy()
+    @ObservationIgnored var localPipelineAdvanceTicket: PlaybackAdvanceTicket?
     private struct ConfigurationRecoveryActivityEvidence {
         let itemID: String
         var rebuildPlayID: UUID?
     }
-    private var configurationRecoveryOwnerPlayID: UUID?
+    var configurationRecoveryOwnerPlayID: UUID?
     /// The AirPlay-return rebuild deliberately toggles AVAudioSession inactive
     /// and active while retaining one play generation. Both transitions may
     /// emit engine configuration notifications; absorb them only while that
     /// generation still targets the built-in route.
-    private var localRouteFocusRecoveryOwnerPlayID: UUID?
-    private var configurationRecoveryActivityEvidence: ConfigurationRecoveryActivityEvidence?
+    var localRouteFocusRecoveryOwnerPlayID: UUID?
+    var configurationRecoveryActivityEvidence: ConfigurationRecoveryActivityEvidence?
     private var configurationRecoveryTask: Task<Void, Never>?
     /// A hardware-configuration candidate that may recover only after a short
     /// settle window. An actual interruption cancels it and owns all resume
@@ -1049,14 +1049,14 @@ final class AudioPlayerService {
     private var appActivationInterruptionRecoveryTask: Task<Void, Never>?
     private static let appActivationInterruptionRecoveryAttemptLimit = 4
     private var bluetoothHFPResumeWatchdogTask: Task<Void, Never>?
-    private var lastPublishedPlaybackWasActive = false
-    @ObservationIgnored private var nowPlayingTransportRepublishGeneration: UInt64 = 0
-    private var needsPlaybackRecovery = false
-    private var pendingRecoveryTime: TimeInterval = 0
+    var lastPublishedPlaybackWasActive = false
+    @ObservationIgnored var nowPlayingTransportRepublishGeneration: UInt64 = 0
+    var needsPlaybackRecovery = false
+    var pendingRecoveryTime: TimeInterval = 0
     /// A restored queue has no live decoder to preserve. Its first remote Play
     /// may try a Range seek, but must never wait for complete-file
     /// materialization merely to reconstruct a cold process.
-    private var pendingRecoveryIsColdSessionRestore = false
+    var pendingRecoveryIsColdSessionRestore = false
     /// 其他 app 的录音会话把蓝牙切到 HFP 时挂起的曲目。此刻
     /// startPlaying 会 setActive 抢回会话、打断对方录音, 只能等路由
     /// 离开 HFP 后由 attemptBluetoothHFPDeferredResume 消费。绑定曲目 ID
@@ -1066,16 +1066,16 @@ final class AudioPlayerService {
     /// 最近一段时间 gapless boundary 触发的时间戳, 用于侦测 partial-cache
     /// 引起的死循环 (boundary 反复在几秒内连续触发, 队列里 1-2 首坏歌
     /// 互相切来切去)。窗口外的记录会被丢掉。
-    private var recentBoundaryTimes: [Date] = []
-    private static let boundaryStormWindow: TimeInterval = 10
-    private static let boundaryStormThreshold = 4
+    var recentBoundaryTimes: [Date] = []
+    static let boundaryStormWindow: TimeInterval = 10
+    static let boundaryStormThreshold = 4
 
     /// A queue whose source is unavailable can otherwise recurse through every
     /// item in a few milliseconds. Keep ordinary corrupt-file skipping useful,
     /// but bound one continuous failure chain so UI/log/CPU remain responsive.
-    private var isFailureAdvanceChainActive = false
-    private var consecutiveFailureAdvanceCount = 0
-    private static let maxConsecutiveFailureAdvances = 8
+    var isFailureAdvanceChainActive = false
+    var consecutiveFailureAdvanceCount = 0
+    static let maxConsecutiveFailureAdvances = 8
 
     /// Seconds of buffered audio we let drain before forcibly advancing
     /// after a mid-stream decode error. Without this cap, the ~100 buffers
@@ -1092,20 +1092,20 @@ final class AudioPlayerService {
     /// queue scroll, metadata scrape, or remote artwork load briefly delays the
     /// main-actor scheduling loop. The duration cap still bounds PCM residency.
     /// nonisolated: 解码泵的缓冲测量已经跑在主 actor 之外, 需要在那里读到它。
-    nonisolated private static let decodedAudioLookahead: TimeInterval = 8
+    nonisolated static let decodedAudioLookahead: TimeInterval = 8
     /// Duration alone is not a memory bound for multichannel/hi-res PCM.
     /// Keep ordinary stereo tracks at the duration watermark while capping
     /// unusually wide or high-rate formats to a predictable resident size.
-    private static let maxInFlightDecodedBytes = 32 * 1024 * 1024
+    static let maxInFlightDecodedBytes = 32 * 1024 * 1024
     /// Hard cap for pathological tiny/invalid buffers. Duration remains the
     /// primary bound, so normal PCM residency stays around the lookahead window.
-    private static let maxInFlightDecodedBufferCount = 384
-    private static let decodedBufferEmptyThreshold: TimeInterval = 0.05
-    private static let requiredDecodedBufferUnhealthySamples = 3
-    private static let maxDecodedBufferRecoveryAttempts = 2
-    private static let decodedBufferRecoveryCooldown: TimeInterval = 8
+    static let maxInFlightDecodedBufferCount = 384
+    static let decodedBufferEmptyThreshold: TimeInterval = 0.05
+    static let requiredDecodedBufferUnhealthySamples = 3
+    static let maxDecodedBufferRecoveryAttempts = 2
+    static let decodedBufferRecoveryCooldown: TimeInterval = 8
 
-    nonisolated private static func decodedBufferDuration(_ buffer: AVAudioPCMBuffer) -> TimeInterval {
+    nonisolated static func decodedBufferDuration(_ buffer: AVAudioPCMBuffer) -> TimeInterval {
         let sampleRate = buffer.format.sampleRate
         guard sampleRate.isFinite, sampleRate > 0, buffer.frameLength > 0 else {
             // Preserve the old 16-buffer behavior when a decoder reports an
@@ -1115,7 +1115,7 @@ final class AudioPlayerService {
         return Double(buffer.frameLength) / sampleRate
     }
 
-    nonisolated private static func decodedBufferByteCount(_ buffer: AVAudioPCMBuffer) -> Int {
+    nonisolated static func decodedBufferByteCount(_ buffer: AVAudioPCMBuffer) -> Int {
         let audioBuffers = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList)
         let reportedBytes = audioBuffers.reduce(into: 0) {
             $0 += Int($1.mDataByteSize)
@@ -1130,7 +1130,7 @@ final class AudioPlayerService {
         return Int(buffer.frameLength) * bytesPerFrame * max(1, audioBuffers.count)
     }
 
-    private func scheduleTrackedDecodedBuffer(
+    func scheduleTrackedDecodedBuffer(
         _ buffer: AVAudioPCMBuffer,
         onCrossfadeNode: Bool = false,
         gate: DecodedBufferGate
@@ -1163,9 +1163,9 @@ final class AudioPlayerService {
             )
         }
     }
-    private static let firstBufferTimeoutSeconds = 35
+    static let firstBufferTimeoutSeconds = 35
     private static let remoteFallbackFirstBufferTimeoutSeconds = 60
-    private static let dlnaSourceID = "dlna"
+    static let dlnaSourceID = "dlna"
 
     private struct PlaybackMetadataIdentity: Hashable, Sendable {
         let songID: String
@@ -1505,11 +1505,11 @@ final class AudioPlayerService {
         _ = audioEngine.prepareHardwareSampleRate(Double(sr))
     }
 
-    private func shouldApplyReplayGain(_ settings: PlaybackSettings) -> Bool {
+    func shouldApplyReplayGain(_ settings: PlaybackSettings) -> Bool {
         settings.outputMode == .effects && settings.replayGainEnabled
     }
 
-    private func shouldUseCrossfade(_ settings: PlaybackSettings) -> Bool {
+    func shouldUseCrossfade(_ settings: PlaybackSettings) -> Bool {
         settings.outputMode == .effects && settings.crossfadeEnabled
     }
 
@@ -1543,7 +1543,7 @@ final class AudioPlayerService {
     /// Negotiates the render graph before decoder creation. DoP is only used
     /// when a DSP-free graph is selected and the output reports the exact DoP
     /// carrier sample rate. Unsupported routes safely fall back to PCM.
-    private func configureOutputPipeline(
+    func configureOutputPipeline(
         for song: Song,
         url: URL,
         expectedPlayID: UUID,
@@ -2216,7 +2216,7 @@ final class AudioPlayerService {
     }
     #endif
 
-    private func clearPendingPlaybackRecovery() {
+    func clearPendingPlaybackRecovery() {
         needsPlaybackRecovery = false
         pendingRecoveryTime = 0
         pendingRecoveryIsColdSessionRestore = false
@@ -2259,7 +2259,7 @@ final class AudioPlayerService {
     /// another app is being backgrounded. Allow that state to settle briefly;
     /// the ticket remains pending after the bounded retries and can still be
     /// consumed by a later genuine interruption-end notification.
-    private func scheduleAppActivationInterruptionRecovery(attempt: Int = 0) {
+    func scheduleAppActivationInterruptionRecovery(attempt: Int = 0) {
         cancelAppActivationInterruptionRecovery()
         guard interruptionResumePolicy.isAwaitingInterruptionEnd,
               attempt < Self.appActivationInterruptionRecoveryAttemptLimit else { return }
@@ -2277,7 +2277,7 @@ final class AudioPlayerService {
         }
     }
 
-    private func cancelAppActivationInterruptionRecovery() {
+    func cancelAppActivationInterruptionRecovery() {
         appActivationInterruptionRecoveryTask?.cancel()
         appActivationInterruptionRecoveryTask = nil
     }
@@ -2359,13 +2359,13 @@ final class AudioPlayerService {
         configurationRecoveryPendingSongID = nil
     }
 
-    private var hasConfigurationRecoveryActivityEvidence: Bool {
+    var hasConfigurationRecoveryActivityEvidence: Bool {
         guard let evidence = configurationRecoveryActivityEvidence,
               evidence.itemID == currentSong?.id else { return false }
         return evidence.rebuildPlayID.map { $0 == playID } ?? true
     }
 
-    private var hasMusicVideoSeekActivityEvidence: Bool {
+    var hasMusicVideoSeekActivityEvidence: Bool {
         guard let evidence = musicVideoSeekActivityEvidence else { return false }
         return evidence.itemID == currentSong?.id
             && evidence.playID == playID
@@ -2373,7 +2373,7 @@ final class AudioPlayerService {
             && isSystemMediaPlaybackActive
     }
 
-    private func registerPlayIntent() {
+    func registerPlayIntent() {
         pendingRadioResolutionID = nil
         playbackSessionRestoreLifecycle.supersedeForPlaybackIntent()
         cancelAppActivationInterruptionRecovery()
@@ -2387,7 +2387,7 @@ final class AudioPlayerService {
         castingCommandGeneration &+= 1
     }
 
-    private func registerPauseOrStopIntent() {
+    func registerPauseOrStopIntent() {
         pendingRadioResolutionID = nil
         playbackSessionRestoreLifecycle.completeForPauseOrStopIntent()
         cancelAppActivationInterruptionRecovery()
@@ -2406,7 +2406,7 @@ final class AudioPlayerService {
         }
     }
 
-    private func invalidateInterruptionResumePreservingIntent() {
+    func invalidateInterruptionResumePreservingIntent() {
         cancelAppActivationInterruptionRecovery()
         configurationRecoveryActivityEvidence = nil
         musicVideoSeekActivityEvidence = nil
@@ -2415,7 +2415,7 @@ final class AudioPlayerService {
     }
 
     @discardableResult
-    private func beginAutomaticAdvanceTransport(
+    func beginAutomaticAdvanceTransport(
         itemID: String,
         reason: String
     ) -> PlaybackAdvanceTicket {
@@ -2425,17 +2425,17 @@ final class AudioPlayerService {
         return ticket
     }
 
-    private func invalidateAutomaticAdvance(reason: String) {
+    func invalidateAutomaticAdvance(reason: String) {
         let oldGeneration = playbackAdvancePolicy.generation
         playbackAdvancePolicy.invalidate()
         plog("🚫 auto-advance invalidated reason=\(reason) generation=\(oldGeneration)->\(playbackAdvancePolicy.generation)")
     }
 
-    private func preparedAutomaticAdvanceTicket(itemID: String) -> PlaybackAdvanceTicket? {
+    func preparedAutomaticAdvanceTicket(itemID: String) -> PlaybackAdvanceTicket? {
         playbackAdvancePolicy.prepareSuccessor(itemID: itemID)
     }
 
-    private func automaticAdvanceDecision(
+    func automaticAdvanceDecision(
         for ticket: PlaybackAdvanceTicket,
         trigger: String,
         consume: Bool,
@@ -2468,7 +2468,7 @@ final class AudioPlayerService {
         return decision
     }
 
-    private func isLocalTransportStartAuthorized(
+    func isLocalTransportStartAuthorized(
         playID id: UUID,
         itemID: String,
         trigger: String,
@@ -2498,7 +2498,7 @@ final class AudioPlayerService {
 
     /// Validates an explicitly selected transport while its async ownership
     /// handoff is still in flight and before currentSong is installed.
-    private func isPendingTransportStartAuthorized(
+    func isPendingTransportStartAuthorized(
         playID id: UUID,
         itemID: String,
         trigger: String,
@@ -2522,7 +2522,7 @@ final class AudioPlayerService {
         return true
     }
 
-    private func syncPlaybackProgressFromEngine() {
+    func syncPlaybackProgressFromEngine() {
         if isSystemMediaPlaybackActive {
             let seconds = activeSystemMediaPlayer?.currentTime().seconds ?? currentTime
             guard seconds.isFinite else { return }
@@ -2535,7 +2535,7 @@ final class AudioPlayerService {
         currentTime = max(0, engineTime)
     }
 
-    private func localPlaybackClockDecision(
+    func localPlaybackClockDecision(
         isTransitioning: Bool
     ) -> CrossfadePlaybackClockDecision {
         let primaryNodeTime: TimeInterval?
@@ -2901,7 +2901,7 @@ final class AudioPlayerService {
         updatePlaybackState()
     }
 
-    private func armSystemAudioStartupWatchdog(player: AVPlayer, playID id: UUID) {
+    func armSystemAudioStartupWatchdog(player: AVPlayer, playID id: UUID) {
         systemAudioStartupWatchdog?.cancel()
         systemAudioStartupWatchdog = Task { @MainActor [weak self, weak player] in
             do {
@@ -3091,7 +3091,7 @@ final class AudioPlayerService {
         musicVideoAudioFallbackToken = UUID()
     }
 
-    private func configureMusicVideoObservers(for player: AVPlayer, playID id: UUID) {
+    func configureMusicVideoObservers(for player: AVPlayer, playID id: UUID) {
         removeMusicVideoObservers()
         let observerGeneration = musicVideoObserverGeneration
         let advanceTicket = playbackAdvancePolicy.activeTicket
@@ -3296,7 +3296,7 @@ final class AudioPlayerService {
         musicVideoFailedObserver = nil
     }
 
-    private func stopMusicVideoPlayback(clearPlayer: Bool) {
+    func stopMusicVideoPlayback(clearPlayer: Bool) {
         guard musicVideoPlayer != nil
                 || systemAudioPlayer != nil
                 || isSystemMediaPlaybackActive
@@ -3323,7 +3323,7 @@ final class AudioPlayerService {
         systemAudioPlaybackDidStart = false
     }
 
-    private func showPlaybackError(_ message: String, automaticallyDismiss: Bool = true) {
+    func showPlaybackError(_ message: String, automaticallyDismiss: Bool = true) {
         lastPlaybackError = message
         errorDismissTask?.cancel()
         errorDismissTask = nil
@@ -3344,7 +3344,7 @@ final class AudioPlayerService {
         }
     }
 
-    private func beginPlaybackErrorScope() {
+    func beginPlaybackErrorScope() {
         errorDismissTask?.cancel()
         errorDismissTask = nil
         lastPlaybackError = nil
@@ -3354,12 +3354,12 @@ final class AudioPlayerService {
         beginPlaybackErrorScope()
     }
 
-    private func suspendPlaybackAfterFailure(reason: String, message: String) {
+    func suspendPlaybackAfterFailure(reason: String, message: String) {
         suspendPlaybackPreservingSelection(reason: reason)
         showPlaybackError(message, automaticallyDismiss: false)
     }
 
-    private func awaitFirstBuffer(
+    func awaitFirstBuffer(
         from iteratorBox: BufferIteratorBox,
         timeoutSeconds: Int
     ) async throws -> AVAudioPCMBuffer? {
@@ -3395,666 +3395,6 @@ final class AudioPlayerService {
     }
 
     // MARK: - Playback Control
-
-    @discardableResult
-    func play(station: RadioStation, within stations: [RadioStation] = []) async -> Bool {
-        let resolutionID = UUID()
-        let resolutionGeneration = playbackAdvancePolicy.generation
-        pendingRadioResolutionID = resolutionID
-        let url: URL
-        do {
-            url = try await resolveRadioStreamURL(for: station, forceRefresh: false)
-        } catch {
-            guard pendingRadioResolutionID == resolutionID,
-                  playbackAdvancePolicy.generation == resolutionGeneration else { return false }
-            pendingRadioResolutionID = nil
-            plog(
-                "⚠️ Radio URL resolution failed sourceBacked="
-                    + "\(station.requiresSourceStreamResolution) errorType=\(String(reflecting: type(of: error)))"
-            )
-            showPlaybackError(String(localized: station.requiresSourceStreamResolution
-                ? "playback_error_connection"
-                : "radio_invalid_url"))
-            return false
-        }
-        guard pendingRadioResolutionID == resolutionID,
-              playbackAdvancePolicy.generation == resolutionGeneration else { return false }
-        guard let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https",
-              url.host?.isEmpty == false,
-              url.user == nil,
-              url.password == nil else {
-            pendingRadioResolutionID = nil
-            showPlaybackError(String(localized: "radio_invalid_url"))
-            return false
-        }
-        if TrustedHTTPTransport.requiresPlainSocket(for: url),
-           let trustTarget = TrustedHTTPTransport.trustTarget(for: url),
-           !SSLTrustStore.allowsInsecureHTTPHostSync(domain: trustTarget) {
-            pendingRadioResolutionID = nil
-            showPlaybackError(String(format: String(localized: "insecure_http_permission_required %@"), trustTarget))
-            return false
-        }
-        registerPlayIntent()
-        pendingRadioResolutionID = resolutionID
-        let transportGeneration = playbackAdvancePolicy.generation
-
-        let id = UUID()
-        playID = id
-        // 拖动进度触发的整文件物化会一直下到底, 切到电台同样要取消, 否则被
-        // 放弃的传输继续占用带宽和缓存配额 (它只在下载完成后才检查 playID)。
-        // 重入说明同 play(song:): 唯一能从 seek 任务走到这里的是
-        // handleTrackEnd → next()/previous() 的电台分支, 那里已先摘掉句柄。
-        seekTask?.cancel()
-        seekTask = nil
-        resetDecodedBufferHealth(resetRecoveryAttempts: true)
-        beginPlaybackErrorScope()
-        clearPendingPlaybackRecovery()
-        radioReconnectTask?.cancel()
-        radioReconnectTask = nil
-        radioReconnectAttempt = 0
-        radioResolvedStreamURL = url
-        let inferredFormat = RadioStreamFormat.inferred(from: url)
-        radioPrefersDecodedTransport = station.streamFormat == .flac || inferredFormat == .flac
-        radioDidAttemptDecodedFallback = radioPrefersDecodedTransport
-        radioDecodedFallbackNeedsValidation = false
-
-        if let controller = castingController {
-            castingPositionTask?.cancel()
-            castingPositionTask = nil
-            try? await controller.stop()
-            castingRenderer = nil
-            castingController = nil
-        }
-        guard playbackAdvancePolicy.generation == transportGeneration,
-              pendingRadioResolutionID == resolutionID,
-              playID == id,
-              interruptionResumePolicy.playbackIsIntended else {
-            plog("🛡️ Radio start cancelled during renderer handoff")
-            return false
-        }
-        pendingRadioResolutionID = nil
-        appleMusicPlaybackTask?.cancel()
-        appleMusicPlaybackTask = nil
-        appleMusicTimeoutTask?.cancel()
-        appleMusicTimeoutTask = nil
-        activeAppleMusicRequestID = nil
-        stopAppleMusicMirror()
-        AppServices.shared.appleMusic.stopAppleMusic()
-        isPrimuseManagingAppleMusicQueue = false
-
-        let deferredStreamingDownloadSongID = retireStreamingDownloadPreparation()
-        if !isLiveRadio,
-           StreamingDownloadRetirementPolicy.shouldFinalizePreviousSession(
-            previousSongID: currentSong?.id,
-            newSongID: nil,
-            retiredSongID: deferredStreamingDownloadSongID
-           ),
-           let previous = currentSong {
-            sourceManager?.finalizeStreamingSession(for: previous)
-            ScrobbleService.shared.handlePlaybackStopped()
-            PlayHistoryStore.shared.endSession()
-        }
-        decodingTask?.cancel()
-        decodingTask = nil
-        prefetchTask?.cancel()
-        prefetchTask = nil
-        cancelGaplessTasks()
-        cancelCrossfadeAttempt()
-        sourceManager?.cancelBackgroundAudioCaching(keeping: [])
-        audioEngine.stopPlayback()
-        hasPreparedLocalPlayback = false
-        stopMusicVideoPlayback(clearPlayer: true)
-        stopTimeUpdater()
-        radioPlaybackController.stop()
-
-        playbackKind = .liveRadio
-        currentRadioStation = station
-        clearRadioMetadataState()
-        radioStreamFormat = station.streamFormat
-        radioBitRate = station.bitRate
-        radioStationOrder = RadioStationOrdering.sorted(
-            stations.isEmpty ? [station] : stations.filter { !$0.isDeleted }
-        )
-        if !radioStationOrder.contains(where: { $0.id == station.id }) {
-            radioStationOrder.append(station)
-        }
-        currentSong = station.playbackSong
-        currentTime = 0
-        duration = 0
-        isAtTrackEnd = false
-        isPlaying = false
-        isLoading = true
-        radioPlaybackStartedAt = nil
-        queueEntries = []
-        currentIndex = 0
-        invalidateQueueTransitions()
-        AppServices.shared.radioStationsStore.markPlayed(station.id)
-
-        _ = AudioSessionManager.shared.activatePlaybackSession()
-        updateNowPlayingInfo()
-        updateNowPlayingArtworkIfNeeded()
-        updatePlaybackState()
-        startRadioTransport(station: station, playID: id)
-        // 正在听的这个台最值得有一张图。发现全程在后台，起播不等它。
-        RadioLogoDiscoveryService.shared.discoverIfNeeded(for: [station])
-        return true
-    }
-
-    func testRadioStream(url: URL) async -> Result<Void, Error> {
-        if TrustedHTTPTransport.requiresPlainSocket(for: url),
-           let trustTarget = TrustedHTTPTransport.trustTarget(for: url),
-           !SSLTrustStore.allowsInsecureHTTPHostSync(domain: trustTarget) {
-            return .failure(TrustedHTTPTransportError.permissionRequired(host: trustTarget))
-        }
-        let inferredFormat = RadioStreamFormat.inferred(from: url)
-        if inferredFormat == .flac {
-            return await testDecodedRadioStream(url: url)
-        }
-        let nativeResult = await RadioPlaybackController.probe(url: url)
-        guard case .failure = nativeResult, inferredFormat == .automatic else {
-            return nativeResult
-        }
-        let decodedResult = await testDecodedRadioStream(url: url)
-        if case .success = decodedResult { return decodedResult }
-        return nativeResult
-    }
-
-    private func testDecodedRadioStream(url: URL) async -> Result<Void, Error> {
-        let source = RadioLiveStreamSource(url: url)
-        defer { source.cancel() }
-        do {
-            let prepared = try await source.prepare()
-            guard let outputFormat = AVAudioFormat(
-                standardFormatWithSampleRate: 44_100,
-                channels: 2
-            ) else {
-                return .failure(AudioDecoderError.converterCreationFailed)
-            }
-            let stream = radioFLACDecoder.decode(
-                from: source,
-                prepared: prepared,
-                outputFormat: outputFormat
-            )
-            let iterator = BufferIteratorBox(stream.makeAsyncIterator())
-            let firstBuffer = try await awaitFirstBuffer(from: iterator, timeoutSeconds: 15)
-            return firstBuffer?.frameLength ?? 0 > 0
-                ? .success(())
-                : .failure(AudioDecoderError.decodingFailed("No live audio frames"))
-        } catch {
-            return .failure(error)
-        }
-    }
-
-    private func startRadioTransport(station: RadioStation, playID id: UUID) {
-        guard let url = radioResolvedStreamURL,
-              playID == id,
-              currentRadioStation?.id == station.id,
-              interruptionResumePolicy.playbackIsIntended,
-              !interruptionResumePolicy.isAwaitingInterruptionEnd else { return }
-        radioPlaybackController.stop()
-        radioLiveStreamSource?.cancel()
-        radioLiveStreamSource = nil
-        decodingTask?.cancel()
-        decodingTask = nil
-        audioEngine.stopPlayback()
-
-        if radioPrefersDecodedTransport {
-            startDecodedRadioTransport(station: station, url: url, playID: id)
-            return
-        }
-        radioUsesDecodedTransport = false
-        radioPlaybackController.start(url: url, volume: audioEngine.volume) { [weak self] event in
-            guard let self, self.playID == id, self.currentRadioStation?.id == station.id else { return }
-            self.handleRadioEvent(event, station: station, playID: id)
-        }
-    }
-
-    private func startDecodedRadioTransport(
-        station: RadioStation,
-        url: URL,
-        playID id: UUID
-    ) {
-        radioUsesDecodedTransport = true
-        let source = RadioLiveStreamSource(url: url) { [weak self] metadata in
-            Task { @MainActor [weak self] in
-                guard let self,
-                      self.playID == id,
-                      self.currentRadioStation?.id == station.id else { return }
-                self.handleRadioEvent(.metadata(metadata), station: station, playID: id)
-            }
-        }
-        radioLiveStreamSource = source
-        handleRadioEvent(.loading, station: station, playID: id)
-
-        decodingTask = Task { [weak self, source] in
-            guard let self else { return }
-            do {
-                let prepared = try await source.prepare()
-                guard !Task.isCancelled,
-                      self.playID == id,
-                      self.currentRadioStation?.id == station.id,
-                      self.radioLiveStreamSource === source,
-                      self.interruptionResumePolicy.playbackIsIntended,
-                      !self.interruptionResumePolicy.isAwaitingInterruptionEnd else { return }
-
-                let settings = self.playbackSettings.snapshot()
-                _ = AudioSessionManager.shared.activatePlaybackSession()
-                try self.audioEngine.configure(
-                    outputMode: settings.outputMode,
-                    directSourceFormat: nil
-                )
-                self.audioEngine.applyPlaybackRate(1)
-                self.applySpatialAudioSettings()
-                self.audioEffectsService.applySettings()
-                self.equalizerService.applySettings()
-                guard let outputFormat = self.audioEngine.outputFormat else {
-                    throw AudioDecoderError.decodingFailed("Audio engine not ready")
-                }
-                try self.audioEngine.start()
-                self.audioEngine.resetPlayerVolume()
-
-                let stream = self.radioFLACDecoder.decode(
-                    from: source,
-                    prepared: prepared,
-                    outputFormat: outputFormat
-                )
-                let iterator = BufferIteratorBox(stream.makeAsyncIterator())
-                guard let firstBuffer = try await self.awaitFirstBuffer(
-                    from: iterator,
-                    timeoutSeconds: 15
-                ) else {
-                    throw AudioDecoderError.decodingFailed("No live audio frames")
-                }
-                guard !Task.isCancelled,
-                      self.playID == id,
-                      self.currentRadioStation?.id == station.id,
-                      self.radioLiveStreamSource === source,
-                      self.interruptionResumePolicy.playbackIsIntended,
-                      !self.interruptionResumePolicy.isAwaitingInterruptionEnd else { return }
-
-                self.audioEngine.scheduleBuffer(firstBuffer)
-                self.hasPreparedLocalPlayback = true
-                guard self.audioEngine.play() else {
-                    throw AudioDecoderError.decodingFailed("Audio engine failed to start")
-                }
-                self.handleRadioEvent(
-                    .ready(format: prepared.format, bitRate: prepared.bitRate),
-                    station: station,
-                    playID: id
-                )
-                self.handleRadioEvent(.playing, station: station, playID: id)
-                self.consumeDecodedRadioStream(
-                    iterator,
-                    source: source,
-                    station: station,
-                    playID: id
-                )
-            } catch is CancellationError {
-                return
-            } catch {
-                guard !Task.isCancelled,
-                      self.playID == id,
-                      self.currentRadioStation?.id == station.id,
-                      self.radioLiveStreamSource === source else { return }
-                self.finishDecodedRadioTransport(
-                    source: source,
-                    station: station,
-                    playID: id,
-                    message: error.localizedDescription
-                )
-            }
-        }
-    }
-
-    private func consumeDecodedRadioStream(
-        _ iterator: BufferIteratorBox,
-        source: RadioLiveStreamSource,
-        station: RadioStation,
-        playID id: UUID
-    ) {
-        let gate = DecodedBufferGate(
-            maxBufferedDuration: Self.decodedAudioLookahead,
-            maxBufferedBytes: Self.maxInFlightDecodedBytes,
-            maxBufferCount: Self.maxInFlightDecodedBufferCount
-        )
-        decodingTask = Task { [weak self, iterator, source, gate] in
-            guard let self else { return }
-            var lastBuffer: AVAudioPCMBuffer?
-            var terminalMessage = String(localized: "radio_stream_ended")
-            defer { Task { await gate.drain() } }
-
-            do {
-                while let buffer = try await iterator.next() {
-                    guard !Task.isCancelled,
-                          self.playID == id,
-                          self.currentRadioStation?.id == station.id,
-                          self.radioLiveStreamSource === source else { return }
-                    if let previous = lastBuffer {
-                        let bufferedDuration = Self.decodedBufferDuration(previous)
-                        let bufferedByteCount = Self.decodedBufferByteCount(previous)
-                        await gate.acquire(
-                            duration: bufferedDuration,
-                            byteCount: bufferedByteCount
-                        )
-                        guard !Task.isCancelled,
-                              self.playID == id,
-                              self.currentRadioStation?.id == station.id else { return }
-                        self.audioEngine.scheduleBuffer(
-                            previous,
-                            completionCallbackType: .dataPlayedBack
-                        ) { _ in
-                            gate.release(
-                                duration: bufferedDuration,
-                                byteCount: bufferedByteCount
-                            )
-                        }
-                    }
-                    lastBuffer = buffer
-                }
-            } catch is CancellationError {
-                return
-            } catch {
-                terminalMessage = error.localizedDescription
-            }
-
-            guard !Task.isCancelled,
-                  self.playID == id,
-                  self.currentRadioStation?.id == station.id,
-                  self.radioLiveStreamSource === source else { return }
-            if let lastBuffer {
-                let message = terminalMessage
-                self.audioEngine.scheduleBuffer(
-                    lastBuffer,
-                    completionCallbackType: .dataPlayedBack
-                ) { [weak self, source] _ in
-                    Task { @MainActor [weak self] in
-                        self?.finishDecodedRadioTransport(
-                            source: source,
-                            station: station,
-                            playID: id,
-                            message: message
-                        )
-                    }
-                }
-            } else {
-                finishDecodedRadioTransport(
-                    source: source,
-                    station: station,
-                    playID: id,
-                    message: terminalMessage
-                )
-            }
-        }
-    }
-
-    private func finishDecodedRadioTransport(
-        source: RadioLiveStreamSource,
-        station: RadioStation,
-        playID id: UUID,
-        message: String
-    ) {
-        guard playID == id,
-              currentRadioStation?.id == station.id,
-              radioLiveStreamSource === source else { return }
-        source.cancel()
-        radioLiveStreamSource = nil
-        decodingTask = nil
-        audioEngine.stopPlayback()
-        hasPreparedLocalPlayback = false
-        if radioDecodedFallbackNeedsValidation {
-            radioPrefersDecodedTransport = false
-            radioDecodedFallbackNeedsValidation = false
-        }
-        handleRadioEvent(
-            .failed(message: message, shouldReconnect: true),
-            station: station,
-            playID: id
-        )
-    }
-
-    private func handleRadioEvent(
-        _ event: RadioPlaybackController.Event,
-        station: RadioStation,
-        playID id: UUID
-    ) {
-        guard playID == id, currentRadioStation?.id == station.id else { return }
-        switch event {
-        case .loading:
-            isLoading = true
-            isPlaying = false
-        case .ready(let format, let bitRate):
-            if format != .automatic { radioStreamFormat = format }
-            if let bitRate { radioBitRate = bitRate }
-            updateRadioPresentation()
-        case .playing:
-            guard interruptionResumePolicy.playbackIsIntended,
-                  !interruptionResumePolicy.isAwaitingInterruptionEnd else {
-                radioPlaybackController.stop()
-                isLoading = false
-                isPlaying = false
-                break
-            }
-            isLoading = false
-            isPlaying = true
-            if radioUsesDecodedTransport {
-                radioDecodedFallbackNeedsValidation = false
-            }
-            radioReconnectAttempt = 0
-            if radioPlaybackStartedAt == nil { radioPlaybackStartedAt = Date() }
-            startTimeUpdater()
-        case .buffering:
-            isLoading = true
-            isPlaying = false
-        case .metadata(let metadata):
-            applyRadioMetadata(metadata, station: station)
-
-        case .subtitleTracks(let tracks):
-            radioSubtitleTracks = tracks
-            // 字幕不参与锁屏信息，直接返回，别为它重算一遍 now playing。
-            return
-
-        case .subtitle(let text):
-            // 字幕一秒可能来好几条，绝不能每条都去刷锁屏和播放状态。
-            radioSubtitleText = text
-            return
-        case .failed(let message, let shouldReconnect):
-            if !radioUsesDecodedTransport,
-               !radioDidAttemptDecodedFallback,
-               station.streamFormat == .automatic,
-               radioResolvedStreamURL.map({ RadioStreamFormat.inferred(from: $0) == .automatic }) == true {
-                radioDidAttemptDecodedFallback = true
-                radioPrefersDecodedTransport = true
-                radioDecodedFallbackNeedsValidation = true
-                startRadioTransport(station: station, playID: id)
-                return
-            }
-            isLoading = false
-            isPlaying = false
-            stopTimeUpdater()
-            showPlaybackError(message)
-            if shouldReconnect {
-                scheduleRadioReconnect(station: station, playID: id)
-            }
-        }
-        updateNowPlayingInfo()
-        updatePlaybackState()
-    }
-
-    /// 把电台推来的一条元数据落到界面状态上。
-    ///
-    /// 电台每隔几秒就会重复推送同一条，所以这里对「没有变化」的情况直接返回：
-    /// 一次无谓的 `currentSong` 赋值会连带刷新锁屏信息和一整屏 SwiftUI。
-    private func applyRadioMetadata(_ metadata: RadioLiveMetadata, station: RadioStation) {
-        let isSameTitle = RadioStreamTitleParser.isSameTrack(
-            radioNowPlaying?.title,
-            metadata.title
-        )
-        let artwork = metadata.artworkURL ?? radioNowPlayingArtworkURL
-        guard !isSameTitle || artwork != radioNowPlayingArtworkURL else { return }
-
-        radioTitleHistory = RadioTitleHistoryPolicy.appending(metadata, to: radioTitleHistory)
-        radioNowPlaying = metadata
-        radioMetadataTitle = metadata.displayText ?? radioMetadataTitle
-        radioNowPlayingArtworkURL = artwork
-        updateRadioPresentation()
-    }
-
-    private func clearRadioMetadataState() {
-        radioMetadataTitle = nil
-        radioNowPlaying = nil
-        radioNowPlayingArtworkURL = nil
-        radioTitleHistory = []
-        radioSubtitleTracks = []
-        radioSelectedSubtitleTrackID = nil
-        radioSubtitleText = nil
-    }
-
-    /// 播放页切字幕轨。没有字幕轨的流上调用是安全的空操作。
-    func selectRadioSubtitleTrack(id: String?) {
-        guard isLiveRadio else { return }
-        radioSelectedSubtitleTrackID = id
-        if id == nil { radioSubtitleText = nil }
-        radioPlaybackController.selectSubtitleTrack(id: id)
-    }
-
-    private func updateRadioPresentation() {
-        guard var station = currentRadioStation else { return }
-        station.streamFormat = radioStreamFormat
-        station.bitRate = radioBitRate
-        currentRadioStation = station
-        var song = station.playbackSong
-        song.artistName = radioMetadataTitle ?? station.playbackSubtitle
-        // 电台给了当前曲目的配图就用它 —— 比一张一成不变的台标更贴合此刻在放的内容。
-        if let artwork = radioNowPlayingArtworkURL {
-            song.coverArtFileName = artwork
-        }
-        currentSong = song
-        updateNowPlayingInfo()
-        updateNowPlayingArtworkIfNeeded()
-        updatePlaybackState()
-    }
-
-    private func scheduleRadioReconnect(station: RadioStation, playID id: UUID) {
-        radioReconnectTask?.cancel()
-        radioReconnectAttempt += 1
-        let delay = min(pow(2, Double(max(0, radioReconnectAttempt - 1))), 15)
-        isLoading = true
-        radioReconnectTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(for: .seconds(delay))
-            } catch {
-                return
-            }
-            guard let self,
-                  self.playID == id,
-                  self.currentRadioStation?.id == station.id,
-                  self.interruptionResumePolicy.playbackIsIntended,
-                  !self.interruptionResumePolicy.isAwaitingInterruptionEnd else { return }
-            if station.requiresSourceStreamResolution {
-                do {
-                    self.radioResolvedStreamURL = try await self.resolveRadioStreamURL(
-                        for: station,
-                        forceRefresh: true
-                    )
-                } catch {
-                    guard self.playID == id,
-                          self.currentRadioStation?.id == station.id else { return }
-                    self.isLoading = false
-                    self.isPlaying = false
-                    self.showPlaybackError(String(localized: "playback_error_connection"))
-                    self.updateNowPlayingInfo()
-                    self.updatePlaybackState()
-                    self.scheduleRadioReconnect(station: station, playID: id)
-                    return
-                }
-            }
-            self.radioPlaybackStartedAt = nil
-            self.startRadioTransport(station: station, playID: id)
-        }
-    }
-
-    private func stopRadioTransport(clearSelection: Bool) {
-        radioReconnectTask?.cancel()
-        radioReconnectTask = nil
-        radioPlaybackController.stop()
-        radioLiveStreamSource?.cancel()
-        radioLiveStreamSource = nil
-        if radioUsesDecodedTransport {
-            decodingTask?.cancel()
-            decodingTask = nil
-            audioEngine.stopPlayback()
-            hasPreparedLocalPlayback = false
-        }
-        radioUsesDecodedTransport = false
-        radioPrefersDecodedTransport = false
-        radioDidAttemptDecodedFallback = false
-        radioDecodedFallbackNeedsValidation = false
-        radioResolvedStreamURL = nil
-        pendingRadioResolutionID = nil
-        stopTimeUpdater()
-        isPlaying = false
-        isLoading = false
-        currentTime = 0
-        radioPlaybackStartedAt = nil
-        if clearSelection {
-            currentRadioStation = nil
-            clearRadioMetadataState()
-            radioStreamFormat = .automatic
-            radioBitRate = nil
-            radioStationOrder = []
-            playbackKind = .track
-            currentSong = nil
-        }
-    }
-
-    private func resolveRadioStreamURL(
-        for station: RadioStation,
-        forceRefresh: Bool
-    ) async throws -> URL {
-        if station.requiresSourceStreamResolution {
-            guard let sourceID = station.sourceID,
-                  let serverStationID = station.serverStationID,
-                  let sourceManager else {
-                throw SourceError.fileNotFound("Radio source is unavailable")
-            }
-            return try await sourceManager.resolveServerRadioStream(
-                sourceID: sourceID,
-                stationID: serverStationID,
-                forceRefresh: forceRefresh
-            )
-        }
-        guard let url = station.url else {
-            throw SourceError.fileNotFound(station.streamURL)
-        }
-        return url
-    }
-
-    private func refreshRadioStationOrder() {
-        guard isLiveRadio, let current = currentRadioStation else { return }
-        let stations = AppServices.shared.radioStationsStore.stations
-        radioStationOrder = stations
-
-        guard var updated = stations.first(where: { $0.id == current.id }) else {
-            stopRadioTransport(clearSelection: true)
-            updateNowPlayingInfo()
-            updatePlaybackState()
-            return
-        }
-
-        updated.streamFormat = radioStreamFormat
-        updated.bitRate = radioBitRate
-        currentRadioStation = updated
-        var song = updated.playbackSong
-        song.artistName = radioMetadataTitle ?? updated.playbackSubtitle
-        if let artwork = radioNowPlayingArtworkURL {
-            song.coverArtFileName = artwork
-        }
-        currentSong = song
-        updateNowPlayingInfo()
-        updateNowPlayingArtworkIfNeeded()
-        updatePlaybackState()
-    }
 
     func setPlaybackVolume(_ value: Float, persist: Bool = true) {
         guard value.isFinite else { return }
@@ -4469,7 +3809,7 @@ final class AudioPlayerService {
         return .init(entries: indices.map { queueEntries[$0] }, startIndex: startIndex, repeatMode: nativeRepeat)
     }
 
-    private func synchronizeAppleMusicQueue() {
+    func synchronizeAppleMusicQueue() {
         appleMusicQueueUpdateTask?.cancel()
         appleMusicQueueUpdateTask = nil
         if isPrimuseManagingAppleMusicQueue, queueEntries.isEmpty {
@@ -4548,7 +3888,7 @@ final class AudioPlayerService {
          }
      }
 
-     private func stopAppleMusicMirror() {
+     func stopAppleMusicMirror() {
          // Bump before cancellation. `stopAppleMusic()` immediately changes
          // observed values and may wake the old checked continuation before
          // its cancelled task has otherwise had a chance to exit.
@@ -5565,7 +4905,7 @@ final class AudioPlayerService {
     /// position instead of converting a transient network timeout into a skip.
     /// This path is limited to enabled audio caching so it never persists a
     /// complete file behind the user's back when caching is disabled.
-    private func beginRemoteMidStreamRecovery(
+    func beginRemoteMidStreamRecovery(
         song: Song,
         playID id: UUID,
         frozenResumeTime: TimeInterval? = nil
@@ -5645,7 +4985,7 @@ final class AudioPlayerService {
     }
 
     @discardableResult
-    private func retireStreamingDownloadPreparation(
+    func retireStreamingDownloadPreparation(
         matchingID: UUID? = nil
     ) -> String? {
         guard let active = activeStreamingDownloadPreparation,
@@ -5948,7 +5288,7 @@ final class AudioPlayerService {
     /// 256KB-head estimate (especially for raw MP3) is replaced by
     /// the authoritative value, and the row's displayed time is
     /// correct from then on.
-    private func makeResolveLengthCallback(for song: Song) -> @Sendable (TimeInterval) -> Void {
+    func makeResolveLengthCallback(for song: Song) -> @Sendable (TimeInterval) -> Void {
         let songID = song.id
         let songTitle = song.title
         let storedDuration = song.duration
@@ -6006,7 +5346,7 @@ final class AudioPlayerService {
     /// can update the library without changing the pending handoff snapshot.
     /// Merge the newest usable duration immediately before playback ownership
     /// moves to that snapshot.
-    private func songRefreshingLatestDuration(_ song: Song) -> Song {
+    func songRefreshingLatestDuration(_ song: Song) -> Song {
         var refreshed = song
         refreshed.duration = AudioDurationPolicy.playbackHandoffDuration(
             snapshot: song.duration,
@@ -6019,7 +5359,7 @@ final class AudioPlayerService {
     /// authoritative decoder duration. Returning true tells the caller that
     /// the active Now Playing state also changed and must be republished.
     @discardableResult
-    private func applyResolvedDuration(
+    func applyResolvedDuration(
         _ resolved: TimeInterval,
         toSongID songID: String
     ) -> Bool {
@@ -6037,7 +5377,7 @@ final class AudioPlayerService {
         return updatedCurrentSong
     }
 
-    private func decodeStream(
+    func decodeStream(
         for song: Song,
         url: URL,
         outputFormat: AVAudioFormat,
@@ -6300,7 +5640,7 @@ final class AudioPlayerService {
         #endif
     }
 
-    private func segmented(
+    func segmented(
         _ stream: AudioBufferStream,
         for song: Song,
         sourceStartTime: TimeInterval = 0
@@ -6312,7 +5652,7 @@ final class AudioPlayerService {
         )
     }
 
-    private func makeHTTPStreamingInputSource(
+    func makeHTTPStreamingInputSource(
         for song: Song,
         url: URL,
         sourceStreamEpoch: UInt64
@@ -6389,7 +5729,7 @@ final class AudioPlayerService {
         plog(String(format: "🎞️ MV resolved real duration for '%@': %.1fs (was %.1fs)", song.title, sanitized, stored))
     }
 
-    private func decoderKind(for song: Song, url: URL) async -> DecoderKind {
+    func decoderKind(for song: Song, url: URL) async -> DecoderKind {
         if url.scheme == SourceManager.cloudStreamingScheme { return .cloudStream }
         if url.scheme == "http" || url.scheme == "https" {
             if SourceManager.isTranscodedStreamURL(url) { return .assetReader }
@@ -6398,7 +5738,7 @@ final class AudioPlayerService {
         return await usesFFmpegDecoder(for: song, url: url) ? .ffmpeg : .native
     }
 
-    private func usesFFmpegDecoder(for song: Song, url: URL) async -> Bool {
+    func usesFFmpegDecoder(for song: Song, url: URL) async -> Bool {
         // Persisted format knowledge is authoritative and avoids re-reading a
         // dead mount merely to rediscover DTS-CD content.
         if FileFormatRouter.decoder(for: song.fileFormat) is FFmpegAudioDecoder {
@@ -6429,7 +5769,7 @@ final class AudioPlayerService {
         }
     }
 
-    private func ffmpegCanDecodeOffMain(_ url: URL) async -> Bool {
+    func ffmpegCanDecodeOffMain(_ url: URL) async -> Bool {
         do {
             return try await ffmpegDecoder.canDecodeAsync(url: url)
         } catch {
@@ -6441,7 +5781,7 @@ final class AudioPlayerService {
         }
     }
 
-    private func prefetchNextSong() {
+    func prefetchNextSong() {
         synchronizeAppleMusicQueue()
         prefetchTask?.cancel()
         // Prefetch 接下来几首,而不是只 1 首 —— 用户连续 next 切歌时
@@ -6694,7 +6034,7 @@ final class AudioPlayerService {
         }
     }
 
-    private func scheduleDecodedFinalBuffer(_ buffer: AVAudioPCMBuffer, playID id: UUID) async {
+    func scheduleDecodedFinalBuffer(_ buffer: AVAudioPCMBuffer, playID id: UUID) async {
         guard let advanceTicket = playbackAdvancePolicy.activeTicket else {
             plog("🛡️ final buffer scheduled without auto-advance eligibility")
             audioEngine.scheduleBuffer(buffer)
@@ -6730,7 +6070,7 @@ final class AudioPlayerService {
     /// Schedules the held final buffer on whichever physical node currently
     /// owns the crossfaded song. The callback remains valid across node swap
     /// because the logical play ID is assigned when the fade begins.
-    private func scheduleCrossfadeFinalBuffer(_ buffer: AVAudioPCMBuffer, playID id: UUID) {
+    func scheduleCrossfadeFinalBuffer(_ buffer: AVAudioPCMBuffer, playID id: UUID) {
         guard let advanceTicket = playbackAdvancePolicy.activeTicket else {
             if crossfadeSwapDone {
                 audioEngine.scheduleBuffer(buffer)
@@ -6763,7 +6103,7 @@ final class AudioPlayerService {
         }
     }
 
-    private func scheduleCrossfadeFinalBufferAsFailure(
+    func scheduleCrossfadeFinalBufferAsFailure(
         _ buffer: AVAudioPCMBuffer,
         playID id: UUID
     ) {
@@ -6799,7 +6139,7 @@ final class AudioPlayerService {
         }
     }
 
-    private func shouldAttemptGapless(settings: PlaybackSettings) -> Bool {
+    func shouldAttemptGapless(settings: PlaybackSettings) -> Bool {
         guard settings.gaplessEnabled,
               !shouldUseCrossfade(settings),
               repeatMode != .one else { return false }
@@ -6826,7 +6166,7 @@ final class AudioPlayerService {
         }
     }
 
-    private func shouldBypassContinuousAudioTransition(for song: Song?) -> Bool {
+    func shouldBypassContinuousAudioTransition(for song: Song?) -> Bool {
         guard let song,
               song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
             return false
@@ -6888,7 +6228,7 @@ final class AudioPlayerService {
         }
     }
 
-    private func cancelGaplessTasks() {
+    func cancelGaplessTasks() {
         gaplessPreparationTask?.cancel()
         gaplessPreparationTask = nil
         gaplessFollowupTask?.cancel()
@@ -6909,7 +6249,7 @@ final class AudioPlayerService {
     /// track reaches its natural boundary. A committed crossfade already owns
     /// the newly-current song, so reordering the rows after it must not shorten
     /// that audible transition.
-    private func invalidatePreparedQueueSuccessor() {
+    func invalidatePreparedQueueSuccessor() {
         queueGeneration += 1
         cancelGaplessTasks()
         let hasCommittedCurrentCrossfade = committedCrossfade.map {
@@ -7139,4141 +6479,11 @@ final class AudioPlayerService {
         updatePlaybackState()
     }
 
-    // MARK: - Casting (DLNA Controller 路径)
-
-    /// Apple Music cannot share playback ownership with a remote renderer.
-    /// Every replacement request awaits the same in-flight Stop operation.
-    func prepareAppleMusicPlaybackHandoff(requestID: UUID) async -> Bool {
-        let appleMusic = AppServices.shared.appleMusic
-        guard appleMusic.isPlaybackRequestPending(requestID),
-              !Task.isCancelled else { return false }
-
-        let handoffID: UUID
-        let handoffTask: Task<Bool, Never>
-        if let existingTask = appleMusicCastingHandoffTask {
-            handoffID = appleMusicCastingHandoffID
-            handoffTask = existingTask
-        } else if let controller = castingController {
-            castingPositionTask?.cancel()
-            castingPositionTask = nil
-            let renderer = castingRenderer
-            castingRenderer = nil
-            castingController = nil
-            isPlaying = false
-
-            handoffID = UUID()
-            appleMusicCastingHandoffID = handoffID
-            appleMusicCastingHandoffController = controller
-            appleMusicCastingHandoffRenderer = renderer
-            handoffTask = Task { @MainActor in
-                do {
-                    try await controller.stop()
-                    plog("📡 Cast: stopped for Apple Music handoff")
-                    return true
-                } catch {
-                    plog("⚠️ Cast stop during Apple Music handoff failed: \(error.localizedDescription)")
-                    return false
-                }
-            }
-            appleMusicCastingHandoffTask = handoffTask
-        } else {
-            return appleMusic.isPlaybackRequestPending(requestID)
-                && !Task.isCancelled
-        }
-
-        let stopped = await handoffTask.value
-        guard appleMusicCastingHandoffID == handoffID else { return false }
-        if stopped {
-            appleMusicCastingHandoffTask = nil
-            appleMusicCastingHandoffController = nil
-            appleMusicCastingHandoffRenderer = nil
-            return appleMusic.isPlaybackRequestPending(requestID)
-                && !Task.isCancelled
-        }
-
-        let requestIsCurrent = appleMusic.isPlaybackRequestPending(requestID)
-        let hasCurrentPendingRequest: Bool
-        if let activeRequestID = appleMusic.activePlaybackRequestID {
-            hasCurrentPendingRequest = appleMusic.isPlaybackRequestPending(activeRequestID)
-        } else {
-            hasCurrentPendingRequest = false
-        }
-        let handoffStillOwnsAudio = activeAppleMusicRequestID == requestID
-            && playID == requestID
-        // A superseded waiter leaves the failed result installed for the newer
-        // request. Restore only while this handoff still owns playback; a local
-        // selection or explicit Stop must never resurrect the old renderer.
-        if requestIsCurrent || (!hasCurrentPendingRequest && handoffStillOwnsAudio) {
-            if castingController == nil,
-               let controller = appleMusicCastingHandoffController {
-                castingRenderer = appleMusicCastingHandoffRenderer
-                castingController = controller
-                startCastingPolling()
-            }
-            appleMusicCastingHandoffTask = nil
-            appleMusicCastingHandoffController = nil
-            appleMusicCastingHandoffRenderer = nil
-            appleMusicCastingHandoffID = UUID()
-            if requestIsCurrent {
-                appleMusic.failPlaybackRequest(
-                    requestID,
-                    message: String(localized: "playback_error_apple_music_generic")
-                )
-            }
-        }
-        return false
-    }
-
-    private func clearAppleMusicCastingHandoff(
-        id handoffID: UUID,
-        invalidateWaiters: Bool
-    ) {
-        guard appleMusicCastingHandoffID == handoffID else { return }
-        appleMusicCastingHandoffTask = nil
-        appleMusicCastingHandoffController = nil
-        appleMusicCastingHandoffRenderer = nil
-        if invalidateWaiters {
-            appleMusicCastingHandoffID = UUID()
-        }
-    }
-
-    /// A local selection made while the renderer Stop is in flight must wait
-    /// for that same operation. Starting AVAudioEngine first would briefly (or,
-    /// on Stop failure, indefinitely) play on both outputs.
-    private func awaitCastingHandoffForLocalPlayback(ownerID: UUID) async -> Bool {
-        guard let handoffTask = appleMusicCastingHandoffTask else { return true }
-        let handoffID = appleMusicCastingHandoffID
-        let stopped = await handoffTask.value
-        guard playID == ownerID,
-              appleMusicCastingHandoffID == handoffID else { return false }
-        if stopped {
-            clearAppleMusicCastingHandoff(id: handoffID, invalidateWaiters: false)
-            return true
-        }
-
-        if castingController == nil,
-           let controller = appleMusicCastingHandoffController {
-            castingRenderer = appleMusicCastingHandoffRenderer
-            castingController = controller
-            startCastingPolling()
-        }
-        clearAppleMusicCastingHandoff(id: handoffID, invalidateWaiters: true)
-        isLoading = false
-        showPlaybackError(String(localized: "playback_error_connection"))
-        return false
-    }
-
-    /// `stop()` is synchronous, so finish the already-started renderer Stop in
-    /// an owner-scoped task. A failed first command gets one best-effort retry,
-    /// but the old renderer is never restored into stopped UI state.
-    private func finishCastingHandoffForStop(ownerID: UUID) {
-        guard let handoffTask = appleMusicCastingHandoffTask else { return }
-        let handoffID = appleMusicCastingHandoffID
-        let controller = appleMusicCastingHandoffController
-        Task { @MainActor [weak self] in
-            let stopped = await handoffTask.value
-            guard let self,
-                  self.playID == ownerID,
-                  self.appleMusicCastingHandoffID == handoffID else { return }
-            if !stopped, let controller {
-                do {
-                    try await controller.stop()
-                    plog("📡 Cast: stopped on explicit-stop retry")
-                } catch {
-                    plog("⚠️ Cast explicit-stop retry failed: \(error.localizedDescription)")
-                }
-            }
-            guard self.playID == ownerID,
-                  self.appleMusicCastingHandoffID == handoffID else { return }
-            self.clearAppleMusicCastingHandoff(
-                id: handoffID,
-                invalidateWaiters: true
-            )
-        }
-    }
-
-    /// 开始投屏到远端 renderer ── 本地立刻停, 把当前歌推过去续播 (从当前
-    /// 进度起 seek)。后续 togglePlayPause / next / previous / seek 全部路由到
-    /// RemoteRendererController。Apple Music DRM 歌无法投屏, 调用前 caller 应
-    /// 自己 disable 按钮。
-    func startCasting(to renderer: RemoteRenderer) async {
-        invalidateInterruptionResumePreservingIntent()
-        castingCommandGeneration &+= 1
-        let operationGeneration = castingCommandGeneration
-        let hasActiveAppleMusicRequest = activeAppleMusicRequestID != nil
-            || AppServices.shared.appleMusic.activePlaybackRequestID != nil
-            || appleMusicCastingHandoffTask != nil
-        guard AppleMusicPlaybackOwnershipPolicy.canStartCasting(
-            isAppleMusicMode: isAppleMusicMode,
-            hasActivePlaybackRequest: hasActiveAppleMusicRequest
-        ) else {
-            plog("⚠️ Cast: Apple Music playback ownership is active or pending, ignored")
-            return
-        }
-        // During a committed fade currentSong already names the incoming
-        // track while the primary node still names the outgoing one. Complete
-        // the node swap before handing the incoming track and time to casting.
-        stopTimeUpdater()
-        syncPlaybackProgressFromEngine()
-        cancelCrossfadeAttempt(
-            finishingCommittedTransition: true,
-            completionMode: .preserveCachedProgress
-        )
-        let resumeSong = currentSong
-        let resumeTime = currentTime
-        let wasPlaying = isPlaying
-
-        // 1. 本地停 (audioEngine + decoding task), audio session 让出去
-        appleMusicCastingHandoffID = UUID()
-        appleMusicCastingHandoffTask = nil
-        appleMusicCastingHandoffController = nil
-        appleMusicCastingHandoffRenderer = nil
-        playID = UUID()
-        invalidateAutomaticAdvance(reason: "casting-start")
-        resetDecodedBufferHealth(resetRecoveryAttempts: true)
-        beginPlaybackErrorScope()
-        decodingTask?.cancel(); decodingTask = nil
-        cancelGaplessTasks()
-        cancelCrossfadeAttempt()
-        // A stopped player node can leave AVAudioEngine's output unit running.
-        // Stop the complete local render path before yielding the session so
-        // playback on the remote renderer does not occupy this device's audio.
-        audioEngine.stopSilenceKeepAlive()
-        audioEngine.stop()
-        hasPreparedLocalPlayback = false
-        stopMusicVideoPlayback(clearPlayer: true)
-        isPlaying = false
-        AudioSessionManager.shared.deactivate()
-        updateNowPlayingInfo()
-        updatePlaybackState()
-
-        // 2. 切换 cast 状态 + 启动 controller
-        castingRenderer = renderer
-        castingController = RemoteRendererController(renderer: renderer)
-        plog("📡 Cast: started → \(renderer.friendlyName)")
-
-        // 3. 推当前歌到 renderer + seek 到 resumeTime + 自动 play
-        if let song = resumeSong {
-            await castSong(
-                song,
-                startAt: resumeTime,
-                autoPlay: wasPlaying,
-                expectedCastingGeneration: operationGeneration
-            )
-        }
-        // 4. 启动 1Hz 状态轮询
-        startCastingPolling()
-    }
-
-    /// 停投屏 ── controller stop + 本地从同一首歌当前进度续播 (用户期望)。
-    /// 如果 controller 已经断 / 出错, 也强制清状态。
-    func stopCasting() async {
-        invalidateInterruptionResumePreservingIntent()
-        castingCommandGeneration &+= 1
-        let operationGeneration = castingCommandGeneration
-        castingPositionTask?.cancel(); castingPositionTask = nil
-        let controller = castingController
-        let resumeSong = currentSong
-        let resumeTime = currentTime
-        let shouldResumeLocally = isPlaying
-        castingRenderer = nil
-        castingController = nil
-        isPlaying = false
-        if let resumeSong {
-            currentSong = resumeSong
-            currentTime = max(0, resumeTime)
-            pendingRecoveryTime = max(0, resumeTime)
-            needsPlaybackRecovery = true
-            isLoading = false
-            hasPreparedLocalPlayback = false
-            invalidateAutomaticAdvance(reason: "casting-stop-local-recovery")
-            updateNowPlayingInfo()
-            updatePlaybackState()
-        }
-
-        if let controller {
-            try? await controller.stop()
-        }
-        plog("📡 Cast: stopped, resuming local from \(resumeTime)s")
-
-        guard let song = resumeSong,
-              castingCommandGeneration == operationGeneration,
-              currentSong?.id == song.id else { return }
-        if shouldResumeLocally, interruptionResumePolicy.playbackIsIntended {
-            // Build at the renderer's last position. Starting at zero and
-            // seeking later can leak a short burst from the beginning.
-            seek(to: max(0, resumeTime), startPlaying: true, isRecovery: true)
-        }
-    }
-
-    /// cast 模式下播指定歌 ── 解析 URL → 推 SetAVTransportURI → Play → 可选 Seek。
-    /// 失败不抛错, 只 log + 保持 cast 状态让用户能手动重试。
-    private func castSong(
-        _ song: Song,
-        startAt seconds: TimeInterval = 0,
-        autoPlay: Bool = true,
-        expectedTicket: PlaybackAdvanceTicket? = nil,
-        expectedCastingGeneration: UInt64? = nil
-    ) async {
-        guard let controller = castingController else { return }
-        let operationGeneration = expectedCastingGeneration ?? castingCommandGeneration
-        if let expectedTicket {
-            guard let id = playID,
-                  isPendingTransportStartAuthorized(
-                playID: id,
-                itemID: song.id,
-                trigger: "cast-song-start",
-                expectedTicket: expectedTicket
-            ) else { return }
-        }
-        currentSong = song
-        currentTime = seconds
-        duration = song.duration.sanitizedDuration
-        do {
-            let uri = try await resolveCastURI(for: song)
-            guard castingCommandGeneration == operationGeneration,
-                  castingController === controller,
-                  currentSong?.id == song.id,
-                  !autoPlay || interruptionResumePolicy.playbackIsIntended else { return }
-            try await controller.setAVTransportURI(uri: uri.absoluteString,
-                                                    title: song.title,
-                                                    artist: song.artistName)
-            guard castingCommandGeneration == operationGeneration,
-                  castingController === controller,
-                  currentSong?.id == song.id,
-                  !autoPlay || interruptionResumePolicy.playbackIsIntended else { return }
-            if autoPlay {
-                try await controller.play()
-                guard castingCommandGeneration == operationGeneration,
-                      castingController === controller,
-                      interruptionResumePolicy.playbackIsIntended else {
-                    try? await controller.pause()
-                    return
-                }
-                isPlaying = true
-            }
-            if seconds > 0 {
-                try? await Task.sleep(for: .milliseconds(200))
-                guard castingCommandGeneration == operationGeneration,
-                      castingController === controller,
-                      currentSong?.id == song.id,
-                      !autoPlay || interruptionResumePolicy.playbackIsIntended else { return }
-                try? await controller.seek(toSeconds: seconds)
-            }
-            guard castingCommandGeneration == operationGeneration,
-                  castingController === controller,
-                  currentSong?.id == song.id else { return }
-            plog("📡 Cast: '\(song.title)' → \(controller.renderer.friendlyName)")
-        } catch {
-            guard castingCommandGeneration == operationGeneration,
-                  castingController === controller,
-                  currentSong?.id == song.id else { return }
-            plog("⚠️ Cast playback failed for '\(song.title)': \(error.localizedDescription)")
-            isPlaying = false
-        }
-        guard castingCommandGeneration == operationGeneration,
-              castingController === controller,
-              currentSong?.id == song.id else { return }
-        updateNowPlayingInfo()
-        updatePlaybackState()
-    }
-
-    /// 给 renderer 拿一个它能 HTTP GET 的 URL:
-    /// - file:// (本地 / cached): 注册到 DLNAMediaServer, 返回 http://<iphone>:49160/<token>/...
-    /// - https / http (NAS / Cloud HTTP source): 直接给, renderer 拉 (前提同 LAN 或公网可达)
-    /// - primuse-stream:// (range-fetch cloud): 当前不支持 cast, 抛错让 caller 提示用户先离线下载
-    private func resolveCastURI(for song: Song) async throws -> URL {
-        let url = try await resolvedURL(for: song)
-        if url.isFileURL {
-            let name = (song.title.isEmpty ? "track" : song.title) + "." + (url.pathExtension.isEmpty ? "mp3" : url.pathExtension)
-            return try DLNAMediaServer.shared.registerFile(localURL: url, suggestedName: name)
-        }
-        if url.scheme == "http" || url.scheme == "https" {
-            return url
-        }
-        throw NSError(domain: "Primuse.DLNA", code: -10,
-                      userInfo: [NSLocalizedDescriptionKey: "Source \"\(song.title)\" needs offline download before casting (scheme=\(url.scheme ?? "?"))"])
-    }
-
-    private func startCastingPolling() {
-        castingPositionTask?.cancel()
-        castingPositionTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(for: .seconds(1))
-                } catch {
-                    break
-                }
-                guard let self, let controller = self.castingController else { break }
-                let sampleGeneration = self.castingCommandGeneration
-                do {
-                    let pos = try await controller.getPositionInfo()
-                    let state = try await controller.getTransportInfo()
-                    guard !Task.isCancelled,
-                          self.castingController === controller,
-                          self.castingCommandGeneration == sampleGeneration else {
-                        continue
-                    }
-                    if pos.currentTime >= 0 { self.currentTime = pos.currentTime }
-                    if pos.duration > 0 { self.duration = pos.duration }
-                    let isRendererPlaying = state == "PLAYING"
-                    if self.isPlaying != isRendererPlaying {
-                        self.isPlaying = isRendererPlaying
-                        self.updateNowPlayingInfo()
-                        self.updatePlaybackState()
-                    }
-                } catch {
-                    guard !Task.isCancelled,
-                          self.castingController === controller,
-                          self.castingCommandGeneration == sampleGeneration else {
-                        continue
-                    }
-                    // 轮询失败 (renderer 断网 / 关机) 不立刻退出 cast, 给 3 次重试机会
-                    plog("⚠️ Cast polling error: \(error.localizedDescription)")
-                }
-            }
-        }
-    }
-
-    func togglePlayPause() {
-        if isLiveRadio {
-            if isPlaying || isLoading {
-                pause()
-            } else {
-                resume()
-            }
-            return
-        }
-        if isAppleMusicMode {
-            isPlaybackActuallyActive ? pause() : resume()
-            return
-        }
-        if isCastingMode {
-            isPlaybackActuallyActive ? pause() : resume()
-            return
-        }
-        if isPlaybackActuallyActive { pause() } else { resume() }
-    }
-
-    private func setCastingPlayback(shouldPlay: Bool) {
-        guard let controller = castingController else { return }
-        castingCommandGeneration &+= 1
-        let commandGeneration = castingCommandGeneration
-        Task { [weak self] in
-            guard let self,
-                  self.castingCommandGeneration == commandGeneration,
-                  self.castingController === controller else { return }
-            do {
-                if shouldPlay {
-                    try await controller.play()
-                } else {
-                    try await controller.pause()
-                }
-            } catch {
-                plog("⚠️ Cast \(shouldPlay ? "play" : "pause") failed: \(error.localizedDescription)")
-                return
-            }
-            guard self.castingCommandGeneration == commandGeneration,
-                  self.castingController === controller else {
-                if self.castingController === controller {
-                    if self.interruptionResumePolicy.playbackIsIntended {
-                        try? await controller.play()
-                    } else {
-                        try? await controller.pause()
-                    }
-                }
-                return
-            }
-            self.isPlaying = shouldPlay
-            self.updateNowPlayingInfo()
-            self.updatePlaybackState()
-        }
-    }
-
-    func stop() {
-        registerPauseOrStopIntent()
-        // 拖动进度触发的整文件物化会一直下到底, 切歌 / 停止时必须一并取消,
-        // 否则被放弃的传输继续占用带宽和缓存配额。直播电台 / Apple Music
-        // 分支在下面直接 return, 取消必须排在它们前面。
-        // 重入说明: seek 任务只可能经 handleTrackEnd 那条链走到 stop()
-        // (performTrackEnd → play/next → 失败 → autoAdvanceAfterFailure →
-        // 投屏分支), 而那个调用点已经先把 seekTask 句柄摘成 nil, 取消不到自己。
-        seekTask?.cancel()
-        seekTask = nil
-        if isLiveRadio {
-            playID = UUID()
-            resetDecodedBufferHealth(resetRecoveryAttempts: true)
-            stopRadioTransport(clearSelection: true)
-            queueEntries = []
-            clearNowPlayingInfo()
-            updatePlaybackState()
-            AudioSessionManager.shared.deactivate()
-            return
-        }
-        let stopOwnerID = UUID()
-        playID = stopOwnerID
-        resetDecodedBufferHealth(resetRecoveryAttempts: true)
-        beginPlaybackErrorScope()
-        prefetchTask?.cancel()
-        prefetchTask = nil
-        sourceManager?.cancelBackgroundAudioCaching(keeping: [])
-        pendingAppleMusicRestoredPosition = nil
-        finishCastingHandoffForStop(ownerID: stopOwnerID)
-        if isAppleMusicMode
-            || activeAppleMusicRequestID != nil
-            || AppServices.shared.appleMusic.activePlaybackRequestID != nil {
-            appleMusicPlaybackTask?.cancel()
-            appleMusicPlaybackTask = nil
-            appleMusicTimeoutTask?.cancel()
-            appleMusicTimeoutTask = nil
-            activeAppleMusicRequestID = nil
-            AppServices.shared.appleMusic.stopAppleMusic()
-            stopAppleMusicMirror()
-            isPrimuseManagingAppleMusicQueue = false
-            currentSong = nil
-            currentTime = 0
-            duration = 0
-            isPlaying = false
-            isLoading = false
-            queueEntries = []
-            clearNowPlayingInfo()
-            updatePlaybackState()
-            AudioSessionManager.shared.deactivate()
-            return
-        }
-        // 主动结束当前 streaming session (切走 / 用户点停止时), 让 .partial
-        // 有机会转 final。
-        let deferredStreamingDownloadSongID = retireStreamingDownloadPreparation()
-        if StreamingDownloadRetirementPolicy.shouldFinalizePreviousSession(
-            previousSongID: currentSong?.id,
-            newSongID: nil,
-            retiredSongID: deferredStreamingDownloadSongID
-        ), let cur = currentSong {
-            sourceManager?.finalizeStreamingSession(for: cur)
-        }
-        // Invalidate buffer completion callbacks before stop/reset fires them.
-        decodingTask?.cancel()
-        decodingTask = nil
-        cancelGaplessTasks()
-        cancelCrossfadeAttempt()
-        audioEngine.stopPlayback()
-        hasPreparedLocalPlayback = false
-        audioEngine.resetPlayerVolume()
-        stopMusicVideoPlayback(clearPlayer: true)
-        sourceManager?.cancelMusicVideoDownloads(keeping: nil)
-        isPlaying = false
-        isLoading = false
-        isAtTrackEnd = false
-        currentSong = nil
-        currentTime = 0
-        duration = 0
-        clearPendingPlaybackRecovery()
-        stopTimeUpdater()
-        ScrobbleService.shared.handlePlaybackStopped(); PlayHistoryStore.shared.endSession()
-        // Clear NowPlaying info so Dynamic Island / Lock Screen also clears
-        clearNowPlayingInfo()
-        updatePlaybackState()
-        AudioSessionManager.shared.deactivate()
-    }
-
-    /// Stops an invalid or security-fenced transport without erasing the
-    /// user's selected item or queue. A later Play rebuilds this item (or seeks
-    /// back to the preserved position) with a fresh request generation.
-    private func suspendPlaybackPreservingSelection(
-        reason: String,
-        resumeTime: TimeInterval? = nil
-    ) {
-        guard currentSong != nil else { return }
-        registerPauseOrStopIntent()
-        playID = UUID()
-        resetDecodedBufferHealth(resetRecoveryAttempts: true)
-        beginPlaybackErrorScope()
-        prefetchTask?.cancel()
-        prefetchTask = nil
-        sourceManager?.cancelBackgroundAudioCaching(keeping: [])
-        let deferredStreamingDownloadSongID = retireStreamingDownloadPreparation()
-        if StreamingDownloadRetirementPolicy.shouldFinalizePreviousSession(
-            previousSongID: currentSong?.id,
-            newSongID: nil,
-            retiredSongID: deferredStreamingDownloadSongID
-        ), let currentSong {
-            sourceManager?.finalizeStreamingSession(for: currentSong)
-        }
-        stopTimeUpdater()
-        if let resumeTime {
-            currentTime = max(0, resumeTime)
-        } else {
-            syncPlaybackProgressFromEngine()
-        }
-        pendingRecoveryTime = currentTime
-        // 拖动进度触发的整文件物化会一直下到底, 切歌 / 停止时必须一并
-        // 取消, 否则被放弃的传输继续占用带宽和缓存配额。
-        seekTask?.cancel()
-        seekTask = nil
-        decodingTask?.cancel()
-        decodingTask = nil
-        cancelGaplessTasks()
-        cancelCrossfadeAttempt(
-            finishingCommittedTransition: true,
-            completionMode: .preserveCachedProgress
-        )
-        audioEngine.stopPlayback()
-        hasPreparedLocalPlayback = false
-        audioEngine.resetPlayerVolume()
-        stopMusicVideoPlayback(clearPlayer: true)
-        sourceManager?.cancelMusicVideoDownloads(keeping: nil)
-        isPlaying = false
-        isLoading = false
-        isAtTrackEnd = false
-        needsPlaybackRecovery = pendingRecoveryTime > 0
-        pendingRecoveryIsColdSessionRestore = false
-        ScrobbleService.shared.handlePlaybackStopped()
-        PlayHistoryStore.shared.endSession()
-        updateNowPlayingInfo()
-        updatePlaybackState()
-        AudioSessionManager.shared.deactivate()
-        plog("⏸️ Playback suspended with current item preserved reason=\(reason)")
-    }
-
-    /// 跟 stop() 的差别: 保留 currentSong / queue / currentIndex / duration,
-    /// 只清引擎 + 标 isAtTrackEnd = true。给 handleTrackEnd .off 用 ——
-    /// 用户搜出来一首歌 (queue 只有一首) 播完时不要把 UI 一下子全清掉
-    /// (sheet 白屏 / mini player 闪一下消失)。用户再点 play 可以从头重放
-    /// (resume() 检测到 isAtTrackEnd 会走 play(song:) 重新解码)。
-    private func stopAtTrackEnd() {
-        registerPauseOrStopIntent()
-        // Invalidate the completed playback before stopping the node. The
-        // safety-net timer and AVAudioPlayerNode's .dataPlayedBack callback can
-        // arrive a few milliseconds apart for the same track. Without this,
-        // the second callback re-enters handleTrackEnd(); most importantly it
-        // can clear a "stop after this song" decision and advance the queue.
-        if AppleMusicPlaybackOwnershipPolicy.shouldInvalidatePlayIDAtTrackEnd(
-            isAppleMusicMode: isAppleMusicMode,
-            hasActivePlaybackRequest: activeAppleMusicRequestID != nil
-                || AppServices.shared.appleMusic.activePlaybackRequestID != nil
-        ) {
-            playID = UUID()
-        }
-        resetDecodedBufferHealth(resetRecoveryAttempts: true)
-
-        // 自然播完一首歌, 触发 finalize —— 这是 .partial → final 最关键的
-        // 时机, 用户期望「听完一整首」就该是完整缓存。
-        if let cur = currentSong {
-            sourceManager?.finalizeStreamingSession(for: cur)
-        }
-        prefetchTask?.cancel()
-        prefetchTask = nil
-        sourceManager?.cancelBackgroundAudioCaching(keeping: [])
-        // 拖动进度触发的整文件物化会一直下到底, 切歌 / 停止时必须一并
-        // 取消, 否则被放弃的传输继续占用带宽和缓存配额。
-        seekTask?.cancel()
-        seekTask = nil
-        decodingTask?.cancel()
-        decodingTask = nil
-        cancelGaplessTasks()
-        cancelCrossfadeAttempt()
-        audioEngine.stopPlayback()
-        hasPreparedLocalPlayback = false
-        audioEngine.resetPlayerVolume()
-        stopMusicVideoPlayback(clearPlayer: false)
-        isPlaying = false
-        isLoading = false
-        isAtTrackEnd = true
-        currentTime = 0
-        clearPendingPlaybackRecovery()
-        stopTimeUpdater()
-        ScrobbleService.shared.handlePlaybackStopped(); PlayHistoryStore.shared.endSession()
-        // 锁屏 / Dynamic Island 显示「停在 0:00」状态, 不清空 ——
-        // 这样用户从锁屏点 play 也能直接重放当前曲。
-        updateNowPlayingInfo()
-        updatePlaybackState()
-        AudioSessionManager.shared.deactivate()
-        plog("⏹️ stopAtTrackEnd() currentSong preserved=\(currentSong?.title ?? "nil")")
-    }
-
-    @discardableResult
-    func next(
-        context: QueueAdvanceContext = .userInitiated,
-        caller: String = #fileID,
-        callerLine: Int = #line
-    ) async -> Bool {
-        if isLiveRadio {
-            guard let station = currentRadioStation,
-                  radioStationOrder.count > 1,
-                  let index = radioStationOrder.firstIndex(where: { $0.id == station.id }) else { return false }
-            let nextIndex = radioStationOrder.index(after: index)
-            let target = nextIndex < radioStationOrder.endIndex
-                ? radioStationOrder[nextIndex]
-                : radioStationOrder[0]
-            await play(station: target, within: radioStationOrder)
-            return true
-        }
-        if isAppleMusicMode && !isPrimuseManagingAppleMusicQueue {
-            invalidateInterruptionResumePreservingIntent()
-            return await AppServices.shared.appleMusic.skipToNextAppleMusic()
-        }
-        guard !queue.isEmpty else { return false }
-        let callerFile = (caller as NSString).lastPathComponent
-        plog("⏭️ next() called FROM=\(callerFile):\(callerLine) currentIndex=\(currentIndex) queueCount=\(queue.count)")
-        if queue.count == 1, shuffleEnabled, repeatMode == .off {
-            _ = extendExhaustedShuffleFromLibrary()
-        }
-        // A manual next skips past repeat-one when there is another queue
-        // entry, matching the existing transport controls. A true one-song
-        // repeat-one queue may still intentionally restart itself.
-        let respectsRepeatOne = queue.count == 1
-        let successor = nextQueueTraversalTarget(
-            respectsRepeatOne: respectsRepeatOne,
-            wrapsAtEnd: queue.count > 1 || repeatMode == .all
-        )
-        guard ManualQueueAdvancePolicy.shouldAdvance(
-            queueCount: queue.count,
-            repeatMode: repeatMode,
-            shuffleEnabled: shuffleEnabled,
-            hasSuccessor: successor != nil
-        ), let successor else {
-            plog("⏭️ next: no enabled successor; keeping current playback")
-            return false
-        }
-        applyQueueTraversalTarget(successor)
-        // 跳过相邻同 title+artist 的"重复歌曲" —— NAS 上同一首歌有多个版本
-        // (mp3 + flac, 不同目录) scan 后是不同 song.id, 但用户看就是同一首,
-        // 自动 next 跳到 "下一首是自己" 体验很怪。最多跳 1 次, 防止整个
-        // queue 全是同一首时死循环。
-        if let cur = currentSong {
-            let candidate = queue[currentIndex]
-            if QueueAdjacentDuplicatePolicy.shouldSkipCandidate(
-                queueCount: queue.count,
-                currentTitle: cur.title,
-                currentArtist: cur.artistName,
-                candidateTitle: candidate.title,
-                candidateArtist: candidate.artistName,
-                context: context
-            ) {
-                plog("⏭️ next: skipping duplicate '\(candidate.title)' (same title+artist as current)")
-                if let following = nextQueueTraversalTarget(
-                    respectsRepeatOne: respectsRepeatOne,
-                    wrapsAtEnd: queue.count > 1 || repeatMode == .all
-                ) {
-                    applyQueueTraversalTarget(following)
-                }
-            }
-        }
-        await play(song: queue[currentIndex])
-        return true
-    }
-
-    @discardableResult
-    func previous() async -> Bool {
-        if isLiveRadio {
-            guard let station = currentRadioStation,
-                  radioStationOrder.count > 1,
-                  let index = radioStationOrder.firstIndex(where: { $0.id == station.id }) else { return false }
-            let previousIndex = index > 0 ? index - 1 : radioStationOrder.count - 1
-            await play(station: radioStationOrder[previousIndex], within: radioStationOrder)
-            return true
-        }
-        if isAppleMusicMode && !isPrimuseManagingAppleMusicQueue {
-            // 跟本地行为一致 ── 播放进度过 3s 时倒回开头, 否则跳上一首。
-            if currentTime > 3 {
-                AppServices.shared.appleMusic.seekAppleMusic(to: 0)
-                return true
-            } else {
-                invalidateInterruptionResumePreservingIntent()
-                return await AppServices.shared.appleMusic.skipToPreviousAppleMusic()
-            }
-        }
-        guard !queue.isEmpty else { return false }
-        if currentTime > 3 {
-            seek(to: 0)
-            return true
-        }
-        guard let predecessor = previousQueueTraversalTarget() else { return false }
-        applyQueueTraversalTarget(predecessor)
-        await play(song: queue[currentIndex])
-        return true
-    }
-
     private var seekTimeOffset: TimeInterval = 0
-    @ObservationIgnored private var seekTask: Task<Void, Never>?
-
-    func seek(
-        to time: TimeInterval,
-        startPlaying: Bool? = nil,
-        isRecovery: Bool = false,
-        isConfigurationRecovery: Bool = false,
-        isColdSessionRestore: Bool = false,
-        reacquiringLocalRouteFocus: Bool = false
-    ) {
-        guard !isLiveRadio else { return }
-        if isAppleMusicMode {
-            AppServices.shared.appleMusic.seekAppleMusic(to: TimeInterval.sanitized(time))
-            return
-        }
-        if isCastingMode, let controller = castingController {
-            let target = TimeInterval.sanitized(time)
-            currentTime = target
-            Task {
-                do { try await controller.seek(toSeconds: target) } catch {
-                    plog("⚠️ Cast seek failed: \(error.localizedDescription)")
-                }
-            }
-            return
-        }
-        guard activeStreamingDownloadPreparation == nil else {
-            plog("⚠️ Seek ignored while a bounded full-download startup is still active")
-            return
-        }
-        // A full-download streaming decoder can only seek after its completed
-        // file has entered the playback cache. A user scrub must leave the
-        // still-running node untouched, but interruption recovery cannot be
-        // rejected the same way: the system has already stopped that node and
-        // every later play command would otherwise return through this guard.
-        if activeDecoderKind == .streaming, let song = currentSong {
-            let decision = FullDownloadSeekPolicy.decision(
-                hasSeekableFile: sourceManager?.cachedURL(for: song) != nil,
-                isInterruptionRecovery: isRecovery
-            )
-            switch decision {
-            case .proceed:
-                break
-            case .keepCurrentPlayback:
-                plog("⚠️ Seek: streaming song not cached yet, leaving playback unchanged")
-                return
-            case .restartCurrentSong:
-                plog("🔄 Recovery: streaming song has no seekable cache; materializing before same-position resume")
-            }
-        }
-        // Timer invalidation alone does not cancel a MainActor task that the
-        // old timer already enqueued. Invalidate its clock ticket before the
-        // visible target or player timeline changes.
-        stopTimeUpdater()
-        let requestedTime = TimeInterval.sanitized(time)
-        let safeDuration = duration.sanitizedDuration
-        let targetTime = safeDuration > 0 ? min(requestedTime, safeDuration) : requestedTime
-        if isSystemMediaPlaybackActive {
-            let carriedSeekActivity = hasMusicVideoSeekActivityEvidence
-            let pendingSystemAudioStart = isSystemAudioPlaybackActive
-                && !systemAudioPlaybackDidStart
-                && isLoading
-                && interruptionResumePolicy.playbackIsIntended
-            let shouldStartPlaying = startPlaying
-                ?? (isPlaying || carriedSeekActivity || pendingSystemAudioStart)
-            guard let song = currentSong,
-                  let id = playID,
-                  let player = activeSystemMediaPlayer else { return }
-            let seekWasActivelyPlaying = isPlaybackActuallyActive
-                || lastPublishedPlaybackWasActive
-                || carriedSeekActivity
-                || pendingSystemAudioStart
-            if isSystemAudioPlaybackActive {
-                systemAudioStartupWatchdog?.cancel()
-                systemAudioStartupWatchdog = nil
-                pendingSystemAudioSeek = (
-                    playID: id,
-                    songID: song.id,
-                    time: targetTime,
-                    shouldStart: shouldStartPlaying
-                )
-                if shouldStartPlaying,
-                   interruptionResumePolicy.playbackIsIntended {
-                    // A remote AVPlayer seek may wait indefinitely for bytes
-                    // and never invoke its completion handler. Bound the whole
-                    // seek/start operation so PCM fallback remains reachable.
-                    armSystemAudioStartupWatchdog(player: player, playID: id)
-                }
-            }
-            invalidateAutomaticAdvance(reason: "music-video-seek")
-            let musicVideoSeekTicket: PlaybackAdvanceTicket?
-            if shouldStartPlaying, interruptionResumePolicy.playbackIsIntended {
-                musicVideoSeekTicket = beginAutomaticAdvanceTransport(
-                    itemID: song.id,
-                    reason: "music-video-seek"
-                )
-            } else {
-                musicVideoSeekTicket = nil
-            }
-            configureMusicVideoObservers(for: player, playID: id)
-            let observerGeneration = musicVideoObserverGeneration
-            if shouldStartPlaying,
-               interruptionResumePolicy.playbackIsIntended,
-               seekWasActivelyPlaying {
-                musicVideoSeekActivityEvidence = .init(
-                    itemID: song.id,
-                    playID: id,
-                    observerGeneration: observerGeneration
-                )
-            }
-            currentTime = targetTime
-            isLoading = true
-            isPlaying = false
-            isAtTrackEnd = false
-            // 默认 tolerance —— 视频精确 seek 要重解整个 GOP, 拖进度条会
-            // 明显顿挫; 落点由 periodic observer 回写, 进度条自然对齐。
-            player.seek(
-                to: CMTime(seconds: targetTime, preferredTimescale: 600)
-            ) { [weak self, weak player] finished in
-                Task { @MainActor [weak self, weak player] in
-                    guard let self,
-                          let player,
-                          self.playID == id,
-                          self.activeSystemMediaPlayer === player,
-                          self.musicVideoObserverGeneration == observerGeneration else { return }
-                    self.musicVideoSeekActivityEvidence = nil
-                    guard finished else {
-                        if self.isSystemAudioPlaybackActive,
-                           self.pendingSystemAudioSeek?.playID == id,
-                           shouldStartPlaying,
-                           self.interruptionResumePolicy.playbackIsIntended {
-                            player.play()
-                            self.isLoading = true
-                            self.isPlaying = false
-                            self.armSystemAudioStartupWatchdog(player: player, playID: id)
-                        } else {
-                            self.pendingSystemAudioSeek = nil
-                            player.pause()
-                            self.isLoading = false
-                            self.isPlaying = false
-                        }
-                        self.updateNowPlayingInfo()
-                        self.updatePlaybackState()
-                        return
-                    }
-                    if shouldStartPlaying,
-                       self.isLocalTransportStartAuthorized(
-                        playID: id,
-                        itemID: song.id,
-                        trigger: "music-video-seek-start",
-                        expectedTicket: musicVideoSeekTicket
-                       ) {
-                        player.play()
-                        if self.isSystemAudioPlaybackActive,
-                           !self.systemAudioPlaybackDidStart {
-                            self.isLoading = true
-                            self.isPlaying = false
-                            self.armSystemAudioStartupWatchdog(player: player, playID: id)
-                        } else {
-                            self.isLoading = false
-                            self.isPlaying = true
-                        }
-                    } else {
-                        self.pendingSystemAudioSeek = nil
-                        player.pause()
-                        self.isLoading = false
-                        self.isPlaying = false
-                    }
-                    if isRecovery { self.clearPendingPlaybackRecovery() }
-                    self.updateNowPlayingInfo()
-                    self.updatePlaybackState()
-                }
-            }
-            updateNowPlayingInfo()
-            return
-        }
-        currentTime = targetTime
-        isLoading = true
-        // 用户拖进度条 = 重新介入这首歌, 退出 "已播完" 状态
-        isAtTrackEnd = false
-        updateNowPlayingInfo()
-
-        guard let song = currentSong else { isLoading = false; return }
-        let savedDuration = duration
-        let shouldStartPlaying = startPlaying ?? isPlaying
-        isPlaying = false
-
-        // Invalidate old playID BEFORE stopPlayback() so any pending completion
-        // callbacks (triggered by AVAudioPlayerNode.stop()) will fail
-        // their guard check and won't trigger handleTrackEnd() → next().
-        let id = UUID()
-        playID = id
-        if isConfigurationRecovery {
-            configurationRecoveryOwnerPlayID = id
-            if configurationRecoveryActivityEvidence?.itemID == song.id {
-                configurationRecoveryActivityEvidence?.rebuildPlayID = id
-            }
-        }
-        if reacquiringLocalRouteFocus {
-            localRouteFocusRecoveryOwnerPlayID = id
-        }
-        let seekAdvanceTicket = beginAutomaticAdvanceTransport(
-            itemID: song.id,
-            reason: isRecovery ? "recovery-rebuild" : "seek-rebuild"
-        )
-        resetDecodedBufferHealth(resetRecoveryAttempts: !isRecovery)
-
-        // Stop only the playerNode, not the full pipeline — preserve Live Activity,
-        // currentSong, and other state that stop() would tear down.
-        seekTask?.cancel()
-        decodingTask?.cancel()
-        decodingTask = nil
-        cancelGaplessTasks()
-        cancelCrossfadeAttempt()
-        if reacquiringLocalRouteFocus {
-            // AVAudioSession cannot safely deactivate while any local render
-            // object is running. A player-node stop is insufficient because
-            // the output unit remains active.
-            audioEngine.stop()
-        } else {
-            audioEngine.stopPlayback()
-        }
-        hasPreparedLocalPlayback = false
-
-        // Restore state that stopPlayback clears
-        currentSong = song
-        currentTime = targetTime
-        duration = savedDuration
-
-        seekTask = Task {
-            defer {
-                if playID == id {
-                    seekTask = nil
-                }
-                if isConfigurationRecovery,
-                   configurationRecoveryOwnerPlayID == id {
-                    configurationRecoveryOwnerPlayID = nil
-                }
-                if isConfigurationRecovery,
-                   configurationRecoveryActivityEvidence?.itemID == song.id,
-                   configurationRecoveryActivityEvidence?.rebuildPlayID == id {
-                    configurationRecoveryActivityEvidence = nil
-                }
-                if localRouteFocusRecoveryOwnerPlayID == id {
-                    localRouteFocusRecoveryOwnerPlayID = nil
-                }
-            }
-            do {
-                let sourceStreamEpoch = CloudPlaybackSource.streamEpochTicket(
-                    sourceID: song.sourceID
-                )
-                let url = try await resolvedURL(for: song)
-                guard !Task.isCancelled, playID == id else { return }
-                let resolvedDecoderKind = await decoderKind(for: song, url: url)
-                guard !Task.isCancelled, playID == id else { return }
-                activeDecoderKind = resolvedDecoderKind
-                activeDSDPlaybackMode = try await configureOutputPipeline(
-                    for: song,
-                    url: url,
-                    expectedPlayID: id,
-                    reacquiringLocalRouteFocus: reacquiringLocalRouteFocus
-                )
-                guard !Task.isCancelled, playID == id else { return }
-                applySpatialAudioSettings()
-                applyPlaybackRate()
-                guard let outputFormat = audioEngine.outputFormat else {
-                    isLoading = false
-                    isPlaying = false
-                    showPlaybackError(String(localized: "playback_error_decode"))
-                    republishNowPlayingSurfaces()
-                    return
-                }
-                try audioEngine.start()
-
-                let settings = playbackSettings.snapshot()
-                if shouldApplyReplayGain(settings) {
-                    await applyReplayGain(
-                        for: song,
-                        url: url,
-                        mode: settings.replayGainMode,
-                        allowFileRead: activeDecoderKind != .cloudStream && activeDecoderKind != .httpStream,
-                        expectedPlayID: id,
-                        expectedSongID: song.id
-                    )
-                    guard !Task.isCancelled, playID == id else { return }
-                }
-
-                // Use the same decoder that was used for initial playback.
-                // For streaming, require the cached local file — can't seek in remote streams.
-                var seekURL: URL
-                var seekDecoderKind = activeDecoderKind
-                if activeDecoderKind == .streaming {
-                    var cached = sourceManager?.cachedURL(for: song)
-                    if cached == nil, isRecovery, !isColdSessionRestore {
-                        cached = await sourceManager?.materializeCachedURLForSeeking(for: song)
-                    }
-                    guard playID == id else { return }
-                    guard let cached else {
-                        if isColdSessionRestore {
-                            throw AudioDecoderError.seekUnavailable
-                        }
-                        plog("⚠️ Seek: streaming song could not be materialized for same-position recovery")
-                        isLoading = false
-                        isPlaying = false
-                        invalidateAutomaticAdvance(reason: "streaming-recovery-materialization-failed")
-                        showPlaybackError(String(localized: "playback_error_connection"))
-                        republishNowPlayingSurfaces()
-                        return
-                    }
-                    seekURL = cached
-                } else {
-                    seekURL = url
-                }
-
-                // Range-backed cloud/HTTP InputSources can expose byte seeking
-                // while a format decoder still rejects PCM seeking. Never fall
-                // back to decoding millions of frames just to reach a large
-                // target. Complete the normal LRU cache once, then seek the
-                // local file with FFmpeg/native random access.
-                if (activeDecoderKind == .cloudStream || activeDecoderKind == .httpStream),
-                   RemoteSeekPreparationPolicy.decision(
-                       hasCachedFile: sourceManager?.cachedURL(for: song) != nil,
-                       cacheEnabled: playbackSettings.audioCacheEnabled,
-                       isColdSessionRestore: isColdSessionRestore
-                   ) == .materializeCompleteFile,
-                   let cached = await sourceManager?.materializeCachedURLForSeeking(for: song) {
-                    guard !Task.isCancelled, playID == id else { return }
-                    seekURL = cached
-                    seekDecoderKind = await ffmpegCanDecodeOffMain(cached) ? .ffmpeg : .native
-                    guard !Task.isCancelled, playID == id else { return }
-                    activeDecoderKind = seekDecoderKind
-                    plog("📍 Seek materialized remote audio to local cache; decoder=\(seekDecoderKind)")
-                }
-                let rawStream: AudioBufferStream
-                let onResolveLength = makeResolveLengthCallback(for: song)
-                var decoderPerformedSeek = false
-                var decoderSourceStartTime: TimeInterval = 0
-                let physicalSeekTime = max(
-                    0,
-                    (song.cueStartTime ?? 0) + targetTime
-                )
-                switch seekDecoderKind {
-                case .native:
-                    decoderPerformedSeek = true
-                    decoderSourceStartTime = physicalSeekTime
-                    rawStream = nativeDecoder.decode(
-                        from: seekURL,
-                        outputFormat: outputFormat,
-                        dsdMode: activeDSDPlaybackMode,
-                        startingAt: physicalSeekTime,
-                        onResolveSourceLength: onResolveLength
-                    )
-                case .streaming:
-                    // Custom formats enter through the full-download fallback.
-                    // Once cached, FFmpeg can seek at the demuxer level.
-                    if await usesFFmpegDecoder(for: song, url: seekURL) {
-                        guard !Task.isCancelled, playID == id else { return }
-                        decoderPerformedSeek = true
-                        decoderSourceStartTime = physicalSeekTime
-                        rawStream = ffmpegDecoder.decode(
-                            from: seekURL,
-                            outputFormat: outputFormat,
-                            startingAt: physicalSeekTime,
-                            onResolveSourceLength: onResolveLength
-                        )
-                    } else {
-                        decoderPerformedSeek = true
-                        decoderSourceStartTime = physicalSeekTime
-                        rawStream = nativeDecoder.decode(
-                            from: seekURL,
-                            outputFormat: outputFormat,
-                            startingAt: physicalSeekTime,
-                            onResolveSourceLength: onResolveLength
-                        )
-                    }
-                case .ffmpeg:
-                    decoderPerformedSeek = true
-                    decoderSourceStartTime = physicalSeekTime
-                    rawStream = ffmpegDecoder.decode(
-                        from: seekURL,
-                        outputFormat: outputFormat,
-                        startingAt: physicalSeekTime,
-                        onResolveSourceLength: onResolveLength
-                    )
-                case .httpStream:
-                    if let cached = sourceManager?.cachedURL(for: song) {
-                        decoderPerformedSeek = true
-                        decoderSourceStartTime = physicalSeekTime
-                        rawStream = nativeDecoder.decode(
-                            from: cached,
-                            outputFormat: outputFormat,
-                            dsdMode: .pcm,
-                            startingAt: physicalSeekTime,
-                            onResolveSourceLength: onResolveLength
-                        )
-                    } else if let inputSource = await makeHTTPStreamingInputSource(
-                        for: song,
-                        url: url,
-                        sourceStreamEpoch: sourceStreamEpoch
-                    ) {
-                        guard !Task.isCancelled, playID == id else { return }
-                        decoderPerformedSeek = true
-                        decoderSourceStartTime = physicalSeekTime
-                        rawStream = nativeDecoder.decode(
-                            from: inputSource,
-                            outputFormat: outputFormat,
-                            startingAt: physicalSeekTime,
-                            onResolveSourceLength: onResolveLength
-                        )
-                    } else {
-                        if isColdSessionRestore {
-                            throw AudioDecoderError.seekUnavailable
-                        }
-                        plog("⚠️ Seek: failed to build HTTP streaming InputSource")
-                        isLoading = false
-                        isPlaying = false
-                        pendingRecoveryTime = targetTime
-                        needsPlaybackRecovery = isRecovery
-                        invalidateAutomaticAdvance(reason: "http-seek-input-source-failed")
-                        republishNowPlayingSurfaces()
-                        return
-                    }
-                case .cloudStream:
-                    // Build a fresh InputSource for the seek session. The
-                    // sparse cache file from the prior session is reused
-                    // (SFB reads will hit local for any byte range we've
-                    // already fetched, fall through to network for the
-                    // rest). If the song has since been fully downloaded
-                    // and renamed to the canonical path, prefer that.
-                    if let cached = sourceManager?.cachedURL(for: song) {
-                        decoderPerformedSeek = true
-                        decoderSourceStartTime = physicalSeekTime
-                        rawStream = nativeDecoder.decode(
-                            from: cached,
-                            outputFormat: outputFormat,
-                            dsdMode: .pcm,
-                            startingAt: physicalSeekTime,
-                            onResolveSourceLength: onResolveLength
-                        )
-                    } else if let manager = sourceManager,
-                              let inputSource = try? await manager.makeStreamingInputSource(
-                                  for: song,
-                                  cacheEnabled: playbackSettings.audioCacheEnabled,
-                                  expectedStreamEpoch: sourceStreamEpoch
-                              ) {
-                        guard !Task.isCancelled, playID == id else { return }
-                        decoderPerformedSeek = true
-                        decoderSourceStartTime = physicalSeekTime
-                        rawStream = nativeDecoder.decode(
-                            from: inputSource,
-                            outputFormat: outputFormat,
-                            startingAt: physicalSeekTime,
-                            onResolveSourceLength: onResolveLength
-                        )
-                    } else {
-                        if isColdSessionRestore {
-                            throw AudioDecoderError.seekUnavailable
-                        }
-                        plog("⚠️ Seek: failed to build cloud streaming InputSource")
-                        isLoading = false
-                        isPlaying = false
-                        pendingRecoveryTime = targetTime
-                        needsPlaybackRecovery = isRecovery
-                        invalidateAutomaticAdvance(reason: "cloud-seek-input-source-failed")
-                        republishNowPlayingSurfaces()
-                        return
-                    }
-                case .assetReader:
-                    decoderPerformedSeek = true
-                    decoderSourceStartTime = physicalSeekTime
-                    rawStream = assetReaderDecoder.decode(
-                        from: seekURL,
-                        outputFormat: outputFormat,
-                        startingAt: physicalSeekTime
-                    )
-                }
-                let stream = segmented(
-                    rawStream,
-                    for: song,
-                    sourceStartTime: decoderSourceStartTime
-                )
-                let seekSamplePosition = targetTime * outputFormat.sampleRate
-                guard seekSamplePosition.isFinite else {
-                    self.isLoading = false
-                    self.updateNowPlayingInfo()
-                    self.updatePlaybackState()
-                    return
-                }
-                let progressSeekSamples = Int64(seekSamplePosition.rounded(.down))
-                let seekSamples = decoderPerformedSeek ? 0 : progressSeekSamples
-                var samplesSkipped: Int64 = 0
-
-                // Set sample time offset so currentTime calculation accounts for seek position
-                audioEngine.sampleTimeOffset = -progressSeekSamples
-
-                // Skip buffers until seek position, then schedule first playable buffer before play()
-                let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
-                var firstPlayableBuffer: AVAudioPCMBuffer?
-
-                while let buffer = try await iteratorBox.next() {
-                    guard !Task.isCancelled, playID == id else { return }
-                    let bufferSamples = Int64(buffer.frameLength)
-                    if samplesSkipped + bufferSamples <= seekSamples {
-                        samplesSkipped += bufferSamples
-                        continue
-                    }
-                    firstPlayableBuffer = buffer
-                    break
-                }
-
-                guard let firstBuffer = firstPlayableBuffer else {
-                    isLoading = false
-                    isPlaying = false
-                    currentTime = targetTime
-                    let seekEndAction = PlaybackSeekEndPolicy.action(isRecovery: isRecovery)
-                    if seekEndAction == .preserveCurrentItem {
-                        // An authorized interruption/configuration recovery may
-                        // only rebuild this item. Reaching EOF while seeking is
-                        // not permission to advance before the item resumes.
-                        invalidateAutomaticAdvance(reason: "recovery-seek-reached-end")
-                        needsPlaybackRecovery = false
-                        pendingRecoveryTime = targetTime
-                        isAtTrackEnd = true
-                    }
-                    updateNowPlayingInfo()
-                    updatePlaybackState()
-                    if seekEndAction == .advance,
-                       shouldStartPlaying,
-                       playbackAdvancePolicy.activeTicket == seekAdvanceTicket {
-                        // 自动续播会经 performTrackEnd 重入 next() / play(song:) /
-                        // stopAtTrackEnd, 而它们都会取消 seekTask —— 此刻句柄正
-                        // 指向本任务。先摘掉句柄, 下一首才不会在自己触发的
-                        // Task.isCancelled 守卫上原地夭折 (停在 isLoading 无声)。
-                        seekTask = nil
-                        await handleTrackEnd(
-                            advanceTicket: seekAdvanceTicket,
-                            trigger: "seek-reached-end",
-                            transportIsActive: true
-                        )
-                    }
-                    return
-                }
-                guard !Task.isCancelled, playID == id else { return }
-
-                // Hold one buffer ahead just like the initial playback path.
-                // Without this prefetch, a seek/recovery with exactly one
-                // remaining buffer schedules it as an ordinary buffer and an
-                // unknown-duration stream never receives a terminal callback.
-                let secondPlayableBuffer = try await iteratorBox.next()
-                guard !Task.isCancelled, playID == id else { return }
-
-                let gate = DecodedBufferGate(
-                    maxBufferedDuration: Self.decodedAudioLookahead,
-                    maxBufferedBytes: Self.maxInFlightDecodedBytes,
-                    maxBufferCount: Self.maxInFlightDecodedBufferCount
-                )
-                if secondPlayableBuffer == nil {
-                    await scheduleDecodedFinalBuffer(firstBuffer, playID: id)
-                } else {
-                    await scheduleTrackedDecodedBuffer(firstBuffer, gate: gate)
-                }
-                guard !Task.isCancelled, playID == id else {
-                    await gate.drain()
-                    return
-                }
-                installDecodedBufferGate(gate, playID: id)
-                hasPreparedLocalPlayback = true
-                if shouldStartPlaying,
-                   !isLocalTransportStartAuthorized(
-                    playID: id,
-                    itemID: song.id,
-                    trigger: isRecovery ? "recovery-start" : "seek-start",
-                    expectedTicket: seekAdvanceTicket
-                   ) {
-                    audioEngine.stopPlayback()
-                    hasPreparedLocalPlayback = false
-                    isLoading = false
-                    isPlaying = false
-                    pendingRecoveryTime = targetTime
-                    needsPlaybackRecovery = true
-                    await gate.drain()
-                    updateNowPlayingInfo()
-                    updatePlaybackState()
-                    return
-                }
-                let didStartPlayback = shouldStartPlaying ? audioEngine.play() : false
-
-                isLoading = false
-                if didStartPlayback {
-                    isPlaying = true
-                    startTimeUpdater()
-                } else {
-                    isPlaying = false
-                    stopTimeUpdater()
-                    if shouldStartPlaying {
-                        showPlaybackError(String(localized: "playback_error_decode"))
-                    }
-                }
-                switch LocalSeekRecoveryPolicy.updateAfterSeek(
-                    targetTime: targetTime,
-                    didSucceed: true,
-                    shouldStartPlaying: shouldStartPlaying,
-                    isRecovery: isRecovery,
-                    needsRecovery: needsPlaybackRecovery
-                ) {
-                case .preserve:
-                    break
-                case .retarget(let recoveryTime):
-                    pendingRecoveryTime = recoveryTime
-                    pendingRecoveryIsColdSessionRestore = false
-                }
-                if isRecovery, didStartPlayback || !shouldStartPlaying {
-                    clearPendingPlaybackRecovery()
-                }
-                updateNowPlayingInfo()
-                updatePlaybackState()
-
-                // Decode remaining buffers with track-end detection
-                if let secondPlayableBuffer {
-                    decodingTask = Task { [id, iteratorBox, gate, secondPlayableBuffer] in
-                        var lastBuffer: AVAudioPCMBuffer?
-                        defer { Task { await gate.drain() } }
-
-                        // 稳态解码泵整体移出 MainActor: 循环本身不再读主 actor 状态, 归属改由
-                        // pumpLease 逐块回答; 收尾逻辑仍留在外层这个主 actor Task 里。
-                        let loop = DecodedBufferSchedulingLoop<AVAudioPCMBuffer, UUID>(
-                            playID: id,
-                            lease: self.pumpLease,
-                            gate: gate,
-                            measure: { buffer in
-                                DecodedBufferMeasurement(
-                                    duration: Self.decodedBufferDuration(buffer),
-                                    byteCount: Self.decodedBufferByteCount(buffer)
-                                )
-                            },
-                            schedule: { [audioEngine = self.audioEngine] buffer, release in
-                                audioEngine.scheduleDecodedBuffer(
-                                    buffer, on: .primary, completionCallbackType: .dataPlayedBack
-                                ) { _ in release() }
-                            }
-                        )
-                        let loopTask = Task.detached(priority: .userInitiated) {
-                            await loop.run(
-                                next: { try await iteratorBox.next() },
-                                initialHeldBuffer: secondPlayableBuffer
-                            )
-                        }
-                        let outcome = await withTaskCancellationHandler {
-                            await loopTask.value
-                        } onCancel: {
-                            loopTask.cancel()
-                        }
-
-                        switch outcome {
-                        case .cancelled, .lostOwnership:
-                            return
-                        case .completed(let buffer, _):
-                            lastBuffer = buffer
-                        case .failed(let error, let buffer, _):
-                            lastBuffer = buffer
-                            if !Task.isCancelled { plog("Seek decode error: \(error)") }
-                        }
-
-                        if let finalBuffer = lastBuffer {
-                            guard !Task.isCancelled else { return }
-                            if self.scheduleOutgoingCrossfadeTailBuffer(finalBuffer, playID: id) { return }
-                            guard self.playID == id else { return }
-                            await self.scheduleDecodedFinalBuffer(finalBuffer, playID: id)
-                        }
-                    }
-                } else {
-                    decodingTask = nil
-                }
-            } catch {
-                plog("Seek error: \(error)")
-                guard !Task.isCancelled, playID == id else { return }
-                if error is PlaybackAudioSessionFailure {
-                    suspendPlaybackPreservingSelection(
-                        reason: "audio-session-unavailable-during-seek",
-                        resumeTime: targetTime
-                    )
-                    return
-                }
-                let canRestartColdRemoteStream = isRecovery
-                    && isColdSessionRestore
-                    && sourceManager?.cachedURL(for: song) == nil
-                    && (activeDecoderKind == .streaming
-                        || activeDecoderKind == .cloudStream
-                        || activeDecoderKind == .httpStream)
-                if canRestartColdRemoteStream {
-                    plog("↩️ Cold remote resume cannot seek through Range; restarting stream from beginning")
-                    isLoading = false
-                    isPlaying = false
-                    currentTime = 0
-                    clearPendingPlaybackRecovery()
-                    invalidateAutomaticAdvance(reason: "cold-remote-resume-fallback")
-                    // play(song:) 会取消 seekTask, 而此刻句柄正指向本任务。
-                    // 先摘掉句柄, 冷启动重播才不会被自己的取消打断。
-                    seekTask = nil
-                    await play(song: song)
-                    return
-                }
-                if !isRecovery {
-                    suspendPlaybackPreservingSelection(
-                        reason: "seek-failed",
-                        resumeTime: targetTime
-                    )
-                    showPlaybackError(String(localized: "playback_error_decode"))
-                    return
-                }
-                isLoading = false
-                isPlaying = false
-                currentTime = targetTime
-                pendingRecoveryTime = targetTime
-                needsPlaybackRecovery = true
-                invalidateAutomaticAdvance(reason: "same-position-recovery-failed")
-                showPlaybackError(String(localized: "playback_error_decode"))
-                republishNowPlayingSurfaces()
-            }
-        }
-    }
-
-    func handleAppWillResignActive() {
-        cancelAppActivationInterruptionRecovery()
-        let activeEvidence = lastPublishedPlaybackWasActive
-            || hasConfigurationRecoveryActivityEvidence
-            || hasMusicVideoSeekActivityEvidence
-        syncPlaybackProgressFromEngine()
-        updateNowPlayingInfo()
-        // 退到后台后进程随时可能被挂起, 这一次会话快照必须在返回前落盘。
-        updatePlaybackState(flushPlaybackSessionImmediately: true)
-        // AVFAudio can stop the graph before delivering its interruption
-        // notification. Preserve the last backend-validated active publication
-        // across that ordering window. Explicit Pause/Stop has already cleared
-        // playback intent; foreground synchronization replaces stale evidence.
-        if activeEvidence,
-           interruptionResumePolicy.playbackIsIntended,
-           isPlaying
-            || hasConfigurationRecoveryActivityEvidence
-            || hasMusicVideoSeekActivityEvidence
-            || interruptionResumePolicy.isAwaitingInterruptionEnd {
-            lastPublishedPlaybackWasActive = true
-        }
-    }
-
-    func handleAppDidBecomeActive() {
-        #if os(iOS)
-        retryEmptySystemLyricsAfterForegroundingIfNeeded()
-        #endif
-        if interruptionResumePolicy.isAwaitingInterruptionEnd {
-            scheduleAppActivationInterruptionRecovery()
-        }
-        switch PlaybackAppActivationPolicy.action(
-            needsPlaybackRecovery: needsPlaybackRecovery
-        ) {
-        case .preservePendingRecovery:
-            currentTime = max(0, pendingRecoveryTime)
-            updateNowPlayingInfo()
-            updatePlaybackState()
-            return
-        case .synchronizeVisibleState:
-            break
-        }
-
-        syncPlaybackProgressFromEngine()
-        updateNowPlayingInfo()
-        updatePlaybackState()
-    }
-
-    private enum QueueReplacementTransition: Equatable {
-        case prepareNewSelection
-        case preserveCurrentTransport
-    }
-
-    /// Replaces the visible queue and starts its selected item as one operation.
-    /// The old transport is never rebuilt on the way to a different song, and a
-    /// repeated selection of the active/loading item only updates queue context.
-    func play(
-        queue songs: [Song],
-        startingAt index: Int = 0,
-        caller: String = #fileID,
-        callerLine: Int = #line
-    ) async {
-        guard !songs.isEmpty else {
-            clearQueue()
-            return
-        }
-        let selectedIndex = max(0, min(index, songs.count - 1))
-        let selectedSong = songs[selectedIndex]
-        let transportCanBePreserved = !isAppleMusicMode || isPrimuseManagingAppleMusicQueue
-        let decision = QueueSelectionPlaybackPolicy.decision(
-            selectedItemID: selectedSong.id,
-            currentItemID: currentSong?.id,
-            transportIsActive: isPlaybackActuallyActive,
-            isLoading: isLoading,
-            transportCanBePreserved: transportCanBePreserved
-        )
-        installQueue(
-            songs,
-            startAt: selectedIndex,
-            transition: decision == .preserveCurrentTransport
-                ? .preserveCurrentTransport
-                : .prepareNewSelection
-        )
-        guard decision == .startSelectedItem else {
-            plog("🎶 queue selection reused active transport for '\(selectedSong.title)'")
-            return
-        }
-        await play(song: selectedSong, caller: caller, callerLine: callerLine)
-    }
-
-    func setQueue(_ songs: [Song], startAt index: Int = 0) {
-        guard !songs.isEmpty else {
-            clearQueue()
-            return
-        }
-        let selectedIndex = max(0, min(index, songs.count - 1))
-        let transportCanBePreserved = !isAppleMusicMode || isPrimuseManagingAppleMusicQueue
-        let decision = QueueSelectionPlaybackPolicy.decision(
-            selectedItemID: songs[selectedIndex].id,
-            currentItemID: currentSong?.id,
-            transportIsActive: isPlaybackActuallyActive,
-            isLoading: isLoading,
-            transportCanBePreserved: transportCanBePreserved
-        )
-        installQueue(
-            songs,
-            startAt: selectedIndex,
-            transition: decision == .preserveCurrentTransport
-                ? .preserveCurrentTransport
-                : .prepareNewSelection
-        )
-    }
-
-    private func installQueue(
-        _ songs: [Song],
-        startAt index: Int,
-        transition: QueueReplacementTransition
-    ) {
-        guard !songs.isEmpty else {
-            plog("🎶 setQueue empty — clearing queue")
-            clearQueue()
-            return
-        }
-
-        let preservedEntryID = transition == .preserveCurrentTransport
-            && queueEntries.indices.contains(currentIndex) ? queueEntries[currentIndex].id : nil
-        var reusableEntryIDs: [String: [UUID]] = [:]
-        if transition == .preserveCurrentTransport {
-            for entry in queueEntries.reversed() where entry.id != preservedEntryID {
-                reusableEntryIDs[entry.song.id, default: []].append(entry.id)
-            }
-        }
-        switch transition {
-        case .prepareNewSelection:
-            invalidateQueueTransitions(rebuildCurrentTransport: false)
-        case .preserveCurrentTransport:
-            invalidatePreparedQueueSuccessor()
-        }
-        queueEntries = songs.enumerated().map { offset, song in
-            let id = offset == index ? preservedEntryID : reusableEntryIDs[song.id]?.popLast()
-            return QueueEntry(song: song, id: id ?? UUID())
-        }
-        currentIndex = max(0, min(index, songs.count - 1))
-        // Protect any newly-installed canonical queue from an existing Apple
-        // Music mirror during the short interval before `play(song:)` runs.
-        isPrimuseManagingAppleMusicQueue = true
-        let currentTitle = queueEntries[currentIndex].song.title
-        let firstTitle = queueEntries.first?.song.title ?? "-"
-        let lastTitle = queueEntries.last?.song.title ?? "-"
-        plog("🎶 setQueue count=\(songs.count) startIndex=\(currentIndex) current='\(currentTitle)' first='\(firstTitle)' last='\(lastTitle)'")
-        // Drop any pre-built next round — the queue itself changed, so
-        // prior shuffle plans (and their indices into the old queue)
-        // are stale and would index out-of-bounds on wrap.
-        pendingNextShuffleIndices = nil
-        if shuffleEnabled { rebuildShuffleOrder() }
-        persistPlaybackSession()
-        if transition == .preserveCurrentTransport {
-            if isPlaybackActuallyActive { prefetchNextSong() }
-            else { synchronizeAppleMusicQueue() }
-        }
-    }
-
-    /// Re-evaluate prepared queue work after an enable/disable state arrives
-    /// from this device or CloudKit. The durable queue is intentionally not
-    /// filtered: re-enabling a source makes its existing entries playable
-    /// again without rebuilding the user's order.
-    func sourceAvailabilityDidChange(for sourceIDs: Set<String>) {
-        guard !sourceIDs.isEmpty,
-              currentSong.map({ sourceIDs.contains($0.sourceID) }) == true
-                || queueEntries.contains(where: { sourceIDs.contains($0.song.sourceID) }) else {
-            return
-        }
-        invalidatePreparedQueueSuccessor()
-        prefetchNextSong()
-    }
-
-    /// Append songs to the end of the current queue without interrupting the
-    /// current track. Used by macOS list-level "add all to queue" actions.
-    func appendToQueue(_ songs: [Song]) {
-        let playable = songs.filteredPlayable()
-        guard !playable.isEmpty else { return }
-        invalidatePreparedQueueSuccessor()
-        queueEntries.append(contentsOf: playable.map { QueueEntry(song: $0) })
-        if isAppleMusicMode {
-            isPrimuseManagingAppleMusicQueue = true
-            AppServices.shared.appleMusic.prepareForPrimuseManagedQueue()
-        }
-        pendingNextShuffleIndices = nil
-        if shuffleEnabled { rebuildShuffleOrder() }
-        persistPlaybackSession()
-        if isPlaybackActuallyActive { prefetchNextSong() }
-        else { synchronizeAppleMusicQueue() }
-    }
-
-    /// Insert songs immediately after the current queue position. If there is
-    /// no queue yet, this behaves like `setQueue`.
-    @discardableResult
-    func insertNextInQueue(_ songs: [Song]) -> Int? {
-        let playable = songs.filteredPlayable()
-        guard !playable.isEmpty else { return nil }
-        guard !queueEntries.isEmpty else {
-            setQueue(playable, startAt: 0)
-            return 0
-        }
-        let insertionIndex = min(currentIndex + 1, queueEntries.count)
-        invalidatePreparedQueueSuccessor()
-        queueEntries.insert(contentsOf: playable.map { QueueEntry(song: $0) }, at: insertionIndex)
-        if isAppleMusicMode {
-            isPrimuseManagingAppleMusicQueue = true
-            AppServices.shared.appleMusic.prepareForPrimuseManagedQueue()
-        }
-        pendingNextShuffleIndices = nil
-        if shuffleEnabled { rebuildShuffleOrder() }
-        persistPlaybackSession()
-        if isPlaybackActuallyActive { prefetchNextSong() }
-        else { synchronizeAppleMusicQueue() }
-        return insertionIndex
-    }
-    /// Remove every occurrence of the target songs from the canonical queue
-    /// before their library records or source files disappear. If the active
-    /// song is part of the batch, playback moves directly to a retained row;
-    /// advancing only once can land on another song in the same deletion batch.
-    func prepareQueueForRemovingSongs(withIDs songIDs: Set<String>) async {
-        let plan = QueueBatchRemovalPolicy.plan(
-            queueSongIDs: queueEntries.map(\.song.id),
-            currentIndex: currentIndex,
-            currentSongID: currentSong?.id,
-            removingSongIDs: songIDs
-        )
-        guard plan.action != .unchanged else { return }
-
-        let retainedSongs = plan.retainedIndices.compactMap { index in
-            queueEntries.indices.contains(index) ? queueEntries[index].song : nil
-        }
-        switch plan.action {
-        case .unchanged:
-            return
-        case let .replaceQueue(startAt):
-            if retainedSongs.isEmpty {
-                clearQueue()
-            } else {
-                setQueue(retainedSongs, startAt: startAt)
-            }
-        case let .playReplacement(startAt):
-            guard retainedSongs.indices.contains(startAt) else {
-                stop()
-                clearQueue()
-                return
-            }
-            if isPlaybackActive {
-                setQueue(retainedSongs, startAt: startAt)
-                await play(song: retainedSongs[startAt])
-            } else {
-                stop()
-                setQueue(retainedSongs, startAt: startAt)
-                stagePausedHandoff(song: retainedSongs[startAt], at: 0)
-                persistPlaybackSession()
-            }
-        case .stopAndClearQueue:
-            stop()
-            clearQueue()
-        }
-    }
-
-    /// 删掉队列前 `count` 首歌, 同时把 `currentIndex` 往前平移 (不让它跑负)。
-    /// MacQueuePanel 的 "清掉已播放" 按钮直接调这个 ── 之前是把 player.queue
-    /// 当 var 用, 但 queue 现在是 computed。
-    func removeQueuePrefix(count: Int) {
-        guard count > 0 else { return }
-        let toRemove = min(count, queueEntries.count)
-        invalidatePreparedQueueSuccessor()
-        queueEntries.removeFirst(toRemove)
-        currentIndex = max(0, currentIndex - toRemove)
-        pendingNextShuffleIndices = nil
-        if shuffleEnabled { rebuildShuffleOrder() }
-        persistPlaybackSession()
-        if isPlaybackActuallyActive { prefetchNextSong() }
-        else { synchronizeAppleMusicQueue() }
-    }
-
-    /// Wipe the queue. Replaces the legacy `player.queue = []` setter,
-    /// which is no longer accessible since `queue` is now computed.
-    func clearQueue() {
-        let retainedAppleMusicTransport = isAppleMusicMode && isPrimuseManagingAppleMusicQueue
-        appleMusicQueueUpdateTask?.cancel()
-        appleMusicQueueUpdateTask = nil
-        if retainedAppleMusicTransport { AppServices.shared.appleMusic.retainCurrentManagedQueueEntry() }
-        invalidateQueueTransitions()
-        queueEntries = []
-        currentIndex = 0
-        pendingNextShuffleIndices = nil
-        shuffledIndices = []
-        shufflePosition = 0
-        isPrimuseManagingAppleMusicQueue = retainedAppleMusicTransport
-        persistPlaybackSession()
-    }
-
-    /// Move queue rows without rebuilding the active audio transport. A drag
-    /// can invalidate prepared audio for the immediate successor, but the
-    /// current song, decoder and natural-end ticket remain unchanged.
-    private func moveQueueItems(
-        fromOffsets source: IndexSet,
-        toOffset destination: Int,
-        invalidatesPreparedSuccessor: Bool
-    ) {
-        guard !source.isEmpty,
-              source.allSatisfy({ queueEntries.indices.contains($0) }),
-              destination >= 0,
-              destination <= queueEntries.count else { return }
-        queueEntries.move(fromOffsets: source, toOffset: destination)
-        pendingNextShuffleIndices = nil
-        if shuffleEnabled {
-            rebuildShuffleOrder()
-        }
-        completeQueueReorder(invalidatesPreparedSuccessor: invalidatesPreparedSuccessor)
-    }
-
-    private func completeQueueReorder(invalidatesPreparedSuccessor: Bool) {
-        if invalidatesPreparedSuccessor {
-            invalidatePreparedQueueSuccessor()
-        }
-        persistPlaybackSession()
-        if currentSong != nil { prefetchNextSong() }
-    }
-
-    /// Reorder one visible Up Next occurrence by its durable queue-slot UUID.
-    /// The current presentation is resolved again at drop time, so a payload
-    /// consumed by a natural transition or a concurrent queue change is a safe
-    /// no-op. Managed shuffle mutates only the unplayed traversal suffix; the
-    /// canonical queue and the played/current prefix stay untouched.
-    @discardableResult
-    func moveUpcomingQueueEntry(
-        _ dragged: QueueReorderOccurrenceID,
-        over target: QueueReorderOccurrenceID
-    ) -> Bool {
-        let currentUpcoming = upcomingQueueEntries.map {
-            QueueReorderOccurrenceID(
-                queueEntryID: $0.id.queueEntryID,
-                roundOffset: $0.id.roundOffset
-            )
-        }
-        guard let reordered = QueueUpcomingReorderPolicy.reorderedOccurrences(
-            dragging: dragged,
-            over: target,
-            queueEntryIDs: queueEntries.map(\.id),
-            upcomingOccurrences: currentUpcoming
-        ) else { return false }
-        let invalidatesPreparedSuccessor = QueueUpcomingReorderPolicy
-            .shouldInvalidatePreparedSuccessor(
-                before: currentUpcoming,
-                after: reordered
-            )
-
-        let roundOffset = dragged.roundOffset
-        let currentRoundIDs = currentUpcoming
-            .filter { $0.roundOffset == roundOffset }
-            .map(\.queueEntryID)
-        let reorderedRoundIDs = reordered
-            .filter { $0.roundOffset == roundOffset }
-            .map(\.queueEntryID)
-        let rawIndexByID = Dictionary(uniqueKeysWithValues: queueEntries.indices.map {
-            (queueEntries[$0].id, $0)
-        })
-        let reorderedRawIndices = reorderedRoundIDs.compactMap { rawIndexByID[$0] }
-        guard reorderedRawIndices.count == reorderedRoundIDs.count else { return false }
-
-        if usesManagedShuffleOrder {
-            switch roundOffset {
-            case 0:
-                let start = min(max(shufflePosition + 1, 0), shuffledIndices.count)
-                let currentRawIndices = Array(shuffledIndices.dropFirst(start))
-                let actualCurrentRoundIDs = currentRawIndices.compactMap { index in
-                    queueEntries.indices.contains(index) ? queueEntries[index].id : nil
-                }
-                guard actualCurrentRoundIDs == currentRoundIDs,
-                      currentRawIndices.count == reorderedRawIndices.count else { return false }
-                shuffledIndices.replaceSubrange(start..<shuffledIndices.count, with: reorderedRawIndices)
-            case 1:
-                guard repeatMode == .all else { return false }
-                let pending = preparedNextShuffleRound()
-                let actualNextRoundIDs = pending.compactMap { index in
-                    queueEntries.indices.contains(index) ? queueEntries[index].id : nil
-                }
-                guard actualNextRoundIDs == currentRoundIDs,
-                      pending.count == reorderedRawIndices.count else { return false }
-                pendingNextShuffleIndices = reorderedRawIndices
-            default:
-                return false
-            }
-            completeQueueReorder(
-                invalidatesPreparedSuccessor: invalidatesPreparedSuccessor
-            )
-            return true
-        }
-
-        // A system-owned Apple Music shuffle cannot be reordered by changing
-        // Primuse's raw mirror. Wait until the canonical managed traversal is
-        // available instead of presenting a successful but ineffective drop.
-        guard !shuffleEnabled, roundOffset == 0,
-              let sourceIndex = rawIndexByID[dragged.queueEntryID],
-              let desiredOffset = reorderedRoundIDs.firstIndex(of: dragged.queueEntryID) else {
-            return false
-        }
-        let upcomingStart = min(max(currentIndex + 1, 0), queueEntries.count)
-        let desiredRawIndex = upcomingStart + desiredOffset
-        guard queueEntries.indices.contains(desiredRawIndex), sourceIndex >= upcomingStart else {
-            return false
-        }
-        let destination = desiredRawIndex > sourceIndex ? desiredRawIndex + 1 : desiredRawIndex
-        moveQueueItems(
-            fromOffsets: IndexSet(integer: sourceIndex),
-            toOffset: destination,
-            invalidatesPreparedSuccessor: invalidatesPreparedSuccessor
-        )
-        return true
-    }
-
-    /// Remove one durable Up Next occurrence without rebuilding a managed
-    /// shuffle round. Repeat-all may present the same slot again in its next
-    /// round; deleting either presentation removes that canonical slot once,
-    /// while the currently playing slot remains protected.
-    @discardableResult
-    func removeUpcomingQueueEntry(_ occurrence: QueueReorderOccurrenceID) -> Bool {
-        guard canRemoveUpcomingQueueEntries,
-              queueEntries.indices.contains(currentIndex) else { return false }
-
-        let currentUpcoming = upcomingQueueEntries.map {
-            QueueReorderOccurrenceID(
-                queueEntryID: $0.id.queueEntryID,
-                roundOffset: $0.id.roundOffset
-            )
-        }
-        guard let removalIndex = QueueUpcomingRemovalPolicy.queueIndex(
-            for: occurrence,
-            currentQueueEntryID: queueEntries[currentIndex].id,
-            queueEntryIDs: queueEntries.map(\.id),
-            upcomingOccurrences: currentUpcoming
-        ) else { return false }
-        let shouldCancelSuccessorPreparation = QueueUpcomingRemovalPolicy
-            .shouldCancelSuccessorPreparation(
-                removing: occurrence,
-                immediateSuccessorQueueEntryID: nextQueueEntryInQueue()?.id
-            )
-
-        // Keep the active transport and its end-of-track ticket intact. The
-        // old implementation called invalidateQueueTransitions() for every
-        // removal, which seeks the current song and creates an audible gap even
-        // when an unrelated Up Next slot was deleted. Only preparation for the
-        // exact successor can become stale; its boundary callback will resolve
-        // the newly rebased queue when the current track naturally finishes.
-
-        let rebasedCurrentIndex = currentIndex - (removalIndex < currentIndex ? 1 : 0)
-        if usesManagedShuffleOrder {
-            guard let rebasedTraversal = QueueUpcomingRemovalPolicy.rebasedTraversal(
-                shuffledIndices,
-                currentPosition: shufflePosition,
-                removingQueueIndex: removalIndex,
-                queueCount: queueEntries.count
-            ),
-            rebasedTraversal.indices[rebasedTraversal.currentPosition] == rebasedCurrentIndex else {
-                return false
-            }
-
-            let rebasedPending: [Int]?
-            if let pendingNextShuffleIndices {
-                guard let nextRound = QueueUpcomingRemovalPolicy.rebasedIndices(
-                    pendingNextShuffleIndices,
-                    removingQueueIndex: removalIndex,
-                    queueCount: queueEntries.count
-                ) else { return false }
-                rebasedPending = nextRound
-            } else {
-                rebasedPending = nil
-            }
-
-            if shouldCancelSuccessorPreparation {
-                cancelGaplessTasks()
-                cancelCrossfadeAttempt()
-            }
-            queueEntries.remove(at: removalIndex)
-            currentIndex = rebasedCurrentIndex
-            shuffledIndices = rebasedTraversal.indices
-            shufflePosition = rebasedTraversal.currentPosition
-            pendingNextShuffleIndices = rebasedPending
-        } else {
-            guard !shuffleEnabled else { return false }
-            if shouldCancelSuccessorPreparation {
-                cancelGaplessTasks()
-                cancelCrossfadeAttempt()
-            }
-            queueEntries.remove(at: removalIndex)
-            currentIndex = rebasedCurrentIndex
-            pendingNextShuffleIndices = nil
-        }
-
-        persistPlaybackSession()
-        if currentSong != nil {
-            updateNowPlayingInfo()
-            prefetchNextSong()
-        }
-        return true
-    }
-
-    /// Play the queue entry at a raw `queueEntries` index, keeping the player's
-    /// shuffle bookkeeping in sync. The QueueView taps map to raw queue indices;
-    /// in shuffle mode `currentIndex` alone isn't enough — `shufflePosition` /
-    /// `shuffledIndices` also have to point at the tapped track or the next
-    /// `next()` advances from a stale shuffle position. Unlike toggling
-    /// `shuffleEnabled` (which reshuffles the whole round), this only swaps the
-    /// tapped index into the current shuffle position, leaving the *rest* of the
-    /// round's order untouched so Up Next stays stable.
-    func playFromQueue(at index: Int) async {
-        guard queueEntries.indices.contains(index) else { return }
-        let song = queueEntries[index].song
-        guard isSourceEnabledForPlayback(song.sourceID) else {
-            showPlaybackError(String(localized: "playback_error_source_disabled"))
-            return
-        }
-
-        if usesManagedShuffleOrder, !isMirroringFromAppleMusic {
-            if let targetPos = shuffledIndices.firstIndex(of: index) {
-                // Pull the tapped track into the current shuffle position. The
-                // displaced index moves to where the tapped one was, so every
-                // other position keeps its relative order (no reshuffle).
-                let anchorPos = min(max(shufflePosition, 0), shuffledIndices.count - 1)
-                shuffledIndices.swapAt(anchorPos, targetPos)
-                shufflePosition = anchorPos
-            }
-        }
-
-        currentIndex = index
-        persistPlaybackSession()
-        await play(song: song)
-    }
-
-    /// Played entries in actual traversal order. Raw queue indices are only a
-    /// valid played/current/upcoming partition when shuffle is disabled.
-    var playedQueueEntries: [QueuePresentationEntry] {
-        let occurrences = QueuePresentationPolicy.playedOccurrences(
-            queueCount: queueEntries.count,
-            currentIndex: currentIndex,
-            shuffledIndices: usesManagedShuffleOrder ? shuffledIndices : nil,
-            shufflePosition: shufflePosition
-        )
-        return presentationEntries(for: occurrences)
-    }
-
-    /// Up Next entries in the order they'll actually play. The next repeat-all
-    /// shuffle round receives a distinct presentation identity even though it
-    /// intentionally references the same durable queue slots.
-    var upcomingQueueEntries: [QueuePresentationEntry] {
-        var nextRoundIndices: [Int]?
-        if usesManagedShuffleOrder, repeatMode == .all {
-            nextRoundIndices = preparedNextShuffleRound()
-        }
-        let occurrences = QueuePresentationPolicy.upcomingOccurrences(
-            queueCount: queueEntries.count,
-            currentIndex: currentIndex,
-            shuffledIndices: usesManagedShuffleOrder ? shuffledIndices : nil,
-            shufflePosition: shufflePosition,
-            nextRoundIndices: nextRoundIndices
-        )
-        return presentationEntries(for: occurrences)
-    }
-
-    private var usesManagedShuffleOrder: Bool {
-        shuffleEnabled && !(isAppleMusicMode && !isPrimuseManagingAppleMusicQueue)
-    }
-
-    private func presentationEntries(
-        for occurrences: [QueuePresentationOccurrence]
-    ) -> [QueuePresentationEntry] {
-        occurrences.compactMap { occurrence in
-            guard queueEntries.indices.contains(occurrence.queueIndex) else { return nil }
-            return QueuePresentationEntry(
-                entry: queueEntries[occurrence.queueIndex],
-                roundOffset: occurrence.roundOffset
-            )
-        }
-    }
-
-    func syncSongMetadata(_ updatedSong: Song) {
-        if currentSong?.id == updatedSong.id {
-            currentSong = updatedSong
-            let updatedDuration = updatedSong.duration.sanitizedDuration
-            if updatedDuration > 0 {
-                duration = updatedDuration
-            }
-            updateNowPlayingInfo()
-            updatePlaybackState()
-        }
-        // Keep the per-row UUID stable — mutate only `song` so SwiftUI
-        // doesn't see a row disappear/reappear when metadata backfill
-        // rewrites tags mid-listening.
-        if let queueIndex = queueEntries.firstIndex(where: { $0.song.id == updatedSong.id }) {
-            queueEntries[queueIndex].song = updatedSong
-        }
-    }
-
-    /// Replace a transient catalog-derived Apple Music identity with the
-    /// canonical user-library row without restarting playback. This is used as
-    /// a final guard by metadata actions that can be tapped between MusicKit
-    /// polling ticks.
-    func adoptCanonicalAppleMusicSong(_ canonical: Song, replacing aliasSongID: String) {
-        guard canonical.sourceID == AppleMusicLibraryService.systemSourceID,
-              currentSong?.sourceID == AppleMusicLibraryService.systemSourceID,
-              currentSong?.id == aliasSongID else { return }
-
-        currentSong = canonical
-        if canonical.duration > 0 { duration = canonical.duration }
-        for index in queueEntries.indices where queueEntries[index].song.id == aliasSongID {
-            queueEntries[index].song = canonical
-        }
-        updateNowPlayingInfo()
-        updatePlaybackState()
-    }
-
-    // MARK: - Gapless Playback
-
-    private func startGaplessPreparation(playID id: UUID, transition: GaplessTransitionState) {
-        gaplessPreparationTask?.cancel()
-        gaplessPreparationTask = Task { [id, transition] in
-            await self.prepareGaplessNextTrack(playID: id, transition: transition)
-        }
-    }
-
-    private func handleGaplessBoundary(
-        transition: GaplessTransitionState,
-        playID id: UUID
-    ) async {
-        guard !transition.didBoundaryFire else {
-            plog("🛡️ dropped duplicate gapless boundary ticket=\(transition.advanceTicket.id.uuidString.prefix(8))")
-            return
-        }
-        guard automaticAdvanceDecision(
-            for: transition.advanceTicket,
-            trigger: "gapless-boundary",
-            consume: false
-        ) == .accepted else {
-            transition.shouldCancelPreparation = true
-            cancelGaplessTasks()
-            return
-        }
-        transition.didBoundaryFire = true
-
-        // 防御性兜底: 10 秒内 boundary 触发 ≥4 次 = 队列里有 partial/坏掉
-        // 的歌反复切歌, 强制 pause 并 cancel 后续准备, 避免占满
-        // CPU + 不停下载 + UI 像是 loading 卡死的体感。
-        let now = Date()
-        recentBoundaryTimes.append(now)
-        recentBoundaryTimes.removeAll { now.timeIntervalSince($0) > Self.boundaryStormWindow }
-        if recentBoundaryTimes.count >= Self.boundaryStormThreshold {
-            plog("⚠️ gapless boundary storm: \(recentBoundaryTimes.count) 次 / \(Int(Self.boundaryStormWindow))s — 暂停播放, 队列里可能有不完整的缓存文件")
-            recentBoundaryTimes.removeAll()
-            transition.shouldCancelPreparation = true
-            cancelGaplessTasks()
-            pause()
-            return
-        }
-
-        // Sanity check: 当前歌还远没听完就 fire boundary, 说明上游有问题
-        // (CloudPlaybackSource 短读 / decoder 误判 EOF / MP3 帧元数据偏差),
-        // 直接切歌会让用户体感是"歌没播完就跳了"。这里重建当前歌曲的
-        // decoder pipeline, 从当前进度前一点继续拉数据; 如果仍失败,
-        // seek 路径会停在当前曲而不是静默跳到下一首。
-        if duration > 30, currentTime < duration - 5, !isLoading {
-            plog("⚠️ premature gapless boundary suppressed: currentTime=\(String(format: "%.1f", currentTime))s duration=\(String(format: "%.1f", duration))s playID=\(id.uuidString.prefix(8))")
-            transition.shouldCancelPreparation = true
-            cancelGaplessTasks()
-            showPlaybackError(String(localized: "playback_error_connection"))
-            let recoveryTime = max(0, currentTime - 2)
-            seek(to: recoveryTime, startPlaying: true, isRecovery: true)
-            return
-        }
-
-        let settings = playbackSettings.snapshot()
-
-        // The user can switch Crossfade on after the gapless final buffer
-        // has already been scheduled. In that race, the crossfade path owns
-        // the transition and will swap nodes; do not also advance here.
-        if shouldUseCrossfade(settings), crossfadeTriggered {
-            transition.shouldCancelPreparation = true
-            gaplessPreparationTask?.cancel()
-            gaplessPreparationTask = nil
-            return
-        }
-
-        if let lockedID = sleepStopAfterSongID, currentSong?.id == lockedID {
-            sleepStopAfterSongID = nil
-            transition.shouldCancelPreparation = true
-            cancelGaplessTasks()
-            stopAtTrackEnd()
-            return
-        }
-
-        guard shouldAttemptGapless(settings: settings),
-              queueGeneration == transition.queueGeneration,
-              let prepared = transition.prepared,
-              nextQueueEntryInQueue()?.id == prepared.queueEntryID else {
-            transition.shouldCancelPreparation = true
-            gaplessPreparationTask?.cancel()
-            gaplessPreparationTask = nil
-            await handleTrackEnd(
-                advanceTicket: transition.advanceTicket,
-                trigger: "gapless-fallback"
-            )
-            return
-        }
-
-        let handoff = playbackAdvancePolicy.handoff(
-            from: transition.advanceTicket,
-            to: prepared.followingTransition.advanceTicket,
-            currentItemID: currentSong?.id,
-            playbackIsIntended: interruptionResumePolicy.playbackIsIntended,
-            transportIsActive: isPlaying && audioEngine.isActuallyPlaying
-        )
-        guard handoff == .accepted else {
-            plog("🛡️ dropped gapless handoff reason=\(handoff.rawValue) generation=\(transition.advanceTicket.generation)")
-            transition.shouldCancelPreparation = true
-            cancelGaplessTasks()
-            return
-        }
-        localPipelineAdvanceTicket = prepared.followingTransition.advanceTicket
-        plog("✅ auto-advance handoff trigger=gapless-boundary generation=\(prepared.followingTransition.advanceTicket.generation) ticket=\(prepared.followingTransition.advanceTicket.id.uuidString.prefix(8))")
-
-        activateGaplessTrack(prepared, completedTransition: transition, playID: id)
-    }
-
-    private func activateGaplessTrack(
-        _ prepared: GaplessPreparedTrack,
-        completedTransition: GaplessTransitionState,
-        playID id: UUID
-    ) {
-        guard playID == id else { return }
-
-        let activatedSong = songRefreshingLatestDuration(prepared.song)
-        resetDecodedBufferHealth(resetRecoveryAttempts: true)
-        if let gate = completedTransition.bufferGate {
-            installDecodedBufferGate(gate, playID: id)
-        }
-
-        if let previous = currentSong {
-            sourceManager?.finalizeStreamingSession(for: previous)
-        }
-
-        let boundaryWasCommitted = audioEngine.markTrackBoundary(
-            completedTransition.boundary
-        )
-        advanceToNextIndex()
-        currentSong = activatedSong
-        duration = activatedSong.duration.sanitizedDuration
-        applyResolvedDuration(duration, toSongID: activatedSong.id)
-        currentTime = 0
-        isLoading = false
-        isPlaying = true
-        isAtTrackEnd = false
-        crossfadeTriggered = false
-        isCrossfading = false
-        activeDecoderKind = prepared.decoderKind
-        library?.recordPlayback(of: activatedSong.id)
-        ScrobbleService.shared.handlePlaybackStarted(song: activatedSong)
-        PlayHistoryStore.shared.beginSession(song: activatedSong)
-
-        guard boundaryWasCommitted else {
-            plog("⚠️ gapless boundary token was stale; rebuilding the activated track")
-            completedTransition.shouldCancelPreparation = true
-            cancelGaplessTasks()
-            pendingRecoveryTime = 0
-            needsPlaybackRecovery = true
-            seek(to: 0, startPlaying: true, isRecovery: true)
-            return
-        }
-
-        let settings = playbackSettings.snapshot()
-        if shouldApplyReplayGain(settings) {
-            Task { [id] in
-                await self.applyReplayGain(
-                    for: activatedSong,
-                    url: prepared.url,
-                    mode: settings.replayGainMode,
-                    allowFileRead: prepared.decoderKind != .cloudStream && prepared.decoderKind != .httpStream,
-                    expectedPlayID: id,
-                    expectedSongID: activatedSong.id
-                )
-            }
-        } else {
-            audioEngine.resetPlayerVolume()
-        }
-
-        if duration <= 0,
-           !activatedSong.isCueTrack,
-           prepared.decoderKind != .cloudStream,
-           prepared.decoderKind != .httpStream {
-            Task { [id] in
-                let decoder: any PrimuseAudioDecoder = prepared.decoderKind == .ffmpeg
-                    ? self.ffmpegDecoder : self.nativeDecoder
-                if let info = try? await decoder.fileInfo(for: prepared.url) {
-                    guard self.playID == id, self.currentSong?.id == activatedSong.id else { return }
-                    if self.applyResolvedDuration(info.duration, toSongID: activatedSong.id) {
-                        self.updateNowPlayingInfo()
-                    }
-                }
-            }
-        }
-
-        startTimeUpdater()
-        updateNowPlayingInfo()
-        updateNowPlayingArtworkIfNeeded()
-        updatePlaybackState()
-        prefetchNextSong()
-        startGaplessFollowupPreparation(
-            playID: id,
-            after: completedTransition,
-            followingTransition: prepared.followingTransition
-        )
-    }
-
-    private func startGaplessFollowupPreparation(
-        playID id: UUID,
-        after completedTransition: GaplessTransitionState,
-        followingTransition: GaplessTransitionState
-    ) {
-        gaplessFollowupTask?.cancel()
-        gaplessFollowupTask = Task { [id, completedTransition, followingTransition] in
-            // 等当前边界落定再排下一首, 不再 100ms 轮询一整首歌。
-            await completedTransition.settlement.waitUntilSettled()
-
-            guard !Task.isCancelled,
-                  self.playID == id,
-                  self.queueGeneration == completedTransition.queueGeneration,
-                  !completedTransition.shouldCancelPreparation,
-                  !completedTransition.didFail,
-                  completedTransition.isFullyScheduled else { return }
-
-            guard !Task.isCancelled,
-                  self.playID == id,
-                  self.queueGeneration == followingTransition.queueGeneration else { return }
-            self.startGaplessPreparation(playID: id, transition: followingTransition)
-        }
-    }
-
-    private func prepareGaplessNextTrack(
-        playID id: UUID,
-        transition: GaplessTransitionState
-    ) async {
-        guard playID == id,
-              queueGeneration == transition.queueGeneration,
-              !transition.shouldCancelPreparation,
-              shouldAttemptGapless(settings: playbackSettings.snapshot()),
-              let nextEntry = nextQueueEntryInQueue() else { return }
-        let nextSong = nextEntry.song
-        guard nextSong.id != currentSong?.id else { return }
-        let sourceStreamEpoch = CloudPlaybackSource.streamEpochTicket(
-            sourceID: nextSong.sourceID
-        )
-
-        var nextURL: URL
-        var nextDecoderKind: DecoderKind
-        do {
-            nextURL = try await resolvedURL(
-                for: nextSong,
-                forContinuousPreparation: true
-            )
-            nextDecoderKind = await decoderKind(for: nextSong, url: nextURL)
-        } catch {
-            plog("Gapless prepare URL error: \(error.localizedDescription)")
-            return
-        }
-
-        guard playID == id,
-              queueGeneration == transition.queueGeneration,
-              !transition.shouldCancelPreparation,
-              nextDecoderKind == .native || nextDecoderKind == .ffmpeg,
-              nextDecoderKind != .native || nativeDecoder.canDecode(url: nextURL),
-              let outputFormat = audioEngine.outputFormat else { return }
-        if nextSong.id == currentSong?.id,
-           activeDecoderKind == .cloudStream
-                || activeDecoderKind == .httpStream
-                || nextDecoderKind == .cloudStream
-                || nextDecoderKind == .httpStream {
-            // Two same-song range decoders share one sparse path. Keep repeat
-            // playback serial so the prepared successor cannot retire or
-            // finalize the still-audible writer.
-            return
-        }
-
-        guard let stream = await decodeStream(
-            for: nextSong,
-            url: nextURL,
-            outputFormat: outputFormat,
-            sourceStreamEpoch: sourceStreamEpoch
-        ) else {
-            return
-        }
-
-        guard let followingTicket = preparedAutomaticAdvanceTicket(itemID: nextSong.id) else {
-            return
-        }
-        let followingTransition = GaplessTransitionState(
-            queueGeneration: queueGeneration,
-            advanceTicket: followingTicket
-        )
-        var lastBuffer: AVAudioPCMBuffer?
-        var didMarkPrepared = false
-        // Pace the next track's buffers to consumption of the *current* track's
-        // buffers (same player node) so a fully prepared gapless track doesn't
-        // double the resident PCM alongside the song that's still playing.
-        let gate = DecodedBufferGate(
-            maxBufferedDuration: Self.decodedAudioLookahead,
-            maxBufferedBytes: Self.maxInFlightDecodedBytes,
-            maxBufferCount: Self.maxInFlightDecodedBufferCount
-        )
-        defer { Task { await gate.drain() } }
-
-        func markPreparedIfNeeded() {
-            guard !didMarkPrepared else { return }
-            didMarkPrepared = true
-            transition.bufferGate = gate
-            transition.prepared = GaplessPreparedTrack(
-                queueEntryID: nextEntry.id,
-                song: nextSong,
-                url: nextURL,
-                decoderKind: nextDecoderKind,
-                followingTransition: followingTransition
-            )
-            plog("🔄 gapless prepared next track '\(nextSong.title)'")
-        }
-
-        do {
-            for try await buffer in stream {
-                guard !Task.isCancelled,
-                      playID == id,
-                      queueGeneration == transition.queueGeneration,
-                      !transition.shouldCancelPreparation else { return }
-
-                if let prev = lastBuffer {
-                    let bufferedDuration = Self.decodedBufferDuration(prev)
-                    let bufferedByteCount = Self.decodedBufferByteCount(prev)
-                    await gate.acquire(
-                        duration: bufferedDuration,
-                        byteCount: bufferedByteCount
-                    )
-                    guard !Task.isCancelled,
-                          playID == id,
-                          queueGeneration == transition.queueGeneration,
-                          !transition.shouldCancelPreparation else { return }
-                    audioEngine.scheduleBuffer(
-                        prev,
-                        completionCallbackType: .dataPlayedBack
-                    ) { _ in
-                        gate.release(
-                            duration: bufferedDuration,
-                            byteCount: bufferedByteCount
-                        )
-                    }
-                    markPreparedIfNeeded()
-                }
-                lastBuffer = buffer
-            }
-        } catch {
-            guard !Task.isCancelled,
-                  playID == id,
-                  queueGeneration == transition.queueGeneration,
-                  !transition.shouldCancelPreparation else { return }
-            transition.didFail = true
-            plog("Gapless prepare decode error: \(error.localizedDescription)")
-            if let tailBuffer = lastBuffer {
-                audioEngine.scheduleBuffer(
-                    tailBuffer,
-                    completionCallbackType: .dataPlayedBack
-                ) { [weak self] _ in
-                    Task { @MainActor [weak self] in
-                        guard let self, self.playID == id else { return }
-                        await self.autoAdvanceAfterFailure(
-                            advanceTicket: followingTransition.advanceTicket,
-                            trigger: "gapless-failure"
-                        )
-                    }
-                }
-                markPreparedIfNeeded()
-                transition.isFullyScheduled = true
-            }
-            return
-        }
-
-        guard !Task.isCancelled,
-              playID == id,
-              queueGeneration == transition.queueGeneration,
-              !transition.shouldCancelPreparation,
-              let finalBuffer = lastBuffer else { return }
-
-        followingTransition.boundary = audioEngine.scheduleBuffer(
-            finalBuffer,
-            completionCallbackType: .dataPlayedBack
-        ) { [weak self, followingTransition] _ in
-            Task { @MainActor [weak self] in
-                guard let self, self.playID == id else { return }
-                plog("🔔 gapless boundary fired (prepared) playID=\(id.uuidString.prefix(8))")
-                await self.handleGaplessBoundary(transition: followingTransition, playID: id)
-            }
-        }
-        markPreparedIfNeeded()
-        transition.isFullyScheduled = true
-    }
-
-    // MARK: - Crossfade
-
-    /// 把 playID / crossfade 归属发布给已经离开 MainActor 的解码泵。
-    /// 三个来源字段的 didSet 都调用它, 漏掉任何一个都会让退役的泵继续投递。
-    private func syncPumpLease() {
-        pumpLease.update(
-            currentPlayID: playID,
-            isCrossfading: isCrossfading,
-            outgoingPlayID: committedCrossfade?.outgoingPlayID
-        )
-    }
-
-    /// 换出的那一首在 ramp 期间解码到自然结尾时, 手里还留着一块"最后缓冲"。
-    /// 它不能走 `scheduleDecodedFinalBuffer` —— track-end / gapless 回调属于
-    /// 已经轮换走的 playID; 但直接丢掉会让淡出轨在 ramp 收尾前少一块音频。
-    /// 这里按普通缓冲补给 primary 节点 (宽限期内它仍归换出轨所有), 不挂任何
-    /// 回调; 这块缓冲从未占用 gate 配额, 所以也不需要 release。
-    /// 返回 true 表示已排好, 调用方直接收工。
-    private func scheduleOutgoingCrossfadeTailBuffer(
-        _ buffer: AVAudioPCMBuffer,
-        playID id: UUID
-    ) -> Bool {
-        guard PrimaryPumpFinalBufferPolicy.disposition(
-            playID: id,
-            currentPlayID: playID,
-            isCrossfading: isCrossfading,
-            outgoingPlayID: committedCrossfade?.outgoingPlayID
-        ) == .scheduleOutgoingTail else { return false }
-        audioEngine.scheduleBuffer(buffer)
-        plog("🎚️ Crossfade grace: scheduled outgoing tail buffer playID=\(id.uuidString.prefix(8))")
-        return true
-    }
-
-    private func isCurrentCrossfadeAttempt(
-        _ attemptID: UUID,
-        sourcePlayID: UUID,
-        queueGeneration sourceQueueGeneration: Int,
-        nextEntryID: UUID
-    ) -> Bool {
-        !Task.isCancelled
-            && isPlaying
-            && crossfadeAttemptID == attemptID
-            && playID == sourcePlayID
-            && queueGeneration == sourceQueueGeneration
-            && nextQueueEntryInQueue()?.id == nextEntryID
-    }
-
-    private func failCrossfadeAttempt(_ attemptID: UUID) {
-        guard crossfadeAttemptID == attemptID else { return }
-        let hadAudibleTransition = isCrossfading || crossfadeTimer != nil
-        crossfadeAttemptID = nil
-        committedCrossfade = nil
-        crossfadeStartupTask = nil
-        crossfadeTimer?.invalidate()
-        crossfadeTimer = nil
-        crossfadeTimerAttemptID = nil
-        crossfadeTriggered = false
-        isCrossfading = false
-        crossfadeSwapDone = false
-        if hadAudibleTransition {
-            audioEngine.stopCrossfadeNode()
-            audioEngine.resetPlayerVolume()
-        }
-    }
-
-    /// Invalidates both the not-yet-ready startup and any active fade/feeder.
-    /// Every queue or playback ownership change goes through this helper so an
-    /// old task cannot mutate a newer attempt's flags or queue index.
-    private func cancelCrossfadeAttempt(
-        finishingCommittedTransition: Bool = false,
-        completionMode: CrossfadeCompletionMode = .activePlayback
-    ) {
-        if finishingCommittedTransition,
-           let committedCrossfade,
-           crossfadeAttemptID == committedCrossfade.attemptID,
-           playID == committedCrossfade.playID {
-            crossfadeTimer?.invalidate()
-            crossfadeTimer = nil
-            crossfadeTimerAttemptID = nil
-            completeCrossfade(
-                attemptID: committedCrossfade.attemptID,
-                playID: committedCrossfade.playID,
-                nextSong: committedCrossfade.song,
-                nextURL: committedCrossfade.url,
-                nextDecoderKind: committedCrossfade.decoderKind,
-                completionMode: completionMode
-            )
-            return
-        }
-        let hadAudibleTransition = isCrossfading || crossfadeTimer != nil
-        let hadActiveAttempt = crossfadeAttemptID != nil
-            || crossfadeStartupTask != nil
-            || crossfadeDecodingTask != nil
-            || crossfadeTimer != nil
-            || crossfadeTriggered
-            || isCrossfading
-        crossfadeAttemptID = nil
-        committedCrossfade = nil
-        crossfadeStartupTask?.cancel()
-        crossfadeStartupTask = nil
-        crossfadeDecodingTask?.cancel()
-        crossfadeDecodingTask = nil
-        crossfadeTimer?.invalidate()
-        crossfadeTimer = nil
-        crossfadeTimerAttemptID = nil
-        crossfadeTriggered = false
-        isCrossfading = false
-        crossfadeSwapDone = false
-        if hadActiveAttempt {
-            audioEngine.stopCrossfadeNode()
-        }
-        if hadAudibleTransition {
-            audioEngine.resetPlayerVolume()
-        }
-    }
-
-    private func invalidateQueueTransitions(rebuildCurrentTransport: Bool = true) {
-        let pendingMusicVideoID = pendingMusicVideoPlayID == playID
-            ? pendingMusicVideoPlayID
-            : nil
-        let hadActiveMusicVideoSeek = hasMusicVideoSeekActivityEvidence
-        let hadAdvanceEligibility = playbackAdvancePolicy.activeTicket != nil
-        let shouldPreservePendingMusicVideoTicket = rebuildCurrentTransport
-            && pendingMusicVideoID != nil
-            && hadAdvanceEligibility
-        invalidateInterruptionResumePreservingIntent()
-        let shouldRebuildCurrentTransport = rebuildCurrentTransport
-            && hadAdvanceEligibility
-            && isPlaying
-            && currentSong != nil
-            && !isAppleMusicMode
-            && !isLiveRadio
-            && !isCastingMode
-            && !isSystemMediaPlaybackActive
-        let shouldRearmMusicVideo = rebuildCurrentTransport
-            && hadAdvanceEligibility
-            && (isPlaying || hadActiveMusicVideoSeek)
-            && isSystemMediaPlaybackActive
-        if !shouldPreservePendingMusicVideoTicket {
-            invalidateAutomaticAdvance(reason: "queue-generation-change")
-        }
-        queueGeneration += 1
-        cancelGaplessTasks()
-        if shouldRebuildCurrentTransport {
-            stopTimeUpdater()
-            syncPlaybackProgressFromEngine()
-        }
-        cancelCrossfadeAttempt(
-            finishingCommittedTransition: true,
-            completionMode: shouldRebuildCurrentTransport
-                ? .preserveCachedProgress
-                : .activePlayback
-        )
-        if let pendingMusicVideoID,
-           shouldPreservePendingMusicVideoTicket,
-           pendingMusicVideoID == playID {
-            pendingMusicVideoPlayID = pendingMusicVideoID
-        } else if shouldRearmMusicVideo,
-           let song = currentSong,
-           let player = activeSystemMediaPlayer,
-           let id = playID {
-            if hadActiveMusicVideoSeek {
-                musicVideoSeekActivityEvidence = .init(
-                    itemID: song.id,
-                    playID: id,
-                    observerGeneration: musicVideoObserverGeneration
-                )
-                seek(to: currentTime, startPlaying: true)
-            } else {
-                _ = beginAutomaticAdvanceTransport(
-                    itemID: song.id,
-                    reason: "queue-generation-music-video-rearm"
-                )
-                configureMusicVideoObservers(for: player, playID: id)
-            }
-        } else if shouldRebuildCurrentTransport {
-            let resumeTime = currentTime
-            pendingRecoveryTime = resumeTime
-            needsPlaybackRecovery = true
-            seek(to: resumeTime, startPlaying: true, isRecovery: true)
-        }
-    }
-
-    private func checkCrossfade() {
-        // This runs on every playback progress tick. Avoid copying the full
-        // settings payload in the overwhelmingly common disabled case.
-        guard playbackSettings.outputMode == .effects,
-              playbackSettings.crossfadeEnabled,
-              !crossfadeTriggered else { return }
-        let settings = playbackSettings.snapshot()
-        let songID = currentSong?.id
-        let silenceProfile = songID.flatMap { silenceProfiles[$0] }
-        let analyzedDuration = silenceProfile?.playableDuration
-        let nominalDuration = duration > 0 ? duration : (analyzedDuration ?? 0)
-        let smartMixAnalysis = settings.crossfadeMode == .smart
-            ? songID.flatMap { smartMixAnalyses[$0] }
-            : nil
-        let sourceTimelineOffset = smartMixAnalysis?.backend == .musicUnderstanding
-            ? (currentSong?.cueStartTime ?? 0)
-            : 0
-        guard let transitionPlan = SmartMixTransitionPlanner.plan(
-            nominalDuration: nominalDuration,
-            analyzedPlayableDuration: analyzedDuration,
-            requestedOverlap: settings.crossfadeDuration,
-            analysis: smartMixAnalysis,
-            analysisTimelineOffset: sourceTimelineOffset
-                + (silenceProfile?.leadingTrimmedDuration ?? 0)
-        ), currentTime >= transitionPlan.triggerTime else { return }
-        // "Stop after this song" owns the upcoming boundary. Let the normal
-        // end callback stop playback instead of committing the next queue item.
-        if let lockedID = sleepStopAfterSongID, currentSong?.id == lockedID {
-            return
-        }
-        // Skip under repeat-one — `nextSongInQueue()` returns the
-        // current song there, which would crossfade-to-self. Pre-fix
-        // `currentIndex < queue.count - 1` was always false in the
-        // single-song repeat-one case so crossfade was never enabled;
-        // preserve that.
-        guard repeatMode != .one,
-              let sourcePlayID = playID,
-              let nextEntry = nextQueueEntryInQueue() else { return }
-        let nextSong = nextEntry.song
-        guard nextSong.id != currentSong?.id else { return }
-        guard shouldBypassContinuousAudioTransition(for: nextSong) == false else { return }
-
-        let attemptID = UUID()
-        let sourceQueueGeneration = queueGeneration
-        let effectiveDuration = SmartTransitionPolicy.effectiveOverlap(
-            requestedOverlap: transitionPlan.overlapDuration,
-            currentTime: currentTime,
-            playableEndpoint: transitionPlan.playableEndpoint
-        )
-        guard effectiveDuration > 0 else { return }
-        if settings.crossfadeMode == .smart {
-            plog(
-                String(
-                    format: "Smart mix %@ via %@: %.2fs overlap",
-                    transitionPlan.basis.rawValue,
-                    transitionPlan.analysisBackend?.rawValue ?? "fallback",
-                    effectiveDuration
-                )
-            )
-        }
-        crossfadeAttemptID = attemptID
-        crossfadeTriggered = true
-        crossfadeStartupTask?.cancel()
-        crossfadeStartupTask = Task {
-            await startCrossfade(
-                duration: effectiveDuration,
-                attemptID: attemptID,
-                sourcePlayID: sourcePlayID,
-                queueGeneration: sourceQueueGeneration,
-                nextEntryID: nextEntry.id
-            )
-        }
-    }
-
-    private func startCrossfade(
-        duration crossfadeDuration: Double,
-        attemptID: UUID,
-        sourcePlayID: UUID,
-        queueGeneration sourceQueueGeneration: Int,
-        nextEntryID: UUID
-    ) async {
-        guard isCurrentCrossfadeAttempt(
-            attemptID,
-            sourcePlayID: sourcePlayID,
-            queueGeneration: sourceQueueGeneration,
-            nextEntryID: nextEntryID
-        ) else { return }
-        guard shouldUseCrossfade(playbackSettings.snapshot()) else {
-            failCrossfadeAttempt(attemptID)
-            return
-        }
-        guard let nextEntry = nextQueueEntryInQueue(), nextEntry.id == nextEntryID else {
-            failCrossfadeAttempt(attemptID)
-            return
-        }
-        let nextSong = nextEntry.song
-        guard shouldBypassContinuousAudioTransition(for: nextSong) == false else {
-            failCrossfadeAttempt(attemptID)
-            return
-        }
-        let sourceStreamEpoch = CloudPlaybackSource.streamEpochTicket(
-            sourceID: nextSong.sourceID
-        )
-
-        let preparationDeadline = Date().addingTimeInterval(Double(Self.firstBufferTimeoutSeconds))
-        do {
-            let nextURL = try await resolvedURL(
-                for: nextSong,
-                forContinuousPreparation: true
-            )
-            let nextDecoderKind = await decoderKind(for: nextSong, url: nextURL)
-            guard isCurrentCrossfadeAttempt(
-                attemptID,
-                sourcePlayID: sourcePlayID,
-                queueGeneration: sourceQueueGeneration,
-                nextEntryID: nextEntryID
-            ) else { return }
-            guard nextDecoderKind == .native
-                    || nextDecoderKind == .ffmpeg,
-                  nextDecoderKind != .native
-                    || nativeDecoder.canDecode(url: nextURL),
-                  let outputFormat = audioEngine.outputFormat else {
-                failCrossfadeAttempt(attemptID)
-                return
-            }
-            if nextSong.id == currentSong?.id,
-               activeDecoderKind == .cloudStream
-                    || activeDecoderKind == .httpStream
-                    || nextDecoderKind == .cloudStream
-                    || nextDecoderKind == .httpStream {
-                failCrossfadeAttempt(attemptID)
-                return
-            }
-
-            // crossfade 一开始就把 UI 切到下一首 —— 用户听到的主音是 next
-            // 在淡入接管, 看到的应该跟着是 next。之前要等 ramp 跑完才切,
-            // 出现「下一首歌的声音出来了但播放器还显示上一首」的不一致。
-            // 在拿到下一首缓冲 *之前* 不冻结进度、不推进队列索引/
-            // currentSong/scrobble —— 否则网络预取慢或 decode 失败时会抑制
-            // 曲末 watchdog，并出现
-            // 「UI 已切到下一首、声音还停在上一首、isCrossfading 卡 true 进度永久冻结」。
-
-            // Note: ReplayGain for crossfade node would need per-node volume tracking
-            // For now, apply after swap
-
-            // Decode into crossfade node — 先确保能解码并拿到首个 buffer。
-            guard let stream = await decodeStream(
-                for: nextSong,
-                url: nextURL,
-                outputFormat: outputFormat,
-                sourceStreamEpoch: sourceStreamEpoch
-            ) else {
-                failCrossfadeAttempt(attemptID)
-                return
-            }
-            let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
-
-            // swap 还没发生 —— 新曲的 buffer 先进 crossfade 节点。
-            crossfadeSwapDone = false
-            let firstBufferSeconds = Int(ceil(preparationDeadline.timeIntervalSinceNow))
-            guard firstBufferSeconds > 0 else {
-                failCrossfadeAttempt(attemptID)
-                return
-            }
-            guard let firstBuffer = try await awaitFirstBuffer(
-                from: iteratorBox,
-                timeoutSeconds: firstBufferSeconds
-            ) else {
-                failCrossfadeAttempt(attemptID)
-                return
-            }
-            guard isCurrentCrossfadeAttempt(
-                attemptID,
-                sourcePlayID: sourcePlayID,
-                queueGeneration: sourceQueueGeneration,
-                nextEntryID: nextEntryID
-            ) else { return }
-            // Hold one decoded buffer back so EOF is known before scheduling
-            // the physical last buffer. This gives unknown-duration cloud
-            // tracks a reliable `.dataPlayedBack` boundary instead of relying
-            // on the duration watchdog.
-            let remainingBufferSeconds = Int(ceil(preparationDeadline.timeIntervalSinceNow))
-            guard remainingBufferSeconds > 0 else {
-                failCrossfadeAttempt(attemptID)
-                return
-            }
-            let secondBuffer = try await awaitFirstBuffer(
-                from: iteratorBox,
-                timeoutSeconds: remainingBufferSeconds
-            )
-            guard isCurrentCrossfadeAttempt(
-                attemptID,
-                sourcePlayID: sourcePlayID,
-                queueGeneration: sourceQueueGeneration,
-                nextEntryID: nextEntryID
-            ) else { return }
-            // Settings and the sleep lock can change while remote resolution
-            // or prefetch is in flight. Revalidate at the commit boundary.
-            guard shouldUseCrossfade(playbackSettings.snapshot()),
-                  sleepStopAfterSongID != currentSong?.id else {
-                failCrossfadeAttempt(attemptID)
-                return
-            }
-            isCrossfading = true
-            let nextPlayID = UUID()
-            let activatedSong = songRefreshingLatestDuration(nextSong)
-            committedCrossfade = CommittedCrossfade(
-                attemptID: attemptID,
-                playID: nextPlayID,
-                song: activatedSong,
-                url: nextURL,
-                decoderKind: nextDecoderKind,
-                outgoingPlayID: sourcePlayID
-            )
-            playID = nextPlayID
-            beginAutomaticAdvanceTransport(
-                itemID: activatedSong.id,
-                reason: "crossfade-commit"
-            )
-            resetDecodedBufferHealth(resetRecoveryAttempts: true)
-
-            // 解码就绪, 现在才把 UI/索引/scrobble 切到下一首 —— 用户听到 next
-            // 淡入接管, 看到的也跟着切。
-            if let previous = currentSong {
-                sourceManager?.finalizeStreamingSession(for: previous)
-            }
-            advanceToNextIndex()
-            currentSong = activatedSong
-            currentTime = 0
-            duration = activatedSong.duration.sanitizedDuration
-            applyResolvedDuration(duration, toSongID: activatedSong.id)
-            library?.recordPlayback(of: activatedSong.id)
-            ScrobbleService.shared.handlePlaybackStarted(song: activatedSong)
-            PlayHistoryStore.shared.beginSession(song: activatedSong)
-            updateNowPlayingInfo()
-            updateNowPlayingArtworkIfNeeded()
-            updatePlaybackState()
-
-            let gate = DecodedBufferGate(
-                maxBufferedDuration: Self.decodedAudioLookahead,
-                maxBufferedBytes: Self.maxInFlightDecodedBytes,
-                maxBufferCount: Self.maxInFlightDecodedBufferCount
-            )
-            if secondBuffer == nil {
-                scheduleCrossfadeFinalBuffer(firstBuffer, playID: nextPlayID)
-            } else {
-                await scheduleTrackedDecodedBuffer(
-                    firstBuffer,
-                    onCrossfadeNode: true,
-                    gate: gate
-                )
-                guard !Task.isCancelled,
-                      playID == nextPlayID,
-                      crossfadeAttemptID == attemptID,
-                      committedCrossfade?.playID == nextPlayID else {
-                    await gate.drain()
-                    return
-                }
-            }
-            installDecodedBufferGate(gate, playID: nextPlayID)
-            audioEngine.playCrossfadeNode()
-
-            crossfadeStartupTask = nil
-            crossfadeDecodingTask = Task { [iteratorBox, gate] in
-                var lastBuffer = secondBuffer
-                var decodeFailed = false
-                defer { Task { await gate.drain() } }
-                do {
-                    while let buffer = try await iteratorBox.next() {
-                        guard !Task.isCancelled else { return }
-                        if let previous = lastBuffer {
-                            let bufferedDuration = Self.decodedBufferDuration(previous)
-                            let bufferedByteCount = Self.decodedBufferByteCount(previous)
-                            await gate.acquire(
-                                duration: bufferedDuration,
-                                byteCount: bufferedByteCount
-                            )
-                            guard !Task.isCancelled, self.playID == nextPlayID else { return }
-                            // swap 之后, 这个解码任务投递的物理节点已经变成
-                            // primary。继续用 scheduleCrossfadeBuffer 会把 buffer
-                            // 喂到换出后被静音/reset 的旧节点上(歌中途静音)。
-                            if self.crossfadeSwapDone {
-                                self.audioEngine.scheduleBuffer(
-                                    previous,
-                                    completionCallbackType: .dataPlayedBack
-                                ) { _ in
-                                    gate.release(
-                                        duration: bufferedDuration,
-                                        byteCount: bufferedByteCount
-                                    )
-                                }
-                            } else {
-                                self.audioEngine.scheduleCrossfadeBuffer(
-                                    previous,
-                                    completionCallbackType: .dataPlayedBack
-                                ) { _ in
-                                    gate.release(
-                                        duration: bufferedDuration,
-                                        byteCount: bufferedByteCount
-                                    )
-                                }
-                            }
-                        }
-                        lastBuffer = buffer
-                    }
-                } catch {
-                    if !Task.isCancelled {
-                        decodeFailed = true
-                        plog("Crossfade decode error: \(error)")
-                    }
-                }
-                if let finalBuffer = lastBuffer {
-                    guard !Task.isCancelled, self.playID == nextPlayID else { return }
-                    if decodeFailed {
-                        self.scheduleCrossfadeFinalBufferAsFailure(finalBuffer, playID: nextPlayID)
-                    } else {
-                        self.scheduleCrossfadeFinalBuffer(finalBuffer, playID: nextPlayID)
-                    }
-                } else if decodeFailed, !Task.isCancelled, self.playID == nextPlayID {
-                    await self.autoAdvanceAfterFailure()
-                }
-            }
-
-            startCrossfadeRamp(
-                duration: crossfadeDuration,
-                attemptID: attemptID,
-                playID: nextPlayID,
-                nextSong: nextSong,
-                nextURL: nextURL,
-                nextDecoderKind: nextDecoderKind
-            )
-        } catch {
-            guard crossfadeAttemptID == attemptID else { return }
-            plog("Crossfade start error: \(error)")
-            failCrossfadeAttempt(attemptID)
-        }
-    }
-
-    private func startCrossfadeRamp(
-        duration: Double,
-        attemptID: UUID,
-        playID rampPlayID: UUID,
-        nextSong: Song,
-        nextURL: URL,
-        nextDecoderKind: DecoderKind
-    ) {
-        guard crossfadeAttemptID == attemptID,
-              playID == rampPlayID,
-              committedCrossfade?.attemptID == attemptID else { return }
-        let totalSteps = max(1, (duration / 0.05).finiteInt(or: 1))
-        let stepCounter = StepCounter()
-        crossfadeTimerAttemptID = attemptID
-        let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self,
-                      self.crossfadeAttemptID == attemptID,
-                      self.playID == rampPlayID else {
-                    if self?.crossfadeTimerAttemptID == attemptID {
-                        self?.crossfadeTimer?.invalidate()
-                        self?.crossfadeTimer = nil
-                        self?.crossfadeTimerAttemptID = nil
-                    }
-                    return
-                }
-                // AudioEngine pauses both physical nodes. Freeze the ramp too;
-                // otherwise a user pause completes the swap in silence.
-                guard self.isPlaying else { return }
-                stepCounter.value += 1
-                let progress = Float(stepCounter.value) / Float(totalSteps)
-
-                if progress >= 1.0 {
-                    if self.crossfadeTimerAttemptID == attemptID {
-                        self.crossfadeTimer?.invalidate()
-                        self.crossfadeTimer = nil
-                        self.crossfadeTimerAttemptID = nil
-                    }
-                    self.completeCrossfade(
-                        attemptID: attemptID,
-                        playID: rampPlayID,
-                        nextSong: nextSong,
-                        nextURL: nextURL,
-                        nextDecoderKind: nextDecoderKind
-                    )
-                } else {
-                    // Equal-power crossfade curve: maintains perceived loudness
-                    // through the transition (no "dip" in the middle like linear)
-                    let angle = Double(progress) * .pi / 2
-                    self.audioEngine.setCrossfadeVolumes(
-                        primary: Float(cos(angle)),
-                        crossfade: Float(sin(angle))
-                    )
-                }
-            }
-        }
-        crossfadeTimer = timer
-        RunLoop.main.add(timer, forMode: .common)
-    }
-
-    private func completeCrossfade(
-        attemptID: UUID,
-        playID completedPlayID: UUID,
-        nextSong: Song,
-        nextURL: URL,
-        nextDecoderKind: DecoderKind,
-        completionMode: CrossfadeCompletionMode = .activePlayback
-    ) {
-        guard crossfadeAttemptID == attemptID, playID == completedPlayID else { return }
-        // Normal completion captures the incoming node while it still has its
-        // crossfade identity. Lifecycle-driven completion has already frozen
-        // that visible clock and must not query the stopped graph again.
-        if completionMode == .activePlayback {
-            syncPlaybackProgressFromEngine()
-        }
-        // Stop old decoding
-        decodingTask?.cancel()
-        decodingTask = nil
-
-        // swap 把 crossfade 节点变成 primary。先置位, 让仍在运行的 crossfade
-        // 解码任务从下一个 buffer 起改投 primary 节点, 不再喂换出的旧节点。
-        crossfadeSwapDone = true
-
-        // Swap nodes
-        audioEngine.swapPlayerNodes()
-
-        // Transfer crossfade decoding task to main
-        decodingTask = crossfadeDecodingTask
-        crossfadeDecodingTask = nil
-
-        // 注意: currentSong / queue index / scrobble session 已经在
-        // startCrossfade 早期设置好了, 不在这里重复 (重复会让 ScrobbleService
-        // 误以为又开了一首新歌, 重新计时)。
-        activeDecoderKind = nextDecoderKind
-        crossfadeAttemptID = nil
-        committedCrossfade = nil
-        crossfadeStartupTask = nil
-        crossfadeTriggered = false
-        isCrossfading = false
-        if completionMode == .activePlayback {
-            startTimeUpdater()
-        }
-        plog("🔄 completeCrossfade: swap done, currentSong=\(nextSong.title)")
-
-        // Apply ReplayGain (now on the swapped primary node)
-        let settings = playbackSettings.snapshot()
-        if shouldApplyReplayGain(settings) {
-            Task {
-                await applyReplayGain(
-                    for: nextSong,
-                    url: nextURL,
-                    mode: settings.replayGainMode,
-                    allowFileRead: nextDecoderKind != .cloudStream && nextDecoderKind != .httpStream,
-                    expectedPlayID: completedPlayID,
-                    expectedSongID: nextSong.id
-                )
-            }
-        }
-
-        if !nextSong.isCueTrack,
-           nextDecoderKind != .cloudStream,
-           nextDecoderKind != .httpStream,
-           nextDecoderKind != .streaming {
-            Task {
-                let decoder: any PrimuseAudioDecoder = nextDecoderKind == .ffmpeg
-                    ? self.ffmpegDecoder : self.nativeDecoder
-                if let info = try? await decoder.fileInfo(for: nextURL) {
-                    guard self.playID == completedPlayID,
-                          self.currentSong?.id == nextSong.id,
-                          info.duration.isFinite,
-                          info.duration > 0 else { return }
-                    self.duration = info.duration
-                }
-            }
-        }
-
-        if completionMode == .activePlayback {
-            updateNowPlayingInfo()
-            updatePlaybackState()
-        }
-    }
-
-    // MARK: - ReplayGain
-
-    private struct ReplayGainValues {
-        var gain: Double?
-        var peak: Double?
-
-        var hasValue: Bool {
-            gain != nil || peak != nil
-        }
-    }
-
-    private func applyReplayGain(
-        for song: Song,
-        url: URL,
-        mode: ReplayGainMode,
-        allowFileRead: Bool = true,
-        expectedPlayID: UUID? = nil,
-        expectedSongID: String? = nil
-    ) async {
-        guard expectedPlayID == nil || playID == expectedPlayID,
-              expectedSongID == nil || currentSong?.id == expectedSongID else { return }
-        let storedValues = replayGainValues(from: song, mode: mode)
-        if storedValues.hasValue {
-            audioEngine.applyReplayGain(gain: storedValues.gain, peak: storedValues.peak)
-            return
-        }
-
-        guard allowFileRead else {
-            audioEngine.applyReplayGain(gain: nil, peak: nil)
-            return
-        }
-
-        let metadata = await FileMetadataReader.read(from: url)
-        guard expectedPlayID == nil || playID == expectedPlayID,
-              expectedSongID == nil || currentSong?.id == expectedSongID else { return }
-        let values = replayGainValues(from: metadata, mode: mode)
-        audioEngine.applyReplayGain(gain: values.gain, peak: values.peak)
-    }
-
-    private func replayGainValues(from song: Song, mode: ReplayGainMode) -> ReplayGainValues {
-        switch mode {
-        case .track:
-            return ReplayGainValues(
-                gain: song.replayGainTrackGain,
-                peak: song.replayGainTrackPeak
-            )
-        case .album:
-            return ReplayGainValues(
-                gain: song.replayGainAlbumGain ?? song.replayGainTrackGain,
-                peak: song.replayGainAlbumPeak ?? song.replayGainTrackPeak
-            )
-        }
-    }
-
-    private func replayGainValues(from metadata: FileMetadataReader.Metadata, mode: ReplayGainMode) -> ReplayGainValues {
-        switch mode {
-        case .track:
-            return ReplayGainValues(
-                gain: metadata.replayGainTrackGain,
-                peak: metadata.replayGainTrackPeak
-            )
-        case .album:
-            return ReplayGainValues(
-                gain: metadata.replayGainAlbumGain ?? metadata.replayGainTrackGain,
-                peak: metadata.replayGainAlbumPeak ?? metadata.replayGainTrackPeak
-            )
-        }
-    }
-
-    // MARK: - Decoded Buffer Health
-
-    private func resetDecodedBufferHealth(resetRecoveryAttempts: Bool) {
-        activeDecodedBufferGate = nil
-        activeDecodedBufferGatePlayID = nil
-        decodedBufferUnhealthySampleCount = 0
-        decodedBufferHealthySampleCount = 0
-        decodedBufferRecoveryInProgress = false
-        lastDecodedBufferSampleUptime = nil
-        decodedBufferDiagnosticUnderflowStartedAt = nil
-        if resetRecoveryAttempts {
-            decodedBufferRecoveryAttempts = 0
-            lastDecodedBufferRecoveryAt = nil
-            decodedBufferDiagnosticEpisodeCount = 0
-        }
-    }
-
-    private func installDecodedBufferGate(_ gate: DecodedBufferGate, playID id: UUID) {
-        guard playID == id else { return }
-        activeDecodedBufferGate = gate
-        activeDecodedBufferGatePlayID = id
-        decodedBufferUnhealthySampleCount = 0
-        decodedBufferHealthySampleCount = 0
-        decodedBufferRecoveryInProgress = false
-    }
-
-    private func sampleDecodedBufferHealth(clockTicket: UInt64) async {
-        guard let gate = activeDecodedBufferGate,
-              let gatePlayID = activeDecodedBufferGatePlayID,
-              playID == gatePlayID,
-              !isLiveRadio,
-              !isAppleMusicMode,
-              !isCastingMode,
-              !isSystemMediaPlaybackActive else {
-            decodedBufferUnhealthySampleCount = 0
-            return
-        }
-
-        let snapshot = await gate.snapshot()
-        guard playbackClockTickGate.isCurrent(clockTicket),
-              playID == gatePlayID,
-              activeDecodedBufferGate === gate else { return }
-
-        let queueIsEmpty = snapshot.bufferCount == 0
-            && snapshot.bufferedDuration <= Self.decodedBufferEmptyThreshold
-        let isUnhealthy = !snapshot.decodingFinished
-            && (!audioEngine.isActuallyPlaying || queueIsEmpty)
-        recordDecodedBufferDiagnostic(snapshot: snapshot, isUnhealthy: isUnhealthy, playID: gatePlayID)
-        if isUnhealthy {
-            decodedBufferUnhealthySampleCount += 1
-            decodedBufferHealthySampleCount = 0
-        } else {
-            decodedBufferUnhealthySampleCount = 0
-            if isPlaying, !snapshot.decodingFinished {
-                decodedBufferHealthySampleCount += 1
-                // A full minute of healthy output starts a fresh recovery
-                // budget for long-running queues without letting a tight
-                // failure loop rebuild the same pipeline forever.
-                if decodedBufferHealthySampleCount >= 120 {
-                    decodedBufferHealthySampleCount = 0
-                    decodedBufferRecoveryAttempts = 0
-                    lastDecodedBufferRecoveryAt = nil
-                }
-            }
-        }
-
-        let cooldownElapsed = lastDecodedBufferRecoveryAt.map {
-            Date().timeIntervalSince($0)
-        } ?? .greatestFiniteMagnitude
-        let action = DecodedBufferHealthPolicy.action(
-            isPlaying: isPlaying,
-            hasPreparedAudio: hasPreparedLocalPlayback,
-            isLoading: isLoading,
-            isTransitioning: isCrossfading,
-            engineIsPlaying: audioEngine.isActuallyPlaying,
-            decoderFinished: snapshot.decodingFinished,
-            bufferedDuration: snapshot.bufferedDuration,
-            bufferCount: snapshot.bufferCount,
-            emptyDurationThreshold: Self.decodedBufferEmptyThreshold,
-            consecutiveUnhealthySamples: decodedBufferUnhealthySampleCount,
-            requiredUnhealthySamples: Self.requiredDecodedBufferUnhealthySamples,
-            recoveryInProgress: decodedBufferRecoveryInProgress,
-            recoveryAttempts: decodedBufferRecoveryAttempts,
-            maximumRecoveryAttempts: Self.maxDecodedBufferRecoveryAttempts,
-            cooldownElapsed: cooldownElapsed,
-            minimumCooldown: Self.decodedBufferRecoveryCooldown
-        )
-
-        switch action {
-        case .none:
-            return
-        case .rebuildPipeline:
-            recoverDecodedBufferUnderflow(snapshot: snapshot, playID: gatePlayID)
-        case .stopPlayback:
-            stopAfterRepeatedDecodedBufferUnderflow(snapshot: snapshot, playID: gatePlayID)
-        }
-    }
-
-    private func recordDecodedBufferDiagnostic(
-        snapshot: DecodedBufferGate.Snapshot,
-        isUnhealthy: Bool,
-        playID id: UUID
-    ) {
-        let now = ProcessInfo.processInfo.systemUptime
-        let sampleGap = lastDecodedBufferSampleUptime.map { max(0, now - $0) } ?? 0
-        lastDecodedBufferSampleUptime = now
-        guard isPlaying, hasPreparedLocalPlayback, !isLoading, !isCrossfading,
-              let song = currentSong else {
-            decodedBufferDiagnosticUnderflowStartedAt = nil
-            return
-        }
-        let event: String
-        if isUnhealthy {
-            guard decodedBufferDiagnosticUnderflowStartedAt == nil else { return }
-            decodedBufferDiagnosticUnderflowStartedAt = now
-            decodedBufferDiagnosticEpisodeCount += 1
-            event = "underflow"
-        } else if let startedAt = decodedBufferDiagnosticUnderflowStartedAt {
-            decodedBufferDiagnosticUnderflowStartedAt = nil
-            event = "recovered after=\(String(format: "%.3f", now - startedAt))s"
-        } else {
-            return
-        }
-        // Brief dropouts never reach the pipeline-rebuild threshold. Record
-        // their onset and recovery too, without producing a per-tick log.
-        guard decodedBufferDiagnosticEpisodeCount <= 8 else { return }
-        let sourceType = playbackMetadataSourceType?(song.sourceID)?.rawValue ?? "unknown"
-        let route = sourceManager?.activeConnectionRoutes[song.sourceID]?.rawValue ?? "unknown"
-        let network = NetworkMonitor.shared
-        plog("Playback buffer \(event) playID=\(id.uuidString.prefix(8)) source=\(song.sourceID.prefix(8)) song=\(song.id.prefix(8)) sourceType=\(sourceType) decoder=\(activeDecoderKind) format=\(song.fileFormat.rawValue) episode=\(decodedBufferDiagnosticEpisodeCount) position=\(String(format: "%.3f", currentTime)) queued=\(String(format: "%.3f", snapshot.bufferedDuration))s/\(snapshot.bufferedBytes)B/\(snapshot.bufferCount) sampleGap=\(String(format: "%.3f", sampleGap))s enginePlaying=\(audioEngine.isActuallyPlaying) route=\(route) networkGeneration=\(network.pathGeneration) reachable=\(network.isReachable) expensive=\(network.isExpensive) thermal=\(ProcessInfo.processInfo.thermalState.rawValue)")
-    }
-
-    private func recoverDecodedBufferUnderflow(
-        snapshot: DecodedBufferGate.Snapshot,
-        playID id: UUID
-    ) {
-        guard playID == id,
-              let song = currentSong,
-              !decodedBufferRecoveryInProgress else { return }
-
-        decodedBufferRecoveryInProgress = true
-        decodedBufferRecoveryAttempts += 1
-        decodedBufferUnhealthySampleCount = 0
-        lastDecodedBufferRecoveryAt = Date()
-        stopTimeUpdater()
-        syncPlaybackProgressFromEngine()
-        let resumeTime = max(0, currentTime - 0.25)
-        plog(String(
-            format: "⚠️ decoded-audio underflow: attempt=%d enginePlaying=%d queued=%.3fs/%dB/%d buffers at %.2fs; rebuilding",
-            decodedBufferRecoveryAttempts,
-            audioEngine.isActuallyPlaying ? 1 : 0,
-            snapshot.bufferedDuration,
-            snapshot.bufferedBytes,
-            snapshot.bufferCount,
-            resumeTime
-        ))
-
-        if playbackSettings.audioCacheEnabled,
-           activeDecoderKind == .cloudStream || activeDecoderKind == .httpStream {
-            beginRemoteMidStreamRecovery(
-                song: song,
-                playID: id,
-                frozenResumeTime: resumeTime
-            )
-        } else {
-            seek(to: resumeTime, startPlaying: true, isRecovery: true)
-        }
-    }
-
-    private func stopAfterRepeatedDecodedBufferUnderflow(
-        snapshot: DecodedBufferGate.Snapshot,
-        playID id: UUID
-    ) {
-        guard playID == id else { return }
-        plog(String(
-            format: "🛑 decoded-audio underflow persisted after recovery: queued=%.3fs/%dB/%d buffers",
-            snapshot.bufferedDuration,
-            snapshot.bufferedBytes,
-            snapshot.bufferCount
-        ))
-        decodingTask?.cancel()
-        decodingTask = nil
-        invalidateAutomaticAdvance(reason: "decoded-underflow-stop")
-        stopTimeUpdater()
-        audioEngine.stopPlayback()
-        hasPreparedLocalPlayback = false
-        isPlaying = false
-        isLoading = false
-        needsPlaybackRecovery = true
-        pendingRecoveryTime = currentTime
-        showPlaybackError(String(localized: "playback_error_connection"))
-        updateNowPlayingInfo()
-        updatePlaybackState()
-    }
-
-    // MARK: - Time Updates
+    @ObservationIgnored var seekTask: Task<Void, Never>?
 
     /// 进度 timer 间隔 (秒)。同时作为 scrobble 的真实收听增量 —— 见下方 handleProgressTick。
-    private static let timeUpdateInterval: TimeInterval = 0.5
-
-    private func startTimeUpdater() {
-        stopTimeUpdater()
-        let clockTicket = playbackClockTickGate.issue()
-        lastEngineProgressSample = nil
-        nearEndStallSampleCount = 0
-        let watchdogTicket = playbackAdvancePolicy.activeTicket
-        let timer = Timer(timeInterval: Self.timeUpdateInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self,
-                      self.playbackClockTickGate.isCurrent(clockTicket) else { return }
-                if self.isLiveRadio {
-                    if let startedAt = self.radioPlaybackStartedAt, self.isPlaying {
-                        self.currentTime = max(0, Date().timeIntervalSince(startedAt))
-                    }
-                    return
-                }
-                let transitionWasActive = self.isCrossfading
-                let clockDecision = self.localPlaybackClockDecision(
-                    isTransitioning: transitionWasActive
-                )
-                if let time = clockDecision.visibleTime {
-                    self.currentTime = time.sanitizedDuration
-                    let madeProgress = self.lastEngineProgressSample.map {
-                        self.currentTime > $0 + 0.01
-                    } ?? true
-                    self.lastEngineProgressSample = self.currentTime
-
-                    // AVAudioPlayerNode normally calls the final-buffer
-                    // completion, but it can be lost across route/engine
-                    // changes. The old `duration + 1s` check never fired when
-                    // the node drained exactly at duration. Detect four
-                    // consecutive stalled samples in the final 0.75s instead.
-                    let nearEndThreshold = max(
-                        self.duration - 0.75,
-                        self.duration * 0.98
-                    )
-                    if clockDecision.shouldRunTrackEndWatchdog,
-                       self.duration > 0,
-                       self.currentTime >= nearEndThreshold,
-                       !self.isLoading,
-                       self.isPlaying,
-                       !madeProgress {
-                        self.nearEndStallSampleCount += 1
-                    } else {
-                        self.nearEndStallSampleCount = 0
-                    }
-                    let exceededReportedEnd = self.duration > 0
-                        && self.currentTime >= self.duration + 1.0
-                    let watchdogShouldAdvance = clockDecision.shouldRunTrackEndWatchdog
-                        && (exceededReportedEnd
-                            || self.nearEndStallSampleCount >= Self.trackEndStallSampleThreshold)
-                    if watchdogShouldAdvance {
-                        plog("⚠️ Track-end watchdog: progress ended at \(self.currentTime)/\(self.duration), forcing queue advance")
-                        self.stopTimeUpdater()
-                        if let watchdogTicket {
-                            await self.handleTrackEnd(
-                                advanceTicket: watchdogTicket,
-                                trigger: "track-end-watchdog"
-                            )
-                        }
-                        return
-                    }
-
-                    // Scrobble 进度判断 — 50% 或 4 分钟阈值由 service 内部决定。
-                    // 传真实 tick 增量而非 currentTime: 否则用户拖进度条到歌曲后段
-                    // 一松手就立刻满足 50% 阈值, 一秒没真听就误上报到 Last.fm/Navidrome。
-                    // PlayHistoryStore.tick 维护的是 position high-water mark, 仍传 currentTime。
-                    if clockDecision.shouldRecordListeningProgress {
-                        ScrobbleService.shared.handleProgressTick(
-                            playedDelta: Self.timeUpdateInterval
-                        )
-                        PlayHistoryStore.shared.tick(elapsed: self.currentTime)
-                    }
-                }
-                if !transitionWasActive {
-                    await self.sampleDecodedBufferHealth(clockTicket: clockTicket)
-                    guard self.playbackClockTickGate.isCurrent(clockTicket) else { return }
-                    // Check if crossfade should start
-                    self.checkCrossfade()
-                }
-            }
-        }
-        // A scheduled timer is installed in the default run-loop mode, which
-        // pauses while a SwiftUI List/ScrollView is tracking a drag. Keep the
-        // playback clock in the common modes so scrolling a large queue cannot
-        // freeze progress, lyrics, Now Playing, or the end-of-track watchdog
-        // while the render thread continues producing audio.
-        RunLoop.main.add(timer, forMode: .common)
-        displayLink = timer
-    }
-
-    private func stopTimeUpdater() {
-        playbackClockTickGate.invalidate()
-        displayLink?.invalidate()
-        displayLink = nil
-    }
-
-    // MARK: - Track End
-
-    private func handleTrackEnd(
-        advanceTicket: PlaybackAdvanceTicket,
-        trigger: String,
-        transportIsActive: Bool? = nil
-    ) async {
-        guard automaticAdvanceDecision(
-            for: advanceTicket,
-            trigger: trigger,
-            consume: true,
-            transportIsActive: transportIsActive
-        ) == .accepted else { return }
-        await performTrackEnd(trigger: trigger)
-    }
-
-    private func handleAppleMusicTrackEnd(requestID: UUID) async {
-        guard interruptionResumePolicy.playbackIsIntended,
-              activeAppleMusicRequestID == requestID,
-              playID == requestID else { return }
-        plog("✅ Apple Music queue end accepted request=\(requestID.uuidString.prefix(8))")
-        await performTrackEnd(trigger: "apple-music-end")
-    }
-
-    private func performTrackEnd(trigger: String) async {
-        plog("⏭️ track end trigger=\(trigger) playID=\(playID?.uuidString.prefix(8) ?? "nil") queueGeneration=\(queueGeneration)")
-        // 曲终停止 sleep 模式 ── 锁定的歌刚播完, 暂停而不是 advance。
-        if let lockedID = sleepStopAfterSongID, currentSong?.id == lockedID {
-            sleepStopAfterSongID = nil
-            stopAtTrackEnd()  // 进 "已播完但保留 currentSong" 状态, 跟用户手动暂停一致
-            return
-        }
-        if shuffleEnabled, repeatMode != .one, nextSongInQueue() == nil {
-            _ = extendExhaustedShuffleFromLibrary()
-        }
-        switch repeatMode {
-        case .one:
-            if let song = currentSong, isSongAvailableForNewPlayback(song) {
-                await play(song: song)
-            } else if advanceToNextIndex(respectsRepeatOne: false) {
-                await play(song: queueEntries[currentIndex].song)
-            } else {
-                stopAtTrackEnd()
-            }
-        case .all:
-            await next(caller: "auto:\(trigger)", callerLine: 0)
-        case .off:
-            // Under shuffle, currentIndex is the queue index of the
-            // currently-playing song, not the shufflePosition — so
-            // comparing it to queue.count - 1 frequently passed (the
-            // last shuffled song often isn't the last in original
-            // order) and auto-advance kept generating fresh shuffle
-            // rounds even though the user picked repeat-off.
-            if nextSongInQueue() != nil {
-                await next(caller: "auto:\(trigger)", callerLine: 0)
-            } else {
-                // 没下一首 —— 进 "已播完" 状态而不是 stop() 全清。
-                // 否则 currentSong 一旦为 nil, 上层各种 sheet (刮削 /
-                // SongInfo / AddToPlaylist) 内容是空的就白屏, mini
-                // player 也闪一下消失体验很差。
-                stopAtTrackEnd()
-            }
-        }
-    }
-
-    // MARK: - Helpers
-
-    /// Run after a non-recoverable playback failure (unsupported format,
-    /// empty stream, decode error, URL resolve fail, fallback
-    /// exhausted, mid-stream decode crash). Centralises the "what
-    /// happens after failure" rule so every error path stays
-    /// consistent:
-    /// - Under `repeatMode == .one`, `nextSongInQueue()` returns the
-    ///   current song. Calling `next()` from there would either loop the
-    ///   broken file forever (single-song queue) or jump to a different
-    ///   track and silently violate repeat-one (multi-song queue). So
-    ///   we suspend the transport and let the user see the error toast that
-    ///   the caller already raised, while preserving the selected item.
-    /// - Otherwise advance if there's a real successor; if not (last
-    ///   track failed, repeat-off), suspend the broken transport while keeping
-    ///   the current item and queue available for an explicit retry.
-    private func autoAdvanceAfterFailure(
-        skippingSourceID failedSourceID: String? = nil,
-        trigger: String = #function
-    ) async {
-        guard let advanceTicket = localPipelineAdvanceTicket else {
-            plog("🛡️ dropped failure advance trigger=\(trigger) reason=noActiveTicket")
-            return
-        }
-        let transportIsActive = isPlaying
-            ? audioEngine.isActuallyPlaying
-            : interruptionResumePolicy.playbackIsIntended
-        await autoAdvanceAfterFailure(
-            advanceTicket: advanceTicket,
-            trigger: trigger,
-            skippingSourceID: failedSourceID,
-            transportIsActive: transportIsActive
-        )
-    }
-
-    private func autoAdvanceAfterFailure(
-        advanceTicket: PlaybackAdvanceTicket,
-        trigger: String,
-        skippingSourceID failedSourceID: String? = nil,
-        transportIsActive: Bool? = nil
-    ) async {
-        guard automaticAdvanceDecision(
-            for: advanceTicket,
-            trigger: trigger,
-            consume: true,
-            transportIsActive: transportIsActive
-        ) == .accepted else { return }
-        if let song = currentSong,
-           playbackMetadataSourceType?(song.sourceID) == .appleMusicLibrary {
-            suspendPlaybackAfterFailure(
-                reason: "apple-music-local-playback-failure",
-                message: lastPlaybackError ?? String(localized: "playback_error_local_audio")
-            )
-            return
-        }
-        if isDLNACast(currentSong) {
-            stop()
-            return
-        }
-        if repeatMode == .one {
-            suspendPlaybackAfterFailure(
-                reason: "repeat-one-playback-failure",
-                message: lastPlaybackError ?? String(localized: "playback_error_decode")
-            )
-            return
-        }
-
-        let startsChain = !isFailureAdvanceChainActive
-        if startsChain {
-            isFailureAdvanceChainActive = true
-            consecutiveFailureAdvanceCount = 0
-        }
-        defer {
-            if startsChain {
-                isFailureAdvanceChainActive = false
-                consecutiveFailureAdvanceCount = 0
-            }
-        }
-
-        consecutiveFailureAdvanceCount += 1
-        guard consecutiveFailureAdvanceCount <= Self.maxConsecutiveFailureAdvances else {
-            plog("⏸️ Suspended after \(Self.maxConsecutiveFailureAdvances) consecutive playback failures")
-            suspendPlaybackAfterFailure(
-                reason: "consecutive-playback-failures",
-                message: lastPlaybackError ?? String(localized: "playback_error_decode")
-            )
-            return
-        }
-
-        if let failedSourceID {
-            var skippedCount = 0
-            while let candidate = nextSongInQueue(),
-                  SourceFailureAdvancePolicy.shouldSkipCandidate(
-                    failedSourceID: failedSourceID,
-                    candidateSourceID: candidate.sourceID
-                  ),
-                  sourceManager?.hasUsableCachedAudioForPlayback(candidate) != true {
-                guard skippedCount < queueEntries.count else {
-                    plog("⏸️ No playable provider remains after source-wide failure")
-                    suspendPlaybackPreservingSelection(reason: "source-wide-playback-failure")
-                    return
-                }
-                advanceToNextIndex()
-                skippedCount += 1
-            }
-            if skippedCount > 0 {
-                plog("⏭️ Skipped \(skippedCount) queued entr\(skippedCount == 1 ? "y" : "ies") from unavailable source")
-            }
-        }
-
-        if nextSongInQueue() != nil {
-            await Task.yield()
-            guard interruptionResumePolicy.playbackIsIntended,
-                  currentSong?.id == advanceTicket.itemID,
-                  playbackAdvancePolicy.isGenerationCurrent(for: advanceTicket),
-                  playbackAdvancePolicy.activeTicket == nil else {
-                plog("🛡️ cancelled failure advance after yield trigger=\(trigger)")
-                return
-            }
-            await next(
-                context: failedSourceID == nil ? .userInitiated : .sourceFailureRecovery,
-                caller: "auto-failure:\(trigger)",
-                callerLine: 0
-            )
-        } else {
-            suspendPlaybackAfterFailure(
-                reason: "queue-tail-playback-failure",
-                message: lastPlaybackError ?? String(localized: "playback_error_decode")
-            )
-        }
-    }
-
-    /// A single file request or decoder timeout cannot establish a source
-    /// outage. Only account failures or independently unreachable endpoints
-    /// justify skipping other uncached songs from that provider.
-    private func isSourceWideResolutionFailure(_ error: Error, sourceID: String) async -> Bool {
-        if sourceManager?.isSourceKnownUnavailableForPlayback(sourceID) == true { return true }
-        if let sourceError = error as? SourceError {
-            switch sourceError {
-            case .authenticationFailed, .credentialUnavailable:
-                return true
-            case .connectionFailed, .timeout:
-                return await sourceManager?.playbackSourceEndpointsAreUnavailable(
-                    sourceID: sourceID, refresh: true
-                ) == true
-            case .pathNotFound, .fileNotFound:
-                return false
-            }
-        }
-        if SourceNetworkFailurePolicy.isNetworkFailure(error) {
-            return await sourceManager?.playbackSourceEndpointsAreUnavailable(
-                sourceID: sourceID, refresh: true
-            ) == true
-        }
-        let nsError = error as NSError
-        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error {
-            return await isSourceWideResolutionFailure(underlying, sourceID: sourceID)
-        }
-        return false
-    }
-
-    private func isDLNACast(_ song: Song?) -> Bool {
-        song?.sourceID == Self.dlnaSourceID
-    }
-
-    /// Shuffle is a library-discovery mode, not a request to repeat the only
-    /// item in a one-song queue. Once the current shuffle round is exhausted,
-    /// append currently visible playable songs that are not already present
-    /// and make only those new entries the next shuffle segment.
-    @discardableResult
-    private func extendExhaustedShuffleFromLibrary() -> Bool {
-        guard shuffleEnabled,
-              repeatMode != .one,
-              nextSongInQueue() == nil,
-              let library,
-              queueEntries.indices.contains(currentIndex) else { return false }
-
-        let playable = library.visibleSongs.filteredPlayable()
-        let candidateIDs = ShuffleContinuationPolicy.candidateIDs(
-            queueIDs: queueEntries.map(\.song.id),
-            libraryIDs: playable.map(\.id),
-            currentID: currentSong?.id
-        )
-        guard !candidateIDs.isEmpty else { return false }
-
-        let songsByID = Dictionary(
-            playable.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let additions = candidateIDs.compactMap { songsByID[$0] }
-        guard !additions.isEmpty else { return false }
-
-        let firstNewIndex = queueEntries.count
-        invalidatePreparedQueueSuccessor()
-        queueEntries.append(contentsOf: additions.map { QueueEntry(song: $0) })
-        pendingNextShuffleIndices = nil
-        shuffledIndices = [currentIndex]
-            + Array(firstNewIndex..<queueEntries.count).shuffled()
-        shufflePosition = 0
-        plog("🔀 Extended exhausted shuffle queue by \(additions.count) library songs")
-        return true
-    }
-
-    private struct QueueTraversalTarget {
-        let queueIndex: Int
-        let shufflePosition: Int?
-        let pendingShuffleRound: [Int]?
-    }
-
-    private func isSourceEnabledForPlayback(_ sourceID: String) -> Bool {
-        library?.disabledSourceIDs.contains(sourceID) != true
-    }
-
-    /// Keep durable queue order intact during an outage. Complete local audio
-    /// stays eligible and a changed network path immediately expires old
-    /// reachability evidence, including when moving between two Wi-Fi networks.
-    private func isSongAvailableForNewPlayback(_ song: Song) -> Bool {
-        let isUnreachable = sourceManager?.isSourceKnownUnavailableForPlayback(song.sourceID) == true
-        return PlaybackSourceAvailabilityPolicy.allowsPlayback(
-            isSourceEnabled: isSourceEnabledForPlayback(song.sourceID),
-            isSourceUnreachable: isUnreachable,
-            hasUsableLocalAudio: isUnreachable
-                && sourceManager?.hasUsableCachedAudioForPlayback(song) == true
-        )
-    }
-
-    private func nextQueueEntryInQueue(
-        respectsRepeatOne: Bool = true
-    ) -> QueueEntry? {
-        guard let target = nextQueueTraversalTarget(
-            respectsRepeatOne: respectsRepeatOne
-        ) else { return nil }
-        return queueEntries[target.queueIndex]
-    }
-
-    private func nextSongInQueue() -> Song? {
-        nextQueueEntryInQueue()?.song
-    }
-
-    private func nextQueueTraversalTarget(
-        respectsRepeatOne: Bool = true,
-        wrapsAtEnd: Bool? = nil
-    ) -> QueueTraversalTarget? {
-        upcomingQueueTraversalTargets(
-            maximumCount: 1,
-            respectsRepeatOne: respectsRepeatOne,
-            wrapsAtEnd: wrapsAtEnd
-        ).first
-    }
-
-    /// Returns enabled successors in exactly the order that advance will
-    /// adopt. Disabled entries are only filtered from traversal, never from
-    /// `queueEntries`, so CloudKit re-enablement restores them in place.
-    private func upcomingQueueTraversalTargets(
-        maximumCount: Int,
-        respectsRepeatOne: Bool = true,
-        wrapsAtEnd: Bool? = nil
-    ) -> [QueueTraversalTarget] {
-        guard !queueEntries.isEmpty, maximumCount > 0 else { return [] }
-        let shouldWrapAtEnd = wrapsAtEnd ?? (repeatMode == .all)
-
-        let isAvailable: (Int) -> Bool = { [self] index in
-            queueEntries.indices.contains(index)
-                && isSongAvailableForNewPlayback(queueEntries[index].song)
-        }
-
-        if respectsRepeatOne, repeatMode == .one {
-            guard isAvailable(currentIndex) else { return [] }
-            let position = shuffleEnabled
-                ? shuffledIndices.firstIndex(of: currentIndex)
-                : nil
-            return [QueueTraversalTarget(
-                queueIndex: currentIndex,
-                shufflePosition: position,
-                pendingShuffleRound: nil
-            )]
-        }
-
-        var result: [QueueTraversalTarget] = []
-        result.reserveCapacity(maximumCount)
-
-        if shuffleEnabled {
-            let anchorPosition = shuffledIndices.firstIndex(of: currentIndex)
-                ?? min(max(shufflePosition, -1), shuffledIndices.count - 1)
-            var cursor = anchorPosition
-            while result.count < maximumCount,
-                  let position = QueueTraversalPolicy.nextAvailableTraversalPosition(
-                    in: shuffledIndices,
-                    queueCount: queueEntries.count,
-                    after: cursor,
-                    isAvailable: isAvailable
-                  ) {
-                result.append(QueueTraversalTarget(
-                    queueIndex: shuffledIndices[position],
-                    shufflePosition: position,
-                    pendingShuffleRound: nil
-                ))
-                cursor = position
-            }
-
-            if result.count < maximumCount, shouldWrapAtEnd {
-                let pending = preparedNextShuffleRound()
-                var pendingCursor = -1
-                while result.count < maximumCount,
-                      let position = QueueTraversalPolicy.nextAvailableTraversalPosition(
-                        in: pending,
-                        queueCount: queueEntries.count,
-                        after: pendingCursor,
-                        isAvailable: isAvailable
-                      ) {
-                    result.append(QueueTraversalTarget(
-                        queueIndex: pending[position],
-                        shufflePosition: position,
-                        pendingShuffleRound: pending
-                    ))
-                    pendingCursor = position
-                }
-            }
-            return result
-        }
-
-        var cursor = currentIndex
-        while result.count < maximumCount,
-              let index = QueueTraversalPolicy.nextAvailableIndex(
-                queueCount: queueEntries.count,
-                after: cursor,
-                wraps: false,
-                isAvailable: isAvailable
-              ) {
-            result.append(QueueTraversalTarget(
-                queueIndex: index,
-                shufflePosition: nil,
-                pendingShuffleRound: nil
-            ))
-            cursor = index
-        }
-
-        if result.count < maximumCount, shouldWrapAtEnd, currentIndex >= 0 {
-            let wrapEnd = min(currentIndex, queueEntries.count - 1)
-            if wrapEnd >= 0 {
-                for index in 0...wrapEnd where isAvailable(index) {
-                    result.append(QueueTraversalTarget(
-                        queueIndex: index,
-                        shufflePosition: nil,
-                        pendingShuffleRound: nil
-                    ))
-                    if result.count == maximumCount { break }
-                }
-            }
-        }
-        return result
-    }
-
-    private func previousQueueTraversalTarget() -> QueueTraversalTarget? {
-        guard !queueEntries.isEmpty else { return nil }
-        let isAvailable: (Int) -> Bool = { [self] index in
-            queueEntries.indices.contains(index)
-                && isSongAvailableForNewPlayback(queueEntries[index].song)
-        }
-
-        if shuffleEnabled {
-            let anchorPosition = shuffledIndices.firstIndex(of: currentIndex)
-                ?? min(max(shufflePosition, 0), max(0, shuffledIndices.count - 1))
-            if let position = QueueTraversalPolicy.previousAvailableTraversalPosition(
-                in: shuffledIndices,
-                queueCount: queueEntries.count,
-                before: anchorPosition,
-                isAvailable: isAvailable
-            ) {
-                return QueueTraversalTarget(
-                    queueIndex: shuffledIndices[position],
-                    shufflePosition: position,
-                    pendingShuffleRound: nil
-                )
-            }
-            guard isAvailable(currentIndex) else { return nil }
-            return QueueTraversalTarget(
-                queueIndex: currentIndex,
-                shufflePosition: shuffledIndices.firstIndex(of: currentIndex),
-                pendingShuffleRound: nil
-            )
-        }
-
-        if let index = QueueTraversalPolicy.previousAvailableIndex(
-            before: currentIndex,
-            isAvailable: isAvailable
-        ) {
-            return QueueTraversalTarget(
-                queueIndex: index,
-                shufflePosition: nil,
-                pendingShuffleRound: nil
-            )
-        }
-
-        if currentIndex + 1 < queueEntries.count {
-            for index in stride(
-                from: queueEntries.count - 1,
-                through: currentIndex + 1,
-                by: -1
-            ) where isAvailable(index) {
-                return QueueTraversalTarget(
-                    queueIndex: index,
-                    shufflePosition: nil,
-                    pendingShuffleRound: nil
-                )
-            }
-        }
-
-        guard isAvailable(currentIndex) else { return nil }
-        return QueueTraversalTarget(
-            queueIndex: currentIndex,
-            shufflePosition: nil,
-            pendingShuffleRound: nil
-        )
-    }
-
-    private func applyQueueTraversalTarget(_ target: QueueTraversalTarget) {
-        guard queueEntries.indices.contains(target.queueIndex) else { return }
-        if let pending = target.pendingShuffleRound,
-           let position = target.shufflePosition,
-           pending.indices.contains(position),
-           pending[position] == target.queueIndex {
-            pendingNextShuffleIndices = nil
-            shuffledIndices = pending
-            shufflePosition = position
-        } else if shuffleEnabled,
-                  let position = target.shufflePosition,
-                  shuffledIndices.indices.contains(position),
-                  shuffledIndices[position] == target.queueIndex {
-            shufflePosition = position
-        }
-        currentIndex = target.queueIndex
-    }
-
-    @discardableResult
-    private func advanceToNextIndex(
-        respectsRepeatOne: Bool = true
-    ) -> Bool {
-        guard let target = nextQueueTraversalTarget(
-            respectsRepeatOne: respectsRepeatOne
-        ) else { return false }
-        applyQueueTraversalTarget(target)
-        return true
-    }
-
-    private func rebuildShuffleOrder() {
-        guard !queue.isEmpty else { shuffledIndices = []; pendingNextShuffleIndices = nil; return }
-        shuffledIndices = Array(0..<queue.count).shuffled()
-        shufflePosition = 0
-        pendingNextShuffleIndices = nil
-        // Place current index at position 0 so current song stays first
-        // when shuffle is toggled mid-playback (we don't want to jump
-        // off the current track). Wrap-around uses a different builder.
-        if let pos = shuffledIndices.firstIndex(of: currentIndex) {
-            shuffledIndices.swapAt(0, pos)
-        }
-    }
-
-    /// Cache the first generated repeat-all round. `pendingNextShuffleIndices`
-    /// is observation-ignored because SwiftUI may call this from a computed
-    /// presentation getter; preparing hidden playback state must not invalidate
-    /// that getter and start another observation pass.
-    private func preparedNextShuffleRound() -> [Int] {
-        let prepared = ShuffleRoundPreparationPolicy.preparedRound(
-            pending: pendingNextShuffleIndices,
-            generate: buildPendingNextRound
-        )
-        if pendingNextShuffleIndices == nil {
-            pendingNextShuffleIndices = prepared
-        }
-        return prepared
-    }
-
-    /// Build (but don't install) the next round's shuffle order. Preview,
-    /// prefetch and the actual wrap share the cached result. Avoid placing the
-    /// eventual boundary track at position 0 so repeat-all doesn't feel like
-    /// repeat-one even when the UI prepares the round early.
-    private func buildPendingNextRound() -> [Int] {
-        guard !queue.isEmpty else { return [] }
-        var order = Array(0..<queue.count).shuffled()
-        // The UI may prepare this round well before the current song reaches
-        // the boundary. Compare against the eventual last slot of this round,
-        // not the song that happened to be current when the preview opened.
-        let boundaryIndex = shuffledIndices.last ?? currentIndex
-        if queue.count > 1, order.first == boundaryIndex {
-            let otherPos = Int.random(in: 1..<order.count)
-            order.swapAt(0, otherPos)
-        }
-        return order
-    }
-
-    // MARK: - URL Resolution
-
-    /// 用于日志的脱敏 URL —— 只保留 scheme+host(:port)+path, 剥掉 query 和
-    /// user-info。多个源把可重放凭据放在 query 里 (Subsonic t=md5(pwd+salt)&s=salt,
-    /// Synology _sid=会话令牌, 各类 api_sig/token), 而日志会被写进 caches 明文
-    /// 文件并通过设置页分享出去, 原样记录等于把账号泄露给收到日志的人。query
-    /// 非空时用 "?…" 占位, 既不丢失"带参数"这条诊断信息也不暴露内容。
-    nonisolated private func redactedURL(_ url: URL) -> String {
-        guard !url.isFileURL,
-              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-            return url.isFileURL ? url.path : url.absoluteString
-        }
-        let hadQuery = !(components.query?.isEmpty ?? true)
-        components.query = nil
-        components.user = nil
-        components.password = nil
-        components.fragment = nil
-        let base = components.string ?? url.absoluteString
-        return hadQuery ? base + "?…" : base
-    }
-
-    private func resolvedURL(
-        for song: Song,
-        forContinuousPreparation: Bool = false
-    ) async throws -> URL {
-        // DLNA renderer items are ephemeral and intentionally never registered
-        // with SourceManager. Their filePath is the controller-provided HTTP(S)
-        // URI, so seeking must reuse it directly instead of asking the library
-        // source resolver for a non-existent "dlna" source.
-        if song.sourceID == "dlna",
-           let remoteURL = URL(string: song.filePath),
-           let scheme = remoteURL.scheme?.lowercased(),
-           scheme == "http" || scheme == "https" {
-            plog("🔗 resolvedURL for '\(song.title)': DLNA remote → \(redactedURL(remoteURL))")
-            return remoteURL
-        }
-        if let sourceManager {
-            do {
-                let url = try await sourceManager.resolveURL(
-                    for: song,
-                    acquirePlaybackCacheLease: !forContinuousPreparation
-                )
-                plog("🔗 resolvedURL for '\(song.title)': \(url.isFileURL ? "LOCAL" : url.scheme?.uppercased() ?? "?") → \(redactedURL(url))")
-                return url
-            } catch {
-                plog("🔗 resolveURL failed for '\(song.title)': \(error), filePath=\(song.filePath.prefix(80))")
-                if let localURL = PrimuseSandboxPathResolver.existingURL(
-                    forStoredAbsolutePath: song.filePath
-                ) {
-                    if localURL.path != song.filePath {
-                        plog("🔗 rebased stale sandbox path for '\(song.title)' → \(localURL.path)")
-                    }
-                    return localURL
-                }
-                throw error
-            }
-        }
-        if let remoteURL = URL(string: song.filePath), remoteURL.scheme != nil {
-            plog("🔗 resolvedURL for '\(song.title)': direct remote → \(redactedURL(remoteURL))")
-            return remoteURL
-        }
-        if let localURL = PrimuseSandboxPathResolver.existingURL(
-            forStoredAbsolutePath: song.filePath
-        ) {
-            plog("🔗 resolvedURL for '\(song.title)': file path → \(localURL.path.prefix(80))")
-            return localURL
-        }
-        throw SourceError.fileNotFound(song.filePath)
-    }
+    static let timeUpdateInterval: TimeInterval = 0.5
 
     // MARK: - Now Playing Info
 
@@ -11287,13 +6497,13 @@ final class AudioPlayerService {
     /// `systemLyrics` 里能驱动锁屏行的子集。锁屏每 0.5s 刷一次,
     /// 过滤只跟歌词文档有关, 所以随 `systemLyrics` 一起缓存。
     @ObservationIgnored private var systemSynchronizedLyrics: [LyricLine] = []
-    @ObservationIgnored private var lastPublishedLockScreenLyricsPresentation:
+    @ObservationIgnored var lastPublishedLockScreenLyricsPresentation:
         NowPlayingLyricsMetadataPresentation?
     /// 最近一次把歌词行发布给 MediaRemote 的时刻, 用于 1 秒限流。
-    @ObservationIgnored private var lastLockScreenLyricsPublishAt: Date?
+    @ObservationIgnored var lastLockScreenLyricsPublishAt: Date?
     /// 限流窗口内到达的那一行: 不丢弃, 窗口结束后补发(通常 0.5 秒的时钟
     /// tick 会先到并发出去)。
-    @ObservationIgnored private var pendingLockScreenLyricsPublish = false
+    @ObservationIgnored var pendingLockScreenLyricsPublish = false
     @ObservationIgnored private var lockScreenLyricsCatchUpTask: Task<Void, Never>?
     /// 标识当前补发任务的归属。任务句柄本身无法在闭包里和自己比较, 用这个
     /// 单调递增的令牌代替身份比较: 只有仍然是最新一次调度的任务才可以清空
@@ -11349,7 +6559,7 @@ final class AudioPlayerService {
     /// Lyrics loading can reach a remote sidecar or metadata provider. Only do
     /// that work for a widget when the user has actually placed a lyrics-capable
     /// family on the Home Screen; lock-screen lyrics remains independently gated.
-    private func refreshInstalledLyricsWidgetDemand(force: Bool = false) {
+    func refreshInstalledLyricsWidgetDemand(force: Bool = false) {
         guard widgetLyricsSharingEnabled else {
             clearWidgetLyricsSnapshotIfNeeded()
             if !shouldLoadLyricsForSystemSurfaces {
@@ -11508,7 +6718,7 @@ final class AudioPlayerService {
         }
     }
 
-    private func retryEmptySystemLyricsAfterForegroundingIfNeeded() {
+    func retryEmptySystemLyricsAfterForegroundingIfNeeded() {
         guard shouldLoadLyricsForSystemSurfaces,
               !isLiveRadio,
               systemLyricsLoadTask == nil,
@@ -11522,7 +6732,7 @@ final class AudioPlayerService {
         loadLyricsForSystemSurfacesIfNeeded(for: song)
     }
 
-    private func lockScreenLyricsPresentation() -> NowPlayingLyricsMetadataPresentation {
+    func lockScreenLyricsPresentation() -> NowPlayingLyricsMetadataPresentation {
         guard let song = currentSong else {
             return NowPlayingLyricsMetadataPresentation(title: "", artist: "", lyricLineID: nil)
         }
@@ -11590,7 +6800,7 @@ final class AudioPlayerService {
         }
     }
 
-    private func publishLyricsActivityProbe() {
+    func publishLyricsActivityProbe() {
         #if DEBUG
         guard LyricsLiveActivityService.isProbeEnabled else { return }
         guard let song = currentSong, !isLiveRadio, !isAtTrackEnd else {
@@ -11647,7 +6857,7 @@ final class AudioPlayerService {
         loadLyricsForSystemSurfacesIfNeeded(for: currentSong)
     }
 
-    private func publishWidgetLyricsIfNeeded(coverImageName: String? = nil) {
+    func publishWidgetLyricsIfNeeded(coverImageName: String? = nil) {
         guard shouldPublishWidgetLyrics, !isLiveRadio else {
             clearWidgetLyricsSnapshotIfNeeded()
             return
@@ -11726,18 +6936,18 @@ final class AudioPlayerService {
     #endif
 
     /// Tracks which song last started an artwork lookup to avoid redundant IO.
-    private var lastArtworkSongID: String?
+    var lastArtworkSongID: String?
 
     /// Identifies the song that owns the artwork currently published to the
     /// system. It must match `currentSong` before metadata refreshes can carry
     /// that image forward.
-    private var publishedArtworkSongID: String?
+    var publishedArtworkSongID: String?
 
     /// 解码并降采样后的系统封面内存缓存(songID → artwork)。蓝牙 AVRCP
     /// 车机只在曲目元数据变化的那一刻采样一次封面, 异步补发的图不会被
     /// 重新拉取; 只有切歌后的第一份 nowPlayingInfo 快照就带上新歌封面,
     /// 车机才能显示。命中该缓存即可同步做到, 冷路径仍走异步加载回填。
-    private let nowPlayingArtworkCache: NSCache<NSString, MPMediaItemArtwork> = {
+    let nowPlayingArtworkCache: NSCache<NSString, MPMediaItemArtwork> = {
         let cache = NSCache<NSString, MPMediaItemArtwork>()
         cache.countLimit = 8
         cache.totalCostLimit = 24 * 1_024 * 1_024
@@ -11747,1421 +6957,33 @@ final class AudioPlayerService {
     /// 最近一次发布给 MediaRemote 的完整 nowPlayingInfo 快照及其身份。歌词
     /// 行推进时直接在这份字典上改标题/副标题与进度, 其余键(尤其是封面)原样
     /// 复用, 避免每行都重建字典并让系统重新序列化封面位图。
-    @ObservationIgnored private var cachedNowPlayingInfo: [String: Any]?
-    @ObservationIgnored private var cachedNowPlayingInfoKey: NowPlayingInfoSnapshotKey?
+    @ObservationIgnored var cachedNowPlayingInfo: [String: Any]?
+    @ObservationIgnored var cachedNowPlayingInfoKey: NowPlayingInfoSnapshotKey?
     /// 快照里当前携带的封面对象。它换成另一个实例时封面版本号才前进。
-    @ObservationIgnored private var cachedNowPlayingArtwork: MPMediaItemArtwork?
-    @ObservationIgnored private var nowPlayingArtworkRevision: Int = 0
+    @ObservationIgnored var cachedNowPlayingArtwork: MPMediaItemArtwork?
+    @ObservationIgnored var nowPlayingArtworkRevision: Int = 0
 
     /// 正在预取封面的 songID, 防止对同一首歌重复启动预取任务。
-    @ObservationIgnored private var prefetchingArtworkSongID: String?
+    @ObservationIgnored var prefetchingArtworkSongID: String?
 
     /// 每首歌当前有效的系统封面加载票据。同曲重新刮削可能与先前的远程封面
     /// 请求重叠;只有最后一次请求可以回写内存缓存和 Now Playing,避免旧任务
     /// 在新封面发布后又把车机显示回滚。
-    @ObservationIgnored private var nowPlayingArtworkLoadTokens: [String: UUID] = [:]
-    @ObservationIgnored private var nowPlayingArtworkLoadTask: Task<Void, Never>?
-    @ObservationIgnored private var nowPlayingArtworkPrefetchTask: Task<Void, Never>?
+    @ObservationIgnored var nowPlayingArtworkLoadTokens: [String: UUID] = [:]
+    @ObservationIgnored var nowPlayingArtworkLoadTask: Task<Void, Never>?
+    @ObservationIgnored var nowPlayingArtworkPrefetchTask: Task<Void, Never>?
 
     /// 单调递增的封面刷新 token。当刮削回写完成、cache 失效但 coverArtFileName
     /// 字符串可能没变（hash deterministic）时, view 上的 onChange(coverRef) 不会
     /// 触发 reload, @State image 卡在旧 UIImage。CachedArtworkView 监听这个
     /// token, 任意 bump 都能强制三个封面位重新走 loadImage。
-    private(set) var coverRevision: Int = 0
+    var coverRevision: Int = 0
 
-    func bumpCoverRevision() {
-        coverRevision &+= 1
-    }
-
-    /// 标识一份 nowPlayingInfo 快照里"除歌词行与进度之外"的全部内容。只有
-    /// 这些值都没变时, 歌词行推进才可以复用上一份字典和同一个封面对象。
-    private struct NowPlayingInfoSnapshotKey: Equatable {
-        let songID: String
-        let artworkRevision: Int
-        let albumTitle: String
-        let duration: TimeInterval
-        let isLiveStream: Bool
-        let isMusicVideo: Bool
-        let queueCount: Int
-        let queueIndex: Int
-    }
-
-    private func updateNowPlayingInfo(
-        artwork: MPMediaItemArtwork? = nil,
-        artworkSongID: String? = nil,
-        lyricsLineOnly: Bool = false
-    ) {
-        let signpost = PrimuseSignposts.hitch.beginInterval("player.nowPlayingPublish")
-        defer { PrimuseSignposts.hitch.endInterval("player.nowPlayingPublish", signpost) }
-        #if os(iOS)
-        publishLyricsActivityProbe()
-        #endif
-        let actualPlaybackIsActive = isPlaybackActuallyActive
-        lastPublishedPlaybackWasActive = actualPlaybackIsActive
-        let preferredRate = !isSystemAudioPlaybackActive && playbackSettings.outputMode == .effects
-            ? Double(playbackSettings.playbackRate)
-            : 1
-        let projection = NowPlayingPlaybackProjectionPolicy.projection(
-            hasCurrentItem: currentSong != nil,
-            isPlaying: actualPlaybackIsActive,
-            isLoading: isLoading,
-            preferredPlaybackRate: preferredRate
-        )
-        synchronizeRemoteCommandAvailability(projection)
-
-        guard currentSong != nil else {
-            clearNowPlayingInfo()
-            return
-        }
-        let nowPlayingCenter = MPNowPlayingInfoCenter.default()
-
-        #if os(iOS)
-        // 歌词行推进只改标题/副标题与进度。复用上一份快照与其中同一个
-        // MPMediaItemArtwork 实例, MediaRemote 就不必在主线程上重新序列化
-        // 768 px 位图; 快照身份不一致时照常走下面的完整重建。
-        if lyricsLineOnly,
-           artwork == nil,
-           let cachedKey = cachedNowPlayingInfoKey,
-           cachedKey == currentNowPlayingInfoSnapshotKey(),
-           var info = cachedNowPlayingInfo {
-            let lyricsPresentation = lockScreenLyricsPresentation()
-            info[MPMediaItemPropertyTitle] = lyricsPresentation.title
-            info[MPMediaItemPropertyArtist] = lyricsPresentation.artist
-            info[MPNowPlayingInfoPropertyPlaybackRate] = projection.playbackRate
-            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = max(
-                0,
-                min(currentTime, duration > 0 ? duration : currentTime)
-            )
-            nowPlayingCenter.nowPlayingInfo = info
-            cachedNowPlayingInfo = info
-            lastPublishedLockScreenLyricsPresentation = lyricsPresentation
-            noteLockScreenLyricsPublished()
-            return
-        }
-        #endif
-
-        // Build a fresh snapshot; artwork is carried forward only when its
-        // ownership still matches the current song.
-        var info = [String: Any]()
-        var publishedTitle = currentSong?.title ?? ""
-        var publishedArtist = displayedArtistName(for: currentSong) ?? ""
-        #if os(iOS)
-        let lyricsPresentation = lockScreenLyricsPresentation()
-        publishedTitle = lyricsPresentation.title
-        publishedArtist = lyricsPresentation.artist
-        lastPublishedLockScreenLyricsPresentation = lyricsPresentation
-        #endif
-        info[MPMediaItemPropertyTitle] = publishedTitle
-        info[MPMediaItemPropertyArtist] = publishedArtist
-        info[MPNowPlayingInfoPropertyExternalContentIdentifier] = currentSong?.id
-        info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
-        info[MPNowPlayingInfoPropertyPlaybackRate] = projection.playbackRate
-        info[MPNowPlayingInfoPropertyMediaType] = isMusicVideoPlaybackActive
-            ? MPNowPlayingInfoMediaType.video.rawValue
-            : MPNowPlayingInfoMediaType.audio.rawValue
-        if isLiveRadio {
-            info[MPMediaItemPropertyAlbumTitle] = currentRadioStation?.name ?? ""
-            info[MPNowPlayingInfoPropertyIsLiveStream] = true
-        } else {
-            let elapsedTime = max(0, min(currentTime, duration > 0 ? duration : currentTime))
-            info[MPMediaItemPropertyAlbumTitle] = currentSong?.albumTitle ?? ""
-            info[MPMediaItemPropertyPlaybackDuration] = duration
-            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsedTime
-        }
-        if !isLiveRadio, queueEntries.indices.contains(currentIndex) {
-            info[MPNowPlayingInfoPropertyPlaybackQueueCount] = queueEntries.count
-            info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = currentIndex
-        }
-
-        // Publish asynchronously resolved artwork together with the complete
-        // current-track snapshot. Ordinary progress/state refreshes may reuse
-        // it only while it still belongs to this same song.
-        if let artwork,
-           artworkSongID == currentSong?.id {
-            info[MPMediaItemPropertyArtwork] = artwork
-        } else if NowPlayingArtworkPublicationPolicy.shouldReuseArtwork(
-            ownedBy: publishedArtworkSongID,
-            for: currentSong?.id
-        ), let existingArtwork = nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] {
-            info[MPMediaItemPropertyArtwork] = existingArtwork
-        } else if let songID = currentSong?.id,
-                  let cachedArtwork = nowPlayingArtworkCache.object(forKey: songID as NSString) {
-            // 切歌后的第一份快照必须已带新歌封面: 蓝牙 AVRCP 车机只在这
-            // 一刻采样封面, 之后同曲目的补发不会被重新拉取。
-            info[MPMediaItemPropertyArtwork] = cachedArtwork
-            publishedArtworkSongID = songID
-        }
-
-        nowPlayingCenter.nowPlayingInfo = info
-        // 记住这份完整快照与它携带的封面对象: 下一次歌词行推进直接在它上面
-        // 改两个字符串和进度, 不再重建字典, 也不再换封面。
-        let publishedArtwork = info[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork
-        if publishedArtwork !== cachedNowPlayingArtwork {
-            cachedNowPlayingArtwork = publishedArtwork
-            nowPlayingArtworkRevision &+= 1
-        }
-        cachedNowPlayingInfo = info
-        cachedNowPlayingInfoKey = currentNowPlayingInfoSnapshotKey()
-        #if os(iOS)
-        noteLockScreenLyricsPublished()
-        #endif
-        #if os(macOS)
-        nowPlayingCenter.playbackState = actualPlaybackIsActive && !isLoading ? .playing : .paused
-        #endif
-    }
-
-    private func currentNowPlayingInfoSnapshotKey() -> NowPlayingInfoSnapshotKey? {
-        guard let songID = currentSong?.id else { return nil }
-        let hasQueuePosition = !isLiveRadio && queueEntries.indices.contains(currentIndex)
-        return NowPlayingInfoSnapshotKey(
-            songID: songID,
-            artworkRevision: nowPlayingArtworkRevision,
-            albumTitle: (isLiveRadio ? currentRadioStation?.name : currentSong?.albumTitle) ?? "",
-            duration: duration,
-            isLiveStream: isLiveRadio,
-            isMusicVideo: isMusicVideoPlaybackActive,
-            queueCount: hasQueuePosition ? queueEntries.count : 0,
-            queueIndex: hasQueuePosition ? currentIndex : -1
-        )
-    }
-
-    /// 丢弃增量发布用的快照缓存。任何绕过 `updateNowPlayingInfo` 改动系统
-    /// 快照的地方都必须调用它, 下一次发布会重新构建完整字典。
-    private func invalidateCachedNowPlayingInfo() {
-        cachedNowPlayingInfo = nil
-        cachedNowPlayingInfoKey = nil
-        cachedNowPlayingArtwork = nil
-        nowPlayingArtworkRevision &+= 1
-    }
-
-    #if os(iOS)
-    /// 任何一次完整或增量发布都重置歌词限流窗口, 并清掉待补发标记。
-    private func noteLockScreenLyricsPublished() {
-        lastLockScreenLyricsPublishAt = Date()
-        pendingLockScreenLyricsPublish = false
-    }
-    #endif
-
-    private func clearNowPlayingInfo() {
-        nowPlayingArtworkLoadTask?.cancel()
-        nowPlayingArtworkLoadTask = nil
-        nowPlayingArtworkPrefetchTask?.cancel()
-        nowPlayingArtworkPrefetchTask = nil
-        prefetchingArtworkSongID = nil
-        nowPlayingArtworkLoadTokens.removeAll()
-        lastArtworkSongID = nil
-        publishedArtworkSongID = nil
-        invalidateCachedNowPlayingInfo()
-        let nowPlayingCenter = MPNowPlayingInfoCenter.default()
-        nowPlayingCenter.nowPlayingInfo = nil
-        #if os(macOS)
-        nowPlayingCenter.playbackState = .stopped
-        #endif
-    }
-
-    /// 远程控制中心各命令的可用性投影。每个属性写入都是一次 MediaRemote
-    /// XPC, 而歌词行推进每隔几秒就会走一遍发布路径 —— 先把状态投影出来,
-    /// 只有真的变了才写。
-    private struct RemoteCommandAvailability: Equatable {
-        let play: Bool
-        let pause: Bool
-        let togglePlayPause: Bool
-        let changePlaybackPosition: Bool
-        let nextTrack: Bool
-        let previousTrack: Bool
-        let like: Bool
-        let likeIsActive: Bool
-    }
-
-    @ObservationIgnored private var lastWrittenRemoteCommandAvailability:
+    @ObservationIgnored var lastWrittenRemoteCommandAvailability:
         RemoteCommandAvailability?
 
-    private func synchronizeRemoteCommandAvailability(
-        _ projection: NowPlayingPlaybackProjection
-    ) {
-        #if os(iOS)
-        let canLikeCurrentSong = !isLiveRadio
-            && currentSong.flatMap { library?.song(id: $0.id) } != nil
-        let likeIsActive = canLikeCurrentSong
-            && (currentSong.map { library?.isLiked(songID: $0.id) ?? false } ?? false)
-        #else
-        let canLikeCurrentSong = false
-        let likeIsActive = false
-        #endif
-        let availability = RemoteCommandAvailability(
-            play: projection.playCommandEnabled,
-            pause: projection.pauseCommandEnabled,
-            togglePlayPause: currentSong != nil,
-            changePlaybackPosition: playbackCapabilities.canSeek,
-            nextTrack: !isLiveRadio || radioStationOrder.count > 1,
-            previousTrack: !isLiveRadio || radioStationOrder.count > 1,
-            like: canLikeCurrentSong,
-            likeIsActive: likeIsActive
-        )
-        // 本进程是这些属性的唯一写者, 缓存值因此就是系统当前状态。切歌、
-        // 队列变化、喜欢状态变化都会让投影变化并立刻写下去。
-        guard availability != lastWrittenRemoteCommandAvailability else { return }
-        lastWrittenRemoteCommandAvailability = availability
-
-        let center = MPRemoteCommandCenter.shared()
-        center.playCommand.isEnabled = availability.play
-        center.pauseCommand.isEnabled = availability.pause
-        center.togglePlayPauseCommand.isEnabled = availability.togglePlayPause
-        center.changePlaybackPositionCommand.isEnabled = availability.changePlaybackPosition
-        center.nextTrackCommand.isEnabled = availability.nextTrack
-        center.previousTrackCommand.isEnabled = availability.previousTrack
-        #if os(iOS)
-        center.likeCommand.isEnabled = availability.like
-        center.likeCommand.isActive = availability.likeIsActive
-        #endif
-    }
-
-    /// Loads cover art for a track transition or an explicit same-track refresh.
-    private func updateNowPlayingArtworkIfNeeded(
-        forceReload: Bool = false,
-        preservingCurrentArtworkWhileLoading: Bool = false
-    ) {
-        let songID = currentSong?.id
-        guard forceReload || songID != lastArtworkSongID else { return }
-        // A token prevents stale publication, but it does not stop the old
-        // ImageIO work. Cancel both the former current-song load and its
-        // speculative prefetch before starting the new track so rapid skips
-        // cannot accumulate sustained decode work on SpringBoard's behalf.
-        nowPlayingArtworkLoadTask?.cancel()
-        nowPlayingArtworkLoadTask = nil
-        nowPlayingArtworkPrefetchTask?.cancel()
-        nowPlayingArtworkPrefetchTask = nil
-        prefetchingArtworkSongID = nil
-        nowPlayingArtworkLoadTokens.removeAll()
-        lastArtworkSongID = songID
-
-        let shouldClearArtwork = NowPlayingArtworkPublicationPolicy
-            .shouldClearArtworkBeforeLoading(
-                isSameItemRefresh: preservingCurrentArtworkWhileLoading
-            )
-        if shouldClearArtwork {
-            publishedArtworkSongID = nil
-            // 缓存的那份快照还带着上一张封面; 让下一次发布重建完整快照,
-            // 否则歌词行的增量发布会把已经撤下的封面又贴回去。
-            invalidateCachedNowPlayingInfo()
-        }
-
-        // 内存缓存命中: 立即随完整快照发布新歌封面, 不经过"无封面"的
-        // 中间态 —— 蓝牙车机只会采样切歌那一刻的快照。
-        if let songID,
-           let cachedArtwork = nowPlayingArtworkCache.object(forKey: songID as NSString) {
-            publishedArtworkSongID = songID
-            updateNowPlayingInfo(artwork: cachedArtwork, artworkSongID: songID)
-            prefetchUpcomingNowPlayingArtwork()
-            return
-        }
-
-        // A track transition must drop the previous song's image immediately.
-        // A same-track refresh does the opposite: keep the current complete
-        // snapshot until the replacement has decoded, then publish the new
-        // MPMediaItemArtwork in one assignment. Bluetooth AVRCP head units may
-        // otherwise sample the temporary nil and ignore the later same-track
-        // artwork update.
-        if shouldClearArtwork {
-            var nowInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-            nowInfo[MPMediaItemPropertyArtwork] = nil
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = nowInfo
-            invalidateCachedNowPlayingInfo()
-        }
-
-        guard let songID else { return }
-        let loadToken = UUID()
-        nowPlayingArtworkLoadTokens[songID] = loadToken
-        let coverRef = currentSong?.coverArtFileName
-        let capturedSourceID = currentSong?.sourceID
-        let capturedFilePath = currentSong?.filePath
-        let capturedFileFormat = currentSong?.fileFormat
-        let capturedSourceManager = sourceManager
-
-        nowPlayingArtworkLoadTask = Task.detached(priority: .userInitiated) { [weak self] in
-            guard self != nil else { return }
-            let loadedImage = await Self.loadSystemArtworkImage(
-                songID: songID,
-                coverRef: coverRef,
-                sourceID: capturedSourceID,
-                filePath: capturedFilePath,
-                fileFormat: capturedFileFormat,
-                sourceManager: capturedSourceManager
-            )
-            guard !Task.isCancelled else { return }
-
-            await MainActor.run { [weak self] in
-                guard let self else { return }
-                guard self.nowPlayingArtworkLoadTokens[songID] == loadToken else { return }
-                self.nowPlayingArtworkLoadTask = nil
-                self.nowPlayingArtworkLoadTokens[songID] = nil
-                if let image = loadedImage {
-                    // 歌已切走也照样入缓存: 切回来 / 之后再播到这首时,
-                    // 第一份快照就能同步带图。
-                    self.nowPlayingArtworkCache.setObject(
-                        Self.makeArtwork(from: image),
-                        forKey: songID as NSString,
-                        cost: Self.nowPlayingArtworkCost(image)
-                    )
-                }
-                guard self.currentSong?.id == songID else { return }
-                if let artwork = self.nowPlayingArtworkCache.object(forKey: songID as NSString) {
-                    self.publishedArtworkSongID = songID
-                    self.updateNowPlayingInfo(artwork: artwork, artworkSongID: songID)
-                } else if shouldClearArtwork {
-                    self.publishedArtworkSongID = nil
-                    self.updateNowPlayingInfo()
-                } else {
-                    // Reload failure is not permission to discard the artwork
-                    // already published for this same item.
-                    self.updateNowPlayingInfo()
-                }
-                self.prefetchUpcomingNowPlayingArtwork()
-            }
-        }
-    }
-
-    /// 预载队列下一首的封面进内存缓存。前进到该曲目时, 切歌后的第一份
-    /// 系统快照就能同步带上封面(蓝牙车机唯一的采样时机)。shuffle 的
-    /// 下一首由 nextSongInQueue 与真实前进路径保持一致。
-    private func prefetchUpcomingNowPlayingArtwork() {
-        guard !isLiveRadio, !isCastingMode else { return }
-        guard let next = nextSongInQueue(),
-              !next.id.isEmpty,
-              next.id != currentSong?.id else { return }
-        guard nowPlayingArtworkCache.object(forKey: next.id as NSString) == nil else { return }
-        guard prefetchingArtworkSongID != next.id else { return }
-        prefetchingArtworkSongID = next.id
-
-        let songID = next.id
-        let coverRef = next.coverArtFileName
-        let sourceID = next.sourceID
-        let filePath = next.filePath
-        let fileFormat = next.fileFormat
-        let capturedSourceManager = sourceManager
-        nowPlayingArtworkPrefetchTask = Task.detached(priority: .utility) { [weak self] in
-            guard self != nil else { return }
-            let image = await Self.loadSystemArtworkImage(
-                songID: songID,
-                coverRef: coverRef,
-                sourceID: sourceID,
-                filePath: filePath,
-                fileFormat: fileFormat,
-                sourceManager: capturedSourceManager
-            )
-            guard !Task.isCancelled else { return }
-            await MainActor.run { [weak self] in
-                guard let self else { return }
-                if self.prefetchingArtworkSongID == songID {
-                    self.prefetchingArtworkSongID = nil
-                    self.nowPlayingArtworkPrefetchTask = nil
-                }
-                if let image {
-                    self.nowPlayingArtworkCache.setObject(
-                        Self.makeArtwork(from: image),
-                        forKey: songID as NSString,
-                        cost: Self.nowPlayingArtworkCost(image)
-                    )
-                }
-            }
-        }
-    }
-
-    /// Tier 1-4 逐级解析系统封面。命中网络/内嵌数据时把原图写入磁盘缓存,
-    /// 返回值统一走降采样解码。detached 上下文执行。
-    nonisolated private static func loadSystemArtworkImage(
-        songID: String,
-        coverRef: String?,
-        sourceID: String?,
-        filePath: String?,
-        fileFormat: AudioFormat?,
-        sourceManager: SourceManager?
-    ) async -> PlatformImage? {
-        guard !Task.isCancelled else { return nil }
-        let store = MetadataAssetStore.shared
-
-        // Tier 1: songID-based cache (透明处理 content-addressed redirect)
-        let hashedName = store.expectedCoverFileName(for: songID)
-        if let data = store.readCoverData(named: hashedName) {
-            guard !Task.isCancelled else { return nil }
-            if let image = decodeArtworkImage(from: data) {
-                return image
-            }
-            await store.invalidateCoverCache(forSongID: songID)
-        }
-
-        // Tier 2: legacy filename (local hashed filename, no "/" or "://")
-        if let coverRef, !coverRef.isEmpty,
-           !coverRef.contains("/"), !coverRef.contains("://"),
-           let data = store.readCoverData(named: coverRef),
-           !Task.isCancelled,
-           let image = decodeArtworkImage(from: data) {
-            return image
-        }
-
-        // Tier 3: source fetch — URL reference or sidecar path
-        if let coverRef, !coverRef.isEmpty {
-            var fetchedData: Data?
-            // A source-owned absolute URL may contain the LAN endpoint used by
-            // yesterday's scan. Download through the adaptive connector so the
-            // Now Playing/full-screen path gets the same route validation and
-            // failover as in-app artwork views.
-            if let sourceID, let sourceManager {
-                fetchedData = await sourceManager.artworkData(
-                    for: coverRef,
-                    sourceID: sourceID,
-                    maximumBytes: 8 * 1024 * 1024
-                )
-            } else if coverRef.contains("://"), let url = URL(string: coverRef) {
-                let config = URLSessionConfiguration.default
-                config.timeoutIntervalForRequest = 10
-                let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
-                defer { session.finishTasksAndInvalidate() }
-                if let result = try? await TrustedHTTPTransport.data(
-                    from: url,
-                    session: session,
-                    maxBytes: 8 * 1024 * 1024
-                ), let http = result.1 as? HTTPURLResponse,
-                   (200...299).contains(http.statusCode) {
-                    fetchedData = result.0
-                }
-            }
-
-            if let data = fetchedData, let image = decodeArtworkImage(from: data) {
-                guard !Task.isCancelled else { return nil }
-                await store.cacheCover(data, forSongID: songID)
-                return image
-            }
-        }
-
-        // Tier 4: embedded cover extraction from locally cached audio file
-        if let sourceID, let filePath, let sourceManager {
-            let inferredFormat = fileFormat
-                ?? AudioFormat.from(fileExtension: (filePath as NSString).pathExtension)
-                ?? .mp3
-            let dummySong = Song(id: "", title: "", fileFormat: inferredFormat, filePath: filePath,
-                                 sourceID: sourceID, fileSize: 0, dateAdded: Date())
-            if let cachedURL = await sourceManager.cachedURL(for: dummySong) {
-                guard !Task.isCancelled else { return nil }
-                let metadata = await FileMetadataReader.read(from: cachedURL)
-                if let coverData = metadata.coverArtData {
-                    guard !Task.isCancelled else { return nil }
-                    await store.cacheCover(coverData, forSongID: songID)
-                    return decodeArtworkImage(from: coverData)
-                }
-            }
-        }
-        return nil
-    }
-
-    /// 从原始图片数据解码封面, 统一降采样到 ≤768px 并强制立即解码。
-    /// 锁屏/车机的显示尺寸远小于原图; 蓝牙 AVRCP 封面走 OBEX 慢速通道,
-    /// 超大位图会显著拖慢传输甚至失败, 懒解码则会把解码开销转嫁给
-    /// MPMediaItemArtwork 的系统回调队列。
-    nonisolated private static func decodeArtworkImage(from data: Data) -> PlatformImage? {
-        guard !Task.isCancelled,
-              data.count <= 16 * 1_024 * 1_024,
-              ArtworkImageCompatibility.isCompleteImage(data),
-              !ArtworkImageCompatibility.hasRedundantJPEGSampling(data) else {
-            return nil
-        }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCacheImmediately: true,
-            kCGImageSourceThumbnailMaxPixelSize: 768,
-        ]
-        guard let source = CGImageSourceCreateWithData(data as CFData, [
-                kCGImageSourceShouldCache: false,
-              ] as CFDictionary),
-              let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-            return nil
-        }
-        #if os(iOS)
-        return UIImage(cgImage: cgImage)
-        #else
-        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-        #endif
-    }
-
-    /// Force-refreshes Now Playing artwork after an in-place cover replacement.
-    /// The old published image remains visible until the new image is ready.
-    func forceRefreshNowPlayingArtwork() {
-        if let songID = currentSong?.id {
-            nowPlayingArtworkCache.removeObject(forKey: songID as NSString)
-        }
-        bumpCoverRevision()
-        updateNowPlayingArtworkIfNeeded(
-            forceReload: true,
-            preservingCurrentArtworkWhileLoading: true
-        )
-    }
-
-    /// Artwork extraction can finish after playback has already attempted its
-    /// initial lookup. Retry the system Now Playing artwork once the song-ID
-    /// cache becomes available without treating it as an explicit replacement.
-    func retryNowPlayingArtwork(afterCachingSongID songID: String) {
-        guard currentSong?.id == songID else { return }
-        nowPlayingArtworkCache.removeObject(forKey: songID as NSString)
-        updateNowPlayingArtworkIfNeeded(
-            forceReload: true,
-            preservingCurrentArtworkWhileLoading: true
-        )
-    }
-
-    func updateNowPlayingArtwork(_ image: PlatformImage) {
-        guard let songID = currentSong?.id else { return }
-        lastArtworkSongID = songID
-        publishedArtworkSongID = songID
-        let artwork = Self.makeArtwork(from: image)
-        nowPlayingArtworkCache.setObject(
-            artwork,
-            forKey: songID as NSString,
-            cost: Self.nowPlayingArtworkCost(image)
-        )
-        updateNowPlayingInfo(
-            artwork: artwork,
-            artworkSongID: songID
-        )
-    }
-
-    /// Creates MPMediaItemArtwork with a non-isolated requestHandler closure.
-    /// Must be nonisolated so the closure doesn't inherit @MainActor isolation —
-    /// MediaPlayer calls the handler on a background dispatch queue.
-    nonisolated private static func makeArtwork(from image: PlatformImage) -> MPMediaItemArtwork {
-        let safeImage = image
-        return MPMediaItemArtwork(boundsSize: image.size) { _ in safeImage }
-    }
-
-    nonisolated private static func nowPlayingArtworkCost(_ image: PlatformImage) -> Int {
-        #if os(iOS)
-        if let cgImage = image.cgImage {
-            return cgImage.bytesPerRow * cgImage.height
-        }
-        let pixelWidth = image.size.width * image.scale
-        let pixelHeight = image.size.height * image.scale
-        return max(0, Int(pixelWidth * pixelHeight * 4))
-        #else
-        return max(0, Int(image.size.width * image.size.height * 4))
-        #endif
-    }
-
-    // MARK: - Remote Commands
-
-    private func setupRemoteCommands() {
-        let center = MPRemoteCommandCenter.shared()
-        center.playCommand.addTarget { [weak self] _ in
-            guard let self else { return .noActionableNowPlayingItem }
-            let status = self.handleRemotePlayCommand()
-            self.scheduleNowPlayingTransportRepublish(command: "play", status: status)
-            return status
-        }
-        center.pauseCommand.addTarget { [weak self] _ in
-            guard let self else { return .noActionableNowPlayingItem }
-            let status = self.handleRemotePauseCommand()
-            self.scheduleNowPlayingTransportRepublish(command: "pause", status: status)
-            return status
-        }
-        center.togglePlayPauseCommand.addTarget { [weak self] _ in
-            guard let self else { return .noActionableNowPlayingItem }
-            let status = self.handleRemoteToggleCommand()
-            self.scheduleNowPlayingTransportRepublish(command: "toggle", status: status)
-            return status
-        }
-        center.nextTrackCommand.addTarget { [weak self] _ in
-            plog("🎛️ MediaRemote nextTrackCommand fired")
-            Task { await self?.next() }; return .success
-        }
-        center.previousTrackCommand.addTarget { [weak self] _ in
-            plog("🎛️ MediaRemote previousTrackCommand fired")
-            Task { await self?.previous() }; return .success
-        }
-        center.changePlaybackPositionCommand.addTarget { [weak self] event in
-            guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
-            guard self?.playbackCapabilities.canSeek == true else { return .commandFailed }
-            self?.seek(to: event.positionTime); return .success
-        }
-        #if os(iOS)
-        center.likeCommand.addTarget { [weak self] event in
-            guard let self else { return .noActionableNowPlayingItem }
-            return self.handleRemoteLikeCommand(event)
-        }
-        #endif
-        updateNowPlayingInfo()
-    }
-
-    #if os(iOS)
-    private func handleRemoteLikeCommand(
-        _ event: MPRemoteCommandEvent
-    ) -> MPRemoteCommandHandlerStatus {
-        guard let feedbackEvent = event as? MPFeedbackCommandEvent,
-              !isLiveRadio,
-              let songID = currentSong?.id,
-              let library,
-              library.song(id: songID) != nil else {
-            return .noActionableNowPlayingItem
-        }
-
-        library.setLiked(
-            songID: songID,
-            isLiked: !feedbackEvent.isNegative,
-            propagatesServerMutation: true
-        )
-        republishNowPlayingSurfaces()
-        return .success
-    }
-    #endif
-
-    /// MediaRemote may finish dispatching the originating command after the
-    /// first synchronous Now Playing assignment. Re-publish the latest complete
-    /// snapshot on the next main-actor turn, while a generation and item ID
-    /// prevent a late command from restoring stale transport metadata.
-    private func scheduleNowPlayingTransportRepublish(
-        command: String,
-        status: MPRemoteCommandHandlerStatus
-    ) {
-        let statusDescription = String(describing: status)
-        guard let songID = currentSong?.id else {
-            plog("MediaRemote \(command) completed status=\(statusDescription) item=nil")
-            return
-        }
-        nowPlayingTransportRepublishGeneration &+= 1
-        let generation = nowPlayingTransportRepublishGeneration
-        Task { @MainActor [weak self] in
-            await Task.yield()
-            guard let self,
-                  self.nowPlayingTransportRepublishGeneration == generation,
-                  self.currentSong?.id == songID else { return }
-            self.updateNowPlayingInfo()
-            let publishedRate = (
-                MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyPlaybackRate]
-                    as? NSNumber
-            )?.doubleValue
-            plog(
-                "MediaRemote \(command) completed status=\(statusDescription) "
-                    + "active=\(self.isPlaybackActuallyActive) "
-                    + "publishedRate=\(publishedRate.map { String($0) } ?? "nil")"
-            )
-        }
-    }
-
-    private func handleRemotePlayCommand() -> MPRemoteCommandHandlerStatus {
-        let action = RemotePlayCommandPolicy.action(
-            hasCurrentItem: currentSong != nil,
-            isPlaybackActuallyActive: isPlaybackActuallyActive,
-            isLoading: isLoading,
-            playbackIsIntended: interruptionResumePolicy.playbackIsIntended
-        )
-        switch action {
-        case .noActionableItem:
-            return .noActionableNowPlayingItem
-        case .alreadyPlaying, .awaitInFlightRequest:
-            return .success
-        case .retryLoadingPlayback:
-            retryLoadingPlaybackFromRemote()
-            return .success
-        case .resume:
-            let expectsSynchronousEngineResult = !isAppleMusicMode
-                && !isCastingMode
-                && !isAtTrackEnd
-                && !needsPlaybackRecovery
-                && hasPreparedLocalPlayback
-            resume()
-            if expectsSynchronousEngineResult, !isPlaybackActuallyActive {
-                return .commandFailed
-            }
-            return .success
-        }
-    }
-
-    private func handleRemotePauseCommand() -> MPRemoteCommandHandlerStatus {
-        guard currentSong != nil else { return .noActionableNowPlayingItem }
-        guard isPlaybackActuallyActive else {
-            // A remote Pause during an interruption is still an explicit user
-            // decision. Route it through the real transport stop so loading
-            // radio/MusicKit/cast work cannot start after the command.
-            pause()
-            return .success
-        }
-        let isAsynchronousRoute = isCastingMode
-        pause()
-        return isAsynchronousRoute || !isPlaying ? .success : .commandFailed
-    }
-
-    private func handleRemoteToggleCommand() -> MPRemoteCommandHandlerStatus {
-        isPlaybackActuallyActive ? handleRemotePauseCommand() : handleRemotePlayCommand()
-    }
-
-    private func retryLoadingPlaybackFromRemote() {
-        guard currentSong != nil else { return }
-        if isAppleMusicMode || isLiveRadio || isCastingMode {
-            resume()
-            return
-        }
-        registerPlayIntent()
-        seek(
-            to: currentTime,
-            startPlaying: true,
-            isRecovery: needsPlaybackRecovery
-        )
-    }
-
-    // MARK: - Sleep Timer
-
-    func scheduleSleep(minutes: Int) {
-        cancelSleep()
-        let endDate = Date().addingTimeInterval(TimeInterval(minutes * 60))
-        sleepTimerEndDate = endDate
-        sleepTimerTask = Task {
-            try? await Task.sleep(for: .seconds(minutes * 60))
-            guard !Task.isCancelled else { return }
-            self.pause()
-            self.sleepTimerEndDate = nil
-        }
-    }
-
-    /// 曲终停止 ── 锁定当前曲目, 等它自然播完时自动暂停。如果用户手动
-    /// 切歌, `play(song:)` 会取消这个旧锁；currentSong 为空则不激活。
-    func scheduleSleepAtTrackEnd() {
-        cancelSleep()
-        sleepStopAfterSongID = currentSong?.id
-    }
-
-    func cancelSleep() {
-        sleepTimerTask?.cancel()
-        sleepTimerTask = nil
-        sleepTimerEndDate = nil
-        sleepStopAfterSongID = nil
-    }
-
-    // MARK: - Shared Playback State
-
-    /// Restores only queue/navigation context. Relaunching never starts audio
-    /// on its own; a later Play command rebuilds the decoder at the saved time.
-    func restorePlaybackSessionIfAvailable() async {
-        let restoreStartedAt = ProcessInfo.processInfo.systemUptime
-        guard let restoreToken = playbackSessionRestoreLifecycle.begin() else { return }
-        defer { playbackSessionRestoreLifecycle.complete(token: restoreToken) }
-        guard let library else { return }
-        let initialQueueGeneration = queueGeneration
-        let initialAdvanceGeneration = playbackAdvancePolicy.generation
-        let visibleSongs = library.visibleSongs
-        let store = playbackSessionStore
-        let preparationTask = Task<PreparedPlaybackSessionRestore?, Never>.detached(priority: .userInitiated) {
-            let snapshot: PlaybackSessionSnapshot
-            do {
-                guard let loaded = try store.load() else { return nil }
-                snapshot = loaded
-            } catch {
-                plog("⚠️ Playback session load failed: \(error.localizedDescription)")
-                return nil
-            }
-            let loadFinishedAt = ProcessInfo.processInfo.systemUptime
-
-            var playableSongsByID: [String: Song] = [:]
-            playableSongsByID.reserveCapacity(visibleSongs.count)
-            for song in visibleSongs where song.isPlayable && playableSongsByID[song.id] == nil {
-                playableSongsByID[song.id] = song
-            }
-            guard let plan = PlaybackSessionRestorationPolicy.plan(
-                snapshot: snapshot,
-                availableSongIDs: Set(playableSongsByID.keys)
-            ) else {
-                plog("⚠️ Playback session ignored because its current track is unavailable or invalid")
-                return nil
-            }
-            let planFinishedAt = ProcessInfo.processInfo.systemUptime
-
-            let entries = plan.queueSongIDs.compactMap { songID in
-                playableSongsByID[songID].map { QueueEntry(song: $0) }
-            }
-            guard entries.count == plan.queueSongIDs.count,
-                  entries.indices.contains(plan.currentIndex) else { return nil }
-            return PreparedPlaybackSessionRestore(
-                plan: plan,
-                entries: entries,
-                loadFinishedAt: loadFinishedAt,
-                planFinishedAt: planFinishedAt,
-                lookupFinishedAt: ProcessInfo.processInfo.systemUptime
-            )
-        }
-        let prepared = await preparationTask.value
-        guard let prepared else { return }
-
-        // The user may have started a new queue while the old session was being
-        // decoded off-main. Never let delayed restoration replace live intent.
-        guard playbackSessionRestoreLifecycle.permitsApply(token: restoreToken),
-              queueGeneration == initialQueueGeneration,
-              playbackAdvancePolicy.generation == initialAdvanceGeneration,
-              currentSong == nil,
-              queueEntries.isEmpty else { return }
-        let plan = prepared.plan
-
-        isRestoringPlaybackSession = true
-        defer { isRestoringPlaybackSession = false }
-        queueEntries = prepared.entries
-        currentIndex = plan.currentIndex
-        // Apply these while currentSong is nil so restoring an Apple Music
-        // item cannot write into ApplicationMusicPlayer during AppServices init.
-        shuffleEnabled = plan.shuffleEnabled
-        repeatMode = plan.repeatMode
-        shuffledIndices = plan.shuffledIndices
-        shufflePosition = plan.shufflePosition
-        pendingNextShuffleIndices = plan.pendingNextShuffleIndices
-
-        let song = prepared.entries[plan.currentIndex].song
-        currentSong = song
-        duration = song.duration.isFinite && song.duration > 0
-            ? song.duration
-            : plan.duration
-        currentTime = duration > 0 ? min(plan.currentTime, duration) : plan.currentTime
-        isPlaying = plan.shouldStartPlayback
-        isLoading = false
-        isAtTrackEnd = plan.isAtTrackEnd
-        hasPreparedLocalPlayback = false
-        pendingRecoveryTime = currentTime
-        needsPlaybackRecovery = currentTime > 0 && !isAtTrackEnd
-        pendingRecoveryIsColdSessionRestore = needsPlaybackRecovery
-        interruptionResumePolicy = PlaybackInterruptionResumePolicy()
-        playbackAdvancePolicy = PlaybackAdvanceEligibilityPolicy()
-        localPipelineAdvanceTicket = nil
-        updateNowPlayingInfo()
-        updateNowPlayingArtworkIfNeeded()
-        let restoreFinishedAt = ProcessInfo.processInfo.systemUptime
-        plog(String(
-            format: "▶️ Restored paused playback session: queue=%d index=%d shuffle=%@ position=%d total=%.0fms load=%.0f plan=%.0f lookup=%.0f apply=%.0f",
-            queueEntries.count,
-            currentIndex,
-            String(shuffleEnabled),
-            shufflePosition,
-            (restoreFinishedAt - restoreStartedAt) * 1_000,
-            (prepared.loadFinishedAt - restoreStartedAt) * 1_000,
-            (prepared.planFinishedAt - prepared.loadFinishedAt) * 1_000,
-            (prepared.lookupFinishedAt - prepared.planFinishedAt) * 1_000,
-            (restoreFinishedAt - prepared.lookupFinishedAt) * 1_000
-        ))
-    }
-
-    /// Installs a Handoff selection without starting any audio pipeline. The
-    /// caller has already stopped the previous transport and restored queue
-    /// context; a later explicit Play rebuilds at this saved position.
-    func stagePausedHandoff(song: Song, at time: TimeInterval) {
-        registerPauseOrStopIntent()
-        playbackKind = .track
-        playID = UUID()
-        playbackAdvancePolicy = PlaybackAdvanceEligibilityPolicy()
-        localPipelineAdvanceTicket = nil
-        currentSong = song
-        duration = song.duration.sanitizedDuration
-        currentTime = duration > 0 ? min(max(0, time), duration) : max(0, time)
-        isPlaying = false
-        isLoading = false
-        isAtTrackEnd = false
-        hasPreparedLocalPlayback = false
-        pendingRecoveryTime = currentTime
-        needsPlaybackRecovery = currentTime > 0
-        pendingRecoveryIsColdSessionRestore = needsPlaybackRecovery
-        updateNowPlayingInfo()
-        updateNowPlayingArtworkIfNeeded()
-        updatePlaybackState()
-    }
-
-    private func persistPlaybackSession(
-        clearWhenEmpty: Bool = false,
-        flushImmediately: Bool = false
-    ) {
-        let signpost = PrimuseSignposts.hitch.beginInterval("player.sessionPersist")
-        defer { PrimuseSignposts.hitch.endInterval("player.sessionPersist", signpost) }
-        // 退到后台这类切换必须在返回前把在飞的写入排干。下面的提前返回(正在
-        // 恢复 / 直播流 / 空状态还不允许清空)都不会再提交新请求, 但上一次
-        // save 可能还停在后台任务里, 而进程马上就要被挂起。
-        var didDrainSynchronously = false
-        defer {
-            if flushImmediately, !didDrainSynchronously {
-                Self.reportPlaybackSessionPersistence(playbackSessionPersistence.drain())
-            }
-        }
-        guard !isRestoringPlaybackSession else { return }
-        guard !isLiveRadio else { return }
-        guard let song = currentSong else {
-            guard clearWhenEmpty else { return }
-            guard playbackSessionRestoreLifecycle.permitsEmptySessionClear else {
-                // During launch, scene activation publishes an empty player
-                // before deferred restoration has loaded its snapshot. That is
-                // transient UI state, not an explicit Stop request.
-                return
-            }
-            submitPlaybackSessionPersistence(.clear, flushImmediately: flushImmediately)
-            didDrainSynchronously = flushImmediately
-            return
-        }
-
-        let snapshotQueueIDs: [String]
-        let snapshotCurrentIndex: Int
-        let snapshotShuffleOrder: [Int]
-        let snapshotShufflePosition: Int
-        let snapshotPendingOrder: [Int]?
-        if queueEntries.indices.contains(currentIndex),
-           queueEntries[currentIndex].song.id == song.id {
-            snapshotQueueIDs = queueEntries.map(\.song.id)
-            snapshotCurrentIndex = currentIndex
-            snapshotShuffleOrder = shuffleEnabled ? shuffledIndices : []
-            snapshotShufflePosition = shuffleEnabled ? shufflePosition : 0
-            snapshotPendingOrder = shuffleEnabled ? pendingNextShuffleIndices : nil
-        } else {
-            // Direct playback can briefly have no canonical queue. Persisting
-            // a one-item queue still restores the selected track safely.
-            snapshotQueueIDs = [song.id]
-            snapshotCurrentIndex = 0
-            snapshotShuffleOrder = shuffleEnabled ? [0] : []
-            snapshotShufflePosition = 0
-            snapshotPendingOrder = nil
-        }
-
-        let progress = isPlaying ? interpolatedTime() : currentTime
-        let snapshot = PlaybackSessionSnapshot(
-            queueSongIDs: snapshotQueueIDs,
-            currentSongID: song.id,
-            currentIndex: snapshotCurrentIndex,
-            currentTime: progress,
-            duration: duration,
-            wasPlaying: isPlaying,
-            shuffleEnabled: shuffleEnabled,
-            shuffledIndices: snapshotShuffleOrder,
-            shufflePosition: snapshotShufflePosition,
-            pendingNextShuffleIndices: snapshotPendingOrder,
-            repeatMode: repeatMode,
-            isAtTrackEnd: isAtTrackEnd
-        )
-        // 只有在协调器确认这一代(或更顶掉它的更新一代)真的落盘之后, 才允许
-        // 后续的空状态清空旧快照: 写失败时上一次启动留下的有效快照必须保留。
-        submitPlaybackSessionPersistence(
-            .save(snapshot),
-            flushImmediately: flushImmediately,
-            promotesRestoreLifecycleOnSuccess: true
-        )
-        didDrainSynchronously = flushImmediately
-    }
-
-    /// 把最新状态交给后台写入协调器。`flushImmediately` 只给退到后台这类
-    /// 生命周期切换用: 那一刻进程可能马上被挂起, 必须在返回前落盘。
-    private func submitPlaybackSessionPersistence(
-        _ request: PlaybackSessionPersistenceRequest,
-        flushImmediately: Bool,
-        promotesRestoreLifecycleOnSuccess: Bool = false
-    ) {
-        playbackSessionPersistGeneration &+= 1
-        let generation = playbackSessionPersistGeneration
-        let coordinator = playbackSessionPersistence
-        coordinator.enqueue(request, generation: generation)
-        guard !flushImmediately else {
-            let outcome = coordinator.drain()
-            Self.reportPlaybackSessionPersistence(outcome)
-            if promotesRestoreLifecycleOnSuccess {
-                promotePlaybackSessionRestoreLifecycle(
-                    outcome,
-                    requestedGeneration: generation
-                )
-            }
-            return
-        }
-        Task.detached(priority: .utility) { [weak self] in
-            let outcome = coordinator.drain()
-            Self.reportPlaybackSessionPersistence(outcome)
-            guard promotesRestoreLifecycleOnSuccess else { return }
-            // 写盘发生在后台, 生命周期状态只属于主 actor, 因此回到主 actor
-            // 再推进; 服务已经销毁时没有需要推进的状态。
-            await self?.promotePlaybackSessionRestoreLifecycle(
-                outcome,
-                requestedGeneration: generation
-            )
-        }
-    }
-
-    /// 写入成功才把"当前会话已经落盘"的结论交给生命周期。协调器合并请求,
-    /// 所以只要有不老于本次请求的一代落盘, 本次请求的状态就已经被更新的
-    /// 状态取代, 同样满足"旧快照可以被替换"的前提。
-    private func promotePlaybackSessionRestoreLifecycle(
-        _ outcome: PlaybackSessionPersistenceOutcome,
-        requestedGeneration: UInt64
-    ) {
-        guard outcome.persisted(generation: requestedGeneration) else { return }
-        playbackSessionRestoreLifecycle.didPersistCurrentSession()
-    }
-
-    /// 写入合并之后无法把失败精确归给某一次请求(更新的状态会顶掉旧的),
-    /// 因此保存与清空共用一条失败日志。
-    private nonisolated static func reportPlaybackSessionPersistence(
-        _ outcome: PlaybackSessionPersistenceOutcome
-    ) {
-        guard let failure = outcome.failureDescription else { return }
-        plog("⚠️ Playback session persist failed: \(failure)")
-    }
-
     /// Tracks the last songID for which we wrote a widget cover, to avoid redundant writes.
-    private var lastWidgetCoverSongID: String?
+    var lastWidgetCoverSongID: String?
     /// Coalesces repeated WidgetKit reload requests with identical content.
-    private var lastWidgetTimelineSignature: String?
-
-    /// macOS Widget Sync 设置页里 "立即更新" 按钮直接调这个。包装一下 private
-     /// 的 updatePlaybackState, 让 mac 设置面板可以强制刷一遍 widget 状态而无需
-     /// 把整个内部方法暴露成 public。
-    func publishWidgetStateForMacWidgetSync() {
-        updatePlaybackState()
-    }
-
-    private func updatePlaybackState(flushPlaybackSessionImmediately: Bool = false) {
-        persistPlaybackSession(
-            clearWhenEmpty: currentSong == nil,
-            flushImmediately: flushPlaybackSessionImmediately
-        )
-        #if os(macOS)
-        let sampledCurrentTime = currentTime
-        let sampledAt = Date()
-        let request = MacWidgetPlaybackPublishRequest(
-            currentSong: currentSong,
-            artistDisplayName: displayedArtistName(for: currentSong),
-            isPlaying: isPlaybackActuallyActive,
-            sampledAt: sampledAt,
-            currentTime: sampledCurrentTime,
-            duration: duration,
-            queueSongIDs: isLiveRadio ? [] : queue.map(\.id),
-            playbackKind: playbackKind,
-            radioStationID: currentRadioStation?.id,
-            repeatMode: repeatMode,
-            isLiked: currentSong.map { library?.isLiked(songID: $0.id) ?? false }
-        )
-        Task {
-            await MacWidgetPlaybackPublisher.shared.enqueue(request)
-        }
-        return
-        #else
-        // 非 macOS 分支整段(封面写盘 + RecentAlbums + PlaybackState)都在
-        // 主 actor 上同步跑, 每次切歌 / gapless / 交叉淡入边界各一次。
-        let widgetPublishSignpost = PrimuseSignposts.hitch.beginInterval("player.widgetPublish")
-        defer { PrimuseSignposts.hitch.endInterval("player.widgetPublish", widgetPublishSignpost) }
-        #if os(iOS)
-        refreshInstalledLyricsWidgetDemand()
-        #endif
-        guard WidgetSettings.syncEnabled(),
-              WidgetSettings.widgetEnabled(PrimuseConstants.widgetNowPlayingEnabledKey) else {
-            PlaybackState.clear()
-            #if os(iOS)
-            publishWidgetLyricsIfNeeded()
-            #endif
-            WidgetCenter.shared.reloadAllTimelines()
-            return
-        }
-
-        // Privacy scope: the user can narrow what's published into the App
-        // Group container. `includesCover` gates the cover files; `includesProgress`
-        // gates currentTime/duration. (`includesLyrics` is enforced by the
-        // lyrics publisher, not here.)
-        let scope = WidgetSettings.sharedDataScope()
-
-        var coverName: String?
-        var recentAlbumsChanged = false
-        let recentAlbumsEnabled = scope.includesCover
-            && WidgetSettings.widgetEnabled(PrimuseConstants.widgetRecentAlbumsEnabledKey)
-
-        if !scope.includesCover {
-            // Scope narrowed below `cover`: never write cover art, and purge any
-            // files left from a wider scope so the WidgetKit extension can't keep
-            // disclosing album art the user opted out of.
-            clearSharedWidgetCovers()
-            lastWidgetCoverSongID = nil
-            if WidgetSettings.widgetEnabled(PrimuseConstants.widgetRecentAlbumsEnabledKey),
-               !RecentAlbumsStore.load().isEmpty {
-                // Recent-albums widget renders covers; with covers disclosed off
-                // there's nothing meaningful to show, so clear its store too.
-                RecentAlbumsStore.clear()
-                recentAlbumsChanged = true
-            }
-        } else if let song = currentSong {
-            let sharedCoverName = "widget_cover.png"
-            let needsSharedCoverRefresh = song.id != lastWidgetCoverSongID || !sharedWidgetCoverExists(named: sharedCoverName)
-
-            if needsSharedCoverRefresh {
-                if let writtenCoverName = writeWidgetCover(song: song, fileName: sharedCoverName) {
-                    coverName = writtenCoverName
-                    lastWidgetCoverSongID = song.id
-                } else {
-                    // Current song has no usable cover. Any existing
-                    // widget_cover.png belongs to the *previous* song, so
-                    // reusing it would show the wrong album art for this whole
-                    // track. Delete it and leave coverName nil so the widget
-                    // falls back to its placeholder gradient; keep
-                    // lastWidgetCoverSongID nil so the next event retries.
-                    removeSharedWidgetCover(named: sharedCoverName)
-                    lastWidgetCoverSongID = nil
-                }
-
-                if recentAlbumsEnabled, let albumEntry = makeRecentAlbumEntry(for: song) {
-                    if let albumCoverName = albumEntry.coverImageName,
-                       !sharedWidgetCoverExists(named: albumCoverName) {
-                        _ = writeWidgetCover(song: song, fileName: albumCoverName, size: 200)
-                    }
-                    RecentAlbumsStore.record(albumEntry)
-                    recentAlbumsChanged = true
-                }
-            } else {
-                coverName = sharedCoverName
-            }
-            if !recentAlbumsEnabled {
-                RecentAlbumsStore.clear()
-                recentAlbumsChanged = true
-            }
-        } else {
-            lastWidgetCoverSongID = nil
-        }
-
-        let sampledCurrentTime = scope.includesProgress ? currentTime : 0
-        let sampledAt = Date()
-        let state = PlaybackState(
-            currentSongID: currentSong?.id,
-            songTitle: currentSong?.title,
-            artistName: displayedArtistName(for: currentSong),
-            albumTitle: currentSong?.albumTitle,
-            fileFormat: currentSong.map { $0.fileFormat.displayName },
-            coverImageName: coverName,
-            isPlaying: isPlaybackActuallyActive,
-            // Progress gated by scope: omit currentTime/duration when the user
-            // hasn't granted progress disclosure (defaults to 0 via the init).
-            currentTime: sampledCurrentTime,
-            duration: scope.includesProgress ? duration : 0,
-            queueSongIDs: isLiveRadio ? [] : queue.map(\.id),
-            playbackKind: playbackKind,
-            radioStationID: currentRadioStation?.id,
-            repeatMode: repeatMode,
-            // 锁屏 widget / Live Activity 只能渲染这颗心, 解析不了 —— 曲库在
-            // 主 app 沙盒里, 必须由这里发布出去。
-            isLiked: currentSong.map { library?.isLiked(songID: $0.id) ?? false },
-            updatedAt: sampledAt
-        )
-        state.save()
-        #if os(iOS)
-        publishWidgetLyricsIfNeeded(coverImageName: coverName)
-        #endif
-
-        let timelineSignature = widgetTimelineSignature(for: state)
-        if recentAlbumsChanged || timelineSignature != lastWidgetTimelineSignature {
-            lastWidgetTimelineSignature = timelineSignature
-            WidgetCenter.shared.reloadAllTimelines()
-        }
-        #endif
-    }
-
-    /// 喜欢状态在锁屏 widget 上有一份副本, 从 intent 改完库以后要立刻重新
-    /// 发布, 否则乐观 UI 会被下一次刷新的旧数据打回去。
-    func republishNowPlayingSurfaces() {
-        updateNowPlayingInfo()
-        updatePlaybackState()
-    }
-
-    /// Writes a cover image to the App Group shared container for Widget rendering.
-    /// Returns the filename if successful.
-    ///
-    /// iOS 与 macOS 共用同一 App Group 路径与文件名约定; widget 扩展的
-    /// WidgetCoverImageView / RecentAlbumCoverView 只按 coverImageName 从
-    /// App Group 容器读 JPEG, 两端别无他路, 故 macOS 也必须落盘真实封面,
-    /// 否则桌面 widget 永远只显示占位渐变。
-    @discardableResult
-    private func writeWidgetCover(song: Song, fileName: String, size: CGFloat = 300) -> String? {
-        // 封面解码 / 重绘 / JPEG 编码 / 原子写盘目前都在主 actor 上完成,
-        // 先把这段开销标成独立区间, 设备上才能量出它在切歌时占了多少帧。
-        let coverSignpost = PrimuseSignposts.hitch.beginInterval("player.widgetCover")
-        defer { PrimuseSignposts.hitch.endInterval("player.widgetCover", coverSignpost) }
-        guard let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
-        ) else { return nil }
-
-        let store = MetadataAssetStore.shared
-
-        // Try songID-based cache first (透明处理 content-addressed redirect)
-        var coverData: Data?
-        let hashedName = store.expectedCoverFileName(for: song.id)
-        coverData = store.readCoverData(named: hashedName)
-
-        // Fallback: legacy local filename
-        if coverData == nil, let ref = song.coverArtFileName, !ref.isEmpty,
-           !ref.contains("/"), !ref.contains("://") {
-            coverData = store.readCoverData(named: ref)
-        }
-
-        guard let data = coverData else { return nil }
-
-        let targetSize = CGSize(width: size, height: size)
-        let destinationURL = containerURL.appendingPathComponent(fileName)
-
-        /// Aspect-fill (centered crop) rect for `sourceSize` into `targetSize`.
-        func aspectFillRect(sourceSize: CGSize) -> CGRect {
-            let sourceAspect = sourceSize.width / sourceSize.height
-            if sourceAspect > 1 {
-                let scaledWidth = targetSize.height * sourceAspect
-                return CGRect(x: (targetSize.width - scaledWidth) / 2, y: 0,
-                              width: scaledWidth, height: targetSize.height)
-            } else {
-                let scaledHeight = targetSize.width / sourceAspect
-                return CGRect(x: 0, y: (targetSize.height - scaledHeight) / 2,
-                              width: targetSize.width, height: scaledHeight)
-            }
-        }
-
-        #if os(iOS)
-        guard let originalImage = UIImage(data: data) else { return nil }
-
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1.0
-        format.opaque = true
-
-        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
-        let resizedImage = renderer.image { context in
-            UIColor.black.setFill()
-            context.fill(CGRect(origin: .zero, size: targetSize))
-            originalImage.draw(in: aspectFillRect(sourceSize: originalImage.size))
-        }
-
-        guard let jpegData = resizedImage.jpegData(compressionQuality: 0.8) else { return nil }
-
-        do {
-            try jpegData.write(to: destinationURL, options: .atomic)
-            return fileName
-        } catch {
-            return nil
-        }
-        #elseif os(macOS)
-        guard let originalImage = NSImage(data: data) else { return nil }
-
-        guard let rep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: Int(targetSize.width),
-            pixelsHigh: Int(targetSize.height),
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        ) else { return nil }
-        rep.size = targetSize
-
-        guard let context = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
-        let previousContext = NSGraphicsContext.current
-        NSGraphicsContext.current = context
-        NSColor.black.setFill()
-        NSRect(origin: .zero, size: targetSize).fill()
-        // Centered aspect-fill crop is symmetric in both axes, so AppKit's
-        // y-up coordinate space yields the same framing as iOS's renderer.
-        originalImage.draw(
-            in: aspectFillRect(sourceSize: originalImage.size),
-            from: .zero,
-            operation: .sourceOver,
-            fraction: 1.0
-        )
-        context.flushGraphics()
-        NSGraphicsContext.current = previousContext
-
-        guard let jpegData = rep.representation(
-            using: .jpeg,
-            properties: [.compressionFactor: 0.8]
-        ) else { return nil }
-
-        do {
-            try jpegData.write(to: destinationURL, options: .atomic)
-            return fileName
-        } catch {
-            return nil
-        }
-        #else
-        return nil
-        #endif
-    }
-
-    private func sharedWidgetCoverExists(named fileName: String) -> Bool {
-        guard let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
-        ) else {
-            return false
-        }
-        return FileManager.default.fileExists(atPath: containerURL.appendingPathComponent(fileName).path)
-    }
-
-    /// Removes a stale shared widget cover so it isn't mistaken for the current
-    /// song's art when the current song has no usable cover.
-    private func removeSharedWidgetCover(named fileName: String) {
-        guard let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
-        ) else { return }
-        try? FileManager.default.removeItem(at: containerURL.appendingPathComponent(fileName))
-    }
-
-    /// Purges every widget cover file in the App Group container
-    /// (`widget_cover.png` + `widget_album_*`). Used when the user narrows the
-    /// shared-data scope below `cover`, so the WidgetKit extension stops
-    /// rendering album art that's no longer disclosed. Mirrors
-    /// `WidgetSharedStore.clearSharedCoverFiles()`, which is internal to
-    /// PrimuseKit and not reachable from this target.
-    private func clearSharedWidgetCovers() {
-        guard let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
-        ) else { return }
-        let fm = FileManager.default
-        try? fm.removeItem(at: containerURL.appendingPathComponent("widget_cover.png"))
-        guard let entries = try? fm.contentsOfDirectory(
-            at: containerURL,
-            includingPropertiesForKeys: nil
-        ) else { return }
-        for url in entries where url.lastPathComponent.hasPrefix("widget_album_") {
-            try? fm.removeItem(at: url)
-        }
-    }
-
-    private func makeRecentAlbumEntry(for song: Song) -> RecentAlbumEntry? {
-        guard let rawAlbumTitle = song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !rawAlbumTitle.isEmpty else {
-            return nil
-        }
-
-        let artistName = displayedArtistName(for: song)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let albumKey = stableWidgetAlbumKey(for: song, albumTitle: rawAlbumTitle, artistName: artistName)
-        let coverImageName = "widget_album_\(albumKey).jpg"
-
-        return RecentAlbumEntry(
-            id: albumKey,
-            title: rawAlbumTitle,
-            artistName: artistName,
-            coverImageName: coverImageName
-        )
-    }
-
-    private func stableWidgetAlbumKey(for song: Song, albumTitle: String, artistName: String) -> String {
-        let baseKey = song.albumID ?? "\(song.sourceID)|\(albumTitle.lowercased())|\(artistName.lowercased())"
-        let digest = SHA256.hash(data: Data(baseKey.utf8))
-        return digest.prefix(16).map { String(format: "%02x", $0) }.joined()
-    }
-
-    private func displayedArtistName(for song: Song?) -> String? {
-        guard let song else { return nil }
-        if isLiveRadio { return song.artistName }
-        return song.displayArtistName(configuration: artistNameConfiguration)
-    }
-
-    private func widgetTimelineSignature(for state: PlaybackState) -> String {
-        [
-            state.currentSongID ?? "",
-            state.songTitle ?? "",
-            state.artistName ?? "",
-            state.albumTitle ?? "",
-            state.coverImageName ?? "",
-            state.isPlaying ? "1" : "0",
-            state.playbackKind?.rawValue ?? PlaybackKind.track.rawValue,
-            state.radioStationID ?? "",
-            state.repeatMode?.rawValue ?? RepeatMode.off.rawValue,
-            state.isLiked == true ? "1" : "0",
-            String(state.currentTime.rounded().finiteInt()),
-            String(state.duration.rounded().finiteInt())
-        ].joined(separator: "|")
-    }
+    var lastWidgetTimelineSignature: String?
 }
