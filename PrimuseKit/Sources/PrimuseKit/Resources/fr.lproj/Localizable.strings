@@ -275,6 +275,8 @@
 "ext.tv.sources.status.authFailed"         = "Échec d’authentification";
 "ext.tv.sources.status.disabled"           = "Désactivée";
 "ext.tv.sources.cred.intro"                = "Connectez-vous à cette source directement sur l’Apple TV. Les identifiants sont stockés uniquement sur cet appareil (jamais envoyés ni synchronisés) et ont priorité sur ceux synchronisés depuis votre téléphone — pratique quand les sessions ne se transmettent pas entre appareils.";
+"ext.tv.sources.cred.syncBundleMissing" = "Cette Apple TV n’a encore reçu aucun identifiant depuis le téléphone — scannez le code QR sur l’iPhone pour transférer la bibliothèque ; les mots de passe suivent, chiffrés.";
+"ext.tv.sources.cred.syncEntryMissing" = "Des identifiants sont arrivés du téléphone, mais aucun pour cette source — vérifiez que vous y êtes connecté sur le téléphone et que la synchronisation des identifiants est activée.";
 "ext.tv.sources.cred.username"             = "Nom d’utilisateur";
 "ext.tv.sources.cred.password"             = "Mot de passe";
 "ext.tv.sources.cred.saveEnable"           = "Enregistrer et activer";

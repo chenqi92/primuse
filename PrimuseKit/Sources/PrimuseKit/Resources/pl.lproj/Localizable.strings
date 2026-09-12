@@ -338,6 +338,8 @@
 "ext.tv.sources.continueInitialScan" = "Kontynuuj skanowanie początkowe";
 "ext.tv.sources.cred.clearLocal" = "Wyczyść lokalne poświadczenia";
 "ext.tv.sources.cred.intro" = "Zaloguj się do tego źródła bezpośrednio na Apple TV. Dane logowania są przechowywane tylko na tym urządzeniu (nigdy nie są przesyłane ani synchronizowane) i mają pierwszeństwo przed danymi synchronizowanymi z telefonu — przydatne, gdy sesje nie są przenoszone między urządzeniami.";
+"ext.tv.sources.cred.syncBundleMissing" = "Ten Apple TV nie otrzymał jeszcze żadnych danych logowania z telefonu — zeskanuj kod QR na iPhonie, aby przesłać bibliotekę; hasła trafią tam zaszyfrowane razem z nią.";
+"ext.tv.sources.cred.syncEntryMissing" = "Dane logowania dotarły z telefonu, ale bez hasła do tego źródła — sprawdź, czy jesteś w nim zalogowany na telefonie i czy synchronizacja danych logowania jest włączona.";
 "ext.tv.sources.cred.password" = "Hasło";
 "ext.tv.sources.cred.saveEnable" = "Zapisz i włącz";
 "ext.tv.sources.cred.saveFailedBody" = "Hasło nie zostało zapisane w keychain tego Apple TV. Spróbuj ponownie. Istniejące referencje zostały zachowane.";

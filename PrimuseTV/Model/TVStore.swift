@@ -1185,6 +1185,11 @@ final class TVStore {
         return TVCredentialStore.hasSyncedPassword(sourceID: s.id)
     }
 
+    /// 手机侧密码有没有同步到这台 TV —— 凭据输入页据此告诉用户该不该拿遥控器手输。
+    func syncedCredentialAvailability(sourceID: String) -> SyncedCredentialAvailability {
+        SyncedCredentialAvailabilityPolicy.availability(bundle: credentialBundle, sourceID: sourceID)
+    }
+
     /// 当前用于预填输入框的用户名(本地输入 > bundle > 源自带 username)。
     func manualCredentialUsername(sourceID: String) -> String {
         if let local = TVCredentialStore.loadLocalCredential(sourceID: sourceID), !local.username.isEmpty {

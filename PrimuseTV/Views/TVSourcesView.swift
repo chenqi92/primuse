@@ -122,9 +122,11 @@ struct TVSourcesView: View {
                     TVSourcesInfoCard()
                     TVFocusButton(radius: 16, scale: 1.02, lift: 0, action: { showsMetadata = true }) { focused in
                         Label(PMString("tv_metadata_reread"), systemImage: "arrow.clockwise")
-                            .tvFont(.body).foregroundStyle(TVColor.text)
-                            .padding(24).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(focused ? TVColor.surfaceStrong : TVColor.surface)
+                            .font(.system(size: 20, weight: .semibold)).foregroundStyle(TVColor.text)
+                            .padding(.horizontal, 24).padding(.vertical, 16)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(focused ? TVColor.surfaceStrong : TVColor.surface,
+                                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
                     .focused($focusedPrimaryAction, equals: .metadata)
                     .accessibilityIdentifier("tv.sources.metadata")
@@ -601,6 +603,15 @@ private struct TVCredentialEditorView: View {
     private var hasLocal: Bool { TVCredentialStore.hasLocalCredential(sourceID: source.id) }
     private var canSave: Bool { !password.trimmingCharacters(in: .whitespaces).isEmpty }
 
+    /// 手输之前先说清楚密码本可以从手机同步过来 —— 遥控器打字很贵,别让人白打。
+    private var syncHint: String? {
+        switch store.syncedCredentialAvailability(sourceID: source.id) {
+        case .available: nil
+        case .bundleMissing: PMString("ext.tv.sources.cred.syncBundleMissing")
+        case .entryMissing: PMString("ext.tv.sources.cred.syncEntryMissing")
+        }
+    }
+
     var body: some View {
         ZStack {
             TVColor.bg.ignoresSafeArea()
@@ -609,26 +620,25 @@ private struct TVCredentialEditorView: View {
                 Text(PMString("ext.tv.sources.cred.intro"))
                     .font(.system(size: 18)).foregroundStyle(TVColor.textMuted)
                     .frame(maxWidth: 760, alignment: .leading).lineSpacing(5)
+                if let hint = syncHint {
+                    Label(hint, systemImage: "iphone.and.arrow.forward")
+                        .font(.system(size: 18)).foregroundStyle(TVColor.textFaint)
+                        .frame(maxWidth: 760, alignment: .leading).lineSpacing(5)
+                }
 
-                field(icon: "person", placeholder: PMString("ext.tv.sources.cred.username"), isFocused: focus == .username) {
+                field(icon: "person", isFocused: focus == .username) {
                     TextField(PMString("ext.tv.sources.cred.username"), text: $username)
                         .focused($focus, equals: .username)
                         .textContentType(.username)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 28, weight: .medium))
-                        .foregroundStyle(TVColor.text)
-                        .focusEffectDisabled()
+                        .tvFont(.input)
                 }
-                field(icon: "lock", placeholder: PMString("ext.tv.sources.cred.password"), isFocused: focus == .password) {
+                field(icon: "lock", isFocused: focus == .password) {
                     SecureField(PMString("ext.tv.sources.cred.password"), text: $password)
                         .focused($focus, equals: .password)
                         .textContentType(.password)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 28, weight: .medium))
-                        .foregroundStyle(TVColor.text)
-                        .focusEffectDisabled()
+                        .tvFont(.input)
                 }
                 if isFnMusic {
                     Text(PMString("fnmusic_account_hint"))
@@ -697,24 +707,18 @@ private struct TVCredentialEditorView: View {
         }
     }
 
-    /// 与 TVSearchView 一致的低调焦点样式(去系统亮白高亮,聚焦时品牌色描边)。
-    private func field<Content: View>(icon: String, placeholder: String, isFocused: Bool,
+    /// 与 TVSearchView 一致:单层原生输入框。tvOS 的 TextField/SecureField 自带
+    /// 圆角底和焦点态,外面再套一层自绘方框会变成「大框套小框」——文字被系统
+    /// 底框按自己的高度居中,看起来就没对齐,颜色也和卡片背景打架。
+    private func field<Content: View>(icon: String, isFocused: Bool,
                                       @ViewBuilder _ content: () -> Content) -> some View {
         HStack(spacing: 18) {
-            Image(systemName: icon).font(.system(size: 24, weight: .semibold))
+            Image(systemName: icon).font(.system(size: 26, weight: .semibold))
                 .foregroundStyle(isFocused ? TVColor.brand : TVColor.textFaint)
                 .frame(width: 30)
             content()
         }
-        .padding(.horizontal, 26).padding(.vertical, 18)
         .frame(maxWidth: 760, alignment: .leading)
-        .background(isFocused ? TVColor.surface : TVColor.surfaceSubtle,
-                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(isFocused ? TVColor.brand : TVColor.cardBorder,
-                              lineWidth: isFocused ? 2.5 : 1)
-        }
     }
 
     private func save() {

@@ -275,6 +275,8 @@
 "ext.tv.sources.status.authFailed"         = "認証失敗";
 "ext.tv.sources.status.disabled"           = "無効";
 "ext.tv.sources.cred.intro"                = "このソースにApple TVで直接ログインします。認証情報はこのデバイスにのみ保存され（アップロードも同期もされません）、スマートフォンから同期された情報より優先されます。セッションがデバイス間で共有できない場合に便利です。";
+"ext.tv.sources.cred.syncBundleMissing" = "この Apple TV はまだスマートフォンから認証情報を受け取っていません。iPhone で QR コードを読み取ってライブラリを送ると、パスワードも暗号化されて一緒に届きます。";
+"ext.tv.sources.cred.syncEntryMissing" = "スマートフォンから認証情報は届きましたが、このソースの分がありません。スマートフォン側でこのソースにログイン済みか、認証情報の同期がオンかを確認してください。";
 "ext.tv.sources.cred.username"             = "ユーザー名";
 "ext.tv.sources.cred.password"             = "パスワード";
 "ext.tv.sources.cred.saveEnable"           = "保存して有効化";

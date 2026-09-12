@@ -273,6 +273,8 @@
 "ext.tv.sources.status.authFailed"         = "Auth Failed";
 "ext.tv.sources.status.disabled"           = "Disabled";
 "ext.tv.sources.cred.intro"                = "Sign in to this source directly on Apple TV. Credentials are stored only on this device (never uploaded or synced) and take priority over those synced from your phone — handy when sessions don’t carry across devices.";
+"ext.tv.sources.cred.syncBundleMissing" = "This Apple TV hasn’t received any credentials from your phone yet — scan the QR code on iPhone to send the library over, and passwords come with it, encrypted.";
+"ext.tv.sources.cred.syncEntryMissing" = "Credentials arrived from the phone, but none for this source — check that you’re signed in to it on the phone and that credential sync is on.";
 "ext.tv.sources.cred.username"             = "Username";
 "ext.tv.sources.cred.password"             = "Password";
 "ext.tv.sources.cred.saveEnable"           = "Save & Enable";

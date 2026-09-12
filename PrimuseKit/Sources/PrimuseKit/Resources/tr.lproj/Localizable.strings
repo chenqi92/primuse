@@ -113,6 +113,8 @@
 "source_connection_remote_optional" = "Uzaktan Erişim (Opsiyonel)";
 "ext.tv.nav.search" = "Ara";
 "ext.tv.sources.cred.intro" = "Bu kaynakta doğrudan Apple TV üzerinden oturum açın. Kimlik bilgileri yalnızca bu cihazda saklanır (hiçbir zaman yüklenmez veya senkronize edilmez) ve telefonunuzdan senkronize edilenlere göre önceliklidir; oturumlar cihazlar arasında taşınmadığında kullanışlıdır.";
+"ext.tv.sources.cred.syncBundleMissing" = "Bu Apple TV telefondan henüz kimlik bilgisi almadı — kitaplığı göndermek için iPhone’da QR kodu tarayın; parolalar da şifreli olarak birlikte gelir.";
+"ext.tv.sources.cred.syncEntryMissing" = "Telefondan kimlik bilgileri geldi, ancak bu kaynağa ait parola yok — telefonda bu kaynakta oturum açtığınızdan ve kimlik bilgisi senkronizasyonunun açık olduğundan emin olun.";
 "send_to_tv_error_tv_forbidden" = "Apple TV eşleştirme kodu veya şifreleme anahtarı artık geçerli değil (HTTP 403). Mevcut QR kodunu tekrar tarayın.";
 "ext.tv.sources.enable" = "Etkinleştir";
 "drime_connect_description" = "Drime Ayarları → Geliştirici bölümünde oluşturulan API erişim belirtecini yapıştırın. Primuse, sürücünüzü açmadan önce bunu doğrular.";

@@ -1089,6 +1089,7 @@
 		E8CB010A3953279CA9A1C9BD /* SubsonicSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6821FC1BF97641265A739D6F /* SubsonicSource.swift */; };
 		E92A2FE9955437F2B057C4F4 /* SettingsSearchComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F9BECB6D861A8EB9E8B4816 /* SettingsSearchComponents.swift */; };
 		EA28DFE79AF807B40A5B91B4 /* CredentialBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2536FC64E50FD6E0FAE8B75B /* CredentialBundle.swift */; };
+		DB6FAAE3A976DCF2C3F1C99C /* SyncedCredentialAvailability.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2999A28D8E559CBD6A28F06 /* SyncedCredentialAvailability.swift */; };
 		EA44F0DBD9EE53189955BA62 /* CoverArtView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F79BB4F57731400094A75FD /* CoverArtView.swift */; };
 		EA47EE31031D9C1212ED6407 /* StartupPrewarmAdmissionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4050394EDE5DC6FF5F6F9554 /* StartupPrewarmAdmissionPolicy.swift */; };
 		EB10E6F5FE937A63B1B916C0 /* TVLibraryBrowseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2F45D54CE3E2AA16C90E362 /* TVLibraryBrowseView.swift */; };
@@ -1531,6 +1532,7 @@
 		2505E223E326D2B217B3F45C /* TVPlaylistsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVPlaylistsView.swift; sourceTree = "<group>"; };
 		252F65F36897EF6DB9E6BCD8 /* AudioOutputPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioOutputPickerView.swift; sourceTree = "<group>"; };
 		2536FC64E50FD6E0FAE8B75B /* CredentialBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialBundle.swift; sourceTree = "<group>"; };
+		E2999A28D8E559CBD6A28F06 /* SyncedCredentialAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncedCredentialAvailability.swift; sourceTree = "<group>"; };
 		2555ED6B08291C7E7B7202E4 /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
 		25B5C092730E2E3E9802487D /* DeviceMusicPlaybackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceMusicPlaybackTests.swift; sourceTree = "<group>"; };
 		25CA9E005BBB76F7367ABAA6 /* LyricsLiveActivityWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricsLiveActivityWidget.swift; sourceTree = "<group>"; };
@@ -3748,6 +3750,7 @@
 				F24FFA868034F06D26F041E3 /* StreamResolverRegistry.swift */,
 				A808E934F62A6E8AB8548E11 /* STRMDescriptor.swift */,
 				18580B6FCDDC9D293B7820BF /* SubsonicStreamResolver.swift */,
+				E2999A28D8E559CBD6A28F06 /* SyncedCredentialAvailability.swift */,
 				09CE2F3FC6DBC83E5C139F8D /* SynologyQuickConnectResolver.swift */,
 				3C221E974A2E6E831F7EAF27 /* SynologyStreamResolver.swift */,
 				E1F7BC83F45C23C5FEECE7C3 /* TianyiCloudAPIProtocol.swift */,
@@ -4367,6 +4370,7 @@
 				14D6F7EBC2C261E3B5E4E679 /* CloudSchemaDeploymentPolicy.swift in Sources */,
 				DA414524DD0D815F8DE6E173 /* ConnectorRefreshInvalidationPolicy.swift in Sources */,
 				EA28DFE79AF807B40A5B91B4 /* CredentialBundle.swift in Sources */,
+				DB6FAAE3A976DCF2C3F1C99C /* SyncedCredentialAvailability.swift in Sources */,
 				EB30521CF8FB8EEDF7257D49 /* CrossfadePlaybackClockPolicy.swift in Sources */,
 				38A135AAC750CAF0DE89773E /* CueSheetParser.swift in Sources */,
 				FA26287B48CFC91004ABA8EC /* DSDOutputProbePolicy.swift in Sources */,

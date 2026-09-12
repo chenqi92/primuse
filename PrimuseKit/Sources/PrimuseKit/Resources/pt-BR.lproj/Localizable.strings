@@ -338,6 +338,8 @@
 "ext.tv.sources.continueInitialScan" = "Continuar verificação inicial";
 "ext.tv.sources.cred.clearLocal" = "Limpar credenciais locais";
 "ext.tv.sources.cred.intro" = "Faça login nesta fonte diretamente no Apple TV. As credenciais são armazenadas apenas neste dispositivo (nunca carregadas ou sincronizadas) e têm prioridade sobre aquelas sincronizadas no seu telefone – útil quando as sessões não são transmitidas entre dispositivos.";
+"ext.tv.sources.cred.syncBundleMissing" = "Esta Apple TV ainda não recebeu credenciais do telefone — escaneie o código QR no iPhone para enviar a biblioteca; as senhas vão junto, criptografadas.";
+"ext.tv.sources.cred.syncEntryMissing" = "Chegaram credenciais do telefone, mas nenhuma para esta fonte — verifique se você está conectado a ela no telefone e se a sincronização de credenciais está ativada.";
 "ext.tv.sources.cred.password" = "Senha";
 "ext.tv.sources.cred.saveEnable" = "Salvar e ativar";
 "ext.tv.sources.cred.saveFailedBody" = "A senha não foi gravada no keychain deste Apple TV. Tente novamente. As credenciais existentes foram preservadas.";

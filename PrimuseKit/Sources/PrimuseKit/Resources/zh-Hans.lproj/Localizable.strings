@@ -272,6 +272,8 @@
 "ext.tv.sources.status.authFailed"         = "凭据失败";
 "ext.tv.sources.status.disabled"           = "已停用";
 "ext.tv.sources.cred.intro"                = "在 Apple TV 上直接为该源登录。凭据只存本机(不上传 / 不同步),并优先于从手机同步过来的凭据 —— 适合跨设备 session 不通用时。";
+"ext.tv.sources.cred.syncBundleMissing" = "这台 Apple TV 还没收到过手机传来的凭据 —— 在 iPhone 上扫码传入曲库,密码会一起加密送过来,不必在这里手输。";
+"ext.tv.sources.cred.syncEntryMissing" = "手机的凭据已传到,但里面没有这个源的密码 —— 确认手机上该源已登录,且「凭据同步」已开启。";
 "ext.tv.sources.cred.username"             = "用户名";
 "ext.tv.sources.cred.password"             = "密码";
 "ext.tv.sources.cred.saveEnable"           = "保存并启用";

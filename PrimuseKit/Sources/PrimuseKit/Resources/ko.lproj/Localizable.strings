@@ -275,6 +275,8 @@
 "ext.tv.sources.status.authFailed"         = "인증 실패";
 "ext.tv.sources.status.disabled"           = "사용 안 함";
 "ext.tv.sources.cred.intro"                = "Apple TV에서 이 소스에 직접 로그인합니다. 인증 정보는 이 기기에만 저장되며(업로드 또는 동기화되지 않음) 휴대폰에서 동기화된 정보보다 우선합니다. 세션이 기기 간에 공유되지 않을 때 유용합니다.";
+"ext.tv.sources.cred.syncBundleMissing" = "이 Apple TV는 아직 휴대폰에서 인증 정보를 받지 못했습니다. iPhone에서 QR 코드를 스캔해 라이브러리를 보내면 암호도 암호화되어 함께 전달됩니다.";
+"ext.tv.sources.cred.syncEntryMissing" = "휴대폰에서 인증 정보가 도착했지만 이 소스의 것은 없습니다. 휴대폰에서 해당 소스에 로그인되어 있는지, 인증 정보 동기화가 켜져 있는지 확인하세요.";
 "ext.tv.sources.cred.username"             = "사용자 이름";
 "ext.tv.sources.cred.password"             = "비밀번호";
 "ext.tv.sources.cred.saveEnable"           = "저장 후 사용";

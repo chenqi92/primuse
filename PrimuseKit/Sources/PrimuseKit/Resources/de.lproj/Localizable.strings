@@ -275,6 +275,8 @@
 "ext.tv.sources.status.authFailed"         = "Anmeldung fehlgeschlagen";
 "ext.tv.sources.status.disabled"           = "Deaktiviert";
 "ext.tv.sources.cred.intro"                = "Melde dich direkt auf Apple TV bei dieser Quelle an. Anmeldedaten werden nur auf diesem Gerät gespeichert (nie hochgeladen oder synchronisiert) und haben Vorrang vor den vom Handy synchronisierten – praktisch, wenn Sessions nicht geräteübergreifend gelten.";
+"ext.tv.sources.cred.syncBundleMissing" = "Dieses Apple TV hat noch keine Anmeldedaten vom Handy erhalten – scanne auf dem iPhone den QR-Code, um die Mediathek zu übertragen; Passwörter kommen verschlüsselt mit.";
+"ext.tv.sources.cred.syncEntryMissing" = "Anmeldedaten vom Handy sind angekommen, aber ohne Passwort für diese Quelle – prüfe, ob du dort auf dem Handy angemeldet bist und ob die Anmeldedaten-Synchronisierung aktiv ist.";
 "ext.tv.sources.cred.username"             = "Benutzername";
 "ext.tv.sources.cred.password"             = "Passwort";
 "ext.tv.sources.cred.saveEnable"           = "Speichern & aktivieren";
