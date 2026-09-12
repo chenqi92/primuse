@@ -4,6 +4,119 @@ import CoreMotion
 import Foundation
 import PrimuseKit
 
+/// Which of the two player nodes a scheduling call addresses.
+enum PlayerNodeRole: Sendable {
+    case primary
+    case crossfade
+}
+
+/// Lock-protected owner of the two player nodes and their scheduled-frame
+/// timelines.
+///
+/// The decode pumps are moving off the main actor, so they can no longer reach
+/// `AudioEngine`'s isolated storage for every decoded buffer. The registry keeps
+/// the node reference and its timeline together behind one lock, which is the
+/// pair that has to stay consistent: a boundary token is only meaningful if the
+/// timeline recorded the buffer in the same order the node enqueued it.
+///
+/// `AVAudioPlayerNode.scheduleBuffer` is itself thread-safe. The lock is held
+/// across the enqueue purely to keep node order and timeline order identical
+/// when the main actor and a pump schedule onto the same role.
+final class PlayerNodeRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var primaryNode: AVAudioPlayerNode?
+    private var crossfadeNode: AVAudioPlayerNode?
+    private var primaryTimeline = PlaybackTimelineTracker()
+    private var crossfadeTimeline = PlaybackTimelineTracker()
+
+    func attach(_ node: AVAudioPlayerNode?, to role: PlayerNodeRole) {
+        lock.lock()
+        switch role {
+        case .primary: primaryNode = node
+        case .crossfade: crossfadeNode = node
+        }
+        lock.unlock()
+    }
+
+    func node(for role: PlayerNodeRole) -> AVAudioPlayerNode? {
+        lock.lock()
+        defer { lock.unlock() }
+        return role == .primary ? primaryNode : crossfadeNode
+    }
+
+    /// Rotates both nodes and both timelines together after a crossfade, so the
+    /// incoming node keeps the frame cursor it accumulated while fading in.
+    func swapRoles() {
+        lock.lock()
+        swap(&primaryNode, &crossfadeNode)
+        swap(&primaryTimeline, &crossfadeTimeline)
+        lock.unlock()
+    }
+
+    func resetTimeline(for role: PlayerNodeRole) {
+        lock.lock()
+        switch role {
+        case .primary: primaryTimeline.reset()
+        case .crossfade: crossfadeTimeline.reset()
+        }
+        lock.unlock()
+    }
+
+    @discardableResult
+    func schedule(
+        _ buffer: AVAudioPCMBuffer,
+        on role: PlayerNodeRole
+    ) -> PlaybackTimelineTracker.BoundaryToken? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let node = role == .primary ? primaryNode : crossfadeNode else { return nil }
+        node.scheduleBuffer(buffer)
+        return record(frames: Int64(buffer.frameLength), on: role)
+    }
+
+    @discardableResult
+    func schedule(
+        _ buffer: AVAudioPCMBuffer,
+        on role: PlayerNodeRole,
+        completionCallbackType: AVAudioPlayerNodeCompletionCallbackType,
+        completionHandler: @escaping @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void
+    ) -> PlaybackTimelineTracker.BoundaryToken? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let node = role == .primary ? primaryNode : crossfadeNode else { return nil }
+        node.scheduleBuffer(
+            buffer,
+            completionCallbackType: completionCallbackType,
+            completionHandler: completionHandler
+        )
+        return record(frames: Int64(buffer.frameLength), on: role)
+    }
+
+    @discardableResult
+    func commitBoundary(
+        _ token: PlaybackTimelineTracker.BoundaryToken,
+        on role: PlayerNodeRole
+    ) -> Int64? {
+        lock.lock()
+        defer { lock.unlock() }
+        switch role {
+        case .primary: return primaryTimeline.commitBoundary(token)
+        case .crossfade: return crossfadeTimeline.commitBoundary(token)
+        }
+    }
+
+    /// Caller must already hold `lock`.
+    private func record(
+        frames: Int64,
+        on role: PlayerNodeRole
+    ) -> PlaybackTimelineTracker.BoundaryToken? {
+        switch role {
+        case .primary: return primaryTimeline.recordScheduledFrames(frames)
+        case .crossfade: return crossfadeTimeline.recordScheduledFrames(frames)
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class AudioEngine {
@@ -32,8 +145,9 @@ final class AudioEngine {
 
     private var isSetUp = false
     private var playbackClockReadsSuspended = true
-    private var playerTimeline = PlaybackTimelineTracker()
-    private var crossfadePlayerTimeline = PlaybackTimelineTracker()
+    /// Owns both player nodes and their scheduled-frame timelines so decode
+    /// pumps can schedule without hopping back to the main actor.
+    nonisolated let nodeRegistry = PlayerNodeRegistry()
     private var directSourceFormat: AVAudioFormat?
     private var hardwareConfigurationRecoveryState = AudioHardwareConfigurationRecoveryState()
     #if os(macOS)
@@ -118,15 +232,17 @@ final class AudioEngine {
     private func tearDownGraph() {
         cancelTransportFade(restoreVolume: false)
         stopSilenceKeepAlive()
-        playerTimeline.reset()
-        crossfadePlayerTimeline.reset()
+        nodeRegistry.resetTimeline(for: .primary)
+        nodeRegistry.resetTimeline(for: .crossfade)
         playerNode?.stop()
         crossfadePlayerNode?.stop()
         engine?.stop()
         stopSpatialHeadTracking()
         engine = nil
         playerNode = nil
+        nodeRegistry.attach(nil, to: .primary)
         crossfadePlayerNode = nil
+        nodeRegistry.attach(nil, to: .crossfade)
         playerMixer = nil
         environmentNode = nil
         eqNode = nil
@@ -143,8 +259,8 @@ final class AudioEngine {
     func setUp() throws {
         guard !isSetUp else { return }
 
-        playerTimeline.reset()
-        crossfadePlayerTimeline.reset()
+        nodeRegistry.resetTimeline(for: .primary)
+        nodeRegistry.resetTimeline(for: .crossfade)
 
         let eng = AVAudioEngine()
         let playerA = AVAudioPlayerNode()
@@ -174,6 +290,8 @@ final class AudioEngine {
             self.engine = eng
             self.playerNode = playerA
             self.crossfadePlayerNode = playerB
+            nodeRegistry.attach(playerA, to: .primary)
+            nodeRegistry.attach(playerB, to: .crossfade)
             self.outputFormat = format
             self.isSetUp = true
             spatialAudioEnabled = false
@@ -248,6 +366,8 @@ final class AudioEngine {
         self.engine = eng
         self.playerNode = playerA
         self.crossfadePlayerNode = playerB
+        nodeRegistry.attach(playerA, to: .primary)
+        nodeRegistry.attach(playerB, to: .crossfade)
         self.playerMixer = mixer
         self.environmentNode = environment
         self.eqNode = eq
@@ -276,8 +396,8 @@ final class AudioEngine {
 
     func stop() {
         playbackClockReadsSuspended = true
-        playerTimeline.reset()
-        crossfadePlayerTimeline.reset()
+        nodeRegistry.resetTimeline(for: .primary)
+        nodeRegistry.resetTimeline(for: .crossfade)
         sampleTimeOffset = 0
         playerNode?.stop()
         crossfadePlayerNode?.stop()
@@ -652,9 +772,7 @@ final class AudioEngine {
     func scheduleBuffer(
         _ buffer: AVAudioPCMBuffer
     ) -> PlaybackTimelineTracker.BoundaryToken? {
-        guard let playerNode else { return nil }
-        playerNode.scheduleBuffer(buffer)
-        return playerTimeline.recordScheduledFrames(Int64(buffer.frameLength))
+        nodeRegistry.schedule(buffer, on: .primary)
     }
 
     /// Schedule buffer with completion callback — use `.dataPlayedBack` for precise track-end detection.
@@ -664,13 +782,12 @@ final class AudioEngine {
         completionCallbackType: AVAudioPlayerNodeCompletionCallbackType,
         completionHandler: @escaping @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void
     ) -> PlaybackTimelineTracker.BoundaryToken? {
-        guard let playerNode else { return nil }
-        playerNode.scheduleBuffer(
+        nodeRegistry.schedule(
             buffer,
+            on: .primary,
             completionCallbackType: completionCallbackType,
             completionHandler: completionHandler
         )
-        return playerTimeline.recordScheduledFrames(Int64(buffer.frameLength))
     }
 
     // MARK: - Buffer Scheduling (Crossfade Node)
@@ -679,9 +796,7 @@ final class AudioEngine {
     func scheduleCrossfadeBuffer(
         _ buffer: AVAudioPCMBuffer
     ) -> PlaybackTimelineTracker.BoundaryToken? {
-        guard let crossfadePlayerNode else { return nil }
-        crossfadePlayerNode.scheduleBuffer(buffer)
-        return crossfadePlayerTimeline.recordScheduledFrames(Int64(buffer.frameLength))
+        nodeRegistry.schedule(buffer, on: .crossfade)
     }
 
     @discardableResult
@@ -690,13 +805,39 @@ final class AudioEngine {
         completionCallbackType: AVAudioPlayerNodeCompletionCallbackType,
         completionHandler: @escaping @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void
     ) -> PlaybackTimelineTracker.BoundaryToken? {
-        guard let crossfadePlayerNode else { return nil }
-        crossfadePlayerNode.scheduleBuffer(
+        nodeRegistry.schedule(
             buffer,
+            on: .crossfade,
             completionCallbackType: completionCallbackType,
             completionHandler: completionHandler
         )
-        return crossfadePlayerTimeline.recordScheduledFrames(Int64(buffer.frameLength))
+    }
+
+    // MARK: - Buffer Scheduling (off the main actor)
+
+    /// Entry point for decode pumps that no longer run on the main actor.
+    /// Same accounting as `scheduleBuffer`, without the isolation hop per buffer.
+    @discardableResult
+    nonisolated func scheduleDecodedBuffer(
+        _ buffer: AVAudioPCMBuffer,
+        on role: PlayerNodeRole,
+        completionCallbackType: AVAudioPlayerNodeCompletionCallbackType,
+        completionHandler: @escaping @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void
+    ) -> PlaybackTimelineTracker.BoundaryToken? {
+        nodeRegistry.schedule(
+            buffer,
+            on: role,
+            completionCallbackType: completionCallbackType,
+            completionHandler: completionHandler
+        )
+    }
+
+    @discardableResult
+    nonisolated func scheduleDecodedBuffer(
+        _ buffer: AVAudioPCMBuffer,
+        on role: PlayerNodeRole
+    ) -> PlaybackTimelineTracker.BoundaryToken? {
+        nodeRegistry.schedule(buffer, on: role)
     }
 
     func playCrossfadeNode() {
@@ -704,7 +845,7 @@ final class AudioEngine {
     }
 
     func stopCrossfadeNode() {
-        crossfadePlayerTimeline.reset()
+        nodeRegistry.resetTimeline(for: .crossfade)
         crossfadePlayerNode?.stop()
         crossfadePlayerNode?.reset()
     }
@@ -863,7 +1004,7 @@ final class AudioEngine {
     func stopPlayback() {
         cancelTransportFade(restoreVolume: true)
         playbackClockReadsSuspended = true
-        playerTimeline.reset()
+        nodeRegistry.resetTimeline(for: .primary)
         sampleTimeOffset = 0
         playerNode?.stop()
         playerNode?.reset()
@@ -1004,11 +1145,11 @@ final class AudioEngine {
         let temp = playerNode
         playerNode = crossfadePlayerNode
         crossfadePlayerNode = temp
-        swap(&playerTimeline, &crossfadePlayerTimeline)
+        nodeRegistry.swapRoles()
         sampleTimeOffset = 0
 
         // Reset the now-inactive crossfade node
-        crossfadePlayerTimeline.reset()
+        nodeRegistry.resetTimeline(for: .crossfade)
         crossfadePlayerNode?.stop()
         crossfadePlayerNode?.reset()
         crossfadePlayerNode?.volume = 0
@@ -1143,7 +1284,7 @@ final class AudioEngine {
         _ boundary: PlaybackTimelineTracker.BoundaryToken?
     ) -> Bool {
         guard let boundary,
-              let frameCursor = playerTimeline.commitBoundary(boundary) else {
+              let frameCursor = nodeRegistry.commitBoundary(boundary, on: .primary) else {
             return false
         }
         sampleTimeOffset = frameCursor

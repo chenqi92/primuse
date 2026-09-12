@@ -49,158 +49,6 @@ private final class BufferIteratorBox: @unchecked Sendable {
     }
 }
 
-/// Async backpressure gate bounding the duration, byte size, and count of
-/// decoded PCM buffers that are scheduled-but-not-yet-played by an
-/// `AVAudioPlayerNode`.
-///
-/// Without this, `NativeAudioDecoder` yields buffers far faster than realtime
-/// playback and the whole track (plus the gapless next track) ends up resident
-/// in the node's unbounded queue — hundreds of MB for hi-res long tracks, which
-/// trips iOS jetsam during background playback.
-///
-/// `acquire()` suspends the decoder when a high-water mark is reached. The
-/// matching `release()` runs from `.dataPlayedBack`, not `.dataConsumed`:
-/// AVAudioPlayerNode may consume scheduled PCM substantially before it reaches
-/// the output device, so consumed-data accounting cannot describe audible
-/// queue depth. `reset()`/`stop()` may also complete callbacks, so playback
-/// ownership is still guarded by `playID` at the service boundary.
-private actor AsyncBufferGate {
-    struct Snapshot: Sendable {
-        let bufferedDuration: TimeInterval
-        let bufferedBytes: Int
-        let bufferCount: Int
-        let decodingFinished: Bool
-    }
-
-    private struct Waiter {
-        let id: UUID
-        let duration: TimeInterval
-        let byteCount: Int
-        let continuation: CheckedContinuation<Void, Never>
-    }
-
-    private let maxBufferedDuration: TimeInterval
-    private let maxBufferedBytes: Int
-    private let maxBufferCount: Int
-    private var inFlightDuration: TimeInterval = 0
-    private var inFlightBytes = 0
-    private var inFlightCount = 0
-    private var decodingFinished = false
-    private var waiters: [Waiter] = []
-
-    init(maxBufferedDuration: TimeInterval, maxBufferedBytes: Int, maxBufferCount: Int) {
-        self.maxBufferedDuration = max(0.1, maxBufferedDuration)
-        self.maxBufferedBytes = max(1, maxBufferedBytes)
-        self.maxBufferCount = max(1, maxBufferCount)
-    }
-
-    func acquire(duration: TimeInterval, byteCount: Int) async {
-        guard !Task.isCancelled else { return }
-        let normalizedDuration = Self.normalized(duration)
-        let normalizedByteCount = max(0, byteCount)
-        if canAdmit(duration: normalizedDuration, byteCount: normalizedByteCount) {
-            reserve(duration: normalizedDuration, byteCount: normalizedByteCount)
-            return
-        }
-        let waiterID = UUID()
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                guard !Task.isCancelled else {
-                    continuation.resume()
-                    return
-                }
-                waiters.append(Waiter(
-                    id: waiterID,
-                    duration: normalizedDuration,
-                    byteCount: normalizedByteCount,
-                    continuation: continuation
-                ))
-            }
-        } onCancel: {
-            Task { await self.cancelWaiter(id: waiterID) }
-        }
-    }
-
-    /// Non-suspending counterpart to `acquire()`, callable from `@Sendable`
-    /// completion handlers without awaiting.
-    nonisolated func release(duration: TimeInterval, byteCount: Int) {
-        Task {
-            await self.signal(
-                releasing: Self.normalized(duration),
-                byteCount: max(0, byteCount)
-            )
-        }
-    }
-
-    private nonisolated static func normalized(_ duration: TimeInterval) -> TimeInterval {
-        guard duration.isFinite, duration > 0 else { return 0 }
-        return duration
-    }
-
-    private func canAdmit(duration: TimeInterval, byteCount: Int) -> Bool {
-        guard inFlightCount < maxBufferCount else { return false }
-        // A single unusually large buffer must still be admitted or the gate
-        // would deadlock before scheduling it.
-        if inFlightCount == 0 { return true }
-        return inFlightDuration + duration <= maxBufferedDuration
-            && inFlightBytes + byteCount <= maxBufferedBytes
-    }
-
-    private func reserve(duration: TimeInterval, byteCount: Int) {
-        inFlightCount += 1
-        inFlightDuration += duration
-        inFlightBytes += byteCount
-    }
-
-    private func signal(releasing duration: TimeInterval, byteCount: Int) {
-        if inFlightCount > 0 {
-            inFlightCount -= 1
-            inFlightDuration = max(0, inFlightDuration - duration)
-            inFlightBytes = max(0, inFlightBytes - byteCount)
-        }
-
-        while let waiter = waiters.first,
-              canAdmit(duration: waiter.duration, byteCount: waiter.byteCount) {
-            waiters.removeFirst()
-            reserve(duration: waiter.duration, byteCount: waiter.byteCount)
-            waiter.continuation.resume()
-        }
-    }
-
-    private func cancelWaiter(id: UUID) {
-        guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
-        let waiter = waiters.remove(at: index)
-        waiter.continuation.resume()
-    }
-
-    func markDecodingFinished() {
-        decodingFinished = true
-    }
-
-    func snapshot() -> Snapshot {
-        Snapshot(
-            bufferedDuration: inFlightDuration,
-            bufferedBytes: inFlightBytes,
-            bufferCount: inFlightCount,
-            decodingFinished: decodingFinished
-        )
-    }
-
-    /// Wakes every waiter so a cancelled decoder loop never deadlocks on the
-    /// gate even if some node completion callbacks were dropped.
-    func drain() {
-        let pending = waiters
-        waiters.removeAll()
-        inFlightCount = 0
-        inFlightDuration = 0
-        inFlightBytes = 0
-        decodingFinished = true
-        for waiter in pending {
-            waiter.continuation.resume()
-        }
-    }
-}
-
 /// Result carrier used by the first-buffer timeout task group.
 private struct PCMBufferBox: @unchecked Sendable {
     let value: AVAudioPCMBuffer?
@@ -213,7 +61,7 @@ private final class GaplessTransitionState: @unchecked Sendable {
     let queueGeneration: Int
     let advanceTicket: PlaybackAdvanceTicket
     var prepared: GaplessPreparedTrack?
-    var bufferGate: AsyncBufferGate?
+    var bufferGate: DecodedBufferGate?
     var didBoundaryFire = false
     /// Signalled once this boundary reaches a terminal state, so the follow-up
     /// preparation can wait instead of polling for the rest of the track.
@@ -1127,7 +975,9 @@ final class AudioPlayerService {
     private var crossfadeStartupTask: Task<Void, Never>?
     private var crossfadeDecodingTask: Task<Void, Never>?
     private var crossfadeAttemptID: UUID?
-    private var committedCrossfade: CommittedCrossfade?
+    private var committedCrossfade: CommittedCrossfade? {
+        didSet { syncPumpLease() }
+    }
     /// swapPlayerNodes() 之后, crossfade 解码任务正在喂的那个物理节点已经
     /// 从 crossfade 节点变成 primary 节点。该任务必须改用 scheduleBuffer
     /// (primary) 继续投递, 否则 buffer 会落到换出后被 stop/reset/静音的旧
@@ -1150,9 +1000,22 @@ final class AudioPlayerService {
     /// Crossfade 提交后 currentSong 已经切到淡入曲, 但 primary node 在 ramp
     /// 完成前仍属于淡出曲。进度更新据此改读 crossfade node 的独立时钟,
     /// swap 后再无缝回到 primary node。
-    private var isCrossfading = false
-    private var playID: UUID?
-    @ObservationIgnored private var activeDecodedBufferGate: AsyncBufferGate?
+    private var isCrossfading = false {
+        didSet { syncPumpLease() }
+    }
+    private var playID: UUID? {
+        didSet { syncPumpLease() }
+    }
+    /// 解码泵不再跑在 MainActor 上, 所以它们无法直接读 playID / crossfade 状态。
+    /// 这三个值每次变化都推到 lease 里, 泵按缓冲逐块同步查询归属, 既不用回主
+    /// actor, 判定规则也仍然只有 `CrossfadePumpContinuationPolicy` 一处。
+    ///
+    /// 交叉淡入在 commit 时就把 playID 轮换给下一首, 但换出的那一首还要继续
+    /// 播放完整段 ramp。喂 primary 节点的解码泵因此在转场结束(或被取消)之前
+    /// 保留调度资格, 否则 overlap 超过 `decodedAudioLookahead` 时淡出轨会在
+    /// ramp 中途断流, 直接变成静音。
+    @ObservationIgnored private let pumpLease = PlaybackOwnershipLease<UUID>()
+    @ObservationIgnored private var activeDecodedBufferGate: DecodedBufferGate?
     private var activeDecodedBufferGatePlayID: UUID?
     private var decodedBufferUnhealthySampleCount = 0
     private var decodedBufferHealthySampleCount = 0
@@ -1228,7 +1091,8 @@ final class AudioPlayerService {
     /// duration-based lookahead keeps realtime playback resilient when a large
     /// queue scroll, metadata scrape, or remote artwork load briefly delays the
     /// main-actor scheduling loop. The duration cap still bounds PCM residency.
-    private static let decodedAudioLookahead: TimeInterval = 8
+    /// nonisolated: 解码泵的缓冲测量已经跑在主 actor 之外, 需要在那里读到它。
+    nonisolated private static let decodedAudioLookahead: TimeInterval = 8
     /// Duration alone is not a memory bound for multichannel/hi-res PCM.
     /// Keep ordinary stereo tracks at the duration watermark while capping
     /// unusually wide or high-rate formats to a predictable resident size.
@@ -1241,7 +1105,7 @@ final class AudioPlayerService {
     private static let maxDecodedBufferRecoveryAttempts = 2
     private static let decodedBufferRecoveryCooldown: TimeInterval = 8
 
-    private static func decodedBufferDuration(_ buffer: AVAudioPCMBuffer) -> TimeInterval {
+    nonisolated private static func decodedBufferDuration(_ buffer: AVAudioPCMBuffer) -> TimeInterval {
         let sampleRate = buffer.format.sampleRate
         guard sampleRate.isFinite, sampleRate > 0, buffer.frameLength > 0 else {
             // Preserve the old 16-buffer behavior when a decoder reports an
@@ -1251,7 +1115,7 @@ final class AudioPlayerService {
         return Double(buffer.frameLength) / sampleRate
     }
 
-    private static func decodedBufferByteCount(_ buffer: AVAudioPCMBuffer) -> Int {
+    nonisolated private static func decodedBufferByteCount(_ buffer: AVAudioPCMBuffer) -> Int {
         let audioBuffers = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList)
         let reportedBytes = audioBuffers.reduce(into: 0) {
             $0 += Int($1.mDataByteSize)
@@ -1269,7 +1133,7 @@ final class AudioPlayerService {
     private func scheduleTrackedDecodedBuffer(
         _ buffer: AVAudioPCMBuffer,
         onCrossfadeNode: Bool = false,
-        gate: AsyncBufferGate
+        gate: DecodedBufferGate
     ) async {
         let bufferedDuration = Self.decodedBufferDuration(buffer)
         let bufferedByteCount = Self.decodedBufferByteCount(buffer)
@@ -3849,7 +3713,7 @@ final class AudioPlayerService {
         station: RadioStation,
         playID id: UUID
     ) {
-        let gate = AsyncBufferGate(
+        let gate = DecodedBufferGate(
             maxBufferedDuration: Self.decodedAudioLookahead,
             maxBufferedBytes: Self.maxInFlightDecodedBytes,
             maxBufferCount: Self.maxInFlightDecodedBufferCount
@@ -5411,7 +5275,7 @@ final class AudioPlayerService {
             plog("▶️ Decoder firstBuffer: kind=\(activeDecoderKind) frames=\(firstBuffer.frameLength) format=sr\(firstBuffer.format.sampleRate)/ch\(firstBuffer.format.channelCount)")
             plog("▶️ Engine state: outputFormat=sr\(outputFormat.sampleRate)/ch\(outputFormat.channelCount) mainVol=\(audioEngine.volume)")
             plog("▶️ Engine diagnostics: \(audioEngine.diagnosticInfo())")
-            let gate = AsyncBufferGate(
+            let gate = DecodedBufferGate(
                 maxBufferedDuration: Self.decodedAudioLookahead,
                 maxBufferedBytes: Self.maxInFlightDecodedBytes,
                 maxBufferCount: Self.maxInFlightDecodedBufferCount
@@ -5510,39 +5374,43 @@ final class AudioPlayerService {
             // Decode remaining buffers in background task (hold-last for completion callback)
             decodingTask = Task { [id, iteratorBox, gate] in
                 var lastBuffer: AVAudioPCMBuffer?
-                var scheduledCount = 0
                 var midStreamError = false
                 defer { Task { await gate.drain() } }
 
-                do {
-                    while let buffer = try await iteratorBox.next() {
-                        guard !Task.isCancelled, self.primaryPumpMayContinue(id) else { return }
-
-                        if let prev = lastBuffer {
-                            // Backpressure: block once the duration/count window
-                            // is full so resident PCM tracks playback instead of
-                            // the whole track piling into the node's unbounded queue.
-                            let bufferedDuration = Self.decodedBufferDuration(prev)
-                            let bufferedByteCount = Self.decodedBufferByteCount(prev)
-                            await gate.acquire(
-                                duration: bufferedDuration,
-                                byteCount: bufferedByteCount
-                            )
-                            guard !Task.isCancelled, self.primaryPumpMayContinue(id) else { return }
-                            self.audioEngine.scheduleBuffer(
-                                prev,
-                                completionCallbackType: .dataPlayedBack
-                            ) { _ in
-                                gate.release(
-                                    duration: bufferedDuration,
-                                    byteCount: bufferedByteCount
-                                )
-                            }
-                            scheduledCount += 1
-                        }
-                        lastBuffer = buffer
+                // 稳态解码泵整体移出 MainActor: 循环本身不再读主 actor 状态, 归属改由
+                // pumpLease 逐块回答; 收尾逻辑仍留在外层这个主 actor Task 里。
+                let loop = DecodedBufferSchedulingLoop<AVAudioPCMBuffer, UUID>(
+                    playID: id,
+                    lease: self.pumpLease,
+                    gate: gate,
+                    measure: { buffer in
+                        DecodedBufferMeasurement(
+                            duration: Self.decodedBufferDuration(buffer),
+                            byteCount: Self.decodedBufferByteCount(buffer)
+                        )
+                    },
+                    schedule: { [audioEngine = self.audioEngine] buffer, release in
+                        audioEngine.scheduleDecodedBuffer(
+                            buffer, on: .primary, completionCallbackType: .dataPlayedBack
+                        ) { _ in release() }
                     }
-                } catch {
+                )
+                let loopTask = Task.detached(priority: .userInitiated) {
+                    await loop.run(next: { try await iteratorBox.next() })
+                }
+                let outcome = await withTaskCancellationHandler {
+                    await loopTask.value
+                } onCancel: {
+                    loopTask.cancel()
+                }
+
+                switch outcome {
+                case .cancelled, .lostOwnership:
+                    return
+                case .completed(let buffer, _):
+                    lastBuffer = buffer
+                case .failed(let error, let buffer, let scheduledCount):
+                    lastBuffer = buffer
                     guard !Task.isCancelled, self.playID == id else { return }
                     midStreamError = true
                     plog("⚠️ Decode error mid-stream for '\(song.title)' (scheduled \(scheduledCount) buffers): \(error.localizedDescription)")
@@ -5912,7 +5780,7 @@ final class AudioPlayerService {
             plog("🌊 StreamingDownload firstBuffer: frames=\(firstBuffer.frameLength) sr=\(firstBuffer.format.sampleRate)")
             plog("🌊 Engine diagnostics before play: \(audioEngine.diagnosticInfo())")
             activeDecoderKind = .streaming
-            let gate = AsyncBufferGate(
+            let gate = DecodedBufferGate(
                 maxBufferedDuration: Self.decodedAudioLookahead,
                 maxBufferedBytes: Self.maxInFlightDecodedBytes,
                 maxBufferCount: Self.maxInFlightDecodedBufferCount
@@ -5982,33 +5850,42 @@ final class AudioPlayerService {
             // Decode remaining buffers
             decodingTask = Task { [id, iteratorBox, gate] in
                 var lastBuffer: AVAudioPCMBuffer?
-                var scheduledCount = 0
                 defer { Task { await gate.drain() } }
-                do {
-                    while let buffer = try await iteratorBox.next() {
-                        guard !Task.isCancelled, self.primaryPumpMayContinue(id) else { return }
-                        if let prev = lastBuffer {
-                            let bufferedDuration = Self.decodedBufferDuration(prev)
-                            let bufferedByteCount = Self.decodedBufferByteCount(prev)
-                            await gate.acquire(
-                                duration: bufferedDuration,
-                                byteCount: bufferedByteCount
-                            )
-                            guard !Task.isCancelled, self.primaryPumpMayContinue(id) else { return }
-                            self.audioEngine.scheduleBuffer(
-                                prev,
-                                completionCallbackType: .dataPlayedBack
-                            ) { _ in
-                                gate.release(
-                                    duration: bufferedDuration,
-                                    byteCount: bufferedByteCount
-                                )
-                            }
-                            scheduledCount += 1
-                        }
-                        lastBuffer = buffer
+
+                // 稳态解码泵整体移出 MainActor: 循环本身不再读主 actor 状态, 归属改由
+                // pumpLease 逐块回答; 收尾逻辑仍留在外层这个主 actor Task 里。
+                let loop = DecodedBufferSchedulingLoop<AVAudioPCMBuffer, UUID>(
+                    playID: id,
+                    lease: self.pumpLease,
+                    gate: gate,
+                    measure: { buffer in
+                        DecodedBufferMeasurement(
+                            duration: Self.decodedBufferDuration(buffer),
+                            byteCount: Self.decodedBufferByteCount(buffer)
+                        )
+                    },
+                    schedule: { [audioEngine = self.audioEngine] buffer, release in
+                        audioEngine.scheduleDecodedBuffer(
+                            buffer, on: .primary, completionCallbackType: .dataPlayedBack
+                        ) { _ in release() }
                     }
-                } catch {
+                )
+                let loopTask = Task.detached(priority: .userInitiated) {
+                    await loop.run(next: { try await iteratorBox.next() })
+                }
+                let outcome = await withTaskCancellationHandler {
+                    await loopTask.value
+                } onCancel: {
+                    loopTask.cancel()
+                }
+
+                switch outcome {
+                case .cancelled, .lostOwnership:
+                    return
+                case .completed(let buffer, _):
+                    lastBuffer = buffer
+                case .failed(let error, let buffer, let scheduledCount):
+                    lastBuffer = buffer
                     if !Task.isCancelled, self.playID == id {
                         plog("⚠️ StreamingDownload decode error (scheduled \(scheduledCount) buffers): \(error.localizedDescription)")
                         if scheduledCount < 3 {
@@ -6021,6 +5898,7 @@ final class AudioPlayerService {
                         }
                     }
                 }
+
                 if let finalBuffer = lastBuffer {
                     guard !Task.isCancelled else { return }
                     if self.scheduleOutgoingCrossfadeTailBuffer(finalBuffer, playID: id) { return }
@@ -6668,7 +6546,7 @@ final class AudioPlayerService {
                 }
                 plog("↳ AssetReader firstBuffer maxSample=\(maxSample) (0 = silence/broken)")
             }
-            let gate = AsyncBufferGate(
+            let gate = DecodedBufferGate(
                 maxBufferedDuration: Self.decodedAudioLookahead,
                 maxBufferedBytes: Self.maxInFlightDecodedBytes,
                 maxBufferCount: Self.maxInFlightDecodedBufferCount
@@ -6756,31 +6634,40 @@ final class AudioPlayerService {
                 var lastBuffer: AVAudioPCMBuffer?
                 defer { Task { await gate.drain() } }
 
-                do {
-                    while let buffer = try await iteratorBox.next() {
-                        guard !Task.isCancelled, self.primaryPumpMayContinue(id) else { return }
-
-                        if let prev = lastBuffer {
-                            let bufferedDuration = Self.decodedBufferDuration(prev)
-                            let bufferedByteCount = Self.decodedBufferByteCount(prev)
-                            await gate.acquire(
-                                duration: bufferedDuration,
-                                byteCount: bufferedByteCount
-                            )
-                            guard !Task.isCancelled, self.primaryPumpMayContinue(id) else { return }
-                            self.audioEngine.scheduleBuffer(
-                                prev,
-                                completionCallbackType: .dataPlayedBack
-                            ) { _ in
-                                gate.release(
-                                    duration: bufferedDuration,
-                                    byteCount: bufferedByteCount
-                                )
-                            }
-                        }
-                        lastBuffer = buffer
+                // 稳态解码泵整体移出 MainActor: 循环本身不再读主 actor 状态, 归属改由
+                // pumpLease 逐块回答; 收尾逻辑仍留在外层这个主 actor Task 里。
+                let loop = DecodedBufferSchedulingLoop<AVAudioPCMBuffer, UUID>(
+                    playID: id,
+                    lease: self.pumpLease,
+                    gate: gate,
+                    measure: { buffer in
+                        DecodedBufferMeasurement(
+                            duration: Self.decodedBufferDuration(buffer),
+                            byteCount: Self.decodedBufferByteCount(buffer)
+                        )
+                    },
+                    schedule: { [audioEngine = self.audioEngine] buffer, release in
+                        audioEngine.scheduleDecodedBuffer(
+                            buffer, on: .primary, completionCallbackType: .dataPlayedBack
+                        ) { _ in release() }
                     }
-                } catch {
+                )
+                let loopTask = Task.detached(priority: .userInitiated) {
+                    await loop.run(next: { try await iteratorBox.next() })
+                }
+                let outcome = await withTaskCancellationHandler {
+                    await loopTask.value
+                } onCancel: {
+                    loopTask.cancel()
+                }
+
+                switch outcome {
+                case .cancelled, .lostOwnership:
+                    return
+                case .completed(let buffer, _):
+                    lastBuffer = buffer
+                case .failed(let error, let buffer, _):
+                    lastBuffer = buffer
                     if !Task.isCancelled {
                         plog("⚠️ \(fallbackName) fallback decode error: \(error.localizedDescription)")
                     }
@@ -8558,7 +8445,7 @@ final class AudioPlayerService {
                 let secondPlayableBuffer = try await iteratorBox.next()
                 guard !Task.isCancelled, playID == id else { return }
 
-                let gate = AsyncBufferGate(
+                let gate = DecodedBufferGate(
                     maxBufferedDuration: Self.decodedAudioLookahead,
                     maxBufferedBytes: Self.maxInFlightDecodedBytes,
                     maxBufferCount: Self.maxInFlightDecodedBufferCount
@@ -8627,34 +8514,46 @@ final class AudioPlayerService {
                 // Decode remaining buffers with track-end detection
                 if let secondPlayableBuffer {
                     decodingTask = Task { [id, iteratorBox, gate, secondPlayableBuffer] in
-                        var lastBuffer: AVAudioPCMBuffer? = secondPlayableBuffer
+                        var lastBuffer: AVAudioPCMBuffer?
                         defer { Task { await gate.drain() } }
 
-                        do {
-                            while let buffer = try await iteratorBox.next() {
-                                guard !Task.isCancelled, self.primaryPumpMayContinue(id) else { return }
-
-                                if let prev = lastBuffer {
-                                    let bufferedDuration = Self.decodedBufferDuration(prev)
-                                    let bufferedByteCount = Self.decodedBufferByteCount(prev)
-                                    await gate.acquire(
-                                        duration: bufferedDuration,
-                                        byteCount: bufferedByteCount
-                                    )
-                                    guard !Task.isCancelled, self.primaryPumpMayContinue(id) else { return }
-                                    self.audioEngine.scheduleBuffer(
-                                        prev,
-                                        completionCallbackType: .dataPlayedBack
-                                    ) { _ in
-                                        gate.release(
-                                            duration: bufferedDuration,
-                                            byteCount: bufferedByteCount
-                                        )
-                                    }
-                                }
-                                lastBuffer = buffer
+                        // 稳态解码泵整体移出 MainActor: 循环本身不再读主 actor 状态, 归属改由
+                        // pumpLease 逐块回答; 收尾逻辑仍留在外层这个主 actor Task 里。
+                        let loop = DecodedBufferSchedulingLoop<AVAudioPCMBuffer, UUID>(
+                            playID: id,
+                            lease: self.pumpLease,
+                            gate: gate,
+                            measure: { buffer in
+                                DecodedBufferMeasurement(
+                                    duration: Self.decodedBufferDuration(buffer),
+                                    byteCount: Self.decodedBufferByteCount(buffer)
+                                )
+                            },
+                            schedule: { [audioEngine = self.audioEngine] buffer, release in
+                                audioEngine.scheduleDecodedBuffer(
+                                    buffer, on: .primary, completionCallbackType: .dataPlayedBack
+                                ) { _ in release() }
                             }
-                        } catch {
+                        )
+                        let loopTask = Task.detached(priority: .userInitiated) {
+                            await loop.run(
+                                next: { try await iteratorBox.next() },
+                                initialHeldBuffer: secondPlayableBuffer
+                            )
+                        }
+                        let outcome = await withTaskCancellationHandler {
+                            await loopTask.value
+                        } onCancel: {
+                            loopTask.cancel()
+                        }
+
+                        switch outcome {
+                        case .cancelled, .lostOwnership:
+                            return
+                        case .completed(let buffer, _):
+                            lastBuffer = buffer
+                        case .failed(let error, let buffer, _):
+                            lastBuffer = buffer
                             if !Task.isCancelled { plog("Seek decode error: \(error)") }
                         }
 
@@ -9623,7 +9522,7 @@ final class AudioPlayerService {
         // Pace the next track's buffers to consumption of the *current* track's
         // buffers (same player node) so a fully prepared gapless track doesn't
         // double the resident PCM alongside the song that's still playing.
-        let gate = AsyncBufferGate(
+        let gate = DecodedBufferGate(
             maxBufferedDuration: Self.decodedAudioLookahead,
             maxBufferedBytes: Self.maxInFlightDecodedBytes,
             maxBufferCount: Self.maxInFlightDecodedBufferCount
@@ -9723,13 +9622,10 @@ final class AudioPlayerService {
 
     // MARK: - Crossfade
 
-    /// 交叉淡入在 commit 时就把 playID 轮换给下一首, 但换出的那一首还要
-    /// 继续播放完整段 ramp。喂 primary 节点的解码泵因此在转场结束(或被
-    /// 取消)之前保留调度资格, 否则 overlap 超过 `decodedAudioLookahead`
-    /// 时淡出轨会在 ramp 中途断流, 直接变成静音。
-    private func primaryPumpMayContinue(_ id: UUID) -> Bool {
-        CrossfadePumpContinuationPolicy.mayContinue(
-            playID: id,
+    /// 把 playID / crossfade 归属发布给已经离开 MainActor 的解码泵。
+    /// 三个来源字段的 didSet 都调用它, 漏掉任何一个都会让退役的泵继续投递。
+    private func syncPumpLease() {
+        pumpLease.update(
             currentPlayID: playID,
             isCrossfading: isCrossfading,
             outgoingPlayID: committedCrossfade?.outgoingPlayID
@@ -10145,7 +10041,7 @@ final class AudioPlayerService {
             updateNowPlayingArtworkIfNeeded()
             updatePlaybackState()
 
-            let gate = AsyncBufferGate(
+            let gate = DecodedBufferGate(
                 maxBufferedDuration: Self.decodedAudioLookahead,
                 maxBufferedBytes: Self.maxInFlightDecodedBytes,
                 maxBufferCount: Self.maxInFlightDecodedBufferCount
@@ -10473,7 +10369,7 @@ final class AudioPlayerService {
         }
     }
 
-    private func installDecodedBufferGate(_ gate: AsyncBufferGate, playID id: UUID) {
+    private func installDecodedBufferGate(_ gate: DecodedBufferGate, playID id: UUID) {
         guard playID == id else { return }
         activeDecodedBufferGate = gate
         activeDecodedBufferGatePlayID = id
@@ -10555,7 +10451,7 @@ final class AudioPlayerService {
     }
 
     private func recordDecodedBufferDiagnostic(
-        snapshot: AsyncBufferGate.Snapshot,
+        snapshot: DecodedBufferGate.Snapshot,
         isUnhealthy: Bool,
         playID id: UUID
     ) {
@@ -10589,7 +10485,7 @@ final class AudioPlayerService {
     }
 
     private func recoverDecodedBufferUnderflow(
-        snapshot: AsyncBufferGate.Snapshot,
+        snapshot: DecodedBufferGate.Snapshot,
         playID id: UUID
     ) {
         guard playID == id,
@@ -10626,7 +10522,7 @@ final class AudioPlayerService {
     }
 
     private func stopAfterRepeatedDecodedBufferUnderflow(
-        snapshot: AsyncBufferGate.Snapshot,
+        snapshot: DecodedBufferGate.Snapshot,
         playID id: UUID
     ) {
         guard playID == id else { return }
