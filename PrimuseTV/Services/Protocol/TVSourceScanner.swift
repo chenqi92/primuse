@@ -2065,6 +2065,25 @@ final class TVSourceScanner {
         .subsonic, .navidrome, .airsonic, .gonic,
     ]
 
+    /// 服务端的「喜欢」标记。能取的类型由 `ServerFavoriteWritebackPolicy` 决定 ——
+    /// 它同时定义了 item ID 与本地 `filePath` 的换算,两边必须用同一份规则。
+    func fetchServerFavorites(
+        source: MusicSource,
+        credential: SourceCredential?
+    ) async throws -> [String]? {
+        guard Self.serverPlaylistTypes.contains(source.type),
+              ServerFavoriteWritebackPolicy.supports(source.type) else { return nil }
+        return try await withRoutedSource(source) { routedSource in
+            guard let connector = TVServerCatalogConnectorFactory.make(
+                source: routedSource,
+                credential: credential
+            ) as? any ServerFavoriteConnector else { return nil }
+            defer { Task { await connector.disconnect() } }
+            try await connector.connect()
+            return try await connector.fetchServerFavorites().itemIDs
+        }
+    }
+
     func fetchFnMusicFavorites(source: MusicSource, credential: SourceCredential?) async throws -> [String] {
         try await withRoutedSource(source) { routedSource in
             try await self.fnMusicClient(source: routedSource, credential: credential).library.favorites()

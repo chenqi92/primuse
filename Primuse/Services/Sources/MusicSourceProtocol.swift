@@ -152,6 +152,25 @@ struct ConnectorScannedSong: Sendable {
         titleMetadataInspected: Bool,
         folderLocation: ConnectorLibraryFolderLocation? = nil
     ) {
+        // 服务端只是如实转发文件里的标签。遇到把整份 LRC 追加进标题的文件,
+        // Navidrome、Jellyfin 都会原样返回「歌名 [00:03.696]词:某某」,所以在
+        // 落库前统一清一次;走本地读标签的那条路由 `MediaMetadataTextRepair.preferred`
+        // 处理,两条路最终用的是同一份判定。
+        var song = song
+        if let title = MediaMetadataTextRepair.withoutEmbeddedLyricText(song.title),
+           title != song.title {
+            song.title = title
+        }
+        if let album = MediaMetadataTextRepair.withoutEmbeddedLyricText(song.albumTitle),
+           album != song.albumTitle {
+            song.albumTitle = album
+        }
+        if let artist = MediaMetadataTextRepair.withoutEmbeddedLyricText(song.artistName),
+           artist != song.artistName {
+            song.artistName = artist
+        }
+        let displayName = MediaMetadataTextRepair.withoutEmbeddedLyricText(displayName)
+            ?? displayName
         self.song = song
         self.displayName = displayName
         self.titleMetadataInspected = titleMetadataInspected

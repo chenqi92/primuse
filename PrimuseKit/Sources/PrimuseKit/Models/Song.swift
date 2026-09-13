@@ -347,6 +347,16 @@ public enum MediaMetadataTextRepair {
         guard !trimmed.isEmpty else { return false }
         return containsUnrecoverableReplacement(in: trimmed)
             || legacyChineseCandidate(for: trimmed) != nil
+            || containsEmbeddedLyricText(trimmed)
+    }
+
+    /// 标签值里是否混进了歌词。混进来的标题不能参与候选比较,也不该被当成
+    /// 「已经检查过、不必再读文件头」的结果 —— 已有的候选排序、重新检查、
+    /// 元数据补全都靠这一条来判定值坏没坏。
+    public static func containsEmbeddedLyricText(_ value: String?) -> Bool {
+        guard let value, !value.isEmpty else { return false }
+        let range = NSRange(value.startIndex..., in: value)
+        return embeddedLyricArtifact.firstMatch(in: value, range: range) != nil
     }
 
     private static let appendedArtistField = try! NSRegularExpression(
@@ -521,6 +531,33 @@ public enum MediaMetadataTextRepair {
     /// 是文件系统 —— 基本不会错。所以标签解坏时, 文件名往往还是好的。
     ///
     /// 两边都可疑时保留标签值: 至少让用户看见原文, 也还能用手动编码修正去救。
+    /// LRC 的时间轴与头部标签。歌词行 `[00:03.696]词:石栋颖`、头部 `[ti:...]`
+    /// 都长这样;真正的歌名里不会出现「数字:数字」形式的方括号,而 `[Live]`、
+    /// `[Remix]`、`[2020]` 这类正常写法都不匹配。
+    private static let embeddedLyricArtifact = try! NSRegularExpression(
+        pattern: #"\[(?:\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?|(?:ti|ar|al|au|by|re|ve|offset|length|kana|total)\s*:[^\]]*)\]"#,
+        options: [.caseInsensitive]
+    )
+
+    /// 去掉标签值里混进来的歌词。有些打标签工具会把整份 LRC 追加进标题,
+    /// 于是歌名变成「简单的鱼(Live)-小石头和孩子们 / 韩甜甜 [00:03.696]词:石栋颖」。
+    /// 服务端(Navidrome 这类)只是如实转发这个标签,所以三端看到的都是它。
+    /// 这里从第一处歌词痕迹截断,并清掉尾部悬空的分隔符。
+    ///
+    /// 只能用在标题 / 专辑 / 艺术家这类短字段上 —— 歌词字段本身当然满是时间轴。
+    public static func withoutEmbeddedLyricText(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let range = NSRange(value.startIndex..., in: value)
+        guard let match = embeddedLyricArtifact.firstMatch(in: value, range: range),
+              let boundary = Range(match.range, in: value) else { return value }
+        let head = String(value[..<boundary.lowerBound])
+        // 全角分隔符也要清:中文标签里「－」「／」「　」比半角常见得多。
+        let trimmed = head.trimmingCharacters(
+            in: CharacterSet(charactersIn: " \t\r\n\u{3000}-–—－/／·,、|｜~～")
+        )
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     public static func preferred(embedded: String?, fromFileName: String?) -> String? {
         let tag = embedded?.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = fromFileName?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -534,7 +571,9 @@ public enum MediaMetadataTextRepair {
         if let repairedName = repaired(name), !isSuspicious(repairedName) {
             return repairedName
         }
-        if let tag, !tag.isEmpty { return embedded }
+        // 标签坏了、文件名也顶不上时才退而求其次:混进歌词的标题至少把歌词切掉,
+        // 剩下的部分通常就是真正的歌名。
+        if let tag, !tag.isEmpty { return withoutEmbeddedLyricText(embedded) ?? embedded }
         return fromFileName
     }
 

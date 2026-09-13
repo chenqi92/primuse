@@ -2719,7 +2719,7 @@ final class TVStore {
                 await syncFnMusicLibrary(source: source, credential: cred, generation: generation)
                 guard isCurrentScan(source: source, generation: generation) else { return false }
             } else if TVSourceScanner.serverPlaylistTypes.contains(source.type) {
-                await syncServerPlaylists(source: source, credential: cred, generation: generation)
+                await syncServerLibrary(source: source, credential: cred, generation: generation)
                 guard isCurrentScan(source: source, generation: generation) else { return false }
             }
             enqueueSnapshotUpload()
@@ -2742,10 +2742,10 @@ final class TVStore {
         }
     }
 
-    /// 把 Navidrome、Jellyfin 这类服务器上的自建歌单镜像成本地歌单。
+    /// 把 Navidrome、Jellyfin 这类服务器上的自建歌单与「喜欢」标记同步下来。
     /// 与 iPhone、Mac 用同一份 `ServerPlaylistMirror`:歌单 ID 由 sourceID 派生,
     /// 每次扫描后以服务端内容为准覆盖,电视这边的改动不回写服务端。
-    private func syncServerPlaylists(
+    private func syncServerLibrary(
         source: MusicSource,
         credential: SourceCredential?,
         generation: UUID
@@ -2760,6 +2760,26 @@ final class TVStore {
             if OperationCancellationPolicy.isCancellation(error) { return }
             // 歌单镜像是扫描的附加步骤,失败不能把已经成功的扫描算作失败。
             plog("Server playlist sync failed for '\(source.name)': \(error.localizedDescription)")
+        }
+
+        guard isCurrentScan(source: source, generation: generation),
+              let revision = serverFeedback.favoriteRefreshRevision(sourceID: source.id) else { return }
+        do {
+            guard let itemIDs = try await scanner.fetchServerFavorites(
+                source: source, credential: credential
+            ) else { return }
+            guard isCurrentScan(source: source, generation: generation),
+                  serverFeedback.favoriteRefreshRevision(sourceID: source.id) == revision else { return }
+            let favorites = Set(itemIDs)
+            let songIDs = library.songs.filter {
+                $0.sourceID == source.id && ServerFavoriteWritebackPolicy.songID(
+                    fromConnectorPath: $0.filePath, sourceType: source.type
+                ).map(favorites.contains) == true
+            }.map(\.id)
+            library.replaceLikedSongs(fromSourceID: source.id, with: songIDs)
+        } catch {
+            if OperationCancellationPolicy.isCancellation(error) { return }
+            plog("Server favorite sync failed for '\(source.name)': \(error.localizedDescription)")
         }
     }
 
