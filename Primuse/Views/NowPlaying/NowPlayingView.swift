@@ -1554,7 +1554,7 @@ struct NowPlayingView: View {
                     .frame(width: 36, height: 36)
             }
         }
-        .foregroundStyle(player.isSleepTimerActive ? PMColor.brand : appearance.secondary)
+        .foregroundStyle(player.isSleepTimerActive ? themedControlAccent : appearance.secondary)
         .accessibilityLabel(Text(
             player.isSleepTimerActive
                 ? String(localized: "sleep_timer_active")

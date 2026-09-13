@@ -22,7 +22,7 @@ final class TVAppleMusicCatalog {
     private(set) var isSearching = false
     private(set) var lastError: String?
     /// 当前授权状态。界面据此决定显示内容还是显示授权入口。
-    private(set) var authorization: AppleMusicAuthorizationState = Self.currentAuthorization
+    private(set) var authorization: AppleMusicAuthorizationState = TVAppleMusicCatalog.currentAuthorization
     /// 未授权 —— 界面据此显示「允许访问 Apple Music」入口。
     var needsAuthorization: Bool { authorization != .authorized }
 

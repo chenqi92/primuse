@@ -1,5 +1,5 @@
-#if os(iOS)
 import SwiftUI
+#if os(iOS)
 import MusicKit
 import PrimuseKit
 import UIKit
@@ -210,12 +210,8 @@ extension EnvironmentValues {
         get { self[MinimalNavigationDetailTransitionHandlerEnvironmentKey.self] }
         set { self[MinimalNavigationDetailTransitionHandlerEnvironmentKey.self] = newValue }
     }
-
-    var mediaZoomNamespace: Namespace.ID? {
-        get { self[MediaZoomNamespaceEnvironmentKey.self] }
-        set { self[MediaZoomNamespaceEnvironmentKey.self] = newValue }
-    }
 }
+#endif
 
 // MARK: - 详情页 zoom 展开
 
@@ -238,6 +234,13 @@ private struct MediaZoomNamespaceEnvironmentKey: EnvironmentKey {
     static let defaultValue: Namespace.ID? = nil
 }
 
+extension EnvironmentValues {
+    var mediaZoomNamespace: Namespace.ID? {
+        get { self[MediaZoomNamespaceEnvironmentKey.self] }
+        set { self[MediaZoomNamespaceEnvironmentKey.self] = newValue }
+    }
+}
+
 private struct MediaZoomSourceModifier: ViewModifier {
     let transitionID: MediaZoomTransitionID
     @Environment(\.mediaZoomNamespace) private var namespace
@@ -245,6 +248,7 @@ private struct MediaZoomSourceModifier: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
+        #if os(iOS)
         if let namespace, !reduceMotion {
             // 不自定义裁剪形状:卡片是"封面 + 标题"的组合,拿一个矩形去裁本来
             // 就对不上,而圆形头像想要的超大圆角会让 continuous 圆角路径退化,
@@ -253,6 +257,9 @@ private struct MediaZoomSourceModifier: ViewModifier {
         } else {
             content
         }
+        #else
+        content
+        #endif
     }
 }
 
@@ -263,11 +270,15 @@ private struct MediaZoomDestinationModifier: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
+        #if os(iOS)
         if let namespace, !reduceMotion {
             content.navigationTransition(.zoom(sourceID: transitionID, in: namespace))
         } else {
             content
         }
+        #else
+        content
+        #endif
     }
 }
 
@@ -296,6 +307,7 @@ extension View {
     }
 }
 
+#if os(iOS)
 extension View {
     @ViewBuilder
     fileprivate func minimalSafeAreaBar<Bar: View>(
