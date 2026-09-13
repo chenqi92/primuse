@@ -1241,6 +1241,9 @@
 		73A0185505A7BF0F68113B3E /* SourceFailureClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = D40D025EDB031359CCBBE705 /* SourceFailureClassifier.swift */; };
 		39E81961125CCEF19EAAB80E /* TVSourceErrorText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62E654426C013B95FF061AB7 /* TVSourceErrorText.swift */; };
 		FA19866383AA384BD21E205A /* ImmersiveWaveformBarLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9FFD26621FCE491ED952851 /* ImmersiveWaveformBarLayout.swift */; };
+		126C4E92576E4EB267C19AC4 /* TVAppleMusicPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD88510E451C0ADB180BD036 /* TVAppleMusicPlayer.swift */; };
+		ED1CF0BE3E2522E0F9DA6E82 /* AppleMusicTVPlaybackPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56AE57C95C5866C39D340EC8 /* AppleMusicTVPlaybackPolicy.swift */; };
+		7F18AF05780FFDB5C464DF9A /* MusicKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2D28983A37BA8CB3CF6F19BF /* MusicKit.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2363,6 +2366,9 @@
 		D40D025EDB031359CCBBE705 /* SourceFailureClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceFailureClassifier.swift; sourceTree = "<group>"; };
 		62E654426C013B95FF061AB7 /* TVSourceErrorText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVSourceErrorText.swift; sourceTree = "<group>"; };
 		E9FFD26621FCE491ED952851 /* ImmersiveWaveformBarLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveWaveformBarLayout.swift; sourceTree = "<group>"; };
+		FD88510E451C0ADB180BD036 /* TVAppleMusicPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVAppleMusicPlayer.swift; sourceTree = "<group>"; };
+		56AE57C95C5866C39D340EC8 /* AppleMusicTVPlaybackPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicTVPlaybackPolicy.swift; sourceTree = "<group>"; };
+		2D28983A37BA8CB3CF6F19BF /* MusicKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MusicKit.framework; path = System/Library/Frameworks/MusicKit.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -2412,6 +2418,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7F18AF05780FFDB5C464DF9A /* MusicKit.framework in Frameworks */,
 				0C9F1467C16E87C811382E54 /* NIOCore in Frameworks */,
 				9F88DD143F48777FC58D111A /* Crypto in Frameworks */,
 				EB36DC91D0D34657F857DE69 /* Citadel in Frameworks */,
@@ -2728,6 +2735,7 @@
 		414F61F3A9ADE8E8099A5662 /* PrimuseKit */ = {
 			isa = PBXGroup;
 			children = (
+				56AE57C95C5866C39D340EC8 /* AppleMusicTVPlaybackPolicy.swift */,
 				E9FFD26621FCE491ED952851 /* ImmersiveWaveformBarLayout.swift */,
 				D40D025EDB031359CCBBE705 /* SourceFailureClassifier.swift */,
 				B8201B4D10F3B60D364411E9 /* AI */,
@@ -3250,6 +3258,7 @@
 		A14A5BB7A176E251105EE2CE /* Audio */ = {
 			isa = PBXGroup;
 			children = (
+				FD88510E451C0ADB180BD036 /* TVAppleMusicPlayer.swift */,
 				7BE978C7C25D46717630E668 /* ByteRangeReader.swift */,
 				C891ECCBAEB4EF0ED63759C7 /* TVAudioEngine.swift */,
 				1FFB43F39C3A62C7EBDB2D72 /* TVCredentialStore.swift */,
@@ -4439,6 +4448,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				ED1CF0BE3E2522E0F9DA6E82 /* AppleMusicTVPlaybackPolicy.swift in Sources */,
 				FA19866383AA384BD21E205A /* ImmersiveWaveformBarLayout.swift in Sources */,
 				73A0185505A7BF0F68113B3E /* SourceFailureClassifier.swift in Sources */,
 				E6A058665436BD86B1A77676 /* CloudDeviceAuthService.swift in Sources */,
@@ -5046,6 +5056,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				126C4E92576E4EB267C19AC4 /* TVAppleMusicPlayer.swift in Sources */,
 				39E81961125CCEF19EAAB80E /* TVSourceErrorText.swift in Sources */,
 				86F581FBD61599735CF56192 /* TVCloudAuthView.swift in Sources */,
 				D25C845568410A7BA320485B /* TVSFTPConnectorFactory.swift in Sources */,

@@ -1173,7 +1173,12 @@ final class TVStore {
             return type == .nfs || s.authType == .none || hasUsableCredential(for: s)
                 ? .ok : .missingCredential
         }
-        // 其余 relay 类(SFTP/local/appleMusic):能否播放取决于 iPhone 中继端点是否已同步过来。
+        // Apple Music:由 MusicKit 的系统播放器直接播,不需要凭据也不经中继。
+        // 真正能不能出声取决于授权与订阅,那要到起播时才知道,不在这里预判。
+        if AppleMusicTVPlaybackPolicy.usesSystemPlayer(sourceType: type, sourceID: s.id) {
+            return .ok
+        }
+        // 其余 relay 类(SFTP/local):能否播放取决于 iPhone 中继端点是否已同步过来。
         if RelayStreamResolver.relayTypes.contains(type) {
             return credentialBundle?.relay != nil ? .ok : .needsRelay
         }

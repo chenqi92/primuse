@@ -744,3 +744,10 @@
 "ext.tv.source.error.unreachable" = "تعذّر الوصول إلى الخادم. تحقّق من العنوان والمنفذ ومن وجود Apple TV على الشبكة نفسها.";
 "ext.tv.source.error.unsupported" = "لا يدعم هذا النوع هذه العملية.";
 "ext.tv.otp.iphoneHint" = "حدّد هذا الحقل ليمكنك إدخال الرمز من iPhone المقترن.";
+
+/* Apple TV Apple Music playback */
+"ext.tv.appleMusic.itemMissing" = "لم يعد مقطع Apple Music هذا متاحًا.";
+"ext.tv.appleMusic.needsAuthorization" = "اسمح لـ Primuse بالوصول إلى Apple Music من إعدادات Apple TV هذه، ثم أعد المحاولة.";
+"ext.tv.appleMusic.restricted" = "الوصول إلى Apple Music مقيّد على Apple TV هذه.";
+"ext.tv.appleMusic.needsSubscription" = "يتطلب تشغيل هذا المقطع اشتراك Apple Music ساريًا.";
+"ext.tv.appleMusic.failed" = "تعذّر على Apple Music بدء التشغيل.";

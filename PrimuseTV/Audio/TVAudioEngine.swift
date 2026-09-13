@@ -84,6 +84,79 @@ final class TVAudioEngine {
     )
     var displayPlayer: AVPlayer { player }
 
+    // MARK: 外部播放器接管(Apple Music)
+
+    /// 系统播放器(MusicKit `ApplicationMusicPlayer`)是否正在接管播放。
+    ///
+    /// Apple Music 是 DRM 流,只有 MusicKit 自己能播,而且它独占音频会话。
+    /// 但整个界面读的是这台引擎的 `currentTime` / `isPlaying` / `status`,
+    /// 所以接管期间引擎自身停机、仍然作为全 app 唯一的播放状态出口 ——
+    /// 进度条、逐字歌词、正在播放页都不必知道换了播放器。
+    private(set) var isExternallyDriven = false
+
+    /// 外部驱动时的传输控制,由接管的播放器安装。装上之后 `pause()` / `play()` /
+    /// `seek(to:)` 一律转交出去 —— 这样界面与遥控中心的调用点一个都不用改。
+    struct ExternalTransport {
+        let pause: @MainActor () -> Void
+        let resume: @MainActor () -> Void
+        let seek: @MainActor (Double) -> Void
+        /// 引擎被停下时一并放下外部播放器。任何调用 `stop()` 的路径都会走到这里,
+        /// 所以不会出现「引擎以为自己停了、系统播放器还在出声」。
+        let stop: @MainActor () -> Void
+    }
+
+    @ObservationIgnored private var externalTransport: ExternalTransport?
+
+    /// 交出音频会话并进入外部驱动模式。调用方随后用 `updateExternalPlayback`
+    /// 把系统播放器的状态回灌进来。
+    func beginExternalPlayback(duration: Double, transport: ExternalTransport) {
+        stop()
+        isExternallyDriven = true
+        externalTransport = transport
+        isLiveStream = false
+        isVideoMode = false
+        self.duration = duration.isFinite && duration > 0 ? duration : 0
+        currentTime = 0
+        isPlaying = false
+        status = .loading
+        resetSpectrumLevels()
+    }
+
+    /// 回灌系统播放器的状态。`currentTime` 的 `didSet` 会顺带刷新外推锚点,
+    /// 所以逐字歌词在外部驱动下同样按帧推进。
+    func updateExternalPlayback(currentTime: Double, duration: Double?, isPlaying: Bool) {
+        guard isExternallyDriven else { return }
+        if let duration, duration.isFinite, duration > 0, duration != self.duration {
+            self.duration = duration
+        }
+        if currentTime.isFinite, currentTime >= 0 {
+            self.currentTime = currentTime
+        }
+        if self.isPlaying != isPlaying { self.isPlaying = isPlaying }
+        let resolved: Status = isPlaying ? .playing : .paused
+        if status != resolved { status = resolved }
+    }
+
+    /// 外部播放器把整条队列放完了。走引擎自己的结束回调,队列推进逻辑与本机播放同一条。
+    func externalPlaybackDidEnd() {
+        guard isExternallyDriven else { return }
+        isPlaying = false
+        status = .paused
+        onEnded?()
+    }
+
+    func failExternalPlayback(_ message: String) {
+        guard isExternallyDriven else { return }
+        isPlaying = false
+        status = .failed(message)
+    }
+
+    /// 退出外部驱动模式。`stop()` 自己会放下外部播放器并把状态清回 idle。
+    func endExternalPlayback() {
+        guard isExternallyDriven else { return }
+        stop()
+    }
+
     /// 把两次时间回调之间的空档按墙上时钟补出来,供逐字歌词这种需要按帧推进的
     /// 绘制使用。外推量由 `PlaybackClockFreezePolicy` 限幅(最多 1 秒),暂停、
     /// 缓冲或播放结束时自动停在最后一个真实时间上,不会越跑越远。
@@ -721,6 +794,12 @@ final class TVAudioEngine {
 
     @discardableResult
     func play() -> Bool {
+        if let externalTransport {
+            externalTransport.resume()
+            isPlaying = true
+            status = .playing
+            return true
+        }
         activateAudioSession()
         if isLiveStream, player.currentItem == nil, !usingLivePCM, let liveRequest {
             startLiveRadio(liveRequest)
@@ -828,6 +907,12 @@ final class TVAudioEngine {
     }
 
     func pause() {
+        if let externalTransport {
+            externalTransport.pause()
+            isPlaying = false
+            status = .paused
+            return
+        }
         pendingStartID = nil
         liveStallTask?.cancel()
         liveStallTask = nil
@@ -882,6 +967,11 @@ final class TVAudioEngine {
     }
 
     func stop() {
+        if let externalTransport {
+            self.externalTransport = nil
+            isExternallyDriven = false
+            externalTransport.stop()
+        }
         resetSFBIfNeeded()
         removeEndObserver()
         removeSegmentBoundaryObserver()
@@ -907,6 +997,12 @@ final class TVAudioEngine {
     }
 
     func seek(to seconds: Double) {
+        if let externalTransport {
+            let target = max(0, duration > 0 ? min(seconds, duration) : seconds)
+            externalTransport.seek(target)
+            currentTime = target
+            return
+        }
         guard !isLiveStream else { return }
         pendingStartID = nil
         let target = playbackSegment.physicalTime(forLogicalTime: seconds)

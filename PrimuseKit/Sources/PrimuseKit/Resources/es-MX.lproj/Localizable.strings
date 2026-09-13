@@ -744,3 +744,10 @@
 "ext.tv.source.error.unreachable" = "No se puede llegar al servidor. Revisa la dirección, el puerto y que este Apple TV esté en la misma red.";
 "ext.tv.source.error.unsupported" = "Este tipo de fuente no admite esa operación.";
 "ext.tv.otp.iphoneHint" = "Selecciona este campo y tu iPhone vinculado podrá escribir el código.";
+
+/* Apple TV Apple Music playback */
+"ext.tv.appleMusic.itemMissing" = "Esta canción de Apple Music ya no está disponible.";
+"ext.tv.appleMusic.needsAuthorization" = "Permite que Primuse acceda a Apple Music en la Configuración de este Apple TV y vuelve a intentarlo.";
+"ext.tv.appleMusic.restricted" = "El acceso a Apple Music está restringido en este Apple TV.";
+"ext.tv.appleMusic.needsSubscription" = "Reproducir esta canción requiere una suscripción activa a Apple Music.";
+"ext.tv.appleMusic.failed" = "Apple Music no pudo iniciar la reproducción.";

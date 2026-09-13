@@ -744,3 +744,10 @@
 "ext.tv.source.error.unreachable" = "सर्वर तक नहीं पहुँच पा रहे। पता, पोर्ट और यह कि यह Apple TV उसी नेटवर्क पर है — जाँच लें।";
 "ext.tv.source.error.unsupported" = "यह स्रोत प्रकार यह काम नहीं करता।";
 "ext.tv.otp.iphoneHint" = "इस खाने को चुनें, फिर जोड़े गए iPhone से कोड टाइप कर सकते हैं।";
+
+/* Apple TV Apple Music playback */
+"ext.tv.appleMusic.itemMissing" = "यह Apple Music ट्रैक अब उपलब्ध नहीं है।";
+"ext.tv.appleMusic.needsAuthorization" = "इस Apple TV की सेटिंग्स में Primuse को Apple Music का ऐक्सेस दें, फिर दोबारा कोशिश करें।";
+"ext.tv.appleMusic.restricted" = "इस Apple TV पर Apple Music का ऐक्सेस प्रतिबंधित है।";
+"ext.tv.appleMusic.needsSubscription" = "इस ट्रैक को चलाने के लिए चालू Apple Music सदस्यता चाहिए।";
+"ext.tv.appleMusic.failed" = "Apple Music चलाना शुरू नहीं कर सका।";

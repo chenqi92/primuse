@@ -797,3 +797,10 @@
 "ext.tv.source.error.unreachable" = "서버에 연결할 수 없습니다. 주소와 포트, 그리고 이 Apple TV가 같은 네트워크에 있는지 확인하세요.";
 "ext.tv.source.error.unsupported" = "이 유형은 해당 작업을 지원하지 않습니다.";
 "ext.tv.otp.iphoneHint" = "이 입력란을 선택하면 페어링된 iPhone으로 입력할 수 있습니다.";
+
+/* Apple TV Apple Music playback */
+"ext.tv.appleMusic.itemMissing" = "이 Apple Music 곡은 더 이상 사용할 수 없습니다.";
+"ext.tv.appleMusic.needsAuthorization" = "이 Apple TV의 설정에서 Primuse의 Apple Music 접근을 허용한 뒤 다시 시도하세요.";
+"ext.tv.appleMusic.restricted" = "이 Apple TV에서는 Apple Music 접근이 제한되어 있습니다.";
+"ext.tv.appleMusic.needsSubscription" = "이 곡을 재생하려면 유효한 Apple Music 구독이 필요합니다.";
+"ext.tv.appleMusic.failed" = "Apple Music이 재생을 시작하지 못했습니다.";

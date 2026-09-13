@@ -744,3 +744,10 @@
 "ext.tv.source.error.unreachable" = "Не вдається зв'язатися із сервером. Перевірте адресу, порт і те, що Apple TV у тій самій мережі.";
 "ext.tv.source.error.unsupported" = "Цей тип джерела не підтримує цю дію.";
 "ext.tv.otp.iphoneHint" = "Оберіть це поле — і код можна буде ввести зі спареного iPhone.";
+
+/* Apple TV Apple Music playback */
+"ext.tv.appleMusic.itemMissing" = "Цей трек Apple Music більше недоступний.";
+"ext.tv.appleMusic.needsAuthorization" = "Дозвольте Primuse доступ до Apple Music у налаштуваннях цієї Apple TV і повторіть спробу.";
+"ext.tv.appleMusic.restricted" = "Доступ до Apple Music на цій Apple TV обмежено.";
+"ext.tv.appleMusic.needsSubscription" = "Для відтворення потрібна активна підписка Apple Music.";
+"ext.tv.appleMusic.failed" = "Apple Music не зміг почати відтворення.";

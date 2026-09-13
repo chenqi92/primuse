@@ -744,3 +744,10 @@
 "ext.tv.source.error.unreachable" = "เข้าถึงเซิร์ฟเวอร์ไม่ได้ ตรวจสอบที่อยู่ พอร์ต และว่า Apple TV อยู่เครือข่ายเดียวกัน";
 "ext.tv.source.error.unsupported" = "ชนิดแหล่งนี้ไม่รองรับการทำงานนี้";
 "ext.tv.otp.iphoneHint" = "เลือกช่องนี้แล้วพิมพ์รหัสจาก iPhone ที่จับคู่ไว้ได้เลย";
+
+/* Apple TV Apple Music playback */
+"ext.tv.appleMusic.itemMissing" = "เพลง Apple Music นี้ไม่พร้อมใช้งานแล้ว";
+"ext.tv.appleMusic.needsAuthorization" = "อนุญาตให้ Primuse เข้าถึง Apple Music ในการตั้งค่าของ Apple TV เครื่องนี้ แล้วลองใหม่";
+"ext.tv.appleMusic.restricted" = "การเข้าถึง Apple Music ถูกจำกัดบน Apple TV เครื่องนี้";
+"ext.tv.appleMusic.needsSubscription" = "การเล่นเพลงนี้ต้องมีการสมัคร Apple Music ที่ใช้งานอยู่";
+"ext.tv.appleMusic.failed" = "Apple Music เริ่มเล่นไม่สำเร็จ";

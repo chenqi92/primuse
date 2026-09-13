@@ -90,12 +90,13 @@ public actor StreamResolverRegistry {
     public var supportedTypes: Set<MusicSourceType> { Set(resolvers.keys) }
 
     /// `supportedTypes` 的同步可读版,供 UI(非 async 上下文)判断源能否在 TV 播放。
-    /// 必须与 `init` 注册表保持一致。没有 resolver 的是 `appleMusicLibrary`
-    /// (macOS iTunesLibrary 源)与 `appleMusic`:后者要由 MusicKit 的
-    /// `ApplicationMusicPlayer` 播放,电视端尚未接入,也无法经中继转发。
+    /// 电视端能播的类型。`appleMusicLibrary`(macOS iTunesLibrary 源)与 `fnos`
+    /// 没有实现。`appleMusic` 不经本注册表:它是 DRM 流,由 MusicKit 的
+    /// `ApplicationMusicPlayer` 直接播放(见 `AppleMusicTVPlaybackPolicy`),
+    /// 所以 `supportedTypes` 里没有它,这里却要算可播。
     /// 新增源类型时,这里与 init 一起更新。
     public nonisolated static let tvSupportedTypes: Set<MusicSourceType> =
-        Set(MusicSourceType.allCases).subtracting([.appleMusicLibrary, .appleMusic, .fnos])
+        Set(MusicSourceType.allCases).subtracting([.appleMusicLibrary, .fnos])
 
     public func streamURL(for song: Song,
                           source: MusicSource,

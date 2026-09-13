@@ -66,6 +66,8 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Primuse 需要访问 Apple Music,以便在这台 Apple TV 上播放你的 Apple Music 曲目。</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_primuse-xfer._tcp</string>

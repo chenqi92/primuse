@@ -166,9 +166,10 @@ import Testing
     // Phase 3:原生库源经中继也注册了
     #expect(supported.isSuperset(of: [.smb, .sftp, .nfs, .webdav, .local]))
     #expect(!supported.contains(.appleMusicLibrary))   // macOS-only,不接
-    // Apple Music 是 DRM 流,没有可按字节转发的文件,中继服务也不处理这种源。
+    // Apple Music 是 DRM 流,没有可按字节转发的文件,不进解析注册表;
+    // 但电视端由 MusicKit 直接播放,所以仍算作可播类型。
     #expect(!supported.contains(.appleMusic))
-    #expect(!StreamResolverRegistry.tvSupportedTypes.contains(.appleMusic))
+    #expect(StreamResolverRegistry.tvSupportedTypes.contains(.appleMusic))
 }
 
 @Test func relayResolver() async throws {

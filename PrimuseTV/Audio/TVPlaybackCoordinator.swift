@@ -104,6 +104,9 @@ enum TVLyricsLoadingPolicy {
 final class TVPlaybackCoordinator {
     private weak var store: TVStore?
     private let engine: TVAudioEngine
+    /// Apple Music 的系统播放器。只有真正播到 Apple Music 曲目时才会被用到,
+    /// 持有它本身不申请授权、也不碰音频会话。
+    private lazy var appleMusicPlayer = TVAppleMusicPlayer()
     private let registry = StreamResolverRegistry.shared
     private var lyricsTask: Task<Void, Never>?
     private var playbackMetadataTask: Task<Void, Never>?
@@ -208,6 +211,9 @@ final class TVPlaybackCoordinator {
         autoPlay: Bool = true
     ) async {
         cancelAuxiliaryTasks()
+        // 换歌先把系统播放器放下:它独占音频会话,不先停就会和本机引擎互抢。
+        // 若这次要播的还是 Apple Music,下面的移交会重新接管。
+        releaseAppleMusicIfNeeded()
         // Keep the store alive for the whole asynchronous playback setup. A queued
         // task may otherwise outlive TVStore and turn an `unowned` access into a trap.
         guard let store, isCurrent(requestID, store: store) else { return }
@@ -222,6 +228,23 @@ final class TVPlaybackCoordinator {
             plog("🎬 TV play: NO source for '\(song.title)' sourceID=\(song.sourceID)")
             guard isCurrent(requestID, store: store) else { return }
             store.playbackIssue = .unsupported(song.sourceID)
+            return
+        }
+        // Apple Music 只有 MusicKit 能播,而且它独占音频会话:在碰任何本机解码 /
+        // 直连读取之前就整条移交出去,自家引擎先停。与 iPhone 端 `yieldToAppleMusic`
+        // 同一套语义,只是电视端的播放入口唯一,复用现成的 requestID 当代次即可,
+        // 不需要手机端那层用来给目录直接点播解耦的通知。
+        if AppleMusicTVPlaybackPolicy.usesSystemPlayer(
+            sourceType: source.type,
+            sourceID: song.sourceID
+        ) {
+            await playAppleMusic(
+                song: song,
+                source: source,
+                requestID: requestID,
+                startAt: startAt,
+                autoPlay: autoPlay
+            )
             return
         }
         let credential = TVCredentialStore.credential(for: source, bundle: store.credentialBundle)
@@ -646,6 +669,109 @@ final class TVPlaybackCoordinator {
     }
 
     /// 非原生格式:下载整文件到临时路径,交给 SFBAudioEngine 本机解码播放。
+    // MARK: - Apple Music(系统播放器接管)
+
+    private func playAppleMusic(
+        song: Song,
+        source: MusicSource,
+        requestID: UUID,
+        startAt: Double,
+        autoPlay: Bool
+    ) async {
+        guard let store, isCurrent(requestID, store: store) else { return }
+        guard let itemID = AppleMusicTVPlaybackPolicy.itemID(fromFilePath: song.filePath) else {
+            store.playbackIssue = .failed(PMString("ext.tv.appleMusic.itemMissing"))
+            return
+        }
+        let player = appleMusicPlayer
+        // 先让出音频会话:只 pause 不够,AVPlayer 仍持有会话,MusicKit 起播会抢。
+        engine.beginExternalPlayback(
+            duration: song.duration,
+            transport: TVAudioEngine.ExternalTransport(
+                pause: { [weak player] in player?.pause() },
+                resume: { [weak player] in Task { @MainActor in await player?.resume() } },
+                seek: { [weak player] seconds in player?.seek(to: seconds) },
+                stop: { [weak player] in player?.stop() }
+            )
+        )
+        do {
+            let duration = try await player.play(
+                itemID: itemID,
+                startAt: startAt,
+                autoPlay: autoPlay
+            )
+            guard isCurrent(requestID, store: store) else {
+                engine.endExternalPlayback()
+                return
+            }
+            engine.updateExternalPlayback(
+                currentTime: startAt,
+                duration: duration > 0 ? duration : song.duration,
+                isPlaying: autoPlay
+            )
+            startAppleMusicMirror(requestID: requestID)
+            loadLyrics(song: song, source: source, credential: nil, requestID: requestID)
+        } catch is CancellationError {
+            engine.endExternalPlayback()
+        } catch {
+            guard isCurrent(requestID, store: store) else { return }
+            let message = Self.appleMusicFailureMessage(error)
+            engine.failExternalPlayback(message)
+            store.playbackIssue = .failed(message)
+            player.stop()
+            player.stopMirroring()
+        }
+    }
+
+    /// 把系统播放器的状态回灌进引擎。界面读的始终是引擎那一份,所以进度条、
+    /// 逐字歌词、正在播放页都不需要知道换了播放器。
+    private func startAppleMusicMirror(requestID: UUID) {
+        appleMusicPlayer.startMirroring { [weak self] tick in
+            guard let self, let store = self.store,
+                  self.isCurrent(requestID, store: store) else { return }
+            _ = store
+            self.engine.updateExternalPlayback(
+                currentTime: tick.currentTime,
+                duration: tick.duration,
+                isPlaying: tick.isPlaying
+            )
+            if tick.didFinish {
+                self.appleMusicPlayer.stopMirroring()
+                self.engine.externalPlaybackDidEnd()
+            }
+        }
+    }
+
+    /// 播放其它来源前调用:把系统播放器彻底放下,音频会话交还引擎。
+    /// 引擎的 `stop()` 会顺带调用装好的 `stop` 钩子,所以这里只需要触发它。
+    func releaseAppleMusicIfNeeded() {
+        guard engine.isExternallyDriven else { return }
+        engine.endExternalPlayback()
+    }
+
+    private static func appleMusicFailureMessage(_ error: Error) -> String {
+        guard let failure = error as? TVAppleMusicPlayer.StartFailure else {
+            return error.localizedDescription
+        }
+        switch failure {
+        case .itemNotFound:
+            return PMString("ext.tv.appleMusic.itemMissing")
+        case .playbackFailed(let detail):
+            return detail.isEmpty ? PMString("ext.tv.appleMusic.failed") : detail
+        case .notAuthorized(let readiness):
+            switch readiness {
+            case .needsAuthorization, .denied:
+                return PMString("ext.tv.appleMusic.needsAuthorization")
+            case .restricted:
+                return PMString("ext.tv.appleMusic.restricted")
+            case .needsSubscription:
+                return PMString("ext.tv.appleMusic.needsSubscription")
+            case .ready:
+                return PMString("ext.tv.appleMusic.failed")
+            }
+        }
+    }
+
     private func finishLoadedPlayback(
         song: Song,
         source: MusicSource,

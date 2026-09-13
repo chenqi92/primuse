@@ -654,6 +654,9 @@ targets:
         buildPhase: resources
     dependencies:
       - sdk: DeviceCheck.framework
+      # Apple Music:DRM 流只有 MusicKit 的 ApplicationMusicPlayer 能播,
+      # 既读不到字节也无法经 iPhone 中继转发。
+      - sdk: MusicKit.framework
       - target: PrimuseKit
       - target: PrimuseTopShelf
       - package: GRDB
@@ -706,6 +709,7 @@ targets:
           - pl
         # 只用 HTTPS / 标准 OS 加密(豁免类),声明免出口合规,免去每次上传都要填。
         ITSAppUsesNonExemptEncryption: false
+        NSAppleMusicUsageDescription: "Primuse 需要访问 Apple Music,以便在这台 Apple TV 上播放你的 Apple Music 曲目。"
         # 云盘扫码授权用的内置 client 凭据,与 iOS / macOS 取同一组 xcconfig 变量。
         PrimuseBaiduClientID: "$(BAIDU_CLIENT_ID)"
         PrimuseBaiduClientSecret: "$(BAIDU_CLIENT_SECRET)"

@@ -744,3 +744,10 @@
 "ext.tv.source.error.unreachable" = "Sunucuya ulaşılamıyor. Adresi, kapıyı ve bu Apple TV'nin aynı ağda olduğunu kontrol et.";
 "ext.tv.source.error.unsupported" = "Bu kaynak türü bu işlemi desteklemiyor.";
 "ext.tv.otp.iphoneHint" = "Bu alanı seç, eşleşmiş iPhone'undan kodu yazabilirsin.";
+
+/* Apple TV Apple Music playback */
+"ext.tv.appleMusic.itemMissing" = "Bu Apple Music parçası artık kullanılamıyor.";
+"ext.tv.appleMusic.needsAuthorization" = "Bu Apple TV'nin Ayarlar'ında Primuse'a Apple Music erişimi ver, sonra yeniden dene.";
+"ext.tv.appleMusic.restricted" = "Bu Apple TV'de Apple Music erişimi kısıtlı.";
+"ext.tv.appleMusic.needsSubscription" = "Bu parçayı çalmak için etkin bir Apple Music aboneliği gerekiyor.";
+"ext.tv.appleMusic.failed" = "Apple Music çalmayı başlatamadı.";

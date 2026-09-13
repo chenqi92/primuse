@@ -794,3 +794,10 @@
 "ext.tv.source.error.unreachable" = "连不上服务器。请检查地址和端口,并确认 Apple TV 与它在同一网络。";
 "ext.tv.source.error.unsupported" = "该类型不支持这项操作。";
 "ext.tv.otp.iphoneHint" = "聚焦这个输入框,配对的 iPhone 上就能直接打字。";
+
+/* Apple TV Apple Music playback */
+"ext.tv.appleMusic.itemMissing" = "这首 Apple Music 曲目已不可用。";
+"ext.tv.appleMusic.needsAuthorization" = "请在这台 Apple TV 的「设置」里允许 Primuse 访问 Apple Music,然后重试。";
+"ext.tv.appleMusic.restricted" = "这台 Apple TV 上的 Apple Music 访问受限。";
+"ext.tv.appleMusic.needsSubscription" = "播放这首曲目需要有效的 Apple Music 订阅。";
+"ext.tv.appleMusic.failed" = "Apple Music 未能开始播放。";
