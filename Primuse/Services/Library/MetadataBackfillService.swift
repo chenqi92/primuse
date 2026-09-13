@@ -444,7 +444,12 @@ final class MetadataBackfillService {
         Set<PlaybackTagReadIdentity> = []
     @ObservationIgnored private var lastRemainingCountRefreshAt = Date.distantPast
     @ObservationIgnored private var remainingCountComputationGeneration: UInt64 = 0
-    private static let remainingCountRefreshInterval: TimeInterval = 5
+    /// 整库对账要遍历全部歌曲, 只在发布前后才有新数可算, 所以节流窗口跟着
+    /// 发布节奏走而不是固定 5 秒 —— 固定窗口在低档位上会按更小的快照反复
+    /// 重扫整库, 恰好让档位越低开销越大。
+    private var remainingCountRefreshInterval: TimeInterval {
+        max(5, executionLimits.flushInterval)
+    }
     /// A durable dirty bit separates "the library changed" from "run a full
     /// eligibility sweep on every lifecycle/network callback". The first run
     /// after upgrading reconciles once; a proven-clean library then stays
@@ -482,6 +487,19 @@ final class MetadataBackfillService {
     @ObservationIgnored private var readProgressAccumulator: [String: MetadataReadingRate] = [:]
     @ObservationIgnored private var lastReadProgressPublishedAt = Date.distantPast
     @ObservationIgnored private var recentProcessingDuration: TimeInterval = 0.5
+    // 攒起来等发布的结果。这些必须活在 worker 这一层而不是单个快照里: 一次
+    // 发布的代价与整库规模成正比, 与这一批有几首无关, 而低档位的快照只有
+    // 8~48 行。按快照边界强制收尾, 等于把同一笔整库开销摊到更少的歌上 ——
+    // 档位越低每首歌付得越多。跨快照累积, 发布只由完成量与时间间隔决定。
+    @ObservationIgnored private var pendingFlush: [Song] = []
+    @ObservationIgnored private var pendingMetadataInspectionIDs: Set<String> = []
+    @ObservationIgnored private var pendingArtistInspectionIDs: Set<String> = []
+    @ObservationIgnored private var artistInspectionIDsRequiringReplacement: Set<String> = []
+    @ObservationIgnored private var lastFlushAt = Date.distantPast
+    /// 已读完但还没发布的歌。它们在资料库里仍然是"裸行", 所以必须和
+    /// `manuallyReadingSongIDs` 一样从选取里排除, 否则下一个快照会把它们
+    /// 再读一遍并触发"同一批 ID 反复出现"的停摆保护。
+    @ObservationIgnored private var pendingFlushSongIDs: Set<String> = []
 
     private var executionLimits: MetadataBackfillExecutionLimits {
         let budget = MetadataBackfillExecutionPolicy.limits(
@@ -566,11 +584,15 @@ final class MetadataBackfillService {
     func readingConstraint(forSource sourceID: String) -> MetadataReadingConstraint {
         _ = readingConfigurationRevision
         return MetadataBackfillExecutionPolicy.constraint(
-            for: executionMode, environment: readingEnvironment(sourceID: sourceID)
+            for: executionMode,
+            environment: readingEnvironment(sourceID: sourceID),
+            preference: readingMode
         )
     }
 
     func readingConfigurationChanged() {
+        let wasPaused = !readingMode.readsAutomatically
+        var resumesFromPause = false
         let mode = MetadataReadingMode.resolve(
             storedValue: UserDefaults.standard.string(forKey: MetadataBackfillExecutionPolicy.readingModeDefaultsKey),
             legacyFastEnabled: UserDefaults.standard.bool(forKey: MetadataBackfillExecutionPolicy.highPerformanceAfterScanDefaultsKey)
@@ -584,10 +606,21 @@ final class MetadataBackfillService {
             readingProgress.removeAll()
             lastReadProgressPublishedAt = .distantPast
             plog("Backfill: reading preference -> \(mode.rawValue)")
+            if !mode.readsAutomatically {
+                // 切到暂停: 停掉 worker, 它会把攒下的那一批发布完再收尾。
+                // 手动重读是用户主动发起的, 不在暂停范围内, 由下面的
+                // configurationChanged() 原地换到最保守的预算。
+                stop()
+            } else if wasPaused {
+                resumesFromPause = true
+            }
         }
         readingConfigurationRevision += 1
         activeScheduler?.configurationChanged()
         for scheduler in batchSchedulers.values { scheduler.configurationChanged() }
+        // 从暂停切回读取档位要真的重新开工; 只通知调度器不够, 暂停期间根本
+        // 没有 worker 在跑。放在通知之后, 这样新 worker 看到的已经是新预算。
+        if resumesFromPause { start() }
     }
 
     private func recordProcessingDuration(_ duration: TimeInterval) {
@@ -1482,6 +1515,12 @@ final class MetadataBackfillService {
         #if os(iOS)
         guard !backgroundExecutionExpired || UIApplication.shared.applicationState == .active else { return }
         #endif
+        // 用户把自动标签读取关掉了。手动单首/单源重读走自己的入口, 不受影响。
+        guard readingMode.readsAutomatically
+                || !MetadataBackfillExecutionPolicy.honoursPausedPreference(executionMode) else {
+            plog("📥 Backfill: skip (tag reading paused by the user)")
+            return
+        }
         guard worker == nil else {
             // Worker still in flight — common during initial scan when
             // multiple onChange events fire. Logging was added because
@@ -2460,7 +2499,7 @@ final class MetadataBackfillService {
         let now = Date()
         guard force
                 || now.timeIntervalSince(lastRemainingCountRefreshAt)
-                    >= Self.remainingCountRefreshInterval else { return }
+                    >= remainingCountRefreshInterval else { return }
         lastRemainingCountRefreshAt = now
         remainingCountComputationGeneration &+= 1
         applyRemainingCounts(Self.computeRemainingCounts(makeRemainingCountsInput()))
@@ -2472,7 +2511,7 @@ final class MetadataBackfillService {
         let now = Date()
         guard force
                 || now.timeIntervalSince(lastRemainingCountRefreshAt)
-                    >= Self.remainingCountRefreshInterval else { return }
+                    >= remainingCountRefreshInterval else { return }
         lastRemainingCountRefreshAt = now
         remainingCountComputationGeneration &+= 1
         let computationGeneration = remainingCountComputationGeneration
@@ -2518,6 +2557,15 @@ final class MetadataBackfillService {
         }
     }
 
+    /// `trimmingCharacters(in:).isEmpty` 要为每个字段分配一个新字符串。整库
+    /// 对账每首歌要问三个字段, 万首级曲库一轮就是几万次无谓分配, 而这一轮会
+    /// 反复跑一整场回填。判定等价, 只是不分配。
+    @inline(__always)
+    private nonisolated static func hasVisibleContent(_ value: String?) -> Bool {
+        guard let value else { return false }
+        return value.contains { !$0.isWhitespace && !$0.isNewline }
+    }
+
     private nonisolated static func computeRemainingCounts(
         _ input: RemainingCountsInput
     ) -> RemainingCountsComputation {
@@ -2555,10 +2603,10 @@ final class MetadataBackfillService {
                 artworkGivenUp: input.artworkGivenUpIDs.contains(song.id),
                 titleChecked: input.titleCheckedIDs.contains(song.id),
                 durationInspectionComplete: input.incompleteSongIDs.contains(song.id),
-                hasAlbumTitle: !(song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
-                hasAlbumArtist: !(song.albumArtistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+                hasAlbumTitle: Self.hasVisibleContent(song.albumTitle),
+                hasAlbumArtist: Self.hasVisibleContent(song.albumArtistName),
                 albumArtistChecked: input.albumArtistCheckedIDs.contains(song.id),
-                hasArtist: !(song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+                hasArtist: Self.hasVisibleContent(song.artistName),
                 artistChecked: input.artistCheckedIDs.contains(song.id)
             )
             let stillNeedsDetails = !workReasons.isEmpty
@@ -3262,11 +3310,7 @@ final class MetadataBackfillService {
 
     // MARK: - Worker
 
-    /// Large cloud libraries need far fewer whole-library cache/index rebuilds.
-    /// Network requests still complete continuously; only the observable
-    /// library publication is coalesced.
-    private static let flushBatchSize = 250
-    /// Flush cadence and worker count come from
+    /// Flush cadence, batch size and worker count all come from
     /// MetadataBackfillExecutionPolicy. Standard work retains the historical
     /// three-worker throughput; iOS background modes are serial and throttled.
     /// Hard cap for a single song's metadata backfill. Some SMB/NAS stacks can
@@ -3278,6 +3322,7 @@ final class MetadataBackfillService {
     private static let explicitRereadTimeout: TimeInterval = 180
     private func runWorker() async {
         defer { library.flushDeferredLibraryMaintenance() }
+        resetPendingFlushState()
         // Outer loop: take a snapshot of bare songs, process the snapshot
         // sequentially, flush in batches. We deliberately do NOT call
         // `pickNextBatch` per-song — until we flush the batch the
@@ -3342,18 +3387,15 @@ final class MetadataBackfillService {
             await processSnapshot(snapshot)
             completedSnapshotPasses += 1
         }
+        // 收尾这一批必须落地 —— 它横跨了好几个快照, 也可能是被 stop() 取消的。
+        // 发布走的 detached 准备任务不继承取消, 所以这里仍然能走完。
+        await publishPendingFlushIfDue(isFinal: true)
     }
 
-    /// Process a fixed list of songs with the active bounded concurrency,
-    /// flushing the library
-    /// every `flushBatchSize` successes (or every `flushInterval` seconds).
-    /// Each song in the snapshot is touched exactly once.
+    /// Process a fixed list of songs with the active bounded concurrency.
+    /// Publication is owned by `publishPendingFlushIfDue` and deliberately
+    /// outlives this snapshot. Each song in the snapshot is touched exactly once.
     private func processSnapshot(_ snapshot: [Song]) async {
-        var pendingFlush: [Song] = []
-        var pendingMetadataInspectionIDs: Set<String> = []
-        var pendingArtistInspectionIDs: Set<String> = []
-        var artistInspectionIDsRequiringReplacement: Set<String> = []
-        var lastFlushAt = Date()
         let environment = readingEnvironment()
         let limits = executionLimits
         plog("📥 processSnapshot: starting with \(snapshot.count) songs workers=\(limits.workerCount) delay=\(limits.interRequestDelay) thermal=\(environment.thermalState) speed=\(readingMode.rawValue) continued=\(hasContinuedProcessingTime)")
@@ -3561,80 +3603,71 @@ final class MetadataBackfillService {
                         }
                     }
                     pendingFlush.append(updated)
+                    pendingFlushSongIDs.insert(updated.id)
                 }
 
-                // Flush when the batch is full OR the interval has elapsed。
-                // 在 main actor 上, library.replaceSongs 调一次即可。
-                let flushInterval = executionLimits.flushInterval
-                let shouldFlush = MetadataBackfillSceneTransitionPolicy.shouldPublishFlush(
-                    isPaused: isSceneTransitionPaused,
-                    isFinalFlush: false
-                ) && (pendingFlush.count >= Self.flushBatchSize
-                    || pendingMetadataInspectionIDs.count >= Self.flushBatchSize
-                    || pendingArtistInspectionIDs.count >= Self.flushBatchSize
-                    || Date().timeIntervalSince(lastFlushAt) >= flushInterval)
-                if shouldFlush,
-                   (!pendingFlush.isEmpty
-                    || !pendingMetadataInspectionIDs.isEmpty
-                    || !pendingArtistInspectionIDs.isEmpty) {
-                    // Partial metadata can be accompanied by markFailed=true
-                    // (for example TIT2 parsed but duration did not). Failure
-                    // membership must stop future network retries, not discard
-                    // the useful result we already have.
-                    let flushSignpost = PrimuseSignposts.hitch
-                        .beginInterval("backfill.flushApply")
-                    let batch = pendingFlush.compactMap(backfillResultForApply)
-                    let batchIDs = Set(batch.map(\.id))
-                    pendingFlush.removeAll(keepingCapacity: true)
-                    lastFlushAt = Date()
-                    if !batch.isEmpty {
-                        await library.replaceSongsPreparedOffMain(
-                            batch,
-                            maintenance: .deferred
-                        )
-                        clearDeferredRetries(in: batch)
-                        plog("📥 flushed \(batch.count) songs to library")
-                    }
-                    let artistIDsSafeToPersist = pendingArtistInspectionIDs
-                        .subtracting(artistInspectionIDsRequiringReplacement)
-                        .union(artistInspectionIDsRequiringReplacement.intersection(batchIDs))
-                    markArtistsInspected(songIDs: artistIDsSafeToPersist)
-                    pendingArtistInspectionIDs.subtract(artistIDsSafeToPersist)
-                    artistInspectionIDsRequiringReplacement.subtract(batchIDs)
-                    markMetadataInspected(songIDs: pendingMetadataInspectionIDs)
-                    pendingMetadataInspectionIDs.removeAll(keepingCapacity: true)
-                    PrimuseSignposts.hitch.endInterval(
-                        "backfill.flushApply",
-                        flushSignpost
-                    )
-                    await refreshRemainingCountsOffMain()
-                }
+                await publishPendingFlushIfDue()
 
         }
 
-        // Final flush
-        var finalBatchIDs: Set<String> = []
-        if !pendingFlush.isEmpty {
-            let batch = pendingFlush.compactMap(backfillResultForApply)
-            finalBatchIDs = Set(batch.map(\.id))
-            pendingFlush.removeAll()
-            if !batch.isEmpty {
-                await library.replaceSongsPreparedOffMain(
-                    batch,
-                    maintenance: .deferred
-                )
-                clearDeferredRetries(in: batch)
-                plog("📥 final flush: \(batch.count) songs to library")
-            }
+        // 快照边界不再强制发布: 攒下的结果跟着 worker 走到下一个快照。失败与
+        // 重试计数仍要对账, 但走节流而不是强制 —— 强制一次就是一次整库扫描,
+        // 而后台播放档位的快照只有 8 行。
+        await refreshRemainingCountsOffMain()
+    }
+
+    /// 发布攒下的结果。`isFinal` 只在 worker 收尾时为真 —— 那一批必须落地,
+    /// 哪怕正处在场景过渡的静默窗口里。
+    private func publishPendingFlushIfDue(isFinal: Bool = false) async {
+        guard !pendingFlush.isEmpty
+                || !pendingMetadataInspectionIDs.isEmpty
+                || !pendingArtistInspectionIDs.isEmpty else { return }
+        guard MetadataBackfillSceneTransitionPolicy.shouldPublishFlush(
+            isPaused: isSceneTransitionPaused,
+            isFinalFlush: isFinal
+        ) else { return }
+        let limits = executionLimits
+        // 主闸门是完成量, 时间间隔只是慢档位下的兜底。两者都远大于首页的
+        // 重算节流窗口, 所以连续发布会被首页合并成一次整库重算。
+        guard isFinal
+                || pendingFlush.count >= limits.flushBatchSize
+                || pendingMetadataInspectionIDs.count >= limits.flushBatchSize
+                || pendingArtistInspectionIDs.count >= limits.flushBatchSize
+                || Date().timeIntervalSince(lastFlushAt) >= limits.flushInterval else { return }
+
+        // Partial metadata can be accompanied by markFailed=true (for example
+        // TIT2 parsed but duration did not). Failure membership must stop
+        // future network retries, not discard the useful result we already have.
+        let flushSignpost = PrimuseSignposts.hitch.beginInterval("backfill.flushApply")
+        let batch = pendingFlush.compactMap(backfillResultForApply)
+        let batchIDs = Set(batch.map(\.id))
+        pendingFlush.removeAll(keepingCapacity: true)
+        pendingFlushSongIDs.removeAll(keepingCapacity: true)
+        lastFlushAt = Date()
+        if !batch.isEmpty {
+            await library.replaceSongsPreparedOffMain(batch, maintenance: .deferred)
+            clearDeferredRetries(in: batch)
+            plog("📥 \(isFinal ? "final flush" : "flushed") \(batch.count) songs to library")
         }
-        let finalArtistIDsSafeToPersist = pendingArtistInspectionIDs
+        let artistIDsSafeToPersist = pendingArtistInspectionIDs
             .subtracting(artistInspectionIDsRequiringReplacement)
-            .union(artistInspectionIDsRequiringReplacement.intersection(finalBatchIDs))
-        markArtistsInspected(songIDs: finalArtistIDsSafeToPersist)
+            .union(artistInspectionIDsRequiringReplacement.intersection(batchIDs))
+        markArtistsInspected(songIDs: artistIDsSafeToPersist)
+        pendingArtistInspectionIDs.subtract(artistIDsSafeToPersist)
+        artistInspectionIDsRequiringReplacement.subtract(batchIDs)
         markMetadataInspected(songIDs: pendingMetadataInspectionIDs)
-        // Also publish permanent/transient failures from a snapshot that had
-        // no successful songs to flush.
-        await refreshRemainingCountsOffMain(force: true)
+        pendingMetadataInspectionIDs.removeAll(keepingCapacity: true)
+        PrimuseSignposts.hitch.endInterval("backfill.flushApply", flushSignpost)
+        await refreshRemainingCountsOffMain(force: isFinal)
+    }
+
+    private func resetPendingFlushState() {
+        pendingFlush.removeAll()
+        pendingFlushSongIDs.removeAll()
+        pendingMetadataInspectionIDs.removeAll()
+        pendingArtistInspectionIDs.removeAll()
+        artistInspectionIDsRequiringReplacement.removeAll()
+        lastFlushAt = Date()
     }
 
     private func shouldBlockForCellular() -> Bool {
@@ -4839,6 +4872,7 @@ final class MetadataBackfillService {
         let bareOnlySourceIDs: Set<String>
         let disabledSourceIDs: Set<String>
         let manuallyReadingSongIDs: Set<String>
+        let pendingFlushSongIDs: Set<String>
         let failedSongIDs: Set<String>
         let sourceIssueSongIDs: Set<String>
         let sessionGivenUpIDs: Set<String>
@@ -4875,6 +4909,7 @@ final class MetadataBackfillService {
             bareOnlySourceIDs: bareOnlySourceIDs(),
             disabledSourceIDs: library.disabledSourceIDs,
             manuallyReadingSongIDs: manuallyReadingSongIDs,
+            pendingFlushSongIDs: pendingFlushSongIDs,
             failedSongIDs: failedSongIDs,
             sourceIssueSongIDs: sourceIssueSongIDs,
             sessionGivenUpIDs: sessionGivenUpIDs,
@@ -4903,6 +4938,8 @@ final class MetadataBackfillService {
                 continue
             }
             guard !input.manuallyReadingSongIDs.contains(song.id) else { continue }
+            // 已读完但还没发布的歌在库里仍然是裸行; 再选一次就是重复下载。
+            guard !input.pendingFlushSongIDs.contains(song.id) else { continue }
             guard !input.failedSongIDs.contains(song.id) else { continue }
             guard !input.sourceIssueSongIDs.contains(song.id) else { continue }
             guard !input.sessionGivenUpIDs.contains(song.id) else { continue }

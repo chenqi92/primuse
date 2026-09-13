@@ -2,6 +2,7 @@
 "automatic" = "Automático";
 "fast" = "Máxima velocidad";
 "energySaving" = "Ahorrar energía";
+"paused" = "En pausa";
 "playback" = "Protegiendo la reproducción";
 "lowPower" = "Modo de bajo consumo";
 "thermal" = "Lectura más lenta para enfriar";

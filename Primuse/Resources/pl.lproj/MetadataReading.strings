@@ -2,6 +2,7 @@
 "automatic" = "Automatycznie";
 "fast" = "Pełna prędkość";
 "energySaving" = "Oszczędzanie energii";
+"paused" = "Wstrzymano";
 "playback" = "Priorytet odtwarzania";
 "lowPower" = "Tryb niskiego zużycia energii";
 "thermal" = "Wolniejszy odczyt dla schłodzenia";

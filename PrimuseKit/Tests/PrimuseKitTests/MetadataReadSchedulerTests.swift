@@ -103,7 +103,7 @@ struct MetadataReadSchedulerTests {
 
     @Test func deviceCapacityNeverOverridesProtection() {
         for platform in [MetadataReadingDeviceProfile.Platform.mobile, .desktop, .television] {
-            for preference in MetadataReadingMode.allCases {
+            for preference in MetadataReadingMode.automaticCases {
                 let device = MetadataReadingDeviceProfile(
                     platform: platform, activeProcessorCount: 64, physicalMemory: 128 * 1_024 * 1_024 * 1_024
                 )
@@ -116,7 +116,14 @@ struct MetadataReadSchedulerTests {
                 environment.lowPowerMode = false
                 environment.playbackActive = true
                 let playing = MetadataBackfillExecutionPolicy.limits(for: .standard, preference: preference, environment: environment)
-                #expect(playing.workerCount <= (platform == .television ? 1 : 2))
+                // 播放期间的读取位上限: 电视一个, 全速三个, 其余本地两个、
+                // 远程一个。这条在"全速播放期间保留三个读取位"落地时漏了没
+                // 跟着改, 一直和 speedNeverOverridesThermalOrPlaybackProtection
+                // 对不上 (那条用的是远程环境)。
+                let playbackCeiling = platform == .television
+                    ? 1
+                    : (preference == .fast ? 3 : (environment.offlineSource ? 2 : 1))
+                #expect(playing.workerCount <= playbackCeiling)
                 #expect(MetadataBackfillExecutionPolicy.limits(for: .background, preference: preference, environment: environment).workerCount == 1)
             }
         }
@@ -145,7 +152,7 @@ struct MetadataReadSchedulerTests {
     }
 
     @Test func foregroundEntrypointsShareTheSelectedBudget() {
-        for preference in MetadataReadingMode.allCases {
+        for preference in MetadataReadingMode.automaticCases {
             let scan = MetadataBackfillExecutionPolicy.limits(for: .foregroundAfterSourceScan, preference: preference)
             #expect(scan == MetadataBackfillExecutionPolicy.limits(for: .userInitiated, preference: preference))
             #expect(scan == MetadataBackfillExecutionPolicy.limits(for: .standard, preference: preference))
@@ -168,7 +175,7 @@ struct MetadataReadSchedulerTests {
     }
 
     @Test func everyModeReducesWorkAsSoonAsTemperatureRises() {
-        for preference in MetadataReadingMode.allCases {
+        for preference in MetadataReadingMode.automaticCases {
             let warm = MetadataBackfillExecutionPolicy.limits(
                 for: .userInitiated, preference: preference,
                 environment: .init(thermalState: .fair)
@@ -184,7 +191,7 @@ struct MetadataReadSchedulerTests {
     }
 
     @Test func speedNeverOverridesThermalOrPlaybackProtection() {
-        for preference in MetadataReadingMode.allCases {
+        for preference in MetadataReadingMode.automaticCases {
             let paused = MetadataBackfillExecutionPolicy.limits(
                 for: .userInitiated, preference: preference,
                 environment: .init(thermalState: .critical)
@@ -195,7 +202,8 @@ struct MetadataReadSchedulerTests {
                 environment: .init(thermalState: .serious)
             )
             #expect(hot.workerCount == 1)
-            #expect(hot.interRequestDelay >= 1.5)
+            // 散热休息按档位分层 —— 见 readingSpeedStaysOrderedAtEveryThermalState。
+            #expect(hot.interRequestDelay >= (preference == .fast ? 1.5 : 4))
             let playback = MetadataBackfillExecutionPolicy.limits(
                 for: .userInitiated, preference: preference,
                 environment: .init(playbackActive: true)
@@ -244,6 +252,206 @@ struct MetadataReadSchedulerTests {
             environment: .init(thermalState: .serious), recentProcessingDuration: 0.01
         )
         #expect(automatic.interRequestDelay == 1.5)
+    }
+
+    /// 热状态一到 `serious`, 三个档位原先被压成同一个 (workers=1, delay=1.5),
+    /// 而全速还因为一条只给它的测量例外成了限制最少的那一档 —— 实测日志里
+    /// 节能 26.9 首/分、自动 24.9 首/分, 节能比自动还快。档位因此形同虚设。
+    @Test func readingSpeedStaysOrderedAtEveryThermalState() {
+        let modes: [MetadataBackfillExecutionMode] = [
+            .standard, .userInitiated, .foregroundDeviceLocal, .foregroundAfterSourceScan,
+            .background, .backgroundDuringPlayback
+        ]
+        let costs: [TimeInterval?] = [nil, 0, 0.01, 0.2, 0.5, 2, .nan, -1]
+        for mode in modes {
+            for thermal in [MetadataReadingThermalState.nominal, .fair, .serious] {
+                for lowPower in [false, true] {
+                    for playing in [false, true] {
+                        for cost in costs {
+                            let environment = MetadataReadingEnvironment(
+                                thermalState: thermal, lowPowerMode: lowPower, playbackActive: playing
+                            )
+                            func limits(_ preference: MetadataReadingMode) -> MetadataBackfillExecutionLimits {
+                                MetadataBackfillExecutionPolicy.limits(
+                                    for: mode, preference: preference, environment: environment,
+                                    recentProcessingDuration: cost
+                                )
+                            }
+                            let fast = limits(.fast)
+                            let automatic = limits(.automatic)
+                            let energySaving = limits(.energySaving)
+                            #expect(fast.workerCount >= automatic.workerCount)
+                            #expect(automatic.workerCount >= energySaving.workerCount)
+                            #expect(fast.interRequestDelay <= automatic.interRequestDelay)
+                            #expect(automatic.interRequestDelay <= energySaving.interRequestDelay)
+                            guard thermal == .serious, mode != .userInitiated else { continue }
+                            // serious 下必须严格有序, 不能再退化成三档相等。
+                            #expect(fast.interRequestDelay < automatic.interRequestDelay)
+                            #expect(automatic.interRequestDelay < energySaving.interRequestDelay)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// 发布一次资料库要重发两个上万元素的可观察数组, 并让首页各做一次整库
+    /// 重算; 这笔钱与这一批有几首无关。所以发布节奏不能跟着快照大小或设备
+    /// 约束走 —— 原先低档位把快照缩到 8~48 行并按快照边界强制收尾, 等于把
+    /// 同一笔整库开销摊到更少的歌上, 档位越低每首歌付得越多。
+    @Test func publicationCadenceIgnoresSnapshotSizeAndDeviceConstraints() {
+        let modes: [MetadataBackfillExecutionMode] = [
+            .standard, .userInitiated, .foregroundDeviceLocal, .foregroundAfterSourceScan,
+            .background, .backgroundDuringPlayback
+        ]
+        for preference in MetadataReadingMode.allCases {
+            for mode in modes {
+                var intervals: Set<TimeInterval> = []
+                var batchSizes: Set<Int> = []
+                var snapshots: Set<Int> = []
+                for thermal in [MetadataReadingThermalState.nominal, .fair, .serious, .critical] {
+                    for lowPower in [false, true] {
+                        for playing in [false, true] {
+                            for offline in [false, true] {
+                                let limits = MetadataBackfillExecutionPolicy.limits(
+                                    for: mode, preference: preference,
+                                    environment: .init(
+                                        thermalState: thermal, lowPowerMode: lowPower,
+                                        playbackActive: playing, offlineSource: offline
+                                    ),
+                                    recentProcessingDuration: 0.2
+                                )
+                                intervals.insert(limits.flushInterval)
+                                batchSizes.insert(limits.flushBatchSize)
+                                snapshots.insert(limits.snapshotLimit)
+                                #expect(limits.flushInterval > LibraryDerivedRefreshPolicy.minimumInterval)
+                            }
+                        }
+                    }
+                }
+                #expect(batchSizes == [MetadataBackfillExecutionPolicy.publishBatchSize])
+                #expect(intervals.count == 1)
+                // 快照大小确实会变, 所以上面两条不是在比较常量。
+                if mode == .background || mode == .backgroundDuringPlayback {
+                    #expect(snapshots.count == 1)
+                }
+            }
+        }
+        // 发布间隔随档位单调变长, 并且始终大于首页的最小重算间隔。
+        for isBackground in [false, true] {
+            for playing in [false, true] {
+                let fast = MetadataBackfillExecutionPolicy.publishInterval(
+                    for: .fast, isBackground: isBackground, playing: playing)
+                let automatic = MetadataBackfillExecutionPolicy.publishInterval(
+                    for: .automatic, isBackground: isBackground, playing: playing)
+                let energySaving = MetadataBackfillExecutionPolicy.publishInterval(
+                    for: .energySaving, isBackground: isBackground, playing: playing)
+                #expect(fast <= automatic)
+                #expect(automatic <= energySaving)
+                #expect(fast > LibraryDerivedRefreshPolicy.minimumInterval)
+            }
+        }
+        // 旧口径是前台 5 秒 / 节能 10 秒, 比首页的去抖窗口还短。
+        #expect(MetadataBackfillExecutionPolicy
+            .publishInterval(for: .automatic, isBackground: false, playing: false) >= 20)
+        #expect(MetadataBackfillExecutionPolicy
+            .publishInterval(for: .energySaving, isBackground: false, playing: false) >= 45)
+    }
+
+    /// 续跑窗口保留所选档位, 发布节奏也要跟着回到前台口径。
+    @Test func continuedProcessingKeepsForegroundPublicationCadence() {
+        for preference in MetadataReadingMode.automaticCases {
+            for playing in [false, true] {
+                let background = MetadataBackfillExecutionPolicy.limits(
+                    for: playing ? .backgroundDuringPlayback : .background,
+                    preference: preference, environment: .init(playbackActive: playing),
+                    continuedProcessing: true, recentProcessingDuration: 0.2
+                )
+                let foreground = MetadataBackfillExecutionPolicy.limits(
+                    for: .userInitiated, preference: preference,
+                    environment: .init(playbackActive: playing), recentProcessingDuration: 0.2
+                )
+                #expect(background == foreground)
+            }
+        }
+    }
+
+    /// 热降级只会压低速度, 压不到零。一个上万首的云端曲库要读几个小时, 用户
+    /// 必须能把这几个小时的后台工作整个关掉; 但他刚刚点下的单源任务不该被关掉。
+    @Test func pausedPreferenceStopsAutomaticQueuesOnly() {
+        #expect(MetadataReadingMode.automaticCases == [.automatic, .fast, .energySaving])
+        #expect(!MetadataReadingMode.paused.readsAutomatically)
+        #expect(MetadataReadingMode.paused.resolvedForExplicitWork == .energySaving)
+        for preference in MetadataReadingMode.automaticCases {
+            #expect(preference.readsAutomatically)
+            #expect(preference.resolvedForExplicitWork == preference)
+        }
+        #expect(MetadataReadingMode.resolve(storedValue: "paused", legacyFastEnabled: true) == .paused)
+
+        let modes: [MetadataBackfillExecutionMode] = [
+            .standard, .userInitiated, .foregroundDeviceLocal, .foregroundAfterSourceScan,
+            .background, .backgroundDuringPlayback
+        ]
+        for mode in modes {
+            for thermal in [MetadataReadingThermalState.nominal, .fair, .serious, .critical] {
+                for playing in [false, true] {
+                    let environment = MetadataReadingEnvironment(
+                        thermalState: thermal, playbackActive: playing
+                    )
+                    let paused = MetadataBackfillExecutionPolicy.limits(
+                        for: mode, preference: .paused, environment: environment,
+                        recentProcessingDuration: 0.2
+                    )
+                    if MetadataBackfillExecutionPolicy.honoursPausedPreference(mode) {
+                        #expect(paused.workerCount == 0)
+                        #expect(paused.snapshotPassLimit == 0)
+                    } else {
+                        // 用户主动发起的任务照常跑, 按最保守的读取档位。
+                        #expect(paused == MetadataBackfillExecutionPolicy.limits(
+                            for: mode, preference: .energySaving, environment: environment,
+                            recentProcessingDuration: 0.2
+                        ))
+                        #expect(paused.workerCount >= 1 || thermal == .critical)
+                    }
+                    // 暂停压过任何设备侧的理由。
+                    #expect(MetadataBackfillExecutionPolicy.constraint(
+                        for: mode, environment: environment, preference: .paused) == .paused)
+                }
+            }
+        }
+        #expect(!MetadataBackfillExecutionPolicy.honoursPausedPreference(.userInitiated))
+        for mode in modes where mode != .userInitiated {
+            #expect(MetadataBackfillExecutionPolicy.honoursPausedPreference(mode))
+        }
+        // 其余档位的状态文案不受影响。
+        #expect(MetadataBackfillExecutionPolicy.constraint(
+            for: .standard, environment: .init(thermalState: .critical)) == .cooling)
+        #expect(MetadataBackfillExecutionPolicy.constraint(
+            for: .standard, environment: .init(thermalState: .serious)) == .thermal)
+        #expect(MetadataBackfillExecutionPolicy.constraint(for: .standard, environment: .init()) == .none)
+    }
+
+    /// 首页的尾部去抖挡不住回填: 发布间隔本身就比去抖窗口长, 于是每一次发布都
+    /// 在窗口末尾换来一次完整重算 (实测主线程 10~16 ms, 后台 0.8~2.1 s)。
+    @Test func libraryDrivenRecomputesAreRateLimitedNotOnlyDebounced() {
+        let debounce = LibraryDerivedRefreshPolicy.debounce
+        let minimum = LibraryDerivedRefreshPolicy.minimumInterval
+        #expect(debounce > 0)
+        #expect(minimum > debounce)
+        #expect(LibraryDerivedRefreshPolicy.delay(sinceLastRefresh: nil) == debounce)
+        #expect(LibraryDerivedRefreshPolicy.delay(sinceLastRefresh: 0) == minimum)
+        #expect(LibraryDerivedRefreshPolicy.delay(sinceLastRefresh: minimum) == debounce)
+        #expect(LibraryDerivedRefreshPolicy.delay(sinceLastRefresh: 3_600) == debounce)
+        // 剩余不足一个去抖窗口时也不能比去抖还短。
+        #expect(LibraryDerivedRefreshPolicy.delay(sinceLastRefresh: minimum - 1) == debounce)
+        for invalid in [TimeInterval.nan, -1, -TimeInterval.infinity] {
+            #expect(LibraryDerivedRefreshPolicy.delay(sinceLastRefresh: invalid) == debounce)
+        }
+        for elapsed in stride(from: 0, through: minimum * 2, by: 0.5) {
+            let delay = LibraryDerivedRefreshPolicy.delay(sinceLastRefresh: elapsed)
+            #expect(delay >= debounce)
+            #expect(elapsed + delay >= minimum)
+        }
     }
 
     @Test func thermalWorkBudgetExcludesIOWaitButIncludesOtherAppCPUWork() {

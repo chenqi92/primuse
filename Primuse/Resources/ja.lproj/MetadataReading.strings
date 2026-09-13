@@ -2,6 +2,7 @@
 "automatic" = "自動";
 "fast" = "フルスピード";
 "energySaving" = "省電力";
+"paused" = "一時停止";
 "playback" = "再生を優先中";
 "lowPower" = "低電力モード";
 "thermal" = "冷却のため速度を制限中";

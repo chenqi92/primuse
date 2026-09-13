@@ -15,6 +15,8 @@ private final class HomeRefreshCoordinator {
     var recommendationTask: Task<Void, Never>?
     var libraryHighlightsTask: Task<Void, Never>?
     var pendingSignature: HomeView.HomeSnapshotSignature?
+    /// 上一次真正做完整库重算的时刻, 给资料库版本驱动的刷新做节流。
+    var lastRefreshAt: Date?
 
     func cancelAll() {
         debounceTask?.cancel()
@@ -495,11 +497,6 @@ struct HomeView: View {
     // of times — each one a full main-thread resort/regroup/recommend.
     // Coalesce the storm and only recompute once it settles.
     @State private var refreshCoordinator = HomeRefreshCoordinator()
-    // Backfill currently publishes at most once every two seconds. Keep this
-    // window longer than that interval so a continuous large-library job does
-    // not rebuild recommendations and album groupings on the main actor while
-    // the user is scrolling; the snapshot refreshes once the burst settles.
-    private static let homeRefreshDebounce: Duration = .seconds(3)
 
     // Owned by ContentView so navigation can discard the page without losing
     // its last complete projection or treating cancelled work as a cache hit.
@@ -1417,9 +1414,16 @@ struct HomeView: View {
             refreshCoordinator.cancelAll()
             return
         }
+        // 尾部去抖只能合并"密集到达"的版本变化。回填的发布间隔本身就比去抖
+        // 窗口长, 所以单靠去抖, 每一次发布都会在窗口末尾换来一次完整重算 ——
+        // 实测主线程 10~16 ms 加后台 0.8~2.1 s, 而发布间隔并不由用户选的档位
+        // 决定。去抖之外再加一道最小重算间隔, 让连续发布只重算一次。用户自己
+        // 的改动 (歌单/设置/场景切换) 走 refreshHomeSnapshot(), 不受这道闸门约束。
+        let elapsed = refreshCoordinator.lastRefreshAt.map { Date().timeIntervalSince($0) }
+        let delay = LibraryDerivedRefreshPolicy.delay(sinceLastRefresh: elapsed)
         refreshCoordinator.debounceTask?.cancel()
         refreshCoordinator.debounceTask = Task { @MainActor in
-            try? await Task.sleep(for: Self.homeRefreshDebounce)
+            try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled else { return }
             refreshHomeSnapshot()
         }
@@ -1644,6 +1648,7 @@ struct HomeView: View {
         guard model.needsRefresh(for: signature) else { return }
         guard refreshCoordinator.pendingSignature != signature else { return }
         refreshCoordinator.pendingSignature = signature
+        refreshCoordinator.lastRefreshAt = Date()
 
         let visibleAlbumIDs = Set(library.visibleAlbums.map(\.id))
         let retainedRecommendations = model.snapshot.forYouResults.filter {

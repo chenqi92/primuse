@@ -2,6 +2,7 @@
 "automatic" = "Otomatik";
 "fast" = "Tam hız";
 "energySaving" = "Enerji tasarrufu";
+"paused" = "Duraklatıldı";
 "playback" = "Çalmaya öncelik veriliyor";
 "lowPower" = "Düşük Güç Modu";
 "thermal" = "Soğutmak için yavaşlatıldı";

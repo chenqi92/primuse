@@ -2,6 +2,7 @@
 "automatic" = "自动";
 "fast" = "全速";
 "energySaving" = "节能";
+"paused" = "已暂停";
 "playback" = "优先保障播放";
 "lowPower" = "低电量模式";
 "thermal" = "正在降速散热";

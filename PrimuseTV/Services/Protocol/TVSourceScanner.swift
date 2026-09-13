@@ -1072,7 +1072,9 @@ final class TVSourceScanner {
                 limits: { [self] in
                     MetadataBackfillExecutionPolicy.limits(
                         for: UIApplication.shared.applicationState == .background ? .background : .standard,
-                        preference: readingMode(),
+                        // 扫描的标签富集是用户刚点下的工作, 不能被"暂停自动
+                        // 读取"停在零并发上。
+                        preference: readingMode().resolvedForExplicitWork,
                         environment: readingEnvironment(source.type == .local)
                     )
                 },

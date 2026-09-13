@@ -2,6 +2,7 @@
 "automatic" = "Automatique";
 "fast" = "Pleine vitesse";
 "energySaving" = "Économiser l’énergie";
+"paused" = "En pause";
 "playback" = "Priorité à la lecture audio";
 "lowPower" = "Mode économie d’énergie";
 "thermal" = "Ralentissement pour refroidir l’appareil";

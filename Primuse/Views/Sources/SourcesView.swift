@@ -314,6 +314,7 @@ extension MetadataReadingMode {
         case .automatic: "bolt.badge.automatic"
         case .fast: "bolt.fill"
         case .energySaving: "leaf"
+        case .paused: "pause.circle"
         }
     }
 }

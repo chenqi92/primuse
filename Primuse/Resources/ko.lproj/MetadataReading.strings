@@ -2,6 +2,7 @@
 "automatic" = "자동";
 "fast" = "최대 속도";
 "energySaving" = "에너지 절약";
+"paused" = "일시 중지";
 "playback" = "재생 우선";
 "lowPower" = "저전력 모드";
 "thermal" = "기기를 식히기 위해 속도 제한 중";

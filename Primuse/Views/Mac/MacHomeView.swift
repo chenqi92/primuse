@@ -8,6 +8,8 @@ private final class MacHomeRefreshCoordinator {
     var debounceTask: Task<Void, Never>?
     var computeTask: Task<Void, Never>?
     var pendingSignature: MacHomeView.DerivedSignature?
+    /// 上一次真正做完整库重算的时刻, 给资料库版本驱动的刷新做节流。
+    var lastRefreshAt: Date?
 
     func cancelAll() {
         debounceTask?.cancel()
@@ -73,7 +75,6 @@ struct MacHomeView: View {
     // searchRevision, 不去抖会触发几十次全库重算。cancel + 重启计时, 只在最后
     // 一次 revision 落定后重算。
     @State private var refreshCoordinator = MacHomeRefreshCoordinator()
-    private static let derivedRefreshDebounce: Duration = .seconds(3)
 
     @MainActor
     @Observable
@@ -358,9 +359,13 @@ struct MacHomeView: View {
     /// 落定后才真正重算。
     private func scheduleDerivedRefresh() {
         guard scenePhase == .active, isHomeVisible else { return }
+        // 同 iOS HomeView: 去抖只能合并密集到达的版本变化, 而扫描/回填的发布
+        // 间隔比去抖窗口长, 所以还要一道最小重算间隔才能真正合并。
+        let elapsed = refreshCoordinator.lastRefreshAt.map { Date().timeIntervalSince($0) }
+        let delay = LibraryDerivedRefreshPolicy.delay(sinceLastRefresh: elapsed)
         refreshCoordinator.debounceTask?.cancel()
         refreshCoordinator.debounceTask = Task { @MainActor in
-            try? await Task.sleep(for: Self.derivedRefreshDebounce)
+            try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled else { return }
             refreshDerivedIfNeeded()
         }
@@ -385,6 +390,7 @@ struct MacHomeView: View {
         guard model.needsRefresh(for: signature) else { return }
         guard refreshCoordinator.pendingSignature != signature else { return }
         refreshCoordinator.pendingSignature = signature
+        refreshCoordinator.lastRefreshAt = Date()
         refreshDerived(signature: signature)
     }
 

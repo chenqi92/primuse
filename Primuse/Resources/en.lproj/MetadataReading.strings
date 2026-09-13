@@ -2,6 +2,7 @@
 "automatic" = "Automatic";
 "fast" = "Full Speed";
 "energySaving" = "Save energy";
+"paused" = "Paused";
 "playback" = "Protecting playback";
 "lowPower" = "Low Power Mode";
 "thermal" = "Slowed down to cool the device";
