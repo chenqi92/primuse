@@ -433,6 +433,8 @@ extension CarPlaySceneDelegate: CPTemplateApplicationSceneDelegate {
             self.openQueueTemplate = nil
             self.cancelArtworkTasks()
             self.artworkUpdates.removeAll()
+            // 渲染好的封面要跨列表重建活着，只在断开连接时释放。
+            CarPlayRenderedArtwork.removeAll()
             if let observer = self.likeChangesObserver { NotificationCenter.default.removeObserver(observer) }
             self.likeChangesObserver = nil
         }
@@ -1092,8 +1094,13 @@ extension CarPlaySceneDelegate {
         }
         if loadsArtwork, let artwork = entry.artwork {
             let scale = artworkScale
-            loadObservedArtwork(artwork, pixelSize: Int(CarPlayTemplateImages.listSide * scale), owner: item) { [weak item] image in
-                item?.setImage(CarPlayTemplateImages.square(image, scale: scale))
+            loadObservedArtwork(
+                artwork,
+                pixelSize: Int(CarPlayTemplateImages.listSide * scale),
+                owner: item,
+                render: { CarPlayTemplateImages.square($0, scale: scale) }
+            ) { [weak item] image in
+                item?.setImage(image)
             }
         }
         return item
@@ -1153,9 +1160,14 @@ extension CarPlaySceneDelegate {
         for (index, entry) in entries.enumerated() {
             guard CarPlayArtworkLoadPolicy.shouldLoad(index: index, budget: artworkBudget),
                   let artwork = entry.artwork else { continue }
-            loadObservedArtwork(artwork, pixelSize: Int(side * scale), owner: row) { [weak row] image in
+            loadObservedArtwork(
+                artwork,
+                pixelSize: Int(side * scale),
+                owner: row,
+                render: { CarPlayTemplateImages.square($0, side: side, scale: scale) }
+            ) { [weak row] image in
                 guard let row else { return }
-                images[index] = CarPlayTemplateImages.square(image, side: side, scale: scale)
+                images[index] = image
                 if #available(iOS 26.0, *) {
                     let elements = row.elements
                     guard elements.indices.contains(index) else { return }
@@ -1167,13 +1179,32 @@ extension CarPlaySceneDelegate {
         return row
     }
 
+    /// 取行内封面并交给 `apply`。
+    ///
+    /// `render` 把原图裁成该行需要的方图，结果按封面身份缓存 —— CarPlay 列表
+    /// 每次重建都是一批全新的 CPListItem，先挂占位图再异步换真图；命中缓存时
+    /// 直接同步塞最终图，中间那一帧占位图就不会出现，也就没有来回闪。
     private func loadObservedArtwork(_ artwork: CarPlayContentArtwork, pixelSize: Int,
-                                     owner: AnyObject, apply: @escaping @MainActor (UIImage) -> Void) {
+                                     owner: AnyObject,
+                                     render: @escaping @MainActor (UIImage) -> UIImage,
+                                     apply: @escaping @MainActor (UIImage) -> Void) {
+        let key = CarPlayArtworkCacheKey.make(
+            identity: artwork.cacheIdentity,
+            pixelSize: pixelSize,
+            overrideRevision: AppServices.shared.musicLibrary.artworkOverrideRevision
+        )
         let id = UUID()
         var pendingRefresh = false
-        let refresh: @MainActor () -> Void = { [weak self, weak owner] in
+        // `force` 用于「这首歌的封面刚落盘」这类通知:那时缓存里可能是上一轮的
+        // 空结果，必须真的重取一次；列表重建走的是非 force 路径，直接吃缓存。
+        let load: @MainActor (Bool) -> Void = { [weak self, weak owner] force in
+            guard let self, owner != nil else { return }
+            if !force, let cached = CarPlayRenderedArtwork.image(forKey: key) {
+                apply(cached)
+                return
+            }
             pendingRefresh = true
-            guard let self, owner != nil, self.artworkTasks[id] == nil else { return }
+            guard self.artworkTasks[id] == nil else { return }
             self.artworkTasks[id] = Task { [weak self, weak owner] in
                 defer { self?.artworkTasks[id] = nil }
                 repeat {
@@ -1182,12 +1213,18 @@ extension CarPlaySceneDelegate {
                         await CarPlayHomeContent.artwork(artwork, pixelSize: pixelSize)
                     }
                     guard !Task.isCancelled, owner != nil else { return }
-                    if let image { apply(image) }
+                    if let image {
+                        let rendered = render(image)
+                        CarPlayRenderedArtwork.store(rendered, forKey: key)
+                        apply(rendered)
+                    }
                 } while pendingRefresh
             }
         }
-        artworkUpdates.bind(owner: owner, songIDs: CarPlayHomeContent.artworkSongIDs(artwork), refresh: refresh)
-        refresh()
+        artworkUpdates.bind(owner: owner, songIDs: CarPlayHomeContent.artworkSongIDs(artwork)) {
+            load(true)
+        }
+        load(false)
     }
 
     private func playCollection(_ songs: [Song], title: String, shuffled: Bool = false) {

@@ -163,13 +163,14 @@ enum CarPlayTemplateImages {
         let format = UIGraphicsImageRendererFormat()
         format.scale = scale
         format.opaque = true
-        return UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { context in
+        let rendered = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { context in
             UIColor.black.setFill()
             context.fill(CGRect(x: 0, y: 0, width: side, height: side))
             let ratio = max(side / image.size.width, side / image.size.height)
             let size = CGSize(width: image.size.width * ratio, height: image.size.height * ratio)
             image.draw(in: CGRect(x: (side - size.width) / 2, y: (side - size.height) / 2, width: size.width, height: size.height))
         }.withRenderingMode(.alwaysOriginal)
+        return rendered
     }
 
     static func rowSide(for style: CarPlayBrowseStyle) -> CGFloat {
@@ -188,6 +189,39 @@ enum CarPlayTemplateImages {
 enum CarPlayContentArtwork: Sendable {
     case song(Song), album(Album), playlist(Playlist)
     case songReference(id: String, coverRef: String?)
+
+    /// 同一张封面在多次列表重建之间的稳定标识。歌曲带上 coverRef，换了封面文件
+    /// 就是另一张图；专辑与歌单只认 ID，它们的封面变化由覆盖版本号负责作废。
+    var cacheIdentity: String {
+        switch self {
+        case .song(let song): "song:\(song.id):\(song.coverArtFileName ?? "")"
+        case .songReference(let id, let coverRef): "song:\(id):\(coverRef ?? "")"
+        case .album(let album): "album:\(album.id)"
+        case .playlist(let playlist): "playlist:\(playlist.id)"
+        }
+    }
+}
+
+/// 已经取到并渲染好的 CarPlay 行内封面。
+///
+/// 只在主线程访问，容量按「一屏几十行 × 几个尺寸」取，超出由 NSCache 自行淘汰。
+@MainActor
+enum CarPlayRenderedArtwork {
+    private static let images: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 256
+        return cache
+    }()
+
+    static func image(forKey key: String) -> UIImage? {
+        images.object(forKey: key as NSString)
+    }
+
+    static func store(_ image: UIImage, forKey key: String) {
+        images.setObject(image, forKey: key as NSString)
+    }
+
+    static func removeAll() { images.removeAllObjects() }
 }
 
 struct CarPlayHomeItem: Identifiable, Sendable {
