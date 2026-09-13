@@ -62,7 +62,7 @@ struct MusicSourceCloudSyncPolicyTests {
         )
     }
 
-    @Test func localHandshakeGetsDeadlineOnlyWhenRemoteFallbackExists() {
+    @Test func handshakeGetsDeadlineOnlyWhenAFallbackExists() {
         #expect(
             SourceConnectionHandshakePolicy.timeout(
                 for: .localAddress,
@@ -81,10 +81,18 @@ struct MusicSourceCloudSyncPolicyTests {
                 availableKinds: [.localAddress]
             ) == nil
         )
+        // A public route that accepts the connection and then stalls used to have
+        // no deadline at all, so the reachable LAN route was never reached.
         #expect(
             SourceConnectionHandshakePolicy.timeout(
                 for: .publicAddress,
                 availableKinds: [.localAddress, .publicAddress]
+            ) == SourceConnectionHandshakePolicy.remoteFallbackTimeout
+        )
+        #expect(
+            SourceConnectionHandshakePolicy.timeout(
+                for: .publicAddress,
+                availableKinds: [.publicAddress]
             ) == nil
         )
     }

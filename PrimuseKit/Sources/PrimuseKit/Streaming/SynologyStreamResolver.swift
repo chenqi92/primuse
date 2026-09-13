@@ -164,15 +164,13 @@ public actor SynologyStreamResolver: StreamResolver {
     }
 
     static func baseURL(host: String, port: Int?, useSsl: Bool) -> URL? {
-        let address = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard address.isEmpty == false else { return nil }
-        var components = address.contains("://")
-            ? URLComponents(string: address)
-            : URLComponents(string: "\(useSsl ? "https" : "http")://\(address)")
-        if components?.port == nil, let port, port > 0 {
-            components?.port = port
-        }
-        return components?.url
+        // 走统一构造:裸 IPv6 字面量必须先加方括号,否则 `http://fd7a::1` 会把
+        // 地址尾段当成端口解析,host 只剩 `fd7a`。
+        return NetworkHostAuthority.baseURL(
+            address: host,
+            defaultScheme: useSsl ? "https" : "http",
+            port: port
+        )
     }
 
     static func downloadURL(base: URL, path: String, sid: String) -> URL? {

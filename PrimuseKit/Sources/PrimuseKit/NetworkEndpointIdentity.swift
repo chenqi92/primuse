@@ -157,9 +157,12 @@ public enum HTTPMediaRedirectRequestPolicy {
     }
 
     private static func upgradedPublicMediaURL(_ url: URL) -> URL {
+        // An overlay address (a tailnet peer, say) never has a publicly trusted
+        // certificate, so upgrading its cleartext redirect to HTTPS guaranteed a
+        // failure instead of adding protection. The tunnel already encrypts it.
         guard url.scheme?.lowercased() == "http",
               let host = url.host,
-              !InsecureHTTPHostPolicy.isLocalNetworkHost(host),
+              !PrivateOverlayHostPolicy.isPrivateOrOverlayHost(host),
               url.port == nil || url.port == 80,
               var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return url

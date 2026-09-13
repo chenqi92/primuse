@@ -188,7 +188,11 @@ actor TVRoutedByteRangeReader: ByteRangeReader {
                 }
                 await candidates[index].reader.close()
                 activeIndex = nil
-                await SourceConnectionRuntime.shared.recordFailure(of: candidates[index].kind, for: sourceID)
+                await SourceConnectionRuntime.shared.recordFailure(
+                    of: candidates[index].kind,
+                    for: sourceID,
+                    reason: SourceRouteFailureReason.classify(error)
+                )
             }
         }
         throw lastError
