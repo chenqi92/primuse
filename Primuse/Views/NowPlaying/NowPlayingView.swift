@@ -1298,7 +1298,9 @@ struct NowPlayingView: View {
             Button("30 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 30) }
             Button("45 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 45) }
             Button("60 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 60) }
-            if !player.isLiveRadio {
+            if player.isLiveRadio {
+                Button("90 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 90) }
+            } else {
                 Button(String(localized: "sleep_at_track_end")) { player.scheduleSleepAtTrackEnd() }
                     .disabled(player.currentSong == nil)
             }
@@ -1518,6 +1520,7 @@ struct NowPlayingView: View {
                     }
                     .accessibilityLabel(Text("share"))
                 }
+                radioSleepTimerButton
             }
             .padding(.top, 10)
             .padding(.bottom, max(bottomSafeArea, 16))
@@ -1526,6 +1529,37 @@ struct NowPlayingView: View {
         .padding(.leading, safeInsets.leading)
         .padding(.trailing, safeInsets.trailing)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// 电台没有曲终可等，睡眠定时是这里唯一的自动停止手段。歌曲布局把它收在
+    /// 更多菜单里，电台布局没有那个菜单，所以直接摆进底部工具行。
+    private var radioSleepTimerButton: some View {
+        Button {
+            showSleepTimer = true
+        } label: {
+            if let endDate = player.sleepTimerEndDate {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    let remaining: TimeInterval = max(0, endDate.timeIntervalSince(context.date))
+                    HStack(spacing: 4) {
+                        Image(systemName: "moon.zzz.fill")
+                        Text(remaining.formattedDuration)
+                            .font(.caption2.monospacedDigit())
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(height: 36)
+                    .background(.ultraThinMaterial, in: Capsule())
+                }
+            } else {
+                Image(systemName: player.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz")
+                    .frame(width: 36, height: 36)
+            }
+        }
+        .foregroundStyle(player.isSleepTimerActive ? PMColor.brand : appearance.secondary)
+        .accessibilityLabel(Text(
+            player.isSleepTimerActive
+                ? String(localized: "sleep_timer_active")
+                : String(localized: "sleep_timer")
+        ))
     }
 
     private var radioTechnicalSummary: String {

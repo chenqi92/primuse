@@ -3323,15 +3323,17 @@ final class TVStore {
         startPlaying(song, resumeTime: resumeTime, autoPlay: shouldPlay)
     }
 
-    /// 睡眠定时:关→15→30→60→关 分钟。到点暂停播放。
+    /// 睡眠定时:关→15→30→60→关 分钟。到点停止播放。
     func cycleSleepTimer() {
         let presets = [0, 15, 30, 60]
         let cur = presets.firstIndex(of: sleepTimerMinutes) ?? 0
         sleepTimerMinutes = presets[(cur + 1) % presets.count]
         sleepWorkItem?.cancel()
         guard sleepTimerMinutes > 0 else { return }
+        // 走 pausePlayback 而不是 engine.pause():电台要先断掉重连任务和
+        // 解析任务,并在 .loading 阶段用 stop(),否则到点后又被拉起来接着播。
         let work = DispatchWorkItem { [weak self] in
-            self?.engine.pause()
+            self?.pausePlayback()
             self?.sleepTimerMinutes = 0
         }
         sleepWorkItem = work

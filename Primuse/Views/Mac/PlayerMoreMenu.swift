@@ -680,31 +680,34 @@ private struct MacSleepTimerPopover: View {
             .padding(.bottom, 12)
 
             VStack(alignment: .leading, spacing: 10) {
-                Button {
-                    player.scheduleSleepAtTrackEnd()
-                    onClose()
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 10))
-                        Text("sleep_at_track_end")
-                            .font(.system(size: 12, weight: .medium))
-                        Spacer()
-                        if player.sleepStopAfterSongID != nil {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 10, weight: .semibold))
+                // 直播流永远不会走到曲终,这个选项在电台下点了等于永不触发。
+                if !player.isLiveRadio {
+                    Button {
+                        player.scheduleSleepAtTrackEnd()
+                        onClose()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 10))
+                            Text("sleep_at_track_end")
+                                .font(.system(size: 12, weight: .medium))
+                            Spacer()
+                            if player.sleepStopAfterSongID != nil {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 10, weight: .semibold))
+                            }
+                        }
+                        .foregroundStyle(PMColor.text)
+                        .padding(.horizontal, 12)
+                        .frame(height: 34)
+                        .background(PMColor.glassBtn, in: .rect(cornerRadius: 8))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
                         }
                     }
-                    .foregroundStyle(PMColor.text)
-                    .padding(.horizontal, 12)
-                    .frame(height: 34)
-                    .background(PMColor.glassBtn, in: .rect(cornerRadius: 8))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
 
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
