@@ -2579,6 +2579,20 @@ public enum AppleMusicPlaybackEndPolicy {
         return observedTime >= max(0, duration - tolerance)
     }
 
+    /// MusicKit 收摊一条播完的 queue 时会把 currentEntry 清掉、或把
+    /// playbackTime 归零。这两个信号跟时长无关 —— 资料库歌曲的
+    /// `Song.duration` 可能是 nil, 此时 `isNearEnd` 永远为 false,
+    /// 光靠近尾判定就再也认不出曲末。用户在控制中心手动暂停时时钟停在
+    /// 原地而不是归零, 所以这个信号不会把暂停误当成播完。
+    public static func clockResetAfterPlayback(
+        playbackTime: TimeInterval,
+        furthestObservedTime: TimeInterval,
+        hasCurrentEntry: Bool
+    ) -> Bool {
+        guard furthestObservedTime > 5 else { return false }
+        return !hasCurrentEntry || playbackTime <= 0.05
+    }
+
     public static func shouldAdvance(
         hasObservedActivePlayback: Bool,
         isStopped: Bool,
@@ -2586,13 +2600,14 @@ public enum AppleMusicPlaybackEndPolicy {
         wasPausedByUser: Bool,
         isPlaybackInterrupted: Bool,
         isNearEnd: Bool,
+        clockResetAfterPlayback: Bool = false,
         stalledNearEndSampleCount: Int,
         stallSampleThreshold: Int
     ) -> Bool {
         guard hasObservedActivePlayback else { return false }
         if isPlaybackInterrupted { return false }
         if isStopped { return true }
-        if isPaused && !wasPausedByUser && isNearEnd { return true }
+        if isPaused && !wasPausedByUser && (isNearEnd || clockResetAfterPlayback) { return true }
         return isNearEnd
             && stallSampleThreshold > 0
             && stalledNearEndSampleCount >= stallSampleThreshold

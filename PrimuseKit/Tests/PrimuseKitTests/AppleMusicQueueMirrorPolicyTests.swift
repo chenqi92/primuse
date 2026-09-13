@@ -624,4 +624,61 @@ struct AppleMusicPlaybackEndPolicyTests {
             stallSampleThreshold: 6
         ))
     }
+
+    @Test("A track with no known duration still ends when MusicKit packs up")
+    func recognizesEndWithoutDuration() {
+        // 资料库歌曲的 duration 可能缺失, isNearEnd 因此恒为 false。
+        #expect(!AppleMusicPlaybackEndPolicy.isNearEnd(
+            duration: 0,
+            playbackTime: 0,
+            furthestObservedTime: 218
+        ))
+        #expect(AppleMusicPlaybackEndPolicy.clockResetAfterPlayback(
+            playbackTime: 0,
+            furthestObservedTime: 218,
+            hasCurrentEntry: true
+        ))
+        #expect(AppleMusicPlaybackEndPolicy.clockResetAfterPlayback(
+            playbackTime: 218,
+            furthestObservedTime: 218,
+            hasCurrentEntry: false
+        ))
+        #expect(AppleMusicPlaybackEndPolicy.shouldAdvance(
+            hasObservedActivePlayback: true,
+            isStopped: false,
+            isPaused: true,
+            wasPausedByUser: false,
+            isPlaybackInterrupted: false,
+            isNearEnd: false,
+            clockResetAfterPlayback: true,
+            stalledNearEndSampleCount: 0,
+            stallSampleThreshold: 6
+        ))
+    }
+
+    @Test("A pause held mid-track is not a terminal clock reset")
+    func rejectsMidTrackPauseAsEnd() {
+        #expect(!AppleMusicPlaybackEndPolicy.clockResetAfterPlayback(
+            playbackTime: 96,
+            furthestObservedTime: 96,
+            hasCurrentEntry: true
+        ))
+        // 刚起播就被打断的一拍不能当成播完。
+        #expect(!AppleMusicPlaybackEndPolicy.clockResetAfterPlayback(
+            playbackTime: 0,
+            furthestObservedTime: 2,
+            hasCurrentEntry: false
+        ))
+        #expect(!AppleMusicPlaybackEndPolicy.shouldAdvance(
+            hasObservedActivePlayback: true,
+            isStopped: false,
+            isPaused: true,
+            wasPausedByUser: false,
+            isPlaybackInterrupted: true,
+            isNearEnd: false,
+            clockResetAfterPlayback: true,
+            stalledNearEndSampleCount: 0,
+            stallSampleThreshold: 6
+        ))
+    }
 }

@@ -1877,6 +1877,12 @@ final class AudioPlayerService {
         manager.onInterruptionEnded = { [weak self] systemShouldResume in
             guard let self else { return }
             self.cancelAppActivationInterruptionRecovery()
+            let appleMusic = AppServices.shared.appleMusic
+            if self.isAppleMusicMode
+                || self.activeAppleMusicRequestID != nil
+                || appleMusic.activePlaybackRequestID != nil {
+                appleMusic.markInterruptionEnded()
+            }
             let shouldResume = self.interruptionResumePolicy.interruptionEnded(
                 systemShouldResume: systemShouldResume,
                 currentItemID: self.currentSong?.id

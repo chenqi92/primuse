@@ -844,7 +844,14 @@ final class AppleMusicService {
          let status = player.state.playbackStatus
          let playbackTime = player.playbackTime
          let nowPlaying = status == .playing
-         if let entry = player.queue.currentEntry, entry.id != lastObservedEntryID {
+         // 换 entry 通常是换了一首, 观测窗口要重开。但 MusicKit 收摊一条
+         // 播完的 queue 时也会重建 currentEntry ── 如果在那一拍把观测清零,
+         // 曲末判定就永远等不到 hasObservedActivePlayback, 整段 Apple Music
+         // 播完后卡在原地不跳下一首。已经播了一段却不在出声的那一拍先留着
+         // 观测, 让曲末判定有机会成立; 真的是换曲, 下一拍出声时照常重开。
+         if let entry = player.queue.currentEntry,
+            entry.id != lastObservedEntryID,
+            nowPlaying || furthestObservedPlaybackTime <= 5 {
              lastObservedEntryID = entry.id
              hasObservedActivePlayback = false
              lastObservedPlaybackTime = nil
@@ -908,6 +915,11 @@ final class AppleMusicService {
          }
          let hasNativeContinuation = nativePosition.map { $0 + 1 < player.queue.entries.count } == true
              || player.state.repeatMode == .all || player.state.repeatMode == .one
+         let clockReset = AppleMusicPlaybackEndPolicy.clockResetAfterPlayback(
+             playbackTime: playbackTime,
+             furthestObservedTime: furthestObservedPlaybackTime,
+             hasCurrentEntry: player.queue.currentEntry != nil
+         )
          let endedAfterPlaying = !hasNativeContinuation && AppleMusicPlaybackEndPolicy.shouldAdvance(
              hasObservedActivePlayback: hasObservedActivePlayback,
              isStopped: status == .stopped,
@@ -915,9 +927,22 @@ final class AppleMusicService {
              wasPausedByUser: wasPausedByUser,
              isPlaybackInterrupted: isPlaybackInterrupted,
              isNearEnd: nearEnd,
+             clockResetAfterPlayback: clockReset,
              stalledNearEndSampleCount: nearEndStallSampleCount,
              stallSampleThreshold: Self.playbackEndStallSampleThreshold
          )
+         // 播过之后停下却没判成曲末 —— 这一跃迁就是"播完不跳下一首"的现场。
+         // 每次跃迁只打一行, 把判定用到的每个量都带上, 下次日志能直接定位。
+         if hasObservedActivePlayback, !nowPlaying, !endedAfterPlaying, isAppleMusicPlaying {
+             plog(
+                 "⏸️ Apple Music stopped without an end verdict "
+                     + "status=\(String(describing: status)) time=\(playbackTime) "
+                     + "furthest=\(furthestObservedPlaybackTime) duration=\(currentDuration) "
+                     + "nearEnd=\(nearEnd) clockReset=\(clockReset) "
+                     + "interrupted=\(isPlaybackInterrupted) pausedByUser=\(wasPausedByUser) "
+                     + "nativeContinuation=\(hasNativeContinuation) entries=\(player.queue.entries.count)"
+             )
+         }
          if isAppleMusicPlaying != nowPlaying {
              isAppleMusicPlaying = nowPlaying
          }
@@ -1004,6 +1029,16 @@ final class AppleMusicService {
          playbackCommandGeneration &+= 1
          isPlaybackInterrupted = true
          nearEndStallSampleCount = 0
+     }
+
+     /// 中断结束就解除抑制。否则抑制只能靠"再次观察到 MusicKit 的时钟前进"
+     /// 解除 —— 本地 engine 让位给 ApplicationMusicPlayer 的那次交接也会被
+     /// 报成中断, 如果这一段之后直到播完都没有哪一拍同时采到 .playing 和
+     /// 时钟增量, 曲末判定就一直被抑制, 整首播完停在原地不跳下一首。
+     /// 真正的来电中断结束时时钟停在半途, 近尾/归零两个信号都不成立,
+     /// 解除抑制不会把它误判成播完。
+     func markInterruptionEnded() {
+         isPlaybackInterrupted = false
      }
 
      /// Starts a request generation synchronously, before AudioPlayerService
