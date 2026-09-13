@@ -120,6 +120,91 @@ final class SourceConnectionRouterTests: XCTestCase {
         XCTAssertEqual(publicConnections, 0)
     }
 
+    func testRemoteHandshakeDeadlineTriesLANWithoutPublishingFailedRoute() async throws {
+        for kind: SourceConnectionCandidateKind in [.publicAddress, .vendorRemote] {
+            let fixture = Fixture(remoteKind: kind, deadline: 0.1)
+            await fixture.runtime.observeNetworkPath(prefersLocalNetwork: false, pathChanged: false)
+            await fixture.remote.delayNextConnect(5)
+            let result = try await fixture.read()
+            XCTAssertEqual(result, "lan")
+            let remoteConnections = await fixture.remote.connections
+            let remoteDisconnects = await fixture.remote.disconnections
+            let localConnections = await fixture.local.connections
+            XCTAssertEqual(remoteConnections, 1)
+            XCTAssertEqual(remoteDisconnects, 1)
+            XCTAssertEqual(localConnections, 1)
+            XCTAssertEqual(fixture.events.values, [.localAddress])
+        }
+    }
+
+    func testLocalHandshakeDeadlineDoesNotQuarantineReachableLAN() async throws {
+        let fixture = Fixture(deadline: 0.1)
+        await fixture.local.delayNextConnect(5)
+        let fallback = try await fixture.read()
+        XCTAssertEqual(fallback, "wan")
+        let retry = try await fixture.read()
+        XCTAssertEqual(retry, "lan")
+        let localConnections = await fixture.local.connections
+        let remoteConnections = await fixture.remote.connections
+        XCTAssertEqual(localConnections, 2)
+        XCTAssertEqual(remoteConnections, 1)
+        XCTAssertEqual(fixture.events.values, [.publicAddress, .localAddress])
+    }
+
+    func testFailbackDeadlineKeepsTheWorkingRouteAlive() async throws {
+        let fixture = Fixture(deadline: 0.1)
+        await fixture.probe.setReachable(false)
+        _ = try await fixture.read()
+        await fixture.runtime.recordFailure(of: .localAddress, for: fixture.id, now: .distantPast)
+        await fixture.probe.setReachable(true)
+        await fixture.local.delayNextConnect(5)
+        let result = try await fixture.read()
+        XCTAssertEqual(result, "wan")
+        let remoteDisconnects = await fixture.remote.disconnections
+        XCTAssertEqual(remoteDisconnects, 0)
+        XCTAssertEqual(fixture.events.values, [.publicAddress])
+    }
+
+    func testRemoteBusinessTimeoutAuthenticationAndTrustDoNotTryLAN() async throws {
+        let errors: [any Error] = [SourceError.timeout, SourceError.authenticationFailed,
+                                  SourceConnectionTerminalError(message: "trust required"),
+                                  URLError(.serverCertificateUntrusted), CancellationError()]
+        for kind: SourceConnectionCandidateKind in [.publicAddress, .vendorRemote] {
+            for expected in errors {
+                let fixture = Fixture(remoteKind: kind, deadline: 0.1)
+                await fixture.runtime.observeNetworkPath(prefersLocalNetwork: false, pathChanged: false)
+                await fixture.remote.failNextConnect(expected)
+                do {
+                    _ = try await fixture.read()
+                    XCTFail("Expected original service error")
+                } catch {
+                    XCTAssertEqual((error as NSError).domain, (expected as NSError).domain)
+                    XCTAssertEqual((error as NSError).code, (expected as NSError).code)
+                }
+                let localConnections = await fixture.local.connections
+                XCTAssertEqual(localConnections, 0)
+                XCTAssertTrue(fixture.events.values.isEmpty)
+            }
+        }
+    }
+
+    func testExhaustedHandshakeDeadlinesReturnTimeoutWithoutLooping() async throws {
+        let fixture = Fixture(deadline: 0.1)
+        await fixture.local.delayNextConnect(5)
+        await fixture.remote.delayNextConnect(5)
+        do {
+            _ = try await fixture.read()
+            XCTFail("Expected timeout after both candidates")
+        } catch SourceError.timeout {} catch {
+            XCTFail("Expected source timeout, got \(error)")
+        }
+        let localConnections = await fixture.local.connections
+        let remoteConnections = await fixture.remote.connections
+        XCTAssertEqual(localConnections, 1)
+        XCTAssertEqual(remoteConnections, 1)
+        XCTAssertTrue(fixture.events.values.isEmpty)
+    }
+
     func testUnreachableEndpointUsesPublicAddress() async throws {
         let fixture = Fixture()
         await fixture.probe.setReachable(false)
@@ -252,10 +337,21 @@ final class SourceConnectionRouterTests: XCTestCase {
     let remote = RouterTestConnector(sourceID: "wan")
     let events = RouteEvents()
     let probe = RouterEndpointProbe()
+    let remoteKind: SourceConnectionCandidateKind
+    let deadline: TimeInterval?
+
+    init(remoteKind: SourceConnectionCandidateKind = .publicAddress, deadline: TimeInterval? = nil) {
+        self.remoteKind = remoteKind
+        self.deadline = deadline
+    }
+
     lazy var router = SourceConnectionRouter(sourceID: id, candidates: [
         .init(kind: .localAddress, endpoint: .init(host: "lan.invalid", port: 445, useSsl: false), connector: local),
-        .init(kind: .publicAddress, endpoint: .init(host: "wan.invalid", port: 445, useSsl: false), connector: remote)
-    ], runtime: runtime, endpointProbe: { [probe] in try await probe.check($0) }) { [events] in events.values.append($0) }
+        .init(kind: remoteKind, endpoint: remoteKind == .vendorRemote ? nil : .init(host: "wan.invalid", port: 445, useSsl: false), connector: remote)
+    ], runtime: runtime, endpointProbe: { [probe] in try await probe.check($0) }, handshakeTimeout: { [deadline] kind, kinds in
+        guard let production = SourceConnectionHandshakePolicy.timeout(for: kind, availableKinds: kinds) else { return nil }
+        return deadline ?? production
+    }) { [events] in events.values.append($0) }
     func read() async throws -> String {
         try await router.withRead { try await ($0 as! RouterTestConnector).read() }
     }
@@ -265,6 +361,7 @@ private actor RouterTestConnector: MusicSourceConnector {
     let sourceID: String
     private var readError: (any Error)?
     private var connectError: (any Error)?
+    private var connectDelay: TimeInterval = 0
     var lastError: (any Error)?
     var connections = 0
     var disconnections = 0
@@ -272,9 +369,13 @@ private actor RouterTestConnector: MusicSourceConnector {
     init(sourceID: String) { self.sourceID = sourceID }
     func failNextRead(_ error: any Error) { readError = error }
     func failNextConnect(_ error: any Error) { connectError = error }
+    func delayNextConnect(_ seconds: TimeInterval) { connectDelay = seconds }
     func connect() async throws {
         connections += 1
         if let error = connectError { connectError = nil; throw error }
+        let delay = connectDelay
+        connectDelay = 0
+        if delay > 0 { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
     }
     func disconnect() async { disconnections += 1 }
     func read() throws -> String {

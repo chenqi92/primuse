@@ -712,7 +712,7 @@ struct TVPagedList<Item, ID: Hashable, Row: View>: View {
     private let id: KeyPath<Item, ID>
     private let alignment: HorizontalAlignment
     private let spacing: CGFloat
-    private let row: (Int, Item, (Bool) -> Void) -> Row
+    private let row: (Int, Item, @escaping (Bool) -> Void) -> Row
 
     @State private var renderedRowCount = TVLongListPagingPolicy.pageSize
 
@@ -721,7 +721,7 @@ struct TVPagedList<Item, ID: Hashable, Row: View>: View {
         id: KeyPath<Item, ID>,
         alignment: HorizontalAlignment = .center,
         spacing: CGFloat = 10,
-        @ViewBuilder row: @escaping (Int, Item, (Bool) -> Void) -> Row
+        @ViewBuilder row: @escaping (Int, Item, @escaping (Bool) -> Void) -> Row
     ) {
         self.items = items
         self.id = id
@@ -754,7 +754,7 @@ extension TVPagedList where Item: Identifiable, ID == Item.ID {
         _ items: [Item],
         alignment: HorizontalAlignment = .center,
         spacing: CGFloat = 10,
-        @ViewBuilder row: @escaping (Int, Item, (Bool) -> Void) -> Row
+        @ViewBuilder row: @escaping (Int, Item, @escaping (Bool) -> Void) -> Row
     ) {
         self.init(items, id: \.id, alignment: alignment, spacing: spacing, row: row)
     }

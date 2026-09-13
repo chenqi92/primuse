@@ -116,17 +116,6 @@ public struct SourceRoutePathCondition: Sendable, Equatable {
         return PrivateOverlayHostPolicy.isOverlayHost(host)
     }
 
-    /// An address literal of a family the path does not carry can be rejected
-    /// without spending the probe budget. Only literals: a hostname on an
-    /// IPv6-only carrier still resolves through DNS64/NAT64.
-    public func canProbeAddressFamily(of endpoint: SourceConnectionEndpoint?) -> Bool {
-        guard let host = endpoint?.normalized.host else { return true }
-        switch NetworkHostAuthority.addressFamily(of: host) {
-        case .ipv4: return supportsIPv4
-        case .ipv6: return supportsIPv6
-        case .name: return true
-        }
-    }
 }
 
 public extension SourceRoutePathCondition {

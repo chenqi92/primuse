@@ -19,22 +19,27 @@ public enum SourceConnectionPreflight {
         _ rawEndpoint: SourceConnectionEndpoint,
         condition: SourceRoutePathCondition
     ) async throws {
+        try await check(rawEndpoint, condition: condition, probe: connect)
+    }
+
+    static func check(
+        _ rawEndpoint: SourceConnectionEndpoint,
+        condition: SourceRoutePathCondition,
+        probe: @Sendable (SourceConnectionEndpoint, TimeInterval) async throws -> Void
+    ) async throws {
         try Task.checkCancellation()
-        guard condition.canProbeAddressFamily(of: rawEndpoint) else {
-            // The path carries no route for this address family, so an address
-            // literal of that family cannot be reached however long we wait.
-            throw URLError(.cannotConnectToHost)
-        }
+        // A default path monitor does not describe the route to this endpoint.
+        // Split tunnels can leave the NAS reachable on a different interface.
         let timeout = condition.probeTimeout(for: rawEndpoint)
         do {
-            try await connect(rawEndpoint, timeout: timeout)
+            try await probe(rawEndpoint, timeout)
         } catch {
             guard !Task.isCancelled,
                   condition.retriesTimedOutProbe(for: rawEndpoint),
                   SourceRouteFailureReason.classify(error) == .timedOut else {
                 throw error
             }
-            try await connect(rawEndpoint, timeout: timeout)
+            try await probe(rawEndpoint, timeout)
         }
     }
 

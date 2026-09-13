@@ -85,22 +85,19 @@ public enum NetworkHostAuthority {
         guard let authority = authority(host: host, port: embeddedPort ?? port) else { return nil }
 
         let resolvedScheme = scheme.isEmpty ? defaultScheme : scheme
-        var combinedPath = trailingPath
-        if let path, path.isEmpty == false, path != "/" {
-            let suffix = path.hasPrefix("/") ? path : "/\(path)"
-            combinedPath = combinedPath.isEmpty || combinedPath == "/"
-                ? suffix
-                : combinedPath + suffix
-        }
-        guard let url = URL(string: "\(resolvedScheme)://\(authority)") else {
+        guard var components = URLComponents(string: "\(resolvedScheme)://\(authority)\(trailingPath)") else {
             return nil
         }
-        guard combinedPath.isEmpty == false, combinedPath != "/" else { return url }
-        var resolved = url
-        for segment in combinedPath.split(separator: "/") {
-            resolved.appendPathComponent(String(segment))
+        if let path, path.isEmpty == false, path != "/" {
+            // The address may already contain escapes; only the separate path
+            // field is raw text and needs encoding.
+            var suffix = URLComponents()
+            suffix.path = path.hasPrefix("/") ? path : "/\(path)"
+            let prefix = components.percentEncodedPath
+            components.percentEncodedPath = (prefix.hasSuffix("/") ? String(prefix.dropLast()) : prefix)
+                + suffix.percentEncodedPath
         }
-        return resolved
+        return components.url
     }
 
     /// Splits `host:port`, leaving bracketed and bare IPv6 literals intact.

@@ -82,8 +82,6 @@ struct TVScanFlowView: View {
     @State private var otpVerified = false
 
     var body: some View {
-        // 空判断和列表都要用,同一次刷新里只过滤一次。
-        let directories = entries.filter(\.isDir)
         ZStack {
             TVAmbientBackdrop(tint: TVColor.brand, tint2: TVColor.brandSecondary, strength: started ? 0.5 : 0.4)
             TVColor.bg.opacity(0.48).ignoresSafeArea()
@@ -209,7 +207,9 @@ struct TVScanFlowView: View {
     }
 
     private var pickView: some View {
-        HStack(alignment: .top, spacing: 80) {
+        // 空判断和列表都要用,同一次刷新里只过滤一次。
+        let directories = entries.filter(\.isDir)
+        return HStack(alignment: .top, spacing: 80) {
             VStack(alignment: .leading, spacing: 0) {
                 TVEyebrow(text: PMString("ext.tv.scan.step3")).padding(.bottom, 6)
                 Text(PMString("ext.tv.scan.chooseFolders")).tvFont(size: 40, weight: .bold, relativeTo: .title2).foregroundStyle(TVColor.text).padding(.bottom, 6)

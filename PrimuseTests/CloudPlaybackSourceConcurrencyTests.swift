@@ -1110,6 +1110,7 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
             bareOnlySourceIDs: [],
             disabledSourceIDs: disabledSourceIDs,
             manuallyReadingSongIDs: [],
+            pendingFlushSongIDs: [],
             failedSongIDs: Set((0..<40).map { "skip-\($0)" }),
             sourceIssueSongIDs: [],
             sessionGivenUpIDs: [],

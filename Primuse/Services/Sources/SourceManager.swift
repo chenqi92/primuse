@@ -1113,10 +1113,13 @@ struct RoutedConnectorCandidate: Sendable {
 /// candidate after a transport failure. Mutations are never replayed because a
 /// lost response cannot prove whether the remote write or deletion took effect.
 actor SourceConnectionRouter {
+    private struct HandshakeDeadlineExceeded: Error {}
+
     private let sourceID: String
     private let runtime: SourceConnectionRuntime
     private let candidates: [RoutedConnectorCandidate]
     private let endpointProbe: SourceNetworkFailurePolicy.EndpointProbe
+    private let handshakeTimeout: @Sendable (SourceConnectionCandidateKind, [SourceConnectionCandidateKind]) -> TimeInterval?
     private let routeDidChange: @MainActor @Sendable (SourceConnectionCandidateKind?) -> Void
     private var selectionRevision: UInt64 = 0
     private var activeIndex: Int? {
@@ -1140,11 +1143,14 @@ actor SourceConnectionRouter {
         candidates: [RoutedConnectorCandidate],
         runtime: SourceConnectionRuntime = .shared,
         endpointProbe: @escaping SourceNetworkFailurePolicy.EndpointProbe = SourceConnectionPreflight.check,
+        handshakeTimeout: @escaping @Sendable (SourceConnectionCandidateKind, [SourceConnectionCandidateKind]) -> TimeInterval?
+            = SourceConnectionHandshakePolicy.timeout,
         routeDidChange: @escaping @MainActor @Sendable (SourceConnectionCandidateKind?) -> Void
     ) {
         self.sourceID = sourceID
         self.runtime = runtime
         self.endpointProbe = endpointProbe
+        self.handshakeTimeout = handshakeTimeout
         self.candidates = candidates
         self.routeDidChange = routeDidChange
     }
@@ -1249,10 +1255,7 @@ actor SourceConnectionRouter {
                     await routeDidChange(preferredKind)
                     return preferredIndex
                 } catch {
-                    guard await canFailOver(after: error, at: preferredIndex) else { throw error }
-                    // A failed network probe must leave the working fallback alive.
-                    await candidates[preferredIndex].connector.disconnect()
-                    await recordNetworkFailure(of: preferredKind, error: error)
+                    try await prepareConnectionFallback(after: error, at: preferredIndex)
                     await runtime.record(
                         candidates[currentIndex].kind,
                         for: sourceID
@@ -1285,10 +1288,8 @@ actor SourceConnectionRouter {
                 await routeDidChange(kind)
                 return index
             } catch {
-                lastError = error
-                guard await canFailOver(after: error, at: index) else { throw error }
-                await candidates[index].connector.disconnect()
-                await recordNetworkFailure(of: kind, error: error)
+                lastError = error is HandshakeDeadlineExceeded ? SourceError.timeout : error
+                try await prepareConnectionFallback(after: error, at: index)
             }
         }
         throw lastError ?? SourceError.connectionFailed(
@@ -1376,14 +1377,15 @@ actor SourceConnectionRouter {
         // TCP reachability is deliberately not treated as success. Each
         // connector must still complete its authenticated, protocol-specific
         // handshake before the route is recorded or shown as active.
-        if let timeout = SourceConnectionHandshakePolicy.timeout(
-            for: candidate.kind,
-            availableKinds: candidates.map(\.kind)
-        ) {
+        if let timeout = handshakeTimeout(candidate.kind, candidates.map(\.kind)) {
             do {
                 try await Self.withHandshakeTimeout(seconds: timeout) {
                     try await candidate.connector.connect()
                 }
+            } catch is HandshakeDeadlineExceeded {
+                await candidate.connector.disconnect()
+                plog("Source route handshake deadline source=\(sourceID.prefix(8)) kind=\(candidate.kind.rawValue)")
+                throw HandshakeDeadlineExceeded()
             } catch {
                 if let sourceError = error as? SourceError, case .timeout = sourceError {
                     await candidate.connector.disconnect()
@@ -1398,6 +1400,16 @@ actor SourceConnectionRouter {
             try await candidate.connector.connect()
         }
         try Task.checkCancellation()
+    }
+
+    private func prepareConnectionFallback(after error: Error, at index: Int) async throws {
+        try Task.checkCancellation()
+        // Abandon only this handshake, not the endpoint's health. Service and
+        // trust errors still follow the stricter transport-evidence policy.
+        if error is HandshakeDeadlineExceeded { return }
+        guard await canFailOver(after: error, at: index) else { throw error }
+        await candidates[index].connector.disconnect()
+        await recordNetworkFailure(of: candidates[index].kind, error: error)
     }
 
     /// A task-group timeout waits for a non-cooperative losing child before it
@@ -1425,7 +1437,7 @@ actor SourceConnectionRouter {
             }
             // A connector may be waiting for service work or a trust prompt.
             // Its overall deadline is not proof that the network is unreachable.
-            if race.resolve(.failure(SourceError.timeout)) {
+            if race.resolve(.failure(HandshakeDeadlineExceeded())) {
                 operationTask.cancel()
             }
         }

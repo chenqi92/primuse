@@ -45,21 +45,21 @@ import Testing
         #expect(direct.retriesTimedOutProbe(for: nil) == false)
     }
 
-    @Test func addressLiteralsAreNotProbedOnAPathWithoutThatFamily() {
-        let ipv4 = SourceConnectionEndpoint(host: "192.168.1.20", port: 445, useSsl: false)
-        let ipv6 = SourceConnectionEndpoint(host: "fd7a:115c:a1e0::1", port: 445, useSsl: false)
-        let name = SourceConnectionEndpoint(host: "nas.example.com", port: 445, useSsl: false)
-
-        let ipv4Only = SourceRoutePathCondition(interfaceClass: .directLocal, supportsIPv6: false)
-        #expect(ipv4Only.canProbeAddressFamily(of: ipv4))
-        #expect(ipv4Only.canProbeAddressFamily(of: ipv6) == false)
-        // A hostname still resolves through DNS64/NAT64.
-        #expect(ipv4Only.canProbeAddressFamily(of: name))
-
-        let ipv6Only = SourceRoutePathCondition(interfaceClass: .cellular, supportsIPv4: false)
-        #expect(ipv6Only.canProbeAddressFamily(of: ipv4) == false)
-        #expect(ipv6Only.canProbeAddressFamily(of: ipv6))
-        #expect(SourceRoutePathCondition.unknown.canProbeAddressFamily(of: ipv6))
+    @Test(arguments: ["192.168.1.20", "fd7a:115c:a1e0::1", "nas.example.com"])
+    func defaultPathAddressFamiliesCannotRejectAnEndpoint(host: String) async throws {
+        let endpoint = SourceConnectionEndpoint(host: host, port: 445, useSsl: false)
+        for interfaceClass: SourceRouteInterfaceClass in [.directLocal, .tunnel, .cellular, .unavailable] {
+            let condition = SourceRoutePathCondition(
+                interfaceClass: interfaceClass, supportsIPv4: false, supportsIPv6: false
+            )
+            let probe = PreflightProbeRecorder()
+            try await SourceConnectionPreflight.check(endpoint, condition: condition) { target, timeout in
+                #expect(target == endpoint)
+                #expect(timeout == condition.probeTimeout(for: endpoint))
+                await probe.record()
+            }
+            #expect(await probe.attempts == 1)
+        }
     }
 
     @Test func onlyTimeoutsGetTheShortPrivateRouteCooldown() async {
@@ -209,6 +209,35 @@ import Testing
         #expect(NetworkHostAuthority.baseURL(address: "   ", defaultScheme: "http", port: 80) == nil)
     }
 
+    @Test(arguments: ["/music%20proxy", "/%E9%9F%B3%E4%B9%90", "/escaped%2Fsegment/%25", "/proxy//nested/"])
+    func encodedProxyPathSurvivesURLReconstruction(path: String) throws {
+        let address = "https://nas.example.com:5443" + path
+        #expect(NetworkHostAuthority.baseURL(
+            address: address, defaultScheme: "http", port: 80
+        )?.absoluteString == address)
+        #expect(SynologyStreamResolver.baseURL(
+            host: address, port: 80, useSsl: false
+        )?.absoluteString == address)
+        #expect(NasHttpStreamResolver.baseURL(
+            host: address, port: 80, useSsl: false
+        )?.absoluteString == address)
+    }
+
+    @Test func rawProxyPathIsEncodedOnceAcrossSourceProjectionAndResolver() throws {
+        let source = MusicSource(name: "NAS", type: .synology)
+        let projected = source.applyingConnectionCandidate(.init(
+            kind: .publicAddress,
+            endpoint: .init(host: "nas.example.com", port: 5443, useSsl: true, pathPrefix: "/音乐 proxy/100%")
+        ))
+        let expected = "https://nas.example.com:5443/%E9%9F%B3%E4%B9%90%20proxy/100%25"
+        #expect(projected.host == expected)
+        let host = try #require(projected.host)
+        #expect(SynologyStreamResolver.baseURL(host: host, port: 5443, useSsl: true)?.absoluteString == expected)
+        #expect(NetworkHostAuthority.baseURL(
+            address: host + "/", defaultScheme: "http", port: 80, path: "/a%20b #?"
+        )?.absoluteString == expected + "/a%2520b%20%23%3F")
+    }
+
     @Test func resolversBuildUsableIPv6BaseURLs() {
         #expect(MediaServerStreamResolver.baseURL(
             host: "fd7a::1", port: 8096, useSsl: false, basePath: "/jf"
@@ -251,4 +280,9 @@ import Testing
         #expect(SourceConnectionEndpoint(host: "nas.local:445", port: 139, useSsl: false)
             .normalized.port == 445)
     }
+}
+
+private actor PreflightProbeRecorder {
+    private(set) var attempts = 0
+    func record() { attempts += 1 }
 }
