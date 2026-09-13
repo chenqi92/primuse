@@ -82,6 +82,8 @@ struct TVScanFlowView: View {
     @State private var otpVerified = false
 
     var body: some View {
+        // 空判断和列表都要用,同一次刷新里只过滤一次。
+        let directories = entries.filter(\.isDir)
         ZStack {
             TVAmbientBackdrop(tint: TVColor.brand, tint2: TVColor.brandSecondary, strength: started ? 0.5 : 0.4)
             TVColor.bg.opacity(0.48).ignoresSafeArea()
@@ -231,13 +233,14 @@ struct TVScanFlowView: View {
                                 .fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.vertical, 16)
-                        } else if entries.filter(\.isDir).isEmpty {
+                        } else if directories.isEmpty {
                             Text(PMString("ext.tv.scan.noSubfolders"))
                                 .tvFont(.caption).foregroundStyle(TVColor.textGhost).padding(.vertical, 16)
                         }
-                        ForEach(entries.filter(\.isDir)) { e in
+                        TVPagedList(directories, spacing: 8) { _, e, onFocusChanged in
                             folderRow(name: e.name, isUp: false, selectable: true, checked: selected.contains(e.path),
-                                      onSelect: { toggle(e.path) }, onOpen: { openFolder(e) })
+                                      onSelect: { toggle(e.path) }, onOpen: { openFolder(e) },
+                                      onFocusChanged: onFocusChanged)
                         }
                     }
                     .padding(.horizontal, 12)
@@ -255,11 +258,13 @@ struct TVScanFlowView: View {
     }
 
     private func folderRow(name: String, isUp: Bool, selectable: Bool, checked: Bool,
-                           onSelect: @escaping () -> Void = {}, onOpen: @escaping () -> Void = {}) -> some View {
+                           onSelect: @escaping () -> Void = {}, onOpen: @escaping () -> Void = {},
+                           onFocusChanged: @escaping (Bool) -> Void = { _ in }) -> some View {
         // Opening and selecting are separate remote targets. Select now follows
         // the visible “Open” affordance; the trailing checkbox controls scan scope.
         HStack(spacing: 10) {
-            TVFocusButton(radius: 12, scale: 1.0, lift: 0, action: onOpen) { focused in
+            TVFocusButton(radius: 12, scale: 1.0, lift: 0, action: onOpen,
+                          onFocusChanged: onFocusChanged) { focused in
                 HStack(spacing: 16) {
                     Image(systemName: isUp ? "arrow.up.left" : "folder.fill")
                         .font(.system(size: 22))
@@ -285,7 +290,8 @@ struct TVScanFlowView: View {
             .accessibilityHint(Text(selectable ? PMString("ext.tv.scan.openFolder") : name))
 
             if selectable {
-                TVFocusButton(radius: 12, scale: 1.0, lift: 0, action: onSelect) { focused in
+                TVFocusButton(radius: 12, scale: 1.0, lift: 0, action: onSelect,
+                              onFocusChanged: onFocusChanged) { focused in
                     Image(systemName: checked ? "checkmark.square.fill" : "square")
                         .font(.system(size: 28, weight: .semibold))
                         .foregroundStyle(checked ? TVColor.brand : TVColor.text)

@@ -691,4 +691,73 @@ final class TVRemoteTransportCoordinator: NSObject, UIGestureRecognizerDelegate 
         perform(.seek)
     }
 }
+
+/// Apple TV 长列表的分页容器。
+///
+/// 遥控器只能一行一行挪焦点,所以一次把整份列表交给 `ForEach` 没有任何收益:
+/// 焦点引擎要为每一行建立候选并参与每次方向键的几何搜索,行数上千时上下键
+/// 和 Menu 键会一起失去响应。这里先渲染一页,焦点挪到末尾附近再续下一页,
+/// 行数上限与续页距离见 `TVLongListPagingPolicy`。
+///
+/// `row` 拿到的第三个参数必须接到行自身的焦点回调上(`TVFocusButton` 的
+/// `onFocusChanged`),否则焦点走到已渲染的末尾就再也续不上页。
+struct TVPagedList<Item, ID: Hashable, Row: View>: View {
+    private struct Entry: Identifiable {
+        let id: ID
+        let index: Int
+        let item: Item
+    }
+
+    private let items: [Item]
+    private let id: KeyPath<Item, ID>
+    private let alignment: HorizontalAlignment
+    private let spacing: CGFloat
+    private let row: (Int, Item, (Bool) -> Void) -> Row
+
+    @State private var renderedRowCount = TVLongListPagingPolicy.pageSize
+
+    init(
+        _ items: [Item],
+        id: KeyPath<Item, ID>,
+        alignment: HorizontalAlignment = .center,
+        spacing: CGFloat = 10,
+        @ViewBuilder row: @escaping (Int, Item, (Bool) -> Void) -> Row
+    ) {
+        self.items = items
+        self.id = id
+        self.alignment = alignment
+        self.spacing = spacing
+        self.row = row
+    }
+
+    var body: some View {
+        let total = items.count
+        let shown = TVLongListPagingPolicy.clamped(limit: renderedRowCount, totalCount: total)
+        let entries = items.prefix(shown).enumerated().map {
+            Entry(id: $1[keyPath: id], index: $0, item: $1)
+        }
+        LazyVStack(alignment: alignment, spacing: spacing) {
+            ForEach(entries) { entry in
+                row(entry.index, entry.item) { focused in
+                    guard focused else { return }
+                    renderedRowCount = TVLongListPagingPolicy.limit(
+                        after: shown, focusedRow: entry.index, totalCount: total
+                    )
+                }
+            }
+        }
+    }
+}
+
+extension TVPagedList where Item: Identifiable, ID == Item.ID {
+    init(
+        _ items: [Item],
+        alignment: HorizontalAlignment = .center,
+        spacing: CGFloat = 10,
+        @ViewBuilder row: @escaping (Int, Item, (Bool) -> Void) -> Row
+    ) {
+        self.init(items, id: \.id, alignment: alignment, spacing: spacing, row: row)
+    }
+}
+
 #endif

@@ -138,8 +138,10 @@ struct TVFolderBrowser: View {
                     }
                 }
                 let nodes = current.map { index.children(of: $0.id) } ?? index.sourceNodes
-                ForEach(nodes) { node in
-                    TVFocusButton(radius: 14, scale: 1.02, lift: 0, action: { enter(node, index: index) }) { focused in
+                TVPagedList(nodes, alignment: .leading, spacing: 22) { _, node, onFocusChanged in
+                    TVFocusButton(radius: 14, scale: 1.02, lift: 0,
+                                  action: { enter(node, index: index) },
+                                  onFocusChanged: onFocusChanged) { focused in
                         HStack(spacing: 22) {
                             Image(systemName: node.kind == .source ? "server.rack" : "folder.fill")
                                 .font(.system(size: 34)).foregroundStyle(TVColor.brand).frame(width: 50)
@@ -157,7 +159,7 @@ struct TVFolderBrowser: View {
                 }
                 if let current {
                     let ids = LibraryFolderBrowsePolicy.visibleSongIDs(in: current.id, index: index, orderedBy: store.songIDs)
-                    TVPagedSongIDList(songIDs: ids, action: openPlayer)
+                    TVPagedSongIDList(songIDs: ids, alignment: .leading, spacing: 22, action: openPlayer)
                 } else if nodes.isEmpty {
                     TVEmptyState(icon: "folder", title: TVDiscoveryText.string("no_folders"), subtitle: TVDiscoveryText.string("folders_hint"))
                         .frame(minHeight: 350)
@@ -244,10 +246,10 @@ struct TVRankingBrowser: View {
                 TVEmptyState(icon: "chart.bar", title: TVDiscoveryText.string("empty_ranking"), subtitle: TVDiscoveryText.string("ranking_hint"))
                     .frame(minHeight: 350)
             } else {
-                ForEach(Array(ranks.enumerated()), id: \.element.id) { offset, rank in
+                TVPagedList(ranks, alignment: .leading, spacing: 24) { offset, rank, onFocusChanged in
                     TVFocusButton(radius: 14, scale: 1.02, lift: 0, action: {
                         destination = TVBrowseDestination(id: rank.id, title: rank.title, songIDs: rank.songIDs)
-                    }) { focused in
+                    }, onFocusChanged: onFocusChanged) { focused in
                         HStack(spacing: 20) {
                             Text(String(offset + 1)).tvFont(.sectionTitle).monospacedDigit().frame(width: 50)
                                 .foregroundStyle(offset < 3 ? TVColor.brand : TVColor.textMuted)

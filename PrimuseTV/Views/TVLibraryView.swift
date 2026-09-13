@@ -266,7 +266,7 @@ struct TVLibraryView: View {
                 }
             }
         case .songs:
-            TVPagedSongIDList(songIDs: store.songIDs, action: openPlayer)
+            TVPagedSongIDList(songIDs: store.songIDs, alignment: .leading, action: openPlayer)
         case .genres:
             TVGenreBrowser(openPlayer: openPlayer, onModalActivityChanged: onModalActivityChanged)
         case .folders:
@@ -467,6 +467,8 @@ struct TVArtistDetailView: View {
     private var songs: [TVSong] { store.songs(forArtistID: artist.id) }
 
     var body: some View {
+        // 一次算好:歌曲数、列表、播放全部三处都要用,别让同一次刷新反复扫这个艺人。
+        let artistSongIDs = songs.map(\.id)
         ZStack {
             TVAmbientBackdrop(tint: artist.tint, tint2: artist.tint2, strength: 0.55)
             TVColor.bg.opacity(0.34).ignoresSafeArea()
@@ -477,7 +479,7 @@ struct TVArtistDetailView: View {
                         .tvFont(.pageTitle)
                         .foregroundStyle(TVColor.text)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text(PMString("ext.tv.songsCount", songs.count))
+                    Text(PMString("ext.tv.songsCount", artistSongIDs.count))
                         .tvFont(.body)
                         .foregroundStyle(TVColor.textMuted)
                     HStack(spacing: 14) {
@@ -501,16 +503,14 @@ struct TVArtistDetailView: View {
                     LazyVStack(alignment: .leading, spacing: 10) {
                         TVEyebrow(text: PMString("ext.tv.search.songs"))
                             .padding(.bottom, 6)
-                        if songs.isEmpty {
+                        if artistSongIDs.isEmpty {
                             TVEmptyState(
                                 icon: "music.note",
                                 title: PMString("ext.tv.search.noMatch")
                             )
                             .frame(minHeight: 360)
                         } else {
-                            ForEach(songs) { song in
-                                TVSongRow(song: song, queueSongIDs: songs.map(\.id), action: finishPlayback)
-                            }
+                            TVPagedSongIDList(songIDs: artistSongIDs, alignment: .leading, action: finishPlayback)
                         }
                     }
                     .padding(.horizontal, 16)
@@ -600,30 +600,21 @@ struct TVSongRow: View {
 /// `TVLongListPagingPolicy`。点歌仍以完整列表入队,分页只影响渲染多少行。
 struct TVPagedSongIDList: View {
     let songIDs: [String]
+    var alignment: HorizontalAlignment = .center
     var spacing: CGFloat = 10
     var action: () -> Void = {}
 
     @Environment(TVStore.self) private var store
-    @State private var renderedRowCount = TVLongListPagingPolicy.pageSize
 
     var body: some View {
-        let total = songIDs.count
-        let shown = TVLongListPagingPolicy.clamped(limit: renderedRowCount, totalCount: total)
-        LazyVStack(spacing: spacing) {
-            ForEach(Array(songIDs.prefix(shown).enumerated()), id: \.element) { row, songID in
-                if let song = store.song(songID) {
-                    TVSongRow(
-                        song: song,
-                        queueSongIDs: songIDs,
-                        action: action,
-                        onFocusChanged: { focused in
-                            guard focused else { return }
-                            renderedRowCount = TVLongListPagingPolicy.limit(
-                                after: shown, focusedRow: row, totalCount: total
-                            )
-                        }
-                    )
-                }
+        TVPagedList(songIDs, id: \.self, alignment: alignment, spacing: spacing) { _, songID, onFocusChanged in
+            if let song = store.song(songID) {
+                TVSongRow(
+                    song: song,
+                    queueSongIDs: songIDs,
+                    action: action,
+                    onFocusChanged: onFocusChanged
+                )
             }
         }
     }

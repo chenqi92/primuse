@@ -255,6 +255,8 @@ private struct TVReceivedMusicView: View {
     private var songs: [Song] { store.library.songs.filter { $0.sourceID == TVLocalTransferSource.sourceID } }
 
     var body: some View {
+        // 这一行要过一遍整个曲库,同一次刷新里空判断和列表都要用,只算一次。
+        let songs = self.songs
         ZStack {
             TVColor.bg.ignoresSafeArea()
             ScrollView {
@@ -268,12 +270,12 @@ private struct TVReceivedMusicView: View {
                             .background(focused ? TVColor.brand : TVColor.surface, in: .rect(cornerRadius: 14))
                     }
                     if songs.isEmpty { Text(TVTransferText.string("emptySelection")).foregroundStyle(TVColor.textMuted) }
-                    ForEach(songs) { song in
+                    TVPagedList(songs, alignment: .leading, spacing: 24) { _, song, onFocusChanged in
                         TVFocusButton(scale: 1.01, lift: 0, action: {
                             if store.currentSongID == song.id { store.togglePlayPause() }
                             // 接收列表保持自身顺序作为队列,从点选曲开始,并沿用当前随机开关。
                             else { _ = store.playResolvedQueue(songIDs: songs.map(\.id), shuffled: store.shuffleEnabled, startingAt: song.id) }
-                        }) { focused in
+                        }, onFocusChanged: onFocusChanged) { focused in
                             HStack(spacing: 22) {
                                 Image(systemName: store.currentSongID == song.id && store.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                                     .font(.system(size: 32))
