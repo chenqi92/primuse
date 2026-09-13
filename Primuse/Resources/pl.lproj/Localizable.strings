@@ -1075,6 +1075,16 @@
 "desktop_widgets" = "Widżety pulpitu";
 "diagnostics_clear" = "Wyczyść wszystkie raporty";
 "diagnostics_clear_confirm" = "Usunąć wszystkie raporty?";
+"diagnostics_send_button" = "Wyślij raporty do dewelopera e-mailem";
+"diagnostics_send_privacy" = "Wysyłane są wyłącznie zapisy wątków programu: zebrane przez system stosy wywołań awarii i zawieszeń oraz wersja aplikacji, model urządzenia i wersja systemu. Bez danych konta, biblioteki muzycznej, historii odtwarzania, nazw plików i innych danych osobowych.";
+"diagnostics_send_mail_intro %lld" = "Załączone raporty diagnostyczne Primuse: %lld.";
+"diagnostics_send_sent_title" = "Raport wysłany";
+"diagnostics_send_sent_message" = "Dziękujemy. Czy wyczyścić teraz raporty zapisane na tym urządzeniu?";
+"diagnostics_send_keep" = "Zachowaj";
+"diagnostics_send_unavailable_title" = "Nie można wysłać wiadomości";
+"diagnostics_send_unavailable_message %@" = "Na tym urządzeniu nie skonfigurowano konta e-mail. Raport możesz wysłać na %@ przyciskiem udostępniania.";
+"diagnostics_send_failed_title" = "Nie wysłano";
+"diagnostics_send_failed_message" = "Aplikacja Mail nie mogła wysłać wiadomości. Twoje raporty pozostają na tym urządzeniu.";
 "diagnostics_empty_subtitle" = "Jeśli Primuse ulegnie awarii lub zawiesi się, iOS pozostawi tutaj raport, który możesz udostępnić programiście.";
 "diagnostics_empty_title" = "Brak raportów diagnostycznych";
 "diagnostics_footer" = "Raporty pozostają na tym urządzeniu. Kliknij, aby udostępnić programiście przez e-mail lub AirDrop.";

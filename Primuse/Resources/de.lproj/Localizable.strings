@@ -1376,6 +1376,16 @@
 "diagnostics_footer" = "Berichte bleiben auf diesem Gerät. Tippe, um sie per E-Mail oder AirDrop mit dem Entwickler zu teilen.";
 "diagnostics_clear" = "Alle Berichte löschen";
 "diagnostics_clear_confirm" = "Alle Berichte löschen?";
+"diagnostics_send_button" = "Berichte per E-Mail an den Entwickler senden";
+"diagnostics_send_privacy" = "Gesendet werden nur Programm-Thread-Aufzeichnungen: die vom System erfassten Absturz- und Hänger-Aufrufstapel sowie App-Version, Gerätemodell und Systemversion. Keine Kontodaten, Mediathek, Wiedergabeverlauf, Dateinamen oder andere personenbezogene Daten.";
+"diagnostics_send_mail_intro %lld" = "Angehängt sind %lld Primuse-Diagnoseberichte.";
+"diagnostics_send_sent_title" = "Bericht gesendet";
+"diagnostics_send_sent_message" = "Danke. Möchtest du die auf diesem Gerät gespeicherten Berichte jetzt löschen?";
+"diagnostics_send_keep" = "Behalten";
+"diagnostics_send_unavailable_title" = "E-Mail kann nicht gesendet werden";
+"diagnostics_send_unavailable_message %@" = "Auf diesem Gerät ist kein E-Mail-Konto eingerichtet. Du kannst einen Bericht weiterhin über die Teilen-Taste an %@ senden.";
+"diagnostics_send_failed_title" = "Senden fehlgeschlagen";
+"diagnostics_send_failed_message" = "Die Mail-App konnte die Nachricht nicht senden. Deine Berichte bleiben auf diesem Gerät.";
 "source_diagnostics" = "Quellendiagnose";
 "source_diagnostics_short" = "Prüfen";
 "source_diag_running" = "Verbindung und Scanbereitschaft werden geprüft …";

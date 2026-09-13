@@ -1075,6 +1075,16 @@
 "desktop_widgets" = "डेस्कटॉप विजेट";
 "diagnostics_clear" = "सभी रिपोर्ट साफ़ करें";
 "diagnostics_clear_confirm" = "सभी रिपोर्ट हटाएं?";
+"diagnostics_send_button" = "रिपोर्ट डेवलपर को ईमेल करें";
+"diagnostics_send_privacy" = "केवल प्रोग्राम थ्रेड रिकॉर्ड भेजे जाते हैं: सिस्टम द्वारा एकत्र किए गए क्रैश और हैंग कॉल स्टैक, साथ ही ऐप संस्करण, डिवाइस मॉडल और सिस्टम संस्करण। कोई खाता जानकारी, संगीत लाइब्रेरी, सुनने का इतिहास, फ़ाइल नाम या अन्य व्यक्तिगत डेटा नहीं।";
+"diagnostics_send_mail_intro %lld" = "संलग्न Primuse डायग्नोस्टिक रिपोर्ट: %lld।";
+"diagnostics_send_sent_title" = "रिपोर्ट भेजी गई";
+"diagnostics_send_sent_message" = "धन्यवाद। क्या आप इस डिवाइस पर सहेजी गई रिपोर्ट अभी हटाना चाहते हैं?";
+"diagnostics_send_keep" = "रखें";
+"diagnostics_send_unavailable_title" = "मेल नहीं भेजा जा सकता";
+"diagnostics_send_unavailable_message %@" = "इस डिवाइस पर कोई मेल खाता सेट नहीं है। आप रिपोर्ट के शेयर बटन से उसे %@ पर भेज सकते हैं।";
+"diagnostics_send_failed_title" = "भेजा नहीं जा सका";
+"diagnostics_send_failed_message" = "मेल ऐप संदेश नहीं भेज सका। आपकी रिपोर्ट इस डिवाइस पर बनी हुई हैं।";
 "diagnostics_empty_subtitle" = "यदि Primuse क्रैश या फ्रीज हो जाता है, तो iOS डेवलपर के साथ साझा करने के लिए आपके लिए यहां एक रिपोर्ट छोड़ देगा।";
 "diagnostics_empty_title" = "कोई नैदानिक रिपोर्ट नहीं";
 "diagnostics_footer" = "रिपोर्टें इस डिवाइस पर रहती हैं। डेवलपर के साथ ईमेल या एयरड्रॉप के माध्यम से साझा करने के लिए टैप करें।";

@@ -865,6 +865,16 @@
 "immersive_demo_lyric_09" = "Далёкий ритм не дает городу уснуть.";
 "Scrape Entire Library" = "Найти метаданные всей медиатеки";
 "diagnostics_clear_confirm" = "Удалить все отчеты?";
+"diagnostics_send_button" = "Отправить отчёты разработчику по почте";
+"diagnostics_send_privacy" = "Отправляются только записи потоков программы: собранные системой стеки вызовов при сбоях и зависаниях, а также версия приложения, модель устройства и версия системы. Никаких данных учётной записи, медиатеки, истории прослушивания, имён файлов и других личных данных.";
+"diagnostics_send_mail_intro %lld" = "Вложено отчётов диагностики Primuse: %lld.";
+"diagnostics_send_sent_title" = "Отчёт отправлен";
+"diagnostics_send_sent_message" = "Спасибо. Очистить отчёты, сохранённые на этом устройстве?";
+"diagnostics_send_keep" = "Оставить";
+"diagnostics_send_unavailable_title" = "Не удаётся отправить письмо";
+"diagnostics_send_unavailable_message %@" = "На этом устройстве не настроена учётная запись почты. Отчёт можно отправить на %@ кнопкой «Поделиться».";
+"diagnostics_send_failed_title" = "Не отправлено";
+"diagnostics_send_failed_message" = "Приложению «Почта» не удалось отправить письмо. Отчёты остались на устройстве.";
 "ai_playlist_create" = "Создать плейлист";
 "Widget payload" = "Полезная нагрузка виджета";
 "radio_batch_error_title" = "Ошибка импорта";

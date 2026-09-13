@@ -1075,6 +1075,16 @@
 "desktop_widgets" = "أدوات سطح المكتب";
 "diagnostics_clear" = "مسح كافة التقارير";
 "diagnostics_clear_confirm" = "حذف كافة التقارير؟";
+"diagnostics_send_button" = "إرسال التقارير إلى المطور بالبريد";
+"diagnostics_send_privacy" = "لا تُرسَل سوى سجلات مسارات البرنامج: مكدسات الاستدعاء للأعطال والتجمّد التي يجمعها النظام، مع إصدار التطبيق وطراز الجهاز وإصدار النظام. لا تتضمن بيانات الحساب أو مكتبة الموسيقى أو سجل الاستماع أو أسماء الملفات أو أي بيانات شخصية أخرى.";
+"diagnostics_send_mail_intro %lld" = "عدد تقارير تشخيص Primuse المرفقة: %lld.";
+"diagnostics_send_sent_title" = "تم إرسال التقرير";
+"diagnostics_send_sent_message" = "شكرًا لك. هل تريد مسح التقارير المحفوظة على هذا الجهاز الآن؟";
+"diagnostics_send_keep" = "الاحتفاظ";
+"diagnostics_send_unavailable_title" = "تعذر إرسال البريد";
+"diagnostics_send_unavailable_message %@" = "لا يوجد حساب بريد مُعد على هذا الجهاز. يمكنك استخدام زر المشاركة في التقرير لإرساله إلى %@.";
+"diagnostics_send_failed_title" = "تعذر الإرسال";
+"diagnostics_send_failed_message" = "لم يتمكن تطبيق البريد من إرسال الرسالة. لا تزال تقاريرك على هذا الجهاز.";
 "diagnostics_empty_subtitle" = "إذا تعطل Primuse أو تجمد، iOS سيترك تقريرًا هنا لمشاركته مع المطور.";
 "diagnostics_empty_title" = "لا توجد تقارير تشخيصية";
 "diagnostics_footer" = "تبقى التقارير على هذا الجهاز. انقر للمشاركة مع المطور عبر البريد الإلكتروني أو AirDrop.";

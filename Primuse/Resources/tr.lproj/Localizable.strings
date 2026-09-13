@@ -865,6 +865,16 @@
 "immersive_demo_lyric_09" = "Uzak bir ritim şehri uyanık tutuyor";
 "Scrape Entire Library" = "Tüm arşivin üst verilerini bul";
 "diagnostics_clear_confirm" = "Tüm raporlar silinsin mi?";
+"diagnostics_send_button" = "Raporları geliştiriciye e-postayla gönder";
+"diagnostics_send_privacy" = "Yalnızca program iş parçacığı kayıtları gönderilir: sistemin topladığı çökme ve donma çağrı yığınları ile uygulama sürümü, cihaz modeli ve sistem sürümü. Hesap bilgisi, müzik arşivi, dinleme geçmişi, dosya adı veya başka kişisel veri gönderilmez.";
+"diagnostics_send_mail_intro %lld" = "Ekte %lld Primuse tanılama raporu var.";
+"diagnostics_send_sent_title" = "Rapor gönderildi";
+"diagnostics_send_sent_message" = "Teşekkürler. Bu cihazda saklanan raporları şimdi silmek ister misin?";
+"diagnostics_send_keep" = "Sakla";
+"diagnostics_send_unavailable_title" = "E-posta gönderilemiyor";
+"diagnostics_send_unavailable_message %@" = "Bu cihazda kurulu bir e-posta hesabı yok. Raporu paylaş düğmesiyle %@ adresine gönderebilirsin.";
+"diagnostics_send_failed_title" = "Gönderilemedi";
+"diagnostics_send_failed_message" = "Mail uygulaması iletiyi gönderemedi. Raporların bu cihazda duruyor.";
 "ai_playlist_create" = "Çalma Listesi Oluştur";
 "Widget payload" = "Widget yükü";
 "radio_batch_error_title" = "İçe Aktarma Başarısız";

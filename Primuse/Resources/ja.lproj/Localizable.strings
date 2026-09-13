@@ -1377,6 +1377,16 @@
 "diagnostics_footer" = "レポートはこのデバイスに保存されます。タップしてメールまたは AirDrop で開発者と共有できます。";
 "diagnostics_clear" = "すべてのレポートを消去";
 "diagnostics_clear_confirm" = "すべてのレポートを削除しますか？";
+"diagnostics_send_button" = "レポートを開発者にメールで送る";
+"diagnostics_send_privacy" = "送信されるのはプログラムのスレッド記録だけです。システムが収集したクラッシュとハングのコールスタック、アプリのバージョン、デバイスの機種、システムバージョンのみで、アカウント情報、ミュージックライブラリ、再生履歴、ファイル名などの個人データは含まれません。";
+"diagnostics_send_mail_intro %lld" = "Primuse の診断レポート %lld 件を添付しました。";
+"diagnostics_send_sent_title" = "レポートを送信しました";
+"diagnostics_send_sent_message" = "ありがとうございます。この端末に保存されているレポートを今すぐ消去しますか？";
+"diagnostics_send_keep" = "残す";
+"diagnostics_send_unavailable_title" = "メールを送信できません";
+"diagnostics_send_unavailable_message %@" = "この端末にはメールアカウントが設定されていません。レポートの共有ボタンから %@ に送ることもできます。";
+"diagnostics_send_failed_title" = "送信できませんでした";
+"diagnostics_send_failed_message" = "メールAppがメッセージを送信できませんでした。レポートはこの端末に残っています。";
 "source_diagnostics" = "ソースの診断";
 "source_diagnostics_short" = "診断";
 "source_diag_running" = "接続とスキャンの準備状況を確認中...";

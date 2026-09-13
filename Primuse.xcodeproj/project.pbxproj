@@ -157,6 +157,7 @@
 		1EE5E389A8FE771DA64B8810 /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4F6B266B199B4973F7A9134 /* NetworkMonitor.swift */; };
 		1F47DB3FE4EE61F5E3D5C8B9 /* BaiduPanStreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13DF5DE888D6B46DD9A60F16 /* BaiduPanStreamResolver.swift */; };
 		1F557C87A502FBCD8DC01038 /* ImmersiveStageScenery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 471FBD82B7B84A3591677C6D /* ImmersiveStageScenery.swift */; };
+		26DD2266B526D126833AB56B /* DiagnosticReportMailer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D630F262FE12AF1E3FE2474 /* DiagnosticReportMailer.swift */; };
 		3609CE36D79DA5BA2F0F8C04 /* ImmersiveStageRenderers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93D8F93C11C5FE1A45FAB247 /* ImmersiveStageRenderers.swift */; };
 		1FBA61CFD8F9EEC38167C64E /* UpdateBannerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 428DCE75417C9BAE087880F9 /* UpdateBannerSheet.swift */; };
 		1FCDA0A721D4974C059E97C6 /* CloudPlaybackSourceConcurrencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08B67A4A4DBE2C02BA72027B /* CloudPlaybackSourceConcurrencyTests.swift */; };
@@ -254,6 +255,7 @@
 		37095AC2E63B5DE44A74FE29 /* AlbumDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEE2C637A78576C7A05DF5BF /* AlbumDetailView.swift */; };
 		370A83F06945E4CAAD111042 /* AICredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F266BC40DFEB0858D943B648 /* AICredentialStore.swift */; };
 		374F3BE97119D0550F06478A /* UgreenSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 404526370F939D7D68BB9F6E /* UgreenSource.swift */; };
+		377A5A4357E38A11A7DE2445 /* DiagnosticReportMailer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D630F262FE12AF1E3FE2474 /* DiagnosticReportMailer.swift */; };
 		37FB9066E276F19139F5E328 /* NFSByteReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 358B35D2EA5639F74C35CC3A /* NFSByteReader.swift */; };
 		383617AAF633A1FFE215D3D0 /* CarPlayContentPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7796B8917487FB64D4FA58B8 /* CarPlayContentPicker.swift */; };
 		383675FCA0F8CA7DB0BD5F32 /* NowPlayingComplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = 946A62C1285382A24B3F436C /* NowPlayingComplication.swift */; };
@@ -1505,6 +1507,7 @@
 		1CE7D5D400172509FECAFA70 /* OutputDeviceVolumeController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputDeviceVolumeController.swift; sourceTree = "<group>"; };
 		1CEBA275253A5F2B114FAAC9 /* OperationCancellationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperationCancellationPolicy.swift; sourceTree = "<group>"; };
 		1D1902C6473F80DF2A01D28D /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/HomeDiscovery.strings; sourceTree = "<group>"; };
+		1D630F262FE12AF1E3FE2474 /* DiagnosticReportMailer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticReportMailer.swift; sourceTree = "<group>"; };
 		1D6CD16F36EEEA61C94435DA /* PrimuseWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PrimuseWidgetExtension.entitlements; sourceTree = "<group>"; };
 		1D93A8CFB64630F7615B9485 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		1D95026A4255446C98BA2456 /* MacImmersivePlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacImmersivePlayerView.swift; sourceTree = "<group>"; };
@@ -3106,6 +3109,7 @@
 				F79D31F8D7A9471678BFE366 /* CarPlaySettingsStore.swift */,
 				30B7398D5BCEB0CAED2FB0E0 /* CoverTintProvider.swift */,
 				856D9C17545ABDD50E3B5977 /* CrashDiagnosticsService.swift */,
+				1D630F262FE12AF1E3FE2474 /* DiagnosticReportMailer.swift */,
 				674C441197AFC8EDFF6E7E4B /* FullscreenPlayerEffectSettings.swift */,
 				2AB10836AF9263CA5866DCE4 /* ThemeColorSettings.swift */,
 				74134D8D32D016D927D59D77 /* ThemeService.swift */,
@@ -4684,6 +4688,7 @@
 				C543ACF68E33CF0D7762393D /* DaoLiYuSource.swift in Sources */,
 				74E89B78303995C74AB17177 /* DesktopLyricsView.swift in Sources */,
 				C5017C7E189A5C943BF203B0 /* DesktopLyricsWindowController.swift in Sources */,
+				26DD2266B526D126833AB56B /* DiagnosticReportMailer.swift in Sources */,
 				2DA70339408A4A2E8669B492 /* DiagnosticReportsView.swift in Sources */,
 				946B1D1623CF76235A29F946 /* DrimeSource.swift in Sources */,
 				0D872E56924B184F3C3F15B6 /* DropboxSource.swift in Sources */,
@@ -5153,6 +5158,7 @@
 				0C2D861EA2C1F6534529CE43 /* DaoLiYuSource.swift in Sources */,
 				36FF6841F29DE1D8C53529B5 /* DesktopLyricsView.swift in Sources */,
 				BCF4B55BA0E5976EF2EDA3EB /* DesktopLyricsWindowController.swift in Sources */,
+				377A5A4357E38A11A7DE2445 /* DiagnosticReportMailer.swift in Sources */,
 				AAFF7692A7D7CD5704F7DC64 /* DiagnosticReportsView.swift in Sources */,
 				86178EAC0659374D1EE56817 /* DrimeSource.swift in Sources */,
 				41E2CB041331ED42FF45E5CD /* DropboxSource.swift in Sources */,

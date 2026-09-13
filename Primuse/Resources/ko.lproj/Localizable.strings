@@ -1376,6 +1376,16 @@
 "diagnostics_footer" = "리포트는 이 기기에만 저장됩니다. 탭하여 이메일 또는 AirDrop으로 개발자와 공유하세요.";
 "diagnostics_clear" = "모든 리포트 지우기";
 "diagnostics_clear_confirm" = "모든 리포트를 삭제하시겠습니까?";
+"diagnostics_send_button" = "개발자에게 보고서 메일 보내기";
+"diagnostics_send_privacy" = "전송되는 것은 프로그램 스레드 기록뿐입니다. 시스템이 수집한 충돌 및 멈춤 호출 스택과 앱 버전, 기기 모델, 시스템 버전만 포함되며 계정 정보, 음악 보관함, 재생 기록, 파일 이름 등 개인 데이터는 포함되지 않습니다.";
+"diagnostics_send_mail_intro %lld" = "Primuse 진단 보고서 %lld개를 첨부했습니다.";
+"diagnostics_send_sent_title" = "보고서를 보냈습니다";
+"diagnostics_send_sent_message" = "감사합니다. 이 기기에 저장된 보고서를 지금 지울까요?";
+"diagnostics_send_keep" = "유지";
+"diagnostics_send_unavailable_title" = "메일을 보낼 수 없음";
+"diagnostics_send_unavailable_message %@" = "이 기기에 메일 계정이 설정되어 있지 않습니다. 보고서의 공유 버튼으로 %@에 보낼 수도 있습니다.";
+"diagnostics_send_failed_title" = "보내지 못함";
+"diagnostics_send_failed_message" = "메일 App이 메시지를 보내지 못했습니다. 보고서는 이 기기에 그대로 있습니다.";
 "source_diagnostics" = "소스 진단";
 "source_diagnostics_short" = "점검";
 "source_diag_running" = "연결 및 스캔 준비 상태를 확인하는 중...";

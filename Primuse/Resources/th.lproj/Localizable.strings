@@ -1075,6 +1075,16 @@
 "desktop_widgets" = "วิดเจ็ตบนเดสก์ท็อป";
 "diagnostics_clear" = "ล้างรายงานทั้งหมด";
 "diagnostics_clear_confirm" = "ลบรายงานทั้งหมดเหรอ?";
+"diagnostics_send_button" = "ส่งรายงานถึงนักพัฒนาทางอีเมล";
+"diagnostics_send_privacy" = "ส่งเฉพาะบันทึกเธรดของโปรแกรมเท่านั้น ได้แก่ call stack ของการขัดข้องและการค้างที่ระบบเก็บไว้ พร้อมเวอร์ชันแอป รุ่นอุปกรณ์ และเวอร์ชันระบบ ไม่มีข้อมูลบัญชี คลังเพลง ประวัติการฟัง ชื่อไฟล์ หรือข้อมูลส่วนบุคคลอื่นใด";
+"diagnostics_send_mail_intro %lld" = "แนบรายงานวินิจฉัยของ Primuse: %lld ฉบับ";
+"diagnostics_send_sent_title" = "ส่งรายงานแล้ว";
+"diagnostics_send_sent_message" = "ขอบคุณ ต้องการล้างรายงานที่เก็บไว้ในเครื่องนี้ตอนนี้เลยไหม";
+"diagnostics_send_keep" = "เก็บไว้";
+"diagnostics_send_unavailable_title" = "ส่งอีเมลไม่ได้";
+"diagnostics_send_unavailable_message %@" = "อุปกรณ์นี้ยังไม่ได้ตั้งค่าบัญชีอีเมล คุณยังใช้ปุ่มแชร์ของรายงานเพื่อส่งไปยัง %@ ได้";
+"diagnostics_send_failed_title" = "ส่งไม่สำเร็จ";
+"diagnostics_send_failed_message" = "แอปเมลส่งข้อความไม่สำเร็จ รายงานของคุณยังอยู่ในเครื่องนี้";
 "diagnostics_empty_subtitle" = "หาก Primuse ขัดข้องหรือค้าง iOS จะทิ้งรายงานไว้ที่นี่เพื่อให้คุณแชร์กับนักพัฒนาซอฟต์แวร์";
 "diagnostics_empty_title" = "ไม่มีรายงานการวินิจฉัย";
 "diagnostics_footer" = "รายงานจะคงอยู่ในอุปกรณ์นี้ แตะเพื่อแชร์กับนักพัฒนาทางอีเมลหรือ AirDrop";

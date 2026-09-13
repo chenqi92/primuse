@@ -1075,6 +1075,16 @@
 "desktop_widgets" = "Widgets da área de trabalho";
 "diagnostics_clear" = "Limpar todos os relatórios";
 "diagnostics_clear_confirm" = "Excluir todos os relatórios?";
+"diagnostics_send_button" = "Enviar os relatórios ao desenvolvedor por e-mail";
+"diagnostics_send_privacy" = "São enviados apenas registros de threads do programa: as pilhas de chamadas de falhas e travamentos coletadas pelo sistema, além da versão do app, do modelo do dispositivo e da versão do sistema. Sem dados de conta, biblioteca musical, histórico de reprodução, nomes de arquivos ou outros dados pessoais.";
+"diagnostics_send_mail_intro %lld" = "Relatórios de diagnóstico do Primuse anexados: %lld.";
+"diagnostics_send_sent_title" = "Relatório enviado";
+"diagnostics_send_sent_message" = "Obrigado. Deseja apagar agora os relatórios guardados neste dispositivo?";
+"diagnostics_send_keep" = "Manter";
+"diagnostics_send_unavailable_title" = "Não é possível enviar o e-mail";
+"diagnostics_send_unavailable_message %@" = "Este dispositivo não tem uma conta de e-mail configurada. Você ainda pode usar o botão de compartilhar de um relatório para enviá-lo para %@.";
+"diagnostics_send_failed_title" = "Falha no envio";
+"diagnostics_send_failed_message" = "O app Mail não conseguiu enviar a mensagem. Seus relatórios continuam neste dispositivo.";
 "diagnostics_empty_subtitle" = "Se o Primuse travar ou congelar, o iOS deixará um relatório aqui para você compartilhar com o desenvolvedor.";
 "diagnostics_empty_title" = "Nenhum relatório de diagnóstico";
 "diagnostics_footer" = "Os relatórios permanecem neste dispositivo. Toque para compartilhar com o desenvolvedor por e-mail ou AirDrop.";

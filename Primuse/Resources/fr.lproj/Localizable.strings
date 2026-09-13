@@ -1376,6 +1376,16 @@
 "diagnostics_footer" = "Les rapports restent sur cet appareil. Touchez pour les partager avec le développeur par e-mail ou AirDrop.";
 "diagnostics_clear" = "Effacer tous les rapports";
 "diagnostics_clear_confirm" = "Supprimer tous les rapports ?";
+"diagnostics_send_button" = "Envoyer les rapports au développeur par e-mail";
+"diagnostics_send_privacy" = "Seuls les enregistrements des threads du programme sont envoyés : les piles d'appels de plantage et de blocage collectées par le système, ainsi que la version de l'app, le modèle de l'appareil et la version du système. Aucune donnée de compte, bibliothèque musicale, historique d'écoute, nom de fichier ni autre donnée personnelle.";
+"diagnostics_send_mail_intro %lld" = "%lld rapports de diagnostic Primuse sont joints.";
+"diagnostics_send_sent_title" = "Rapport envoyé";
+"diagnostics_send_sent_message" = "Merci. Voulez-vous effacer maintenant les rapports enregistrés sur cet appareil ?";
+"diagnostics_send_keep" = "Conserver";
+"diagnostics_send_unavailable_title" = "Impossible d'envoyer l'e-mail";
+"diagnostics_send_unavailable_message %@" = "Aucun compte e-mail n'est configuré sur cet appareil. Vous pouvez toujours utiliser le bouton de partage d'un rapport pour l'envoyer à %@.";
+"diagnostics_send_failed_title" = "Échec de l'envoi";
+"diagnostics_send_failed_message" = "L'app Mail n'a pas pu envoyer le message. Vos rapports restent sur cet appareil.";
 "source_diagnostics" = "Diagnostic de la source";
 "source_diagnostics_short" = "Vérifier";
 "source_diag_running" = "Vérification de la connexion et de l'état pour l'analyse...";

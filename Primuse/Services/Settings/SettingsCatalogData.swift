@@ -263,6 +263,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "about.repository", titleKey: "github_repository", iosPage: .about, macPage: .about),
         SettingDefinition(id: "about.feedback", titleKey: "github_feedback", iosPage: .about, macPage: .about, macAnchor: "about.repository"),
         SettingDefinition(id: "diagnostics.shareReport", titleKey: "diagnostics_title", iosPage: .diagnostics, macPage: nil, anchor: "page.diagnostics", macAnchor: "diagnostics.shareReport", hint: "Choose a diagnostic report to share. Reports appear here when available."),
+        SettingDefinition(id: "diagnostics.sendReports", titleKey: "diagnostics_send_button", iosPage: .diagnostics, macPage: nil, hint: "Email the stored crash and hang reports to the developer. Thread call stacks only, no personal data."),
         SettingDefinition(id: "diagnostics.clearReports", titleKey: "diagnostics_clear", iosPage: .diagnostics, macPage: nil),
         SettingDefinition(id: "stats.source", titleKey: "stats_data_source", iosPage: .statistics, macPage: nil),
         SettingDefinition(id: "stats.range", titleKey: "stats_range", iosPage: .statistics, macPage: nil),

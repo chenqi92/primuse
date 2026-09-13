@@ -1399,6 +1399,16 @@
 "diagnostics_footer" = "Reports stay on this device. Tap to share with the developer via email or AirDrop.";
 "diagnostics_clear" = "Clear all reports";
 "diagnostics_clear_confirm" = "Delete all reports?";
+"diagnostics_send_button" = "Email reports to the developer";
+"diagnostics_send_privacy" = "Only program thread records are sent: the crash and hang call stacks the system collects, plus the app version, device model and system version. No account details, music library, listening history, file names or other personal data.";
+"diagnostics_send_mail_intro %lld" = "Primuse diagnostic reports attached: %lld.";
+"diagnostics_send_sent_title" = "Report sent";
+"diagnostics_send_sent_message" = "Thanks. Do you want to clear the reports stored on this device now?";
+"diagnostics_send_keep" = "Keep";
+"diagnostics_send_unavailable_title" = "Can't send mail";
+"diagnostics_send_unavailable_message %@" = "This device has no mail account set up. You can still use the share button on a report to send it to %@.";
+"diagnostics_send_failed_title" = "Couldn't send";
+"diagnostics_send_failed_message" = "The Mail app couldn't send the message. Your reports are still on this device.";
 "source_diagnostics" = "Source Diagnostics";
 "source_diagnostics_short" = "Check";
 "source_diag_running" = "Checking connection and scan readiness...";

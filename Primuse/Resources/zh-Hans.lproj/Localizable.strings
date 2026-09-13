@@ -1400,6 +1400,16 @@
 "diagnostics_footer" = "报告仅保存在本机。点击通过邮件 / AirDrop 分享给开发者。";
 "diagnostics_clear" = "清空全部报告";
 "diagnostics_clear_confirm" = "确定要删除所有报告吗？";
+"diagnostics_send_button" = "把报告发邮件给开发者";
+"diagnostics_send_privacy" = "只发送程序线程记录：系统收集的崩溃与卡顿调用栈，以及 App 版本、设备型号和系统版本。不含账号信息、音乐库、收听记录、文件名等任何个人数据。";
+"diagnostics_send_mail_intro %lld" = "随附 Primuse 诊断报告 %lld 份。";
+"diagnostics_send_sent_title" = "报告已发送";
+"diagnostics_send_sent_message" = "感谢反馈。现在要清空本机保存的报告吗？";
+"diagnostics_send_keep" = "保留";
+"diagnostics_send_unavailable_title" = "无法发送邮件";
+"diagnostics_send_unavailable_message %@" = "这台设备还没有设置邮件账户。你仍可以用报告右侧的分享按钮把它发送到 %@。";
+"diagnostics_send_failed_title" = "发送失败";
+"diagnostics_send_failed_message" = "邮件 App 未能发出这封邮件。你的报告仍保存在本机。";
 "source_diagnostics" = "音乐源体检";
 "source_diagnostics_short" = "体检";
 "source_diag_running" = "正在检查连接和扫描条件...";
