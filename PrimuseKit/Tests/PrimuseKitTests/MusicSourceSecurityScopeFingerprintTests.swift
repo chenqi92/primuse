@@ -79,6 +79,112 @@ struct MusicSourceSecurityScopeFingerprintTests {
         )
     }
 
+    @Test func addingAnAlternateAddressKeepsTheCredentialScope() {
+        let source = makeSynologySource()
+        var withPublicAddress = source
+        withPublicAddress.connectionConfiguration = SourceConnectionConfiguration(
+            localEndpoint: SourceConnectionEndpoint(
+                host: "192.168.0.50",
+                port: 5_001,
+                useSsl: true,
+                pathPrefix: "/music"
+            ),
+            publicEndpoint: SourceConnectionEndpoint(
+                host: "nas.example.cn",
+                port: 5_001,
+                useSsl: true,
+                pathPrefix: "/music"
+            )
+        )
+
+        // The full scope still moves: the connector must be rebuilt.
+        #expect(
+            MusicSourceSecurityScopeFingerprint.make(for: source, revision: 3)
+                != MusicSourceSecurityScopeFingerprint.make(
+                    for: withPublicAddress,
+                    revision: 3
+                )
+        )
+        // The credential scope does not: the cached bytes stay trusted.
+        #expect(
+            MusicSourceSecurityScopeFingerprint.credentialScoped(
+                for: source,
+                revisionIdentity: "3"
+            ) == MusicSourceSecurityScopeFingerprint.credentialScoped(
+                for: withPublicAddress,
+                revisionIdentity: "3"
+            )
+        )
+    }
+
+    @Test func credentialScopeStillTracksAccountContentRootAndEpoch() {
+        let source = makeSynologySource()
+        let original = MusicSourceSecurityScopeFingerprint.credentialScoped(
+            for: source,
+            revisionIdentity: "3"
+        )
+
+        var rotatedCredential = source
+        rotatedCredential.username = "another-user"
+        var movedContentRoot = source
+        movedContentRoot.basePath = "/other-music"
+
+        #expect(original != MusicSourceSecurityScopeFingerprint.credentialScoped(
+            for: rotatedCredential,
+            revisionIdentity: "3"
+        ))
+        #expect(original != MusicSourceSecurityScopeFingerprint.credentialScoped(
+            for: movedContentRoot,
+            revisionIdentity: "3"
+        ))
+        #expect(original != MusicSourceSecurityScopeFingerprint.credentialScoped(
+            for: source,
+            revisionIdentity: "4"
+        ))
+    }
+
+    @Test func credentialScopeRejectsAnAlternateAddressServingAnotherContentRoot() {
+        let source = makeSynologySource()
+        var repointed = source
+        repointed.connectionConfiguration = SourceConnectionConfiguration(
+            localEndpoint: SourceConnectionEndpoint(
+                host: "192.168.0.50",
+                port: 5_001,
+                useSsl: true,
+                pathPrefix: "/archive"
+            ),
+            publicEndpoint: SourceConnectionEndpoint(
+                host: "nas.example.cn",
+                port: 5_001,
+                useSsl: true,
+                pathPrefix: "/archive"
+            )
+        )
+
+        #expect(
+            MusicSourceSecurityScopeFingerprint.credentialScoped(
+                for: source,
+                revisionIdentity: "3"
+            ) != MusicSourceSecurityScopeFingerprint.credentialScoped(
+                for: repointed,
+                revisionIdentity: "3"
+            )
+        )
+    }
+
+    private func makeSynologySource() -> MusicSource {
+        MusicSource(
+            id: "synology-source",
+            name: "NAS",
+            type: .synology,
+            host: "192.168.0.50",
+            port: 5_001,
+            useSsl: true,
+            username: "listener",
+            basePath: "/music"
+        )
+    }
+
     private func makeSource() -> MusicSource {
         MusicSource(
             id: "security-source",

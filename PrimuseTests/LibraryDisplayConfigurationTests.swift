@@ -1080,6 +1080,40 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
             ),
             .allowExisting
         )
+        // Adding a public address to a NAS source moves the full scope but not
+        // the credential scope: the downloaded bytes stay.
+        XCTAssertEqual(
+            SourceAudioCacheScopePolicy.reconciliation(
+                recordedSignature: "scope-a",
+                currentSignature: "scope-b",
+                legacyAdoptionAllowed: false,
+                recordedCredentialSignature: "credentials-a",
+                currentCredentialSignature: "credentials-a"
+            ),
+            .adoptRouteChange
+        )
+        XCTAssertEqual(
+            SourceAudioCacheScopePolicy.reconciliation(
+                recordedSignature: "scope-a",
+                currentSignature: "scope-b",
+                legacyAdoptionAllowed: false,
+                recordedCredentialSignature: "credentials-a",
+                currentCredentialSignature: "credentials-b"
+            ),
+            .quarantineExisting
+        )
+        // Bytes with no recorded scope were never proved to belong to this
+        // account; a matching credential scope must not adopt them.
+        XCTAssertEqual(
+            SourceAudioCacheScopePolicy.reconciliation(
+                recordedSignature: nil,
+                currentSignature: "scope-b",
+                legacyAdoptionAllowed: false,
+                recordedCredentialSignature: "credentials-a",
+                currentCredentialSignature: "credentials-a"
+            ),
+            .quarantineExisting
+        )
         XCTAssertFalse(SourceAudioCacheScopePolicy.allowsRead(
             sourceID: "source",
             validatedSourceIDs: [],

@@ -701,23 +701,24 @@ final class SourcesStore {
     /// enqueue paths use it to avoid echoing a fetched record straight back as
     /// a save; UI observers ignore it and refresh either way.
     private func notifyChanged(_ ids: [String], origin: String = "local") {
-        let scopeFingerprints: [String: String] = Dictionary(
-            uniqueKeysWithValues: ids.compactMap { sourceID in
-                guard let source = allSources.first(where: {
-                    $0.id == sourceID && !$0.isDeleted
-                }) else { return nil }
-                return (
-                    sourceID,
-                    MusicSourceSecurityRevision.scopedFingerprint(for: source)
-                )
-            }
-        )
+        var scopeFingerprints: [String: String] = [:]
+        var credentialScopeFingerprints: [String: String] = [:]
+        for sourceID in ids {
+            guard let source = allSources.first(where: {
+                $0.id == sourceID && !$0.isDeleted
+            }) else { continue }
+            scopeFingerprints[sourceID] =
+                MusicSourceSecurityRevision.scopedFingerprint(for: source)
+            credentialScopeFingerprints[sourceID] =
+                MusicSourceSecurityRevision.credentialScopedFingerprint(for: source)
+        }
         NotificationCenter.default.post(
             name: .primuseSourcesDidChange,
             object: nil,
             userInfo: [
                 "ids": ids,
                 "scopeFingerprints": scopeFingerprints,
+                "credentialScopeFingerprints": credentialScopeFingerprints,
                 "origin": origin,
             ]
         )

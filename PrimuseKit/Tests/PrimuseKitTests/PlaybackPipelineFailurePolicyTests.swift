@@ -62,6 +62,38 @@ struct PlaybackPipelineFailurePolicyTests {
         ) == .ignoreNonSecurityChange)
     }
 
+    @Test("Adding an alternate address rebuilds routes without a security reset")
+    func alternateAddressIsRouteOnly() {
+        #expect(SourceConfigurationInvalidationPolicy.action(
+            previousScopeFingerprint: "old-scope",
+            currentScopeFingerprint: "new-scope",
+            previousCredentialScopeFingerprint: "same-credentials",
+            currentCredentialScopeFingerprint: "same-credentials"
+        ) == .rebuildRoutesOnly)
+    }
+
+    @Test("An unprovable previous credential scope stays fail-closed")
+    func unknownCredentialScopeStaysFailClosed() {
+        #expect(SourceConfigurationInvalidationPolicy.action(
+            previousScopeFingerprint: "old-scope",
+            currentScopeFingerprint: "new-scope",
+            previousCredentialScopeFingerprint: nil,
+            currentCredentialScopeFingerprint: "same-credentials"
+        ) == .invalidateSecurityScope)
+        #expect(SourceConfigurationInvalidationPolicy.action(
+            previousScopeFingerprint: "old-scope",
+            currentScopeFingerprint: "new-scope",
+            previousCredentialScopeFingerprint: "same-credentials",
+            currentCredentialScopeFingerprint: nil
+        ) == .invalidateSecurityScope)
+        #expect(SourceConfigurationInvalidationPolicy.action(
+            previousScopeFingerprint: "old-scope",
+            currentScopeFingerprint: "new-scope",
+            previousCredentialScopeFingerprint: "old-credentials",
+            currentCredentialScopeFingerprint: "new-credentials"
+        ) == .invalidateSecurityScope)
+    }
+
     @Test("Endpoint changes and source removal invalidate the security scope")
     func securityScopeChangesAreInvalidated() {
         #expect(SourceConfigurationInvalidationPolicy.action(

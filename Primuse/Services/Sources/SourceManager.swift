@@ -308,6 +308,10 @@ enum AutomaticOfflineCachedReadPolicy {
 enum SourceAudioCacheScopePolicy {
     enum Reconciliation: Equatable {
         case allowExisting
+        /// The recorded bytes belong to this account and content root; only the
+        /// address that reaches them changed. Keep them and re-record the new
+        /// signature.
+        case adoptRouteChange
         case adoptLegacy
         case quarantineExisting
     }
@@ -315,10 +319,21 @@ enum SourceAudioCacheScopePolicy {
     static func reconciliation(
         recordedSignature: String?,
         currentSignature: String,
-        legacyAdoptionAllowed: Bool
+        legacyAdoptionAllowed: Bool,
+        recordedCredentialSignature: String? = nil,
+        currentCredentialSignature: String? = nil
     ) -> Reconciliation {
         if recordedSignature == currentSignature {
             return .allowExisting
+        }
+        // A recorded full signature is what proves the bytes were written under
+        // a known scope. Without it there is nothing to compare a credential
+        // scope against, so legacy adoption keeps its own answer.
+        if recordedSignature != nil,
+           let recordedCredentialSignature,
+           let currentCredentialSignature,
+           recordedCredentialSignature == currentCredentialSignature {
+            return .adoptRouteChange
         }
         if recordedSignature == nil, legacyAdoptionAllowed {
             return .adoptLegacy
@@ -2366,6 +2381,13 @@ final class SourceManager {
     @ObservationIgnored private var blockedUntrustedAudioCachePaths: Set<String> = []
     @ObservationIgnored private var automaticOfflineReconciliationGeneration = 0
     @ObservationIgnored private var recordedAudioCacheScopeSignatures: [String: String]
+    /// Durable route-insensitive half of `recordedAudioCacheScopeSignatures`.
+    /// Kept in its own file so an unreadable or absent record degrades to the
+    /// previous fail-closed behaviour instead of corrupting cache provenance.
+    @ObservationIgnored private var recordedAudioCacheCredentialScopeSignatures: [String: String]
+    /// Live credential scopes proved during this process, mirroring
+    /// `requiredConnectorScopeFingerprints`.
+    @ObservationIgnored private var knownCredentialScopeFingerprints: [String: String] = [:]
     @ObservationIgnored private var legacyAudioCacheAdoptionSourceIDs: Set<String>
     @ObservationIgnored private var needsLegacyAudioCacheAdoptionDiscovery: Bool
     @ObservationIgnored private var validatedAudioCacheSourceIDs: Set<String> = []
@@ -2389,6 +2411,8 @@ final class SourceManager {
         self.connectorFactory = nil
         let initialCacheScopeState = Self.loadInitialAudioCacheScopeState()
         self.recordedAudioCacheScopeSignatures = initialCacheScopeState.signatures
+        self.recordedAudioCacheCredentialScopeSignatures =
+            initialCacheScopeState.credentialSignatures
         self.legacyAudioCacheAdoptionSourceIDs = initialCacheScopeState.legacyAdoptionSourceIDs
         self.needsLegacyAudioCacheAdoptionDiscovery = initialCacheScopeState.needsLegacyDiscovery
         self.sourcesProvider = {
@@ -2406,6 +2430,8 @@ final class SourceManager {
     ) {
         let initialCacheScopeState = Self.loadInitialAudioCacheScopeState()
         self.recordedAudioCacheScopeSignatures = initialCacheScopeState.signatures
+        self.recordedAudioCacheCredentialScopeSignatures =
+            initialCacheScopeState.credentialSignatures
         self.legacyAudioCacheAdoptionSourceIDs = initialCacheScopeState.legacyAdoptionSourceIDs
         self.needsLegacyAudioCacheAdoptionDiscovery = initialCacheScopeState.needsLegacyDiscovery
         self.connectorFactory = connectorFactory
@@ -2426,10 +2452,13 @@ final class SourceManager {
                   !sourceIDs.isEmpty else { return }
             let currentScopeFingerprints = note.userInfo?["scopeFingerprints"]
                 as? [String: String]
+            let currentCredentialScopeFingerprints =
+                note.userInfo?["credentialScopeFingerprints"] as? [String: String]
             MainActor.assumeIsolated {
                 self.classifySourceConfigurationChanges(
                     Set(sourceIDs),
-                    currentScopeFingerprints: currentScopeFingerprints
+                    currentScopeFingerprints: currentScopeFingerprints,
+                    currentCredentialScopeFingerprints: currentCredentialScopeFingerprints
                 )
             }
         }
@@ -4522,6 +4551,8 @@ final class SourceManager {
 
     private nonisolated static let audioCacheDirName = "primuse_audio_cache"
     private nonisolated static let audioCacheScopeStateFileName = "audio_cache_source_scopes.json"
+    private nonisolated static let audioCacheCredentialScopeStateFileName =
+        "audio_cache_source_credential_scopes.json"
     private nonisolated static let legacyAudioCacheAdoptionStateFileName =
         "audio_cache_legacy_adoption.json"
     private static let offlineBatchConcurrency = 2
@@ -4541,6 +4572,7 @@ final class SourceManager {
 
     private struct InitialAudioCacheScopeState {
         var signatures: [String: String]
+        var credentialSignatures: [String: String]
         var legacyAdoptionSourceIDs: Set<String>
         var needsLegacyDiscovery: Bool
     }
@@ -4560,6 +4592,12 @@ final class SourceManager {
             .appendingPathComponent(legacyAudioCacheAdoptionStateFileName)
     }
 
+    private nonisolated static var audioCacheCredentialScopeStateURL: URL {
+        audioCacheScopeStateURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(audioCacheCredentialScopeStateFileName)
+    }
+
     private nonisolated static func loadInitialAudioCacheScopeState()
         -> InitialAudioCacheScopeState {
         let fileManager = FileManager.default
@@ -4570,6 +4608,14 @@ final class SourceManager {
             signatures = decoded
         } else {
             signatures = [:]
+        }
+
+        let credentialSignatures: [String: String]
+        if let data = try? Data(contentsOf: audioCacheCredentialScopeStateURL),
+           let decoded = try? JSONDecoder().decode([String: String].self, from: data) {
+            credentialSignatures = decoded
+        } else {
+            credentialSignatures = [:]
         }
 
         let adoptionStateExists = fileManager.fileExists(
@@ -4583,6 +4629,7 @@ final class SourceManager {
            state.version == 1 {
             return InitialAudioCacheScopeState(
                 signatures: signatures,
+                credentialSignatures: credentialSignatures,
                 legacyAdoptionSourceIDs: state.pendingSourceIDs,
                 needsLegacyDiscovery: false
             )
@@ -4593,20 +4640,30 @@ final class SourceManager {
         // A corrupt/unreadable state stays fail-closed and is quarantined.
         return InitialAudioCacheScopeState(
             signatures: signatures,
+            credentialSignatures: credentialSignatures,
             legacyAdoptionSourceIDs: [],
             needsLegacyDiscovery: !scopeStateExists && !adoptionStateExists
         )
     }
 
+    /// Writes the route-insensitive record first. If only that write lands, the
+    /// worst case is an unchanged full signature paired with a newer credential
+    /// signature, which still fails closed on the next mismatch.
     @discardableResult
     private func persistAudioCacheScopeSignatures() -> Bool {
-        guard let data = try? JSONEncoder().encode(recordedAudioCacheScopeSignatures) else {
+        guard let data = try? JSONEncoder().encode(recordedAudioCacheScopeSignatures),
+              let credentialData = try? JSONEncoder()
+                  .encode(recordedAudioCacheCredentialScopeSignatures) else {
             return false
         }
         do {
             try FileManager.default.createDirectory(
                 at: Self.audioCacheScopeStateURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
+            )
+            try credentialData.write(
+                to: Self.audioCacheCredentialScopeStateURL,
+                options: .atomic
             )
             try data.write(to: Self.audioCacheScopeStateURL, options: .atomic)
             return true
@@ -4678,6 +4735,12 @@ final class SourceManager {
 
     private nonisolated static func audioCacheScopeSignature(for source: MusicSource) -> String {
         MusicSourceSecurityRevision.scopedFingerprint(for: source)
+    }
+
+    private nonisolated static func audioCacheCredentialScopeSignature(
+        for source: MusicSource
+    ) -> String {
+        MusicSourceSecurityRevision.credentialScopedFingerprint(for: source)
     }
 
     /// 一个已缓存的连接器实例是否还对得上当前这行源配置。
@@ -4807,9 +4870,11 @@ final class SourceManager {
 
     private func classifySourceConfigurationChanges(
         _ sourceIDs: Set<String>,
-        currentScopeFingerprints: [String: String]?
+        currentScopeFingerprints: [String: String]?,
+        currentCredentialScopeFingerprints: [String: String]? = nil
     ) {
         var securityScopeChanges = Set<String>()
+        var routeOnlyChanges = Set<String>()
         for sourceID in sourceIDs {
             let previousFingerprint = requiredConnectorScopeFingerprints[sourceID]
                 ?? connectorScopeFingerprints[sourceID]
@@ -4818,17 +4883,43 @@ final class SourceManager {
             let currentFingerprint = currentScopeFingerprints?[sourceID]
             switch SourceConfigurationInvalidationPolicy.action(
                 previousScopeFingerprint: previousFingerprint,
-                currentScopeFingerprint: currentFingerprint
+                currentScopeFingerprint: currentFingerprint,
+                previousCredentialScopeFingerprint:
+                    knownCredentialScopeFingerprint(for: sourceID),
+                currentCredentialScopeFingerprint:
+                    currentCredentialScopeFingerprints?[sourceID]
             ) {
             case .ignoreNonSecurityChange:
                 plog("🛡️ Source row update kept active transport source=\(sourceID.prefix(8)) scope=unchanged")
+            case .rebuildRoutesOnly:
+                routeOnlyChanges.insert(sourceID)
             case .invalidateSecurityScope:
                 securityScopeChanges.insert(sourceID)
             }
         }
 
+        for sourceID in routeOnlyChanges {
+            plog("🛡️ Source row update kept cached audio source=\(sourceID.prefix(8)) scope=route-only")
+            knownCredentialScopeFingerprints[sourceID] =
+                currentCredentialScopeFingerprints?[sourceID]
+            invalidateConnectorCachesForSourceConfigurationChange([sourceID])
+            // Deliberately no generation bump and no read gate: reconciliation
+            // only has to re-record the new scope signature against bytes it is
+            // about to confirm still belong to this account.
+            scheduleAudioCacheScopeValidation(for: sourceID)
+        }
+
         guard !securityScopeChanges.isEmpty else { return }
         audioCacheSourceConfigurationsDidChange(securityScopeChanges)
+    }
+
+    /// The last credential scope this process proved for a source: the live
+    /// connector gate first, then the durable cache provenance recorded by
+    /// reconciliation. `nil` means the previous scope cannot be proven, and a
+    /// fingerprint mismatch then stays fail-closed.
+    private func knownCredentialScopeFingerprint(for sourceID: String) -> String? {
+        knownCredentialScopeFingerprints[sourceID]
+            ?? recordedAudioCacheCredentialScopeSignatures[sourceID]
     }
 
     private func audioCacheSourceConfigurationsDidChange(
@@ -4911,6 +5002,8 @@ final class SourceManager {
                 self.requiredConnectorScopeFingerprints[sourceID] = Self.audioCacheScopeSignature(
                     for: source
                 )
+                self.knownCredentialScopeFingerprints[sourceID] =
+                    Self.audioCacheCredentialScopeSignature(for: source)
                 self.connectorSourceModifiedAtByID[sourceID] = source.modifiedAt
                 self.connectorScopeValidationPendingSourceIDs.remove(sourceID)
             }
@@ -5028,10 +5121,15 @@ final class SourceManager {
         }
 
         let currentSignature = Self.audioCacheScopeSignature(for: source)
+        let currentCredentialSignature = Self.audioCacheCredentialScopeSignature(for: source)
+        knownCredentialScopeFingerprints[sourceID] = currentCredentialSignature
         switch SourceAudioCacheScopePolicy.reconciliation(
             recordedSignature: recordedAudioCacheScopeSignatures[sourceID],
             currentSignature: currentSignature,
-            legacyAdoptionAllowed: legacyAudioCacheAdoptionSourceIDs.contains(sourceID)
+            legacyAdoptionAllowed: legacyAudioCacheAdoptionSourceIDs.contains(sourceID),
+            recordedCredentialSignature:
+                recordedAudioCacheCredentialScopeSignatures[sourceID],
+            currentCredentialSignature: currentCredentialSignature
         ) {
         case .allowExisting:
             finishLegacyAudioCacheAdoption(for: sourceID)
@@ -5048,14 +5146,46 @@ final class SourceManager {
                 return .finishedBlocked
             }
             return .validated
+        case .adoptRouteChange:
+            guard (audioCacheScopeGenerationBySourceID[sourceID] ?? 0) == generation else {
+                return .finishedBlocked
+            }
+            let previousSignature = recordedAudioCacheScopeSignatures[sourceID]
+            let previousCredentialSignature =
+                recordedAudioCacheCredentialScopeSignatures[sourceID]
+            recordedAudioCacheScopeSignatures[sourceID] = currentSignature
+            recordedAudioCacheCredentialScopeSignatures[sourceID] = currentCredentialSignature
+            guard persistAudioCacheScopeSignatures() else {
+                recordedAudioCacheScopeSignatures[sourceID] = previousSignature
+                recordedAudioCacheCredentialScopeSignatures[sourceID] =
+                    previousCredentialSignature
+                return .retry
+            }
+            finishLegacyAudioCacheAdoption(for: sourceID)
+            validatedAudioCacheSourceIDs.insert(sourceID)
+            blockedAudioCacheSourceIDs.remove(sourceID)
+            await AudioCacheManager.shared.endSourcePurge(
+                prefix: "\(sourceID)/",
+                generation: generation
+            )
+            plog("🛡️ Kept audio cache across a route-only source change source=\(sourceID.prefix(8))")
+            guard (audioCacheScopeGenerationBySourceID[sourceID] ?? 0) == generation else {
+                return .finishedBlocked
+            }
+            return .validated
         case .adoptLegacy:
             guard (audioCacheScopeGenerationBySourceID[sourceID] ?? 0) == generation else {
                 return .finishedBlocked
             }
             let previousSignature = recordedAudioCacheScopeSignatures[sourceID]
+            let previousCredentialSignature =
+                recordedAudioCacheCredentialScopeSignatures[sourceID]
             recordedAudioCacheScopeSignatures[sourceID] = currentSignature
+            recordedAudioCacheCredentialScopeSignatures[sourceID] = currentCredentialSignature
             guard persistAudioCacheScopeSignatures() else {
                 recordedAudioCacheScopeSignatures[sourceID] = previousSignature
+                recordedAudioCacheCredentialScopeSignatures[sourceID] =
+                    previousCredentialSignature
                 return .retry
             }
             finishLegacyAudioCacheAdoption(for: sourceID)
@@ -5085,9 +5215,14 @@ final class SourceManager {
                 return .finishedBlocked
             }
             let previousSignature = recordedAudioCacheScopeSignatures[sourceID]
+            let previousCredentialSignature =
+                recordedAudioCacheCredentialScopeSignatures[sourceID]
             recordedAudioCacheScopeSignatures[sourceID] = currentSignature
+            recordedAudioCacheCredentialScopeSignatures[sourceID] = currentCredentialSignature
             guard persistAudioCacheScopeSignatures() else {
                 recordedAudioCacheScopeSignatures[sourceID] = previousSignature
+                recordedAudioCacheCredentialScopeSignatures[sourceID] =
+                    previousCredentialSignature
                 return .retry
             }
             finishLegacyAudioCacheAdoption(for: sourceID)
@@ -10686,6 +10821,8 @@ final class SourceManager {
             return
         }
         requiredConnectorScopeFingerprints[sourceID] = Self.audioCacheScopeSignature(for: source)
+        knownCredentialScopeFingerprints[sourceID] =
+            Self.audioCacheCredentialScopeSignature(for: source)
         connectorSourceModifiedAtByID[sourceID] = source.modifiedAt
         connectorScopeValidationPendingSourceIDs.remove(sourceID)
     }
@@ -10721,6 +10858,7 @@ final class SourceManager {
         connectorConstructionSignatures.removeAll()
         sidecarConnectorConstructionSignatures.removeAll()
         requiredConnectorScopeFingerprints.removeAll()
+        knownCredentialScopeFingerprints.removeAll()
         connectorSourceModifiedAtByID.removeAll()
         connectorScopeValidationPendingSourceIDs.removeAll()
         connectorScopeValidationGenerationBySourceID.removeAll()

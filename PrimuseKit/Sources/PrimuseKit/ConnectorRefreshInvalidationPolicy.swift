@@ -21,7 +21,10 @@ public enum ConnectorRefreshInvalidationPolicy {
         ) {
         case .ignoreNonSecurityChange:
             return false
-        case .invalidateSecurityScope:
+        case .rebuildRoutesOnly, .invalidateSecurityScope:
+            // Both must drop the cached connector: it was built around one
+            // route list. Whether the previously downloaded bytes stay trusted
+            // is decided by cache reconciliation, not here.
             return true
         }
     }
