@@ -454,6 +454,83 @@ struct MetadataReadSchedulerTests {
         }
     }
 
+    /// 读取的 CPU 代价用 `getrusage(RUSAGE_SELF)` 量, 那是整个进程的 CPU。资料库
+    /// 发布如果落在读取窗口里, 就会被记到这一首头上 —— 而发布的代价按批摊销,
+    /// 歇得更久不会让它变便宜。实测 (2026-09-12): 慢读取间隔里跨过发布的比例
+    /// 是正常间隔的 2~3.6 倍, 污染是可观测的。
+    @Test func readCPUSamplesExcludeOverlappingLibraryPublications() {
+        func window(_ generation: UInt64, publishing: Bool) -> MetadataReadCPUSampleWindow {
+            .init(publishGeneration: generation, publishInFlight: publishing)
+        }
+        // 完整落在两次发布之间 —— 唯一的有效样本。
+        #expect(MetadataReadCPUSamplePolicy.acceptsSample(
+            before: window(4, publishing: false), after: window(4, publishing: false)))
+        // 读到一半撞上发布开始。
+        #expect(!MetadataReadCPUSamplePolicy.acceptsSample(
+            before: window(4, publishing: false), after: window(5, publishing: true)))
+        // 读到一半跨过整次发布。
+        #expect(!MetadataReadCPUSamplePolicy.acceptsSample(
+            before: window(4, publishing: false), after: window(6, publishing: false)))
+        // 从发布中间开始读, 发布结束后读完。
+        #expect(!MetadataReadCPUSamplePolicy.acceptsSample(
+            before: window(5, publishing: true), after: window(6, publishing: false)))
+        // 整段都在同一次发布之内 —— 代次没动, 但起点就在发布里。
+        #expect(!MetadataReadCPUSamplePolicy.acceptsSample(
+            before: window(5, publishing: true), after: window(5, publishing: true)))
+        // 嵌套发布 (发布中间的 await 让另一次完成回调进来) 不会提前放行。
+        #expect(!MetadataReadCPUSamplePolicy.acceptsSample(
+            before: window(5, publishing: true), after: window(7, publishing: true)))
+    }
+
+    /// 采纳污染样本时, "每读一首歇多久"会被"发布批次有多大"牵着走: 同样的总
+    /// 发布开销挪进更少更大的批次, 峰值样本随批量线性变大, 而
+    /// `recordProcessingDuration` 的 `max(duration, …)` 会锁住峰值。剔除污染
+    /// 样本之后, 估算出的单首成本与发布批量完全无关。
+    @Test func publicationBatchSizeDoesNotDriveTheThermalWorkBudget() {
+        let readCost: TimeInterval = 0.11           // 一首标签自己的 CPU
+        let publishCostPerSong: TimeInterval = 0.01 // 每行的发布开销 (与批量成正比)
+
+        /// 跑 600 次读取, 每 `batch` 首发布一次。返回冷却时间的峰值与均值 ——
+        /// 峰值是锁峰后实际生效的那个, 均值是它对吞吐的整体影响。
+        func cooldowns(
+            batch: Int, excludingContaminatedSamples: Bool
+        ) -> (peak: TimeInterval, mean: TimeInterval) {
+            var recent: TimeInterval = 0.5
+            var samples: [TimeInterval] = []
+            for index in 1...600 {
+                let publishesNow = index.isMultiple(of: batch)
+                let measured = publishesNow
+                    ? readCost + publishCostPerSong * Double(batch)
+                    : readCost
+                if !(publishesNow && excludingContaminatedSamples) {
+                    // 与 recordProcessingDuration 同一套锁峰 + 缓降。
+                    recent = max(measured, recent * 0.8 + measured * 0.2)
+                }
+                samples.append(MetadataBackfillExecutionPolicy.limits(
+                    for: .userInitiated, preference: .fast,
+                    environment: .init(thermalState: .serious),
+                    recentProcessingDuration: recent
+                ).interRequestDelay)
+            }
+            let settled = samples.dropFirst(100)
+            return (settled.max() ?? 0, settled.reduce(0, +) / Double(settled.count))
+        }
+
+        // 两种批量下的发布总开销相同 (批量 × 每行开销 × 发布次数 = 常数)。
+        let small = cooldowns(batch: 6, excludingContaminatedSamples: false)
+        let merged = cooldowns(batch: 32, excludingContaminatedSamples: false)
+        #expect(merged.peak > small.peak * 2)   // 峰值随批量线性放大
+        #expect(merged.mean > small.mean)       // 并且确实拖慢了整体节奏
+
+        let smallFixed = cooldowns(batch: 6, excludingContaminatedSamples: true)
+        let mergedFixed = cooldowns(batch: 32, excludingContaminatedSamples: true)
+        // 发布批量不再影响估算 (余下的差异只是浮点累加顺序)。
+        #expect(abs(smallFixed.peak - mergedFixed.peak) < 0.000_001)
+        #expect(abs(smallFixed.mean - mergedFixed.mean) < 0.000_001)
+        #expect(mergedFixed.peak < merged.peak)
+        #expect(abs(mergedFixed.peak - min(1.5, max(0.1, readCost * 3))) < 0.000_001)
+    }
+
     @Test func thermalWorkBudgetExcludesIOWaitButIncludesOtherAppCPUWork() {
         let light = MetadataBackfillExecutionPolicy.processingDuration(
             cpuTimeBefore: 10, cpuTimeAfter: 10.02, fallback: 1.2

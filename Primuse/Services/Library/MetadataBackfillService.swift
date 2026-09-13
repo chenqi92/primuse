@@ -500,6 +500,14 @@ final class MetadataBackfillService {
     /// `manuallyReadingSongIDs` 一样从选取里排除, 否则下一个快照会把它们
     /// 再读一遍并触发"同一批 ID 反复出现"的停摆保护。
     @ObservationIgnored private var pendingFlushSongIDs: Set<String> = []
+    /// 资料库发布的 CPU 不属于"这一首标签有多贵"——见 MetadataReadCPUSamplePolicy。
+    @ObservationIgnored private var libraryPublishGeneration: UInt64 = 0
+    /// 用深度而不是布尔: 发布中间有 await, 期间到达的完成回调可能再进来一次,
+    /// 布尔会被内层提前清掉, 把外层那次发布的代价重新算进读取成本。
+    @ObservationIgnored private var libraryPublishDepth = 0
+    private var readCPUSampleWindow: MetadataReadCPUSampleWindow {
+        .init(publishGeneration: libraryPublishGeneration, publishInFlight: libraryPublishDepth > 0)
+    }
 
     private var executionLimits: MetadataBackfillExecutionLimits {
         let budget = MetadataBackfillExecutionPolicy.limits(
@@ -3639,6 +3647,12 @@ final class MetadataBackfillService {
         // TIT2 parsed but duration did not). Failure membership must stop
         // future network retries, not discard the useful result we already have.
         let flushSignpost = PrimuseSignposts.hitch.beginInterval("backfill.flushApply")
+        libraryPublishDepth += 1
+        libraryPublishGeneration &+= 1
+        defer {
+            libraryPublishDepth -= 1
+            libraryPublishGeneration &+= 1
+        }
         let batch = pendingFlush.compactMap(backfillResultForApply)
         let batchIDs = Set(batch.map(\.id))
         pendingFlush.removeAll(keepingCapacity: true)
@@ -4110,8 +4124,15 @@ final class MetadataBackfillService {
         var rangeElapsed: TimeInterval = 0
         var rangeCount = 0
         let cpuStarted = Self.processCPUTime()
+        let sampleWindow = readCPUSampleWindow
         defer {
-            if !Task.isCancelled {
+            // 和资料库发布重叠的读取不是有效样本: rusage 是整个进程的 CPU, 会把
+            // 那一批发布的代价记到这一首头上, 而发布的代价按批摊销, 歇得更久
+            // 并不会让它变便宜 —— 只会让吞吐白掉一截。
+            if !Task.isCancelled,
+               MetadataReadCPUSamplePolicy.acceptsSample(
+                before: sampleWindow, after: readCPUSampleWindow
+               ) {
                 recordProcessingDuration(MetadataBackfillExecutionPolicy.processingDuration(
                     cpuTimeBefore: cpuStarted, cpuTimeAfter: Self.processCPUTime(),
                     fallback: max(0, Date().timeIntervalSince(started) - rangeElapsed)
