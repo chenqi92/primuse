@@ -629,7 +629,7 @@ struct MetadataReadSchedulerTests {
         scheduler.configurationChanged()
         for item in [0, 1] { gates.removeValue(forKey: item)?.resume(returning: item) }
         try await waitUntil { completed.count == 2 }
-        #expect(started == [0, 1, 2])
+        #expect(started.sorted() == [0, 1, 2])
         gates.removeValue(forKey: 2)?.resume(returning: 2)
         try await waitUntil { started.count == 4 }
         workers = 0

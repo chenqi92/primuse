@@ -87,14 +87,11 @@ struct PlaybackOwnershipLeaseTests {
         let lease = PlaybackOwnershipLease<Int>()
         lease.update(currentPlayID: 2, isCrossfading: true, outgoingPlayID: 1)
 
-        let queue = DispatchQueue(label: "lease.writer")
-        let done = DispatchSemaphore(value: 0)
-        queue.async {
+        let writer = Task.detached {
             for _ in 0..<2_000 {
                 lease.update(currentPlayID: 2, isCrossfading: true, outgoingPlayID: 1)
                 lease.update(currentPlayID: 3, isCrossfading: true, outgoingPlayID: 2)
             }
-            done.signal()
         }
 
         await withTaskGroup(of: Bool.self) { group in
@@ -113,6 +110,6 @@ struct PlaybackOwnershipLeaseTests {
             }
             for await valid in group { #expect(valid) }
         }
-        done.wait()
+        await writer.value
     }
 }

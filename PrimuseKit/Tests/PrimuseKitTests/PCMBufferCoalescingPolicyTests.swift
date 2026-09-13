@@ -71,16 +71,19 @@ struct PCMBufferCoalescingPolicyTests {
     @Test("finish() reports a remainder only when frames are pending")
     func finishReportsPendingFramesOnly() {
         var empty = PCMBufferCoalescingPlan()
-        #expect(!empty.finish())
+        let emptyFinished = empty.finish()
+        #expect(!emptyFinished)
 
         var pending = PCMBufferCoalescingPlan()
         #expect(pending.absorb(incomingFrames: 512, formatKey: Self.dtsKey) == .buffer)
-        #expect(pending.finish())
+        let pendingFinished = pending.finish()
+        #expect(pendingFinished)
 
         var flushed = PCMBufferCoalescingPlan()
         #expect(flushed.absorb(incomingFrames: 512, formatKey: Self.dtsKey) == .buffer)
         #expect(flushed.absorb(incomingFrames: 512, formatKey: Self.dtsKey) == .appendThenFlush)
-        #expect(!flushed.finish())
+        let flushedFinished = flushed.finish()
+        #expect(!flushedFinished)
     }
 
     @Test("finish() resets the plan for the next stream")
@@ -89,7 +92,8 @@ struct PCMBufferCoalescingPolicyTests {
         #expect(plan.absorb(incomingFrames: 512, formatKey: Self.dtsKey) == .buffer)
         #expect(plan.absorb(incomingFrames: 512, formatKey: Self.dtsKey) == .appendThenFlush)
         #expect(plan.absorb(incomingFrames: 512, formatKey: Self.dtsKey) == .buffer)
-        #expect(plan.finish())
+        let finished = plan.finish()
+        #expect(finished)
 
         #expect(plan.accumulatedFrames == 0)
         #expect(!plan.hasFlushedOnce)
