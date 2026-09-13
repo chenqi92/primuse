@@ -1375,11 +1375,14 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
 
     /// Jellyfin 是从 Emby 分叉出来的,收藏用的是同一组端点
     /// (`/Users/{id}/Items?Filters=IsFavorite` 与 `/Users/{id}/FavoriteItems/{id}`),
-    /// 取数也复用同一个 `fetchAllJellyfinOrEmbyItems`。Plex 的收藏是另一套
-    /// (`/library/metadata` 上的评分),不在这里。
+    /// 取数也复用同一个 `fetchAllJellyfinOrEmbyItems`。
     private var supportsUserFavorites: Bool { kind == .emby || kind == .jellyfin }
 
     func fetchServerFavorites() async throws -> ServerFavoriteSnapshot {
+        if kind == .plex {
+            try await connect()
+            return try await fetchPlexFavoriteSnapshot()
+        }
         guard supportsUserFavorites else {
             throw SourceError.connectionFailed(String(localized: "server_favorite_unsupported"))
         }
@@ -1391,6 +1394,10 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         itemID: String,
         isFavorite: Bool
     ) async throws -> ServerFavoriteSnapshot {
+        if kind == .plex {
+            try await connect()
+            return try await setPlexFavorite(itemID: itemID, isFavorite: isFavorite)
+        }
         guard supportsUserFavorites else {
             throw SourceError.connectionFailed(String(localized: "server_favorite_unsupported"))
         }
@@ -1525,6 +1532,92 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             deduplicatesItems: true
         )
         return ServerFavoriteSnapshot(itemIDs: response.items.map(\.id))
+    }
+
+    /// Plex 没有布尔型的「收藏」,曲目上只有 0–10 的 `userRating`;Plex 自家客户端
+    /// 的「喜欢」就是把它设成 10,取消则写 -1。这里沿用同一约定,读取时把评分
+    /// 达到 `plexFavoriteRatingThreshold` 的曲目当作已收藏,于是在 Plex 网页端
+    /// 点的赞在 Primuse 里也认。
+    private static let plexFavoriteRating = 10
+    private static let plexFavoriteClearedRating = -1
+    private static let plexFavoriteRatingThreshold = 8
+
+    private func plexMusicSectionIDs() async throws -> [String] {
+        try await fetchLibraries()
+            .filter { ($0.collectionType ?? "").lowercased() == "artist" }
+            .map(\.id)
+    }
+
+    private func fetchPlexFavoriteSnapshot() async throws -> ServerFavoriteSnapshot {
+        var itemIDs: [String] = []
+        var seen = Set<String>()
+        for sectionID in try await plexMusicSectionIDs() {
+            var startIndex = 0
+            var expectedTotal: Int?
+            while true {
+                try Task.checkCancellation()
+                let data = try await performRequest(
+                    path: "/library/sections/\(sectionID)/all",
+                    queryItems: [
+                        URLQueryItem(name: "type", value: "10"),
+                        // Plex 的过滤运算符写在参数名里:`userRating>>=8` 即「不小于 8」。
+                        URLQueryItem(
+                            name: "userRating>>",
+                            value: String(Self.plexFavoriteRatingThreshold)
+                        ),
+                        URLQueryItem(name: "X-Plex-Container-Start", value: String(startIndex)),
+                        URLQueryItem(
+                            name: "X-Plex-Container-Size",
+                            value: String(Self.playlistPageSize)
+                        ),
+                    ]
+                )
+                let page = try decoder.decode(PlexTrackResponse.self, from: data)
+                try Self.validatePlaylistPageTotal(
+                    page.totalCount,
+                    expectedTotal: &expectedTotal,
+                    maximumCount: Self.maximumCatalogTracks
+                )
+                let items = page.items
+                if items.isEmpty {
+                    if let expectedTotal, startIndex < expectedTotal {
+                        throw SourceError.connectionFailed(PMString("error.catalog.pageEndedEarly"))
+                    }
+                    break
+                }
+                for item in items where seen.insert(item.ratingKey).inserted {
+                    itemIDs.append(item.ratingKey)
+                }
+                startIndex += items.count
+                if let expectedTotal, startIndex >= expectedTotal { break }
+                if items.count < Self.playlistPageSize { break }
+            }
+        }
+        return ServerFavoriteSnapshot(itemIDs: itemIDs)
+    }
+
+    private func setPlexFavorite(
+        itemID: String,
+        isFavorite: Bool
+    ) async throws -> ServerFavoriteSnapshot {
+        _ = try await performRequest(
+            path: "/:/rate",
+            method: "PUT",
+            queryItems: [
+                URLQueryItem(name: "key", value: itemID),
+                URLQueryItem(name: "identifier", value: "com.plexapp.plugins.library"),
+                URLQueryItem(
+                    name: "rating",
+                    value: String(isFavorite ? Self.plexFavoriteRating : Self.plexFavoriteClearedRating)
+                ),
+            ],
+            retriesIdempotentMutationAfterAuthentication: true
+        )
+        let refreshed = try await fetchPlexFavoriteSnapshot()
+        guard refreshed.itemIDs.contains(itemID) == isFavorite else {
+            throw SourceError.connectionFailed(String(localized: "server_favorite_refresh_mismatch"))
+        }
+        return refreshed
     }
 
     private func fetchPlexPlaylists() async throws -> ServerPlaylistSnapshot {

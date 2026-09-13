@@ -2070,8 +2070,10 @@ final class TVSourceScanner {
         }
     }
 
-    /// 电视端能取到服务端歌单的类型。飞牛走自己那条更早接通的路径,不在此列;
-    /// 刀里鱼的连接器尚未编进电视端,暂不覆盖。
+    /// 电视端能取到服务端歌单的类型。飞牛走自己那条更早接通的路径,不在此列。
+    ///
+    /// 刀里鱼不在此列不是电视端的限制:`DaoLiYuServiceClient` 与 `DaoLiYuSource`
+    /// 都只实现了整库分页、单曲、歌词与按段读取,没有歌单或收藏接口,三端皆无。
     static let serverPlaylistTypes: Set<MusicSourceType> = [
         .jellyfin, .emby, .plex,
         .subsonic, .navidrome, .airsonic, .gonic,
