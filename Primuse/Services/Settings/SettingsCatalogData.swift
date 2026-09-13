@@ -90,7 +90,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "appearance.autoMaterial", titleKey: "Detect macOS version automatically at launch", table: "SettingsSearch", iosPage: nil, macPage: .appearance),
         SettingDefinition(id: "home.radio", titleKey: "radio_home_visibility", iosPage: .home, macPage: .appearance),
         SettingDefinition(id: "home.order", titleKey: "home_settings_sections_label", iosPage: .home, macPage: nil),
-        SettingDefinition(id: "home.restoreOrder", titleKey: "home_settings_restore_default_order", iosPage: .home, macPage: nil),
+        SettingDefinition(id: "home.restoreOrder", titleKey: "home_settings_restore_all", iosPage: .home, macPage: nil),
         SettingDefinition(id: "home.continueListening", titleKey: "home_section_continue_listening", iosPage: .home, macPage: nil),
         SettingDefinition(id: "home.quickAccess", titleKey: "home_section_quick_access", iosPage: .home, macPage: nil),
         SettingDefinition(id: "home.forYou", titleKey: "home_section_for_you", iosPage: .home, macPage: nil),

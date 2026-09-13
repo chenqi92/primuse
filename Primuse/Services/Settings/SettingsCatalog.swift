@@ -159,7 +159,11 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         // 外观这一组现在按「哪个界面」列：首页、资料库、播放器、设置页。
         // 主题色与 App 图标收进设置页，全屏效果收进播放器 —— 它们改的都是那个
         // 界面的样子，摊在根菜单上就看不出改的是哪儿。都仍可被设置搜索命中。
-        ![.cacheSync, .transcription, .themeColor, .appIcon, .fullscreen].contains(self)
+        // about 与 appleTV 不是可跳转的页面，只是设置搜索用来定位根列表上那一行
+        // 的锚点（版本信息、Apple TV 推送按钮都直接长在根列表里）。当成普通行
+        // 渲染会推出一个空白页。
+        ![.cacheSync, .transcription, .themeColor, .appIcon, .fullscreen,
+          .appleTV, .about].contains(self)
     }
 
     var available: Bool {
