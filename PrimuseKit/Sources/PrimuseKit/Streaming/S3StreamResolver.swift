@@ -85,12 +85,15 @@ public struct S3StreamResolver: StreamResolver {
     // MARK: - SigV4 预签名(纯函数,可单测)
 
     /// 生成 SigV4 预签名 URL。amzDate/dateStamp 注入以便测试对齐 AWS 官方向量。
-    static func presignedURL(method: String, scheme: String, host: String, canonicalURI: String,
+    /// `additionalQuery` 供列举对象这类带查询参数的请求使用(如 list-type / prefix /
+    /// delimiter)。SigV4 要求所有 query 都参与规范化,不能签完再拼。
+    public static func presignedURL(method: String, scheme: String, host: String, canonicalURI: String,
                              accessKey: String, secretKey: String, region: String, service: String,
-                             amzDate: String, dateStamp: String, expires: Int) -> URL? {
+                             amzDate: String, dateStamp: String, expires: Int,
+                             additionalQuery: [(String, String)] = []) -> URL? {
         let scope = "\(dateStamp)/\(region)/\(service)/aws4_request"
         // 待签名 query(不含 X-Amz-Signature),按名字典序。
-        let params: [(String, String)] = [
+        let params: [(String, String)] = additionalQuery + [
             ("X-Amz-Algorithm", "AWS4-HMAC-SHA256"),
             ("X-Amz-Credential", "\(accessKey)/\(scope)"),
             ("X-Amz-Date", amzDate),
@@ -131,7 +134,7 @@ public struct S3StreamResolver: StreamResolver {
         return URL(string: "\(scheme)://\(host)\(uriEncode(canonicalURI, encodeSlash: false))?\(canonicalQuery)&X-Amz-Signature=\(signature)")
     }
 
-    static func region(from extraConfig: String?) -> String {
+    public static func region(from extraConfig: String?) -> String {
         guard let data = extraConfig?.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let region = json["region"] as? String, !region.isEmpty else {
@@ -142,7 +145,7 @@ public struct S3StreamResolver: StreamResolver {
 
     /// 取 canonical host[:port]，去掉可能带的 scheme 与路径；若 endpoint
     /// 本身没有端口，则采用来源表单单独保存的端口。
-    static func host(from endpoint: String, port: Int? = nil, scheme: String = "https") -> String {
+    public static func host(from endpoint: String, port: Int? = nil, scheme: String = "https") -> String {
         let trimmed = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasScheme = trimmed.contains("://")
         let candidateHost: String
@@ -179,7 +182,7 @@ public struct S3StreamResolver: StreamResolver {
     /// A reverse proxy may expose an S3-compatible service below a path while
     /// the source-wide `basePath` remains the bucket. The prefix participates
     /// in SigV4's canonical URI and therefore must not be discarded.
-    static func pathPrefix(from endpoint: String, scheme: String = "https") -> String? {
+    public static func pathPrefix(from endpoint: String, scheme: String = "https") -> String? {
         let trimmed = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.isEmpty == false else { return nil }
         let candidate = trimmed.contains("://") ? trimmed : "\(scheme)://\(trimmed)"
@@ -190,7 +193,7 @@ public struct S3StreamResolver: StreamResolver {
         return normalized.isEmpty ? nil : normalized
     }
 
-    static func canonicalObjectPath(
+    public static func canonicalObjectPath(
         endpointPrefix: String?,
         bucket: String,
         key: String
@@ -202,7 +205,7 @@ public struct S3StreamResolver: StreamResolver {
         return "/" + components.joined(separator: "/")
     }
 
-    static func timestamps(_ date: Date) -> (amzDate: String, dateStamp: String) {
+    public static func timestamps(_ date: Date) -> (amzDate: String, dateStamp: String) {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.timeZone = TimeZone(identifier: "UTC")

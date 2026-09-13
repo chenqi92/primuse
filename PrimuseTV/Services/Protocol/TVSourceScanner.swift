@@ -3,6 +3,7 @@ import AMSMB2
 import CryptoKit
 import Foundation
 import FilesProvider
+import NFSKit
 import PrimuseKit
 import UIKit
 
@@ -269,6 +270,402 @@ actor TVSynologyLister: TVDirectoryLister {
         didLogin = false
         if result.needs2FA { throw StreamResolveError.needs2FA }
         throw StreamResolveError.authFailed
+    }
+}
+
+// MARK: - S3 / S3 兼容对象存储列举
+
+/// 用 PrimuseKit 里那份 SigV4 预签名(播放也用它)签一个 ListObjectsV2 请求,
+/// 按 `delimiter=/` 把对象键当成目录树浏览:CommonPrefixes 是子目录,Contents 是文件。
+actor TVS3Lister: TVDirectoryLister {
+    private let source: MusicSource
+    private let accessKey: String
+    private let secretKey: String
+
+    init?(source: MusicSource, credential: SourceCredential?) {
+        let accessKey = credential?.username ?? source.username ?? ""
+        guard let secretKey = credential?.password, !secretKey.isEmpty, !accessKey.isEmpty else {
+            return nil
+        }
+        let bucket = (source.basePath ?? "").trimmingCharacters(in: CharacterSet(charactersIn: " /"))
+        guard !bucket.isEmpty else { return nil }
+        self.source = source
+        self.accessKey = accessKey
+        self.secretKey = secretKey
+    }
+
+    func list(_ path: String) async throws -> [TVDirEntry] {
+        let prefix = TVS3PathPolicy.prefix(for: path)
+        let endpoint = (source.host ?? "s3.amazonaws.com").trimmingCharacters(in: .whitespaces)
+        let bucket = (source.basePath ?? "").trimmingCharacters(in: CharacterSet(charactersIn: " /"))
+        let scheme = source.useSsl ? "https" : "http"
+        let host = S3StreamResolver.host(from: endpoint, port: source.port, scheme: scheme)
+        let endpointPrefix = S3StreamResolver.pathPrefix(from: endpoint, scheme: scheme)
+        let canonicalURI = S3StreamResolver.canonicalObjectPath(
+            endpointPrefix: endpointPrefix,
+            bucket: bucket,
+            key: ""
+        )
+        let region = S3StreamResolver.region(from: source.extraConfig)
+        let (amzDate, dateStamp) = S3StreamResolver.timestamps(
+            S3ClockSkewPolicy.correctedDate(for: source.id)
+        )
+        var query: [(String, String)] = [
+            ("delimiter", "/"),
+            ("list-type", "2"),
+            ("max-keys", "1000"),
+        ]
+        if !prefix.isEmpty { query.append(("prefix", prefix)) }
+
+        var entries: [TVDirEntry] = []
+        var continuationToken: String?
+        repeat {
+            var pageQuery = query
+            if let continuationToken {
+                pageQuery.append(("continuation-token", continuationToken))
+            }
+            guard let url = S3StreamResolver.presignedURL(
+                method: "GET",
+                scheme: scheme,
+                host: host,
+                canonicalURI: canonicalURI,
+                accessKey: accessKey,
+                secretKey: secretKey,
+                region: region,
+                service: "s3",
+                amzDate: amzDate,
+                dateStamp: dateStamp,
+                expires: 600,
+                additionalQuery: pageQuery
+            ) else {
+                throw TVScanError.connectFailed
+            }
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let http = response as? HTTPURLResponse else { throw TVScanError.connectFailed }
+            if http.statusCode == 401 || http.statusCode == 403 {
+                throw StreamResolveError.authFailed
+            }
+            guard (200...299).contains(http.statusCode) else { throw TVScanError.connectFailed }
+            let page = TVS3ListParser.parse(data, prefix: prefix)
+            entries.append(contentsOf: page.entries)
+            continuationToken = page.nextContinuationToken
+            try Task.checkCancellation()
+        } while continuationToken != nil
+
+        return entries.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+    }
+}
+
+/// 对象键与浏览路径的换算:浏览路径以 `/` 开头,对象键不带前导 `/`,目录键以 `/` 结尾。
+enum TVS3PathPolicy {
+    static func prefix(for path: String) -> String {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "/" else { return "" }
+        var key = trimmed.hasPrefix("/") ? String(trimmed.dropFirst()) : trimmed
+        if !key.hasSuffix("/") { key += "/" }
+        return key
+    }
+
+    static func browsePath(forKey key: String) -> String {
+        var value = key
+        while value.hasSuffix("/") { value.removeLast() }
+        return value.hasPrefix("/") ? value : "/" + value
+    }
+
+    static func displayName(forKey key: String) -> String {
+        var value = key
+        while value.hasSuffix("/") { value.removeLast() }
+        guard let slash = value.lastIndex(of: "/") else { return value }
+        return String(value[value.index(after: slash)...])
+    }
+}
+
+/// ListObjectsV2 的 XML 解析。只取目录(CommonPrefixes)、对象键、大小与修改时间。
+enum TVS3ListParser {
+    struct Page {
+        var entries: [TVDirEntry] = []
+        var nextContinuationToken: String?
+    }
+
+    static func parse(_ data: Data, prefix: String) -> Page {
+        let delegate = Delegate(prefix: prefix)
+        let parser = XMLParser(data: data)
+        parser.delegate = delegate
+        parser.parse()
+        return Page(
+            entries: delegate.entries,
+            nextContinuationToken: delegate.isTruncated ? delegate.nextToken : nil
+        )
+    }
+
+    private final class Delegate: NSObject, XMLParserDelegate {
+        private let prefix: String
+        private var element = ""
+        private var text = ""
+        private var currentKey: String?
+        private var currentSize: Int64 = 0
+        private var currentModified: Date?
+        private var inContents = false
+        private var inCommonPrefixes = false
+        var entries: [TVDirEntry] = []
+        var isTruncated = false
+        var nextToken: String?
+
+        /// 实例属性而非 static:ISO8601DateFormatter 不是 Sendable,
+        /// 放静态属性过不了 Swift 6 的并发检查。
+        private let fractionalFormatter: ISO8601DateFormatter = {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            return formatter
+        }()
+        private let plainFormatter = ISO8601DateFormatter()
+
+        init(prefix: String) {
+            self.prefix = prefix
+        }
+
+        func parser(
+            _ parser: XMLParser,
+            didStartElement elementName: String,
+            namespaceURI: String?,
+            qualifiedName qName: String?,
+            attributes attributeDict: [String: String]
+        ) {
+            element = elementName
+            text = ""
+            if elementName == "Contents" {
+                inContents = true
+                currentKey = nil
+                currentSize = 0
+                currentModified = nil
+            } else if elementName == "CommonPrefixes" {
+                inCommonPrefixes = true
+            }
+        }
+
+        func parser(_ parser: XMLParser, foundCharacters string: String) {
+            text += string
+        }
+
+        func parser(
+            _ parser: XMLParser,
+            didEndElement elementName: String,
+            namespaceURI: String?,
+            qualifiedName qName: String?
+        ) {
+            let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            switch elementName {
+            case "Key" where inContents:
+                currentKey = value
+            case "Size" where inContents:
+                currentSize = Int64(value) ?? 0
+            case "LastModified" where inContents:
+                currentModified = fractionalFormatter.date(from: value)
+                    ?? plainFormatter.date(from: value)
+            case "Contents":
+                inContents = false
+                if let key = currentKey, key != prefix, !key.hasSuffix("/") {
+                    entries.append(TVDirEntry(
+                        name: TVS3PathPolicy.displayName(forKey: key),
+                        isDir: false,
+                        size: currentSize,
+                        path: TVS3PathPolicy.browsePath(forKey: key),
+                        modifiedDate: currentModified
+                    ))
+                }
+            case "Prefix" where inCommonPrefixes:
+                if !value.isEmpty, value != prefix {
+                    entries.append(TVDirEntry(
+                        name: TVS3PathPolicy.displayName(forKey: value),
+                        isDir: true,
+                        size: 0,
+                        path: TVS3PathPolicy.browsePath(forKey: value)
+                    ))
+                }
+            case "CommonPrefixes":
+                inCommonPrefixes = false
+            case "IsTruncated":
+                isTruncated = (value == "true")
+            case "NextContinuationToken":
+                nextToken = value.isEmpty ? nil : value
+            default:
+                break
+            }
+            text = ""
+        }
+    }
+}
+
+// MARK: - NFS 目录列举(NFSKit)
+
+/// 电视端本来就用 NFSKit 做 range 读取(`NFSByteReader`),列目录用同一个客户端。
+/// 根目录列出服务器导出的 export;进入某个 export 之后走该 export 内的相对路径。
+/// 路径沿用 `NFSByteReader.parseSelection` 认得的 `export|相对路径` 形式,
+/// 这样扫描出来的歌能直接被播放侧解析。
+actor TVNFSLister: TVDirectoryLister {
+    private let url: URL
+    private let configuredExport: String?
+    private var client: NFSClient?
+    private var connectedExport: String?
+
+    init?(source: MusicSource) {
+        let host = (source.host ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty else { return nil }
+        guard (source.nfsVersion ?? .auto).canStartWithV3OnlyBackend else { return nil }
+        let urlHost = (host.contains(":") && !host.hasPrefix("[")) ? "[\(host)]" : host
+        var components = URLComponents()
+        components.scheme = "nfs"
+        components.host = urlHost
+        guard let built = components.url else { return nil }
+        self.url = built
+        let export = (source.basePath ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        self.configuredExport = export.isEmpty ? nil : export
+    }
+
+    func list(_ path: String) async throws -> [TVDirEntry] {
+        let selection = TVNFSPathPolicy.selection(path: path, configuredExport: configuredExport)
+        guard let export = selection.export else {
+            return try await listExports()
+        }
+        let client = try await connect(to: export)
+        let entries = try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<[TVDirEntry], any Error>) in
+            client.contentsOfDirectory(atPath: selection.relative) { result in
+                switch result {
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                case .success(let items):
+                    let mapped = items.compactMap { entry -> TVDirEntry? in
+                        guard let name = entry.name, name != ".", name != "..",
+                              let remotePath = entry.path else { return nil }
+                        return TVDirEntry(
+                            name: name,
+                            isDir: entry.isDirectory || entry.fileResourceType == .directory,
+                            size: entry.fileSize.map(Int64.init) ?? 0,
+                            path: TVNFSPathPolicy.selectionPath(export: export, relative: remotePath),
+                            parentPath: path,
+                            modifiedDate: entry.contentModificationDate ?? entry.creationDate
+                        )
+                    }
+                    continuation.resume(returning: mapped)
+                }
+            }
+        }
+        return entries.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+    }
+
+    /// 根目录:服务器上有哪些 export。源里配置了固定 export 时不再列,直接进去。
+    private func listExports() async throws -> [TVDirEntry] {
+        if let configuredExport {
+            return [
+                TVDirEntry(
+                    name: (configuredExport as NSString).lastPathComponent,
+                    isDir: true,
+                    size: 0,
+                    path: TVNFSPathPolicy.selectionPath(export: configuredExport, relative: "/"),
+                    parentPath: "/"
+                )
+            ]
+        }
+        let client = try requireClient()
+        let exports = try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<[String], any Error>) in
+            client.listExports { result in
+                switch result {
+                case .failure(let error): continuation.resume(throwing: error)
+                case .success(let items): continuation.resume(returning: items.map(\.path))
+                }
+            }
+        }
+        return exports.map { export in
+            TVDirEntry(
+                name: (export as NSString).lastPathComponent,
+                isDir: true,
+                size: 0,
+                path: TVNFSPathPolicy.selectionPath(export: export, relative: "/"),
+                parentPath: "/"
+            )
+        }
+    }
+
+    private func requireClient() throws -> NFSClient {
+        if let client { return client }
+        guard let made = try NFSClient(url: url) else { throw TVScanError.connectFailed }
+        made.timeout = 20
+        client = made
+        return made
+    }
+
+    private func connect(to export: String) async throws -> NFSClient {
+        let client = try requireClient()
+        if connectedExport == export { return client }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            client.connect(export: export) { error in
+                if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+            }
+        }
+        connectedExport = export
+        return client
+    }
+}
+
+/// NFS 的浏览路径编码。必须与播放侧 `NFSByteReader.parseSelection` 完全一致:
+/// `nfs::<base64url(export)>::<base64url(export 内相对路径)>`。用 base64 是因为
+/// export 和文件名里都可能出现分隔符,直接拼接会解析歧义。
+enum TVNFSPathPolicy {
+    static func selectionPath(export: String, relative: String) -> String {
+        "nfs::" + base64url(normalizeExport(export)) + "::" + base64url(normalizeRelative(relative))
+    }
+
+    static func selection(
+        path: String,
+        configuredExport: String?
+    ) -> (export: String?, relative: String) {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed == "/" { return (nil, "/") }
+        guard trimmed.hasPrefix("nfs::") else {
+            // 没编码过的裸路径:只有源里配置了固定 export 时才可解释。
+            return (configuredExport, normalizeRelative(trimmed))
+        }
+        let payload = String(trimmed.dropFirst("nfs::".count))
+        guard let separator = payload.range(of: "::"),
+              let export = base64urlDecode(String(payload[..<separator.lowerBound])),
+              let relative = base64urlDecode(String(payload[separator.upperBound...]))
+        else {
+            return (configuredExport, "/")
+        }
+        return (normalizeExport(export), normalizeRelative(relative))
+    }
+
+    static func normalizeExport(_ value: String) -> String {
+        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return "/" }
+        return text.hasPrefix("/") ? text : "/" + text
+    }
+
+    static func normalizeRelative(_ value: String) -> String {
+        var text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, text != "/" else { return "/" }
+        if !text.hasPrefix("/") { text = "/" + text }
+        while text.count > 1, text.hasSuffix("/") { text.removeLast() }
+        return text
+    }
+
+    static func base64url(_ value: String) -> String {
+        Data(value.utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    static func base64urlDecode(_ value: String) -> String? {
+        var text = value
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let padding = text.count % 4
+        if padding != 0 { text += String(repeating: "=", count: 4 - padding) }
+        guard let data = Data(base64Encoded: text) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 }
 
@@ -833,6 +1230,10 @@ final class TVSourceScanner {
             return TVFilesProviderLister(source: source, credential: credential)
         case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic:
             return TVServerCatalogLister(source: source, credential: credential)
+        case .nfs:
+            return TVNFSLister(source: source)
+        case .s3:
+            return TVS3Lister(source: source, credential: credential)
         case .ugreen:
             return TVUgreenLister(source: source, credential: credential)
         case .fnMusic:
