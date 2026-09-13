@@ -92,8 +92,27 @@ struct AppearanceSettingsView: View {
                 Text("minimal_mode_description")
             }
             .settingsAnchor("appearance.minimalNavigation")
+
+            // 主题色与 App 图标改的都是这一层外壳的样子，摊在根菜单上看不出
+            // 改的是哪儿；收进来，跟浅色/深色放在一起。
+            Section {
+                NavigationLink {
+                    ThemeColorSettingsView()
+                } label: {
+                    Label("theme_color_title", systemImage: "paintpalette")
+                }
+                .settingsAnchor("appearance.themeColor")
+                #if os(iOS)
+                NavigationLink {
+                    AppIconSettingsView()
+                } label: {
+                    Label("app_icon", systemImage: "app.badge")
+                }
+                .settingsAnchor("appearance.appIcon")
+                #endif
+            }
         }
-        .navigationTitle("appearance")
+        .navigationTitle("interface_editor_settings")
         .navigationBarTitleDisplayMode(.inline)
     }
 }
