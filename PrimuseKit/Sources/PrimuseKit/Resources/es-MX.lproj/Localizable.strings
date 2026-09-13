@@ -685,6 +685,8 @@
 "tv_artist_artwork_source_hint" = "Busca imágenes por nombre de artista con las fuentes activadas o, si no hay ninguna, con iTunes.";
 
 "tv_metadata_reread" = "Volver a leer todas las etiquetas";
+"ext.tv.sources.rereadTags" = "Volver a leer etiquetas";
+"tv_metadata_reread_single_hint" = "Para volver a leer una sola fuente, mantén presionada esa fuente en la lista.";
 "tv_metadata_reread_body" = "Volver a analizar las carpetas seleccionadas y leer títulos, artistas, álbumes, géneros, años, números de pista, datos de audio, portadas y letras. Se conservan las ediciones manuales; los archivos originales no cambian.";
 "tv_metadata_select_source" = "Elige una fuente de música. También se volverán a leer los archivos ya revisados.";
 "tv_metadata_source_hint" = "Volver a leer etiquetas, portadas y letras de las carpetas seleccionadas";

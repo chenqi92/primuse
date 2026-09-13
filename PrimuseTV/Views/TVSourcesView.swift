@@ -22,6 +22,7 @@ struct TVSourcesView: View {
     @State private var sourceForm: TVSourceForm?    // 新增 / 编辑源表单
     @State private var pendingSourceForm: TVSourceForm?
     @State private var pendingScanAfterSave: MusicSource?
+    @State private var rereadSource: MusicSource?
     @State private var recycleBin = false           // 回收站
     @State private var showTransfer = false
     @State private var showsMetadata = false
@@ -46,6 +47,7 @@ struct TVSourcesView: View {
             showsMetadata,
             otpSource != nil,
             scanSource != nil,
+            rereadSource != nil,
         ].filter { $0 }.count
     }
 
@@ -106,7 +108,10 @@ struct TVSourcesView: View {
                                                     }
                                                 },
                                                 onLogin2FA: { otpSource = s },
-                                                onScan: { if let src = store.source(id: s.id) { scanSource = src } })
+                                                onScan: { if let src = store.source(id: s.id) { scanSource = src } },
+                                                onRereadTags: {
+                                                    if let src = store.source(id: s.id) { rereadSource = src }
+                                                })
                                 }
                             }
                         }
@@ -120,13 +125,28 @@ struct TVSourcesView: View {
                     Text(PMString("ext.tv.sources.addSource"))
                         .tvFont(.caption, weight: .medium).foregroundStyle(TVColor.textMuted)
                     TVSourcesInfoCard()
-                    TVFocusButton(radius: 16, scale: 1.02, lift: 0, action: { showsMetadata = true }) { focused in
-                        Label(PMString("tv_metadata_reread"), systemImage: "arrow.clockwise")
+                    // 直接对全部可扫描的源重读,不再先让用户挑源;单个源重读在该源的长按菜单里。
+                    TVFocusButton(radius: 16, scale: 1.02, lift: 0, action: toggleRereadAllTags) { focused in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Label(
+                                PMString(store.rereadAllTagsProgress == nil
+                                    ? "tv_metadata_reread"
+                                    : "ext.tv.scan.cancelScan"),
+                                systemImage: store.rereadAllTagsProgress == nil
+                                    ? "arrow.clockwise"
+                                    : "stop.circle"
+                            )
                             .tvFont(.meta, weight: .semibold).foregroundStyle(TVColor.text)
-                            .padding(.horizontal, 24).padding(.vertical, 16)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(focused ? TVColor.surfaceStrong : TVColor.surface,
-                                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            if let progress = store.rereadAllTagsProgress {
+                                Text(verbatim: "\(progress.sourceName) · \(progress.index)/\(progress.total)")
+                                    .tvFont(.caption).foregroundStyle(TVColor.textMuted)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .padding(.horizontal, 24).padding(.vertical, 16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(focused ? TVColor.surfaceStrong : TVColor.surface,
+                                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
                     .focused($focusedPrimaryAction, equals: .metadata)
                     .accessibilityIdentifier("tv.sources.metadata")
@@ -265,6 +285,9 @@ struct TVSourcesView: View {
         .fullScreenCover(item: $otpSource, onDismiss: restorePrimaryFocus) { src in
             TVOTPEntryView(source: src).environment(store)
         }
+        .fullScreenCover(item: $rereadSource, onDismiss: restorePrimaryFocus) { src in
+            TVScanFlowView(source: src, rereadMetadata: true).environment(store)
+        }
         .fullScreenCover(item: $scanSource, onDismiss: restorePrimaryFocus) { src in
             TVScanFlowView(source: src).environment(store)
         }
@@ -318,6 +341,14 @@ struct TVSourcesView: View {
         }
         pendingScanAfterSave = nil
         scanSource = source
+    }
+
+    private func toggleRereadAllTags() {
+        if store.rereadAllTagsProgress == nil {
+            store.rereadAllTags()
+        } else {
+            store.cancelRereadAllTags()
+        }
     }
 
     private func restorePrimaryFocus() {
@@ -434,6 +465,7 @@ private struct TVSourceRow: View {
     var onEdit: () -> Void = {}              // 长按菜单:编辑连接参数
     var onLogin2FA: () -> Void = {}          // 长按菜单:两步验证登录(NAS)
     var onScan: () -> Void = {}              // 长按菜单:选目录 + 扫描(SMB)
+    var onRereadTags: () -> Void = {}        // 长按菜单:只重读这一个源的标签
 
     var body: some View {
         // 不缩放:全宽行缩放会溢出 ScrollView 横向裁切,导致描边左右被裁(只剩上下)。
@@ -517,6 +549,9 @@ private struct TVSourceRow: View {
             if source.canScan {
                 Button { onScan() } label: {
                     Label(PMString("ext.tv.sources.scanFolders"), systemImage: "folder.badge.gearshape")
+                }
+                Button { onRereadTags() } label: {
+                    Label(PMString("ext.tv.sources.rereadTags"), systemImage: "arrow.clockwise")
                 }
             }
             if source.supports2FA {
@@ -781,7 +816,6 @@ private struct TVCredentialEditorView: View {
 struct TVMetadataMaintenanceView: View {
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
-    @State private var selectedSource: MusicSource?
     @State private var artistArtworkTask: Task<Void, Never>?
     @State private var artistArtworkProgress = ""
 
@@ -795,23 +829,36 @@ struct TVMetadataMaintenanceView: View {
                     TVPillButton(title: String(localized: "done"), systemImage: "xmark") { dismiss() }
                 }
                 HStack(alignment: .top, spacing: 48) {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 20) {
-                            Text(PMString("tv_metadata_reread")).tvFont(.sectionTitle)
-                            Text(PMString("tv_metadata_reread_body"))
-                                .tvFont(.body).foregroundStyle(TVColor.textMuted)
-                            Text(PMString("tv_metadata_select_source"))
-                                .tvFont(.caption).foregroundStyle(TVColor.textFaint)
-                            ForEach(store.sources) { source in
-                                sourceRow(source)
+                    VStack(alignment: .leading, spacing: 20) {
+                        Text(PMString("tv_metadata_reread")).tvFont(.sectionTitle)
+                        Text(PMString("tv_metadata_reread_body"))
+                            .tvFont(.body).foregroundStyle(TVColor.textMuted)
+                        // 直接对全部可扫描的源重读;只想重读某一个源,在音乐源页长按该源。
+                        TVPillButton(
+                            title: PMString(store.rereadAllTagsProgress == nil
+                                ? "tv_metadata_reread"
+                                : "ext.tv.scan.cancelScan"),
+                            systemImage: store.rereadAllTagsProgress == nil
+                                ? "arrow.clockwise"
+                                : "stop.circle",
+                            action: {
+                                if store.rereadAllTagsProgress == nil {
+                                    store.rereadAllTags()
+                                } else {
+                                    store.cancelRereadAllTags()
+                                }
                             }
-                            if store.sources.isEmpty {
-                                Text(PMString("ext.tv.sources.emptyTitle")).tvFont(.body)
-                            }
+                        )
+                        .accessibilityIdentifier("tv.metadata.rereadAll")
+                        if let progress = store.rereadAllTagsProgress {
+                            Text(verbatim: "\(progress.sourceName) · \(progress.index)/\(progress.total)")
+                                .tvFont(.caption).foregroundStyle(TVColor.textMuted)
                         }
-                        .padding(8)
+                        Text(PMString("tv_metadata_reread_single_hint"))
+                            .tvFont(.caption).foregroundStyle(TVColor.textFaint)
+                        Spacer(minLength: 0)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .focusSection()
                     VStack(alignment: .leading, spacing: 20) {
                         Text(PMString("tv_complete_artist_artwork")).tvFont(.sectionTitle)
@@ -836,41 +883,9 @@ struct TVMetadataMaintenanceView: View {
             .padding(.horizontal, 80).padding(.vertical, 48)
         }
         .foregroundStyle(TVColor.text)
-        .fullScreenCover(item: $selectedSource) { source in
-            TVScanFlowView(source: source, rereadMetadata: true).environment(store)
-        }
-        .onExitCommand {
-            if selectedSource != nil { selectedSource = nil } else { dismiss() }
-        }
+        .onExitCommand { dismiss() }
         .onDisappear { artistArtworkTask?.cancel(); artistArtworkTask = nil }
         .accessibilityIdentifier("tv.metadata.maintenance")
-    }
-
-    private func sourceRow(_ source: TVSource) -> some View {
-        let canRead = source.canScan && source.status != .disabled
-        let isServer = source.type == MusicSourceType.fnMusic.rawValue
-            || source.type == MusicSourceType.daoliyu.rawValue
-            || source.type == MusicSourceType.songloft.rawValue
-        return TVFocusButton(radius: 16, scale: 1.0, lift: 0, action: {
-            selectedSource = store.source(id: source.id)
-        }) { focused in
-            HStack(spacing: 20) {
-                Image(systemName: source.iconName).tvFont(.sectionTitle)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(source.name).tvFont(.body).lineLimit(2)
-                    Text(PMString(canRead
-                        ? (isServer ? "tv_metadata_server_hint" : "tv_metadata_source_hint")
-                        : "tv_metadata_source_unavailable"))
-                        .tvFont(.caption).foregroundStyle(TVColor.textMuted)
-                }
-                Spacer()
-                Image(systemName: "chevron.right").tvFont(.caption)
-            }
-            .padding(24).frame(maxWidth: .infinity, alignment: .leading)
-            .background(focused ? TVColor.surfaceStrong : TVColor.surface)
-        }
-        .disabled(!canRead || (store.activeScanSourceID != nil && store.activeScanSourceID != source.id))
-        .accessibilityIdentifier("tv.metadata.source.\(source.id)")
     }
 
     private func refreshArtistArtwork() {

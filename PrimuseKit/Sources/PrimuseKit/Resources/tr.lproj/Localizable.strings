@@ -685,6 +685,8 @@
 "tv_artist_artwork_source_hint" = "Sanatçı adına göre etkin kaynaklarda arayın; kaynak yoksa iTunes kullanılır.";
 
 "tv_metadata_reread" = "Tüm etiketleri yeniden oku";
+"ext.tv.sources.rereadTags" = "Etiketleri yeniden oku";
+"tv_metadata_reread_single_hint" = "Tek bir kaynağı yeniden okumak için kaynak listesinde ona uzun basın.";
 "tv_metadata_reread_body" = "Seçili klasörleri yeniden tarayarak başlıkları, sanatçıları, albümleri, türleri, yılları, parça numaralarını, ses bilgilerini, kapakları ve sözleri oku. Elle yapılan düzenlemeler korunur; kaynak dosyalar değişmez.";
 "tv_metadata_select_source" = "Bir müzik kaynağı seçin. Daha önce denetlenen dosyalar da yeniden okunur.";
 "tv_metadata_source_hint" = "Seçili klasörlerdeki etiketleri, kapakları ve sözleri yeniden oku";

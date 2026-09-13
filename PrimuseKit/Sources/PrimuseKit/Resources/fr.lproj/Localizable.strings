@@ -738,6 +738,8 @@
 "tv_artist_artwork_source_hint" = "Rechercher par nom d’artiste avec les sources activées, ou iTunes si aucune n’est configurée.";
 
 "tv_metadata_reread" = "Relire toutes les balises";
+"ext.tv.sources.rereadTags" = "Relire les tags";
+"tv_metadata_reread_single_hint" = "Pour relire une seule source, maintenez-la enfoncée dans la liste des sources.";
 "tv_metadata_reread_body" = "Analyser à nouveau les dossiers sélectionnés et lire titres, artistes, albums, genres, années, numéros de piste, données audio, pochettes et paroles. Les modifications manuelles sont conservées ; les fichiers sources restent inchangés.";
 "tv_metadata_select_source" = "Choisissez une source musicale. Les fichiers déjà vérifiés seront également relus.";
 "tv_metadata_source_hint" = "Relire les balises, pochettes et paroles des dossiers sélectionnés";

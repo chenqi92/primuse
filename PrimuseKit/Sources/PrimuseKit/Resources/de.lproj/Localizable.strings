@@ -738,6 +738,8 @@
 "tv_artist_artwork_source_hint" = "Online nach Künstlernamen suchen: mit aktivierten Quellen oder sonst mit iTunes.";
 
 "tv_metadata_reread" = "Alle Tags erneut lesen";
+"ext.tv.sources.rereadTags" = "Tags neu einlesen";
+"tv_metadata_reread_single_hint" = "Um eine einzelne Quelle neu einzulesen, halte sie in der Quellenliste gedrückt.";
 "tv_metadata_reread_body" = "Ausgewählte Ordner neu scannen und Titel, Künstler, Alben, Genres, Jahre, Titelnummern, Audiodetails, Cover und Liedtexte lesen. Manuelle Änderungen bleiben erhalten; Quelldateien bleiben unverändert.";
 "tv_metadata_select_source" = "Musikquelle wählen. Auch bereits geprüfte Dateien werden erneut gelesen.";
 "tv_metadata_source_hint" = "Alle Tags, Cover und Liedtexte der ausgewählten Ordner erneut lesen";

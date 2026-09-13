@@ -131,6 +131,14 @@ enum TVSourceLocalLibraryPolicy {
     }
 }
 
+/// 「重新读取全部标签」的批量进度。逐个源顺序重读,同一时刻只有一个源在扫描。
+struct TVRereadAllTagsProgress: Equatable, Sendable {
+    /// 第几个源(从 1 开始),用于显示 1/6 这样的计数。
+    let index: Int
+    let total: Int
+    let sourceName: String
+}
+
 // MARK: - 轻量 view-model 类型
 //
 // UI 层数据契约。TVStore 现在由真实 MusicLibrary + SourcesStore 驱动(读取
@@ -478,6 +486,9 @@ final class TVStore {
     // TV 本机扫描(SMB 路径快扫 / 飞牛音乐整库)。视图观察 scanner.phase/indexed/currentFile。
     @ObservationIgnored let scanner = TVSourceScanner()
     private(set) var activeScanSourceID: String?
+    /// 批量重读进行中的进度;为 nil 表示没有在批量重读。
+    private(set) var rereadAllTagsProgress: TVRereadAllTagsProgress?
+    @ObservationIgnored private var rereadAllTagsTask: Task<Void, Never>?
     var transferIsIndexing = false
     var transferScanError: String?
     @ObservationIgnored private var transferScanTask: Task<Void, Never>?
@@ -2761,7 +2772,57 @@ final class TVStore {
 
     /// 飞牛音乐没有目录选择步骤，直接从服务端分页读取完整曲库。
     @discardableResult
-    func runFnMusicScan(source: MusicSource, rereadMetadata: Bool = false) async -> Bool {
+/// 重新读取全部音乐源的标签:按顺序逐个源重扫已选目录(没选过目录的从根开始),
+    /// 服务端型的源直接刷新服务端曲库。扫描器一次只允许一个源,所以这里串行等待。
+    func rereadAllTags() {
+        guard rereadAllTagsTask == nil else { return }
+        let targets = sourcesStore.allSources.filter {
+            !$0.isDeleted
+                && $0.isEnabled
+                && canScanOnTV($0)
+                && !locallyRemovedSourceIDs.contains($0.id)
+        }
+        guard !targets.isEmpty else { return }
+        rereadAllTagsProgress = TVRereadAllTagsProgress(
+            index: 0,
+            total: targets.count,
+            sourceName: targets[0].name
+        )
+        rereadAllTagsTask = Task { [weak self] in
+            defer {
+                self?.rereadAllTagsTask = nil
+                self?.rereadAllTagsProgress = nil
+            }
+            for (offset, source) in targets.enumerated() {
+                guard let self, !Task.isCancelled else { return }
+                self.rereadAllTagsProgress = TVRereadAllTagsProgress(
+                    index: offset + 1,
+                    total: targets.count,
+                    sourceName: source.name
+                )
+                if source.type == .fnMusic || source.type == .daoliyu || source.type == .songloft {
+                    _ = await self.runFnMusicScan(source: source, rereadMetadata: true)
+                } else if let lister = self.makeLister(for: source) {
+                    let dirs = source.scannedDirectories.isEmpty ? ["/"] : source.scannedDirectories
+                    _ = await self.runScan(
+                        source: source,
+                        lister: lister,
+                        dirs: dirs,
+                        rereadMetadata: true
+                    )
+                }
+            }
+        }
+    }
+
+    func cancelRereadAllTags() {
+        if let active = activeScanSourceID { cancelScan(sourceID: active) }
+        rereadAllTagsTask?.cancel()
+        rereadAllTagsTask = nil
+        rereadAllTagsProgress = nil
+    }
+
+        func runFnMusicScan(source: MusicSource, rereadMetadata: Bool = false) async -> Bool {
         guard TVScanAdmissionPolicy.canStart(
             activeSourceID: activeScanSourceID,
             requestedSourceID: source.id

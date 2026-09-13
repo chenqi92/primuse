@@ -738,6 +738,8 @@
 "tv_artist_artwork_source_hint" = "활성화된 소스에서 아티스트 이름으로 이미지를 검색합니다. 설정된 소스가 없으면 iTunes를 사용합니다.";
 
 "tv_metadata_reread" = "모든 태그 다시 읽기";
+"ext.tv.sources.rereadTags" = "태그 다시 읽기";
+"tv_metadata_reread_single_hint" = "특정 소스만 다시 읽으려면 소스 목록에서 해당 소스를 길게 누르세요.";
 "tv_metadata_reread_body" = "선택한 폴더를 다시 스캔하여 제목, 아티스트, 앨범, 장르, 연도, 트랙 번호, 오디오 정보, 커버 및 가사를 읽습니다. 수동 편집 내용은 유지되며 원본 파일은 변경되지 않습니다.";
 "tv_metadata_select_source" = "음악 소스를 선택하세요. 이미 확인한 파일도 다시 읽습니다.";
 "tv_metadata_source_hint" = "선택한 폴더의 모든 태그, 커버 및 가사 다시 읽기";

@@ -735,6 +735,8 @@
 "tv_artist_artwork_source_hint" = "依藝人名稱在線上尋找圖片，使用已啟用的刮削來源；未設定時使用 iTunes。";
 
 "tv_metadata_reread" = "重新讀取全部標籤";
+"ext.tv.sources.rereadTags" = "重新讀取標籤";
+"tv_metadata_reread_single_hint" = "只想重讀某一個音樂來源時，在音樂來源列表長按該來源即可。";
 "tv_metadata_reread_body" = "重新掃描已選目錄，讀取歌名、藝人、專輯、曲風、年份、音軌編號、音質資訊、封面和歌詞。保留手動編輯的內容，不修改來源檔案。";
 "tv_metadata_select_source" = "選擇需要重讀的音樂來源，已檢查過的檔案也會重新讀取。";
 "tv_metadata_source_hint" = "重讀已選目錄內所有歌曲的標籤、封面和歌詞";

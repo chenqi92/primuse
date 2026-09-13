@@ -738,6 +738,8 @@
 "tv_artist_artwork_source_hint" = "アーティスト名で有効なソースを検索します。未設定の場合は iTunes を使用します。";
 
 "tv_metadata_reread" = "すべてのタグを再読み込み";
+"ext.tv.sources.rereadTags" = "タグを読み直す";
+"tv_metadata_reread_single_hint" = "個別のソースだけ読み直すには、ソース一覧でそのソースを長押ししてください。";
 "tv_metadata_reread_body" = "選択したフォルダを再スキャンし、曲名、アーティスト、アルバム、ジャンル、年、トラック番号、音声情報、アートワーク、歌詞を読み込みます。手動の編集は保持され、元のファイルは変更されません。";
 "tv_metadata_select_source" = "音楽ソースを選択してください。確認済みのファイルも再度読み込みます。";
 "tv_metadata_source_hint" = "選択したフォルダ内のタグ、アートワーク、歌詞を再読み込み";

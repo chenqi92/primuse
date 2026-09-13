@@ -736,6 +736,8 @@
 "tv_artist_artwork_source_hint" = "Search online by artist name using enabled scrapers, or iTunes if none are configured.";
 
 "tv_metadata_reread" = "Reread All Tags";
+"ext.tv.sources.rereadTags" = "Re-read Tags";
+"tv_metadata_reread_single_hint" = "To re-read a single source, press and hold it in the music sources list.";
 "tv_metadata_reread_body" = "Rescan selected folders and read titles, artists, albums, genres, years, track numbers, audio details, artwork, and lyrics. Manual edits are preserved; source files are unchanged.";
 "tv_metadata_select_source" = "Choose a music source. This reads every file again, including previously checked files.";
 "tv_metadata_source_hint" = "Reread all tags, artwork, and lyrics in selected folders";
