@@ -751,3 +751,8 @@
 "ext.tv.appleMusic.restricted" = "Доступ к Apple Music на этой Apple TV ограничен.";
 "ext.tv.appleMusic.needsSubscription" = "Для воспроизведения нужна активная подписка Apple Music.";
 "ext.tv.appleMusic.failed" = "Apple Music не смог начать воспроизведение.";
+
+/* Apple TV Apple Music catalog search */
+"ext.tv.search.appleMusic" = "Из Apple Music";
+"ext.tv.search.appleMusicSearching" = "Поиск в Apple Music…";
+"ext.tv.search.appleMusicBadge" = "Apple Music";

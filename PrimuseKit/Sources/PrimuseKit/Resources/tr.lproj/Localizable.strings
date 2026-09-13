@@ -751,3 +751,8 @@
 "ext.tv.appleMusic.restricted" = "Bu Apple TV'de Apple Music erişimi kısıtlı.";
 "ext.tv.appleMusic.needsSubscription" = "Bu parçayı çalmak için etkin bir Apple Music aboneliği gerekiyor.";
 "ext.tv.appleMusic.failed" = "Apple Music çalmayı başlatamadı.";
+
+/* Apple TV Apple Music catalog search */
+"ext.tv.search.appleMusic" = "Apple Music'ten";
+"ext.tv.search.appleMusicSearching" = "Apple Music aranıyor…";
+"ext.tv.search.appleMusicBadge" = "Apple Music";

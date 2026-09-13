@@ -683,10 +683,52 @@ final class TVPlaybackCoordinator {
             store.playbackIssue = .failed(PMString("ext.tv.appleMusic.itemMissing"))
             return
         }
+        guard await playAppleMusicItem(
+            itemID: itemID,
+            fallbackDuration: song.duration,
+            requestID: requestID,
+            startAt: startAt,
+            autoPlay: autoPlay
+        ) else { return }
+        loadLyrics(song: song, source: source, credential: nil, requestID: requestID)
+    }
+
+    /// 播放一条 Apple Music 目录搜索结果。目录里的歌不在本机曲库中,
+    /// 所以不走 `play(songID:)` 那条要先查曲库的路。
+    func playAppleMusicCatalogItem(
+        itemID: String,
+        duration: TimeInterval,
+        requestID: UUID,
+        startAt: Double = 0,
+        autoPlay: Bool = true
+    ) async {
+        cancelAuxiliaryTasks()
+        releaseAppleMusicIfNeeded()
+        guard let store, isCurrent(requestID, store: store) else { return }
+        store.playbackIssue = nil
+        _ = await playAppleMusicItem(
+            itemID: itemID,
+            fallbackDuration: duration,
+            requestID: requestID,
+            startAt: startAt,
+            autoPlay: autoPlay
+        )
+    }
+
+    /// 真正的移交动作。返回 false 表示没能开播(已经报过错或被新请求取代)。
+    @discardableResult
+    private func playAppleMusicItem(
+        itemID: String,
+        fallbackDuration: TimeInterval,
+        requestID: UUID,
+        startAt: Double,
+        autoPlay: Bool
+    ) async -> Bool {
+        guard let store, isCurrent(requestID, store: store) else { return false }
         let player = appleMusicPlayer
         // 先让出音频会话:只 pause 不够,AVPlayer 仍持有会话,MusicKit 起播会抢。
         engine.beginExternalPlayback(
-            duration: song.duration,
+            duration: fallbackDuration,
             transport: TVAudioEngine.ExternalTransport(
                 pause: { [weak player] in player?.pause() },
                 resume: { [weak player] in Task { @MainActor in await player?.resume() } },
@@ -702,24 +744,26 @@ final class TVPlaybackCoordinator {
             )
             guard isCurrent(requestID, store: store) else {
                 engine.endExternalPlayback()
-                return
+                return false
             }
             engine.updateExternalPlayback(
                 currentTime: startAt,
-                duration: duration > 0 ? duration : song.duration,
+                duration: duration > 0 ? duration : fallbackDuration,
                 isPlaying: autoPlay
             )
             startAppleMusicMirror(requestID: requestID)
-            loadLyrics(song: song, source: source, credential: nil, requestID: requestID)
+            return true
         } catch is CancellationError {
             engine.endExternalPlayback()
+            return false
         } catch {
-            guard isCurrent(requestID, store: store) else { return }
+            guard isCurrent(requestID, store: store) else { return false }
             let message = Self.appleMusicFailureMessage(error)
             engine.failExternalPlayback(message)
             store.playbackIssue = .failed(message)
             player.stop()
             player.stopMirroring()
+            return false
         }
     }
 

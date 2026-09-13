@@ -32,6 +32,7 @@ struct TVSearchView: View {
     @State private var opensPlayerAfterArtistDismissal = false
     @State private var isSearching = false
     @State private var isSemanticSearching = false
+    @State private var appleMusic = TVAppleMusicCatalog()
     @State private var semanticFeedback: TVSemanticSearchFeedback = .idle
     @State private var focusZone: TVSearchFocusZone = .field
     @State private var lastFocusedResultID: String?
@@ -52,11 +53,22 @@ struct TVSearchView: View {
     }
 
     /// 结果行的稳定焦点标识,顺序与视觉顺序一致;结果替换后用它做焦点对齐。
+    /// 目录结果里把曲库已经有的那几首去掉,同一首歌不该在一页里出现两次。
+    private var appleMusicResults: [AppleMusicCatalogHit] {
+        AppleMusicCatalogSearchPolicy.deduplicated(
+            appleMusic.hits,
+            excludingItemIDs: Set(
+                (primarySongResults + intelligentSongResults).map(\.song.id)
+            )
+        )
+    }
+
     private var resultFocusIDs: [String] {
         artistResults.map(Self.artistFocusID)
             + albumResults.map(Self.albumFocusID)
             + primarySongResults.map(Self.songFocusID)
             + intelligentSongResults.map(Self.songFocusID)
+            + appleMusicResults.map(Self.appleMusicFocusID)
     }
 
     private var hasResults: Bool { !resultFocusIDs.isEmpty }
@@ -68,6 +80,9 @@ struct TVSearchView: View {
     private static func artistFocusID(_ artist: TVArtist) -> String { "artist:" + artist.id }
     private static func albumFocusID(_ album: TVAlbum) -> String { "album:" + album.id }
     private static func songFocusID(_ hit: TVStore.TVSearchHit) -> String { "song:" + hit.id }
+    private static func appleMusicFocusID(_ hit: AppleMusicCatalogHit) -> String {
+        "appleMusic:" + hit.id
+    }
 
     var body: some View {
         ZStack {
@@ -208,6 +223,21 @@ struct TVSearchView: View {
                             .padding(.bottom, 8)
                         songList(intelligentSongResults)
                     }
+                    if !appleMusicResults.isEmpty || appleMusic.isSearching {
+                        TVEyebrow(text: PMString("ext.tv.search.appleMusic"))
+                            .padding(.top, 22)
+                            .padding(.bottom, 8)
+                        if appleMusicResults.isEmpty, appleMusic.isSearching {
+                            HStack(spacing: 12) {
+                                ProgressView().tint(TVColor.brand)
+                                Text(PMString("ext.tv.search.appleMusicSearching"))
+                                    .tvFont(.caption).foregroundStyle(TVColor.textFaint)
+                            }
+                            .padding(.vertical, 10)
+                        } else {
+                            appleMusicList
+                        }
+                    }
                     if showsNoMatch {
                         // 无匹配:纯文本(不可聚焦),焦点保持在输入框。
                         Text(PMString("ext.tv.search.noMatch")).tvFont(.caption)
@@ -252,6 +282,19 @@ struct TVSearchView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 20)
+            }
+        }
+    }
+
+    private var appleMusicList: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(appleMusicResults) { hit in
+                TVAppleMusicSearchRow(
+                    hit: hit,
+                    focusedResultID: $focusedResultID,
+                    focusID: Self.appleMusicFocusID(hit),
+                    action: openPlayer
+                )
             }
         }
     }
@@ -325,6 +368,9 @@ struct TVSearchView: View {
 
     @MainActor
     private func updateResults(for requestedQuery: String) async {
+        // 目录搜索与曲库搜索并行:它自带防抖,未授权时直接不发请求,
+        // 所以每次输入变化交给它即可。
+        appleMusic.search(requestedQuery)
         guard !requestedQuery.isEmpty else {
             results = nil
             isSearching = false
@@ -505,6 +551,65 @@ private struct TVSearchSongRow: View {
             .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle)
         }
         .focused($focusedResultID, equals: focusID)
+    }
+}
+/// Apple Music 目录结果的一行。与曲库结果行外观一致,只是封面来自网络、
+/// 右侧带一个 Apple Music 角标,让用户知道这条不在自己的曲库里。
+private struct TVAppleMusicSearchRow: View {
+    @Environment(TVStore.self) private var store
+    let hit: AppleMusicCatalogHit
+    @FocusState.Binding var focusedResultID: String?
+    let focusID: String
+    var action: () -> Void = {}
+
+    var body: some View {
+        TVFocusButton(radius: 10, scale: 1.0, lift: 0,
+                      action: { store.playAppleMusicCatalogHit(hit); action() }) { focused in
+            HStack(spacing: 16) {
+                artwork
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(hit.title).tvFont(.cardTitle)
+                        .foregroundStyle(TVColor.text).lineLimit(1)
+                    Text(hit.albumTitle.isEmpty
+                         ? hit.artistName
+                         : "\(hit.artistName) · \(hit.albumTitle)")
+                        .tvFont(.caption).foregroundStyle(TVColor.textFaint).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Text(PMString("ext.tv.search.appleMusicBadge"))
+                    .tvFont(.meta, weight: .semibold)
+                    .foregroundStyle(TVColor.brand)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(TVColor.brand.opacity(0.16), in: Capsule())
+                Image(systemName: "play.fill").tvFont(.caption).foregroundStyle(TVColor.textFaint)
+            }
+            .padding(14).frame(maxWidth: .infinity)
+            .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle)
+        }
+        .focused($focusedResultID, equals: focusID)
+        .accessibilityLabel(Text("\(hit.title) · \(hit.artistName)"))
+    }
+
+    private var artwork: some View {
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .fill(TVColor.surface)
+            .overlay {
+                if let url = hit.artworkURL {
+                    AsyncImage(url: url) { image in
+                        image.resizable().scaledToFill()
+                    } placeholder: {
+                        Image(systemName: "music.note")
+                            .font(.system(size: 22))
+                            .foregroundStyle(TVColor.textGhost)
+                    }
+                } else {
+                    Image(systemName: "music.note")
+                        .font(.system(size: 22))
+                        .foregroundStyle(TVColor.textGhost)
+                }
+            }
+            .frame(width: 56, height: 56)
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 }
 #endif

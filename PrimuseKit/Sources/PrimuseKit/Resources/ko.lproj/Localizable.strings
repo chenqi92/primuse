@@ -804,3 +804,8 @@
 "ext.tv.appleMusic.restricted" = "이 Apple TV에서는 Apple Music 접근이 제한되어 있습니다.";
 "ext.tv.appleMusic.needsSubscription" = "이 곡을 재생하려면 유효한 Apple Music 구독이 필요합니다.";
 "ext.tv.appleMusic.failed" = "Apple Music이 재생을 시작하지 못했습니다.";
+
+/* Apple TV Apple Music catalog search */
+"ext.tv.search.appleMusic" = "Apple Music에서";
+"ext.tv.search.appleMusicSearching" = "Apple Music 검색 중…";
+"ext.tv.search.appleMusicBadge" = "Apple Music";

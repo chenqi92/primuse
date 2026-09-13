@@ -801,3 +801,8 @@
 "ext.tv.appleMusic.restricted" = "這台 Apple TV 上的 Apple Music 取用受限。";
 "ext.tv.appleMusic.needsSubscription" = "播放這首曲目需要有效的 Apple Music 訂閱。";
 "ext.tv.appleMusic.failed" = "Apple Music 未能開始播放。";
+
+/* Apple TV Apple Music catalog search */
+"ext.tv.search.appleMusic" = "來自 Apple Music";
+"ext.tv.search.appleMusicSearching" = "正在搜尋 Apple Music…";
+"ext.tv.search.appleMusicBadge" = "Apple Music";

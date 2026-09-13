@@ -751,3 +751,8 @@
 "ext.tv.appleMusic.restricted" = "El acceso a Apple Music está restringido en este Apple TV.";
 "ext.tv.appleMusic.needsSubscription" = "Reproducir esta canción requiere una suscripción activa a Apple Music.";
 "ext.tv.appleMusic.failed" = "Apple Music no pudo iniciar la reproducción.";
+
+/* Apple TV Apple Music catalog search */
+"ext.tv.search.appleMusic" = "De Apple Music";
+"ext.tv.search.appleMusicSearching" = "Buscando en Apple Music…";
+"ext.tv.search.appleMusicBadge" = "Apple Music";

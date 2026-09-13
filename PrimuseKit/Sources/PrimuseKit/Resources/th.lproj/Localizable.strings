@@ -751,3 +751,8 @@
 "ext.tv.appleMusic.restricted" = "การเข้าถึง Apple Music ถูกจำกัดบน Apple TV เครื่องนี้";
 "ext.tv.appleMusic.needsSubscription" = "การเล่นเพลงนี้ต้องมีการสมัคร Apple Music ที่ใช้งานอยู่";
 "ext.tv.appleMusic.failed" = "Apple Music เริ่มเล่นไม่สำเร็จ";
+
+/* Apple TV Apple Music catalog search */
+"ext.tv.search.appleMusic" = "จาก Apple Music";
+"ext.tv.search.appleMusicSearching" = "กำลังค้นหาใน Apple Music…";
+"ext.tv.search.appleMusicBadge" = "Apple Music";

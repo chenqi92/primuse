@@ -3436,6 +3436,67 @@ final class TVStore {
         }
     }
 
+    /// 播放一条 Apple Music 目录搜索结果。这首歌不在本机曲库里,所以像电台那样
+    /// 直接构造「正在播放」:`songID` 带前缀,避免与曲库歌曲的 ID 撞上。
+    func playAppleMusicCatalogHit(_ hit: AppleMusicCatalogHit) {
+        finishListeningSession()
+        radioReconnectTask?.cancel()
+        radioReconnectTask = nil
+        isLiveRadio = false
+        currentRadioStationID = nil
+        radioMetadataTitle = ""
+        playbackTask?.cancel()
+        let requestID = UUID()
+        activePlaybackRequestID = requestID
+        playbackIssue = nil
+        queue = []
+        queueIndex = 0
+        queueUpNextIDs = []
+        lyrics = []
+        isMusicVideoModeEnabled = false
+        engine.prepareForSelection(startAt: 0)
+
+        let fallback = Self.tint(hit.id)
+        nowPlaying = TVNowPlaying(
+            songID: Self.appleMusicCatalogSongID(hit.id),
+            coverRef: nil,
+            title: hit.title,
+            artist: hit.artistName,
+            album: hit.albumTitle,
+            albumID: "",
+            tint: fallback.0,
+            tint2: fallback.1,
+            glyph: "♪",
+            duration: hit.duration,
+            currentTime: 0,
+            format: "AAC",
+            bitrate: 0,
+            sampleRate: 0,
+            sourcePath: hit.id
+        )
+        updateAutomaticThemePalette(nil)
+        hasNowPlaying = true
+        playbackTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.coordinator.playAppleMusicCatalogItem(
+                itemID: hit.id,
+                duration: hit.duration,
+                requestID: requestID
+            )
+            guard self.isCurrentPlaybackRequest(
+                requestID,
+                isCancelled: Task.isCancelled
+            ) else { return }
+            self.playbackTask = nil
+        }
+    }
+
+    /// 目录结果的「正在播放」标识。加前缀是为了不和曲库歌曲的 ID 混淆 ——
+    /// 队列推进、收藏、播放记录都按曲库 ID 查表,目录结果不该被误命中。
+    nonisolated static func appleMusicCatalogSongID(_ itemID: String) -> String {
+        "appleMusic:\(itemID)"
+    }
+
     private func handlePlaybackEnded() {
         finishListeningSession()
         persistPlaybackSession()

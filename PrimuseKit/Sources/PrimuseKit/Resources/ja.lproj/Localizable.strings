@@ -804,3 +804,8 @@
 "ext.tv.appleMusic.restricted" = "この Apple TV では Apple Music へのアクセスが制限されています。";
 "ext.tv.appleMusic.needsSubscription" = "この曲の再生には有効な Apple Music のサブスクリプションが必要です。";
 "ext.tv.appleMusic.failed" = "Apple Music で再生を開始できませんでした。";
+
+/* Apple TV Apple Music catalog search */
+"ext.tv.search.appleMusic" = "Apple Music から";
+"ext.tv.search.appleMusicSearching" = "Apple Music を検索中…";
+"ext.tv.search.appleMusicBadge" = "Apple Music";

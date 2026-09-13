@@ -751,3 +751,8 @@
 "ext.tv.appleMusic.restricted" = "इस Apple TV पर Apple Music का ऐक्सेस प्रतिबंधित है।";
 "ext.tv.appleMusic.needsSubscription" = "इस ट्रैक को चलाने के लिए चालू Apple Music सदस्यता चाहिए।";
 "ext.tv.appleMusic.failed" = "Apple Music चलाना शुरू नहीं कर सका।";
+
+/* Apple TV Apple Music catalog search */
+"ext.tv.search.appleMusic" = "Apple Music से";
+"ext.tv.search.appleMusicSearching" = "Apple Music खोजा जा रहा है…";
+"ext.tv.search.appleMusicBadge" = "Apple Music";

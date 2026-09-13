@@ -751,3 +751,8 @@
 "ext.tv.appleMusic.restricted" = "الوصول إلى Apple Music مقيّد على Apple TV هذه.";
 "ext.tv.appleMusic.needsSubscription" = "يتطلب تشغيل هذا المقطع اشتراك Apple Music ساريًا.";
 "ext.tv.appleMusic.failed" = "تعذّر على Apple Music بدء التشغيل.";
+
+/* Apple TV Apple Music catalog search */
+"ext.tv.search.appleMusic" = "من Apple Music";
+"ext.tv.search.appleMusicSearching" = "جارٍ البحث في Apple Music…";
+"ext.tv.search.appleMusicBadge" = "Apple Music";
