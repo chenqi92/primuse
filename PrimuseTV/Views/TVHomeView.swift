@@ -332,21 +332,7 @@ struct TVHomeView: View {
     }
 
     private func playHero(shuffle: Bool) {
-        let didStart: Bool
-        switch heroContent {
-        case .album:
-            guard heroAlbum != nil else { return }
-            // 两个按钮走同一份已解析的专辑曲目,didStart 用真实的播放结果。
-            didStart = store.playResolvedQueue(
-                songIDs: candidateAlbumSongs.map(\.id),
-                shuffled: shuffle || store.shuffleEnabled
-            )
-        case .song:
-            didStart = store.playAll(shuffle: shuffle)
-        case .empty:
-            didStart = false
-        }
-        if didStart { openPlayer() }
+        if store.playAll(shuffle: shuffle) { openPlayer() }
     }
 }
 #endif

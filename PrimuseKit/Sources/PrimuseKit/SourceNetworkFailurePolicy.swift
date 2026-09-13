@@ -25,7 +25,7 @@ public enum SourceNetworkFailurePolicy {
     /// independent transport evidence. Unknown vendor routes remain eligible.
     public static func allEndpointsAreUnreachable(
         _ endpoints: [SourceConnectionEndpoint?],
-        probe: EndpointProbe = SourceConnectionPreflight.check
+        probe: @escaping EndpointProbe = SourceConnectionPreflight.check
     ) async -> Bool {
         guard !endpoints.isEmpty else { return false }
         var checked: Set<SourceConnectionEndpoint> = []
