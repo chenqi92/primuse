@@ -36,6 +36,59 @@ struct QueueRowIdentityTests {
     }
 }
 
+@Suite("Apple TV long list paging")
+struct TVLongListPagingPolicyTests {
+    @Test("A long list starts at one page and a short list renders whole")
+    func initialWindow() {
+        #expect(TVLongListPagingPolicy.clamped(limit: 0, totalCount: 0) == 0)
+        #expect(TVLongListPagingPolicy.clamped(limit: 0, totalCount: 7568) == TVLongListPagingPolicy.pageSize)
+        #expect(TVLongListPagingPolicy.clamped(limit: 0, totalCount: 12) == 12)
+        #expect(TVLongListPagingPolicy.clamped(limit: 900, totalCount: 12) == 12)
+    }
+
+    @Test("Focus extends the window only near the rendered end")
+    func focusExtendsWindowNearTheEnd() {
+        let page = TVLongListPagingPolicy.pageSize
+        let trigger = TVLongListPagingPolicy.focusTriggerDistance
+
+        #expect(TVLongListPagingPolicy.limit(after: page, focusedRow: 0, totalCount: 7568) == page)
+        #expect(TVLongListPagingPolicy.limit(
+            after: page, focusedRow: page - trigger - 1, totalCount: 7568
+        ) == page)
+        #expect(TVLongListPagingPolicy.limit(
+            after: page, focusedRow: page - trigger, totalCount: 7568
+        ) == page * 2)
+        #expect(TVLongListPagingPolicy.limit(after: page, focusedRow: page - 1, totalCount: 80) == 80)
+        #expect(TVLongListPagingPolicy.limit(after: 80, focusedRow: 79, totalCount: 80) == 80)
+    }
+
+    @Test("Focus can never outrun the rendered rows")
+    func focusNeverLeavesTheRenderedWindow() {
+        let total = 7568
+        var rendered = TVLongListPagingPolicy.clamped(limit: 0, totalCount: total)
+
+        for row in 0..<total {
+            #expect(row < rendered)
+            let extended = TVLongListPagingPolicy.limit(
+                after: rendered, focusedRow: row, totalCount: total
+            )
+            #expect(extended >= rendered)
+            rendered = extended
+        }
+
+        #expect(rendered == total)
+    }
+
+    @Test("A far focus jump renders enough rows in one step")
+    func farJumpExtendsInOneStep() {
+        let extended = TVLongListPagingPolicy.limit(
+            after: TVLongListPagingPolicy.pageSize, focusedRow: 500, totalCount: 7568
+        )
+
+        #expect(extended > 500)
+    }
+}
+
 @Suite("Queue presentation rounds")
 struct QueuePresentationPolicyTests {
     @Test("Shuffle played rows use the actual traversal prefix")

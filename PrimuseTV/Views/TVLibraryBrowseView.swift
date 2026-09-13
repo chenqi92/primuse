@@ -40,14 +40,8 @@ struct TVSongCollectionView: View {
                 .frame(width: 410, alignment: .leading)
                 .focusSection()
                 ScrollView {
-                    LazyVStack(spacing: 14) {
-                        ForEach(destination.songIDs, id: \.self) { id in
-                            if let song = store.song(id) {
-                                TVSongRow(song: song, queueSongIDs: destination.songIDs, action: finishPlayback)
-                            }
-                        }
-                    }
-                    .padding(18)
+                    TVPagedSongIDList(songIDs: destination.songIDs, spacing: 14, action: finishPlayback)
+                        .padding(18)
                 }
                 .focusSection()
             }
@@ -163,9 +157,7 @@ struct TVFolderBrowser: View {
                 }
                 if let current {
                     let ids = LibraryFolderBrowsePolicy.visibleSongIDs(in: current.id, index: index, orderedBy: store.songIDs)
-                    ForEach(ids, id: \.self) { id in
-                        if let song = store.song(id) { TVSongRow(song: song, queueSongIDs: ids, action: openPlayer) }
-                    }
+                    TVPagedSongIDList(songIDs: ids, action: openPlayer)
                 } else if nodes.isEmpty {
                     TVEmptyState(icon: "folder", title: TVDiscoveryText.string("no_folders"), subtitle: TVDiscoveryText.string("folders_hint"))
                         .frame(minHeight: 350)

@@ -266,14 +266,7 @@ struct TVLibraryView: View {
                 }
             }
         case .songs:
-            let librarySongIDs = store.songIDs
-            LazyVStack(spacing: 10) {
-                ForEach(librarySongIDs, id: \.self) { songID in
-                    if let song = store.song(songID) {
-                        TVSongRow(song: song, queueSongIDs: librarySongIDs, action: openPlayer)
-                    }
-                }
-            }
+            TVPagedSongIDList(songIDs: store.songIDs, action: openPlayer)
         case .genres:
             TVGenreBrowser(openPlayer: openPlayer, onModalActivityChanged: onModalActivityChanged)
         case .folders:
@@ -552,6 +545,8 @@ struct TVSongRow: View {
     var reason: String? = nil
     var queueSongIDs: [String]? = nil
     var action: () -> Void = {}
+    /// 长列表分页要知道焦点走到哪一行了,见 `TVPagedSongIDList`。
+    var onFocusChanged: (Bool) -> Void = { _ in }
 
     var body: some View {
         let album = store.albumOf(song)
@@ -563,7 +558,8 @@ struct TVSongRow: View {
                               guard store.play(song, in: queueSongIDs) else { return }
                           } else { store.play(song) }
                           action()
-                      }) { focused in
+                      },
+                      onFocusChanged: onFocusChanged) { focused in
             HStack(spacing: 18) {
                 TVArtworkView(coverKey: album?.id ?? "", artist: album?.artist ?? song.artist,
                               album: album?.title ?? "", songID: song.id, coverRef: song.coverRef,
@@ -594,6 +590,41 @@ struct TVSongRow: View {
             .padding(.horizontal, 22).padding(.vertical, 16)
             .frame(maxWidth: .infinity)
             .background(focused ? TVColor.surfaceStrong : TVColor.card)
+        }
+    }
+}
+
+/// 由歌曲 ID 列表驱动的分页歌曲列表。
+///
+/// 整份列表一次性交给 `ForEach`,遥控器就会失去响应 —— 原因和行数上限见
+/// `TVLongListPagingPolicy`。点歌仍以完整列表入队,分页只影响渲染多少行。
+struct TVPagedSongIDList: View {
+    let songIDs: [String]
+    var spacing: CGFloat = 10
+    var action: () -> Void = {}
+
+    @Environment(TVStore.self) private var store
+    @State private var renderedRowCount = TVLongListPagingPolicy.pageSize
+
+    var body: some View {
+        let total = songIDs.count
+        let shown = TVLongListPagingPolicy.clamped(limit: renderedRowCount, totalCount: total)
+        LazyVStack(spacing: spacing) {
+            ForEach(Array(songIDs.prefix(shown).enumerated()), id: \.element) { row, songID in
+                if let song = store.song(songID) {
+                    TVSongRow(
+                        song: song,
+                        queueSongIDs: songIDs,
+                        action: action,
+                        onFocusChanged: { focused in
+                            guard focused else { return }
+                            renderedRowCount = TVLongListPagingPolicy.limit(
+                                after: shown, focusedRow: row, totalCount: total
+                            )
+                        }
+                    )
+                }
+            }
         }
     }
 }

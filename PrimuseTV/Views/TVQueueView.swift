@@ -11,18 +11,28 @@ struct TVQueueView: View {
 
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
+    @State private var renderedRowCount = TVLongListPagingPolicy.pageSize
 
-    private var upNextRows: [UpNextRow] {
-        QueueRowIdentity.makeVisible(for: store.queueUpNextIDs) { store.song($0) != nil }
-            .compactMap { identity in
-                store.song(identity.songID).map { UpNextRow(id: identity, song: $0) }
-            }
+    /// 只取要渲染的那几行。整条队列每次都过一遍的话,光这一步在七千首上就要
+    /// 十几毫秒,而播放进度每跳一次整个 body 都要重算一遍。
+    private func upNextRows(limit: Int) -> [UpNextRow] {
+        guard limit > 0 else { return [] }
+        var rows: [UpNextRow] = []
+        rows.reserveCapacity(limit)
+        for (position, songID) in store.queueUpNextIDs.enumerated() {
+            guard let song = store.song(songID) else { continue }
+            rows.append(UpNextRow(id: QueueRowIdentity(position: position, songID: songID), song: song))
+            if rows.count >= limit { break }
+        }
+        return rows
     }
 
     var body: some View {
         let np = store.nowPlaying
         let colors = store.nowPlayingPresentationColors
-        let rows = upNextRows
+        let total = store.queueUpNextIDs.count
+        let shown = TVLongListPagingPolicy.clamped(limit: renderedRowCount, totalCount: total)
+        let rows = upNextRows(limit: shown)
         ZStack {
             TVAmbientBackdrop(tint: colors.primary, tint2: colors.secondary, strength: 0.55)
             TVColor.bg.opacity(0.48).ignoresSafeArea()
@@ -42,14 +52,20 @@ struct TVQueueView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 0) {
-                    TVEyebrow(text: PMString("ext.tv.queue.upNext", rows.count)).padding(.bottom, 20)
+                    TVEyebrow(text: PMString("ext.tv.queue.upNext", total)).padding(.bottom, 20)
                     ScrollView(.vertical, showsIndicators: false) {
                         LazyVStack(spacing: 10) {
                             ForEach(Array(rows.enumerated()), id: \.element.id) { displayIndex, row in
                                 queueRow(
                                     displayIndex: displayIndex,
                                     queueOffset: row.id.position,
-                                    song: row.song
+                                    song: row.song,
+                                    onFocusChanged: { focused in
+                                        guard focused else { return }
+                                        renderedRowCount = TVLongListPagingPolicy.limit(
+                                            after: shown, focusedRow: displayIndex, totalCount: total
+                                        )
+                                    }
                                 )
                             }
                         }
@@ -64,10 +80,16 @@ struct TVQueueView: View {
         .onExitCommand { dismiss() }
     }
 
-    private func queueRow(displayIndex: Int, queueOffset: Int, song: TVSong) -> some View {
+    private func queueRow(
+        displayIndex: Int,
+        queueOffset: Int,
+        song: TVSong,
+        onFocusChanged: @escaping (Bool) -> Void
+    ) -> some View {
         let album = store.albumOf(song)
         return TVFocusButton(radius: TVRadius.card, scale: 1.01, lift: 0,
-                             action: { store.playQueueItem(at: queueOffset); dismiss() }) { focused in
+                             action: { store.playQueueItem(at: queueOffset); dismiss() },
+                             onFocusChanged: onFocusChanged) { focused in
             HStack(spacing: 18) {
                 Text("\(displayIndex + 1)").tvFont(.meta, design: .monospaced)
                     .foregroundStyle(TVColor.textGhost).frame(width: 28)
