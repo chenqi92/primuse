@@ -3779,3 +3779,11 @@
 "dup_remove_local_only_action" = "केवल इस डिवाइस से हटाएं";
 "dup_remove_local_only_title" = "केवल इस डिवाइस से हटाएं?";
 "dup_remove_local_only_message_format" = "%d प्रतियां सर्वर पर ज्यों की त्यों रहती हैं और केवल इस डिवाइस की लाइब्रेरी से हटाई जाती हैं। इस डिवाइस पर बाद के स्कैन उन्हें दोबारा नहीं जोड़ेंगे, और आपके अन्य डिवाइस प्रभावित नहीं होते।";
+
+"lyrics_editor_align_timeline" = "पूरी समयरेखा संरेखित करें";
+"lyrics_editor_adjust_line" = "एक पंक्ति समायोजित करें";
+"lyrics_editor_repair_timing" = "समय क्रम ठीक करें";
+"lyrics_editor_repair_timing_hint" = "अगर बोल सही क्रम में हैं, तो संबंधित पंक्ति का समय फिर से तय करें। अगर समय सही हैं, तो समय के अनुसार क्रमबद्ध करें।";
+"lyrics_editor_timing_conflict %lld %lld" = "पंक्ति %lld, पंक्ति %lld से पहले शुरू होती है";
+"lyrics_editor_retime_line" = "इस पंक्ति का समय फिर तय करें";
+"lyrics_editor_align_hint" = "यह हिस्सा सुनते समय पूरी धुन के बोल मिलाने के लिए दबाएँ";

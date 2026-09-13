@@ -3874,3 +3874,11 @@
 "dup_remove_local_only_action" = "このデバイスからのみ削除";
 "dup_remove_local_only_title" = "このデバイスからのみ削除しますか?";
 "dup_remove_local_only_message_format" = "%d 件のファイルはサーバー上にそのまま残り、このデバイスのライブラリからのみ削除されます。このデバイスで再スキャンしても追加されず、他のデバイスには影響しません。";
+
+"lyrics_editor_align_timeline" = "全体のタイミングを調整";
+"lyrics_editor_adjust_line" = "1行を調整";
+"lyrics_editor_repair_timing" = "時刻順を修正";
+"lyrics_editor_repair_timing_hint" = "歌詞の順序が正しい場合は該当行のタイミングを設定し直してください。時刻が正しい場合は時刻順に並べ替えてください。";
+"lyrics_editor_timing_conflict %lld %lld" = "%lld 行目が %lld 行目より前に始まっています";
+"lyrics_editor_retime_line" = "この行を再同期";
+"lyrics_editor_align_hint" = "この部分が聞こえたら押して曲全体を同期";

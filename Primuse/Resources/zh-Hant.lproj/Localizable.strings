@@ -3850,3 +3850,11 @@
 "dup_remove_local_only_action" = "僅從本裝置移除";
 "dup_remove_local_only_title" = "僅從本裝置移除?";
 "dup_remove_local_only_message_format" = "%d 首歌曲的檔案會原樣保留在伺服器上，僅從本裝置的資料庫中移除。本裝置日後再掃描也不會重新加入，其他裝置不受影響。";
+
+"lyrics_editor_align_timeline" = "整體對齊";
+"lyrics_editor_adjust_line" = "單句打軸";
+"lyrics_editor_repair_timing" = "修正時間順序";
+"lyrics_editor_repair_timing_hint" = "歌詞順序正確時，選擇對應句重新打點；時間正確時，可依時間排序。";
+"lyrics_editor_timing_conflict %lld %lld" = "第 %lld 行的時間早於第 %lld 行";
+"lyrics_editor_retime_line" = "重新打點";
+"lyrics_editor_align_hint" = "聽到目前內容時按下，整首同步對齊";

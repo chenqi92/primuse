@@ -3873,3 +3873,11 @@
 "dup_remove_local_only_action" = "Retirer de cet appareil uniquement";
 "dup_remove_local_only_title" = "Retirer de cet appareil uniquement ?";
 "dup_remove_local_only_message_format" = "Les %d copies restent intactes sur le serveur et sont retirées uniquement de la bibliothèque de cet appareil. Les analyses ultérieures sur cet appareil ne les rajouteront pas, et vos autres appareils ne sont pas concernés.";
+
+"lyrics_editor_align_timeline" = "Aligner toute la chronologie";
+"lyrics_editor_adjust_line" = "Ajuster une ligne";
+"lyrics_editor_repair_timing" = "Corriger l’ordre temporel";
+"lyrics_editor_repair_timing_hint" = "Si les paroles sont dans le bon ordre, resynchronisez la ligne concernée. Si les temps sont corrects, triez par temps.";
+"lyrics_editor_timing_conflict %lld %lld" = "La ligne %lld commence avant la ligne %lld";
+"lyrics_editor_retime_line" = "Resynchroniser cette ligne";
+"lyrics_editor_align_hint" = "Touchez à ce passage pour aligner toute la chanson";

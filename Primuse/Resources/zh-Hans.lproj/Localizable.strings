@@ -3966,3 +3966,11 @@
 "dup_remove_local_only_action" = "仅从本设备移除";
 "dup_remove_local_only_title" = "仅从本设备移除?";
 "dup_remove_local_only_message_format" = "%d 首歌曲的文件会原样保留在服务器上，仅从本设备的资料库中移除。本设备之后再扫描也不会重新添加，其他设备不受影响。";
+
+"lyrics_editor_align_timeline" = "整体对齐";
+"lyrics_editor_adjust_line" = "单句打轴";
+"lyrics_editor_repair_timing" = "修正时间顺序";
+"lyrics_editor_repair_timing_hint" = "歌词顺序正确时，选择对应句重新打点；时间正确时，可按时间排序。";
+"lyrics_editor_timing_conflict %lld %lld" = "第 %lld 行的时间早于第 %lld 行";
+"lyrics_editor_retime_line" = "重新打点";
+"lyrics_editor_align_hint" = "听到当前内容时按下，整首同步对齐";

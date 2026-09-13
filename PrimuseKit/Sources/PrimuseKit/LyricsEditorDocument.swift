@@ -422,6 +422,38 @@ public struct LyricsEditorDocument: Hashable, Sendable {
 
     // MARK: - 打轴
 
+    /// 用一句（或一个字）作为对齐基准，统一移动唱词组，保留句间和逐字间隔。
+    /// 制作信息由调用方排除，避免它们的零秒占位时间阻止唱词向前对齐。
+    @discardableResult
+    public mutating func alignTiming(
+        at index: Int,
+        syllableIndex: Int? = nil,
+        time: TimeInterval,
+        lineIndices: [Int]
+    ) -> TimeInterval? {
+        let indices = Array(Set(lineIndices)).sorted()
+        guard time.isFinite, indices.contains(index),
+              indices.allSatisfy({ lines.indices.contains($0) && lines[$0].isStamped }) else {
+            return nil
+        }
+        let anchor: TimeInterval
+        if let syllableIndex {
+            guard let syllables = lines[index].syllables,
+                  syllables.indices.contains(syllableIndex) else { return nil }
+            anchor = syllables[syllableIndex].start
+        } else {
+            guard let timestamp = lines[index].timestamp else { return nil }
+            anchor = timestamp
+        }
+        let earliest = indices.compactMap { lines[$0].earliestTime }.min() ?? 0
+        let delta = max(time - anchor, -earliest)
+        guard anchor.isFinite, delta.isFinite else { return nil }
+        for lineIndex in indices {
+            lines[lineIndex].shiftAllTiming(by: delta)
+        }
+        return anchor + delta
+    }
+
     /// 把某行的时间戳设成 `time`。字级音节整体平移相同距离,保留行内的逐字节奏。
     public mutating func stamp(at index: Int, time: TimeInterval) {
         guard lines.indices.contains(index), time.isFinite else { return }
@@ -541,6 +573,28 @@ public struct LyricsEditorDocument: Hashable, Sendable {
             previous = timestamp
         }
         return true
+    }
+
+    public struct TimingOrderConflict: Hashable, Sendable {
+        public let referenceIndex: Int
+        public let lineIndex: Int
+    }
+
+    /// 与保存校验一样，以此前仍有效的时间为基准；行号始终对应编辑器中的行。
+    public var timingOrderConflicts: [TimingOrderConflict] {
+        var conflicts: [TimingOrderConflict] = []
+        var reference: (index: Int, milliseconds: Double)?
+        for (index, line) in lines.enumerated() {
+            guard !line.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let timestamp = line.timestamp, timestamp.isFinite else { continue }
+            let milliseconds = (timestamp * 1000).rounded()
+            if let reference, milliseconds < reference.milliseconds {
+                conflicts.append(TimingOrderConflict(referenceIndex: reference.index, lineIndex: index))
+            } else {
+                reference = (index, milliseconds)
+            }
+        }
+        return conflicts
     }
 
     /// 按时间戳排序。未打轴的行留在原来的相对位置 ── 它们没有时间可比,

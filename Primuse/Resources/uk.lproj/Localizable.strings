@@ -3779,3 +3779,11 @@
 "dup_remove_local_only_action" = "Прибрати лише з цього пристрою";
 "dup_remove_local_only_title" = "Прибрати лише з цього пристрою?";
 "dup_remove_local_only_message_format" = "%d копій залишаться на сервері без змін і будуть прибрані лише з медіатеки цього пристрою. Наступні сканування на цьому пристрої не додадуть їх знову, а інші пристрої не змінюються.";
+
+"lyrics_editor_align_timeline" = "Зсунути всю шкалу";
+"lyrics_editor_adjust_line" = "Змінити один рядок";
+"lyrics_editor_repair_timing" = "Виправити часовий порядок";
+"lyrics_editor_repair_timing_hint" = "Якщо порядок тексту правильний, задайте час потрібного рядка знову. Якщо час правильний, відсортуйте рядки за часом.";
+"lyrics_editor_timing_conflict %lld %lld" = "Рядок %lld починається раніше за рядок %lld";
+"lyrics_editor_retime_line" = "Задати час рядка";
+"lyrics_editor_align_hint" = "Натисніть на цьому місці, щоб синхронізувати всю пісню";

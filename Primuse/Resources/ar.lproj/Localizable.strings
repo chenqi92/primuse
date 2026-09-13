@@ -3779,3 +3779,11 @@
 "dup_remove_local_only_action" = "إزالة من هذا الجهاز فقط";
 "dup_remove_local_only_title" = "إزالة من هذا الجهاز فقط؟";
 "dup_remove_local_only_message_format" = "تبقى %d نسخة على الخادم دون تغيير وتُزال فقط من مكتبة هذا الجهاز. لن تعيد عمليات الفحص اللاحقة على هذا الجهاز إضافتها، ولن تتأثر أجهزتك الأخرى.";
+
+"lyrics_editor_align_timeline" = "محاذاة التوقيت بالكامل";
+"lyrics_editor_adjust_line" = "ضبط سطر واحد";
+"lyrics_editor_repair_timing" = "تصحيح ترتيب التوقيت";
+"lyrics_editor_repair_timing_hint" = "إذا كان ترتيب الكلمات صحيحًا، فأعد توقيت السطر المعني. وإذا كانت الأوقات صحيحة، فرتّب حسب التوقيت.";
+"lyrics_editor_timing_conflict %lld %lld" = "يبدأ السطر %lld قبل السطر %lld";
+"lyrics_editor_retime_line" = "إعادة توقيت هذا السطر";
+"lyrics_editor_align_hint" = "اضغط عند سماع هذا الجزء لمحاذاة الأغنية بالكامل";

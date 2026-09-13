@@ -9,17 +9,21 @@ public struct LyricsTimingSession: Hashable, Sendable {
     private enum ChangeTarget: Hashable, Sendable {
         case line
         case syllable(Int)
+        case timeline(Int?)
     }
 
     private struct Change: Hashable, Sendable {
         let lineID: UUID
         let target: ChangeTarget
-        let before: EditableLyricLine
-        var after: EditableLyricLine
+        let before: [EditableLyricLine]
+        var after: [EditableLyricLine]
 
         var syllableIndex: Int? {
-            guard case let .syllable(index) = target else { return nil }
-            return index
+            switch target {
+            case .line: return nil
+            case .syllable(let index): return index
+            case .timeline(let index): return index
+            }
         }
     }
 
@@ -90,14 +94,21 @@ public struct LyricsTimingSession: Hashable, Sendable {
     @discardableResult
     public mutating func stamp(
         document: inout LyricsEditorDocument,
-        time: TimeInterval
+        time: TimeInterval,
+        linkedLineIndices: [Int]? = nil
     ) -> Int? {
         guard let index = validCursor(in: document) else { return nil }
+        if let linkedLineIndices {
+            return alignTimeline(
+                document: &document, lineIndex: index, time: time,
+                lineIndices: linkedLineIndices, coalescing: false
+            )
+        }
 
         let before = document.lines[index]
         document.stamp(at: index, time: time)
         let after = document.lines[index]
-        record(Change(lineID: before.id, target: .line, before: before, after: after))
+        record(Change(lineID: before.id, target: .line, before: [before], after: [after]))
 
         adjustmentIndex = index
         affectedSyllableIndex = nil
@@ -112,9 +123,17 @@ public struct LyricsTimingSession: Hashable, Sendable {
         document: inout LyricsEditorDocument,
         lineIndex: Int,
         syllableIndex: Int,
-        time: TimeInterval
+        time: TimeInterval,
+        linkedLineIndices: [Int]? = nil
     ) -> Int? {
         guard document.lines.indices.contains(lineIndex) else { return nil }
+        if let linkedLineIndices {
+            guard alignTimeline(
+                document: &document, lineIndex: lineIndex, syllableIndex: syllableIndex,
+                time: time, lineIndices: linkedLineIndices, coalescing: false
+            ) != nil else { return nil }
+            return syllableIndex
+        }
         let before = document.lines[lineIndex]
         guard document.stampSyllable(
             at: lineIndex,
@@ -126,8 +145,8 @@ public struct LyricsTimingSession: Hashable, Sendable {
         record(Change(
             lineID: before.id,
             target: .syllable(syllableIndex),
-            before: before,
-            after: after
+            before: [before],
+            after: [after]
         ))
         cursorIndex = lineIndex
         adjustmentIndex = lineIndex
@@ -139,10 +158,10 @@ public struct LyricsTimingSession: Hashable, Sendable {
     @discardableResult
     public mutating func undo(document: inout LyricsEditorDocument) -> Int? {
         guard let change = undoStack.last,
-              let index = document.lines.firstIndex(where: { $0.id == change.lineID }) else { return nil }
+              let index = document.lines.firstIndex(where: { $0.id == change.lineID }),
+              restore(change.before, in: &document) else { return nil }
 
         undoStack.removeLast()
-        document.lines[index] = change.before
         redoStack.append(change)
         cursorIndex = index
         adjustmentIndex = Self.resolveAdjustmentIndex(
@@ -157,17 +176,17 @@ public struct LyricsTimingSession: Hashable, Sendable {
     @discardableResult
     public mutating func redo(document: inout LyricsEditorDocument) -> Int? {
         guard let change = redoStack.last,
-              let index = document.lines.firstIndex(where: { $0.id == change.lineID }) else { return nil }
+              let index = document.lines.firstIndex(where: { $0.id == change.lineID }),
+              restore(change.after, in: &document) else { return nil }
 
         redoStack.removeLast()
-        document.lines[index] = change.after
         undoStack.append(change)
         adjustmentIndex = index
         affectedSyllableIndex = change.syllableIndex
         switch change.target {
         case .line:
             cursorIndex = document.lines.indices.contains(index + 1) ? index + 1 : nil
-        case .syllable:
+        case .syllable, .timeline:
             cursorIndex = index
         }
         return index
@@ -182,12 +201,19 @@ public struct LyricsTimingSession: Hashable, Sendable {
     @discardableResult
     public mutating func nudge(
         document: inout LyricsEditorDocument,
-        by delta: TimeInterval
+        by delta: TimeInterval,
+        linkedLineIndices: [Int]? = nil
     ) -> Int? {
         guard delta.isFinite,
               let index = adjustmentIndex,
               document.lines.indices.contains(index),
               let current = document.lines[index].timestamp else { return nil }
+        if let linkedLineIndices {
+            return alignTimeline(
+                document: &document, lineIndex: index, time: current + delta,
+                lineIndices: linkedLineIndices, coalescing: true
+            )
+        }
 
         let before = document.lines[index]
         document.stamp(at: index, time: max(0, current + delta))
@@ -198,11 +224,11 @@ public struct LyricsTimingSession: Hashable, Sendable {
             // 打点后的连续微调属于同一句操作；“回退一句”应恢复打点前状态，
             // 而不是只撤销最后 0.1 秒。
             undoStack.removeLast()
-            latest.after = after
+            latest.after = [after]
             undoStack.append(latest)
             redoStack.removeAll(keepingCapacity: true)
         } else {
-            record(Change(lineID: before.id, target: .line, before: before, after: after))
+            record(Change(lineID: before.id, target: .line, before: [before], after: [after]))
         }
         affectedSyllableIndex = nil
         return index
@@ -224,13 +250,23 @@ public struct LyricsTimingSession: Hashable, Sendable {
         document: inout LyricsEditorDocument,
         lineIndex: Int,
         syllableIndex: Int,
-        by delta: TimeInterval
+        by delta: TimeInterval,
+        linkedLineIndices: [Int]? = nil
     ) -> Int? {
         guard canNudgeSyllable(
             in: document,
             lineIndex: lineIndex,
             syllableIndex: syllableIndex
         ) else { return nil }
+        if let linkedLineIndices {
+            guard delta.isFinite,
+                  let current = document.lines[lineIndex].syllables?[syllableIndex].start,
+                  alignTimeline(
+                    document: &document, lineIndex: lineIndex, syllableIndex: syllableIndex,
+                    time: current + delta, lineIndices: linkedLineIndices, coalescing: true
+                  ) != nil else { return nil }
+            return syllableIndex
+        }
 
         let before = document.lines[lineIndex]
         guard document.nudgeSyllable(
@@ -245,17 +281,62 @@ public struct LyricsTimingSession: Hashable, Sendable {
            latest.lineID == before.id,
            latest.target == target {
             undoStack.removeLast()
-            latest.after = after
+            latest.after = [after]
             undoStack.append(latest)
             redoStack.removeAll(keepingCapacity: true)
         } else {
-            record(Change(lineID: before.id, target: target, before: before, after: after))
+            record(Change(lineID: before.id, target: target, before: [before], after: [after]))
         }
 
         cursorIndex = lineIndex
         adjustmentIndex = lineIndex
         affectedSyllableIndex = syllableIndex
         return syllableIndex
+    }
+
+    private mutating func alignTimeline(
+        document: inout LyricsEditorDocument,
+        lineIndex: Int,
+        syllableIndex: Int? = nil,
+        time: TimeInterval,
+        lineIndices: [Int],
+        coalescing: Bool
+    ) -> Int? {
+        let indices = Array(Set(lineIndices)).sorted()
+        guard document.lines.indices.contains(lineIndex),
+              indices.allSatisfy(document.lines.indices.contains) else { return nil }
+        let lineID = document.lines[lineIndex].id
+        let before = indices.map { document.lines[$0] }
+        guard document.alignTiming(
+            at: lineIndex, syllableIndex: syllableIndex, time: time, lineIndices: indices
+        ) != nil else { return nil }
+        let after = indices.map { document.lines[$0] }
+        let target = ChangeTarget.timeline(syllableIndex)
+        if before != after {
+            if coalescing, var latest = undoStack.last,
+               latest.lineID == lineID, latest.target == target,
+               latest.after == before {
+                undoStack.removeLast()
+                latest.after = after
+                undoStack.append(latest)
+                redoStack.removeAll(keepingCapacity: true)
+            } else {
+                record(Change(lineID: lineID, target: target, before: before, after: after))
+            }
+        }
+        cursorIndex = lineIndex
+        adjustmentIndex = lineIndex
+        affectedSyllableIndex = syllableIndex
+        return lineIndex
+    }
+
+    private func restore(_ lines: [EditableLyricLine], in document: inout LyricsEditorDocument) -> Bool {
+        let indices = Dictionary(uniqueKeysWithValues: document.lines.enumerated().map { ($0.element.id, $0.offset) })
+        guard lines.allSatisfy({ indices[$0.id] != nil }) else { return false }
+        for line in lines {
+            if let index = indices[line.id] { document.lines[index] = line }
+        }
+        return true
     }
 
     private mutating func record(_ change: Change) {

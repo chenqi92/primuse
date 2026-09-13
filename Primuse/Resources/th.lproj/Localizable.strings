@@ -3779,3 +3779,11 @@
 "dup_remove_local_only_action" = "นำออกจากอุปกรณ์นี้เท่านั้น";
 "dup_remove_local_only_title" = "นำออกจากอุปกรณ์นี้เท่านั้นหรือไม่";
 "dup_remove_local_only_message_format" = "ไฟล์ %d รายการจะยังคงอยู่บนเซิร์ฟเวอร์ตามเดิม และถูกนำออกจากคลังของอุปกรณ์นี้เท่านั้น การสแกนครั้งต่อไปบนอุปกรณ์นี้จะไม่เพิ่มกลับเข้ามา และอุปกรณ์อื่นของคุณไม่ได้รับผลกระทบ";
+
+"lyrics_editor_align_timeline" = "ปรับเวลาทั้งเพลง";
+"lyrics_editor_adjust_line" = "ปรับทีละบรรทัด";
+"lyrics_editor_repair_timing" = "แก้ไขลำดับเวลา";
+"lyrics_editor_repair_timing_hint" = "หากเนื้อเพลงเรียงถูกต้อง ให้กำหนดเวลาบรรทัดที่มีปัญหาใหม่ หากเวลาถูกต้อง ให้เรียงตามเวลา";
+"lyrics_editor_timing_conflict %lld %lld" = "บรรทัดที่ %lld เริ่มก่อนบรรทัดที่ %lld";
+"lyrics_editor_retime_line" = "กำหนดเวลาบรรทัดนี้ใหม่";
+"lyrics_editor_align_hint" = "กดเมื่อได้ยินท่อนนี้เพื่อปรับเวลาทั้งเพลง";

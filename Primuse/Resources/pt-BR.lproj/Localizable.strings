@@ -3779,3 +3779,11 @@
 "dup_remove_local_only_action" = "Remover apenas deste dispositivo";
 "dup_remove_local_only_title" = "Remover apenas deste dispositivo?";
 "dup_remove_local_only_message_format" = "As %d cópias permanecem intactas no servidor e são removidas apenas da biblioteca deste dispositivo. As verificações posteriores neste dispositivo não vão adicioná-las de novo, e seus outros dispositivos não são afetados.";
+
+"lyrics_editor_align_timeline" = "Alinhar toda a linha do tempo";
+"lyrics_editor_adjust_line" = "Ajustar uma linha";
+"lyrics_editor_repair_timing" = "Corrigir ordem dos tempos";
+"lyrics_editor_repair_timing_hint" = "Se a letra estiver na ordem correta, marque novamente o tempo da linha afetada. Se os tempos estiverem corretos, ordene por tempo.";
+"lyrics_editor_timing_conflict %lld %lld" = "A linha %lld começa antes da linha %lld";
+"lyrics_editor_retime_line" = "Marcar esta linha novamente";
+"lyrics_editor_align_hint" = "Toque ao ouvir este trecho para alinhar toda a música";

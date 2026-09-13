@@ -3873,3 +3873,11 @@
 "dup_remove_local_only_action" = "Nur von diesem Gerät entfernen";
 "dup_remove_local_only_title" = "Nur von diesem Gerät entfernen?";
 "dup_remove_local_only_message_format" = "%d Kopien bleiben unverändert auf dem Server und werden nur aus der Mediathek dieses Geräts entfernt. Spätere Scans auf diesem Gerät fügen sie nicht wieder hinzu, und deine anderen Geräte sind nicht betroffen.";
+
+"lyrics_editor_align_timeline" = "Gesamte Zeitachse ausrichten";
+"lyrics_editor_adjust_line" = "Eine Zeile anpassen";
+"lyrics_editor_repair_timing" = "Zeitreihenfolge korrigieren";
+"lyrics_editor_repair_timing_hint" = "Wenn die Textreihenfolge stimmt, setzen Sie die Zeit der betroffenen Zeile neu. Wenn die Zeiten stimmen, sortieren Sie nach Zeit.";
+"lyrics_editor_timing_conflict %lld %lld" = "Zeile %lld beginnt vor Zeile %lld";
+"lyrics_editor_retime_line" = "Zeile neu synchronisieren";
+"lyrics_editor_align_hint" = "Beim Hören dieser Stelle tippen, um das ganze Lied auszurichten";

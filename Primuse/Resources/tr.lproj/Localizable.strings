@@ -3779,3 +3779,11 @@
 "dup_remove_local_only_action" = "Yalnızca bu cihazdan kaldır";
 "dup_remove_local_only_title" = "Yalnızca bu cihazdan kaldırılsın mı?";
 "dup_remove_local_only_message_format" = "%d kopya sunucuda olduğu gibi kalır ve yalnızca bu cihazın kitaplığından kaldırılır. Bu cihazdaki sonraki taramalar bunları yeniden eklemez ve diğer cihazlarınız etkilenmez.";
+
+"lyrics_editor_align_timeline" = "Tüm zaman çizelgesini hizala";
+"lyrics_editor_adjust_line" = "Tek satırı ayarla";
+"lyrics_editor_repair_timing" = "Zaman sırasını düzelt";
+"lyrics_editor_repair_timing_hint" = "Sözler doğru sıradaysa ilgili satırın zamanını yeniden belirleyin. Zamanlar doğruysa zamana göre sıralayın.";
+"lyrics_editor_timing_conflict %lld %lld" = "%lld. satır, %lld. satırdan önce başlıyor";
+"lyrics_editor_retime_line" = "Bu satırı yeniden zamanla";
+"lyrics_editor_align_hint" = "Tüm şarkıyı hizalamak için bu kısmı duyduğunuzda dokunun";

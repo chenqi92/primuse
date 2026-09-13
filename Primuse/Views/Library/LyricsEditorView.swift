@@ -49,6 +49,9 @@ struct LyricsEditorView: View {
     @State private var timingFollowsPlayback = false
     @State private var showShiftPanel = false
     @State private var showUnstampedWarning = false
+    @State private var showTimingRepair = false
+    @State private var adjustsWholeTimeline = true
+    @State private var timelineWasComplete: Bool
     /// 整体偏移用"基线 + 待定量"模型:每次都从基线重算,而不是在当前值上累加。
     /// 累加式在负向撞到 0 被 clamp 后就回不去了。
     @State private var shiftBaseline: LyricsEditorDocument?
@@ -115,6 +118,9 @@ struct LyricsEditorView: View {
         _originalDocument = State(initialValue: parsed)
         _sourceText = State(initialValue: text.wrappedValue)
         _timingSession = State(initialValue: LyricsTimingSession(document: parsed))
+        _timelineWasComplete = State(initialValue: parsed.stampedCount > 0 && parsed.lines.allSatisfy {
+            $0.isStamped || LyricsTextTools.isCreditLine($0.text)
+        })
     }
 
     var body: some View {
@@ -131,6 +137,7 @@ struct LyricsEditorView: View {
                 audioTranscriptionTask?.cancel()
                 audioTranscriptionTask = nil
             }
+            .sheet(isPresented: $showTimingRepair) { timingRepairSheet }
             .confirmationDialog(
                 String(localized: "ai_audio_transcription_replace_title"),
                 isPresented: $showTranscriptionReplaceConfirm,
@@ -1511,6 +1518,13 @@ struct LyricsEditorView: View {
         document.lines.indices.filter { isTimingEligibleLine(at: $0) }
     }
 
+    private var linkedTimingIndices: [Int]? {
+        let indices = timingEligibleIndices
+        guard timelineWasComplete, adjustsWholeTimeline, !indices.isEmpty,
+              indices.allSatisfy({ document.lines[$0].isStamped }) else { return nil }
+        return indices
+    }
+
     private var timedEligibleCount: Int {
         timingEligibleIndices.lazy.filter { document.lines[$0].isStamped }.count
     }
@@ -2178,6 +2192,26 @@ struct LyricsEditorView: View {
                 }
                 .padding(.top, 18)
 
+                if timelineWasComplete {
+                    Picker(String(localized: "lyrics_editor_mode_timing"), selection: $adjustsWholeTimeline) {
+                        Text(String(localized: "lyrics_editor_align_timeline")).tag(true)
+                        Text(String(localized: "lyrics_editor_adjust_line")).tag(false)
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 12)
+                }
+
+                if !document.timingOrderConflicts.isEmpty,
+                   !LyricsStructuredPersistencePolicy.requiresTTML(document.lyricLines()) {
+                    Button(String(localized: "lyrics_editor_repair_timing")) {
+                        showTimingRepair = true
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .padding(.top, 8)
+                }
+
                 // 让正在打的那个字吃掉全部剩余高度。原先两个弹性 Spacer 把它
                 // 挤在中间，屏幕越大上下越空，而打轴时眼睛只落在这一块。
                 timingLineContext
@@ -2301,6 +2335,9 @@ struct LyricsEditorView: View {
 
     /// 打点按钮的副标题：说明这一下会打在哪。
     private var stampButtonSubtitle: String {
+        if linkedTimingIndices != nil {
+            return String(localized: "lyrics_editor_align_hint")
+        }
         guard let context = timingWordContext else {
             return String(localized: "lyrics_editor_timing_hint")
         }
@@ -2318,6 +2355,11 @@ struct LyricsEditorView: View {
             VStack(spacing: 20) {
                 timingContextLine(at: previousTimingIndex, role: .previous)
                 timingContextLine(at: index, role: .current)
+                if let timestamp = document.lines[index].timestamp {
+                    Text(timeLabel(timestamp))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
                 timingContextLine(at: nextTimingIndex, role: .next)
             }
             .frame(maxWidth: .infinity)
@@ -2637,10 +2679,16 @@ struct LyricsEditorView: View {
 
     private func stampWithCurrentTime(_ index: Int) {
         guard isLinkedToPlayback, isTimingEligibleLine(at: index) else { return }
-        document.stamp(at: index, time: player.interpolatedTime())
+        _ = timingSession.select(index: index, document: document)
+        let linked = linkedTimingIndices
+        _ = timingSession.stamp(
+            document: &document, time: player.interpolatedTime(), linkedLineIndices: linked
+        )
     }
 
     private func prepareTimingSession() {
+        let eligible = timingEligibleIndices
+        timelineWasComplete = !eligible.isEmpty && eligible.allSatisfy { document.lines[$0].isStamped }
         let liveTime = isLinkedToPlayback ? player.interpolatedTime() : playbackTime
         let playbackIndex = isLinkedToPlayback ? timingLineIndex(at: liveTime) : nil
         let preferredIndex = playbackIndex
@@ -2660,23 +2708,28 @@ struct LyricsEditorView: View {
     private func stampTimingUnit() {
         guard isLinkedToPlayback else { return }
         let now = player.interpolatedTime()
+        let linked = linkedTimingIndices
 
         if let context = timingWordContext {
             guard timingSession.stampSyllable(
                 document: &document,
                 lineIndex: context.lineIndex,
                 syllableIndex: context.syllableIndex,
-                time: now
+                time: now,
+                linkedLineIndices: linked
             ) != nil else { return }
             timingFollowsPlayback = false
-            selectNextTimingUnit()
+            if linked == nil { selectNextTimingUnit() }
         } else {
             guard let stampedIndex = timingSession.stamp(
                 document: &document,
-                time: now
+                time: now,
+                linkedLineIndices: linked
             ) else { return }
             timingFollowsPlayback = false
-            let next = timingEligibleIndices.first(where: { $0 > stampedIndex })
+            let next = timelineWasComplete
+                ? stampedIndex
+                : timingEligibleIndices.first(where: { $0 > stampedIndex })
             _ = timingSession.select(index: next, document: document)
             updateTimingSyllableSelection(for: next)
         }
@@ -2732,7 +2785,8 @@ struct LyricsEditorView: View {
         if let syllableIndex = timingSession.affectedSyllableIndex {
             timingSyllableIndex = syllableIndex
         } else {
-            let next = timingEligibleIndices.first(where: { $0 > redone })
+            let next = timelineWasComplete || timingSession.cursorIndex == redone
+                ? redone : timingEligibleIndices.first(where: { $0 > redone })
             _ = timingSession.select(index: next, document: document)
             updateTimingSyllableSelection(for: next)
         }
@@ -2740,16 +2794,18 @@ struct LyricsEditorView: View {
 
     private func nudgeTimingUnit(by delta: TimeInterval) {
         timingFollowsPlayback = false
+        let linked = linkedTimingIndices
         let didNudge: Bool
         if let context = timingWordContext {
             didNudge = timingSession.nudgeSyllable(
                 document: &document,
                 lineIndex: context.lineIndex,
                 syllableIndex: context.syllableIndex,
-                by: delta
+                by: delta,
+                linkedLineIndices: linked
             ) != nil
         } else {
-            didNudge = timingSession.nudge(document: &document, by: delta) != nil
+            didNudge = timingSession.nudge(document: &document, by: delta, linkedLineIndices: linked) != nil
         }
         guard didNudge else { return }
         #if os(iOS)
@@ -2779,9 +2835,10 @@ struct LyricsEditorView: View {
 
     private func nudge(_ index: Int, by delta: TimeInterval) {
         // 上下文菜单弹出后行可能已被删,index 会失效。
-        guard document.lines.indices.contains(index),
-              let current = document.lines[index].timestamp else { return }
-        document.stamp(at: index, time: max(0, current + delta))
+        guard document.lines.indices.contains(index), document.lines[index].isStamped else { return }
+        _ = timingSession.select(index: index, document: document)
+        let linked = isTimingEligibleLine(at: index) ? linkedTimingIndices : nil
+        _ = timingSession.nudge(document: &document, by: delta, linkedLineIndices: linked)
     }
 
     private func insertLine(after index: Int) {
@@ -2837,6 +2894,10 @@ struct LyricsEditorView: View {
     }
 
     private func requestCommit() {
+        if needsTimingRepair {
+            showTimingRepair = true
+            return
+        }
         if willDropUnstampedLines {
             showUnstampedWarning = true
             return
@@ -2848,6 +2909,10 @@ struct LyricsEditorView: View {
         let preparedDocument = document.preparedForTimingCommit(
             eligibleIndices: timingEligibleIndices
         )
+        if needsTimingRepair {
+            showTimingRepair = true
+            return
+        }
         let committedText = preparedDocument.committedText(
             preserving: text,
             comparedTo: originalDocument
@@ -2866,6 +2931,107 @@ struct LyricsEditorView: View {
             onCommit(committedText, preparedDocument.lyricLines())
         } else {
             dismiss()
+        }
+    }
+
+    private var needsTimingRepair: Bool {
+        let prepared = document.preparedForTimingCommit(eligibleIndices: timingEligibleIndices)
+        return !prepared.hasSameContent(as: originalDocument)
+            && !LyricsStructuredPersistencePolicy.requiresTTML(prepared.lyricLines())
+            && !prepared.timingOrderConflicts.isEmpty
+    }
+
+    private var timingRepairSheet: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(String(localized: "lyrics_editor_repair_timing"))
+                    .font(.headline)
+                Spacer()
+                Button(String(localized: "done")) { showTimingRepair = false }
+            }
+            .padding()
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(String(localized: "lyrics_editor_repair_timing_hint"))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    ForEach(document.timingOrderConflicts, id: \.lineIndex) { conflict in
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(String(
+                                format: String(localized: "lyrics_editor_timing_conflict %lld %lld"),
+                                conflict.lineIndex + 1, conflict.referenceIndex + 1
+                            ))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.orange)
+                            timingRepairRow(at: conflict.referenceIndex, conflict: conflict)
+                            Divider()
+                            timingRepairRow(at: conflict.lineIndex, conflict: conflict)
+                        }
+                        .padding(12)
+                        .background(Color.secondary.opacity(0.08), in: .rect(cornerRadius: 12))
+                    }
+                }
+                .padding()
+            }
+            Divider()
+            Button {
+                document.sortByTimestamp()
+                prepareTimingSession()
+                showTimingRepair = false
+            } label: {
+                Label(String(localized: "lyrics_editor_sort"), systemImage: "arrow.up.arrow.down")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .padding()
+        }
+        #if os(macOS)
+        .frame(width: 560, height: 580)
+        #endif
+    }
+
+    private func timingRepairRow(
+        at index: Int,
+        conflict: LyricsEditorDocument.TimingOrderConflict
+    ) -> some View {
+        let line = document.lines[index]
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("\(index + 1) · \(line.timestamp.map(timeLabel) ?? "—")")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if isTimingEligibleLine(at: index) {
+                    Button(String(localized: "lyrics_editor_retime_line")) {
+                        retimeLine(at: index, conflict: conflict)
+                    }
+                    .font(.caption.weight(.medium))
+                }
+            }
+            Text(line.text)
+                .font(.body)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func retimeLine(at index: Int, conflict: LyricsEditorDocument.TimingOrderConflict) {
+        focusedLine = nil
+        focusedTranslationLine = nil
+        prepareTimingSession()
+        // 整体平移不会改变已有倒序关系；修复时明确选择单句模式。
+        adjustsWholeTimeline = false
+        timingFollowsPlayback = false
+        _ = timingSession.select(index: index, document: document)
+        updateTimingSyllableSelection(for: index)
+        mode = .timing
+        showTimingRepair = false
+        if isLinkedToPlayback {
+            let start = min(
+                document.lines[conflict.referenceIndex].timestamp ?? 0,
+                document.lines[conflict.lineIndex].timestamp ?? 0
+            )
+            player.seek(to: max(0, start - 3), startPlaying: true)
         }
     }
 

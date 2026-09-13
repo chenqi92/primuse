@@ -754,6 +754,77 @@ struct LyricsEditorDocumentTests {
 
     // MARK: - 顺序
 
+    @Test("Aligning an existing timeline preserves lyric intervals without zero-second credits blocking it")
+    func alignsExistingTimeline() {
+        var document = LyricsEditorDocument(lines: [
+            EditableLyricLine(timestamp: 0, text: "作词：作者"),
+            EditableLyricLine(timestamp: 10, text: "First"),
+            EditableLyricLine(timestamp: 20, text: "Second"),
+            EditableLyricLine(timestamp: 35, text: "Third")
+        ])
+        let actual = document.alignTiming(at: 2, time: 18, lineIndices: [1, 2, 3])
+        #expect(actual == 18)
+        #expect(document.lines.map(\.timestamp) == [0, 8, 18, 33])
+        #expect(LyricsContentParser.validateEditableText(document.serialized()).isValid)
+    }
+
+    @Test("Alignment clamps the whole group at zero without collapsing its intervals")
+    func alignmentClampsAsAGroup() {
+        var document = LyricsEditorDocument(lines: [
+            EditableLyricLine(timestamp: 10, text: "First"),
+            EditableLyricLine(timestamp: 20, text: "Second")
+        ])
+        let actual = document.alignTiming(at: 1, time: 2, lineIndices: [0, 1])
+        #expect(actual == 10)
+        #expect(document.lines.map(\.timestamp) == [0, 10])
+    }
+
+    @Test("Incomplete or invalid alignment groups leave the document unchanged")
+    func rejectsIncompleteAlignment() {
+        var document = LyricsEditorDocument(lines: [
+            EditableLyricLine(timestamp: 10, text: "First"),
+            EditableLyricLine(text: "Second")
+        ])
+        let original = document
+        let incomplete = document.alignTiming(at: 0, time: 20, lineIndices: [0, 1])
+        let invalid = document.alignTiming(at: 0, time: 20, lineIndices: [0, 9])
+        let nonfinite = document.alignTiming(at: 0, time: .infinity, lineIndices: [0])
+        #expect(incomplete == nil)
+        #expect(invalid == nil)
+        #expect(nonfinite == nil)
+        #expect(document == original)
+    }
+
+    @Test("Timing conflicts identify editor rows even with metadata, blank lines and cascading errors")
+    func timingConflictsUseEditorRows() {
+        var document = LyricsEditorDocument(metadataLines: ["[ti:Song]"], lines: [
+            EditableLyricLine(timestamp: 10, text: "First"),
+            EditableLyricLine(timestamp: 30, text: " "),
+            EditableLyricLine(text: "Untimed"),
+            EditableLyricLine(timestamp: 5, text: "Second"),
+            EditableLyricLine(timestamp: 7, text: "Third"),
+            EditableLyricLine(timestamp: 20, text: "Fourth"),
+            EditableLyricLine(timestamp: 15, text: "Fifth")
+        ])
+        #expect(document.timingOrderConflicts.map(\.lineIndex) == [3, 4, 6])
+        #expect(document.timingOrderConflicts.map(\.referenceIndex) == [0, 0, 5])
+        document.stamp(at: 0, time: 4)
+        #expect(document.timingOrderConflicts.map(\.lineIndex) == [6])
+        document.sortByTimestamp()
+        #expect(document.timingOrderConflicts.isEmpty)
+    }
+
+    @Test("Equal serialized times are not reported as timing conflicts")
+    func timingConflictsRespectMillisecondPrecision() {
+        let document = LyricsEditorDocument(lines: [
+            EditableLyricLine(timestamp: 1.0004, text: "First"),
+            EditableLyricLine(timestamp: 1.0001, text: "Second"),
+            EditableLyricLine(timestamp: 1, text: "Third")
+        ])
+        #expect(document.timingOrderConflicts.isEmpty)
+        #expect(LyricsContentParser.validateEditableText(document.serialized()).isValid)
+    }
+
     @Test("Out-of-order stamps are detected and can be sorted")
     func detectsAndFixesOutOfOrder() {
         var document = LyricsEditorDocument(parsing: """

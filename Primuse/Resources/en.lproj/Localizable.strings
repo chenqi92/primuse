@@ -3651,3 +3651,11 @@
 "dup_remove_local_only_action" = "Remove from This Device Only";
 "dup_remove_local_only_title" = "Remove from this device only?";
 "dup_remove_local_only_message_format" = "%d copies stay on the server untouched and are removed only from this device’s library. Later scans on this device will not add them back, and your other devices are not affected.";
+
+"lyrics_editor_align_timeline" = "Align Entire Timeline";
+"lyrics_editor_adjust_line" = "Adjust One Line";
+"lyrics_editor_repair_timing" = "Fix Timing Order";
+"lyrics_editor_repair_timing_hint" = "If the lyrics are in the right order, retime the affected line. If the times are correct, sort by time.";
+"lyrics_editor_timing_conflict %lld %lld" = "Line %lld starts before line %lld";
+"lyrics_editor_retime_line" = "Retime This Line";
+"lyrics_editor_align_hint" = "Tap when you hear this part to align the entire song";
