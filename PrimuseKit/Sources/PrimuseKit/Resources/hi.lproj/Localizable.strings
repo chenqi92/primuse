@@ -737,3 +737,10 @@
 "ext.tv.sources.hint.upnp" = "UPnP / DLNA मीडिया सर्वर";
 "ext.tv.sources.hint.cloudToken" = "API टोकन से साइन इन करें";
 "ext.tv.sources.hint.cloudScan" = "साइन इन के लिए फ़ोन से कोड स्कैन करें";
+
+/* Apple TV source failure messages and OTP entry */
+"ext.tv.source.error.needs2FA" = "यह सर्वर दो-चरणीय सत्यापन माँगता है। जारी रखने के लिए एक-बार वाला कोड डालें।";
+"ext.tv.source.error.certificate" = "सर्वर का प्रमाणपत्र जाँच में पास नहीं हुआ। दिखने वाले संकेत में 'भरोसा करें' चुनें, फिर दोबारा कोशिश करें।";
+"ext.tv.source.error.unreachable" = "सर्वर तक नहीं पहुँच पा रहे। पता, पोर्ट और यह कि यह Apple TV उसी नेटवर्क पर है — जाँच लें।";
+"ext.tv.source.error.unsupported" = "यह स्रोत प्रकार यह काम नहीं करता।";
+"ext.tv.otp.iphoneHint" = "इस खाने को चुनें, फिर जोड़े गए iPhone से कोड टाइप कर सकते हैं।";

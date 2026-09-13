@@ -1348,16 +1348,16 @@ final class TVStore {
             }
         }
         guard let song = library.songs.first(where: { $0.sourceID == id }) else {
-            if source.type == .smb {
-                guard let lister = scanner.makeLister(source: source, credential: cred) else {
-                    return PMString("ext.tv.test.unsupported", source.type.displayName)
-                }
+            // 曲库里还没有这个源的歌,不代表连不上 —— 刚添加完还没扫描就是这种情况。
+            // 凡是电视端自己能列目录的类型,就用真实的一次列举来验证连接,
+            // 别再用「暂无歌曲,无法测试」把用户挡回去。
+            if let lister = scanner.makeLister(source: source, credential: cred) {
                 do {
                     _ = try await lister.list("/")
                     return PMString("ext.tv.test.connectedPrefix")
                         + (source.host ?? PMString("ext.tv.test.resolved"))
                 } catch {
-                    return PMString("ext.tv.test.failedDetail", error.localizedDescription)
+                    return TVSourceErrorText.message(error: error)
                 }
             }
             return PMString("ext.tv.test.noSongs")
@@ -1372,7 +1372,7 @@ final class TVStore {
                     TVFmt.count(Int(len / 1024))
                 )
             } catch {
-                return PMString("ext.tv.test.failedDetail", error.localizedDescription)
+                return TVSourceErrorText.message(error: error)
             }
         }
         do {
@@ -1399,7 +1399,7 @@ final class TVStore {
                 return PMString("ext.tv.test.relayUnavailable")
             }
         } catch {
-            return PMString("ext.tv.test.failedPrefix") + error.localizedDescription
+            return TVSourceErrorText.message(error: error)
         }
     }
 

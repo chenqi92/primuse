@@ -737,3 +737,10 @@
 "ext.tv.sources.hint.upnp" = "UPnP / DLNA medya sunucusu";
 "ext.tv.sources.hint.cloudToken" = "API belirteciyle oturum aç";
 "ext.tv.sources.hint.cloudScan" = "Oturum açmak için telefonunla kod tara";
+
+/* Apple TV source failure messages and OTP entry */
+"ext.tv.source.error.needs2FA" = "Bu sunucu iki adımlı doğrulama istiyor. Devam etmek için tek kullanımlık kodu gir.";
+"ext.tv.source.error.certificate" = "Sunucu sertifikası doğrulanamadı. Çıkan uyarıda Güven'i seçip yeniden dene.";
+"ext.tv.source.error.unreachable" = "Sunucuya ulaşılamıyor. Adresi, kapıyı ve bu Apple TV'nin aynı ağda olduğunu kontrol et.";
+"ext.tv.source.error.unsupported" = "Bu kaynak türü bu işlemi desteklemiyor.";
+"ext.tv.otp.iphoneHint" = "Bu alanı seç, eşleşmiş iPhone'undan kodu yazabilirsin.";

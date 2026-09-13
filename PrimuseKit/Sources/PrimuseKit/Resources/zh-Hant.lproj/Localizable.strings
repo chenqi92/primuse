@@ -787,3 +787,10 @@
 "ext.tv.sources.hint.upnp" = "UPnP / DLNA 媒體伺服器";
 "ext.tv.sources.hint.cloudToken" = "用 API 權杖登入";
 "ext.tv.sources.hint.cloudScan" = "用手機掃碼登入";
+
+/* Apple TV source failure messages and OTP entry */
+"ext.tv.source.error.needs2FA" = "此伺服器要求兩步驗證,輸入一次性驗證碼即可繼續。";
+"ext.tv.source.error.certificate" = "伺服器憑證未通過驗證。請在跳出的提示裡選「信任」,然後重試。";
+"ext.tv.source.error.unreachable" = "連不上伺服器。請檢查位址和連接埠,並確認 Apple TV 與它在同一網路。";
+"ext.tv.source.error.unsupported" = "此類型不支援這項操作。";
+"ext.tv.otp.iphoneHint" = "聚焦這個輸入框,配對的 iPhone 上就能直接打字。";

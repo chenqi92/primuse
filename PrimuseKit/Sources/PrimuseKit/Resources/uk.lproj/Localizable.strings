@@ -737,3 +737,10 @@
 "ext.tv.sources.hint.upnp" = "Медіасервер UPnP / DLNA";
 "ext.tv.sources.hint.cloudToken" = "Вхід за токеном API";
 "ext.tv.sources.hint.cloudScan" = "Відскануйте код телефоном для входу";
+
+/* Apple TV source failure messages and OTP entry */
+"ext.tv.source.error.needs2FA" = "Цей сервер вимагає двоетапної перевірки. Введіть одноразовий код, щоб продовжити.";
+"ext.tv.source.error.certificate" = "Сертифікат сервера не пройшов перевірку. Оберіть «Довіряти» у запиті, що з'явиться, і повторіть спробу.";
+"ext.tv.source.error.unreachable" = "Не вдається зв'язатися із сервером. Перевірте адресу, порт і те, що Apple TV у тій самій мережі.";
+"ext.tv.source.error.unsupported" = "Цей тип джерела не підтримує цю дію.";
+"ext.tv.otp.iphoneHint" = "Оберіть це поле — і код можна буде ввести зі спареного iPhone.";

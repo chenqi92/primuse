@@ -2594,22 +2594,17 @@ final class TVSourceScanner {
     }
 
     private func scanErrorMessage(_ error: Error) -> String {
-        if let resolveError = error as? StreamResolveError {
-            switch resolveError {
-            case .needs2FA: return PMString("ext.tv.otp.body")
-            case .authFailed: return PMString("ext.tv.otp.authFailed")
-            case .missingCredential: return PMString("ext.tv.otp.missingCredential")
-            default: break
-            }
-        }
         switch error as? TVScanError {
         case .connectFailed:
             return PMString("ext.tv.scan.connectFailed")
         case .maximumDepthExceeded:
             return PMString("ext.tv.scan.depthExceeded", Self.maximumScanDepth)
         default:
-            return error.localizedDescription
+            break
         }
+        // 其余一律走统一归类:证书、连不上、两步验证都有各自能指导下一步的文案,
+        // 只有归不进任何一类时才回落到系统错误描述。
+        return TVSourceErrorText.message(error: error)
     }
 
     private static func existingSongsByCanonicalID(

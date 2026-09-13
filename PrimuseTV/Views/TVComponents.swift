@@ -5,18 +5,22 @@ import UIKit
 
 /// 单层输入框。tvOS 的 `TextField` / `SecureField` 自带一层胶囊底框,且**无法去掉**
 /// (`.textFieldStyle(.plain)` 在 tvOS 上不生效),外面再画一层就成了「大框套小框」。
-/// 所以这里不画任何底框,只做两件事:撑满外层宽度(相邻两格才不会一大一小),
-/// 以及不覆盖字号——框高是系统按自身字号算的,换成自定义字号框内文字就会偏。
+/// 所以这里不画底框,只统一三件事:宽度撑满、字号固定、行高有下限。
+///
+/// 字号必须由我们定死:交给系统决定时,同一个表单里相邻两格会出现一格约 40pt、
+/// 另一格约 20pt 的情况(主机很大、端口很小),两处调用的代码完全一样也复现。
+/// 与其继续追系统那套内在尺寸,不如把字号和行高都固定下来,相邻输入框由构造方式
+/// 保证一致。行高取字号的 2 倍,保证胶囊底框不会紧贴文字、内容仍然上下居中。
 struct TVTextFieldBox<Field: View>: View {
     var mono: Bool = false
     @ViewBuilder var field: () -> Field
 
+    @ScaledMetric(wrappedValue: TVFont.input.size, relativeTo: .body) private var fontSize: CGFloat
+
     var body: some View {
-        // 只改字形不改字号:等宽字形便于看地址和端口,字号仍由系统决定。
-        Group {
-            if mono { field().monospaced() } else { field() }
-        }
-        .frame(maxWidth: .infinity)
+        field()
+            .font(.system(size: fontSize, weight: .regular, design: mono ? .monospaced : .default))
+            .frame(maxWidth: .infinity, minHeight: fontSize * 2, alignment: .leading)
     }
 }
 

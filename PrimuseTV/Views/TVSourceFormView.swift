@@ -1040,10 +1040,13 @@ struct TVOTPEntryView: View {
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     let source: TVSource
+    /// 验证通过后回调,给调用方接着做下一步(继续浏览目录、重试扫描)。
+    var onVerified: () -> Void = {}
 
     @State private var code = ""
     @State private var error: String?
     @State private var busy = false
+    @FocusState private var fieldFocused: Bool
 
     private let keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "✓"]
 
@@ -1058,6 +1061,8 @@ struct TVOTPEntryView: View {
             .padding(.horizontal, 120).padding(.vertical, 90)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .onAppear { fieldFocused = true }
+        .onExitCommand { dismiss() }
     }
 
     private var leftPrompt: some View {
@@ -1075,34 +1080,48 @@ struct TVOTPEntryView: View {
                 .padding(.bottom, 16)
             Text(PMString("ext.tv.otp.body"))
                 .tvFont(.meta).foregroundStyle(TVColor.textMuted)
-                .frame(maxWidth: 520, alignment: .leading).lineSpacing(5).padding(.bottom, 36)
+                .frame(maxWidth: 520, alignment: .leading).lineSpacing(5).padding(.bottom, 28)
 
-            HStack(spacing: 14) {
-                ForEach(0..<6, id: \.self) { i in
-                    let ch = i < code.count ? String(Array(code)[i]) : ""
-                    Text(ch.isEmpty ? "·" : ch)
-                        .tvFont(.pageTitle, design: .monospaced)
-                        .foregroundStyle(ch.isEmpty ? TVColor.textGhost : TVColor.text)
-                        .frame(width: 72, height: 92)
-                        .background(TVColor.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .strokeBorder(i == code.count ? TVColor.brand : TVColor.cardBorder,
-                                              lineWidth: i == code.count ? 3 : 0.5)
-                        }
-                }
-            }
+            // 真正的输入框而不是六个只读方格:聚焦时 Apple TV 会推送输入提示到
+            // 已配对的 iPhone,在手机上打字比用遥控器点数字盘快得多。右侧数字盘
+            // 保留给只有遥控器的场景。
+            codeField.padding(.bottom, 18)
+
             if let error {
-                Text(error).tvFont(.caption).foregroundStyle(TVColor.bad).padding(.top, 24)
+                Text(error).tvFont(.caption).foregroundStyle(TVColor.bad)
+                    .frame(maxWidth: 560, alignment: .leading).lineSpacing(4)
             } else if busy {
                 HStack(spacing: 12) {
                     ProgressView().tint(TVColor.brand)
                     Text(PMString("ext.tv.otp.verifying")).foregroundStyle(TVColor.textFaint)
                 }
-                    .padding(.top, 24)
+            } else {
+                Text(PMString("ext.tv.otp.iphoneHint"))
+                    .tvFont(.meta).foregroundStyle(TVColor.textGhost)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var codeField: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            TVTextFieldBox(mono: true) {
+                TextField("", text: $code)
+                    .keyboardType(.numberPad)
+                    .textContentType(.oneTimeCode)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .accessibilityLabel(Text(PMString("ext.tv.otp.enterCode")))
+                    .focused($fieldFocused)
+                    .onChange(of: code) { _, newValue in
+                        let digits = TVOneTimeCodePolicy.sanitized(newValue)
+                        if digits != newValue { code = digits }
+                        error = nil
+                    }
+                    .onSubmit(submit)
+            }
+            .frame(maxWidth: 520, alignment: .leading)
+        }
     }
 
     private var numberPad: some View {
@@ -1117,6 +1136,7 @@ struct TVOTPEntryView: View {
                         .background((focused || k == "✓") ? TVColor.brand : TVColor.surface,
                                     in: Circle())
                 }
+                .disabled(k == "✓" && !TVOneTimeCodePolicy.isSubmittable(code))
             }
         }
         .frame(width: 332)
@@ -1127,18 +1147,48 @@ struct TVOTPEntryView: View {
         switch k {
         case "⌫": if !code.isEmpty { code.removeLast() }
         case "✓": submit()
-        default: if code.count < 6 { code.append(k) }
+        default: code = TVOneTimeCodePolicy.appending(k, to: code)
         }
     }
 
     private func submit() {
-        guard code.trimmingCharacters(in: .whitespaces).count >= 4, !busy else { return }
+        guard TVOneTimeCodePolicy.isSubmittable(code), !busy else { return }
         busy = true; error = nil
         Task {
             let err = await store.login2FA(sourceID: source.id, otp: code)
             busy = false
-            if let err { error = err; code = "" } else { dismiss() }
+            if let err {
+                error = err
+                code = ""
+                fieldFocused = true
+            } else {
+                onVerified()
+                dismiss()
+            }
         }
+    }
+}
+
+/// 一次性验证码的输入规则。抽出来是因为遥控器数字盘与 iPhone 键盘是两条输入
+/// 路径,长度与字符集必须由同一份规则约束,否则手机上能粘进字母或超长串。
+enum TVOneTimeCodePolicy {
+    /// 常见的 NAS / 服务端 OTP 都是 6 位数字;留到 8 位以容纳个别 8 位实现。
+    static let maximumLength = 8
+    static let minimumLength = 4
+
+    /// 只留 ASCII 数字。`Character.isNumber` 还会放过全角数字和其它文字体系的
+    /// 数字,那些直接发给服务端一定不匹配,不如在输入这一步就挡掉。
+    static func sanitized(_ raw: String) -> String {
+        String(raw.filter { $0.isASCII && $0.isNumber }.prefix(maximumLength))
+    }
+
+    static func appending(_ key: String, to code: String) -> String {
+        sanitized(code + key)
+    }
+
+    static func isSubmittable(_ code: String) -> Bool {
+        let digits = sanitized(code)
+        return digits.count >= minimumLength && digits == code
     }
 }
 

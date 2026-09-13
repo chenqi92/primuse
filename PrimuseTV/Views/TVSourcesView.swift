@@ -536,14 +536,16 @@ private struct TVSourceRow: View {
                 Label(source.status == .disabled ? PMString("ext.tv.sources.enable") : PMString("ext.tv.sources.disable"),
                       systemImage: source.status == .disabled ? "power" : "pause.circle")
             }
-            if source.canEnterCredential {
-                Button { onEnterCredential() } label: {
-                    Label(PMString("ext.tv.sources.enterCredentials"), systemImage: "key")
-                }
-            }
             if canEdit {
+                // 「编辑连接」本身就含账号密码,再并排给一个「输入登录凭据」只是同一件事
+                // 的两个入口。只有这台电视改不了连接参数的源(云盘 / S3 / 尚无公开 API)
+                // 才需要那个轻量入口,用来补一条本机凭据。
                 Button { onEdit() } label: {
                     Label(PMString("ext.tv.sources.editConnection"), systemImage: "slider.horizontal.3")
+                }
+            } else if source.canEnterCredential {
+                Button { onEnterCredential() } label: {
+                    Label(PMString("ext.tv.sources.enterCredentials"), systemImage: "key")
                 }
             }
             if source.canScan {

@@ -737,3 +737,10 @@
 "ext.tv.sources.hint.upnp" = "خادم وسائط UPnP / DLNA";
 "ext.tv.sources.hint.cloudToken" = "تسجيل الدخول برمز API";
 "ext.tv.sources.hint.cloudScan" = "امسح رمزًا بهاتفك لتسجيل الدخول";
+
+/* Apple TV source failure messages and OTP entry */
+"ext.tv.source.error.needs2FA" = "يتطلب هذا الخادم تحققًا بخطوتين. أدخل الرمز المؤقت للمتابعة.";
+"ext.tv.source.error.certificate" = "تعذّر التحقق من شهادة الخادم. اختر «الوثوق» في التنبيه الذي يظهر ثم أعد المحاولة.";
+"ext.tv.source.error.unreachable" = "تعذّر الوصول إلى الخادم. تحقّق من العنوان والمنفذ ومن وجود Apple TV على الشبكة نفسها.";
+"ext.tv.source.error.unsupported" = "لا يدعم هذا النوع هذه العملية.";
+"ext.tv.otp.iphoneHint" = "حدّد هذا الحقل ليمكنك إدخال الرمز من iPhone المقترن.";

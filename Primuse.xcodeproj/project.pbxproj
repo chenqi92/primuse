@@ -1235,6 +1235,8 @@
 		EB36DC91D0D34657F857DE69 /* Citadel in Frameworks */ = {isa = PBXBuildFile; productRef = 016BB5C5FFC191F9E56EACFE /* Citadel */; };
 		9F88DD143F48777FC58D111A /* Crypto in Frameworks */ = {isa = PBXBuildFile; productRef = FFEFEA82A1240F2C6B21C153 /* Crypto */; };
 		0C9F1467C16E87C811382E54 /* NIOCore in Frameworks */ = {isa = PBXBuildFile; productRef = A3B7F0486256B6403A8F9AB6 /* NIOCore */; };
+		73A0185505A7BF0F68113B3E /* SourceFailureClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = D40D025EDB031359CCBBE705 /* SourceFailureClassifier.swift */; };
+		39E81961125CCEF19EAAB80E /* TVSourceErrorText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62E654426C013B95FF061AB7 /* TVSourceErrorText.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2351,6 +2353,8 @@
 		A1E1A7702591BEB6873FDE9E /* TVCloudAuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVCloudAuthView.swift; sourceTree = "<group>"; };
 		946F93318D401207CF6F9778 /* CloudDeviceAuthFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDeviceAuthFlow.swift; sourceTree = "<group>"; };
 		7EFFDCF455A11467A9FEC882 /* CloudDeviceAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDeviceAuthService.swift; sourceTree = "<group>"; };
+		D40D025EDB031359CCBBE705 /* SourceFailureClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceFailureClassifier.swift; sourceTree = "<group>"; };
+		62E654426C013B95FF061AB7 /* TVSourceErrorText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVSourceErrorText.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -2716,6 +2720,7 @@
 		414F61F3A9ADE8E8099A5662 /* PrimuseKit */ = {
 			isa = PBXGroup;
 			children = (
+				D40D025EDB031359CCBBE705 /* SourceFailureClassifier.swift */,
 				B8201B4D10F3B60D364411E9 /* AI */,
 				D39A19435691BBF17DE43314 /* AlbumArtistInferencePolicy.swift */,
 				B61A94DA9CFE3D5B74EF40C0 /* ArtistIdentityPolicy.swift */,
@@ -3220,6 +3225,7 @@
 		9E53D249778735CE1630BEA6 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				62E654426C013B95FF061AB7 /* TVSourceErrorText.swift */,
 				9E20F75793A61785A5FE0E9B /* Cloud */,
 				C512B34CBD22685C59F4312A /* Protocol */,
 				F3C8CEC911997BAD1A995D08 /* TVConfigServer.swift */,
@@ -4421,6 +4427,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				73A0185505A7BF0F68113B3E /* SourceFailureClassifier.swift in Sources */,
 				E6A058665436BD86B1A77676 /* CloudDeviceAuthService.swift in Sources */,
 				F5E782200B2D2CC2D2725A9A /* CloudDeviceAuthFlow.swift in Sources */,
 				6F139A773725A49F443C3494 /* AIAvailabilityPolicy.swift in Sources */,
@@ -5023,6 +5030,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				39E81961125CCEF19EAAB80E /* TVSourceErrorText.swift in Sources */,
 				86F581FBD61599735CF56192 /* TVCloudAuthView.swift in Sources */,
 				D25C845568410A7BA320485B /* TVSFTPConnectorFactory.swift in Sources */,
 				2AE8E8A7AEB9E030E551BC19 /* TVCloudConnectorFactory.swift in Sources */,
