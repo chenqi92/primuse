@@ -106,12 +106,20 @@ struct ServerFavoriteWritebackPolicyTests {
     @Test("Only explicitly supported sources can write favorites")
     func supportsOnlyExplicitFavoriteSources() {
         #expect(ServerFavoriteWritebackPolicy.supports(.emby))
+        // Jellyfin forked from Emby and kept the same user-favorite endpoints.
+        #expect(ServerFavoriteWritebackPolicy.supports(.jellyfin))
+        // Plex has no boolean favorite; a track rating of 10 carries the same
+        // meaning and is what the Plex clients themselves write.
+        #expect(ServerFavoriteWritebackPolicy.supports(.plex))
         #expect(ServerFavoriteWritebackPolicy.supports(.navidrome))
         #expect(ServerFavoriteWritebackPolicy.supports(.subsonic))
         #expect(ServerFavoriteWritebackPolicy.supports(.songloft))
         #expect(ServerFavoriteWritebackPolicy.supports(.fnMusic))
 
-        for sourceType in MusicSourceType.allCases where ![.emby, .navidrome, .subsonic, .songloft, .fnMusic].contains(sourceType) {
+        let supported: Set<MusicSourceType> = [
+            .emby, .jellyfin, .plex, .navidrome, .subsonic, .songloft, .fnMusic,
+        ]
+        for sourceType in MusicSourceType.allCases where !supported.contains(sourceType) {
             #expect(!ServerFavoriteWritebackPolicy.supports(sourceType))
         }
     }
@@ -133,6 +141,15 @@ struct ServerFavoriteWritebackPolicyTests {
             fromConnectorPath: "/items/emby-item.mp3",
             sourceType: .emby
         ) == "emby-item")
+        #expect(ServerFavoriteWritebackPolicy.songID(
+            fromConnectorPath: "/items/jellyfin-item.flac",
+            sourceType: .jellyfin
+        ) == "jellyfin-item")
+        // Plex stores the ratingKey in the same slot; /:/rate takes that value.
+        #expect(ServerFavoriteWritebackPolicy.songID(
+            fromConnectorPath: "/items/48291.mp3",
+            sourceType: .plex
+        ) == "48291")
     }
 
     @Test("Malformed, mismatched and unsupported paths are rejected before mutation")

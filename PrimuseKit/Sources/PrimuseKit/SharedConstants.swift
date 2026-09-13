@@ -1553,7 +1553,7 @@ public enum ServerPlaylistIdentity {
 public enum ServerFavoriteWritebackPolicy {
     public static func supports(_ sourceType: MusicSourceType) -> Bool {
         switch sourceType {
-        case .emby, .navidrome, .subsonic, .songloft, .fnMusic:
+        case .emby, .jellyfin, .plex, .navidrome, .subsonic, .songloft, .fnMusic:
             return true
         default:
             return false
@@ -1571,7 +1571,9 @@ public enum ServerFavoriteWritebackPolicy {
         switch sourceType {
         case .fnMusic:
             directory = "fnmusic/tracks"
-        case .emby:
+        case .emby, .jellyfin, .plex:
+            // 三者的曲目路径都是 /items/<id>.<ext>(见 MediaServerSource 的条目构造);
+            // Plex 的 <id> 就是 ratingKey,评分端点认的也是它。
             directory = "items"
         case .navidrome, .subsonic:
             directory = "songs"
