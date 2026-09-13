@@ -517,8 +517,9 @@ struct TVSourceFormView: View {
     @ViewBuilder
     private var adaptiveConnectionFields: some View {
         TVEyebrow(text: PMString("source_connection_local_optional"))
-        TVFormField(label: PMString("source_connection_local_address"), text: $host, mono: true)
-        TVFormField(label: PMString("source_connection_local_port"), text: $portText, mono: true)
+        // 区块标题已经写了「内网」,字段名再带一遍就成了「内网地址 / 内网地址」。
+        TVFormField(label: PMString("ext.tv.sources.form.host"), text: $host, mono: true)
+        TVFormField(label: PMString("ext.tv.sources.form.port"), text: $portText, mono: true)
         if showsSSL { connectionSSLToggle(isOn: $useSsl) }
         if type.supportsEndpointPathPrefix {
             TVFormField(
@@ -558,12 +559,12 @@ struct TVSourceFormView: View {
             connectionHint(type == .synology ? "synology_quickconnect_hint" : "fnmusic_fnconnect_hint")
         } else {
             TVFormField(
-                label: PMString("source_connection_public_address"),
+                label: PMString("ext.tv.sources.form.host"),
                 text: $publicHost,
                 mono: true
             )
             TVFormField(
-                label: PMString("source_connection_public_port"),
+                label: PMString("ext.tv.sources.form.port"),
                 text: $publicPortText,
                 mono: true
             )
