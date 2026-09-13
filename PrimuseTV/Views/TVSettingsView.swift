@@ -159,6 +159,7 @@ struct TVSettingsView: View {
                         }
                         settingsSection(String(localized: "about")) {
                             navRow("star.bubble", PMString("rate_on_app_store"), "App Store", trailing: "arrow.up.right") {
+                                recordAppStoreRatingVisit()
                                 openURL(PrimuseAppStore.reviewURL)
                             }
                             settingDivider
@@ -378,6 +379,21 @@ struct TVSettingsView: View {
             .frame(width: 40, height: 40)
             .background(focused ? AnyShapeStyle(TVColor.brand) : AnyShapeStyle(TVColor.surface),
                         in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    /// 电视端本身不会自动弹评分请求, 但 iPhone / Mac 会, 且该状态经 iCloud
+    /// 漫游 —— 在这里评过分之后, 那两端也不应再弹。
+    private func recordAppStoreRatingVisit() {
+        let version = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString"
+        ) as? String ?? ""
+        let touched = AppReviewPromptState().recordManualRating(
+            currentVersion: version,
+            now: Date()
+        )
+        for key in touched {
+            CloudKVSSync.shared.markChanged(key: key)
+        }
     }
 
     /// 可点击行(同步 / 跳转);trailing 默认箭头表示可进入。

@@ -6959,6 +6959,10 @@ private struct MacSTAboutView: View {
                     title: String(localized: "rate_on_app_store"),
                     systemImage: "star.bubble"
                 ) {
+                    // The only rating signal the app ever gets: StoreKit stays
+                    // silent about the system sheet, so remember this one and
+                    // stop asking automatically.
+                    AppReviewPromptCoordinator.shared.recordManualReviewVisit()
                     NSWorkspace.shared.open(PrimuseAppStore.reviewURL)
                 }
                 aboutUtilityButton(

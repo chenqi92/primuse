@@ -7,14 +7,10 @@ import SwiftUI
 final class AppReviewPromptCoordinator {
     static let shared = AppReviewPromptCoordinator()
 
-    private enum DefaultsKey {
-        static let firstSeenAt = "primuse.review.firstSeenAt"
-        static let appStoreAcquisitionDate = "primuse.review.appStoreAcquisitionDate"
-        static let lastRequestedVersion = "primuse.review.lastRequestedVersion"
-        static let automaticRequestDates = "primuse.review.automaticRequestDates"
-    }
+    private typealias DefaultsKey = AppReviewPromptDefaultsKey
 
-    private let defaults: UserDefaults
+    private let state: AppReviewPromptState
+    private let didCreateFirstSeenStamp: Bool
     private var isPreparingStoreContext = false
     private var hasPreparedStoreContext = false
     #if DEBUG
@@ -24,10 +20,12 @@ final class AppReviewPromptCoordinator {
     #endif
 
     private init(defaults: UserDefaults = .standard, now: Date = Date()) {
-        self.defaults = defaults
-        if defaults.object(forKey: DefaultsKey.firstSeenAt) == nil {
-            defaults.set(now.timeIntervalSince1970, forKey: DefaultsKey.firstSeenAt)
-        }
+        let state = AppReviewPromptState(defaults: defaults)
+        self.state = state
+        // Never mirrored from here: registration below pulls the account-wide
+        // stamp, and pushing this launch's date first would clobber the real
+        // one with a date that is always newer.
+        self.didCreateFirstSeenStamp = !state.markFirstSeenIfNeeded(now: now).isEmpty
     }
 
     func prepareStoreContext() async {
@@ -53,10 +51,7 @@ final class AppReviewPromptCoordinator {
                 return
             }
 
-            defaults.set(
-                appTransaction.originalPurchaseDate.timeIntervalSince1970,
-                forKey: DefaultsKey.appStoreAcquisitionDate
-            )
+            state.recordAppStoreAcquisitionDate(appTransaction.originalPurchaseDate)
             automaticRequestsAllowed = appTransaction.environment == .production
             hasPreparedStoreContext = true
         } catch {
@@ -88,16 +83,53 @@ final class AppReviewPromptCoordinator {
         let context = promptContext(history: history, currentVersion: currentVersion, now: now)
         guard AppReviewPromptPolicy.shouldRequestReview(context) else { return false }
 
-        let updatedDates = AppReviewPromptPolicy.recentAutomaticRequestDates(
-            context.automaticRequestDates + [now],
-            now: now
+        publishToCloud(
+            state.recordAutomaticRequest(currentVersion: currentVersion, now: now)
         )
-        defaults.set(
-            updatedDates.map(\.timeIntervalSince1970),
-            forKey: DefaultsKey.automaticRequestDates
-        )
-        defaults.set(currentVersion, forKey: DefaultsKey.lastRequestedVersion)
         return true
+    }
+
+    /// Record that the user took the in-app "Rate on the App Store" route.
+    ///
+    /// StoreKit gives no callback for the system sheet, so this is the only
+    /// rating signal the app ever receives. Persist it permanently and also
+    /// stamp the ordinary brakes, so an older build that predates the flag
+    /// still honours the cooldown.
+    func recordManualReviewVisit(
+        currentVersion: String = AppReviewPromptCoordinator.currentAppVersion,
+        now: Date = Date()
+    ) {
+        publishToCloud(
+            state.recordManualRating(currentVersion: currentVersion, now: now)
+        )
+    }
+
+    /// Mirror the prompt state through iCloud key-value storage.
+    ///
+    /// Play history roams through CloudKit, so without this a reinstall or a
+    /// second device meets every engagement threshold immediately while the
+    /// local brakes start empty — and someone who already rated gets asked
+    /// again. Call once during startup.
+    func startCloudSync() {
+        for key in DefaultsKey.synchronized {
+            CloudKVSSync.shared.register(key: key) { }
+        }
+        // A brand new install seeds the shared stamp only if the account has
+        // none yet; registration has already replaced ours with the account's
+        // copy when one exists, so this pushes whichever date now stands.
+        if didCreateFirstSeenStamp {
+            publishToCloud([DefaultsKey.firstSeenAt])
+        }
+    }
+
+    static var currentAppVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+    }
+
+    private func publishToCloud(_ keys: [String]) {
+        for key in keys {
+            CloudKVSSync.shared.markChanged(key: key)
+        }
     }
 
     private func promptContext(
@@ -112,32 +144,21 @@ final class AppReviewPromptCoordinator {
             activeDayCount: summary.activeDays,
             completedPlaybackCount: summary.totalPlays,
             currentVersion: currentVersion,
-            lastRequestedVersion: defaults.string(forKey: DefaultsKey.lastRequestedVersion),
-            automaticRequestDates: automaticRequestDates
+            lastRequestedVersion: state.lastRequestedVersion,
+            automaticRequestDates: state.automaticRequestDates,
+            didRateManually: state.didRateManually
         )
     }
 
-    private var automaticRequestDates: [Date] {
-        (defaults.array(forKey: DefaultsKey.automaticRequestDates) ?? []).compactMap { value in
-            guard let interval = value as? NSNumber else { return nil }
-            return Date(timeIntervalSince1970: interval.doubleValue)
-        }
-    }
-
     private func effectiveAcquisitionDate(history: PlayHistoryStore, now: Date) -> Date {
-        var candidates = [date(forKey: DefaultsKey.firstSeenAt) ?? now]
-        if let appStoreDate = date(forKey: DefaultsKey.appStoreAcquisitionDate) {
+        var candidates = [state.date(forKey: DefaultsKey.firstSeenAt) ?? now]
+        if let appStoreDate = state.date(forKey: DefaultsKey.appStoreAcquisitionDate) {
             candidates.append(appStoreDate)
         }
         if let earliestPlaybackDate = history.entries.map(\.playedAt).min() {
             candidates.append(earliestPlaybackDate)
         }
         return candidates.min() ?? now
-    }
-
-    private func date(forKey key: String) -> Date? {
-        guard let interval = defaults.object(forKey: key) as? NSNumber else { return nil }
-        return Date(timeIntervalSince1970: interval.doubleValue)
     }
 }
 
@@ -190,9 +211,7 @@ private struct AutomaticAppReviewPromptModifier: ViewModifier {
             guard hasPendingRequest, scenePhase == .active else { return }
             guard !player.isPlaying else { return }
 
-            let version = Bundle.main.object(
-                forInfoDictionaryKey: "CFBundleShortVersionString"
-            ) as? String ?? ""
+            let version = AppReviewPromptCoordinator.currentAppVersion
             guard coordinator.isAutomaticRequestCandidate(
                 history: history,
                 currentVersion: version

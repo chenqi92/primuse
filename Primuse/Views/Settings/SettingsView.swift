@@ -10,6 +10,7 @@ import AppKit
 
 struct SettingsView: View {
     @Environment(MusicIntelligenceService.self) private var musicIntelligence
+    @Environment(\.openURL) private var openURL
     @Binding private var scraperSettingsRoute: ScraperSettingsRouteState
     @State private var path: [SettingsDestination] = []
     @State private var search: SettingsSearchState
@@ -251,7 +252,13 @@ struct SettingsView: View {
                 Label("licenses", systemImage: "doc.text")
             }
 
-            Link(destination: PrimuseAppStore.reviewURL) {
+            Button {
+                // The only rating signal the app ever gets: StoreKit stays
+                // silent about the system sheet, so remember this one and stop
+                // asking automatically.
+                AppReviewPromptCoordinator.shared.recordManualReviewVisit()
+                openURL(PrimuseAppStore.reviewURL)
+            } label: {
                 Label("rate_on_app_store", systemImage: "star.bubble")
             }
             .settingsAnchor("about.rate")
