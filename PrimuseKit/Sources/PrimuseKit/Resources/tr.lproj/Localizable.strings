@@ -706,3 +706,34 @@
 "appleMusic.localAsset.unreadable" = "Şarkının yerel dosyası okunamıyor. Dosya erişim izinlerini kontrol edin.";
 "appleMusic.localAsset.invalidFile" = "Bu öğe çalınabilir bir yerel ses dosyası değil. Müzik uygulamasında kontrol edip bu kaynağı yeniden tarayın.";
 "appleMusic.localAsset.libraryUnavailable" = "Yerel müzik arşivi yenilenemedi. Müzik uygulamasında kullanılabilir olduğunu kontrol edip tekrar deneyin.";
+
+/* Apple TV cloud drive sign-in without a browser (QR / device code) */
+"ext.tv.cloud.auth.title" = "%@ oturumu aç";
+"ext.tv.cloud.auth.scanSubtitle" = "Kodu telefonunla tara ve orada onayla. Apple TV oturum açmayı kendi tamamlar.";
+"ext.tv.cloud.auth.manualSubtitle" = "Kodu telefonunla tara, erişime izin ver, sonra görünen kodu buraya yaz.";
+"ext.tv.cloud.auth.userCode" = "Telefonda girilecek kod";
+"ext.tv.cloud.auth.openURL" = "Ya da bu adresi aç";
+"ext.tv.cloud.auth.codeField" = "Yetkilendirme kodu";
+"ext.tv.cloud.auth.waiting" = "Kodun taranması bekleniyor…";
+"ext.tv.cloud.auth.scanned" = "Tarandı — telefonda onayla…";
+"ext.tv.cloud.auth.redeeming" = "Oturum açılıyor…";
+"ext.tv.cloud.auth.done" = "Oturum açıldı";
+"ext.tv.cloud.auth.denied" = "Erişim telefonda reddedildi.";
+"ext.tv.cloud.auth.expired" = "Kodun süresi doldu. Yenisini al.";
+"ext.tv.cloud.auth.unsupported" = "Bu hizmet tarayıcısı olmayan cihazlar için oturum açma sunmuyor. iPhone veya Mac'te ekle, buraya eşitlenir.";
+"ext.tv.cloud.auth.missingClient" = "Bu sürümde o hizmet için geliştirici kimlik bilgileri yok.";
+"ext.tv.cloud.auth.serverError" = "Hizmet bir hata döndürdü (%@).";
+"ext.tv.cloud.auth.invalidResponse" = "Hizmet tanınmayan bir yanıt döndürdü.";
+"ext.tv.cloud.auth.rejected" = "Hizmet isteği reddetti: %@";
+"ext.tv.cloud.auth.confirm" = "Oturum aç";
+"ext.tv.cloud.auth.refresh" = "Yeni kod";
+"ext.tv.sources.form.cloudAPIToken" = "API belirteci";
+"ext.tv.sources.form.cloudAPITokenHint" = "Belirteci sağlayıcının web konsolunda oluştur ve dosya okuma izni ver.";
+"ext.tv.sources.form.cloudClientID" = "İstemci kimliği";
+"ext.tv.sources.form.cloudClientSecret" = "İstemci gizli anahtarı";
+"ext.tv.sources.form.cloudClientHint" = "Sağlayıcının açık platformundan başvur, sonra buraya gir.";
+"ext.tv.sources.form.cloudScanHint" = "Sonraki ekranda telefonla taranacak bir kod görünecek.";
+"ext.tv.sources.form.cloudSignIn" = "Oturum açmak için tara";
+"ext.tv.sources.hint.upnp" = "UPnP / DLNA medya sunucusu";
+"ext.tv.sources.hint.cloudToken" = "API belirteciyle oturum aç";
+"ext.tv.sources.hint.cloudScan" = "Oturum açmak için telefonunla kod tara";

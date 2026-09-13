@@ -123,10 +123,12 @@ enum TVSourceLocalLibraryPolicy {
     /// 电视端能自己列目录、自己建库的类型。唯一真源:这里加一种,
     /// `TVSourceScanner.makeSingleLister` 必须同时给出对应的列举器。
     static let directScanTypes: Set<MusicSourceType> = [
-        .smb, .synology, .qnap, .ugreen, .webdav, .ftp, .nfs, .s3,
+        .smb, .synology, .qnap, .ugreen, .webdav, .ftp, .sftp, .nfs, .s3, .upnp,
         .jellyfin, .emby, .plex,
         .subsonic, .navidrome, .airsonic, .gonic,
-        .fnMusic, .daoliyu, .songloft, .oneDrive, .dropbox,
+        .fnMusic, .daoliyu, .songloft,
+        .oneDrive, .dropbox, .aliyunDrive, .googleDrive,
+        .baiduPan, .pan115, .pan123, .drime,
     ]
 
     static func capability(for type: MusicSourceType) -> TVSourceLocalLibraryCapability {
@@ -1146,7 +1148,7 @@ final class TVStore {
 
     /// 判断一个源能否在 Apple TV 上播放(注册表支持类型 + 凭据/中继可用性)。
     /// 在 TV 上本机直连播放(不经 iPhone 中继)的协议类型。与 TVPlaybackCoordinator.makeDirectReader 对应。
-    static let directProtocolTypes: Set<MusicSourceType> = [.smb, .nfs, .ftp]
+    static let directProtocolTypes: Set<MusicSourceType> = [.smb, .nfs, .ftp, .sftp]
     private static var tvScannableTypes: Set<MusicSourceType> {
         TVSourceLocalLibraryPolicy.directScanTypes
     }
@@ -2207,13 +2209,16 @@ final class TVStore {
     /// 完成授权与扫描，再通过配对或同步传入完整曲库，不能保存成一个空来源冒充成功。
     /// 「在 Apple TV 上手动添加」能选的类型 —— 必须是电视端自己能建库的
     /// (`TVSourceLocalLibraryPolicy.directScanTypes`),否则加完只是个空壳。
-    /// 网盘暂不在列:授权要走浏览器,电视端还没有扫码授权流程,凭据仍从手机同步。
+    /// 网盘也在列:没有浏览器的设备改走提供方的扫码 / 设备码授权
+    /// (`CloudDeviceAuthSupport`),或者像 123 云盘、Drime 那样直接填开发者密钥。
     static let addableTypes: [MusicSourceType] = [
         .smb, .synology, .qnap, .ugreen,
-        .webdav, .ftp, .nfs, .s3,
+        .webdav, .ftp, .sftp, .nfs, .s3, .upnp,
         .jellyfin, .emby, .plex,
         .subsonic, .navidrome, .airsonic, .gonic,
         .fnMusic, .daoliyu, .songloft,
+        .aliyunDrive, .baiduPan, .oneDrive, .dropbox,
+        .googleDrive, .pan115, .pan123, .drime,
     ]
 
     nonisolated static func canBuildLibraryOnTV(_ type: MusicSourceType) -> Bool {

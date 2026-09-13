@@ -759,3 +759,34 @@
 "appleMusic.localAsset.unreadable" = "曲のローカルファイルを読み取れません。ファイルのアクセス権を確認してください。";
 "appleMusic.localAsset.invalidFile" = "この項目は再生可能なローカル音声ファイルではありません。ミュージックで確認し、このソースを再スキャンしてください。";
 "appleMusic.localAsset.libraryUnavailable" = "ローカルのミュージックライブラリを更新できませんでした。ミュージックで利用できることを確認してから、もう一度お試しください。";
+
+/* Apple TV cloud drive sign-in without a browser (QR / device code) */
+"ext.tv.cloud.auth.title" = "%@ にサインイン";
+"ext.tv.cloud.auth.scanSubtitle" = "スマートフォンでコードを読み取り、その場で承認してください。Apple TV 側は自動で完了します。";
+"ext.tv.cloud.auth.manualSubtitle" = "スマートフォンでコードを読み取って許可し、表示された認証コードを入力してください。";
+"ext.tv.cloud.auth.userCode" = "スマートフォンで入力するコード";
+"ext.tv.cloud.auth.openURL" = "またはこのアドレスを開く";
+"ext.tv.cloud.auth.codeField" = "認証コード";
+"ext.tv.cloud.auth.waiting" = "読み取りを待っています…";
+"ext.tv.cloud.auth.scanned" = "読み取り済み — スマートフォンで承認してください…";
+"ext.tv.cloud.auth.redeeming" = "サインインしています…";
+"ext.tv.cloud.auth.done" = "サインインしました";
+"ext.tv.cloud.auth.denied" = "スマートフォンで拒否されました。";
+"ext.tv.cloud.auth.expired" = "コードの有効期限が切れました。取り直してください。";
+"ext.tv.cloud.auth.unsupported" = "このサービスはブラウザのない機器向けのサインインに対応していません。iPhone や Mac で追加すると同期されます。";
+"ext.tv.cloud.auth.missingClient" = "このビルドには該当サービスの開発者資格情報がありません。";
+"ext.tv.cloud.auth.serverError" = "サービスがエラーを返しました(%@)。";
+"ext.tv.cloud.auth.invalidResponse" = "サービスの応答を認識できませんでした。";
+"ext.tv.cloud.auth.rejected" = "サービスがリクエストを拒否しました: %@";
+"ext.tv.cloud.auth.confirm" = "サインイン";
+"ext.tv.cloud.auth.refresh" = "コードを取り直す";
+"ext.tv.sources.form.cloudAPIToken" = "API トークン";
+"ext.tv.sources.form.cloudAPITokenHint" = "提供元の管理画面でトークンを作成し、ファイル読み取り権限を付与してください。";
+"ext.tv.sources.form.cloudClientID" = "クライアント ID";
+"ext.tv.sources.form.cloudClientSecret" = "クライアントシークレット";
+"ext.tv.sources.form.cloudClientHint" = "提供元のオープンプラットフォームで申請してから入力してください。";
+"ext.tv.sources.form.cloudScanHint" = "次の画面に、スマートフォンで読み取るコードが表示されます。";
+"ext.tv.sources.form.cloudSignIn" = "コードを読み取ってサインイン";
+"ext.tv.sources.hint.upnp" = "UPnP / DLNA メディアサーバー";
+"ext.tv.sources.hint.cloudToken" = "API トークンでサインイン";
+"ext.tv.sources.hint.cloudScan" = "スマートフォンでコードを読み取ってサインイン";

@@ -706,3 +706,34 @@
 "appleMusic.localAsset.unreadable" = "गीत की स्थानीय फ़ाइल पढ़ी नहीं जा सकती। फ़ाइल की एक्सेस अनुमतियाँ जाँचें।";
 "appleMusic.localAsset.invalidFile" = "यह आइटम चलाने योग्य स्थानीय ऑडियो फ़ाइल नहीं है। इसे संगीत ऐप में जाँचें और इस स्रोत को फिर से स्कैन करें।";
 "appleMusic.localAsset.libraryUnavailable" = "स्थानीय संगीत लाइब्रेरी रीफ़्रेश नहीं की जा सकी। जाँचें कि वह संगीत ऐप में उपलब्ध है, फिर दोबारा कोशिश करें।";
+
+/* Apple TV cloud drive sign-in without a browser (QR / device code) */
+"ext.tv.cloud.auth.title" = "%@ में साइन इन करें";
+"ext.tv.cloud.auth.scanSubtitle" = "फ़ोन से कोड स्कैन करें और वहीं मंज़ूरी दें। Apple TV बाकी काम खुद पूरा कर लेगा।";
+"ext.tv.cloud.auth.manualSubtitle" = "फ़ोन से कोड स्कैन करें, पहुँच की मंज़ूरी दें, फिर दिखा हुआ कोड यहाँ लिखें।";
+"ext.tv.cloud.auth.userCode" = "फ़ोन पर डालने वाला कोड";
+"ext.tv.cloud.auth.openURL" = "या यह पता खोलें";
+"ext.tv.cloud.auth.codeField" = "प्राधिकरण कोड";
+"ext.tv.cloud.auth.waiting" = "स्कैन का इंतज़ार…";
+"ext.tv.cloud.auth.scanned" = "स्कैन हो गया — फ़ोन पर मंज़ूरी दें…";
+"ext.tv.cloud.auth.redeeming" = "साइन इन हो रहा है…";
+"ext.tv.cloud.auth.done" = "साइन इन हो गया";
+"ext.tv.cloud.auth.denied" = "फ़ोन पर पहुँच अस्वीकार कर दी गई।";
+"ext.tv.cloud.auth.expired" = "कोड की अवधि खत्म हो गई। नया लें।";
+"ext.tv.cloud.auth.unsupported" = "यह सेवा बिना ब्राउज़र वाले उपकरणों के लिए साइन-इन नहीं देती। इसे iPhone या Mac पर जोड़ें, यह यहाँ सिंक हो जाएगी।";
+"ext.tv.cloud.auth.missingClient" = "इस बिल्ड में उस सेवा के डेवलपर क्रेडेंशियल नहीं हैं।";
+"ext.tv.cloud.auth.serverError" = "सेवा ने त्रुटि लौटाई (%@)।";
+"ext.tv.cloud.auth.invalidResponse" = "सेवा ने अनजान जवाब लौटाया।";
+"ext.tv.cloud.auth.rejected" = "सेवा ने अनुरोध अस्वीकार किया: %@";
+"ext.tv.cloud.auth.confirm" = "साइन इन";
+"ext.tv.cloud.auth.refresh" = "नया कोड";
+"ext.tv.sources.form.cloudAPIToken" = "API टोकन";
+"ext.tv.sources.form.cloudAPITokenHint" = "प्रदाता के वेब कंसोल में टोकन बनाएँ और उसे फ़ाइल पढ़ने की अनुमति दें।";
+"ext.tv.sources.form.cloudClientID" = "क्लाइंट ID";
+"ext.tv.sources.form.cloudClientSecret" = "क्लाइंट सीक्रेट";
+"ext.tv.sources.form.cloudClientHint" = "प्रदाता के ओपन प्लेटफ़ॉर्म पर आवेदन करके यहाँ भरें।";
+"ext.tv.sources.form.cloudScanHint" = "अगली स्क्रीन पर फ़ोन से स्कैन करने के लिए कोड दिखेगा।";
+"ext.tv.sources.form.cloudSignIn" = "स्कैन करके साइन इन करें";
+"ext.tv.sources.hint.upnp" = "UPnP / DLNA मीडिया सर्वर";
+"ext.tv.sources.hint.cloudToken" = "API टोकन से साइन इन करें";
+"ext.tv.sources.hint.cloudScan" = "साइन इन के लिए फ़ोन से कोड स्कैन करें";

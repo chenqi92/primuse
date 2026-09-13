@@ -706,3 +706,34 @@
 "appleMusic.localAsset.unreadable" = "Não foi possível ler o arquivo local da música. Verifique as permissões de acesso ao arquivo.";
 "appleMusic.localAsset.invalidFile" = "Este item não é um arquivo de áudio local reproduzível. Verifique-o no app Música e examine esta fonte novamente.";
 "appleMusic.localAsset.libraryUnavailable" = "Não foi possível atualizar a biblioteca de músicas local. Verifique se ela está disponível no app Música e tente novamente.";
+
+/* Apple TV cloud drive sign-in without a browser (QR / device code) */
+"ext.tv.cloud.auth.title" = "Entrar em %@";
+"ext.tv.cloud.auth.scanSubtitle" = "Escaneie o código com o celular e aprove por lá. A Apple TV conclui o login sozinha.";
+"ext.tv.cloud.auth.manualSubtitle" = "Escaneie o código com o celular, autorize o acesso e digite o código exibido.";
+"ext.tv.cloud.auth.userCode" = "Código para digitar no celular";
+"ext.tv.cloud.auth.openURL" = "Ou abra este endereço";
+"ext.tv.cloud.auth.codeField" = "Código de autorização";
+"ext.tv.cloud.auth.waiting" = "Aguardando a leitura do código…";
+"ext.tv.cloud.auth.scanned" = "Lido — aprove no celular…";
+"ext.tv.cloud.auth.redeeming" = "Entrando…";
+"ext.tv.cloud.auth.done" = "Conectado";
+"ext.tv.cloud.auth.denied" = "O acesso foi recusado no celular.";
+"ext.tv.cloud.auth.expired" = "O código expirou. Gere um novo.";
+"ext.tv.cloud.auth.unsupported" = "Este serviço não oferece login para aparelhos sem navegador. Adicione no iPhone ou Mac e ele sincroniza aqui.";
+"ext.tv.cloud.auth.missingClient" = "Esta versão não traz credenciais de desenvolvedor para esse serviço.";
+"ext.tv.cloud.auth.serverError" = "O serviço retornou um erro (%@).";
+"ext.tv.cloud.auth.invalidResponse" = "O serviço retornou uma resposta desconhecida.";
+"ext.tv.cloud.auth.rejected" = "O serviço recusou a solicitação: %@";
+"ext.tv.cloud.auth.confirm" = "Entrar";
+"ext.tv.cloud.auth.refresh" = "Novo código";
+"ext.tv.sources.form.cloudAPIToken" = "Token de API";
+"ext.tv.sources.form.cloudAPITokenHint" = "Crie o token no painel web do provedor e dê permissão de leitura de arquivos.";
+"ext.tv.sources.form.cloudClientID" = "ID do cliente";
+"ext.tv.sources.form.cloudClientSecret" = "Segredo do cliente";
+"ext.tv.sources.form.cloudClientHint" = "Solicite na plataforma aberta do provedor e preencha aqui.";
+"ext.tv.sources.form.cloudScanHint" = "A próxima tela mostra um código para escanear com o celular.";
+"ext.tv.sources.form.cloudSignIn" = "Escanear para entrar";
+"ext.tv.sources.hint.upnp" = "Servidor de mídia UPnP / DLNA";
+"ext.tv.sources.hint.cloudToken" = "Entrar com token de API";
+"ext.tv.sources.hint.cloudScan" = "Escaneie um código com o celular para entrar";

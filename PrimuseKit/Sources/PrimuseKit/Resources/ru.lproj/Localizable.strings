@@ -706,3 +706,34 @@
 "appleMusic.localAsset.unreadable" = "Не удалось прочитать локальный файл песни. Проверьте права доступа к файлу.";
 "appleMusic.localAsset.invalidFile" = "Этот объект не является воспроизводимым локальным аудиофайлом. Проверьте его в приложении «Музыка» и повторно просканируйте источник.";
 "appleMusic.localAsset.libraryUnavailable" = "Не удалось обновить локальную медиатеку. Проверьте её доступность в приложении «Музыка» и повторите попытку.";
+
+/* Apple TV cloud drive sign-in without a browser (QR / device code) */
+"ext.tv.cloud.auth.title" = "Вход в %@";
+"ext.tv.cloud.auth.scanSubtitle" = "Отсканируйте код телефоном и подтвердите на нём. Apple TV завершит вход сам.";
+"ext.tv.cloud.auth.manualSubtitle" = "Отсканируйте код телефоном, разрешите доступ и введите показанный код.";
+"ext.tv.cloud.auth.userCode" = "Код для ввода на телефоне";
+"ext.tv.cloud.auth.openURL" = "Или откройте этот адрес";
+"ext.tv.cloud.auth.codeField" = "Код авторизации";
+"ext.tv.cloud.auth.waiting" = "Ожидание сканирования…";
+"ext.tv.cloud.auth.scanned" = "Отсканировано — подтвердите на телефоне…";
+"ext.tv.cloud.auth.redeeming" = "Выполняется вход…";
+"ext.tv.cloud.auth.done" = "Вход выполнен";
+"ext.tv.cloud.auth.denied" = "Доступ отклонён на телефоне.";
+"ext.tv.cloud.auth.expired" = "Код истёк. Получите новый.";
+"ext.tv.cloud.auth.unsupported" = "У этого сервиса нет входа для устройств без браузера. Добавьте его на iPhone или Mac — он синхронизируется сюда.";
+"ext.tv.cloud.auth.missingClient" = "В этой сборке нет учётных данных разработчика для этого сервиса.";
+"ext.tv.cloud.auth.serverError" = "Сервис вернул ошибку (%@).";
+"ext.tv.cloud.auth.invalidResponse" = "Сервис вернул неизвестный ответ.";
+"ext.tv.cloud.auth.rejected" = "Сервис отклонил запрос: %@";
+"ext.tv.cloud.auth.confirm" = "Войти";
+"ext.tv.cloud.auth.refresh" = "Новый код";
+"ext.tv.sources.form.cloudAPIToken" = "Токен API";
+"ext.tv.sources.form.cloudAPITokenHint" = "Создайте токен в веб-консоли провайдера и дайте ему право на чтение файлов.";
+"ext.tv.sources.form.cloudClientID" = "Client ID";
+"ext.tv.sources.form.cloudClientSecret" = "Client Secret";
+"ext.tv.sources.form.cloudClientHint" = "Получите их на открытой платформе провайдера и введите здесь.";
+"ext.tv.sources.form.cloudScanHint" = "На следующем экране появится код для сканирования телефоном.";
+"ext.tv.sources.form.cloudSignIn" = "Отсканировать для входа";
+"ext.tv.sources.hint.upnp" = "Медиасервер UPnP / DLNA";
+"ext.tv.sources.hint.cloudToken" = "Вход по токену API";
+"ext.tv.sources.hint.cloudScan" = "Отсканируйте код телефоном для входа";

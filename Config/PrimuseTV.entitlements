@@ -14,6 +14,8 @@
 	<string>$(TeamIdentifierPrefix)$(CFBundleIdentifier)</string>
 	<key>com.apple.developer.siri</key>
 	<true/>
+	<key>com.apple.developer.networking.multicast</key>
+	<true/>
 	<key>aps-environment</key>
 	<string>development</string>
 	<key>com.apple.security.application-groups</key>

@@ -757,3 +757,34 @@
 "appleMusic.localAsset.unreadable" = "The local song file cannot be read. Check the file’s access permissions.";
 "appleMusic.localAsset.invalidFile" = "This item is not a playable local audio file. Check it in Music, then rescan this source.";
 "appleMusic.localAsset.libraryUnavailable" = "The local music library could not be refreshed. Check that it is available in Music, then try again.";
+
+/* Apple TV cloud drive sign-in without a browser (QR / device code) */
+"ext.tv.cloud.auth.title" = "Sign in to %@";
+"ext.tv.cloud.auth.scanSubtitle" = "Scan the code with your phone and approve it there. This Apple TV finishes signing in on its own.";
+"ext.tv.cloud.auth.manualSubtitle" = "Scan the code with your phone, approve access, then type the code the site shows.";
+"ext.tv.cloud.auth.userCode" = "Code to enter on your phone";
+"ext.tv.cloud.auth.openURL" = "Or open this address";
+"ext.tv.cloud.auth.codeField" = "Authorization code";
+"ext.tv.cloud.auth.waiting" = "Waiting for the code to be scanned…";
+"ext.tv.cloud.auth.scanned" = "Scanned — approve it on your phone…";
+"ext.tv.cloud.auth.redeeming" = "Signing in…";
+"ext.tv.cloud.auth.done" = "Signed in";
+"ext.tv.cloud.auth.denied" = "Access was declined on the phone.";
+"ext.tv.cloud.auth.expired" = "The code expired. Get a new one.";
+"ext.tv.cloud.auth.unsupported" = "This service has no sign-in for devices without a browser. Add it on iPhone or Mac and it syncs here.";
+"ext.tv.cloud.auth.missingClient" = "This build has no developer credentials for that service.";
+"ext.tv.cloud.auth.serverError" = "The service returned an error (%@).";
+"ext.tv.cloud.auth.invalidResponse" = "The service returned a response Primuse doesn't recognize.";
+"ext.tv.cloud.auth.rejected" = "The service rejected the request: %@";
+"ext.tv.cloud.auth.confirm" = "Sign in";
+"ext.tv.cloud.auth.refresh" = "New code";
+"ext.tv.sources.form.cloudAPIToken" = "API token";
+"ext.tv.sources.form.cloudAPITokenHint" = "Create the token in the provider's web console and give it file read permission.";
+"ext.tv.sources.form.cloudClientID" = "Client ID";
+"ext.tv.sources.form.cloudClientSecret" = "Client secret";
+"ext.tv.sources.form.cloudClientHint" = "Apply for these on the provider's open platform, then fill them in here.";
+"ext.tv.sources.form.cloudScanHint" = "The next screen shows a code to scan with your phone.";
+"ext.tv.sources.form.cloudSignIn" = "Scan to sign in";
+"ext.tv.sources.hint.upnp" = "UPnP / DLNA media server";
+"ext.tv.sources.hint.cloudToken" = "Sign in with an API token";
+"ext.tv.sources.hint.cloudScan" = "Scan a code with your phone to sign in";

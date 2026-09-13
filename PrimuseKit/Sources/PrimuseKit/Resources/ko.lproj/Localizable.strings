@@ -759,3 +759,34 @@
 "appleMusic.localAsset.unreadable" = "곡의 로컬 파일을 읽을 수 없습니다. 파일 접근 권한을 확인하세요.";
 "appleMusic.localAsset.invalidFile" = "이 항목은 재생 가능한 로컬 오디오 파일이 아닙니다. 음악 앱에서 확인한 후 이 소스를 다시 스캔하세요.";
 "appleMusic.localAsset.libraryUnavailable" = "로컬 음악 보관함을 새로 고칠 수 없습니다. 음악 앱에서 보관함을 사용할 수 있는지 확인한 후 다시 시도하세요.";
+
+/* Apple TV cloud drive sign-in without a browser (QR / device code) */
+"ext.tv.cloud.auth.title" = "%@ 로그인";
+"ext.tv.cloud.auth.scanSubtitle" = "휴대폰으로 코드를 스캔하고 승인하세요. Apple TV가 알아서 로그인을 마칩니다.";
+"ext.tv.cloud.auth.manualSubtitle" = "휴대폰으로 코드를 스캔해 승인한 뒤, 표시된 인증 코드를 입력하세요.";
+"ext.tv.cloud.auth.userCode" = "휴대폰에 입력할 코드";
+"ext.tv.cloud.auth.openURL" = "또는 이 주소를 여세요";
+"ext.tv.cloud.auth.codeField" = "인증 코드";
+"ext.tv.cloud.auth.waiting" = "스캔을 기다리는 중…";
+"ext.tv.cloud.auth.scanned" = "스캔됨 — 휴대폰에서 승인하세요…";
+"ext.tv.cloud.auth.redeeming" = "로그인 중…";
+"ext.tv.cloud.auth.done" = "로그인됨";
+"ext.tv.cloud.auth.denied" = "휴대폰에서 거부했습니다.";
+"ext.tv.cloud.auth.expired" = "코드가 만료되었습니다. 새로 받으세요.";
+"ext.tv.cloud.auth.unsupported" = "이 서비스는 브라우저가 없는 기기용 로그인을 제공하지 않습니다. iPhone이나 Mac에서 추가하면 동기화됩니다.";
+"ext.tv.cloud.auth.missingClient" = "이 빌드에는 해당 서비스의 개발자 자격 증명이 없습니다.";
+"ext.tv.cloud.auth.serverError" = "서비스가 오류를 반환했습니다(%@).";
+"ext.tv.cloud.auth.invalidResponse" = "서비스 응답을 인식할 수 없습니다.";
+"ext.tv.cloud.auth.rejected" = "서비스가 요청을 거부했습니다: %@";
+"ext.tv.cloud.auth.confirm" = "로그인";
+"ext.tv.cloud.auth.refresh" = "새 코드";
+"ext.tv.sources.form.cloudAPIToken" = "API 토큰";
+"ext.tv.sources.form.cloudAPITokenHint" = "제공업체 웹 콘솔에서 토큰을 만들고 파일 읽기 권한을 부여하세요.";
+"ext.tv.sources.form.cloudClientID" = "클라이언트 ID";
+"ext.tv.sources.form.cloudClientSecret" = "클라이언트 시크릿";
+"ext.tv.sources.form.cloudClientHint" = "제공업체 오픈 플랫폼에서 발급받아 입력하세요.";
+"ext.tv.sources.form.cloudScanHint" = "다음 화면에 휴대폰으로 스캔할 코드가 표시됩니다.";
+"ext.tv.sources.form.cloudSignIn" = "스캔하여 로그인";
+"ext.tv.sources.hint.upnp" = "UPnP / DLNA 미디어 서버";
+"ext.tv.sources.hint.cloudToken" = "API 토큰으로 로그인";
+"ext.tv.sources.hint.cloudScan" = "휴대폰으로 코드를 스캔해 로그인";

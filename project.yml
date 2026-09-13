@@ -557,6 +557,11 @@ targets:
   PrimuseTV:
     type: application
     platform: tvOS
+    # 云盘的内置 client_id / client_secret 与 iOS、macOS 走同一份 xcconfig 注入,
+    # 电视端扫码授权要用到同样的凭据,不能只在手机端有。
+    configFiles:
+      Debug: Config/Debug.xcconfig
+      Release: Config/Release.xcconfig
     sources:
       - path: PrimuseTV
         excludes:
@@ -577,6 +582,20 @@ targets:
       - path: Primuse/Services/Metadata/TagMetadataWritebackTypes.swift
       - path: Primuse/Services/Sources/MusicSourceProtocol.swift
       - path: Primuse/Services/Sources/SourceErrors.swift
+      - path: Primuse/Utilities/Extensions/URL+AudioFormat.swift
+      # 标签写回的公共事务层。电视端本身不改标签,但 SFTP / 云盘连接器都声明了
+      # 这个适配协议,协议与共享类型都在这份文件里。
+      - path: Primuse/Services/Metadata/EmbeddedMetadataWritebackCoordinator.swift
+      # SFTP:与 iOS / macOS 同一份 Citadel 实现,电视端直接建库与按段读取。
+      - path: Primuse/Services/Sources/SFTPSource.swift
+      # UPnP/DLNA:SSDP 发现 + ContentDirectory 浏览,与 iOS / macOS 同一份实现。
+      - path: Primuse/Services/Sources/UPnPSource.swift
+      # 云盘连接器全家桶(纯 Foundation + PrimuseKit)。电视端不走浏览器授权,
+      # 所以不含 OAuthService.swift —— 授权改由 PrimuseKit 的扫码/设备码流程完成,
+      # token 仍写进同一套 CloudTokenManager 钥匙串,列目录、播放与手机端同码。
+      - path: Primuse/Services/Sources/CloudDrive
+        excludes:
+          - "OAuthService.swift"
       # 群晖:电视端自己建库需要 FileStation 列目录,这份实现是纯 Foundation 的,
       # tvOS 直接复用,不再依赖 iPhone 扫描后同步。
       - path: Primuse/Services/Sources/SynologyAPI.swift
@@ -646,6 +665,13 @@ targets:
         product: FilesProvider
       - package: NFSKit
         product: NFSKit
+      # SFTP 直连:与 iOS / macOS 用同一套 Citadel + NIOSSH 客户端。
+      - package: Citadel
+        product: Citadel
+      - package: SwiftCrypto
+        product: Crypto
+      - package: SwiftNIO
+        product: NIOCore
       # 非 AVFoundation 原生格式(APE/WavPack/OGG/DSD 等)在 TV 本机解码。
       - package: SFBAudioEngine
         product: SFBAudioEngine
@@ -680,6 +706,17 @@ targets:
           - pl
         # 只用 HTTPS / 标准 OS 加密(豁免类),声明免出口合规,免去每次上传都要填。
         ITSAppUsesNonExemptEncryption: false
+        # 云盘扫码授权用的内置 client 凭据,与 iOS / macOS 取同一组 xcconfig 变量。
+        PrimuseBaiduClientID: "$(BAIDU_CLIENT_ID)"
+        PrimuseBaiduClientSecret: "$(BAIDU_CLIENT_SECRET)"
+        PrimuseDropboxClientID: "$(DROPBOX_CLIENT_ID)"
+        PrimuseDropboxClientSecret: "$(DROPBOX_CLIENT_SECRET)"
+        PrimuseGoogleClientID: "$(GOOGLE_CLIENT_ID)"
+        PrimuseOneDriveClientID: "$(ONEDRIVE_CLIENT_ID)"
+        PrimuseU115ClientID: "$(U115_CLIENT_ID)"
+        PrimuseU115ClientSecret: "$(U115_CLIENT_SECRET)"
+        PrimusePan123ClientID: "$(PAN123_CLIENT_ID)"
+        PrimusePan123ClientSecret: "$(PAN123_CLIENT_SECRET)"
         NSSiriUsageDescription: "用 Siri 语音点播、控制 Primuse 播放。"
         INIntentsSupported:
           - INPlayMediaIntent

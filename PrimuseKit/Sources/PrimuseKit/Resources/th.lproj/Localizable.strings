@@ -706,3 +706,34 @@
 "appleMusic.localAsset.unreadable" = "ไม่สามารถอ่านไฟล์เพลงในเครื่องได้ โปรดตรวจสอบสิทธิ์การเข้าถึงไฟล์";
 "appleMusic.localAsset.invalidFile" = "รายการนี้ไม่ใช่ไฟล์เสียงในเครื่องที่เล่นได้ โปรดตรวจสอบในแอปเพลง แล้วสแกนแหล่งเพลงนี้อีกครั้ง";
 "appleMusic.localAsset.libraryUnavailable" = "ไม่สามารถรีเฟรชคลังเพลงในเครื่องได้ โปรดตรวจสอบว่าคลังพร้อมใช้งานในแอปเพลง แล้วลองอีกครั้ง";
+
+/* Apple TV cloud drive sign-in without a browser (QR / device code) */
+"ext.tv.cloud.auth.title" = "ลงชื่อเข้าใช้ %@";
+"ext.tv.cloud.auth.scanSubtitle" = "สแกนรหัสด้วยโทรศัพท์แล้วยืนยันที่นั่น Apple TV จะลงชื่อเข้าใช้ให้เอง";
+"ext.tv.cloud.auth.manualSubtitle" = "สแกนรหัสด้วยโทรศัพท์ อนุญาตการเข้าถึง แล้วพิมพ์รหัสที่แสดง";
+"ext.tv.cloud.auth.userCode" = "รหัสที่ต้องกรอกบนโทรศัพท์";
+"ext.tv.cloud.auth.openURL" = "หรือเปิดที่อยู่นี้";
+"ext.tv.cloud.auth.codeField" = "รหัสอนุญาต";
+"ext.tv.cloud.auth.waiting" = "กำลังรอการสแกน…";
+"ext.tv.cloud.auth.scanned" = "สแกนแล้ว — ยืนยันบนโทรศัพท์…";
+"ext.tv.cloud.auth.redeeming" = "กำลังลงชื่อเข้าใช้…";
+"ext.tv.cloud.auth.done" = "ลงชื่อเข้าใช้แล้ว";
+"ext.tv.cloud.auth.denied" = "การเข้าถึงถูกปฏิเสธบนโทรศัพท์";
+"ext.tv.cloud.auth.expired" = "รหัสหมดอายุแล้ว ขอรหัสใหม่";
+"ext.tv.cloud.auth.unsupported" = "บริการนี้ไม่มีการลงชื่อเข้าใช้สำหรับอุปกรณ์ที่ไม่มีเบราว์เซอร์ เพิ่มบน iPhone หรือ Mac แล้วจะซิงก์มาที่นี่";
+"ext.tv.cloud.auth.missingClient" = "บิลด์นี้ไม่มีข้อมูลรับรองนักพัฒนาสำหรับบริการนั้น";
+"ext.tv.cloud.auth.serverError" = "บริการส่งกลับข้อผิดพลาด (%@)";
+"ext.tv.cloud.auth.invalidResponse" = "บริการส่งกลับคำตอบที่ไม่รู้จัก";
+"ext.tv.cloud.auth.rejected" = "บริการปฏิเสธคำขอ: %@";
+"ext.tv.cloud.auth.confirm" = "ลงชื่อเข้าใช้";
+"ext.tv.cloud.auth.refresh" = "ขอรหัสใหม่";
+"ext.tv.sources.form.cloudAPIToken" = "โทเค็น API";
+"ext.tv.sources.form.cloudAPITokenHint" = "สร้างโทเค็นในคอนโซลเว็บของผู้ให้บริการ พร้อมสิทธิ์อ่านไฟล์";
+"ext.tv.sources.form.cloudClientID" = "ไคลเอ็นต์ ID";
+"ext.tv.sources.form.cloudClientSecret" = "ไคลเอ็นต์ซีเคร็ต";
+"ext.tv.sources.form.cloudClientHint" = "ขอจากแพลตฟอร์มเปิดของผู้ให้บริการแล้วกรอกที่นี่";
+"ext.tv.sources.form.cloudScanHint" = "หน้าจอถัดไปจะแสดงรหัสให้สแกนด้วยโทรศัพท์";
+"ext.tv.sources.form.cloudSignIn" = "สแกนเพื่อลงชื่อเข้าใช้";
+"ext.tv.sources.hint.upnp" = "เซิร์ฟเวอร์สื่อ UPnP / DLNA";
+"ext.tv.sources.hint.cloudToken" = "ลงชื่อเข้าใช้ด้วยโทเค็น API";
+"ext.tv.sources.hint.cloudScan" = "สแกนรหัสด้วยโทรศัพท์เพื่อลงชื่อเข้าใช้";

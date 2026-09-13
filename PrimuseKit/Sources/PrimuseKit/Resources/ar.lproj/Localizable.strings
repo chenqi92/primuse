@@ -706,3 +706,34 @@
 "appleMusic.localAsset.unreadable" = "تعذرت قراءة الملف المحلي للأغنية. تحقق من أذونات الوصول إلى الملف.";
 "appleMusic.localAsset.invalidFile" = "هذا العنصر ليس ملف صوت محليًا قابلاً للتشغيل. تحقق منه في تطبيق الموسيقى، ثم أعد فحص هذا المصدر.";
 "appleMusic.localAsset.libraryUnavailable" = "تعذر تحديث مكتبة الموسيقى المحلية. تحقق من توفرها في تطبيق الموسيقى، ثم حاول مجددًا.";
+
+/* Apple TV cloud drive sign-in without a browser (QR / device code) */
+"ext.tv.cloud.auth.title" = "تسجيل الدخول إلى %@";
+"ext.tv.cloud.auth.scanSubtitle" = "امسح الرمز بهاتفك ووافق عليه هناك. سيُكمل Apple TV تسجيل الدخول تلقائيًا.";
+"ext.tv.cloud.auth.manualSubtitle" = "امسح الرمز بهاتفك وامنح الإذن، ثم أدخل الرمز الذي يظهر.";
+"ext.tv.cloud.auth.userCode" = "الرمز المطلوب إدخاله على هاتفك";
+"ext.tv.cloud.auth.openURL" = "أو افتح هذا العنوان";
+"ext.tv.cloud.auth.codeField" = "رمز التفويض";
+"ext.tv.cloud.auth.waiting" = "في انتظار المسح…";
+"ext.tv.cloud.auth.scanned" = "تم المسح — وافق من هاتفك…";
+"ext.tv.cloud.auth.redeeming" = "جارٍ تسجيل الدخول…";
+"ext.tv.cloud.auth.done" = "تم تسجيل الدخول";
+"ext.tv.cloud.auth.denied" = "تم رفض الوصول من الهاتف.";
+"ext.tv.cloud.auth.expired" = "انتهت صلاحية الرمز. احصل على رمز جديد.";
+"ext.tv.cloud.auth.unsupported" = "لا توفّر هذه الخدمة تسجيل دخول للأجهزة بلا متصفح. أضفها على iPhone أو Mac وستتم مزامنتها هنا.";
+"ext.tv.cloud.auth.missingClient" = "لا تتضمن هذه النسخة بيانات اعتماد المطوّر لهذه الخدمة.";
+"ext.tv.cloud.auth.serverError" = "أعادت الخدمة خطأ (%@).";
+"ext.tv.cloud.auth.invalidResponse" = "أعادت الخدمة استجابة غير معروفة.";
+"ext.tv.cloud.auth.rejected" = "رفضت الخدمة الطلب: %@";
+"ext.tv.cloud.auth.confirm" = "تسجيل الدخول";
+"ext.tv.cloud.auth.refresh" = "رمز جديد";
+"ext.tv.sources.form.cloudAPIToken" = "رمز API";
+"ext.tv.sources.form.cloudAPITokenHint" = "أنشئ الرمز من لوحة تحكم المزوّد وامنحه صلاحية قراءة الملفات.";
+"ext.tv.sources.form.cloudClientID" = "معرّف العميل";
+"ext.tv.sources.form.cloudClientSecret" = "سر العميل";
+"ext.tv.sources.form.cloudClientHint" = "اطلبهما من المنصة المفتوحة للمزوّد ثم أدخلهما هنا.";
+"ext.tv.sources.form.cloudScanHint" = "ستعرض الشاشة التالية رمزًا لمسحه بهاتفك.";
+"ext.tv.sources.form.cloudSignIn" = "امسح لتسجيل الدخول";
+"ext.tv.sources.hint.upnp" = "خادم وسائط UPnP / DLNA";
+"ext.tv.sources.hint.cloudToken" = "تسجيل الدخول برمز API";
+"ext.tv.sources.hint.cloudScan" = "امسح رمزًا بهاتفك لتسجيل الدخول";

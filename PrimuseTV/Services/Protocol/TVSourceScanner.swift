@@ -168,41 +168,6 @@ actor TVSongloftLister: TVDirectoryLister {
     }
 }
 
-/// Dropbox / OneDrive 直接通过 PrimuseKit 的 OAuth resolver 浏览目录。
-/// lister 与播放共用同一 resolver，因此 401 触发的 token 刷新只发生一次，
-/// 刷新结果也会走 TVStore 配置的持久化回调写回钥匙串和 CloudKit。
-actor TVCloudDriveLister: TVDirectoryLister {
-    private let source: MusicSource
-    private let credential: SourceCredential?
-
-    nonisolated var usesStableProviderSongIdentity: Bool { true }
-
-    init(source: MusicSource, credential: SourceCredential?) {
-        self.source = source
-        self.credential = credential
-    }
-
-    func list(_ path: String) async throws -> [TVDirEntry] {
-        let entries = try await StreamResolverRegistry.shared.listCloudDirectory(
-            source: source,
-            credential: credential,
-            path: path
-        )
-        return entries.map {
-            TVDirEntry(
-                name: $0.name,
-                isDir: $0.isDirectory,
-                size: $0.size,
-                path: $0.path,
-                providerID: $0.providerID,
-                parentPath: $0.parentPath ?? path,
-                modifiedDate: $0.modifiedDate,
-                revision: $0.revision
-            )
-        }
-    }
-}
-
 // MARK: - 群晖 FileStation 目录列举
 //
 // 直接复用 iOS / macOS 那份 `SynologyAPI`(纯 Foundation + PrimuseKit,tvOS 能编),
@@ -1220,8 +1185,30 @@ final class TVSourceScanner {
         switch source.type {
         case .local where TVLocalTransferSource.isOwned(source): return TVLocalDirectoryLister()
         case .smb: return TVSMBLister(source: source, credential: credential)
-        case .oneDrive, .dropbox:
-            return TVCloudDriveLister(source: source, credential: credential)
+        case let type where TVCloudConnectorFactory.supportedTypes.contains(type):
+            // 云盘全部走 iOS / macOS 那套连接器,列目录逻辑三端同码。
+            guard let connector = TVCloudConnectorFactory.makeConnector(source: source) else {
+                return nil
+            }
+            let sourceID = source.id
+            let sourceType = source.type
+            return TVConnectorLister(
+                connector: connector,
+                usesStableProviderSongIdentity: true,
+                prepare: {
+                    await TVCloudConnectorFactory.seedKeychainIfNeeded(
+                        sourceID: sourceID, type: sourceType, credential: credential
+                    )
+                }
+            )
+        case .sftp:
+            guard let connector = TVSFTPConnectorFactory.make(source: source, credential: credential) else {
+                return nil
+            }
+            return TVConnectorLister(connector: connector)
+        case .upnp:
+            // UPnP 的「根」是 ContentDirectory 的 0 号容器,不是文件系统路径。
+            return TVConnectorLister(connector: UPnPSource(sourceID: source.id))
         case .synology:
             return TVSynologyLister(source: source, credential: credential)
         case .qnap:

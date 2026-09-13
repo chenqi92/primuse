@@ -1081,14 +1081,16 @@ final class TVPlaybackCoordinator {
         makeDirectReader(
             source: source,
             filePath: song.filePath,
-            credential: credential
+            credential: credential,
+            knownLength: song.fileSize > 0 ? song.fileSize : nil
         )
     }
 
     nonisolated static func makeDirectReader(
         source: MusicSource,
         filePath: String,
-        credential: SourceCredential?
+        credential: SourceCredential?,
+        knownLength: Int64? = nil
     ) -> ByteRangeReader? {
         if source.connectionConfiguration != nil {
             let candidates = source.connectionCandidates.compactMap { candidate -> TVRoutedByteRangeReaderCandidate? in
@@ -1096,7 +1098,8 @@ final class TVPlaybackCoordinator {
                 guard let reader = makeSingleDirectReader(
                     source: routedSource,
                     filePath: filePath,
-                    credential: credential
+                    credential: credential,
+                    knownLength: knownLength
                 ) else {
                     return nil
                 }
@@ -1108,14 +1111,16 @@ final class TVPlaybackCoordinator {
         return makeSingleDirectReader(
             source: source,
             filePath: filePath,
-            credential: credential
+            credential: credential,
+            knownLength: knownLength
         )
     }
 
     private nonisolated static func makeSingleDirectReader(
         source: MusicSource,
         filePath: String,
-        credential: SourceCredential?
+        credential: SourceCredential?,
+        knownLength: Int64? = nil
     ) -> ByteRangeReader? {
         switch source.type {
         case .local where TVLocalTransferSource.isOwned(source):
@@ -1126,6 +1131,14 @@ final class TVPlaybackCoordinator {
             return NFSByteReader(source: source, filePath: filePath)
         case .ftp:
             return FTPByteReader(source: source, filePath: filePath, credential: credential)
+        case .sftp:
+            // 与 iOS / macOS 同一份 SFTPSource:电视端直接按段读,不再经 iPhone 中继。
+            guard let connector = TVSFTPConnectorFactory.make(
+                source: source, credential: credential
+            ) else { return nil }
+            return TVConnectorByteReader(
+                connector: connector, filePath: filePath, knownLength: knownLength
+            )
         default:
             return nil
         }

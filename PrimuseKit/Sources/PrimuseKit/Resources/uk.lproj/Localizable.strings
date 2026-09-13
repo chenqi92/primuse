@@ -706,3 +706,34 @@
 "appleMusic.localAsset.unreadable" = "Не вдалося прочитати локальний файл пісні. Перевірте права доступу до файлу.";
 "appleMusic.localAsset.invalidFile" = "Цей елемент не є відтворюваним локальним аудіофайлом. Перевірте його в програмі «Музика» та повторно проскануйте джерело.";
 "appleMusic.localAsset.libraryUnavailable" = "Не вдалося оновити локальну медіатеку. Перевірте її доступність у програмі «Музика» та спробуйте ще раз.";
+
+/* Apple TV cloud drive sign-in without a browser (QR / device code) */
+"ext.tv.cloud.auth.title" = "Вхід до %@";
+"ext.tv.cloud.auth.scanSubtitle" = "Відскануйте код телефоном і підтвердьте на ньому. Apple TV завершить вхід самостійно.";
+"ext.tv.cloud.auth.manualSubtitle" = "Відскануйте код телефоном, дозвольте доступ і введіть показаний код.";
+"ext.tv.cloud.auth.userCode" = "Код для введення на телефоні";
+"ext.tv.cloud.auth.openURL" = "Або відкрийте цю адресу";
+"ext.tv.cloud.auth.codeField" = "Код авторизації";
+"ext.tv.cloud.auth.waiting" = "Очікування сканування…";
+"ext.tv.cloud.auth.scanned" = "Відскановано — підтвердьте на телефоні…";
+"ext.tv.cloud.auth.redeeming" = "Виконується вхід…";
+"ext.tv.cloud.auth.done" = "Вхід виконано";
+"ext.tv.cloud.auth.denied" = "Доступ відхилено на телефоні.";
+"ext.tv.cloud.auth.expired" = "Код застарів. Отримайте новий.";
+"ext.tv.cloud.auth.unsupported" = "Цей сервіс не має входу для пристроїв без браузера. Додайте його на iPhone чи Mac — він синхронізується сюди.";
+"ext.tv.cloud.auth.missingClient" = "У цій збірці немає облікових даних розробника для цього сервісу.";
+"ext.tv.cloud.auth.serverError" = "Сервіс повернув помилку (%@).";
+"ext.tv.cloud.auth.invalidResponse" = "Сервіс повернув невідому відповідь.";
+"ext.tv.cloud.auth.rejected" = "Сервіс відхилив запит: %@";
+"ext.tv.cloud.auth.confirm" = "Увійти";
+"ext.tv.cloud.auth.refresh" = "Новий код";
+"ext.tv.sources.form.cloudAPIToken" = "Токен API";
+"ext.tv.sources.form.cloudAPITokenHint" = "Створіть токен у вебконсолі провайдера та надайте право читання файлів.";
+"ext.tv.sources.form.cloudClientID" = "Client ID";
+"ext.tv.sources.form.cloudClientSecret" = "Client Secret";
+"ext.tv.sources.form.cloudClientHint" = "Отримайте їх на відкритій платформі провайдера й введіть тут.";
+"ext.tv.sources.form.cloudScanHint" = "На наступному екрані з'явиться код для сканування телефоном.";
+"ext.tv.sources.form.cloudSignIn" = "Сканувати для входу";
+"ext.tv.sources.hint.upnp" = "Медіасервер UPnP / DLNA";
+"ext.tv.sources.hint.cloudToken" = "Вхід за токеном API";
+"ext.tv.sources.hint.cloudScan" = "Відскануйте код телефоном для входу";

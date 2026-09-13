@@ -756,3 +756,34 @@
 "appleMusic.localAsset.unreadable" = "無法讀取此歌曲的本機檔案。請檢查檔案的存取權限。";
 "appleMusic.localAsset.invalidFile" = "此項目不是可播放的本機音訊檔案。請在「音樂」App 中確認後重新掃描此音樂來源。";
 "appleMusic.localAsset.libraryUnavailable" = "無法重新整理本機音樂資料庫。請在「音樂」App 中確認資料庫可用後再試。";
+
+/* Apple TV cloud drive sign-in without a browser (QR / device code) */
+"ext.tv.cloud.auth.title" = "登入 %@";
+"ext.tv.cloud.auth.scanSubtitle" = "用手機掃碼並在手機上確認,Apple TV 會自己完成登入。";
+"ext.tv.cloud.auth.manualSubtitle" = "用手機掃碼授權,再把網頁上顯示的授權碼輸入進來。";
+"ext.tv.cloud.auth.userCode" = "手機上要填的碼";
+"ext.tv.cloud.auth.openURL" = "或開啟這個網址";
+"ext.tv.cloud.auth.codeField" = "授權碼";
+"ext.tv.cloud.auth.waiting" = "等待掃碼…";
+"ext.tv.cloud.auth.scanned" = "已掃碼,請在手機上確認…";
+"ext.tv.cloud.auth.redeeming" = "正在登入…";
+"ext.tv.cloud.auth.done" = "登入成功";
+"ext.tv.cloud.auth.denied" = "已在手機上拒絕授權。";
+"ext.tv.cloud.auth.expired" = "QR 碼已過期,請重新取得。";
+"ext.tv.cloud.auth.unsupported" = "此服務沒有為無瀏覽器裝置提供的登入方式。請在 iPhone 或 Mac 上加入,再同步過來。";
+"ext.tv.cloud.auth.missingClient" = "本機沒有內建該服務的開發者憑證。";
+"ext.tv.cloud.auth.serverError" = "伺服器回傳錯誤(%@)。";
+"ext.tv.cloud.auth.invalidResponse" = "伺服器回傳了無法辨識的內容。";
+"ext.tv.cloud.auth.rejected" = "伺服器拒絕了請求:%@";
+"ext.tv.cloud.auth.confirm" = "登入";
+"ext.tv.cloud.auth.refresh" = "換一個碼";
+"ext.tv.sources.form.cloudAPIToken" = "API 權杖";
+"ext.tv.sources.form.cloudAPITokenHint" = "在服務商的網頁後台建立權杖,並授予檔案讀取權限。";
+"ext.tv.sources.form.cloudClientID" = "Client ID";
+"ext.tv.sources.form.cloudClientSecret" = "Client Secret";
+"ext.tv.sources.form.cloudClientHint" = "到服務商的開放平台申請後填在這裡。";
+"ext.tv.sources.form.cloudScanHint" = "下一步會顯示一個 QR 碼,用手機掃碼登入。";
+"ext.tv.sources.form.cloudSignIn" = "掃碼登入";
+"ext.tv.sources.hint.upnp" = "UPnP / DLNA 媒體伺服器";
+"ext.tv.sources.hint.cloudToken" = "用 API 權杖登入";
+"ext.tv.sources.hint.cloudScan" = "用手機掃碼登入";

@@ -145,6 +145,10 @@ struct TVSourceTypePicker: View {
         case .emby: return "Emby"
         case .plex: return "Plex"
         case .subsonic, .navidrome, .airsonic, .gonic: return "Subsonic"
+        case .upnp: return "UPnP"
+        case .s3: return "S3"
+        // 云盘的角标写「云盘」类别,原始枚举名大写(ALIYUNDRIVE)既难读又超宽。
+        case _ where t.isCloudDrive: return t.category.displayName
         default: return t.rawValue.uppercased()
         }
     }
@@ -165,6 +169,9 @@ struct TVSourceTypePicker: View {
         case .songloft: return "Songloft REST API"
         case .synology, .qnap, .fnos, .ugreen:
             return PMString("ext.tv.sources.hint.nasSuite")
+        case .upnp: return PMString("ext.tv.sources.hint.upnp")
+        case .drime: return PMString("ext.tv.sources.hint.cloudToken")
+        case _ where t.isCloudDrive: return PMString("ext.tv.sources.hint.cloudScan")
         default: return t.category.displayName
         }
     }
@@ -201,11 +208,29 @@ struct TVSourceFormView: View {
     @State private var fnConnectAccessCode = ""
     @State private var useGuestAccess = false
     @State private var pathText = ""
+    /// 云盘:内置 client 凭据缺位时由用户自带(阿里云盘就是这种),
+    /// Drime 则是用户在网页后台自建的 API token。
+    @State private var cloudClientID = ""
+    @State private var cloudClientSecret = ""
+    @State private var cloudAPIToken = ""
+    @State private var cloudAuthSource: MusicSource?
+    @State private var cloudAuthClient: (id: String, secret: String?)?
     @State private var testResult: String?
     @State private var testing = false
     @State private var saveFailed = false
 
     private var showsSSL: Bool { type.category == .mediaServer || type.category == .nas || type == .webdav }
+    private var isCloudDrive: Bool { type.isCloudDrive }
+    /// Drime 用用户自建的 API token,没有授权页。
+    private var usesCloudAPIToken: Bool { type == .drime }
+    /// 本机没有内置 client_id 的云盘(阿里云盘),要用户自己到开放平台申请后填进来。
+    private var needsCustomCloudClient: Bool {
+        isCloudDrive && !usesCloudAPIToken && !BuiltInCloudCredentials.hasBuiltIn(for: type)
+    }
+    /// 该云盘是否走扫码 / 设备码授权。123 云盘直接用 clientID+Secret 换 token,不需要。
+    private var usesCloudDeviceAuth: Bool {
+        isCloudDrive && CloudDeviceAuthSupport.providers.contains(type)
+    }
     private var supportsAdaptiveConnections: Bool { type.supportsAdaptiveConnections }
     private var showsAuth: Bool { type.requiresCredentials }
     private var supportsAPIKeyAuth: Bool {
@@ -258,6 +283,17 @@ struct TVSourceFormView: View {
     private var canSave: Bool {
         let hasName = !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         guard hasName else { return false }
+        if isCloudDrive {
+            if usesCloudAPIToken {
+                // 编辑已有源时可以不重填 token(钥匙串里已经有了)。
+                return editing != nil || !cloudAPIToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            if needsCustomCloudClient {
+                return !cloudClientID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    && !cloudClientSecret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            return true
+        }
         let legacyConnectionIsValid = !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && ((type == .synology && synologyConnectionMode == .quickConnect)
                 ? SynologyQuickConnectResolver.isValidQuickConnectID(host)
@@ -363,6 +399,17 @@ struct TVSourceFormView: View {
                   type == .fnMusic,
                   newValue == .fnConnect else { return }
             useSsl = true
+        }
+        .fullScreenCover(item: $cloudAuthSource) { draft in
+            TVCloudAuthView(
+                source: draft,
+                clientID: cloudAuthClient?.id ?? "",
+                clientSecret: cloudAuthClient?.secret,
+                onAuthorized: {
+                    cloudAuthSource = nil
+                    commitCloudDrive(draft)
+                }
+            )
         }
         .alert(PMString("ext.tv.sources.saveFailed"), isPresented: $saveFailed) {
             Button(PMString("ext.tv.sources.ok"), role: .cancel) {}
@@ -498,7 +545,9 @@ struct TVSourceFormView: View {
                     }
                 }
             }
-            if type != .fnMusic && !type.supportsEndpointSpecificPath {
+            if isCloudDrive {
+                cloudCredentialFields
+            } else if type != .fnMusic && !type.supportsEndpointSpecificPath {
                 TVFormField(label: pathLabel, text: $pathText, mono: true)
             }
 
@@ -512,6 +561,42 @@ struct TVSourceFormView: View {
             }
         }
         .frame(maxWidth: 760, alignment: .leading)
+    }
+
+    /// 云盘要填的东西:要么是 API token(Drime),要么是开放平台的 client 凭据
+    /// (内置缺位时,如阿里云盘)。其余都有内置 client,扫码即可,不用填。
+    @ViewBuilder
+    private var cloudCredentialFields: some View {
+        if usesCloudAPIToken {
+            TVFormField(
+                label: PMString("ext.tv.sources.form.cloudAPIToken"),
+                text: $cloudAPIToken,
+                secure: true
+            )
+            Text(PMString("ext.tv.sources.form.cloudAPITokenHint"))
+                .tvFont(.meta).foregroundStyle(TVColor.textFaint)
+        } else if needsCustomCloudClient {
+            TVFormField(
+                label: PMString("ext.tv.sources.form.cloudClientID"),
+                text: $cloudClientID,
+                mono: true
+            )
+            TVFormField(
+                label: PMString("ext.tv.sources.form.cloudClientSecret"),
+                text: $cloudClientSecret,
+                secure: true
+            )
+            Text(PMString("ext.tv.sources.form.cloudClientHint"))
+                .tvFont(.meta).foregroundStyle(TVColor.textFaint)
+        }
+        if usesCloudDeviceAuth {
+            HStack(spacing: 12) {
+                Image(systemName: "qrcode").font(.system(size: 20)).foregroundStyle(TVColor.brand)
+                Text(PMString("ext.tv.sources.form.cloudScanHint"))
+                    .tvFont(.caption).foregroundStyle(TVColor.textFaint)
+            }
+            .padding(.top, 4)
+        }
     }
 
     @ViewBuilder
@@ -622,9 +707,11 @@ struct TVSourceFormView: View {
                 .disabled(!canTestConnection || testing)
                 TVFocusButton(radius: 14, accent: TVColor.brand, scale: 1.05, lift: 0, action: save) { f in
                     Text(
-                        editing == nil
-                            ? PMString("ext.tv.sources.form.add")
-                            : PMString("ext.tv.sources.form.save")
+                        usesCloudDeviceAuth
+                            ? PMString("ext.tv.sources.form.cloudSignIn")
+                            : (editing == nil
+                                ? PMString("ext.tv.sources.form.add")
+                                : PMString("ext.tv.sources.form.save"))
                     )
                         .tvFont(.meta, weight: .bold).foregroundStyle(canSave ? TVColor.onBrand : TVColor.textGhost)
                         .frame(maxWidth: .infinity).padding(.vertical, 18)
@@ -855,6 +942,10 @@ struct TVSourceFormView: View {
 
     private func save() {
         guard let src = draftSource() else { return }
+        if isCloudDrive {
+            saveCloudDrive(src)
+            return
+        }
 
         let passwordToSave = effectiveAuthType == .none || password.isEmpty ? nil : password
         let accessCodeToSave = type == .fnMusic
@@ -865,6 +956,42 @@ struct TVSourceFormView: View {
         let didSave = editing == nil
             ? store.addSource(src, password: passwordToSave, fnConnectAccessCode: accessCodeToSave)
             : store.updateSource(src, password: passwordToSave, fnConnectAccessCode: accessCodeToSave)
+        guard didSave else {
+            saveFailed = true
+            return
+        }
+        onSaved(store.source(id: src.id) ?? src, editing == nil)
+        dismiss()
+    }
+
+    /// 云盘:先把 client 凭据 / API token 落进与 iPhone 同一份钥匙串,再决定
+    /// 是弹扫码授权页,还是(123 云盘 / Drime 这种不需要授权页的)直接落库。
+    private func saveCloudDrive(_ src: MusicSource) {
+        Task { @MainActor in
+            let client = await TVCloudConnectorFactory.stageCredentials(
+                sourceID: src.id,
+                type: type,
+                apiToken: cloudAPIToken,
+                clientID: cloudClientID,
+                clientSecret: cloudClientSecret
+            )
+            guard usesCloudDeviceAuth else {
+                commitCloudDrive(src)
+                return
+            }
+            guard let client else {
+                saveFailed = true
+                return
+            }
+            cloudAuthClient = client
+            cloudAuthSource = src
+        }
+    }
+
+    private func commitCloudDrive(_ src: MusicSource) {
+        let didSave = editing == nil
+            ? store.addSource(src, password: nil, fnConnectAccessCode: nil)
+            : store.updateSource(src, password: nil, fnConnectAccessCode: nil)
         guard didSave else {
             saveFailed = true
             return

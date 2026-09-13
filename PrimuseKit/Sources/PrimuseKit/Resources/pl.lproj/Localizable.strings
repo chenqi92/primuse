@@ -706,3 +706,34 @@
 "appleMusic.localAsset.unreadable" = "Nie można odczytać lokalnego pliku utworu. Sprawdź uprawnienia dostępu do pliku.";
 "appleMusic.localAsset.invalidFile" = "Ten element nie jest lokalnym plikiem audio, który można odtworzyć. Sprawdź go w aplikacji Muzyka i ponownie przeskanuj źródło.";
 "appleMusic.localAsset.libraryUnavailable" = "Nie udało się odświeżyć lokalnej biblioteki muzycznej. Sprawdź jej dostępność w aplikacji Muzyka i spróbuj ponownie.";
+
+/* Apple TV cloud drive sign-in without a browser (QR / device code) */
+"ext.tv.cloud.auth.title" = "Zaloguj się w %@";
+"ext.tv.cloud.auth.scanSubtitle" = "Zeskanuj kod telefonem i zatwierdź go tam. Apple TV samo dokończy logowanie.";
+"ext.tv.cloud.auth.manualSubtitle" = "Zeskanuj kod telefonem, zezwól na dostęp, a potem wpisz wyświetlony kod.";
+"ext.tv.cloud.auth.userCode" = "Kod do wpisania na telefonie";
+"ext.tv.cloud.auth.openURL" = "Albo otwórz ten adres";
+"ext.tv.cloud.auth.codeField" = "Kod autoryzacji";
+"ext.tv.cloud.auth.waiting" = "Czekam na zeskanowanie…";
+"ext.tv.cloud.auth.scanned" = "Zeskanowano — zatwierdź na telefonie…";
+"ext.tv.cloud.auth.redeeming" = "Logowanie…";
+"ext.tv.cloud.auth.done" = "Zalogowano";
+"ext.tv.cloud.auth.denied" = "Dostęp odrzucono na telefonie.";
+"ext.tv.cloud.auth.expired" = "Kod wygasł. Pobierz nowy.";
+"ext.tv.cloud.auth.unsupported" = "Ta usługa nie oferuje logowania na urządzeniach bez przeglądarki. Dodaj ją na iPhonie lub Macu, a zsynchronizuje się tutaj.";
+"ext.tv.cloud.auth.missingClient" = "Ta kompilacja nie zawiera danych dewelopera dla tej usługi.";
+"ext.tv.cloud.auth.serverError" = "Usługa zwróciła błąd (%@).";
+"ext.tv.cloud.auth.invalidResponse" = "Usługa zwróciła nieznaną odpowiedź.";
+"ext.tv.cloud.auth.rejected" = "Usługa odrzuciła żądanie: %@";
+"ext.tv.cloud.auth.confirm" = "Zaloguj";
+"ext.tv.cloud.auth.refresh" = "Nowy kod";
+"ext.tv.sources.form.cloudAPIToken" = "Token API";
+"ext.tv.sources.form.cloudAPITokenHint" = "Utwórz token w panelu dostawcy i nadaj mu prawo odczytu plików.";
+"ext.tv.sources.form.cloudClientID" = "Identyfikator klienta";
+"ext.tv.sources.form.cloudClientSecret" = "Sekret klienta";
+"ext.tv.sources.form.cloudClientHint" = "Złóż wniosek na otwartej platformie dostawcy i wpisz je tutaj.";
+"ext.tv.sources.form.cloudScanHint" = "Na następnym ekranie pojawi się kod do zeskanowania telefonem.";
+"ext.tv.sources.form.cloudSignIn" = "Zeskanuj, aby się zalogować";
+"ext.tv.sources.hint.upnp" = "Serwer multimediów UPnP / DLNA";
+"ext.tv.sources.hint.cloudToken" = "Zaloguj się tokenem API";
+"ext.tv.sources.hint.cloudScan" = "Zeskanuj kod telefonem, aby się zalogować";

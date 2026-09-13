@@ -706,3 +706,34 @@
 "appleMusic.localAsset.unreadable" = "No se puede leer el archivo local de la canción. Revisa los permisos de acceso al archivo.";
 "appleMusic.localAsset.invalidFile" = "Este elemento no es un archivo de audio local reproducible. Revísalo en Música y vuelve a escanear esta fuente.";
 "appleMusic.localAsset.libraryUnavailable" = "No se pudo actualizar la biblioteca musical local. Comprueba que esté disponible en Música e inténtalo de nuevo.";
+
+/* Apple TV cloud drive sign-in without a browser (QR / device code) */
+"ext.tv.cloud.auth.title" = "Iniciar sesión en %@";
+"ext.tv.cloud.auth.scanSubtitle" = "Escanea el código con tu teléfono y apruébalo ahí. El Apple TV termina el inicio de sesión solo.";
+"ext.tv.cloud.auth.manualSubtitle" = "Escanea el código con tu teléfono, autoriza el acceso y escribe el código que se muestre.";
+"ext.tv.cloud.auth.userCode" = "Código para escribir en tu teléfono";
+"ext.tv.cloud.auth.openURL" = "O abre esta dirección";
+"ext.tv.cloud.auth.codeField" = "Código de autorización";
+"ext.tv.cloud.auth.waiting" = "Esperando el escaneo…";
+"ext.tv.cloud.auth.scanned" = "Escaneado: apruébalo en tu teléfono…";
+"ext.tv.cloud.auth.redeeming" = "Iniciando sesión…";
+"ext.tv.cloud.auth.done" = "Sesión iniciada";
+"ext.tv.cloud.auth.denied" = "Se rechazó el acceso en el teléfono.";
+"ext.tv.cloud.auth.expired" = "El código caducó. Obtén uno nuevo.";
+"ext.tv.cloud.auth.unsupported" = "Este servicio no ofrece inicio de sesión para dispositivos sin navegador. Agrégalo en iPhone o Mac y se sincronizará aquí.";
+"ext.tv.cloud.auth.missingClient" = "Esta versión no incluye credenciales de desarrollador para ese servicio.";
+"ext.tv.cloud.auth.serverError" = "El servicio devolvió un error (%@).";
+"ext.tv.cloud.auth.invalidResponse" = "El servicio devolvió una respuesta desconocida.";
+"ext.tv.cloud.auth.rejected" = "El servicio rechazó la solicitud: %@";
+"ext.tv.cloud.auth.confirm" = "Iniciar sesión";
+"ext.tv.cloud.auth.refresh" = "Código nuevo";
+"ext.tv.sources.form.cloudAPIToken" = "Token de API";
+"ext.tv.sources.form.cloudAPITokenHint" = "Crea el token en la consola web del proveedor y dale permiso de lectura de archivos.";
+"ext.tv.sources.form.cloudClientID" = "ID de cliente";
+"ext.tv.sources.form.cloudClientSecret" = "Secreto de cliente";
+"ext.tv.sources.form.cloudClientHint" = "Solicítalos en la plataforma abierta del proveedor y escríbelos aquí.";
+"ext.tv.sources.form.cloudScanHint" = "La siguiente pantalla muestra un código para escanear con tu teléfono.";
+"ext.tv.sources.form.cloudSignIn" = "Escanear para iniciar sesión";
+"ext.tv.sources.hint.upnp" = "Servidor multimedia UPnP / DLNA";
+"ext.tv.sources.hint.cloudToken" = "Iniciar sesión con un token de API";
+"ext.tv.sources.hint.cloudScan" = "Escanea un código con tu teléfono para iniciar sesión";

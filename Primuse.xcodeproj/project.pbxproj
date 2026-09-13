@@ -1208,6 +1208,33 @@
 		FF1BDF6B3543D685C762F962 /* PrimuseWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91C06A4C190FC178D4C65D00 /* PrimuseWidgetBundle.swift */; };
 		FFA8A0D80B2614FB9E78AE03 /* AudioEffectsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78324748ACDF339A48E0E8D4 /* AudioEffectsService.swift */; };
 		FFD2B29D7B89BDA769B2D069 /* AudioDecoderProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF62F5046D29F993786AE489 /* AudioDecoderProtocol.swift */; };
+		3166B9BFF5FE784B3AC86BBF /* URL+AudioFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81BF3B3BCA7A1454E6731DDC /* URL+AudioFormat.swift */; };
+		45167F03DD0A1ABFBB4B9A50 /* EmbeddedMetadataWritebackCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21027666DF946697326B985E /* EmbeddedMetadataWritebackCoordinator.swift */; };
+		F5FF8A2C9A600344CEE26692 /* SFTPSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D64868ED9B01B2808EEFF51 /* SFTPSource.swift */; };
+		EF4FD33F7810255701A2A39F /* UPnPSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A7C2D0F07C125A333AC1046 /* UPnPSource.swift */; };
+		47E9AC66C5E1F6E1AD0878DF /* AliyunDriveSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3CFC2BB314F0A2BB166E280 /* AliyunDriveSource.swift */; };
+		D70DB314DD9BD776FDA53BFD /* BaiduPanIncrementalSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6260D8F4F4648F9D7376C4F5 /* BaiduPanIncrementalSync.swift */; };
+		E1C93CCD5F5455AF83B38FCF /* BaiduPanSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = F40F5CE9382F37C345E04D5B /* BaiduPanSource.swift */; };
+		C824BCE28C5B44C1235311A5 /* BuiltInCloudCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82C951D83E89D86B5BBCCF22 /* BuiltInCloudCredentials.swift */; };
+		5F682C122E67DF57077A3473 /* CloudDirectoryNameStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6603576133F7798EFB9267D0 /* CloudDirectoryNameStore.swift */; };
+		976F7427A4729E42ECA2D472 /* CloudDriveBase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94FE18AA29D7F79EE4D6BDE5 /* CloudDriveBase.swift */; };
+		928896FEC2F5BEE5DC72E272 /* CloudTokenManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C28F9B371297DF55837BAB92 /* CloudTokenManager.swift */; };
+		C69C7A5BB5830A0328B1EAB2 /* DrimeSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BA942F96195D24A2C7893E4 /* DrimeSource.swift */; };
+		2398DCED3838F50DE7FC0BAA /* DropboxSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC2D3494E7475F44773698F9 /* DropboxSource.swift */; };
+		DC409C48351992371BE73178 /* GoogleDriveSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FF18B2B6584B7988608C004 /* GoogleDriveSource.swift */; };
+		E2FA76DA357DCEB82B31E21C /* OneDriveSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E648713A25DB3912120693A /* OneDriveSource.swift */; };
+		E36C898408651F720398EF32 /* Pan123Source.swift in Sources */ = {isa = PBXBuildFile; fileRef = 309F9BB53ECA9FA54F805457 /* Pan123Source.swift */; };
+		06EE95201AE5DBA06B4ACB39 /* TCPRangeFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77301F04EF850775B481E2D1 /* TCPRangeFetcher.swift */; };
+		4AF15FF88566FF269E64BD2A /* U115Source.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB4788BFEC669118576E7E2 /* U115Source.swift */; };
+		77C07C9E4CD2506C55BA974C /* TVConnectorLister.swift in Sources */ = {isa = PBXBuildFile; fileRef = 034384D94E434998FEAE11A3 /* TVConnectorLister.swift */; };
+		2AE8E8A7AEB9E030E551BC19 /* TVCloudConnectorFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCE909DE0D912342ECEC5A60 /* TVCloudConnectorFactory.swift */; };
+		D25C845568410A7BA320485B /* TVSFTPConnectorFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3FE3AEF6464EAD6BA71B841 /* TVSFTPConnectorFactory.swift */; };
+		86F581FBD61599735CF56192 /* TVCloudAuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1E1A7702591BEB6873FDE9E /* TVCloudAuthView.swift */; };
+		F5E782200B2D2CC2D2725A9A /* CloudDeviceAuthFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 946F93318D401207CF6F9778 /* CloudDeviceAuthFlow.swift */; };
+		E6A058665436BD86B1A77676 /* CloudDeviceAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EFFDCF455A11467A9FEC882 /* CloudDeviceAuthService.swift */; };
+		EB36DC91D0D34657F857DE69 /* Citadel in Frameworks */ = {isa = PBXBuildFile; productRef = 016BB5C5FFC191F9E56EACFE /* Citadel */; };
+		9F88DD143F48777FC58D111A /* Crypto in Frameworks */ = {isa = PBXBuildFile; productRef = FFEFEA82A1240F2C6B21C153 /* Crypto */; };
+		0C9F1467C16E87C811382E54 /* NIOCore in Frameworks */ = {isa = PBXBuildFile; productRef = A3B7F0486256B6403A8F9AB6 /* NIOCore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2318,6 +2345,12 @@
 		FF7F66F30F1802BA29DEB696 /* StreamingDownloadDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingDownloadDecoder.swift; sourceTree = "<group>"; };
 		FF9694CD231B4175BED85BEA /* ScraperResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperResult.swift; sourceTree = "<group>"; };
 		FFCB474474519BE89590D828 /* MacRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRoute.swift; sourceTree = "<group>"; };
+		034384D94E434998FEAE11A3 /* TVConnectorLister.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVConnectorLister.swift; sourceTree = "<group>"; };
+		DCE909DE0D912342ECEC5A60 /* TVCloudConnectorFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVCloudConnectorFactory.swift; sourceTree = "<group>"; };
+		E3FE3AEF6464EAD6BA71B841 /* TVSFTPConnectorFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVSFTPConnectorFactory.swift; sourceTree = "<group>"; };
+		A1E1A7702591BEB6873FDE9E /* TVCloudAuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVCloudAuthView.swift; sourceTree = "<group>"; };
+		946F93318D401207CF6F9778 /* CloudDeviceAuthFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDeviceAuthFlow.swift; sourceTree = "<group>"; };
+		7EFFDCF455A11467A9FEC882 /* CloudDeviceAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDeviceAuthService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -2367,6 +2400,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0C9F1467C16E87C811382E54 /* NIOCore in Frameworks */,
+				9F88DD143F48777FC58D111A /* Crypto in Frameworks */,
+				EB36DC91D0D34657F857DE69 /* Citadel in Frameworks */,
 				5E821F60595D5717B952E98C /* DeviceCheck.framework in Frameworks */,
 				F101F74A9F076657AE7C6D3E /* PrimuseKit.framework in Frameworks */,
 				29A9409313AE55C1C09F955C /* GRDB in Frameworks */,
@@ -3184,6 +3220,7 @@
 		9E53D249778735CE1630BEA6 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				9E20F75793A61785A5FE0E9B /* Cloud */,
 				C512B34CBD22685C59F4312A /* Protocol */,
 				F3C8CEC911997BAD1A995D08 /* TVConfigServer.swift */,
 				C53D95B464F9DAE95E595DC2 /* TVPlayMediaIntentHandler.swift */,
@@ -3388,6 +3425,7 @@
 		C512B34CBD22685C59F4312A /* Protocol */ = {
 			isa = PBXGroup;
 			children = (
+				034384D94E434998FEAE11A3 /* TVConnectorLister.swift */,
 				986B24BF4F85684EE7B21FCE /* FTPByteReader.swift */,
 				358B35D2EA5639F74C35CC3A /* NFSByteReader.swift */,
 				BACEFA0644945C48C3E8A0F9 /* SMBByteReader.swift */,
@@ -3683,6 +3721,7 @@
 		E4688F08BD6F51AEAC64DCE7 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				A1E1A7702591BEB6873FDE9E /* TVCloudAuthView.swift */,
 				F032004B023B2AE64349E763 /* TVArtistArtworkView.swift */,
 				42193A6C0C18AFAAAE77B2B7 /* TVComponents.swift */,
 				43740BC5ACC88D24034B941C /* TVHomeView.swift */,
@@ -3756,6 +3795,8 @@
 		F49A5BE606706F898B5DEAC8 /* Streaming */ = {
 			isa = PBXGroup;
 			children = (
+				7EFFDCF455A11467A9FEC882 /* CloudDeviceAuthService.swift */,
+				946F93318D401207CF6F9778 /* CloudDeviceAuthFlow.swift */,
 				6522627B000671EA9055B5D5 /* BaiduFileManagerBatchResponse.swift */,
 				13DF5DE888D6B46DD9A60F16 /* BaiduPanStreamResolver.swift */,
 				2CE02EE3CFE1DFDF66C66B7B /* CloudDriveStreamResolver.swift */,
@@ -3813,6 +3854,15 @@
 				D48A906E5EF29F5A5D04B2FC /* FFmpeg-LGPL-2.1.txt */,
 			);
 			path = Resources;
+			sourceTree = "<group>";
+		};
+		9E20F75793A61785A5FE0E9B /* Cloud */ = {
+			isa = PBXGroup;
+			children = (
+				E3FE3AEF6464EAD6BA71B841 /* TVSFTPConnectorFactory.swift */,
+				DCE909DE0D912342ECEC5A60 /* TVCloudConnectorFactory.swift */,
+			);
+			path = Cloud;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -3875,6 +3925,9 @@
 			);
 			name = PrimuseTV;
 			packageProductDependencies = (
+				A3B7F0486256B6403A8F9AB6 /* NIOCore */,
+				FFEFEA82A1240F2C6B21C153 /* Crypto */,
+				016BB5C5FFC191F9E56EACFE /* Citadel */,
 				0F9C8BBA8A78A11F68EC9E00 /* GRDB */,
 				60CB1C69962970C37F46BE91 /* AMSMB2 */,
 				40611D493FD37CDE5D17ECCF /* FilesProvider */,
@@ -4368,6 +4421,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E6A058665436BD86B1A77676 /* CloudDeviceAuthService.swift in Sources */,
+				F5E782200B2D2CC2D2725A9A /* CloudDeviceAuthFlow.swift in Sources */,
 				6F139A773725A49F443C3494 /* AIAvailabilityPolicy.swift in Sources */,
 				A7815B97AB23C3B0112CF13D /* AIIntelligenceModels.swift in Sources */,
 				223571A3D35282EEE8DC3CD8 /* AIRemoteProviderConfiguration.swift in Sources */,
@@ -4968,6 +5023,28 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				86F581FBD61599735CF56192 /* TVCloudAuthView.swift in Sources */,
+				D25C845568410A7BA320485B /* TVSFTPConnectorFactory.swift in Sources */,
+				2AE8E8A7AEB9E030E551BC19 /* TVCloudConnectorFactory.swift in Sources */,
+				77C07C9E4CD2506C55BA974C /* TVConnectorLister.swift in Sources */,
+				4AF15FF88566FF269E64BD2A /* U115Source.swift in Sources */,
+				06EE95201AE5DBA06B4ACB39 /* TCPRangeFetcher.swift in Sources */,
+				E36C898408651F720398EF32 /* Pan123Source.swift in Sources */,
+				E2FA76DA357DCEB82B31E21C /* OneDriveSource.swift in Sources */,
+				DC409C48351992371BE73178 /* GoogleDriveSource.swift in Sources */,
+				2398DCED3838F50DE7FC0BAA /* DropboxSource.swift in Sources */,
+				C69C7A5BB5830A0328B1EAB2 /* DrimeSource.swift in Sources */,
+				928896FEC2F5BEE5DC72E272 /* CloudTokenManager.swift in Sources */,
+				976F7427A4729E42ECA2D472 /* CloudDriveBase.swift in Sources */,
+				5F682C122E67DF57077A3473 /* CloudDirectoryNameStore.swift in Sources */,
+				C824BCE28C5B44C1235311A5 /* BuiltInCloudCredentials.swift in Sources */,
+				E1C93CCD5F5455AF83B38FCF /* BaiduPanSource.swift in Sources */,
+				D70DB314DD9BD776FDA53BFD /* BaiduPanIncrementalSync.swift in Sources */,
+				47E9AC66C5E1F6E1AD0878DF /* AliyunDriveSource.swift in Sources */,
+				EF4FD33F7810255701A2A39F /* UPnPSource.swift in Sources */,
+				F5FF8A2C9A600344CEE26692 /* SFTPSource.swift in Sources */,
+				45167F03DD0A1ABFBB4B9A50 /* EmbeddedMetadataWritebackCoordinator.swift in Sources */,
+				3166B9BFF5FE784B3AC86BBF /* URL+AudioFormat.swift in Sources */,
 				09EE11D6ADFC5A50BF5744AE /* AICredentialStore.swift in Sources */,
 				790E6EC9BAD713E863742CA9 /* AISettingsStore.swift in Sources */,
 				B786B6AEA6CACEA58889EAA6 /* AISettingsView.swift in Sources */,
@@ -5859,6 +5936,7 @@
 		};
 		1AEE17FBB5F9CD32681DF9E6 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 28EE6B136CE82FFC872F9E86 /* Release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -6146,6 +6224,7 @@
 		};
 		992202CD42D18B0184330187 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 63D1E2C3BE30F68AD3F01632 /* Debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -6682,6 +6761,21 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 5D1F5170FF958C6D23501EA2 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
 			productName = GRDB;
+		};
+		016BB5C5FFC191F9E56EACFE /* Citadel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 466EF0BB12C1115075D5668A /* XCRemoteSwiftPackageReference "Citadel" */;
+			productName = Citadel;
+		};
+		FFEFEA82A1240F2C6B21C153 /* Crypto */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 47E64858A997CBFB17040255 /* XCRemoteSwiftPackageReference "swift-crypto" */;
+			productName = Crypto;
+		};
+		A3B7F0486256B6403A8F9AB6 /* NIOCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2978E46D4F61457C5F4EFF1E /* XCRemoteSwiftPackageReference "swift-nio" */;
+			productName = NIOCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
