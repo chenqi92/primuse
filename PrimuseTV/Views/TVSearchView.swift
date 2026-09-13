@@ -138,16 +138,16 @@ struct TVSearchView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // 单层原生输入框:tvOS 的 TextField 自带一个圆角输入框,聚焦后唤起系统键盘。
-    // 不再叠自绘玻璃盒 + 近透明 TextField,避免「大框套小框」和异常高度。
+    // 单层输入框:用 TVTextFieldBox 去掉系统底框,自己画唯一的一层,
+    // 框内文字垂直居中,聚焦后照常唤起系统键盘。
     private var searchField: some View {
         HStack(spacing: 18) {
             Image(systemName: "magnifyingglass").font(.system(size: 26, weight: .semibold))
                 .foregroundStyle(inputActive ? TVColor.brand : TVColor.textFaint)
-            TextField(PMString("ext.tv.search.placeholder"), text: $query)
-                .focused($inputActive)
-                .tvFont(.input)
-                .frame(maxWidth: .infinity)
+            TVTextFieldBox(isFocused: inputActive) {
+                TextField(PMString("ext.tv.search.placeholder"), text: $query)
+                    .focused($inputActive)
+            }
             if !trimmed.isEmpty {
                 TVFocusButton(radius: 18, scale: 1.06, lift: 0, action: { query = "" }) { f in
                     Text(PMString("ext.tv.search.clear"))

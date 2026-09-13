@@ -3,6 +3,71 @@ import SwiftUI
 import PrimuseKit
 import UIKit
 
+/// 单层输入框。tvOS 原生 `TextField`/`SecureField` 自带的圆角底框,高度按系统字号
+/// 设计,换成 10ft 字号后框内文字会偏上;外面再套一层自绘框又会变成「大框套小框」。
+/// 这里用 `.plain` 去掉系统底框,自己画唯一的一层,文字在固定高度里垂直居中,
+/// 宽度也由外层决定,相邻两格不会一大一小。
+struct TVTextFieldBox<Field: View>: View {
+    var isFocused: Bool
+    var mono: Bool = false
+    var height: CGFloat = 72
+    @ViewBuilder var field: () -> Field
+
+    var body: some View {
+        field()
+            .textFieldStyle(.plain)
+            .tvFont(.input, weight: .medium, design: mono ? .monospaced : .default)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 24)
+            .frame(height: height)
+            .background(isFocused ? TVColor.cardElev : TVColor.surfaceSubtle,
+                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(isFocused ? TVColor.brand : TVColor.cardBorder,
+                                  lineWidth: isFocused ? 2 : 1)
+            }
+            .animation(.easeOut(duration: 0.18), value: isFocused)
+    }
+}
+
+/// 开关行。tvOS 的原生 `Toggle` 自己就是一枚满宽的绿色胶囊,外面再包一层
+/// 自绘圆角底就成了「大框套椭圆框」;这里整行自绘,和设置页的开关保持一致。
+struct TVSwitchRow: View {
+    let icon: String
+    let title: String
+    @Binding var isOn: Bool
+    var maxWidth: CGFloat = 720
+
+    var body: some View {
+        TVFocusButton(radius: 14, scale: 1.0, lift: 0, action: { isOn.toggle() }) { focused in
+            HStack(spacing: 16) {
+                Image(systemName: icon)
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(isOn ? TVColor.brand : TVColor.textFaint)
+                    .frame(width: 34)
+                Text(title).tvFont(.caption, weight: .medium).foregroundStyle(TVColor.text)
+                Spacer(minLength: 12)
+                ZStack(alignment: isOn ? .trailing : .leading) {
+                    Capsule()
+                        .fill(isOn ? AnyShapeStyle(TVColor.brand) : AnyShapeStyle(TVColor.surfaceStrong))
+                        .frame(width: 62, height: 34)
+                    Circle().fill(.white).frame(width: 28, height: 28).padding(3)
+                }
+                .animation(.easeOut(duration: 0.18), value: isOn)
+            }
+            .padding(.horizontal, 22).padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle,
+                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .frame(maxWidth: maxWidth, alignment: .leading)
+        .accessibilityValue(Text(isOn
+            ? PMString("ext.tv.sources.status.enabled")
+            : PMString("ext.tv.sources.status.disabled")))
+    }
+}
+
 struct TVLibraryReviewControl: View {
     @Environment(TVStore.self) private var store
     @AppStorage(LibraryReviewPreferences.enabledKey) private var isEnabled = false
@@ -136,16 +201,16 @@ private struct TVLibraryReviewCommentEditor: View {
             }
             .padding(.bottom, 10)
 
-            TextField("", text: $draft)
-                .focused($inputActive)
-                .tvFont(.input)
-                .frame(maxWidth: .infinity)
-                .accessibilityLabel(Text("library_review_comment_title"))
-                .onChange(of: draft) { _, value in
-                    if value.count > limit {
-                        draft = String(value.prefix(limit))
+            TVTextFieldBox(isFocused: inputActive) {
+                TextField("", text: $draft)
+                    .focused($inputActive)
+                    .accessibilityLabel(Text("library_review_comment_title"))
+                    .onChange(of: draft) { _, value in
+                        if value.count > limit {
+                            draft = String(value.prefix(limit))
+                        }
                     }
-                }
+            }
 
             HStack(spacing: 16) {
                 TVFocusButton(radius: 14, accent: TVColor.brand, scale: 1.02, lift: 0, action: save) { focused in

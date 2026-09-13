@@ -196,7 +196,7 @@ struct TVSettingsView: View {
                     lyricsMotionEnabled: $lyricsMotionEnabled,
                     onDismiss: { showsEffectPicker = false }
                 )
-                .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                .transition(.opacity)
                 .zIndex(10)
             }
 
@@ -206,7 +206,7 @@ struct TVSettingsView: View {
                     selectedModeRawValue: $themeColorModeRawValue,
                     onDismiss: { showsThemePicker = false }
                 )
-                .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                .transition(.opacity)
                 .zIndex(11)
             }
         }

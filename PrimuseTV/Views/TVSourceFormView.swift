@@ -446,12 +446,9 @@ struct TVSourceFormView: View {
             }
             if showsAuth {
                 if type.supportsAnonymous {
-                    Toggle(isOn: $useGuestAccess) {
-                        Label(PMString("ext.tv.sources.form.guest"), systemImage: "person.crop.circle.badge.checkmark")
-                            .tvFont(.caption, weight: .medium).foregroundStyle(TVColor.text)
-                    }
-                    .padding(.horizontal, 22).padding(.vertical, 14).frame(maxWidth: 720, alignment: .leading)
-                    .background(TVColor.surfaceSubtle, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    TVSwitchRow(icon: "person.crop.circle.badge.checkmark",
+                                title: PMString("ext.tv.sources.form.guest"),
+                                isOn: $useGuestAccess)
                 }
                 if !useGuestAccess {
                     if showsAuthPicker {
@@ -589,18 +586,7 @@ struct TVSourceFormView: View {
     }
 
     private func connectionSSLToggle(isOn: Binding<Bool>) -> some View {
-        Toggle(isOn: isOn) {
-            Label(PMString("ext.tv.sources.form.useSSL"), systemImage: "lock.shield")
-                .tvFont(.caption, weight: .medium)
-                .foregroundStyle(TVColor.text)
-        }
-        .padding(.horizontal, 22)
-        .padding(.vertical, 14)
-        .frame(maxWidth: 720, alignment: .leading)
-        .background(
-            TVColor.surfaceSubtle,
-            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-        )
+        TVSwitchRow(icon: "lock.shield", title: PMString("ext.tv.sources.form.useSSL"), isOn: isOn)
     }
 
     private var rightPanel: some View {
@@ -902,20 +888,19 @@ struct TVFormField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(label).tvFont(.caption).foregroundStyle(TVColor.textFaint)
-            Group {
-                if secure { SecureField("", text: $text) }
-                else { TextField("", text: $text) }
+            Text(label).tvFont(.caption)
+                .foregroundStyle(focused ? TVColor.text : TVColor.textFaint)
+            TVTextFieldBox(isFocused: focused, mono: mono) {
+                Group {
+                    if secure { SecureField("", text: $text) }
+                    else { TextField("", text: $text) }
+                }
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .accessibilityLabel(label)
+                .focused($focused)
             }
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .tvFont(.input, weight: .medium, design: mono ? .monospaced : .default)
-            // 原生输入框会按内容宽度收缩,不撑满就会出现相邻两格一大一小;
-            // 先撑满再限宽,整列字段才等宽对齐。占位串为空,标题只在上方,补一个无障碍标签。
-            .frame(maxWidth: .infinity)
             .frame(maxWidth: 720, alignment: .leading)
-            .accessibilityLabel(label)
-            .focused($focused)
         }
         .onAppear { if autofocus { focused = true } }
     }

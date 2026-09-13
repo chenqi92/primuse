@@ -749,10 +749,9 @@ private struct TVCredentialEditorView: View {
                 Text(title).tvFont(.caption)
                     .foregroundStyle(isFocused ? TVColor.text : TVColor.textFaint)
             }
-            content()
-                .tvFont(.input)
-                .frame(maxWidth: .infinity)
-                .accessibilityLabel(title)
+            TVTextFieldBox(isFocused: isFocused) {
+                content().accessibilityLabel(title)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

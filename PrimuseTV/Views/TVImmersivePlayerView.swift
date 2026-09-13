@@ -184,8 +184,6 @@ struct TVImmersivePlayerView: View {
     @Namespace private var chromeFocus
     @FocusState private var focusedControl: Control?
     @FocusState private var scrubberFocused: Bool
-    @FocusState private var focusedEffect: FullscreenPlayerEffect?
-    @FocusState private var lyricsToggleFocused: Bool
     @FocusState private var wakesChrome: Bool
 
     private enum Control: Hashable { case previous, playPause, next, modes, queue }
@@ -254,8 +252,8 @@ struct TVImmersivePlayerView: View {
                 }
 
                 if showsModePicker {
-                    modePicker(metrics: metrics)
-                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    modePicker
+                        .transition(.opacity)
                         .zIndex(10)
                 }
             }
@@ -338,9 +336,6 @@ struct TVImmersivePlayerView: View {
         }
         .onChange(of: scrubberFocused) { _, _ in
             scheduleChromeHide()
-        }
-        .onChange(of: focusedEffect) { _, _ in
-            if showsModePicker { chromeTask?.cancel() }
         }
         .onChange(of: effectRawValue) { _, _ in
             if effect == .native, presentationActivity.isMounted {
@@ -646,111 +641,22 @@ struct TVImmersivePlayerView: View {
         .accessibilityLabel(Text(verbatim: accessibilityLabel))
     }
 
-    private func modePicker(metrics: ImmersiveStageMetrics) -> some View {
-        ZStack {
-            Color.black.opacity(0.94).ignoresSafeArea()
-            VStack(spacing: metrics.s(24)) {
-                HStack {
-                    Text(PMString("ext.tv.settings.immersive"))
-                        .font(.system(size: metrics.s(34), weight: .medium))
-                        .foregroundStyle(ImmersiveStagePalette.ink)
-                    Spacer()
-                    let toggleFocused = lyricsToggleFocused
-                    Button {
-                        lyricsMotionEnabled.toggle()
-                    } label: {
-                        HStack(spacing: metrics.s(12)) {
-                            Image(systemName: lyricsMotionEnabled ? "checkmark.circle.fill" : "circle")
-                            Text(PMString("immersive_lyrics_motion_title"))
-                        }
-                        .font(.system(size: metrics.s(18), weight: .medium))
-                        .foregroundStyle(lyricsMotionEnabled ? artworkPalette.primary : .white.opacity(0.72))
-                        .padding(.horizontal, metrics.s(22))
-                        .frame(height: metrics.s(54))
-                        .background(.white.opacity(toggleFocused ? 0.18 : 0.08), in: Capsule())
-                        .overlay { Capsule().strokeBorder(.white.opacity(0.20), lineWidth: 1) }
-                        .tvFocusRing(toggleFocused, radius: metrics.s(27), accent: .white, scale: 1.05, lift: 5)
-                    }
-                    .buttonStyle(TVBareButtonStyle())
-                    .focused($lyricsToggleFocused)
-                    .focusEffectDisabled()
-                }
+    /// 沉浸模式里的风格切换直接复用设置页那套带效果预览的选择器,
+    /// 不再另画一套只有图标和文字的简版列表——两处入口看到的应当是同一个页面。
+    private var modePicker: some View {
+        TVFullscreenEffectPicker(
+            selectedRawValue: $effectRawValue,
+            lyricsMotionEnabled: $lyricsMotionEnabled,
+            onDismiss: finishModePicker
+        )
+    }
 
-                let columns = Array(
-                    repeating: GridItem(.flexible(), spacing: metrics.s(16)),
-                    count: metrics.size.width < 1200 ? 3 : 4
-                )
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: metrics.s(22)) {
-                        ForEach(FullscreenEffectCollection.allCases) { collection in
-                            VStack(alignment: .leading, spacing: metrics.s(10)) {
-                                Text(collection.title)
-                                    .font(.system(size: metrics.s(17), weight: .semibold))
-                                    .foregroundStyle(ImmersiveStagePalette.text.opacity(0.50))
-
-                                LazyVGrid(columns: columns, spacing: metrics.s(16)) {
-                                    ForEach(collection.effects) { candidate in
-                                        let focused = focusedEffect == candidate
-                                        let selected = effect == candidate
-                                        Button {
-                                            selectEffect(candidate)
-                                            if candidate == .native {
-                                                return
-                                            }
-                                            showsModePicker = false
-                                            revealChrome()
-                                        } label: {
-                                            HStack(alignment: .top, spacing: metrics.s(12)) {
-                                                Image(systemName: candidate.symbolName)
-                                                    .font(.system(size: metrics.s(24), weight: .semibold))
-                                                    .frame(width: metrics.s(42))
-                                                VStack(alignment: .leading, spacing: metrics.s(4)) {
-                                                    Text(candidate.localizedTitle)
-                                                        .font(.system(size: metrics.s(17), weight: .semibold))
-                                                        .lineLimit(1)
-                                                        .minimumScaleFactor(0.78)
-                                                    Text(candidate.localizedSubtitle)
-                                                        .font(.system(size: metrics.s(12)))
-                                                        .foregroundStyle(.white.opacity(0.58))
-                                                        .lineLimit(2)
-                                                    Label(candidate.motionDescription, systemImage: "waveform.path")
-                                                        .font(.system(size: metrics.s(11)))
-                                                        .foregroundStyle(artworkPalette.primary.opacity(0.82))
-                                                        .lineLimit(2)
-                                                }
-                                                Spacer(minLength: 0)
-                                            }
-                                            .foregroundStyle(selected ? artworkPalette.primary : .white.opacity(0.88))
-                                            .padding(metrics.s(16))
-                                            .frame(maxWidth: .infinity, minHeight: metrics.s(124), alignment: .topLeading)
-                                            .background(.white.opacity(focused ? 0.18 : 0.08), in: RoundedRectangle(cornerRadius: 8))
-                                            .overlay {
-                                                RoundedRectangle(cornerRadius: 8)
-                                                    .strokeBorder(
-                                                        selected ? artworkPalette.primary : .white.opacity(0.20),
-                                                        lineWidth: selected ? 2 : 1
-                                                    )
-                                            }
-                                            .tvFocusRing(focused, radius: 8, accent: .white, scale: 1.05, lift: 6)
-                                        }
-                                        .buttonStyle(TVBareButtonStyle())
-                                        .focused($focusedEffect, equals: candidate)
-                                        .focusEffectDisabled()
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    .padding(.horizontal, metrics.s(14))
-                    .padding(.vertical, metrics.s(14))
-                }
-            }
-            .padding(.horizontal, metrics.s(54))
-            .padding(.vertical, metrics.s(38))
-        }
-        .focusSection()
-        .onAppear { focusedEffect = effect }
-        .accessibilityAddTraits(.isModal)
+    private func finishModePicker() {
+        showsModePicker = false
+        // 选到「原生」时由 effectRawValue 的 onChange 负责退出沉浸模式,这里不重复处理。
+        guard effect != .native else { return }
+        if lyricObservationTask == nil { resumePresentationWork() }
+        revealChrome()
     }
 
     // MARK: - 数据
@@ -1027,7 +933,6 @@ struct TVImmersivePlayerView: View {
         guard presentationActivity.isRenderingActive else { return }
         chromeTask?.cancel()
         showsChrome = true
-        focusedEffect = effect
         showsModePicker = true
     }
 

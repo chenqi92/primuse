@@ -193,9 +193,14 @@ struct TVFullscreenEffectPicker: View {
         let focused = focusedEffect == candidate
         let selected = selectedEffect == candidate
         return Button {
+            // 先写本地值并立刻开始收起:iCloud 键值同步和变更通知留到淡出结束后再做。
+            // 它们在主线程上有明显开销,和收起动画同帧执行会丢帧,看起来就是「白闪一下」。
             selectedRawValue = candidate.rawValue
-            FullscreenPlayerEffectSync.shared.select(candidate)
             onDismiss()
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(360))
+                FullscreenPlayerEffectSync.shared.select(candidate)
+            }
         } label: {
             VStack(alignment: .leading, spacing: 11) {
                 ImmersiveEffectPreview(
