@@ -180,13 +180,17 @@ struct MetadataReadSchedulerTests {
                 for: .userInitiated, preference: preference,
                 environment: .init(thermalState: .fair)
             )
+            // 发热减的是读取位与占空比; interRequestDelay 现在只剩远端礼貌下限。
             if preference == .fast {
                 #expect(warm.workerCount == 2)
-                #expect(warm.interRequestDelay == 0)
+                #expect(warm.activeFraction == 0.5)
             } else {
                 #expect(warm.workerCount == 1)
-                #expect(warm.interRequestDelay >= 0.35)
+                #expect(warm.activeFraction <= 0.25)
             }
+            #expect(warm.activeFraction < MetadataBackfillExecutionPolicy.limits(
+                for: .userInitiated, preference: preference, environment: .init()
+            ).activeFraction)
         }
     }
 
@@ -202,8 +206,7 @@ struct MetadataReadSchedulerTests {
                 environment: .init(thermalState: .serious)
             )
             #expect(hot.workerCount == 1)
-            // 散热休息按档位分层 —— 见 readingSpeedStaysOrderedAtEveryThermalState。
-            #expect(hot.interRequestDelay >= (preference == .fast ? 1.5 : 4))
+            #expect(hot.activeFraction <= 0.25)
             let playback = MetadataBackfillExecutionPolicy.limits(
                 for: .userInitiated, preference: preference,
                 environment: .init(playbackActive: true)
@@ -215,83 +218,11 @@ struct MetadataReadSchedulerTests {
                 environment: .init(lowPowerMode: true)
             )
             #expect(lowPower.workerCount == 1)
-            #expect(lowPower.interRequestDelay > 0)
+            #expect(lowPower.activeFraction < MetadataBackfillExecutionPolicy.limits(
+                for: .userInitiated, preference: preference, environment: .init()
+            ).activeFraction)
             let background = MetadataBackfillExecutionPolicy.limits(for: .background, preference: preference)
             #expect(background.snapshotLimit == 24 && background.snapshotPassLimit == nil)
-        }
-    }
-
-    @Test func fullSpeedThermalCooldownScalesWithMeasuredWorkWithoutRemovingProtection() {
-        for cost in [0.0, 0.01, 0.1, 0.3, 0.5, 2.0, .nan, .infinity, -1.0] {
-            let limits = MetadataBackfillExecutionPolicy.limits(
-                for: .userInitiated, preference: .fast,
-                environment: .init(thermalState: .serious), recentProcessingDuration: cost
-            )
-            #expect(limits.workerCount == 1)
-            #expect(limits.interRequestDelay >= 0.1)
-            if cost.isFinite && cost >= 0 && cost <= 0.5 {
-                #expect(cost / (cost + limits.interRequestDelay) <= 0.25)
-            } else {
-                #expect(limits.interRequestDelay == 1.5)
-            }
-            let critical = MetadataBackfillExecutionPolicy.limits(
-                for: .userInitiated, preference: .fast,
-                environment: .init(thermalState: .critical), recentProcessingDuration: cost
-            )
-            #expect(critical.workerCount == 0)
-        }
-        let lowPower = MetadataBackfillExecutionPolicy.limits(
-            for: .background, preference: .fast,
-            environment: .init(thermalState: .serious, lowPowerMode: true),
-            continuedProcessing: true, recentProcessingDuration: 0.01
-        )
-        #expect(lowPower.workerCount == 1)
-        #expect(lowPower.interRequestDelay >= 0.35)
-        let automatic = MetadataBackfillExecutionPolicy.limits(
-            for: .standard, preference: .automatic,
-            environment: .init(thermalState: .serious), recentProcessingDuration: 0.01
-        )
-        #expect(automatic.interRequestDelay == 1.5)
-    }
-
-    /// 热状态一到 `serious`, 三个档位原先被压成同一个 (workers=1, delay=1.5),
-    /// 而全速还因为一条只给它的测量例外成了限制最少的那一档 —— 实测日志里
-    /// 节能 26.9 首/分、自动 24.9 首/分, 节能比自动还快。档位因此形同虚设。
-    @Test func readingSpeedStaysOrderedAtEveryThermalState() {
-        let modes: [MetadataBackfillExecutionMode] = [
-            .standard, .userInitiated, .foregroundDeviceLocal, .foregroundAfterSourceScan,
-            .background, .backgroundDuringPlayback
-        ]
-        let costs: [TimeInterval?] = [nil, 0, 0.01, 0.2, 0.5, 2, .nan, -1]
-        for mode in modes {
-            for thermal in [MetadataReadingThermalState.nominal, .fair, .serious] {
-                for lowPower in [false, true] {
-                    for playing in [false, true] {
-                        for cost in costs {
-                            let environment = MetadataReadingEnvironment(
-                                thermalState: thermal, lowPowerMode: lowPower, playbackActive: playing
-                            )
-                            func limits(_ preference: MetadataReadingMode) -> MetadataBackfillExecutionLimits {
-                                MetadataBackfillExecutionPolicy.limits(
-                                    for: mode, preference: preference, environment: environment,
-                                    recentProcessingDuration: cost
-                                )
-                            }
-                            let fast = limits(.fast)
-                            let automatic = limits(.automatic)
-                            let energySaving = limits(.energySaving)
-                            #expect(fast.workerCount >= automatic.workerCount)
-                            #expect(automatic.workerCount >= energySaving.workerCount)
-                            #expect(fast.interRequestDelay <= automatic.interRequestDelay)
-                            #expect(automatic.interRequestDelay <= energySaving.interRequestDelay)
-                            guard thermal == .serious, mode != .userInitiated else { continue }
-                            // serious 下必须严格有序, 不能再退化成三档相等。
-                            #expect(fast.interRequestDelay < automatic.interRequestDelay)
-                            #expect(automatic.interRequestDelay < energySaving.interRequestDelay)
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -318,8 +249,7 @@ struct MetadataReadSchedulerTests {
                                     environment: .init(
                                         thermalState: thermal, lowPowerMode: lowPower,
                                         playbackActive: playing, offlineSource: offline
-                                    ),
-                                    recentProcessingDuration: 0.2
+                                    )
                                 )
                                 intervals.insert(limits.flushInterval)
                                 batchSizes.insert(limits.flushBatchSize)
@@ -365,11 +295,11 @@ struct MetadataReadSchedulerTests {
                 let background = MetadataBackfillExecutionPolicy.limits(
                     for: playing ? .backgroundDuringPlayback : .background,
                     preference: preference, environment: .init(playbackActive: playing),
-                    continuedProcessing: true, recentProcessingDuration: 0.2
+                    continuedProcessing: true
                 )
                 let foreground = MetadataBackfillExecutionPolicy.limits(
                     for: .userInitiated, preference: preference,
-                    environment: .init(playbackActive: playing), recentProcessingDuration: 0.2
+                    environment: .init(playbackActive: playing)
                 )
                 #expect(background == foreground)
             }
@@ -399,8 +329,7 @@ struct MetadataReadSchedulerTests {
                         thermalState: thermal, playbackActive: playing
                     )
                     let paused = MetadataBackfillExecutionPolicy.limits(
-                        for: mode, preference: .paused, environment: environment,
-                        recentProcessingDuration: 0.2
+                        for: mode, preference: .paused, environment: environment
                     )
                     if MetadataBackfillExecutionPolicy.honoursPausedPreference(mode) {
                         #expect(paused.workerCount == 0)
@@ -408,8 +337,7 @@ struct MetadataReadSchedulerTests {
                     } else {
                         // 用户主动发起的任务照常跑, 按最保守的读取档位。
                         #expect(paused == MetadataBackfillExecutionPolicy.limits(
-                            for: mode, preference: .energySaving, environment: environment,
-                            recentProcessingDuration: 0.2
+                            for: mode, preference: .energySaving, environment: environment
                         ))
                         #expect(paused.workerCount >= 1 || thermal == .critical)
                     }
@@ -454,125 +382,176 @@ struct MetadataReadSchedulerTests {
         }
     }
 
-    /// 读取的 CPU 代价用 `getrusage(RUSAGE_SELF)` 量, 那是整个进程的 CPU。资料库
-    /// 发布如果落在读取窗口里, 就会被记到这一首头上 —— 而发布的代价按批摊销,
-    /// 歇得更久不会让它变便宜。实测 (2026-09-12): 慢读取间隔里跨过发布的比例
-    /// 是正常间隔的 2~3.6 倍, 污染是可观测的。
-    @Test func readCPUSamplesExcludeOverlappingLibraryPublications() {
-        func window(_ generation: UInt64, publishing: Bool) -> MetadataReadCPUSampleWindow {
-            .init(publishGeneration: generation, publishInFlight: publishing)
+    /// 预算是占空比, 而不是"实测耗时 × 固定倍数"。档位 × 热状态的每一格都必须
+    /// 严格有序, 并且热状态越重占空比越小 —— 这是"无论调到哪一档都一样烫"的
+    /// 直接防线。
+    @Test func dutyCycleBudgetsStayOrderedAcrossSpeedAndThermalState() {
+        let thermals: [MetadataReadingThermalState] = [.nominal, .fair, .serious]
+        for thermal in thermals {
+            let fast = MetadataReadingDutyCycle.baseFraction(for: .fast, thermalState: thermal)
+            let automatic = MetadataReadingDutyCycle.baseFraction(for: .automatic, thermalState: thermal)
+            let energySaving = MetadataReadingDutyCycle.baseFraction(for: .energySaving, thermalState: thermal)
+            #expect(fast > automatic)
+            #expect(automatic > energySaving)
+            #expect(energySaving > 0)
+            #expect(fast <= 1)
         }
-        // 完整落在两次发布之间 —— 唯一的有效样本。
-        #expect(MetadataReadCPUSamplePolicy.acceptsSample(
-            before: window(4, publishing: false), after: window(4, publishing: false)))
-        // 读到一半撞上发布开始。
-        #expect(!MetadataReadCPUSamplePolicy.acceptsSample(
-            before: window(4, publishing: false), after: window(5, publishing: true)))
-        // 读到一半跨过整次发布。
-        #expect(!MetadataReadCPUSamplePolicy.acceptsSample(
-            before: window(4, publishing: false), after: window(6, publishing: false)))
-        // 从发布中间开始读, 发布结束后读完。
-        #expect(!MetadataReadCPUSamplePolicy.acceptsSample(
-            before: window(5, publishing: true), after: window(6, publishing: false)))
-        // 整段都在同一次发布之内 —— 代次没动, 但起点就在发布里。
-        #expect(!MetadataReadCPUSamplePolicy.acceptsSample(
-            before: window(5, publishing: true), after: window(5, publishing: true)))
-        // 嵌套发布 (发布中间的 await 让另一次完成回调进来) 不会提前放行。
-        #expect(!MetadataReadCPUSamplePolicy.acceptsSample(
-            before: window(5, publishing: true), after: window(7, publishing: true)))
-    }
-
-    /// 采纳污染样本时, "每读一首歇多久"会被"发布批次有多大"牵着走: 同样的总
-    /// 发布开销挪进更少更大的批次, 峰值样本随批量线性变大, 而
-    /// `recordProcessingDuration` 的 `max(duration, …)` 会锁住峰值。剔除污染
-    /// 样本之后, 估算出的单首成本与发布批量完全无关。
-    @Test func publicationBatchSizeDoesNotDriveTheThermalWorkBudget() {
-        let readCost: TimeInterval = 0.11           // 一首标签自己的 CPU
-        let publishCostPerSong: TimeInterval = 0.01 // 每行的发布开销 (与批量成正比)
-
-        /// 跑 600 次读取, 每 `batch` 首发布一次。返回冷却时间的峰值与均值 ——
-        /// 峰值是锁峰后实际生效的那个, 均值是它对吞吐的整体影响。
-        func cooldowns(
-            batch: Int, excludingContaminatedSamples: Bool
-        ) -> (peak: TimeInterval, mean: TimeInterval) {
-            var recent: TimeInterval = 0.5
-            var samples: [TimeInterval] = []
-            for index in 1...600 {
-                let publishesNow = index.isMultiple(of: batch)
-                let measured = publishesNow
-                    ? readCost + publishCostPerSong * Double(batch)
-                    : readCost
-                if !(publishesNow && excludingContaminatedSamples) {
-                    // 与 recordProcessingDuration 同一套锁峰 + 缓降。
-                    recent = max(measured, recent * 0.8 + measured * 0.2)
-                }
-                samples.append(MetadataBackfillExecutionPolicy.limits(
-                    for: .userInitiated, preference: .fast,
-                    environment: .init(thermalState: .serious),
-                    recentProcessingDuration: recent
-                ).interRequestDelay)
+        for preference in MetadataReadingMode.automaticCases {
+            var previous = Double.infinity
+            for thermal in thermals {
+                let fraction = MetadataReadingDutyCycle.baseFraction(for: preference, thermalState: thermal)
+                #expect(fraction < previous)
+                previous = fraction
             }
-            let settled = samples.dropFirst(100)
-            return (settled.max() ?? 0, settled.reduce(0, +) / Double(settled.count))
+            #expect(MetadataReadingDutyCycle.baseFraction(for: preference, thermalState: .critical) == 0)
         }
-
-        // 两种批量下的发布总开销相同 (批量 × 每行开销 × 发布次数 = 常数)。
-        let small = cooldowns(batch: 6, excludingContaminatedSamples: false)
-        let merged = cooldowns(batch: 32, excludingContaminatedSamples: false)
-        #expect(merged.peak > small.peak * 2)   // 峰值随批量线性放大
-        #expect(merged.mean > small.mean)       // 并且确实拖慢了整体节奏
-
-        let smallFixed = cooldowns(batch: 6, excludingContaminatedSamples: true)
-        let mergedFixed = cooldowns(batch: 32, excludingContaminatedSamples: true)
-        // 发布批量不再影响估算 (余下的差异只是浮点累加顺序)。
-        #expect(abs(smallFixed.peak - mergedFixed.peak) < 0.000_001)
-        #expect(abs(smallFixed.mean - mergedFixed.mean) < 0.000_001)
-        #expect(mergedFixed.peak < merged.peak)
-        #expect(abs(mergedFixed.peak - min(1.5, max(0.1, readCost * 3))) < 0.000_001)
+        // 低电量与后台窗口只会往下收紧, 且 critical 不会被它们复活。
+        for preference in MetadataReadingMode.automaticCases {
+            for thermal in thermals {
+                let base = MetadataReadingDutyCycle.activeFraction(
+                    for: preference, thermalState: thermal,
+                    lowPowerMode: false, usesBackgroundCadence: false, playing: false)
+                for (lowPower, background, playing) in [
+                    (true, false, false), (false, true, false), (false, true, true), (true, true, true)
+                ] {
+                    let tightened = MetadataReadingDutyCycle.activeFraction(
+                        for: preference, thermalState: thermal,
+                        lowPowerMode: lowPower, usesBackgroundCadence: background, playing: playing)
+                    #expect(tightened <= base)
+                    #expect(tightened > 0)
+                }
+            }
+            #expect(MetadataReadingDutyCycle.activeFraction(
+                for: preference, thermalState: .critical,
+                lowPowerMode: false, usesBackgroundCadence: false, playing: false) == 0)
+        }
     }
 
-    @Test func thermalWorkBudgetExcludesIOWaitButIncludesOtherAppCPUWork() {
-        let light = MetadataBackfillExecutionPolicy.processingDuration(
-            cpuTimeBefore: 10, cpuTimeAfter: 10.02, fallback: 1.2
-        )
-        #expect(abs(light - 0.02) < 0.000001)
-        let idle = MetadataBackfillExecutionPolicy.limits(
-            for: .userInitiated, preference: .fast,
-            environment: .init(thermalState: .serious), recentProcessingDuration: light
-        )
-        #expect(idle.workerCount == 1)
-        #expect(idle.interRequestDelay == 0.1)
-        // CPU work on multiple threads may exceed elapsed wall time; retaining
-        // all of it prevents playback/UI work from disappearing from the budget.
-        let busy = MetadataBackfillExecutionPolicy.processingDuration(
-            cpuTimeBefore: 10, cpuTimeAfter: 10.6, fallback: 0.4
-        )
-        #expect(abs(busy - 0.6) < 0.000001)
-        let hot = MetadataBackfillExecutionPolicy.limits(
-            for: .userInitiated, preference: .fast,
-            environment: .init(thermalState: .serious), recentProcessingDuration: busy
-        )
-        #expect(hot.workerCount == 1)
-        #expect(hot.interRequestDelay == 1.5)
+    /// 令牌桶按**真实累计工作量**记账, 所以不管单首成本多不均匀, 长期占空比都
+    /// 收敛到目标值。旧算法用"上一次的成本 × 倍数"预测下一次, 成本方差大时
+    /// (实测 0.2s~0.75s) 会被一个贵样本长期压住。
+    @Test func pacerConvergesToItsDutyCycleRegardlessOfPerItemVariance() {
+        for fraction in [1.0, 0.5, 0.25, 0.1, 0.05] {
+            for costs in [[0.2], [0.2, 0.75], [0.05, 0.05, 0.05, 1.2], [0.9, 0.1, 0.3, 0.15]] {
+                var pacer = MetadataReadPacer(activeFraction: fraction, burst: 2)
+                var now: TimeInterval = 1_000
+                var worked: TimeInterval = 0
+                var measuredFrom: TimeInterval = 0
+                for round in 0..<500 {
+                    let cost = costs[round % costs.count]
+                    now += pacer.rest(now: now)
+                    pacer.recordWork(cost, now: now)
+                    now += cost
+                    if round == 99 { measuredFrom = now }
+                    if round >= 100 { worked += cost }
+                }
+                let observed = worked / (now - measuredFrom)
+                #expect(observed <= fraction + 0.001)
+                #expect(observed > fraction * 0.9)
+            }
+        }
     }
 
-    @Test func unavailableCPUCountersKeepConservativeCooldown() {
-        let invalid: [(Double?, Double?)] = [(nil, 10), (10, nil), (10, 9), (-1, 10),
-                                             (.nan, 10), (10, .infinity)]
-        for (before, after) in invalid {
-            #expect(MetadataBackfillExecutionPolicy.processingDuration(
-                cpuTimeBefore: before, cpuTimeAfter: after, fallback: 0.8
-            ) == 0.8)
+    /// 降频不改变占空比。旧算法量的是 CPU **时间**: 降频后同样的工作测出来更长,
+    /// 休息跟着乘倍数放大, 于是会话越久读得越慢, 与用户选的档位无关。
+    @Test func pacerIsUnaffectedByClockThrottling() {
+        /// 返回"每单位工作量推进多快", 已按降频倍数归一化。
+        func normalisedRate(slowdown: Double) -> Double {
+            var pacer = MetadataReadPacer(activeFraction: 0.25, burst: 2)
+            var now: TimeInterval = 500
+            var measuredFrom: TimeInterval = 0
+            var work: TimeInterval = 0
+            for round in 0..<500 {
+                now += pacer.rest(now: now)
+                let cost = 0.2 * slowdown
+                pacer.recordWork(cost, now: now)
+                now += cost
+                if round == 99 { measuredFrom = now }
+                if round >= 100 { work += 0.2 }   // 归一化: 真实工作量不随降频变化
+            }
+            return work / (now - measuredFrom)
         }
-        for fallback in [-1.0, .nan, .infinity] {
-            let cost = MetadataBackfillExecutionPolicy.processingDuration(
-                cpuTimeBefore: nil, cpuTimeAfter: nil, fallback: fallback
-            )
-            let limits = MetadataBackfillExecutionPolicy.limits(
-                for: .userInitiated, preference: .fast,
-                environment: .init(thermalState: .serious), recentProcessingDuration: cost
-            )
-            #expect(limits.interRequestDelay == 1.5)
+        let normal = normalisedRate(slowdown: 1)
+        let throttled = normalisedRate(slowdown: 2)
+        // 降频只让挂钟时间变长, 占空比不变, 所以单位工作量的推进速度同比例下降,
+        // 归一化之后两者相等 —— 不会像旧算法那样被二次放大。
+        #expect(abs(normal - throttled * 2) / normal < 0.05)
+    }
+
+    /// 切换档位不清空记账: 已经歇过的不白歇, 已经透支的也不靠切档位抹掉。
+    @Test func changingSpeedKeepsTheOutstandingPacingDebt() {
+        var pacer = MetadataReadPacer(activeFraction: 0.1, burst: 0)
+        var now: TimeInterval = 10
+        pacer.recordWork(1, now: now)
+        let owedAtSlowTier = pacer.rest(now: now)
+        // 桶的语义是 work <= fraction × elapsed: 零额度下 1 秒工作要 1/0.1 = 10 秒才还满。
+        #expect(abs(owedAtSlowTier - 10) < 0.001)
+        pacer.setActiveFraction(1, now: now)        // 切到全速
+        let owedAtFullSpeed = pacer.rest(now: now)
+        #expect(owedAtFullSpeed > 0)                // 债还在
+        #expect(owedAtFullSpeed < owedAtSlowTier)   // 但按新预算还得更快
+        now += owedAtFullSpeed
+        #expect(pacer.rest(now: now) == 0)          // 还清了就归零, 不留负债
+    }
+
+    /// 突发额度让短促的连续读取不被切碎, 但额度有上限: 长时间空闲之后也不会
+    /// 攒出无限的突发。
+    @Test func pacerAllowsBoundedBurstsAfterIdle() {
+        var pacer = MetadataReadPacer(activeFraction: 0.1, burst: 2)
+        var now: TimeInterval = 0
+        #expect(pacer.rest(now: now) == 0)
+        pacer.recordWork(2, now: now)               // 正好用掉整桶
+        #expect(pacer.rest(now: now) == 0)
+        pacer.recordWork(0.5, now: now)             // 透支
+        #expect(pacer.rest(now: now) > 4)
+        now += 10_000                               // 放着很久
+        #expect(pacer.rest(now: now) == 0)
+        pacer.recordWork(2, now: now)               // 桶最多还是 2 秒
+        #expect(pacer.rest(now: now) == 0)
+        pacer.recordWork(0.1, now: now)
+        #expect(pacer.rest(now: now) > 0)
+    }
+
+    /// 远端礼貌下限与散热限速是两回事: 前者保护对方的连接/配额, 后者保护本机。
+    /// 实际等待取两者之大。
+    @Test func remotePolitenessFloorAndThermalPacingStaySeparate() {
+        let remote = MetadataBackfillExecutionPolicy.limits(
+            for: .userInitiated, preference: .energySaving, environment: .init(offlineSource: false))
+        let local = MetadataBackfillExecutionPolicy.limits(
+            for: .userInitiated, preference: .energySaving, environment: .init(offlineSource: true))
+        #expect(remote.interRequestDelay > local.interRequestDelay)
+        // 同一档位的占空比不因为源在本地还是远端而变 —— 发热与源无关。
+        #expect(remote.activeFraction == local.activeFraction)
+        #expect(remote.withPacedDelay(5).interRequestDelay == 5)
+        #expect(remote.withPacedDelay(0).interRequestDelay == remote.interRequestDelay)
+        // 全速对远端没有礼貌下限, 节奏完全交给占空比。
+        #expect(MetadataBackfillExecutionPolicy.limits(
+            for: .userInitiated, preference: .fast, environment: .init()).interRequestDelay == 0)
+    }
+
+    /// tvOS 拿不到"网络等待 / 本机计算"的拆分, 没有能喂给占空比记账的量, 所以
+    /// 它保留原本的固定散热间隔; 手机与 Mac 走限速器。
+    @Test func televisionKeepsFixedThermalDelaysWhileMobilePacingMovesToDutyCycle() {
+        let tvDevice = MetadataReadingDeviceProfile(
+            platform: .television, activeProcessorCount: 4, physicalMemory: 4 << 30)
+        let phoneDevice = MetadataReadingDeviceProfile(
+            platform: .mobile, activeProcessorCount: 6, physicalMemory: 8 << 30)
+        for preference in MetadataReadingMode.automaticCases {
+            for (thermal, expected) in [(MetadataReadingThermalState.fair, 0.35),
+                                        (MetadataReadingThermalState.serious, 1.5)] {
+                let tv = MetadataBackfillExecutionPolicy.limits(
+                    for: .standard, preference: preference,
+                    environment: .init(thermalState: thermal, device: tvDevice))
+                let phone = MetadataBackfillExecutionPolicy.limits(
+                    for: .standard, preference: preference,
+                    environment: .init(thermalState: thermal, device: phoneDevice))
+                if thermal == .serious || preference != .fast {
+                    #expect(tv.interRequestDelay >= expected)
+                }
+                #expect(phone.interRequestDelay <= tv.interRequestDelay)
+                // 两个平台的占空比预算一致, 差别只在由谁来执行。
+                #expect(phone.activeFraction == tv.activeFraction)
+            }
         }
     }
 

@@ -84,7 +84,9 @@ struct MetadataBackfillExecutionPolicyTests {
         #expect(background.snapshotPassLimit == nil)
         #expect(playback.workerCount == 1)
         #expect(playback.snapshotLimit < background.snapshotLimit)
-        #expect(playback.interRequestDelay > background.interRequestDelay)
+        // 后台的限速走占空比, 不再体现在 interRequestDelay 上 (那里只剩远端
+        // 礼貌下限)。后台播放比纯后台更保守。
+        #expect(playback.activeFraction < background.activeFraction)
         #expect(playback.flushInterval >= background.flushInterval)
         #expect(playback.snapshotPassLimit == nil)
     }
@@ -103,6 +105,7 @@ struct MetadataBackfillExecutionPolicyTests {
             #expect(passes > 1)
             #expect(limits.workerCount == 1)
             #expect(limits.interRequestDelay == 0)
+            #expect(limits.activeFraction > 0)
         }
     }
 
