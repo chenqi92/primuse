@@ -1087,7 +1087,14 @@ extension CarPlaySceneDelegate {
     }
 
     func collectionItem(_ entry: CollectionEntry, loadsArtwork: Bool = true) -> CPListItem {
-        let item = CPListItem(text: entry.title, detailText: entry.subtitle, image: CarPlayTemplateImages.placeholder(entry.symbol, scale: artworkScale, artwork: entry.artwork != nil))
+        let initial = loadsArtwork
+            ? initialArtwork(entry.artwork, pixelSize: Int(CarPlayTemplateImages.listSide * artworkScale))
+            : nil
+        let item = CPListItem(
+            text: entry.title,
+            detailText: entry.subtitle,
+            image: initial ?? CarPlayTemplateImages.placeholder(entry.symbol, scale: artworkScale, artwork: entry.artwork != nil)
+        )
         item.isEnabled = entry.enabled
         item.handler = { _, completion in
             let completion = CarPlaySendableBox(value: completion)
@@ -1119,7 +1126,13 @@ extension CarPlaySceneDelegate {
     ) -> CPListImageRowItem {
         let side = CarPlayTemplateImages.rowSide(for: style)
         let scale = artworkScale
-        let placeholders = entries.map { CarPlayTemplateImages.placeholder($0.symbol, side: side, scale: scale) }
+        let placeholders = entries.enumerated().map { index, entry -> UIImage in
+            guard CarPlayArtworkLoadPolicy.shouldLoad(index: index, budget: artworkBudget),
+                  let cached = initialArtwork(entry.artwork, pixelSize: Int(side * scale)) else {
+                return CarPlayTemplateImages.placeholder(entry.symbol, side: side, scale: scale)
+            }
+            return cached
+        }
         let row: CPListImageRowItem
         if #available(iOS 26.0, *) {
             if style == .capsules {
@@ -1183,32 +1196,38 @@ extension CarPlaySceneDelegate {
         return row
     }
 
-    /// 取行内封面并交给 `apply`。
-    ///
-    /// `render` 把原图裁成该行需要的方图，结果按封面身份缓存 —— CarPlay 列表
-    /// 每次重建都是一批全新的 CPListItem，先挂占位图再异步换真图；命中缓存时
-    /// 直接同步塞最终图，中间那一帧占位图就不会出现，也就没有来回闪。
-    private func loadObservedArtwork(_ artwork: CarPlayContentArtwork, pixelSize: Int,
-                                     owner: AnyObject,
-                                     render: @escaping @MainActor (UIImage) -> UIImage,
-                                     apply: @escaping @MainActor (UIImage) -> Void) {
-        let key = CarPlayArtworkCacheKey.make(
+    private func artworkCacheKey(_ artwork: CarPlayContentArtwork, pixelSize: Int) -> String {
+        CarPlayArtworkCacheKey.make(
             identity: artwork.cacheIdentity,
             pixelSize: pixelSize,
             overrideRevision: AppServices.shared.musicLibrary.artworkOverrideRevision
         )
+    }
+
+    /// 建行时就把缓存里已渲染好的封面交给构造器。
+    ///
+    /// 尚未上屏的 CPListItem 调 setImage 不保证生效，所以「先挂占位图、命中缓存
+    /// 后再 setImage」这条路会让重建之后的行一直停在占位图上。已经有图就直接
+    /// 建进去，异步那条路只留给真的还没取到的封面。
+    private func initialArtwork(_ artwork: CarPlayContentArtwork?, pixelSize: Int) -> UIImage? {
+        guard let artwork else { return nil }
+        return CarPlayRenderedArtwork.image(forKey: artworkCacheKey(artwork, pixelSize: pixelSize))
+    }
+
+    /// 取行内封面，`render` 把原图裁成该行需要的方图，结果按封面身份缓存，
+    /// 供下一次建行时直接当起始图用。
+    private func loadObservedArtwork(_ artwork: CarPlayContentArtwork, pixelSize: Int,
+                                     owner: AnyObject,
+                                     render: @escaping @MainActor (UIImage) -> UIImage,
+                                     apply: @escaping @MainActor (UIImage) -> Void) {
+        let key = artworkCacheKey(artwork, pixelSize: pixelSize)
         let id = UUID()
         var pendingRefresh = false
-        // `force` 用于「这首歌的封面刚落盘」这类通知:那时缓存里可能是上一轮的
-        // 空结果，必须真的重取一次；列表重建走的是非 force 路径，直接吃缓存。
-        let load: @MainActor (Bool) -> Void = { [weak self, weak owner] force in
-            guard let self, owner != nil else { return }
-            if !force, let cached = CarPlayRenderedArtwork.image(forKey: key) {
-                apply(cached)
-                return
-            }
+        // 缓存只用来给构造器一张起始图（见 initialArtwork），取图这条路照旧跑完：
+        // 少跑一次的代价是万一 setImage 没落到行上，那一行就永远停在占位图。
+        let load: @MainActor () -> Void = { [weak self, weak owner] in
             pendingRefresh = true
-            guard self.artworkTasks[id] == nil else { return }
+            guard let self, owner != nil, self.artworkTasks[id] == nil else { return }
             self.artworkTasks[id] = Task { [weak self, weak owner] in
                 defer { self?.artworkTasks[id] = nil }
                 repeat {
@@ -1225,10 +1244,8 @@ extension CarPlaySceneDelegate {
                 } while pendingRefresh
             }
         }
-        artworkUpdates.bind(owner: owner, songIDs: CarPlayHomeContent.artworkSongIDs(artwork)) {
-            load(true)
-        }
-        load(false)
+        artworkUpdates.bind(owner: owner, songIDs: CarPlayHomeContent.artworkSongIDs(artwork), refresh: load)
+        load()
     }
 
     private func playCollection(_ songs: [Song], title: String, shuffled: Bool = false) {
@@ -1551,11 +1568,14 @@ extension CarPlaySceneDelegate {
         queueProvider: @escaping () -> ([Song], Int),
         loadsArtwork: Bool = true
     ) -> CPListItem {
+        let cached = loadsArtwork
+            ? initialArtwork(.song(song), pixelSize: Int(CarPlayTemplateImages.listSide * artworkScale))
+            : nil
         let item = CPListItem(
             text: song.title,
             detailText: AppServices.shared.musicLibrary.artistDisplayName(for: song)
                 ?? song.albumTitle,
-            image: CarPlayTemplateImages.placeholder("music.note")
+            image: cached ?? CarPlayTemplateImages.placeholder("music.note")
         )
         if loadsArtwork { loadArtwork(for: song, into: item) }
         item.handler = { [weak self] _, completion in
