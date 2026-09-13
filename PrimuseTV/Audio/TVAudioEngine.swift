@@ -66,7 +66,14 @@ final class TVAudioEngine {
             }
         }
     }
-    private(set) var currentTime: Double = 0
+    private(set) var currentTime: Double = 0 {
+        didSet { currentTimeAnchor = Date() }
+    }
+    /// `currentTime` 最后一次被刷新的时刻。AVPlayer 的周期观察器每 0.25 秒才回调
+    /// 一次,歌词若直接读 `currentTime`,一秒里只有 4 个不同的值 —— 逐字扫光就会
+    /// 四格一跳(看着像掉帧),而且平均落后半个周期(看着像慢一拍)。
+    /// 有了这个锚点就能按墙上时钟把中间的时间补出来,与 iPhone / Mac 同一套做法。
+    @ObservationIgnored private(set) var currentTimeAnchor = Date()
     private(set) var duration: Double = 0
     private(set) var isVideoMode = false
     private(set) var isLiveStream = false
@@ -76,6 +83,19 @@ final class TVAudioEngine {
         count: TVSpectrumConfiguration.bandCount
     )
     var displayPlayer: AVPlayer { player }
+
+    /// 把两次时间回调之间的空档按墙上时钟补出来,供逐字歌词这种需要按帧推进的
+    /// 绘制使用。外推量由 `PlaybackClockFreezePolicy` 限幅(最多 1 秒),暂停、
+    /// 缓冲或播放结束时自动停在最后一个真实时间上,不会越跑越远。
+    func interpolatedTime(at date: Date = Date()) -> TimeInterval {
+        PlaybackClockFreezePolicy.frozenTime(
+            cachedCurrentTime: currentTime,
+            currentTimeAnchor: currentTimeAnchor,
+            eventTime: date,
+            isAdvancing: isPlaying && status != .loading,
+            duration: isLiveStream ? 0 : duration
+        )
+    }
 
     /// 一曲播完回调(队列推进用;Phase 1 可空)。
     var onEnded: (() -> Void)?

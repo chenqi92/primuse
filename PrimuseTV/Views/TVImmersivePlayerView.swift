@@ -817,7 +817,9 @@ struct TVImmersivePlayerView: View {
             return max(0, value)
         }
         #endif
-        return store.currentTime
+        // 与 iPhone / Mac 的 `player.interpolatedTime()` 对齐:歌词扫光按帧推进,
+        // 不能只吃 AVPlayer 每 0.25 秒一次的回调值。
+        return store.interpolatedTime()
     }
 
     @MainActor

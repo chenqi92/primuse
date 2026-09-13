@@ -620,6 +620,11 @@ final class TVStore {
     var isPlaying: Bool { engine.isPlaying }
     var isLoading: Bool { engine.status == .loading }
     var currentTime: Double { engine.currentTime }
+    /// 逐字歌词等按帧推进的绘制要用的播放时钟:在两次时间回调之间按墙上时钟补值。
+    /// 直接读 `currentTime` 每秒只有 4 个台阶,扫光会一格一格跳。
+    func interpolatedTime(at date: Date = Date()) -> TimeInterval {
+        engine.interpolatedTime(at: date)
+    }
     var duration: Double { engine.duration > 0 ? engine.duration : nowPlaying.duration }
     var isMusicVideoPlaybackActive: Bool { engine.isVideoMode }
     var currentRadioStation: RadioStation? {
@@ -2897,9 +2902,11 @@ final class TVStore {
     /// 当前播放时间所在的歌词行索引。纯文本歌词没有时间轴，不参与自动跟随。
     var currentLyricIndex: Int? {
         guard lyricsFollowPlayback else { return nil }
+        // 与逐字扫光取同一个时钟。扫光已经按帧外推,行号若仍吃 0.25 秒一跳的原始值,
+        // 会出现「这一行的字都填满了、高亮行还没换」的错位。
         return LyricPlaybackPositionPolicy.activeLineIndex(
             in: lyrics,
-            at: currentTime,
+            at: interpolatedTime(),
             lookahead: 0.25,
             timestamp: \.time
         )
