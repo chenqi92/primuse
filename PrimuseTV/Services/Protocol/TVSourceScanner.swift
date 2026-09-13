@@ -2,6 +2,7 @@
 import AMSMB2
 import CryptoKit
 import Foundation
+import FilesProvider
 import PrimuseKit
 import UIKit
 
@@ -271,6 +272,239 @@ actor TVSynologyLister: TVDirectoryLister {
     }
 }
 
+// MARK: - 威联通 File Station 目录列举
+
+/// 与群晖同构:复用 iOS / macOS 那份 `QnapAPI`(纯 Foundation),电视端只做映射。
+actor TVQnapLister: TVDirectoryLister {
+    private let api: QnapAPI
+    private let account: String
+    private let password: String
+    private var didLogin = false
+
+    init?(source: MusicSource, credential: SourceCredential?) {
+        let host = (source.host ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty,
+              let account = credential?.username, !account.isEmpty,
+              let password = credential?.password, !password.isEmpty
+        else { return nil }
+        let useSsl = source.useSsl
+        self.api = QnapAPI(
+            host: host,
+            port: source.port ?? MusicSourceType.qnap.defaultPort(useSsl: useSsl),
+            useSsl: useSsl
+        )
+        self.account = account
+        self.password = password
+    }
+
+    func list(_ path: String) async throws -> [TVDirEntry] {
+        try await ensureLogin()
+        let normalized = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isRoot = normalized.isEmpty || normalized == "/"
+        let items = isRoot
+            ? try await api.listSharedFolders()
+            : try await api.listDirectory(path: normalized)
+        return items.map { item in
+            TVDirEntry(
+                name: item.name,
+                isDir: item.isDirectory,
+                size: item.size,
+                path: item.path,
+                parentPath: isRoot ? "/" : normalized,
+                modifiedDate: item.modifiedDate
+            )
+        }
+    }
+
+    private func ensureLogin() async throws {
+        if didLogin, await api.sid != nil { return }
+        let result = await api.login(account: account, password: password)
+        if result.success {
+            didLogin = true
+            return
+        }
+        didLogin = false
+        if result.needs2FA { throw StreamResolveError.needs2FA }
+        throw StreamResolveError.authFailed
+    }
+}
+
+// MARK: - 绿联 NAS 目录列举
+
+actor TVUgreenLister: TVDirectoryLister {
+    private let api: UgreenAPI
+    private let account: String
+    private let password: String
+    private var didLogin = false
+
+    init?(source: MusicSource, credential: SourceCredential?) {
+        let host = (source.host ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty,
+              let account = credential?.username, !account.isEmpty,
+              let password = credential?.password, !password.isEmpty
+        else { return nil }
+        let useSsl = source.useSsl
+        self.api = UgreenAPI(
+            host: host,
+            port: source.port ?? MusicSourceType.ugreen.defaultPort(useSsl: useSsl),
+            useSsl: useSsl
+        )
+        self.account = account
+        self.password = password
+    }
+
+    func list(_ path: String) async throws -> [TVDirEntry] {
+        try await ensureLogin()
+        let normalized = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isRoot = normalized.isEmpty || normalized == "/"
+        let items = isRoot
+            ? try await api.listSharedFolders()
+            : try await api.listDirectory(path: normalized)
+        return items.map { item in
+            TVDirEntry(
+                name: item.name,
+                isDir: item.isDirectory,
+                size: item.size,
+                path: item.path,
+                parentPath: isRoot ? "/" : normalized
+            )
+        }
+    }
+
+    private func ensureLogin() async throws {
+        if didLogin, await api.isLoggedIn { return }
+        let result = await api.login(account: account, password: password)
+        if result.success {
+            didLogin = true
+            return
+        }
+        didLogin = false
+        if result.needs2FA { throw StreamResolveError.needs2FA }
+        throw StreamResolveError.authFailed
+    }
+}
+
+// MARK: - WebDAV / FTP 目录列举(FilesProvider)
+
+/// WebDAV 与 FTP 在电视端共用 FilesProvider(这个包电视端本来就链接着,SMB 之外
+/// 的两种协议直连也靠它)。iOS 侧为了精细控制 TLS 走的是自己拼的 PROPFIND,
+/// 电视端只需要列目录,直接用库的 `contentsOfDirectory` 更省也更稳。
+actor TVFilesProviderLister: TVDirectoryLister {
+    private let provider: any FileProvider
+    private let basePath: String
+
+    init?(source: MusicSource, credential: SourceCredential?) {
+        let host = (source.host ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty else { return nil }
+        let scheme: String
+        switch source.type {
+        case .webdav: scheme = source.useSsl ? "https" : "http"
+        case .ftp: scheme = source.useSsl ? "ftps" : "ftp"
+        default: return nil
+        }
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = host
+        if let port = source.port, port > 0 { components.port = port }
+        components.path = "/"
+        guard let baseURL = components.url else { return nil }
+
+        let user = credential?.username ?? ""
+        let password = credential?.password ?? ""
+        // FTP 匿名登录:库要求给出一个口令,给标准的邮箱式占位。
+        let effectivePassword = (source.type == .ftp && user.isEmpty && password.isEmpty)
+            ? "anonymous@primuse"
+            : password
+        let effectiveUser = (source.type == .ftp && user.isEmpty) ? "anonymous" : user
+        let urlCredential = URLCredential(
+            user: effectiveUser,
+            password: effectivePassword,
+            persistence: .forSession
+        )
+
+        switch source.type {
+        case .webdav:
+            guard let dav = WebDAVFileProvider(baseURL: baseURL, credential: urlCredential) else {
+                return nil
+            }
+            self.provider = dav
+        case .ftp:
+            guard let ftp = FTPFileProvider(baseURL: baseURL, credential: urlCredential) else {
+                return nil
+            }
+            self.provider = ftp
+        default:
+            return nil
+        }
+        let trimmed = (source.basePath ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        self.basePath = trimmed
+    }
+
+    func list(_ path: String) async throws -> [TVDirEntry] {
+        let normalized = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        let relative = (normalized.isEmpty || normalized == "/") ? "/" : normalized
+        let providerPath = TVFilesProviderPathPolicy.providerPath(base: basePath, path: relative)
+        let base = basePath
+        // 在回调里就地转成 TVDirEntry:库的 FileObject 不是 Sendable,不能跨过
+        // continuation 边界。
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[TVDirEntry], any Error>) in
+            provider.contentsOfDirectory(path: providerPath) { contents, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                let entries = contents
+                    .filter { !$0.name.hasPrefix(".") }
+                    .map { file in
+                        TVDirEntry(
+                            name: file.name,
+                            isDir: file.isDirectory,
+                            size: file.size,
+                            path: TVFilesProviderPathPolicy.sourcePath(
+                                base: base,
+                                providerPath: file.path
+                            ),
+                            parentPath: relative,
+                            modifiedDate: file.modifiedDate
+                        )
+                    }
+                    .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+                continuation.resume(returning: entries)
+            }
+        }
+    }
+}
+
+/// 源内相对路径与 provider 路径之间的换算(源可以配置一个基准目录)。
+enum TVFilesProviderPathPolicy {
+    static func providerPath(base: String, path: String) -> String {
+        let cleanBase = normalize(base)
+        let cleanPath = normalize(path)
+        if cleanBase.isEmpty { return cleanPath.isEmpty ? "/" : cleanPath }
+        if cleanPath.isEmpty { return cleanBase }
+        return cleanBase + cleanPath
+    }
+
+    static func sourcePath(base: String, providerPath: String) -> String {
+        let cleanBase = normalize(base)
+        let cleanProvider = normalize(providerPath)
+        guard !cleanBase.isEmpty, cleanProvider.hasPrefix(cleanBase) else {
+            return cleanProvider.isEmpty ? "/" : cleanProvider
+        }
+        let stripped = String(cleanProvider.dropFirst(cleanBase.count))
+        return stripped.isEmpty ? "/" : stripped
+    }
+
+    /// 统一成「以 / 开头、不以 / 结尾」;根目录归一成空串,便于直接拼接。
+    private static func normalize(_ value: String) -> String {
+        var text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, text != "/" else { return "" }
+        if !text.hasPrefix("/") { text = "/" + text }
+        while text.count > 1, text.hasSuffix("/") { text.removeLast() }
+        return text
+    }
+}
+
 // MARK: - SMB 目录列举(AMSMB2)
 
 actor TVSMBLister: TVDirectoryLister {
@@ -517,6 +751,12 @@ final class TVSourceScanner {
             return TVCloudDriveLister(source: source, credential: credential)
         case .synology:
             return TVSynologyLister(source: source, credential: credential)
+        case .qnap:
+            return TVQnapLister(source: source, credential: credential)
+        case .webdav, .ftp:
+            return TVFilesProviderLister(source: source, credential: credential)
+        case .ugreen:
+            return TVUgreenLister(source: source, credential: credential)
         case .fnMusic:
             return TVFnMusicLister(client: fnMusicClient(source: source, credential: credential))
         case .daoliyu:

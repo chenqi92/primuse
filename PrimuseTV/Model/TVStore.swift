@@ -123,7 +123,8 @@ enum TVSourceLocalLibraryPolicy {
     /// 电视端能自己列目录、自己建库的类型。唯一真源:这里加一种,
     /// `TVSourceScanner.makeSingleLister` 必须同时给出对应的列举器。
     static let directScanTypes: Set<MusicSourceType> = [
-        .smb, .synology, .fnMusic, .daoliyu, .songloft, .oneDrive, .dropbox,
+        .smb, .synology, .qnap, .ugreen, .webdav, .ftp,
+        .fnMusic, .daoliyu, .songloft, .oneDrive, .dropbox,
     ]
 
     static func capability(for type: MusicSourceType) -> TVSourceLocalLibraryCapability {
