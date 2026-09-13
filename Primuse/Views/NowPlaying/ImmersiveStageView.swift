@@ -820,7 +820,16 @@ struct ImmersiveStageView<Artwork: View>: View {
             inactive: ImmersiveStagePalette.text.opacity(0.22),
             waveformHeight: height,
             labelFontSize: metrics.s(platform == .tvOS ? 20 : 11),
-            spacing: metrics.s(8)
+            spacing: metrics.s(8),
+            barWidthRatio: platform == .tvOS
+                ? ImmersiveWaveformBarLayoutPolicy.televisionBarWidthRatio
+                : ImmersiveWaveformBarLayoutPolicy.compactBarWidthRatio,
+            minimumBarCount: platform == .tvOS
+                ? ImmersiveWaveformBarLayoutPolicy.televisionMinimumCount
+                : ImmersiveWaveformBarLayoutPolicy.compactMinimumCount,
+            maximumBarCount: platform == .tvOS
+                ? ImmersiveWaveformBarLayoutPolicy.televisionMaximumCount
+                : ImmersiveWaveformBarLayoutPolicy.compactMaximumCount
         )
         .accessibilityLabel(visualizerDisclosure)
     }
@@ -1555,6 +1564,9 @@ private struct ImmersiveWaveformPlaybackPanel: View {
     let waveformHeight: CGFloat
     let labelFontSize: CGFloat
     let spacing: CGFloat
+    var barWidthRatio: Double = ImmersiveWaveformBarLayoutPolicy.compactBarWidthRatio
+    var minimumBarCount: Int = ImmersiveWaveformBarLayoutPolicy.compactMinimumCount
+    var maximumBarCount: Int = ImmersiveWaveformBarLayoutPolicy.compactMaximumCount
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 0.1, paused: !isPlaying)) { _ in
@@ -1568,7 +1580,10 @@ private struct ImmersiveWaveformPlaybackPanel: View {
                     levelsProvider: levelsProvider,
                     progress: progress,
                     active: active,
-                    inactive: inactive
+                    inactive: inactive,
+                    barWidthRatio: barWidthRatio,
+                    minimumBarCount: minimumBarCount,
+                    maximumBarCount: maximumBarCount
                 )
                 .frame(height: waveformHeight)
 
@@ -2034,17 +2049,27 @@ private struct ImmersiveLiveWaveform: View {
     let progress: Double
     let active: Color
     let inactive: Color
+    /// 柱宽相对面板高度的比例与根数区间。电视的面板宽近 1920pt,沿用手机那套
+    /// 参数会把多出来的宽度平摊到每根柱子上,粗到看不出是波形。
+    var barWidthRatio: Double = ImmersiveWaveformBarLayoutPolicy.compactBarWidthRatio
+    var minimumBarCount: Int = ImmersiveWaveformBarLayoutPolicy.compactMinimumCount
+    var maximumBarCount: Int = ImmersiveWaveformBarLayoutPolicy.compactMaximumCount
 
     var body: some View {
         // 频段采样只在这一层读取，整块沉浸场景不随 25 Hz 刷新失效。
         let levels = levelsProvider()
         Canvas(rendersAsynchronously: true) { canvas, size in
-            let preferredWidth = max(size.height * 0.045, 3)
-            let preferredSpacing = max(preferredWidth * 0.82, 2.2)
-            let availableCount = Int((size.width + preferredSpacing) / (preferredWidth + preferredSpacing))
-            let count = min(max(availableCount, 38), 68)
-            let spacing = max(min(preferredSpacing, size.width * 0.012), 2)
-            let width = max((size.width - spacing * CGFloat(count - 1)) / CGFloat(count), 2.4)
+            let layout = ImmersiveWaveformBarLayoutPolicy.layout(
+                width: Double(size.width),
+                height: Double(size.height),
+                barWidthRatio: barWidthRatio,
+                minimumCount: minimumBarCount,
+                maximumCount: maximumBarCount
+            )
+            guard layout.count > 0 else { return }
+            let count = layout.count
+            let spacing = CGFloat(layout.spacing)
+            let width = CGFloat(layout.barWidth)
             let centerY = size.height / 2
             let playedWidth = size.width * CGFloat(min(max(progress, 0), 1))
             let baselineHeight = max(0.8, width * 0.18)

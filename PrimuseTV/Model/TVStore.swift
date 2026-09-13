@@ -2718,6 +2718,9 @@ final class TVStore {
             if source.type == .fnMusic {
                 await syncFnMusicLibrary(source: source, credential: cred, generation: generation)
                 guard isCurrentScan(source: source, generation: generation) else { return false }
+            } else if TVSourceScanner.serverPlaylistTypes.contains(source.type) {
+                await syncServerPlaylists(source: source, credential: cred, generation: generation)
+                guard isCurrentScan(source: source, generation: generation) else { return false }
             }
             enqueueSnapshotUpload()
             return true
@@ -2736,6 +2739,27 @@ final class TVStore {
             }
             scanner.phase = error is CancellationError ? .idle : .failed(PMString("ext.tv.persistence.failed"))
             return false
+        }
+    }
+
+    /// 把 Navidrome、Jellyfin 这类服务器上的自建歌单镜像成本地歌单。
+    /// 与 iPhone、Mac 用同一份 `ServerPlaylistMirror`:歌单 ID 由 sourceID 派生,
+    /// 每次扫描后以服务端内容为准覆盖,电视这边的改动不回写服务端。
+    private func syncServerPlaylists(
+        source: MusicSource,
+        credential: SourceCredential?,
+        generation: UUID
+    ) async {
+        do {
+            guard let snapshot = try await scanner.fetchServerPlaylists(
+                source: source, credential: credential
+            ) else { return }
+            guard isCurrentScan(source: source, generation: generation) else { return }
+            _ = ServerPlaylistMirror.apply(snapshot: snapshot, source: source, library: library)
+        } catch {
+            if OperationCancellationPolicy.isCancellation(error) { return }
+            // 歌单镜像是扫描的附加步骤,失败不能把已经成功的扫描算作失败。
+            plog("Server playlist sync failed for '\(source.name)': \(error.localizedDescription)")
         }
     }
 
