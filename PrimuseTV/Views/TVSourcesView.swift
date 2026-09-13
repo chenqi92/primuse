@@ -227,7 +227,8 @@ struct TVSourcesView: View {
         .fullScreenCover(isPresented: $showsMetadata, onDismiss: restorePrimaryFocus) {
             TVMetadataMaintenanceView().environment(store)
         }
-        .sheet(item: $credentialEditor, onDismiss: restorePrimaryFocus) { src in
+        // 不用 .sheet:tvOS 的 sheet 自带一层系统卡片底,和弹框自己的面板叠成双层背景。
+        .fullScreenCover(item: $credentialEditor, onDismiss: restorePrimaryFocus) { src in
             TVCredentialEditorView(source: src).environment(store)
         }
         .fullScreenCover(isPresented: $typePicker, onDismiss: finishTypePickerDismissal) {
@@ -628,6 +629,7 @@ private struct TVCredentialEditorView: View {
             username = store.manualCredentialUsername(sourceID: source.id)
             focus = .username
         }
+        .onExitCommand { dismiss() }
         .alert(PMString("ext.tv.sources.cred.saveFailedTitle"), isPresented: $saveFailed) {
             Button(PMString("ext.tv.sources.ok"), role: .cancel) {}
         } message: {
