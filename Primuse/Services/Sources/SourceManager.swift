@@ -9661,7 +9661,7 @@ final class SourceManager {
     func playbackSourceEndpointsAreUnavailable(
         sourceID: String,
         refresh: Bool = false,
-        probe: SourceNetworkFailurePolicy.EndpointProbe = SourceConnectionPreflight.check
+        probe: @escaping SourceNetworkFailurePolicy.EndpointProbe = SourceConnectionPreflight.check
     ) async -> Bool {
         guard !Task.isCancelled,
               let sources = try? await sourcesProvider(),
@@ -9674,7 +9674,7 @@ final class SourceManager {
     private func playbackSourceEndpointsAreUnavailable(
         for source: MusicSource,
         refresh: Bool = false,
-        probe: SourceNetworkFailurePolicy.EndpointProbe = SourceConnectionPreflight.check
+        probe: @escaping SourceNetworkFailurePolicy.EndpointProbe = SourceConnectionPreflight.check
     ) async -> Bool {
         let networkGeneration = NetworkMonitor.shared.pathGeneration
         let sourceGeneration = connectorScopeValidationGenerationBySourceID[source.id] ?? 0
