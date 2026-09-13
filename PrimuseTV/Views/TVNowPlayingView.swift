@@ -236,7 +236,7 @@ struct TVNowPlayingView: View {
 
                     if let issue = store.playbackIssue {
                         Label(issue.message, systemImage: "exclamationmark.triangle.fill")
-                            .font(.system(size: 18, weight: .medium))
+                            .font(.system(size: 22, weight: .medium))
                             .foregroundStyle(TVColor.warn)
                             .lineLimit(3)
                             .padding(.top, 22)
@@ -384,7 +384,7 @@ struct TVNowPlayingView: View {
                     .foregroundStyle(.white.opacity(0.74))
                     .padding(.top, 8)
                 Text(metadataLine(np))
-                    .font(.system(size: 18))
+                    .font(.system(size: 22))
                     .foregroundStyle(.white.opacity(0.52))
                     .padding(.top, 5)
 
@@ -392,7 +392,7 @@ struct TVNowPlayingView: View {
 
                 if let issue = store.playbackIssue {
                     Label(issue.message, systemImage: "exclamationmark.triangle.fill")
-                        .font(.system(size: 18, weight: .medium))
+                        .font(.system(size: 22, weight: .medium))
                         .foregroundStyle(TVColor.warn)
                         .lineLimit(2)
                         .padding(.bottom, 18)
@@ -454,14 +454,14 @@ struct TVNowPlayingView: View {
                 .foregroundStyle(TVColor.text).lineLimit(2).padding(.top, 26)
             Text(np.artist).font(.system(size: 26)).foregroundStyle(TVColor.textMuted).padding(.top, 8)
             Text(metadataLine(np))
-                .font(.system(size: 18)).foregroundStyle(TVColor.textFaint).padding(.top, 4)
+                .font(.system(size: 22)).foregroundStyle(TVColor.textFaint).padding(.top, 4)
 
             TVLibraryReviewControl(subject: .song(np.songID))
                 .padding(.top, 16)
 
             if let issue = store.playbackIssue {
                 Label(issue.message, systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 16, weight: .medium)).foregroundStyle(TVColor.warn)
+                    .font(.system(size: 20, weight: .medium)).foregroundStyle(TVColor.warn)
                     .lineLimit(3).frame(maxWidth: 580, alignment: .leading).padding(.top, 14)
             }
 
@@ -488,7 +488,7 @@ struct TVNowPlayingView: View {
         let dur = store.duration
         let p = dur > 0 ? max(0, min(1, cur / dur)) : 0
         return HStack(spacing: 16) {
-            Text(TVFmt.time(cur)).font(.system(size: 16, design: .monospaced))
+            Text(TVFmt.time(cur)).font(.system(size: 20, design: .monospaced))
                 .foregroundStyle(immersiveDark ? Color.white.opacity(0.60) : TVColor.textMuted)
                 .frame(width: 56, alignment: .trailing)
             TVScrubber(progress: p, tint: TVColor.brand, immersiveDark: immersiveDark,
@@ -498,7 +498,7 @@ struct TVNowPlayingView: View {
                        onFinish: { focusedTransport = immersiveDark ? .songPrimary : .playPause },
                        focused: $scrubberFocused)
                 .prefersDefaultFocus(focusRequest?.target == .nowPlaying(.scrubber), in: playerFocus)
-            Text("-\(TVFmt.time(max(0, dur - cur)))").font(.system(size: 16, design: .monospaced))
+            Text("-\(TVFmt.time(max(0, dur - cur)))").font(.system(size: 20, design: .monospaced))
                 .foregroundStyle(immersiveDark ? Color.white.opacity(0.60) : TVColor.textMuted)
                 .frame(width: 56, alignment: .leading)
         }

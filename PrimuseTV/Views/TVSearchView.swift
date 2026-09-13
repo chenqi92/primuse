@@ -417,7 +417,7 @@ struct TVSearchView: View {
                 systemImage: fallbackDepth > 0
                     ? "arrow.trianglehead.branch" : "checkmark.circle.fill"
             )
-            .font(.system(size: 15, weight: .medium))
+            .font(.system(size: 20, weight: .medium))
             .foregroundStyle(TVColor.brand)
         case .noMatches(let provider, let fallbackDepth):
             Label(
@@ -473,7 +473,7 @@ private struct TVSearchSongRow: View {
                     if hit.isLyric, let snippet = hit.lyricSnippet, !snippet.isEmpty {
                         // 歌词命中:展示命中片段,与 iOS/macOS 一致。
                         HStack(spacing: 6) {
-                            Image(systemName: "quote.opening").font(.system(size: 12)).foregroundStyle(TVColor.brand)
+                            Image(systemName: "quote.opening").font(.system(size: 20)).foregroundStyle(TVColor.brand)
                             Text(snippet.replacingOccurrences(of: "\n", with: " · "))
                                 .tvFont(.caption).foregroundStyle(TVColor.brand.opacity(0.9)).lineLimit(1)
                         }

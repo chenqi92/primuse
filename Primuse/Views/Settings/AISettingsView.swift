@@ -919,6 +919,30 @@ struct AISettingsView: View {
         }
     }
 
+    /// 图标块和状态点在电视上要按 10ft 距离放大:手机上的 38pt 方块、8pt 圆点
+    /// 在 1920×1080 的电视界面里小到看不清。
+    private var connectionSummaryIconSize: CGFloat {
+        #if os(tvOS)
+        64
+        #else
+        38
+        #endif
+    }
+    private var connectionSummaryGlyphSize: CGFloat {
+        #if os(tvOS)
+        32
+        #else
+        19
+        #endif
+    }
+    private var connectionSummaryDotSize: CGFloat {
+        #if os(tvOS)
+        18
+        #else
+        8
+        #endif
+    }
+
     private var connectionSummary: some View {
         let usesRelay = editor.primuseRelayEnabled && editor.status == .idle
         let isReady = usesRelay ? primuseRelayIsOperational : editor.hasUsableAPIKey
@@ -927,9 +951,9 @@ struct AISettingsView: View {
         return Section {
             HStack(spacing: 14) {
                 Image(systemName: isReady ? "sparkles" : "key.horizontal")
-                    .font(.system(size: 19, weight: .semibold))
+                    .font(.system(size: connectionSummaryGlyphSize, weight: .semibold))
                     .foregroundStyle(Color.accentColor)
-                    .frame(width: 38, height: 38)
+                    .frame(width: connectionSummaryIconSize, height: connectionSummaryIconSize)
                     .background(
                         Color.accentColor.opacity(0.12),
                         in: RoundedRectangle(cornerRadius: 10)
@@ -948,7 +972,7 @@ struct AISettingsView: View {
                 Spacer()
                 Circle()
                     .fill(stateColor)
-                    .frame(width: 8, height: 8)
+                    .frame(width: connectionSummaryDotSize, height: connectionSummaryDotSize)
             }
             .padding(.vertical, 4)
         }

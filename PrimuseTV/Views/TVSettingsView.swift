@@ -392,7 +392,7 @@ struct TVSettingsView: View {
                 Spacer(minLength: 0)
                 Text(value).font(.system(size: 24)).foregroundStyle(TVColor.textMuted)
                     .multilineTextAlignment(.trailing).lineLimit(2)
-                Image(systemName: trailing).font(.system(size: 16, weight: .semibold))
+                Image(systemName: trailing).font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(focused ? TVColor.text : TVColor.textGhost)
             }
             .padding(.horizontal, 22).padding(.vertical, 16)
@@ -508,7 +508,7 @@ private struct TVThemeColorPicker: View {
                     }
                     Spacer()
                     Text("#\(selectedHex)")
-                        .font(.system(size: 18, design: .monospaced))
+                        .font(.system(size: 22, design: .monospaced))
                         .foregroundStyle(TVColor.textMuted)
                 }
 
@@ -559,7 +559,7 @@ private struct TVThemeColorPicker: View {
                             .foregroundStyle(TVColor.onBrand)
                     }
                 Text(PMString("theme_color_mode_auto"))
-                    .font(.system(size: 17, weight: selected ? .bold : .semibold))
+                    .font(.system(size: 21, weight: selected ? .bold : .semibold))
                     .foregroundStyle(TVColor.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
@@ -607,7 +607,7 @@ private struct TVThemeColorPicker: View {
                         }
                     }
                 Text(PMString(swatch.localizationKey))
-                    .font(.system(size: 17, weight: selected ? .bold : .semibold))
+                    .font(.system(size: 21, weight: selected ? .bold : .semibold))
                     .foregroundStyle(TVColor.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)

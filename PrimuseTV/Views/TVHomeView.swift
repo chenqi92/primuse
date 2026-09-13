@@ -215,7 +215,7 @@ struct TVHomeView: View {
             }
             if let summary = aiRecommendation.summaryText {
                 Text(summary)
-                    .font(.system(size: 17))
+                    .font(.system(size: 21))
                     .foregroundStyle(TVColor.textMuted)
                     .lineLimit(2)
                     .padding(.horizontal, 20)
@@ -251,7 +251,7 @@ struct TVHomeView: View {
             action: { recommendationSceneRawValue = scene.rawValue }
         ) { focused in
             Text(scene.localizedName)
-                .font(.system(size: 18, weight: .semibold))
+                .font(.system(size: 22, weight: .semibold))
                 .foregroundStyle(selected ? TVColor.onBrand : TVColor.text)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 13)

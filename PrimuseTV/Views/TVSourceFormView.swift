@@ -88,7 +88,7 @@ struct TVSourceTypePicker: View {
                         }
                     }
                     Text(PMString("ext.tv.sources.chooseTypeFooter"))
-                        .font(.system(size: 16)).foregroundStyle(TVColor.textGhost).padding(.top, 36)
+                        .font(.system(size: 20)).foregroundStyle(TVColor.textGhost).padding(.top, 36)
                 }
                 .padding(.horizontal, 120).padding(.vertical, 90)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -111,16 +111,16 @@ struct TVSourceTypePicker: View {
                     Spacer(minLength: 0)
                     if let badge {
                         // 内网发现的设备靠这个文字徽标区分协议(SMB/WebDAV 图标相近)。
-                        Text(badge).font(.system(size: 14, weight: .heavy))
+                        Text(badge).font(.system(size: 20, weight: .heavy))
                             .foregroundStyle(TVColor.onBrand)
                             .padding(.horizontal, 11).padding(.vertical, 5)
                             .background(TVColor.brand, in: Capsule())
                     }
                 }
                 Spacer(minLength: 16)
-                Text(label).font(.system(size: 22, weight: .bold))
+                Text(label).font(.system(size: 26, weight: .bold))
                     .foregroundStyle(TVColor.text).lineLimit(1)
-                Text(hint).font(.system(size: 15, design: .monospaced))
+                Text(hint).font(.system(size: 20, design: .monospaced))
                     .foregroundStyle(TVColor.textMuted).lineLimit(1)
             }
             .padding(22).frame(height: 178, alignment: .topLeading).frame(maxWidth: .infinity, alignment: .leading)
@@ -486,7 +486,7 @@ struct TVSourceFormView: View {
                     }
                     if type == .fnMusic {
                         Text(PMString("fnmusic_account_hint"))
-                            .font(.system(size: 16))
+                            .font(.system(size: 20))
                             .foregroundStyle(TVColor.textFaint)
                         if fnMusicConnectionMode == .fnConnect {
                             TVFormField(
@@ -495,7 +495,7 @@ struct TVSourceFormView: View {
                                 secure: true
                             )
                             Text(PMString("fnmusic_access_code_hint"))
-                                .font(.system(size: 16))
+                                .font(.system(size: 20))
                                 .foregroundStyle(TVColor.textFaint)
                         }
                     }
@@ -507,7 +507,7 @@ struct TVSourceFormView: View {
 
             if showsAuth && effectiveAuthType != .none {
                 HStack(spacing: 12) {
-                    Image(systemName: "lock.fill").font(.system(size: 15)).foregroundStyle(TVColor.brand)
+                    Image(systemName: "lock.fill").font(.system(size: 20)).foregroundStyle(TVColor.brand)
                     Text(PMString("ext.tv.sources.form.passwordStorage"))
                         .tvFont(.caption).foregroundStyle(TVColor.textFaint)
                 }
@@ -583,7 +583,7 @@ struct TVSourceFormView: View {
 
     private func connectionHint(_ key: String) -> some View {
         Text(PMString(key))
-            .font(.system(size: 16))
+            .font(.system(size: 20))
             .foregroundStyle(TVColor.textFaint)
             .frame(maxWidth: 720, alignment: .leading)
     }
@@ -610,15 +610,15 @@ struct TVSourceFormView: View {
                 Text(PMString("ext.tv.sources.form.iphoneInput"))
                     .font(.system(size: 24, weight: .bold)).foregroundStyle(TVColor.text)
                 Text(PMString("ext.tv.sources.form.iphoneInputBody"))
-                    .font(.system(size: 16)).foregroundStyle(TVColor.textFaint)
+                    .font(.system(size: 20)).foregroundStyle(TVColor.textFaint)
                     .multilineTextAlignment(.center).lineSpacing(4)
             }
             .padding(28).frame(maxWidth: .infinity)
             .background(TVColor.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .overlay { RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(TVColor.cardBorder, lineWidth: 0.5) }
+            .overlay { RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(TVColor.cardBorder, lineWidth: 1) }
 
             if let testResult {
-                Text(testResult).font(.system(size: 16)).foregroundStyle(TVColor.textMuted)
+                Text(testResult).font(.system(size: 20)).foregroundStyle(TVColor.textMuted)
                     .multilineTextAlignment(.center).frame(maxWidth: .infinity)
             }
 
@@ -648,7 +648,7 @@ struct TVSourceFormView: View {
             }
             TVFocusButton(radius: 14, scale: 1.04, lift: 0, action: { dismiss() }) { f in
                 Text(PMString("ext.tv.sources.cancel"))
-                    .font(.system(size: 19, weight: .medium)).foregroundStyle(TVColor.text)
+                    .font(.system(size: 22, weight: .medium)).foregroundStyle(TVColor.text)
                     .frame(maxWidth: .infinity).padding(.vertical, 14)
                     .background(f ? TVColor.surfaceStrong : TVColor.surfaceSubtle, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
@@ -910,7 +910,11 @@ struct TVFormField: View {
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
             .tvFont(.input, weight: .medium, design: mono ? .monospaced : .default)
+            // 原生输入框会按内容宽度收缩,不撑满就会出现相邻两格一大一小;
+            // 先撑满再限宽,整列字段才等宽对齐。占位串为空,标题只在上方,补一个无障碍标签。
+            .frame(maxWidth: .infinity)
             .frame(maxWidth: 720, alignment: .leading)
+            .accessibilityLabel(label)
             .focused($focused)
         }
         .onAppear { if autofocus { focused = true } }
@@ -976,7 +980,7 @@ struct TVOTPEntryView: View {
                 }
             }
             if let error {
-                Text(error).font(.system(size: 17)).foregroundStyle(TVColor.bad).padding(.top, 24)
+                Text(error).font(.system(size: 21)).foregroundStyle(TVColor.bad).padding(.top, 24)
             } else if busy {
                 HStack(spacing: 12) {
                     ProgressView().tint(TVColor.brand)
@@ -1059,12 +1063,12 @@ struct TVRecycleBinView: View {
                                         .foregroundStyle(.white).frame(width: 46, height: 46)
                                         .background(s.color, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                                     VStack(alignment: .leading, spacing: 3) {
-                                        Text(s.name).font(.system(size: 22, weight: .semibold)).foregroundStyle(TVColor.text)
-                                        Text(s.type.uppercased()).font(.system(size: 15, design: .monospaced)).foregroundStyle(TVColor.textFaint)
+                                        Text(s.name).font(.system(size: 26, weight: .semibold)).foregroundStyle(TVColor.text)
+                                        Text(s.type.uppercased()).font(.system(size: 20, design: .monospaced)).foregroundStyle(TVColor.textFaint)
                                     }
                                     Spacer(minLength: 0)
                                     Label(PMString("ext.tv.sources.restore"), systemImage: "arrow.uturn.backward")
-                                        .font(.system(size: 18, weight: .semibold))
+                                        .font(.system(size: 22, weight: .semibold))
                                         .foregroundStyle(focused ? TVColor.ok : TVColor.textFaint)
                                 }
                                 .padding(.horizontal, 22).padding(.vertical, 16).frame(maxWidth: .infinity)

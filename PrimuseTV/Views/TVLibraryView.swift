@@ -572,7 +572,7 @@ struct TVSongRow: View {
                 VStack(alignment: .leading, spacing: 3) {
                     if let reason {
                         Label(reason, systemImage: "sparkles")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 20, weight: .semibold))
                             .foregroundStyle(TVColor.brand)
                             .lineLimit(1)
                     }
@@ -583,12 +583,12 @@ struct TVSongRow: View {
                 }
                 Spacer(minLength: 0)
                 if store.isLiked(song.id) {
-                    Image(systemName: "heart.fill").font(.system(size: 18))
+                    Image(systemName: "heart.fill").font(.system(size: 22))
                         .foregroundStyle(TVColor.brand)
                 }
-                Text(song.format).font(.system(size: 14, weight: .semibold))
+                Text(song.format).font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(TVColor.textGhost)
-                Text(TVFmt.time(song.duration)).font(.system(size: 18, design: .monospaced))
+                Text(TVFmt.time(song.duration)).font(.system(size: 22, design: .monospaced))
                     .foregroundStyle(TVColor.textFaint)
             }
             .padding(.horizontal, 22).padding(.vertical, 16)

@@ -76,13 +76,13 @@ struct TVQueueView: View {
                               tint: album?.tint ?? TVColor.brand,
                               tint2: album?.tint2 ?? .black, glyph: album?.glyph ?? "♪", size: 56, radius: 8)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(song.title).font(.system(size: 22, weight: .semibold))
+                    Text(song.title).font(.system(size: 24, weight: .semibold))
                         .foregroundStyle(TVColor.text).lineLimit(1)
-                    Text(song.artist).font(.system(size: 16))
+                    Text(song.artist).font(.system(size: 20))
                         .foregroundStyle(TVColor.textFaint).lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                Text(TVFmt.time(song.duration)).font(.system(size: 16, design: .monospaced))
+                Text(TVFmt.time(song.duration)).font(.system(size: 20, design: .monospaced))
                     .foregroundStyle(TVColor.textFaint)
             }
             .padding(.horizontal, 20).padding(.vertical, 14)

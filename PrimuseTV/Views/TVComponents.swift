@@ -14,54 +14,21 @@ struct TVLibraryReviewControl: View {
         store.library.libraryReview(for: subject)
     }
 
+    private var rating: Int { review?.rating ?? 0 }
+
     var body: some View {
         if isEnabled {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 10) {
                     ForEach(1...5, id: \.self) { value in
-                        Button {
-                            store.library.updateLibraryReview(
-                                for: subject,
-                                rating: value == review?.rating ? nil : value,
-                                comment: review?.comment ?? ""
-                            )
-                        } label: {
-                            Image(systemName: value <= (review?.rating ?? 0) ? "star.fill" : "star")
-                                .font(.system(size: 24, weight: .semibold))
-                                .foregroundStyle(value <= (review?.rating ?? 0) ? TVColor.warn : TVColor.textMuted)
-                                .frame(width: 54, height: 54)
-                        }
-                        .buttonStyle(.bordered)
-                        .accessibilityLabel(
-                            Text(
-                                String(
-                                    format: String(localized: "library_review_star_format"),
-                                    value
-                                )
-                            )
-                        )
+                        starButton(value)
                     }
-
-                    Button {
-                        showsCommentEditor = true
-                    } label: {
-                        Image(systemName: review?.comment.isEmpty == false ? "text.bubble.fill" : "text.bubble")
-                            .font(.system(size: 22, weight: .semibold))
-                            .frame(width: 54, height: 54)
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityLabel(
-                        Text(
-                            review?.comment.isEmpty == false
-                                ? "library_review_edit_comment"
-                                : "library_review_add_comment"
-                        )
-                    )
+                    commentButton
                 }
 
                 if let comment = review?.comment, !comment.isEmpty {
                     Text(verbatim: comment)
-                        .font(.system(size: 18))
+                        .tvFont(.caption)
                         .foregroundStyle(TVColor.textMuted)
                         .lineLimit(2)
                         .frame(maxWidth: 560, alignment: .leading)
@@ -73,52 +40,147 @@ struct TVLibraryReviewControl: View {
             }
         }
     }
+
+    /// 用自绘焦点态代替 `.bordered`:tvOS 的系统按钮样式会盖一层白色平台层,
+    /// 和这套暗色主题里的其它按钮长得完全不一样。
+    private func starButton(_ value: Int) -> some View {
+        let filled = value <= rating
+        return TVFocusButton(radius: 12, scale: 1.06, lift: 0, action: {
+            store.library.updateLibraryReview(
+                for: subject,
+                rating: value == review?.rating ? nil : value,
+                comment: review?.comment ?? ""
+            )
+        }) { focused in
+            Image(systemName: filled ? "star.fill" : "star")
+                .font(.system(size: 26, weight: .semibold))
+                .foregroundStyle(filled ? TVColor.warn : (focused ? TVColor.text : TVColor.textMuted))
+                .frame(width: 54, height: 54)
+                .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle,
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .accessibilityLabel(
+            Text(String(format: String(localized: "library_review_star_format"), value))
+        )
+        .accessibilityAddTraits(filled ? [.isButton, .isSelected] : .isButton)
+    }
+
+    private var commentButton: some View {
+        let hasComment = review?.comment.isEmpty == false
+        return TVFocusButton(radius: 12, scale: 1.06, lift: 0, action: { showsCommentEditor = true }) { focused in
+            Image(systemName: hasComment ? "text.bubble.fill" : "text.bubble")
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(hasComment ? TVColor.brand : (focused ? TVColor.text : TVColor.textMuted))
+                .frame(width: 54, height: 54)
+                .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle,
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .accessibilityLabel(
+            Text(hasComment ? "library_review_edit_comment" : "library_review_add_comment")
+        )
+    }
 }
 
+/// 评论编辑弹框。原先用 `NavigationStack` + `Form`,是这套 tvOS 界面里唯一一处
+/// iOS 风格的系统表单;改成和其它覆层一致的「氛围底 + 居中面板」,输入框也按同一
+/// 规则处理(标题在框外、占位串留空、撑满列宽)。
 private struct TVLibraryReviewCommentEditor: View {
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
 
     let subject: LibraryReviewSubject
     @State private var draft = ""
+    @FocusState private var inputActive: Bool
 
     private var currentReview: LibraryReview? {
         store.library.libraryReview(for: subject)
     }
 
+    private var limit: Int { LibraryReviewPreferences.maximumCommentLength }
+
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("library_review_comment_title", text: $draft)
-                        .frame(minHeight: 90)
-                        .onChange(of: draft) { _, value in
-                            if value.count > LibraryReviewPreferences.maximumCommentLength {
-                                draft = String(value.prefix(LibraryReviewPreferences.maximumCommentLength))
-                            }
-                        }
-                } footer: {
-                    Text(verbatim: "\(draft.count)/\(LibraryReviewPreferences.maximumCommentLength)")
-                }
+        ZStack {
+            TVAmbientBackdrop(tint: TVColor.brand, tint2: TVColor.brandSecondary, strength: 0.4)
+            TVColor.bg.opacity(0.5).ignoresSafeArea()
+            card
+                .padding(.horizontal, 90)
+                .padding(.vertical, 60)
+        }
+        .onAppear {
+            draft = currentReview?.comment ?? ""
+            inputActive = true
+        }
+        .onExitCommand { dismiss() }
+    }
+
+    private var card: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(String(localized: "library_review_comment_title"))
+                .tvFont(.pageTitle)
+                .foregroundStyle(TVColor.text)
+            Rectangle().fill(TVColor.divider)
+                .frame(height: 1)
+                .padding(.top, 26).padding(.bottom, 28)
+
+            HStack(spacing: 10) {
+                Image(systemName: "text.bubble").font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(inputActive ? TVColor.brand : TVColor.textFaint)
+                    .frame(width: 26)
+                Text(String(localized: "library_review_comment_title"))
+                    .tvFont(.caption)
+                    .foregroundStyle(inputActive ? TVColor.text : TVColor.textFaint)
+                Spacer(minLength: 0)
+                Text(verbatim: "\(draft.count)/\(limit)")
+                    .tvFont(.caption, design: .monospaced)
+                    .foregroundStyle(draft.count >= limit ? TVColor.warn : TVColor.textFaint)
             }
-            .navigationTitle("library_review_comment_title")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("save") {
-                        store.library.updateLibraryReview(
-                            for: subject,
-                            rating: currentReview?.rating,
-                            comment: draft
-                        )
-                        dismiss()
+            .padding(.bottom, 10)
+
+            TextField("", text: $draft)
+                .focused($inputActive)
+                .tvFont(.input)
+                .frame(maxWidth: .infinity)
+                .accessibilityLabel(Text("library_review_comment_title"))
+                .onChange(of: draft) { _, value in
+                    if value.count > limit {
+                        draft = String(value.prefix(limit))
                     }
                 }
+
+            HStack(spacing: 16) {
+                TVFocusButton(radius: 14, accent: TVColor.brand, scale: 1.02, lift: 0, action: save) { focused in
+                    Text(String(localized: "save"))
+                        .tvFont(.button)
+                        .foregroundStyle(TVColor.onBrand)
+                        .padding(.horizontal, 30).padding(.vertical, 16)
+                        .frame(minWidth: 220)
+                        .background(TVColor.brand.opacity(focused ? 1 : 0.85),
+                                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                Spacer(minLength: 0)
+                TVFocusButton(radius: 14, scale: 1.02, lift: 0, action: { dismiss() }) { focused in
+                    Text(String(localized: "cancel"))
+                        .tvFont(.button)
+                        .foregroundStyle(TVColor.text)
+                        .padding(.horizontal, 26).padding(.vertical, 16)
+                        .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle,
+                                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
             }
-            .onAppear { draft = currentReview?.comment ?? "" }
+            .padding(.top, 32)
         }
+        .padding(.horizontal, 64).padding(.vertical, 52)
+        .frame(maxWidth: 1080, alignment: .leading)
+        .tvPanel(radius: 26)
+    }
+
+    private func save() {
+        store.library.updateLibraryReview(
+            for: subject,
+            rating: currentReview?.rating,
+            comment: draft
+        )
+        dismiss()
     }
 }
 

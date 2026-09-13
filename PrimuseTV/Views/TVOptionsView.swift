@@ -81,7 +81,7 @@ struct TVOptionsView: View {
             VStack(spacing: 14) {
                 Image(systemName: a.icon).font(.system(size: 40, weight: .regular))
                     .foregroundStyle(focused ? TVColor.onBrand : (a.on ? TVColor.brand : TVColor.text))
-                Text(a.label).font(.system(size: 18, weight: focused ? .bold : .medium))
+                Text(a.label).font(.system(size: 22, weight: focused ? .bold : .medium))
                     .foregroundStyle(focused ? TVColor.onBrand : TVColor.text)
             }
             .frame(width: 150, height: 150)
@@ -139,9 +139,9 @@ struct TVFullscreenEffectPicker: View {
                                     PMString("immersive_lyrics_motion_title"),
                                     systemImage: lyricsMotionEnabled ? "checkmark.circle.fill" : "circle"
                                 )
-                                    .font(.system(size: 19, weight: .semibold))
+                                    .font(.system(size: 22, weight: .semibold))
                                 Text(PMString("immersive_lyrics_motion_subtitle"))
-                                    .font(.system(size: 13))
+                                    .font(.system(size: 20))
                                     .foregroundStyle(.white.opacity(0.58))
                             }
                             .foregroundStyle(lyricsMotionEnabled ? previewPalette.primary : .white.opacity(0.82))
@@ -164,7 +164,7 @@ struct TVFullscreenEffectPicker: View {
                             ForEach(FullscreenEffectCollection.allCases) { collection in
                                 VStack(alignment: .leading, spacing: 10) {
                                     Text(collection.title)
-                                        .font(.system(size: 17, weight: .semibold))
+                                        .font(.system(size: 21, weight: .semibold))
                                         .foregroundStyle(.white.opacity(0.66))
 
                                     LazyVGrid(columns: columns, spacing: 18) {
@@ -215,15 +215,15 @@ struct TVFullscreenEffectPicker: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(candidate.localizedTitle)
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.system(size: 22, weight: .semibold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
                     Text(candidate.localizedSubtitle)
-                        .font(.system(size: 13))
+                        .font(.system(size: 20))
                         .foregroundStyle(.white.opacity(0.58))
                         .lineLimit(2)
                     Label(candidate.motionDescription, systemImage: "waveform.path")
-                        .font(.system(size: 12))
+                        .font(.system(size: 20))
                         .foregroundStyle(previewPalette.primary.opacity(0.84))
                         .lineLimit(1)
                 }

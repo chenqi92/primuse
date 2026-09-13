@@ -58,7 +58,7 @@ struct TVTransferReceiveView: View {
                         }
                         Rectangle().fill(TVColor.text.opacity(0.09)).frame(height: 1)
                         if let address = receiver.address {
-                            Text(TVTransferText.string("code")).font(.system(size: 18, weight: .medium)).foregroundStyle(TVColor.textMuted)
+                            Text(TVTransferText.string("code")).font(.system(size: 22, weight: .medium)).foregroundStyle(TVColor.textMuted)
                             Text(receiver.code).font(.system(size: 64, weight: .semibold, design: .monospaced))
                                 .tracking(12).accessibilityIdentifier("wifiTransfer.code")
                             Text(TVTransferText.string("receiveHint")).font(.system(size: 20))
@@ -66,8 +66,9 @@ struct TVTransferReceiveView: View {
                             Text(address).font(.system(size: 20, design: .monospaced))
                                 .foregroundStyle(TVColor.textMuted).accessibilityIdentifier("wifiTransfer.address")
                         } else if receiver.running {
+                            // 与下面的空闲文案用同一套高度/对齐,两个状态之间才不会上下跳。
                             ProgressView(TVTransferText.string("waiting")).font(.system(size: 22))
-                                .frame(height: 190)
+                                .frame(minHeight: 190, alignment: .topLeading)
                         } else {
                             Text(TVTransferText.string("receiveHint")).font(.system(size: 22))
                                 .foregroundStyle(TVColor.textMuted).lineSpacing(6)
@@ -94,13 +95,13 @@ struct TVTransferReceiveView: View {
                             browserAccessToggle
                         }.padding(28).background(TVColor.card, in: .rect(cornerRadius: 22))
                         if let error = error ?? receiver.error.map(TVTransferText.string) ?? store.transferScanError.map(TVTransferText.string) {
-                            Text(error).font(.system(size: 18)).foregroundStyle(.red)
+                            Text(error).font(.system(size: 22)).foregroundStyle(.red)
                         }
-                        Text(TVTransferText.string("tvStorage")).font(.system(size: 18))
+                        Text(TVTransferText.string("tvStorage")).font(.system(size: 22))
                             .foregroundStyle(TVColor.textMuted).lineSpacing(4)
                     }.frame(width: 520).focusSection()
                 }
-                Text(TVTransferText.string("keepOpen")).font(.system(size: 18)).foregroundStyle(TVColor.textMuted)
+                Text(TVTransferText.string("keepOpen")).font(.system(size: 22)).foregroundStyle(TVColor.textMuted)
                 Spacer(minLength: 0)
             }.padding(.horizontal, 80).padding(.vertical, 56).foregroundStyle(TVColor.text)
         }
@@ -147,16 +148,16 @@ struct TVTransferReceiveView: View {
                 if !receipt.finished {
                     ProgressView(value: receipt.progress).tint(TVColor.brand)
                     Text(receipt.files.last(where: { !$0.finished })?.path ?? TVTransferText.string("receiveWaitingFiles"))
-                        .font(.system(size: 18)).lineLimit(1).truncationMode(.middle)
+                        .font(.system(size: 22)).lineLimit(1).truncationMode(.middle)
                 }
                 if let failure = receipt.error {
-                    Text(TVTransferText.string(failure)).font(.system(size: 18))
+                    Text(TVTransferText.string(failure)).font(.system(size: 22))
                         .foregroundStyle(.orange).lineLimit(3)
                 }
                 if store.transferIsIndexing {
-                    ProgressView(TVTransferText.string("indexing")).font(.system(size: 18))
+                    ProgressView(TVTransferText.string("indexing")).font(.system(size: 22))
                 } else if receipt.completed > 0, store.transferScanError == nil {
-                    Text(TVTransferText.string("receiveStored")).font(.system(size: 18)).foregroundStyle(TVColor.textMuted)
+                    Text(TVTransferText.string("receiveStored")).font(.system(size: 22)).foregroundStyle(TVColor.textMuted)
                 }
             } else {
                 Text(TVTransferText.string("receiveActivity")).font(.system(size: 26, weight: .semibold))
@@ -277,8 +278,8 @@ private struct TVReceivedMusicView: View {
                                 Image(systemName: store.currentSongID == song.id && store.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                                     .font(.system(size: 32))
                                 VStack(alignment: .leading, spacing: 6) {
-                                    Text(song.title).font(.system(size: 24, weight: .semibold))
-                                    Text(song.artistName ?? "").font(.system(size: 18))
+                                    Text(song.title).font(.system(size: 26, weight: .semibold))
+                                    Text(song.artistName ?? "").font(.system(size: 22))
                                 }
                                 Spacer()
                             }
