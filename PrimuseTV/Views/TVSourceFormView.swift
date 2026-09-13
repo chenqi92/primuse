@@ -1054,6 +1054,10 @@ struct TVOTPEntryView: View {
     @State private var code = ""
     @State private var error: String?
     @State private var busy = false
+    /// 验证失败后这个界面会自己把输入框清空,好让用户重新输一遍。那次清空不能
+    /// 顺手把刚写上去的失败原因也清掉 —— 否则用户看到的就只是输入框莫名其妙
+    /// 变空,既不知道码错了还是凭据缺了,也不知道为什么没往下走。
+    @State private var keepsErrorOnNextChange = false
     @FocusState private var fieldFocused: Bool
 
     private let keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "✓"]
@@ -1123,7 +1127,15 @@ struct TVOTPEntryView: View {
                     .focused($fieldFocused)
                     .onChange(of: code) { _, newValue in
                         let digits = TVOneTimeCodePolicy.sanitized(newValue)
-                        if digits != newValue { code = digits }
+                        if digits != newValue {
+                            // 这次赋值会再触发一轮,错误留给那一轮处理。
+                            code = digits
+                            return
+                        }
+                        guard !keepsErrorOnNextChange else {
+                            keepsErrorOnNextChange = false
+                            return
+                        }
                         error = nil
                     }
                     .onSubmit(submit)
@@ -1166,8 +1178,9 @@ struct TVOTPEntryView: View {
             let err = await store.login2FA(sourceID: source.id, otp: code)
             busy = false
             if let err {
-                error = err
+                keepsErrorOnNextChange = !code.isEmpty
                 code = ""
+                error = err
                 fieldFocused = true
             } else {
                 onVerified()

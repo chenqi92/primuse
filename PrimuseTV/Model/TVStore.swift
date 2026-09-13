@@ -1116,8 +1116,12 @@ final class TVStore {
         do {
             let did = try await StreamResolverRegistry.shared.loginForDeviceToken(
                 source: source, credential: cred, otp: otp)
+            // 登录是一次网络往返,这期间后台同步或扫描可能改过这条源的 `modifiedAt`、
+            // `songCount` 之类与验证无关的字段。`MusicSource` 的相等是全字段合成的,
+            // 拿整个结构体比会把这类无关改动当成「源变了」,于是一次成功的验证被报成
+            // 失败。真正要确认的只是这条源还在 —— 后面写 deviceId 本来就是按 id 持久化的。
             guard canMutateLibrary, !Task.isCancelled,
-                  sourcesStore.source(id: sourceID) == source else { return PMString("ext.tv.persistence.failed") }
+                  sourcesStore.source(id: sourceID) != nil else { return PMString("ext.tv.persistence.failed") }
             if let did, !did.isEmpty {
                 do {
                     guard try sourcesStore.updateLocalDurably(sourceID, mutate: { $0.deviceId = did }) else {
