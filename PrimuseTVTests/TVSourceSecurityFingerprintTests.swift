@@ -40,13 +40,13 @@ final class TVSourceSecurityFingerprintTests: XCTestCase {
 
 @MainActor
 final class TVCloudDriveSongIdentityTests: XCTestCase {
-    func testDropboxRenameKeepsProviderStableSongID() {
+    func testDropboxRenameKeepsProviderStableSongID() throws {
         let source = MusicSource(
             id: "dropbox-source",
             name: "Dropbox",
             type: .dropbox
         )
-        let lister = TVCloudDriveLister(source: source, credential: nil)
+        let lister = try XCTUnwrap(TVSourceScanner().makeLister(source: source, credential: nil))
         XCTAssertTrue(lister.usesStableProviderSongIdentity)
 
         let beforeRename = TVSourceScanner.makeSong(

@@ -292,6 +292,39 @@ final class TVMetadataParityTests: XCTestCase {
         func list(_ path: String) async throws -> [TVDirEntry] { entries }
     }
 
+    private struct TwoFactorRequiredLister: TVDirectoryLister {
+        func list(_ path: String) async throws -> [TVDirEntry] {
+            throw StreamResolveError.needs2FA
+        }
+    }
+
+    func testScanTwoFactorRequirementResetsBeforeNextScan() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let scanner = TVSourceScanner(metadataInspections: TVMetadataInspectionStore(url: url))
+        let source = MusicSource(id: UUID().uuidString, name: "Two-factor NAS", type: .smb)
+        XCTAssertFalse(scanner.needsTwoFactor)
+
+        let failed = await scanner.scan(
+            source: source, lister: TwoFactorRequiredLister(), dirs: ["/"],
+            credential: nil, existingSongs: [],
+            onSkeletonBatch: { _ in }, onMetadataBatch: { _ in }
+        )
+        XCTAssertTrue(scanner.needsTwoFactor)
+        XCTAssertFalse(failed.enumerationCompleted)
+        guard case .failed = scanner.phase else {
+            return XCTFail("Two-factor authentication must leave the scan in the failed state")
+        }
+
+        let retried = await scanner.scan(
+            source: source, lister: ListedFiles(entries: []), dirs: ["/"],
+            credential: nil, existingSongs: [],
+            onSkeletonBatch: { _ in }, onMetadataBatch: { _ in }
+        )
+        XCTAssertFalse(scanner.needsTwoFactor)
+        XCTAssertTrue(retried.enumerationCompleted)
+    }
+
     func testRepeatedScanKeepsInspectedAssetReferencesWithoutReopeningSource() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
         defer { try? FileManager.default.removeItem(at: url) }

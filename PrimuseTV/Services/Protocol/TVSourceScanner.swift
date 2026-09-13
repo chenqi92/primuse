@@ -501,15 +501,17 @@ actor TVNFSLister: TVDirectoryLister {
                     continuation.resume(throwing: error)
                 case .success(let items):
                     let mapped = items.compactMap { entry -> TVDirEntry? in
-                        guard let name = entry.name, name != ".", name != "..",
-                              let remotePath = entry.path else { return nil }
+                        guard let name = entry[.nameKey] as? String, name != ".", name != "..",
+                              let remotePath = entry[.pathKey] as? String else { return nil }
                         return TVDirEntry(
                             name: name,
-                            isDir: entry.isDirectory || entry.fileResourceType == .directory,
-                            size: entry.fileSize.map(Int64.init) ?? 0,
+                            isDir: (entry[.isDirectoryKey] as? Bool ?? false)
+                                || (entry[.fileResourceTypeKey] as? URLFileResourceType) == .directory,
+                            size: (entry[.fileSizeKey] as? Int64) ?? 0,
                             path: TVNFSPathPolicy.selectionPath(export: export, relative: remotePath),
                             parentPath: path,
-                            modifiedDate: entry.contentModificationDate ?? entry.creationDate
+                            modifiedDate: (entry[.contentModificationDateKey] as? Date)
+                                ?? (entry[.creationDateKey] as? Date)
                         )
                     }
                     continuation.resume(returning: mapped)
@@ -538,7 +540,7 @@ actor TVNFSLister: TVDirectoryLister {
             client.listExports { result in
                 switch result {
                 case .failure(let error): continuation.resume(throwing: error)
-                case .success(let items): continuation.resume(returning: items.map(\.path))
+                case .success(let items): continuation.resume(returning: items)
                 }
             }
         }
@@ -1077,6 +1079,7 @@ final class TVSourceScanner {
     var indexed: Int = 0
     var currentFile: String = ""
     var metadataIssueCount = 0
+    var needsTwoFactor = false
     private let metadataInspections: TVMetadataInspectionStore
     @ObservationIgnored var readingEnvironment: (Bool) -> MetadataReadingEnvironment
     @ObservationIgnored private let readingMode: () -> MetadataReadingMode
@@ -1263,6 +1266,7 @@ final class TVSourceScanner {
         indexed = 0
         currentFile = ""
         metadataIssueCount = 0
+        needsTwoFactor = false
         if Self.serverCatalogTypes.contains(source.type) {
             return await scanServerCatalog(
                 source: source,
