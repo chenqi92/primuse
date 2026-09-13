@@ -829,7 +829,13 @@ struct ImmersiveStageView<Artwork: View>: View {
                 : ImmersiveWaveformBarLayoutPolicy.compactMinimumCount,
             maximumBarCount: platform == .tvOS
                 ? ImmersiveWaveformBarLayoutPolicy.televisionMaximumCount
-                : ImmersiveWaveformBarLayoutPolicy.compactMaximumCount
+                : ImmersiveWaveformBarLayoutPolicy.compactMaximumCount,
+            lowPositionExponent: platform == .tvOS
+                ? ImmersiveWaveformBarLayoutPolicy.televisionLowPositionExponent
+                : ImmersiveWaveformBarLayoutPolicy.compactLowPositionExponent,
+            highPositionExponent: platform == .tvOS
+                ? ImmersiveWaveformBarLayoutPolicy.televisionHighPositionExponent
+                : ImmersiveWaveformBarLayoutPolicy.compactHighPositionExponent
         )
         .accessibilityLabel(visualizerDisclosure)
     }
@@ -1567,6 +1573,8 @@ private struct ImmersiveWaveformPlaybackPanel: View {
     var barWidthRatio: Double = ImmersiveWaveformBarLayoutPolicy.compactBarWidthRatio
     var minimumBarCount: Int = ImmersiveWaveformBarLayoutPolicy.compactMinimumCount
     var maximumBarCount: Int = ImmersiveWaveformBarLayoutPolicy.compactMaximumCount
+    var lowPositionExponent: Double = ImmersiveWaveformBarLayoutPolicy.compactLowPositionExponent
+    var highPositionExponent: Double = ImmersiveWaveformBarLayoutPolicy.compactHighPositionExponent
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 0.1, paused: !isPlaying)) { _ in
@@ -1583,7 +1591,9 @@ private struct ImmersiveWaveformPlaybackPanel: View {
                     inactive: inactive,
                     barWidthRatio: barWidthRatio,
                     minimumBarCount: minimumBarCount,
-                    maximumBarCount: maximumBarCount
+                    maximumBarCount: maximumBarCount,
+                    lowPositionExponent: lowPositionExponent,
+                    highPositionExponent: highPositionExponent
                 )
                 .frame(height: waveformHeight)
 
@@ -2054,6 +2064,8 @@ private struct ImmersiveLiveWaveform: View {
     var barWidthRatio: Double = ImmersiveWaveformBarLayoutPolicy.compactBarWidthRatio
     var minimumBarCount: Int = ImmersiveWaveformBarLayoutPolicy.compactMinimumCount
     var maximumBarCount: Int = ImmersiveWaveformBarLayoutPolicy.compactMaximumCount
+    var lowPositionExponent: Double = ImmersiveWaveformBarLayoutPolicy.compactLowPositionExponent
+    var highPositionExponent: Double = ImmersiveWaveformBarLayoutPolicy.compactHighPositionExponent
 
     var body: some View {
         // 频段采样只在这一层读取，整块沉浸场景不随 25 Hz 刷新失效。
@@ -2151,10 +2163,10 @@ private struct ImmersiveLiveWaveform: View {
         let exponent: CGFloat
         if x < center {
             distance = (center - x) / center
-            exponent = 0.86
+            exponent = CGFloat(lowPositionExponent)
         } else {
             distance = (x - center) / (1 - center)
-            exponent = 1.14
+            exponent = CGFloat(highPositionExponent)
         }
 
         let primaryPosition = pow(min(max(distance, 0), 1), exponent)

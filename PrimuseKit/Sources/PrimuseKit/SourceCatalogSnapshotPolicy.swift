@@ -47,6 +47,45 @@ public enum MusicSourceScopeFingerprint {
         )
         return digest.map { String(format: "%02x", $0) }.joined()
     }
+
+    /// Identity of the bytes a source exposes, independent of the route used
+    /// to reach them. Adding or editing an alternate address (public endpoint,
+    /// vendor remote) reaches the same account and the same content root, so
+    /// it must not be mistaken for a credential rotation that invalidates
+    /// trusted offline bytes.
+    ///
+    /// Deliberately excluded: host, port, TLS, remote-access mode and vendor
+    /// identifier. Deliberately included: the content root, because a new path
+    /// prefix really does change which files a song identifier resolves to.
+    public static func credentialScope(for source: MusicSource) -> String {
+        let components: [String] = [
+            source.id,
+            source.type.rawValue,
+            source.cloudAccountID ?? "",
+            source.username?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            source.shareName ?? "",
+            source.exportPath ?? "",
+            contentRoot(for: source),
+        ]
+        let digest = SHA256.hash(
+            data: Data(components.joined(separator: "\u{1E}").utf8)
+        )
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// The legacy `basePath` and an endpoint's `pathPrefix` are the same value
+    /// viewed through two storage layouts. Reading it through
+    /// `effectiveConnectionConfiguration` keeps the answer stable when a source
+    /// is upgraded from legacy host fields to an explicit multi-route
+    /// configuration by the very edit that adds the second address.
+    private static func contentRoot(for source: MusicSource) -> String {
+        guard source.type.supportsEndpointSpecificPath,
+              let configuration = source.effectiveConnectionConfiguration else {
+            return source.basePath ?? ""
+        }
+        let endpoint = configuration.localEndpoint ?? configuration.publicEndpoint
+        return endpoint?.normalized.pathPrefix ?? ""
+    }
 }
 
 public enum SourceCatalogSnapshotPolicy {

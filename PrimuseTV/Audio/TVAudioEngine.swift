@@ -9,7 +9,9 @@ import os.lock
 import PrimuseKit
 
 private enum TVSpectrumConfiguration {
-    static let bandCount = 32
+    /// 电视面板一排要排 130 多根柱子。32 带时一个频段被摊成四根等高的柱子,
+    /// 波形糊成色块;1024 点 FFT 有 512 个 bin,96 带仍是每带多个 bin。
+    static let bandCount = 96
 }
 
 enum TVPlaybackInput: CaseIterable, Equatable, Sendable {

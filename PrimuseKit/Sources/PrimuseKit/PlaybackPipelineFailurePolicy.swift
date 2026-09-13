@@ -48,6 +48,10 @@ public enum PlaybackPipelineFailurePolicy {
 
 public enum SourceConfigurationInvalidationAction: Equatable, Sendable {
     case ignoreNonSecurityChange
+    /// The account and the content root are unchanged; only the addresses that
+    /// reach them differ. Connectors must be rebuilt on the new route list, but
+    /// the active transport and the trusted offline bytes stay valid.
+    case rebuildRoutesOnly
     case invalidateSecurityScope
 }
 
@@ -57,12 +61,22 @@ public enum SourceConfigurationInvalidationAction: Equatable, Sendable {
 public enum SourceConfigurationInvalidationPolicy {
     public static func action(
         previousScopeFingerprint: String?,
-        currentScopeFingerprint: String?
+        currentScopeFingerprint: String?,
+        previousCredentialScopeFingerprint: String? = nil,
+        currentCredentialScopeFingerprint: String? = nil
     ) -> SourceConfigurationInvalidationAction {
-        guard previousScopeFingerprint == currentScopeFingerprint,
-              previousScopeFingerprint != nil else {
-            return .invalidateSecurityScope
+        if previousScopeFingerprint == currentScopeFingerprint,
+           previousScopeFingerprint != nil {
+            return .ignoreNonSecurityChange
         }
-        return .ignoreNonSecurityChange
+        // Both credential fingerprints must be known before a mismatch can be
+        // attributed to routing alone. A missing one (older state, unreadable
+        // revision file) keeps the fail-closed answer.
+        if let previousCredentialScopeFingerprint,
+           let currentCredentialScopeFingerprint,
+           previousCredentialScopeFingerprint == currentCredentialScopeFingerprint {
+            return .rebuildRoutesOnly
+        }
+        return .invalidateSecurityScope
     }
 }

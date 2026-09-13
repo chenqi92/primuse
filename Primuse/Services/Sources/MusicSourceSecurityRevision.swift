@@ -193,6 +193,34 @@ enum MusicSourceSecurityRevision {
         )
     }
 
+    /// The credential half of `scopedFingerprint`: same account epoch, same
+    /// content root, but blind to which address reaches it. Two rows that
+    /// differ only by an alternate route share this value, which is what lets
+    /// such an edit rebuild connectors without discarding trusted bytes.
+    static func credentialScopedFingerprint(
+        for source: MusicSource,
+        revision explicitRevision: UInt64? = nil
+    ) -> String {
+        let revisionIdentity: String
+        if let explicitRevision {
+            revisionIdentity = String(explicitRevision)
+        } else {
+            revisionIdentity = lock.withLock {
+                do {
+                    return String(
+                        try loadStateIfNeeded().effectiveRevision(for: source.id)
+                    )
+                } catch {
+                    return "unavailable-\(unavailableRevision)"
+                }
+            }
+        }
+        return MusicSourceSecurityScopeFingerprint.credentialScoped(
+            for: source,
+            revisionIdentity: revisionIdentity
+        )
+    }
+
     #if DEBUG
     static func reloadPersistedStateForTesting() {
         lock.withLock { cachedState = nil }

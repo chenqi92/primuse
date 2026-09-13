@@ -57,4 +57,13 @@ public enum ImmersiveWaveformBarLayoutPolicy {
     public static let televisionBarWidthRatio: Double = 0.038
     public static let televisionMinimumCount = 38
     public static let televisionMaximumCount = 140
+
+    /// 柱序号映射到频段位置时的幂次。曲线把靠近中心的柱子挤向最低那几个
+    /// 频段,而低频恰好最响 —— 手机 46 根柱子挤成一小撮还像个波峰,电视
+    /// 133 根就挤成二十几根等高的平台,整条波形糊成一个实心椭圆。
+    /// 所以电视用线性映射,让每根柱子均分频谱。
+    public static let compactLowPositionExponent: Double = 0.86
+    public static let compactHighPositionExponent: Double = 1.14
+    public static let televisionLowPositionExponent: Double = 1
+    public static let televisionHighPositionExponent: Double = 1
 }
