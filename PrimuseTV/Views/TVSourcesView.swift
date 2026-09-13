@@ -738,7 +738,7 @@ private struct TVCredentialEditorView: View {
         icon: String,
         title: String,
         field: Field,
-        @ViewBuilder _ content: () -> Content
+        @ViewBuilder _ content: @escaping () -> Content
     ) -> some View {
         let isFocused = focus == field
         return VStack(alignment: .leading, spacing: 10) {

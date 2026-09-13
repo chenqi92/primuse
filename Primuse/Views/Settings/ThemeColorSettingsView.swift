@@ -501,15 +501,13 @@ struct ThemeColorSections: View {
     }
 }
 
-#endif
-
 /// 独立页面外壳。设置搜索命中主题色条目时仍会推这一页。
 struct ThemeColorSettingsView: View {
     var body: some View {
         List { ThemeColorSections() }
             .navigationTitle("theme_color_title")
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
     }
 }
+
+#endif
