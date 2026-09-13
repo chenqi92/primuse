@@ -2381,7 +2381,7 @@ struct HomeView: View {
                 }
             }
             .buttonStyle(.plain)
-            .mediaZoomSource(.playlist, id: playlist.id, cornerRadius: 9)
+            .mediaZoomSource(.playlist, id: playlist.id)
         case .album(let album):
             NavigationLink(value: album) {
                 quickAccessDockLabel(title: album.title) {
@@ -2391,7 +2391,7 @@ struct HomeView: View {
                 }
             }
             .buttonStyle(.plain)
-            .mediaZoomSource(.album, id: album.id, cornerRadius: 9)
+            .mediaZoomSource(.album, id: album.id)
         case .artist(let artist):
             NavigationLink(value: artist) {
                 quickAccessDockLabel(title: artist.name) {
@@ -2401,7 +2401,7 @@ struct HomeView: View {
                 }
             }
             .buttonStyle(.plain)
-            .mediaZoomSource(.artist, id: artist.id, cornerRadius: 999)
+            .mediaZoomSource(.artist, id: artist.id)
         case .playlist(let tile):
             NavigationLink(value: tile.playlist) {
                 quickAccessDockLabel(title: tile.playlist.name) {
@@ -2411,7 +2411,7 @@ struct HomeView: View {
                 }
             }
             .buttonStyle(.plain)
-            .mediaZoomSource(.playlist, id: tile.playlist.id, cornerRadius: 9)
+            .mediaZoomSource(.playlist, id: tile.playlist.id)
         }
     }
 
@@ -2469,7 +2469,7 @@ struct HomeView: View {
                                 playlistCard(tile)
                             }
                             .buttonStyle(.plain)
-                            .mediaZoomSource(.playlist, id: tile.playlist.id, cornerRadius: 10)
+                            .mediaZoomSource(.playlist, id: tile.playlist.id)
                         }
                     }
                     .padding(.horizontal, 20)
@@ -2486,7 +2486,7 @@ struct HomeView: View {
                             playlistCard(tile)
                         }
                         .buttonStyle(.plain)
-                        .mediaZoomSource(.playlist, id: tile.playlist.id, cornerRadius: 10)
+                        .mediaZoomSource(.playlist, id: tile.playlist.id)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -2881,7 +2881,7 @@ struct HomeView: View {
                                     .frame(width: homeAlbumCardWidth)
                             }
                             .buttonStyle(.plain)
-                            .mediaZoomSource(.album, id: tile.album.id, cornerRadius: 10)
+                            .mediaZoomSource(.album, id: tile.album.id)
                         }
                     }
                     .padding(.horizontal, 20)
@@ -2916,7 +2916,7 @@ struct HomeView: View {
                             AlbumCardView(album: tile.album, showsSongCount: true)
                         }
                         .buttonStyle(.plain)
-                        .mediaZoomSource(.album, id: tile.album.id, cornerRadius: 10)
+                        .mediaZoomSource(.album, id: tile.album.id)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -2980,7 +2980,7 @@ struct HomeView: View {
                     ForEach(displayed.prefix(sectionItemCount(.topArtists, sizeClass == .regular ? 16 : 8))) { artist in
                         NavigationLink(value: artist) { artistBubble(artist) }
                             .buttonStyle(.plain)
-                            .mediaZoomSource(.artist, id: artist.id, cornerRadius: 999)
+                            .mediaZoomSource(.artist, id: artist.id)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -2990,7 +2990,7 @@ struct HomeView: View {
                         ForEach(displayed.prefix(sectionItemCount(.topArtists, sizeClass == .regular ? 16 : 8))) { artist in
                             NavigationLink(value: artist) { artistBubble(artist) }
                                 .buttonStyle(.plain)
-                                .mediaZoomSource(.artist, id: artist.id, cornerRadius: 999)
+                                .mediaZoomSource(.artist, id: artist.id)
                         }
                     }
                     .padding(.horizontal, 20)

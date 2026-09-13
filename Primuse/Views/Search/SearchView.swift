@@ -305,7 +305,7 @@ private struct SearchAlbumResultsView: View {
                         AlbumCardView(album: album)
                     }
                     .buttonStyle(.plain)
-                    .mediaZoomSource(.album, id: album.id, cornerRadius: 10)
+                    .mediaZoomSource(.album, id: album.id)
                 }
             }
             .padding(20)
@@ -1701,7 +1701,7 @@ struct SearchView: View {
                                     AlbumCardView(album: album).frame(width: 142)
                                 }
                                 .buttonStyle(.plain)
-                                .mediaZoomSource(.album, id: album.id, cornerRadius: 10)
+                                .mediaZoomSource(.album, id: album.id)
                             }
                         }
                         .padding(.vertical, 8)

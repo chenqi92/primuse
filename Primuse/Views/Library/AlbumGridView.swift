@@ -47,7 +47,7 @@ struct AlbumGridView: View {
                             AlbumCardView(album: album)
                         }
                         .buttonStyle(.plain)
-                        .mediaZoomSource(.album, id: album.id, cornerRadius: 10)
+                        .mediaZoomSource(.album, id: album.id)
                     }
                 }
                 .padding()

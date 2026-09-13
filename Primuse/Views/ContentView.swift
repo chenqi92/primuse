@@ -240,18 +240,16 @@ private struct MediaZoomNamespaceEnvironmentKey: EnvironmentKey {
 
 private struct MediaZoomSourceModifier: ViewModifier {
     let transitionID: MediaZoomTransitionID
-    let cornerRadius: CGFloat
     @Environment(\.mediaZoomNamespace) private var namespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @ViewBuilder
     func body(content: Content) -> some View {
         if let namespace, !reduceMotion {
-            content.matchedTransitionSource(id: transitionID, in: namespace) { source in
-                source.clipShape(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                )
-            }
+            // 不自定义裁剪形状:卡片是"封面 + 标题"的组合,拿一个矩形去裁本来
+            // 就对不上,而圆形头像想要的超大圆角会让 continuous 圆角路径退化,
+            // 整张卡片被裁成空白。交给系统按视图自身形状取转场源。
+            content.matchedTransitionSource(id: transitionID, in: namespace)
         } else {
             content
         }
@@ -280,16 +278,10 @@ extension View {
     }
 
     /// 挂在列表卡片上:详情页从这张卡片放大出来,返回时缩回原位。
-    /// 圆形头像传一个足够大的圆角即可(正方形上会收敛成圆)。
-    func mediaZoomSource(
-        _ kind: MediaZoomTransitionID.Kind,
-        id: String,
-        cornerRadius: CGFloat = 12
-    ) -> some View {
+    func mediaZoomSource(_ kind: MediaZoomTransitionID.Kind, id: String) -> some View {
         modifier(
             MediaZoomSourceModifier(
-                transitionID: MediaZoomTransitionID(kind: kind, id: id),
-                cornerRadius: cornerRadius
+                transitionID: MediaZoomTransitionID(kind: kind, id: id)
             )
         )
     }

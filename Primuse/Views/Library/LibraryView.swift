@@ -732,7 +732,7 @@ struct LibraryView: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .mediaZoomSource(.album, id: album.id, cornerRadius: 16)
+                .mediaZoomSource(.album, id: album.id)
             }
         case .artist:
             if let artist = artists.first(where: { $0.id == pin.itemID }) {
@@ -747,7 +747,7 @@ struct LibraryView: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .mediaZoomSource(.artist, id: artist.id, cornerRadius: 999)
+                .mediaZoomSource(.artist, id: artist.id)
             }
         case .playlist:
             if pin.itemID == MusicLibrary.likedSongsPlaylistID {
@@ -765,7 +765,7 @@ struct LibraryView: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .mediaZoomSource(.playlist, id: likedPlaylist.id, cornerRadius: 16)
+                .mediaZoomSource(.playlist, id: likedPlaylist.id)
             } else if let playlist = regularPlaylists.first(where: { $0.id == pin.itemID }) {
                 NavigationLink(value: playlist) {
                     quickAccessLabel(
@@ -781,7 +781,7 @@ struct LibraryView: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .mediaZoomSource(.playlist, id: playlist.id, cornerRadius: 16)
+                .mediaZoomSource(.playlist, id: playlist.id)
             }
         }
     }
@@ -2231,7 +2231,7 @@ private struct GenreDetailView: View {
                             AlbumCardView(album: album).frame(width: 142)
                         }
                         .buttonStyle(.plain)
-                        .mediaZoomSource(.album, id: album.id, cornerRadius: 10)
+                        .mediaZoomSource(.album, id: album.id)
                     }
                 }
                 .padding(.horizontal, 20)
