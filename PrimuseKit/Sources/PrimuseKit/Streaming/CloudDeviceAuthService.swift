@@ -139,20 +139,16 @@ public actor CloudDeviceAuthService {
         guard let start = CloudDeviceAuthParsing.parseDeviceCodeStart(data) else {
             throw CloudDeviceAuthError.providerRejected(Self.errorText(data))
         }
-        // 二维码优先用提供方给的地址;没有就把 user_code 拼进 verification_uri,
-        // 让用户扫完直接落在已填好码的页面上,省掉在手机上手输六位码。
-        let payload = start.qrCodeURL
-            ?? Self.verificationURL(withUserCode: start.userCode, base: start.verificationURL)
-            ?? start.verificationURL
+        let payload = CloudDeviceAuthRequests.deviceAuthorizationURL(for: provider, start: start)
         guard let payload, !payload.isEmpty else {
             throw CloudDeviceAuthError.invalidResponse
         }
         return CloudDeviceAuthSession(
             provider: provider,
             kind: .deviceCode,
-            qrPayload: payload,
+            qrCode: .content(payload),
             userCode: start.userCode,
-            verificationURL: start.verificationURL,
+            verificationURL: start.verificationURL ?? start.verificationURLComplete,
             handle: start.deviceCode,
             interval: start.interval,
             expiresIn: start.expiresIn
@@ -228,14 +224,16 @@ public actor CloudDeviceAuthService {
         guard let start = CloudDeviceAuthParsing.parseAliyunQRStart(data) else {
             throw CloudDeviceAuthError.providerRejected(Self.errorText(data))
         }
+        guard let imageURL = URL(string: start.qrCodeURL), imageURL.scheme == "https" else {
+            throw CloudDeviceAuthError.invalidResponse
+        }
         return CloudDeviceAuthSession(
             provider: .aliyunDrive,
             kind: .qrCode,
-            qrPayload: start.qrCodeURL,
-            verificationURL: start.qrCodeURL,
+            qrCode: .imageURL(imageURL),
             handle: start.sid,
             interval: 3,
-            expiresIn: 300
+            expiresIn: 180
         )
     }
 
@@ -293,7 +291,7 @@ public actor CloudDeviceAuthService {
         return CloudDeviceAuthSession(
             provider: .pan115,
             kind: .qrCode,
-            qrPayload: start.qrPayload,
+            qrCode: .content(start.qrPayload),
             handle: start.uid,
             interval: 3,
             expiresIn: 300,
@@ -356,7 +354,7 @@ public actor CloudDeviceAuthService {
         return CloudDeviceAuthSession(
             provider: .dropbox,
             kind: .manualCode,
-            qrPayload: url.absoluteString,
+            qrCode: .content(url.absoluteString),
             verificationURL: url.absoluteString,
             handle: "",
             interval: 5,
@@ -406,16 +404,6 @@ public actor CloudDeviceAuthService {
             expiresAt: result.expiresAt,
             tokenType: result.tokenType
         )
-    }
-
-    static func verificationURL(withUserCode userCode: String?, base: String?) -> String? {
-        guard let base, let userCode, !userCode.isEmpty,
-              var components = URLComponents(string: base) else { return nil }
-        var items = components.queryItems ?? []
-        guard items.contains(where: { $0.name == "user_code" }) == false else { return base }
-        items.append(URLQueryItem(name: "user_code", value: userCode))
-        components.queryItems = items
-        return FormSafeQueryURLBuilder.url(from: components)?.absoluteString
     }
 
     static func makeCodeVerifier() -> String {

@@ -17,13 +17,16 @@ public enum CloudDeviceAuthKind: String, Sendable, Equatable {
     case manualCode
 }
 
+public enum CloudDeviceAuthQRCode: Sendable, Equatable {
+    case content(String)
+    case imageURL(URL)
+}
+
 /// 起一次设备授权后拿到的会话句柄。
 public struct CloudDeviceAuthSession: Sendable, Equatable {
     public let provider: MusicSourceType
     public let kind: CloudDeviceAuthKind
-    /// 编成二维码给用户扫的内容。设备码流程是 verification_uri(带 user_code 更省事),
-    /// 阿里是提供方给的 qrCodeUrl,115 是 uid。
-    public let qrPayload: String
+    public let qrCode: CloudDeviceAuthQRCode
     /// 需要用户在手机上核对或输入的短码。阿里 / 115 没有,为 nil。
     public let userCode: String?
     /// 给用户看的授权网址(手机上打不开二维码时可手输)。
@@ -40,7 +43,7 @@ public struct CloudDeviceAuthSession: Sendable, Equatable {
     public init(
         provider: MusicSourceType,
         kind: CloudDeviceAuthKind,
-        qrPayload: String,
+        qrCode: CloudDeviceAuthQRCode,
         userCode: String? = nil,
         verificationURL: String? = nil,
         handle: String,
@@ -50,7 +53,7 @@ public struct CloudDeviceAuthSession: Sendable, Equatable {
     ) {
         self.provider = provider
         self.kind = kind
-        self.qrPayload = qrPayload
+        self.qrCode = qrCode
         self.userCode = userCode
         self.verificationURL = verificationURL
         self.handle = handle
@@ -159,7 +162,8 @@ public enum CloudDeviceAuthParsing {
         public let deviceCode: String
         public let userCode: String?
         public let verificationURL: String?
-        /// 提供方直接给出的二维码地址(百度有 qrcode_url,微软 / Google 没有)。
+        public let verificationURLComplete: String?
+        /// 百度返回的二维码图片地址，不是可以再次编码的授权链接。
         public let qrCodeURL: String?
         public let interval: TimeInterval
         public let expiresIn: TimeInterval
@@ -170,11 +174,11 @@ public enum CloudDeviceAuthParsing {
         guard let deviceCode = nonEmpty(json["device_code"]) else { return nil }
         let verification = nonEmpty(json["verification_url"])
             ?? nonEmpty(json["verification_uri"])
-            ?? nonEmpty(json["verification_uri_complete"])
         return DeviceCodeStart(
             deviceCode: deviceCode,
             userCode: nonEmpty(json["user_code"]),
             verificationURL: verification,
+            verificationURLComplete: nonEmpty(json["verification_uri_complete"]),
             qrCodeURL: nonEmpty(json["qrcode_url"]),
             // RFC 8628 默认 5 秒;提供方给了就听它的,但不让它小于 1 秒把服务端打崩。
             interval: max(1, number(json["interval"]) ?? 5),
@@ -259,7 +263,7 @@ public enum CloudDeviceAuthParsing {
         public let uid: String
         public let time: String
         public let sign: String
-        /// 115 返回的二维码内容;没给时用 uid 兜底(官方二维码图里编的就是 uid)。
+        /// 115 返回的二维码内容，与轮询使用的 uid 分开。
         public let qrPayload: String
     }
 
@@ -279,12 +283,13 @@ public enum CloudDeviceAuthParsing {
         let time: String = nonEmpty(payload["time"])
             ?? (payload["time"] as? NSNumber).map { String($0.int64Value) }
             ?? ""
-        guard !time.isEmpty, let sign = nonEmpty(payload["sign"]) else { return nil }
+        guard !time.isEmpty, let sign = nonEmpty(payload["sign"]),
+              let qrPayload = nonEmpty(payload["qrcode"]) else { return nil }
         return Pan115QRStart(
             uid: uid,
             time: time,
             sign: sign,
-            qrPayload: nonEmpty(payload["qrcode"]) ?? uid
+            qrPayload: qrPayload
         )
     }
 
@@ -318,6 +323,22 @@ public enum CloudDeviceAuthParsing {
 // MARK: - 请求构造(纯函数,便于核对每家的参数)
 
 public enum CloudDeviceAuthRequests {
+    static func deviceAuthorizationURL(
+        for provider: MusicSourceType,
+        start: CloudDeviceAuthParsing.DeviceCodeStart
+    ) -> String? {
+        if let complete = start.verificationURLComplete { return complete }
+        guard let base = start.verificationURL else { return nil }
+        guard provider == .baiduPan, let code = start.userCode,
+              var components = URLComponents(string: base) else { return base }
+        // 百度官方二维码编码的是这个授权页面，而 qrcode_url 本身返回 PNG。
+        var items = (components.queryItems ?? []).filter { $0.name != "code" && $0.name != "display" }
+        items.append(URLQueryItem(name: "display", value: "mobile"))
+        items.append(URLQueryItem(name: "code", value: code))
+        components.queryItems = items
+        return FormSafeQueryURLBuilder.url(from: components)?.absoluteString
+    }
+
     public static func formEncode(_ value: String) -> String {
         value.addingPercentEncoding(withAllowedCharacters: CharacterSet(charactersIn:
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")) ?? value

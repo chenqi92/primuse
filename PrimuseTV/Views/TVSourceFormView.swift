@@ -180,6 +180,14 @@ struct TVSourceTypePicker: View {
 // MARK: - 第 2 步:填写连接信息(双栏)
 
 struct TVSourceFormView: View {
+    private struct CloudAuthRequest: Identifiable {
+        let source: MusicSource
+        let clientID: String
+        let clientSecret: String?
+
+        var id: String { source.id }
+    }
+
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     let editing: MusicSource?
@@ -213,8 +221,7 @@ struct TVSourceFormView: View {
     @State private var cloudClientID = ""
     @State private var cloudClientSecret = ""
     @State private var cloudAPIToken = ""
-    @State private var cloudAuthSource: MusicSource?
-    @State private var cloudAuthClient: (id: String, secret: String?)?
+    @State private var cloudAuthRequest: CloudAuthRequest?
     @State private var testResult: String?
     @State private var testing = false
     @State private var saveFailed = false
@@ -400,14 +407,14 @@ struct TVSourceFormView: View {
                   newValue == .fnConnect else { return }
             useSsl = true
         }
-        .fullScreenCover(item: $cloudAuthSource) { draft in
+        .fullScreenCover(item: $cloudAuthRequest) { request in
             TVCloudAuthView(
-                source: draft,
-                clientID: cloudAuthClient?.id ?? "",
-                clientSecret: cloudAuthClient?.secret,
+                source: request.source,
+                clientID: request.clientID,
+                clientSecret: request.clientSecret,
                 onAuthorized: {
-                    cloudAuthSource = nil
-                    commitCloudDrive(draft)
+                    cloudAuthRequest = nil
+                    commitCloudDrive(request.source)
                 }
             )
         }
@@ -983,8 +990,9 @@ struct TVSourceFormView: View {
                 saveFailed = true
                 return
             }
-            cloudAuthClient = client
-            cloudAuthSource = src
+            cloudAuthRequest = CloudAuthRequest(
+                source: src, clientID: client.id, clientSecret: client.secret
+            )
         }
     }
 
