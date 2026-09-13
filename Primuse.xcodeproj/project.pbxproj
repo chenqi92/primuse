@@ -271,6 +271,7 @@
 		38F1CB896290BA69CF5682C3 /* TimeInterval+Format.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02C67038ECF67BC44982A1C8 /* TimeInterval+Format.swift */; };
 		392380F2B15058BABF04130F /* LocalImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03F527F89BB056AD3BB3E532 /* LocalImportService.swift */; };
 		393391520F10BA2BC55108E5 /* SubsonicSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6821FC1BF97641265A739D6F /* SubsonicSource.swift */; };
+		2AE19A97BF38483D9F6DA694 /* SynologyAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 552EC251CB491F214F263601 /* SynologyAPI.swift */; };
 		3997C4EE7DF9D36DA1851230 /* CloudDriveBase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94FE18AA29D7F79EE4D6BDE5 /* CloudDriveBase.swift */; };
 		3A16590B3C55976D6DCFDC90 /* ProtocolHTTPStreamResolvers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F14A8B457724588F5559B41 /* ProtocolHTTPStreamResolvers.swift */; };
 		3A1E1D0D6DCCF73A750924B9 /* AudioSegmentStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40654AA90310A09E2F73A57A /* AudioSegmentStream.swift */; };
@@ -5029,6 +5030,7 @@
 				0ACB1D658F47D5EAA17E73DF /* SongloftSource.swift in Sources */,
 				57C5338AA7873C4449F1331A /* SourceErrors.swift in Sources */,
 				EF42DC10EBE3F86E7C361E81 /* SourcesStore.swift in Sources */,
+				2AE19A97BF38483D9F6DA694 /* SynologyAPI.swift in Sources */,
 				393391520F10BA2BC55108E5 /* SubsonicSource.swift in Sources */,
 				824DA5DD57D48E3476F703CE /* TVArtistArtworkView.swift in Sources */,
 				B25D39602DAF5521CFAB0EEC /* TVArtwork.swift in Sources */,

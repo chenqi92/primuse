@@ -120,14 +120,15 @@ enum TVSourceLocalLibraryCapability: Equatable, Sendable {
 }
 
 enum TVSourceLocalLibraryPolicy {
+    /// 电视端能自己列目录、自己建库的类型。唯一真源:这里加一种,
+    /// `TVSourceScanner.makeSingleLister` 必须同时给出对应的列举器。
+    static let directScanTypes: Set<MusicSourceType> = [
+        .smb, .synology, .fnMusic, .daoliyu, .songloft, .oneDrive, .dropbox,
+    ]
+
     static func capability(for type: MusicSourceType) -> TVSourceLocalLibraryCapability {
         if type.isAwaitingPublicAPI { return .unavailable }
-        switch type {
-        case .smb, .fnMusic, .daoliyu, .songloft:
-            return .directScan
-        default:
-            return .pairedLibrary
-        }
+        return directScanTypes.contains(type) ? .directScan : .pairedLibrary
     }
 }
 
@@ -1143,9 +1144,9 @@ final class TVStore {
     /// 判断一个源能否在 Apple TV 上播放(注册表支持类型 + 凭据/中继可用性)。
     /// 在 TV 上本机直连播放(不经 iPhone 中继)的协议类型。与 TVPlaybackCoordinator.makeDirectReader 对应。
     static let directProtocolTypes: Set<MusicSourceType> = [.smb, .nfs, .ftp]
-    private static let tvScannableTypes: Set<MusicSourceType> = [
-        .smb, .fnMusic, .daoliyu, .songloft, .oneDrive, .dropbox,
-    ]
+    private static var tvScannableTypes: Set<MusicSourceType> {
+        TVSourceLocalLibraryPolicy.directScanTypes
+    }
 
     private func playability(for s: MusicSource) -> TVPlayability {
         if TVLocalTransferSource.isOwned(s) { return .ok }

@@ -201,6 +201,76 @@ actor TVCloudDriveLister: TVDirectoryLister {
     }
 }
 
+// MARK: - 群晖 FileStation 目录列举
+//
+// 直接复用 iOS / macOS 那份 `SynologyAPI`(纯 Foundation + PrimuseKit,tvOS 能编),
+// 电视端只需要把 FileStation 的列目录结果映射成 `TVDirEntry`。根目录列共享文件夹,
+// 其余路径走 SYNO.FileStation.List。播放侧的 SynologyStreamResolver 早已在
+// PrimuseKit 注册,所以补上这一层之后电视就能自己建库。
+actor TVSynologyLister: TVDirectoryLister {
+    private let api: SynologyAPI
+    private let account: String
+    private let password: String
+    private let deviceId: String?
+    private var didLogin = false
+
+    init?(source: MusicSource, credential: SourceCredential?) {
+        let host = (source.host ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty,
+              let account = credential?.username, !account.isEmpty,
+              let password = credential?.password, !password.isEmpty
+        else { return nil }
+        let useSsl = source.useSsl
+        self.api = SynologyAPI(
+            host: host,
+            port: source.port ?? MusicSourceType.synology.defaultPort(useSsl: useSsl),
+            useSsl: useSsl,
+            connectionMode: source.effectiveSynologyConnectionMode
+        )
+        self.account = account
+        self.password = password
+        self.deviceId = source.deviceId
+    }
+
+    func list(_ path: String) async throws -> [TVDirEntry] {
+        try await ensureLogin()
+        let normalized = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isRoot = normalized.isEmpty || normalized == "/"
+        let items = isRoot
+            ? try await api.listSharedFolders()
+            : try await api.listDirectory(path: normalized)
+        return items.map { item in
+            TVDirEntry(
+                name: item.name,
+                isDir: item.isDirectory,
+                size: item.size,
+                path: item.path,
+                parentPath: isRoot ? "/" : normalized,
+                modifiedDate: item.modifiedTime
+            )
+        }
+    }
+
+    /// 会话过期后 FileStation 会返回未登录,这里按需重新登录一次。
+    /// 需要两步验证时抛 `needs2FA`,由扫描页引导去输验证码。
+    private func ensureLogin() async throws {
+        if didLogin, await api.isLoggedIn { return }
+        let result = await api.login(
+            account: account,
+            password: password,
+            deviceName: "Apple TV",
+            deviceId: deviceId
+        )
+        if result.success {
+            didLogin = true
+            return
+        }
+        didLogin = false
+        if result.needs2FA { throw StreamResolveError.needs2FA }
+        throw StreamResolveError.authFailed
+    }
+}
+
 // MARK: - SMB 目录列举(AMSMB2)
 
 actor TVSMBLister: TVDirectoryLister {
@@ -445,6 +515,8 @@ final class TVSourceScanner {
         case .smb: return TVSMBLister(source: source, credential: credential)
         case .oneDrive, .dropbox:
             return TVCloudDriveLister(source: source, credential: credential)
+        case .synology:
+            return TVSynologyLister(source: source, credential: credential)
         case .fnMusic:
             return TVFnMusicLister(client: fnMusicClient(source: source, credential: credential))
         case .daoliyu:
@@ -665,6 +737,9 @@ final class TVSourceScanner {
                 to: onSkeletonBatch,
                 ignoringCancellation: true
             )
+            if let resolveError = error as? StreamResolveError, case .needs2FA = resolveError {
+                needsTwoFactor = true
+            }
             let message = scanErrorMessage(error)
             phase = .failed(message)
             currentFile = ""
@@ -1029,6 +1104,9 @@ final class TVSourceScanner {
                 ignoringCancellation: true
             )
             await readerPool.closeAll()
+            if let resolveError = error as? StreamResolveError, case .needs2FA = resolveError {
+                needsTwoFactor = true
+            }
             let message = scanErrorMessage(error)
             phase = .failed(message)
             currentFile = ""
@@ -1743,6 +1821,14 @@ final class TVSourceScanner {
     }
 
     private func scanErrorMessage(_ error: Error) -> String {
+        if let resolveError = error as? StreamResolveError {
+            switch resolveError {
+            case .needs2FA: return PMString("ext.tv.otp.body")
+            case .authFailed: return PMString("ext.tv.otp.authFailed")
+            case .missingCredential: return PMString("ext.tv.otp.missingCredential")
+            default: break
+            }
+        }
         switch error as? TVScanError {
         case .connectFailed:
             return PMString("ext.tv.scan.connectFailed")

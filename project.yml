@@ -577,6 +577,9 @@ targets:
       - path: Primuse/Services/Metadata/TagMetadataWritebackTypes.swift
       - path: Primuse/Services/Sources/MusicSourceProtocol.swift
       - path: Primuse/Services/Sources/SourceErrors.swift
+      # 群晖:电视端自己建库需要 FileStation 列目录,这份实现是纯 Foundation 的,
+      # tvOS 直接复用,不再依赖 iPhone 扫描后同步。
+      - path: Primuse/Services/Sources/SynologyAPI.swift
       - path: Primuse/Services/Sources/SubsonicSource.swift
       - path: Primuse/Services/Sources/SongloftSource.swift
       - path: Primuse/Services/Sources/MediaServerSource.swift

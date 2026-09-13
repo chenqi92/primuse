@@ -73,6 +73,7 @@ struct TVScanFlowView: View {
     @State private var started = false
     @State private var browseError: String?
     @State private var loadTask: Task<Void, Never>?
+    @State private var showsOTP = false
 
     var body: some View {
         ZStack {
@@ -90,6 +91,7 @@ struct TVScanFlowView: View {
                         store.cancelScan(sourceID: source.id)
                         dismiss()
                     },
+                    onEnterOTP: { showsOTP = true },
                     canCancel: store.activeScanSourceID == source.id
                 )
             } else if source.type == .fnMusic || source.type == .daoliyu || source.type == .songloft {
@@ -108,6 +110,15 @@ struct TVScanFlowView: View {
                 .frame(maxWidth: 920, alignment: .leading)
             } else {
                 pickView
+            }
+        }
+        .fullScreenCover(isPresented: $showsOTP, onDismiss: {
+            // 验证码通过后凭据/设备令牌已更新,回到未开始状态让用户直接重试。
+            store.scanner.phase = .idle
+            started = false
+        }) {
+            if let tvSource = store.sources.first(where: { $0.id == source.id }) {
+                TVOTPEntryView(source: tvSource).environment(store)
             }
         }
         .onDisappear {
@@ -392,6 +403,7 @@ private struct TVScanningView: View {
     var onDone: () -> Void = {}
     var onRetry: () -> Void = {}
     var onCancel: () -> Void = {}
+    var onEnterOTP: () -> Void = {}
     var canCancel = true
 
     private var phase: TVSourceScanner.Phase { store.scanner.phase }
@@ -427,6 +439,17 @@ private struct TVScanningView: View {
                     .tvFont(.caption, weight: .bold).foregroundStyle(TVColor.onBrand)
                     .padding(.horizontal, 44).padding(.vertical, 18)
                     .background(TVColor.brand.opacity(f ? 1 : 0.88), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            // 卡在两步验证时直接给入口,不然只丢一句失败文案让人无从下手。
+            if failed, store.scanner.needsTwoFactor {
+                TVFocusButton(radius: 14, scale: 1.03, lift: 0, action: onEnterOTP) { focused in
+                    Label(PMString("ext.tv.sources.login2FA"), systemImage: "lock.shield")
+                        .tvFont(.caption, weight: .semibold).foregroundStyle(TVColor.text)
+                        .padding(.horizontal, 38).padding(.vertical, 14)
+                        .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle,
+                                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .padding(.top, 14)
             }
             if !done && !failed && canCancel {
                 TVFocusButton(radius: 14, scale: 1.03, lift: 0, action: onCancel) { focused in
