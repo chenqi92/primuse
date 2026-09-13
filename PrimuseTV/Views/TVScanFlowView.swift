@@ -140,15 +140,15 @@ struct TVScanFlowView: View {
                     text: PMString("ext.tv.scan.fullLibrary", source.type.displayName)
                 )
                 Text(PMString("ext.tv.scan.serverCatalogTitle"))
-                    .font(.system(size: 42, weight: .bold))
+                    .tvFont(size: 42, weight: .bold, relativeTo: .title)
                     .foregroundStyle(TVColor.text)
                 Text(PMString("ext.tv.scan.serverCatalogBody", source.type.displayName))
-                    .font(.system(size: 20))
+                    .tvFont(.meta)
                     .foregroundStyle(TVColor.textFaint)
             }
             TVFocusButton(radius: 16, accent: TVColor.brand, scale: 1.05, lift: 4, action: startFnMusicScan) { focused in
                 Label(PMString("ext.tv.scan.start"), systemImage: "arrow.triangle.2.circlepath")
-                    .font(.system(size: 24, weight: .bold))
+                    .tvFont(.eyebrow, weight: .bold)
                     .foregroundStyle(TVColor.onBrand)
                     .padding(.horizontal, 46)
                     .padding(.vertical, 20)
@@ -156,12 +156,12 @@ struct TVScanFlowView: View {
             }
             if let browseError {
                 Text(browseError)
-                    .font(.system(size: 21, weight: .semibold))
+                    .tvFont(.caption, weight: .semibold)
                     .foregroundStyle(TVColor.warn)
             }
             TVFocusButton(radius: 16, scale: 1.04, lift: 0, action: { dismiss() }) { focused in
                 Text(PMString("ext.tv.sources.cancel"))
-                    .font(.system(size: 20, weight: .medium))
+                    .tvFont(.meta, weight: .medium)
                     .foregroundStyle(TVColor.text)
                     .padding(.horizontal, 40)
                     .padding(.vertical, 14)
@@ -175,8 +175,8 @@ struct TVScanFlowView: View {
         HStack(alignment: .top, spacing: 80) {
             VStack(alignment: .leading, spacing: 0) {
                 TVEyebrow(text: PMString("ext.tv.scan.step3")).padding(.bottom, 6)
-                Text(PMString("ext.tv.scan.chooseFolders")).font(.system(size: 40, weight: .bold)).foregroundStyle(TVColor.text).padding(.bottom, 6)
-                Text(breadcrumb).font(.system(size: 22, design: .monospaced)).foregroundStyle(TVColor.textFaint).padding(.bottom, 22)
+                Text(PMString("ext.tv.scan.chooseFolders")).tvFont(size: 40, weight: .bold, relativeTo: .title2).foregroundStyle(TVColor.text).padding(.bottom, 6)
+                Text(breadcrumb).tvFont(.caption, design: .monospaced).foregroundStyle(TVColor.textFaint).padding(.bottom, 22)
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 8) {
@@ -190,10 +190,10 @@ struct TVScanFlowView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 20)
                         } else if let browseError {
                             Text(browseError)
-                                .font(.system(size: 21)).foregroundStyle(TVColor.bad).padding(.vertical, 16)
+                                .tvFont(.caption).foregroundStyle(TVColor.bad).padding(.vertical, 16)
                         } else if entries.filter(\.isDir).isEmpty {
                             Text(PMString("ext.tv.scan.noSubfolders"))
-                                .font(.system(size: 21)).foregroundStyle(TVColor.textGhost).padding(.vertical, 16)
+                                .tvFont(.caption).foregroundStyle(TVColor.textGhost).padding(.vertical, 16)
                         }
                         ForEach(entries.filter(\.isDir)) { e in
                             folderRow(name: e.name, isUp: false, selectable: true, checked: selected.contains(e.path),
@@ -285,12 +285,12 @@ struct TVScanFlowView: View {
             }
             TVFocusButton(radius: 16, accent: TVColor.brand, scale: 1.05, lift: 4, action: startScan) { f in
                 Label(PMString(rereadMetadata ? "tv_metadata_reread" : "ext.tv.scan.start"), systemImage: "arrow.triangle.2.circlepath")
-                    .font(.system(size: 24, weight: .bold)).foregroundStyle(TVColor.onBrand)
+                    .tvFont(.eyebrow, weight: .bold).foregroundStyle(TVColor.onBrand)
                     .frame(maxWidth: .infinity).padding(.vertical, 20)
                     .background(TVColor.brand.opacity(f ? 1 : 0.88), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             TVFocusButton(radius: 16, scale: 1.04, lift: 0, action: { dismiss() }) { f in
-                Text(PMString("ext.tv.sources.cancel")).font(.system(size: 20, weight: .medium)).foregroundStyle(TVColor.text)
+                Text(PMString("ext.tv.sources.cancel")).tvFont(.meta, weight: .medium).foregroundStyle(TVColor.text)
                     .frame(maxWidth: .infinity).padding(.vertical, 14)
                     .background(f ? TVColor.surfaceStrong : TVColor.surfaceSubtle, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
@@ -299,9 +299,9 @@ struct TVScanFlowView: View {
 
     private func summaryRow(_ k: String, _ v: String) -> some View {
         HStack {
-            Text(k).font(.system(size: 22)).foregroundStyle(TVColor.textFaint)
+            Text(k).tvFont(.caption).foregroundStyle(TVColor.textFaint)
             Spacer()
-            Text(v).font(.system(size: 22, weight: .semibold)).foregroundStyle(TVColor.text)
+            Text(v).tvFont(.caption, weight: .semibold).foregroundStyle(TVColor.text)
         }
         .padding(.vertical, 8)
         .overlay(alignment: .bottom) { Rectangle().fill(TVColor.divider).frame(height: 1) }
@@ -405,8 +405,8 @@ private struct TVScanningView: View {
         VStack(spacing: 0) {
             ring.padding(.bottom, 40)
             Text(title)
-                .font(.system(size: 40, weight: .bold)).foregroundStyle(TVColor.text).padding(.bottom, 10)
-            Text(currentLine).font(.system(size: 22, design: .monospaced)).foregroundStyle(TVColor.textFaint)
+                .tvFont(size: 40, weight: .bold, relativeTo: .title2).foregroundStyle(TVColor.text).padding(.bottom, 10)
+            Text(currentLine).tvFont(.caption, design: .monospaced).foregroundStyle(TVColor.textFaint)
                 .lineLimit(done ? 3 : 1).truncationMode(.middle).multilineTextAlignment(.center)
                 .frame(maxWidth: 900).padding(.bottom, 36)
 
@@ -424,24 +424,24 @@ private struct TVScanningView: View {
                 action: failed ? onRetry : onDone
             ) { f in
                 Text(primaryActionTitle)
-                    .font(.system(size: 22, weight: .bold)).foregroundStyle(TVColor.onBrand)
+                    .tvFont(.caption, weight: .bold).foregroundStyle(TVColor.onBrand)
                     .padding(.horizontal, 44).padding(.vertical, 18)
                     .background(TVColor.brand.opacity(f ? 1 : 0.88), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             if !done && !failed && canCancel {
                 TVFocusButton(radius: 14, scale: 1.03, lift: 0, action: onCancel) { focused in
                     Text(PMString("ext.tv.scan.cancelScan"))
-                        .font(.system(size: 22, weight: .medium)).foregroundStyle(TVColor.text)
+                        .tvFont(.caption, weight: .medium).foregroundStyle(TVColor.text)
                         .padding(.horizontal, 38).padding(.vertical, 14)
                         .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 .padding(.top, 14)
             }
             if case .failed(let msg) = phase {
-                Text(msg).font(.system(size: 21)).foregroundStyle(TVColor.bad).padding(.top, 24)
+                Text(msg).tvFont(.caption).foregroundStyle(TVColor.bad).padding(.top, 24)
             } else {
                 Text(PMString("ext.tv.scan.syncHint"))
-                    .font(.system(size: 20)).foregroundStyle(TVColor.textGhost).padding(.top, 24)
+                    .tvFont(.meta).foregroundStyle(TVColor.textGhost).padding(.top, 24)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -462,8 +462,8 @@ private struct TVScanningView: View {
             } else {
                 SpinnerArc().frame(width: 232, height: 232)
                 VStack(spacing: 4) {
-                    Text("\(store.scanner.indexed)").font(.system(size: 56, weight: .bold, design: .monospaced)).foregroundStyle(TVColor.text)
-                    Text(PMString("ext.tv.scan.indexed")).font(.system(size: 20)).foregroundStyle(TVColor.textFaint)
+                    Text("\(store.scanner.indexed)").tvFont(size: 56, weight: .bold, design: .monospaced, relativeTo: .title).foregroundStyle(TVColor.text)
+                    Text(PMString("ext.tv.scan.indexed")).tvFont(.meta).foregroundStyle(TVColor.textFaint)
                 }
             }
         }
@@ -508,8 +508,8 @@ private struct TVScanningView: View {
 
     private func stat(_ v: String, _ k: String) -> some View {
         VStack(spacing: 4) {
-            Text(v).font(.system(size: 32, weight: .bold, design: .monospaced)).foregroundStyle(TVColor.brand)
-            Text(k).font(.system(size: 20)).foregroundStyle(TVColor.textFaint)
+            Text(v).tvFont(.sectionTitle, design: .monospaced).foregroundStyle(TVColor.brand)
+            Text(k).tvFont(.meta).foregroundStyle(TVColor.textFaint)
         }
     }
 }

@@ -56,17 +56,17 @@ struct TVSourcesView: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(PMString("ext.tv.sources.eyebrow"))
-                            .font(.system(size: 22, weight: .medium)).foregroundStyle(TVColor.textMuted)
+                            .tvFont(.caption, weight: .medium).foregroundStyle(TVColor.textMuted)
                         Text(PMString("ext.tv.sources.title", store.sources.count))
-                            .font(.system(size: 48, weight: .bold)).foregroundStyle(TVColor.text)
+                            .tvFont(.pageTitle).foregroundStyle(TVColor.text)
                             .padding(.bottom, 22)
                         if store.sources.isEmpty {
                             VStack(alignment: .leading, spacing: 12) {
                                 Image(systemName: "server.rack").font(.system(size: 54))
                                     .foregroundStyle(TVColor.textGhost)
-                                Text(PMString("ext.tv.sources.emptyTitle")).font(.system(size: 26, weight: .bold)).foregroundStyle(TVColor.text)
+                                Text(PMString("ext.tv.sources.emptyTitle")).tvFont(.rowTitle, weight: .bold).foregroundStyle(TVColor.text)
                                 Text(PMString("ext.tv.sources.emptyBody"))
-                                    .font(.system(size: 22)).foregroundStyle(TVColor.textMuted)
+                                    .tvFont(.caption).foregroundStyle(TVColor.textMuted)
                                     .frame(maxWidth: 560, alignment: .leading).lineSpacing(4)
                             }
                             .padding(.top, 24)
@@ -118,11 +118,11 @@ struct TVSourcesView: View {
                 // 右侧操作栏撑满高度,从左列任意一行往右都能到达(焦点区 frame 满高)。
                 VStack(alignment: .leading, spacing: 18) {
                     Text(PMString("ext.tv.sources.addSource"))
-                        .font(.system(size: 22, weight: .medium)).foregroundStyle(TVColor.textMuted)
+                        .tvFont(.caption, weight: .medium).foregroundStyle(TVColor.textMuted)
                     TVSourcesInfoCard()
                     TVFocusButton(radius: 16, scale: 1.02, lift: 0, action: { showsMetadata = true }) { focused in
                         Label(PMString("tv_metadata_reread"), systemImage: "arrow.clockwise")
-                            .font(.system(size: 20, weight: .semibold)).foregroundStyle(TVColor.text)
+                            .tvFont(.meta, weight: .semibold).foregroundStyle(TVColor.text)
                             .padding(.horizontal, 24).padding(.vertical, 16)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(focused ? TVColor.surfaceStrong : TVColor.surface,
@@ -132,7 +132,7 @@ struct TVSourcesView: View {
                     .accessibilityIdentifier("tv.sources.metadata")
                     Button { showTransfer = true } label: {
                         Label(TVTransferText.string("receive"), systemImage: "arrow.down.circle")
-                            .font(.system(size: 20, weight: .semibold))
+                            .tvFont(.meta, weight: .semibold)
                             .foregroundStyle(focusedPrimaryAction == .receive ? TVColor.onBrand : TVColor.text)
                             .padding(.horizontal, 24).padding(.vertical, 16)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -144,7 +144,7 @@ struct TVSourcesView: View {
                     .focusEffectDisabled().accessibilityIdentifier("tv.sources.receive")
                     Button { typePicker = true } label: {
                         Label(PMString("ext.tv.sources.addOnTV"), systemImage: "plus.circle.fill")
-                            .font(.system(size: 20, weight: .semibold))
+                            .tvFont(.meta, weight: .semibold)
                             .foregroundStyle(focusedPrimaryAction == .addSource ? TVColor.onBrand : TVColor.text)
                             .padding(.horizontal, 24).padding(.vertical, 16)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -167,7 +167,7 @@ struct TVSourcesView: View {
 
                     Button { recycleBin = true } label: {
                         Label(PMString("ext.tv.sources.recycleBin"), systemImage: "trash.circle")
-                            .font(.system(size: 20, weight: .semibold)).foregroundStyle(TVColor.text)
+                            .tvFont(.meta, weight: .semibold).foregroundStyle(TVColor.text)
                             .padding(.horizontal, 24).padding(.vertical, 16)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(focusedPrimaryAction == .recycleBin ? TVColor.surfaceStrong : TVColor.surfaceSubtle,
@@ -388,25 +388,25 @@ private struct TVSourcesInfoCard: View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 10) {
                 Image(systemName: "qrcode").font(.system(size: 28)).foregroundStyle(TVColor.brand)
-                Text(PMString("ext.tv.sources.scanTitle")).font(.system(size: 26, weight: .bold)).foregroundStyle(TVColor.text)
+                Text(PMString("ext.tv.sources.scanTitle")).tvFont(.rowTitle, weight: .bold).foregroundStyle(TVColor.text)
             }
             HStack(alignment: .top, spacing: 22) {
                 TVQRCode(content: store.pairingQRContent, size: 190)
                 VStack(alignment: .leading, spacing: 12) {
                     Text(PMString("ext.tv.sources.scanBody1"))
-                        .font(.system(size: 22)).foregroundStyle(TVColor.textMuted).lineSpacing(5)
+                        .tvFont(.caption).foregroundStyle(TVColor.textMuted).lineSpacing(5)
                     Text(PMString("ext.tv.sources.scanBody2"))
-                        .font(.system(size: 20)).foregroundStyle(TVColor.textGhost).lineSpacing(4)
+                        .tvFont(.meta).foregroundStyle(TVColor.textGhost).lineSpacing(4)
                     if !store.pairingCode.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(PMString("ext.tv.sources.confirmCode"))
-                                .font(.system(size: 20, weight: .semibold))
+                                .tvFont(.meta, weight: .semibold)
                                 .foregroundStyle(TVColor.textGhost)
                             Text(verbatim: store.pairingCode)
-                                .font(.system(size: 34, weight: .bold, design: .monospaced))
+                                .tvFont(size: 34, weight: .bold, design: .monospaced, relativeTo: .title2)
                                 .foregroundStyle(TVColor.text)
                             Text(PMString("ext.tv.sources.confirmCodeHint"))
-                                .font(.system(size: 20))
+                                .tvFont(.meta)
                                 .foregroundStyle(TVColor.textMuted)
                         }
                         .padding(.top, 8)
@@ -445,18 +445,18 @@ private struct TVSourceRow: View {
                     .frame(width: 46, height: 46)
                     .background(source.color, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(source.name).font(.system(size: 26, weight: .semibold))
+                    Text(source.name).tvFont(.rowTitle)
                         .foregroundStyle(TVColor.text).lineLimit(1)
                     Text(PMString(
                         "ext.tv.sources.typeSongs",
                         MusicSourceType(rawValue: source.type)?.displayName ?? source.type.uppercased(),
                         TVFmt.count(source.songs)
                     ))
-                        .font(.system(size: 22, design: .monospaced))
+                        .tvFont(.caption, design: .monospaced)
                         .foregroundStyle(TVColor.textFaint)
                     if let availabilityNote = source.availabilityNote {
                         Label(availabilityNote, systemImage: "clock.badge.exclamationmark")
-                            .font(.system(size: 20, weight: .semibold))
+                            .tvFont(.meta, weight: .semibold)
                             .foregroundStyle(TVColor.warn)
                     }
                     if source.needsInitialScan {
@@ -464,7 +464,7 @@ private struct TVSourceRow: View {
                             PMString("ext.tv.sources.continueInitialScan"),
                             systemImage: "arrow.triangle.2.circlepath"
                         )
-                        .font(.system(size: 20, weight: .semibold))
+                        .tvFont(.meta, weight: .semibold)
                         .foregroundStyle(TVColor.warn)
                     }
                 }
@@ -475,7 +475,7 @@ private struct TVSourceRow: View {
                 playabilityBadge
                 HStack(spacing: 8) {
                     Image(systemName: statusIcon).font(.system(size: 20))
-                    Text(statusLabel).font(.system(size: 20, weight: .semibold))
+                    Text(statusLabel).tvFont(.meta, weight: .semibold)
                 }
                 .foregroundStyle(statusColor)
                 // 焦点提示:点击会「启用 / 停用」这个源(不再是直接删除)。
@@ -540,7 +540,7 @@ private struct TVSourceRow: View {
         if let info = badgeInfo {
             HStack(spacing: 5) {
                 Image(systemName: info.icon).font(.system(size: 20))
-                Text(info.label).font(.system(size: 20, weight: .semibold))
+                Text(info.label).tvFont(.meta, weight: .semibold)
             }
             .foregroundStyle(info.color)
             .padding(.horizontal, 10).padding(.vertical, 5)
@@ -642,12 +642,12 @@ private struct TVCredentialEditorView: View {
                 .frame(height: 1)
                 .padding(.top, 26).padding(.bottom, 24)
             Text(PMString("ext.tv.sources.cred.intro"))
-                .font(.system(size: 22)).foregroundStyle(TVColor.textMuted)
+                .tvFont(.caption).foregroundStyle(TVColor.textMuted)
                 .lineSpacing(5)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if let hint = syncHint {
                 Label(hint, systemImage: "iphone.and.arrow.forward")
-                    .font(.system(size: 22)).foregroundStyle(TVColor.textFaint)
+                    .tvFont(.caption).foregroundStyle(TVColor.textFaint)
                     .lineSpacing(5)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.top, 12)
@@ -669,7 +669,7 @@ private struct TVCredentialEditorView: View {
             .padding(.top, 28)
             if isFnMusic {
                 Text(PMString("fnmusic_account_hint"))
-                    .font(.system(size: 21))
+                    .tvFont(.caption)
                     .foregroundStyle(TVColor.textFaint)
                     .padding(.top, 14)
             }
@@ -688,9 +688,9 @@ private struct TVCredentialEditorView: View {
                 .frame(width: 60, height: 60)
                 .background(source.color, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             VStack(alignment: .leading, spacing: 4) {
-                Text(PMString("ext.tv.sources.enterCredentials")).font(.system(size: 40, weight: .bold)).foregroundStyle(TVColor.text)
+                Text(PMString("ext.tv.sources.enterCredentials")).tvFont(size: 40, weight: .bold, relativeTo: .title2).foregroundStyle(TVColor.text)
                 Text("\(source.name) · \(MusicSourceType(rawValue: source.type)?.displayName ?? source.type.uppercased())")
-                    .font(.system(size: 22, design: .monospaced)).foregroundStyle(TVColor.textFaint)
+                    .tvFont(.caption, design: .monospaced).foregroundStyle(TVColor.textFaint)
             }
             Spacer(minLength: 0)
         }
@@ -700,7 +700,7 @@ private struct TVCredentialEditorView: View {
         HStack(spacing: 16) {
             TVFocusButton(radius: 14, accent: TVColor.brand, scale: 1.02, lift: 0, action: save) { focused in
                 Text(PMString("ext.tv.sources.cred.saveEnable"))
-                    .font(.system(size: 22, weight: .semibold))
+                    .tvFont(.caption, weight: .semibold)
                     .foregroundStyle(canSave ? TVColor.onBrand : TVColor.textGhost)
                     .padding(.horizontal, 30).padding(.vertical, 16)
                     .frame(minWidth: 220)
@@ -712,7 +712,7 @@ private struct TVCredentialEditorView: View {
             if hasLocal {
                 TVFocusButton(radius: 14, scale: 1.02, lift: 0, action: clearLocal) { focused in
                     Text(PMString("ext.tv.sources.cred.clearLocal"))
-                        .font(.system(size: 22, weight: .semibold)).foregroundStyle(TVColor.bad)
+                        .tvFont(.caption, weight: .semibold).foregroundStyle(TVColor.bad)
                         .padding(.horizontal, 26).padding(.vertical, 16)
                         .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle,
                                     in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -723,7 +723,7 @@ private struct TVCredentialEditorView: View {
 
             TVFocusButton(radius: 14, scale: 1.02, lift: 0, action: { dismiss() }) { focused in
                 Text(PMString("ext.tv.sources.cancel"))
-                    .font(.system(size: 22, weight: .semibold)).foregroundStyle(TVColor.text)
+                    .tvFont(.caption, weight: .semibold).foregroundStyle(TVColor.text)
                     .padding(.horizontal, 26).padding(.vertical, 16)
                     .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle,
                                 in: RoundedRectangle(cornerRadius: 14, style: .continuous))

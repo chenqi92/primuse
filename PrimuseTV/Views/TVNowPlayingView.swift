@@ -154,8 +154,8 @@ struct TVNowPlayingView: View {
             VStack(spacing: 18) {
                 Image(systemName: "play.circle").font(.system(size: 96))
                     .foregroundStyle(TVColor.textFaint)
-                Text(PMString("ext.tv.nowPlaying.notPlaying")).font(.system(size: 40, weight: .bold)).foregroundStyle(TVColor.text)
-                Text(PMString("ext.tv.nowPlaying.pickASong")).font(.system(size: 22)).foregroundStyle(TVColor.textMuted)
+                Text(PMString("ext.tv.nowPlaying.notPlaying")).tvFont(size: 40, weight: .bold, relativeTo: .title2).foregroundStyle(TVColor.text)
+                Text(PMString("ext.tv.nowPlaying.pickASong")).tvFont(.caption).foregroundStyle(TVColor.textMuted)
             }
             .padding(.top, isTabContent ? TVSpace.pageTop / 2 : 0)
         }
@@ -208,13 +208,13 @@ struct TVNowPlayingView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     TVEyebrow(text: PMString("ext.tv.radio.title"))
                     Text(store.nowPlaying.title)
-                        .font(.system(size: 72, weight: .bold))
+                        .tvFont(size: 72, weight: .bold, relativeTo: .largeTitle)
                         .tracking(-1.2)
                         .foregroundStyle(TVColor.text)
                         .lineLimit(2)
                         .padding(.top, 18)
                     Text(store.nowPlaying.artist)
-                        .font(.system(size: 32, weight: .medium))
+                        .tvFont(.sectionTitle, weight: .medium)
                         .foregroundStyle(TVColor.textMuted)
                         .lineLimit(2)
                         .padding(.top, 14)
@@ -225,10 +225,10 @@ struct TVNowPlayingView: View {
                             .frame(width: 13, height: 13)
                             .shadow(color: .red.opacity(0.7), radius: 8)
                         Text(PMString("ext.tv.radio.live"))
-                            .font(.system(size: 22, weight: .bold))
+                            .tvFont(.caption, weight: .bold)
                         if store.currentTime > 0 {
                             Text("· \(TVFmt.time(store.currentTime))")
-                                .font(.system(size: 21, design: .monospaced))
+                                .tvFont(.caption, design: .monospaced)
                         }
                     }
                     .foregroundStyle(TVColor.text)
@@ -236,7 +236,7 @@ struct TVNowPlayingView: View {
 
                     if let issue = store.playbackIssue {
                         Label(issue.message, systemImage: "exclamationmark.triangle.fill")
-                            .font(.system(size: 22, weight: .medium))
+                            .tvFont(.caption, weight: .medium)
                             .foregroundStyle(TVColor.warn)
                             .lineLimit(3)
                             .padding(.top, 22)
@@ -277,7 +277,7 @@ struct TVNowPlayingView: View {
                         .disabled(!store.trackNavigationAvailability.canGoNext)
 
                         Text(PMString(radioConnectionIsActive ? "ext.tv.radio.stop" : "ext.tv.radio.play"))
-                            .font(.system(size: 24, weight: .semibold))
+                            .tvFont(.eyebrow)
                             .foregroundStyle(TVColor.textMuted)
                     }
                 }
@@ -376,15 +376,15 @@ struct TVNowPlayingView: View {
                 )
                 .padding(.bottom, 18)
                 Text(np.title)
-                    .font(.system(size: 58, weight: .bold))
+                    .tvFont(size: 58, weight: .bold, relativeTo: .largeTitle)
                     .foregroundStyle(.white)
                     .lineLimit(2)
                 Text(np.artist)
-                    .font(.system(size: 28))
+                    .tvFont(.cardTitle, weight: .regular)
                     .foregroundStyle(.white.opacity(0.74))
                     .padding(.top, 8)
                 Text(metadataLine(np))
-                    .font(.system(size: 22))
+                    .tvFont(.caption)
                     .foregroundStyle(.white.opacity(0.52))
                     .padding(.top, 5)
 
@@ -392,7 +392,7 @@ struct TVNowPlayingView: View {
 
                 if let issue = store.playbackIssue {
                     Label(issue.message, systemImage: "exclamationmark.triangle.fill")
-                        .font(.system(size: 22, weight: .medium))
+                        .tvFont(.caption, weight: .medium)
                         .foregroundStyle(TVColor.warn)
                         .lineLimit(2)
                         .padding(.bottom, 18)
@@ -433,7 +433,7 @@ struct TVNowPlayingView: View {
                     .overlay(alignment: .bottomLeading) {
                         if focusedTransport == .songPrimary {
                             Text(PMString("ext.tv.nowPlaying.artworkControls"))
-                                .font(.system(size: 22, weight: .medium))
+                                .tvFont(.caption, weight: .medium)
                                 .foregroundStyle(.white)
                                 .multilineTextAlignment(.leading)
                                 .padding(12)
@@ -450,18 +450,18 @@ struct TVNowPlayingView: View {
             .accessibilityLabel(Text(PMString(store.isPlaying ? "ext.control.pause" : "ext.control.play")))
             .accessibilityHint(Text(PMString("ext.tv.nowPlaying.artworkControls")))
             .accessibilityIdentifier("tv.nowPlaying.artworkControls")
-            Text(np.title).font(.system(size: 48, weight: .bold)).tracking(-0.8)
+            Text(np.title).tvFont(.pageTitle).tracking(-0.8)
                 .foregroundStyle(TVColor.text).lineLimit(2).padding(.top, 26)
-            Text(np.artist).font(.system(size: 26)).foregroundStyle(TVColor.textMuted).padding(.top, 8)
+            Text(np.artist).tvFont(.rowTitle, weight: .regular).foregroundStyle(TVColor.textMuted).padding(.top, 8)
             Text(metadataLine(np))
-                .font(.system(size: 22)).foregroundStyle(TVColor.textFaint).padding(.top, 4)
+                .tvFont(.caption).foregroundStyle(TVColor.textFaint).padding(.top, 4)
 
             TVLibraryReviewControl(subject: .song(np.songID))
                 .padding(.top, 16)
 
             if let issue = store.playbackIssue {
                 Label(issue.message, systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 20, weight: .medium)).foregroundStyle(TVColor.warn)
+                    .tvFont(.meta, weight: .medium).foregroundStyle(TVColor.warn)
                     .lineLimit(3).frame(maxWidth: 580, alignment: .leading).padding(.top, 14)
             }
 
@@ -488,7 +488,7 @@ struct TVNowPlayingView: View {
         let dur = store.duration
         let p = dur > 0 ? max(0, min(1, cur / dur)) : 0
         return HStack(spacing: 16) {
-            Text(TVFmt.time(cur)).font(.system(size: 20, design: .monospaced))
+            Text(TVFmt.time(cur)).tvFont(.meta, design: .monospaced)
                 .foregroundStyle(immersiveDark ? Color.white.opacity(0.60) : TVColor.textMuted)
                 .frame(width: 56, alignment: .trailing)
             TVScrubber(progress: p, tint: TVColor.brand, immersiveDark: immersiveDark,
@@ -498,7 +498,7 @@ struct TVNowPlayingView: View {
                        onFinish: { focusedTransport = immersiveDark ? .songPrimary : .playPause },
                        focused: $scrubberFocused)
                 .prefersDefaultFocus(focusRequest?.target == .nowPlaying(.scrubber), in: playerFocus)
-            Text("-\(TVFmt.time(max(0, dur - cur)))").font(.system(size: 20, design: .monospaced))
+            Text("-\(TVFmt.time(max(0, dur - cur)))").tvFont(.meta, design: .monospaced)
                 .foregroundStyle(immersiveDark ? Color.white.opacity(0.60) : TVColor.textMuted)
                 .frame(width: 56, alignment: .leading)
         }
@@ -597,7 +597,7 @@ struct TVNowPlayingView: View {
         if store.lyrics.isEmpty {
             VStack(spacing: 12) {
                 Image(systemName: "text.quote").font(.system(size: 48)).foregroundStyle(TVColor.textGhost)
-                Text(PMString("ext.tv.nowPlaying.noLyrics")).font(.system(size: 26)).foregroundStyle(TVColor.textFaint)
+                Text(PMString("ext.tv.nowPlaying.noLyrics")).tvFont(.rowTitle, weight: .regular).foregroundStyle(TVColor.textFaint)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         } else {
@@ -679,7 +679,7 @@ struct TVNowPlayingView: View {
                     .multilineTextAlignment(.leading)
             }
             if !ln.translation.isEmpty {
-                Text(ln.translation).font(.system(size: 22)).italic()
+                Text(ln.translation).tvFont(.caption).italic()
                     .foregroundStyle(TVColor.textFaint)
             }
         }

@@ -417,7 +417,7 @@ struct TVSearchView: View {
                 systemImage: fallbackDepth > 0
                     ? "arrow.trianglehead.branch" : "checkmark.circle.fill"
             )
-            .font(.system(size: 20, weight: .medium))
+            .tvFont(.meta, weight: .medium)
             .foregroundStyle(TVColor.brand)
         case .noMatches(let provider, let fallbackDepth):
             Label(

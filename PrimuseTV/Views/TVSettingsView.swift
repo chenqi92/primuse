@@ -170,7 +170,7 @@ struct TVSettingsView: View {
 
                     VStack(alignment: .leading, spacing: 20) {
                         Text(PMString("ext.tv.settings.remoteTips"))
-                            .font(.system(size: 28, weight: .semibold))
+                            .tvFont(.cardTitle)
                             .foregroundStyle(TVColor.text)
                         HStack { Spacer(); TVSiriRemote(); Spacer() }
                             .padding(.bottom, 8)
@@ -295,7 +295,7 @@ struct TVSettingsView: View {
         HStack(spacing: 18) {
             settingIcon("circle.lefthalf.filled", focused: false)
             Text(PMString("ext.tv.settings.appearance"))
-                .font(.system(size: 28, weight: .medium))
+                .tvFont(.cardTitle, weight: .medium)
                 .foregroundStyle(TVColor.text)
             Spacer(minLength: 12)
             HStack(spacing: 8) {
@@ -305,7 +305,7 @@ struct TVSettingsView: View {
                         appearanceState.select(preference)
                     } label: { focused in
                         Text(appearanceTitle(preference))
-                            .font(.system(size: 22, weight: isSelected ? .bold : .semibold))
+                            .tvFont(.caption, weight: isSelected ? .bold : .semibold)
                             .foregroundStyle(isSelected ? TVColor.onBrand : TVColor.textMuted)
                             .lineLimit(1)
                             .minimumScaleFactor(0.9)
@@ -339,7 +339,7 @@ struct TVSettingsView: View {
         return HStack(spacing: 18) {
             settingIcon("sun.haze.fill", focused: false)
             Text(PMString("ext.tv.settings.ambientIntensity"))
-                .font(.system(size: 28, weight: .medium))
+                .tvFont(.cardTitle, weight: .medium)
                 .foregroundStyle(TVColor.text)
             Spacer(minLength: 12)
             HStack(spacing: 8) {
@@ -349,7 +349,7 @@ struct TVSettingsView: View {
                         ambientStrength = choice.value
                     } label: { focused in
                         Text(PMString(choice.key))
-                            .font(.system(size: 22, weight: isSelected ? .bold : .semibold))
+                            .tvFont(.caption, weight: isSelected ? .bold : .semibold)
                             .foregroundStyle(isSelected ? TVColor.onBrand : TVColor.textMuted)
                             .frame(minWidth: 116)
                             .padding(.vertical, 11)
@@ -403,10 +403,10 @@ struct TVSettingsView: View {
         TVFocusButton(radius: 14, scale: 1.0, lift: 0, action: action) { focused in
             HStack(spacing: 18) {
                 settingIcon(icon, focused: focused)
-                Text(title).font(.system(size: 28, weight: focused ? .bold : .medium)).foregroundStyle(TVColor.text)
+                Text(title).tvFont(.cardTitle, weight: focused ? .bold : .medium).foregroundStyle(TVColor.text)
                     .fixedSize(horizontal: false, vertical: true).layoutPriority(1)
                 Spacer(minLength: 0)
-                Text(value).font(.system(size: 24)).foregroundStyle(TVColor.textMuted)
+                Text(value).tvFont(.eyebrow, weight: .regular).foregroundStyle(TVColor.textMuted)
                     .multilineTextAlignment(.trailing).lineLimit(2)
                 Image(systemName: trailing).font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(focused ? TVColor.text : TVColor.textGhost)
@@ -422,7 +422,7 @@ struct TVSettingsView: View {
         TVFocusButton(radius: 14, scale: 1.0, lift: 0, action: { isOn.wrappedValue.toggle() }) { focused in
             HStack(spacing: 18) {
                 settingIcon(icon, focused: focused)
-                Text(title).font(.system(size: 28, weight: focused ? .bold : .medium)).foregroundStyle(TVColor.text)
+                Text(title).tvFont(.cardTitle, weight: focused ? .bold : .medium).foregroundStyle(TVColor.text)
                     .fixedSize(horizontal: false, vertical: true).layoutPriority(1)
                 Spacer(minLength: 0)
                 ZStack(alignment: isOn.wrappedValue ? .trailing : .leading) {
@@ -446,9 +446,9 @@ struct TVSettingsView: View {
     private func infoRow(_ icon: String, _ title: String, _ value: String) -> some View {
         HStack(spacing: 18) {
             settingIcon(icon, focused: false)
-            Text(title).font(.system(size: 28, weight: .medium)).foregroundStyle(TVColor.text)
+            Text(title).tvFont(.cardTitle, weight: .medium).foregroundStyle(TVColor.text)
             Spacer(minLength: 0)
-            Text(value).font(.system(size: 24)).foregroundStyle(TVColor.textMuted)
+            Text(value).tvFont(.eyebrow, weight: .regular).foregroundStyle(TVColor.textMuted)
                     .multilineTextAlignment(.trailing).lineLimit(2)
         }
         .padding(.horizontal, 22).padding(.vertical, 16)
@@ -519,12 +519,12 @@ private struct TVThemeColorPicker: View {
                     VStack(alignment: .leading, spacing: 6) {
                         TVEyebrow(text: PMString("ext.tv.settings.eyebrow"))
                         Text(PMString("ext.tv.settings.themeColor"))
-                            .font(.system(size: 44, weight: .bold))
+                            .tvFont(size: 44, weight: .bold, relativeTo: .title)
                             .foregroundStyle(TVColor.text)
                     }
                     Spacer()
                     Text("#\(selectedHex)")
-                        .font(.system(size: 22, design: .monospaced))
+                        .tvFont(.caption, design: .monospaced)
                         .foregroundStyle(TVColor.textMuted)
                 }
 
@@ -575,7 +575,7 @@ private struct TVThemeColorPicker: View {
                             .foregroundStyle(TVColor.onBrand)
                     }
                 Text(PMString("theme_color_mode_auto"))
-                    .font(.system(size: 21, weight: selected ? .bold : .semibold))
+                    .tvFont(.caption, weight: selected ? .bold : .semibold)
                     .foregroundStyle(TVColor.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
@@ -623,7 +623,7 @@ private struct TVThemeColorPicker: View {
                         }
                     }
                 Text(PMString(swatch.localizationKey))
-                    .font(.system(size: 21, weight: selected ? .bold : .semibold))
+                    .tvFont(.caption, weight: selected ? .bold : .semibold)
                     .foregroundStyle(TVColor.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
@@ -656,8 +656,8 @@ private struct TVRemoteHint: View {
     init(_ binding: String, _ label: String) { self.binding = binding; self.label = label }
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(binding).font(.system(size: 23, weight: .semibold)).foregroundStyle(TVColor.text)
-            Text(label).font(.system(size: 22)).foregroundStyle(TVColor.textMuted)
+            Text(binding).tvFont(.caption, weight: .semibold).foregroundStyle(TVColor.text)
+            Text(label).tvFont(.caption).foregroundStyle(TVColor.textMuted)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

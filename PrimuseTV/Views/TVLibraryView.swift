@@ -204,7 +204,7 @@ struct TVLibraryView: View {
                                     Text(intent.title)
                                         .tvFont(.caption, weight: .semibold)
                                     Text(intent.detail)
-                                        .font(.system(size: 20))
+                                        .tvFont(.meta)
                                         .lineLimit(2, reservesSpace: true)
                                         .opacity(0.75)
                                 }
@@ -572,7 +572,7 @@ struct TVSongRow: View {
                 VStack(alignment: .leading, spacing: 3) {
                     if let reason {
                         Label(reason, systemImage: "sparkles")
-                            .font(.system(size: 20, weight: .semibold))
+                            .tvFont(.meta, weight: .semibold)
                             .foregroundStyle(TVColor.brand)
                             .lineLimit(1)
                     }
@@ -586,9 +586,9 @@ struct TVSongRow: View {
                     Image(systemName: "heart.fill").font(.system(size: 22))
                         .foregroundStyle(TVColor.brand)
                 }
-                Text(song.format).font(.system(size: 20, weight: .semibold))
+                Text(song.format).tvFont(.meta, weight: .semibold)
                     .foregroundStyle(TVColor.textGhost)
-                Text(TVFmt.time(song.duration)).font(.system(size: 22, design: .monospaced))
+                Text(TVFmt.time(song.duration)).tvFont(.caption, design: .monospaced)
                     .foregroundStyle(TVColor.textFaint)
             }
             .padding(.horizontal, 22).padding(.vertical, 16)

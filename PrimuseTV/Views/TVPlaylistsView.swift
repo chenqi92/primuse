@@ -72,7 +72,7 @@ struct TVPlaylistCard: View {
                                 Spacer()
                                 HStack(spacing: 5) {
                                     Image(systemName: "sparkles").font(.system(size: 20))
-                                    Text(PMString("ext.tv.playlists.smart")).font(.system(size: 20, weight: .medium))
+                                    Text(PMString("ext.tv.playlists.smart")).tvFont(.meta, weight: .medium)
                                 }
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 10).padding(.vertical, 4)

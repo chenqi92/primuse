@@ -32,8 +32,8 @@ struct TVTransferReceiveView: View {
                         .foregroundStyle(TVColor.brand).frame(width: 66, height: 66)
                         .background(TVColor.brand.opacity(0.12), in: .rect(cornerRadius: 18))
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(TVTransferText.string("receive")).font(.system(size: 38, weight: .bold))
-                        Text(UIDevice.current.name).font(.system(size: 20)).foregroundStyle(TVColor.textMuted)
+                        Text(TVTransferText.string("receive")).tvFont(size: 38, weight: .bold, relativeTo: .title2)
+                        Text(UIDevice.current.name).tvFont(.meta).foregroundStyle(TVColor.textMuted)
                     }
                     Spacer()
                     action(TVTransferText.string("done"), icon: "xmark") { requestAction("close") }.frame(width: 180)
@@ -51,26 +51,26 @@ struct TVTransferReceiveView: View {
                                 .font(.system(size: 55, weight: .light)).foregroundStyle(TVColor.brand)
                             VStack(alignment: .leading, spacing: 8) {
                                 Text(TVTransferText.string(receiver.running ? (receiver.receipts.contains { !$0.finished } ? "receiving" : "receiverReady") : "receiveEmptyTitle"))
-                                    .font(.system(size: 28, weight: .semibold))
-                                Text(TVTransferText.string("receiveEmptyHint")).font(.system(size: 20))
+                                    .tvFont(.cardTitle)
+                                Text(TVTransferText.string("receiveEmptyHint")).tvFont(.meta)
                                     .foregroundStyle(TVColor.textMuted).fixedSize(horizontal: false, vertical: true)
                             }
                         }
                         Rectangle().fill(TVColor.text.opacity(0.09)).frame(height: 1)
                         if let address = receiver.address {
-                            Text(TVTransferText.string("code")).font(.system(size: 22, weight: .medium)).foregroundStyle(TVColor.textMuted)
-                            Text(receiver.code).font(.system(size: 64, weight: .semibold, design: .monospaced))
+                            Text(TVTransferText.string("code")).tvFont(.caption, weight: .medium).foregroundStyle(TVColor.textMuted)
+                            Text(receiver.code).tvFont(.heroTitle, weight: .semibold, design: .monospaced)
                                 .tracking(12).accessibilityIdentifier("wifiTransfer.code")
-                            Text(TVTransferText.string("receiveHint")).font(.system(size: 20))
+                            Text(TVTransferText.string("receiveHint")).tvFont(.meta)
                                 .foregroundStyle(TVColor.textMuted).fixedSize(horizontal: false, vertical: true)
-                            Text(address).font(.system(size: 20, design: .monospaced))
+                            Text(address).tvFont(.meta, design: .monospaced)
                                 .foregroundStyle(TVColor.textMuted).accessibilityIdentifier("wifiTransfer.address")
                         } else if receiver.running {
                             // 与下面的空闲文案用同一套高度/对齐,两个状态之间才不会上下跳。
-                            ProgressView(TVTransferText.string("waiting")).font(.system(size: 22))
+                            ProgressView(TVTransferText.string("waiting")).tvFont(.caption)
                                 .frame(minHeight: 190, alignment: .topLeading)
                         } else {
-                            Text(TVTransferText.string("receiveHint")).font(.system(size: 22))
+                            Text(TVTransferText.string("receiveHint")).tvFont(.caption)
                                 .foregroundStyle(TVColor.textMuted).lineSpacing(6)
                                 .fixedSize(horizontal: false, vertical: true).frame(minHeight: 190, alignment: .topLeading)
                         }
@@ -89,19 +89,19 @@ struct TVTransferReceiveView: View {
                         receiptCard
                         VStack(alignment: .leading, spacing: 18) {
                             Label(TVTransferText.string("browserAccess"), systemImage: "globe")
-                                .font(.system(size: 26, weight: .semibold))
-                            Text(TVTransferText.string("browserHint")).font(.system(size: 20))
+                                .tvFont(.rowTitle)
+                            Text(TVTransferText.string("browserHint")).tvFont(.meta)
                                 .foregroundStyle(TVColor.textMuted).fixedSize(horizontal: false, vertical: true)
                             browserAccessToggle
                         }.padding(28).background(TVColor.card, in: .rect(cornerRadius: 22))
                         if let error = error ?? receiver.error.map(TVTransferText.string) ?? store.transferScanError.map(TVTransferText.string) {
-                            Text(error).font(.system(size: 22)).foregroundStyle(.red)
+                            Text(error).tvFont(.caption).foregroundStyle(.red)
                         }
-                        Text(TVTransferText.string("tvStorage")).font(.system(size: 22))
+                        Text(TVTransferText.string("tvStorage")).tvFont(.caption)
                             .foregroundStyle(TVColor.textMuted).lineSpacing(4)
                     }.frame(width: 520).focusSection()
                 }
-                Text(TVTransferText.string("keepOpen")).font(.system(size: 22)).foregroundStyle(TVColor.textMuted)
+                Text(TVTransferText.string("keepOpen")).tvFont(.caption).foregroundStyle(TVColor.textMuted)
                 Spacer(minLength: 0)
             }.padding(.horizontal, 80).padding(.vertical, 56).foregroundStyle(TVColor.text)
         }
@@ -137,31 +137,31 @@ struct TVTransferReceiveView: View {
             if let receipt = receiver.receipts.first {
                 Label(TVTransferText.string(receipt.finished ? (receipt.succeeded ? "receiveCompleted" : "receiveInterrupted") : "receiving"),
                       systemImage: receipt.succeeded ? "checkmark.circle.fill" : "tray.and.arrow.down")
-                    .font(.system(size: 26, weight: .semibold))
+                    .tvFont(.rowTitle)
                 HStack {
                     Text(receipt.sender ?? TVTransferText.string("browserSender"))
                         .lineLimit(1).truncationMode(.middle)
                     Spacer()
                     Text(String(format: TVTransferText.string("receiveCount"), receipt.completed, receipt.fileCount))
                         .monospacedDigit()
-                }.font(.system(size: 20)).foregroundStyle(TVColor.textMuted)
+                }.tvFont(.meta).foregroundStyle(TVColor.textMuted)
                 if !receipt.finished {
                     ProgressView(value: receipt.progress).tint(TVColor.brand)
                     Text(receipt.files.last(where: { !$0.finished })?.path ?? TVTransferText.string("receiveWaitingFiles"))
-                        .font(.system(size: 22)).lineLimit(1).truncationMode(.middle)
+                        .tvFont(.caption).lineLimit(1).truncationMode(.middle)
                 }
                 if let failure = receipt.error {
-                    Text(TVTransferText.string(failure)).font(.system(size: 22))
+                    Text(TVTransferText.string(failure)).tvFont(.caption)
                         .foregroundStyle(.orange).lineLimit(3)
                 }
                 if store.transferIsIndexing {
-                    ProgressView(TVTransferText.string("indexing")).font(.system(size: 22))
+                    ProgressView(TVTransferText.string("indexing")).tvFont(.caption)
                 } else if receipt.completed > 0, store.transferScanError == nil {
-                    Text(TVTransferText.string("receiveStored")).font(.system(size: 22)).foregroundStyle(TVColor.textMuted)
+                    Text(TVTransferText.string("receiveStored")).tvFont(.caption).foregroundStyle(TVColor.textMuted)
                 }
             } else {
-                Text(TVTransferText.string("receiveActivity")).font(.system(size: 26, weight: .semibold))
-                Text(TVTransferText.string("receiverReady")).font(.system(size: 20)).foregroundStyle(TVColor.textMuted)
+                Text(TVTransferText.string("receiveActivity")).tvFont(.rowTitle)
+                Text(TVTransferText.string("receiverReady")).tvFont(.meta).foregroundStyle(TVColor.textMuted)
             }
             action(TVTransferText.string("library"), icon: "music.note.list") { requestAction("music") }
         }.padding(28).background(TVColor.card, in: .rect(cornerRadius: 22))
@@ -188,7 +188,7 @@ struct TVTransferReceiveView: View {
         }) { focused in
             HStack(spacing: 18) {
                 Text(TVTransferText.string(receiver.browserEnabled ? "enabled" : "disabled"))
-                    .font(.system(size: 22, weight: .medium))
+                    .tvFont(.caption, weight: .medium)
                     .foregroundStyle(TVColor.text)
                 Spacer(minLength: 12)
                 ZStack(alignment: receiver.browserEnabled ? .trailing : .leading) {
@@ -209,7 +209,7 @@ struct TVTransferReceiveView: View {
 
     private func action(_ title: String, icon: String, enabled: Bool = true, perform: @escaping () -> Void) -> some View {
         TVFocusButton(radius: 14, scale: 1.02, lift: 0, action: perform) { focused in
-            Label(title, systemImage: icon).font(.system(size: 22, weight: .semibold))
+            Label(title, systemImage: icon).tvFont(.caption, weight: .semibold)
                 .foregroundStyle(focused ? TVColor.onBrand : TVColor.text)
                 .padding(.horizontal, 24).padding(.vertical, 18).frame(maxWidth: .infinity, alignment: .leading)
                 .background(focused ? TVColor.brand : TVColor.surface, in: RoundedRectangle(cornerRadius: 14))
@@ -259,10 +259,10 @@ private struct TVReceivedMusicView: View {
             TVColor.bg.ignoresSafeArea()
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    Text(TVTransferText.string("library")).font(.system(size: 38, weight: .bold))
+                    Text(TVTransferText.string("library")).tvFont(size: 38, weight: .bold, relativeTo: .title2)
                     TVFocusButton(scale: 1.02, lift: 0, action: { dismiss() }) { focused in
                         Label(TVTransferText.string("done"), systemImage: "xmark")
-                            .font(.system(size: 22, weight: .semibold))
+                            .tvFont(.caption, weight: .semibold)
                             .padding(.horizontal, 24).padding(.vertical, 16)
                             .foregroundStyle(focused ? TVColor.onBrand : TVColor.text)
                             .background(focused ? TVColor.brand : TVColor.surface, in: .rect(cornerRadius: 14))
@@ -278,8 +278,8 @@ private struct TVReceivedMusicView: View {
                                 Image(systemName: store.currentSongID == song.id && store.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                                     .font(.system(size: 32))
                                 VStack(alignment: .leading, spacing: 6) {
-                                    Text(song.title).font(.system(size: 26, weight: .semibold))
-                                    Text(song.artistName ?? "").font(.system(size: 22))
+                                    Text(song.title).tvFont(.rowTitle)
+                                    Text(song.artistName ?? "").tvFont(.caption)
                                 }
                                 Spacer()
                             }

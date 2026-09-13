@@ -224,6 +224,10 @@ struct TVFont {
     static let eyebrow = TVFont(size: 24, weight: .semibold, relativeTo: .subheadline)
     static let button = TVFont(size: 30, weight: .semibold, relativeTo: .body)
     static let input = TVFont(size: 32, weight: .regular, relativeTo: .body)
+    /// 列表行标题(来源 / 队列 / 回收站这类一行一条的主标题)
+    static let rowTitle = TVFont(size: 26, weight: .semibold, relativeTo: .headline)
+    /// 次要信息:徽标、时长、状态、路径。电视上的可读下限,不要再往下调
+    static let meta = TVFont(size: 20, weight: .regular, relativeTo: .caption)
 }
 
 private struct TVFontModifier: ViewModifier {
@@ -246,6 +250,16 @@ extension View {
     func tvFont(_ font: TVFont, weight: Font.Weight? = nil,
                 design: Font.Design = .default) -> some View {
         modifier(TVFontModifier(font, weight: weight, design: design))
+    }
+
+    /// 设计稿上的一次性字号(大标题、展示数字等)也要走同一套缩放。
+    /// 界面文字一律用本方法或上面的字号档,不要直接写 `.font(.system(size:))`——
+    /// 那样的字号是死数值,不随系统文字尺寸变化。图标字号例外:它跟随所在容器的固定尺寸。
+    func tvFont(size: CGFloat, weight: Font.Weight = .regular,
+                design: Font.Design = .default,
+                relativeTo textStyle: Font.TextStyle = .body) -> some View {
+        modifier(TVFontModifier(TVFont(size: size, weight: weight, relativeTo: textStyle),
+                                weight: weight, design: design))
     }
 }
 

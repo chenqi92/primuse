@@ -462,7 +462,8 @@ struct TVImmersivePlayerView: View {
             HStack {
                 Spacer()
                 Label(PMString("ext.tv.immersive.exitHint"), systemImage: "arrow.uturn.backward")
-                    .font(.system(size: 20, weight: .medium))
+                    // 展示屏的字号统一走 metrics 等比缩放,与同屏其它文字保持一致
+                    .font(.system(size: metrics.s(20), weight: .medium))
                     .foregroundStyle(ImmersiveStagePalette.text.opacity(0.5))
             }
             .padding(.horizontal, 56)
@@ -535,7 +536,7 @@ struct TVImmersivePlayerView: View {
                 Spacer()
                 Text(store.duration.formattedDuration)
             }
-            .font(.system(size: 20, weight: .medium, design: .monospaced))
+            .tvFont(.meta, weight: .medium, design: .monospaced)
             .foregroundStyle(ImmersiveStagePalette.text.opacity(0.48))
         }
     }

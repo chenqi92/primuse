@@ -45,8 +45,8 @@ struct TVOptionsView: View {
                                   tint: colors.primary, tint2: colors.secondary,
                                   glyph: np.glyph, size: 140, radius: 14)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(np.title).font(.system(size: 36, weight: .bold)).foregroundStyle(TVColor.text)
-                        Text(np.artist).font(.system(size: 22)).foregroundStyle(TVColor.textMuted)
+                        Text(np.title).tvFont(size: 36, weight: .bold, relativeTo: .title2).foregroundStyle(TVColor.text)
+                        Text(np.artist).tvFont(.caption).foregroundStyle(TVColor.textMuted)
                     }
                     Spacer()
                 }
@@ -81,7 +81,7 @@ struct TVOptionsView: View {
             VStack(spacing: 14) {
                 Image(systemName: a.icon).font(.system(size: 40, weight: .regular))
                     .foregroundStyle(focused ? TVColor.onBrand : (a.on ? TVColor.brand : TVColor.text))
-                Text(a.label).font(.system(size: 22, weight: focused ? .bold : .medium))
+                Text(a.label).tvFont(.caption, weight: focused ? .bold : .medium)
                     .foregroundStyle(focused ? TVColor.onBrand : TVColor.text)
             }
             .frame(width: 150, height: 150)
@@ -127,7 +127,7 @@ struct TVFullscreenEffectPicker: View {
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(PMString("ext.tv.settings.immersive"))
-                                .font(.system(size: 38, weight: .bold))
+                                .tvFont(size: 38, weight: .bold, relativeTo: .title2)
                                 .foregroundStyle(.white)
                         }
                         Spacer()
@@ -139,9 +139,9 @@ struct TVFullscreenEffectPicker: View {
                                     PMString("immersive_lyrics_motion_title"),
                                     systemImage: lyricsMotionEnabled ? "checkmark.circle.fill" : "circle"
                                 )
-                                    .font(.system(size: 22, weight: .semibold))
+                                    .tvFont(.caption, weight: .semibold)
                                 Text(PMString("immersive_lyrics_motion_subtitle"))
-                                    .font(.system(size: 20))
+                                    .tvFont(.meta)
                                     .foregroundStyle(.white.opacity(0.58))
                             }
                             .foregroundStyle(lyricsMotionEnabled ? previewPalette.primary : .white.opacity(0.82))
@@ -164,7 +164,7 @@ struct TVFullscreenEffectPicker: View {
                             ForEach(FullscreenEffectCollection.allCases) { collection in
                                 VStack(alignment: .leading, spacing: 10) {
                                     Text(collection.title)
-                                        .font(.system(size: 21, weight: .semibold))
+                                        .tvFont(.caption, weight: .semibold)
                                         .foregroundStyle(.white.opacity(0.66))
 
                                     LazyVGrid(columns: columns, spacing: 18) {
@@ -215,15 +215,15 @@ struct TVFullscreenEffectPicker: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(candidate.localizedTitle)
-                        .font(.system(size: 22, weight: .semibold))
+                        .tvFont(.caption, weight: .semibold)
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
                     Text(candidate.localizedSubtitle)
-                        .font(.system(size: 20))
+                        .tvFont(.meta)
                         .foregroundStyle(.white.opacity(0.58))
                         .lineLimit(2)
                     Label(candidate.motionDescription, systemImage: "waveform.path")
-                        .font(.system(size: 20))
+                        .tvFont(.meta)
                         .foregroundStyle(previewPalette.primary.opacity(0.84))
                         .lineLimit(1)
                 }

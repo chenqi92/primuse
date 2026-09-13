@@ -35,9 +35,9 @@ struct TVQueueView: View {
                                   tint: colors.primary, tint2: colors.secondary,
                                   glyph: np.glyph, size: 340, radius: 18)
                         .shadow(color: .black.opacity(0.5), radius: 30, y: 16)
-                    Text(np.title).font(.system(size: 42, weight: .bold)).tracking(-0.6)
+                    Text(np.title).tvFont(size: 42, weight: .bold, relativeTo: .title).tracking(-0.6)
                         .foregroundStyle(TVColor.text).padding(.top, 26)
-                    Text(np.artist).font(.system(size: 22)).foregroundStyle(TVColor.textMuted)
+                    Text(np.artist).tvFont(.caption).foregroundStyle(TVColor.textMuted)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -69,20 +69,20 @@ struct TVQueueView: View {
         return TVFocusButton(radius: TVRadius.card, scale: 1.01, lift: 0,
                              action: { store.playQueueItem(at: queueOffset); dismiss() }) { focused in
             HStack(spacing: 18) {
-                Text("\(displayIndex + 1)").font(.system(size: 20, design: .monospaced))
+                Text("\(displayIndex + 1)").tvFont(.meta, design: .monospaced)
                     .foregroundStyle(TVColor.textGhost).frame(width: 28)
                 TVArtworkView(coverKey: album?.id ?? "", artist: album?.artist ?? song.artist,
                               album: album?.title ?? "", songID: song.id, coverRef: song.coverRef,
                               tint: album?.tint ?? TVColor.brand,
                               tint2: album?.tint2 ?? .black, glyph: album?.glyph ?? "♪", size: 56, radius: 8)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(song.title).font(.system(size: 24, weight: .semibold))
+                    Text(song.title).tvFont(.eyebrow)
                         .foregroundStyle(TVColor.text).lineLimit(1)
-                    Text(song.artist).font(.system(size: 20))
+                    Text(song.artist).tvFont(.meta)
                         .foregroundStyle(TVColor.textFaint).lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                Text(TVFmt.time(song.duration)).font(.system(size: 20, design: .monospaced))
+                Text(TVFmt.time(song.duration)).tvFont(.meta, design: .monospaced)
                     .foregroundStyle(TVColor.textFaint)
             }
             .padding(.horizontal, 20).padding(.vertical, 14)

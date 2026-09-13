@@ -592,7 +592,7 @@ struct TVTabBar: View {
                     }
                     .shadow(color: TVColor.brand.opacity(0.28), radius: 12, y: 6)
                 Text(verbatim: PMString("ext.tv.appName"))
-                    .font(.system(size: 24, weight: .semibold))
+                    .tvFont(.eyebrow)
                     .lineLimit(1)
                     .foregroundStyle(TVColor.text)
             }
@@ -699,7 +699,7 @@ private struct TVTabItem: View {
     var body: some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 26, weight: isActive ? .bold : .medium))
+                .tvFont(.rowTitle, weight: isActive ? .bold : .medium)
                 .lineLimit(1).minimumScaleFactor(0.85)
                 .foregroundStyle(isFocused ? TVColor.bg : (isActive ? TVColor.text : TVColor.textMuted))
                 .padding(.horizontal, 24).padding(.vertical, 10)
@@ -744,10 +744,10 @@ struct TVBottomBar: View {
                 HStack(spacing: 24) {
                     bottomArtwork(np)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(np.title).font(.system(size: 26, weight: .semibold))
+                        Text(np.title).tvFont(.rowTitle)
                             .foregroundStyle(TVColor.text).lineLimit(1)
                         Text(store.isLiveRadio ? np.artist : "\(np.artist) · \(np.album)")
-                            .font(.system(size: 20))
+                            .tvFont(.meta)
                             .foregroundStyle(TVColor.textMuted).lineLimit(1)
                     }
                     Spacer(minLength: 0)
@@ -755,10 +755,10 @@ struct TVBottomBar: View {
                         HStack(spacing: 9) {
                             Circle().fill(Color.red).frame(width: 10, height: 10)
                             Text(PMString("ext.tv.radio.live"))
-                                .font(.system(size: 20, weight: .bold))
+                                .tvFont(.meta, weight: .bold)
                             if store.currentTime > 0 {
                                 Text("· \(TVFmt.time(store.currentTime))")
-                                    .font(.system(size: 20, design: .monospaced))
+                                    .tvFont(.meta, design: .monospaced)
                             }
                         }
                         .foregroundStyle(TVColor.textMuted)
@@ -778,7 +778,7 @@ struct TVBottomBar: View {
                                 Spacer()
                                 Text(TVFmt.time(store.duration))
                             }
-                            .font(.system(size: 20, design: .monospaced))
+                            .tvFont(.meta, design: .monospaced)
                             .foregroundStyle(TVColor.textFaint)
                         }
                         .frame(width: 460)
