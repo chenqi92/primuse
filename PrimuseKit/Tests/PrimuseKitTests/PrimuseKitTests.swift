@@ -157,6 +157,26 @@ import Testing
     #expect(MusicSourceType.qnap.isAwaitingPublicAPI == false)
 }
 
+@Test func addSourceCatalogueOmitsVendorNASWithoutPublicAPIs() {
+    let catalogue = Set(MusicSourceType.catalogCases)
+    #expect(!catalogue.contains(.ugreen))
+    #expect(!catalogue.contains(.fnos))
+    #expect(catalogue.contains(.fnMusic))
+    #expect(catalogue.contains(.synology))
+    #expect(catalogue.contains(.qnap))
+
+    // Hiding is a presentation rule only: every type must stay decodable, or
+    // saved records and the cloud-sync fingerprint break.
+    #expect(MusicSourceType.allCases.contains(.ugreen))
+    #expect(MusicSourceType.allCases.contains(.fnos))
+
+    let grouped = MusicSourceType.groupedByCategory
+    let listed = Set(grouped.flatMap(\.1))
+    #expect(listed == catalogue)
+    #expect(grouped.allSatisfy { !$0.1.isEmpty })
+    #expect(grouped.contains { $0.0 == .nas })
+}
+
 @Test func fileDeletionCapabilityExcludesReadOnlyCatalogues() {
     let readOnly: Set<MusicSourceType> = [
         .upnp, .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .songloft,

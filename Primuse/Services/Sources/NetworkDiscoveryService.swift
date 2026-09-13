@@ -323,6 +323,11 @@ final class NetworkDiscoveryService {
                 guard let resolvedType else {
                     return
                 }
+                // 等待厂商公开 API 的机型只能渲染成点不动的灰行。同一台设备如果
+                // 还播 SMB / WebDAV, 那条服务会照常出现在发现列表里, 仍可添加。
+                guard !resolvedType.isHiddenFromSourceCatalog else {
+                    return
+                }
 
                 let device = DiscoveredDevice(
                     name: name,

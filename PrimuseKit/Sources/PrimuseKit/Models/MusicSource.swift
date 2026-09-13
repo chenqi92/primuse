@@ -503,9 +503,25 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         }
     }
 
+    /// Types that the "add source" catalogue never offers. `isAwaitingPublicAPI`
+    /// entries can only be rendered disabled, so listing them is a dead row the
+    /// user cannot act on. They stay in `allCases` on purpose: existing records,
+    /// cloud-sync fingerprints and connector routing must keep decoding them.
+    public var isHiddenFromSourceCatalog: Bool {
+        isAwaitingPublicAPI
+    }
+
+    /// The types an "add source" picker may present.
+    public static var catalogCases: [MusicSourceType] {
+        allCases.filter { !$0.isHiddenFromSourceCatalog }
+    }
+
+    /// Categories left without a selectable type are dropped so no picker shows
+    /// a section header with nothing under it.
     public static var groupedByCategory: [(SourceCategory, [MusicSourceType])] {
-        SourceCategory.allCases.map { cat in
-            (cat, MusicSourceType.allCases.filter { $0.category == cat })
+        SourceCategory.allCases.compactMap { cat in
+            let types = MusicSourceType.catalogCases.filter { $0.category == cat }
+            return types.isEmpty ? nil : (cat, types)
         }
     }
 }
