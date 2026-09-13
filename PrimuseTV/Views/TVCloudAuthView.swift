@@ -93,7 +93,7 @@ struct TVCloudAuthView: View {
         case .waiting, .scanned, .redeeming:
             if let session {
                 HStack(alignment: .center, spacing: 44) {
-                    TVQRCode(content: session.qrPayload, size: 300)
+                    qrCodeView(session.qrCode)
                     VStack(alignment: .leading, spacing: 18) {
                         if let userCode = session.userCode, !userCode.isEmpty {
                             VStack(alignment: .leading, spacing: 6) {
@@ -124,6 +124,28 @@ struct TVCloudAuthView: View {
                 }
                 .frame(height: 300)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func qrCodeView(_ qrCode: CloudDeviceAuthQRCode) -> some View {
+        switch qrCode {
+        case .content(let payload):
+            TVQRCode(content: payload, size: 300)
+        case .imageURL(let url):
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image.interpolation(.none).resizable().scaledToFit()
+                case .failure:
+                    Image(systemName: "exclamationmark.triangle").foregroundStyle(TVColor.warn)
+                default:
+                    ProgressView().tint(TVColor.brand)
+                }
+            }
+            .padding(12)
+            .frame(width: 300, height: 300)
+            .background(.white, in: RoundedRectangle(cornerRadius: 14))
         }
     }
 
