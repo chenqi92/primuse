@@ -2039,6 +2039,51 @@ final class TVSourceScanner {
         }
     }
 
+    /// 媒体服务器 / Subsonic 系的服务端歌单。连接器与 iPhone、Mac 是同一份,
+    /// 电视端此前只给飞牛音乐做了镜像,Navidrome、Jellyfin 这些自建歌单同步不过来。
+    /// 返回 nil 表示该类型没有歌单能力,调用方不要动本地任何歌单。
+    func fetchServerPlaylists(
+        source: MusicSource,
+        credential: SourceCredential?
+    ) async throws -> ServerPlaylistSnapshot? {
+        guard Self.serverPlaylistTypes.contains(source.type) else { return nil }
+        return try await withRoutedSource(source) { routedSource in
+            guard let connector = TVServerCatalogConnectorFactory.make(
+                source: routedSource,
+                credential: credential
+            ) as? any ServerPlaylistConnector else { return nil }
+            defer { Task { await connector.disconnect() } }
+            try await connector.connect()
+            return try await connector.fetchServerPlaylists()
+        }
+    }
+
+    /// 电视端能取到服务端歌单的类型。飞牛走自己那条更早接通的路径,不在此列;
+    /// 刀里鱼与 Songloft 的连接器尚未编进电视端,暂不覆盖。
+    static let serverPlaylistTypes: Set<MusicSourceType> = [
+        .jellyfin, .emby, .plex,
+        .subsonic, .navidrome, .airsonic, .gonic,
+    ]
+
+    /// 服务端的「喜欢」标记。能取的类型由 `ServerFavoriteWritebackPolicy` 决定 ——
+    /// 它同时定义了 item ID 与本地 `filePath` 的换算,两边必须用同一份规则。
+    func fetchServerFavorites(
+        source: MusicSource,
+        credential: SourceCredential?
+    ) async throws -> [String]? {
+        guard Self.serverPlaylistTypes.contains(source.type),
+              ServerFavoriteWritebackPolicy.supports(source.type) else { return nil }
+        return try await withRoutedSource(source) { routedSource in
+            guard let connector = TVServerCatalogConnectorFactory.make(
+                source: routedSource,
+                credential: credential
+            ) as? any ServerFavoriteConnector else { return nil }
+            defer { Task { await connector.disconnect() } }
+            try await connector.connect()
+            return try await connector.fetchServerFavorites().itemIDs
+        }
+    }
+
     func fetchFnMusicFavorites(source: MusicSource, credential: SourceCredential?) async throws -> [String] {
         try await withRoutedSource(source) { routedSource in
             try await self.fnMusicClient(source: routedSource, credential: credential).library.favorites()

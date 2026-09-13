@@ -212,6 +212,17 @@ public enum ID3TextMetadataParser {
     /// scalar and the platform emits U+FFFD. Recover only when a structurally
     /// valid following frame gives us a bounded end offset and the extended
     /// bytes decode to a clean, strictly more complete value.
+    /// 修复「帧长写错」的文本帧:把 payload 延长到下一个像样的帧头处。
+    ///
+    /// 只在两种情况下延长:① 声明的 payload 本身就是坏的(结构非法、解出乱码);
+    /// ② 声明的字节数恰好等于「字符数 + 1 个编码字节」—— 那是某些打标签工具
+    /// 把 ID3v2.4 的帧长按字符数而不是字节数写了,多字节文本会被截掉尾巴。
+    ///
+    /// 第二个条件必须**精确**到这个等式。早先只要求「延长后的文本以声明文本开头
+    /// 且更长」,而这对任何一个完好的帧都成立 —— 只要往后多读一点、后面的字节
+    /// 又恰好能解成文字,条件就满足。远端只读文件头一小段时(电视端扫描就是这样),
+    /// 标签常被窗口截断、下一个帧头不完整,于是标题会把后面那一帧(比如内嵌歌词)
+    /// 的内容一并吞进来,变成「歌名 [00:03.696]词:某某」这种。
     private static func recoveredTextPayload(
         frameID: String,
         payloadStart: Int,
@@ -244,10 +255,13 @@ public enum ID3TextMetadataParser {
             MediaMetadataTextRepair.isSuspicious($0)
                 || TextEncodingRepair.looksCorrupted($0)
             } ?? true
-        let cleanPrefixWasExtended = declaredText.map {
-            !$0.isEmpty && recoveredText.hasPrefix($0) && recoveredText.count > $0.count
+        let sizeWasWrittenAsCharacterCount = declaredText.map {
+            !$0.isEmpty
+                && recoveredText.hasPrefix($0)
+                && recoveredText.count > $0.count
+                && declaredPayload.count == recoveredText.count + 1
         } ?? false
-        guard declaredWasDamaged || cleanPrefixWasExtended else { return nil }
+        guard declaredWasDamaged || sizeWasWrittenAsCharacterCount else { return nil }
         return RecoveredTextPayload(payload: recoveredPayload, nextFrameOffset: boundary)
     }
 

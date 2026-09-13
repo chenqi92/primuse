@@ -1240,6 +1240,7 @@
 		0C9F1467C16E87C811382E54 /* NIOCore in Frameworks */ = {isa = PBXBuildFile; productRef = A3B7F0486256B6403A8F9AB6 /* NIOCore */; };
 		73A0185505A7BF0F68113B3E /* SourceFailureClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = D40D025EDB031359CCBBE705 /* SourceFailureClassifier.swift */; };
 		39E81961125CCEF19EAAB80E /* TVSourceErrorText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62E654426C013B95FF061AB7 /* TVSourceErrorText.swift */; };
+		FA19866383AA384BD21E205A /* ImmersiveWaveformBarLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9FFD26621FCE491ED952851 /* ImmersiveWaveformBarLayout.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2361,6 +2362,7 @@
 		7EFFDCF455A11467A9FEC882 /* CloudDeviceAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDeviceAuthService.swift; sourceTree = "<group>"; };
 		D40D025EDB031359CCBBE705 /* SourceFailureClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceFailureClassifier.swift; sourceTree = "<group>"; };
 		62E654426C013B95FF061AB7 /* TVSourceErrorText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVSourceErrorText.swift; sourceTree = "<group>"; };
+		E9FFD26621FCE491ED952851 /* ImmersiveWaveformBarLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveWaveformBarLayout.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -2726,6 +2728,7 @@
 		414F61F3A9ADE8E8099A5662 /* PrimuseKit */ = {
 			isa = PBXGroup;
 			children = (
+				E9FFD26621FCE491ED952851 /* ImmersiveWaveformBarLayout.swift */,
 				D40D025EDB031359CCBBE705 /* SourceFailureClassifier.swift */,
 				B8201B4D10F3B60D364411E9 /* AI */,
 				D39A19435691BBF17DE43314 /* AlbumArtistInferencePolicy.swift */,
@@ -4436,6 +4439,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FA19866383AA384BD21E205A /* ImmersiveWaveformBarLayout.swift in Sources */,
 				73A0185505A7BF0F68113B3E /* SourceFailureClassifier.swift in Sources */,
 				E6A058665436BD86B1A77676 /* CloudDeviceAuthService.swift in Sources */,
 				F5E782200B2D2CC2D2725A9A /* CloudDeviceAuthFlow.swift in Sources */,
