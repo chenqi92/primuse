@@ -242,15 +242,69 @@ struct MetadataBackfillPerformanceButton<Label: View>: View {
         .accessibilityLabel(MetadataReadingText.string("title"))
         .accessibilityValue(MetadataReadingText.string(mode.rawValue))
         .accessibilityIdentifier("sources.metadataBackfillPerformance")
-        .alert(MetadataReadingText.string("fastWarningTitle"), isPresented: $showingFastConfirmation) {
-            Button(MetadataReadingText.string("fastWarningConfirm")) {
+        .sheet(isPresented: $showingFastConfirmation) {
+            MetadataFastReadingConfirmation {
                 storedMode = MetadataReadingMode.fast.rawValue
                 AppServices.shared.metadataBackfill.continueInBackgroundForUserAction()
             }
-            Button(MetadataReadingText.string("cancel"), role: .cancel) {}
-        } message: {
-            Text(MetadataReadingText.string("fastWarningMessage"))
         }
+    }
+}
+
+private struct MetadataFastReadingConfirmation: View {
+    @Environment(\.dismiss) private var dismiss
+    let onConfirm: () -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.title)
+                    .foregroundStyle(.red)
+                    .accessibilityHidden(true)
+                Text(MetadataReadingText.string("fastWarningTitle"))
+                    .font(.title2.bold())
+                    .accessibilityAddTraits(.isHeader)
+                Text(MetadataReadingText.string("fastWarningMessage"))
+                    .font(.body.bold())
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("sources.metadataBackfillFastWarning")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(24)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 12) {
+                Button {
+                    dismiss()
+                    onConfirm()
+                } label: {
+                    Text(MetadataReadingText.string("fastWarningConfirm"))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+                .accessibilityIdentifier("sources.metadataBackfillFastConfirm")
+
+                Button(role: .cancel) { dismiss() } label: {
+                    Text(MetadataReadingText.string("cancel"))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .keyboardShortcut(.cancelAction)
+                .accessibilityIdentifier("sources.metadataBackfillFastCancel")
+            }
+            .controlSize(.large)
+            .padding(24)
+            .background(.background)
+        }
+        #if os(iOS)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        #else
+        .frame(width: 440, height: 420)
+        #endif
     }
 }
 
