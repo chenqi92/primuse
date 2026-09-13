@@ -288,6 +288,9 @@ final class CarPlaySceneDelegate: UIResponder {
     private var artworkTasks: [UUID: Task<Void, Never>] = [:]
     private let artworkUpdates = CarPlayArtworkUpdates()
 
+    /// 上一次据以重建列表的播放状态。用来判断这次变化是否真的改变了列表内容。
+    private var lastPlayerState: CarPlayPlayerState?
+
     /// Only the newest row selection may finish the asynchronous playback wait
     /// and present the shared Now Playing template. Without this ownership, a
     /// delayed older request can push the template again just after the user
@@ -435,6 +438,7 @@ extension CarPlaySceneDelegate: CPTemplateApplicationSceneDelegate {
             self.artworkUpdates.removeAll()
             // 渲染好的封面要跨列表重建活着，只在断开连接时释放。
             CarPlayRenderedArtwork.removeAll()
+            self.lastPlayerState = nil
             if let observer = self.likeChangesObserver { NotificationCenter.default.removeObserver(observer) }
             self.likeChangesObserver = nil
         }
@@ -1739,8 +1743,13 @@ extension CarPlaySceneDelegate {
 extension CarPlaySceneDelegate {
     private func loadArtwork(for song: Song, into item: CPListItem) {
         let scale = artworkScale
-        loadObservedArtwork(.song(song), pixelSize: Int(CarPlayTemplateImages.listSide * scale), owner: item) { [weak item] image in
-            item?.setImage(CarPlayTemplateImages.square(image, scale: scale))
+        loadObservedArtwork(
+            .song(song),
+            pixelSize: Int(CarPlayTemplateImages.listSide * scale),
+            owner: item,
+            render: { CarPlayTemplateImages.square($0, scale: scale) }
+        ) { [weak item] image in
+            item?.setImage(image)
         }
     }
 
@@ -1755,8 +1764,13 @@ extension CarPlaySceneDelegate {
 
     private func loadArtwork(for album: Album, into item: CPListItem) {
         let scale = artworkScale
-        loadObservedArtwork(.album(album), pixelSize: Int(CarPlayTemplateImages.listSide * scale), owner: item) { [weak item] image in
-            item?.setImage(CarPlayTemplateImages.square(image, scale: scale))
+        loadObservedArtwork(
+            .album(album),
+            pixelSize: Int(CarPlayTemplateImages.listSide * scale),
+            owner: item,
+            render: { CarPlayTemplateImages.square($0, scale: scale) }
+        ) { [weak item] image in
+            item?.setImage(image)
         }
     }
 
@@ -2002,6 +2016,22 @@ extension CarPlaySceneDelegate {
     /// Intentionally does NOT track `player.queue` directly — observing
     /// the whole array fires on every shuffle/setQueue and we'd thrash.
     /// `currentIndex` + `currentSong?.id` cover the cases that affect UI.
+    /// CarPlay 关心的播放状态快照。
+    private func currentPlayerState() -> CarPlayPlayerState {
+        let player = AppServices.shared.playerService
+        return CarPlayPlayerState(
+            songID: player.currentSong?.id,
+            songTitle: player.currentSong?.title,
+            stationID: player.currentRadioStation?.id,
+            stationName: player.currentRadioStation?.name,
+            isPlaying: player.isPlaying,
+            shuffleEnabled: player.shuffleEnabled,
+            repeatModeRawValue: String(describing: player.repeatMode),
+            currentIndex: player.currentIndex,
+            radioMetadataTitle: player.radioMetadataTitle
+        )
+    }
+
     private func observePlayerState(generation: Int) {
         let player = AppServices.shared.playerService
         withObservationTracking {
@@ -2018,14 +2048,27 @@ extension CarPlaySceneDelegate {
                 guard let self, self.interfaceController != nil, self.connectionGeneration == generation else { return }
                 self.refreshNowPlayingButtons()
                 self.refreshOpenQueueTemplate()
-                self.refreshDrillDownTemplates()
-                if let home = self.homeTemplate {
-                    self.staleRootTemplates.insert(ObjectIdentifier(home))
-                    if self.interfaceController?.templates.count == 1,
-                       self.tabBarTemplate?.selectedTemplate === home {
-                        self.scheduleRootTemplateRefresh()
+
+                // 播放暂停、随机、循环、队列位置每变一次就重建整张列表，等于把
+                // 所有行退回占位图再逐个重取。只有「在放哪一首 / 哪个台」变了才
+                // 需要重建 —— 首页那条「正在播放」的副标题和封面取的就是它。
+                let state = self.currentPlayerState()
+                let rebuildsLists = CarPlayListRefreshPolicy.listsNeedRebuild(
+                    from: self.lastPlayerState, to: state
+                )
+                self.lastPlayerState = state
+                if rebuildsLists {
+                    self.refreshDrillDownTemplates()
+                    if let home = self.homeTemplate {
+                        self.staleRootTemplates.insert(ObjectIdentifier(home))
+                        if self.interfaceController?.templates.count == 1,
+                           self.tabBarTemplate?.selectedTemplate === home {
+                            self.scheduleRootTemplateRefresh()
+                        }
                     }
                 }
+                // 电台列表是例外：它要显示正在播放指示和当前曲目名，两者都跟着
+                // 播放状态与电台元数据走。
                 if let radio = self.radioTemplate,
                    self.interfaceController?.templates.count == 1,
                    self.tabBarTemplate?.selectedTemplate === radio {
