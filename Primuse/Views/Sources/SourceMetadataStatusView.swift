@@ -197,6 +197,11 @@ struct SourceMetadataStatusView: View {
         }
         #if os(iOS)
         .toolbar {
+            if !usesTwoColumnLayout {
+                ToolbarItem(placement: .topBarTrailing) {
+                    compactBatchRereadButton
+                }
+            }
             if !usesTwoColumnLayout, showsCompactPrimaryAction {
                 ToolbarItem(placement: .topBarTrailing) {
                     compactPrimaryActionButton
@@ -610,25 +615,24 @@ struct SourceMetadataStatusView: View {
 
     // MARK: - Compact controls
 
+    /// 这一排只放筛选。批量重读被钉在滚动条右端时, 圆形按钮既和胶囊形状打架,
+    /// 又会让横滑的胶囊直接撞上去, 所以移到导航栏当独立动作。
     private var compactResultsControls: some View {
-        HStack(spacing: 8) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 7) {
-                    ForEach(compactVisibleFilters) { filter in
-                        compactFilterChip(filter)
-                    }
-
-                    if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text(resultCountText)
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 7) {
+                ForEach(compactVisibleFilters) { filter in
+                    compactFilterChip(filter)
                 }
-                .padding(.vertical, 1)
-            }
 
-            batchRefreshButton.padding(.trailing, 16)
+                if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(resultCountText)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+            .padding(.vertical, 1)
+            .padding(.trailing, 16)
         }
         .textCase(nil)
     }
@@ -797,6 +801,18 @@ struct SourceMetadataStatusView: View {
         .accessibilityLabel(Text("metadata_status_retry_failed"))
     }
 
+    /// 搜索框里的词还没落到 `debouncedSearchText` 时列表仍是上一批结果, 此时
+    /// 批量重读会读到用户没看到的那批歌, 所以一并算作不可用。
+    private var isBatchRereadDisabled: Bool {
+        batchRereadTask != nil || backfill.batchRereadingSourceIDs.contains(source.id)
+            || isProjecting || projectedItems.isEmpty || !source.isEnabled
+            || searchText.trimmingCharacters(in: .whitespacesAndNewlines) != debouncedSearchText
+    }
+
+    private var isBatchRereading: Bool {
+        backfill.batchRereadingSourceIDs.contains(source.id)
+    }
+
     private var batchRefreshButton: some View {
         Button {
             rereadFilteredItems()
@@ -805,7 +821,7 @@ struct SourceMetadataStatusView: View {
                 Circle()
                     .fill(TagStatusStyle.fieldFill)
                     .frame(width: 30, height: 30)
-                if backfill.batchRereadingSourceIDs.contains(source.id) {
+                if isBatchRereading {
                     ProgressView().controlSize(.mini)
                 } else {
                     Image(systemName: "arrow.triangle.2.circlepath")
@@ -817,11 +833,23 @@ struct SourceMetadataStatusView: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)
-        .disabled(
-            batchRereadTask != nil || backfill.batchRereadingSourceIDs.contains(source.id)
-                || isProjecting || projectedItems.isEmpty || !source.isEnabled
-                || searchText.trimmingCharacters(in: .whitespacesAndNewlines) != debouncedSearchText
-        )
+        .disabled(isBatchRereadDisabled)
+        .help("metadata_status_reread_filtered")
+        .accessibilityLabel(Text("metadata_status_reread_filtered"))
+        .accessibilityIdentifier("metadata-status-reread-filtered")
+    }
+
+    private var compactBatchRereadButton: some View {
+        Button {
+            rereadFilteredItems()
+        } label: {
+            if isBatchRereading {
+                ProgressView().controlSize(.small)
+            } else {
+                Image(systemName: "arrow.triangle.2.circlepath")
+            }
+        }
+        .disabled(isBatchRereadDisabled)
         .help("metadata_status_reread_filtered")
         .accessibilityLabel(Text("metadata_status_reread_filtered"))
         .accessibilityIdentifier("metadata-status-reread-filtered")
