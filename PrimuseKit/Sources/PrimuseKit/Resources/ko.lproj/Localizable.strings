@@ -790,3 +790,10 @@
 "ext.tv.sources.hint.upnp" = "UPnP / DLNA 미디어 서버";
 "ext.tv.sources.hint.cloudToken" = "API 토큰으로 로그인";
 "ext.tv.sources.hint.cloudScan" = "휴대폰으로 코드를 스캔해 로그인";
+
+/* Apple TV source failure messages and OTP entry */
+"ext.tv.source.error.needs2FA" = "이 서버는 2단계 인증을 요구합니다. 일회용 코드를 입력하세요.";
+"ext.tv.source.error.certificate" = "서버 인증서를 확인할 수 없습니다. 표시되는 알림에서 '신뢰'를 선택한 뒤 다시 시도하세요.";
+"ext.tv.source.error.unreachable" = "서버에 연결할 수 없습니다. 주소와 포트, 그리고 이 Apple TV가 같은 네트워크에 있는지 확인하세요.";
+"ext.tv.source.error.unsupported" = "이 유형은 해당 작업을 지원하지 않습니다.";
+"ext.tv.otp.iphoneHint" = "이 입력란을 선택하면 페어링된 iPhone으로 입력할 수 있습니다.";

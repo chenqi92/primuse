@@ -788,3 +788,10 @@
 "ext.tv.sources.hint.upnp" = "UPnP / DLNA media server";
 "ext.tv.sources.hint.cloudToken" = "Sign in with an API token";
 "ext.tv.sources.hint.cloudScan" = "Scan a code with your phone to sign in";
+
+/* Apple TV source failure messages and OTP entry */
+"ext.tv.source.error.needs2FA" = "This server requires two-step verification. Enter the one-time code to continue.";
+"ext.tv.source.error.certificate" = "The server's certificate wasn't trusted. Choose Trust in the prompt that appears, then try again.";
+"ext.tv.source.error.unreachable" = "Can't reach the server. Check the address and port, and that this Apple TV is on the same network.";
+"ext.tv.source.error.unsupported" = "This source type doesn't support that here.";
+"ext.tv.otp.iphoneHint" = "Focus this field and your paired iPhone can type the code for you.";

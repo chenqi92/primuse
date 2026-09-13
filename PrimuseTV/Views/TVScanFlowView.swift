@@ -74,6 +74,12 @@ struct TVScanFlowView: View {
     @State private var browseError: String?
     @State private var loadTask: Task<Void, Never>?
     @State private var showsOTP = false
+    /// 验证码通过后要重新加载的目录。浏览途中被 2FA 打断时记住原位置,
+    /// 输完验证码直接回到原来那一层,而不是退回根目录重走一遍。
+    @State private var pendingPathAfterOTP: String?
+    /// 验证码这一趟是否真的通过。用户按 Menu 取消时不能重试 —— 那会立刻又撞上
+    /// 两步验证、又弹出输入页,成了退不出去的死循环。
+    @State private var otpVerified = false
 
     var body: some View {
         ZStack {
@@ -94,6 +100,12 @@ struct TVScanFlowView: View {
                     onEnterOTP: { showsOTP = true },
                     canCancel: store.activeScanSourceID == source.id
                 )
+                .onChange(of: store.scanner.needsTwoFactor) { _, needsCode in
+                    // 扫描中途被要求验证码时直接进输入页;`started` 保持 true,
+                    // 输完退出来就落在扫描页上,按「重试」即可继续。
+                    guard needsCode, !showsOTP else { return }
+                    showsOTP = true
+                }
             } else if TVSourceScanner.serverCatalogTypes.contains(source.type) {
                 // 整库型来源没有目录可选,直接给「开始扫描」。
                 fnMusicPickView
@@ -117,9 +129,20 @@ struct TVScanFlowView: View {
             // 验证码通过后凭据/设备令牌已更新,回到未开始状态让用户直接重试。
             store.scanner.phase = .idle
             started = false
+            let resume = pendingPathAfterOTP
+            pendingPathAfterOTP = nil
+            guard otpVerified else {
+                // 用户放弃了验证码:把原来那条错误显示回去,不再自动重试。
+                otpVerified = false
+                if resume != nil { browseError = PMString("ext.tv.source.error.needs2FA") }
+                return
+            }
+            otpVerified = false
+            if let resume { load(resume) }
         }) {
             if let tvSource = store.sources.first(where: { $0.id == source.id }) {
-                TVOTPEntryView(source: tvSource).environment(store)
+                TVOTPEntryView(source: tvSource, onVerified: { otpVerified = true })
+                    .environment(store)
             }
         }
         .onDisappear {
@@ -202,7 +225,12 @@ struct TVScanFlowView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 20)
                         } else if let browseError {
                             Text(browseError)
-                                .tvFont(.caption).foregroundStyle(TVColor.bad).padding(.vertical, 16)
+                                .tvFont(.caption).foregroundStyle(TVColor.bad)
+                                .multilineTextAlignment(.leading)
+                                .lineSpacing(4)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 16)
                         } else if entries.filter(\.isDir).isEmpty {
                             Text(PMString("ext.tv.scan.noSubfolders"))
                                 .tvFont(.caption).foregroundStyle(TVColor.textGhost).padding(.vertical, 16)
@@ -293,7 +321,15 @@ struct TVScanFlowView: View {
             .overlay { RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(TVColor.cardBorder, lineWidth: 1) }
 
             if let browseError {
-                Text(browseError).tvFont(.caption).foregroundStyle(TVColor.warn)
+                // 右栏只有 380pt 宽,错误文案必须按整行换行并左对齐,
+                // 否则长句会挤成参差不齐的几行、把「开始扫描」顶下去。
+                Text(browseError)
+                    .tvFont(.caption)
+                    .foregroundStyle(TVColor.warn)
+                    .multilineTextAlignment(.leading)
+                    .lineSpacing(4)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             TVFocusButton(radius: 16, accent: TVColor.brand, scale: 1.05, lift: 4, action: startScan) { f in
                 Label(PMString(rereadMetadata ? "tv_metadata_reread" : "ext.tv.scan.start"), systemImage: "arrow.triangle.2.circlepath")
@@ -349,12 +385,20 @@ struct TVScanFlowView: View {
                 let loaded = try await store.scanner.browse(lister: lister, path: p)
                 guard !Task.isCancelled, path == p else { return }
                 entries = loaded
-            } catch is CancellationError {
-                return
             } catch {
+                guard !TVSourceErrorText.isSilent(error) else { return }
                 guard path == p else { return }
                 entries = []
-                browseError = PMString("ext.tv.scan.browseFailed", error.localizedDescription)
+                // 服务端要验证码时直接把用户送进输入页 —— 先报一条错、再让他退出去
+                // 长按菜单里找「两步验证登录」,是上一版最让人困惑的地方。
+                if SourceFailureClassifier.requiresTwoFactor(error) {
+                    browseError = nil
+                    loading = false
+                    pendingPathAfterOTP = p
+                    showsOTP = true
+                    return
+                }
+                browseError = TVSourceErrorText.message(error: error)
             }
             if path == p { loading = false }
         }

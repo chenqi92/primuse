@@ -127,6 +127,35 @@ final class SourceConnectionRouterTests: XCTestCase {
         XCTAssertEqual(result, "wan")
     }
 
+    func testSlowPrivateRouteDoesNotBlockTheReachablePublicRoute() async throws {
+        let fixture = Fixture()
+        await fixture.probe.setLANDelay(3)
+        let started = Date()
+        let result = try await fixture.read()
+        XCTAssertEqual(result, "wan")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 2)
+        // The race only probes; it must never open a second authenticated
+        // connection behind the caller's back.
+        let localConnections = await fixture.local.connections
+        XCTAssertEqual(localConnections, 0)
+        XCTAssertEqual(fixture.events.values, [.publicAddress])
+    }
+
+    func testTunnelledPathStillPrefersThePrivateRoute() async throws {
+        let fixture = Fixture()
+        // A VPN or Tailscale tunnel surfaces as NWInterface type `.other`, which
+        // used to be read as "not on the LAN" and pushed the request to WAN.
+        await fixture.runtime.observeNetworkPath(
+            condition: SourceRoutePathCondition(interfaceClass: .tunnel, usesTunnel: true),
+            pathChanged: false
+        )
+        let result = try await fixture.read()
+        XCTAssertEqual(result, "lan")
+        let remoteConnections = await fixture.remote.connections
+        XCTAssertEqual(remoteConnections, 0)
+        XCTAssertEqual(fixture.events.values, [.localAddress])
+    }
+
     func testMutationsAreNeverReplayedAndBusinessErrorsDoNotRetireLAN() async throws {
         for error: any Error in [SourceError.connectionFailed("write rejected"), URLError(.networkConnectionLost)] {
             let fixture = Fixture()
@@ -261,8 +290,16 @@ private actor RouterTestConnector: MusicSourceConnector {
 
 private actor RouterEndpointProbe {
     private var reachable = true
+    private var lanDelay: TimeInterval = 0
     func setReachable(_ reachable: Bool) { self.reachable = reachable }
-    func check(_ endpoint: SourceConnectionEndpoint) throws {
-        if endpoint.host == "lan.invalid", !reachable { throw URLError(.cannotConnectToHost) }
+    /// Simulates a private address that only answers after the public one, which
+    /// is what a cold tunnel or an absent LAN looks like.
+    func setLANDelay(_ seconds: TimeInterval) { lanDelay = seconds }
+    func check(_ endpoint: SourceConnectionEndpoint) async throws {
+        guard endpoint.host == "lan.invalid" else { return }
+        if lanDelay > 0 {
+            try await Task.sleep(nanoseconds: UInt64(lanDelay * 1_000_000_000))
+        }
+        if !reachable { throw URLError(.cannotConnectToHost) }
     }
 }

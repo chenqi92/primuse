@@ -707,15 +707,41 @@ public struct SourceConnectionEndpoint: Codable, Hashable, Sendable {
         let address = host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard address.isEmpty == false else { return self }
 
+        // A bare IPv6 literal must never reach URLComponents: `http://fd7a::1`
+        // parses the tail of the address as a port, leaving a host of `fd7a`.
+        // Both the bare and the bracketed form are canonicalized to the literal
+        // sockets want; URL builders re-add brackets via `NetworkHostAuthority`.
+        if address.contains("://") == false,
+           NetworkHostAuthority.addressFamily(of: address) == .ipv6 || address.hasPrefix("[") {
+            let split = NetworkHostAuthority.splitHostAndPort(address)
+            if NetworkHostAuthority.addressFamily(of: split.host) == .ipv6 {
+                return SourceConnectionEndpoint(
+                    host: NetworkHostAuthority.canonicalHost(split.host),
+                    port: split.port ?? port,
+                    useSsl: useSsl,
+                    pathPrefix: Self.normalizedPath(pathPrefix)
+                )
+            }
+        }
+
         let components: URLComponents? = {
             if address.contains("://") {
                 return URLComponents(string: address)
             }
             return URLComponents(string: "http://\(address)")
         }()
-        guard let parsedHost = components?.host, parsedHost.isEmpty == false else {
+        guard let rawParsedHost = components?.host, rawParsedHost.isEmpty == false else {
             var copy = self
-            copy.host = address
+            copy.host = NetworkHostAuthority.canonicalHost(address)
+            copy.pathPrefix = Self.normalizedPath(pathPrefix)
+            return copy
+        }
+        // Foundation is not consistent about whether a parsed IPv6 host keeps
+        // its brackets, so store the canonical literal either way.
+        let parsedHost = NetworkHostAuthority.canonicalHost(rawParsedHost)
+        guard parsedHost.isEmpty == false else {
+            var copy = self
+            copy.host = NetworkHostAuthority.canonicalHost(address)
             copy.pathPrefix = Self.normalizedPath(pathPrefix)
             return copy
         }
@@ -744,14 +770,18 @@ public struct SourceConnectionEndpoint: Codable, Hashable, Sendable {
         return endpoint.host.isEmpty == false && (1...65_535).contains(endpoint.port)
     }
 
+    /// The host in the form a URL needs: IPv6 literals bracketed. Connectors
+    /// that hand the host to a socket keep using `normalized.host`.
+    public var urlHost: String {
+        NetworkHostAuthority.urlHost(normalized.host)
+    }
+
     /// A compact, credential-free label suitable for source cards. Keeping the
     /// formatting on the endpoint prevents LAN and public addresses from being
     /// flattened into one ambiguous, heavily-truncated summary string.
     public var displayDescription: String {
         let endpoint = normalized
-        let hostPart = endpoint.host.contains(":") && endpoint.host.hasPrefix("[") == false
-            ? "[\(endpoint.host)]"
-            : endpoint.host
+        let hostPart = endpoint.urlHost
         let path = endpoint.pathPrefix?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let normalizedPath = path.isEmpty || path == "/"
             ? ""
@@ -921,16 +951,29 @@ public enum SourceConnectionCandidateKind: String, Codable, Hashable, Sendable {
 /// and then stall during TLS or application login.
 public enum SourceConnectionHandshakePolicy {
     public static let localFallbackTimeout: TimeInterval = 8
+    /// A public route crosses the Internet and may have to wake a sleeping NAS
+    /// through a reverse proxy, so its budget is wider than the LAN's — but it
+    /// is no longer unbounded. An unbounded remote handshake is what made the
+    /// first playback or scan hang when the public address accepted the TCP
+    /// connection and then stalled: a router without NAT hairpinning, or a proxy
+    /// waiting on a dead upstream.
+    public static let remoteFallbackTimeout: TimeInterval = 20
+    /// Vendor relays (QuickConnect, FN Connect) negotiate the relay itself
+    /// before the service handshake can even start.
+    public static let vendorFallbackTimeout: TimeInterval = 25
 
     public static func timeout(
         for candidate: SourceConnectionCandidateKind,
         availableKinds: [SourceConnectionCandidateKind]
     ) -> TimeInterval? {
-        guard candidate == .localAddress,
-              availableKinds.contains(where: { $0 != .localAddress }) else {
-            return nil
+        // Only a route that has somewhere to fall back to may be abandoned on a
+        // deadline; a single-route source must keep waiting for its own errors.
+        guard availableKinds.contains(where: { $0 != candidate }) else { return nil }
+        switch candidate {
+        case .localAddress: return localFallbackTimeout
+        case .publicAddress: return remoteFallbackTimeout
+        case .vendorRemote: return vendorFallbackTimeout
         }
-        return localFallbackTimeout
     }
 }
 
@@ -982,8 +1025,13 @@ public actor SourceConnectionRuntime {
     /// Throttle failed LAN probes without making a temporary outage sticky for
     /// the lifetime of an otherwise unchanged Wi-Fi connection.
     public static let localRetryInterval: TimeInterval = 30
+    /// A probe that merely timed out is much weaker evidence than a refused
+    /// connection: a tunnel that is still coming up, or a tailnet peer waiting on
+    /// a relay, answers a moment later. Quarantining it for the full interval is
+    /// what made a Tailscale address look permanently unreachable.
+    public static let localTimeoutRetryInterval: TimeInterval = 8
     private var rejectedLocalSources: [String: Date] = [:]
-    private var observedPrefersLocalNetwork: Bool?
+    private var observedCondition: SourceRoutePathCondition?
     private var generation: UInt64 = 0
 
     public init() {
@@ -1023,7 +1071,7 @@ public actor SourceConnectionRuntime {
         guard availableKinds.isEmpty == false else { return nil }
 
         let prefersLocalNetwork = prefersLocalNetwork
-            ?? observedPrefersLocalNetwork
+            ?? observedCondition?.prefersPrivateRouteFirst
             ?? true
         let activeKind = activeKinds[sourceID].flatMap { active in
             availableKinds.contains(active) ? active : nil
@@ -1065,13 +1113,17 @@ public actor SourceConnectionRuntime {
     public func recordFailure(
         of kind: SourceConnectionCandidateKind,
         for sourceID: String,
+        reason: SourceRouteFailureReason = .refused,
         now: Date = Date()
     ) {
         if activeKinds[sourceID] == kind {
             activeKinds.removeValue(forKey: sourceID)
         }
         if kind == .localAddress {
-            rejectedLocalSources[sourceID] = now.addingTimeInterval(Self.localRetryInterval)
+            let interval = reason == .timedOut
+                ? Self.localTimeoutRetryInterval
+                : Self.localRetryInterval
+            rejectedLocalSources[sourceID] = now.addingTimeInterval(interval)
         }
     }
 
@@ -1079,14 +1131,35 @@ public actor SourceConnectionRuntime {
     /// route memory, so route ordering cannot briefly use a stale Wi-Fi/cellular
     /// value from a second monitor.
     public func observeNetworkPath(
-        prefersLocalNetwork: Bool,
+        condition: SourceRoutePathCondition,
         pathChanged: Bool
     ) {
-        observedPrefersLocalNetwork = prefersLocalNetwork
+        observedCondition = condition
         guard pathChanged else { return }
         activeKinds.removeAll()
         rejectedLocalSources.removeAll()
         generation &+= 1
+    }
+
+    /// Convenience for callers that only know whether the private route should
+    /// be preferred, without the rest of the path classification.
+    public func observeNetworkPath(
+        prefersLocalNetwork: Bool,
+        pathChanged: Bool
+    ) {
+        observeNetworkPath(
+            condition: SourceRoutePathCondition(
+                interfaceClass: prefersLocalNetwork ? .directLocal : .cellular
+            ),
+            pathChanged: pathChanged
+        )
+    }
+
+    /// The last observed path, for probe budgets and diagnostics. Defaults to
+    /// `.unknown`, which keeps private routes eligible before the first path
+    /// arrives.
+    public func pathCondition() -> SourceRoutePathCondition {
+        observedCondition ?? .unknown
     }
 
     public func invalidate(sourceID: String) {
@@ -1126,15 +1199,16 @@ private final class SourceConnectionNetworkObserver: @unchecked Sendable {
         receivedInitialPath = true
         lock.unlock()
 
-        let prefersLocalNetwork = path.status == .satisfied
-            && (path.usesInterfaceType(.wifi) || path.usesInterfaceType(.wiredEthernet))
-            && !path.isExpensive
+        // Interface types cannot tell a tunnel that reaches the user's NAS from
+        // one that does not, so the condition is carried whole and the router
+        // proves the routes by probing them concurrently.
+        let condition = SourceRoutePathCondition(path: path)
         // Do not collapse two Wi-Fi paths merely because both are unmetered
         // IPv4: moving from one WLAN to another must make the next operation
         // prove the LAN service again.
         Task {
             await SourceConnectionRuntime.shared.observeNetworkPath(
-                prefersLocalNetwork: prefersLocalNetwork,
+                condition: condition,
                 pathChanged: pathChanged
             )
         }
@@ -1699,12 +1773,16 @@ public extension MusicSource {
 
     private static func addressEmbeddingPath(for endpoint: SourceConnectionEndpoint) -> String {
         let endpoint = endpoint.normalized
-        var components = URLComponents()
-        components.scheme = endpoint.useSsl ? "https" : "http"
-        components.host = endpoint.host
-        components.port = endpoint.port
-        components.path = endpoint.pathPrefix ?? ""
-        return components.url?.absoluteString ?? endpoint.host
+        // Assembled through the shared builder rather than URLComponents: an
+        // IPv6 literal needs its brackets applied before the string is parsed,
+        // which the components setter does not guarantee.
+        let url = NetworkHostAuthority.baseURL(
+            address: endpoint.host,
+            defaultScheme: endpoint.useSsl ? "https" : "http",
+            port: endpoint.port,
+            path: endpoint.pathPrefix
+        )
+        return url?.absoluteString ?? endpoint.host
     }
 
     private static func isLikelyLocalEndpoint(_ rawHost: String) -> Bool {
@@ -1717,7 +1795,7 @@ public extension MusicSource {
         } else {
             host = rawHost
         }
-        return InsecureHTTPHostPolicy.isLocalNetworkHost(host)
+        return PrivateOverlayHostPolicy.isPrivateOrOverlayHost(host)
     }
 }
 

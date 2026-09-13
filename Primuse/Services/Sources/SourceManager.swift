@@ -1108,6 +1108,17 @@ actor SourceConnectionRouter {
         didSet { selectionRevision &+= 1 }
     }
     private var routeGeneration: UInt64?
+    /// The candidate the concurrent probe just proved reachable, so the
+    /// handshake does not repeat that probe.
+    private var probeVerifiedIndex: Int?
+
+    /// Head start for the preferred candidate before the alternatives are
+    /// probed — RFC 8305's connection attempt delay. A LAN handshake is a few
+    /// milliseconds, so the private route keeps winning on its own merit, while a
+    /// private route that cannot answer no longer delays the one that can. The
+    /// cost is bounded: a candidate that is refused outright still waits out this
+    /// delay before the next one starts.
+    static let probeRaceHeadStart: TimeInterval = 0.25
 
     init(
         sourceID: String,
@@ -1129,6 +1140,7 @@ actor SourceConnectionRouter {
 
     func disconnect() async {
         activeIndex = nil
+        probeVerifiedIndex = nil
         await routeDidChange(nil)
         for candidate in candidates {
             await candidate.connector.disconnect()
@@ -1194,6 +1206,7 @@ actor SourceConnectionRouter {
                 activeIndex = nil
                 await routeDidChange(nil)
             }
+            probeVerifiedIndex = nil
             routeGeneration = currentGeneration
         }
 
@@ -1235,12 +1248,17 @@ actor SourceConnectionRouter {
         }
 
         var lastError: Error?
-        let orderedIndices = candidates.indices.sorted { lhs, rhs in
-            if candidates[lhs].kind == preferredKind { return true }
-            if candidates[rhs].kind == preferredKind { return false }
-            return lhs < rhs
+        let orderedIndices = await racedCandidateOrder(
+            preferredKind: preferredKind,
+            excluding: excluded
+        )
+        // The race awaits, so another request may have settled on a route in the
+        // meantime. Reuse it instead of opening a second connection.
+        if let currentIndex = activeIndex, excluded.contains(currentIndex) == false {
+            probeVerifiedIndex = nil
+            return currentIndex
         }
-        for index in orderedIndices where excluded.contains(index) == false {
+        for index in orderedIndices {
             let kind = candidates[index].kind
             do {
                 try await connectCandidate(at: index)
@@ -1263,10 +1281,80 @@ actor SourceConnectionRouter {
         )
     }
 
+    /// Orders the candidates by probing them concurrently rather than by
+    /// trusting the interface type.
+    ///
+    /// `preferredKind` only decides the head start now. Tailscale, WireGuard and
+    /// system VPNs are `utun` tunnels that `NWPath` reports as `.other`, so the
+    /// old interface check demoted the private candidate whenever one was up and
+    /// sent requests to the public address first — which then had to time out
+    /// before the reachable private route was tried at all.
+    private func racedCandidateOrder(
+        preferredKind: SourceConnectionCandidateKind?,
+        excluding excluded: Set<Int>
+    ) async -> [Int] {
+        let baseline = candidates.indices
+            .filter { excluded.contains($0) == false }
+            .sorted { lhs, rhs in
+                if candidates[lhs].kind == preferredKind { return true }
+                if candidates[rhs].kind == preferredKind { return false }
+                return lhs < rhs
+            }
+        let probeable = baseline.filter { candidates[$0].endpoint?.normalized.isUsable == true }
+        guard probeable.count > 1, !Task.isCancelled else { return baseline }
+        guard let winner = await firstReachableCandidate(among: probeable) else { return baseline }
+        probeVerifiedIndex = winner
+        return [winner] + baseline.filter { $0 != winner }
+    }
+
+    /// A TCP probe carries no credentials and no service side effects, so racing
+    /// the endpoints is safe. The winner still has to complete its own
+    /// authenticated handshake before the route counts as usable.
+    private func firstReachableCandidate(among indices: [Int]) async -> Int? {
+        let probe = endpointProbe
+        let headStart = Self.probeRaceHeadStart
+        let targets: [(index: Int, endpoint: SourceConnectionEndpoint)] = indices.compactMap { index in
+            guard let endpoint = candidates[index].endpoint else { return nil }
+            return (index, endpoint)
+        }
+        guard targets.count > 1 else { return nil }
+        return await withTaskGroup(of: Int?.self, returning: Int?.self) { group in
+            for (offset, target) in targets.enumerated() {
+                let delay = Double(offset) * headStart
+                group.addTask {
+                    if delay > 0 {
+                        do {
+                            try await Task.sleep(
+                                nanoseconds: (delay * 1_000_000_000).finiteUInt64(or: 300_000_000)
+                            )
+                        } catch {
+                            return nil
+                        }
+                    }
+                    do {
+                        try await probe(target.endpoint)
+                        return target.index
+                    } catch {
+                        return nil
+                    }
+                }
+            }
+            for await result in group {
+                if let result {
+                    group.cancelAll()
+                    return result
+                }
+            }
+            return nil
+        }
+    }
+
     private func connectCandidate(at index: Int) async throws {
         try Task.checkCancellation()
         let candidate = candidates[index]
-        if candidate.kind == .localAddress, let endpoint = candidate.endpoint {
+        let provenReachable = probeVerifiedIndex == index
+        probeVerifiedIndex = nil
+        if candidate.kind == .localAddress, let endpoint = candidate.endpoint, !provenReachable {
             try await endpointProbe(endpoint)
         }
         try Task.checkCancellation()
@@ -1384,8 +1472,9 @@ actor SourceConnectionRouter {
 
     private func recordNetworkFailure(of kind: SourceConnectionCandidateKind, error: any Error) async {
         let failure = error as NSError
-        plog("Source route network failure source=\(sourceID.prefix(8)) kind=\(kind.rawValue) error=\(failure.domain)/\(failure.code) endpointProbe=unreachable")
-        await runtime.recordFailure(of: kind, for: sourceID)
+        let reason = SourceRouteFailureReason.classify(error)
+        plog("Source route network failure source=\(sourceID.prefix(8)) kind=\(kind.rawValue) error=\(failure.domain)/\(failure.code) reason=\(reason.rawValue) endpointProbe=unreachable")
+        await runtime.recordFailure(of: kind, for: sourceID, reason: reason)
     }
 
     private func canFailOver(after error: Error, at index: Int) async -> Bool {

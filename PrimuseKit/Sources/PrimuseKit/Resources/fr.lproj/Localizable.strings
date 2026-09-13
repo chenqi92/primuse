@@ -790,3 +790,10 @@
 "ext.tv.sources.hint.upnp" = "Serveur multimédia UPnP / DLNA";
 "ext.tv.sources.hint.cloudToken" = "Se connecter avec un jeton d'API";
 "ext.tv.sources.hint.cloudScan" = "Scannez un code avec votre téléphone pour vous connecter";
+
+/* Apple TV source failure messages and OTP entry */
+"ext.tv.source.error.needs2FA" = "Ce serveur exige une vérification en deux étapes. Saisissez le code à usage unique pour continuer.";
+"ext.tv.source.error.certificate" = "Le certificat du serveur n'a pas été validé. Choisissez Faire confiance dans l'invite affichée, puis réessayez.";
+"ext.tv.source.error.unreachable" = "Impossible de joindre le serveur. Vérifiez l'adresse, le port et que cette Apple TV est sur le même réseau.";
+"ext.tv.source.error.unsupported" = "Ce type de source ne prend pas en charge cette opération.";
+"ext.tv.otp.iphoneHint" = "Sélectionnez ce champ et votre iPhone associé pourra saisir le code.";

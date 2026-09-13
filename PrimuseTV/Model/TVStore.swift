@@ -620,6 +620,11 @@ final class TVStore {
     var isPlaying: Bool { engine.isPlaying }
     var isLoading: Bool { engine.status == .loading }
     var currentTime: Double { engine.currentTime }
+    /// 逐字歌词等按帧推进的绘制要用的播放时钟:在两次时间回调之间按墙上时钟补值。
+    /// 直接读 `currentTime` 每秒只有 4 个台阶,扫光会一格一格跳。
+    func interpolatedTime(at date: Date = Date()) -> TimeInterval {
+        engine.interpolatedTime(at: date)
+    }
     var duration: Double { engine.duration > 0 ? engine.duration : nowPlaying.duration }
     var isMusicVideoPlaybackActive: Bool { engine.isVideoMode }
     var currentRadioStation: RadioStation? {
@@ -1348,16 +1353,16 @@ final class TVStore {
             }
         }
         guard let song = library.songs.first(where: { $0.sourceID == id }) else {
-            if source.type == .smb {
-                guard let lister = scanner.makeLister(source: source, credential: cred) else {
-                    return PMString("ext.tv.test.unsupported", source.type.displayName)
-                }
+            // 曲库里还没有这个源的歌,不代表连不上 —— 刚添加完还没扫描就是这种情况。
+            // 凡是电视端自己能列目录的类型,就用真实的一次列举来验证连接,
+            // 别再用「暂无歌曲,无法测试」把用户挡回去。
+            if let lister = scanner.makeLister(source: source, credential: cred) {
                 do {
                     _ = try await lister.list("/")
                     return PMString("ext.tv.test.connectedPrefix")
                         + (source.host ?? PMString("ext.tv.test.resolved"))
                 } catch {
-                    return PMString("ext.tv.test.failedDetail", error.localizedDescription)
+                    return TVSourceErrorText.message(error: error)
                 }
             }
             return PMString("ext.tv.test.noSongs")
@@ -1372,7 +1377,7 @@ final class TVStore {
                     TVFmt.count(Int(len / 1024))
                 )
             } catch {
-                return PMString("ext.tv.test.failedDetail", error.localizedDescription)
+                return TVSourceErrorText.message(error: error)
             }
         }
         do {
@@ -1399,7 +1404,7 @@ final class TVStore {
                 return PMString("ext.tv.test.relayUnavailable")
             }
         } catch {
-            return PMString("ext.tv.test.failedPrefix") + error.localizedDescription
+            return TVSourceErrorText.message(error: error)
         }
     }
 
@@ -2897,9 +2902,11 @@ final class TVStore {
     /// 当前播放时间所在的歌词行索引。纯文本歌词没有时间轴，不参与自动跟随。
     var currentLyricIndex: Int? {
         guard lyricsFollowPlayback else { return nil }
+        // 与逐字扫光取同一个时钟。扫光已经按帧外推,行号若仍吃 0.25 秒一跳的原始值,
+        // 会出现「这一行的字都填满了、高亮行还没换」的错位。
         return LyricPlaybackPositionPolicy.activeLineIndex(
             in: lyrics,
-            at: currentTime,
+            at: interpolatedTime(),
             lookahead: 0.25,
             timestamp: \.time
         )

@@ -29,13 +29,29 @@ public enum SourceNetworkFailurePolicy {
     ) async -> Bool {
         guard !endpoints.isEmpty else { return false }
         var checked: Set<SourceConnectionEndpoint> = []
+        var probed: [SourceConnectionEndpoint] = []
         for candidate in endpoints {
             guard let endpoint = candidate?.normalized, endpoint.isUsable,
                   !Task.isCancelled else { return false }
-            if checked.insert(endpoint).inserted,
-               !(await endpointIsUnreachable(endpoint, probe: probe)) { return false }
+            if checked.insert(endpoint).inserted { probed.append(endpoint) }
         }
-        return !Task.isCancelled
+        guard probed.isEmpty == false else { return false }
+        // Probe the routes concurrently. Sequential probes made a source that
+        // answers on one address wait out every other address' full timeout
+        // before playback was allowed to start, which is several seconds once a
+        // tunnelled route is in the list.
+        return await withTaskGroup(of: Bool.self, returning: Bool.self) { group in
+            for endpoint in probed {
+                group.addTask { await Self.endpointIsUnreachable(endpoint, probe: probe) }
+            }
+            var allUnreachable = true
+            for await unreachable in group where unreachable == false {
+                allUnreachable = false
+                group.cancelAll()
+                break
+            }
+            return allUnreachable && !Task.isCancelled
+        }
     }
 
     public static func isNetworkFailure(_ error: any Error) -> Bool {

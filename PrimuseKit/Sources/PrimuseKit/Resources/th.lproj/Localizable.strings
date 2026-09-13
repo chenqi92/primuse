@@ -737,3 +737,10 @@
 "ext.tv.sources.hint.upnp" = "เซิร์ฟเวอร์สื่อ UPnP / DLNA";
 "ext.tv.sources.hint.cloudToken" = "ลงชื่อเข้าใช้ด้วยโทเค็น API";
 "ext.tv.sources.hint.cloudScan" = "สแกนรหัสด้วยโทรศัพท์เพื่อลงชื่อเข้าใช้";
+
+/* Apple TV source failure messages and OTP entry */
+"ext.tv.source.error.needs2FA" = "เซิร์ฟเวอร์นี้ต้องยืนยันสองขั้นตอน ป้อนรหัสใช้ครั้งเดียวเพื่อดำเนินการต่อ";
+"ext.tv.source.error.certificate" = "ตรวจสอบใบรับรองของเซิร์ฟเวอร์ไม่ผ่าน เลือก «เชื่อถือ» ในข้อความที่ปรากฏ แล้วลองใหม่";
+"ext.tv.source.error.unreachable" = "เข้าถึงเซิร์ฟเวอร์ไม่ได้ ตรวจสอบที่อยู่ พอร์ต และว่า Apple TV อยู่เครือข่ายเดียวกัน";
+"ext.tv.source.error.unsupported" = "ชนิดแหล่งนี้ไม่รองรับการทำงานนี้";
+"ext.tv.otp.iphoneHint" = "เลือกช่องนี้แล้วพิมพ์รหัสจาก iPhone ที่จับคู่ไว้ได้เลย";

@@ -8,7 +8,7 @@ import SwiftUI
 import AppKit
 #endif
 
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 #endif
 
@@ -1116,12 +1116,16 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
 
 }
 
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 /// Presents the transport prompt from the top-most view controller so a sheet,
 /// full-screen cover or hidden tab can never swallow it. A SwiftUI `.alert` is
 /// bound to one view and fails silently whenever that view's hosting controller
 /// is already presenting something else; the URLSession challenge behind the
 /// prompt would then wait forever and playback would look stuck loading.
+///
+/// tvOS needs this just as much as iOS: 添加音乐源的选目录页、扫描页、验证码页
+/// 都是 `fullScreenCover`,挂在根视图上的 SwiftUI alert 在它们之上根本不会出现,
+/// 自签证书的 NAS 于是只会报一句「TLS 错误导致安全连接失败」。
 @MainActor
 private final class IOSTransportPromptPresenter {
     private(set) var promptID: UUID?
@@ -1199,7 +1203,7 @@ private struct TransportTrustAlertsModifier: ViewModifier {
     #if os(macOS)
     @State private var macOSPresentedPromptID: UUID?
     #endif
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     @State private var iosPresenter = IOSTransportPromptPresenter()
     @State private var iosRetryTask: Task<Void, Never>?
     #endif
@@ -1211,13 +1215,12 @@ private struct TransportTrustAlertsModifier: ViewModifier {
                 // Descendant alerts can suppress a scene-level SwiftUI alert
                 // on macOS, so transport prompts use the window sheet below.
                 return nil
-                #elseif os(iOS)
+                #else
+                // iOS / tvOS 都走上面的 UIKit 原生弹窗;它没能present时才回落到
+                // SwiftUI alert(例如根视图之上没有可用的 presenter)。
                 if let presentedPrompt, iosPresenter.promptID == presentedPrompt.id {
                     return nil
                 }
-                return presentedPrompt
-                #else
-                // tvOS 没有 UIKit 原生弹窗那条路, SwiftUI alert 就是唯一出口。
                 return presentedPrompt
                 #endif
             },
@@ -1241,7 +1244,7 @@ private struct TransportTrustAlertsModifier: ViewModifier {
                    case .transport(let requestID) = coordinator.activeRequest {
                     store.resolveTransportPrompt(id: requestID, approved: false)
                 }
-                #if os(iOS)
+                #if os(iOS) || os(tvOS)
                 iosRetryTask?.cancel()
                 iosRetryTask = nil
                 iosPresenter.dismiss()
@@ -1294,7 +1297,7 @@ private struct TransportTrustAlertsModifier: ViewModifier {
         guard coordinator.activeTransportPresenterID == presenterID,
               case .transport(let requestID) = coordinator.activeRequest else {
             presentedPrompt = nil
-            #if os(iOS)
+            #if os(iOS) || os(tvOS)
             iosRetryTask?.cancel()
             iosRetryTask = nil
             iosPresenter.dismissIfStale(activePromptID: nil)
@@ -1306,7 +1309,7 @@ private struct TransportTrustAlertsModifier: ViewModifier {
         if let presentedPrompt {
             presentMacOSPrompt(presentedPrompt)
         }
-        #elseif os(iOS)
+        #else
         iosPresenter.dismissIfStale(activePromptID: presentedPrompt?.id)
         if let presentedPrompt {
             presentIOSPrompt(presentedPrompt)
@@ -1314,7 +1317,7 @@ private struct TransportTrustAlertsModifier: ViewModifier {
         #endif
     }
 
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     @MainActor
     private func presentIOSPrompt(_ prompt: SSLTrustStore.TransportPrompt) {
         iosRetryTask?.cancel()

@@ -790,3 +790,10 @@
 "ext.tv.sources.hint.upnp" = "UPnP / DLNA メディアサーバー";
 "ext.tv.sources.hint.cloudToken" = "API トークンでサインイン";
 "ext.tv.sources.hint.cloudScan" = "スマートフォンでコードを読み取ってサインイン";
+
+/* Apple TV source failure messages and OTP entry */
+"ext.tv.source.error.needs2FA" = "このサーバーは2ステップ認証を要求しています。ワンタイムコードを入力してください。";
+"ext.tv.source.error.certificate" = "サーバー証明書を検証できませんでした。表示される確認で「信頼」を選んでから、もう一度お試しください。";
+"ext.tv.source.error.unreachable" = "サーバーに接続できません。アドレスとポート、そしてこの Apple TV が同じネットワークにあるかを確認してください。";
+"ext.tv.source.error.unsupported" = "この種類ではこの操作に対応していません。";
+"ext.tv.otp.iphoneHint" = "この入力欄を選択すると、ペアリング済みの iPhone から入力できます。";

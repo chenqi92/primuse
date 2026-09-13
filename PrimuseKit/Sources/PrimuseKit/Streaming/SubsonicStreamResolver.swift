@@ -135,10 +135,12 @@ public struct SubsonicStreamResolver: StreamResolver {
         }
         // 去掉 host 上多余的路径段(只保留 host[:port])。
         if let slash = h.firstIndex(of: "/") { h = String(h[..<slash]) }
-        var hostPort = h
-        if let port, port > 0, !h.contains(":") {
-            hostPort = "\(h):\(port)"
-        }
+        // 裸 IPv6 字面量自带冒号,旧的 `!h.contains(":")` 判断会把端口整个丢掉。
+        let split = NetworkHostAuthority.splitHostAndPort(h)
+        guard let hostPort = NetworkHostAuthority.authority(
+            host: split.host,
+            port: split.port ?? port
+        ) else { return nil }
         guard var url = URL(string: "\(scheme)://\(hostPort)") else { return nil }
         if let bp = basePath?.trimmingCharacters(in: .whitespacesAndNewlines), !bp.isEmpty {
             for component in bp.split(separator: "/") {

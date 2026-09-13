@@ -22,6 +22,10 @@ struct TVNowPlayingView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// 进度条两端时间标签的宽度。原本写死 56pt,放得下「0:18」放不下「-3:58」,
+    /// 于是「-3:5」和「8」被折成了两行;跟着系统文字大小放大只会更挤。
+    /// 按 meta 字号同步缩放,并留足最长形如 -63:20 的六个等宽字符。
+    @ScaledMetric(wrappedValue: 96, relativeTo: .caption) private var timeLabelWidth: CGFloat
 
     var isTabContent = false
     var focusRequest: TVContentFocusRequest?
@@ -490,7 +494,9 @@ struct TVNowPlayingView: View {
         return HStack(spacing: 16) {
             Text(TVFmt.time(cur)).tvFont(.meta, design: .monospaced)
                 .foregroundStyle(immersiveDark ? Color.white.opacity(0.60) : TVColor.textMuted)
-                .frame(width: 56, alignment: .trailing)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(width: timeLabelWidth, alignment: .trailing)
             TVScrubber(progress: p, tint: TVColor.brand, immersiveDark: immersiveDark,
                        currentTime: cur, duration: dur,
                        onBack: { store.skipBackward() }, onForward: { store.skipForward() },
@@ -500,7 +506,9 @@ struct TVNowPlayingView: View {
                 .prefersDefaultFocus(focusRequest?.target == .nowPlaying(.scrubber), in: playerFocus)
             Text("-\(TVFmt.time(max(0, dur - cur)))").tvFont(.meta, design: .monospaced)
                 .foregroundStyle(immersiveDark ? Color.white.opacity(0.60) : TVColor.textMuted)
-                .frame(width: 56, alignment: .leading)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(width: timeLabelWidth, alignment: .leading)
         }
     }
 
@@ -668,9 +676,22 @@ struct TVNowPlayingView: View {
         let size: CGFloat = 48
         VStack(alignment: .leading, spacing: 6) {
             if isCur, !ln.syllables.isEmpty {
-                TVKaraokeLine(syllables: ln.syllables, currentTime: store.currentTime,
-                              size: size, tint: store.nowPlaying.tint,
-                              writingDirection: ln.writingDirection)
+                // 逐字扫光必须按帧推进:直接读 `store.currentTime` 时一秒只有 4 个
+                // 台阶(AVPlayer 周期回调的频率),扫光会四格一跳、而且平均慢半拍。
+                // 这里与沉浸播放页、iPhone / Mac 用同一套做法 —— 由 TimelineView
+                // 驱动重绘,时间取按墙上时钟补过的播放时钟。
+                TimelineView(.animation(
+                    minimumInterval: reduceMotion ? 0.10 : 1 / 30,
+                    paused: !store.isPlaying
+                )) { context in
+                    TVKaraokeLine(
+                        syllables: ln.syllables,
+                        currentTime: store.interpolatedTime(at: context.date),
+                        size: size,
+                        tint: store.nowPlaying.tint,
+                        writingDirection: ln.writingDirection
+                    )
+                }
             } else {
                 // 普通 .lrc 无逐字时间——整行高亮;非当前行半透明。
                 Text(ln.text).font(.system(size: size, weight: isCur ? .bold : .semibold))
