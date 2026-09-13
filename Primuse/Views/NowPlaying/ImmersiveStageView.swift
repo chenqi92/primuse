@@ -1419,19 +1419,11 @@ struct ImmersiveStageView<Artwork: View>: View {
                         endPoint: .trailing
                     ))
                     .mask {
-                        GeometryReader { geometry in
-                            HStack(spacing: 0) {
-                                if lineWritingDirection == .rightToLeft {
-                                    Spacer(minLength: 0)
-                                }
-                                Rectangle()
-                                    .frame(width: geometry.size.width * clampedProgress)
-                                if lineWritingDirection != .rightToLeft {
-                                    Spacer(minLength: 0)
-                                }
-                            }
-                            .environment(\.layoutDirection, .leftToRight)
-                        }
+                        ImmersiveLyricFillMask(
+                            progress: clampedProgress,
+                            fontSize: fontSize,
+                            isRightToLeft: lineWritingDirection == .rightToLeft
+                        )
                     }
             }
             .shadow(color: palette.primary.opacity(0.34), radius: max(2, fontSize * 0.10))
@@ -2158,5 +2150,59 @@ private struct ImmersiveLiveWaveform: View {
         let upper = min(lower + 1, source.count - 1)
         let fraction = scaled - CGFloat(lower)
         return source[lower] + (source[upper] - source[lower]) * fraction
+    }
+}
+
+/// 当前歌词的填充遮罩。整段文字换行后必须**按行**推进:先填满上面一行再填下面一行。
+/// 旧实现用一整块矩形盖住整段,换行时上下两行会被同时点亮(进度都取整段的同一比例)。
+private struct ImmersiveLyricFillMask: View {
+    let progress: Double
+    let fontSize: CGFloat
+    let isRightToLeft: Bool
+
+    /// 单行高度由探针量出,量到之前按一行处理(即退回旧行为,不会画错)。
+    @State private var singleRowHeight: CGFloat = 0
+
+    var body: some View {
+        GeometryReader { geometry in
+            let rowCount = ImmersiveLyricRowFillPolicy.rowCount(
+                totalHeight: Double(geometry.size.height),
+                rowHeight: Double(singleRowHeight)
+            )
+            VStack(spacing: 0) {
+                ForEach(0..<rowCount, id: \.self) { row in
+                    let fill = ImmersiveLyricRowFillPolicy.fill(
+                        progress: progress,
+                        row: row,
+                        rowCount: rowCount
+                    )
+                    HStack(spacing: 0) {
+                        if isRightToLeft { Spacer(minLength: 0) }
+                        Rectangle().frame(width: geometry.size.width * CGFloat(fill))
+                        if !isRightToLeft { Spacer(minLength: 0) }
+                    }
+                    .frame(maxHeight: .infinity)
+                }
+            }
+            .environment(\.layoutDirection, .leftToRight)
+        }
+        .background(alignment: .topLeading) { rowHeightProbe }
+    }
+
+    /// 用同一字号量一行文字的高度,据此判断整段被折成了几行。
+    private var rowHeightProbe: some View {
+        Text(verbatim: "M")
+            .font(.system(size: fontSize, weight: .bold))
+            .lineLimit(1)
+            .hidden()
+            .background {
+                GeometryReader { probe in
+                    Color.clear
+                        .onAppear { singleRowHeight = probe.size.height }
+                        .onChange(of: probe.size.height) { _, height in
+                            singleRowHeight = height
+                        }
+                }
+            }
     }
 }

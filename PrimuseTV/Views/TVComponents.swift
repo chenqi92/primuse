@@ -3,31 +3,20 @@ import SwiftUI
 import PrimuseKit
 import UIKit
 
-/// 单层输入框。tvOS 原生 `TextField`/`SecureField` 自带的圆角底框,高度按系统字号
-/// 设计,换成 10ft 字号后框内文字会偏上;外面再套一层自绘框又会变成「大框套小框」。
-/// 这里用 `.plain` 去掉系统底框,自己画唯一的一层,文字在固定高度里垂直居中,
-/// 宽度也由外层决定,相邻两格不会一大一小。
+/// 单层输入框。tvOS 的 `TextField` / `SecureField` 自带一层胶囊底框,且**无法去掉**
+/// (`.textFieldStyle(.plain)` 在 tvOS 上不生效),外面再画一层就成了「大框套小框」。
+/// 所以这里不画任何底框,只做两件事:撑满外层宽度(相邻两格才不会一大一小),
+/// 以及不覆盖字号——框高是系统按自身字号算的,换成自定义字号框内文字就会偏。
 struct TVTextFieldBox<Field: View>: View {
-    var isFocused: Bool
     var mono: Bool = false
-    var height: CGFloat = 72
     @ViewBuilder var field: () -> Field
 
     var body: some View {
-        field()
-            .textFieldStyle(.plain)
-            .tvFont(.input, weight: .medium, design: mono ? .monospaced : .default)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 24)
-            .frame(height: height)
-            .background(isFocused ? TVColor.cardElev : TVColor.surfaceSubtle,
-                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(isFocused ? TVColor.brand : TVColor.cardBorder,
-                                  lineWidth: isFocused ? 2 : 1)
-            }
-            .animation(.easeOut(duration: 0.18), value: isFocused)
+        // 只改字形不改字号:等宽字形便于看地址和端口,字号仍由系统决定。
+        Group {
+            if mono { field().monospaced() } else { field() }
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -201,7 +190,7 @@ private struct TVLibraryReviewCommentEditor: View {
             }
             .padding(.bottom, 10)
 
-            TVTextFieldBox(isFocused: inputActive) {
+            TVTextFieldBox {
                 TextField("", text: $draft)
                     .focused($inputActive)
                     .accessibilityLabel(Text("library_review_comment_title"))

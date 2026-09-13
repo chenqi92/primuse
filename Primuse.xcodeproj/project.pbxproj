@@ -26,6 +26,7 @@
 		052404EC85F892799A7D1F85 /* MetadataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 645BBABA564E600B40010061 /* MetadataService.swift */; };
 		05350DAB046724BD1176BE58 /* DiagnosticReportMailPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFF1BC0129ABFA901532FDB8 /* DiagnosticReportMailPolicy.swift */; };
 		C4B2627E59144BA39A88C386 /* LibraryDerivedRefreshPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7045344972CE4117B9A8C810 /* LibraryDerivedRefreshPolicy.swift */; };
+		B260D065FD2742C990570C64 /* ImmersiveLyricRowFillPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95E8BB459DAB4ADC8ACB2C07 /* ImmersiveLyricRowFillPolicy.swift */; };
 		10F8993C5B8395CFE6F93842 /* MetadataReadPacer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA5A12D781666801F1569B3F /* MetadataReadPacer.swift */; };
 		05406A7F73619CF228F01366 /* MetadataReadScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C99953CC3004D92E3B3147BC /* MetadataReadScheduler.swift */; };
 		055E8F5093B42BCBDF08DA4F /* S3StreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C603E86C2F865CDFD1D1C8EB /* S3StreamResolver.swift */; };
@@ -1548,6 +1549,7 @@
 		2536FC64E50FD6E0FAE8B75B /* CredentialBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialBundle.swift; sourceTree = "<group>"; };
 		DFF1BC0129ABFA901532FDB8 /* DiagnosticReportMailPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticReportMailPolicy.swift; sourceTree = "<group>"; };
 		7045344972CE4117B9A8C810 /* LibraryDerivedRefreshPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryDerivedRefreshPolicy.swift; sourceTree = "<group>"; };
+		95E8BB459DAB4ADC8ACB2C07 /* ImmersiveLyricRowFillPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveLyricRowFillPolicy.swift; sourceTree = "<group>"; };
 		E2999A28D8E559CBD6A28F06 /* SyncedCredentialAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncedCredentialAvailability.swift; sourceTree = "<group>"; };
 		2555ED6B08291C7E7B7202E4 /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
 		25B5C092730E2E3E9802487D /* DeviceMusicPlaybackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceMusicPlaybackTests.swift; sourceTree = "<group>"; };
@@ -2727,6 +2729,7 @@
 				C9F21995B7200CF465C38A69 /* InsecureHTTPHostPolicy.swift */,
 				C886146364848C1D5139C0CD /* KeyedRunRegistry.swift */,
 				B2E10701E146DC4195C7CAC4 /* LegacyAudioCacheMigrationPolicy.swift */,
+				95E8BB459DAB4ADC8ACB2C07 /* ImmersiveLyricRowFillPolicy.swift */,
 				7045344972CE4117B9A8C810 /* LibraryDerivedRefreshPolicy.swift */,
 				9A978F51041E03E752100B64 /* LibraryFolderIndex.swift */,
 				E7A4B98789824DBE3B31F9D3 /* LibraryFolderSelectionIndex.swift */,
@@ -4434,6 +4437,7 @@
 				8F095C75B71E55976268E94D /* KeyedRunRegistry.swift in Sources */,
 				72DE4A2D47DAEB67BBDB4492 /* LANSync.swift in Sources */,
 				3A447F9292183A2E25B9F7D5 /* LegacyAudioCacheMigrationPolicy.swift in Sources */,
+				B260D065FD2742C990570C64 /* ImmersiveLyricRowFillPolicy.swift in Sources */,
 				C4B2627E59144BA39A88C386 /* LibraryDerivedRefreshPolicy.swift in Sources */,
 				0757EA4AC03FA3EC01640B00 /* LibraryFolderIndex.swift in Sources */,
 				F7001D7ED68D7FC3F771FD35 /* LibraryFolderSelectionIndex.swift in Sources */,

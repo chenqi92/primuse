@@ -890,7 +890,7 @@ struct TVFormField: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(label).tvFont(.caption)
                 .foregroundStyle(focused ? TVColor.text : TVColor.textFaint)
-            TVTextFieldBox(isFocused: focused, mono: mono) {
+            TVTextFieldBox(mono: mono) {
                 Group {
                     if secure { SecureField("", text: $text) }
                     else { TextField("", text: $text) }

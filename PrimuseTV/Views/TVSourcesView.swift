@@ -749,7 +749,7 @@ private struct TVCredentialEditorView: View {
                 Text(title).tvFont(.caption)
                     .foregroundStyle(isFocused ? TVColor.text : TVColor.textFaint)
             }
-            TVTextFieldBox(isFocused: isFocused) {
+            TVTextFieldBox {
                 content().accessibilityLabel(title)
             }
         }

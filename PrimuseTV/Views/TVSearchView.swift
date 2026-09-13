@@ -138,13 +138,12 @@ struct TVSearchView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // 单层输入框:用 TVTextFieldBox 去掉系统底框,自己画唯一的一层,
-    // 框内文字垂直居中,聚焦后照常唤起系统键盘。
+    // 单层输入框:系统自带的圆角框就是唯一的一层,只把宽度撑满。
     private var searchField: some View {
         HStack(spacing: 18) {
             Image(systemName: "magnifyingglass").font(.system(size: 26, weight: .semibold))
                 .foregroundStyle(inputActive ? TVColor.brand : TVColor.textFaint)
-            TVTextFieldBox(isFocused: inputActive) {
+            TVTextFieldBox {
                 TextField(PMString("ext.tv.search.placeholder"), text: $query)
                     .focused($inputActive)
             }
