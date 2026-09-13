@@ -164,8 +164,11 @@ import Testing
                                       .jellyfin, .emby, .plex, .qnap, .fnMusic, .daoliyu, .ugreen,
                                       .googleDrive, .pan115, .baiduPan, .drime]))
     // Phase 3:原生库源经中继也注册了
-    #expect(supported.isSuperset(of: [.smb, .sftp, .nfs, .webdav, .local, .appleMusic]))
+    #expect(supported.isSuperset(of: [.smb, .sftp, .nfs, .webdav, .local]))
     #expect(!supported.contains(.appleMusicLibrary))   // macOS-only,不接
+    // Apple Music 是 DRM 流,没有可按字节转发的文件,中继服务也不处理这种源。
+    #expect(!supported.contains(.appleMusic))
+    #expect(!StreamResolverRegistry.tvSupportedTypes.contains(.appleMusic))
 }
 
 @Test func relayResolver() async throws {

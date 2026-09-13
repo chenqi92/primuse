@@ -53,7 +53,7 @@ public actor StreamResolverRegistry {
         // WebDAV / UPnP:tvOS 纯 HTTP 直连(Basic Auth / 直链),不再经中继。
         map[.webdav] = WebDavStreamResolver()
         map[.upnp] = UPnPStreamResolver()
-        // 其余不可直连的源(SMB/NFS/FTP/SFTP/local/appleMusic)经 iPhone 局域网中继。
+        // 其余不可直连的源(SMB/NFS/FTP/SFTP/local)经 iPhone 局域网中继。
         let relay = RelayStreamResolver()
         for type in RelayStreamResolver.relayTypes { map[type] = relay }
         // 云盘:阿里/OneDrive/Dropbox/123 直链直连;Google/115/Drime 经 resource loader 带播放头。
@@ -90,10 +90,12 @@ public actor StreamResolverRegistry {
     public var supportedTypes: Set<MusicSourceType> { Set(resolvers.keys) }
 
     /// `supportedTypes` 的同步可读版,供 UI(非 async 上下文)判断源能否在 TV 播放。
-    /// 必须与 `init` 注册表保持一致:当前唯一没有 resolver 的是 `appleMusicLibrary`
-    /// (macOS iTunesLibrary 源)。新增源类型时,这里与 init 一起更新。
+    /// 必须与 `init` 注册表保持一致。没有 resolver 的是 `appleMusicLibrary`
+    /// (macOS iTunesLibrary 源)与 `appleMusic`:后者要由 MusicKit 的
+    /// `ApplicationMusicPlayer` 播放,电视端尚未接入,也无法经中继转发。
+    /// 新增源类型时,这里与 init 一起更新。
     public nonisolated static let tvSupportedTypes: Set<MusicSourceType> =
-        Set(MusicSourceType.allCases).subtracting([.appleMusicLibrary, .fnos])
+        Set(MusicSourceType.allCases).subtracting([.appleMusicLibrary, .appleMusic, .fnos])
 
     public func streamURL(for song: Song,
                           source: MusicSource,

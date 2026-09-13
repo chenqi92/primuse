@@ -1373,8 +1373,14 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         }
     }
 
+    /// Jellyfin 是从 Emby 分叉出来的,收藏用的是同一组端点
+    /// (`/Users/{id}/Items?Filters=IsFavorite` 与 `/Users/{id}/FavoriteItems/{id}`),
+    /// 取数也复用同一个 `fetchAllJellyfinOrEmbyItems`。Plex 的收藏是另一套
+    /// (`/library/metadata` 上的评分),不在这里。
+    private var supportsUserFavorites: Bool { kind == .emby || kind == .jellyfin }
+
     func fetchServerFavorites() async throws -> ServerFavoriteSnapshot {
-        guard kind == .emby else {
+        guard supportsUserFavorites else {
             throw SourceError.connectionFailed(String(localized: "server_favorite_unsupported"))
         }
         try await connect()
@@ -1385,7 +1391,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         itemID: String,
         isFavorite: Bool
     ) async throws -> ServerFavoriteSnapshot {
-        guard kind == .emby else {
+        guard supportsUserFavorites else {
             throw SourceError.connectionFailed(String(localized: "server_favorite_unsupported"))
         }
         try await connect()
