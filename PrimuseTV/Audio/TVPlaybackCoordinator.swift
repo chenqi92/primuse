@@ -715,12 +715,69 @@ final class TVPlaybackCoordinator {
         )
     }
 
+    /// 播放 Apple Music 的一个集合:专辑、艺术家热门曲目或用户歌单。
+    enum AppleMusicCollection: Equatable {
+        case album(id: String)
+        case artistTopSongs(id: String)
+        case libraryPlaylist(id: String)
+    }
+
+    func playAppleMusicCollection(
+        _ collection: AppleMusicCollection,
+        fallbackDuration: TimeInterval,
+        requestID: UUID,
+        autoPlay: Bool = true
+    ) async {
+        cancelAuxiliaryTasks()
+        releaseAppleMusicIfNeeded()
+        guard let store, isCurrent(requestID, store: store) else { return }
+        store.playbackIssue = nil
+        await runAppleMusicStart(
+            fallbackDuration: fallbackDuration,
+            requestID: requestID,
+            start: { [weak self] player in
+                guard let self else { throw CancellationError() }
+                _ = self
+                switch collection {
+                case .album(let id):
+                    return try await player.playAlbum(id: id, autoPlay: autoPlay)
+                case .artistTopSongs(let id):
+                    return try await player.playArtistTopSongs(id: id, autoPlay: autoPlay)
+                case .libraryPlaylist(let id):
+                    return try await player.playLibraryPlaylist(id: id, autoPlay: autoPlay)
+                }
+            },
+            startAt: 0,
+            autoPlay: autoPlay
+        )
+    }
+
     /// 真正的移交动作。返回 false 表示没能开播(已经报过错或被新请求取代)。
     @discardableResult
     private func playAppleMusicItem(
         itemID: String,
         fallbackDuration: TimeInterval,
         requestID: UUID,
+        startAt: Double,
+        autoPlay: Bool
+    ) async -> Bool {
+        await runAppleMusicStart(
+            fallbackDuration: fallbackDuration,
+            requestID: requestID,
+            start: { player in
+                try await player.play(itemID: itemID, startAt: startAt, autoPlay: autoPlay)
+            },
+            startAt: startAt,
+            autoPlay: autoPlay
+        )
+    }
+
+    /// 单曲与集合共用的移交骨架:停本机引擎 → 交给系统播放器 → 回灌状态。
+    @discardableResult
+    private func runAppleMusicStart(
+        fallbackDuration: TimeInterval,
+        requestID: UUID,
+        start: @escaping @MainActor (TVAppleMusicPlayer) async throws -> TimeInterval,
         startAt: Double,
         autoPlay: Bool
     ) async -> Bool {
@@ -737,11 +794,7 @@ final class TVPlaybackCoordinator {
             )
         )
         do {
-            let duration = try await player.play(
-                itemID: itemID,
-                startAt: startAt,
-                autoPlay: autoPlay
-            )
+            let duration = try await start(player)
             guard isCurrent(requestID, store: store) else {
                 engine.endExternalPlayback()
                 return false

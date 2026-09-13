@@ -806,3 +806,8 @@
 "ext.tv.search.appleMusic" = "来自 Apple Music";
 "ext.tv.search.appleMusicSearching" = "正在搜索 Apple Music…";
 "ext.tv.search.appleMusicBadge" = "Apple Music";
+
+/* Apple TV Apple Music collections */
+"ext.tv.search.appleMusicTopSongs" = "热门曲目";
+"ext.tv.playlists.appleMusic" = "Apple Music 歌单";
+"ext.tv.playlists.appleMusicLoading" = "正在加载 Apple Music 歌单…";

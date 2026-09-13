@@ -1246,6 +1246,7 @@
 		7F18AF05780FFDB5C464DF9A /* MusicKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2D28983A37BA8CB3CF6F19BF /* MusicKit.framework */; };
 		B5C378A4003E4DDDEC68F725 /* TVAppleMusicCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80555EDF52787A761A243B47 /* TVAppleMusicCatalog.swift */; };
 		27219441F8B879E5AEB097F0 /* AppleMusicCatalogHit.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBE837C36A70A23C52A14E93 /* AppleMusicCatalogHit.swift */; };
+		271E0CE1D2B2F8588836676A /* TVAppleMusicCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19AF8EBA21361BD6526912CB /* TVAppleMusicCards.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2373,6 +2374,7 @@
 		2D28983A37BA8CB3CF6F19BF /* MusicKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MusicKit.framework; path = System/Library/Frameworks/MusicKit.framework; sourceTree = SDKROOT; };
 		80555EDF52787A761A243B47 /* TVAppleMusicCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVAppleMusicCatalog.swift; sourceTree = "<group>"; };
 		EBE837C36A70A23C52A14E93 /* AppleMusicCatalogHit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicCatalogHit.swift; sourceTree = "<group>"; };
+		19AF8EBA21361BD6526912CB /* TVAppleMusicCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVAppleMusicCards.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -3753,6 +3755,7 @@
 		E4688F08BD6F51AEAC64DCE7 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				19AF8EBA21361BD6526912CB /* TVAppleMusicCards.swift */,
 				80555EDF52787A761A243B47 /* TVAppleMusicCatalog.swift */,
 				A1E1A7702591BEB6873FDE9E /* TVCloudAuthView.swift */,
 				F032004B023B2AE64349E763 /* TVArtistArtworkView.swift */,
@@ -5063,6 +5066,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				271E0CE1D2B2F8588836676A /* TVAppleMusicCards.swift in Sources */,
 				B5C378A4003E4DDDEC68F725 /* TVAppleMusicCatalog.swift in Sources */,
 				126C4E92576E4EB267C19AC4 /* TVAppleMusicPlayer.swift in Sources */,
 				39E81961125CCEF19EAAB80E /* TVSourceErrorText.swift in Sources */,

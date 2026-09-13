@@ -756,3 +756,8 @@
 "ext.tv.search.appleMusic" = "З Apple Music";
 "ext.tv.search.appleMusicSearching" = "Пошук в Apple Music…";
 "ext.tv.search.appleMusicBadge" = "Apple Music";
+
+/* Apple TV Apple Music collections */
+"ext.tv.search.appleMusicTopSongs" = "Популярні треки";
+"ext.tv.playlists.appleMusic" = "Плейлисти Apple Music";
+"ext.tv.playlists.appleMusicLoading" = "Завантаження плейлистів Apple Music…";

@@ -3497,6 +3497,104 @@ final class TVStore {
         "appleMusic:\(itemID)"
     }
 
+    /// 播放一张 Apple Music 专辑。
+    func playAppleMusicAlbum(_ album: AppleMusicCatalogAlbumHit) {
+        startAppleMusicCollection(
+            .album(id: album.id),
+            songID: Self.appleMusicCatalogSongID("album." + album.id),
+            title: album.title,
+            artist: album.artistName,
+            album: album.title,
+            glyph: "opticaldisc"
+        )
+    }
+
+    /// 播放某位艺术家的热门曲目。
+    func playAppleMusicArtist(_ artist: AppleMusicCatalogArtistHit) {
+        startAppleMusicCollection(
+            .artistTopSongs(id: artist.id),
+            songID: Self.appleMusicCatalogSongID("artist." + artist.id),
+            title: artist.name,
+            artist: artist.name,
+            album: "",
+            glyph: "person.fill"
+        )
+    }
+
+    /// 播放用户自己的 Apple Music 歌单。
+    func playAppleMusicPlaylist(_ playlist: AppleMusicPlaylistHit) {
+        startAppleMusicCollection(
+            .libraryPlaylist(id: playlist.id),
+            songID: Self.appleMusicCatalogSongID("playlist." + playlist.id),
+            title: playlist.name,
+            artist: playlist.curatorName,
+            album: "",
+            glyph: "music.note.list"
+        )
+    }
+
+    /// 集合类播放共用的「正在播放」构造。首曲信息由系统播放器回灌后再精化,
+    /// 这里先用集合本身的名字占位,免得按下去之后界面空着。
+    private func startAppleMusicCollection(
+        _ collection: TVPlaybackCoordinator.AppleMusicCollection,
+        songID: String,
+        title: String,
+        artist: String,
+        album: String,
+        glyph: String
+    ) {
+        finishListeningSession()
+        radioReconnectTask?.cancel()
+        radioReconnectTask = nil
+        isLiveRadio = false
+        currentRadioStationID = nil
+        radioMetadataTitle = ""
+        playbackTask?.cancel()
+        let requestID = UUID()
+        activePlaybackRequestID = requestID
+        playbackIssue = nil
+        queue = []
+        queueIndex = 0
+        queueUpNextIDs = []
+        lyrics = []
+        isMusicVideoModeEnabled = false
+        engine.prepareForSelection(startAt: 0)
+
+        let fallback = Self.tint(songID)
+        nowPlaying = TVNowPlaying(
+            songID: songID,
+            coverRef: nil,
+            title: title,
+            artist: artist,
+            album: album,
+            albumID: "",
+            tint: fallback.0,
+            tint2: fallback.1,
+            glyph: glyph,
+            duration: 0,
+            currentTime: 0,
+            format: "AAC",
+            bitrate: 0,
+            sampleRate: 0,
+            sourcePath: ""
+        )
+        updateAutomaticThemePalette(nil)
+        hasNowPlaying = true
+        playbackTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.coordinator.playAppleMusicCollection(
+                collection,
+                fallbackDuration: 0,
+                requestID: requestID
+            )
+            guard self.isCurrentPlaybackRequest(
+                requestID,
+                isCancelled: Task.isCancelled
+            ) else { return }
+            self.playbackTask = nil
+        }
+    }
+
     private func handlePlaybackEnded() {
         finishListeningSession()
         persistPlaybackSession()

@@ -64,6 +64,78 @@ final class TVAppleMusicPlayer {
         return song.duration ?? 0
     }
 
+    /// 整张专辑入队播放。
+    func playAlbum(id: String, autoPlay: Bool) async throws -> TimeInterval {
+        let request = MusicCatalogResourceRequest<MusicKit.Album>(
+            matching: \.id, equalTo: MusicItemID(rawValue: id)
+        )
+        guard let album = try await request.response().items.first else {
+            throw StartFailure.itemNotFound
+        }
+        let tracks = try await Self.songs(in: album.with([.tracks]).tracks)
+        return try await playSongs(tracks, autoPlay: autoPlay)
+    }
+
+    /// 播放某位艺术家的热门曲目。
+    func playArtistTopSongs(id: String, autoPlay: Bool) async throws -> TimeInterval {
+        let request = MusicCatalogResourceRequest<MusicKit.Artist>(
+            matching: \.id, equalTo: MusicItemID(rawValue: id)
+        )
+        guard let artist = try await request.response().items.first else {
+            throw StartFailure.itemNotFound
+        }
+        let songs = try await artist.with([.topSongs]).topSongs ?? []
+        return try await playSongs(Array(songs), autoPlay: autoPlay)
+    }
+
+    /// 播放用户自己的 Apple Music 歌单。
+    func playLibraryPlaylist(id: String, autoPlay: Bool) async throws -> TimeInterval {
+        var request = MusicLibraryRequest<MusicKit.Playlist>()
+        request.filter(matching: \.id, equalTo: MusicItemID(rawValue: id))
+        request.limit = 1
+        guard let playlist = try await request.response().items.first else {
+            throw StartFailure.itemNotFound
+        }
+        let tracks = try await Self.songs(in: playlist.with([.tracks]).tracks)
+        return try await playSongs(tracks, autoPlay: autoPlay)
+    }
+
+    /// 把一串曲目交给系统播放器。返回首曲时长,供引擎先把进度条画对。
+    private func playSongs(_ songs: [MusicKit.Song], autoPlay: Bool) async throws -> TimeInterval {
+        guard let first = songs.first else { throw StartFailure.itemNotFound }
+        try await ensureReady(for: first)
+        let player = ApplicationMusicPlayer.shared
+        player.queue = ApplicationMusicPlayer.Queue(for: songs, startingAt: first)
+        do {
+            try await player.prepareToPlay()
+            if autoPlay { try await player.play() }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw StartFailure.playbackFailed(error.localizedDescription)
+        }
+        activeItemID = first.id.rawValue
+        return first.duration ?? 0
+    }
+
+    /// 关系集合可能分页,要全部取完再入队,否则只播到第一页就结束。
+    private static func songs(
+        in tracks: MusicItemCollection<MusicKit.Track>?
+    ) async throws -> [MusicKit.Song] {
+        guard var batch = tracks else { return [] }
+        var collected = Array(batch)
+        while batch.hasNextBatch {
+            try Task.checkCancellation()
+            guard let next = try await batch.nextBatch() else { break }
+            collected.append(contentsOf: next)
+            batch = next
+        }
+        return collected.compactMap { track in
+            if case .song(let song) = track { return song }
+            return nil
+        }
+    }
+
     private func resolveSong(itemID: String) async throws -> MusicKit.Song {
         let id = MusicItemID(rawValue: itemID)
         let song: MusicKit.Song?

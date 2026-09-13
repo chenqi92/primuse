@@ -8,6 +8,7 @@ struct TVPlaylistsView: View {
     var openPlayer: () -> Void = {}
 
     @State private var filter = 0
+    @State private var appleMusic = TVAppleMusicCatalog()
     private let cols = 4
     private let gap: CGFloat = 36
 
@@ -44,10 +45,58 @@ struct TVPlaylistsView: View {
                                 }
                             }
                         }
+                        appleMusicSection(cell: cell)
                     }
                     .tvPage()
                 }
             }
+        }
+        .task { await appleMusic.loadPlaylists() }
+    }
+
+    /// Apple Music 上的歌单单独成段:它们不进本机曲库,按下去由系统播放器整条播放,
+    /// 与本地歌单的编辑、智能规则无关,混进同一个网格只会让人以为能改。
+    @ViewBuilder
+    private func appleMusicSection(cell: CGFloat) -> some View {
+        if !appleMusic.playlists.isEmpty || appleMusic.isLoadingPlaylists {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(spacing: 12) {
+                    TVEyebrow(text: PMString("ext.tv.playlists.appleMusic"))
+                    if appleMusic.isLoadingPlaylists {
+                        ProgressView().tint(TVColor.brand)
+                    }
+                }
+                if appleMusic.playlists.isEmpty {
+                    Text(PMString("ext.tv.playlists.appleMusicLoading"))
+                        .tvFont(.caption).foregroundStyle(TVColor.textFaint)
+                } else {
+                    LazyVGrid(
+                        columns: Array(
+                            repeating: GridItem(.fixed(cell), spacing: gap, alignment: .top),
+                            count: cols
+                        ),
+                        alignment: .leading,
+                        spacing: gap
+                    ) {
+                        ForEach(appleMusic.playlists) { playlist in
+                            TVAppleMusicTileCard(
+                                title: playlist.name,
+                                subtitle: playlist.curatorName.isEmpty
+                                    ? PMString("ext.tv.search.appleMusicBadge")
+                                    : playlist.curatorName,
+                                artworkURL: playlist.artworkURL,
+                                glyph: "music.note.list",
+                                width: cell,
+                                action: {
+                                    store.playAppleMusicPlaylist(playlist)
+                                    openPlayer()
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+            .padding(.top, 12)
         }
     }
 }

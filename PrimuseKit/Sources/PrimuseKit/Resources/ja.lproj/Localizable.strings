@@ -809,3 +809,8 @@
 "ext.tv.search.appleMusic" = "Apple Music から";
 "ext.tv.search.appleMusicSearching" = "Apple Music を検索中…";
 "ext.tv.search.appleMusicBadge" = "Apple Music";
+
+/* Apple TV Apple Music collections */
+"ext.tv.search.appleMusicTopSongs" = "人気の曲";
+"ext.tv.playlists.appleMusic" = "Apple Music のプレイリスト";
+"ext.tv.playlists.appleMusicLoading" = "Apple Music のプレイリストを読み込み中…";

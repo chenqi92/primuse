@@ -756,3 +756,8 @@
 "ext.tv.search.appleMusic" = "Apple Music'ten";
 "ext.tv.search.appleMusicSearching" = "Apple Music aranıyor…";
 "ext.tv.search.appleMusicBadge" = "Apple Music";
+
+/* Apple TV Apple Music collections */
+"ext.tv.search.appleMusicTopSongs" = "Popüler parçalar";
+"ext.tv.playlists.appleMusic" = "Apple Music çalma listeleri";
+"ext.tv.playlists.appleMusicLoading" = "Apple Music çalma listeleri yükleniyor…";

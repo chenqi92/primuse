@@ -756,3 +756,8 @@
 "ext.tv.search.appleMusic" = "จาก Apple Music";
 "ext.tv.search.appleMusicSearching" = "กำลังค้นหาใน Apple Music…";
 "ext.tv.search.appleMusicBadge" = "Apple Music";
+
+/* Apple TV Apple Music collections */
+"ext.tv.search.appleMusicTopSongs" = "เพลงยอดนิยม";
+"ext.tv.playlists.appleMusic" = "เพลย์ลิสต์ Apple Music";
+"ext.tv.playlists.appleMusicLoading" = "กำลังโหลดเพลย์ลิสต์ Apple Music…";

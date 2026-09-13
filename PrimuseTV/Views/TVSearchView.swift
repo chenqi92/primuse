@@ -68,7 +68,13 @@ struct TVSearchView: View {
             + albumResults.map(Self.albumFocusID)
             + primarySongResults.map(Self.songFocusID)
             + intelligentSongResults.map(Self.songFocusID)
+            + appleMusic.artists.map(Self.appleMusicArtistFocusID)
+            + appleMusic.albums.map(Self.appleMusicAlbumFocusID)
             + appleMusicResults.map(Self.appleMusicFocusID)
+    }
+
+    private var hasAppleMusicContent: Bool {
+        !appleMusicResults.isEmpty || !appleMusic.albums.isEmpty || !appleMusic.artists.isEmpty
     }
 
     private var hasResults: Bool { !resultFocusIDs.isEmpty }
@@ -82,6 +88,12 @@ struct TVSearchView: View {
     private static func songFocusID(_ hit: TVStore.TVSearchHit) -> String { "song:" + hit.id }
     private static func appleMusicFocusID(_ hit: AppleMusicCatalogHit) -> String {
         "appleMusic:" + hit.id
+    }
+    private static func appleMusicAlbumFocusID(_ hit: AppleMusicCatalogAlbumHit) -> String {
+        "appleMusicAlbum:" + hit.id
+    }
+    private static func appleMusicArtistFocusID(_ hit: AppleMusicCatalogArtistHit) -> String {
+        "appleMusicArtist:" + hit.id
     }
 
     var body: some View {
@@ -223,11 +235,11 @@ struct TVSearchView: View {
                             .padding(.bottom, 8)
                         songList(intelligentSongResults)
                     }
-                    if !appleMusicResults.isEmpty || appleMusic.isSearching {
+                    if hasAppleMusicContent || appleMusic.isSearching {
                         TVEyebrow(text: PMString("ext.tv.search.appleMusic"))
                             .padding(.top, 22)
                             .padding(.bottom, 8)
-                        if appleMusicResults.isEmpty, appleMusic.isSearching {
+                        if !hasAppleMusicContent, appleMusic.isSearching {
                             HStack(spacing: 12) {
                                 ProgressView().tint(TVColor.brand)
                                 Text(PMString("ext.tv.search.appleMusicSearching"))
@@ -235,7 +247,9 @@ struct TVSearchView: View {
                             }
                             .padding(.vertical, 10)
                         } else {
-                            appleMusicList
+                            if !appleMusic.artists.isEmpty { appleMusicArtistCarousel }
+                            if !appleMusic.albums.isEmpty { appleMusicAlbumCarousel }
+                            if !appleMusicResults.isEmpty { appleMusicList }
                         }
                     }
                     if showsNoMatch {
@@ -283,6 +297,43 @@ struct TVSearchView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 20)
             }
+        }
+    }
+
+    private var appleMusicArtistCarousel: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 22) {
+                ForEach(appleMusic.artists) { artist in
+                    TVAppleMusicCircleCard(
+                        title: artist.name,
+                        subtitle: PMString("ext.tv.search.appleMusicTopSongs"),
+                        artworkURL: artist.artworkURL,
+                        glyph: "person.fill",
+                        action: { store.playAppleMusicArtist(artist); openPlayer() }
+                    )
+                    .focused($focusedResultID, equals: Self.appleMusicArtistFocusID(artist))
+                }
+            }
+            .padding(.horizontal, 14).padding(.vertical, 16)
+        }
+    }
+
+    private var appleMusicAlbumCarousel: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 18) {
+                ForEach(appleMusic.albums) { album in
+                    TVAppleMusicTileCard(
+                        title: album.title,
+                        subtitle: album.artistName,
+                        artworkURL: album.artworkURL,
+                        glyph: "opticaldisc",
+                        width: 200,
+                        action: { store.playAppleMusicAlbum(album); openPlayer() }
+                    )
+                    .focused($focusedResultID, equals: Self.appleMusicAlbumFocusID(album))
+                }
+            }
+            .padding(.horizontal, 14).padding(.vertical, 18)
         }
     }
 

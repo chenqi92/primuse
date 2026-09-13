@@ -30,6 +30,49 @@ public struct AppleMusicCatalogHit: Sendable, Equatable, Identifiable {
     }
 }
 
+/// 目录里的一张专辑。选中即整张入队播放,不另开详情页。
+public struct AppleMusicCatalogAlbumHit: Sendable, Equatable, Identifiable {
+    public let id: String
+    public let title: String
+    public let artistName: String
+    public let artworkURL: URL?
+
+    public init(id: String, title: String, artistName: String, artworkURL: URL?) {
+        self.id = id
+        self.title = title
+        self.artistName = artistName
+        self.artworkURL = artworkURL
+    }
+}
+
+/// 目录里的一位艺术家。选中即播其热门曲目。
+public struct AppleMusicCatalogArtistHit: Sendable, Equatable, Identifiable {
+    public let id: String
+    public let name: String
+    public let artworkURL: URL?
+
+    public init(id: String, name: String, artworkURL: URL?) {
+        self.id = id
+        self.name = name
+        self.artworkURL = artworkURL
+    }
+}
+
+/// 用户在 Apple Music 里建的歌单。
+public struct AppleMusicPlaylistHit: Sendable, Equatable, Identifiable {
+    public let id: String
+    public let name: String
+    public let curatorName: String
+    public let artworkURL: URL?
+
+    public init(id: String, name: String, curatorName: String, artworkURL: URL?) {
+        self.id = id
+        self.name = name
+        self.curatorName = curatorName
+        self.artworkURL = artworkURL
+    }
+}
+
 public enum AppleMusicCatalogSearchPolicy {
     /// 一次取多少条。电视上一屏放不下太多,取多了只是白等网络。
     public static let resultLimit = 25
@@ -51,12 +94,23 @@ public enum AppleMusicCatalogSearchPolicy {
         term.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// 专辑与艺术家在电视上横向排布,取够一屏即可。
+    public static let collectionResultLimit = 12
+
     /// 目录结果里可能混进曲库里已经有的同一首歌。已在曲库中的条目由曲库那一段
     /// 负责展示,目录段落把它去掉,避免同一首歌在同一个搜索页出现两次。
     public static func deduplicated(
         _ hits: [AppleMusicCatalogHit],
         excludingItemIDs existing: Set<String>
     ) -> [AppleMusicCatalogHit] {
+        deduplicatedByID(hits, excluding: existing)
+    }
+
+    /// 按 id 去重并剔除排除集,保持原顺序。专辑、艺术家、歌单共用。
+    public static func deduplicatedByID<Hit: Identifiable>(
+        _ hits: [Hit],
+        excluding existing: Set<String> = []
+    ) -> [Hit] where Hit.ID == String {
         var seen = Set<String>()
         return hits.filter { hit in
             guard !existing.contains(hit.id) else { return false }

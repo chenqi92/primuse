@@ -809,3 +809,8 @@
 "ext.tv.search.appleMusic" = "Apple Music에서";
 "ext.tv.search.appleMusicSearching" = "Apple Music 검색 중…";
 "ext.tv.search.appleMusicBadge" = "Apple Music";
+
+/* Apple TV Apple Music collections */
+"ext.tv.search.appleMusicTopSongs" = "인기 곡";
+"ext.tv.playlists.appleMusic" = "Apple Music 재생목록";
+"ext.tv.playlists.appleMusicLoading" = "Apple Music 재생목록 불러오는 중…";

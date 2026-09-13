@@ -809,3 +809,8 @@
 "ext.tv.search.appleMusic" = "Aus Apple Music";
 "ext.tv.search.appleMusicSearching" = "Apple Music wird durchsucht…";
 "ext.tv.search.appleMusicBadge" = "Apple Music";
+
+/* Apple TV Apple Music collections */
+"ext.tv.search.appleMusicTopSongs" = "Top-Titel";
+"ext.tv.playlists.appleMusic" = "Apple-Music-Playlists";
+"ext.tv.playlists.appleMusicLoading" = "Apple-Music-Playlists werden geladen…";
