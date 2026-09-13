@@ -93,31 +93,26 @@ struct AppearanceSettingsView: View {
             }
             .settingsAnchor("appearance.minimalNavigation")
 
-            // 主题色与 App 图标改的都是这一层外壳的样子，摊在根菜单上看不出
-            // 改的是哪儿；收进来，跟浅色/深色放在一起。
+            // 主题色与 App 图标改的都是这一层外壳的样子，直接平铺在这一页上：
+            // 都是要靠眼睛挑的东西，多一次跳转就得来回对比。
+            ThemeColorSections()
+
+            #if os(iOS)
             Section {
-                NavigationLink {
-                    ThemeColorSettingsView()
-                } label: {
-                    Label("theme_color_title", systemImage: "paintpalette")
-                }
-                .settingsAnchor("appearance.themeColor")
-                #if os(iOS)
-                NavigationLink {
-                    AppIconSettingsView()
-                } label: {
-                    Label("app_icon", systemImage: "app.badge")
-                }
-                .settingsAnchor("appearance.appIcon")
-                #endif
+                AppIconPickerGrid()
+            } header: {
+                Text("app_icon")
             }
+            #endif
         }
         .navigationTitle("interface_editor_settings")
         .navigationBarTitleDisplayMode(.inline)
     }
 }
 
-struct ThemeColorSettingsView: View {
+/// 主题色的各个区块。由「设置页」直接平铺，也可作为独立页面打开（设置搜索会
+/// 深链到这里）。所以内容只出 Section，外壳交给使用方的 List / Form。
+struct ThemeColorSections: View {
     @State private var settings = ThemeColorSettings.shared
     @Environment(ThemeService.self) private var themeService
     @Environment(AudioPlayerService.self) private var player
@@ -130,7 +125,7 @@ struct ThemeColorSettingsView: View {
     private let columns = [GridItem(.adaptive(minimum: 68), spacing: 16)]
 
     var body: some View {
-        List {
+        Group {
             Section {
                 preview
             }
@@ -259,8 +254,6 @@ struct ThemeColorSettingsView: View {
             }
             .settingsAnchor("appearance.coverAmbient")
         }
-        .navigationTitle("theme_color_title")
-        .navigationBarTitleDisplayMode(.inline)
     }
 
     private var preview: some View {
@@ -509,3 +502,14 @@ struct ThemeColorSettingsView: View {
 }
 
 #endif
+
+/// 独立页面外壳。设置搜索命中主题色条目时仍会推这一页。
+struct ThemeColorSettingsView: View {
+    var body: some View {
+        List { ThemeColorSections() }
+            .navigationTitle("theme_color_title")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+    }
+}

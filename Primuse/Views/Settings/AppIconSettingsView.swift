@@ -1,7 +1,8 @@
 #if os(iOS)
 import SwiftUI
 
-struct AppIconSettingsView: View {
+/// 图标选择网格。由「设置页」直接平铺，也可作为独立页面打开。
+struct AppIconPickerGrid: View {
     private let service = AppIconService.shared
 
     private let columns = [
@@ -9,19 +10,13 @@ struct AppIconSettingsView: View {
     ]
 
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, spacing: 20) {
-                ForEach(service.options) { option in
-                    iconCell(option)
-                }
+        LazyVGrid(columns: columns, spacing: 20) {
+            ForEach(service.options) { option in
+                iconCell(option)
             }
-            .settingsAnchor("appearance.appIcon")
-            .padding(.horizontal, 20)
-            .padding(.vertical, 24)
         }
-        .navigationTitle("app_icon")
-        .navigationBarTitleDisplayMode(.inline)
-        .background(Color(uiColor: .systemGroupedBackground))
+        .settingsAnchor("appearance.appIcon")
+        .padding(.vertical, 8)
     }
 
     private func iconCell(_ option: AppIconService.IconOption) -> some View {
@@ -76,6 +71,20 @@ private extension View {
         } else {
             self
         }
+    }
+}
+
+/// 独立页面外壳。设置搜索命中 App 图标条目时仍会推这一页。
+struct AppIconSettingsView: View {
+    var body: some View {
+        ScrollView {
+            AppIconPickerGrid()
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+        }
+        .navigationTitle("app_icon")
+        .navigationBarTitleDisplayMode(.inline)
+        .background(Color(uiColor: .systemGroupedBackground))
     }
 }
 
