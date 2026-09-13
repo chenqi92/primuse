@@ -146,7 +146,7 @@ public actor SynologyStreamResolver: StreamResolver {
         }
         if (json["success"] as? Bool) == true,
            let d = json["data"] as? [String: Any], let sid = d["sid"] as? String {
-            return (sid, d["did"] as? String)
+            return (sid, Self.trustedDeviceID(from: d))
         }
         // DSM 403/404/406 都需要回到验证码输入，不应退化成普通登录失败。
         if let err = json["error"] as? [String: Any], let code = err["code"] as? Int,
@@ -157,6 +157,13 @@ public actor SynologyStreamResolver: StreamResolver {
     }
 
     // MARK: - 纯函数(可单测)
+
+    static func trustedDeviceID(from data: [String: Any]) -> String? {
+        for key in ["did", "device_id"] {
+            if let value = data[key] as? String, !value.isEmpty { return value }
+        }
+        return nil
+    }
 
     static func formEncode(_ s: String) -> String {
         s.addingPercentEncoding(withAllowedCharacters: CharacterSet(charactersIn:

@@ -1122,12 +1122,13 @@ final class TVStore {
             // 失败。真正要确认的只是这条源还在 —— 后面写 deviceId 本来就是按 id 持久化的。
             guard canMutateLibrary, !Task.isCancelled,
                   sourcesStore.source(id: sourceID) != nil else { return PMString("ext.tv.persistence.failed") }
-            if let did, !did.isEmpty {
-                do {
-                    guard try sourcesStore.updateLocalDurably(sourceID, mutate: { $0.deviceId = did }) else {
-                        return PMString("ext.tv.persistence.failed")
-                    }
-                } catch { return PMString("ext.tv.persistence.failed") }
+            guard let did, !did.isEmpty else { return PMString("ext.tv.otp.failed") }
+            do {
+                guard try sourcesStore.updateLocalDurably(sourceID, mutate: { $0.deviceId = did }) else {
+                    return PMString("ext.tv.persistence.failed")
+                }
+            } catch {
+                return PMString("ext.tv.persistence.failed")
             }
             await StreamResolverRegistry.shared.invalidateSession(for: source)
             sourcesRevision += 1

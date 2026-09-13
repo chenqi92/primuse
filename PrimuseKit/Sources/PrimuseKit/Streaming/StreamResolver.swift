@@ -905,6 +905,15 @@ private final class PrivateNetworkTLSDelegate: NSObject, URLSessionTaskDelegate,
         await TVServerTrustPolicy.disposition(for: challenge)
     }
 
+    // Data tasks deliver server-trust challenges through the task delegate.
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didReceive challenge: URLAuthenticationChallenge
+    ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        await TVServerTrustPolicy.disposition(for: challenge)
+    }
+
     func urlSession(
         _ session: URLSession,
         task: URLSessionTask,

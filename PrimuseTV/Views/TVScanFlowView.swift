@@ -138,7 +138,10 @@ struct TVScanFlowView: View {
                 return
             }
             otpVerified = false
-            if let resume { load(resume) }
+            let refreshedLister = store.source(id: source.id)
+                .flatMap { store.makeLister(for: $0) }
+            if let refreshedLister { lister = refreshedLister }
+            if let resume { load(resume, using: refreshedLister) }
         }) {
             if let tvSource = store.sources.first(where: { $0.id == source.id }) {
                 TVOTPEntryView(source: tvSource, onVerified: { otpVerified = true })
@@ -380,15 +383,15 @@ struct TVScanFlowView: View {
         load(parent)
     }
 
-    private func load(_ p: String) {
-        guard let lister else { return }
+    private func load(_ p: String, using refreshedLister: TVDirectoryLister? = nil) {
+        guard let activeLister = refreshedLister ?? lister else { return }
         loadTask?.cancel()
         path = p
         loading = true
         browseError = nil
         loadTask = Task {
             do {
-                let loaded = try await store.scanner.browse(lister: lister, path: p)
+                let loaded = try await store.scanner.browse(lister: activeLister, path: p)
                 guard !Task.isCancelled, path == p else { return }
                 entries = loaded
             } catch {
@@ -419,13 +422,14 @@ struct TVScanFlowView: View {
             browseError = PMString("ext.tv.scan.connectFailed")
             return
         }
+        let currentSource = store.source(id: source.id) ?? source
         let dirs = TVScanDirectorySelectionPolicy.normalized(
             selected.isEmpty ? [path] : Array(selected)
         )
         loadTask?.cancel()
         started = true
         Task {
-            let admitted = await store.runScan(source: source, lister: lister, dirs: dirs,
+            let admitted = await store.runScan(source: currentSource, lister: lister, dirs: dirs,
                                               rereadMetadata: rereadMetadata)
             guard !admitted, !Task.isCancelled else { return }
             browseError = PMString("ext.tv.scan.busy")

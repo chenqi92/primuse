@@ -1,6 +1,7 @@
 #if os(tvOS)
-import PrimuseKit
+import Foundation
 import XCTest
+@testable import PrimuseKit
 @testable import PrimuseTV
 
 final class TVSourceSecurityFingerprintTests: XCTestCase {
@@ -35,6 +36,32 @@ final class TVSourceSecurityFingerprintTests: XCTestCase {
                 revision: 12
             )
         )
+    }
+
+    func testResolverSessionHandlesTaskLevelAuthenticationChallenges() throws {
+        let session = StreamResolverSessionFactory.make(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+
+        let delegate = try XCTUnwrap(session.delegate as? NSObject)
+        XCTAssertTrue(delegate.responds(to: NSSelectorFromString(
+            "URLSession:task:didReceiveChallenge:completionHandler:"
+        )))
+    }
+
+    func testSynologyTrustedDeviceIDAcceptsDSMResponseKeys() {
+        XCTAssertEqual(
+            SynologyStreamResolver.trustedDeviceID(from: ["did": "legacy-token"]),
+            "legacy-token"
+        )
+        XCTAssertEqual(
+            SynologyStreamResolver.trustedDeviceID(from: ["device_id": "device-token"]),
+            "device-token"
+        )
+        XCTAssertEqual(
+            SynologyStreamResolver.trustedDeviceID(from: ["did": "", "device_id": "fallback-token"]),
+            "fallback-token"
+        )
+        XCTAssertNil(SynologyStreamResolver.trustedDeviceID(from: [:]))
     }
 }
 
