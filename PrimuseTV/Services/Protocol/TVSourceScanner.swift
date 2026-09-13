@@ -272,6 +272,75 @@ actor TVSynologyLister: TVDirectoryLister {
     }
 }
 
+// MARK: - 整库型来源(媒体服务器 / Subsonic 系)
+
+/// 这些来源没有目录树,扫描等于把服务端曲库整体拉下来。连接器本身
+/// (`MediaServerSource` / `SubsonicSource`)早就编进了 tvOS target,
+/// 这里只负责按来源配置把它们建出来,列举与扫描两处共用。
+enum TVServerCatalogConnectorFactory {
+    static func make(
+        source: MusicSource,
+        credential: SourceCredential?
+    ) -> (any SongScanningConnector)? {
+        let username = credential?.username ?? source.username ?? ""
+        let secret = credential?.password ?? ""
+        switch source.type {
+        case .jellyfin, .emby, .plex:
+            guard let kind = MediaServerSource.Kind(sourceType: source.type) else { return nil }
+            return MediaServerSource(
+                sourceID: source.id,
+                kind: kind,
+                host: source.host ?? "",
+                port: source.port,
+                useSsl: source.useSsl,
+                basePath: source.basePath,
+                username: username,
+                secret: secret,
+                authType: source.authType,
+                alternateTLSValidationHostname: source.alternateTLSValidationHostname
+            )
+        case .subsonic, .navidrome, .airsonic, .gonic:
+            return SubsonicSource(
+                sourceID: source.id,
+                sourceType: source.type,
+                host: source.host ?? "",
+                port: source.port,
+                useSsl: source.useSsl,
+                basePath: source.basePath,
+                username: username,
+                password: secret,
+                alternateTLSValidationHostname: source.alternateTLSValidationHostname
+            )
+        default:
+            return nil
+        }
+    }
+}
+
+/// 整库型来源的「目录浏览」:没有目录可选,只验证能不能连上。
+actor TVServerCatalogLister: TVDirectoryLister {
+    private let source: MusicSource
+    private let credential: SourceCredential?
+
+    init(source: MusicSource, credential: SourceCredential?) {
+        self.source = source
+        self.credential = credential
+    }
+
+    func list(_ path: String) async throws -> [TVDirEntry] {
+        guard path == "/" else { return [] }
+        guard let connector = TVServerCatalogConnectorFactory.make(
+            source: source,
+            credential: credential
+        ) else {
+            throw TVScanError.unsupported
+        }
+        try await connector.connect()
+        await connector.disconnect()
+        return []
+    }
+}
+
 // MARK: - 威联通 File Station 目录列举
 
 /// 与群晖同构:复用 iOS / macOS 那份 `QnapAPI`(纯 Foundation),电视端只做映射。
@@ -682,6 +751,13 @@ final class TVSourceScanner {
     }
 
     private static let maximumScanDepth = 64
+    /// 整库型来源:没有目录树,扫描 = 把服务端曲库整体拉下来。
+    static let serverCatalogTypes: Set<MusicSourceType> = [
+        .fnMusic, .daoliyu, .songloft,
+        .jellyfin, .emby, .plex,
+        .subsonic, .navidrome, .airsonic, .gonic,
+    ]
+
     private static let fnMusicPageSize = 50
     private static let daoLiYuPageSize = 100
 
@@ -755,6 +831,8 @@ final class TVSourceScanner {
             return TVQnapLister(source: source, credential: credential)
         case .webdav, .ftp:
             return TVFilesProviderLister(source: source, credential: credential)
+        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic:
+            return TVServerCatalogLister(source: source, credential: credential)
         case .ugreen:
             return TVUgreenLister(source: source, credential: credential)
         case .fnMusic:
@@ -797,7 +875,7 @@ final class TVSourceScanner {
         indexed = 0
         currentFile = ""
         metadataIssueCount = 0
-        if source.type == .fnMusic || source.type == .daoliyu || source.type == .songloft {
+        if Self.serverCatalogTypes.contains(source.type) {
             return await scanServerCatalog(
                 source: source,
                 credential: credential,
@@ -910,6 +988,23 @@ final class TVSourceScanner {
             } else if source.type == .songloft {
                 _ = try await withRoutedSource(source) { routedSource in
                     try await self.scanSongloft(source: routedSource, credential: credential, onSong: accept)
+                }
+            } else if source.type == .jellyfin || source.type == .emby || source.type == .plex {
+                _ = try await withRoutedSource(source) { routedSource in
+                    try await self.scanMediaServer(
+                        source: routedSource,
+                        credential: credential,
+                        onSong: accept
+                    )
+                }
+            } else if source.type == .subsonic || source.type == .navidrome
+                || source.type == .airsonic || source.type == .gonic {
+                _ = try await withRoutedSource(source) { routedSource in
+                    try await self.scanSubsonic(
+                        source: routedSource,
+                        credential: credential,
+                        onSong: accept
+                    )
                 }
             } else {
                 _ = try await withRoutedSource(source) { routedSource in
@@ -1699,6 +1794,52 @@ final class TVSourceScanner {
             page += 1
         }
 
+        return songs
+    }
+
+/// Jellyfin / Emby / Plex:直接复用 iOS 那份 `MediaServerSource`(它本来就编进了
+    /// tvOS target),按它的曲库流逐首收下。
+    private func scanMediaServer(
+        source: MusicSource,
+        credential: SourceCredential?,
+        onSong: (Song) async throws -> Void
+    ) async throws -> [Song] {
+        guard let connector = TVServerCatalogConnectorFactory.make(
+            source: source,
+            credential: credential
+        ) else {
+            throw TVScanError.unsupported
+        }
+        return try await collectCatalog(from: connector, onSong: onSong)
+    }
+
+    /// Subsonic / Navidrome / Airsonic / Gonic:同一份 `SubsonicSource`。
+    private func scanSubsonic(
+        source: MusicSource,
+        credential: SourceCredential?,
+        onSong: (Song) async throws -> Void
+    ) async throws -> [Song] {
+        guard let connector = TVServerCatalogConnectorFactory.make(
+            source: source,
+            credential: credential
+        ) else {
+            throw TVScanError.unsupported
+        }
+        return try await collectCatalog(from: connector, onSong: onSong)
+    }
+
+    private func collectCatalog(
+        from connector: any SongScanningConnector,
+        onSong: (Song) async throws -> Void
+    ) async throws -> [Song] {
+        try await connector.connect()
+        defer { Task { await connector.disconnect() } }
+        var songs: [Song] = []
+        for try await scanned in try await connector.scanSongs(from: "/") {
+            try Task.checkCancellation()
+            songs.append(scanned.song)
+            try await onSong(scanned.song)
+        }
         return songs
     }
 

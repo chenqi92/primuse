@@ -94,7 +94,8 @@ struct TVScanFlowView: View {
                     onEnterOTP: { showsOTP = true },
                     canCancel: store.activeScanSourceID == source.id
                 )
-            } else if source.type == .fnMusic || source.type == .daoliyu || source.type == .songloft {
+            } else if TVSourceScanner.serverCatalogTypes.contains(source.type) {
+                // 整库型来源没有目录可选,直接给「开始扫描」。
                 fnMusicPickView
             } else if rereadMetadata && !source.scannedDirectories.isEmpty {
                 VStack(alignment: .leading, spacing: 24) {
@@ -386,7 +387,7 @@ struct TVScanFlowView: View {
         loadTask?.cancel()
         started = true
         Task {
-            let admitted = await store.runFnMusicScan(source: source, rereadMetadata: rereadMetadata)
+            let admitted = await store.runServerCatalogScan(source: source, rereadMetadata: rereadMetadata)
             guard !admitted, !Task.isCancelled else { return }
             browseError = PMString("ext.tv.scan.busy")
             started = false

@@ -124,6 +124,8 @@ enum TVSourceLocalLibraryPolicy {
     /// `TVSourceScanner.makeSingleLister` 必须同时给出对应的列举器。
     static let directScanTypes: Set<MusicSourceType> = [
         .smb, .synology, .qnap, .ugreen, .webdav, .ftp,
+        .jellyfin, .emby, .plex,
+        .subsonic, .navidrome, .airsonic, .gonic,
         .fnMusic, .daoliyu, .songloft, .oneDrive, .dropbox,
     ]
 
@@ -2802,8 +2804,8 @@ final class TVStore {
                     total: targets.count,
                     sourceName: source.name
                 )
-                if source.type == .fnMusic || source.type == .daoliyu || source.type == .songloft {
-                    _ = await self.runFnMusicScan(source: source, rereadMetadata: true)
+                if TVSourceScanner.serverCatalogTypes.contains(source.type) {
+                    _ = await self.runServerCatalogScan(source: source, rereadMetadata: true)
                 } else if let lister = self.makeLister(for: source) {
                     let dirs = source.scannedDirectories.isEmpty ? ["/"] : source.scannedDirectories
                     _ = await self.runScan(
@@ -2824,14 +2826,16 @@ final class TVStore {
         rereadAllTagsProgress = nil
     }
 
-        func runFnMusicScan(source: MusicSource, rereadMetadata: Bool = false) async -> Bool {
+    /// 整库型来源(飞牛 / 刀里鱼 / Songloft / 媒体服务器 / Subsonic 系)的扫描:
+    /// 没有目录可选,dirs 传空,由扫描器整体拉取服务端曲库。
+    func runServerCatalogScan(source: MusicSource, rereadMetadata: Bool = false) async -> Bool {
         guard TVScanAdmissionPolicy.canStart(
             activeSourceID: activeScanSourceID,
             requestedSourceID: source.id
         ) else {
             return false
         }
-        guard source.type == .fnMusic || source.type == .daoliyu || source.type == .songloft,
+        guard TVSourceScanner.serverCatalogTypes.contains(source.type),
               let lister = makeLister(for: source) else {
             scanner.phase = .failed(PMString("ext.tv.scan.connectFailed"))
             return true
