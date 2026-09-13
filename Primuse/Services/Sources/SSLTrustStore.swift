@@ -1211,10 +1211,13 @@ private struct TransportTrustAlertsModifier: ViewModifier {
                 // Descendant alerts can suppress a scene-level SwiftUI alert
                 // on macOS, so transport prompts use the window sheet below.
                 return nil
-                #else
+                #elseif os(iOS)
                 if let presentedPrompt, iosPresenter.promptID == presentedPrompt.id {
                     return nil
                 }
+                return presentedPrompt
+                #else
+                // tvOS 没有 UIKit 原生弹窗那条路, SwiftUI alert 就是唯一出口。
                 return presentedPrompt
                 #endif
             },
