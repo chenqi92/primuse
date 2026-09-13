@@ -2205,8 +2205,15 @@ final class TVStore {
 
     /// 只展示能由 Apple TV 自行建立曲库的来源。其余来源必须先在 iPhone / Mac
     /// 完成授权与扫描，再通过配对或同步传入完整曲库，不能保存成一个空来源冒充成功。
+    /// 「在 Apple TV 上手动添加」能选的类型 —— 必须是电视端自己能建库的
+    /// (`TVSourceLocalLibraryPolicy.directScanTypes`),否则加完只是个空壳。
+    /// 网盘暂不在列:授权要走浏览器,电视端还没有扫码授权流程,凭据仍从手机同步。
     static let addableTypes: [MusicSourceType] = [
-        .fnMusic, .daoliyu, .songloft, .smb,
+        .smb, .synology, .qnap, .ugreen,
+        .webdav, .ftp, .nfs, .s3,
+        .jellyfin, .emby, .plex,
+        .subsonic, .navidrome, .airsonic, .gonic,
+        .fnMusic, .daoliyu, .songloft,
     ]
 
     nonisolated static func canBuildLibraryOnTV(_ type: MusicSourceType) -> Bool {
