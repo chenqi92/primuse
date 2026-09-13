@@ -238,6 +238,39 @@ import Testing
         )?.absoluteString == expected + "/a%2520b%20%23%3F")
     }
 
+    @Test func unescapedAddressPathsEncodeChineseAndSpaces() {
+        for (raw, encoded) in [
+            ("我的音乐", "%E6%88%91%E7%9A%84%E9%9F%B3%E4%B9%90"),
+            ("my music", "my%20music"),
+            ("我的 音乐", "%E6%88%91%E7%9A%84%20%E9%9F%B3%E4%B9%90")
+        ] {
+            let base = NetworkHostAuthority.baseURL(
+                address: "https://nas.example.com/" + raw, defaultScheme: "http", port: nil
+            )
+            #expect(base?.absoluteString == "https://nas.example.com/" + encoded)
+            #expect(base?.appendingPathComponent("api").absoluteString == "https://nas.example.com/" + encoded + "/api")
+        }
+    }
+
+    @Test func addressURLDelimitersAndLiteralPathCharactersStayDistinct() {
+        #expect(NetworkHostAuthority.baseURL(
+            address: "https://nas.example.com/dav?key=value#fragment",
+            defaultScheme: "http", port: nil, path: "/music"
+        )?.absoluteString == "https://nas.example.com/dav/music?key=value#fragment")
+        #expect(NetworkHostAuthority.baseURL(
+            address: "https://nas.example.com/dav%3Fkey%23fragment",
+            defaultScheme: "http", port: nil, path: "/music"
+        )?.absoluteString == "https://nas.example.com/dav%3Fkey%23fragment/music")
+        #expect(NetworkHostAuthority.baseURL(
+            address: "https://nas.example.com", defaultScheme: "http", port: nil, path: "/dav?key#fragment/music"
+        )?.absoluteString == "https://nas.example.com/dav%3Fkey%23fragment/music")
+        for address in ["https://nas.example.com", "https://nas.example.com/"] {
+            #expect(NetworkHostAuthority.baseURL(
+                address: address, defaultScheme: "http", port: nil
+            )?.appendingPathComponent("api").absoluteString == "https://nas.example.com/api")
+        }
+    }
+
     @Test func resolversBuildUsableIPv6BaseURLs() {
         #expect(MediaServerStreamResolver.baseURL(
             host: "fd7a::1", port: 8096, useSsl: false, basePath: "/jf"

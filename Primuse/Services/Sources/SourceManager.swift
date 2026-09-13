@@ -1114,6 +1114,11 @@ struct RoutedConnectorCandidate: Sendable {
 /// lost response cannot prove whether the remote write or deletion took effect.
 actor SourceConnectionRouter {
     private struct HandshakeDeadlineExceeded: Error {}
+    private struct EndpointProbeFailure: Error {
+        let underlying: any Error
+        let generation: UInt64
+        let selectionRevision: UInt64
+    }
 
     private let sourceID: String
     private let runtime: SourceConnectionRuntime
@@ -1288,7 +1293,8 @@ actor SourceConnectionRouter {
                 await routeDidChange(kind)
                 return index
             } catch {
-                lastError = error is HandshakeDeadlineExceeded ? SourceError.timeout : error
+                lastError = error is HandshakeDeadlineExceeded
+                    ? SourceError.timeout : (error as? EndpointProbeFailure)?.underlying ?? error
                 try await prepareConnectionFallback(after: error, at: index)
             }
         }
@@ -1371,7 +1377,13 @@ actor SourceConnectionRouter {
         let provenReachable = probeVerifiedIndex == index
         probeVerifiedIndex = nil
         if candidate.kind == .localAddress, let endpoint = candidate.endpoint, !provenReachable {
-            try await endpointProbe(endpoint)
+            let revision = selectionRevision
+            let generation = await runtime.routeGeneration()
+            do {
+                try await endpointProbe(endpoint)
+            } catch {
+                throw EndpointProbeFailure(underlying: error, generation: generation, selectionRevision: revision)
+            }
         }
         try Task.checkCancellation()
         // TCP reachability is deliberately not treated as success. Each
@@ -1407,9 +1419,18 @@ actor SourceConnectionRouter {
         // Abandon only this handshake, not the endpoint's health. Service and
         // trust errors still follow the stricter transport-evidence policy.
         if error is HandshakeDeadlineExceeded { return }
-        guard await canFailOver(after: error, at: index) else { throw error }
+        let probeFailure = error as? EndpointProbeFailure
+        let underlying = probeFailure?.underlying ?? error
+        guard isTransportFailure(underlying) else { throw underlying }
+        let generation = await runtime.routeGeneration()
+        let hasCurrentProbeFailure = probeFailure?.generation == generation
+            && probeFailure?.selectionRevision == selectionRevision
+        if !hasCurrentProbeFailure {
+            guard await canFailOver(after: underlying, at: index) else { throw underlying }
+        }
+        try Task.checkCancellation()
         await candidates[index].connector.disconnect()
-        await recordNetworkFailure(of: candidates[index].kind, error: error)
+        await recordNetworkFailure(of: candidates[index].kind, error: underlying)
     }
 
     /// A task-group timeout waits for a non-cooperative losing child before it

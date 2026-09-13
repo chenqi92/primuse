@@ -40,6 +40,8 @@ public struct SourceRoutePathCondition: Sendable, Equatable {
     public var usesTunnel: Bool
     public var isExpensive: Bool
     public var isConstrained: Bool
+    /// Default-path snapshot fields, retained in equality/observation changes.
+    /// They do not establish reachability of an endpoint on another interface.
     public var supportsIPv4: Bool
     public var supportsIPv6: Bool
     /// A tunnel hides what it runs over, and `isExpensive` is not reliably

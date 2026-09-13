@@ -212,6 +212,65 @@ final class SourceConnectionRouterTests: XCTestCase {
         XCTAssertEqual(result, "wan")
     }
 
+    func testFailedPreflightIsNotImmediatelyProbedAgain() async throws {
+        let fixture = Fixture(remoteKind: .vendorRemote)
+        await fixture.probe.failNextCheck(URLError(.timedOut))
+        let result = try await fixture.read()
+        XCTAssertEqual(result, "wan")
+        let hosts = await fixture.probe.hosts
+        let localConnections = await fixture.local.connections
+        XCTAssertEqual(hosts, ["lan.invalid"])
+        XCTAssertEqual(localConnections, 0)
+        XCTAssertEqual(fixture.events.values, [.vendorRemote])
+    }
+
+    func testPreflightTrustAndCancellationErrorsDoNotTryFallback() async throws {
+        for expected: any Error in [CancellationError(), URLError(.cancelled), URLError(.serverCertificateUntrusted)] {
+            let fixture = Fixture(remoteKind: .vendorRemote)
+            await fixture.probe.failNextCheck(expected)
+            do {
+                _ = try await fixture.read()
+                XCTFail("Expected original probe error")
+            } catch {
+                XCTAssertEqual((error as NSError).domain, (expected as NSError).domain)
+                XCTAssertEqual((error as NSError).code, (expected as NSError).code)
+            }
+            let hosts = await fixture.probe.hosts
+            let remoteConnections = await fixture.remote.connections
+            XCTAssertEqual(hosts, ["lan.invalid"])
+            XCTAssertEqual(remoteConnections, 0)
+            XCTAssertTrue(fixture.events.values.isEmpty)
+        }
+    }
+
+    func testChangedNetworkDoesNotReuseOldPreflightFailure() async throws {
+        let fixture = Fixture(remoteKind: .vendorRemote)
+        await fixture.probe.failNextCheck(URLError(.timedOut), changingNetwork: fixture.runtime)
+        do {
+            _ = try await fixture.read()
+            XCTFail("Expected original failure after the current endpoint was proven reachable")
+        } catch {
+            XCTAssertEqual((error as? URLError)?.code, .timedOut)
+        }
+        let hosts = await fixture.probe.hosts
+        let remoteConnections = await fixture.remote.connections
+        XCTAssertEqual(hosts, ["lan.invalid", "lan.invalid"])
+        XCTAssertEqual(remoteConnections, 0)
+        let retry = try await fixture.read()
+        XCTAssertEqual(retry, "lan")
+    }
+
+    func testReadFailureStillRequiresFreshEndpointEvidence() async throws {
+        let fixture = Fixture(remoteKind: .vendorRemote)
+        _ = try await fixture.read()
+        await fixture.local.failNextRead(URLError(.networkConnectionLost))
+        await fixture.probe.setReachable(false)
+        let result = try await fixture.read()
+        XCTAssertEqual(result, "wan")
+        let hosts = await fixture.probe.hosts
+        XCTAssertEqual(hosts, ["lan.invalid", "lan.invalid"])
+    }
+
     func testSlowPrivateRouteDoesNotBlockTheReachablePublicRoute() async throws {
         let fixture = Fixture()
         await fixture.probe.setLANDelay(3)
@@ -390,14 +449,27 @@ private actor RouterTestConnector: MusicSourceConnector {
 }
 
 private actor RouterEndpointProbe {
+    private(set) var hosts: [String] = []
     private var reachable = true
     private var lanDelay: TimeInterval = 0
+    private var nextFailure: (error: any Error, runtime: SourceConnectionRuntime?)?
     func setReachable(_ reachable: Bool) { self.reachable = reachable }
+    func failNextCheck(_ error: any Error, changingNetwork runtime: SourceConnectionRuntime? = nil) {
+        nextFailure = (error, runtime)
+    }
     /// Simulates a private address that only answers after the public one, which
     /// is what a cold tunnel or an absent LAN looks like.
     func setLANDelay(_ seconds: TimeInterval) { lanDelay = seconds }
     func check(_ endpoint: SourceConnectionEndpoint) async throws {
+        hosts.append(endpoint.host)
         guard endpoint.host == "lan.invalid" else { return }
+        if let failure = nextFailure {
+            nextFailure = nil
+            if let runtime = failure.runtime {
+                await runtime.observeNetworkPath(prefersLocalNetwork: true, pathChanged: true)
+            }
+            throw failure.error
+        }
         if lanDelay > 0 {
             try await Task.sleep(nanoseconds: UInt64(lanDelay * 1_000_000_000))
         }

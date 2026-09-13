@@ -183,10 +183,17 @@ public actor StreamResolverRegistry {
                 )
             }
 
+            var failedProbeGeneration: UInt64?
             do {
                 if Self.requiresReachabilityProbe(source.type), candidate.kind != .vendorRemote {
                     guard let endpoint = candidate.endpoint else { throw URLError(.badURL) }
-                    try await endpointProbe(endpoint)
+                    let generation = await runtime.routeGeneration()
+                    do {
+                        try await endpointProbe(endpoint)
+                    } catch {
+                        failedProbeGeneration = generation
+                        throw error
+                    }
                 }
                 let result = try await operation(routedSource)
                 try Task.checkCancellation()
@@ -195,10 +202,17 @@ public actor StreamResolverRegistry {
             } catch {
                 lastError = error
                 guard !Task.isCancelled,
-                      SourceNetworkFailurePolicy.isNetworkFailure(error),
-                      await SourceNetworkFailurePolicy.endpointIsUnreachable(
+                      SourceNetworkFailurePolicy.isNetworkFailure(error) else { throw error }
+                let currentGeneration = await runtime.routeGeneration()
+                // This preflight already supplied independent transport evidence.
+                // A service error or a changed network still needs a fresh probe.
+                if failedProbeGeneration != currentGeneration {
+                    guard await SourceNetworkFailurePolicy.endpointIsUnreachable(
                         candidate.endpoint, probe: endpointProbe
-                      ) else { throw error }
+                    ) else { throw error }
+                }
+                guard !Task.isCancelled,
+                      await runtime.routeGeneration() == currentGeneration else { throw error }
                 await resolver.invalidateSession(sourceID: source.id)
                 routedResolverStates[source.id] = nil
                 await runtime.recordFailure(
