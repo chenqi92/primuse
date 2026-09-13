@@ -269,6 +269,10 @@ PMSTRING_SOURCE_ROOTS = %w[
 ].freeze
 
 HAN_LITERAL_ALLOWLIST = {
+  "PrimuseKit/Sources/PrimuseKit/LogBacklogPolicy.swift" => [
+    /日志积压超限, 已丢弃/,
+    /上一行重复/
+  ],
   "PrimuseKit/Sources/PrimuseKit/LyricsTextTools.swift" => [
     /作词|作曲|编曲|填词|制作人|混音|母带|和声|吉他|贝斯|鼓|键盘|弦乐|录音|出品|发行|策划|统筹|演唱|原唱|翻唱/
   ],

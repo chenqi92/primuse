@@ -9,23 +9,6 @@
 	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
-	<key>INAlternativeAppNames</key>
-	<array>
-		<dict>
-			<key>INAlternativeAppName</key>
-			<string>猿音</string>
-		</dict>
-		<dict>
-			<key>INAlternativeAppName</key>
-			<string>普瑞缪斯</string>
-		</dict>
-		<dict>
-			<key>INAlternativeAppName</key>
-			<string>Primuse</string>
-			<key>INAlternativeAppNamePronunciationHint</key>
-			<string>pry muse</string>
-		</dict>
-	</array>
 	<key>CFBundleDisplayName</key>
 	<string>Primuse</string>
 	<key>CFBundleExecutable</key>
@@ -69,6 +52,23 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>INAlternativeAppNames</key>
+	<array>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>猿音</string>
+		</dict>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>普瑞缪斯</string>
+		</dict>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>Primuse</string>
+			<key>INAlternativeAppNamePronunciationHint</key>
+			<string>pry muse</string>
+		</dict>
+	</array>
 	<key>INIntentsSupported</key>
 	<array>
 		<string>INPlayMediaIntent</string>
