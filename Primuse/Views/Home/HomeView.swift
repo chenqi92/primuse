@@ -1246,9 +1246,9 @@ struct HomeView: View {
 
     private static let radioWallLayout = RadioStationArtworkGridLayout()
 
-    /// 卡片宽度交给网格算，这里只固定文字区高度 —— 台名长短不一，
-    /// 不固定的话同一行的卡底边会参差。
-    private static let radioWallCaptionHeight: CGFloat = 38
+    /// 标题始终预留两行，副标题再占一行。这样长台名可以自然换行，
+    /// 短台名也不会把下一排封面提高。
+    private static let radioWallCaptionHeight: CGFloat = 59
 
     private var radioWallAddCard: some View {
         Button {
@@ -1296,10 +1296,19 @@ struct HomeView: View {
             toggleHomeRadio(station)
         } label: {
             VStack(alignment: .leading, spacing: 8) {
-                // 封面由列宽决定，共享 content 只负责解析及绘制。
-                RadioStationArtworkContent(station: station, decodeSize: 320)
+                // 用空白容器决定几何尺寸，避免长图的原始宽高比反过来撑大网格列。
+                // 台标是 logo 而不是照片，完整显示比填满后裁掉文字更重要。
+                Color.clear
                     .frame(maxWidth: .infinity)
-                    .aspectRatio(1, contentMode: .fill)
+                    .aspectRatio(1, contentMode: .fit)
+                    .overlay {
+                        RadioStationArtworkContent(
+                            station: station,
+                            decodeSize: 320,
+                            contentMode: .fit
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .overlay(alignment: .topLeading) {
                         Text(isPlaying ? String(localized: "live_badge") : String(localized: "radio_title"))
@@ -1324,7 +1333,8 @@ struct HomeView: View {
                     Text(station.name)
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.primary)
-                        .lineLimit(1)
+                        .lineLimit(2, reservesSpace: true)
+                        .multilineTextAlignment(.leading)
 
                     Text(isCurrent
                          ? (player.radioMetadataTitle ?? station.playbackSubtitle)

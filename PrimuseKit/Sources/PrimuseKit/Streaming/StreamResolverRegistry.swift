@@ -217,7 +217,8 @@ public actor StreamResolverRegistry {
                 routedResolverStates[source.id] = nil
                 await runtime.recordFailure(
                     of: candidate.kind,
-                    for: source.id
+                    for: source.id,
+                    reason: SourceRouteFailureReason.classify(error)
                 )
             }
         }

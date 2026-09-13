@@ -80,6 +80,40 @@ import Testing
         #expect(await resolver.hosts == ["wan.invalid"])
     }
 
+    @Test(arguments: [MusicSourceType.navidrome, .smb], [URLError.Code.timedOut, .cannotConnectToHost])
+    func networkFailureCooldownMatchesReason(sourceType: MusicSourceType, errorCode: URLError.Code) async throws {
+        let runtime = SourceConnectionRuntime()
+        let registry = StreamResolverRegistry(runtime: runtime, endpointProbe: { endpoint in
+            if endpoint.host == "lan.invalid" { throw URLError(errorCode) }
+        })
+        let resolver = RoutingResolver()
+        if sourceType == .smb {
+            await resolver.failNext(URLError(errorCode))
+        }
+        await registry.register(resolver, for: [sourceType])
+        let source = makeSource(type: sourceType)
+        let song = Song(id: "song", title: "T", fileFormat: .flac, filePath: "/s.flac", sourceID: source.id)
+        let startedAt = Date()
+        let result = try await registry.streamURL(for: song, source: source, credential: nil)
+        let finishedAt = Date()
+        #expect(result.host == "wan.invalid")
+        #expect(await runtime.activeKind(for: source.id) == .publicAddress)
+
+        let retryInterval: TimeInterval = errorCode == .timedOut ? 8 : 30
+        #expect(await runtime.preferredKind(
+            for: source.id,
+            availableKinds: [.localAddress, .publicAddress],
+            prefersLocalNetwork: true,
+            now: startedAt.addingTimeInterval(retryInterval - 1)
+        ) == .publicAddress)
+        #expect(await runtime.preferredKind(
+            for: source.id,
+            availableKinds: [.localAddress, .publicAddress],
+            prefersLocalNetwork: true,
+            now: finishedAt.addingTimeInterval(retryInterval + 1)
+        ) == .localAddress)
+    }
+
     @Test func serviceNetworkFailureStillRequiresAnIndependentProbe() async throws {
         let runtime = SourceConnectionRuntime()
         let probe = RoutingProbe()
