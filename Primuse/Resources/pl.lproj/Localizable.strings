@@ -2440,7 +2440,7 @@
 "reread_song_tags_failure_no_update" = "Plik został odczytany, ale nie uzyskano przydatnych aktualizacji tagów.";
 "reread_song_tags_failure_requires_complete_technical_read" = "Odczytano nagłówek pliku, ale niezawodne właściwości techniczne wymagają sprawdzenia całego pliku.";
 "reread_song_tags_failure_song_changed" = "Utwór lub jego źródło zmieniły się podczas odczytu tagów.";
-"reread_song_tags_failure_unrecognized_audio" = "Bajty pliku można odczytać, ale ich sygnatura nie jest zgodna z obsługiwanym formatem audio.";
+"reread_song_tags_failure_unrecognized_audio" = "Bajty pliku można odczytać, ale jego zawartość nie jest rozpoznawalnymi danymi audio i nie pasuje do rozszerzenia pliku.";
 "reread_song_tags_in_progress" = "Odczytywanie tagów pliku…";
 "reread_song_tags_unsupported" = "To źródło nie udostępnia tagów oryginalnego pliku.";
 "rescan" = "Skanuj ponownie";

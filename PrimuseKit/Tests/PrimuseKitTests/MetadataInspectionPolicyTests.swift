@@ -246,4 +246,147 @@ struct MetadataInspectionPolicyTests {
             hasTechnicalProperties: true
         ))
     }
+
+    // MARK: - MPEG 帧探测
+
+    /// 按规范合成真实 MPEG 帧头, 用来锁住"扩展名是 .mp3 却被判成不是音频"的回归。
+    private struct MPEGSpec {
+        var versionBits: Int   // 3=MPEG1, 2=MPEG2, 0=MPEG2.5
+        var layerBits: Int     // 3=Layer I, 2=Layer II, 1=Layer III
+        var bitRateIndex: Int
+        var sampleRateIndex: Int
+        var padding: Int = 0
+    }
+
+    private func mpegFrame(_ spec: MPEGSpec) -> Data {
+        let mpeg1LayerI = [32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448]
+        let mpeg1LayerII = [32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384]
+        let mpeg1LayerIII = [32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320]
+        let mpeg2LayerI = [32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256]
+        let mpeg2Other = [8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160]
+        let isMPEG1 = spec.versionBits == 3
+        let table: [Int] = switch (isMPEG1, spec.layerBits) {
+        case (true, 3): mpeg1LayerI
+        case (true, 2): mpeg1LayerII
+        case (true, 1): mpeg1LayerIII
+        case (false, 3): mpeg2LayerI
+        default: mpeg2Other
+        }
+        let base = [44_100, 48_000, 32_000][spec.sampleRateIndex]
+        let sampleRate = switch spec.versionBits {
+        case 3: base
+        case 2: base / 2
+        default: base / 4
+        }
+        let bitsPerSecond = table[spec.bitRateIndex - 1] * 1_000
+        let byteCount: Int
+        if spec.layerBits == 3 {
+            byteCount = (12 * bitsPerSecond / sampleRate + spec.padding) * 4
+        } else if isMPEG1 || spec.layerBits == 2 {
+            byteCount = 144 * bitsPerSecond / sampleRate + spec.padding
+        } else {
+            byteCount = 72 * bitsPerSecond / sampleRate + spec.padding
+        }
+        var frame = Data([
+            0xFF,
+            UInt8(0xE0 | (spec.versionBits << 3) | (spec.layerBits << 1) | 1),
+            UInt8((spec.bitRateIndex << 4) | (spec.sampleRateIndex << 2) | (spec.padding << 1)),
+            0x00
+        ])
+        frame.append(Data(repeating: 0x5A, count: max(0, byteCount - 4)))
+        return frame
+    }
+
+    private func mpegStream(_ spec: MPEGSpec, frames: Int = 6) -> Data {
+        var data = Data()
+        for _ in 0..<frames { data.append(mpegFrame(spec)) }
+        return data
+    }
+
+    private func id3v2(payloadByteCount: Int) -> Data {
+        var data = Data([0x49, 0x44, 0x33, 0x03, 0x00, 0x00])
+        data.append(contentsOf: [
+            UInt8((payloadByteCount >> 21) & 0x7F), UInt8((payloadByteCount >> 14) & 0x7F),
+            UInt8((payloadByteCount >> 7) & 0x7F), UInt8(payloadByteCount & 0x7F)
+        ])
+        data.append(Data(repeating: 0x00, count: payloadByteCount))
+        return data
+    }
+
+    /// Layer I 与 Layer II 同样是 MPEG 音频。只认 Layer III 会让用 .mp3 扩展名
+    /// 保存的 Layer II 文件被判成"内容不是可识别的音频数据"。
+    @Test("Every MPEG version and layer is recognised as audio")
+    func mpegVersionsAndLayersAreAudio() {
+        let specs: [MPEGSpec] = [
+            .init(versionBits: 3, layerBits: 1, bitRateIndex: 9, sampleRateIndex: 0),
+            .init(versionBits: 3, layerBits: 1, bitRateIndex: 14, sampleRateIndex: 1),
+            .init(versionBits: 3, layerBits: 2, bitRateIndex: 8, sampleRateIndex: 0),
+            .init(versionBits: 3, layerBits: 3, bitRateIndex: 6, sampleRateIndex: 0),
+            .init(versionBits: 2, layerBits: 1, bitRateIndex: 8, sampleRateIndex: 0),
+            .init(versionBits: 2, layerBits: 2, bitRateIndex: 8, sampleRateIndex: 0),
+            .init(versionBits: 2, layerBits: 3, bitRateIndex: 4, sampleRateIndex: 0),
+            .init(versionBits: 0, layerBits: 1, bitRateIndex: 4, sampleRateIndex: 0),
+            .init(versionBits: 0, layerBits: 2, bitRateIndex: 4, sampleRateIndex: 0),
+            .init(versionBits: 3, layerBits: 1, bitRateIndex: 9, sampleRateIndex: 0, padding: 1)
+        ]
+        for spec in specs {
+            #expect(AudioFileSignaturePolicy.inspect(mpegStream(spec)) == .mpegAudio)
+        }
+        // VBR: 相邻帧比特率不同, 但版本/层级/采样率一致。
+        var vbr = Data()
+        for index in [9, 12, 7, 14] {
+            vbr.append(mpegFrame(.init(versionBits: 3, layerBits: 1, bitRateIndex: index, sampleRateIndex: 0)))
+        }
+        #expect(AudioFileSignaturePolicy.inspect(vbr) == .mpegAudio)
+    }
+
+    /// 第一帧不一定紧贴 ID3 标签: 转码/改标签的工具常在中间留下大段填充。
+    /// 原来 4 KiB 的搜索窗口会把这类正常 .mp3 判成不是音频。
+    @Test("A first frame beyond the old 4 KiB window is still found")
+    func mpegFrameFoundAfterLeadingPadding() {
+        let spec = MPEGSpec(versionBits: 3, layerBits: 1, bitRateIndex: 9, sampleRateIndex: 0)
+        for junkByteCount in [16, 4_096, 8_192, 32_768, 64 * 1024] {
+            let data = Data(repeating: 0x00, count: junkByteCount) + mpegStream(spec)
+            #expect(AudioFileSignaturePolicy.inspect(data) == .mpegAudio)
+        }
+        for paddingByteCount in [0, 3_000, 10_000, 40_000] {
+            let data = id3v2(payloadByteCount: 1_024)
+                + Data(repeating: 0x00, count: paddingByteCount)
+                + mpegStream(spec)
+            #expect(AudioFileSignaturePolicy.inspect(data) == .mpegAudio)
+        }
+        for tagByteCount in [64, 1_024, 8_192, 200_000] {
+            #expect(AudioFileSignaturePolicy.inspect(
+                id3v2(payloadByteCount: tagByteCount) + mpegStream(spec)) == .mpegAudio)
+        }
+    }
+
+    /// 放宽搜索窗口不能把非音频认成音频。
+    @Test("Widening the frame search keeps non-audio unrecognised")
+    func widenedSearchStillRejectsNonAudio() {
+        var state: UInt64 = 0x9E37_79B9_7F4A_7C15
+        func nextByte() -> UInt8 {
+            state ^= state << 13; state ^= state >> 7; state ^= state << 17
+            return UInt8(truncatingIfNeeded: state >> 33)
+        }
+        for trial in 0..<20 {
+            state = 0x9E37_79B9_7F4A_7C15 &+ UInt64(trial) &* 0x0123_4567
+            let noise = Data((0..<131_072).map { _ in nextByte() })
+            #expect(AudioFileSignaturePolicy.inspect(noise) == .unknown)
+        }
+        #expect(AudioFileSignaturePolicy.inspect(Data(repeating: 0xFF, count: 131_072)) == .unknown)
+        #expect(AudioFileSignaturePolicy.inspect(
+            Data((0..<131_072).map { UInt8($0 % 2 == 0 ? 0xFF : 0xFB) })) == .unknown)
+        #expect(AudioFileSignaturePolicy.inspect(
+            Data([0xFF, 0xD8, 0xFF, 0xE0]) + Data(repeating: 0x11, count: 131_072)) == .unknown)
+        #expect(AudioFileSignaturePolicy.inspect(
+            Data(#"{"errno":-6,"request_id":1}"#.utf8)
+                + Data(repeating: 0x20, count: 131_072)) == .unknown)
+        #expect(AudioFileSignaturePolicy.inspect(
+            Data("<!DOCTYPE html><html><head><title>404</title>".utf8)
+                + Data(repeating: 0x20, count: 8_192)) == .unknown)
+        #expect(AudioFileSignaturePolicy.inspect(Data(repeating: 0, count: 131_072)) == .unknown)
+        #expect(AudioFileSignaturePolicy.inspect(Data()) == .unknown)
+    }
+
 }

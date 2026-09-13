@@ -1751,7 +1751,7 @@
 "From URL" = "Від URL";
 "scrape_metadata_toggle" = "Метадані (назва, виконавець, альбом)";
 "radio_previous_station" = "Попередня станція";
-"reread_song_tags_failure_unrecognized_audio" = "Байти файлу читаються, але їх підпис не відповідає підтримуваному аудіоформату.";
+"reread_song_tags_failure_unrecognized_audio" = "Байти файлу читаються, але його вміст не є розпізнаваними аудіоданими й не відповідає розширенню.";
 "restore" = "Відновити";
 "ai_authentication_style_x_api_key" = "x-api-ключ";
 "lyrics_converter_no_timing_notice" = "У вихідному тексті немає часових міток, тому перетворення не зможе створити їх автоматично.";

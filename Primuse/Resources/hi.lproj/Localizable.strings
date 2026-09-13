@@ -2440,7 +2440,7 @@
 "reread_song_tags_failure_no_update" = "फ़ाइल पढ़ी गई थी, लेकिन इससे कोई उपयोगी टैग अपडेट नहीं आया।";
 "reread_song_tags_failure_requires_complete_technical_read" = "फ़ाइल हेडर पढ़ा गया था, लेकिन विश्वसनीय तकनीकी गुणों के लिए पूर्ण-फ़ाइल निरीक्षण की आवश्यकता होती है।";
 "reread_song_tags_failure_song_changed" = "टैग पढ़ते समय गाना या उसका स्रोत बदल गया।";
-"reread_song_tags_failure_unrecognized_audio" = "फ़ाइल बाइट्स पढ़ने योग्य हैं, लेकिन उनके हस्ताक्षर समर्थित ऑडियो प्रारूप से मेल नहीं खाते हैं।";
+"reread_song_tags_failure_unrecognized_audio" = "फ़ाइल बाइट्स पढ़ने योग्य हैं, लेकिन सामग्री पहचानने योग्य ऑडियो डेटा नहीं है और फ़ाइल एक्सटेंशन से मेल नहीं खाती।";
 "reread_song_tags_in_progress" = "फ़ाइल टैग पढ़ रहा है...";
 "reread_song_tags_unsupported" = "यह स्रोत मूल फ़ाइल टैग को उजागर नहीं करता है।";
 "rescan" = "पुनः स्कैन करें";

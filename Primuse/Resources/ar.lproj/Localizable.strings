@@ -2440,7 +2440,7 @@
 "reread_song_tags_failure_no_update" = "تمت قراءة الملف، لكنه لم ينتج أي تحديث للعلامة قابل للاستخدام.";
 "reread_song_tags_failure_requires_complete_technical_read" = "تمت قراءة رأس الملف، لكن الخصائص التقنية الموثوقة تتطلب فحصًا كاملاً للملف.";
 "reread_song_tags_failure_song_changed" = "تغيرت الأغنية أو مصدرها أثناء قراءة العلامات.";
-"reread_song_tags_failure_unrecognized_audio" = "بايتات الملف قابلة للقراءة، لكن توقيعها لا يتطابق مع تنسيق الصوت المدعوم.";
+"reread_song_tags_failure_unrecognized_audio" = "بايتات الملف قابلة للقراءة، لكن محتواه ليس بيانات صوتية يمكن التعرف عليها ولا يطابق امتداد الملف.";
 "reread_song_tags_in_progress" = "قراءة علامات الملف...";
 "reread_song_tags_unsupported" = "لا يكشف هذا المصدر عن علامات الملف الأصلية.";
 "rescan" = "إعادة المسح";

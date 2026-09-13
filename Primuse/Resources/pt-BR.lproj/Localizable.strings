@@ -2440,7 +2440,7 @@
 "reread_song_tags_failure_no_update" = "O arquivo foi lido, mas não gerou nenhuma atualização de tags utilizável.";
 "reread_song_tags_failure_requires_complete_technical_read" = "O cabeçalho do arquivo foi lido, mas propriedades técnicas confiáveis exigem uma inspeção completa do arquivo.";
 "reread_song_tags_failure_song_changed" = "A música ou sua origem mudou durante a leitura das tags.";
-"reread_song_tags_failure_unrecognized_audio" = "Os bytes do arquivo são legíveis, mas sua assinatura não corresponde a um formato de áudio suportado.";
+"reread_song_tags_failure_unrecognized_audio" = "Os bytes do arquivo são legíveis, mas o conteúdo não são dados de áudio reconhecíveis e não corresponde à extensão.";
 "reread_song_tags_in_progress" = "Lendo tags do arquivo…";
 "reread_song_tags_unsupported" = "Esta origem não disponibiliza as tags do arquivo original.";
 "rescan" = "Nova varredura";

@@ -1751,7 +1751,7 @@
 "From URL" = "URL'den";
 "scrape_metadata_toggle" = "Üst veriler (başlık, sanatçı, albüm)";
 "radio_previous_station" = "Önceki İstasyon";
-"reread_song_tags_failure_unrecognized_audio" = "Dosya baytları okunabilir ancak imzaları desteklenen bir ses formatıyla eşleşmiyor.";
+"reread_song_tags_failure_unrecognized_audio" = "Dosya baytları okunabilir ancak içeriği tanınabilir ses verisi değil ve dosya uzantısıyla eşleşmiyor.";
 "restore" = "Geri yükle";
 "ai_authentication_style_x_api_key" = "x-api anahtarı";
 "lyrics_converter_no_timing_notice" = "Kaynakta zaman çizelgesi olmadığından dönüştürme zaman damgalarını otomatik olarak oluşturamaz.";

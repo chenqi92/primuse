@@ -699,7 +699,7 @@
 "reread_song_tags_failure_no_update" = "ファイルを読み込みましたが、利用可能なタグ更新は得られませんでした。";
 "reread_song_tags_failure_requires_complete_technical_read" = "ファイルヘッダは読み込めましたが、信頼できる技術情報にはファイル全体の確認が必要です。";
 "metadata_status_incomplete_unverified_reason" = "この記録では同じファイルの完全な読み取りがまだ完了していないため、元ファイルにタグがないのか、読み取りまたは解析が未完了なのかを判別できません。確認するにはこの曲を再読み取りしてください。";
-"reread_song_tags_failure_unrecognized_audio" = "ファイルは読み取れますが、シグネチャが対応する音声形式と一致しません。";
+"reread_song_tags_failure_unrecognized_audio" = "ファイルは読み取れますが、中身が認識できる音声データではなく、拡張子と一致しません。";
 "song_details_check_source" = "ソースを確認";
 "song_details_source_available" = "ソースに接続できました。再読み込みを開始します。";
 "song_details_source_unavailable" = "ソースはまだ利用できません。ネットワーク、サインイン状態、ファイルパスを確認してください。";

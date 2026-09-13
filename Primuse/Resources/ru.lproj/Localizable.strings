@@ -1751,7 +1751,7 @@
 "From URL" = "От URL";
 "scrape_metadata_toggle" = "Метаданные (название, исполнитель, альбом)";
 "radio_previous_station" = "Предыдущая станция";
-"reread_song_tags_failure_unrecognized_audio" = "Байты файла читаются, но их подпись не соответствует поддерживаемому аудиоформату.";
+"reread_song_tags_failure_unrecognized_audio" = "Байты файла читаются, но его содержимое не является распознаваемыми аудиоданными и не соответствует расширению.";
 "restore" = "Восстановить";
 "ai_authentication_style_x_api_key" = "x-api-ключ";
 "lyrics_converter_no_timing_notice" = "В исходном тексте нет временных меток, поэтому преобразование не сможет создать их автоматически.";

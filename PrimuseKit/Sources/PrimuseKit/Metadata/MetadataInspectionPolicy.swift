@@ -191,18 +191,28 @@ public enum AudioFileSignaturePolicy {
 
     private struct MPEGFrameHeader {
         let versionBits: Int
+        let layerBits: Int
         let sampleRate: Int
         let byteCount: Int
     }
 
+    /// 第一帧不一定紧贴 ID3 标签: 转码/改标签的工具经常在标签与音频之间留下
+    /// 大段填充, 而 `leadingAudioOffset` 只会跳过标签自身声明的长度。4 KiB 的
+    /// 搜索窗口会把这类文件误判成"不是音频", 于是一个正常的 .mp3 被标成
+    /// "标签无法读取"。这里与 DTS 探测用同一个 64 KiB 口径。
+    private static let mpegFrameSearchWindow = 64 * 1024
+
     private static func containsMPEGFrameSequence(_ data: Data) -> Bool {
         guard data.count >= 8 else { return false }
-        let finalOffset = min(data.count - 4, 4 * 1024)
+        let finalOffset = min(data.count - 4, mpegFrameSearchWindow)
         for offset in 0...finalOffset {
+            // 绝大多数字节在这里就被挡掉, 窗口放大不会变成逐字节解析。
+            guard data[offset] == 0xFF else { continue }
             guard let first = mpegFrameHeader(in: data, at: offset) else { continue }
             let nextOffset = offset + first.byteCount
             guard let second = mpegFrameHeader(in: data, at: nextOffset),
                   second.versionBits == first.versionBits,
+                  second.layerBits == first.layerBits,
                   second.sampleRate == first.sampleRate else { continue }
             return true
         }
@@ -220,14 +230,21 @@ public enum AudioFileSignaturePolicy {
         let layerBits = Int((second >> 1) & 0x03)
         let bitRateIndex = Int((third >> 4) & 0x0F)
         let sampleRateIndex = Int((third >> 2) & 0x03)
+        // Layer I 与 Layer II 同样是 MPEG 音频。只认 Layer III 会把用 .mp3
+        // 扩展名保存的 Layer II 文件判成"不是 Primuse 支持的格式"。
         guard versionBits != 1,
-              layerBits == 1,
+              layerBits != 0,
               (1...14).contains(bitRateIndex),
               sampleRateIndex < 3 else { return nil }
 
-        let bitRates = versionBits == 3
-            ? [32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320]
-            : [8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160]
+        let isMPEG1 = versionBits == 3
+        let bitRates: [Int] = switch (isMPEG1, layerBits) {
+        case (true, 3): [32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448]
+        case (true, 2): [32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384]
+        case (true, 1): [32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320]
+        case (false, 3): [32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256]
+        default: [8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160]
+        }
         let baseSampleRate = [44_100, 48_000, 32_000][sampleRateIndex]
         let sampleRate = switch versionBits {
         case 3: baseSampleRate
@@ -236,12 +253,23 @@ public enum AudioFileSignaturePolicy {
         default: 0
         }
         guard sampleRate > 0 else { return nil }
-        let coefficient = versionBits == 3 ? 144 : 72
-        let byteCount = coefficient * bitRates[bitRateIndex - 1] * 1_000 / sampleRate
-            + Int((third >> 1) & 0x01)
+        let bitsPerSecond = bitRates[bitRateIndex - 1] * 1_000
+        let padding = Int((third >> 1) & 0x01)
+        // 每帧的采样数: Layer I 384, Layer II 恒 1152, Layer III 在 MPEG1 是
+        // 1152、在 MPEG2/2.5 是 576 —— 帧长公式必须跟着分, 否则下一帧的位置
+        // 算错, 连续两帧的校验就永远不成立。
+        let byteCount: Int
+        if layerBits == 3 {
+            byteCount = (12 * bitsPerSecond / sampleRate + padding) * 4
+        } else if isMPEG1 || layerBits == 2 {
+            byteCount = 144 * bitsPerSecond / sampleRate + padding
+        } else {
+            byteCount = 72 * bitsPerSecond / sampleRate + padding
+        }
         guard byteCount >= 4 else { return nil }
         return MPEGFrameHeader(
             versionBits: versionBits,
+            layerBits: layerBits,
             sampleRate: sampleRate,
             byteCount: byteCount
         )

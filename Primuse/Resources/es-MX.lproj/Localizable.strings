@@ -2440,7 +2440,7 @@
 "reread_song_tags_failure_no_update" = "Se leyó el archivo, pero no se obtuvo ninguna actualización útil de etiquetas.";
 "reread_song_tags_failure_requires_complete_technical_read" = "Se leyó el encabezado del archivo, pero las propiedades técnicas confiables requieren una inspección completa del archivo.";
 "reread_song_tags_failure_song_changed" = "La canción o su origen cambió durante la lectura de etiquetas.";
-"reread_song_tags_failure_unrecognized_audio" = "Los bytes del archivo son legibles, pero su firma no coincide con un formato de audio compatible.";
+"reread_song_tags_failure_unrecognized_audio" = "Los bytes del archivo son legibles, pero su contenido no son datos de audio reconocibles y no coincide con la extensión.";
 "reread_song_tags_in_progress" = "Leyendo etiquetas del archivo…";
 "reread_song_tags_unsupported" = "Este origen no proporciona las etiquetas del archivo original.";
 "rescan" = "Volver a escanear";

@@ -2440,7 +2440,7 @@
 "reread_song_tags_failure_no_update" = "ไฟล์ถูกอ่านแล้ว แต่ไม่ได้สร้างการอัปเดตแท็กที่ใช้งานได้";
 "reread_song_tags_failure_requires_complete_technical_read" = "อ่านส่วนหัวของไฟล์แล้ว แต่คุณสมบัติทางเทคนิคที่เชื่อถือได้จำเป็นต้องมีการตรวจสอบไฟล์โดยสมบูรณ์";
 "reread_song_tags_failure_song_changed" = "เพลงหรือแหล่งที่มาเปลี่ยนไปในขณะที่กำลังอ่านแท็ก";
-"reread_song_tags_failure_unrecognized_audio" = "ไฟล์ไบต์สามารถอ่านได้ แต่ลายเซ็นไม่ตรงกับรูปแบบเสียงที่รองรับ";
+"reread_song_tags_failure_unrecognized_audio" = "ไฟล์ไบต์สามารถอ่านได้ แต่เนื้อหาไม่ใช่ข้อมูลเสียงที่รู้จักและไม่ตรงกับนามสกุลไฟล์";
 "reread_song_tags_in_progress" = "กำลังอ่านแท็กไฟล์...";
 "reread_song_tags_unsupported" = "แหล่งที่มานี้ไม่เปิดเผยแท็กไฟล์ต้นฉบับ";
 "rescan" = "สแกนใหม่";
