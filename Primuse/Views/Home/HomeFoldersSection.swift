@@ -325,6 +325,7 @@ struct HomeFolderBrowser: View {
     #endif
     @Environment(HomeDiscoveryModel.self) private var model
     @Environment(MusicLibrary.self) private var library
+    @Environment(SourcesStore.self) private var sourcesStore
     @Environment(AudioPlayerService.self) private var player
     @AppStorage(HomeFolderPinStorage.key) private var pinsRawValue = ""
 
@@ -522,7 +523,12 @@ struct HomeFolderBrowser: View {
                     .accessibilityLabel("play")
                     if FolderPlaylistMenuButton.supports(node) {
                         Menu {
-                            FolderPlaylistMenuButton(node: node, index: model.index)
+                            FolderPlaylistMenuButton(
+                                node: node,
+                                index: model.index,
+                                library: library,
+                                source: sourcesStore.source(id: node.sourceID)
+                            )
                         } label: { Image(systemName: "ellipsis") }
                         .accessibilityLabel("a11y_more_actions")
                     }
@@ -584,7 +590,12 @@ struct HomeFolderBrowser: View {
             .disabled(folder.descendantSongCount == 0)
         Button("shuffle", systemImage: "shuffle") { playFolder(folder.id, shuffle: true) }
             .disabled(folder.descendantSongCount == 0)
-        FolderPlaylistMenuButton(node: folder, index: model.index)
+        FolderPlaylistMenuButton(
+            node: folder,
+            index: model.index,
+            library: library,
+            source: sourcesStore.source(id: folder.sourceID)
+        )
         Divider()
         Button("ai_move_up", systemImage: "arrow.up") { moveMacPin(folder.id, by: -1) }
             .disabled(pins.first == folder.id)
@@ -769,7 +780,12 @@ struct HomeFolderBrowser: View {
                     pinButton(node.id)
                     if FolderPlaylistMenuButton.supports(node) {
                         Menu {
-                            FolderPlaylistMenuButton(node: node, index: model.index)
+                            FolderPlaylistMenuButton(
+                                node: node,
+                                index: model.index,
+                                library: library,
+                                source: sourcesStore.source(id: node.sourceID)
+                            )
                         } label: { Image(systemName: "ellipsis").frame(width: 30, height: 30) }
                         .menuStyle(.borderlessButton)
                         .accessibilityLabel("a11y_more_actions")
@@ -834,7 +850,12 @@ struct HomeFolderBrowser: View {
             .disabled(child.descendantSongCount == 0)
         Button("shuffle", systemImage: "shuffle") { playFolder(child.id, shuffle: true) }
             .disabled(child.descendantSongCount == 0)
-        FolderPlaylistMenuButton(node: child, index: model.index)
+        FolderPlaylistMenuButton(
+            node: child,
+            index: model.index,
+            library: library,
+            source: sourcesStore.source(id: child.sourceID)
+        )
         if child.kind != .source {
             let pinned = pins.contains(child.id)
             Button(HomeDiscoveryText.string(pinned ? "unpin_folder" : "pin_folder"),
@@ -975,11 +996,17 @@ struct HomeFolderBrowser: View {
     }
 }
 
+/// 这个按钮会出现在导航栏菜单里, 所以它不能从 environment 取必需的模型。
+/// SwiftUI 把工具栏内容放在独立的 `UIKitBarItemHost` 视图图里求值, 而那张图
+/// 在导航转场途中 (`willMove(toSuperview:)` → `initializeSize()`) 就要先算尺寸,
+/// 此时外层 hosting controller 的 environment 还没传进来 —— 在那里读
+/// `@Environment(MusicLibrary.self)` 这类非可选依赖会直接触发运行时断言。
+/// 调用方在自己的 body 里解析好实例再传进来, 菜单内容就只依赖入参。
 struct FolderPlaylistMenuButton: View {
     let node: LibraryFolderNode
     let index: LibraryFolderIndex?
-    @Environment(MusicLibrary.self) private var library
-    @Environment(SourcesStore.self) private var sourcesStore
+    let library: MusicLibrary
+    let source: MusicSource?
 
     static func supports(_ node: LibraryFolderNode) -> Bool {
         (node.kind == .folder || node.kind == .scanRoot || node.kind == .source)
@@ -987,8 +1014,7 @@ struct FolderPlaylistMenuButton: View {
     }
 
     var body: some View {
-        if Self.supports(node),
-           let source = sourcesStore.source(id: node.sourceID) {
+        if Self.supports(node), let source {
             let binding = PlaylistFolderBinding(nodeID: node.id, cloudAccountID: source.cloudAccountID)
             let exists = library.playlists.contains { $0.folderBinding == binding }
             Button(

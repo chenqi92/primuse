@@ -5016,6 +5016,10 @@ private struct LibraryFolderNodeLabel: View {
 private struct LibraryFolderNodeView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    // Resolved here, in the page's own view graph, because the folder menu it
+    // feeds is rendered by a navigation-bar item host that cannot rely on the
+    // environment reaching it. See `FolderPlaylistMenuButton`.
+    @Environment(SourcesStore.self) private var sourcesStore
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
     #endif
@@ -5214,7 +5218,9 @@ private struct LibraryFolderNodeView: View {
                 selection: selection,
                 sortOrder: $sortOrder,
                 nodeID: nodeID,
-                index: folderCache.index
+                index: folderCache.index,
+                library: library,
+                source: sourcesStore.source(id: nodeID.sourceID)
             )
         }
         ToolbarItem(placement: .topBarTrailing) {
@@ -5569,11 +5575,15 @@ private struct LibraryFolderPlayAllToolbarItem: View {
     }
 }
 
+/// Toolbar items are hosted in their own view graph, so this menu takes every
+/// model it needs as a value instead of reading the environment.
 private struct LibraryFolderNormalToolbarMenu: View {
     let selection: SongSelectionModel
     @Binding var sortOrder: SongListView.SongSortOrder
     let nodeID: LibraryFolderNodeID
     let index: LibraryFolderIndex?
+    let library: MusicLibrary
+    let source: MusicSource?
     @AppStorage(HomeFolderPinStorage.key) private var pinsRawValue = ""
     @AppStorage(HomeFolderPinStorage.displayCountKey) private var displayCount = HomeFolderPinStorage.defaultDisplayCount
 
@@ -5596,7 +5606,12 @@ private struct LibraryFolderNormalToolbarMenu: View {
                 .disabled(index?.node(withID: nodeID) == nil)
                 .accessibilityIdentifier("libraryFolder.pinToHome")
                 if let node = index?.node(withID: nodeID) {
-                    FolderPlaylistMenuButton(node: node, index: index)
+                    FolderPlaylistMenuButton(
+                        node: node,
+                        index: index,
+                        library: library,
+                        source: source
+                    )
                 }
                 Section {
                     SongSortMenuOptions(sortOrder: $sortOrder)
