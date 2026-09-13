@@ -21,15 +21,31 @@ final class TVAppleMusicCatalog {
     private(set) var isLoadingPlaylists = false
     private(set) var isSearching = false
     private(set) var lastError: String?
-    /// 未授权 —— 界面据此提示「去设置里允许后即可搜索 Apple Music」。
-    private(set) var needsAuthorization = false
+    /// 当前授权状态。界面据此决定显示内容还是显示授权入口。
+    private(set) var authorization: AppleMusicAuthorizationState = Self.currentAuthorization
+    /// 未授权 —— 界面据此显示「允许访问 Apple Music」入口。
+    var needsAuthorization: Bool { authorization != .authorized }
 
     @ObservationIgnored private var searchTask: Task<Void, Never>?
 
+    /// 重新读取系统授权状态。用户可能在系统设置里改过,或刚在别处授权过。
+    func refreshAuthorization() {
+        authorization = Self.currentAuthorization
+    }
+
+    /// 显式请求授权。搜索本身不弹授权框(每敲一个字弹一次不可接受),
+    /// 所以未授权时界面必须自带这个入口:否则搜不出任何 Apple Music
+    /// 内容,也就永远碰不到播放路径里的那次授权请求。
+    @discardableResult
+    func requestAuthorization() async -> AppleMusicAuthorizationState {
+        _ = await MusicAuthorization.request()
+        refreshAuthorization()
+        return authorization
+    }
+
     func search(_ term: String) {
         searchTask?.cancel()
-        let authorization = Self.authorizationState
-        needsAuthorization = authorization != .authorized
+        refreshAuthorization()
         guard AppleMusicCatalogSearchPolicy.shouldSearch(
             term: term,
             authorization: authorization
@@ -61,12 +77,11 @@ final class TVAppleMusicCatalog {
 
     /// 拉取用户自己的 Apple Music 歌单。未授权时不发请求也不弹授权。
     func loadPlaylists() async {
-        guard Self.authorizationState == .authorized else {
-            needsAuthorization = true
+        refreshAuthorization()
+        guard authorization == .authorized else {
             playlists = []
             return
         }
-        needsAuthorization = false
         guard !isLoadingPlaylists else { return }
         isLoadingPlaylists = true
         defer { isLoadingPlaylists = false }
@@ -164,7 +179,7 @@ final class TVAppleMusicCatalog {
         )
     }
 
-    private static var authorizationState: AppleMusicAuthorizationState {
+    private static var currentAuthorization: AppleMusicAuthorizationState {
         switch MusicAuthorization.currentStatus {
         case .authorized: return .authorized
         case .denied: return .denied

@@ -809,5 +809,12 @@
 
 /* Apple TV Apple Music collections */
 "ext.tv.search.appleMusicTopSongs" = "热门曲目";
+"ext.tv.search.appleMusicAuthorize" = "允许访问 Apple Music";
+"ext.tv.search.appleMusicAuthorizeHint" = "授权后即可在这里搜索并播放 Apple Music 曲目。";
+"ext.tv.settings.appleMusic" = "Apple Music";
+"ext.tv.settings.appleMusic.authorized" = "已允许";
+"ext.tv.settings.appleMusic.authorize" = "点按允许访问";
+"ext.tv.settings.appleMusic.denied" = "已拒绝 · 请在系统设置中开启";
+"ext.tv.settings.appleMusic.restricted" = "访问受限";
 "ext.tv.playlists.appleMusic" = "Apple Music 歌单";
 "ext.tv.playlists.appleMusicLoading" = "正在加载 Apple Music 歌单…";

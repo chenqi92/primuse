@@ -759,5 +759,12 @@
 
 /* Apple TV Apple Music collections */
 "ext.tv.search.appleMusicTopSongs" = "المقاطع الرائجة";
+"ext.tv.search.appleMusicAuthorize" = "السماح بالوصول إلى Apple Music";
+"ext.tv.search.appleMusicAuthorizeHint" = "بعد السماح يمكنك البحث عن مقاطع Apple Music وتشغيلها هنا.";
+"ext.tv.settings.appleMusic" = "Apple Music";
+"ext.tv.settings.appleMusic.authorized" = "مسموح";
+"ext.tv.settings.appleMusic.authorize" = "اضغط للسماح";
+"ext.tv.settings.appleMusic.denied" = "مرفوض · فعّله من إعدادات tvOS";
+"ext.tv.settings.appleMusic.restricted" = "مقيّد";
 "ext.tv.playlists.appleMusic" = "قوائم تشغيل Apple Music";
 "ext.tv.playlists.appleMusicLoading" = "جارٍ تحميل قوائم تشغيل Apple Music…";

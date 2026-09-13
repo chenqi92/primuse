@@ -50,6 +50,7 @@ struct TVSettingsView: View {
     @State private var isSyncing = false
     @State private var syncMsg: String?
     @State private var artistNameSettings = ArtistNameSettingsStore.shared
+    @State private var appleMusic = TVAppleMusicCatalog()
 
     private var immersiveEffect: FullscreenPlayerEffect {
         FullscreenPlayerEffect(rawValue: immersiveEffectRawValue) ?? .defaultValue
@@ -120,6 +121,8 @@ struct TVSettingsView: View {
                                 PMString("player_animated_artwork"),
                                 isOn: $animatedArtworkEnabled
                             )
+                            settingDivider
+                            appleMusicRow
                         }
                         settingsSection(PMString("ext.tv.settings.library")) {
                             toggleRow(
@@ -233,7 +236,11 @@ struct TVSettingsView: View {
                 dismiss()
             }
         }
-        .onAppear { FullscreenPlayerEffectSync.shared.install() }
+        .onAppear {
+            FullscreenPlayerEffectSync.shared.install()
+            // 用户可能刚在搜索页或 tvOS 设置里改过授权,回来要显示最新状态。
+            appleMusic.refreshAuthorization()
+        }
     }
 
     private func settingsSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -397,6 +404,28 @@ struct TVSettingsView: View {
     }
 
     /// 可点击行(同步 / 跳转);trailing 默认箭头表示可进入。
+    /// Apple Music 授权入口。搜索页只在输入关键词后才会出现授权行,
+    /// 这里给一个常驻位置,并显示当前授权状态。
+    @ViewBuilder
+    private var appleMusicRow: some View {
+        let title = PMString("ext.tv.settings.appleMusic")
+        switch appleMusic.authorization {
+        case .authorized:
+            infoRow("music.note", title, PMString("ext.tv.settings.appleMusic.authorized"))
+        case .restricted:
+            infoRow("music.note", title, PMString("ext.tv.settings.appleMusic.restricted"))
+        case .denied:
+            infoRow("music.note", title, PMString("ext.tv.settings.appleMusic.denied"))
+        case .notDetermined:
+            navRow("music.note", title, PMString("ext.tv.settings.appleMusic.authorize"),
+                   action: authorizeAppleMusic)
+        }
+    }
+
+    private func authorizeAppleMusic() {
+        Task { @MainActor in await appleMusic.requestAuthorization() }
+    }
+
     private func navRow(_ icon: String, _ title: String, _ value: String,
                         trailing: String = "chevron.right",
                         action: @escaping () -> Void) -> some View {

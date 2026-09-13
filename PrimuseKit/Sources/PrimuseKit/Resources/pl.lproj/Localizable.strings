@@ -759,5 +759,12 @@
 
 /* Apple TV Apple Music collections */
 "ext.tv.search.appleMusicTopSongs" = "Popularne utwory";
+"ext.tv.search.appleMusicAuthorize" = "Zezwól na dostęp do Apple Music";
+"ext.tv.search.appleMusicAuthorizeHint" = "Po udzieleniu zgody możesz tu wyszukiwać i odtwarzać utwory Apple Music.";
+"ext.tv.settings.appleMusic" = "Apple Music";
+"ext.tv.settings.appleMusic.authorized" = "Dozwolone";
+"ext.tv.settings.appleMusic.authorize" = "Naciśnij, aby zezwolić";
+"ext.tv.settings.appleMusic.denied" = "Odrzucono · włącz w Ustawieniach tvOS";
+"ext.tv.settings.appleMusic.restricted" = "Ograniczone";
 "ext.tv.playlists.appleMusic" = "Playlisty Apple Music";
 "ext.tv.playlists.appleMusicLoading" = "Wczytywanie playlist Apple Music…";

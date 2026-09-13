@@ -759,5 +759,12 @@
 
 /* Apple TV Apple Music collections */
 "ext.tv.search.appleMusicTopSongs" = "เพลงยอดนิยม";
+"ext.tv.search.appleMusicAuthorize" = "อนุญาตให้เข้าถึง Apple Music";
+"ext.tv.search.appleMusicAuthorizeHint" = "เมื่ออนุญาตแล้ว คุณจะค้นหาและเล่นเพลงจาก Apple Music ได้ที่นี่";
+"ext.tv.settings.appleMusic" = "Apple Music";
+"ext.tv.settings.appleMusic.authorized" = "อนุญาตแล้ว";
+"ext.tv.settings.appleMusic.authorize" = "แตะเพื่ออนุญาต";
+"ext.tv.settings.appleMusic.denied" = "ถูกปฏิเสธ · เปิดใช้ในการตั้งค่า tvOS";
+"ext.tv.settings.appleMusic.restricted" = "ถูกจำกัด";
 "ext.tv.playlists.appleMusic" = "เพลย์ลิสต์ Apple Music";
 "ext.tv.playlists.appleMusicLoading" = "กำลังโหลดเพลย์ลิสต์ Apple Music…";

@@ -759,5 +759,12 @@
 
 /* Apple TV Apple Music collections */
 "ext.tv.search.appleMusicTopSongs" = "Popüler parçalar";
+"ext.tv.search.appleMusicAuthorize" = "Apple Music erişimine izin ver";
+"ext.tv.search.appleMusicAuthorizeHint" = "İzin verdikten sonra Apple Music parçalarını burada arayıp çalabilirsin.";
+"ext.tv.settings.appleMusic" = "Apple Music";
+"ext.tv.settings.appleMusic.authorized" = "İzin verildi";
+"ext.tv.settings.appleMusic.authorize" = "İzin vermek için dokun";
+"ext.tv.settings.appleMusic.denied" = "Reddedildi · tvOS Ayarları'ndan açın";
+"ext.tv.settings.appleMusic.restricted" = "Kısıtlı";
 "ext.tv.playlists.appleMusic" = "Apple Music çalma listeleri";
 "ext.tv.playlists.appleMusicLoading" = "Apple Music çalma listeleri yükleniyor…";

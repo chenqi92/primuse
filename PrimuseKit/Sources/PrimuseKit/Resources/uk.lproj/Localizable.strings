@@ -759,5 +759,12 @@
 
 /* Apple TV Apple Music collections */
 "ext.tv.search.appleMusicTopSongs" = "Популярні треки";
+"ext.tv.search.appleMusicAuthorize" = "Дозволити доступ до Apple Music";
+"ext.tv.search.appleMusicAuthorizeHint" = "Після дозволу тут можна шукати та відтворювати треки Apple Music.";
+"ext.tv.settings.appleMusic" = "Apple Music";
+"ext.tv.settings.appleMusic.authorized" = "Дозволено";
+"ext.tv.settings.appleMusic.authorize" = "Натисніть, щоб дозволити";
+"ext.tv.settings.appleMusic.denied" = "Заборонено · увімкніть у налаштуваннях tvOS";
+"ext.tv.settings.appleMusic.restricted" = "Обмежено";
 "ext.tv.playlists.appleMusic" = "Плейлисти Apple Music";
 "ext.tv.playlists.appleMusicLoading" = "Завантаження плейлистів Apple Music…";

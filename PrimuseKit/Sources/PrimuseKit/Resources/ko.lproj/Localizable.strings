@@ -812,5 +812,12 @@
 
 /* Apple TV Apple Music collections */
 "ext.tv.search.appleMusicTopSongs" = "인기 곡";
+"ext.tv.search.appleMusicAuthorize" = "Apple Music 접근 허용";
+"ext.tv.search.appleMusicAuthorizeHint" = "허용하면 여기에서 Apple Music 곡을 검색하고 재생할 수 있습니다.";
+"ext.tv.settings.appleMusic" = "Apple Music";
+"ext.tv.settings.appleMusic.authorized" = "허용됨";
+"ext.tv.settings.appleMusic.authorize" = "눌러서 허용";
+"ext.tv.settings.appleMusic.denied" = "거부됨 · 시스템 설정에서 허용하세요";
+"ext.tv.settings.appleMusic.restricted" = "제한됨";
 "ext.tv.playlists.appleMusic" = "Apple Music 재생목록";
 "ext.tv.playlists.appleMusicLoading" = "Apple Music 재생목록 불러오는 중…";

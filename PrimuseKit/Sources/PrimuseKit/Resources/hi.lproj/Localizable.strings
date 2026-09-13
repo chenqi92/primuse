@@ -759,5 +759,12 @@
 
 /* Apple TV Apple Music collections */
 "ext.tv.search.appleMusicTopSongs" = "लोकप्रिय गाने";
+"ext.tv.search.appleMusicAuthorize" = "Apple Music का ऐक्सेस दें";
+"ext.tv.search.appleMusicAuthorizeHint" = "अनुमति देने के बाद आप यहाँ Apple Music के गाने खोज और चला सकते हैं।";
+"ext.tv.settings.appleMusic" = "Apple Music";
+"ext.tv.settings.appleMusic.authorized" = "अनुमति दी गई";
+"ext.tv.settings.appleMusic.authorize" = "अनुमति देने के लिए दबाएँ";
+"ext.tv.settings.appleMusic.denied" = "अस्वीकृत · tvOS सेटिंग्स में चालू करें";
+"ext.tv.settings.appleMusic.restricted" = "प्रतिबंधित";
 "ext.tv.playlists.appleMusic" = "Apple Music प्लेलिस्ट";
 "ext.tv.playlists.appleMusicLoading" = "Apple Music प्लेलिस्ट लोड हो रही हैं…";

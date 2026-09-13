@@ -71,6 +71,19 @@ struct TVSearchView: View {
             + appleMusic.artists.map(Self.appleMusicArtistFocusID)
             + appleMusic.albums.map(Self.appleMusicAlbumFocusID)
             + appleMusicResults.map(Self.appleMusicFocusID)
+            + (canRequestAppleMusicAuthorization ? [Self.appleMusicAuthFocusID] : [])
+    }
+
+    /// 未授权时用授权入口顶替内容。目录搜索不会主动弹授权框,这一行是
+    /// 用户在搜索页唯一能够开始授权的地方。
+    private var showsAppleMusicAuthorization: Bool {
+        !trimmed.isEmpty && appleMusic.needsAuthorization
+    }
+
+    /// 被拒绝或受限之后系统不再弹框,`request()` 会立刻返回原状态,
+    /// 那时只提示去 tvOS 设置里改,不给一个按下去没反应的按钮。
+    private var canRequestAppleMusicAuthorization: Bool {
+        showsAppleMusicAuthorization && appleMusic.authorization == .notDetermined
     }
 
     private var hasAppleMusicContent: Bool {
@@ -95,6 +108,7 @@ struct TVSearchView: View {
     private static func appleMusicArtistFocusID(_ hit: AppleMusicCatalogArtistHit) -> String {
         "appleMusicArtist:" + hit.id
     }
+    private static let appleMusicAuthFocusID = "appleMusicAuth"
 
     var body: some View {
         ZStack {
@@ -235,11 +249,13 @@ struct TVSearchView: View {
                             .padding(.bottom, 8)
                         songList(intelligentSongResults)
                     }
-                    if hasAppleMusicContent || appleMusic.isSearching {
+                    if hasAppleMusicContent || appleMusic.isSearching || showsAppleMusicAuthorization {
                         TVEyebrow(text: PMString("ext.tv.search.appleMusic"))
                             .padding(.top, 22)
                             .padding(.bottom, 8)
-                        if !hasAppleMusicContent, appleMusic.isSearching {
+                        if showsAppleMusicAuthorization {
+                            appleMusicAuthorizationPrompt
+                        } else if !hasAppleMusicContent, appleMusic.isSearching {
                             HStack(spacing: 12) {
                                 ProgressView().tint(TVColor.brand)
                                 Text(PMString("ext.tv.search.appleMusicSearching"))
@@ -297,6 +313,61 @@ struct TVSearchView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 20)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var appleMusicAuthorizationPrompt: some View {
+        if canRequestAppleMusicAuthorization {
+            TVFocusButton(radius: 16, scale: 1.0, lift: 0, action: authorizeAppleMusic) { focused in
+                appleMusicAuthorizationCard(focused: focused)
+            }
+            .focused($focusedResultID, equals: Self.appleMusicAuthFocusID)
+            .padding(.horizontal, 14)
+        } else {
+            appleMusicAuthorizationCard(focused: false)
+                .padding(.horizontal, 14)
+        }
+    }
+
+    private func appleMusicAuthorizationCard(focused: Bool) -> some View {
+        HStack(spacing: 18) {
+            Image(systemName: "music.note")
+                .font(.system(size: 26, weight: .semibold))
+                .foregroundStyle(focused ? TVColor.text : TVColor.brand)
+            VStack(alignment: .leading, spacing: 6) {
+                if canRequestAppleMusicAuthorization {
+                    Text(PMString("ext.tv.search.appleMusicAuthorize"))
+                        .tvFont(.cardTitle, weight: focused ? .bold : .medium)
+                        .foregroundStyle(TVColor.text)
+                }
+                Text(PMString(Self.authorizationHintKey(appleMusic.authorization)))
+                    .tvFont(.caption)
+                    .foregroundStyle(TVColor.textFaint)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(TVColor.surfaceStrong,
+                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    /// 被拒绝或受限时系统不会再弹框,只能引导用户去 tvOS 设置里改。
+    private static func authorizationHintKey(_ state: AppleMusicAuthorizationState) -> String {
+        switch state {
+        case .denied: return "ext.tv.appleMusic.needsAuthorization"
+        case .restricted: return "ext.tv.appleMusic.restricted"
+        default: return "ext.tv.search.appleMusicAuthorizeHint"
+        }
+    }
+
+    private func authorizeAppleMusic() {
+        Task { @MainActor in
+            guard await appleMusic.requestAuthorization() == .authorized else { return }
+            appleMusic.search(trimmed)
         }
     }
 

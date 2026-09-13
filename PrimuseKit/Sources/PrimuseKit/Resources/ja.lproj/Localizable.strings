@@ -812,5 +812,12 @@
 
 /* Apple TV Apple Music collections */
 "ext.tv.search.appleMusicTopSongs" = "人気の曲";
+"ext.tv.search.appleMusicAuthorize" = "Apple Music へのアクセスを許可";
+"ext.tv.search.appleMusicAuthorizeHint" = "許可すると、ここで Apple Music の曲を検索・再生できます。";
+"ext.tv.settings.appleMusic" = "Apple Music";
+"ext.tv.settings.appleMusic.authorized" = "許可済み";
+"ext.tv.settings.appleMusic.authorize" = "タップして許可";
+"ext.tv.settings.appleMusic.denied" = "拒否済み · システム設定で許可してください";
+"ext.tv.settings.appleMusic.restricted" = "制限あり";
 "ext.tv.playlists.appleMusic" = "Apple Music のプレイリスト";
 "ext.tv.playlists.appleMusicLoading" = "Apple Music のプレイリストを読み込み中…";
