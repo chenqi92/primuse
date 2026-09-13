@@ -44,6 +44,87 @@ private extension MetadataBackfillStatusFilter {
     }
 }
 
+// MARK: - Visual tokens
+
+/// 这一页原本每块区域各写各的圆角、描边和留白, 视觉上像几块拼贴。统一成一套
+/// 卡片令牌后, 侧栏诊断卡、筛选轨道、结果行共用同一种圆角 / 描边 / 底色节奏。
+private enum TagStatusStyle {
+    static let cardCorner: CGFloat = 16
+    static let rowCorner: CGFloat = 13
+    static let chipCorner: CGFloat = 9
+    static let glyphSize: CGFloat = 27
+    static let glyphGap: CGFloat = 10
+    /// 正文相对图标列的缩进, 让路径 / 徽标 / 诊断整齐地挂在标题下方。
+    static let contentIndent: CGFloat = glyphSize + glyphGap
+
+    static var cardFill: Color { Color.primary.opacity(0.045) }
+    static var cardStroke: Color { Color.primary.opacity(0.075) }
+    static var fieldFill: Color { Color.primary.opacity(0.06) }
+}
+
+private struct TagStatusCard: ViewModifier {
+    var padding: CGFloat = 14
+    var corner: CGFloat = TagStatusStyle.cardCorner
+
+    func body(content: Content) -> some View {
+        content
+            .padding(padding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                TagStatusStyle.cardFill,
+                in: RoundedRectangle(cornerRadius: corner, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: corner, style: .continuous)
+                    .strokeBorder(TagStatusStyle.cardStroke, lineWidth: 1)
+            }
+    }
+}
+
+private extension View {
+    func tagStatusCard(
+        padding: CGFloat = 14,
+        corner: CGFloat = TagStatusStyle.cardCorner
+    ) -> some View {
+        modifier(TagStatusCard(padding: padding, corner: corner))
+    }
+}
+
+/// 健康度分布条的一段。数量为 0 的状态不参与绘制。
+private struct TagStatusDistributionSegment: Identifiable {
+    let filter: MetadataBackfillStatusFilter
+    let count: Int
+    var id: String { filter.rawValue }
+}
+
+private struct TagStatusDistributionBar: View {
+    let segments: [TagStatusDistributionSegment]
+    var height: CGFloat = 7
+
+    var body: some View {
+        let total: Int = max(1, segments.reduce(0) { $0 + $1.count })
+        GeometryReader { proxy in
+            let spacing: CGFloat = 2
+            let gapCount: CGFloat = CGFloat(max(0, segments.count - 1))
+            let available: CGFloat = max(0, proxy.size.width - spacing * gapCount)
+            HStack(spacing: spacing) {
+                ForEach(segments) { segment in
+                    let fraction: CGFloat = CGFloat(segment.count) / CGFloat(total)
+                    let width: CGFloat = max(4, available * fraction)
+                    Capsule(style: .continuous)
+                        .fill(segment.filter.color)
+                        .frame(width: width)
+                }
+            }
+            .frame(width: proxy.size.width, alignment: .leading)
+        }
+        .frame(height: height)
+        .clipShape(Capsule(style: .continuous))
+        .background(Color.primary.opacity(0.07), in: Capsule(style: .continuous))
+        .accessibilityHidden(true)
+    }
+}
+
 struct SourceMetadataStatusView: View {
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(\.dismiss) private var dismiss
@@ -66,6 +147,7 @@ struct SourceMetadataStatusView: View {
     @State private var resultMessage: String?
     @State private var batchRereadTask: Task<Void, Never>?
     @State private var batchProgress: MetadataTagRereadProgress?
+    @State private var showsExplanation = false
 
     private var summary: MetadataBackfillSourceSummary {
         backfill.sourceStatusSummary(forSource: source.id)
@@ -129,15 +211,19 @@ struct SourceMetadataStatusView: View {
         #endif
     }
 
+    // MARK: - Layouts
+
     private var wideLayout: some View {
         GeometryReader { proxy in
+            let rawWidth: CGFloat = proxy.size.width * 0.34
+            let sidebarWidth: CGFloat = min(max(rawWidth, 268), 344)
             HStack(spacing: 0) {
                 ScrollView {
                     diagnosticSidebar
-                        .padding(.horizontal, 18)
+                        .padding(.horizontal, 16)
                         .padding(.vertical, 16)
                 }
-                .frame(width: proxy.size.width / 3)
+                .frame(width: sidebarWidth)
                 .background(.regularMaterial)
 
                 Divider()
@@ -150,15 +236,21 @@ struct SourceMetadataStatusView: View {
     private var compactLayout: some View {
         List {
             compactOverviewCard
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 6, trailing: 16))
+                .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 4, trailing: 16))
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
 
             compactResultsControls
                 .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 0))
+                .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
 
             resultRows
+
+            explanationSection
+                .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 20, trailing: 16))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
         }
         .listStyle(.plain)
         #if os(iOS)
@@ -179,6 +271,7 @@ struct SourceMetadataStatusView: View {
                 resultRows
             } header: {
                 wideResultsControls
+                    .listRowInsets(EdgeInsets())
             }
         }
         .listStyle(.plain)
@@ -187,21 +280,15 @@ struct SourceMetadataStatusView: View {
     @ViewBuilder
     private var resultRows: some View {
         if let progress = batchProgress {
-            HStack {
-                Text(batchProgressText(progress))
-                .font(.caption)
-                .monospacedDigit()
-                Spacer()
-                if batchRereadTask != nil {
-                    ProgressView().controlSize(.small)
-                    Button("cancel") { batchRereadTask?.cancel() }
-                        .buttonStyle(.borderless)
-                }
-            }
+            batchProgressCard(progress)
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 6, trailing: 16))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
         }
         if isProjecting, projectedItems.isEmpty {
             ProgressView()
                 .frame(maxWidth: .infinity, minHeight: 220)
+                .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
         } else if projectedItems.isEmpty {
             ContentUnavailableView(
@@ -210,21 +297,21 @@ struct SourceMetadataStatusView: View {
                 description: Text("metadata_status_empty_description")
             )
             .frame(maxWidth: .infinity, minHeight: 220)
+            .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
         } else {
             ForEach(projectedItems.prefix(visibleItemCount)) { item in
-                if usesTwoColumnLayout {
-                    statusRow(item)
-                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                } else {
-                    compactStatusRow(item)
-                        .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
-                }
+                statusRow(item, compact: !usesTwoColumnLayout)
+                    .tagStatusCard(padding: 12, corner: TagStatusStyle.rowCorner)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
             }
 
             if visibleItemCount < projectedItems.count {
                 ProgressView()
                     .frame(maxWidth: .infinity, minHeight: 48)
+                    .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                     .id("metadata-status-page-\(visibleItemCount)")
                     .onAppear {
@@ -234,117 +321,185 @@ struct SourceMetadataStatusView: View {
         }
     }
 
+    // MARK: - Sidebar (regular width)
+
     private var diagnosticSidebar: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            sourceIdentityHeader
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text(healthSummaryText)
-                    .font(.title3.weight(.semibold))
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(String(
-                    format: String(localized: "metadata_status_list_count_format"),
-                    summary.affectedCount
-                ))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-            }
-
-            MetadataReadingStatusView(sourceID: source.id)
-
+        VStack(alignment: .leading, spacing: 14) {
+            sourceIdentityCard
+            healthCard
             statusTrack
-
             actionPanel
+            explanationSection
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var compactOverviewCard: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            compactSourceIdentityHeader
+    private var sourceIdentityCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                sourceGlyph
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(source.name)
+                        .font(.headline)
+                        .lineLimit(2)
+                    Text(source.type.displayName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            locationLine(textStyle: .caption)
+        }
+        .tagStatusCard()
+        .accessibilityElement(children: .combine)
+    }
+
+    private var sourceGlyph: some View {
+        Image(systemName: source.type.iconName)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(Color.accentColor)
+            .frame(width: 34, height: 34)
+            .background(
+                Color.accentColor.opacity(0.13),
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            )
+            .accessibilityHidden(true)
+    }
+
+    private func locationLine(textStyle: Font.TextStyle) -> some View {
+        Text(sourceIdentityText)
+            .font(.system(textStyle, design: .monospaced))
+            .foregroundStyle(.secondary)
+            .lineLimit(2)
+            .truncationMode(.middle)
+            .textSelection(.enabled)
+            .environment(\.layoutDirection, .leftToRight)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var healthCard: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            HStack(alignment: .top, spacing: 10) {
+                healthGlyph
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(healthSummaryText)
+                        .font(.subheadline.weight(.semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(affectedCountText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if !distributionSegments.isEmpty {
+                TagStatusDistributionBar(segments: distributionSegments)
+            }
+
             MetadataReadingStatusView(sourceID: source.id)
+        }
+        .tagStatusCard()
+    }
 
-            HStack(alignment: .center, spacing: 10) {
-                Text(healthSummaryText)
-                    .font(.subheadline.weight(.semibold))
-                    .fixedSize(horizontal: false, vertical: true)
+    private var healthGlyph: some View {
+        Image(systemName: healthIcon)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(healthTint)
+            .frame(width: 30, height: 30)
+            .background(
+                healthTint.opacity(0.14),
+                in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+            )
+            .accessibilityHidden(true)
+    }
 
-                Spacer(minLength: 4)
+    private var healthTint: Color {
+        if summary.problemCount > 0 { return .orange }
+        if summary.activeQueueCount > 0 { return .blue }
+        return .green
+    }
+
+    private var healthIcon: String {
+        if summary.problemCount > 0 { return "exclamationmark.triangle.fill" }
+        if summary.activeQueueCount > 0 { return "clock.fill" }
+        return "checkmark.circle.fill"
+    }
+
+    private var distributionSegments: [TagStatusDistributionSegment] {
+        visibleMetadataStatusFilters.compactMap { filter in
+            let count = summary.count(for: filter)
+            guard count > 0 else { return nil }
+            return TagStatusDistributionSegment(filter: filter, count: count)
+        }
+    }
+
+    private var affectedCountText: String {
+        String(
+            format: String(localized: "metadata_status_list_count_format"),
+            summary.affectedCount
+        )
+    }
+
+    private var resultCountText: String {
+        String(
+            format: String(localized: "metadata_status_list_count_format"),
+            projectedItems.count
+        )
+    }
+
+    private var compactOverviewCard: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            HStack(spacing: 10) {
+                sourceGlyph
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(source.name)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Text(source.type.displayName)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 if summary.retryableCount > 0 {
                     compactRetryActionButton
                 }
             }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(Color.secondary.opacity(0.055), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
-        }
-    }
 
-    private var compactSourceIdentityHeader: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(alignment: .firstTextBaseline, spacing: 9) {
-                Image(systemName: source.type.iconName)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 18)
-                    .accessibilityHidden(true)
+            locationLine(textStyle: .caption2)
 
-                Text(source.name)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                    .layoutPriority(1)
+            Divider()
+                .opacity(0.6)
 
-                if source.name.localizedCaseInsensitiveCompare(source.type.displayName) != .orderedSame {
-                    Text(source.type.displayName)
-                        .font(.caption2.weight(.medium))
+            HStack(alignment: .top, spacing: 9) {
+                healthGlyph
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(healthSummaryText)
+                        .font(.subheadline.weight(.semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(affectedCountText)
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .monospacedDigit()
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            Text(sourceIdentityText)
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .truncationMode(.middle)
-                .textSelection(.enabled)
-                .environment(\.layoutDirection, .leftToRight)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-    }
-
-    private var sourceIdentityHeader: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 9) {
-                Image(systemName: source.type.iconName)
-                    .foregroundStyle(Color.accentColor)
-                Text(source.name)
-                    .font(.headline)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                Text(source.type.displayName)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+            if !distributionSegments.isEmpty {
+                TagStatusDistributionBar(segments: distributionSegments, height: 6)
             }
-            Text(sourceIdentityText)
-                .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .truncationMode(.middle)
-                .textSelection(.enabled)
-                .environment(\.layoutDirection, .leftToRight)
+
+            MetadataReadingStatusView(sourceID: source.id)
         }
-        .accessibilityElement(children: .combine)
+        .tagStatusCard()
     }
 
     private var sourceIdentityText: String {
@@ -371,35 +526,15 @@ struct SourceMetadataStatusView: View {
         backfill.isUserInitiated(forSource: source.id) || summary.activeQueueCount > 0
     }
 
+    // MARK: - Filter track
+
     private var statusTrack: some View {
         VStack(spacing: 0) {
             ForEach(visibleMetadataStatusFilters) { filter in
                 Button {
                     selectedFilter = selectedFilter == filter ? .all : filter
                 } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: filter.icon)
-                            .foregroundStyle(filter.color)
-                            .frame(width: 20)
-                        Text(filter.title)
-                            .font(.subheadline.weight(selectedFilter == filter ? .semibold : .regular))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                        Spacer(minLength: 8)
-                        Text(summary.count(for: filter).formatted())
-                            .font(.headline.monospacedDigit())
-                            .foregroundStyle(selectedFilter == filter ? Color.accentColor : Color.primary)
-                        if selectedFilter == filter {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.caption)
-                                .foregroundStyle(Color.accentColor)
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                    .background(selectedFilter == filter ? Color.accentColor.opacity(0.12) : .clear)
+                    statusTrackLabel(filter)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text(filter.title))
@@ -409,16 +544,71 @@ struct SourceMetadataStatusView: View {
 
                 if filter != visibleMetadataStatusFilters.last {
                     Divider()
-                        .padding(.leading, 42)
+                        .padding(.leading, 12 + TagStatusStyle.contentIndent)
+                        .opacity(0.5)
                 }
             }
         }
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(
+            TagStatusStyle.cardFill,
+            in: RoundedRectangle(cornerRadius: TagStatusStyle.cardCorner, style: .continuous)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: TagStatusStyle.cardCorner, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
+            RoundedRectangle(cornerRadius: TagStatusStyle.cardCorner, style: .continuous)
+                .strokeBorder(TagStatusStyle.cardStroke, lineWidth: 1)
         }
     }
+
+    private func statusTrackLabel(_ filter: MetadataBackfillStatusFilter) -> some View {
+        let isSelected = selectedFilter == filter
+        let count = summary.count(for: filter)
+        return HStack(spacing: TagStatusStyle.glyphGap) {
+            filterGlyph(filter, dimmed: count == 0)
+
+            Text(filter.title)
+                .font(.subheadline.weight(isSelected ? .semibold : .regular))
+                .foregroundStyle(count == 0 ? Color.secondary : Color.primary)
+                .lineLimit(1)
+
+            Spacer(minLength: 8)
+
+            Text(count.formatted())
+                .font(.footnote.weight(.semibold).monospacedDigit())
+                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .background(
+                    (isSelected ? Color.accentColor : Color.primary).opacity(isSelected ? 0.14 : 0.07),
+                    in: Capsule(style: .continuous)
+                )
+
+            Image(systemName: "checkmark")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(Color.accentColor)
+                .opacity(isSelected ? 1 : 0)
+                .frame(width: 10)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .background(isSelected ? Color.accentColor.opacity(0.10) : .clear)
+    }
+
+    private func filterGlyph(_ filter: MetadataBackfillStatusFilter, dimmed: Bool) -> some View {
+        Image(systemName: filter.icon)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(dimmed ? Color.secondary : filter.color)
+            .frame(width: TagStatusStyle.glyphSize, height: TagStatusStyle.glyphSize)
+            .background(
+                (dimmed ? Color.secondary : filter.color).opacity(dimmed ? 0.08 : 0.14),
+                in: RoundedRectangle(cornerRadius: TagStatusStyle.chipCorner, style: .continuous)
+            )
+            .accessibilityHidden(true)
+    }
+
+    // MARK: - Compact controls
 
     private var compactResultsControls: some View {
         HStack(spacing: 8) {
@@ -429,15 +619,13 @@ struct SourceMetadataStatusView: View {
                     }
 
                     if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text(String(
-                            format: String(localized: "metadata_status_list_count_format"),
-                            projectedItems.count
-                        ))
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
+                        Text(resultCountText)
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
                     }
                 }
+                .padding(.vertical, 1)
             }
 
             batchRefreshButton.padding(.trailing, 16)
@@ -451,36 +639,6 @@ struct SourceMetadataStatusView: View {
         }
     }
 
-    private var batchRefreshButton: some View {
-        Button {
-            rereadFilteredItems()
-        } label: {
-            ZStack {
-                Circle()
-                    .fill(Color.secondary.opacity(0.09))
-                    .frame(width: 28, height: 28)
-                if backfill.batchRereadingSourceIDs.contains(source.id) {
-                    ProgressView().controlSize(.mini)
-                } else {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.caption2.weight(.semibold))
-                }
-            }
-            .frame(width: 44, height: 44)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .disabled(
-            batchRereadTask != nil || backfill.batchRereadingSourceIDs.contains(source.id)
-                || isProjecting || projectedItems.isEmpty || !source.isEnabled
-                || searchText.trimmingCharacters(in: .whitespacesAndNewlines) != debouncedSearchText
-        )
-        .help("metadata_status_reread_filtered")
-        .accessibilityLabel(Text("metadata_status_reread_filtered"))
-        .accessibilityIdentifier("metadata-status-refresh")
-    }
-
     private func compactFilterChip(_ filter: MetadataBackfillStatusFilter) -> some View {
         let isSelected = selectedFilter == filter
         let count = summary.count(for: filter)
@@ -490,25 +648,25 @@ struct SourceMetadataStatusView: View {
             HStack(spacing: 5) {
                 Image(systemName: filter.icon)
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(filter.color)
+                    .foregroundStyle(isSelected ? Color.accentColor : filter.color)
                 Text(filter.title)
                     .lineLimit(1)
                 Text(count.formatted())
-                    .font(.caption2.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                    .font(.caption2.weight(.bold).monospacedDigit())
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
             }
             .font(.caption.weight(isSelected ? .semibold : .medium))
             .foregroundStyle(isSelected ? Color.primary : Color.secondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 7)
             .background(
-                isSelected ? Color.primary.opacity(0.11) : Color.secondary.opacity(0.1),
-                in: Capsule()
+                isSelected ? Color.accentColor.opacity(0.13) : TagStatusStyle.fieldFill,
+                in: Capsule(style: .continuous)
             )
             .overlay {
-                Capsule()
-                    .stroke(
-                        isSelected ? Color.primary.opacity(0.24) : Color.secondary.opacity(0.18),
+                Capsule(style: .continuous)
+                    .strokeBorder(
+                        isSelected ? Color.accentColor.opacity(0.38) : TagStatusStyle.cardStroke,
                         lineWidth: 1
                     )
             }
@@ -522,16 +680,19 @@ struct SourceMetadataStatusView: View {
         .accessibilityIdentifier("metadata-status-filter-\(filter.rawValue)")
     }
 
+    // MARK: - Actions
+
     private var actionPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("metadata_status_actions")
-                    .font(.headline)
+                    .font(.subheadline.weight(.semibold))
                 Spacer()
                 Button {
                     reload(force: true)
                 } label: {
                     Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.caption.weight(.semibold))
                 }
                 .buttonStyle(.borderless)
                 .help("metadata_status_refresh")
@@ -542,6 +703,7 @@ struct SourceMetadataStatusView: View {
             primaryActionButton
             retryActionButton
         }
+        .tagStatusCard()
     }
 
     @ViewBuilder
@@ -550,13 +712,13 @@ struct SourceMetadataStatusView: View {
             Button {
                 performPrimaryAction()
             } label: {
-                HStack(spacing: 8) {
+                HStack(spacing: 7) {
                     ProgressView()
                         .controlSize(.small)
                     Text("metadata_status_pause")
-                    Spacer(minLength: 0)
+                        .lineLimit(1)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
@@ -565,8 +727,9 @@ struct SourceMetadataStatusView: View {
             Button {
                 performPrimaryAction()
             } label: {
-                Label("metadata_status_continue", systemImage: "play.circle.fill")
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                Label("metadata_status_continue", systemImage: "play.fill")
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
@@ -592,8 +755,9 @@ struct SourceMetadataStatusView: View {
         Button {
             retryFailedItems()
         } label: {
-            Label("metadata_status_retry_failed", systemImage: "arrow.clockwise.circle")
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Label("metadata_status_retry_failed", systemImage: "arrow.clockwise")
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
         .controlSize(.large)
@@ -612,13 +776,13 @@ struct SourceMetadataStatusView: View {
             Label("retry", systemImage: "arrow.clockwise")
                 .font(.caption.weight(.semibold))
                 .lineLimit(1)
-                .padding(.horizontal, 10)
+                .padding(.horizontal, 11)
                 .padding(.vertical, 6)
-                .foregroundStyle(Color.red)
-                .background(Color.red.opacity(0.1), in: Capsule())
+                .foregroundStyle(Color.orange)
+                .background(Color.orange.opacity(0.13), in: Capsule(style: .continuous))
                 .overlay {
-                    Capsule()
-                        .stroke(Color.red.opacity(0.2), lineWidth: 1)
+                    Capsule(style: .continuous)
+                        .strokeBorder(Color.orange.opacity(0.28), lineWidth: 1)
                 }
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
@@ -633,84 +797,173 @@ struct SourceMetadataStatusView: View {
         .accessibilityLabel(Text("metadata_status_retry_failed"))
     }
 
+    private var batchRefreshButton: some View {
+        Button {
+            rereadFilteredItems()
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(TagStatusStyle.fieldFill)
+                    .frame(width: 30, height: 30)
+                if backfill.batchRereadingSourceIDs.contains(source.id) {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.caption2.weight(.semibold))
+                }
+            }
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .disabled(
+            batchRereadTask != nil || backfill.batchRereadingSourceIDs.contains(source.id)
+                || isProjecting || projectedItems.isEmpty || !source.isEnabled
+                || searchText.trimmingCharacters(in: .whitespacesAndNewlines) != debouncedSearchText
+        )
+        .help("metadata_status_reread_filtered")
+        .accessibilityLabel(Text("metadata_status_reread_filtered"))
+        .accessibilityIdentifier("metadata-status-reread-filtered")
+    }
+
+    // MARK: - Results header (regular width)
+
     private var wideResultsControls: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .center, spacing: 10) {
                 Text("metadata_status_result_title")
                     .font(.headline)
                     .foregroundStyle(.primary)
                 Spacer(minLength: 8)
-                Text(String(
-                    format: String(localized: "metadata_status_list_count_format"),
-                    projectedItems.count
-                ))
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
+                Text(resultCountText)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
                 batchRefreshButton
             }
 
-            TextField("metadata_status_search", text: $searchText)
-                .textFieldStyle(.roundedBorder)
-                .accessibilityIdentifier("metadata-status-search")
+            searchField
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 7) {
-                    ForEach(MetadataBackfillStatusFilter.allCases) { filter in
-                        filterChip(filter)
-                    }
-                }
-                .padding(.vertical, 1)
+            if selectedFilter != .all {
+                activeFilterChip
             }
         }
-        .padding(.vertical, 8)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // 结果行现在是带底色的卡片, 吸顶的表头必须有自己的背景, 否则滚动时
+        // 卡片会从标题和搜索框下面透出来。
+        .background(.bar)
+        .overlay(alignment: .bottom) {
+            Divider().opacity(0.6)
+        }
         .textCase(nil)
     }
 
-    private func filterChip(_ filter: MetadataBackfillStatusFilter) -> some View {
-        let isSelected = selectedFilter == filter
-        return Button {
-            selectedFilter = filter
-        } label: {
-            HStack(spacing: 5) {
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.caption2.weight(.bold))
+    private var searchField: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "magnifyingglass")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            TextField("metadata_status_search", text: $searchText)
+                .textFieldStyle(.plain)
+                .font(.callout)
+
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                 }
-                Text(filter.title)
-                    .lineLimit(1)
-            }
-            .font(.caption.weight(isSelected ? .semibold : .medium))
-            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-                isSelected ? Color.accentColor.opacity(0.12) : Color.secondary.opacity(0.08),
-                in: Capsule()
-            )
-            .overlay {
-                Capsule()
-                    .stroke(
-                        isSelected ? Color.accentColor.opacity(0.5) : Color.secondary.opacity(0.16),
-                        lineWidth: 1
-                    )
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("clear"))
             }
         }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityIdentifier("metadata-status-filter-\(filter.rawValue)")
+        .padding(.horizontal, 11)
+        .padding(.vertical, 7)
+        .background(TagStatusStyle.fieldFill, in: Capsule(style: .continuous))
+        .overlay {
+            Capsule(style: .continuous)
+                .strokeBorder(TagStatusStyle.cardStroke, lineWidth: 1)
+        }
+        .accessibilityIdentifier("metadata-status-search")
     }
 
-    private func statusRow(_ item: MetadataBackfillStatusDisplayItem) -> some View {
-        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 7) {
-            GridRow(alignment: .top) {
-                Image(systemName: stateIcon(item.state))
-                    .foregroundStyle(stateColor(item.state))
-                    .frame(width: 20)
+    /// 侧栏轨道已经承担筛选, 结果区只保留一枚"当前筛选"标记, 点按即可回到全部,
+    /// 避免两处筛选控件互相打架。
+    private var activeFilterChip: some View {
+        Button {
+            selectedFilter = .all
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: selectedFilter.icon)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(selectedFilter.color)
+                Text(selectedFilter.title)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Color.accentColor.opacity(0.12), in: Capsule(style: .continuous))
+            .overlay {
+                Capsule(style: .continuous)
+                    .strokeBorder(Color.accentColor.opacity(0.34), lineWidth: 1)
+            }
+            .contentShape(Capsule(style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("metadata_status_filter"))
+        .accessibilityValue(Text(selectedFilter.title))
+        .accessibilityIdentifier("metadata-status-filter-all")
+    }
+
+    private func batchProgressCard(_ progress: MetadataTagRereadProgress) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 8) {
+                Text(batchProgressText(progress))
+                    .font(.caption.weight(.medium))
+                    .monospacedDigit()
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 6)
+                if batchRereadTask != nil {
+                    Button("cancel") { batchRereadTask?.cancel() }
+                        .buttonStyle(.borderless)
+                        .font(.caption.weight(.semibold))
+                }
+            }
+
+            if batchRereadTask != nil, progress.total > 0 {
+                ProgressView(
+                    value: Double(progress.processed),
+                    total: Double(max(1, progress.total))
+                )
+                .progressViewStyle(.linear)
+            }
+        }
+        .tagStatusCard(padding: 11, corner: TagStatusStyle.rowCorner)
+    }
+
+    // MARK: - Result rows
+
+    private func statusRow(
+        _ item: MetadataBackfillStatusDisplayItem,
+        compact: Bool
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: TagStatusStyle.glyphGap) {
+                stateGlyph(item.state)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.title)
-                        .font(.body.weight(.semibold))
+                        .font(compact ? .subheadline.weight(.semibold) : .body.weight(.semibold))
                         .lineLimit(2)
                     if let artist = item.artistName, !artist.isEmpty {
                         Text(artist)
@@ -724,9 +977,7 @@ struct SourceMetadataStatusView: View {
                 stateBadge(item.state)
             }
 
-            GridRow {
-                Color.clear
-                    .frame(width: 20, height: 1)
+            VStack(alignment: .leading, spacing: 7) {
                 Text(displayPath(for: item.filePath))
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(.secondary)
@@ -735,127 +986,28 @@ struct SourceMetadataStatusView: View {
                     .help(displayPath(for: item.filePath))
                     .textSelection(.enabled)
                     .environment(\.layoutDirection, .leftToRight)
-                    .gridCellColumns(2)
-            }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-            GridRow {
-                Color.clear
-                    .frame(width: 20, height: 1)
                 metadataLine(item)
-                    .gridCellColumns(2)
-            }
 
-            if let diagnostic = item.diagnostic {
-                GridRow {
-                    Color.clear
-                        .frame(width: 20, height: 1)
-                    diagnosticText(
-                        MetadataBackfillDisplayRedactionPolicy.redact(diagnostic.reason),
-                        date: diagnostic.lastAttemptAt,
-                        isFailure: item.state.isFailure
-                    )
-                    .gridCellColumns(2)
-                }
-            } else if let fallback = fallbackReason(item.state) {
-                GridRow {
-                    Color.clear
-                        .frame(width: 20, height: 1)
-                    diagnosticText(fallback, date: nil, isFailure: item.state.isFailure)
-                        .gridCellColumns(2)
-                }
+                diagnosticCallout(item)
             }
-
-            if backfill.canRereadTags(
-                songID: item.songID,
-                expectedSourceID: source.id
-            ) {
-                GridRow {
-                    Color.clear
-                        .frame(width: 20, height: 1)
-                    HStack {
-                        Spacer(minLength: 0)
-                        rereadButton(item)
-                    }
-                    .gridCellColumns(2)
-                }
-            }
+            .padding(.leading, TagStatusStyle.contentIndent)
         }
-        .padding(.vertical, 4)
         .accessibilityElement(children: .contain)
     }
 
-    private func compactStatusRow(_ item: MetadataBackfillStatusDisplayItem) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .center, spacing: 7) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(item.title)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(2)
-                        .layoutPriority(1)
-                    if let artist = item.artistName, !artist.isEmpty {
-                        Text(artist)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                compactStateBadge(item.state)
-            }
-
-            Text(displayPath(for: item.filePath))
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .help(displayPath(for: item.filePath))
-                .textSelection(.enabled)
-                .environment(\.layoutDirection, .leftToRight)
-
-            metadataLine(item)
-
-            if let diagnostic = item.diagnostic {
-                HStack(alignment: .top, spacing: 4) {
-                    compactDiagnosticText(
-                        MetadataBackfillDisplayRedactionPolicy.redact(diagnostic.reason),
-                        date: diagnostic.lastAttemptAt,
-                        isFailure: item.state.isFailure
-                    )
-
-                    if backfill.canRereadTags(
-                        songID: item.songID,
-                        expectedSourceID: source.id
-                    ) {
-                        compactRereadButton(item)
-                    }
-                }
-            } else if let fallback = fallbackReason(item.state) {
-                HStack(alignment: .top, spacing: 4) {
-                    compactFallbackText(fallback, isFailure: item.state.isFailure)
-
-                    if backfill.canRereadTags(
-                        songID: item.songID,
-                        expectedSourceID: source.id
-                    ) {
-                        compactRereadButton(item)
-                    }
-                }
-            }
-        }
-        .padding(.vertical, 2)
-        .accessibilityElement(children: .contain)
-    }
-
-    private func compactStateBadge(_ state: MetadataBackfillItemState) -> some View {
-        Text(stateTitle(state))
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(stateColor(state))
-            .lineLimit(1)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(stateColor(state).opacity(0.07), in: Capsule())
-            .fixedSize(horizontal: true, vertical: false)
+    private func stateGlyph(_ state: MetadataBackfillItemState) -> some View {
+        let color = stateColor(state)
+        return Image(systemName: stateIcon(state))
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(color)
+            .frame(width: TagStatusStyle.glyphSize, height: TagStatusStyle.glyphSize)
+            .background(
+                color.opacity(0.14),
+                in: RoundedRectangle(cornerRadius: TagStatusStyle.chipCorner, style: .continuous)
+            )
+            .accessibilityHidden(true)
     }
 
     private func stateBadge(_ state: MetadataBackfillItemState) -> some View {
@@ -864,52 +1016,76 @@ struct SourceMetadataStatusView: View {
             .foregroundStyle(stateColor(state))
             .lineLimit(1)
             .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(stateColor(state).opacity(0.1), in: Capsule())
+            .padding(.vertical, 3)
+            .background(stateColor(state).opacity(0.12), in: Capsule(style: .continuous))
             .overlay {
-                Capsule()
-                    .stroke(stateColor(state).opacity(0.24), lineWidth: 1)
+                Capsule(style: .continuous)
+                    .strokeBorder(stateColor(state).opacity(0.22), lineWidth: 1)
             }
             .fixedSize(horizontal: true, vertical: false)
     }
 
+    /// 格式、尝试次数与缺失字段统一成同一排小标签; 缺失字段在"可播放但不完整"
+    /// 状态下是已确认的结论, 因此用红色标出。
     private func metadataLine(_ item: MetadataBackfillStatusDisplayItem) -> some View {
-        let reasons = workReasonText(displayWorkReasons(for: item))
+        let reasons = workReasonValues(displayWorkReasons(for: item))
         let highlightsUnavailableFields = item.state == .playableIncomplete
-        return ViewThatFits(in: .horizontal) {
-            HStack(spacing: 8) {
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
                 formatBadge(item.fileFormat)
-                if !reasons.isEmpty {
-                    Text(reasons)
-                        .font(.caption2.weight(highlightsUnavailableFields ? .semibold : .regular))
-                        .foregroundStyle(highlightsUnavailableFields ? Color.red : Color.secondary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 4)
                 attemptText(item.attemptCount)
+                Spacer(minLength: 0)
             }
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    formatBadge(item.fileFormat)
-                    attemptText(item.attemptCount)
+            if !reasons.isEmpty {
+                reasonChips(reasons, highlighted: highlightsUnavailableFields)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func reasonChips(_ reasons: [String], highlighted: Bool) -> some View {
+        let tint: Color = highlighted ? .red : .secondary
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 5) {
+                ForEach(reasons, id: \.self) { reason in
+                    reasonChip(reason, tint: tint, highlighted: highlighted)
                 }
-                if !reasons.isEmpty {
-                    Text(reasons)
-                        .font(.caption2.weight(highlightsUnavailableFields ? .semibold : .regular))
-                        .foregroundStyle(highlightsUnavailableFields ? Color.red : Color.secondary)
-                        .lineLimit(2)
+                Spacer(minLength: 0)
+            }
+
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(reasons, id: \.self) { reason in
+                    reasonChip(reason, tint: tint, highlighted: highlighted)
                 }
             }
         }
     }
 
+    private func reasonChip(_ reason: String, tint: Color, highlighted: Bool) -> some View {
+        Text(reason)
+            .font(.caption2.weight(highlighted ? .semibold : .medium))
+            .foregroundStyle(tint)
+            .lineLimit(1)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(
+                tint.opacity(highlighted ? 0.11 : 0.09),
+                in: RoundedRectangle(cornerRadius: 5, style: .continuous)
+            )
+            .fixedSize()
+    }
+
     private func formatBadge(_ format: String) -> some View {
         Text(format)
-            .font(.caption2.weight(.semibold))
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(.secondary)
             .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(.quaternary, in: Capsule())
+            .padding(.vertical, 2)
+            .background(
+                Color.primary.opacity(0.07),
+                in: RoundedRectangle(cornerRadius: 5, style: .continuous)
+            )
             .fixedSize()
     }
 
@@ -922,93 +1098,78 @@ struct SourceMetadataStatusView: View {
             ))
             .font(.caption2)
             .monospacedDigit()
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.tertiary)
             .fixedSize()
         }
     }
 
-    private func diagnosticText(
-        _ text: String,
+    /// 诊断原因、时间与"重新读取"合并到一块带色底的说明框里, 让每行最重要的
+    /// "为什么出现在这里 / 现在能做什么"始终成对出现。
+    @ViewBuilder
+    private func diagnosticCallout(_ item: MetadataBackfillStatusDisplayItem) -> some View {
+        let isFailure = item.state.isFailure
+        let tint: Color = isFailure ? .red : .secondary
+        let canReread = backfill.canRereadTags(
+            songID: item.songID,
+            expectedSourceID: source.id
+        )
+
+        if let diagnostic = item.diagnostic {
+            diagnosticBox(
+                text: MetadataBackfillDisplayRedactionPolicy.redact(diagnostic.reason),
+                date: diagnostic.lastAttemptAt,
+                tint: tint,
+                isFailure: isFailure,
+                reread: canReread ? item : nil
+            )
+        } else if let fallback = fallbackReason(item.state) {
+            diagnosticBox(
+                text: fallback,
+                date: nil,
+                tint: tint,
+                isFailure: isFailure,
+                reread: canReread ? item : nil
+            )
+        }
+    }
+
+    private func diagnosticBox(
+        text: String,
         date: Date?,
-        isFailure: Bool
+        tint: Color,
+        isFailure: Bool,
+        reread: MetadataBackfillStatusDisplayItem?
     ) -> some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    if isFailure {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.caption2)
-                            .foregroundStyle(Color.red)
-                    }
-                    Text(text)
-                        .font(.caption)
-                        .foregroundStyle(isFailure ? Color.red : Color.secondary)
-                        .lineLimit(3)
-                }
-                Spacer(minLength: 4)
-                if let date {
-                    Text(date.formatted(date: .abbreviated, time: .shortened))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .fixedSize()
-                }
-            }
+        HStack(alignment: .top, spacing: 7) {
+            Image(systemName: isFailure ? "exclamationmark.triangle.fill" : "info.circle")
+                .font(.caption2)
+                .foregroundStyle(tint)
+                .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    if isFailure {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.caption2)
-                            .foregroundStyle(Color.red)
-                    }
-                    Text(text)
-                        .font(.caption)
-                        .foregroundStyle(isFailure ? Color.red : Color.secondary)
-                        .lineLimit(3)
-                }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(text)
+                    .font(.caption)
+                    .foregroundStyle(isFailure ? Color.red : Color.secondary)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
                 if let date {
                     Text(date.formatted(date: .abbreviated, time: .shortened))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
             }
-        }
-        .help(text)
-    }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-    private func compactDiagnosticText(
-        _ text: String,
-        date: Date,
-        isFailure: Bool
-    ) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 5) {
-            if isFailure {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.caption2)
-                    .foregroundStyle(Color.red)
+            if let reread {
+                rereadButton(reread)
             }
-            Text(text)
-                .font(.caption2)
-                .foregroundStyle(isFailure ? Color.red : Color.secondary)
-                .lineLimit(2)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .help("\(text)\n\(date.formatted(date: .abbreviated, time: .shortened))")
-    }
-
-    private func compactFallbackText(_ text: String, isFailure: Bool) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 5) {
-            if isFailure {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.caption2)
-                    .foregroundStyle(Color.red)
-            }
-            Text(text)
-                .font(.caption2)
-                .foregroundStyle(isFailure ? Color.red : Color.secondary)
-                .lineLimit(2)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
+        .background(
+            tint.opacity(0.07),
+            in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+        )
         .help(text)
     }
 
@@ -1020,42 +1181,19 @@ struct SourceMetadataStatusView: View {
         return Button {
             reread(item)
         } label: {
-            HStack(spacing: 6) {
-                if isReading {
-                    ProgressView()
-                        .controlSize(.mini)
-                } else {
-                    Image(systemName: "arrow.clockwise")
-                }
-                Text(title)
-            }
-            .font(.caption.weight(.medium))
-        }
-        .buttonStyle(.borderless)
-        .disabled(isReading)
-    }
-
-    private func compactRereadButton(_ item: MetadataBackfillStatusDisplayItem) -> some View {
-        let isReading = backfill.isRereadingTags(songID: item.songID)
-        let title = isReading
-            ? String(localized: "reread_song_tags_in_progress")
-            : String(localized: "reread_song_tags")
-        return Button {
-            reread(item)
-        } label: {
             ZStack {
                 Circle()
-                    .fill(Color.secondary.opacity(0.08))
-                    .frame(width: 28, height: 28)
+                    .fill(Color.primary.opacity(0.07))
+                    .frame(width: 27, height: 27)
                 if isReading {
                     ProgressView()
                         .controlSize(.mini)
                 } else {
                     Image(systemName: "arrow.clockwise")
-                        .font(.caption.weight(.semibold))
+                        .font(.caption2.weight(.bold))
                 }
             }
-            .frame(width: 44, height: 44)
+            .frame(width: 34, height: 34)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1064,6 +1202,25 @@ struct SourceMetadataStatusView: View {
         .help(title)
         .accessibilityLabel(Text(title))
     }
+
+    // MARK: - Explanation
+
+    private var explanationSection: some View {
+        DisclosureGroup(isExpanded: $showsExplanation) {
+            Text("metadata_status_explanation")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } label: {
+            Label("metadata_status_explanation_title", systemImage: "questionmark.circle")
+                .font(.subheadline.weight(.semibold))
+        }
+        .tagStatusCard(padding: 12)
+    }
+
+    // MARK: - Data
 
     private func displayPath(for filePath: String) -> String {
         let redacted = MetadataBackfillDisplayRedactionPolicy.redact(filePath)
@@ -1280,14 +1437,14 @@ struct SourceMetadataStatusView: View {
         }
     }
 
-    private func workReasonText(_ reasons: MetadataBackfillWorkReasons) -> String {
+    private func workReasonValues(_ reasons: MetadataBackfillWorkReasons) -> [String] {
         var values: [String] = []
         if reasons.contains(.duration) { values.append(String(localized: "metadata_status_reason_duration")) }
         if reasons.contains(.artwork) { values.append(String(localized: "metadata_status_reason_artwork")) }
         if reasons.contains(.title) { values.append(String(localized: "metadata_status_reason_title")) }
         if reasons.contains(.albumArtist) { values.append(String(localized: "metadata_status_reason_album_artist")) }
         if reasons.contains(.artist) { values.append(String(localized: "metadata_status_reason_artist")) }
-        return values.joined(separator: String(localized: "metadata_status_reason_separator"))
+        return values
     }
 
     private func displayWorkReasons(
