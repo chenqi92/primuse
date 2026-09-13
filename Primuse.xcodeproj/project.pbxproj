@@ -27,7 +27,7 @@
 		05350DAB046724BD1176BE58 /* DiagnosticReportMailPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFF1BC0129ABFA901532FDB8 /* DiagnosticReportMailPolicy.swift */; };
 		C4B2627E59144BA39A88C386 /* LibraryDerivedRefreshPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7045344972CE4117B9A8C810 /* LibraryDerivedRefreshPolicy.swift */; };
 		B260D065FD2742C990570C64 /* ImmersiveLyricRowFillPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95E8BB459DAB4ADC8ACB2C07 /* ImmersiveLyricRowFillPolicy.swift */; };
-		10F8993C5B8395CFE6F93842 /* MetadataReadPacer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA5A12D781666801F1569B3F /* MetadataReadPacer.swift */; };
+		BC62EC9B95BD6C0AB0DD4DE1 /* MetadataReadCPUSamplePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC69D55C6D318C2F1D534112 /* MetadataReadCPUSamplePolicy.swift */; };
 		05406A7F73619CF228F01366 /* MetadataReadScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C99953CC3004D92E3B3147BC /* MetadataReadScheduler.swift */; };
 		055E8F5093B42BCBDF08DA4F /* S3StreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C603E86C2F865CDFD1D1C8EB /* S3StreamResolver.swift */; };
 		05932B0B3C4B3CAD469D869A /* MiniPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 973D5A18BC4228928E42C0C1 /* MiniPlayerView.swift */; };
@@ -2132,7 +2132,7 @@
 		C891ECCBAEB4EF0ED63759C7 /* TVAudioEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVAudioEngine.swift; sourceTree = "<group>"; };
 		C8DA11D239500EFCBED9557C /* pl */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = pl; path = pl.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		C97AD40A4E79629039B84599 /* uk */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = uk; path = uk.lproj/Localizable.strings; sourceTree = "<group>"; };
-		AA5A12D781666801F1569B3F /* MetadataReadPacer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataReadPacer.swift; sourceTree = "<group>"; };
+		FC69D55C6D318C2F1D534112 /* MetadataReadCPUSamplePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataReadCPUSamplePolicy.swift; sourceTree = "<group>"; };
 		C99953CC3004D92E3B3147BC /* MetadataReadScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataReadScheduler.swift; sourceTree = "<group>"; };
 		C9F21995B7200CF465C38A69 /* InsecureHTTPHostPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsecureHTTPHostPolicy.swift; sourceTree = "<group>"; };
 		C9F569D02D3E6102A0C0E1CF /* FileLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileLogger.swift; sourceTree = "<group>"; };
@@ -2755,7 +2755,7 @@
 				66A627BB63824FA32280BC29 /* MetadataBackfillDrainWaitPolicy.swift */,
 				710DC680EC23ABF8F646BC21 /* MetadataBackfillPresentation.swift */,
 				1178DD2CF47E24C862B0BECF /* MetadataBackfillSceneTransitionPolicy.swift */,
-				AA5A12D781666801F1569B3F /* MetadataReadPacer.swift */,
+				FC69D55C6D318C2F1D534112 /* MetadataReadCPUSamplePolicy.swift */,
 				C99953CC3004D92E3B3147BC /* MetadataReadScheduler.swift */,
 				BADE3E47B952DDB0A1371635 /* MotionArtworkProvider.swift */,
 				C5430956811D547F2E2EA473 /* MotionArtworkServiceContract.swift */,
@@ -4469,7 +4469,7 @@
 				E62B2F6904E847DA7283445A /* MetadataBackfillPresentation.swift in Sources */,
 				D01986AA0B65976FAA436D0A /* MetadataBackfillSceneTransitionPolicy.swift in Sources */,
 				7786CB5EF89B2EBA3756CF48 /* MetadataInspectionPolicy.swift in Sources */,
-				10F8993C5B8395CFE6F93842 /* MetadataReadPacer.swift in Sources */,
+				BC62EC9B95BD6C0AB0DD4DE1 /* MetadataReadCPUSamplePolicy.swift in Sources */,
 				05406A7F73619CF228F01366 /* MetadataReadScheduler.swift in Sources */,
 				AB7049E0A2E4879DFBFDE192 /* MetadataReadThroughputSampler.swift in Sources */,
 				9C1E6DCB079DBA2B576222A4 /* CarPlayArtworkCacheKey.swift in Sources */,

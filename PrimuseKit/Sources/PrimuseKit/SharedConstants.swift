@@ -2977,14 +2977,7 @@ public enum MetadataBackfillExecutionMode: Sendable, Equatable {
 public struct MetadataBackfillExecutionLimits: Sendable, Equatable {
     public let workerCount: Int
     public let snapshotLimit: Int
-    /// 对**远端源**的礼貌下限: 两次请求之间至少隔这么久, 保护对方的连接与配额。
-    /// 它和发热无关 —— 散热限速由 `activeFraction` 负责, 实际等待是两者取大。
-    /// 把两件事分开, 是因为"别把 NAS 打爆"和"别把手机煮了"需要的信号完全不同,
-    /// 合成一个数就会互相冒充。
     public let interRequestDelay: TimeInterval
-    /// 允许标签读取占用的挂钟时间比例。散热/低电量/后台的限速全部走这里,
-    /// 由 `MetadataReadPacer` 折算成实际等待。见 MetadataReadingDutyCycle。
-    public let activeFraction: Double
     public let flushInterval: TimeInterval
     /// 攒满多少首就发布一次资料库。一次发布的代价与整库规模成正比, 与这一批
     /// 有几首无关, 所以它必须是"按完成量"触发的那一个闸门; `flushInterval`
@@ -2997,7 +2990,6 @@ public struct MetadataBackfillExecutionLimits: Sendable, Equatable {
         workerCount: Int,
         snapshotLimit: Int,
         interRequestDelay: TimeInterval,
-        activeFraction: Double = 1,
         flushInterval: TimeInterval,
         flushBatchSize: Int = 64,
         snapshotPassLimit: Int? = nil
@@ -3005,7 +2997,6 @@ public struct MetadataBackfillExecutionLimits: Sendable, Equatable {
         self.workerCount = workerCount
         self.snapshotLimit = snapshotLimit
         self.interRequestDelay = interRequestDelay
-        self.activeFraction = min(1, max(0, activeFraction))
         self.flushInterval = flushInterval
         self.flushBatchSize = max(1, flushBatchSize)
         self.snapshotPassLimit = snapshotPassLimit
@@ -3015,17 +3006,7 @@ public struct MetadataBackfillExecutionLimits: Sendable, Equatable {
 extension MetadataBackfillExecutionLimits {
     public func withWorkerCount(_ count: Int) -> Self {
         .init(workerCount: max(0, count), snapshotLimit: snapshotLimit,
-              interRequestDelay: interRequestDelay, activeFraction: activeFraction,
-              flushInterval: flushInterval, flushBatchSize: flushBatchSize,
-              snapshotPassLimit: snapshotPassLimit)
-    }
-
-    /// 限速器把占空比折算成"这一次实际要等多久"之后, 连同远端礼貌下限一起落到
-    /// `interRequestDelay` 上 —— 调度器只认这一个字段。
-    public func withPacedDelay(_ paced: TimeInterval) -> Self {
-        .init(workerCount: workerCount, snapshotLimit: snapshotLimit,
-              interRequestDelay: max(interRequestDelay, max(0, paced)),
-              activeFraction: activeFraction, flushInterval: flushInterval,
+              interRequestDelay: interRequestDelay, flushInterval: flushInterval,
               flushBatchSize: flushBatchSize, snapshotPassLimit: snapshotPassLimit)
     }
 }
@@ -3051,6 +3032,31 @@ public enum MetadataReadingMode: String, CaseIterable, Sendable {
     public static func resolve(storedValue: String?, legacyFastEnabled: Bool) -> Self {
         if let storedValue, let mode = Self(rawValue: storedValue) { return mode }
         return legacyFastEnabled ? .fast : .automatic
+    }
+}
+
+/// 热状态到 `serious` 之后每一档应该歇多久。
+///
+/// 歇多久按最近实测的 CPU 工作量折算, 纯等网络的便宜标签不该被按最坏情况罚站;
+/// 但折算结果必须按档位分层, 否则 `serious` 会把三档压成同一个节奏 —— 这正是
+/// "无论调到哪一档都一样烫"的直接原因。天花板同时是测量缺失时的保守取值。
+public struct MetadataReadingThermalRest: Sendable, Equatable {
+    public let multiplier: Double
+    public let floor: TimeInterval
+    public let ceiling: TimeInterval
+
+    public static func budget(for preference: MetadataReadingMode) -> Self {
+        switch preference {
+        case .fast: Self(multiplier: 3, floor: 0.1, ceiling: 1.5)
+        case .automatic: Self(multiplier: 8, floor: 1.5, ceiling: 4)
+        case .energySaving, .paused: Self(multiplier: 16, floor: 3, ceiling: 6)
+        }
+    }
+
+    public func cooldown(recentProcessingDuration: TimeInterval?) -> TimeInterval {
+        guard let recentProcessingDuration, recentProcessingDuration.isFinite,
+              recentProcessingDuration >= 0 else { return ceiling }
+        return min(ceiling, max(floor, recentProcessingDuration * multiplier))
     }
 }
 
@@ -3172,6 +3178,20 @@ public enum MetadataBackfillExecutionPolicy {
         mode != .background
     }
 
+    /// Process CPU time includes parsing, playback, and UI work across executor
+    /// hops, while disk/network waits do not inflate the thermal work budget.
+    /// An unavailable or invalid counter keeps the conservative wall-time fallback.
+    public static func processingDuration(
+        cpuTimeBefore: TimeInterval?, cpuTimeAfter: TimeInterval?,
+        fallback: TimeInterval
+    ) -> TimeInterval {
+        guard let before = cpuTimeBefore, let after = cpuTimeAfter,
+              before.isFinite, after.isFinite, before >= 0, after >= before else {
+            return fallback.isFinite && fallback >= 0 ? fallback : 0.5
+        }
+        return after - before
+    }
+
     public static let highPerformanceAfterScanDefaultsKey =
         "primuse.metadataBackfill.highPerformanceAfterScan"
     public static let readingModeDefaultsKey = "primuse.metadataBackfill.readingMode"
@@ -3211,7 +3231,8 @@ public enum MetadataBackfillExecutionPolicy {
         for mode: MetadataBackfillExecutionMode,
         preference: MetadataReadingMode,
         environment: MetadataReadingEnvironment = .init(),
-        continuedProcessing: Bool = false
+        continuedProcessing: Bool = false,
+        recentProcessingDuration: TimeInterval? = nil
     ) -> MetadataBackfillExecutionLimits {
         let isBackground = mode == .background || mode == .backgroundDuringPlayback
         let offline = environment.offlineSource || mode == .foregroundDeviceLocal
@@ -3228,7 +3249,6 @@ public enum MetadataBackfillExecutionPolicy {
                 workerCount: 0,
                 snapshotLimit: 1,
                 interRequestDelay: 0,
-                activeFraction: 0,
                 flushInterval: publishInterval(
                     for: preference, isBackground: usesBackgroundCadence, playing: playing
                 ),
@@ -3249,7 +3269,6 @@ public enum MetadataBackfillExecutionPolicy {
         let flushBatch = publishBatchSize
         if preference == .energySaving {
             workers = 1
-            // 远端源的礼貌下限。本地文件没有对端要保护, 只留一点间隔。
             delay = offline ? 0.1 : 0.75
             snapshot = 48
         }
@@ -3273,29 +3292,30 @@ public enum MetadataBackfillExecutionPolicy {
         }
         if environment.lowPowerMode {
             workers = 1
+            delay = max(delay, offline ? 0.1 : 0.35)
         }
         if usesBackgroundCadence {
             workers = 1
             snapshot = playing ? 8 : 24
+            delay = max(delay, preference == .fast ? 0 : (playing ? 1.5 : 0.75))
         }
-        // 热状态只决定"给几个读取位"和"允许占多大比例的时间"。具体歇多久由
-        // MetadataReadPacer 按真实累计工作量记账得出, 不再用实测耗时乘倍数 ——
-        // 那个做法会把别的活算成这一首的成本, 并被一个贵样本长期压住。
-        //
-        // 例外是 tvOS: 那里的标签富集拿不到"网络等待 / 本机计算"的拆分, 没有
-        // 能喂给占空比记账的量。它接市电、有主动散热、扫描是用户刚发起的有限
-        // 工作, 所以保留原本的固定散热间隔, 不跟着改。
-        let usesFixedThermalDelay = environment.device.platform == .television
         switch environment.thermalState {
         case .nominal: break
         case .fair:
             // Full speed still yields capacity at mild warmth. Severe heat
             // and low-power constraints remain authoritative in every mode.
             workers = min(workers, preference == .fast ? max(1, ceiling / 2) : 1)
-            if usesFixedThermalDelay, preference != .fast { delay = max(delay, 0.35) }
+            if preference != .fast { delay = max(delay, 0.35) }
         case .serious:
             workers = min(workers, 1)
-            if usesFixedThermalDelay { delay = max(delay, 1.5) }
+            // 歇多久按最近实测的 CPU 工作量折算 —— 纯等网络的便宜标签不该被按
+            // 最坏情况罚站 —— 但折算按档位分层, 所以 `serious` 下档位之间仍然
+            // 是严格有序的。缺失/无效的测量退回该档位的天花板, critical 照常暂停。
+            delay = max(
+                delay,
+                MetadataReadingThermalRest.budget(for: preference)
+                    .cooldown(recentProcessingDuration: recentProcessingDuration)
+            )
         case .critical:
             workers = 0
         }
@@ -3303,13 +3323,6 @@ public enum MetadataBackfillExecutionPolicy {
             workerCount: workers,
             snapshotLimit: snapshot,
             interRequestDelay: delay,
-            activeFraction: MetadataReadingDutyCycle.activeFraction(
-                for: preference,
-                thermalState: environment.thermalState,
-                lowPowerMode: environment.lowPowerMode,
-                usesBackgroundCadence: usesBackgroundCadence,
-                playing: playing
-            ),
             flushInterval: flush,
             flushBatchSize: flushBatch,
             snapshotPassLimit: nil

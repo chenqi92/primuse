@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Foundation
 import PrimuseKit
 #if os(iOS)
@@ -485,11 +486,7 @@ final class MetadataBackfillService {
     private(set) var readingProgress: [String: MetadataReadingRate] = [:]
     @ObservationIgnored private var readProgressAccumulator: [String: MetadataReadingRate] = [:]
     @ObservationIgnored private var lastReadProgressPublishedAt = Date.distantPast
-    /// 按占空比记账的读取限速器。取代"实测 CPU 时间 × 固定倍数"的旧算法:
-    /// 那个量是整个进程的 CPU 时间, 会把发布、播放、界面的活算成这一首标签的
-    /// 成本, 还被 `max()` 锁在峰值上; 降频之后它又会无端膨胀, 于是会话越久
-    /// 读得越慢, 与用户选的档位无关。
-    @ObservationIgnored private var readPacer = MetadataReadPacer()
+    @ObservationIgnored private var recentProcessingDuration: TimeInterval = 0.5
     // 攒起来等发布的结果。这些必须活在 worker 这一层而不是单个快照里: 一次
     // 发布的代价与整库规模成正比, 与这一批有几首无关, 而低档位的快照只有
     // 8~48 行。按快照边界强制收尾, 等于把同一笔整库开销摊到更少的歌上 ——
@@ -503,20 +500,23 @@ final class MetadataBackfillService {
     /// `manuallyReadingSongIDs` 一样从选取里排除, 否则下一个快照会把它们
     /// 再读一遍并触发"同一批 ID 反复出现"的停摆保护。
     @ObservationIgnored private var pendingFlushSongIDs: Set<String> = []
+    /// 资料库发布的 CPU 不属于"这一首标签有多贵"——见 MetadataReadCPUSamplePolicy。
+    @ObservationIgnored private var libraryPublishGeneration: UInt64 = 0
+    /// 用深度而不是布尔: 发布中间有 await, 期间到达的完成回调可能再进来一次,
+    /// 布尔会被内层提前清掉, 把外层那次发布的代价重新算进读取成本。
+    @ObservationIgnored private var libraryPublishDepth = 0
+    private var readCPUSampleWindow: MetadataReadCPUSampleWindow {
+        .init(publishGeneration: libraryPublishGeneration, publishInFlight: libraryPublishDepth > 0)
+    }
 
     private var executionLimits: MetadataBackfillExecutionLimits {
-        var budget = MetadataBackfillExecutionPolicy.limits(
+        let budget = MetadataBackfillExecutionPolicy.limits(
             for: executionMode,
             preference: readingMode,
             environment: readingEnvironment(),
-            continuedProcessing: hasContinuedProcessingTime
+            continuedProcessing: hasContinuedProcessingTime,
+            recentProcessingDuration: recentProcessingDuration
         )
-        // 读取位为 0 时不必动限速器: 队列本来就停着, 让令牌继续攒。
-        if budget.workerCount > 0, budget.activeFraction > 0 {
-            let now = Self.monotonicNow()
-            readPacer.setActiveFraction(budget.activeFraction, now: now)
-            budget = budget.withPacedDelay(readPacer.rest(now: now))
-        }
         // Explicit batches temporarily own the shared budget. In-flight
         // automatic reads drain normally before those slots become available.
         // Hand-off in the other direction: while a batch is registered but
@@ -631,19 +631,15 @@ final class MetadataBackfillService {
         if resumesFromPause { start() }
     }
 
-    /// 记一次读取实际占用的**计算**时间 —— 总耗时减去纯网络等待。等网络不产生
-    /// 热量, 把它算进占空比会让慢速网络凭空变成"设备很忙"。
-    private func recordReadOccupancy(_ duration: TimeInterval) {
-        guard duration.isFinite, duration > 0 else { return }
-        readPacer.recordWork(duration, now: Self.monotonicNow())
-        // 透支之后下一次的等待变了, 让调度器重新取一次预算。
-        activeScheduler?.configurationChanged()
-        for scheduler in batchSchedulers.values { scheduler.configurationChanged() }
-    }
-
-    /// 单调时钟: 限速器记账不能被系统时间调整带偏。
-    private static func monotonicNow() -> TimeInterval {
-        Double(DispatchTime.now().uptimeNanoseconds) / 1_000_000_000
+    private func recordProcessingDuration(_ duration: TimeInterval) {
+        guard duration.isFinite, duration >= 0 else { return }
+        // React immediately to expensive parsing and recover gradually after
+        // cheap reads; a single easy file cannot erase a heavy recent sample.
+        recentProcessingDuration = max(duration, recentProcessingDuration * 0.8 + duration * 0.2)
+        if readingEnvironment().thermalState == .serious {
+            activeScheduler?.configurationChanged()
+            for scheduler in batchSchedulers.values { scheduler.configurationChanged() }
+        }
     }
 
     private func recordReadCompletion(sourceID: String) {
@@ -3052,21 +3048,18 @@ final class MetadataBackfillService {
             songIDs: songIDs,
             scheduler: scheduler,
             limits: { [self] in
-                // 手动批量重读与自动队列共用同一个限速器: 两边都在读同一台设备,
-                // 占空比预算必须是一份而不是各记一笔。
-                var budget = MetadataBackfillExecutionPolicy.limits(
+                let budget = MetadataBackfillExecutionPolicy.limits(
                     for: .userInitiated,
                     preference: readingMode,
-                    environment: readingEnvironment(sourceID: expectedSourceID)
+                    environment: readingEnvironment(sourceID: expectedSourceID),
+                    recentProcessingDuration: recentProcessingDuration
                 )
-                if budget.workerCount > 0, budget.activeFraction > 0 {
-                    let pacedAt = Self.monotonicNow()
-                    readPacer.setActiveFraction(budget.activeFraction, now: pacedAt)
-                    budget = budget.withPacedDelay(readPacer.rest(now: pacedAt))
-                }
                 #if os(iOS)
                 if UIApplication.shared.applicationState != .active {
-                    return budget.withWorkerCount(0)
+                    return MetadataBackfillExecutionLimits(
+                        workerCount: 0, snapshotLimit: budget.snapshotLimit,
+                        interRequestDelay: budget.interRequestDelay, flushInterval: budget.flushInterval
+                    )
                 }
                 #endif
                 let occupied = (activeScheduler?.inFlightCount ?? 0)
@@ -3654,6 +3647,12 @@ final class MetadataBackfillService {
         // TIT2 parsed but duration did not). Failure membership must stop
         // future network retries, not discard the useful result we already have.
         let flushSignpost = PrimuseSignposts.hitch.beginInterval("backfill.flushApply")
+        libraryPublishDepth += 1
+        libraryPublishGeneration &+= 1
+        defer {
+            libraryPublishDepth -= 1
+            libraryPublishGeneration &+= 1
+        }
         let batch = pendingFlush.compactMap(backfillResultForApply)
         let batchIDs = Set(batch.map(\.id))
         pendingFlush.removeAll(keepingCapacity: true)
@@ -4124,9 +4123,20 @@ final class MetadataBackfillService {
             : .bulkBounded
         var rangeElapsed: TimeInterval = 0
         var rangeCount = 0
+        let cpuStarted = Self.processCPUTime()
+        let sampleWindow = readCPUSampleWindow
         defer {
-            if !Task.isCancelled {
-                recordReadOccupancy(max(0, Date().timeIntervalSince(started) - rangeElapsed))
+            // 和资料库发布重叠的读取不是有效样本: rusage 是整个进程的 CPU, 会把
+            // 那一批发布的代价记到这一首头上, 而发布的代价按批摊销, 歇得更久
+            // 并不会让它变便宜 —— 只会让吞吐白掉一截。
+            if !Task.isCancelled,
+               MetadataReadCPUSamplePolicy.acceptsSample(
+                before: sampleWindow, after: readCPUSampleWindow
+               ) {
+                recordProcessingDuration(MetadataBackfillExecutionPolicy.processingDuration(
+                    cpuTimeBefore: cpuStarted, cpuTimeAfter: Self.processCPUTime(),
+                    fallback: max(0, Date().timeIntervalSince(started) - rangeElapsed)
+                ))
             }
         }
         func fetchRange(offset: Int64, length: Int64) async throws -> Data {
@@ -4602,6 +4612,13 @@ final class MetadataBackfillService {
             artistInspected: artistInspectionCompleted,
             artworkGivenUp: artworkStillMissing
         )
+    }
+
+    private static func processCPUTime() -> TimeInterval? {
+        var usage = rusage()
+        guard getrusage(RUSAGE_SELF, &usage) == 0 else { return nil }
+        return Double(usage.ru_utime.tv_sec) + Double(usage.ru_stime.tv_sec)
+            + Double(usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1_000_000
     }
 
     /// Keep parsing state local to this song; store assets only after all
