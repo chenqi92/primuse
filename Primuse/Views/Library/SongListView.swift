@@ -130,8 +130,9 @@ struct MacWindowedSongScrollView<Header: View, RowContent: View>: View {
     }
 }
 
-/// Keeps the macOS flat-song header and native scroll view alive while only the
-/// result layout changes between table, compact, and grid presentation.
+/// Keeps the macOS table header and native scroll view alive while only the
+/// result layout changes between table, compact, and grid presentation. The
+/// page chrome above the table is laid out outside this surface and never scrolls.
 private struct MacSongScrollSurface<Chrome: View, Results: View>: View {
     let allowsHorizontalScrolling: Bool
     let rowCount: Int
@@ -165,26 +166,30 @@ private struct MacSongScrollSurface<Chrome: View, Results: View>: View {
             allowsHorizontalScrolling ? [.vertical, .horizontal] : .vertical,
             showsIndicators: allowsHorizontalScrolling
         ) {
-            VStack(alignment: .leading, spacing: 0) {
-                chrome
-                    .frame(minWidth: viewportWidth, alignment: .leading)
-                    .onGeometryChange(for: CGFloat.self) { proxy in
-                        proxy.size.height
-                    } action: { height in
-                        guard abs(chromeHeight - height) > 0.5 else { return }
-                        chromeHeight = height
-                    }
+            // 表头作为置顶的分区头: 纵向滚动时钉在可见区顶部, 横向仍与行一起滚动,
+            // 列标题始终可见。
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                Section {
+                    results(range, viewportWidth)
+                        .frame(
+                            minWidth: viewportWidth,
+                            alignment: .leading
+                        )
 
-                results(range, viewportWidth)
-                    .frame(
-                        minWidth: viewportWidth,
-                        alignment: .leading
-                    )
-
-                Color.clear
-                    .frame(height: 112)
-                    .frame(minWidth: viewportWidth, alignment: .leading)
-                    .accessibilityHidden(true)
+                    Color.clear
+                        .frame(height: 112)
+                        .frame(minWidth: viewportWidth, alignment: .leading)
+                        .accessibilityHidden(true)
+                } header: {
+                    chrome
+                        .frame(minWidth: viewportWidth, alignment: .leading)
+                        .onGeometryChange(for: CGFloat.self) { proxy in
+                            proxy.size.height
+                        } action: { height in
+                            guard abs(chromeHeight - height) > 0.5 else { return }
+                            chromeHeight = height
+                        }
+                }
             }
             .frame(minWidth: viewportWidth, alignment: .leading)
         }
@@ -1782,15 +1787,19 @@ struct SongListView: View {
             resetKey: scrollResetKey
         )
 
-        return Group {
-            if showsFolderBrowser {
-                macFolderSongList
-            } else {
-                macFlatSongList(rows: rows, request: request)
+        return VStack(alignment: .leading, spacing: 0) {
+            macPinnedSongListChrome
+
+            Group {
+                if showsFolderBrowser {
+                    macFolderSongList
+                } else {
+                    macFlatSongList(rows: rows, request: request)
+                }
             }
-        }
-        .onScrollPhaseChange { _, newPhase in
-            updateListInteraction(for: newPhase)
+            .onScrollPhaseChange { _, newPhase in
+                updateListInteraction(for: newPhase)
+            }
         }
         .background(PMColor.bg.ignoresSafeArea())
         .onAppear { rebuildPlayCounts() }
@@ -1813,7 +1822,7 @@ struct SongListView: View {
             rowHeight: rowHeight,
             request: request
         ) {
-            macVirtualizedSongListChrome(isEmpty: rows.isEmpty)
+            macSongScrollChrome(isEmpty: rows.isEmpty)
         } results: { range, viewportWidth in
             macFlatSongResults(
                 rows: rows,
@@ -1910,36 +1919,50 @@ struct SongListView: View {
         }
     }
 
-    private func macVirtualizedSongListChrome(isEmpty: Bool) -> some View {
+    /// 大封面标题区、来源筛选与工具栏固定在列表上方, 不随歌曲滚动: 切换来源 /
+    /// 视图 / 排序时不必先滚回顶部, 滚动面里只剩表头与行, 窗口化的行区间也更小。
+    /// 目录浏览没有来源筛选 (目录树自带根来源), 只保留工具栏。
+    private var macPinnedSongListChrome: some View {
         VStack(alignment: .leading, spacing: 0) {
             macSongListHeader
 
             VStack(alignment: .leading, spacing: PMSpace.l) {
-                sourceFilterChips
+                if !showsFolderBrowser {
+                    sourceFilterChips
+                }
                 macToolbarRow
-
-                switch macViewMode {
-                case .list:
-                    VStack(spacing: 0) {
-                        tableHeader
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 8)
-                            .background(PMColor.bg)
-                        Rectangle().fill(PMColor.divider).frame(height: 0.5)
-                    }
-                case .compact:
-                    Color.clear.frame(height: 8)
-                case .grid:
-                    EmptyView()
-                }
-
-                if isEmpty {
-                    macSongListEmptyState
-                }
             }
             .padding(.horizontal, PMSpace.xxxl)
             .padding(.top, PMSpace.m14)
+            .padding(.bottom, PMSpace.l)
         }
+    }
+
+    /// 滚动面自己的顶部: 列表视图是可置顶的表头, 紧凑视图留一点呼吸空间,
+    /// 网格视图没有表头。空状态也放在这里, 没有行时它就是唯一内容。
+    private func macSongScrollChrome(isEmpty: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            switch macViewMode {
+            case .list:
+                VStack(spacing: 0) {
+                    tableHeader
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                    Rectangle().fill(PMColor.divider).frame(height: 0.5)
+                }
+            case .compact:
+                Color.clear.frame(height: 8)
+            case .grid:
+                EmptyView()
+            }
+
+            if isEmpty {
+                macSongListEmptyState
+            }
+        }
+        .padding(.horizontal, PMSpace.xxxl)
+        // 置顶后行会从它下面滚过, 必须是不透明底。
+        .background(PMColor.bg)
     }
 
     @ViewBuilder
@@ -1959,37 +1982,30 @@ struct SongListView: View {
 
     private var macFolderSongList: some View {
         ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 0) {
-                macSongListHeader
-
-                VStack(alignment: .leading, spacing: PMSpace.l) {
-                    macToolbarRow
-
-                    if macFolderPath.isEmpty {
-                        LibraryFolderRootContent(
-                            folderCache: folderCache,
-                            listCache: listCache,
-                            rootSourceID: folderRootSourceID,
-                            selection: selection,
-                            sortOrder: sortOrderBinding,
-                            onOpenFolder: openMacFolder
-                        )
-                    } else {
-                        MacLibraryFolderInlineContent(
-                            folderPath: macFolderPath,
-                            folderCache: folderCache,
-                            listCache: listCache,
-                            selection: selection,
-                            sortOrder: sortOrderBinding,
-                            onOpenFolder: openMacFolder,
-                            onNavigate: navigateMacFolder
-                        )
-                    }
+            VStack(alignment: .leading, spacing: PMSpace.l) {
+                if macFolderPath.isEmpty {
+                    LibraryFolderRootContent(
+                        folderCache: folderCache,
+                        listCache: listCache,
+                        rootSourceID: folderRootSourceID,
+                        selection: selection,
+                        sortOrder: sortOrderBinding,
+                        onOpenFolder: openMacFolder
+                    )
+                } else {
+                    MacLibraryFolderInlineContent(
+                        folderPath: macFolderPath,
+                        folderCache: folderCache,
+                        listCache: listCache,
+                        selection: selection,
+                        sortOrder: sortOrderBinding,
+                        onOpenFolder: openMacFolder,
+                        onNavigate: navigateMacFolder
+                    )
                 }
-                .padding(.horizontal, PMSpace.xxxl)
-                .padding(.top, PMSpace.m14)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .padding(.horizontal, PMSpace.xxxl)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.bottom, 112)
         }
     }
@@ -2160,12 +2176,16 @@ struct SongListView: View {
             if !showsFolderBrowser {
                 viewModeSegment
 
-                PMRoundBtn(icon: "slider.horizontal.3", size: 26, iconSize: 12, style: .glass,
-                           help: "songs_view_options") {
-                    showViewOptions.toggle()
-                }
-                .popover(isPresented: $showViewOptions, arrowEdge: .bottom) {
-                    viewOptionsPopover
+                // 行高 / 显示列只作用于列表视图; 显示方式已由左侧分段控件切换,
+                // 弹框不再重复它, 其他视图下也就没有可调项, 直接不显示按钮。
+                if macViewMode == .list {
+                    PMRoundBtn(icon: "slider.horizontal.3", size: 26, iconSize: 12, style: .glass,
+                               help: "songs_view_options") {
+                        showViewOptions.toggle()
+                    }
+                    .popover(isPresented: $showViewOptions, arrowEdge: .bottom) {
+                        viewOptionsPopover
+                    }
                 }
             }
         }
@@ -2922,7 +2942,8 @@ struct SongListView: View {
             ],
             [
                 .init(icon: "list.bullet.rectangle",
-                      title: String(localized: "songs_column_settings_ellipsis")) {
+                      title: String(localized: "songs_column_settings_ellipsis"),
+                      enabled: macViewMode == .list) {
                     showViewOptions = true
                 },
             ],
@@ -2935,68 +2956,60 @@ struct SongListView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(PMColor.text)
 
-            viewOptionsSection(String(localized: "songs_display_mode")) {
-                segmentedIconPicker(MacSongsViewMode.allCases, selection: $macViewMode)
+            viewOptionsSection(String(localized: "songs_row_height")) {
+                segmentedIconPicker(MacSongsRowDensity.allCases, selection: $macRowDensity)
             }
 
-            // 行高 / 显示列 只作用于「列表」视图 (紧凑、网格是固定密排布局, 不吃这些
-            // 设置)。在别的模式下隐藏, 免得勾了列却不生效、看着对不上。
-            if macViewMode == .list {
-                viewOptionsSection(String(localized: "songs_row_height")) {
-                    segmentedIconPicker(MacSongsRowDensity.allCases, selection: $macRowDensity)
-                }
-
-                viewOptionsSection(String(localized: "songs_display_columns")) {
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                        ForEach(MacSongsColumn.allCases) { column in
-                            Button {
-                                guard column != .title else { return }
-                                if visibleColumns.contains(column) {
-                                    visibleColumns.remove(column)
-                                } else {
-                                    visibleColumns.insert(column)
-                                }
-                            } label: {
-                                HStack(spacing: 8) {
-                                    ZStack {
-                                        RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                            .fill(visibleColumns.contains(column) ? PMColor.brand : .clear)
-                                            .frame(width: 14, height: 14)
-                                            .overlay {
-                                                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                                    .strokeBorder(visibleColumns.contains(column) ? .clear : PMColor.dividerStrong, lineWidth: 1.5)
-                                            }
-                                        if visibleColumns.contains(column) {
-                                            Image(systemName: "checkmark")
-                                                .font(.system(size: 8.5, weight: .bold))
-                                                .foregroundStyle(.white)
-                                        }
-                                    }
-                                    Text(verbatim: column.title)
-                                        .font(.system(size: 11.5))
-                                        .foregroundStyle(visibleColumns.contains(column) ? PMColor.text : PMColor.textMuted)
-                                        .lineLimit(1)
-                                    Spacer(minLength: 0)
-                                }
-                                // 整行 (含复选框本身) 都可点, 不必非点中文字。
-                                .contentShape(Rectangle())
+            viewOptionsSection(String(localized: "songs_display_columns")) {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                    ForEach(MacSongsColumn.allCases) { column in
+                        Button {
+                            guard column != .title else { return }
+                            if visibleColumns.contains(column) {
+                                visibleColumns.remove(column)
+                            } else {
+                                visibleColumns.insert(column)
                             }
-                            .buttonStyle(.plain)
-                            .disabled(column == .title)
-                            .opacity(column == .title ? 0.72 : 1)
+                        } label: {
+                            HStack(spacing: 8) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                        .fill(visibleColumns.contains(column) ? PMColor.brand : .clear)
+                                        .frame(width: 14, height: 14)
+                                        .overlay {
+                                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                                .strokeBorder(visibleColumns.contains(column) ? .clear : PMColor.dividerStrong, lineWidth: 1.5)
+                                        }
+                                    if visibleColumns.contains(column) {
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 8.5, weight: .bold))
+                                            .foregroundStyle(.white)
+                                    }
+                                }
+                                Text(verbatim: column.title)
+                                    .font(.system(size: 11.5))
+                                    .foregroundStyle(visibleColumns.contains(column) ? PMColor.text : PMColor.textMuted)
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            // 整行 (含复选框本身) 都可点, 不必非点中文字。
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                        .disabled(column == .title)
+                        .opacity(column == .title ? 0.72 : 1)
                     }
-
-                    Button("reset") {
-                        MacSongTableLayoutPreference.reset()
-                        visibleColumns = MacSongsColumn.defaultVisible
-                        columnOrder = MacSongsColumn.defaultOrder
-                        columnWidths = MacSongsColumn.defaultWidths
-                    }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(PMColor.brand)
                 }
+
+                Button("reset") {
+                    MacSongTableLayoutPreference.reset()
+                    visibleColumns = MacSongsColumn.defaultVisible
+                    columnOrder = MacSongsColumn.defaultOrder
+                    columnWidths = MacSongsColumn.defaultWidths
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(PMColor.brand)
             }
         }
         .padding(16)

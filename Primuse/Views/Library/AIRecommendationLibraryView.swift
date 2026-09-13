@@ -362,7 +362,8 @@ struct AIRecommendationLibraryView: View {
     }
 
     private var statusPanel: some View {
-        HStack(alignment: .top, spacing: 11) {
+        // 尾部的刷新 / 设置按钮 30pt 高, 图标与文字若顶对齐就会整体偏上; 按中线对齐。
+        HStack(alignment: .center, spacing: 11) {
             Image(systemName: statusIcon)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(statusColor)
