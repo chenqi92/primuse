@@ -347,6 +347,7 @@ struct ArtistDetailView: View {
                             albumShelfTile(album, showsPlayCount: showsPlayCount)
                         }
                         .buttonStyle(.plain)
+                        .mediaZoomSource(.album, id: album.id, cornerRadius: 14)
                     }
                 }
                 .padding(.horizontal, 20)

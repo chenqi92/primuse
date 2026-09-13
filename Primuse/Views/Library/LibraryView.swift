@@ -338,6 +338,8 @@ struct LibraryView: View {
     private let rootSection: LibrarySection?
     private let onActiveSectionChange: (LibrarySection?) -> Void
     @State private var navigationPath = NavigationPath()
+    /// 资料库这一层导航栈的 zoom 命名空间。
+    @Namespace private var libraryZoomNamespace
     @State private var songLocationRequest: SongLibraryLocationRequest?
     @State private var didRestorePersistedPage = false
     @State private var showQuickAccessEditor = false
@@ -434,6 +436,7 @@ struct LibraryView: View {
             }
             .navigationDestination(for: Album.self) { album in
                 AlbumDetailView(album: album)
+                    .mediaZoomDestination(.album, id: album.id)
                     .onAppear {
                         persistedPageID = "album:\(album.id)"
                         onActiveSectionChange(.albums)
@@ -441,6 +444,7 @@ struct LibraryView: View {
             }
             .navigationDestination(for: Artist.self) { artist in
                 ArtistDetailView(artist: artist)
+                    .mediaZoomDestination(.artist, id: artist.id)
                     .onAppear {
                         persistedPageID = "artist:\(artist.id)"
                         onActiveSectionChange(.artists)
@@ -448,6 +452,7 @@ struct LibraryView: View {
             }
             .navigationDestination(for: Playlist.self) { playlist in
                 PlaylistDetailView(playlist: playlist)
+                    .mediaZoomDestination(.playlist, id: playlist.id)
                     .onAppear {
                         persistedPageID = "playlist:\(playlist.id)"
                         onActiveSectionChange(.playlists)
@@ -500,6 +505,7 @@ struct LibraryView: View {
                 )
             }
         }
+        .mediaZoomNamespace(libraryZoomNamespace)
     }
 
     @ViewBuilder
@@ -726,6 +732,7 @@ struct LibraryView: View {
                     }
                 }
                 .buttonStyle(.plain)
+                .mediaZoomSource(.album, id: album.id, cornerRadius: 16)
             }
         case .artist:
             if let artist = artists.first(where: { $0.id == pin.itemID }) {
@@ -740,6 +747,7 @@ struct LibraryView: View {
                     }
                 }
                 .buttonStyle(.plain)
+                .mediaZoomSource(.artist, id: artist.id, cornerRadius: 999)
             }
         case .playlist:
             if pin.itemID == MusicLibrary.likedSongsPlaylistID {
@@ -757,6 +765,7 @@ struct LibraryView: View {
                     }
                 }
                 .buttonStyle(.plain)
+                .mediaZoomSource(.playlist, id: likedPlaylist.id, cornerRadius: 16)
             } else if let playlist = regularPlaylists.first(where: { $0.id == pin.itemID }) {
                 NavigationLink(value: playlist) {
                     quickAccessLabel(
@@ -772,6 +781,7 @@ struct LibraryView: View {
                     }
                 }
                 .buttonStyle(.plain)
+                .mediaZoomSource(.playlist, id: playlist.id, cornerRadius: 16)
             }
         }
     }
@@ -2221,6 +2231,7 @@ private struct GenreDetailView: View {
                             AlbumCardView(album: album).frame(width: 142)
                         }
                         .buttonStyle(.plain)
+                        .mediaZoomSource(.album, id: album.id, cornerRadius: 10)
                     }
                 }
                 .padding(.horizontal, 20)

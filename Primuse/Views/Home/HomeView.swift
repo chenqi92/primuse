@@ -417,9 +417,18 @@ struct HomeView: View {
             .sheet(isPresented: $showRadioBatchAdd) {
                 RadioBatchAddView()
             }
-            .navigationDestination(for: Album.self) { AlbumDetailView(album: $0) }
-            .navigationDestination(for: Artist.self) { ArtistDetailView(artist: $0) }
-            .navigationDestination(for: Playlist.self) { PlaylistDetailView(playlist: $0) }
+            .navigationDestination(for: Album.self) {
+                AlbumDetailView(album: $0)
+                    .mediaZoomDestination(.album, id: $0.id)
+            }
+            .navigationDestination(for: Artist.self) {
+                ArtistDetailView(artist: $0)
+                    .mediaZoomDestination(.artist, id: $0.id)
+            }
+            .navigationDestination(for: Playlist.self) {
+                PlaylistDetailView(playlist: $0)
+                    .mediaZoomDestination(.playlist, id: $0.id)
+            }
             // 更新提示改成 sheet 弹框 ── 之前内嵌在首页顶部当 banner 用,
             // 用户更想要"弹框"的 modal 体感, 也避免占用首页空间。
             // checker.availableUpdate 从 nil 变非 nil 时自动弹出。
@@ -471,6 +480,7 @@ struct HomeView: View {
             }
             #endif
         }
+        .mediaZoomNamespace(homeZoomNamespace)
     }
 
     // MARK: - Content
@@ -490,6 +500,8 @@ struct HomeView: View {
     @AppStorage(LibraryPinStorage.defaultsKey) private var quickAccessRawValue = ""
     @AppStorage(LibraryDisplayConfiguration.quickAccessLimitKey)
     private var configuredQuickAccessLimit = LibraryDisplayConfiguration.defaultQuickAccessLimit
+    /// 首页这一层导航栈的 zoom 命名空间:卡片放大成详情页,返回时缩回卡片。
+    @Namespace private var homeZoomNamespace
     @State private var needsHomeRefreshWhenActive = false
     // Debounce for `searchRevision`-driven refreshes. MusicLibrary bumps
     // `searchRevision` on *every* upsert batch during a scan, so a large
@@ -2369,6 +2381,7 @@ struct HomeView: View {
                 }
             }
             .buttonStyle(.plain)
+            .mediaZoomSource(.playlist, id: playlist.id, cornerRadius: 9)
         case .album(let album):
             NavigationLink(value: album) {
                 quickAccessDockLabel(title: album.title) {
@@ -2378,6 +2391,7 @@ struct HomeView: View {
                 }
             }
             .buttonStyle(.plain)
+            .mediaZoomSource(.album, id: album.id, cornerRadius: 9)
         case .artist(let artist):
             NavigationLink(value: artist) {
                 quickAccessDockLabel(title: artist.name) {
@@ -2387,6 +2401,7 @@ struct HomeView: View {
                 }
             }
             .buttonStyle(.plain)
+            .mediaZoomSource(.artist, id: artist.id, cornerRadius: 999)
         case .playlist(let tile):
             NavigationLink(value: tile.playlist) {
                 quickAccessDockLabel(title: tile.playlist.name) {
@@ -2396,6 +2411,7 @@ struct HomeView: View {
                 }
             }
             .buttonStyle(.plain)
+            .mediaZoomSource(.playlist, id: tile.playlist.id, cornerRadius: 9)
         }
     }
 
@@ -2453,6 +2469,7 @@ struct HomeView: View {
                                 playlistCard(tile)
                             }
                             .buttonStyle(.plain)
+                            .mediaZoomSource(.playlist, id: tile.playlist.id, cornerRadius: 10)
                         }
                     }
                     .padding(.horizontal, 20)
@@ -2469,6 +2486,7 @@ struct HomeView: View {
                             playlistCard(tile)
                         }
                         .buttonStyle(.plain)
+                        .mediaZoomSource(.playlist, id: tile.playlist.id, cornerRadius: 10)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -2863,6 +2881,7 @@ struct HomeView: View {
                                     .frame(width: homeAlbumCardWidth)
                             }
                             .buttonStyle(.plain)
+                            .mediaZoomSource(.album, id: tile.album.id, cornerRadius: 10)
                         }
                     }
                     .padding(.horizontal, 20)
@@ -2897,6 +2916,7 @@ struct HomeView: View {
                             AlbumCardView(album: tile.album, showsSongCount: true)
                         }
                         .buttonStyle(.plain)
+                        .mediaZoomSource(.album, id: tile.album.id, cornerRadius: 10)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -2960,6 +2980,7 @@ struct HomeView: View {
                     ForEach(displayed.prefix(sectionItemCount(.topArtists, sizeClass == .regular ? 16 : 8))) { artist in
                         NavigationLink(value: artist) { artistBubble(artist) }
                             .buttonStyle(.plain)
+                            .mediaZoomSource(.artist, id: artist.id, cornerRadius: 999)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -2969,6 +2990,7 @@ struct HomeView: View {
                         ForEach(displayed.prefix(sectionItemCount(.topArtists, sizeClass == .regular ? 16 : 8))) { artist in
                             NavigationLink(value: artist) { artistBubble(artist) }
                                 .buttonStyle(.plain)
+                                .mediaZoomSource(.artist, id: artist.id, cornerRadius: 999)
                         }
                     }
                     .padding(.horizontal, 20)

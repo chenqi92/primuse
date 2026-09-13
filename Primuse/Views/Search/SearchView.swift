@@ -305,6 +305,7 @@ private struct SearchAlbumResultsView: View {
                         AlbumCardView(album: album)
                     }
                     .buttonStyle(.plain)
+                    .mediaZoomSource(.album, id: album.id, cornerRadius: 10)
                 }
             }
             .padding(20)
@@ -384,6 +385,8 @@ enum SearchHistoryStore {
 
 struct SearchView: View {
     @Environment(AudioPlayerService.self) private var player
+    /// 搜索结果这一层导航栈的 zoom 命名空间。
+    @Namespace private var searchZoomNamespace
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MetadataBackfillService.self) private var backfill
@@ -528,6 +531,7 @@ struct SearchView: View {
             }
             #endif
         }
+        .mediaZoomNamespace(searchZoomNamespace)
         .songBatchActions(
             selection: selection,
             orderedIDs: { selectableSongIDs },
@@ -624,8 +628,14 @@ struct SearchView: View {
             }
         }
         #endif
-        .navigationDestination(for: PrimuseKit.Album.self) { AlbumDetailView(album: $0) }
-        .navigationDestination(for: PrimuseKit.Artist.self) { ArtistDetailView(artist: $0) }
+        .navigationDestination(for: PrimuseKit.Album.self) {
+            AlbumDetailView(album: $0)
+                .mediaZoomDestination(.album, id: $0.id)
+        }
+        .navigationDestination(for: PrimuseKit.Artist.self) {
+            ArtistDetailView(artist: $0)
+                .mediaZoomDestination(.artist, id: $0.id)
+        }
         #if os(iOS)
         .navigationDestination(for: SearchCatalogDestination.self) { destination in
             switch destination {
@@ -1691,6 +1701,7 @@ struct SearchView: View {
                                     AlbumCardView(album: album).frame(width: 142)
                                 }
                                 .buttonStyle(.plain)
+                                .mediaZoomSource(.album, id: album.id, cornerRadius: 10)
                             }
                         }
                         .padding(.vertical, 8)

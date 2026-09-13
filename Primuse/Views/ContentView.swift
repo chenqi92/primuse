@@ -210,6 +210,98 @@ extension EnvironmentValues {
         get { self[MinimalNavigationDetailTransitionHandlerEnvironmentKey.self] }
         set { self[MinimalNavigationDetailTransitionHandlerEnvironmentKey.self] = newValue }
     }
+
+    var mediaZoomNamespace: Namespace.ID? {
+        get { self[MediaZoomNamespaceEnvironmentKey.self] }
+        set { self[MediaZoomNamespaceEnvironmentKey.self] = newValue }
+    }
+}
+
+// MARK: - 详情页 zoom 展开
+
+/// 列表卡片与详情页之间的转场标识。专辑 / 艺术家 / 歌单共用一层导航栈的
+/// 命名空间,靠 kind 区分,免得不同类型撞上同一个 ID 时互相匹配。
+struct MediaZoomTransitionID: Hashable {
+    enum Kind: String {
+        case album
+        case artist
+        case playlist
+    }
+
+    let kind: Kind
+    let id: String
+}
+
+/// 用可选值:绝大多数视图不在这套转场里,取不到命名空间时两个修饰符都原样
+/// 返回内容,页面照常 push,只是没有放大动画。
+private struct MediaZoomNamespaceEnvironmentKey: EnvironmentKey {
+    static let defaultValue: Namespace.ID? = nil
+}
+
+private struct MediaZoomSourceModifier: ViewModifier {
+    let transitionID: MediaZoomTransitionID
+    let cornerRadius: CGFloat
+    @Environment(\.mediaZoomNamespace) private var namespace
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let namespace, !reduceMotion {
+            content.matchedTransitionSource(id: transitionID, in: namespace) { source in
+                source.clipShape(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                )
+            }
+        } else {
+            content
+        }
+    }
+}
+
+private struct MediaZoomDestinationModifier: ViewModifier {
+    let transitionID: MediaZoomTransitionID
+    @Environment(\.mediaZoomNamespace) private var namespace
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let namespace, !reduceMotion {
+            content.navigationTransition(.zoom(sourceID: transitionID, in: namespace))
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    /// 挂在 NavigationStack 上,给这一层导航建立共享命名空间。
+    func mediaZoomNamespace(_ namespace: Namespace.ID) -> some View {
+        environment(\.mediaZoomNamespace, namespace)
+    }
+
+    /// 挂在列表卡片上:详情页从这张卡片放大出来,返回时缩回原位。
+    /// 圆形头像传一个足够大的圆角即可(正方形上会收敛成圆)。
+    func mediaZoomSource(
+        _ kind: MediaZoomTransitionID.Kind,
+        id: String,
+        cornerRadius: CGFloat = 12
+    ) -> some View {
+        modifier(
+            MediaZoomSourceModifier(
+                transitionID: MediaZoomTransitionID(kind: kind, id: id),
+                cornerRadius: cornerRadius
+            )
+        )
+    }
+
+    /// 挂在 navigationDestination 给出的详情页根视图上。
+    func mediaZoomDestination(_ kind: MediaZoomTransitionID.Kind, id: String) -> some View {
+        modifier(
+            MediaZoomDestinationModifier(
+                transitionID: MediaZoomTransitionID(kind: kind, id: id)
+            )
+        )
+    }
 }
 
 extension View {
@@ -533,6 +625,9 @@ struct ContentView: View {
     /// 跟到对应顶级项, 但子项不自动猜测)。
     @AppStorage("primuse.navigation.sidebarItem.v1")
     private var sidebarSelection: SidebarItem = .home
+    /// iPad sidebar 的资料库子面板自成一层导航栈,zoom 转场的命名空间也要
+    /// 跟着这一层走。
+    @Namespace private var librarySubpaneZoomNamespace
     @State private var searchText = ""
     @State private var searchNavigation = LibrarySearchNavigation()
     @State private var searchScope: LibrarySearchScope?
@@ -871,12 +966,22 @@ struct ContentView: View {
         NavigationStack {
             content()
                 .navigationTitle(title)
-                .navigationDestination(for: Album.self) { AlbumDetailView(album: $0) }
-                .navigationDestination(for: Artist.self) { ArtistDetailView(artist: $0) }
-                .navigationDestination(for: Playlist.self) { PlaylistDetailView(playlist: $0) }
+                .navigationDestination(for: Album.self) {
+                    AlbumDetailView(album: $0)
+                        .mediaZoomDestination(.album, id: $0.id)
+                }
+                .navigationDestination(for: Artist.self) {
+                    ArtistDetailView(artist: $0)
+                        .mediaZoomDestination(.artist, id: $0.id)
+                }
+                .navigationDestination(for: Playlist.self) {
+                    PlaylistDetailView(playlist: $0)
+                        .mediaZoomDestination(.playlist, id: $0.id)
+                }
                 // SmartPlaylist destination 由 PlaylistListView 自己挂,不在
                 // 这层重复设置,免得 SwiftUI 报"重复 destination"警告。
         }
+        .mediaZoomNamespace(librarySubpaneZoomNamespace)
     }
 
     var body: some View {
