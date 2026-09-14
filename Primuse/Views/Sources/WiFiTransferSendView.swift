@@ -270,9 +270,14 @@ struct WiFiTransferSendView: View {
                     .padding(.horizontal, 16).padding(.bottom, 12)
                 }
             }
+            #if os(macOS)
             footer
+            #endif
         }
         .foregroundStyle(TransferAppearance.text)
+        #if os(iOS)
+        .toolbar { sendAction(library: library, sources: sources, sourceManager: sourceManager) }
+        #endif
         .fileImporter(isPresented: $showImporter, allowedContentTypes: pickFolder ? [.folder] : [.item], allowsMultipleSelection: true) { result in
             switch result {
             case .success(let urls): pickerError = nil; sender.choose(urls)
@@ -562,6 +567,12 @@ struct WiFiTransferSendView: View {
                     Text("\(sender.completed) / \(sender.completed + sender.failed.count)").monospacedDigit()
                 }
             }.font(.system(size: TransferAppearance.bodySize, weight: .medium))
+            #if os(iOS)
+            if !sender.destinationName.isEmpty && sender.completed > 0 {
+                Text(sender.destinationName).font(.system(size: TransferAppearance.captionSize))
+                    .foregroundStyle(TransferAppearance.muted).lineLimit(1)
+            }
+            #endif
             if sender.busy && !sender.currentFile.isEmpty {
                 Text(sender.currentFile).font(.system(size: TransferAppearance.captionSize))
                     .foregroundStyle(TransferAppearance.muted).lineLimit(1).truncationMode(.middle)
@@ -582,6 +593,7 @@ struct WiFiTransferSendView: View {
         }.modifier(TransferSurface(padding: 14))
     }
 
+    #if os(macOS)
     private var footer: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
@@ -610,6 +622,30 @@ struct WiFiTransferSendView: View {
         .background(TransferAppearance.surface)
         .overlay(alignment: .top) { Rectangle().fill(TransferAppearance.line).frame(height: 0.5) }
     }
+    #endif
+
+    #if os(iOS)
+    /// 主操作放导航栏右上角。模型按值传入：工具栏内容在自己的 bar item
+    /// 视图图里求值,读 @Environment 会在转场期间 trap。
+    @ToolbarContentBuilder
+    private func sendAction(library: MusicLibrary, sources: SourcesStore,
+                            sourceManager: SourceManager) -> some ToolbarContent {
+        ToolbarItem(placement: .confirmationAction) {
+            if sender.busy {
+                Button(WiFiTransferText.string("cancel")) { sender.cancel() }
+            } else {
+                Button(WiFiTransferText.string("sendNow")) {
+                    sender.send(address: address, code: code, expectedPeerID: expectedPeerID,
+                                library: library, sources: sources, sourceManager: sourceManager)
+                }
+                .fontWeight(.semibold)
+                .disabled(!canSend)
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier("transfer.send")
+            }
+        }
+    }
+    #endif
 
     private func fileIcon(_ path: String) -> String {
         switch URL(fileURLWithPath: path).pathExtension.lowercased() {

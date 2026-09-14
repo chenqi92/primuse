@@ -81,6 +81,16 @@ struct WiFiTransferView: View {
             ToolbarItem(placement: .cancellationAction) {
                 Button(WiFiTransferText.string("done")) { requestClose() }
             }
+            ToolbarItem(placement: .principal) {
+                VStack(spacing: 1) {
+                    Text(WiFiTransferText.string("nativeTitle")).font(.headline)
+                    Text(navigationStatus).font(.caption2)
+                        .foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            if mode != "send" {
+                ToolbarItem(placement: .confirmationAction) { receiveAction }
+            }
         }
         #else
         .frame(minWidth: 820, idealWidth: 1040, minHeight: 540, idealHeight: 740)
@@ -177,11 +187,10 @@ struct WiFiTransferView: View {
         .controlSize(.regular)
         .fixedSize(horizontal: true, vertical: false)
         .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 4)
-        #else
-        .frame(maxWidth: 360)
-        .padding(.horizontal, 16).padding(.vertical, 10)
-        #endif
         .frame(maxWidth: .infinity, alignment: .leading)
+        #else
+        .padding(.horizontal, 16).padding(.top, 2).padding(.bottom, 10)
+        #endif
         .accessibilityIdentifier("wifiTransfer.mode")
         .disabled(receiver.running || sender.busy)
     }
@@ -282,6 +291,7 @@ struct WiFiTransferView: View {
                 }
                 }
             }
+            #if os(macOS)
             HStack(spacing: 18) {
                 Label(WiFiTransferText.string("sameNetwork"), systemImage: "wifi")
                     .font(.system(size: TransferAppearance.captionSize)).foregroundStyle(TransferAppearance.muted)
@@ -301,8 +311,38 @@ struct WiFiTransferView: View {
             }.padding(.horizontal, 22).padding(.vertical, 14)
                 .background(TransferAppearance.surface)
                 .overlay(alignment: .top) { Rectangle().fill(TransferAppearance.line).frame(height: 0.5) }
+            #endif
         }
     }
+
+    #if os(iOS)
+    /// 导航栏副标题：发送页给出当前选择量，接收页给出会话状态,
+    /// 底部信息条移除后这里是唯一的常驻状态位置。
+    private var navigationStatus: String {
+        if mode == "send" {
+            return String(format: WiFiTransferText.string("librarySelectedSummary"),
+                          sender.selectedSongIDs.count, sender.externalFiles.count)
+        }
+        guard receiver.running else { return WiFiTransferText.string("sameNetwork") }
+        return WiFiTransferText.string(receiver.receipts.contains { !$0.finished } ? "receiving" : "receiverReady")
+    }
+
+    @ViewBuilder
+    private var receiveAction: some View {
+        if receiver.running {
+            Button(WiFiTransferText.string("stopReceiving")) {
+                closeAfterStopping = false
+                showStopConfirmation = true
+            }
+            .disabled(receiver.stopping)
+            .accessibilityIdentifier("wifiTransfer.stop")
+        } else {
+            Button(WiFiTransferText.string("startReceiving")) { start() }
+                .fontWeight(.semibold)
+                .accessibilityIdentifier("wifiTransfer.start")
+        }
+    }
+    #endif
 
     private var receivingIdentity: some View {
         VStack(alignment: .leading, spacing: 12) {
