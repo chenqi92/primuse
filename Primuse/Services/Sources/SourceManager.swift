@@ -5,9 +5,7 @@ import Network
 import NIOCore
 import PrimuseKit
 
-enum SourceFileDeletionFailureReason: String, Hashable, Sendable {
-    case permissionDenied, authenticationRequired, readOnly, unavailable, other
-
+extension SourceFileDeletionFailureReason {
     nonisolated static func classify(_ error: Error, depth: Int = 0) -> Self {
         switch error {
         case SourceFileMutationError.permissionDenied: return .permissionDenied

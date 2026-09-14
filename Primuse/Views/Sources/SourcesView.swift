@@ -380,6 +380,7 @@ struct SourcesContentView: View {
     @State private var pendingDeleteTasks: [String: Task<Void, Never>] = [:]
     @State private var diagnosingSource: MusicSource?
     @State private var inspectingMetadataSource: MusicSource?
+    @State private var inspectingLocalRemovalsSource: MusicSource?
     @State private var sourceAlert: SourceAlert?
     @State private var activeCacheRun: SourceCacheRun?
     @State private var preparingCacheSourceID: String?
@@ -562,6 +563,9 @@ struct SourcesContentView: View {
             .navigationDestination(isPresented: $openAppleMusicSettings) {
                 AppleMusicSettingsView()
             }
+            .navigationDestination(item: $inspectingLocalRemovalsSource) { source in
+                SourceLocalRemovalsView(source: source)
+            }
             .navigationDestination(item: $inspectingMetadataSource) { source in
                 SourceMetadataStatusView(source: source)
             }
@@ -722,8 +726,8 @@ struct SourcesContentView: View {
                 )
             }
 
-            if source.type == .navidrome {
-                navidromeAutoRefreshControl(for: source)
+            if AppServices.shared.serverCatalogAutoRefresh.supportsAutomaticRefresh(source) {
+                serverCatalogAutoRefreshControl(for: source)
             }
 
             if !dirs.isEmpty {
@@ -824,6 +828,8 @@ struct SourcesContentView: View {
                     metadataStatusButton(source, summary: metadataSummary)
                 }
             }
+
+            localRemovalsButton(source)
 
             if let progress = sourceCacheProgress(
                 for: source,
@@ -976,53 +982,88 @@ struct SourcesContentView: View {
         }
     }
 
-    private func navidromeAutoRefreshControl(for source: MusicSource) -> some View {
+    private func serverCatalogAutoRefreshControl(for source: MusicSource) -> some View {
         VStack(alignment: .leading, spacing: 9) {
-            Toggle(isOn: navidromeAutoRefreshBinding(for: source.id)) {
-                Text("navidrome_auto_refresh")
+            Toggle(isOn: serverCatalogAutoRefreshBinding(for: source.id)) {
+                Text("server_auto_refresh")
                     .font(.subheadline.weight(.semibold))
             }
             .toggleStyle(.switch)
-            .accessibilityLabel(Text("navidrome_auto_refresh"))
-            .accessibilityHint(Text("navidrome_auto_refresh_description"))
+            .accessibilityLabel(Text("server_auto_refresh"))
+            .accessibilityHint(Text("server_auto_refresh_description"))
 
-            Divider()
+            if AppServices.shared.serverCatalogAutoRefresh.supportsServerScanRequest(source) {
+                Divider()
 
-            Toggle(isOn: navidromeServerScanOnLaunchBinding(for: source.id)) {
-                Text("navidrome_server_scan_on_launch")
-                    .font(.subheadline.weight(.semibold))
+                Toggle(isOn: serverCatalogScanOnLaunchBinding(for: source.id)) {
+                    Text("server_scan_on_launch")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .toggleStyle(.switch)
+                .disabled(!AppServices.shared.serverCatalogAutoRefresh.isEnabled(for: source.id))
+                .accessibilityLabel(Text("server_scan_on_launch"))
+                .accessibilityHint(Text("server_scan_on_launch_description"))
             }
-            .toggleStyle(.switch)
-            .disabled(!AppServices.shared.navidromeAutoRefresh.isEnabled(for: source.id))
-            .accessibilityLabel(Text("navidrome_server_scan_on_launch"))
-            .accessibilityHint(Text("navidrome_server_scan_on_launch_description"))
         }
         .padding(10)
         .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
     }
 
-    private func navidromeAutoRefreshBinding(for sourceID: String) -> Binding<Bool> {
+    private func serverCatalogAutoRefreshBinding(for sourceID: String) -> Binding<Bool> {
         Binding(
             get: {
-                AppServices.shared.navidromeAutoRefresh.isEnabled(for: sourceID)
+                AppServices.shared.serverCatalogAutoRefresh.isEnabled(for: sourceID)
             },
             set: { enabled in
-                AppServices.shared.navidromeAutoRefresh.setEnabled(enabled, for: sourceID)
+                AppServices.shared.serverCatalogAutoRefresh.setEnabled(enabled, for: sourceID)
             }
         )
     }
 
-    private func navidromeServerScanOnLaunchBinding(for sourceID: String) -> Binding<Bool> {
+    private func serverCatalogScanOnLaunchBinding(for sourceID: String) -> Binding<Bool> {
         Binding(
             get: {
-                AppServices.shared.navidromeAutoRefresh
+                AppServices.shared.serverCatalogAutoRefresh
                     .isServerScanOnLaunchEnabled(for: sourceID)
             },
             set: { enabled in
-                AppServices.shared.navidromeAutoRefresh
+                AppServices.shared.serverCatalogAutoRefresh
                     .setServerScanOnLaunchEnabled(enabled, for: sourceID)
             }
         )
+    }
+
+    /// 只有这个源确实有"本机已移除、远端还在"的行时才出现。按账本内容判断
+    /// 而不是按源类型 —— WebDAV 类型上支持删除, 但具体挂载可能没权限, 按类型
+    /// 判断会漏掉最典型的那一种。
+    @ViewBuilder
+    private func localRemovalsButton(_ source: MusicSource) -> some View {
+        let count = library.locallyRemovedCount(forSourceID: source.id)
+        if count > 0 {
+            Button {
+                inspectingLocalRemovalsSource = source
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "arrow.uturn.backward.circle")
+                        .font(.caption)
+                    Text(verbatim: String(
+                        format: String(localized: "local_removals_source_row_format"),
+                        count
+                    ))
+                    .font(.caption.weight(.semibold))
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                }
+                .foregroundStyle(.secondary)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("local_removals_title"))
+        }
     }
 
     private func metadataStatusButton(

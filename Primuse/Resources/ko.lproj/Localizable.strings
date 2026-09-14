@@ -307,10 +307,6 @@
 "playlist_kind_server_mirror" = "서버 플레이리스트";
 "playlist_always_download" = "항상 오프라인으로 유지";
 "playlist_always_download_description" = "Wi-Fi를 통해 이 플레이리스트를 이 기기에 저장합니다. 새로 추가되거나 변경된 곡은 기기 상태가 허용될 때 자동으로 다운로드되며, 끄더라도 기존 파일은 유지됩니다.";
-"navidrome_auto_refresh" = "Navidrome 자동 새로 고침";
-"navidrome_auto_refresh_description" = "앱을 연 후 Navidrome 라이브러리 상태를 확인하고 서버 콘텐츠가 변경된 경우에만 로컬 카탈로그를 새로 고칩니다. 서버 스캔은 시작하지 않습니다.";
-"navidrome_server_scan_on_launch" = "시작할 때 전체 서버 스캔 요청";
-"navidrome_server_scan_on_launch_description" = "Primuse를 시작할 때 Navidrome에 전체 라이브러리 스캔을 요청합니다. 관리자 계정이 필요하며, 지원되지 않거나 권한이 없으면 상태만 새로 고칩니다.";
 "welcome_title" = "Primuse에 오신 것을 환영합니다";
 "welcome_desc" = "음악 소스(NAS, WebDAV 또는 로컬 파일)를 추가해 감상을 시작하세요";
 "no_albums" = "앨범 없음";
@@ -2937,7 +2933,6 @@
 "batch_delete_source_files" = "원본 파일 삭제";
 "batch_delete_source_files_message_format" = "%d곡의 원본 파일을 영구히 삭제하고 보관함에서도 제거합니다. 이 작업은 되돌릴 수 없습니다.";
 "batch_delete_skipped_format" = "%d곡은 음악 소스가 삭제를 지원하지 않아 건너뛰었습니다";
-"batch_delete_no_deletable_source" = "선택한 곡의 음악 소스는 모두 파일 삭제를 지원하지 않습니다.";
 "batch_delete_progress_format" = "삭제 중 %1$d / %2$d";
 "batch_delete_result_format" = "%d곡 삭제됨";
 "batch_delete_failed_format" = "%d곡 실패";
@@ -3883,3 +3878,34 @@
 "lyrics_editor_timing_conflict %lld %lld" = "%lld번째 줄이 %lld번째 줄보다 먼저 시작합니다";
 "lyrics_editor_retime_line" = "이 줄 시간 다시 지정";
 "lyrics_editor_align_hint" = "이 부분이 들릴 때 눌러 곡 전체를 맞추세요";
+
+/* Device-local song removals (sources without delete permission) */
+"remove" = "제거";
+"song_remove_from_device" = "이 기기에서 제거";
+"song_remove_from_device_message" = "이 기기의 보관함 항목만 제거합니다. 소스의 파일은 그대로 남으며 소스 페이지에서 복원할 수 있습니다.";
+"song_remove_from_device_unsupported_message" = "이 소스는 파일을 삭제할 수 없으므로 이 곡은 이 기기에서만 숨길 수 있습니다. 서버의 파일은 그대로 남으며 소스 페이지에서 복원할 수 있습니다.";
+"song_remove_from_device_failed_title" = "제거하지 못했습니다";
+"batch_remove_from_device" = "이 기기에서 제거";
+"batch_remove_from_device_message_format" = "%d곡을 이 기기에서만 제거할까요? 소스의 파일은 그대로 남으며 소스 페이지에서 복원할 수 있습니다.";
+"batch_delete_no_deletable_source_format" = "선택한 %d곡은 모두 파일을 삭제할 수 없는 소스의 곡입니다. 이 기기에서만 제거할 수 있으며, 서버의 파일은 그대로 남고 소스 페이지에서 복원할 수 있습니다.";
+"batch_delete_denied_title" = "소스가 삭제를 거부했습니다";
+"batch_delete_denied_message_format" = "소스가 %d개 파일의 삭제를 거부했고 다시 시도해도 결과는 같습니다. 이 기기에서만 제거할까요? 서버의 파일은 그대로 남으며 소스 페이지에서 복원할 수 있습니다.";
+"local_removals_title" = "이 기기에서 제거됨";
+"local_removals_section" = "소스에는 그대로 있음";
+"local_removals_footer" = "이 곡들은 이 기기의 보관함에서 제거되었지만 소스의 파일은 그대로 있습니다. 복원하면 즉시 보관함으로 돌아옵니다.";
+"local_removals_empty" = "제거된 항목 없음";
+"local_removals_empty_desc" = "소스 파일을 삭제하지 않고 이 기기에서만 제거한 곡이 여기에 표시됩니다.";
+"local_removals_restore_all" = "모두 복원";
+"local_removals_restore_all_message_format" = "%d곡을 보관함으로 복원할까요?";
+"local_removals_restore_failed_title" = "복원하지 못했습니다";
+"local_removals_source_row_format" = "이 기기에서 %d곡 제거됨";
+"local_removal_reason_unsupported" = "소스가 파일을 삭제할 수 없음";
+"local_removal_reason_denied" = "소스가 삭제를 거부함";
+"local_removal_reason_user_choice" = "소스 파일을 유지함";
+"server_catalog_mass_disappearance_format" = "서버 카탈로그에 이전에 있던 %d곡이 더 이상 없습니다. 다음 검색에서 같은 결과가 확인될 때까지 유지됩니다.";
+
+/* Server catalogue automatic refresh (whole Subsonic family) */
+"server_auto_refresh" = "자동 새로고침";
+"server_auto_refresh_description" = "실행 후 서버의 보관함 상태를 확인하고, 서버 내용이 바뀐 경우에만 로컬 카탈로그를 새로고침합니다. 서버 검색을 시작하지는 않습니다.";
+"server_scan_on_launch" = "실행 시 서버 전체 검색 요청";
+"server_scan_on_launch_description" = "Primuse 실행 시 서버에 보관함 전체 검색을 요청합니다. 관리자 계정이 필요하며, 지원되지 않거나 거부되면 상태 확인만 하는 새로고침으로 되돌아갑니다.";

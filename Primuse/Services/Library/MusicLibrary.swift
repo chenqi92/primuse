@@ -2951,6 +2951,10 @@ final class MusicLibrary {
     /// into `Snapshot`, uploaded to CloudKit, or put into the Apple TV payload.
     private(set) var deviceLocalExcludedSongIdentities: Set<String> = []
     @ObservationIgnored private var deviceLocalExcludedSongsByID: [String: Song] = [:]
+    /// Why each retained row was removed, so the recovery screen can explain an
+    /// entry long after the deletion attempt that produced it.
+    @ObservationIgnored
+    private var deviceLocalRemovalMetadataByID: [String: SongLocalRemovalMetadata] = [:]
 
     /// Sync retains the original catalogue even when this device hides a row.
     /// Ordinary playback and UI lookups must continue to use `song(id:)`.
@@ -4941,27 +4945,49 @@ final class MusicLibrary {
 
     /// Persist the local exclusion before removing rows. Retained catalogue
     /// records keep snapshot mirrors and CloudKit membership unchanged.
+    ///
+    /// `reason` and `detailsBySongID` are what the per-source recovery screen
+    /// shows, so a row removed because a WebDAV share refused DELETE can be
+    /// told apart from one the user chose to keep on the server.
     @discardableResult
-    func removeSongsFromThisDevice(_ songsToRemove: [Song]) throws -> [String: Int] {
+    func removeSongsFromThisDevice(
+        _ songsToRemove: [Song],
+        reason: SongLocalRemovalReason = .userKeptRemoteFile,
+        detailsBySongID: [String: String] = [:]
+    ) throws -> [String: Int] {
         guard !songsToRemove.isEmpty else { return [:] }
-        if deferringUntilReady({ [weak self] in _ = try? self?.removeSongsFromThisDevice(songsToRemove) }) {
+        if deferringUntilReady({ [weak self] in
+            _ = try? self?.removeSongsFromThisDevice(
+                songsToRemove,
+                reason: reason,
+                detailsBySongID: detailsBySongID
+            )
+        }) {
             return [:]
         }
         let idsToRemove = Set(songsToRemove.map(\.id))
         let affectedSourceIDs = Set(songsToRemove.map(\.sourceID))
         let previousIdentities = deviceLocalExcludedSongIdentities
         let previousSongs = deviceLocalExcludedSongsByID
+        let previousMetadata = deviceLocalRemovalMetadataByID
+        let removedAt = Date()
         for song in songsToRemove {
             deviceLocalExcludedSongIdentities.insert(identityKey(for: song))
             // The account resolver is installed after startup snapshot loading.
             deviceLocalExcludedSongIdentities.insert("\(song.sourceID):\(song.filePath)")
             deviceLocalExcludedSongsByID[song.id] = song
+            deviceLocalRemovalMetadataByID[song.id] = SongLocalRemovalMetadata(
+                reason: reason,
+                removedAt: removedAt,
+                detail: detailsBySongID[song.id]
+            )
         }
         do {
             try persistDeviceLocalExclusions()
         } catch {
             deviceLocalExcludedSongIdentities = previousIdentities
             deviceLocalExcludedSongsByID = previousSongs
+            deviceLocalRemovalMetadataByID = previousMetadata
             throw error
         }
         songs.removeAll { idsToRemove.contains($0.id) }
@@ -4983,11 +5009,10 @@ final class MusicLibrary {
         return remainingCounts
     }
 
-    private struct DeviceLocalExclusionLedger: Codable, Sendable {
-        var formatVersion: Int? = 2
-        var identities: [String]
-        var retainedSongs: [Song]?
-    }
+    /// 账本的磁盘格式与 v2 → v3 迁移都在 PrimuseKit 里, 便于纯函数测试。
+    typealias DeviceLocalExclusionLedger = SongLocalRemovalLedger
+
+    static let legacyLocalRemovalReason = SongLocalRemovalLedger.legacyReason
 
     private func loadDeviceLocalExclusions() {
         guard let data = try? Data(contentsOf: deviceLocalExclusionURL) else { return }
@@ -4996,10 +5021,9 @@ final class MusicLibrary {
             return
         }
         deviceLocalExcludedSongIdentities = Set(ledger.identities)
-        deviceLocalExcludedSongsByID = Dictionary(
-            (ledger.retainedSongs ?? []).map { ($0.id, $0) },
-            uniquingKeysWith: { _, latest in latest }
-        )
+        let resolved = ledger.resolved()
+        deviceLocalExcludedSongsByID = resolved.songs
+        deviceLocalRemovalMetadataByID = resolved.metadata
     }
 
     private func persistDeviceLocalExclusions() throws {
@@ -5008,13 +5032,125 @@ final class MusicLibrary {
             deferredDeviceLocalExclusionWriteRequested = true
             return
         }
+        let retained = deviceLocalExcludedSongsByID.values.sorted { $0.id < $1.id }
         let ledger = DeviceLocalExclusionLedger(
             identities: deviceLocalExcludedSongIdentities.sorted(),
-            retainedSongs: deviceLocalExcludedSongsByID.values.sorted { $0.id < $1.id }
+            entries: retained.map { song in
+                let metadata = deviceLocalRemovalMetadataByID[song.id]
+                return SongLocalRemovalEntry(
+                    song: song,
+                    reason: metadata?.reason ?? Self.legacyLocalRemovalReason,
+                    removedAt: metadata?.removedAt ?? Date(timeIntervalSince1970: 0),
+                    detail: metadata?.detail
+                )
+            }
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         try encoder.encode(ledger).write(to: deviceLocalExclusionURL, options: .atomic)
+    }
+
+    // MARK: - Device-local removals
+
+    /// Rows this device dropped while the source copy stayed in place.
+    ///
+    /// Reading `deviceLocalExcludedSongIdentities` first is deliberate: it is
+    /// the observed property, and it changes on every removal and restore, so
+    /// a view built from this list is invalidated even though the retained
+    /// catalogue itself is observation-ignored.
+    func locallyRemovedEntries(forSourceID sourceID: String? = nil) -> [SongLocalRemovalEntry] {
+        guard !deviceLocalExcludedSongIdentities.isEmpty else { return [] }
+        let entries = deviceLocalExcludedSongsByID.values.compactMap { song -> SongLocalRemovalEntry? in
+            if let sourceID, song.sourceID != sourceID { return nil }
+            let metadata = deviceLocalRemovalMetadataByID[song.id]
+            return SongLocalRemovalEntry(
+                song: song,
+                reason: metadata?.reason ?? Self.legacyLocalRemovalReason,
+                removedAt: metadata?.removedAt ?? Date(timeIntervalSince1970: 0),
+                detail: metadata?.detail
+            )
+        }
+        return SongLocalRemovalPolicy.sorted(entries)
+    }
+
+    /// Cheap enough to call from a source row: the entry point only has to
+    /// appear when the source actually has something to recover.
+    func locallyRemovedCount(forSourceID sourceID: String) -> Int {
+        guard !deviceLocalExcludedSongIdentities.isEmpty else { return 0 }
+        return deviceLocalExcludedSongsByID.values.reduce(into: 0) { count, song in
+            if song.sourceID == sourceID { count += 1 }
+        }
+    }
+
+    /// Song ids of the retained rows for one source. A scan needs these to
+    /// hold the retained catalogue to the same deletion-confirmation rule as
+    /// the live library: a row the user can still recover must not lose its
+    /// record because one flaky snapshot failed to list it.
+    func locallyRemovedSongIDs(forSourceID sourceID: String) -> Set<String> {
+        guard !deviceLocalExcludedSongIdentities.isEmpty else { return [] }
+        return Set(
+            deviceLocalExcludedSongsByID.values
+                .lazy
+                .filter { $0.sourceID == sourceID }
+                .map(\.id)
+        )
+    }
+
+    var locallyRemovedSourceIDs: Set<String> {
+        guard !deviceLocalExcludedSongIdentities.isEmpty else { return [] }
+        return Set(deviceLocalExcludedSongsByID.values.map(\.sourceID))
+    }
+
+    /// Undo `removeSongsFromThisDevice`. The retained record goes straight back
+    /// into the library, so recovery does not have to wait for a scan — and a
+    /// source that can no longer be reached can still be recovered from.
+    @discardableResult
+    func restoreSongsRemovedFromThisDevice(_ songIDs: [String]) throws -> [String: Int] {
+        guard !songIDs.isEmpty else { return [:] }
+        if deferringUntilReady({ [weak self] in
+            _ = try? self?.restoreSongsRemovedFromThisDevice(songIDs)
+        }) {
+            return [:]
+        }
+        let restored = songIDs.compactMap { deviceLocalExcludedSongsByID[$0] }
+        guard !restored.isEmpty else { return [:] }
+
+        let previousIdentities = deviceLocalExcludedSongIdentities
+        let previousSongs = deviceLocalExcludedSongsByID
+        let previousMetadata = deviceLocalRemovalMetadataByID
+        for song in restored {
+            // Both shapes were written on removal; clearing only one would
+            // leave the row blocked by the other on the next load.
+            deviceLocalExcludedSongIdentities.remove(identityKey(for: song))
+            deviceLocalExcludedSongIdentities.remove("\(song.sourceID):\(song.filePath)")
+            deviceLocalExcludedSongsByID[song.id] = nil
+            deviceLocalRemovalMetadataByID[song.id] = nil
+        }
+        do {
+            try persistDeviceLocalExclusions()
+        } catch {
+            deviceLocalExcludedSongIdentities = previousIdentities
+            deviceLocalExcludedSongsByID = previousSongs
+            deviceLocalRemovalMetadataByID = previousMetadata
+            throw error
+        }
+        // 覆盖解析的 2b / 3b 层读的是保留目录, 恢复后这些歌走正常索引。
+        artworkSongIDResolutions.removeAll(keepingCapacity: true)
+        let affectedSourceIDs = Set(restored.map(\.sourceID))
+        addSongs(
+            restored,
+            affectedSourceIDs: affectedSourceIDs,
+            notifyRemovals: false,
+            pruneMissingSongs: false
+        )
+        markPortableSnapshotDirty()
+        var remainingCounts = Dictionary(
+            uniqueKeysWithValues: affectedSourceIDs.map { ($0, 0) }
+        )
+        for song in songs where affectedSourceIDs.contains(song.sourceID) {
+            remainingCounts[song.sourceID, default: 0] += 1
+        }
+        return remainingCounts
     }
 
     private func discardRetainedSongs(where shouldRemove: (Song) -> Bool) {
@@ -5022,6 +5158,7 @@ final class MusicLibrary {
         guard !removed.isEmpty else { return }
         for song in removed {
             deviceLocalExcludedSongsByID[song.id] = nil
+            deviceLocalRemovalMetadataByID[song.id] = nil
         }
         // 覆盖解析的 2b / 3b 层读的就是这份保留目录。
         artworkSongIDResolutions.removeAll(keepingCapacity: true)
@@ -8452,6 +8589,7 @@ final class MusicLibrary {
         var mirrorPlaylistSuppressions: [String: MirrorPlaylistSuppression] = [:]
         var deviceLocalExcludedSongIdentities: Set<String> = []
         var deviceLocalExcludedSongsByID: [String: Song] = [:]
+        var deviceLocalRemovalMetadataByID: [String: SongLocalRemovalMetadata] = [:]
         var songIndexByID: [String: Int] = [:]
         var persistenceBlockedByCorruption = false
         var songStoreRequiresReplacement = false
@@ -8723,6 +8861,9 @@ final class MusicLibrary {
                 deviceLocalExcludedSongsByID = deviceLocalExcludedSongsByID.filter {
                     !tombstones.contains(identityKey(for: $0.value))
                 }
+                deviceLocalRemovalMetadataByID = deviceLocalRemovalMetadataByID.filter {
+                    deviceLocalExcludedSongsByID[$0.key] != nil
+                }
                 shouldPersistDeviceLocalExclusions = true
                 let beforeCount = loadedSongs.count
                 loadedSongs.removeAll { isExcludedOnThisDevice($0) }
@@ -8954,10 +9095,9 @@ final class MusicLibrary {
                 return
             }
             deviceLocalExcludedSongIdentities = Set(ledger.identities)
-            deviceLocalExcludedSongsByID = Dictionary(
-                (ledger.retainedSongs ?? []).map { ($0.id, $0) },
-                uniquingKeysWith: { _, latest in latest }
-            )
+            let resolved = ledger.resolved()
+            deviceLocalExcludedSongsByID = resolved.songs
+            deviceLocalRemovalMetadataByID = resolved.metadata
         }
 
         // G5: 这里刻意不提供任何写盘方法。准备阶段只登记意图,
@@ -9006,6 +9146,7 @@ final class MusicLibrary {
             storage.mirrorPlaylistSuppressions = mirrorPlaylistSuppressions
             storage.deviceLocalExcludedSongIdentities = deviceLocalExcludedSongIdentities
             storage.deviceLocalExcludedSongsByID = deviceLocalExcludedSongsByID
+            storage.deviceLocalRemovalMetadataByID = deviceLocalRemovalMetadataByID
             storage.persistenceBlockedByCorruption = persistenceBlockedByCorruption
             storage.songStoreRequiresReplacement = songStoreRequiresReplacement
             storage.pendingSnapshotImportID = pendingSnapshotImportID
@@ -9041,6 +9182,7 @@ final class MusicLibrary {
         // 原值写回。
         deviceLocalExcludedSongIdentities = storage.deviceLocalExcludedSongIdentities
         deviceLocalExcludedSongsByID = storage.deviceLocalExcludedSongsByID
+        deviceLocalRemovalMetadataByID = storage.deviceLocalRemovalMetadataByID
         if storage.didPublishSnapshot {
             songs = storage.songs
             // G1: 历史版本每次 `songs =` 之后都显式重建索引, 拷回时同样必须带上。

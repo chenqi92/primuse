@@ -191,7 +191,8 @@ private struct SongBatchActionsModifier: ViewModifier {
 
     @State private var showAddToPlaylist = false
     @State private var pendingDeletion: PendingDeletion?
-    @State private var showNoDeletableSourceAlert = false
+    /// 选中的歌全都来自没有删除能力的源时，改为提供「仅从本机移除」。
+    @State private var noDeletableSourceFallback: [Song]?
     @State private var showNoScraperSourceAlert = false
     @State private var queueFeedback: String?
     @State private var queueFeedbackTask: Task<Void, Never>?
@@ -202,6 +203,9 @@ private struct SongBatchActionsModifier: ViewModifier {
         let mode: SongBatchRemovalService.Mode
         let songs: [Song]
         let skipped: Int
+        /// 非 nil 时覆盖按源类型推导的原因 —— 用于「删除被拒后改为本机移除」。
+        var localRemovalReason: SongLocalRemovalReason?
+        var localRemovalDetails: [String: String] = [:]
     }
 
     func body(content: Content) -> some View {
@@ -231,10 +235,27 @@ private struct SongBatchActionsModifier: ViewModifier {
             } message: { pending in
                 Text(verbatim: deletionMessage(pending))
             }
-            .alert("batch_delete_source_files", isPresented: $showNoDeletableSourceAlert) {
-                Button("done", role: .cancel) {}
-            } message: {
-                Text("batch_delete_no_deletable_source")
+            .alert(
+                "batch_delete_source_files",
+                isPresented: Binding(
+                    get: { noDeletableSourceFallback != nil },
+                    set: { if !$0 { noDeletableSourceFallback = nil } }
+                ),
+                presenting: noDeletableSourceFallback
+            ) { songs in
+                Button("batch_remove_from_device", role: .destructive) {
+                    pendingDeletion = PendingDeletion(
+                        mode: .deviceLocal,
+                        songs: songs,
+                        skipped: 0
+                    )
+                }
+                Button("cancel", role: .cancel) {}
+            } message: { songs in
+                Text(verbatim: String(
+                    format: String(localized: "batch_delete_no_deletable_source_format"),
+                    songs.count
+                ))
             }
             .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
             .onDisappear {
@@ -457,6 +478,20 @@ private struct SongBatchActionsModifier: ViewModifier {
             }
         }
 
+        if context.allowsLibraryRemoval && !selectionContainsAppleMusic {
+            Section {
+                Button(role: .destructive) {
+                    prepareDeletion(mode: .deviceLocal)
+                } label: {
+                    Label(
+                        "batch_remove_from_device",
+                        systemImage: "rectangle.portrait.and.arrow.forward"
+                    )
+                }
+                .disabled(removal.isBusy)
+            }
+        }
+
         if context.allowsSourceFileDeletion && hasDeletableSourceSelection {
             Section {
                 Button(role: .destructive) {
@@ -566,7 +601,7 @@ private struct SongBatchActionsModifier: ViewModifier {
         guard !songs.isEmpty else { return }
 
         switch mode {
-        case .libraryOnly:
+        case .libraryOnly, .deviceLocal:
             pendingDeletion = PendingDeletion(mode: mode, songs: songs, skipped: 0)
         case .sourceFiles:
             let typesByID = Dictionary(
@@ -578,7 +613,9 @@ private struct SongBatchActionsModifier: ViewModifier {
                 sourceTypesByID: typesByID
             )
             guard !partition.deletable.isEmpty else {
-                showNoDeletableSourceAlert = true
+                // 以前这里是死路一条：弹一句"没有可删除的源"就结束。现在改成
+                // 把唯一可行的出口摆出来 —— 仅从本机移除，且可恢复。
+                noDeletableSourceFallback = songs
                 return
             }
             pendingDeletion = PendingDeletion(
@@ -590,7 +627,13 @@ private struct SongBatchActionsModifier: ViewModifier {
     }
 
     private func performDeletion(_ pending: PendingDeletion) {
-        guard removal.remove(pending.songs, mode: pending.mode, skipped: pending.skipped) != nil else {
+        guard removal.remove(
+            pending.songs,
+            mode: pending.mode,
+            skipped: pending.skipped,
+            localRemovalReason: pending.localRemovalReason,
+            localRemovalDetails: pending.localRemovalDetails
+        ) != nil else {
             return
         }
         selection.deactivate()
@@ -600,6 +643,8 @@ private struct SongBatchActionsModifier: ViewModifier {
         switch pendingDeletion?.mode {
         case .sourceFiles:
             return Text("batch_delete_source_files")
+        case .deviceLocal:
+            return Text("batch_remove_from_device")
         default:
             return Text("batch_remove_from_library")
         }
@@ -611,6 +656,11 @@ private struct SongBatchActionsModifier: ViewModifier {
         case .libraryOnly:
             message = String(
                 format: String(localized: "batch_remove_from_library_message_format"),
+                pending.songs.count
+            )
+        case .deviceLocal:
+            message = String(
+                format: String(localized: "batch_remove_from_device_message_format"),
                 pending.songs.count
             )
         case .sourceFiles:

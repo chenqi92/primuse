@@ -8,9 +8,15 @@ import AppKit
 import UIKit
 #endif
 
+/// Foreground-only, cheap change detection for server catalogues.
+///
+/// It never transfers a catalogue to decide: one `getScanStatus`-shaped request
+/// answers whether anything moved, and only then does a normal scan start. That
+/// is why it is limited to sources whose server exposes such a marker —
+/// `ServerCatalogAutoRefreshPolicy.supportsStatusProbe`.
 @MainActor
 @Observable
-final class NavidromeAutoRefreshCoordinator {
+final class ServerCatalogAutoRefreshCoordinator {
     private struct SourceMarker: Codable, Sendable {
         var identityFingerprint: String
         var lastAppliedServerScanAt: Date?
@@ -30,9 +36,11 @@ final class NavidromeAutoRefreshCoordinator {
         let itemCount: Int64?
     }
 
+    /// Unchanged across the rename: it holds the per-source switches and the
+    /// applied-scan markers that users already have on disk.
     private static let defaultsKey = "primuse.navidrome-auto-refresh.v1"
     private static let launchDelay: Duration = .seconds(4)
-    private static let checkCooldown: TimeInterval = 15 * 60
+    private static let checkCooldown = ServerCatalogAutoRefreshPolicy.checkCooldown
     private static let maximumRetryCount = 8
 
     private let sourceManager: SourceManager
@@ -100,6 +108,16 @@ final class NavidromeAutoRefreshCoordinator {
         serverScanOnLaunchSourceIDs.contains(sourceID)
     }
 
+    /// Whether this source has a cheap change marker at all. The Sources UI
+    /// uses it to decide if the switches belong on the card.
+    nonisolated func supportsAutomaticRefresh(_ source: MusicSource) -> Bool {
+        ServerCatalogAutoRefreshPolicy.supportsStatusProbe(source.type)
+    }
+
+    nonisolated func supportsServerScanRequest(_ source: MusicSource) -> Bool {
+        ServerCatalogAutoRefreshPolicy.supportsServerScanRequest(source.type)
+    }
+
     func setServerScanOnLaunchEnabled(_ enabled: Bool, for sourceID: String) {
         if enabled {
             serverScanOnLaunchSourceIDs.insert(sourceID)
@@ -130,7 +148,8 @@ final class NavidromeAutoRefreshCoordinator {
             try? await Task.sleep(for: Self.launchDelay)
             guard !Task.isCancelled, let self else { return }
             for source in self.sourcesStore.sources
-            where source.type == .navidrome && source.isEnabled && !source.isDeleted {
+            where ServerCatalogAutoRefreshPolicy.supportsStatusProbe(source.type)
+                && source.isEnabled && !source.isDeleted {
                 await self.checkSource(source, retryCount: 0, ignoresCooldown: false)
             }
         }
@@ -177,7 +196,7 @@ final class NavidromeAutoRefreshCoordinator {
     ) async {
         guard applicationIsActive,
               let source = sourcesStore.source(id: capturedSource.id),
-              source.type == .navidrome,
+              ServerCatalogAutoRefreshPolicy.supportsStatusProbe(source.type),
               source.isEnabled,
               !source.isDeleted,
               isEnabled(for: source.id) else {
@@ -197,6 +216,7 @@ final class NavidromeAutoRefreshCoordinator {
             $0.identityFingerprint == identityFingerprint ? $0 : nil
         }
         let hasPendingLaunchScanRequest = isServerScanOnLaunchEnabled(for: source.id)
+            && ServerCatalogAutoRefreshPolicy.supportsServerScanRequest(source.type)
             && serverScanRequestFingerprints[source.id] != identityFingerprint
         if !ignoresCooldown,
            !hasPendingLaunchScanRequest,
@@ -216,7 +236,7 @@ final class NavidromeAutoRefreshCoordinator {
                 return
             }
             guard let currentSource = sourcesStore.source(id: source.id),
-                  currentSource.type == .navidrome,
+                  ServerCatalogAutoRefreshPolicy.supportsStatusProbe(currentSource.type),
                   currentSource.isEnabled,
                   !currentSource.isDeleted,
                   isEnabled(for: currentSource.id) else { return }
@@ -229,6 +249,7 @@ final class NavidromeAutoRefreshCoordinator {
                 return
             }
             if isServerScanOnLaunchEnabled(for: source.id),
+               ServerCatalogAutoRefreshPolicy.supportsServerScanRequest(source.type),
                serverScanRequestFingerprints[source.id] != identityFingerprint {
                 guard !serverScanRequestInFlightSourceIDs.contains(source.id) else {
                     scheduleRetry(sourceID: source.id, retryCount: retryCount)
@@ -298,7 +319,7 @@ final class NavidromeAutoRefreshCoordinator {
                         return
                     }
                     guard let latestSource = sourcesStore.source(id: source.id),
-                          latestSource.type == .navidrome,
+                          ServerCatalogAutoRefreshPolicy.supportsStatusProbe(latestSource.type),
                           latestSource.isEnabled,
                           !latestSource.isDeleted,
                           isEnabled(for: latestSource.id) else {
@@ -498,7 +519,7 @@ final class AppServices {
     let cloudSync: CloudKitSyncService
     let themeService: ThemeService
     let scanService: ScanService
-    let navidromeAutoRefresh: NavidromeAutoRefreshCoordinator
+    let serverCatalogAutoRefresh: ServerCatalogAutoRefreshCoordinator
     let alwaysDownload: AlwaysDownloadCoordinator
     #if os(iOS) || os(macOS)
     let localReferenceRefresh: LocalReferenceRefreshService
@@ -708,7 +729,7 @@ final class AppServices {
         player.configurePlaybackMetadataBackfill(metadataBackfill) { sourceID in
             store.source(id: sourceID)?.type
         }
-        let navidromeAutoRefresh = NavidromeAutoRefreshCoordinator(
+        let serverCatalogAutoRefresh = ServerCatalogAutoRefreshCoordinator(
             sourceManager: manager,
             scanService: scanService,
             library: library,
@@ -723,8 +744,8 @@ final class AppServices {
             player: player
         )
         scanService.automaticServerCatalogWorkAllowedHandler = {
-            [weak navidromeAutoRefresh] in
-            navidromeAutoRefresh?.automaticWorkIsAllowed() ?? false
+            [weak serverCatalogAutoRefresh] in
+            serverCatalogAutoRefresh?.automaticWorkIsAllowed() ?? false
         }
         manager.automaticOfflineDownloadRemovedHandler = { [weak alwaysDownload] songID in
             alwaysDownload?.downloadedFileWasRemoved(songID: songID)
@@ -733,14 +754,14 @@ final class AppServices {
             metadataBackfill?.acknowledgeScannerMetadataInspection(songIDs: songIDs)
         }
         scanService.successfulSourceScanHandler = {
-            [weak metadataBackfill, weak library, weak navidromeAutoRefresh, weak alwaysDownload]
+            [weak metadataBackfill, weak library, weak serverCatalogAutoRefresh, weak alwaysDownload]
             sourceID,
             completion in
             metadataBackfill?.sourceScanSucceeded(forSourceID: sourceID)
             if completion == .committedSnapshot {
                 library?.sourceSyncDidComplete()
             }
-            navidromeAutoRefresh?.sourceScanSucceeded(
+            serverCatalogAutoRefresh?.sourceScanSucceeded(
                 sourceID: sourceID,
                 completion: completion
             )
@@ -766,7 +787,7 @@ final class AppServices {
             )
         }
         self.scanService = scanService
-        self.navidromeAutoRefresh = navidromeAutoRefresh
+        self.serverCatalogAutoRefresh = serverCatalogAutoRefresh
         self.alwaysDownload = alwaysDownload
         #if os(iOS) || os(macOS)
         self.localReferenceRefresh = LocalReferenceRefreshService(
@@ -983,7 +1004,7 @@ final class AppServices {
             library: musicLibrary
         )
         alwaysDownload.start()
-        navidromeAutoRefresh.startColdLaunchRefresh()
+        serverCatalogAutoRefresh.startColdLaunchRefresh()
         schedulePendingSourceCloudCleanupPropagation(delay: .seconds(1))
         didFinishDeferredStartup = true
         #if os(macOS)
@@ -1121,7 +1142,7 @@ final class AppServices {
                 // 跟 CloudKitSyncService 的观察者用同一份约定。
                 let cameFromRemote = (note.userInfo?["origin"] as? String) == "remote"
                 Task { @MainActor in
-                    self.navidromeAutoRefresh.sourceWasDeleted(id)
+                    self.serverCatalogAutoRefresh.sourceWasDeleted(id)
                     let tombstone = capturedTombstone ?? self.sourcesStore.source(id: id)
                     if let tombstone, tombstone.isDeleted {
                         if cameFromRemote {
@@ -1151,7 +1172,7 @@ final class AppServices {
                 guard let self, let id = note.userInfo?["id"] as? String else { return }
                 let capturedTombstone = note.userInfo?["source"] as? MusicSource
                 Task { @MainActor in
-                    self.navidromeAutoRefresh.sourceWasDeleted(id)
+                    self.serverCatalogAutoRefresh.sourceWasDeleted(id)
                     // The row may already be gone from SourcesStore. The
                     // notification carries its last tombstone so the delayed
                     // soft-delete propagation cannot be lost.
@@ -1249,13 +1270,13 @@ final class AppServices {
         let resignedActive = Notification.Name("UIApplicationWillResignActiveNotification")
         let isCurrentlyActive = false
         #endif
-        navidromeAutoRefresh.setApplicationActive(isCurrentlyActive)
+        serverCatalogAutoRefresh.setApplicationActive(isCurrentlyActive)
         alwaysDownload.setApplicationActive(isCurrentlyActive)
         let nc = NotificationCenter.default
         sourceLifecycleObserverTokens.append(
             nc.addObserver(forName: becameActive, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    self?.navidromeAutoRefresh.setApplicationActive(true)
+                    self?.serverCatalogAutoRefresh.setApplicationActive(true)
                     self?.alwaysDownload.setApplicationActive(true)
                 }
             }
@@ -1263,7 +1284,7 @@ final class AppServices {
         sourceLifecycleObserverTokens.append(
             nc.addObserver(forName: resignedActive, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    self?.navidromeAutoRefresh.setApplicationActive(false)
+                    self?.serverCatalogAutoRefresh.setApplicationActive(false)
                     self?.alwaysDownload.setApplicationActive(false)
                 }
             }

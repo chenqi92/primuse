@@ -5646,6 +5646,7 @@ private struct MacSTDeletedView: View {
         return !library.recentlyDeletedPlaylists.isEmpty
             || !library.recentlyDeletedSmartPlaylists.isEmpty
             || !library.hiddenMirrorPlaylists.isEmpty
+            || !library.locallyRemovedSourceIDs.isEmpty
             || !sourcesStore.recentlyDeletedSources.isEmpty
             || !ScraperConfigStore.shared.recentlyDeletedConfigs.isEmpty
     }
@@ -5748,6 +5749,33 @@ private struct MacSTDeletedView: View {
                 .settingsAnchor("deleted.hiddenPlaylists")
             }
 
+            let locallyRemovedSourceIDs = library.locallyRemovedSourceIDs
+            if !locallyRemovedSourceIDs.isEmpty {
+                // 逐首明细和单曲恢复在「音乐来源」页, 这里只做按源恢复。
+                let affected = sourcesStore.allSources.filter {
+                    locallyRemovedSourceIDs.contains($0.id)
+                }
+                MacSTSection("local_removals_title",
+                             hint: String(localized: "local_removals_footer")) {
+                    MacSTGroup {
+                        ForEach(Array(affected.enumerated()), id: \.element.id) { index, source in
+                            MacDeletedRealRow(
+                                title: source.name,
+                                sub: String(
+                                    format: String(localized: "local_removals_source_row_format"),
+                                    library.locallyRemovedCount(forSourceID: source.id)
+                                ),
+                                icon: "arrow.uturn.backward.circle",
+                                divider: index != 0,
+                                restore: { restoreLocalRemovals(forSourceID: source.id) },
+                                purge: nil
+                            )
+                        }
+                    }
+                }
+                .settingsAnchor("deleted.localRemovals")
+            }
+
             let sources = sourcesStore.recentlyDeletedSources
             if !sources.isEmpty {
                 MacSTSection("recently_deleted_sources",
@@ -5831,6 +5859,19 @@ private struct MacSTDeletedView: View {
                 format: String(localized: "recently_deleted_clear_all_failed_format"),
                 clearAllFailureCount
             ))
+        }
+    }
+
+    private func restoreLocalRemovals(forSourceID sourceID: String) {
+        let songIDs = library.locallyRemovedEntries(forSourceID: sourceID).map(\.song.id)
+        guard !songIDs.isEmpty else { return }
+        do {
+            let remainingCounts = try library.restoreSongsRemovedFromThisDevice(songIDs)
+            for (id, remaining) in remainingCounts {
+                sourcesStore.updateLocal(id) { $0.songCount = remaining }
+            }
+        } catch {
+            plog("⚠️ Restoring device-local removals failed: \(error.localizedDescription)")
         }
     }
 

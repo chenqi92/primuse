@@ -857,7 +857,6 @@
 "base_path" = "Ruta base";
 "base_path_hint" = "Ruta base (por ejemplo, /dav)";
 "batch_delete_failed_format" = "%d falló";
-"batch_delete_no_deletable_source" = "Ninguna de las canciones seleccionadas se encuentra en una fuente de música que admita la eliminación de archivos.";
 "batch_delete_progress_format" = "Eliminando %1$d / %2$d";
 "batch_delete_result_format" = "%d eliminado";
 "batch_delete_skipped_format" = "%d omitido: su fuente de música no admite la eliminación";
@@ -1985,10 +1984,6 @@
 "motion_artwork_service_enabled" = "Servicio de portadas en movimiento personalizadas";
 "motion_artwork_service_endpoint" = "Punto final de servicio";
 "music_video_badge" = "Vídeo musical";
-"navidrome_auto_refresh" = "Actualizar Navidrome automáticamente";
-"navidrome_auto_refresh_description" = "Después del inicio, Primuse verifica el estado de la biblioteca Navidrome y actualiza el catálogo local solo cuando el contenido del servidor ha cambiado. No inicia un análisis del servidor.";
-"navidrome_server_scan_on_launch" = "Solicitar análisis completo del servidor al iniciar";
-"navidrome_server_scan_on_launch_description" = "Solicite a Navidrome que ejecute un análisis completo de la biblioteca cuando se inicie Primuse. Se requiere una cuenta de administrador; las solicitudes no admitidas o denegadas recurren a una actualización de solo estado.";
 "navigation_mode_title" = "Navegación";
 "network" = "Red";
 "new" = "Nuevo";
@@ -3789,3 +3784,34 @@
 "lyrics_editor_timing_conflict %lld %lld" = "La línea %lld comienza antes que la línea %lld";
 "lyrics_editor_retime_line" = "Volver a marcar esta línea";
 "lyrics_editor_align_hint" = "Toca al escuchar esta parte para alinear toda la canción";
+
+/* Device-local song removals (sources without delete permission) */
+"remove" = "Quitar";
+"song_remove_from_device" = "Quitar de este dispositivo";
+"song_remove_from_device_message" = "Quita la entrada de la biblioteca solo en este dispositivo. El archivo permanece en la fuente y puedes restaurarlo desde la página de la fuente.";
+"song_remove_from_device_unsupported_message" = "Esta fuente no puede eliminar archivos, así que la canción solo puede ocultarse en este dispositivo. El archivo permanece en el servidor y puedes restaurarlo desde la página de la fuente.";
+"song_remove_from_device_failed_title" = "No se pudo quitar";
+"batch_remove_from_device" = "Quitar de este dispositivo";
+"batch_remove_from_device_message_format" = "¿Quitar %d canciones solo en este dispositivo? Los archivos permanecen en la fuente y pueden restaurarse desde la página de la fuente.";
+"batch_delete_no_deletable_source_format" = "Ninguna de las %d canciones seleccionadas viene de una fuente que pueda eliminar archivos. Solo se pueden quitar en este dispositivo: los archivos permanecen en el servidor y pueden restaurarse desde la página de la fuente.";
+"batch_delete_denied_title" = "La fuente rechazó la eliminación";
+"batch_delete_denied_message_format" = "La fuente se negó a eliminar %d archivos y reintentar no servirá de nada. ¿Quitarlos solo en este dispositivo? Los archivos permanecen en el servidor y pueden restaurarse desde la página de la fuente.";
+"local_removals_title" = "Quitadas de este dispositivo";
+"local_removals_section" = "Aún en la fuente";
+"local_removals_footer" = "Estas canciones salieron de la biblioteca de este dispositivo mientras la copia de la fuente se mantuvo intacta. Restaurar una la devuelve de inmediato.";
+"local_removals_empty" = "No se quitó nada";
+"local_removals_empty_desc" = "Aquí aparecen las canciones que quitas de este dispositivo sin eliminar el archivo de la fuente.";
+"local_removals_restore_all" = "Restaurar todo";
+"local_removals_restore_all_message_format" = "¿Restaurar %d canciones en la biblioteca?";
+"local_removals_restore_failed_title" = "No se pudo restaurar";
+"local_removals_source_row_format" = "%d quitadas de este dispositivo";
+"local_removal_reason_unsupported" = "La fuente no puede eliminar archivos";
+"local_removal_reason_denied" = "La fuente rechazó la eliminación";
+"local_removal_reason_user_choice" = "Se conservó el archivo de la fuente";
+"server_catalog_mass_disappearance_format" = "El catálogo del servidor ya no incluye %d canciones que antes tenía. Se conservan hasta que otro análisis confirme la misma ausencia.";
+
+/* Server catalogue automatic refresh (whole Subsonic family) */
+"server_auto_refresh" = "Actualizar automáticamente";
+"server_auto_refresh_description" = "Tras iniciarse, Primuse consulta el estado de la biblioteca del servidor y actualiza el catálogo local solo si el contenido del servidor cambió. No inicia un análisis en el servidor.";
+"server_scan_on_launch" = "Solicitar análisis completo del servidor al iniciar";
+"server_scan_on_launch_description" = "Pide al servidor que analice toda la biblioteca cuando Primuse se inicia. Se requiere una cuenta de administrador; si no se admite o se rechaza, se vuelve a una actualización que solo consulta el estado.";

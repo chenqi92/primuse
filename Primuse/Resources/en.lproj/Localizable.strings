@@ -70,10 +70,6 @@
 "playlist_kind_server_mirror" = "Server playlist";
 "playlist_always_download" = "Always Download";
 "playlist_always_download_description" = "Keeps this playlist on this device over Wi-Fi. New or changed songs download automatically when device conditions allow; turning this off keeps existing files.";
-"navidrome_auto_refresh" = "Refresh Navidrome Automatically";
-"navidrome_auto_refresh_description" = "After launch, Primuse checks the Navidrome library status and refreshes the local catalog only when server content has changed. It does not start a server scan.";
-"navidrome_server_scan_on_launch" = "Request Full Server Scan on Launch";
-"navidrome_server_scan_on_launch_description" = "Ask Navidrome to run a full library scan when Primuse launches. An administrator account is required; unsupported or denied requests fall back to a status-only refresh.";
 "see_all" = "See All";
 "welcome_title" = "Welcome to Primuse";
 "welcome_desc" = "Add a music source — your NAS, WebDAV, or local files — to start listening";
@@ -2722,7 +2718,6 @@
 "batch_delete_source_files" = "Delete Source Files";
 "batch_delete_source_files_message_format" = "The source files of %d songs will be permanently deleted and the songs removed from the library. This cannot be undone.";
 "batch_delete_skipped_format" = "%d skipped — their music source doesn't support deletion";
-"batch_delete_no_deletable_source" = "None of the selected songs are on a music source that supports deleting files.";
 "batch_delete_progress_format" = "Deleting %1$d / %2$d";
 "batch_delete_result_format" = "%d deleted";
 "batch_delete_failed_format" = "%d failed";
@@ -3661,3 +3656,34 @@
 "lyrics_editor_timing_conflict %lld %lld" = "Line %lld starts before line %lld";
 "lyrics_editor_retime_line" = "Retime This Line";
 "lyrics_editor_align_hint" = "Tap when you hear this part to align the entire song";
+
+/* Device-local song removals (sources without delete permission) */
+"remove" = "Remove";
+"song_remove_from_device" = "Remove from This Device";
+"song_remove_from_device_message" = "This removes the library entry on this device only. The file stays on the source, and you can restore it from the source page.";
+"song_remove_from_device_unsupported_message" = "This source cannot delete files, so the song can only be hidden on this device. The file stays on the server, and you can restore it from the source page.";
+"song_remove_from_device_failed_title" = "Could Not Remove";
+"batch_remove_from_device" = "Remove from This Device";
+"batch_remove_from_device_message_format" = "Remove %d songs on this device only? The files stay on the source and can be restored from the source page.";
+"batch_delete_no_deletable_source_format" = "None of the %d selected songs come from a source that can delete files. They can be removed on this device only — the files stay on the server and can be restored from the source page.";
+"batch_delete_denied_title" = "Source Refused the Deletion";
+"batch_delete_denied_message_format" = "The source refused to delete %d files, and retrying will not help. Remove them on this device only? The files stay on the server and can be restored from the source page.";
+"local_removals_title" = "Removed on This Device";
+"local_removals_section" = "Still on the Source";
+"local_removals_footer" = "These songs left this device's library while the source copy stayed in place. Restoring one brings it back right away.";
+"local_removals_empty" = "Nothing Removed";
+"local_removals_empty_desc" = "Songs removed from this device without deleting the source file appear here.";
+"local_removals_restore_all" = "Restore All";
+"local_removals_restore_all_message_format" = "Restore %d songs to the library?";
+"local_removals_restore_failed_title" = "Could Not Restore";
+"local_removals_source_row_format" = "%d removed on this device";
+"local_removal_reason_unsupported" = "Source cannot delete files";
+"local_removal_reason_denied" = "Source refused the deletion";
+"local_removal_reason_user_choice" = "Source file kept";
+"server_catalog_mass_disappearance_format" = "The server catalogue no longer lists %d songs it had before. They are kept until another scan confirms the same absence.";
+
+/* Server catalogue automatic refresh (whole Subsonic family) */
+"server_auto_refresh" = "Refresh Automatically";
+"server_auto_refresh_description" = "After launch, Primuse checks the server's library status and refreshes the local catalog only when server content has changed. It does not start a server scan.";
+"server_scan_on_launch" = "Request Full Server Scan on Launch";
+"server_scan_on_launch_description" = "Ask the server to run a full library scan when Primuse launches. An administrator account is required; unsupported or denied requests fall back to a status-only refresh.";

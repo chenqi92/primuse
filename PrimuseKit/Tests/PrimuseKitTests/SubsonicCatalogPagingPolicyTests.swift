@@ -11,8 +11,8 @@ struct SubsonicCatalogPagingPolicyTests {
         #expect(!MusicSourceType.plex.isSubsonicFamily)
     }
 
-    @Test func weakServerRevisionNeverAuthorizesMissingSongDeletion() {
-        #expect(!SubsonicCatalogPagingPolicy.authorizesMissingSongDeletion)
+    @Test func weakServerRevisionNeverDeletesOnASingleWalk() {
+        #expect(SubsonicCatalogPagingPolicy.deletionAuthority == .confirmationRequired)
     }
 
     @Test func directSongSearchIsLimitedToOpenSubsonicAndNavidrome() {

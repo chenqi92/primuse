@@ -274,6 +274,34 @@ public enum ServerCatalogRefreshPolicy {
     }
 }
 
+/// Which sources can be checked for server-side changes without behaving like
+/// a scan.
+///
+/// The bar is a single read-only request that answers "did anything change?".
+/// A source that can only answer by re-listing its catalogue is performing a
+/// scan, however incrementally it reconciles afterwards, and must stay behind
+/// an explicit user action.
+public enum ServerCatalogAutoRefreshPolicy {
+    /// Minimum spacing between two status probes for one source.
+    public static let checkCooldown: TimeInterval = 15 * 60
+
+    /// Subsonic-family servers expose `getScanStatus`: one request, a scan flag,
+    /// an item count and a last-scan timestamp. Every member of the family is
+    /// served by the same connector, so the capability is family-wide rather
+    /// than Navidrome-only.
+    public static func supportsStatusProbe(_ type: MusicSourceType) -> Bool {
+        type.isSubsonicFamily
+    }
+
+    /// `startScan` is a server mutation, so it stays opt-in per source. Servers
+    /// that do not implement it, and non-admin accounts, answer with a
+    /// capability result rather than an error, which the caller treats as
+    /// "fall back to the read-only path".
+    public static func supportsServerScanRequest(_ type: MusicSourceType) -> Bool {
+        type.isSubsonicFamily
+    }
+}
+
 public enum AutomaticOfflineDownloadDeferralReason: Sendable, Equatable {
     case applicationInactive
     case networkUndetermined

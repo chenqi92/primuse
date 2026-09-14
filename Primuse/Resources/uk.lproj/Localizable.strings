@@ -1277,7 +1277,6 @@
 "reconnect_browse" = "Повторне підключення та перегляд";
 "theme_color_blue" = "Синій";
 "radio_stations_count" = "станції";
-"navidrome_server_scan_on_launch" = "Надіслати запит на повне сканування сервера під час запуску";
 "scan_directories_hint" = "Підключіться та виберіть каталоги для пошуку музичних файлів";
 "intent_playing_artist_format" = "Грає %@.";
 "metadata_writeback_error_remote_verification" = "Файл, завантажений після зворотного запису, не збігається з перевіреним завантаженням.";
@@ -1843,7 +1842,6 @@
 "radio_test_playback" = "Тестовий потік";
 "source_info" = "Джерело інформації";
 "stats_server_authoritative" = "Дані сервера пріоритетні";
-"batch_delete_no_deletable_source" = "Жодна з вибраних пісень не містить музичного джерела, яке підтримує видалення файлів.";
 "send_to_tv_need_icloud" = "Увімкнути синхронізацію в налаштуваннях → iCloud Спочатку синхронізувати";
 "track_label" = "Трек";
 "lyrics_editor_paste_parsed %lld" = "Отримано рядків: %lld";
@@ -1863,7 +1861,6 @@
 "intent_set_liked_title" = "Набір сподобався";
 "Repeat One" = "Повтор однієї пісні";
 "Find a song by title (and optional artist) and play it." = "Знайдіть пісню за назвою (і необов’язково виконавцем) і відтворіть її.";
-"navidrome_auto_refresh" = "Автоматично оновлювати Navidrome";
 "No matching playlist in your library." = "У вашій бібліотеці немає відповідного списку відтворення.";
 "synology_auth_error_410" = "Змініть пароль у DSM перед підключенням.";
 "stats_play_count_format" = "Грає %d";
@@ -2114,7 +2111,6 @@
 "Resume the current Primuse song or radio station." = "Відновити поточну пісню Primuse або радіостанцію.";
 "synology_auth_error_401" = "Обліковий запис вимкнено.";
 "audio_quality_label" = "Якість звуку";
-"navidrome_auto_refresh_description" = "Після запуску Primuse перевіряє стан медіатеки Navidrome і оновлює локальний каталог лише після зміни вмісту сервера. Він не запускає сканування сервера.";
 "duration_label" = "Тривалість";
 "scrobble_validate" = "Підтвердити";
 "theme_color_red" = "Червоний";
@@ -2665,7 +2661,6 @@
 "tag_editor_lyrics_writeback_read_only" = "Джерело лише для читання: дані зберігаються в Primuse й синхронізуються через iCloud, але їх не можна записати безпосередньо в джерело.";
 "Parse Result" = "Результат аналізу";
 "yearly_meta_genres_placeholder_format" = "Жанри %d";
-"navidrome_server_scan_on_launch_description" = "Попросіть Navidrome виконати повне сканування медіатеки під час запуску Primuse. Потрібен обліковий запис адміністратора; непідтримувані або відхилені запити повертаються до оновлення лише статусу.";
 "minutes" = "хв";
 "scrobble_lastfm_reopen_authorization" = "Знову відкрити сторінку авторизації";
 "play" = "Відтворити";
@@ -3789,3 +3784,34 @@
 "lyrics_editor_timing_conflict %lld %lld" = "Рядок %lld починається раніше за рядок %lld";
 "lyrics_editor_retime_line" = "Задати час рядка";
 "lyrics_editor_align_hint" = "Натисніть на цьому місці, щоб синхронізувати всю пісню";
+
+/* Device-local song removals (sources without delete permission) */
+"remove" = "Прибрати";
+"song_remove_from_device" = "Прибрати з цього пристрою";
+"song_remove_from_device_message" = "Запис вилучається з медіатеки лише на цьому пристрої. Файл залишається у джерелі, його можна відновити на сторінці джерела.";
+"song_remove_from_device_unsupported_message" = "Це джерело не вміє видаляти файли, тож трек можна лише сховати на цьому пристрої. Файл залишається на сервері, його можна відновити на сторінці джерела.";
+"song_remove_from_device_failed_title" = "Не вдалося прибрати";
+"batch_remove_from_device" = "Прибрати з цього пристрою";
+"batch_remove_from_device_message_format" = "Прибрати %d треків лише з цього пристрою? Файли залишаться у джерелі, їх можна відновити на сторінці джерела.";
+"batch_delete_no_deletable_source_format" = "Жоден із %d вибраних треків не належить джерелу, яке вміє видаляти файли. Їх можна прибрати лише з цього пристрою — файли залишаться на сервері, їх можна відновити на сторінці джерела.";
+"batch_delete_denied_title" = "Джерело відхилило видалення";
+"batch_delete_denied_message_format" = "Джерело відмовилося видалити %d файлів, і повторна спроба нічого не змінить. Прибрати їх лише з цього пристрою? Файли залишаться на сервері, їх можна відновити на сторінці джерела.";
+"local_removals_title" = "Прибрано з цього пристрою";
+"local_removals_section" = "Досі у джерелі";
+"local_removals_footer" = "Ці треки прибрано з медіатеки цього пристрою, а копія у джерелі залишилася на місці. Відновлення одразу поверне їх назад.";
+"local_removals_empty" = "Нічого не прибрано";
+"local_removals_empty_desc" = "Тут з’являються треки, прибрані з цього пристрою без видалення файлу в джерелі.";
+"local_removals_restore_all" = "Відновити все";
+"local_removals_restore_all_message_format" = "Відновити %d треків у медіатеці?";
+"local_removals_restore_failed_title" = "Не вдалося відновити";
+"local_removals_source_row_format" = "%d прибрано з цього пристрою";
+"local_removal_reason_unsupported" = "Джерело не вміє видаляти файли";
+"local_removal_reason_denied" = "Джерело відхилило видалення";
+"local_removal_reason_user_choice" = "Файл у джерелі збережено";
+"server_catalog_mass_disappearance_format" = "У каталозі сервера більше немає %d треків, які були там раніше. Вони зберігаються, доки інше сканування не підтвердить ту саму відсутність.";
+
+/* Server catalogue automatic refresh (whole Subsonic family) */
+"server_auto_refresh" = "Оновлювати автоматично";
+"server_auto_refresh_description" = "Після запуску Primuse перевіряє стан медіатеки сервера й оновлює локальний каталог лише тоді, коли вміст на сервері змінився. Сканування на сервері не запускається.";
+"server_scan_on_launch" = "Запитувати повне сканування сервера під час запуску";
+"server_scan_on_launch_description" = "Під час запуску Primuse просить сервер повністю просканувати медіатеку. Потрібен обліковий запис адміністратора; якщо це не підтримується або відхилено, виконується лише перевірка стану.";

@@ -16,17 +16,6 @@ final class DuplicateCleanupService {
     }
 
     struct SourceFailure: Identifiable {
-        /// A WebDAV server that refuses DELETE answers 403 (→ `permissionDenied`)
-        /// or 405 (→ `readOnly`). Those two are the only outcomes where the file
-        /// is known to stay on the server and retrying cannot help until the
-        /// admin changes the share, so they are the only ones that may be
-        /// resolved by dropping the row from this device. 401 (authentication),
-        /// timeouts, connection errors and unknown failures stay retry-only —
-        /// the source may well delete the file on the next attempt.
-        static let deviceLocalRemovableReasons: Set<SourceFileDeletionFailureReason> = [
-            .permissionDenied, .readOnly,
-        ]
-
         let source: MusicSource
         var songs: [Song]
         var reasons: Set<SourceFileDeletionFailureReason>
@@ -34,19 +23,20 @@ final class DuplicateCleanupService {
         /// device-local removal offer has to be decided song by song so a
         /// timed-out row in the same batch is never swept along.
         var reasonsBySongID: [String: Set<SourceFileDeletionFailureReason>] = [:]
+        /// First server message recorded per song, kept for the ledger entry.
+        var messagesBySongID: [String: String] = [:]
         var id: String { source.id }
 
         /// Songs of this failure that may be removed from this device only:
-        /// WebDAV source, and every recorded reason for that song is a
-        /// permission-type refusal.
+        /// every recorded reason for that song is a refusal the source will
+        /// keep giving. `removeSongsFromThisDevice` records both exclusion-key
+        /// shapes (account-identity prefix and raw source ID), so account-typed
+        /// sources are covered as well as path-typed ones.
         var deviceLocalRemovableSongs: [Song] {
-            // 若将来放宽到账号型源, 需一并考虑 MusicLibrary.isExcludedOnThisDevice
-            // 的排除键处理 (账号身份前缀与原始 sourceID 前缀两种形式)。
-            guard source.type == .webdav else { return [] }
-            return songs.filter { song in
-                guard let songReasons = reasonsBySongID[song.id],
-                      !songReasons.isEmpty else { return false }
-                return songReasons.isSubset(of: Self.deviceLocalRemovableReasons)
+            songs.filter { song in
+                SongLocalRemovalPolicy.canResolveLocally(
+                    failureReasons: reasonsBySongID[song.id] ?? []
+                )
             }
         }
 
@@ -57,8 +47,9 @@ final class DuplicateCleanupService {
         /// for the help text never outlives its songs.
         mutating func retainSongs(where isIncluded: (Song) -> Bool) {
             songs.removeAll { !isIncluded($0) }
-            guard !reasonsBySongID.isEmpty else { return }
             let keptIDs = Set(songs.map(\.id))
+            messagesBySongID = messagesBySongID.filter { keptIDs.contains($0.key) }
+            guard !reasonsBySongID.isEmpty else { return }
             reasonsBySongID = reasonsBySongID.filter { keptIDs.contains($0.key) }
             reasons = Set(reasonsBySongID.values.joined())
         }
@@ -100,16 +91,16 @@ final class DuplicateCleanupService {
     }
 
     /// Songs of `sourceID` that the user may drop from this device's library
-    /// while the server copy stays in place. Empty unless the source is WebDAV
-    /// and the deletion was refused for a permission reason.
+    /// while the server copy stays in place. Empty unless the deletion was
+    /// refused for a reason a retry cannot fix.
     func deviceLocalRemovableSongs(forSourceID sourceID: String) -> [Song] {
         lastSourceFailures
             .first { $0.id == sourceID }?
             .deviceLocalRemovableSongs ?? []
     }
 
-    /// Remove only the local WebDAV rows after a permission refusal. The
-    /// catalogue retained for synchronization leaves other devices unchanged.
+    /// Remove only the local rows after a permission refusal. The catalogue
+    /// retained for synchronization leaves other devices unchanged.
     @discardableResult
     func removeFromThisDeviceOnly(sourceID: String) throws -> Int {
         guard activeTask == nil else { return 0 }
@@ -120,7 +111,11 @@ final class DuplicateCleanupService {
         }
         guard !songsToRemove.isEmpty else { return 0 }
 
-        let remainingCounts = try library.removeSongsFromThisDevice(songsToRemove)
+        let remainingCounts = try library.removeSongsFromThisDevice(
+            songsToRemove,
+            reason: .remoteDeletionDenied,
+            detailsBySongID: deviceLocalRemovalDetails(forSourceID: sourceID)
+        )
         for (id, remaining) in remainingCounts {
             sourcesStore.updateLocal(id) { $0.songCount = remaining }
         }
@@ -137,6 +132,15 @@ final class DuplicateCleanupService {
         deviceLocalRemovalRevision &+= 1
         plog("ℹ️ Duplicate cleanup removed \(songsToRemove.count) song(s) from this device only (source \(sourceID))")
         return songsToRemove.count
+    }
+
+    /// Server messages behind each refusal, kept with the ledger entry so the
+    /// recovery screen can say why the row is still on the server.
+    private func deviceLocalRemovalDetails(forSourceID sourceID: String) -> [String: String] {
+        guard let failure = lastSourceFailures.first(where: { $0.id == sourceID }) else {
+            return [:]
+        }
+        return failure.messagesBySongID
     }
 
     /// 串行删除 songs (按源端逐首)。已有任务进行中时忽略再次触发。
@@ -223,6 +227,11 @@ final class DuplicateCleanupService {
                         let songReasons = Set(outcome.result.failedPaths.map(\.reason))
                         failure.reasons.formUnion(songReasons)
                         failure.reasonsBySongID[outcome.song.id, default: []].formUnion(songReasons)
+                        if failure.messagesBySongID[outcome.song.id] == nil,
+                           let message = outcome.result.failedPaths.first?.message,
+                           !message.isEmpty {
+                            failure.messagesBySongID[outcome.song.id] = message
+                        }
                         failuresBySource[source.id] = failure
                     }
                 } else {

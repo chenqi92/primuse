@@ -1,19 +1,24 @@
 import Foundation
 import PrimuseKit
 
-/// 批量删歌的编排。两种语义共用一条提交路径：
+/// 批量删歌的编排。三种语义共用一条提交路径：
 ///
-/// - `.libraryOnly` 只丢库记录（会写 tombstone，重扫不会再回来），实体文件
-///   原样留在源上；
+/// - `.libraryOnly` 只丢库记录（会写 tombstone，重扫不会再回来，且经快照同步
+///   传播到其他设备），实体文件原样留在源上；
+/// - `.deviceLocal` 只在本机隐藏，账本留着完整歌曲记录，可以在来源页原样恢复。
+///   源端没有删除能力（Subsonic 系、UPnP 等）或删除被拒时走这条；
 /// - `.sourceFiles` 先删源端文件，且**只有**确实删掉（或本就不存在）的那些
 ///   才允许从库里移除并 tombstone。删失败的必须留在库中 —— 否则它们会被
 ///   tombstone 永久挡住重扫，而用户没有恢复入口。这条安全约定与
-///   `DuplicateCleanupService` 一致。
+///   `DuplicateCleanupService` 一致。删除被永久性拒绝（403/405/只读挂载）的
+///   那些会作为 `locallyRemovableSongs` 交回界面，由用户决定是否改走
+///   `.deviceLocal`。
 @MainActor
 @Observable
 final class SongBatchRemovalService {
     enum Mode: Equatable, Sendable {
         case libraryOnly
+        case deviceLocal
         case sourceFiles
     }
 
@@ -31,6 +36,12 @@ final class SongBatchRemovalService {
         let failed: Int
         /// 调用方在发起前就排除掉的数量（源类型不支持删除等）。
         let skipped: Int
+        /// 删除被源端永久拒绝、可以改为「仅从本机移除」的歌。
+        var locallyRemovableSongs: [Song] = []
+        /// 上面这些歌对应的服务端报错原文。
+        var locallyRemovableDetails: [String: String] = [:]
+
+        var offersLocalRemoval: Bool { !locallyRemovableSongs.isEmpty }
     }
 
     /// nil 表示空闲。
@@ -48,6 +59,9 @@ final class SongBatchRemovalService {
     private let player: AudioPlayerService
 
     private var activeTask: Task<Void, Never>?
+    /// 由界面在发起 `.deviceLocal` 跟进时带上的原因与服务端报错原文。
+    private var pendingLocalRemovalReason: SongLocalRemovalReason?
+    private var pendingLocalRemovalDetails: [String: String] = [:]
 
     init(
         library: MusicLibrary,
@@ -64,8 +78,16 @@ final class SongBatchRemovalService {
     /// 已有任务进行中时忽略再次触发。调用方不需要 await，只关心 `progress`
     /// 和 `completionRevision`。
     @discardableResult
-    func remove(_ songs: [Song], mode: Mode, skipped: Int = 0) -> Task<Void, Never>? {
+    func remove(
+        _ songs: [Song],
+        mode: Mode,
+        skipped: Int = 0,
+        localRemovalReason: SongLocalRemovalReason? = nil,
+        localRemovalDetails: [String: String] = [:]
+    ) -> Task<Void, Never>? {
         guard activeTask == nil, !songs.isEmpty else { return nil }
+        pendingLocalRemovalReason = localRemovalReason
+        pendingLocalRemovalDetails = localRemovalDetails
         progress = Progress(done: 0, total: songs.count)
 
         let task = Task { @MainActor in
@@ -85,7 +107,7 @@ final class SongBatchRemovalService {
             )
 
             switch mode {
-            case .libraryOnly:
+            case .libraryOnly, .deviceLocal:
                 self.commit(removable: songs, failed: [], mode: mode, skipped: skipped)
             case .sourceFiles:
                 await self.deleteSourceFiles(songs, skipped: skipped)
@@ -145,22 +167,53 @@ final class SongBatchRemovalService {
 
         var removable: [Song] = []
         var failed: [Song] = []
+        var locallyRemovable: [Song] = []
+        var locallyRemovableDetails: [String: String] = [:]
         for outcome in outcomes {
             if outcome.result.shouldRemoveLibraryRecord {
                 removable.append(outcome.song)
-            } else {
-                failed.append(outcome.song)
+                continue
+            }
+            failed.append(outcome.song)
+            // 403 / 405 / 只读挂载：源端确认文件还在，而且重试不会有别的结果。
+            // 这些交回界面，让用户选择「仅从本机移除」，不要默默留在库里。
+            guard SongLocalRemovalPolicy.canResolveLocally(
+                failureReasons: Set(outcome.result.failedPaths.map(\.reason))
+            ) else { continue }
+            locallyRemovable.append(outcome.song)
+            if let message = outcome.result.failedPaths.first?.message, !message.isEmpty {
+                locallyRemovableDetails[outcome.song.id] = message
             }
         }
 
-        commit(removable: removable, failed: failed, mode: .sourceFiles, skipped: skipped)
+        commit(
+            removable: removable,
+            failed: failed,
+            mode: .sourceFiles,
+            skipped: skipped,
+            locallyRemovableSongs: locallyRemovable,
+            locallyRemovableDetails: locallyRemovableDetails
+        )
     }
 
-    private func commit(removable: [Song], failed: [Song], mode: Mode, skipped: Int) {
+    private func commit(
+        removable: [Song],
+        failed: [Song],
+        mode: Mode,
+        skipped: Int,
+        locallyRemovableSongs: [Song] = [],
+        locallyRemovableDetails: [String: String] = [:]
+    ) {
+        var removedCount = removable.count
         if !removable.isEmpty {
-            let remainingCounts = library.deleteSongs(removable)
-            for (sourceID, remaining) in remainingCounts {
-                sourcesStore.updateLocal(sourceID) { $0.songCount = remaining }
+            switch mode {
+            case .deviceLocal:
+                removedCount = removeFromThisDeviceOnly(removable)
+            case .libraryOnly, .sourceFiles:
+                let remainingCounts = library.deleteSongs(removable)
+                for (sourceID, remaining) in remainingCounts {
+                    sourcesStore.updateLocal(sourceID) { $0.songCount = remaining }
+                }
             }
         }
         if !failed.isEmpty {
@@ -168,11 +221,47 @@ final class SongBatchRemovalService {
         }
         lastOutcome = Outcome(
             mode: mode,
-            removed: removable.count,
+            removed: removedCount,
             failed: failed.count,
-            skipped: skipped
+            skipped: skipped,
+            locallyRemovableSongs: locallyRemovableSongs,
+            locallyRemovableDetails: locallyRemovableDetails
         )
         completionRevision &+= 1
+    }
+
+    /// 一批里可能混着「源端本来就不支持删除」和「用户主动保留远端文件」两种
+    /// 语义，账本要如实记录，所以按原因分组提交。
+    private func removeFromThisDeviceOnly(_ songs: [Song]) -> Int {
+        let typesByID = Dictionary(
+            sourcesStore.allSources.map { ($0.id, $0.type) },
+            uniquingKeysWith: { current, _ in current }
+        )
+        let explicitReason = pendingLocalRemovalReason
+        let grouped = Dictionary(grouping: songs) { song in
+            explicitReason ?? SongLocalRemovalPolicy.reasonWithoutRemoteDeletion(
+                for: typesByID[song.sourceID]
+            )
+        }
+        var removed = 0
+        for (reason, group) in grouped {
+            do {
+                let remainingCounts = try library.removeSongsFromThisDevice(
+                    group,
+                    reason: reason,
+                    detailsBySongID: pendingLocalRemovalDetails
+                )
+                removed += group.count
+                for (sourceID, remaining) in remainingCounts {
+                    sourcesStore.updateLocal(sourceID) { $0.songCount = remaining }
+                }
+            } catch {
+                plog("⚠️ Device-local removal failed for \(group.count) song(s): \(error.localizedDescription)")
+            }
+        }
+        pendingLocalRemovalReason = nil
+        pendingLocalRemovalDetails = [:]
+        return removed
     }
 
 }

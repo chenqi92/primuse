@@ -1,3 +1,4 @@
+import PrimuseKit
 import SwiftUI
 
 extension View {
@@ -14,6 +15,14 @@ private struct SongBatchRemovalFeedbackModifier: ViewModifier {
 
     @State private var toastMessage: String?
     @State private var toastDismissTask: Task<Void, Never>?
+    /// 源端永久拒绝删除的那些歌。留在库里对用户没有意义 —— 给一个可恢复的出口。
+    @State private var localRemovalOffer: LocalRemovalOffer?
+
+    private struct LocalRemovalOffer: Identifiable {
+        let id = UUID()
+        let songs: [Song]
+        let details: [String: String]
+    }
 
     func body(content: Content) -> some View {
         content
@@ -49,6 +58,29 @@ private struct SongBatchRemovalFeedbackModifier: ViewModifier {
             .onChange(of: removal.completionRevision) { _, _ in
                 presentOutcome()
             }
+            .alert(
+                "batch_delete_denied_title",
+                isPresented: Binding(
+                    get: { localRemovalOffer != nil },
+                    set: { if !$0 { localRemovalOffer = nil } }
+                ),
+                presenting: localRemovalOffer
+            ) { offer in
+                Button("batch_remove_from_device", role: .destructive) {
+                    removal.remove(
+                        offer.songs,
+                        mode: .deviceLocal,
+                        localRemovalReason: .remoteDeletionDenied,
+                        localRemovalDetails: offer.details
+                    )
+                }
+                Button("cancel", role: .cancel) {}
+            } message: { offer in
+                Text(verbatim: String(
+                    format: String(localized: "batch_delete_denied_message_format"),
+                    offer.songs.count
+                ))
+            }
     }
 
     private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
@@ -83,6 +115,12 @@ private struct SongBatchRemovalFeedbackModifier: ViewModifier {
             ))
         }
         toastMessage = parts.joined(separator: " · ")
+        if outcome.offersLocalRemoval {
+            localRemovalOffer = LocalRemovalOffer(
+                songs: outcome.locallyRemovableSongs,
+                details: outcome.locallyRemovableDetails
+            )
+        }
 
         toastDismissTask?.cancel()
         toastDismissTask = Task { @MainActor in

@@ -857,7 +857,6 @@
 "base_path" = "Caminho Base";
 "base_path_hint" = "Caminho base (por exemplo, /dav)";
 "batch_delete_failed_format" = "%d falhou";
-"batch_delete_no_deletable_source" = "Nenhuma das músicas selecionadas está em uma fonte de música que suporte a exclusão de arquivos.";
 "batch_delete_progress_format" = "Excluindo %1$d/%2$d";
 "batch_delete_result_format" = "%d excluído";
 "batch_delete_skipped_format" = "%d ignorado — a fonte de música não suporta exclusão";
@@ -1985,10 +1984,6 @@
 "motion_artwork_service_enabled" = "Serviço de arte em movimento personalizado";
 "motion_artwork_service_endpoint" = "Ponto final de serviço";
 "music_video_badge" = "Vídeo musical";
-"navidrome_auto_refresh" = "Atualizar Navidrome automaticamente";
-"navidrome_auto_refresh_description" = "Após a inicialização, o Primuse verifica o status da biblioteca Navidrome e atualiza o catálogo local somente quando o conteúdo do servidor for alterado. Não inicia uma verificação do servidor.";
-"navidrome_server_scan_on_launch" = "Solicitar verificação completa do servidor na inicialização";
-"navidrome_server_scan_on_launch_description" = "Peça ao Navidrome para executar uma verificação completa da biblioteca quando o Primuse for iniciado. É necessária uma conta de administrador; solicitações não suportadas ou negadas retornam para uma atualização somente de status.";
 "navigation_mode_title" = "Navegação";
 "network" = "Rede";
 "new" = "Novo";
@@ -3789,3 +3784,34 @@
 "lyrics_editor_timing_conflict %lld %lld" = "A linha %lld começa antes da linha %lld";
 "lyrics_editor_retime_line" = "Marcar esta linha novamente";
 "lyrics_editor_align_hint" = "Toque ao ouvir este trecho para alinhar toda a música";
+
+/* Device-local song removals (sources without delete permission) */
+"remove" = "Remover";
+"song_remove_from_device" = "Remover deste dispositivo";
+"song_remove_from_device_message" = "Remove a entrada da biblioteca apenas neste dispositivo. O arquivo continua na fonte e pode ser restaurado na página da fonte.";
+"song_remove_from_device_unsupported_message" = "Esta fonte não consegue excluir arquivos, então a música só pode ser ocultada neste dispositivo. O arquivo continua no servidor e pode ser restaurado na página da fonte.";
+"song_remove_from_device_failed_title" = "Não foi possível remover";
+"batch_remove_from_device" = "Remover deste dispositivo";
+"batch_remove_from_device_message_format" = "Remover %d músicas apenas neste dispositivo? Os arquivos continuam na fonte e podem ser restaurados na página da fonte.";
+"batch_delete_no_deletable_source_format" = "Nenhuma das %d músicas selecionadas vem de uma fonte capaz de excluir arquivos. Elas só podem ser removidas neste dispositivo — os arquivos continuam no servidor e podem ser restaurados na página da fonte.";
+"batch_delete_denied_title" = "A fonte recusou a exclusão";
+"batch_delete_denied_message_format" = "A fonte recusou excluir %d arquivos e tentar de novo não vai adiantar. Remover apenas neste dispositivo? Os arquivos continuam no servidor e podem ser restaurados na página da fonte.";
+"local_removals_title" = "Removidas deste dispositivo";
+"local_removals_section" = "Ainda na fonte";
+"local_removals_footer" = "Estas músicas saíram da biblioteca deste dispositivo enquanto a cópia na fonte permaneceu no lugar. Restaurar uma delas a traz de volta na hora.";
+"local_removals_empty" = "Nada removido";
+"local_removals_empty_desc" = "Músicas removidas deste dispositivo sem excluir o arquivo da fonte aparecem aqui.";
+"local_removals_restore_all" = "Restaurar tudo";
+"local_removals_restore_all_message_format" = "Restaurar %d músicas para a biblioteca?";
+"local_removals_restore_failed_title" = "Não foi possível restaurar";
+"local_removals_source_row_format" = "%d removidas deste dispositivo";
+"local_removal_reason_unsupported" = "A fonte não consegue excluir arquivos";
+"local_removal_reason_denied" = "A fonte recusou a exclusão";
+"local_removal_reason_user_choice" = "Arquivo da fonte mantido";
+"server_catalog_mass_disappearance_format" = "O catálogo do servidor não lista mais %d músicas que tinha antes. Elas são mantidas até outra varredura confirmar a mesma ausência.";
+
+/* Server catalogue automatic refresh (whole Subsonic family) */
+"server_auto_refresh" = "Atualizar automaticamente";
+"server_auto_refresh_description" = "Depois de abrir, o Primuse verifica o estado da biblioteca do servidor e atualiza o catálogo local apenas quando o conteúdo do servidor mudou. Não inicia uma varredura no servidor.";
+"server_scan_on_launch" = "Pedir varredura completa do servidor ao abrir";
+"server_scan_on_launch_description" = "Pede ao servidor uma varredura completa da biblioteca quando o Primuse abre. É necessária uma conta de administrador; pedidos sem suporte ou recusados voltam a uma atualização apenas de estado.";

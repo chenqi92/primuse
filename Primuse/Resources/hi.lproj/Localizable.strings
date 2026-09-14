@@ -857,7 +857,6 @@
 "base_path" = "आधार पथ";
 "base_path_hint" = "आधार पथ (उदा. /dav)";
 "batch_delete_failed_format" = "%d विफल";
-"batch_delete_no_deletable_source" = "चयनित गीतों में से कोई भी संगीत स्रोत पर नहीं है जो फ़ाइलों को हटाने का समर्थन करता है।";
 "batch_delete_progress_format" = "मिटाया जा रहा है %1$d / %2$d";
 "batch_delete_result_format" = "%d हटा दिया गया";
 "batch_delete_skipped_format" = "%d छोड़ दिया गया - उनका संगीत स्रोत विलोपन का समर्थन नहीं करता है";
@@ -1985,10 +1984,6 @@
 "motion_artwork_service_enabled" = "कस्टम मोशन आर्टवर्क सेवा";
 "motion_artwork_service_endpoint" = "सेवा समापन बिंदु";
 "music_video_badge" = "संगीत वीडियो";
-"navidrome_auto_refresh" = "स्वचालित रूप से Navidrome ताज़ा करें";
-"navidrome_auto_refresh_description" = "लॉन्च के बाद, Primuse Navidrome लाइब्रेरी की स्थिति की जांच करता है और स्थानीय कैटलॉग को तभी रीफ्रेश करता है जब सर्वर सामग्री बदल गई हो। यह सर्वर स्कैन प्रारंभ नहीं करता है.";
-"navidrome_server_scan_on_launch" = "लॉन्च पर पूर्ण सर्वर स्कैन का अनुरोध करें";
-"navidrome_server_scan_on_launch_description" = "Primuse लॉन्च होने पर Navidrome को पूर्ण लाइब्रेरी स्कैन चलाने के लिए कहें। एक व्यवस्थापक खाता आवश्यक है; असमर्थित या अस्वीकृत अनुरोध केवल स्थिति-रीफ्रेश पर वापस आ जाते हैं।";
 "navigation_mode_title" = "नेविगेशन";
 "network" = "नेटवर्क";
 "new" = "नया";
@@ -3789,3 +3784,34 @@
 "lyrics_editor_timing_conflict %lld %lld" = "पंक्ति %lld, पंक्ति %lld से पहले शुरू होती है";
 "lyrics_editor_retime_line" = "इस पंक्ति का समय फिर तय करें";
 "lyrics_editor_align_hint" = "यह हिस्सा सुनते समय पूरी धुन के बोल मिलाने के लिए दबाएँ";
+
+/* Device-local song removals (sources without delete permission) */
+"remove" = "हटाएँ";
+"song_remove_from_device" = "इस डिवाइस से हटाएँ";
+"song_remove_from_device_message" = "लाइब्रेरी प्रविष्टि केवल इस डिवाइस से हटती है। फ़ाइल स्रोत पर बनी रहती है और स्रोत पृष्ठ से बहाल की जा सकती है।";
+"song_remove_from_device_unsupported_message" = "यह स्रोत फ़ाइलें नहीं हटा सकता, इसलिए गाने को केवल इस डिवाइस पर छिपाया जा सकता है। फ़ाइल सर्वर पर बनी रहती है और स्रोत पृष्ठ से बहाल की जा सकती है।";
+"song_remove_from_device_failed_title" = "हटाया नहीं जा सका";
+"batch_remove_from_device" = "इस डिवाइस से हटाएँ";
+"batch_remove_from_device_message_format" = "%d गाने केवल इस डिवाइस से हटाएँ? फ़ाइलें स्रोत पर बनी रहेंगी और स्रोत पृष्ठ से बहाल की जा सकती हैं।";
+"batch_delete_no_deletable_source_format" = "चुने गए %d गानों में से कोई भी ऐसे स्रोत का नहीं है जो फ़ाइलें हटा सके। उन्हें केवल इस डिवाइस से हटाया जा सकता है — फ़ाइलें सर्वर पर बनी रहेंगी और स्रोत पृष्ठ से बहाल की जा सकती हैं।";
+"batch_delete_denied_title" = "स्रोत ने हटाना अस्वीकार किया";
+"batch_delete_denied_message_format" = "स्रोत ने %d फ़ाइलें हटाने से इनकार कर दिया, और दोबारा कोशिश करने से कुछ नहीं बदलेगा। क्या उन्हें केवल इस डिवाइस से हटाएँ? फ़ाइलें सर्वर पर बनी रहेंगी और स्रोत पृष्ठ से बहाल की जा सकती हैं।";
+"local_removals_title" = "इस डिवाइस से हटाए गए";
+"local_removals_section" = "अब भी स्रोत पर";
+"local_removals_footer" = "ये गाने इस डिवाइस की लाइब्रेरी से हटा दिए गए, जबकि स्रोत की प्रति यथावत रही। बहाल करते ही ये तुरंत वापस आ जाते हैं।";
+"local_removals_empty" = "कुछ नहीं हटाया गया";
+"local_removals_empty_desc" = "स्रोत फ़ाइल हटाए बिना इस डिवाइस से हटाए गए गाने यहाँ दिखते हैं।";
+"local_removals_restore_all" = "सभी बहाल करें";
+"local_removals_restore_all_message_format" = "%d गाने लाइब्रेरी में बहाल करें?";
+"local_removals_restore_failed_title" = "बहाल नहीं किया जा सका";
+"local_removals_source_row_format" = "इस डिवाइस से %d हटाए गए";
+"local_removal_reason_unsupported" = "स्रोत फ़ाइलें नहीं हटा सकता";
+"local_removal_reason_denied" = "स्रोत ने हटाना अस्वीकार किया";
+"local_removal_reason_user_choice" = "स्रोत फ़ाइल रखी गई";
+"server_catalog_mass_disappearance_format" = "सर्वर सूची में अब वे %d गाने नहीं हैं जो पहले थे। जब तक कोई और स्कैन वही अनुपस्थिति पुष्ट न करे, उन्हें रखा जाता है।";
+
+/* Server catalogue automatic refresh (whole Subsonic family) */
+"server_auto_refresh" = "स्वतः ताज़ा करें";
+"server_auto_refresh_description" = "शुरू होने के बाद Primuse सर्वर की लाइब्रेरी स्थिति जाँचता है और स्थानीय सूची तभी ताज़ा करता है जब सर्वर की सामग्री बदली हो। यह सर्वर पर स्कैन शुरू नहीं करता।";
+"server_scan_on_launch" = "शुरू होने पर पूरा सर्वर स्कैन माँगें";
+"server_scan_on_launch_description" = "Primuse शुरू होने पर सर्वर से पूरी लाइब्रेरी स्कैन करने को कहता है। व्यवस्थापक खाता आवश्यक है; असमर्थित या अस्वीकृत अनुरोध केवल स्थिति जाँचने वाले ताज़ा पर लौट आते हैं।";

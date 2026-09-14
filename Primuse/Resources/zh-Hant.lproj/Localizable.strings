@@ -67,10 +67,6 @@
 "playlist_kind_server_mirror" = "伺服器歌單";
 "playlist_always_download" = "始終保持離線";
 "playlist_always_download_description" = "透過 Wi-Fi 在此裝置上保留此播放清單；新增或變更的歌曲會在裝置條件允許時自動下載。關閉後會保留已下載的檔案。";
-"navidrome_auto_refresh" = "Navidrome 自動重新整理";
-"navidrome_auto_refresh_description" = "App 開啟後會檢查 Navidrome 的媒體庫狀態，只有伺服器內容變更時才重新整理本機目錄，不會啟動伺服器掃描。";
-"navidrome_server_scan_on_launch" = "啟動時請求完整伺服器掃描";
-"navidrome_server_scan_on_launch_description" = "Primuse 啟動時請求 Navidrome 完整掃描媒體庫。需要管理員帳號；不支援或無權限時會自動回退為僅檢查狀態。";
 "see_all" = "查看全部";
 "welcome_title" = "歡迎使用 Primuse";
 "welcome_desc" = "加入音樂來源 — NAS、WebDAV 或本機資料夾 — 開始聆聽";
@@ -2922,7 +2918,6 @@
 "batch_delete_source_files" = "刪除原始檔案";
 "batch_delete_source_files_message_format" = "將永久刪除 %d 首歌曲的原始檔案，並從資料庫移除。此操作無法復原。";
 "batch_delete_skipped_format" = "%d 首所在的音樂來源不支援刪除，已略過";
-"batch_delete_no_deletable_source" = "選取歌曲所在的音樂來源都不支援刪除檔案。";
 "batch_delete_progress_format" = "正在刪除 %1$d / %2$d";
 "batch_delete_result_format" = "已刪除 %d 首";
 "batch_delete_failed_format" = "%d 首刪除失敗";
@@ -3860,3 +3855,34 @@
 "lyrics_editor_timing_conflict %lld %lld" = "第 %lld 行的時間早於第 %lld 行";
 "lyrics_editor_retime_line" = "重新打點";
 "lyrics_editor_align_hint" = "聽到目前內容時按下，整首同步對齊";
+
+/* Device-local song removals (sources without delete permission) */
+"remove" = "移除";
+"song_remove_from_device" = "從本機移除";
+"song_remove_from_device_message" = "只移除本機資料庫裡的記錄。來源端檔案維持不變，可以在來源頁復原。";
+"song_remove_from_device_unsupported_message" = "此來源不支援刪除檔案，這首歌只能在本機隱藏。伺服器端檔案維持不變，可以在來源頁復原。";
+"song_remove_from_device_failed_title" = "無法移除";
+"batch_remove_from_device" = "從本機移除";
+"batch_remove_from_device_message_format" = "僅在本機移除 %d 首歌曲？來源端檔案維持不變，可以在來源頁復原。";
+"batch_delete_no_deletable_source_format" = "所選的 %d 首歌都來自不支援刪除檔案的來源。只能在本機移除 —— 伺服器端檔案維持不變，可以在來源頁復原。";
+"batch_delete_denied_title" = "來源拒絕了刪除";
+"batch_delete_denied_message_format" = "來源拒絕刪除 %d 個檔案，重試也不會有別的結果。是否僅在本機移除？伺服器端檔案維持不變，可以在來源頁復原。";
+"local_removals_title" = "本機已移除";
+"local_removals_section" = "來源端仍然保留";
+"local_removals_footer" = "這些歌曲已從本機資料庫移除，來源端檔案仍然保留。復原後會立即回到資料庫。";
+"local_removals_empty" = "沒有本機移除記錄";
+"local_removals_empty_desc" = "沒有刪除來源端檔案、僅從本機移除的歌曲會出現在這裡。";
+"local_removals_restore_all" = "全部復原";
+"local_removals_restore_all_message_format" = "復原 %d 首歌曲到資料庫？";
+"local_removals_restore_failed_title" = "無法復原";
+"local_removals_source_row_format" = "本機已移除 %d 首";
+"local_removal_reason_unsupported" = "來源不支援刪除檔案";
+"local_removal_reason_denied" = "來源拒絕了刪除";
+"local_removal_reason_user_choice" = "保留了來源端檔案";
+"server_catalog_mass_disappearance_format" = "伺服器目錄裡少了之前列出的 %d 首歌。在下一次掃描再次確認之前會先保留。";
+
+/* Server catalogue automatic refresh (whole Subsonic family) */
+"server_auto_refresh" = "自動重新整理";
+"server_auto_refresh_description" = "App 開啟後檢查伺服器的資料庫狀態，僅在伺服器內容變更時重新整理本機目錄，不會發起伺服器掃描。";
+"server_scan_on_launch" = "啟動時請求完整伺服器掃描";
+"server_scan_on_launch_description" = "Primuse 啟動時請求伺服器完整掃描資料庫。需要管理員帳號；不支援或無權限時會自動回退為僅檢查狀態。";

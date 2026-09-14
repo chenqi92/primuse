@@ -61,8 +61,10 @@ public enum SubsonicCatalogPagingPolicy {
     /// `getScanStatus.lastScan|count` describes the global server scanner, not
     /// an immutable snapshot of this account's visible search3 result. Pages
     /// can therefore shift under permission changes without changing that
-    /// marker. A complete walk may merge rows, but cannot authorize deletion.
-    public static let authorizesMissingSongDeletion = false
+    /// marker, so one complete walk cannot authorize deletion on its own — it
+    /// is one witness, and `ServerCatalogDeletionConfirmationPolicy` decides
+    /// when enough of them agree.
+    public static let deletionAuthority = CatalogDeletionAuthority.confirmationRequired
 
     /// OpenSubsonic requires an empty `search3` query to enumerate all media,
     /// and Navidrome implements that endpoint even on versions whose ping did

@@ -857,7 +857,6 @@
 "base_path" = "เส้นทางฐาน";
 "base_path_hint" = "เส้นทางฐาน (เช่น /dav)";
 "batch_delete_failed_format" = "%d ล้มเหลว";
-"batch_delete_no_deletable_source" = "ไม่มีเพลงที่เลือกอยู่ในแหล่งเพลงที่รองรับการลบไฟล์";
 "batch_delete_progress_format" = "กำลังลบ %1$d / %2$d";
 "batch_delete_result_format" = "%d ลบแล้ว";
 "batch_delete_skipped_format" = "%d ข้ามไป — แหล่งเพลงไม่รองรับการลบ";
@@ -1985,10 +1984,6 @@
 "motion_artwork_service_enabled" = "บริการอาร์ตเวิร์กภาพเคลื่อนไหวแบบกำหนดเอง";
 "motion_artwork_service_endpoint" = "จุดสิ้นสุดบริการ";
 "music_video_badge" = "มิวสิกวิดีโอ";
-"navidrome_auto_refresh" = "รีเฟรช Navidrome อัตโนมัติ";
-"navidrome_auto_refresh_description" = "หลังจากเปิดตัว Primuse จะตรวจสอบสถานะคลังเพลง Navidrome และรีเฟรชแค็ตตาล็อกในเครื่องเฉพาะเมื่อเนื้อหาเซิร์ฟเวอร์มีการเปลี่ยนแปลง ไม่เริ่มการสแกนเซิร์ฟเวอร์";
-"navidrome_server_scan_on_launch" = "ขอการสแกนเซิร์ฟเวอร์แบบเต็มเมื่อเปิดตัว";
-"navidrome_server_scan_on_launch_description" = "ขอให้ Navidrome ทำการสแกนคลังเพลงแบบเต็มเมื่อ Primuse เปิดตัว จำเป็นต้องมีบัญชีผู้ดูแลระบบ คำขอที่ไม่รองรับหรือถูกปฏิเสธจะกลับไปเป็นการรีเฟรชสถานะเท่านั้น";
 "navigation_mode_title" = "การนำทาง";
 "network" = "เครือข่าย";
 "new" = "ใหม่";
@@ -3789,3 +3784,34 @@
 "lyrics_editor_timing_conflict %lld %lld" = "บรรทัดที่ %lld เริ่มก่อนบรรทัดที่ %lld";
 "lyrics_editor_retime_line" = "กำหนดเวลาบรรทัดนี้ใหม่";
 "lyrics_editor_align_hint" = "กดเมื่อได้ยินท่อนนี้เพื่อปรับเวลาทั้งเพลง";
+
+/* Device-local song removals (sources without delete permission) */
+"remove" = "นำออก";
+"song_remove_from_device" = "นำออกจากอุปกรณ์นี้";
+"song_remove_from_device_message" = "นำรายการออกจากคลังเฉพาะบนอุปกรณ์นี้ ไฟล์ยังอยู่ที่แหล่งที่มา และกู้คืนได้จากหน้าแหล่งที่มา";
+"song_remove_from_device_unsupported_message" = "แหล่งที่มานี้ลบไฟล์ไม่ได้ จึงซ่อนเพลงได้เฉพาะบนอุปกรณ์นี้ ไฟล์ยังอยู่บนเซิร์ฟเวอร์ และกู้คืนได้จากหน้าแหล่งที่มา";
+"song_remove_from_device_failed_title" = "นำออกไม่สำเร็จ";
+"batch_remove_from_device" = "นำออกจากอุปกรณ์นี้";
+"batch_remove_from_device_message_format" = "นำเพลง %d เพลงออกเฉพาะบนอุปกรณ์นี้ไหม ไฟล์ยังอยู่ที่แหล่งที่มา และกู้คืนได้จากหน้าแหล่งที่มา";
+"batch_delete_no_deletable_source_format" = "เพลงที่เลือกทั้ง %d เพลงไม่ได้มาจากแหล่งที่มาที่ลบไฟล์ได้ จึงนำออกได้เฉพาะบนอุปกรณ์นี้ — ไฟล์ยังอยู่บนเซิร์ฟเวอร์ และกู้คืนได้จากหน้าแหล่งที่มา";
+"batch_delete_denied_title" = "แหล่งที่มาปฏิเสธการลบ";
+"batch_delete_denied_message_format" = "แหล่งที่มาปฏิเสธการลบไฟล์ %d ไฟล์ และลองใหม่ก็ไม่ช่วย นำออกเฉพาะบนอุปกรณ์นี้ไหม ไฟล์ยังอยู่บนเซิร์ฟเวอร์ และกู้คืนได้จากหน้าแหล่งที่มา";
+"local_removals_title" = "นำออกจากอุปกรณ์นี้แล้ว";
+"local_removals_section" = "ยังอยู่ที่แหล่งที่มา";
+"local_removals_footer" = "เพลงเหล่านี้ถูกนำออกจากคลังของอุปกรณ์นี้ ขณะที่สำเนาบนแหล่งที่มายังอยู่ครบ กู้คืนแล้วจะกลับมาทันที";
+"local_removals_empty" = "ยังไม่มีรายการที่นำออก";
+"local_removals_empty_desc" = "เพลงที่คุณนำออกจากอุปกรณ์นี้โดยไม่ลบไฟล์ต้นทางจะแสดงที่นี่";
+"local_removals_restore_all" = "กู้คืนทั้งหมด";
+"local_removals_restore_all_message_format" = "กู้คืนเพลง %d เพลงกลับเข้าคลังไหม";
+"local_removals_restore_failed_title" = "กู้คืนไม่สำเร็จ";
+"local_removals_source_row_format" = "นำออกจากอุปกรณ์นี้แล้ว %d เพลง";
+"local_removal_reason_unsupported" = "แหล่งที่มาลบไฟล์ไม่ได้";
+"local_removal_reason_denied" = "แหล่งที่มาปฏิเสธการลบ";
+"local_removal_reason_user_choice" = "เก็บไฟล์ต้นทางไว้";
+"server_catalog_mass_disappearance_format" = "แคตตาล็อกของเซิร์ฟเวอร์ไม่มีเพลง %d เพลงที่เคยมีอีกต่อไป ระบบจะเก็บไว้จนกว่าการสแกนครั้งถัดไปจะยืนยันผลเดิม";
+
+/* Server catalogue automatic refresh (whole Subsonic family) */
+"server_auto_refresh" = "รีเฟรชอัตโนมัติ";
+"server_auto_refresh_description" = "หลังเปิดแอป Primuse จะตรวจสถานะคลังของเซิร์ฟเวอร์ และรีเฟรชแคตตาล็อกในเครื่องเฉพาะเมื่อเนื้อหาบนเซิร์ฟเวอร์เปลี่ยนไป โดยจะไม่สั่งให้เซิร์ฟเวอร์สแกน";
+"server_scan_on_launch" = "ขอให้เซิร์ฟเวอร์สแกนทั้งหมดตอนเปิดแอป";
+"server_scan_on_launch_description" = "ขอให้เซิร์ฟเวอร์สแกนคลังทั้งหมดเมื่อเปิด Primuse ต้องใช้บัญชีผู้ดูแลระบบ หากไม่รองรับหรือถูกปฏิเสธ จะย้อนกลับไปเป็นการรีเฟรชที่ตรวจสถานะอย่างเดียว";

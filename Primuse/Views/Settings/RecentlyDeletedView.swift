@@ -27,6 +27,7 @@ struct RecentlyDeletedView: View {
             playlistsSection
             smartPlaylistsSection
             hiddenMirrorPlaylistsSection
+            locallyRemovedSongsSection
             sourcesSection
             scraperConfigsSection
         }
@@ -91,6 +92,7 @@ struct RecentlyDeletedView: View {
             if library.recentlyDeletedPlaylists.isEmpty
                 && library.recentlyDeletedSmartPlaylists.isEmpty
                 && library.hiddenMirrorPlaylists.isEmpty
+                && library.locallyRemovedSourceIDs.isEmpty
                 && sourcesStore.recentlyDeletedSources.isEmpty
                 && ScraperConfigStore.shared.recentlyDeletedConfigs.isEmpty {
                 EmptyStateView(
@@ -160,6 +162,41 @@ struct RecentlyDeletedView: View {
                 Text("recently_deleted_smart_playlists")
             }
             .settingsAnchor("deleted.smartPlaylists")
+        }
+    }
+
+    /// 歌曲级的本机移除按来源聚合。逐首列在设置里没有意义, 真正要看明细和
+    /// 逐首恢复的场景在来源页, 这里给的是"哪几个源还有东西可恢复"。
+    @ViewBuilder
+    private var locallyRemovedSongsSection: some View {
+        let sourceIDs = library.locallyRemovedSourceIDs
+        if !sourceIDs.isEmpty {
+            Section {
+                ForEach(sourcesStore.allSources.filter { sourceIDs.contains($0.id) }) { source in
+                    NavigationLink {
+                        SourceLocalRemovalsView(source: source)
+                    } label: {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(verbatim: source.name)
+                                Text(verbatim: String(
+                                    format: String(localized: "local_removals_source_row_format"),
+                                    library.locallyRemovedCount(forSourceID: source.id)
+                                ))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: source.type.iconName)
+                        }
+                    }
+                }
+            } header: {
+                Text("local_removals_title")
+            } footer: {
+                Text("local_removals_footer")
+            }
+            .settingsAnchor("deleted.localRemovals")
         }
     }
 

@@ -44,6 +44,14 @@ public struct SourceSyncState: Codable, Sendable, Equatable {
     /// retained on their first observation to protect against eventual
     /// consistency and identity-migration ambiguity.
     public var missingStableKeys: [String: Int]
+    /// Consecutive complete-catalogue misses for a server source whose snapshot
+    /// is evidence rather than authority, keyed by `Song.id`. Driven by
+    /// `ServerCatalogDeletionConfirmationPolicy`.
+    public var missingCatalogSongIDs: [String: Int]
+    /// Catalogue revision that produced the newest entry in
+    /// `missingCatalogSongIDs`. Re-reading the same revision is the same
+    /// observation, not a second witness.
+    public var deletionEvidenceRevision: String?
     public var lastTelemetry: SourceSyncTelemetry?
 
     public init(
@@ -62,6 +70,8 @@ public struct SourceSyncState: Codable, Sendable, Equatable {
         rootIdentities: [SourceSyncRootIdentity] = [],
         reconciliation: SourceSyncReconciliation? = nil,
         missingStableKeys: [String: Int] = [:],
+        missingCatalogSongIDs: [String: Int] = [:],
+        deletionEvidenceRevision: String? = nil,
         lastTelemetry: SourceSyncTelemetry? = nil
     ) {
         self.schemaVersion = schemaVersion
@@ -79,6 +89,8 @@ public struct SourceSyncState: Codable, Sendable, Equatable {
         self.rootIdentities = rootIdentities
         self.reconciliation = reconciliation
         self.missingStableKeys = missingStableKeys
+        self.missingCatalogSongIDs = missingCatalogSongIDs
+        self.deletionEvidenceRevision = deletionEvidenceRevision
         self.lastTelemetry = lastTelemetry
     }
 
@@ -117,6 +129,8 @@ public struct SourceSyncState: Codable, Sendable, Equatable {
         case rootIdentities
         case reconciliation
         case missingStableKeys
+        case missingCatalogSongIDs
+        case deletionEvidenceRevision
         case lastTelemetry
     }
 
@@ -157,7 +171,10 @@ public struct SourceSyncState: Codable, Sendable, Equatable {
             [SourceSyncRootIdentity].self,
             forKey: .rootIdentities
         ) ?? []
-        reconciliation = try container.decodeIfPresent(
+        // A reconciliation kind written by a newer build must not invalidate
+        // the whole per-source state map: the worst honest outcome is losing
+        // one pending notice, not forcing every source into a deep scan.
+        reconciliation = try? container.decodeIfPresent(
             SourceSyncReconciliation.self,
             forKey: .reconciliation
         )
@@ -165,6 +182,14 @@ public struct SourceSyncState: Codable, Sendable, Equatable {
             [String: Int].self,
             forKey: .missingStableKeys
         ) ?? [:]
+        missingCatalogSongIDs = try container.decodeIfPresent(
+            [String: Int].self,
+            forKey: .missingCatalogSongIDs
+        ) ?? [:]
+        deletionEvidenceRevision = try container.decodeIfPresent(
+            String.self,
+            forKey: .deletionEvidenceRevision
+        )
         lastTelemetry = try container.decodeIfPresent(
             SourceSyncTelemetry.self,
             forKey: .lastTelemetry
@@ -232,6 +257,9 @@ public struct SourceSyncRootIdentity: Codable, Sendable, Equatable, Hashable {
 public struct SourceSyncReconciliation: Codable, Sendable, Equatable {
     public enum Kind: String, Codable, Sendable {
         case baiduIdentityAndDeletionConfirmation
+        /// A server catalogue lost an unusually large share of its rows in one
+        /// pass. Removal is held back until extra witnesses agree.
+        case serverCatalogMassDisappearance
     }
 
     public var kind: Kind

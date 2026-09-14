@@ -2941,6 +2941,35 @@ final class ScanService {
 
                 let previousState = syncStates[source.id]
                 let committedAt = Date()
+                // This snapshot passed terminal verification: every page was
+                // read, the revision held still before and after, the first
+                // page still matches and the offset past the end is empty. It
+                // is therefore one trustworthy witness of what the account can
+                // see — still not authority, because the marker describes the
+                // server-wide scanner rather than this account's view.
+                //
+                // Rows the user removed on this device are no longer in
+                // `library.songs`, but their retained records are recoverable
+                // and obey the same rule: one snapshot that fails to list them
+                // is not permission to forget them.
+                let knownSongIDs = Set(finalExistingByID.keys)
+                    .union(library.locallyRemovedSongIDs(forSourceID: source.id))
+                let deletionPlan = ServerCatalogDeletionConfirmationPolicy.plan(
+                    existingSongIDs: knownSongIDs,
+                    authoritativeSongIDs: stagedCommit.0.authoritativeSongIDs,
+                    previousMissingCounts: previousState?.missingCatalogSongIDs ?? [:],
+                    previousEvidenceRevision: previousState?.deletionEvidenceRevision,
+                    currentRevision: initialRevision
+                )
+                let prunableSongIDs = ServerCatalogDeletionConfirmationPolicy
+                    .retainedAuthoritativeSongIDs(
+                        existingSongIDs: knownSongIDs,
+                        authoritativeSongIDs: stagedCommit.0.authoritativeSongIDs,
+                        confirmedDeletionSongIDs: deletionPlan.confirmedDeletionSongIDs
+                    )
+                if !deletionPlan.confirmedDeletionSongIDs.isEmpty {
+                    plog("🗑️ \(source.name): removing \(deletionPlan.confirmedDeletionSongIDs.count) song(s) confirmed gone from the server catalogue")
+                }
                 let candidateState = SourceSyncState(
                     sourceID: source.id,
                     scopeFingerprint: scopeFingerprint,
@@ -2950,15 +2979,26 @@ final class ScanService {
                     lastFullScanAt: committedAt,
                     lastSuccessfulSyncAt: committedAt,
                     identityAliases: previousState?.identityAliases ?? [:],
-                    rootIdentities: previousState?.rootIdentities ?? []
+                    rootIdentities: previousState?.rootIdentities ?? [],
+                    reconciliation: deletionPlan.isMassDisappearance
+                        ? SourceSyncReconciliation(
+                            kind: .serverCatalogMassDisappearance,
+                            unresolvedStableKeys: Array(deletionPlan.pendingSongIDs),
+                            detectedAt: committedAt
+                        )
+                        : nil,
+                    missingCatalogSongIDs: deletionPlan.missingCounts,
+                    deletionEvidenceRevision: deletionPlan.evidenceRevision
                 )
                 try await completeScan(
                     sourceID: source.id,
                     generation: generation,
                     songs: stagedCommit.0.upserts,
-                    authoritativeSongIDs: stagedCommit.0.authoritativeSongIDs,
-                    pruneMissingSongs: SubsonicCatalogPagingPolicy
-                        .authorizesMissingSongDeletion,
+                    // Prune against the retained set, not the raw snapshot: it
+                    // removes exactly the confirmed rows and leaves absences
+                    // that are still gathering witnesses in place.
+                    authoritativeSongIDs: prunableSongIDs,
+                    pruneMissingSongs: true,
                     expectedScopeFingerprint: scopeFingerprint,
                     expectedScopeDirectories: directories,
                     library: library,
@@ -3408,7 +3448,13 @@ final class ScanService {
                         .map(\.id)
                 )
             }.value
-            commitsCatalogSnapshot = !songs.isEmpty || existingIDs != authoritativeSongIDs
+            // "Does this commit remove rows?", not "are the two sets equal?".
+            // `authoritativeSongIDs` legitimately carries ids the live library
+            // does not have — new songs, and the retained records of rows this
+            // device removed locally — so set inequality would force a full
+            // catalogue rewrite on every no-op scan.
+            commitsCatalogSnapshot = !songs.isEmpty
+                || !existingIDs.subtracting(authoritativeSongIDs).isEmpty
         } else if source?.type.isSubsonicFamily == true {
             let existingSongs = library.songs.filter { $0.sourceID == sourceID }
             let prepared = await Task.detached(priority: .utility) {
@@ -3778,11 +3824,17 @@ final class ScanService {
     private static func completedScanState(
         reconciliation: SourceSyncReconciliation?
     ) -> ScanState? {
-        guard reconciliation != nil else { return nil }
-        return ScanState(
-            isScanning: false,
-            reconciliationMessage: String(localized: "baidu_snapshot_reconciliation_required")
-        )
+        guard let reconciliation else { return nil }
+        let message = switch reconciliation.kind {
+        case .baiduIdentityAndDeletionConfirmation:
+            String(localized: "baidu_snapshot_reconciliation_required")
+        case .serverCatalogMassDisappearance:
+            String(
+                format: String(localized: "server_catalog_mass_disappearance_format"),
+                reconciliation.unresolvedStableKeys.count
+            )
+        }
+        return ScanState(isScanning: false, reconciliationMessage: message)
     }
 
     private func persistSyncState(_ state: SourceSyncState) async throws {

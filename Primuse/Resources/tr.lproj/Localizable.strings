@@ -1277,7 +1277,6 @@
 "reconnect_browse" = "Yeniden Bağlan ve Göz At";
 "theme_color_blue" = "Mavi";
 "radio_stations_count" = "istasyonlar";
-"navidrome_server_scan_on_launch" = "Başlatıldığında Tam Sunucu Taraması İste";
 "scan_directories_hint" = "Müzik dosyalarını taramak için dizinleri bağlayın ve seçin";
 "intent_playing_artist_format" = "%@ oynatılıyor.";
 "metadata_writeback_error_remote_verification" = "Geri yazma işleminden sonra indirilen dosya, doğrulanan yüklemeyle eşleşmedi.";
@@ -1843,7 +1842,6 @@
 "radio_test_playback" = "Test Yayını";
 "source_info" = "Kaynak Bilgisi";
 "stats_server_authoritative" = "Sunucu verileri esas alınır";
-"batch_delete_no_deletable_source" = "Seçilen şarkıların hiçbiri dosya silmeyi destekleyen bir müzik kaynağında değil.";
 "send_to_tv_need_icloud" = "Ayarlar'da senkronizasyonu etkinleştirin → iCloud Önce senkronizasyon";
 "track_label" = "Parça";
 "lyrics_editor_paste_parsed %lld" = "%lld satıra ayrıldı";
@@ -1863,7 +1861,6 @@
 "intent_set_liked_title" = "Beğenilenleri Ayarla";
 "Repeat One" = "Birini tekrarla";
 "Find a song by title (and optional artist) and play it." = "Başlığa (ve isteğe bağlı sanatçıya) göre bir şarkı bulun ve çalın.";
-"navidrome_auto_refresh" = "Navidrome'yi Otomatik Olarak Yenile";
 "No matching playlist in your library." = "Arşivinizde eşleşen çalma listesi yok.";
 "synology_auth_error_410" = "Bağlanmadan önce DSM'deki şifreyi değiştirin.";
 "stats_play_count_format" = "%d oynatılıyor";
@@ -2114,7 +2111,6 @@
 "Resume the current Primuse song or radio station." = "Geçerli Primuse şarkısını veya radyo istasyonunu sürdürün.";
 "synology_auth_error_401" = "Hesap devre dışı bırakıldı.";
 "audio_quality_label" = "Ses Kalitesi";
-"navidrome_auto_refresh_description" = "Başlattıktan sonra Primuse, Navidrome arşivinin durumunu kontrol eder ve yalnızca sunucu içeriği değiştiğinde yerel kataloğu yeniler. Sunucu taraması başlatmaz.";
 "duration_label" = "Süre";
 "scrobble_validate" = "Doğrula";
 "theme_color_red" = "Kırmızı";
@@ -2665,7 +2661,6 @@
 "tag_editor_lyrics_writeback_read_only" = "Salt okunur kaynak: Primuse'a kaydedilir ve iCloud üzerinden eşitlenir, ancak doğrudan kaynağa geri yazılamaz.";
 "Parse Result" = "Ayrıştırma Sonucu";
 "yearly_meta_genres_placeholder_format" = "%d türleri";
-"navidrome_server_scan_on_launch_description" = "Primuse başlatıldığında Navidrome'den tam arşiv taraması çalıştırmasını isteyin. Bir yönetici hesabı gereklidir; desteklenmeyen veya reddedilen istekler yalnızca durum yenilemesine geri döner.";
 "minutes" = "dk";
 "scrobble_lastfm_reopen_authorization" = "Yetkilendirme Sayfasını Yeniden Aç";
 "play" = "Oynat";
@@ -3789,3 +3784,34 @@
 "lyrics_editor_timing_conflict %lld %lld" = "%lld. satır, %lld. satırdan önce başlıyor";
 "lyrics_editor_retime_line" = "Bu satırı yeniden zamanla";
 "lyrics_editor_align_hint" = "Tüm şarkıyı hizalamak için bu kısmı duyduğunuzda dokunun";
+
+/* Device-local song removals (sources without delete permission) */
+"remove" = "Kaldır";
+"song_remove_from_device" = "Bu Cihazdan Kaldır";
+"song_remove_from_device_message" = "Kitaplık kaydını yalnızca bu cihazdan kaldırır. Dosya kaynakta kalır ve kaynak sayfasından geri yüklenebilir.";
+"song_remove_from_device_unsupported_message" = "Bu kaynak dosya silemez, bu yüzden parça yalnızca bu cihazda gizlenebilir. Dosya sunucuda kalır ve kaynak sayfasından geri yüklenebilir.";
+"song_remove_from_device_failed_title" = "Kaldırılamadı";
+"batch_remove_from_device" = "Bu Cihazdan Kaldır";
+"batch_remove_from_device_message_format" = "%d parça yalnızca bu cihazdan kaldırılsın mı? Dosyalar kaynakta kalır ve kaynak sayfasından geri yüklenebilir.";
+"batch_delete_no_deletable_source_format" = "Seçilen %d parçanın hiçbiri dosya silebilen bir kaynaktan gelmiyor. Yalnızca bu cihazdan kaldırılabilirler; dosyalar sunucuda kalır ve kaynak sayfasından geri yüklenebilir.";
+"batch_delete_denied_title" = "Kaynak silmeyi reddetti";
+"batch_delete_denied_message_format" = "Kaynak %d dosyayı silmeyi reddetti ve yeniden denemek bir şey değiştirmez. Yalnızca bu cihazdan kaldırılsınlar mı? Dosyalar sunucuda kalır ve kaynak sayfasından geri yüklenebilir.";
+"local_removals_title" = "Bu Cihazdan Kaldırıldı";
+"local_removals_section" = "Hâlâ Kaynakta";
+"local_removals_footer" = "Bu parçalar bu cihazın kitaplığından çıkarıldı, kaynaktaki kopyaları ise yerinde kaldı. Geri yüklemek onları hemen geri getirir.";
+"local_removals_empty" = "Hiçbir şey kaldırılmadı";
+"local_removals_empty_desc" = "Kaynak dosyası silinmeden bu cihazdan kaldırdığın parçalar burada görünür.";
+"local_removals_restore_all" = "Tümünü Geri Yükle";
+"local_removals_restore_all_message_format" = "%d parça kitaplığa geri yüklensin mi?";
+"local_removals_restore_failed_title" = "Geri yüklenemedi";
+"local_removals_source_row_format" = "bu cihazdan %d kaldırıldı";
+"local_removal_reason_unsupported" = "Kaynak dosya silemiyor";
+"local_removal_reason_denied" = "Kaynak silmeyi reddetti";
+"local_removal_reason_user_choice" = "Kaynak dosyası korundu";
+"server_catalog_mass_disappearance_format" = "Sunucu kataloğu daha önce listelediği %d parçayı artık içermiyor. Başka bir tarama aynı eksikliği doğrulayana kadar korunurlar.";
+
+/* Server catalogue automatic refresh (whole Subsonic family) */
+"server_auto_refresh" = "Otomatik yenile";
+"server_auto_refresh_description" = "Açıldıktan sonra Primuse sunucunun kitaplık durumunu denetler ve yerel kataloğu yalnızca sunucudaki içerik değiştiyse yeniler. Sunucuda tarama başlatmaz.";
+"server_scan_on_launch" = "Açılışta sunucuda tam tarama iste";
+"server_scan_on_launch_description" = "Primuse açılırken sunucudan kitaplığı baştan sona taramasını ister. Yönetici hesabı gerekir; desteklenmeyen veya reddedilen istekler yalnızca durum denetleyen yenilemeye geri döner.";

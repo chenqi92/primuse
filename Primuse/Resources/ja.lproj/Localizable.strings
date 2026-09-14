@@ -308,10 +308,6 @@
 "playlist_kind_server_mirror" = "サーバーのプレイリスト";
 "playlist_always_download" = "常にオフラインで保持";
 "playlist_always_download_description" = "Wi-Fi 経由でこのプレイリストをこのデバイスに保存します。新規または変更された曲はデバイスの状態が許すときに自動ダウンロードされ、オフにしても既存のファイルは保持されます。";
-"navidrome_auto_refresh" = "Navidrome を自動更新";
-"navidrome_auto_refresh_description" = "App の起動後に Navidrome のライブラリ状態を確認し、サーバー側に変更がある場合だけローカルカタログを更新します。サーバースキャンは開始しません。";
-"navidrome_server_scan_on_launch" = "起動時にサーバー全体のスキャンを要求";
-"navidrome_server_scan_on_launch_description" = "Primuse の起動時に Navidrome へライブラリ全体のスキャンを要求します。管理者アカウントが必要です。未対応または権限がない場合は、状態確認のみの更新に切り替わります。";
 "welcome_title" = "Primuse へようこそ";
 "welcome_desc" = "音楽ソース（NAS、WebDAV、ローカルファイル）を追加して再生を始めましょう";
 "no_albums" = "アルバムなし";
@@ -2938,7 +2934,6 @@
 "batch_delete_source_files" = "元のファイルを削除";
 "batch_delete_source_files_message_format" = "%d 曲の元のファイルを完全に削除し、ライブラリからも削除します。この操作は取り消せません。";
 "batch_delete_skipped_format" = "%d 曲は音楽ソースが削除に対応していないためスキップしました";
-"batch_delete_no_deletable_source" = "選択した曲の音楽ソースはいずれもファイル削除に対応していません。";
 "batch_delete_progress_format" = "削除中 %1$d / %2$d";
 "batch_delete_result_format" = "%d 曲を削除しました";
 "batch_delete_failed_format" = "%d 曲が失敗";
@@ -3884,3 +3879,34 @@
 "lyrics_editor_timing_conflict %lld %lld" = "%lld 行目が %lld 行目より前に始まっています";
 "lyrics_editor_retime_line" = "この行を再同期";
 "lyrics_editor_align_hint" = "この部分が聞こえたら押して曲全体を同期";
+
+/* Device-local song removals (sources without delete permission) */
+"remove" = "取り除く";
+"song_remove_from_device" = "この端末から取り除く";
+"song_remove_from_device_message" = "この端末のライブラリからのみ取り除きます。ソース側のファイルはそのまま残り、ソースのページから復元できます。";
+"song_remove_from_device_unsupported_message" = "このソースはファイルを削除できないため、この曲はこの端末で非表示にすることしかできません。サーバー上のファイルはそのまま残り、ソースのページから復元できます。";
+"song_remove_from_device_failed_title" = "取り除けませんでした";
+"batch_remove_from_device" = "この端末から取り除く";
+"batch_remove_from_device_message_format" = "%d 曲をこの端末からのみ取り除きますか？ソース側のファイルは残り、ソースのページから復元できます。";
+"batch_delete_no_deletable_source_format" = "選択した %d 曲は、いずれもファイルを削除できないソースのものです。この端末からのみ取り除けます。サーバー上のファイルは残り、ソースのページから復元できます。";
+"batch_delete_denied_title" = "ソースが削除を拒否しました";
+"batch_delete_denied_message_format" = "ソースが %d 個のファイルの削除を拒否しました。再試行しても結果は変わりません。この端末からのみ取り除きますか？サーバー上のファイルは残り、ソースのページから復元できます。";
+"local_removals_title" = "この端末で取り除き済み";
+"local_removals_section" = "ソースには残っています";
+"local_removals_footer" = "これらの曲はこの端末のライブラリから取り除かれましたが、ソース側のファイルは残っています。復元するとすぐにライブラリへ戻ります。";
+"local_removals_empty" = "取り除いた曲はありません";
+"local_removals_empty_desc" = "ソースのファイルを削除せずにこの端末から取り除いた曲がここに表示されます。";
+"local_removals_restore_all" = "すべて復元";
+"local_removals_restore_all_message_format" = "%d 曲をライブラリに復元しますか？";
+"local_removals_restore_failed_title" = "復元できませんでした";
+"local_removals_source_row_format" = "この端末で %d 曲を取り除き済み";
+"local_removal_reason_unsupported" = "ソースがファイルを削除できません";
+"local_removal_reason_denied" = "ソースが削除を拒否しました";
+"local_removal_reason_user_choice" = "ソース側のファイルを残しました";
+"server_catalog_mass_disappearance_format" = "サーバーのカタログから、以前あった %d 曲が見つかりません。次のスキャンで同じ結果が確認されるまで保持します。";
+
+/* Server catalogue automatic refresh (whole Subsonic family) */
+"server_auto_refresh" = "自動更新";
+"server_auto_refresh_description" = "起動後にサーバーのライブラリ状態を確認し、サーバー側の内容が変わったときだけローカルのカタログを更新します。サーバースキャンは開始しません。";
+"server_scan_on_launch" = "起動時にサーバーの完全スキャンを要求";
+"server_scan_on_launch_description" = "Primuse の起動時にサーバーへライブラリの完全スキャンを要求します。管理者アカウントが必要で、未対応や拒否された場合は状態確認のみの更新に戻ります。";

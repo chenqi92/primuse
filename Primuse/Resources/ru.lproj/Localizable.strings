@@ -1277,7 +1277,6 @@
 "reconnect_browse" = "Переподключиться и просмотреть";
 "theme_color_blue" = "Синий";
 "radio_stations_count" = "станции";
-"navidrome_server_scan_on_launch" = "Запросить полное сканирование сервера при запуске";
 "scan_directories_hint" = "Подключитесь и выберите каталоги для сканирования музыкальных файлов.";
 "intent_playing_artist_format" = "Играю в %@.";
 "metadata_writeback_error_remote_verification" = "Файл, загруженный после обратной записи, не соответствует проверенному загруженному файлу.";
@@ -1843,7 +1842,6 @@
 "radio_test_playback" = "Тестовая трансляция";
 "source_info" = "Информация об источнике";
 "stats_server_authoritative" = "Данные сервера приоритетны";
-"batch_delete_no_deletable_source" = "Ни одна из выбранных песен не находится на музыкальном источнике, поддерживающем удаление файлов.";
 "send_to_tv_need_icloud" = "Включите синхронизацию в Настройках → iCloud Сначала синхронизировать.";
 "track_label" = "Трек";
 "lyrics_editor_paste_parsed %lld" = "Получено строк: %lld";
@@ -1863,7 +1861,6 @@
 "intent_set_liked_title" = "Установить Понравилось";
 "Repeat One" = "Повтор одной песни";
 "Find a song by title (and optional artist) and play it." = "Найдите песню по названию (и опциональному исполнителю) и воспроизведите ее.";
-"navidrome_auto_refresh" = "Автоматическое обновление Navidrome";
 "No matching playlist in your library." = "В вашей медиатеке нет подходящего плейлиста.";
 "synology_auth_error_410" = "Перед подключением измените пароль в DSM.";
 "stats_play_count_format" = "%d играет";
@@ -2114,7 +2111,6 @@
 "Resume the current Primuse song or radio station." = "Возобновить воспроизведение текущей песни или радиостанции Primuse.";
 "synology_auth_error_401" = "Аккаунт отключен.";
 "audio_quality_label" = "Качество звука";
-"navidrome_auto_refresh_description" = "После запуска Primuse проверяет состояние медиатеки Navidrome и обновляет локальный каталог только при изменении содержимого сервера. Не запускается сканирование сервера.";
 "duration_label" = "Продолжительность";
 "scrobble_validate" = "Подтвердить";
 "theme_color_red" = "Красный";
@@ -2665,7 +2661,6 @@
 "tag_editor_lyrics_writeback_read_only" = "Источник только для чтения: данные сохраняются в Primuse и синхронизируются через iCloud, но их нельзя записать непосредственно в источник.";
 "Parse Result" = "Результат анализа";
 "yearly_meta_genres_placeholder_format" = "Жанры %d";
-"navidrome_server_scan_on_launch_description" = "Попросите Navidrome запустить полное сканирование медиатеки при запуске Primuse. Требуется учетная запись администратора; неподдерживаемые или отклоненные запросы возвращаются к обновлению только статуса.";
 "minutes" = "мин.";
 "scrobble_lastfm_reopen_authorization" = "Повторно открыть страницу авторизации.";
 "play" = "Воспроизвести";
@@ -3789,3 +3784,34 @@
 "lyrics_editor_timing_conflict %lld %lld" = "Строка %lld начинается раньше строки %lld";
 "lyrics_editor_retime_line" = "Задать время строки";
 "lyrics_editor_align_hint" = "Нажмите на этом месте, чтобы синхронизировать всю песню";
+
+/* Device-local song removals (sources without delete permission) */
+"remove" = "Убрать";
+"song_remove_from_device" = "Убрать с этого устройства";
+"song_remove_from_device_message" = "Запись удаляется из медиатеки только на этом устройстве. Файл остаётся в источнике, его можно восстановить на странице источника.";
+"song_remove_from_device_unsupported_message" = "Этот источник не умеет удалять файлы, поэтому трек можно только скрыть на этом устройстве. Файл остаётся на сервере, его можно восстановить на странице источника.";
+"song_remove_from_device_failed_title" = "Не удалось убрать";
+"batch_remove_from_device" = "Убрать с этого устройства";
+"batch_remove_from_device_message_format" = "Убрать %d треков только с этого устройства? Файлы останутся в источнике, их можно восстановить на странице источника.";
+"batch_delete_no_deletable_source_format" = "Ни один из %d выбранных треков не относится к источнику, умеющему удалять файлы. Их можно убрать только с этого устройства — файлы останутся на сервере, их можно восстановить на странице источника.";
+"batch_delete_denied_title" = "Источник отклонил удаление";
+"batch_delete_denied_message_format" = "Источник отказался удалять %d файлов, и повтор ничего не изменит. Убрать их только с этого устройства? Файлы останутся на сервере, их можно восстановить на странице источника.";
+"local_removals_title" = "Убрано с этого устройства";
+"local_removals_section" = "Всё ещё в источнике";
+"local_removals_footer" = "Эти треки убраны из медиатеки этого устройства, а копия в источнике осталась на месте. Восстановление сразу вернёт их обратно.";
+"local_removals_empty" = "Ничего не убрано";
+"local_removals_empty_desc" = "Здесь появляются треки, убранные с этого устройства без удаления файла в источнике.";
+"local_removals_restore_all" = "Восстановить все";
+"local_removals_restore_all_message_format" = "Восстановить %d треков в медиатеке?";
+"local_removals_restore_failed_title" = "Не удалось восстановить";
+"local_removals_source_row_format" = "%d убрано с этого устройства";
+"local_removal_reason_unsupported" = "Источник не умеет удалять файлы";
+"local_removal_reason_denied" = "Источник отклонил удаление";
+"local_removal_reason_user_choice" = "Файл в источнике сохранён";
+"server_catalog_mass_disappearance_format" = "В каталоге сервера больше нет %d треков, которые были там раньше. Они сохраняются, пока другое сканирование не подтвердит то же отсутствие.";
+
+/* Server catalogue automatic refresh (whole Subsonic family) */
+"server_auto_refresh" = "Обновлять автоматически";
+"server_auto_refresh_description" = "После запуска Primuse проверяет состояние медиатеки сервера и обновляет локальный каталог только при изменении содержимого на сервере. Сканирование на сервере не запускается.";
+"server_scan_on_launch" = "Запрашивать полное сканирование сервера при запуске";
+"server_scan_on_launch_description" = "При запуске Primuse просит сервер полностью просканировать медиатеку. Нужна учётная запись администратора; при отсутствии поддержки или отказе выполняется только проверка состояния.";

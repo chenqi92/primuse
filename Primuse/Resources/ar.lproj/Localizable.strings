@@ -857,7 +857,6 @@
 "base_path" = "المسار الأساسي";
 "base_path_hint" = "المسار الأساسي (على سبيل المثال /dav)";
 "batch_delete_failed_format" = "%d فشل";
-"batch_delete_no_deletable_source" = "لا توجد أي من الأغاني المحددة على مصدر موسيقى يدعم حذف الملفات.";
 "batch_delete_progress_format" = "حذف %1$d / %2$d";
 "batch_delete_result_format" = "%d محذوف";
 "batch_delete_skipped_format" = "%d تم التخطي — مصدر الموسيقى الخاص بهم لا يدعم الحذف";
@@ -1985,10 +1984,6 @@
 "motion_artwork_service_enabled" = "خدمة الأعمال الفنية المتحركة المخصصة";
 "motion_artwork_service_endpoint" = "نقطة نهاية الخدمة";
 "music_video_badge" = "فيديو موسيقي";
-"navidrome_auto_refresh" = "تحديث Navidrome تلقائياً";
-"navidrome_auto_refresh_description" = "بعد الإطلاق، Primuse يتحقق من حالة مكتبة Navidrome ويقوم بتحديث الكتالوج المحلي فقط عندما يتغير محتوى الخادم. لا يبدأ فحص الخادم.";
-"navidrome_server_scan_on_launch" = "طلب فحص الخادم بالكامل عند الإطلاق";
-"navidrome_server_scan_on_launch_description" = "اطلب Navidrome إجراء فحص كامل للمكتبة عند إطلاق Primuse. مطلوب حساب المسؤول. تعود الطلبات غير المدعومة أو المرفوضة إلى تحديث الحالة فقط.";
 "navigation_mode_title" = "الملاحة";
 "network" = "الشبكة";
 "new" = "جديد";
@@ -3789,3 +3784,34 @@
 "lyrics_editor_timing_conflict %lld %lld" = "يبدأ السطر %lld قبل السطر %lld";
 "lyrics_editor_retime_line" = "إعادة توقيت هذا السطر";
 "lyrics_editor_align_hint" = "اضغط عند سماع هذا الجزء لمحاذاة الأغنية بالكامل";
+
+/* Device-local song removals (sources without delete permission) */
+"remove" = "إزالة";
+"song_remove_from_device" = "إزالة من هذا الجهاز";
+"song_remove_from_device_message" = "تُزال بطاقة المكتبة على هذا الجهاز فقط. يبقى الملف في المصدر ويمكنك استعادته من صفحة المصدر.";
+"song_remove_from_device_unsupported_message" = "لا يستطيع هذا المصدر حذف الملفات، لذا يمكن إخفاء الأغنية على هذا الجهاز فقط. يبقى الملف على الخادم ويمكنك استعادته من صفحة المصدر.";
+"song_remove_from_device_failed_title" = "تعذّرت الإزالة";
+"batch_remove_from_device" = "إزالة من هذا الجهاز";
+"batch_remove_from_device_message_format" = "هل تريد إزالة %d أغنية من هذا الجهاز فقط؟ تبقى الملفات في المصدر ويمكن استعادتها من صفحة المصدر.";
+"batch_delete_no_deletable_source_format" = "لا تنتمي أي من الأغاني المحددة البالغ عددها %d إلى مصدر يستطيع حذف الملفات. يمكن إزالتها من هذا الجهاز فقط، وتبقى الملفات على الخادم ويمكن استعادتها من صفحة المصدر.";
+"batch_delete_denied_title" = "رفض المصدر الحذف";
+"batch_delete_denied_message_format" = "رفض المصدر حذف %d ملف، وإعادة المحاولة لن تُجدي. هل تريد إزالتها من هذا الجهاز فقط؟ تبقى الملفات على الخادم ويمكن استعادتها من صفحة المصدر.";
+"local_removals_title" = "أُزيلت من هذا الجهاز";
+"local_removals_section" = "ما زالت في المصدر";
+"local_removals_footer" = "غادرت هذه الأغاني مكتبة هذا الجهاز بينما بقيت النسخة في المصدر كما هي. تعيدها الاستعادة فورًا.";
+"local_removals_empty" = "لم تُزل أي أغنية";
+"local_removals_empty_desc" = "تظهر هنا الأغاني التي تزيلها من هذا الجهاز دون حذف ملف المصدر.";
+"local_removals_restore_all" = "استعادة الكل";
+"local_removals_restore_all_message_format" = "هل تريد استعادة %d أغنية إلى المكتبة؟";
+"local_removals_restore_failed_title" = "تعذّرت الاستعادة";
+"local_removals_source_row_format" = "أُزيلت %d من هذا الجهاز";
+"local_removal_reason_unsupported" = "لا يستطيع المصدر حذف الملفات";
+"local_removal_reason_denied" = "رفض المصدر الحذف";
+"local_removal_reason_user_choice" = "احتُفظ بملف المصدر";
+"server_catalog_mass_disappearance_format" = "لم يعد فهرس الخادم يتضمن %d أغنية كانت موجودة سابقًا. تبقى محفوظة حتى يؤكد فحص آخر الغياب نفسه.";
+
+/* Server catalogue automatic refresh (whole Subsonic family) */
+"server_auto_refresh" = "تحديث تلقائي";
+"server_auto_refresh_description" = "بعد التشغيل يتحقق Primuse من حالة مكتبة الخادم ويحدّث الفهرس المحلي فقط عند تغيّر محتوى الخادم. لا يبدأ فحصًا على الخادم.";
+"server_scan_on_launch" = "طلب فحص كامل للخادم عند التشغيل";
+"server_scan_on_launch_description" = "يطلب من الخادم فحص المكتبة بالكامل عند تشغيل Primuse. يتطلب حساب مسؤول؛ وعند عدم الدعم أو الرفض يعود إلى تحديث يتحقق من الحالة فقط.";

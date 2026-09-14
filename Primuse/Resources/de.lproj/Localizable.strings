@@ -307,10 +307,6 @@
 "playlist_kind_server_mirror" = "Server-Playlist";
 "playlist_always_download" = "Immer offline verfügbar";
 "playlist_always_download_description" = "Hält diese Playlist über WLAN auf diesem Gerät verfügbar. Neue oder geänderte Titel werden automatisch geladen, wenn die Gerätebedingungen es zulassen; beim Ausschalten bleiben vorhandene Dateien erhalten.";
-"navidrome_auto_refresh" = "Navidrome automatisch aktualisieren";
-"navidrome_auto_refresh_description" = "Nach dem Öffnen prüft Primuse den Status der Navidrome-Mediathek und aktualisiert den lokalen Katalog nur bei Änderungen auf dem Server. Es wird kein Server-Scan gestartet.";
-"navidrome_server_scan_on_launch" = "Vollständigen Serverscan beim Start anfordern";
-"navidrome_server_scan_on_launch_description" = "Primuse fordert Navidrome beim Start zu einem vollständigen Mediathek-Scan auf. Dafür ist ein Administratorkonto erforderlich; nicht unterstützte oder abgelehnte Anfragen werden auf eine reine Statusaktualisierung zurückgestuft.";
 "welcome_title" = "Willkommen bei Primuse";
 "welcome_desc" = "Füge eine Musikquelle hinzu – dein NAS, WebDAV oder lokale Dateien – um loszuhören";
 "no_albums" = "Keine Alben";
@@ -2937,7 +2933,6 @@
 "batch_delete_source_files" = "Quelldateien löschen";
 "batch_delete_source_files_message_format" = "Die Quelldateien von %d Titeln werden endgültig gelöscht und die Titel aus der Mediathek entfernt. Das lässt sich nicht rückgängig machen.";
 "batch_delete_skipped_format" = "%d übersprungen – ihre Musikquelle unterstützt kein Löschen";
-"batch_delete_no_deletable_source" = "Keiner der ausgewählten Titel liegt auf einer Musikquelle, die das Löschen von Dateien unterstützt.";
 "batch_delete_progress_format" = "Lösche %1$d / %2$d";
 "batch_delete_result_format" = "%d gelöscht";
 "batch_delete_failed_format" = "%d fehlgeschlagen";
@@ -3883,3 +3878,34 @@
 "lyrics_editor_timing_conflict %lld %lld" = "Zeile %lld beginnt vor Zeile %lld";
 "lyrics_editor_retime_line" = "Zeile neu synchronisieren";
 "lyrics_editor_align_hint" = "Beim Hören dieser Stelle tippen, um das ganze Lied auszurichten";
+
+/* Device-local song removals (sources without delete permission) */
+"remove" = "Entfernen";
+"song_remove_from_device" = "Von diesem Gerät entfernen";
+"song_remove_from_device_message" = "Entfernt den Mediathekseintrag nur auf diesem Gerät. Die Datei bleibt auf der Quelle und lässt sich auf der Quellenseite wiederherstellen.";
+"song_remove_from_device_unsupported_message" = "Diese Quelle kann keine Dateien löschen, der Titel lässt sich daher nur auf diesem Gerät ausblenden. Die Datei bleibt auf dem Server und lässt sich auf der Quellenseite wiederherstellen.";
+"song_remove_from_device_failed_title" = "Entfernen fehlgeschlagen";
+"batch_remove_from_device" = "Von diesem Gerät entfernen";
+"batch_remove_from_device_message_format" = "%d Titel nur auf diesem Gerät entfernen? Die Dateien bleiben auf der Quelle und lassen sich auf der Quellenseite wiederherstellen.";
+"batch_delete_no_deletable_source_format" = "Keiner der %d ausgewählten Titel stammt aus einer Quelle, die Dateien löschen kann. Sie lassen sich nur auf diesem Gerät entfernen – die Dateien bleiben auf dem Server und lassen sich auf der Quellenseite wiederherstellen.";
+"batch_delete_denied_title" = "Quelle hat das Löschen abgelehnt";
+"batch_delete_denied_message_format" = "Die Quelle hat das Löschen von %d Dateien abgelehnt; ein erneuter Versuch ändert daran nichts. Nur auf diesem Gerät entfernen? Die Dateien bleiben auf dem Server und lassen sich auf der Quellenseite wiederherstellen.";
+"local_removals_title" = "Auf diesem Gerät entfernt";
+"local_removals_section" = "Noch auf der Quelle";
+"local_removals_footer" = "Diese Titel wurden aus der Mediathek dieses Geräts entfernt, während die Kopie auf der Quelle erhalten blieb. Eine Wiederherstellung bringt sie sofort zurück.";
+"local_removals_empty" = "Nichts entfernt";
+"local_removals_empty_desc" = "Titel, die du ohne Löschen der Quelldatei von diesem Gerät entfernst, erscheinen hier.";
+"local_removals_restore_all" = "Alle wiederherstellen";
+"local_removals_restore_all_message_format" = "%d Titel in der Mediathek wiederherstellen?";
+"local_removals_restore_failed_title" = "Wiederherstellen fehlgeschlagen";
+"local_removals_source_row_format" = "%d auf diesem Gerät entfernt";
+"local_removal_reason_unsupported" = "Quelle kann keine Dateien löschen";
+"local_removal_reason_denied" = "Quelle hat das Löschen abgelehnt";
+"local_removal_reason_user_choice" = "Quelldatei behalten";
+"server_catalog_mass_disappearance_format" = "Im Serverkatalog fehlen %d Titel, die zuvor gelistet waren. Sie bleiben erhalten, bis ein weiterer Scan dasselbe Fehlen bestätigt.";
+
+/* Server catalogue automatic refresh (whole Subsonic family) */
+"server_auto_refresh" = "Automatisch aktualisieren";
+"server_auto_refresh_description" = "Nach dem Start prüft Primuse den Mediathekstatus des Servers und aktualisiert den lokalen Katalog nur, wenn sich Serverinhalte geändert haben. Ein Serverscan wird nicht gestartet.";
+"server_scan_on_launch" = "Beim Start vollständigen Serverscan anfordern";
+"server_scan_on_launch_description" = "Bittet den Server beim Start von Primuse um einen vollständigen Mediathekscan. Ein Administratorkonto ist erforderlich; nicht unterstützte oder abgelehnte Anfragen fallen auf eine reine Statusaktualisierung zurück.";

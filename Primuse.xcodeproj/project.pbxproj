@@ -1059,6 +1059,7 @@
 		D2C82F5DDEB0A2AC13DB8759 /* CacheSync.strings in Resources */ = {isa = PBXBuildFile; fileRef = 39A4D0ED31C0B72DF438476C /* CacheSync.strings */; };
 		D2E190B34A801EB69260A46F /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 843544C15A6B82504D56AB7A /* App.swift */; };
 		D31C2238FF06CE4653360789 /* SourceMetadataStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32E0F03194B56BD2C0A053F5 /* SourceMetadataStatusView.swift */; };
+		5074FB2F60A3EDB60FFD5AA1 /* SourceLocalRemovalsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDE1A0452766D736F79CD672 /* SourceLocalRemovalsView.swift */; };
 		D353BB7A0479330659EE1F70 /* LogBacklogPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DEE649BA34C3BBC7CB67587 /* LogBacklogPolicy.swift */; };
 		D397C5DBA94F77ECC4DBA540 /* AlbumCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A82FE12BD255B40B05629442 /* AlbumCardView.swift */; };
 		D3AE884B8139D6E2ACC4B46E /* TVPlaybackCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC2F73BEA2E43BC8044D942F /* TVPlaybackCoordinator.swift */; };
@@ -1201,6 +1202,7 @@
 		F42267DB1E4B85832BE4E52D /* ScrapeOptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11180515D910975A39CBE6C5 /* ScrapeOptionsView.swift */; };
 		F45510F7EDAE425A749A03CF /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F652918A8A39CEF7841384ED /* OnboardingView.swift */; };
 		F4B6FD2C0B6D5AF88FB9CA4B /* SourceMetadataStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32E0F03194B56BD2C0A053F5 /* SourceMetadataStatusView.swift */; };
+		86A24BA3B0168ACE4600A749 /* SourceLocalRemovalsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDE1A0452766D736F79CD672 /* SourceLocalRemovalsView.swift */; };
 		F541FEEE24E4E7AA015EF638 /* MusicVideoStreamingLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11600D843C3681F87A75F59B /* MusicVideoStreamingLoader.swift */; };
 		F5FAEDD96A758DD69780B968 /* SMBSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEF1C4D090D0F65114B8F0D5 /* SMBSource.swift */; };
 		F601A246B39932913307C8CF /* CloudInputSourceObjC.m in Sources */ = {isa = PBXBuildFile; fileRef = D34E04201479990BA80AEE2A /* CloudInputSourceObjC.m */; };
@@ -1645,6 +1647,7 @@
 		323521762E1404112C7733DE /* hi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = hi; path = hi.lproj/CacheSync.strings; sourceTree = "<group>"; };
 		32D73848A8BD3AD508B3BD21 /* MotionArtworkEndpointClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionArtworkEndpointClient.swift; sourceTree = "<group>"; };
 		32E0F03194B56BD2C0A053F5 /* SourceMetadataStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceMetadataStatusView.swift; sourceTree = "<group>"; };
+		CDE1A0452766D736F79CD672 /* SourceLocalRemovalsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceLocalRemovalsView.swift; sourceTree = "<group>"; };
 		3305EA479E0347F99584ABAE /* MediaDetailActionBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaDetailActionBar.swift; sourceTree = "<group>"; };
 		33778B5B75AE878513F91C1B /* ConnectionFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionFlowView.swift; sourceTree = "<group>"; };
 		3381F1A37A98DB25B41EEF83 /* LyricsSnapshotEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricsSnapshotEncoder.swift; sourceTree = "<group>"; };
@@ -2597,6 +2600,7 @@
 				51F211B7D47D87F19AEBC79C /* SFTPBrowserView.swift */,
 				BFF0DF0592D356324C4E9A4C /* SMBBrowserView.swift */,
 				32E0F03194B56BD2C0A053F5 /* SourceMetadataStatusView.swift */,
+				CDE1A0452766D736F79CD672 /* SourceLocalRemovalsView.swift */,
 				6723FC0B92EDA2CC1B5E3C83 /* SourcesView.swift */,
 				0C50B958D5A7FEF1F9E8AD24 /* SourceTypeSelectionView.swift */,
 				6034E45EAB5EDE327A29E399 /* UPnPBrowserView.swift */,
@@ -5028,6 +5032,7 @@
 				31CE68BFDECB009846BF409D /* SourceErrors.swift in Sources */,
 				B2AD355139150A6FE1146F2C /* SourceManager.swift in Sources */,
 				F4B6FD2C0B6D5AF88FB9CA4B /* SourceMetadataStatusView.swift in Sources */,
+				86A24BA3B0168ACE4600A749 /* SourceLocalRemovalsView.swift in Sources */,
 				13DD1FC0A9A63C8DD65490E1 /* SourceTypeSelectionView.swift in Sources */,
 				CC9675B11D330108D649DB12 /* SourcesStore.swift in Sources */,
 				7A9DEF1B3E6DD0B7C5D1F722 /* SourcesView.swift in Sources */,
@@ -5529,6 +5534,7 @@
 				204C9943B244C93DF6DA48A6 /* SourceErrors.swift in Sources */,
 				805D574A9EE6E25009EACFE4 /* SourceManager.swift in Sources */,
 				D31C2238FF06CE4653360789 /* SourceMetadataStatusView.swift in Sources */,
+				5074FB2F60A3EDB60FFD5AA1 /* SourceLocalRemovalsView.swift in Sources */,
 				4D9FDCB6AB92B02FFCFD83D4 /* SourceTypeSelectionView.swift in Sources */,
 				42786BA198C03F835DBF49EC /* SourcesStore.swift in Sources */,
 				389FD71E5AB9C4E87852B1FB /* SourcesView.swift in Sources */,

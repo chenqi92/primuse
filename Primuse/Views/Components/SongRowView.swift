@@ -61,6 +61,10 @@ struct SongRowView: View {
     @State private var tagEditorSongID: String?
     @State private var showSimilarSongs = false
     @State private var deleteErrorMessage: String?
+    /// 源端明确拒绝且重试不会有别的结果时，失败弹窗要给出「仅从本机移除」。
+    @State private var deleteFailureIsLocallyResolvable = false
+    @State private var showLocalRemovalConfirm = false
+    @State private var localRemovalErrorMessage: String?
     @State private var sourceCheckMessage: String?
     @State private var tagReadMessage: String?
     @State private var presentedShareSong: Song?
@@ -152,15 +156,16 @@ struct SongRowView: View {
                 }
             }
 
-            if canDeleteSourceFile {
-                // Group 3: Destructive
-                Section {
+            // Group 3: Destructive
+            Section {
+                if canDeleteSourceFile {
                     Button(role: .destructive) {
                         showDeleteConfirm = true
                     } label: {
                         Label(String(localized: "delete_song"), systemImage: "trash")
                     }
                 }
+                localRemovalMenuButton
             }
         }
         #if os(macOS)
@@ -178,6 +183,7 @@ struct SongRowView: View {
         showScrapeOptions || showNoScraperSourceAlert || showAddToPlaylist
             || showSongInfo || showDeleteConfirm || showBareAlert || showTagEditor
             || showLyricsEditor || showSimilarSongs || deleteErrorMessage != nil
+            || showLocalRemovalConfirm || localRemovalErrorMessage != nil
             || sourceCheckMessage != nil || tagReadMessage != nil || presentedShareSong != nil
     }
 
@@ -254,12 +260,52 @@ struct SongRowView: View {
             String(localized: "delete_song_failed_title"),
             isPresented: Binding(
                 get: { deleteErrorMessage != nil },
-                set: { if !$0 { deleteErrorMessage = nil } }
+                set: {
+                    if !$0 {
+                        deleteErrorMessage = nil
+                        deleteFailureIsLocallyResolvable = false
+                    }
+                }
+            )
+        ) {
+            if deleteFailureIsLocallyResolvable {
+                Button(String(localized: "song_remove_from_device"), role: .destructive) {
+                    removeSongFromThisDevice(reason: .remoteDeletionDenied)
+                }
+            }
+            Button(String(localized: "done"), role: .cancel) {}
+        } message: {
+            Text(deleteErrorMessage ?? "")
+        }
+        .alert(
+            String(localized: "song_remove_from_device"),
+            isPresented: $showLocalRemovalConfirm
+        ) {
+            Button(String(localized: "cancel"), role: .cancel) {}
+            Button(String(localized: "remove"), role: .destructive) {
+                removeSongFromThisDevice(
+                    reason: canDeleteSourceFile
+                        ? .userKeptRemoteFile
+                        : .sourceDoesNotSupportDeletion
+                )
+            }
+        } message: {
+            if canDeleteSourceFile {
+                Text("song_remove_from_device_message")
+            } else {
+                Text("song_remove_from_device_unsupported_message")
+            }
+        }
+        .alert(
+            String(localized: "song_remove_from_device_failed_title"),
+            isPresented: Binding(
+                get: { localRemovalErrorMessage != nil },
+                set: { if !$0 { localRemovalErrorMessage = nil } }
             )
         ) {
             Button(String(localized: "done"), role: .cancel) {}
         } message: {
-            Text(deleteErrorMessage ?? "")
+            Text(localRemovalErrorMessage ?? "")
         }
         .alert(
             String(localized: "song_details_check_source"),
@@ -479,15 +525,16 @@ struct SongRowView: View {
                         }
                     }
 
-                    if canDeleteSourceFile {
-                        // Group 3: Destructive
-                        Section {
+                    // Group 3: Destructive
+                    Section {
+                        if canDeleteSourceFile {
                             Button(role: .destructive) {
                                 showDeleteConfirm = true
                             } label: {
                                 Label(String(localized: "delete_song"), systemImage: "trash")
                             }
                         }
+                        localRemovalMenuButton
                     }
                 } label: {
                     Image(systemName: "ellipsis")
@@ -746,12 +793,50 @@ struct SongRowView: View {
                 deleteSidecars: deleteSidecars
             )
             guard result.shouldRemoveLibraryRecord else {
+                deleteFailureIsLocallyResolvable = SongLocalRemovalPolicy.canResolveLocally(
+                    failureReasons: Set(result.failedPaths.map(\.reason))
+                )
                 deleteErrorMessage = deletionFailureMessage(result)
                 return
             }
             // Remove from library and keep the source badge in sync.
             let remaining = library.deleteSong(song)
             sourcesStore.updateLocal(song.sourceID) { $0.songCount = remaining }
+        }
+    }
+
+    /// 每个源都给这条出口：源端没有删除能力，或者这次删除被拒，行只能靠
+    /// 本机账本移除，而且必须能在来源页原样恢复。
+    private var localRemovalMenuButton: some View {
+        Button(role: .destructive) {
+            showLocalRemovalConfirm = true
+        } label: {
+            Label(
+                String(localized: "song_remove_from_device"),
+                systemImage: "rectangle.portrait.and.arrow.forward"
+            )
+        }
+    }
+
+    private func removeSongFromThisDevice(reason: SongLocalRemovalReason) {
+        Task {
+            if player.currentSong?.id == song.id {
+                await player.next()
+            }
+            do {
+                let remainingCounts = try library.removeSongsFromThisDevice(
+                    [song],
+                    reason: reason,
+                    detailsBySongID: deleteErrorMessage.map { [song.id: $0] } ?? [:]
+                )
+                deleteErrorMessage = nil
+                deleteFailureIsLocallyResolvable = false
+                for (sourceID, remaining) in remainingCounts {
+                    sourcesStore.updateLocal(sourceID) { $0.songCount = remaining }
+                }
+            } catch {
+                localRemovalErrorMessage = error.localizedDescription
+            }
         }
     }
 

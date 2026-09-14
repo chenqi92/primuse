@@ -1240,7 +1240,7 @@ struct PrimuseApp: App {
     @State private var cloudSync: CloudKitSyncService
     @State private var themeService: ThemeService
     @State private var scanService: ScanService
-    @State private var navidromeAutoRefresh: NavidromeAutoRefreshCoordinator
+    @State private var serverCatalogAutoRefresh: ServerCatalogAutoRefreshCoordinator
     @State private var metadataBackfill: MetadataBackfillService
     @State private var updateChecker: AppUpdateChecker
     @State private var coverTintProvider: CoverTintProvider
@@ -1294,7 +1294,7 @@ struct PrimuseApp: App {
         _cloudSync = State(initialValue: services.cloudSync)
         _themeService = State(initialValue: services.themeService)
         _scanService = State(initialValue: services.scanService)
-        _navidromeAutoRefresh = State(initialValue: services.navidromeAutoRefresh)
+        _serverCatalogAutoRefresh = State(initialValue: services.serverCatalogAutoRefresh)
         _metadataBackfill = State(initialValue: services.metadataBackfill)
         _updateChecker = State(initialValue: services.updateChecker)
         _coverTintProvider = State(initialValue: services.coverTintProvider)
@@ -1339,7 +1339,7 @@ struct PrimuseApp: App {
             .environment(scraperService)
             .environment(playbackSettingsStore)
             .environment(scanService)
-            .environment(navidromeAutoRefresh)
+            .environment(serverCatalogAutoRefresh)
             .environment(cloudSync)
             .environment(metadataBackfill)
             .environment(updateChecker)
@@ -1464,7 +1464,7 @@ struct PrimuseApp: App {
                     // from the launch transition even though the app became
                     // active during the await above. Read the live state so
                     // a cold launch does not park activity-gated services.
-                    navidromeAutoRefresh.setApplicationActive(LiveApplicationState.isActive)
+                    serverCatalogAutoRefresh.setApplicationActive(LiveApplicationState.isActive)
                     #if os(iOS) || os(macOS)
                     audioCacheSync.setApplicationActive(!LiveApplicationState.isBackground)
                     #endif
@@ -1674,7 +1674,7 @@ struct PrimuseApp: App {
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     metadataBackfill.readingConfigurationChanged()
-                    navidromeAutoRefresh.setApplicationActive(newPhase == .active)
+                    serverCatalogAutoRefresh.setApplicationActive(newPhase == .active)
                     #if os(iOS) || os(macOS)
                     audioCacheSync.setApplicationActive(newPhase != .background)
                     #endif

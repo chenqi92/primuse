@@ -21,6 +21,7 @@ struct MacSourcesView: View {
     @State private var connectingSource: MusicSource?
     @State private var diagnosingSource: MusicSource?
     @State private var inspectingMetadataSource: MusicSource?
+    @State private var inspectingLocalRemovalsSource: MusicSource?
     @State private var directorySelectionSession: SourceDirectorySelectionSession?
     @State private var sourceToDelete: MusicSource?
     @State private var cloudDirectoryNameRefreshID = UUID()
@@ -107,6 +108,17 @@ struct MacSourcesView: View {
                 SourceMetadataStatusView(source: source)
             }
             .frame(minWidth: 720, idealWidth: 820, minHeight: 560, idealHeight: 680)
+        }
+        .sheet(item: $inspectingLocalRemovalsSource) { source in
+            NavigationStack {
+                SourceLocalRemovalsView(source: source)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("done") { inspectingLocalRemovalsSource = nil }
+                        }
+                    }
+            }
+            .frame(minWidth: 560, idealWidth: 640, minHeight: 420, idealHeight: 520)
         }
         .onReceive(NotificationCenter.default.publisher(for: CloudDirectoryNameStore.didChangeNotification)) { _ in
             cloudDirectoryNameRefreshID = UUID()
@@ -325,8 +337,10 @@ struct MacSourcesView: View {
             cardBody(source, scanning: scanning, displayedSongCount: displayedSongCount)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
 
-            if source.type == .navidrome {
-                navidromeAutoRefreshControl(for: source)
+            macLocalRemovalsButton(source)
+
+            if AppServices.shared.serverCatalogAutoRefresh.supportsAutomaticRefresh(source) {
+                serverCatalogAutoRefreshControl(for: source)
             }
 
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
@@ -366,26 +380,28 @@ struct MacSourcesView: View {
         }
     }
 
-    private func navidromeAutoRefreshControl(for source: MusicSource) -> some View {
+    private func serverCatalogAutoRefreshControl(for source: MusicSource) -> some View {
         VStack(alignment: .leading, spacing: 9) {
-            navidromeOptionRow(
-                title: "navidrome_auto_refresh",
-                description: "navidrome_auto_refresh_description",
-                isOn: navidromeAutoRefreshBinding(for: source.id)
+            serverCatalogOptionRow(
+                title: "server_auto_refresh",
+                description: "server_auto_refresh_description",
+                isOn: serverCatalogAutoRefreshBinding(for: source.id)
             )
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
-            navidromeOptionRow(
-                title: "navidrome_server_scan_on_launch",
-                description: "navidrome_server_scan_on_launch_description",
-                isOn: navidromeServerScanOnLaunchBinding(for: source.id)
-            )
-            .disabled(!AppServices.shared.navidromeAutoRefresh.isEnabled(for: source.id))
+            if AppServices.shared.serverCatalogAutoRefresh.supportsServerScanRequest(source) {
+                Rectangle().fill(PMColor.divider).frame(height: 0.5)
+                serverCatalogOptionRow(
+                    title: "server_scan_on_launch",
+                    description: "server_scan_on_launch_description",
+                    isOn: serverCatalogScanOnLaunchBinding(for: source.id)
+                )
+                .disabled(!AppServices.shared.serverCatalogAutoRefresh.isEnabled(for: source.id))
+            }
         }
         .padding(10)
         .background(PMColor.bgDeep.opacity(0.5), in: .rect(cornerRadius: 9))
     }
 
-    private func navidromeOptionRow(
+    private func serverCatalogOptionRow(
         title: LocalizedStringKey,
         description: LocalizedStringKey,
         isOn: Binding<Bool>
@@ -403,25 +419,25 @@ struct MacSourcesView: View {
         }
     }
 
-    private func navidromeAutoRefreshBinding(for sourceID: String) -> Binding<Bool> {
+    private func serverCatalogAutoRefreshBinding(for sourceID: String) -> Binding<Bool> {
         Binding(
             get: {
-                AppServices.shared.navidromeAutoRefresh.isEnabled(for: sourceID)
+                AppServices.shared.serverCatalogAutoRefresh.isEnabled(for: sourceID)
             },
             set: { enabled in
-                AppServices.shared.navidromeAutoRefresh.setEnabled(enabled, for: sourceID)
+                AppServices.shared.serverCatalogAutoRefresh.setEnabled(enabled, for: sourceID)
             }
         )
     }
 
-    private func navidromeServerScanOnLaunchBinding(for sourceID: String) -> Binding<Bool> {
+    private func serverCatalogScanOnLaunchBinding(for sourceID: String) -> Binding<Bool> {
         Binding(
             get: {
-                AppServices.shared.navidromeAutoRefresh
+                AppServices.shared.serverCatalogAutoRefresh
                     .isServerScanOnLaunchEnabled(for: sourceID)
             },
             set: { enabled in
-                AppServices.shared.navidromeAutoRefresh
+                AppServices.shared.serverCatalogAutoRefresh
                     .setServerScanOnLaunchEnabled(enabled, for: sourceID)
             }
         )
@@ -494,6 +510,38 @@ struct MacSourcesView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(PMColor.textMuted)
             }
+        }
+    }
+
+    /// 按账本内容出现, 不按源类型: WebDAV 类型上支持删除, 具体挂载却可能
+    /// 没权限, 按类型判断会漏掉最典型的那一种。
+    @ViewBuilder
+    private func macLocalRemovalsButton(_ source: MusicSource) -> some View {
+        let count = library.locallyRemovedCount(forSourceID: source.id)
+        if count > 0 {
+            Button {
+                inspectingLocalRemovalsSource = source
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "arrow.uturn.backward.circle")
+                        .font(.system(size: 11))
+                    Text(verbatim: String(
+                        format: String(localized: "local_removals_source_row_format"),
+                        count
+                    ))
+                    .font(.system(size: 11, weight: .semibold))
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .foregroundStyle(PMColor.textMuted)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.secondary.opacity(0.06), in: .rect(cornerRadius: 9))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("local_removals_title"))
         }
     }
 
