@@ -6,6 +6,7 @@
 	<array>
 		<string>com.welape.yuanyin.scan-resume</string>
 		<string>com.welape.yuanyin.metadata-reading.*</string>
+		<string>com.welape.yuanyin.source-scan.*</string>
 	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>

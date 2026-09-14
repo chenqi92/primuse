@@ -71,3 +71,78 @@ public enum SceneTransitionScanQuiescePolicy {
         return secondsRemaining > max(0, estimatedPreflightSeconds)
     }
 }
+
+/// 一次用户发起的扫描要不要向系统申请 continued processing 时间 (iOS 26+)。
+///
+/// 除了后台音频, iOS 没有别的办法让一次长任务在用户离开 app 之后继续跑:
+/// `beginBackgroundTask` 只有 ~30 秒, BGProcessing 的唤醒时机由系统决定。
+/// 标签读取已经走这条路, 所以它在后台能接着读; 扫描没有, 用户一离开 app
+/// 扫描就停在检查点上, 回来还得再点一次「继续扫描」(#99)。
+public enum ScanContinuedProcessingPolicy {
+    public enum Disposition: Sendable, Equatable {
+        /// 申请一次新的系统任务。
+        case submit
+        /// 已经有一个仍在授权期内的会话, 沿用它。
+        case keepExisting
+        /// 不申请。
+        case skip
+    }
+
+    /// - Parameters:
+    ///   - isForegroundOnlySource: 这个源的扫描按策略只在前台跑 (百度网盘的
+    ///     快照遍历), 不该被放到后台继续。
+    ///   - hasUserInitiatedIntent: 本进程内这个源的当前扫描意图来自用户的
+    ///     前台操作。
+    public static func requestDisposition(
+        context: BaiduSnapshotExecutionContext,
+        isForegroundOnlySource: Bool,
+        isApplicationActive: Bool,
+        hasUserInitiatedIntent: Bool,
+        hasExistingSession: Bool
+    ) -> Disposition {
+        // 系统只接受前台、由用户动作触发的申请。
+        guard isApplicationActive, !isForegroundOnlySource else { return .skip }
+        switch context {
+        case .userInitiatedForeground:
+            break
+        case .foregroundResume:
+            // 会话被系统收回之后用户回到前台: 用户的意图还在, 续一次。冷启动
+            // 时没有这份意图, 所以启动期的自动续扫不会弹出系统任务卡片。
+            guard hasUserInitiatedIntent else { return .skip }
+        case .background:
+            return .skip
+        }
+        return hasExistingSession ? .keepExisting : .submit
+    }
+
+    /// 系统收回执行权时要不要取消扫描。app 还在前台就不取消 —— 扫描回到普通
+    /// 的前台生命周期继续跑, 取消只会白丢掉预检与已经走过的目录。
+    public static func cancelsScanOnExpiration(isApplicationActive: Bool) -> Bool {
+        !isApplicationActive
+    }
+
+    /// 系统任务卡片上的进度。连接器扫描要走完整棵树才知道总数, 在那之前
+    /// `totalCount` 是 0 —— 这时交出一个不确定进度, 而不是一条永远贴着满格
+    /// 的进度条。
+    public static func progressUnits(
+        scannedCount: Int,
+        totalCount: Int
+    ) -> (completed: Int64, total: Int64) {
+        guard totalCount > 0 else { return (0, 0) }
+        return (Int64(min(max(0, scannedCount), totalCount)), Int64(totalCount))
+    }
+
+    /// 卡片副标题。总数未知时只报已扫描的数量。
+    public static func progressSubtitle(
+        sourceName: String,
+        scannedCount: Int,
+        totalCount: Int
+    ) -> String {
+        let scanned = max(0, scannedCount)
+        let counts = totalCount > 0
+            ? "\(min(scanned, totalCount)) / \(totalCount)"
+            : "\(scanned)"
+        guard !sourceName.isEmpty else { return counts }
+        return "\(sourceName) · \(counts)"
+    }
+}

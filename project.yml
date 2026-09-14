@@ -197,6 +197,7 @@ targets:
         BGTaskSchedulerPermittedIdentifiers:
           - com.welape.yuanyin.scan-resume
           - com.welape.yuanyin.metadata-reading.*
+          - com.welape.yuanyin.source-scan.*
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
