@@ -9,7 +9,7 @@ struct SourceDirectorySelectionPolicyTests {
             .synology, .qnap, .ugreen, .fnos,
             .webdav, .smb, .ftp, .sftp, .nfs, .upnp, .s3,
             .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox,
-            .drime, .pan115, .pan123,
+            .drime, .pan115, .pan123, .guangya,
         ]
         let actual = Set(MusicSourceType.allCases.filter(\.continuesToDirectorySelectionAfterCreation))
 

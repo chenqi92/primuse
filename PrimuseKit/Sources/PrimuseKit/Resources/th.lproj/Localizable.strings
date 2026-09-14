@@ -634,6 +634,7 @@
 "src.displayName.local" = "ในอุปกรณ์";
 "src.displayName.pan115" = "115 Drive";
 "src.displayName.pan123" = "123 Pan";
+"src.displayName.guangya"    = "GuangYa Pan";
 "src.displayName.ugreen" = "Ugreen";
 "src.subtitle.aliyunDrive" = "Aliyun Drive PDS";
 "src.subtitle.appleMusicLibrary" = "ท้องถิ่น Apple Music / iTunes";
@@ -649,6 +650,7 @@
 "src.subtitle.local.tv" = "Apple TV พื้นที่เก็บข้อมูล";
 "src.subtitle.pan115" = "115 แพลตฟอร์มเปิด · เร็วๆ นี้";
 "src.subtitle.pan123" = "123 แพลตฟอร์มเปิด OAuth";
+"src.subtitle.guangya"       = "GuangYa แพลตฟอร์มเปิด OAuth";
 "src.subtitle.plex" = "Plex เซิร์ฟเวอร์สื่อ";
 "src.subtitle.sftp" = "SSH · การรับรองความถูกต้องของคีย์";
 "src.subtitle.upnp" = "การค้นพบอัตโนมัติ";

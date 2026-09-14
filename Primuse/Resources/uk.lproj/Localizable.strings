@@ -76,6 +76,8 @@
 "compressor_release" = "Час відновлення";
 "playlist_import_ready_badge" = "ГОТОВО";
 "cloud_guide_pan123" = "Перейдіть на сторінку 123pan.cn/developer, щоб подати заявку на програму розробника";
+"cloud_guide_guangya" = "Перейдіть на сторінку app.guangyapan.com/pan/docs/open-api, щоб подати заявку на програму розробника";
+"guangya_err_missing_app_config" = "У цій збірці немає облікових даних GuangYa (client ID, project ID, ключ підпису)";
 "lyrics_converter_voice_notice" = "LRC зберігає всі рядки, але вирівнювання голосу TTML вирівнюється.";
 "ai_recommendation_intent_genreExploration" = "Дослідження жанру";
 "auth_connection_limit_reached" = "Досягнуто ліміту підключення до сервера.";

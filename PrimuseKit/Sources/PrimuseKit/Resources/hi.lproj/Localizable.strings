@@ -634,6 +634,7 @@
 "src.displayName.local" = "स्थानीय";
 "src.displayName.pan115" = "115 Drive";
 "src.displayName.pan123" = "123 Pan";
+"src.displayName.guangya"    = "GuangYa Pan";
 "src.displayName.ugreen" = "Ugreen";
 "src.subtitle.aliyunDrive" = "Aliyun Drive PDS";
 "src.subtitle.appleMusicLibrary" = "स्थानीय Apple Music / iTunes";
@@ -649,6 +650,7 @@
 "src.subtitle.local.tv" = "Apple TV भंडारण";
 "src.subtitle.pan115" = "115 खुला मंच · जल्द आ रहा है";
 "src.subtitle.pan123" = "123 खुला मंच OAuth";
+"src.subtitle.guangya"       = "GuangYa खुला मंच OAuth";
 "src.subtitle.plex" = "Plex मीडिया सर्वर";
 "src.subtitle.sftp" = "SSH · कुंजी प्रमाणीकरण";
 "src.subtitle.upnp" = "स्वचालित खोज";

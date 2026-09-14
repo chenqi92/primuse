@@ -267,6 +267,7 @@ struct CloudDriveConnectionView: View {
         case .dropbox: return String(localized: "cloud_guide_dropbox")
         case .pan115: return String(localized: "cloud_guide_pan115")
         case .pan123: return String(localized: "cloud_guide_pan123")
+        case .guangya: return String(localized: "cloud_guide_guangya")
         default: return String(localized: "cloud_guide_default")
         }
     }
@@ -527,6 +528,7 @@ struct CloudDriveConnectionView: View {
         case .dropbox: return "dropbox.com"
         case .pan115: return "115.com"
         case .pan123: return "123pan.com"
+        case .guangya: return "guangyapan.com"
         default: return String(localized: "cloud_host_default")
         }
     }
@@ -547,6 +549,8 @@ struct CloudDriveConnectionView: View {
             U115Source.oauthConfig(clientId: "", clientSecret: nil).redirectURI
         case .pan123:
             Pan123Source.redirectURI
+        case .guangya:
+            GuangYaSource.redirectURI
         default:
             "\(CloudOAuthConfig.callbackScheme)://callback"
         }
@@ -944,6 +948,8 @@ struct CloudDriveConnectionView: View {
             return U115Source.oauthConfig(clientId: clientId, clientSecret: clientSecret)
         case .pan123:
             return Pan123Source.oauthConfig(clientId: clientId, clientSecret: clientSecret)
+        case .guangya:
+            return GuangYaSource.oauthConfig(clientId: clientId)
         default:
             // Fallback — shouldn't happen
             return CloudOAuthConfig(

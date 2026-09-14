@@ -10,6 +10,7 @@
 "src.displayName.aliyunDrive" = "阿里云盘";
 "src.displayName.pan115"     = "115 网盘";
 "src.displayName.pan123"     = "123 云盘";
+"src.displayName.guangya"    = "光鸭云盘";
 
 "src.subtitle.fnos"          = "飞牛 OS";
 "src.subtitle.fnMusic"       = "直连曲库 · 官方应用接口";
@@ -19,6 +20,7 @@
 "src.subtitle.aliyunDrive"   = "阿里云盘 PDS";
 "src.subtitle.pan115"        = "115 开放平台 · 暂未开放";
 "src.subtitle.pan123"        = "123 开放平台 OAuth";
+"src.subtitle.guangya"       = "光鸭开放平台 OAuth";
 
 // 小组件与控制中心扩展
 "ext.widget.appName"                       = "Primuse";

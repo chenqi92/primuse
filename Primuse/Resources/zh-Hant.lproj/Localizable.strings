@@ -1984,6 +1984,8 @@
 "cloud_guide_dropbox" = "前往 dropbox.com/developers/apps 建立應用程式";
 "cloud_guide_pan115" = "前往 115.com 開放平台申請開發者應用程式";
 "cloud_guide_pan123" = "前往 123pan.cn/developer 申請開發者應用程式";
+"cloud_guide_guangya" = "前往 app.guangyapan.com/pan/docs/open-api 申請開發者應用程式";
+"guangya_err_missing_app_config" = "此版本未設定光鴨開放平台接入憑證(client_id / project_id / 簽章密鑰)";
 "cloud_guide_default" = "前往對應平台的開發者中心註冊";
 "cloud_auth_connect_format" = "連線 %@";
 "cloud_auth_prompt_mac" = "點按「授權連線」，將在系統瀏覽器中開啟授權頁。\n登入並同意授權後會自動返回 Primuse。";

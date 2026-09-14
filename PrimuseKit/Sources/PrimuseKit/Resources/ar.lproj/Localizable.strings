@@ -634,6 +634,7 @@
 "src.displayName.local" = "محلي";
 "src.displayName.pan115" = "115 Drive";
 "src.displayName.pan123" = "123 Pan";
+"src.displayName.guangya"    = "GuangYa Pan";
 "src.displayName.ugreen" = "Ugreen";
 "src.subtitle.aliyunDrive" = "Aliyun Drive PDS";
 "src.subtitle.appleMusicLibrary" = "محلي Apple Music / iTunes";
@@ -649,6 +650,7 @@
 "src.subtitle.local.tv" = "Apple TV تخزين";
 "src.subtitle.pan115" = "115 منصة مفتوحة · قريباً";
 "src.subtitle.pan123" = "123 منصة مفتوحة OAuth";
+"src.subtitle.guangya"       = "GuangYa منصة مفتوحة OAuth";
 "src.subtitle.plex" = "Plex خادم الوسائط";
 "src.subtitle.sftp" = "SSH · مفتاح التوثيق";
 "src.subtitle.upnp" = "الاكتشاف التلقائي";

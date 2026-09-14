@@ -982,6 +982,8 @@
 "cloud_guide_onedrive" = "انتقل إلى entra.microsoft.com لتسجيل التطبيق";
 "cloud_guide_pan115" = "انتقل إلى منصة 115.com المفتوحة لتقديم طلب للحصول على تطبيق مطور";
 "cloud_guide_pan123" = "انتقل إلى 123pan.cn/developer لتقديم طلب للحصول على تطبيق مطور";
+"cloud_guide_guangya" = "انتقل إلى app.guangyapan.com/pan/docs/open-api لتقديم طلب للحصول على تطبيق مطور";
+"guangya_err_missing_app_config" = "لا تتضمن هذه النسخة بيانات اعتماد GuangYa (معرّف العميل، معرّف المشروع، مفتاح التوقيع)";
 "cloud_host_default" = "خدمة التفويض";
 "cloud_oauth_browser_subtitle" = "ترخيص متصفح النظام";
 "cloud_oauth_checking" = "التحقق من حالة الترخيص…";

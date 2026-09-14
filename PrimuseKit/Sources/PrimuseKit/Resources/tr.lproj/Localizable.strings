@@ -359,6 +359,7 @@
 "ext.tv.sources.form.share" = "Paylaşım Adı";
 "fullscreen_effect_live_waveform" = "Canlı Dalga Formu";
 "src.subtitle.pan123" = "123 Açık Platform OAuth";
+"src.subtitle.guangya"       = "GuangYa Açık Platform OAuth";
 "serverShare.error.unsupported" = "Bu sunucu genel medya bağlantılarını desteklemiyor veya paylaşım devre dışı.";
 "error.catalog.invalidTrackReference" = "Parça referansı geçersiz.";
 "ext.widget.stats.last30Days" = "Son 30 gün";
@@ -384,6 +385,7 @@
 "ext.tv.nav.home" = "Ana sayfa";
 "error.catalog.missingList" = "Parça yanıtının listesi eksik.";
 "src.displayName.pan123" = "123 Pan";
+"src.displayName.guangya"    = "GuangYa Pan";
 "src.subtitle.baiduPan" = "Baidu Pan OAuth";
 "ai_recommendation_home_title" = "Sahne Önerileri";
 "eq.preset.classical" = "Klasik";

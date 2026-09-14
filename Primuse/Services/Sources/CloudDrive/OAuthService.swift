@@ -276,6 +276,20 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
             // Aliyun Drive prefers JSON
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try SafeJSONSerialization.data(withJSONObject: bodyParams)
+        } else if config.tokenURL.contains("guangyapan.com") {
+            // 光鸭盘的 /v1/auth/token 收 JSON;账号域的接口还要 x-client-id
+            // (刷新示例里连 x-project-id 也带着),缺了会被直接拒。
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            request.setValue(config.clientId, forHTTPHeaderField: "x-client-id")
+            if let projectID = GuangYaAPIProtocol.bundledAppConfig()?.projectID {
+                request.setValue(projectID, forHTTPHeaderField: "x-project-id")
+            }
+            request.setValue(
+                GuangYaAPIProtocol.deviceIdentifier(),
+                forHTTPHeaderField: "x-device-id"
+            )
+            request.httpBody = try SafeJSONSerialization.data(withJSONObject: bodyParams)
         } else if config.tokenURL.contains("123pan.com") {
             // 123 云盘 oauth2/access_token 用 QueryString 传参(POST, body 空)+ Platform 头。
             var comps = URLComponents(string: config.tokenURL)!

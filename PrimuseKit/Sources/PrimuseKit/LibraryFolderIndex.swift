@@ -175,7 +175,7 @@ private extension MusicSourceType {
              .subsonic, .navidrome, .airsonic, .gonic,
              .fnMusic, .daoliyu, .songloft,
              .aliyunDrive, .googleDrive, .oneDrive,
-             .drime, .pan115, .pan123,
+             .drime, .pan115, .pan123, .guangya,
              .appleMusic, .appleMusicLibrary:
             return .opaque
         default:

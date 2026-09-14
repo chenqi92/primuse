@@ -14,6 +14,7 @@
 "src.displayName.aliyunDrive" = "Aliyun Drive";
 "src.displayName.pan115" = "115 Drive";
 "src.displayName.pan123" = "123 Pan";
+"src.displayName.guangya"    = "GuangYa Pan";
 "src.subtitle.fnos" = "fnOS";
 "src.subtitle.fnMusic" = "직접 카탈로그 · 네이티브 API";
 "src.subtitle.daoliyu" = "자체 호스팅 음악 서버 · 네이티브 API";
@@ -22,6 +23,7 @@
 "src.subtitle.aliyunDrive" = "Aliyun Drive PDS";
 "src.subtitle.pan115" = "115 오픈 플랫폼 · 출시 예정";
 "src.subtitle.pan123" = "123 오픈 플랫폼 OAuth";
+"src.subtitle.guangya"       = "GuangYa 오픈 플랫폼 OAuth";
 
 // 위젯 및 제어 센터 확장
 "ext.widget.appName"                       = "Primuse";

@@ -1999,6 +1999,8 @@
 "cloud_guide_dropbox" = "dropbox.com/developers/apps에서 앱을 만드세요";
 "cloud_guide_pan115" = "115.com 오픈 플랫폼에서 개발자 앱을 신청하세요";
 "cloud_guide_pan123" = "123pan.cn/developer에서 개발자 앱을 신청하세요";
+"cloud_guide_guangya" = "app.guangyapan.com/pan/docs/open-api에서 개발자 앱을 신청하세요";
+"guangya_err_missing_app_config" = "이 빌드에는 GuangYa 연동 자격 증명(client ID, project ID, 서명 키)이 없습니다";
 "cloud_guide_default" = "해당 플랫폼의 개발자 센터에서 등록하세요";
 "cloud_auth_connect_format" = "%@ 연결";
 "cloud_auth_prompt_mac" = "'인증하여 연결'을 탭하면 시스템 브라우저에서 인증 페이지가 열립니다.\n로그인 후 동의하면 자동으로 Primuse로 돌아옵니다.";

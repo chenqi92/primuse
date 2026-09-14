@@ -232,6 +232,9 @@ targets:
         PrimuseU115ClientSecret: "$(U115_CLIENT_SECRET)"
         PrimusePan123ClientID: "$(PAN123_CLIENT_ID)"
         PrimusePan123ClientSecret: "$(PAN123_CLIENT_SECRET)"
+        PrimuseGuangYaClientID: "$(GUANGYA_CLIENT_ID)"
+        PrimuseGuangYaProjectID: "$(GUANGYA_PROJECT_ID)"
+        PrimuseGuangYaSignSecret: "$(GUANGYA_SIGN_SECRET)"
         PrimuseLastFmAPIKey: "$(LASTFM_API_KEY)"
         PrimuseLastFmAPISecret: "$(LASTFM_API_SECRET)"
         UILaunchScreen: {}
@@ -534,6 +537,9 @@ targets:
         PrimuseU115ClientSecret: "$(U115_CLIENT_SECRET)"
         PrimusePan123ClientID: "$(PAN123_CLIENT_ID)"
         PrimusePan123ClientSecret: "$(PAN123_CLIENT_SECRET)"
+        PrimuseGuangYaClientID: "$(GUANGYA_CLIENT_ID)"
+        PrimuseGuangYaProjectID: "$(GUANGYA_PROJECT_ID)"
+        PrimuseGuangYaSignSecret: "$(GUANGYA_SIGN_SECRET)"
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         NSLocalNetworkUsageDescription: "Primuse needs local network access to discover and connect to your NAS, media servers, music sources, and nearby Primuse devices."
@@ -731,6 +737,9 @@ targets:
         PrimuseU115ClientSecret: "$(U115_CLIENT_SECRET)"
         PrimusePan123ClientID: "$(PAN123_CLIENT_ID)"
         PrimusePan123ClientSecret: "$(PAN123_CLIENT_SECRET)"
+        PrimuseGuangYaClientID: "$(GUANGYA_CLIENT_ID)"
+        PrimuseGuangYaProjectID: "$(GUANGYA_PROJECT_ID)"
+        PrimuseGuangYaSignSecret: "$(GUANGYA_SIGN_SECRET)"
         NSSiriUsageDescription: "用 Siri 语音点播、控制 Primuse 播放。"
         INIntentsSupported:
           - INPlayMediaIntent

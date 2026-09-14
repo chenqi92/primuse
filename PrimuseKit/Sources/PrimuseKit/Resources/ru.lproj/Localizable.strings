@@ -359,6 +359,7 @@
 "ext.tv.sources.form.share" = "Имя общего ресурса";
 "fullscreen_effect_live_waveform" = "Живая форма волны";
 "src.subtitle.pan123" = "123 Открытая платформа OAuth";
+"src.subtitle.guangya"       = "GuangYa Открытая платформа OAuth";
 "serverShare.error.unsupported" = "Этот сервер не поддерживает общедоступные медиа-ссылки, или общий доступ отключен.";
 "error.catalog.invalidTrackReference" = "Неверная ссылка на дорожку.";
 "ext.widget.stats.last30Days" = "Последние 30 дней";
@@ -384,6 +385,7 @@
 "ext.tv.nav.home" = "Главная";
 "error.catalog.missingList" = "В ответе на трек отсутствует список.";
 "src.displayName.pan123" = "123 Pan";
+"src.displayName.guangya"    = "GuangYa Pan";
 "src.subtitle.baiduPan" = "Baidu Pan OAuth";
 "ai_recommendation_home_title" = "Рекомендации по сценам";
 "eq.preset.classical" = "Классика";

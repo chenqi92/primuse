@@ -130,6 +130,12 @@
 	<string>$(GOOGLE_CLIENT_ID)</string>
 	<key>PrimuseGoogleReversedClientID</key>
 	<string>$(GOOGLE_REVERSED_CLIENT_ID)</string>
+	<key>PrimuseGuangYaClientID</key>
+	<string>$(GUANGYA_CLIENT_ID)</string>
+	<key>PrimuseGuangYaProjectID</key>
+	<string>$(GUANGYA_PROJECT_ID)</string>
+	<key>PrimuseGuangYaSignSecret</key>
+	<string>$(GUANGYA_SIGN_SECRET)</string>
 	<key>PrimuseLastFmAPIKey</key>
 	<string>$(LASTFM_API_KEY)</string>
 	<key>PrimuseLastFmAPISecret</key>

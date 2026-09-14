@@ -1999,6 +1999,8 @@
 "cloud_guide_dropbox" = "Gehe zu dropbox.com/developers/apps, um eine App zu erstellen";
 "cloud_guide_pan115" = "Gehe zur offenen 115.com-Plattform, um eine Entwickler-App zu beantragen";
 "cloud_guide_pan123" = "Gehe zu 123pan.cn/developer, um eine Entwickler-App zu beantragen";
+"cloud_guide_guangya" = "Gehe zu app.guangyapan.com/pan/docs/open-api, um eine Entwickler-App zu beantragen";
+"guangya_err_missing_app_config" = "Dieser Build enthält keine GuangYa-Zugangsdaten (Client-ID, Projekt-ID, Signaturschlüssel)";
 "cloud_guide_default" = "Im Entwicklerzentrum der jeweiligen Plattform registrieren";
 "cloud_auth_connect_format" = "%@ verbinden";
 "cloud_auth_prompt_mac" = "Tippe auf „Autorisieren“, um die Autorisierungsseite im Systembrowser zu öffnen.\nNach Anmeldung und Zustimmung kehrst du automatisch zu Primuse zurück.";

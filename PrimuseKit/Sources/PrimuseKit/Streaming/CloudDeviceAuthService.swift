@@ -60,7 +60,7 @@ public actor CloudDeviceAuthService {
         clientSecret: String?
     ) async throws -> CloudDeviceAuthProgress {
         switch authSession.provider {
-        case .baiduPan, .oneDrive, .googleDrive:
+        case .baiduPan, .oneDrive, .googleDrive, .guangya:
             return try await pollDeviceCode(
                 authSession, clientID: clientID, clientSecret: clientSecret
             )
@@ -132,6 +132,16 @@ public actor CloudDeviceAuthService {
                 url: URL(string: "https://oauth2.googleapis.com/device/code")!,
                 fields: ["client_id": clientID, "scope": scope]
             )
+        case .guangya:
+            let config = try Self.guangYaConfig(clientID: clientID)
+            request = CloudDeviceAuthRequests.json(
+                url: GuangYaAPIProtocol.deviceCodeURL,
+                body: GuangYaAPIProtocol.deviceCodeBody(config: config, scope: scope),
+                headers: GuangYaAPIProtocol.deviceAuthHeaders(
+                    config: config,
+                    deviceID: GuangYaAPIProtocol.deviceIdentifier()
+                )
+            )
         default:
             throw CloudDeviceAuthError.unsupportedProvider(provider)
         }
@@ -191,6 +201,19 @@ public actor CloudDeviceAuthService {
             if let clientSecret, !clientSecret.isEmpty { fields["client_secret"] = clientSecret }
             request = CloudDeviceAuthRequests.form(
                 url: URL(string: "https://oauth2.googleapis.com/token")!, fields: fields
+            )
+        case .guangya:
+            let config = try Self.guangYaConfig(clientID: clientID)
+            request = CloudDeviceAuthRequests.json(
+                url: GuangYaAPIProtocol.tokenURL,
+                body: GuangYaAPIProtocol.deviceTokenBody(
+                    config: config,
+                    deviceCode: authSession.handle
+                ),
+                headers: GuangYaAPIProtocol.deviceAuthHeaders(
+                    config: config,
+                    deviceID: GuangYaAPIProtocol.deviceIdentifier()
+                )
             )
         default:
             throw CloudDeviceAuthError.unsupportedProvider(authSession.provider)
@@ -383,6 +406,22 @@ public actor CloudDeviceAuthService {
             throw CloudDeviceAuthError.badServerResponse(http.statusCode)
         }
         return data
+    }
+
+    /// 光鸭的设备码接口除 client_id 外还要 project_id。project_id 与 sign_secret
+    /// 一样是构建期注入的接入方信息;调用方传进来的 clientID 优先(用户自带凭据时),
+    /// 没传就用内置的那一份。
+    private static func guangYaConfig(clientID: String) throws -> GuangYaAPIProtocol.AppConfig {
+        guard let bundled = GuangYaAPIProtocol.bundledAppConfig() else {
+            throw CloudDeviceAuthError.missingClientCredentials
+        }
+        let trimmed = clientID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != bundled.clientID else { return bundled }
+        return GuangYaAPIProtocol.AppConfig(
+            clientID: trimmed,
+            projectID: bundled.projectID,
+            signSecret: bundled.signSecret
+        )
     }
 
     private static func errorText(_ data: Data) -> String {

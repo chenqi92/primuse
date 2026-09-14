@@ -153,7 +153,7 @@ public actor CloudDriveStreamResolver: StreamResolver {
     public func resolve(for song: Song, source: MusicSource, credential: SourceCredential?) async throws -> ResolvedStream {
         let cred = credential ?? SourceCredential()
         switch source.type {
-        case .aliyunDrive, .oneDrive, .dropbox, .pan123:
+        case .aliyunDrive, .oneDrive, .dropbox, .pan123, .guangya:
             return ResolvedStream(url: try await streamURL(for: song, source: source, credential: cred))
         case .googleDrive:
             // Google:端点即下载地址,播放需带 Bearer 头(走 resource loader)。
@@ -382,6 +382,27 @@ public actor CloudDriveStreamResolver: StreamResolver {
             var req = URLRequest(url: url)
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             return try await send(req, parse: Self.parseDrimeURL)
+        case .guangya:
+            guard let config = GuangYaAPIProtocol.bundledAppConfig() else {
+                throw StreamResolveError.missingCredential
+            }
+            guard let url = GuangYaAPIProtocol.downloadURL(fileID: fileID) else {
+                throw StreamResolveError.cannotBuildURL
+            }
+            var req = URLRequest(url: url)
+            for (field, value) in GuangYaAPIProtocol.businessHeaders(
+                accessToken: token,
+                config: config
+            ) {
+                req.setValue(value, forHTTPHeaderField: field)
+            }
+            // 117 = access token 失效。它走 HTTP 401,但把业务码也列进来,
+            // 免得服务端哪天改成 200 + 117 后刷新链路静默失效。
+            return try await send(
+                req,
+                bodyAuthCodes: [GuangYaAPIProtocol.ResultCode.invalidAccessToken],
+                parse: Self.parseGuangYaURL
+            )
         default:
             throw StreamResolveError.unsupportedSourceType(type)
         }
@@ -435,6 +456,12 @@ public actor CloudDriveStreamResolver: StreamResolver {
         case .googleDrive:
             req = Self.formRequest(url: URL(string: "https://oauth2.googleapis.com/token")!,
                                    fields: ["grant_type": "refresh_token", "refresh_token": rt, "client_id": cid])
+        case .guangya:
+            req = Self.jsonRequest(
+                url: GuangYaAPIProtocol.tokenURL,
+                token: nil,
+                body: ["client_id": cid, "grant_type": "refresh_token", "refresh_token": rt]
+            )
         default:
             throw StreamResolveError.unsupportedSourceType(type)
         }
@@ -560,6 +587,10 @@ public actor CloudDriveStreamResolver: StreamResolver {
               let d = json["data"] as? [String: Any],
               let s = d["downloadUrl"] as? String else { return nil }
         return URL(string: s)
+    }
+
+    static func parseGuangYaURL(_ data: Data) -> URL? {
+        GuangYaAPIProtocol.parseDownloadTicket(data)?.url
     }
 
     static func parse123Token(_ data: Data) -> String? {

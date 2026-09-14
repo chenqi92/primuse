@@ -96,6 +96,12 @@
 	<string>$(DROPBOX_CLIENT_SECRET)</string>
 	<key>PrimuseGoogleClientID</key>
 	<string>$(GOOGLE_CLIENT_ID)</string>
+	<key>PrimuseGuangYaClientID</key>
+	<string>$(GUANGYA_CLIENT_ID)</string>
+	<key>PrimuseGuangYaProjectID</key>
+	<string>$(GUANGYA_PROJECT_ID)</string>
+	<key>PrimuseGuangYaSignSecret</key>
+	<string>$(GUANGYA_SIGN_SECRET)</string>
 	<key>PrimuseOneDriveClientID</key>
 	<string>$(ONEDRIVE_CLIENT_ID)</string>
 	<key>PrimusePan123ClientID</key>

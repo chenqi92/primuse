@@ -11,6 +11,7 @@
 "src.displayName.aliyunDrive" = "阿里雲盤";
 "src.displayName.pan115" = "115 網盤";
 "src.displayName.pan123" = "123 雲盤";
+"src.displayName.guangya"    = "光鴨雲盤";
 "src.subtitle.fnos" = "飛牛 OS";
 "src.subtitle.fnMusic" = "直連曲庫 · 官方應用介面";
 "src.subtitle.daoliyu" = "自部署音樂伺服器 · 原生 API";
@@ -19,6 +20,7 @@
 "src.subtitle.aliyunDrive" = "阿里雲盤 PDS";
 "src.subtitle.pan115" = "115 開放平台 · 尚未開放";
 "src.subtitle.pan123" = "123 開放平台 OAuth";
+"src.subtitle.guangya"       = "光鴨開放平台 OAuth";
 
 // 小工具與控制中心擴充
 "ext.widget.appName"                       = "Primuse";

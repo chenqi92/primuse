@@ -634,6 +634,7 @@
 "src.displayName.local" = "Lokalne";
 "src.displayName.pan115" = "115 Drive";
 "src.displayName.pan123" = "123 Pan";
+"src.displayName.guangya"    = "GuangYa Pan";
 "src.displayName.ugreen" = "Ugreen";
 "src.subtitle.aliyunDrive" = "Aliyun Drive PDS";
 "src.subtitle.appleMusicLibrary" = "Lokalny Apple Music / iTunes";
@@ -649,6 +650,7 @@
 "src.subtitle.local.tv" = "Pamięć Apple TV";
 "src.subtitle.pan115" = "115 Otwarta platforma · Już wkrótce";
 "src.subtitle.pan123" = "123 Otwarta platforma OAuth";
+"src.subtitle.guangya"       = "GuangYa Otwarta platforma OAuth";
 "src.subtitle.plex" = "Serwer multimediów Plex";
 "src.subtitle.sftp" = "SSH · Uwierzytelnianie kluczem";
 "src.subtitle.upnp" = "Automatyczne wykrywanie";

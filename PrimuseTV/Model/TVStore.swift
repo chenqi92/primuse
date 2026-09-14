@@ -128,7 +128,7 @@ enum TVSourceLocalLibraryPolicy {
         .subsonic, .navidrome, .airsonic, .gonic,
         .fnMusic, .daoliyu, .songloft,
         .oneDrive, .dropbox, .aliyunDrive, .googleDrive,
-        .baiduPan, .pan115, .pan123, .drime,
+        .baiduPan, .pan115, .pan123, .drime, .guangya,
     ]
 
     static func capability(for type: MusicSourceType) -> TVSourceLocalLibraryCapability {
@@ -2233,7 +2233,7 @@ final class TVStore {
         .subsonic, .navidrome, .airsonic, .gonic,
         .fnMusic, .daoliyu, .songloft,
         .aliyunDrive, .baiduPan, .oneDrive, .dropbox,
-        .googleDrive, .pan115, .pan123, .drime,
+        .googleDrive, .pan115, .pan123, .drime, .guangya,
     ]
 
     nonisolated static func canBuildLibraryOnTV(_ type: MusicSourceType) -> Bool {

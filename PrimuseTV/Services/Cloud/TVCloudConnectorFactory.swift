@@ -126,6 +126,7 @@ enum TVCloudConnectorFactory {
         case .pan115: return U115Source(sourceID: source.id)
         case .pan123: return Pan123Source(sourceID: source.id)
         case .drime: return DrimeSource(sourceID: source.id)
+        case .guangya: return GuangYaSource(sourceID: source.id)
         default: return nil
         }
     }
@@ -135,7 +136,7 @@ enum TVCloudConnectorFactory {
     /// 以后新增云盘类型时,先在 `makeConnector` 补分支,再加进这里。
     static let supportedTypes: Set<MusicSourceType> = [
         .oneDrive, .dropbox, .aliyunDrive, .googleDrive,
-        .baiduPan, .pan115, .pan123, .drime,
+        .baiduPan, .pan115, .pan123, .drime, .guangya,
     ]
 }
 #endif

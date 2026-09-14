@@ -14,6 +14,7 @@
 "src.displayName.aliyunDrive" = "Aliyun Drive";
 "src.displayName.pan115" = "115 Drive";
 "src.displayName.pan123" = "123 Pan";
+"src.displayName.guangya"    = "GuangYa Pan";
 "src.subtitle.fnos" = "fnOS";
 "src.subtitle.fnMusic" = "曲目へ直接接続 · ネイティブ API";
 "src.subtitle.daoliyu" = "セルフホスト型音楽サーバー · ネイティブ API";
@@ -22,6 +23,7 @@
 "src.subtitle.aliyunDrive" = "Aliyun Drive PDS";
 "src.subtitle.pan115" = "115 オープンプラットフォーム・近日公開";
 "src.subtitle.pan123" = "123 オープンプラットフォーム OAuth";
+"src.subtitle.guangya"       = "GuangYa オープンプラットフォーム OAuth";
 
 // ウィジェット・コントロールセンター拡張
 "ext.widget.appName"                       = "Primuse";

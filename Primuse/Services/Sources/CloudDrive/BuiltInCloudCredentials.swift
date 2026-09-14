@@ -22,6 +22,10 @@ enum BuiltInCloudCredentials {
     // 123 开放平台第三方挂载应用的 OAuth clientID / clientSecret。
     private static let pan123ClientIdKey = "PrimusePan123ClientID"
     private static let pan123ClientSecretKey = "PrimusePan123ClientSecret"
+    // 光鸭盘开放平台分配的 client_id。另两项接入方信息(project_id / sign_secret)
+    // 不经这里:它们只用于设备码授权头与业务接口签名,不该被当成 OAuth 的
+    // client_secret 发给 token 端点。取值见 `GuangYaAPIProtocol.bundledAppConfig()`。
+    private static let guangYaClientIdKey = GuangYaAPIProtocol.clientIDInfoKey
 
     // MARK: - Query
 
@@ -70,6 +74,11 @@ enum BuiltInCloudCredentials {
                 clientId,
                 stringValue(forInfoDictionaryKey: pan123ClientSecretKey)
             )
+        case .guangya:
+            guard let clientId = stringValue(forInfoDictionaryKey: guangYaClientIdKey) else {
+                return nil
+            }
+            return (clientId, nil)
         // Add more as you register:
         default:
             return nil

@@ -134,6 +134,7 @@ struct SourceSyncStateTests {
             .drime,
             .pan115,
             .pan123,
+            .guangya,
         ] {
             #expect(SourceSyncFolderTopologyPolicy.requiresRebuild(
                 sourceType: sourceType,

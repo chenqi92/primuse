@@ -180,7 +180,8 @@ import Testing
 @Test func fileDeletionCapabilityExcludesReadOnlyCatalogues() {
     let readOnly: Set<MusicSourceType> = [
         .upnp, .subsonic, .navidrome, .airsonic, .gonic, .fnos, .fnMusic, .daoliyu, .songloft,
-        .appleMusic, .appleMusicLibrary,
+        // 光鸭开放平台只有读接口,没有删除 / 上传能力。
+        .guangya, .appleMusic, .appleMusicLibrary,
     ]
 
     for sourceType in MusicSourceType.allCases {

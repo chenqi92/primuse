@@ -114,13 +114,13 @@ public enum CloudDeviceAuthSupport {
     /// - `.drime` 用用户在网页后台自建的 API token,同样是填字段;
     /// - 其余类型不是云盘。
     public static let providers: Set<MusicSourceType> = [
-        .aliyunDrive, .baiduPan, .pan115, .oneDrive, .googleDrive, .dropbox,
+        .aliyunDrive, .baiduPan, .pan115, .oneDrive, .googleDrive, .dropbox, .guangya,
     ]
 
     public static func kind(for provider: MusicSourceType) -> CloudDeviceAuthKind? {
         switch provider {
         case .aliyunDrive, .pan115: return .qrCode
-        case .baiduPan, .oneDrive, .googleDrive: return .deviceCode
+        case .baiduPan, .oneDrive, .googleDrive, .guangya: return .deviceCode
         case .dropbox: return .manualCode
         default: return nil
         }
@@ -358,10 +358,15 @@ public enum CloudDeviceAuthRequests {
         return request
     }
 
-    static func json(url: URL, body: [String: Any]) -> URLRequest {
+    static func json(
+        url: URL,
+        body: [String: Any],
+        headers: [String: String] = [:]
+    ) -> URLRequest {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        for (field, value) in headers { request.setValue(value, forHTTPHeaderField: field) }
         request.httpBody = try? SafeJSONSerialization.data(withJSONObject: body)
         return request
     }
@@ -378,6 +383,9 @@ public enum CloudDeviceAuthRequests {
         case .baiduPan: return "basic,netdisk"
         case .oneDrive: return "Files.ReadWrite offline_access"
         case .googleDrive: return "https://www.googleapis.com/auth/drive"
+        // 光鸭的设备码接口 scope 传空即可:服务端按 client_id 注册的范围下发
+        // `user offline`,回显在 verification_uri_complete 里。
+        case .guangya: return ""
         default: return ""
         }
     }

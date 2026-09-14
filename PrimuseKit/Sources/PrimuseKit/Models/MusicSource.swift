@@ -77,6 +77,9 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     case drime
     case pan115
     case pan123
+    /// 光鸭云盘(guangyapan.com)开放平台。Device Code 扫码 / 拉起官方 App 授权,
+    /// 或 Web OAuth 2.0 + PKCE;业务接口只读(列目录 / 取直链),不支持写回。
+    case guangya
 
     // Streaming
     case appleMusic
@@ -138,6 +141,8 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
             return String(localized: "src.displayName.pan115", bundle: Bundle.primuseKit)
         case .pan123:
             return String(localized: "src.displayName.pan123", bundle: Bundle.primuseKit)
+        case .guangya:
+            return String(localized: "src.displayName.guangya", bundle: Bundle.primuseKit)
         case .appleMusic: return "Apple Music"
         case .local:
             return PMString("src.displayName.local")
@@ -174,6 +179,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .drime: return "cloud.fill"
         case .pan115: return "cloud.fill"
         case .pan123: return "cloud.fill"
+        case .guangya: return "cloud.fill"
         case .appleMusic: return "music.note"
         case .local:
             #if os(macOS)
@@ -214,7 +220,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     public var supportsFileDeletion: Bool {
         switch self {
         case .upnp, .subsonic, .navidrome, .airsonic, .gonic, .fnos, .fnMusic, .daoliyu, .songloft,
-             .appleMusic, .appleMusicLibrary:
+             .guangya, .appleMusic, .appleMusicLibrary:
             return false
         default:
             return true
@@ -254,7 +260,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .synology, .qnap, .ugreen, .fnos,
              .webdav, .smb, .ftp, .sftp, .nfs, .upnp, .s3,
              .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox,
-             .drime, .pan115, .pan123:
+             .drime, .pan115, .pan123, .guangya:
             return true
         default:
             return false
@@ -267,7 +273,8 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .webdav, .smb, .ftp, .sftp, .nfs, .upnp, .s3: return .protocol
         case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .songloft:
             return .mediaServer
-        case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .drime, .pan115, .pan123: return .cloudDrive
+        case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .drime, .pan115, .pan123,
+             .guangya: return .cloudDrive
         case .appleMusic: return .streaming
         case .local, .appleMusicLibrary: return .local
         }
@@ -304,6 +311,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .drime: return 0
         case .pan115: return 0
         case .pan123: return 0
+        case .guangya: return 0
         case .appleMusic: return 0
         case .local: return 0
         case .appleMusicLibrary: return 0
@@ -326,7 +334,8 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
 
     public var defaultSSL: Bool {
         switch self {
-        case .synology, .webdav, .s3, .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .drime, .pan115, .pan123: return true
+        case .synology, .webdav, .s3, .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox,
+             .drime, .pan115, .pan123, .guangya: return true
         default: return false
         }
     }
@@ -334,7 +343,8 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     public var requiresHost: Bool {
         switch self {
         case .local, .appleMusicLibrary, .upnp, .baiduPan, .aliyunDrive,
-             .googleDrive, .oneDrive, .dropbox, .drime, .pan115, .pan123, .appleMusic: return false
+             .googleDrive, .oneDrive, .dropbox, .drime, .pan115, .pan123, .guangya,
+             .appleMusic: return false
         default: return true
         }
     }
@@ -388,7 +398,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     /// fallback label when the provider name is unavailable.
     public var usesOpaqueDirectoryIdentifiers: Bool {
         switch self {
-        case .aliyunDrive, .googleDrive, .oneDrive, .drime, .pan115, .pan123:
+        case .aliyunDrive, .googleDrive, .oneDrive, .drime, .pan115, .pan123, .guangya:
             return true
         default:
             return false
@@ -429,7 +439,8 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     public var requiresCredentials: Bool {
         switch self {
         case .local, .appleMusicLibrary, .upnp, .nfs, .baiduPan, .aliyunDrive,
-             .googleDrive, .oneDrive, .dropbox, .drime, .pan115, .pan123, .appleMusic: return false
+             .googleDrive, .oneDrive, .dropbox, .drime, .pan115, .pan123, .guangya,
+             .appleMusic: return false
         default: return true
         }
     }
@@ -489,6 +500,8 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
             return String(localized: "src.subtitle.pan115", bundle: Bundle.primuseKit)
         case .pan123:
             return String(localized: "src.subtitle.pan123", bundle: Bundle.primuseKit)
+        case .guangya:
+            return String(localized: "src.subtitle.guangya", bundle: Bundle.primuseKit)
         case .appleMusic: return "Apple Music"
         case .local:
             #if os(macOS)

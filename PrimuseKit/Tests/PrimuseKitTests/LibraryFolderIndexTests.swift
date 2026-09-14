@@ -498,7 +498,7 @@ struct LibraryFolderIndexTests {
             .appleMusic, .appleMusicLibrary, .upnp,
             .jellyfin, .navidrome, .fnMusic, .daoliyu,
             .aliyunDrive, .googleDrive, .oneDrive,
-            .drime, .pan115, .pan123,
+            .drime, .pan115, .pan123, .guangya,
         ]
         let sources = sourceTypes.enumerated().map { index, type in
             LibraryFolderSourceDescriptor(source: MusicSource(

@@ -982,6 +982,8 @@
 "cloud_guide_onedrive" = "ไปที่ entra.microsoft.com เพื่อลงทะเบียนแอป";
 "cloud_guide_pan115" = "ไปที่แพลตฟอร์มเปิด 115.com เพื่อสมัครแอปสำหรับนักพัฒนา";
 "cloud_guide_pan123" = "ไปที่ 123pan.cn/developer เพื่อสมัครแอปสำหรับนักพัฒนา";
+"cloud_guide_guangya" = "ไปที่ app.guangyapan.com/pan/docs/open-api เพื่อสมัครแอปสำหรับนักพัฒนา";
+"guangya_err_missing_app_config" = "บิลด์นี้ไม่มีข้อมูลรับรอง GuangYa (client ID, project ID, คีย์ลงนาม)";
 "cloud_host_default" = "บริการการอนุญาต";
 "cloud_oauth_browser_subtitle" = "การอนุญาตเบราว์เซอร์ของระบบ";
 "cloud_oauth_checking" = "กำลังตรวจสอบสถานะการอนุญาต...";

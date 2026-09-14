@@ -76,6 +76,8 @@
 "compressor_release" = "Bırakma süresi";
 "playlist_import_ready_badge" = "HAZIR";
 "cloud_guide_pan123" = "Bir geliştirici uygulamasına başvurmak için 123pan.cn/developer adresine gidin";
+"cloud_guide_guangya" = "Bir geliştirici uygulamasına başvurmak için app.guangyapan.com/pan/docs/open-api adresine gidin";
+"guangya_err_missing_app_config" = "Bu derlemede GuangYa kimlik bilgileri (client ID, project ID, imzalama anahtarı) yok";
 "lyrics_converter_voice_notice" = "LRC her satırı korur ancak TTML ses hizalaması düzleştirilir.";
 "ai_recommendation_intent_genreExploration" = "Tür Keşfi";
 "auth_connection_limit_reached" = "Sunucu bağlantı sınırına ulaşıldı.";

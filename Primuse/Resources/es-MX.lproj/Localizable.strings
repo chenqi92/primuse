@@ -982,6 +982,8 @@
 "cloud_guide_onedrive" = "Vaya a entra.microsoft.com para registrar una aplicación";
 "cloud_guide_pan115" = "Vaya a la plataforma abierta 115.com para solicitar una aplicación de desarrollador";
 "cloud_guide_pan123" = "Vaya a 123pan.cn/developer para solicitar una aplicación de desarrollador";
+"cloud_guide_guangya" = "Vaya a app.guangyapan.com/pan/docs/open-api para solicitar una aplicación de desarrollador";
+"guangya_err_missing_app_config" = "Esta versión no incluye las credenciales de GuangYa (client ID, project ID, clave de firma)";
 "cloud_host_default" = "servicio de autorización";
 "cloud_oauth_browser_subtitle" = "Autorización del navegador del sistema";
 "cloud_oauth_checking" = "Comprobando el estado de la autorización…";
