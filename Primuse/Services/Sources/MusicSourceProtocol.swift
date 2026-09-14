@@ -827,6 +827,42 @@ struct RemoteDirectoryHTTPStatusError: Error, LocalizedError, Sendable {
     }
 }
 
+/// 元数据 Range 读取拿到的 HTTP 状态, 连同真正回这个状态的主机一起。
+///
+/// 挂载代理自己报的 500 和跟随 302 之后由对象存储/CDN 报的 500, 在界面上
+/// 原本长得一模一样。分不清是哪一端, 就没法判断该去查网关还是查后端 ——
+/// 所以把最终响应的主机带进错误描述里。
+struct RemoteMetadataHTTPStatusError: Error, LocalizedError, Sendable {
+    let service: String
+    let statusCode: Int
+    /// 最终响应的 host[:port]。取不到 URL 时为 nil。
+    let origin: String?
+    /// 这个响应是不是跟随重定向之后、由源站以外的主机给出的。
+    let followedRedirect: Bool
+
+    init(service: String, statusCode: Int, origin: String? = nil, followedRedirect: Bool = false) {
+        self.service = service
+        self.statusCode = statusCode
+        self.origin = origin
+        self.followedRedirect = followedRedirect
+    }
+
+    /// 不带本地化前缀的技术细节。
+    var statusDetail: String {
+        var message = "\(service) metadata request failed: HTTP \(statusCode)"
+        if let origin, !origin.isEmpty {
+            message += followedRedirect ? " (redirected to \(origin))" : " (\(origin))"
+        }
+        return message
+    }
+
+    /// 沿用 `SourceError.connectionFailed` 的措辞, 界面上这条错误的样子没变,
+    /// 只是多了一截"谁回的这个状态"。
+    var errorDescription: String? {
+        String(format: String(localized: "error_connection_failed %@"), statusDetail)
+    }
+}
+
 enum RemoteDirectoryTransportErrorPolicy {
     static func isRetryable(_ error: Error) -> Bool {
         if OperationCancellationPolicy.isCancellation(error) { return false }

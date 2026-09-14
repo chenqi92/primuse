@@ -268,6 +268,18 @@ final class MetadataBackfillService {
     /// every launch.
     @ObservationIgnored private var sourceTransientFailureCounts: [String: Int] = [:]
 
+    /// 连续回 5xx 的源的退让状态。和 `sourceTransientFailureCounts` 不同 ——
+    /// 那条计的是"源整体不可用"并会把整批歌 park 掉; 网关 5xx 说明连接和鉴权
+    /// 都是通的, 只是后端这一刻取不到文件, 所以这里只降速不 park。会话内有效:
+    /// 重启 app 本来就该按正常节奏重新试一次。
+    @ObservationIgnored private var gatewayBackoff = RemoteGatewayBackoffState()
+    /// 退让期内正占着读取位的源。同一个源同时只放一个读取在飞。
+    @ObservationIgnored private var gatewaySerializedSourceIDs: Set<String> = []
+    /// 等同源的那一个读取最多等这么久。等到了就接着读, 等不到就让出这一轮 ——
+    /// 别的源的读取位不该被一个卡住的网关长期占着。取值要盖得住"最长退让 +
+    /// 一次正常读取", 否则等待的读取位只会一轮轮空转。
+    private static let gatewaySerializationWaitLimit: TimeInterval = 20
+
     /// Songs parked until another usable network path is observed. Every real
     /// transient failure parks immediately instead of being retried five times
     /// back-to-back in one worker loop.
@@ -1888,6 +1900,7 @@ final class MetadataBackfillService {
         }
         for id in songIDs { transientFailureCounts[id] = nil }
         sourceTransientFailureCounts[sourceID] = nil
+        gatewayBackoff.reset(sourceID: sourceID)
         saveFailed()
         saveDiagnostics()
         saveRetryCounts()
@@ -2051,7 +2064,10 @@ final class MetadataBackfillService {
         albumArtistCheckedIDs.subtract(songIDs)
         artistCheckedIDs.subtract(songIDs)
         for id in songIDs { transientFailureCounts[id] = nil }
-        for sourceID in sourceIDs { sourceTransientFailureCounts[sourceID] = nil }
+        for sourceID in sourceIDs {
+            sourceTransientFailureCounts[sourceID] = nil
+            gatewayBackoff.reset(sourceID: sourceID)
+        }
         saveFailed()
         saveDeferredRetries()
         saveDiagnostics()
@@ -2905,7 +2921,10 @@ final class MetadataBackfillService {
         artistCheckedIDs.subtract(retryIDs)
         for id in retryIDs { diagnosticRecords[id] = nil }
         for id in retryIDs { transientFailureCounts[id] = nil }
-        for sourceID in sourceIDs { sourceTransientFailureCounts[sourceID] = nil }
+        for sourceID in sourceIDs {
+            sourceTransientFailureCounts[sourceID] = nil
+            gatewayBackoff.reset(sourceID: sourceID)
+        }
         saveFailed()
         saveDeferredRetries()
         saveDiagnostics()
@@ -3189,6 +3208,7 @@ final class MetadataBackfillService {
         clearDiagnostic(songID: songID)
         if let sourceID = library.song(id: songID)?.sourceID {
             sourceTransientFailureCounts[sourceID] = nil
+            gatewayBackoff.reset(sourceID: sourceID)
         }
         saveFailed()
         saveDeferredRetries()
@@ -3842,6 +3862,10 @@ final class MetadataBackfillService {
     }
 
     static func needsSourceEndpointProbe(_ error: Error) -> Bool {
+        // 服务器把状态码回出来了, 端点显然是通的 —— 再探一次只是白花一个请求。
+        if error is RemoteMetadataHTTPStatusError || error is RemoteDirectoryHTTPStatusError {
+            return false
+        }
         switch error {
         case SourceError.connectionFailed, SourceError.timeout: return true
         default: return SourceNetworkFailurePolicy.isNetworkFailure(error)
@@ -4030,6 +4054,77 @@ final class MetadataBackfillService {
         }
     }
 
+    private enum GatewayReadClearance {
+        case proceed
+        /// 放行, 并且这次读取独占了该源的读取位, 结束时要还回去。
+        case proceedHoldingSlot
+        /// 这一轮不读 —— 没有消耗任何重试配额, 下一轮快照会重新排到它。
+        case skip
+    }
+
+    /// 退让窗口。连续 5xx 的源在这里被压成"一次一个请求, 中间还要歇一会"。
+    private func awaitGatewayBackoffClearance(
+        forSource sourceID: String
+    ) async -> GatewayReadClearance {
+        guard gatewayBackoff.failureCount(sourceID: sourceID) > 0 else { return .proceed }
+
+        // 等在这里而不是直接跳过: 一整批同源的歌如果都被瞬间跳过, 这一轮快照
+        // 几十毫秒就空转完了, 什么也没读到。
+        let deadline = Date().addingTimeInterval(Self.gatewaySerializationWaitLimit)
+        while gatewayBackoff.serializesReads(sourceID: sourceID),
+              gatewaySerializedSourceIDs.contains(sourceID) {
+            guard Date() < deadline else { return .skip }
+            do {
+                try await Task.sleep(for: .milliseconds(250))
+            } catch {
+                return .skip
+            }
+            guard !Task.isCancelled else { return .skip }
+        }
+
+        // 从跳出循环到占位之间没有挂起点, 所以"没人占位"和"我占上了"是同一个
+        // 原子步骤 —— 否则两个等在这里的读取会一起被放行, 串行就白做了。
+        // 等的过程中别的读取可能已经成功并把退让撤掉, 所以状态都重新取一次。
+        let holdsSlot = gatewayBackoff.serializesReads(sourceID: sourceID)
+        if holdsSlot { gatewaySerializedSourceIDs.insert(sourceID) }
+        let delay = gatewayBackoff.delay(sourceID: sourceID)
+        if delay > 0 {
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                if holdsSlot { gatewaySerializedSourceIDs.remove(sourceID) }
+                return .skip
+            }
+        }
+        guard !Task.isCancelled else {
+            if holdsSlot { gatewaySerializedSourceIDs.remove(sourceID) }
+            return .skip
+        }
+        return holdsSlot ? .proceedHoldingSlot : .proceed
+    }
+
+    /// 5xx 是网关或它背后的存储的问题, 不是这一首歌的问题。记在源上, 下一首
+    /// 同源的读取就会先退让 —— 否则几百首歌会在几分钟内把各自的重试配额全部
+    /// 撞光, 等后端恢复时它们已经躺在"需要处理"里, 只能靠用户手动重试。
+    private func recordGatewayFailureIfNeeded(_ error: Error, sourceID: String) {
+        let statusCode: Int
+        switch error {
+        case let status as RemoteMetadataHTTPStatusError: statusCode = status.statusCode
+        case let status as RemoteDirectoryHTTPStatusError: statusCode = status.statusCode
+        default: return
+        }
+        guard RemoteGatewayBackoffPolicy.isGatewayFailure(statusCode: statusCode) else { return }
+        let failures = gatewayBackoff.recordFailure(sourceID: sourceID)
+        guard RemoteGatewayBackoffPolicy.serializesReads(consecutiveFailures: failures) else { return }
+        plog(String(
+            format: "📥 Backfill: gateway HTTP %d x%d source=%@ — single read slot, backing off %.0fs",
+            statusCode,
+            failures,
+            sourceID,
+            RemoteGatewayBackoffPolicy.delay(consecutiveFailures: failures)
+        ))
+    }
+
     /// Run one backfill against `song`. Returns a merged Song to flush
     /// (may be nil if extraction yielded nothing usable) and a flag
     /// indicating whether the attempt should be remembered as failed —
@@ -4049,6 +4144,22 @@ final class MetadataBackfillService {
             return BackfillOutcome(song: nil, markFailed: false)
         }
         defer { activeReadSongIDs.remove(song.id) }
+        // 刚连着回 5xx 的源先退让再读 —— 理由见 RemoteGatewayBackoffPolicy。
+        // 用户点下去的重读不排队也不退让: 那是一次有限的、他自己发起的操作,
+        // 让它当场就走。
+        let gatewayClearance: GatewayReadClearance
+        if isExplicitReread {
+            gatewayClearance = .proceed
+        } else {
+            gatewayClearance = await awaitGatewayBackoffClearance(forSource: song.sourceID)
+        }
+        guard gatewayClearance != .skip else {
+            return BackfillOutcome(song: nil, markFailed: false, cancelled: Task.isCancelled)
+        }
+        let holdsGatewayReadSlot = gatewayClearance == .proceedHoldingSlot
+        defer {
+            if holdsGatewayReadSlot { gatewaySerializedSourceIDs.remove(song.sourceID) }
+        }
         let started = Date()
         do {
             let timeout = isExplicitReread
@@ -4082,6 +4193,7 @@ final class MetadataBackfillService {
             // 重试也没用,标记后不再浪费配额。连接/鉴权/超时/限流/网络这类是瞬时的
             // (常见于刚启动、源还没连上 / token 还没就绪),绝不能钉成永久失败,否则
             // 会一直卡在「无法读取歌曲详情」;不标记 → 下一轮回填自动重试。
+            recordGatewayFailureIfNeeded(error, sourceID: song.sourceID)
             let transient = Self.isTransientBackfillError(error)
             var sourceUnavailable = Self.isSourceUnavailableBackfillError(error)
             if !sourceUnavailable, Self.needsSourceEndpointProbe(error) {
@@ -4145,9 +4257,15 @@ final class MetadataBackfillService {
                 rangeElapsed += Date().timeIntervalSince(rangeStarted)
                 rangeCount += 1
             }
-            return try await sourceManager.fetchMetadataRange(
+            let data = try await sourceManager.fetchMetadataRange(
                 for: song, offset: offset, length: length, intent: rangeReadIntent
             )
+            // 真的读到字节就是网关恢复了, 立刻把退让撤掉。
+            if gatewayBackoff.failureCount(sourceID: song.sourceID) > 0 {
+                gatewayBackoff.recordSuccess(sourceID: song.sourceID)
+                plog("📥 Backfill: gateway recovered source=\(song.sourceID)")
+            }
+            return data
         }
         let fetchStarted = Date()
         let headData = try await fetchRange(offset: 0, length: Self.headBytes)

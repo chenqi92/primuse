@@ -666,7 +666,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
                 }
                 return slice
             default:
-                throw SourceError.connectionFailed("WebDAV metadata request failed: HTTP \(http.statusCode)")
+                throw metadataStatusError(http)
             }
         }
         let (bytes, response) = try await bytesFollowingMediaRedirects(for: request)
@@ -705,7 +705,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
             }
             return data
         default:
-            throw SourceError.connectionFailed("WebDAV metadata request failed: HTTP \(http.statusCode)")
+            throw metadataStatusError(http)
         }
     }
 
@@ -788,7 +788,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
                 return try boundedMetadataSlice(completeURL, offset: offset, length: length)
             }
         default:
-            throw SourceError.connectionFailed("WebDAV metadata request failed: HTTP \(http.statusCode)")
+            throw metadataStatusError(http)
         }
     }
 
@@ -815,6 +815,33 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
     private func metadataEndpointKey(for url: URL?) -> String? {
         guard let url, let endpoint = NetworkEndpointIdentity(url: url) else { return nil }
         return endpoint.key
+    }
+
+    /// 带上真正回这个状态的主机。挂载代理(alist/OpenList 之类)自己报的 5xx 和
+    /// 跟随 302 之后由对象存储报的 5xx, 原本在界面上分不出来 —— 而这两端要查的
+    /// 东西完全不同。
+    private func metadataStatusError(_ response: HTTPURLResponse) -> RemoteMetadataHTTPStatusError {
+        let responseEndpoint = response.url.flatMap { NetworkEndpointIdentity(url: $0) }
+        let sourceEndpoint = (try? serverURL()).flatMap { NetworkEndpointIdentity(url: $0) }
+        return RemoteMetadataHTTPStatusError(
+            service: "WebDAV",
+            statusCode: response.statusCode,
+            origin: Self.originDescription(for: response.url),
+            followedRedirect: responseEndpoint != nil
+                && sourceEndpoint != nil
+                && responseEndpoint != sourceEndpoint
+        )
+    }
+
+    /// host[:端口], 默认端口省掉 —— 这行是给人看的, 不参与任何判断。
+    private static func originDescription(for url: URL?) -> String? {
+        guard let url, let host = url.host, !host.isEmpty else { return nil }
+        let scheme = url.scheme?.lowercased() ?? "http"
+        guard let port = url.port,
+              port != NetworkEndpointIdentity.defaultPort(for: scheme) else {
+            return host
+        }
+        return "\(host):\(port)"
     }
 
     private func cachedCompleteMetadataFallbackURL(for path: String) -> URL? {
@@ -1324,7 +1351,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
             throw SourceError.authenticationFailed
         }
         guard http.statusCode == 207 || (200...299).contains(http.statusCode) else {
-            throw SourceError.connectionFailed("WebDAV metadata request failed: HTTP \(http.statusCode)")
+            throw metadataStatusError(http)
         }
         guard let target = RemotePathScopePolicy(rootPath: "/")
             .resolvedPath(forStoredPath: path) else {
