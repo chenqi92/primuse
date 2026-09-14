@@ -11,6 +11,9 @@ struct MacQueuePanel: View {
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    // 同 iOS 的 QueueView: 拖拽预览宿主要用, 行里的 CachedArtworkView 同时读
+    // MusicLibrary 与 SourceManager。
+    @Environment(SourceManager.self) private var sourceManager
     @State private var dropTarget: QueueReorderOccurrenceID?
 
     var body: some View {
@@ -223,12 +226,18 @@ struct MacQueuePanel: View {
         .opacity(dimmed ? 0.52 : 1)
         .contentShape(Rectangle())
         .onTapGesture { playEntry(entry) }
+        // 拖起这一行时渲染进独立的拖拽预览宿主, 那里不继承按类型注入的可观察
+        // 对象。行内的艺术家名与封面都要读 MusicLibrary / SourceManager, 取不到
+        // 就会触发运行时陷阱。显式带上。
+        .environment(library)
+        .environment(sourceManager)
 
         if let reorderID {
             let accessibleRow = row
-                // 整行按住拖动即可排序, 不再显示拖动把手; 默认预览复用行本身,
-                // 不进入拿不到 MusicLibrary 环境对象的独立预览宿主(曾在此闪退)。
-                // 整行仍是放置目标, 并保留键盘 / VoiceOver 的移动操作。
+                // 整行按住拖动即可排序, 不再显示拖动把手。不传自定义预览并不能让
+                // 渲染留在当前宿主, 系统仍会搬进独立的预览宿主, 所以环境对象在
+                // row 上显式带好(见上)。整行仍是放置目标, 并保留键盘 / VoiceOver
+                // 的移动操作。
                 .draggable(reorderID.dragPayload)
                 .dropDestination(for: String.self) { payloads, _ in
                     defer { dropTarget = nil }

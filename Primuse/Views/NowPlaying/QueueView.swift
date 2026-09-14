@@ -4,6 +4,9 @@ import PrimuseKit
 struct QueueView: View {
     let player: AudioPlayerService
     @Environment(MusicLibrary.self) private var library
+    // 拖拽预览宿主要用: 行里的 CachedArtworkView 同时读 MusicLibrary 与
+    // SourceManager, 两个都得显式带过去。见 queueRow 里的说明。
+    @Environment(SourceManager.self) private var sourceManager
     @State private var dropTarget: QueueReorderOccurrenceID?
 
     var body: some View {
@@ -194,12 +197,19 @@ struct QueueView: View {
         .opacity(dimmed ? 0.58 : 1)
         .contentShape(Rectangle())
         .onTapGesture { playEntry(entry) }
+        // 拖起这一行时, SwiftUI 会把它渲染进一个独立的预览宿主。那个宿主不继承
+        // 按类型注入的可观察对象, 而这一行要读两个: 标题下方的艺术家名走
+        // MusicLibrary, 封面 CachedArtworkView 同时读 MusicLibrary 与
+        // SourceManager。取不到时 EnvironmentValues 的下标直接触发运行时陷阱,
+        // 表现为一碰拖动就闪退。显式带上, 让预览宿主解析得到。
+        .environment(library)
+        .environment(sourceManager)
 
         if let reorderID {
             let accessibleRow = row
-                // 整行长按即可拖动排序, 不再显示拖动把手。默认预览直接复用行本身,
-                // 不再进入独立的预览宿主 —— 那个宿主拿不到 MusicLibrary 等环境
-                // 对象, 曾在拖起时触发 SwiftUI 致命错误闪退。
+                // 整行长按即可拖动排序, 不再显示拖动把手。不给 .draggable 传自定义
+                // 预览并不会让渲染留在当前宿主 —— 系统仍然把这一行搬进独立的拖拽
+                // 预览宿主, 所以环境对象要在 row 上显式带好(见上)。
                 .draggable(reorderID.dragPayload)
                 .dropDestination(for: String.self) { payloads, _ in
                     defer { dropTarget = nil }
