@@ -2547,6 +2547,9 @@
 "source_remove_managed_confirm_title" = "Quelle entfernen und kopierte Dateien löschen?";
 "source_remove_managed_confirm_action" = "Quelle und Kopien löschen";
 "source_remove_managed_confirm_message" = "Dadurch wird die Quelle aus der Mediathek entfernt und alle in Primuse kopierten Dateien werden vom Gerät gelöscht. Die Originaldateien bleiben unverändert; gelöschte Kopien können nicht wiederhergestellt werden.";
+"playlist_order_action" = "Playlists neu anordnen";
+"playlist_order_title" = "Playlist-Reihenfolge";
+"playlist_order_hint" = "Playlists mit den Pfeilen verschieben";
 "playlist_reorder_title" = "Wiedergabereihenfolge anpassen";
 "playlist_reorder_changed" = "Reihenfolge geändert";
 "playlist_reorder_hint" = "Titel mit den Pfeilen verschieben";

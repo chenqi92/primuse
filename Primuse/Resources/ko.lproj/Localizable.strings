@@ -2547,6 +2547,9 @@
 "source_remove_managed_confirm_title" = "음악 소스를 제거하고 복사본을 삭제할까요?";
 "source_remove_managed_confirm_action" = "소스 제거 및 복사본 삭제";
 "source_remove_managed_confirm_message" = "보관함에서 이 음악 소스를 제거하고 기기 저장 공간을 확보하기 위해 Primuse에 복사된 모든 파일을 삭제합니다. 원본 파일에는 영향을 주지 않으며 삭제된 복사본은 복구할 수 없습니다.";
+"playlist_order_action" = "재생목록 순서 변경";
+"playlist_order_title" = "재생목록 순서";
+"playlist_order_hint" = "화살표로 재생목록을 이동하세요";
 "playlist_reorder_title" = "재생 순서 조정";
 "playlist_reorder_changed" = "순서가 변경됨";
 "playlist_reorder_hint" = "화살표로 곡 이동";

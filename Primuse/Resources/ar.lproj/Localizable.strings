@@ -2243,6 +2243,9 @@
 "playlist_reorder" = "إعادة الترتيب";
 "playlist_reorder_changed" = "تم تغيير الترتيب";
 "playlist_reorder_hint" = "استخدم الأسهم لتحريك الأغاني";
+"playlist_order_action" = "إعادة ترتيب قوائم التشغيل";
+"playlist_order_title" = "ترتيب قوائم التشغيل";
+"playlist_order_hint" = "استخدم الأسهم لتحريك قوائم التشغيل";
 "playlist_reorder_title" = "ضبط ترتيب التشغيل";
 "playlist_use_first_song_cover" = "أو استخدم الأغنية الأولى";
 "playlists_count" = "قوائم التشغيل";

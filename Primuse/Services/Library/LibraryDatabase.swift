@@ -291,6 +291,11 @@ actor LibraryDatabase {
             try PlaylistDatabaseMigration.migrate(db)
         }
 
+        // 用户手动排定的歌单位次。旧行默认 0 = 没排过，仍按最近更新在前。
+        migrator.registerMigration("v16_playlist_sort_order") { db in
+            try PlaylistDatabaseMigration.migrate(db)
+        }
+
         // Run every registered migration, not just v1 — pinning to
         // `upTo: "v1_initial"` would silently skip later versions on
         // upgrade and reintroduce schema drift.
@@ -431,7 +436,9 @@ actor LibraryDatabase {
 
     func allPlaylists() throws -> [Playlist] {
         try dbPool.read { db in
-            try Playlist.order(Column("updatedAt").desc).fetchAll(db)
+            try Playlist
+                .order(Column("sortOrder").asc, Column("updatedAt").desc)
+                .fetchAll(db)
         }
     }
 

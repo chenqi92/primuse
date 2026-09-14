@@ -22,6 +22,7 @@ struct PlaylistListView: View {
     /// 歌单批量管理态。普通态和管理态用两个独立的列表 —— 在同一个 List 上
     /// 混 NavigationLink 与 selection，点一下到底是进歌单还是勾选会变得不确定。
     @State private var isManagingPlaylists = false
+    @State private var showPlaylistOrder = false
     @State private var playlistSelection: Set<String> = []
     @State private var showBatchDeleteConfirm = false
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
@@ -87,7 +88,15 @@ struct PlaylistListView: View {
         .sheet(item: $serverMediaShareTarget) { target in
             ServerMediaShareSheet(target: target)
         }
+        .sheet(isPresented: $showPlaylistOrder) {
+            PlaylistOrderSheet(playlists: playlists) { ordered in
+                library.reorderPlaylists(ordered.map(\.id))
+            }
+        }
     }
+
+    /// 顺序只在有得排的时候才给入口。
+    private var canReorderPlaylists: Bool { playlists.count >= 2 }
 
     @ViewBuilder
     private var iosBody: some View {
@@ -211,6 +220,13 @@ struct PlaylistListView: View {
                         }
                         if !playlists.isEmpty {
                             Divider()
+                            if canReorderPlaylists {
+                                Button {
+                                    showPlaylistOrder = true
+                                } label: {
+                                    Label("playlist_order_action", systemImage: "arrow.up.arrow.down")
+                                }
+                            }
                             Button {
                                 isManagingPlaylists = true
                             } label: {
@@ -573,6 +589,24 @@ struct PlaylistListView: View {
                 }
                 .buttonStyle(.plain)
                 .help(Text("playlist_import_title"))
+            }
+
+            if canReorderPlaylists {
+                Button {
+                    showPlaylistOrder = true
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                        .frame(width: 32, height: 32)
+                        .background(PMColor.glassBtn, in: .rect(cornerRadius: 8))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                        }
+                }
+                .buttonStyle(.plain)
+                .help(Text("playlist_order_action"))
             }
 
             if !playlists.isEmpty {
@@ -985,3 +1019,232 @@ struct MacNewPlaylistSheet: View {
     }
 }
 #endif
+
+// MARK: - Playlist Order Sheet
+
+/// 调整歌单在列表里的顺序。歌单原本固定按最近更新倒序排,往任何一个歌单里加
+/// 一首歌它就跳到最前面,用户排不了;这里把顺序交给用户,写回 `sortOrder` 之后
+/// 跨设备一致。交互跟歌单内歌曲重排 (`PlaylistReorderSheet`) 保持一致:
+/// iOS 拖动手柄,macOS 上下箭头。
+struct PlaylistOrderSheet: View {
+    let initialPlaylists: [Playlist]
+    let onDone: ([Playlist]) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var localPlaylists: [Playlist]
+
+    init(playlists: [Playlist], onDone: @escaping ([Playlist]) -> Void) {
+        self.initialPlaylists = playlists
+        self._localPlaylists = State(initialValue: playlists)
+        self.onDone = onDone
+    }
+
+    private var hasChanges: Bool {
+        localPlaylists.map(\.id) != initialPlaylists.map(\.id)
+    }
+
+    private func commit() {
+        // 顺序没动就不写库, 免得白白推一次 iCloud 同步。
+        if hasChanges { onDone(localPlaylists) }
+        dismiss()
+    }
+
+    var body: some View {
+        #if os(macOS)
+        macBody
+        #else
+        iosBody
+        #endif
+    }
+
+    #if !os(macOS)
+    private var iosBody: some View {
+        NavigationStack {
+            List {
+                ForEach(localPlaylists) { playlist in
+                    HStack(spacing: 10) {
+                        PlaylistArtworkView(playlist: playlist, size: 36, cornerRadius: 5)
+                        Text(playlist.name)
+                            .font(.subheadline)
+                            .lineLimit(1)
+                    }
+                }
+                .onMove { from, to in
+                    localPlaylists.move(fromOffsets: from, toOffset: to)
+                }
+            }
+            #if os(iOS)
+            .environment(\.editMode, .constant(.active))
+            #endif
+            .navigationTitle("playlist_order_title")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(String(localized: "cancel")) { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(String(localized: "done")) { commit() }
+                        .fontWeight(.semibold)
+                }
+            }
+            #else
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(String(localized: "cancel")) { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(String(localized: "done")) { commit() }
+                        .fontWeight(.semibold)
+                }
+            }
+            #endif
+        }
+    }
+    #endif
+
+    #if os(macOS)
+    private var macBody: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 14) {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(PMColor.brand.opacity(0.16))
+                    .frame(width: 44, height: 44)
+                    .overlay {
+                        Image(systemName: "arrow.up.arrow.down")
+                            .font(.system(size: 19, weight: .semibold))
+                            .foregroundStyle(PMColor.brand)
+                    }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("playlist_order_title")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                    Text(verbatim: "\(localPlaylists.count) \(String(localized: "playlists_section"))")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(PMColor.textMuted)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(PMColor.textMuted)
+                        .frame(width: 26, height: 26)
+                        .background(PMColor.glassBtn, in: .circle)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(spacing: 8) {
+                    ForEach(Array(localPlaylists.enumerated()), id: \.element.id) { index, playlist in
+                        macPlaylistRow(playlist, index: index)
+                    }
+                }
+                .padding(14)
+            }
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            HStack {
+                Text(hasChanges
+                    ? String(localized: "playlist_reorder_changed")
+                    : String(localized: "playlist_order_hint"))
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(hasChanges ? PMColor.brand : PMColor.textFaint)
+                Spacer()
+                Button("cancel") { dismiss() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(PMColor.text)
+                    .padding(.horizontal, 14)
+                    .frame(height: 30)
+                    .background(PMColor.glassBtn, in: .rect(cornerRadius: 7))
+                Button("done") { commit() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .frame(height: 30)
+                    .background(PMColor.brand, in: .rect(cornerRadius: 7))
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+        }
+        .frame(width: 520, height: 620)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(PMColor.bg.opacity(0.78))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.24), radius: 28, y: 14)
+    }
+
+    private func macPlaylistRow(_ playlist: Playlist, index: Int) -> some View {
+        HStack(spacing: 10) {
+            Text(verbatim: "\(index + 1)")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(PMColor.textFaint)
+                .frame(width: 26, alignment: .trailing)
+
+            PlaylistArtworkView(playlist: playlist, size: 38, cornerRadius: 5)
+
+            Text(playlist.name)
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(PMColor.text)
+                .lineLimit(1)
+
+            Spacer()
+
+            HStack(spacing: 2) {
+                moveButton("chevron.up", disabled: index == 0) {
+                    movePlaylist(from: index, to: index - 1)
+                }
+                moveButton("chevron.down", disabled: index == localPlaylists.count - 1) {
+                    movePlaylist(from: index, to: index + 1)
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 52)
+        .background(PMColor.bgElev.opacity(0.84), in: .rect(cornerRadius: 10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+    }
+
+    private func moveButton(_ symbol: String, disabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(disabled ? PMColor.textFaint.opacity(0.45) : PMColor.textMuted)
+                .frame(width: 24, height: 24)
+                .background(PMColor.glassBtn, in: .circle)
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+    }
+
+    private func movePlaylist(from source: Int, to destination: Int) {
+        guard localPlaylists.indices.contains(source),
+              localPlaylists.indices.contains(destination) else { return }
+        let item = localPlaylists.remove(at: source)
+        localPlaylists.insert(item, at: destination)
+    }
+    #endif
+}

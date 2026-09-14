@@ -2548,6 +2548,9 @@
 "source_remove_managed_confirm_title" = "音楽ソースとコピー済みファイルを削除しますか？";
 "source_remove_managed_confirm_action" = "ソースとコピーを削除";
 "source_remove_managed_confirm_message" = "ライブラリからこの音楽ソースを削除し、デバイスの空き容量を増やすためにPrimuseへコピーしたすべてのファイルを削除します。元のファイルには影響しません。削除したコピーは復元できません。";
+"playlist_order_action" = "プレイリストの並べ替え";
+"playlist_order_title" = "プレイリストの順序";
+"playlist_order_hint" = "矢印でプレイリストを移動";
 "playlist_reorder_title" = "再生順を調整";
 "playlist_reorder_changed" = "順序を変更しました";
 "playlist_reorder_hint" = "矢印で曲を移動";

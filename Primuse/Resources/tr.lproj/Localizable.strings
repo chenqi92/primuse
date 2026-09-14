@@ -658,6 +658,9 @@
 "playlist_import_kind_path" = "Dosya adı";
 "Repeat Mode" = "Tekrarlama modu";
 "local_import_provider_hint" = "Dosya bir bulut sürücüsünden geliyorsa, tekrar içe aktarmadan önce onu Dosyalar'daki yerel bir \"iPhone'mde\" klasörüne kaydedin. Bulut sürücüsünü uygulama içi müzik kaynağı olarak da ekleyebilirsiniz.";
+"playlist_order_action" = "Çalma listelerini sırala";
+"playlist_order_title" = "Çalma listesi sırası";
+"playlist_order_hint" = "Çalma listelerini oklarla taşıyın";
 "playlist_reorder_title" = "Oynatma Sırasını Ayarla";
 "reverb_large_hall" = "Büyük Salon";
 "play_all" = "Tümünü oynat";

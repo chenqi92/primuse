@@ -2243,6 +2243,9 @@
 "playlist_reorder" = "สั่งซื้อใหม่";
 "playlist_reorder_changed" = "คำสั่งซื้อมีการเปลี่ยนแปลง";
 "playlist_reorder_hint" = "ใช้ลูกศรเพื่อย้ายเพลง";
+"playlist_order_action" = "จัดลำดับเพลย์ลิสต์";
+"playlist_order_title" = "ลำดับเพลย์ลิสต์";
+"playlist_order_hint" = "ใช้ลูกศรเพื่อย้ายเพลย์ลิสต์";
 "playlist_reorder_title" = "ปรับลำดับการเล่น";
 "playlist_use_first_song_cover" = "หรือใช้เพลงแรก";
 "playlists_count" = "เพลย์ลิสต์";

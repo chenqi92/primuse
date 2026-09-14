@@ -6638,6 +6638,46 @@ final class MusicLibrary {
         }
     }
 
+    /// 用户拖出来的歌单顺序。位次写进歌单本身(跟着 iCloud 走),所以另一台
+    /// 设备也是同一个顺序;`updatedAt` 保持不动 —— 排一次序不该把每个歌单的
+    /// "最近更新"时间都改掉,顺序由 `sortOrder` 说了算。
+    func reorderPlaylists(_ orderedIDs: [String]) {
+        // S2: 歌单集合要等发布之后才在手上。
+        if deferringUntilReady({ [weak self] in self?.reorderPlaylists(orderedIDs) }) { return }
+        let known = Set(allPlaylists.lazy.filter { !$0.isDeleted }.map(\.id))
+        let targetIDs = orderedIDs.filter { known.contains($0) }
+        guard !targetIDs.isEmpty else { return }
+        // 只比对这一批被重排的歌单:调用方传的是它自己列表里那一部分
+        // (「我喜欢」这类不在列表里的歌单不参与), 拿全表比会永远判成"变了"。
+        let targetSet = Set(targetIDs)
+        guard PlaylistManualOrderPolicy.orderChanged(
+            currentOrderedIDs: allPlaylists.filter { targetSet.contains($0.id) }.map(\.id),
+            newOrderedIDs: targetIDs,
+            currentSortOrders: Dictionary(
+                allPlaylists.map { ($0.id, $0.sortOrder) },
+                uniquingKeysWith: { current, _ in current }
+            )
+        ) else { return }
+
+        let sortOrders = PlaylistManualOrderPolicy.sortOrders(forOrderedIDs: targetIDs)
+        var changedIDs: [String] = []
+        for index in allPlaylists.indices {
+            guard let sortOrder = sortOrders[allPlaylists[index].id],
+                  allPlaylists[index].sortOrder != sortOrder else { continue }
+            allPlaylists[index].sortOrder = sortOrder
+            // 只推进逻辑版本, 不动 updatedAt —— 跨设备和解看的是 syncRevision。
+            allPlaylists[index].syncRevision = max(0, allPlaylists[index].syncRevision) + 1
+            allPlaylists[index].syncWriterID = playlistSyncWriterID
+            allPlaylists[index].syncOperationID = UUID().uuidString
+            changedIDs.append(allPlaylists[index].id)
+        }
+        guard !changedIDs.isEmpty else { return }
+        sortPlaylists()
+        persistPlaylistDurabilityLedger()
+        persistSnapshot()
+        notifyPlaylistsChanged(changedIDs)
+    }
+
     // MARK: - Smart Playlists
 
     /// 创建 / 更新一份智能歌单。Caller 自己构造 SmartPlaylist (含 rules), 这里
@@ -10390,7 +10430,12 @@ final class MusicLibrary {
     }
 
     private func sortPlaylists() {
-        allPlaylists.sort { $0.updatedAt > $1.updatedAt }
+        allPlaylists.sort {
+            PlaylistManualOrderPolicy.isOrderedBefore(
+                .init(sortOrder: $0.sortOrder, updatedAt: $0.updatedAt),
+                .init(sortOrder: $1.sortOrder, updatedAt: $1.updatedAt)
+            )
+        }
     }
 
     private func cleanPlaylistEntries() {

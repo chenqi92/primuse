@@ -107,6 +107,8 @@ struct PlaylistSynchronizationTests {
         #expect(!migrated.isDeleted)
         #expect(migrated.syncRevision == 0)
         #expect(!migrated.hasDedicatedCoverArt)
+        // 没排过序的旧歌单落在 unordered 组里，顺序仍按最近更新在前。
+        #expect(migrated.sortOrder == PlaylistManualOrderPolicy.unordered)
 
         let tombstone = makePlaylist(
             deleted: true,
@@ -146,6 +148,11 @@ struct PlaylistSynchronizationTests {
             #expect(legacy?.syncRevision == 0)
             #expect(legacy?.hasDedicatedCoverArt == false)
             #expect(legacy?.folderBinding == nil)
+            #expect(legacy?.sortOrder == PlaylistManualOrderPolicy.unordered)
+
+            let positioned = Playlist(id: "positioned", name: "Positioned", sortOrder: 2)
+            try positioned.save(db)
+            #expect(try Playlist.fetchOne(db, key: "positioned")?.sortOrder == 2)
 
             let binding = PlaylistFolderBinding(nodeID: LibraryFolderNodeID(
                 sourceID: "source", kind: .folder, normalizedRelativePath: "/music/live"

@@ -13,6 +13,10 @@ public struct Playlist: Codable, Identifiable, Hashable, Sendable {
     /// never mistaken for a dedicated playlist cover after upgrading.
     public var hasDedicatedCoverArt: Bool
     public var folderBinding: PlaylistFolderBinding?
+    /// 用户手动排定的位次,从 1 开始。0 表示"还没排过",这类歌单排在所有
+    /// 排过序的前面,组内仍按最近更新在前 —— 新建或新同步进来的歌单因此出现
+    /// 在最上面,而用户排好的顺序不会被一次更新打乱。见 `PlaylistManualOrderPolicy`。
+    public var sortOrder: Int
 
     public var allowsManualSongMembership: Bool {
         folderBinding == nil && !MirrorPlaylistIdentity.isMirrorPlaylist(id)
@@ -54,7 +58,8 @@ public struct Playlist: Codable, Identifiable, Hashable, Sendable {
         deleteOperationID: String? = nil,
         restoredDeleteOperationID: String? = nil,
         isPurged: Bool = false,
-        folderBinding: PlaylistFolderBinding? = nil
+        folderBinding: PlaylistFolderBinding? = nil,
+        sortOrder: Int = 0
     ) {
         self.id = id
         self.name = name
@@ -71,6 +76,7 @@ public struct Playlist: Codable, Identifiable, Hashable, Sendable {
         self.deleteOperationID = deleteOperationID
         self.restoredDeleteOperationID = restoredDeleteOperationID
         self.isPurged = isPurged
+        self.sortOrder = sortOrder
     }
 
     public init(from decoder: Decoder) throws {
@@ -93,6 +99,7 @@ public struct Playlist: Codable, Identifiable, Hashable, Sendable {
         self.deleteOperationID = try c.decodeIfPresent(String.self, forKey: .deleteOperationID)
         self.restoredDeleteOperationID = try c.decodeIfPresent(String.self, forKey: .restoredDeleteOperationID)
         self.isPurged = try c.decodeIfPresent(Bool.self, forKey: .isPurged) ?? false
+        self.sortOrder = try c.decodeIfPresent(Int.self, forKey: .sortOrder) ?? 0
     }
 }
 
@@ -427,6 +434,9 @@ public enum PlaylistDatabaseMigration {
             }
             if !names.contains("folderBinding") {
                 table.add(column: "folderBinding", .text)
+            }
+            if !names.contains("sortOrder") {
+                table.add(column: "sortOrder", .integer).notNull().defaults(to: 0)
             }
         }
     }
