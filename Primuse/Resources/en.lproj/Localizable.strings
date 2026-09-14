@@ -38,6 +38,7 @@
 "library_quick_access_limit_description" = "Adjust this limit in Settings > Appearance > Library Display.";
 "library_quick_access_selected" = "Selected";
 "library_quick_access_selected_empty" = "No shortcuts selected";
+"library_quick_access_loading" = "Loading library…";
 "library_quick_access_search_prompt" = "Search albums, artists, or playlists";
 "library_sections_settings_label" = "Library Categories";
 "library_sections_settings_footer" = "Drag to reorder. Visibility and order apply to Library, the sidebar, and minimal mode tabs.";

@@ -39,6 +39,7 @@
 "library_quick_access_limit_description" = "可在「設定 > 外觀 > 資料庫顯示」中調整數量上限。";
 "library_quick_access_selected" = "已選擇";
 "library_quick_access_selected_empty" = "尚未選擇快捷收藏";
+"library_quick_access_loading" = "正在載入資料庫…";
 "library_quick_access_search_prompt" = "搜尋專輯、演出者或歌單";
 "library_sections_settings_label" = "資料庫分類";
 "library_sections_settings_footer" = "拖移以調整順序；分類的顯示、隱藏與順序會同步套用至資料庫、側邊欄及極簡模式標籤。";

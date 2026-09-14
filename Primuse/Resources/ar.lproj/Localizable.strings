@@ -1622,6 +1622,7 @@
 "library_quick_access_count" = "عدد الوصول السريع";
 "library_quick_access_count_description" = "قم بتعيين الحد الأقصى لعدد عناصر الوصول السريع المعروضة في المكتبة والصفحة الرئيسية.";
 "library_quick_access_limit_description" = "اضبط هذا الحد في الإعدادات > المظهر > عرض المكتبة.";
+"library_quick_access_loading" = "جارٍ تحميل المكتبة…";
 "library_quick_access_search_prompt" = "البحث في الألبومات أو الفنانين أو قوائم التشغيل";
 "library_quick_access_selected" = "محدد";
 "library_quick_access_selected_empty" = "لم يتم تحديد أي اختصارات";

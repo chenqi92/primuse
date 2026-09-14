@@ -1622,6 +1622,7 @@
 "library_quick_access_count" = "त्वरित पहुंच गणना";
 "library_quick_access_count_description" = "लाइब्रेरी और होम में दिखाए गए त्वरित एक्सेस आइटम की अधिकतम संख्या निर्धारित करें।";
 "library_quick_access_limit_description" = "इस सीमा को सेटिंग्स > उपस्थिति > लाइब्रेरी डिस्प्ले में समायोजित करें।";
+"library_quick_access_loading" = "लाइब्रेरी लोड हो रही है…";
 "library_quick_access_search_prompt" = "एल्बम, कलाकार या प्लेलिस्ट खोजें";
 "library_quick_access_selected" = "चयनित";
 "library_quick_access_selected_empty" = "कोई शॉर्टकट चयनित नहीं";

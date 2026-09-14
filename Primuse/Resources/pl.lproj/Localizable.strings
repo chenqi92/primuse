@@ -1622,6 +1622,7 @@
 "library_quick_access_count" = "Licznik szybkiego dostępu";
 "library_quick_access_count_description" = "Ustaw maksymalną liczbę elementów szybkiego dostępu wyświetlanych w Bibliotece i na stronie głównej.";
 "library_quick_access_limit_description" = "Dostosuj ten limit w Ustawienia > Wygląd > Wyświetlanie biblioteki.";
+"library_quick_access_loading" = "Wczytywanie biblioteki…";
 "library_quick_access_search_prompt" = "Wyszukaj albumy, wykonawców lub listy odtwarzania";
 "library_quick_access_selected" = "Wybrano";
 "library_quick_access_selected_empty" = "Nie wybrano żadnych skrótów";

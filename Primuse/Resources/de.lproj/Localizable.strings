@@ -34,6 +34,7 @@
 "library_quick_access_limit_description" = "Diese Grenze lässt sich unter Einstellungen > Darstellung > Mediatheksanzeige ändern.";
 "library_quick_access_selected" = "Ausgewählt";
 "library_quick_access_selected_empty" = "Keine Kurzbefehle ausgewählt";
+"library_quick_access_loading" = "Mediathek wird geladen …";
 "library_quick_access_search_prompt" = "Alben, Künstler oder Playlists suchen";
 "library_sections_settings_label" = "Mediathekskategorien";
 "library_sections_settings_footer" = "Zum Sortieren ziehen. Deaktivierte Kategorien werden in der Mediathek und Seitenleiste ausgeblendet.";

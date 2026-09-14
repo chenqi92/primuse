@@ -1622,6 +1622,7 @@
 "library_quick_access_count" = "จำนวนการเข้าถึงด่วน";
 "library_quick_access_count_description" = "ตั้งค่าจำนวนสูงสุดของรายการการเข้าถึงด่วนที่แสดงในคลังเพลงและหน้าแรก";
 "library_quick_access_limit_description" = "ปรับขีดจำกัดนี้ในการตั้งค่า > ลักษณะที่ปรากฏ > การแสดงคลังเพลง";
+"library_quick_access_loading" = "กำลังโหลดคลังเพลง…";
 "library_quick_access_search_prompt" = "ค้นหาอัลบั้ม ศิลปิน หรือเพลย์ลิสต์";
 "library_quick_access_selected" = "เลือกแล้ว";
 "library_quick_access_selected_empty" = "ไม่ได้เลือกทางลัด";

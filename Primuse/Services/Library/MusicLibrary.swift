@@ -5380,6 +5380,13 @@ final class MusicLibrary {
         return visibleArtistByID[id]
     }
 
+    /// O(1) album lookup. 快捷收藏这类"按 id 取回少量条目"的视图不该对整个
+    /// 专辑数组做线性扫描 —— 一万张专辑时每渲染一次就是几万次比较。
+    func visibleAlbum(id: String) -> Album? {
+        _ = visibleAlbumsReference
+        return visibleAlbumByID[id]
+    }
+
     /// O(1) lookup for views whose structural invalidation is driven by
     /// `visibleSongCollectionRevision` and `songReplacementToken` explicitly.
     /// Avoiding a read of `visibleSongsReference` prevents one metadata update

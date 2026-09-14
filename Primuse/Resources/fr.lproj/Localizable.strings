@@ -34,6 +34,7 @@
 "library_quick_access_limit_description" = "Réglez cette limite dans Réglages > Apparence > Affichage de la bibliothèque.";
 "library_quick_access_selected" = "Sélectionnés";
 "library_quick_access_selected_empty" = "Aucun raccourci sélectionné";
+"library_quick_access_loading" = "Chargement de la bibliothèque…";
 "library_quick_access_search_prompt" = "Rechercher des albums, artistes ou playlists";
 "library_sections_settings_label" = "Catégories de la bibliothèque";
 "library_sections_settings_footer" = "Faites glisser pour réorganiser. Désactivez une catégorie pour la masquer dans la bibliothèque et la barre latérale.";

@@ -38,6 +38,7 @@
 "library_quick_access_limit_description" = "可在“设置 > 外观 > 资料库显示”中调整数量上限。";
 "library_quick_access_selected" = "已选择";
 "library_quick_access_selected_empty" = "尚未选择快捷收藏";
+"library_quick_access_loading" = "正在载入资料库…";
 "library_quick_access_search_prompt" = "搜索专辑、艺术家或歌单";
 "library_sections_settings_label" = "资料库分类";
 "library_sections_settings_footer" = "拖动调整顺序；分类的显示、隐藏和顺序同时应用于资料库、侧栏与极简模式标签。";

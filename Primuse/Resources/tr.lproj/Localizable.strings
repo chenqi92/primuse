@@ -2871,6 +2871,7 @@
 "relay_share_code_password_separate" = "Kod paylaşımın yerini belirler. Parola korumalı paylaşımlar yine de ayrı bir parola gerektirir.";
 "pending backfill" = "dolgu bekleniyor";
 "tag_editor_lyrics_summary_partial" = "%2$d satırdan %1$d tanesi zamanlandı";
+"library_quick_access_loading" = "Kitaplık yükleniyor…";
 "library_quick_access_search_prompt" = "Albümleri, sanatçıları veya çalma listelerini arayın";
 "Drag to Reorder" = "Yeniden Sıralamak için Sürükleyin";
 "tag_editor_lyrics_delete_confirm_message" = "Yazılabilir kaynaklarda aynı adlı şarkı sözü dosyası da silinir. Salt okunur kaynaklarda yalnızca Primuse'ın önbelleğindeki sözler kaldırılır.";

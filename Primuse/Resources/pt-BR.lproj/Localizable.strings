@@ -1622,6 +1622,7 @@
 "library_quick_access_count" = "Contagem de acesso rápido";
 "library_quick_access_count_description" = "Defina o número máximo de itens de Acesso Rápido mostrados na Biblioteca e na Página inicial.";
 "library_quick_access_limit_description" = "Ajuste esse limite em Configurações > Aparência > Exibição da Biblioteca.";
+"library_quick_access_loading" = "Carregando a biblioteca…";
 "library_quick_access_search_prompt" = "Pesquise álbuns, artistas ou playlists";
 "library_quick_access_selected" = "Selecionado";
 "library_quick_access_selected_empty" = "Nenhum atalho selecionado";

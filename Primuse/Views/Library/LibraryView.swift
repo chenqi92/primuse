@@ -720,7 +720,7 @@ struct LibraryView: View {
     private func pinnedItemCard(_ pin: LibraryPinReference) -> some View {
         switch pin.kind {
         case .album:
-            if let album = albums.first(where: { $0.id == pin.itemID }) {
+            if let album = library.visibleAlbum(id: pin.itemID) {
                 NavigationLink(value: album) {
                     quickAccessLabel(
                         title: album.title,
@@ -735,7 +735,7 @@ struct LibraryView: View {
                 .mediaZoomSource(.album, id: album.id)
             }
         case .artist:
-            if let artist = artists.first(where: { $0.id == pin.itemID }) {
+            if let artist = library.visibleArtist(id: pin.itemID) {
                 NavigationLink(value: artist) {
                     quickAccessLabel(
                         title: artist.name,
@@ -1356,9 +1356,9 @@ struct LibraryView: View {
     private func pinExists(_ pin: LibraryPinReference) -> Bool {
         switch pin.kind {
         case .album:
-            return albums.contains { $0.id == pin.itemID }
+            return library.visibleAlbum(id: pin.itemID) != nil
         case .artist:
-            return artists.contains { $0.id == pin.itemID }
+            return library.visibleArtist(id: pin.itemID) != nil
         case .playlist:
             if pin.itemID == MusicLibrary.likedSongsPlaylistID { return true }
             return regularPlaylists.contains { $0.id == pin.itemID }
@@ -1438,16 +1438,149 @@ struct LibraryView: View {
     }
 }
 
+/// 快捷收藏编辑页里一条已固定项背后的真实对象。解析一次存起来，行渲染时不再
+/// 回头去整库里线性查找。
+private enum QuickAccessPinTarget: Sendable {
+    case album(Album)
+    case artist(Artist)
+    case playlist(Playlist)
+}
+
+private struct QuickAccessResolvedPin: Identifiable, Sendable {
+    let pin: LibraryPinReference
+    /// 固定项指向的对象可能已经不在资料库里（源被移除、歌被删）。保留这一行
+    /// 但不渲染，`onMove` 的下标才能继续跟 `pins` 对齐。
+    let target: QuickAccessPinTarget?
+    let matchesQuery: Bool
+    var id: String { pin.id }
+}
+
+/// 一次整库筛选的产物。这部分放到后台算完再整体交给视图;已固定的那几条则在
+/// 主线程同步解析(都是 O(1) 查找),勾选后立刻出现,不用等后台那一轮。
+private struct QuickAccessEditorContent: Sendable {
+    var albums: [Album] = []
+    var artists: [Artist] = []
+    var playlists: [Playlist] = []
+    var playlistSongCounts: [String: Int] = [:]
+}
+
+/// 整库筛选的实际工作。写成文件作用域的自由函数，明确不带任何 actor 隔离，
+/// 可以直接在后台任务里跑。
+private func buildQuickAccessEditorContent(
+    pins: [LibraryPinReference],
+    albums: [Album],
+    artists: [Artist],
+    playlists: [Playlist],
+    playlistSongCounts: [String: Int],
+    query: String
+) -> QuickAccessEditorContent {
+    let pinnedAlbumIDs = Set(pins.lazy.filter { $0.kind == .album }.map(\.itemID))
+    let pinnedArtistIDs = Set(pins.lazy.filter { $0.kind == .artist }.map(\.itemID))
+    let pinnedPlaylistIDs = Set(pins.lazy.filter { $0.kind == .playlist }.map(\.itemID))
+
+    return QuickAccessEditorContent(
+        albums: QuickAccessCandidatePolicy.filtered(
+            albums,
+            id: \.id,
+            pinnedIDs: pinnedAlbumIDs,
+            query: query,
+            searchFields: { [$0.title, $0.artistName] }
+        ),
+        artists: QuickAccessCandidatePolicy.filtered(
+            artists,
+            id: \.id,
+            pinnedIDs: pinnedArtistIDs,
+            query: query,
+            searchFields: { [$0.name] }
+        ),
+        playlists: QuickAccessCandidatePolicy.filtered(
+            playlists,
+            id: \.id,
+            pinnedIDs: pinnedPlaylistIDs,
+            query: query,
+            searchFields: { [$0.name] }
+        ),
+        playlistSongCounts: playlistSongCounts
+    )
+}
+
 private struct LibraryQuickAccessEditor: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
     @Binding var pinsRawValue: String
     let maximumCount: Int
     @State private var searchText = ""
+    /// 固定列表解码一次就留着。它此前是计算属性，而整库筛选会对每一张专辑 /
+    /// 每一位艺术家各读一次 —— 每读一次就是一次 JSON 解码，上万条就是上万次，
+    /// 打开这个页面因此明显卡顿。
+    @State private var pinState = PinState()
+    @State private var content = QuickAccessEditorContent()
+    @State private var isBuilding = false
 
-    private var pins: [LibraryPinReference] {
-        LibraryPinStorage.decode(pinsRawValue, maximumCount: maximumCount)
+    private struct PinState {
+        var rawValue: String?
+        var pins: [LibraryPinReference] = []
+        var identifiers: Set<LibraryPinReference> = []
+
+        mutating func update(rawValue: String, maximumCount: Int) {
+            guard self.rawValue != rawValue else { return }
+            self.rawValue = rawValue
+            pins = LibraryPinStorage.decode(rawValue, maximumCount: maximumCount)
+            identifiers = Set(pins)
+        }
     }
+
+    private var pins: [LibraryPinReference] { pinState.pins }
+
+    /// 已固定的那几条(上限个位数)当场解析:专辑与艺术家走资料库的 O(1) 查找,
+    /// 歌单只有几十条。放在主线程同步做, 勾选之后这一段立刻更新, 不用等后台
+    /// 那一轮整库筛选。顺序与 `pins` 严格一致, `onMove` 的下标才对得上。
+    private var resolvedPins: [QuickAccessResolvedPin] {
+        pins.map { pin in
+            switch pin.kind {
+            case .album:
+                guard let album = library.visibleAlbum(id: pin.itemID) else {
+                    return QuickAccessResolvedPin(pin: pin, target: nil, matchesQuery: false)
+                }
+                return QuickAccessResolvedPin(
+                    pin: pin,
+                    target: .album(album),
+                    matchesQuery: QuickAccessCandidatePolicy.matches(
+                        query: searchText,
+                        fields: [album.title, album.artistName]
+                    )
+                )
+            case .artist:
+                guard let artist = library.visibleArtist(id: pin.itemID) else {
+                    return QuickAccessResolvedPin(pin: pin, target: nil, matchesQuery: false)
+                }
+                return QuickAccessResolvedPin(
+                    pin: pin,
+                    target: .artist(artist),
+                    matchesQuery: QuickAccessCandidatePolicy.matches(
+                        query: searchText,
+                        fields: [artist.name]
+                    )
+                )
+            case .playlist:
+                let playlist = pin.itemID == MusicLibrary.likedSongsPlaylistID
+                    ? likedPlaylist
+                    : library.playlists.first(where: { $0.id == pin.itemID })
+                guard let playlist else {
+                    return QuickAccessResolvedPin(pin: pin, target: nil, matchesQuery: false)
+                }
+                return QuickAccessResolvedPin(
+                    pin: pin,
+                    target: .playlist(playlist),
+                    matchesQuery: QuickAccessCandidatePolicy.matches(
+                        query: searchText,
+                        fields: [playlist.name]
+                    )
+                )
+            }
+        }
+    }
+
     private var likedPlaylist: Playlist {
         library.playlists.first(where: { $0.id == MusicLibrary.likedSongsPlaylistID })
             ?? Playlist(
@@ -1455,71 +1588,41 @@ private struct LibraryQuickAccessEditor: View {
                 name: String(localized: "playlist_liked_name")
             )
     }
-    private var selectedPins: [LibraryPinReference] {
-        pins.filter(pinMatchesSearch)
-    }
-    private var albums: [Album] {
-        let matching = library.visibleAlbums.filter {
-            let pin = LibraryPinReference(kind: .album, itemID: $0.id)
-            return !pins.contains(pin)
-                && (
-                    searchText.isEmpty
-                        || $0.title.localizedCaseInsensitiveContains(searchText)
-                        || ($0.artistName?.localizedCaseInsensitiveContains(searchText) ?? false)
-                )
-        }
-        return matching.sorted {
-            return $0.title.localizedCompare($1.title) == .orderedAscending
-        }
-    }
-    private var artists: [Artist] {
-        let matching = library.visibleArtists.filter {
-            let pin = LibraryPinReference(kind: .artist, itemID: $0.id)
-            return !pins.contains(pin)
-                && (searchText.isEmpty || $0.name.localizedCaseInsensitiveContains(searchText))
-        }
-        return matching.sorted {
-            return $0.name.localizedCompare($1.name) == .orderedAscending
-        }
-    }
-    private var playlists: [Playlist] {
-        let allPlaylists = [likedPlaylist] + library.playlists.filter {
-            $0.id != MusicLibrary.likedSongsPlaylistID
-        }
-        let matching = allPlaylists
-            .filter {
-                let pin = LibraryPinReference(kind: .playlist, itemID: $0.id)
-                return !pins.contains(pin)
-                    && (searchText.isEmpty || $0.name.localizedCaseInsensitiveContains(searchText))
-            }
-        return matching.sorted {
-            return $0.updatedAt > $1.updatedAt
-        }
+
+    /// 只要输入变了就重算一次。把资料库的两个版本号读进来，资料库在后台扫描
+    /// 期间更新时这一页也跟着刷新。
+    private var rebuildKey: String {
+        [
+            String(library.searchRevision),
+            String(library.playlistCollectionRevision),
+            pinsRawValue,
+            searchText,
+        ].joined(separator: "\u{1F}")
     }
 
     var body: some View {
         NavigationStack {
             List {
-                if searchText.isEmpty || !selectedPins.isEmpty {
+                if searchText.isEmpty || resolvedPins.contains(where: \.matchesQuery) {
                     Section {
                         if pins.isEmpty {
                             Label("library_quick_access_selected_empty", systemImage: "pin")
                                 .foregroundStyle(.secondary)
                         } else if searchText.isEmpty {
-                            ForEach(pins) { pin in
-                                selectedPinRow(pin)
+                            ForEach(resolvedPins) { resolved in
+                                selectedPinRow(resolved)
                             }
                             .onMove(perform: movePins)
                         } else {
-                            ForEach(selectedPins) { pin in
-                                selectedPinRow(pin)
+                            ForEach(resolvedPins.filter(\.matchesQuery)) { resolved in
+                                selectedPinRow(resolved)
                             }
                         }
                     } header: {
                         HStack {
                             Text("library_quick_access_selected")
                             Spacer()
-                            Text("\(pins.count)/\(maximumCount)")
+                            Text(verbatim: "\(pins.count)/\(maximumCount)")
                                 .monospacedDigit()
                         }
                     } footer: {
@@ -1527,9 +1630,16 @@ private struct LibraryQuickAccessEditor: View {
                     }
                 }
 
-                if !albums.isEmpty {
+                if isBuilding {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("library_quick_access_loading").foregroundStyle(.secondary)
+                    }
+                }
+
+                if !content.albums.isEmpty {
                     Section("tab_albums") {
-                        ForEach(albums) { album in
+                        ForEach(content.albums) { album in
                             pinButton(
                                 LibraryPinReference(kind: .album, itemID: album.id)
                             ) {
@@ -1543,9 +1653,9 @@ private struct LibraryQuickAccessEditor: View {
                     }
                 }
 
-                if !artists.isEmpty {
+                if !content.artists.isEmpty {
                     Section("tab_artists") {
-                        ForEach(artists) { artist in
+                        ForEach(content.artists) { artist in
                             pinButton(
                                 LibraryPinReference(kind: .artist, itemID: artist.id)
                             ) {
@@ -1557,15 +1667,15 @@ private struct LibraryQuickAccessEditor: View {
                             } title: {
                                 Text(artist.name)
                             } subtitle: {
-                                Text("\(artist.albumCount) \(String(localized: "albums_count"))")
+                                Text(verbatim: "\(artist.albumCount) \(String(localized: "albums_count"))")
                             }
                         }
                     }
                 }
 
-                if !playlists.isEmpty {
+                if !content.playlists.isEmpty {
                     Section("tab_playlists") {
-                        ForEach(playlists) { playlist in
+                        ForEach(content.playlists) { playlist in
                             pinButton(
                                 LibraryPinReference(kind: .playlist, itemID: playlist.id)
                             ) {
@@ -1573,10 +1683,7 @@ private struct LibraryQuickAccessEditor: View {
                             } title: {
                                 Text(playlist.name)
                             } subtitle: {
-                                Text(String(
-                                    format: String(localized: "carplay_playlist_song_count_format"),
-                                    library.songCount(forPlaylist: playlist.id)
-                                ))
+                                Text(playlistSubtitle(playlist))
                             }
                         }
                     }
@@ -1608,73 +1715,90 @@ private struct LibraryQuickAccessEditor: View {
             .environment(\.editMode, .constant(searchText.isEmpty ? .active : .inactive))
             #endif
         }
-    }
-
-    @ViewBuilder
-    private func selectedPinRow(_ pin: LibraryPinReference) -> some View {
-        switch pin.kind {
-        case .album:
-            if let album = library.visibleAlbums.first(where: { $0.id == pin.itemID }) {
-                pinButton(pin) {
-                    AlbumArtworkView(album: album, size: 42, cornerRadius: 7)
-                } title: {
-                    Text(album.title)
-                } subtitle: {
-                    Text(album.artistName ?? String(localized: "unknown_artist"))
-                }
-            }
-        case .artist:
-            if let artist = library.visibleArtists.first(where: { $0.id == pin.itemID }) {
-                pinButton(pin) {
-                    ArtistArtworkView(
-                        artist: artist,
-                        size: 42,
-                        cornerRadius: 21
-                    )
-                } title: {
-                    Text(artist.name)
-                } subtitle: {
-                    Text("\(artist.albumCount) \(String(localized: "albums_count"))")
-                }
-            }
-        case .playlist:
-            if let playlist = pin.itemID == MusicLibrary.likedSongsPlaylistID
-                ? likedPlaylist
-                : library.playlists.first(where: { $0.id == pin.itemID }) {
-                pinButton(pin) {
-                    editorPlaylistArtwork(playlist)
-                } title: {
-                    Text(playlist.name)
-                } subtitle: {
-                    Text(String(
-                        format: String(localized: "carplay_playlist_song_count_format"),
-                        library.songCount(forPlaylist: playlist.id)
-                    ))
-                }
-            }
+        .onChange(of: pinsRawValue, initial: true) { _, newValue in
+            pinState.update(rawValue: newValue, maximumCount: maximumCount)
+        }
+        .task(id: rebuildKey) {
+            await rebuildContent()
         }
     }
 
-    private func pinMatchesSearch(_ pin: LibraryPinReference) -> Bool {
-        switch pin.kind {
-        case .album:
-            guard let album = library.visibleAlbums.first(where: { $0.id == pin.itemID }) else {
-                return false
+    /// 整库筛选。专辑与艺术家来自资料库已经排好序的集合，歌单来自用户排定的
+    /// 顺序 —— 这里一律保持原顺序，既省掉一次 localizedCompare 全表排序，也不会
+    /// 把用户排好的歌单顺序又打乱一次。
+    private func rebuildContent() async {
+        let query = searchText
+        let currentPins = LibraryPinStorage.decode(pinsRawValue, maximumCount: maximumCount)
+        let albumsSnapshot = library.visibleAlbums
+        let artistsSnapshot = library.visibleArtists
+        let liked = likedPlaylist
+        let playlistsSnapshot = [liked] + library.playlists.filter {
+            $0.id != MusicLibrary.likedSongsPlaylistID
+        }
+        var songCounts: [String: Int] = [:]
+        songCounts.reserveCapacity(playlistsSnapshot.count)
+        for playlist in playlistsSnapshot {
+            songCounts[playlist.id] = library.songCount(forPlaylist: playlist.id)
+        }
+
+        isBuilding = true
+        let built = await Task.detached(priority: .userInitiated) {
+            buildQuickAccessEditorContent(
+                pins: currentPins,
+                albums: albumsSnapshot,
+                artists: artistsSnapshot,
+                playlists: playlistsSnapshot,
+                playlistSongCounts: songCounts,
+                query: query
+            )
+        }.value
+        guard !Task.isCancelled else { return }
+        content = built
+        isBuilding = false
+    }
+
+    private func playlistSubtitle(_ playlist: Playlist) -> String {
+        // 后台那一轮还没落地时(刚固定了一个新歌单)直接现算一次, 不显示 0。
+        String(
+            format: String(localized: "carplay_playlist_song_count_format"),
+            content.playlistSongCounts[playlist.id]
+                ?? library.songCount(forPlaylist: playlist.id)
+        )
+    }
+
+    @ViewBuilder
+    private func selectedPinRow(_ resolved: QuickAccessResolvedPin) -> some View {
+        switch resolved.target {
+        case .album(let album):
+            pinButton(resolved.pin) {
+                AlbumArtworkView(album: album, size: 42, cornerRadius: 7)
+            } title: {
+                Text(album.title)
+            } subtitle: {
+                Text(album.artistName ?? String(localized: "unknown_artist"))
             }
-            return searchText.isEmpty
-                || album.title.localizedCaseInsensitiveContains(searchText)
-                || (album.artistName?.localizedCaseInsensitiveContains(searchText) ?? false)
-        case .artist:
-            guard let artist = library.visibleArtists.first(where: { $0.id == pin.itemID }) else {
-                return false
+        case .artist(let artist):
+            pinButton(resolved.pin) {
+                ArtistArtworkView(
+                    artist: artist,
+                    size: 42,
+                    cornerRadius: 21
+                )
+            } title: {
+                Text(artist.name)
+            } subtitle: {
+                Text(verbatim: "\(artist.albumCount) \(String(localized: "albums_count"))")
             }
-            return searchText.isEmpty || artist.name.localizedCaseInsensitiveContains(searchText)
-        case .playlist:
-            let playlist = pin.itemID == MusicLibrary.likedSongsPlaylistID
-                ? likedPlaylist
-                : library.playlists.first(where: { $0.id == pin.itemID })
-            guard let playlist else { return false }
-            return searchText.isEmpty || playlist.name.localizedCaseInsensitiveContains(searchText)
+        case .playlist(let playlist):
+            pinButton(resolved.pin) {
+                editorPlaylistArtwork(playlist)
+            } title: {
+                Text(playlist.name)
+            } subtitle: {
+                Text(playlistSubtitle(playlist))
+            }
+        case nil:
+            EmptyView()
         }
     }
 
@@ -1684,7 +1808,7 @@ private struct LibraryQuickAccessEditor: View {
         @ViewBuilder title: () -> Title,
         @ViewBuilder subtitle: () -> Subtitle
     ) -> some View {
-        let isSelected = pins.contains(pin)
+        let isSelected = pinState.identifiers.contains(pin)
         let canSelect = isSelected || pins.count < maximumCount
 
         return Button {

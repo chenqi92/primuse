@@ -34,6 +34,7 @@
 "library_quick_access_limit_description" = "설정 > 모양 > 보관함 표시에서 이 한도를 조정할 수 있습니다.";
 "library_quick_access_selected" = "선택됨";
 "library_quick_access_selected_empty" = "선택한 바로가기가 없습니다";
+"library_quick_access_loading" = "보관함 불러오는 중…";
 "library_quick_access_search_prompt" = "앨범, 아티스트 또는 플레이리스트 검색";
 "library_sections_settings_label" = "라이브러리 카테고리";
 "library_sections_settings_footer" = "드래그하여 순서를 바꾸고, 끄면 라이브러리와 사이드바에서 숨깁니다.";
