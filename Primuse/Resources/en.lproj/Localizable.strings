@@ -3734,3 +3734,4 @@
 "lyric_poster_style_polaroid" = "Instant Photo";
 "lyric_poster_style_cassette" = "Cassette";
 "lyric_poster_style_fallback" = "Poster";
+"lyric_poster_overflow_hint" = "Too many lines for this format — pick a taller format or fewer lines";

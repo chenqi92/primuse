@@ -32,91 +32,96 @@ struct LyricPosterShareSheet: View {
     /// 预览动画的起点。切风格 / 换选句时重置, 让动效从头演一遍。
     @State private var previewEpoch = Date()
 
+    /// 内容两侧留白, 预览宽度要扣掉。
+    private static let contentMargin: CGFloat = 20
+    /// 预览最多占这么高, 否则竖版画幅会把风格选择器挤出首屏。
+    private static let previewMaximumHeight: CGFloat = 420
+
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    preview
-                    styleRow
-                    canvasRow
-                    options
+            // 在 ScrollView 外面量一次可用宽度。垂直 ScrollView 给子视图的高度
+            // 提议是 nil, 在里面用 GeometryReader + aspectRatio 反推高度会拿到
+            // 10pt 的理想尺寸, 预览框直接塌掉。
+            GeometryReader { outer in
+                ScrollView {
+                    VStack(spacing: 24) {
+                        preview(availableWidth: outer.size.width - Self.contentMargin * 2)
+                        styleRow
+                        canvasRow
+                        options
+                    }
+                    .padding(.horizontal, Self.contentMargin)
+                    .padding(.top, 12)
+                    .padding(.bottom, 24)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
-                .padding(.bottom, 24)
-            }
-            .navigationTitle(Text("lyric_poster_title"))
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar { toolbarContent }
-            .safeAreaInset(edge: .bottom) { actionBar }
-            .sheet(isPresented: $isPickingLines) {
-                LyricPosterLinePicker(composer: composer)
-            }
-            .sheet(item: $shareItem) { item in
-                LyricPosterActivityView(item: item)
-            }
-            .alert(
-                Text("lyric_poster_error_title"),
-                isPresented: Binding(
-                    get: { errorMessage != nil },
-                    set: { if !$0 { errorMessage = nil } }
-                )
-            ) {
-                Button(String(localized: "ok"), role: .cancel) { errorMessage = nil }
-            } message: {
-                Text(errorMessage ?? "")
-            }
-            .task {
-                await composer.loadArtwork(sourceManager: sourceManager)
-            }
-            .onChange(of: composer.styleID) { _, newValue in
-                storedStyle = newValue.rawValue
-                previewEpoch = Date()
-            }
-            .onChange(of: composer.canvas) { _, newValue in
-                storedCanvas = newValue.rawValue
-            }
-            .onChange(of: composer.selection) { _, _ in
-                previewEpoch = Date()
-            }
-            .onDisappear {
-                exportTask?.cancel()
+                .navigationTitle(Text("lyric_poster_title"))
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                #endif
+                .toolbar { toolbarContent }
+                .lyricPosterBottomBar { actionBar }
+                .sheet(isPresented: $isPickingLines) {
+                    LyricPosterLinePicker(composer: composer)
+                }
+                .sheet(item: $shareItem) { item in
+                    LyricPosterActivityView(item: item)
+                }
+                .alert(
+                    Text("lyric_poster_error_title"),
+                    isPresented: Binding(
+                        get: { errorMessage != nil },
+                        set: { if !$0 { errorMessage = nil } }
+                    )
+                ) {
+                    Button(String(localized: "ok"), role: .cancel) { errorMessage = nil }
+                } message: {
+                    Text(errorMessage ?? "")
+                }
+                .task {
+                    await composer.loadArtwork(sourceManager: sourceManager)
+                }
+                .onChange(of: composer.styleID) { _, newValue in
+                    storedStyle = newValue.rawValue
+                    previewEpoch = Date()
+                }
+                .onChange(of: composer.canvas) { _, newValue in
+                    storedCanvas = newValue.rawValue
+                }
+                .onChange(of: composer.selection) { _, _ in
+                    previewEpoch = Date()
+                }
+                .onDisappear {
+                    exportTask?.cancel()
+                }
             }
         }
     }
 
     // MARK: - 预览
 
-    private var preview: some View {
-        VStack(spacing: 12) {
-            GeometryReader { geo in
-                // 海报按 1080 宽的设计稿排版, 预览只是把同一份视图整体缩放 ——
-                // 所见即所存, 不另写一套预览版式。
-                let posterWidth = CGFloat(composer.canvas.pixelWidth)
-                let posterHeight = CGFloat(composer.canvas.pixelHeight)
-                let scale: CGFloat = geo.size.width / posterWidth
-                let previewHeight: CGFloat = posterHeight * scale
+    private func preview(availableWidth: CGFloat) -> some View {
+        let size = previewSize(availableWidth: availableWidth)
 
-                Group {
-                    if composer.hasSelection {
-                        posterContent
-                            .frame(width: posterWidth, height: posterHeight)
-                            .scaleEffect(scale, anchor: .topLeading)
-                            .frame(width: geo.size.width, height: previewHeight)
-                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                            .shadow(color: .black.opacity(0.25), radius: 18, y: 8)
-                    } else {
-                        emptySelectionPlaceholder
-                            .frame(width: geo.size.width, height: previewHeight)
-                    }
+        return VStack(spacing: 12) {
+            Group {
+                if composer.hasSelection {
+                    scaledPoster(in: size)
+                } else {
+                    emptySelectionPlaceholder
                 }
             }
-            .aspectRatio(composer.canvas.aspectRatio, contentMode: .fit)
-            .frame(maxHeight: 460)
+            .frame(width: size.width, height: size.height)
+            .frame(maxWidth: .infinity)
 
-            if composer.hasSelection {
+            if composer.layoutOverflows {
+                Label(
+                    String(localized: "lyric_poster_overflow_hint"),
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .multilineTextAlignment(.center)
+            } else if composer.hasSelection {
                 Text(
                     String(
                         format: String(localized: "lyric_poster_selection_count"),
@@ -129,10 +134,45 @@ struct LyricPosterShareSheet: View {
         }
     }
 
+    /// 预览框的实际尺寸: 先按可用宽度等比缩放, 再受最大高度约束。
+    private func previewSize(availableWidth: CGFloat) -> CGSize {
+        let posterWidth = CGFloat(composer.canvas.pixelWidth)
+        let posterHeight = CGFloat(composer.canvas.pixelHeight)
+        // sheet 刚出现时宽度可能还是 0, 给一个下限免得算出 0 尺寸的预览框。
+        let width = max(availableWidth, 120)
+        let scale: CGFloat = min(width / posterWidth, Self.previewMaximumHeight / posterHeight)
+        return CGSize(width: posterWidth * scale, height: posterHeight * scale)
+    }
+
+    /// 把 1080 宽的海报整体缩放进预览框。
+    ///
+    /// 缩放锚点必须和外层 frame 的对齐方式配套: `scaleEffect` 不改变布局尺寸,
+    /// 海报仍按 1080×1350 居中摆进预览框(左上角落在框外很远), 这时若用
+    /// `.topLeading` 作锚点, 缩放后的画面整个留在可见区域左上方之外, 预览框里
+    /// 只剩底色 —— 看上去就是"一片漆黑"。
+    private func scaledPoster(in size: CGSize) -> some View {
+        let posterWidth = CGFloat(composer.canvas.pixelWidth)
+        let posterHeight = CGFloat(composer.canvas.pixelHeight)
+        // 宽高都不许越界: 预览框还受 maxHeight 限制, 只按宽度算会在竖版画幅上溢出。
+        let widthScale: CGFloat = size.width / posterWidth
+        let heightScale: CGFloat = size.height / posterHeight
+        let scale: CGFloat = min(widthScale, heightScale)
+
+        return posterContent
+            .frame(width: posterWidth, height: posterHeight)
+            .scaleEffect(scale)
+            // 收到缩放后的真实尺寸上, 圆角和投影才贴着海报边缘。
+            .frame(width: posterWidth * scale, height: posterHeight * scale)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(color: .black.opacity(0.25), radius: 18, y: 8)
+    }
+
     @ViewBuilder
     private var posterContent: some View {
         if isMotionPreview {
-            TimelineView(.animation) { timeline in
+            // 20fps 足够演逐句浮现, 而 `.animation` 会按 120Hz 重建整张海报 ——
+            // 里面有几处上百点半径的模糊, 按屏幕刷新率重画纯属发热。
+            TimelineView(.periodic(from: previewEpoch, by: 1.0 / 20.0)) { timeline in
                 let plan = composer.motionPlan
                 // 预览循环播放: 一次演完停半秒再来, 跟相册里长按实况的观感一致。
                 let elapsed = timeline.date.timeIntervalSince(previewEpoch)
@@ -348,28 +388,29 @@ struct LyricPosterShareSheet: View {
                 Button {
                     saveToPhotos()
                 } label: {
-                    Label(String(localized: "lyric_poster_save"), systemImage: "square.and.arrow.down")
-                        .frame(maxWidth: .infinity)
+                    actionLabel(String(localized: "lyric_poster_save"), symbol: "square.and.arrow.down")
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
                 #else
                 Button {
                     saveToFile()
                 } label: {
-                    Label(String(localized: "lyric_poster_save_file"), systemImage: "square.and.arrow.down")
-                        .frame(maxWidth: .infinity)
+                    actionLabel(String(localized: "lyric_poster_save_file"), symbol: "square.and.arrow.down")
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
                 #endif
 
                 Button {
                     startShare()
                 } label: {
-                    Label(String(localized: "share"), systemImage: "square.and.arrow.up")
-                        .frame(maxWidth: .infinity)
+                    actionLabel(String(localized: "share"), symbol: "square.and.arrow.up")
                 }
                 .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
             }
+            .controlSize(.large)
             .disabled(!composer.hasSelection || composer.isExporting)
             .confirmationDialog(
                 Text("share"),
@@ -387,7 +428,12 @@ struct LyricPosterShareSheet: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .background(.bar)
+    }
+
+    private func actionLabel(_ title: String, symbol: String) -> some View {
+        Label(title, systemImage: symbol)
+            .font(.subheadline.weight(.semibold))
+            .frame(maxWidth: .infinity)
     }
 
     // MARK: - 导出动作
@@ -564,6 +610,31 @@ private struct LyricPosterLinePicker: View {
         case .notAdjacent: return "lyric_poster_not_adjacent"
         case nil: return ""
         }
+    }
+}
+
+// MARK: - 底部操作条
+
+private extension View {
+    /// iOS 26 起底部栏用 `safeAreaBar`: 系统自己铺液态玻璃, 内容滚到栏下面时
+    /// 边缘会柔化。旧系统没有这个修饰符, 退回 `safeAreaInset` 并自己垫一层
+    /// `.bar` —— 否则按钮直接压在内容上。
+    @ViewBuilder
+    func lyricPosterBottomBar<Bar: View>(@ViewBuilder content: @escaping () -> Bar) -> some View {
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
+            safeAreaBar(edge: .bottom, spacing: 0, content: content)
+                .scrollEdgeEffectStyle(.soft, for: .bottom)
+        } else {
+            safeAreaInset(edge: .bottom, spacing: 0) {
+                content().background(.bar)
+            }
+        }
+        #else
+        safeAreaInset(edge: .bottom, spacing: 0) {
+            content().background(.bar)
+        }
+        #endif
     }
 }
 

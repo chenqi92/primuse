@@ -90,16 +90,40 @@ struct LyricPosterRenderContext {
 
     var hasArtwork: Bool { artwork != nil }
 
+    /// 歌词可用的字号与宽度。
+    ///
+    /// `reservedHeight` 是这个风格版面上除歌词以外的固定高度(封面、唱片、
+    /// 画格、署名、各段 padding 与 spacing 的总和, 按 1080 宽的设计稿计)。
+    /// 歌词的高度配额必须从画布高度里扣掉它们再分 —— 写死成"画布高度的
+    /// 百分之多少"的话, 同一个风格换到方形画幅就会被固定元素挤出画布,
+    /// 而离屏渲染只会把溢出的部分裁掉。
     func metrics(
         textWidthRatio: Double = LyricPosterLayoutPolicy.defaultTextWidthRatio,
-        lyricHeightRatio: Double = LyricPosterLayoutPolicy.defaultLyricHeightRatio
+        reservedHeight: Double = 0,
+        breathingRatio: Double = 0.10
     ) -> LyricPosterTypeMetrics {
+        let canvasHeight = canvas.pixelHeight
+        let floor = canvasHeight * 0.16
+        let breathing = max(canvasHeight - reservedHeight - canvasHeight * breathingRatio, floor)
         var resolved = LyricPosterLayoutPolicy.metrics(
             for: content,
             canvas: canvas,
             textWidthRatio: textWidthRatio,
-            lyricHeightRatio: lyricHeightRatio
+            lyricHeightRatio: breathing / canvasHeight
         )
+        if resolved.overflows {
+            // 上下留白是"好看"而不是"必须"。挤不下的时候先把它让出来,
+            // 真的还放不下再让 overflows 立着, 免得版面明明装得下却报警。
+            let withoutBreathing = max(canvasHeight - reservedHeight, floor)
+            if withoutBreathing > breathing {
+                resolved = LyricPosterLayoutPolicy.metrics(
+                    for: content,
+                    canvas: canvas,
+                    textWidthRatio: textWidthRatio,
+                    lyricHeightRatio: withoutBreathing / canvasHeight
+                )
+            }
+        }
         if !includesTranslation {
             resolved = LyricPosterTypeMetrics(
                 lyricFontSize: resolved.lyricFontSize,
@@ -109,7 +133,8 @@ struct LyricPosterRenderContext {
                 captionFontSize: resolved.captionFontSize,
                 textWidth: resolved.textWidth,
                 estimatedHeight: resolved.estimatedHeight,
-                hidesTranslation: true
+                hidesTranslation: true,
+                overflows: resolved.overflows
             )
         }
         return resolved
@@ -156,6 +181,9 @@ func builtInPosterDescriptor(
 @MainActor
 protocol LyricPosterStyleRendering {
     var descriptor: LyricPosterStyleDescriptor { get }
+    /// 这个风格给歌词分到的字号与宽度。单独暴露出来, 分享面板才能在版面
+    /// 装不下时提醒用户换画幅 —— 否则只能导出一张被裁的图。
+    func metrics(for context: LyricPosterRenderContext) -> LyricPosterTypeMetrics
     /// 画满整块画布。调用方已经把画布尺寸框好, 实现内部不要再加外边距以外的 frame。
     func makeBody(context: LyricPosterRenderContext) -> AnyView
 }

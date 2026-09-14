@@ -3862,3 +3862,4 @@
 "lyric_poster_style_polaroid" = "ภาพโพลารอยด์";
 "lyric_poster_style_cassette" = "เทปคาสเซ็ต";
 "lyric_poster_style_fallback" = "โปสเตอร์";
+"lyric_poster_overflow_hint" = "บรรทัดมากเกินไปสำหรับขนาดนี้ — เลือกขนาดที่สูงขึ้นหรือลดจำนวนบรรทัด";

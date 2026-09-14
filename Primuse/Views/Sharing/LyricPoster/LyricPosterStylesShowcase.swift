@@ -9,17 +9,30 @@ import PrimuseKit
 struct FilmStillPosterStyle: LyricPosterStyleRendering {
     let descriptor = builtInPosterDescriptor(.filmStill, symbol: "film", order: 4)
 
+    /// 2.39:1 的画格, 上下留黑 —— 宽银幕的比例本身就是"电影感"的来源。
+    /// 方形画幅下这个画格会吃掉太多高度, 再按画布高度压一道。
+    private func frameHeight(_ context: LyricPosterRenderContext) -> CGFloat {
+        min(context.size.width / 2.39, context.size.height * 0.30)
+    }
+
+    /// 画格 + 四段 spacing 192 + 时间码行 34 + 上下内边距 112。
+    func metrics(for context: LyricPosterRenderContext) -> LyricPosterTypeMetrics {
+        context.metrics(
+            textWidthRatio: 0.82,
+            reservedHeight: Double(frameHeight(context)) + 338
+        )
+    }
+
     func makeBody(context: LyricPosterRenderContext) -> AnyView {
-        let metrics = context.metrics(textWidthRatio: 0.82, lyricHeightRatio: 0.30)
-        // 2.39:1 的画格, 上下留黑 —— 宽银幕的比例本身就是"电影感"的来源。
-        let frameHeight: CGFloat = context.size.width / 2.39
+        let metrics = metrics(for: context)
+        let frameHeight = frameHeight(context)
         let push = CGFloat(1.06 + 0.10 * context.entrance)
 
         return AnyView(
             ZStack {
                 Color.black
 
-                VStack(spacing: context.scaled(72)) {
+                VStack(spacing: context.scaled(48)) {
                     Spacer(minLength: 0)
 
                     ZStack {
@@ -73,7 +86,7 @@ struct FilmStillPosterStyle: LyricPosterStyleRendering {
                     }
                     .padding(.horizontal, context.scaled(80))
                 }
-                .padding(.vertical, context.scaled(72))
+                .padding(.vertical, context.scaled(56))
             }
             .frame(width: context.size.width, height: context.size.height)
         )
@@ -101,8 +114,13 @@ struct FilmStillPosterStyle: LyricPosterStyleRendering {
 struct NeonNightPosterStyle: LyricPosterStyleRendering {
     let descriptor = builtInPosterDescriptor(.neonNight, symbol: "bolt.fill", order: 5)
 
+    /// 装饰行 54 + 四段 spacing 192 + 署名 96 + 上下内边距 200。
+    func metrics(for context: LyricPosterRenderContext) -> LyricPosterTypeMetrics {
+        context.metrics(textWidthRatio: 0.78, reservedHeight: 542)
+    }
+
     func makeBody(context: LyricPosterRenderContext) -> AnyView {
-        let metrics = context.metrics(textWidthRatio: 0.78, lyricHeightRatio: 0.44)
+        let metrics = metrics(for: context)
         let glow = context.palette.accent
         // 呼吸: 动态海报按时间起伏, 静态海报取一个偏亮的定值。
         let wave: Double = 0.5 + 0.5 * sin(context.time * 2.6)
@@ -209,10 +227,25 @@ struct PolaroidPosterStyle: LyricPosterStyleRendering {
     private let paper = Color(red: 0.98, green: 0.975, blue: 0.96)
     private let ink = Color(red: 0.13, green: 0.12, blue: 0.14)
 
+    /// 照片本来是正方形(宽度决定边长), 但相纸还要装下歌词和落款,
+    /// 方形画幅下必须让照片先让步, 否则整张相纸伸出画布。
+    private func photoSide(_ context: LyricPosterRenderContext) -> CGFloat {
+        min(context.size.width * 0.80 - context.scaled(72), context.size.height * 0.52)
+    }
+
+    /// 文字列要跟照片一样宽: 列窄了长句会被迫折成两行, 相纸立刻装不下。
+    /// 照片 + 两段 spacing 72 + 落款 46 + 相纸内边距 72。
+    func metrics(for context: LyricPosterRenderContext) -> LyricPosterTypeMetrics {
+        context.metrics(
+            textWidthRatio: 0.70,
+            reservedHeight: Double(photoSide(context)) + 190
+        )
+    }
+
     func makeBody(context: LyricPosterRenderContext) -> AnyView {
-        let metrics = context.metrics(textWidthRatio: 0.62, lyricHeightRatio: 0.26)
+        let metrics = metrics(for: context)
         let paperWidth: CGFloat = context.size.width * 0.80
-        let photoSide: CGFloat = paperWidth - context.scaled(72)
+        let photoSide = photoSide(context)
         // 显影: 入场前半段完成上色, 后半段留给歌词。
         let development: Double = context.isMotion ? min(1, context.entrance * 2.2) : 1
         let tilt: Double = context.isMotion ? -3.2 + 1.2 * context.entrance : -2.0
@@ -291,8 +324,22 @@ struct CassettePosterStyle: LyricPosterStyleRendering {
 
     private let shell = Color(red: 0.13, green: 0.13, blue: 0.15)
 
+    /// 卡带外壳按宽度定高(0.62 比例), 方形画幅下改由高度决定。
+    private func shellWidth(_ context: LyricPosterRenderContext) -> CGFloat {
+        min(context.size.width * 0.72, context.size.height * 0.44 / 0.62)
+    }
+
+    /// 外壳 + 两段 spacing 88 + SIDE A 行 34 + 上下内边距 168。
+    func metrics(for context: LyricPosterRenderContext) -> LyricPosterTypeMetrics {
+        context.metrics(
+            textWidthRatio: 0.72,
+            reservedHeight: Double(shellWidth(context) * 0.62) + 290
+        )
+    }
+
     func makeBody(context: LyricPosterRenderContext) -> AnyView {
-        let metrics = context.metrics(textWidthRatio: 0.72, lyricHeightRatio: 0.32)
+        let metrics = metrics(for: context)
+        let shellWidth = shellWidth(context)
 
         return AnyView(
             ZStack {
@@ -306,7 +353,7 @@ struct CassettePosterStyle: LyricPosterStyleRendering {
                 )
 
                 VStack(spacing: context.scaled(44)) {
-                    cassetteShell(context: context, metrics: metrics)
+                    cassetteShell(context: context, metrics: metrics, width: shellWidth)
 
                     LyricPosterPassageView(
                         context: context,
@@ -341,9 +388,9 @@ struct CassettePosterStyle: LyricPosterStyleRendering {
 
     private func cassetteShell(
         context: LyricPosterRenderContext,
-        metrics: LyricPosterTypeMetrics
+        metrics: LyricPosterTypeMetrics,
+        width: CGFloat
     ) -> some View {
-        let width: CGFloat = context.size.width * 0.72
         let height: CGFloat = width * 0.62
         let reelSize: CGFloat = height * 0.38
         let rotation: Double = context.isMotion ? context.time * 110 : 0

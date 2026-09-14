@@ -4049,3 +4049,4 @@
 "lyric_poster_style_polaroid" = "拍立得";
 "lyric_poster_style_cassette" = "磁带";
 "lyric_poster_style_fallback" = "海报";
+"lyric_poster_overflow_hint" = "歌词太多，当前画幅放不下，换更高的画幅或少选几句";

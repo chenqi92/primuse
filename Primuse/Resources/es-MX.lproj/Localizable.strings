@@ -3862,3 +3862,4 @@
 "lyric_poster_style_polaroid" = "Foto instantánea";
 "lyric_poster_style_cassette" = "Casete";
 "lyric_poster_style_fallback" = "Póster";
+"lyric_poster_overflow_hint" = "Demasiados versos para este formato: elige uno más alto o menos versos";

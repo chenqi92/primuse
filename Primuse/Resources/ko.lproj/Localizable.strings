@@ -3956,3 +3956,4 @@
 "lyric_poster_style_polaroid" = "즉석 사진";
 "lyric_poster_style_cassette" = "카세트";
 "lyric_poster_style_fallback" = "포스터";
+"lyric_poster_overflow_hint" = "이 크기에 비해 가사가 많습니다. 더 긴 크기를 고르거나 줄 수를 줄이세요";

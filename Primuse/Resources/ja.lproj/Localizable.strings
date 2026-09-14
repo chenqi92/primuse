@@ -3957,3 +3957,4 @@
 "lyric_poster_style_polaroid" = "インスタント写真";
 "lyric_poster_style_cassette" = "カセット";
 "lyric_poster_style_fallback" = "ポスター";
+"lyric_poster_overflow_hint" = "この画幅には歌詞が多すぎます。縦長の画幅にするか行数を減らしてください";

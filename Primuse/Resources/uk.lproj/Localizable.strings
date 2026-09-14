@@ -3862,3 +3862,4 @@
 "lyric_poster_style_polaroid" = "Миттєве фото";
 "lyric_poster_style_cassette" = "Касета";
 "lyric_poster_style_fallback" = "Постер";
+"lyric_poster_overflow_hint" = "Забагато рядків для цього формату — виберіть вищий формат або менше рядків";

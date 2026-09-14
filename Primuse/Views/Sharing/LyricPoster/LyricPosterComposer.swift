@@ -150,6 +150,13 @@ final class LyricPosterComposer: Identifiable {
         content.hasTranslation
     }
 
+    /// 当前风格 + 画幅下歌词已经排不进版面。导出的图会被裁, 所以要明说,
+    /// 而不是交出一张缺了半句的海报。
+    var layoutOverflows: Bool {
+        guard hasSelection, let renderer else { return false }
+        return renderer.metrics(for: context(at: 0, isMotion: false)).overflows
+    }
+
     // MARK: - 选句
 
     func toggle(_ id: String) {

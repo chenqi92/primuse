@@ -3862,3 +3862,4 @@
 "lyric_poster_style_polaroid" = "صورة فورية";
 "lyric_poster_style_cassette" = "شريط كاسيت";
 "lyric_poster_style_fallback" = "ملصق";
+"lyric_poster_overflow_hint" = "الأسطر أكثر مما يتسع له هذا المقاس — اختر مقاساً أطول أو أسطراً أقل";

@@ -11,8 +11,13 @@ import PrimuseKit
 struct AuroraGlassPosterStyle: LyricPosterStyleRendering {
     let descriptor = builtInPosterDescriptor(.auroraGlass, symbol: "sparkles", order: 0)
 
+    /// 引号 65 + 三段 spacing 132 + 分隔线 2 + 署名 96 + 卡片内边距 128。
+    func metrics(for context: LyricPosterRenderContext) -> LyricPosterTypeMetrics {
+        context.metrics(textWidthRatio: 0.68, reservedHeight: 430)
+    }
+
     func makeBody(context: LyricPosterRenderContext) -> AnyView {
-        let metrics = context.metrics(textWidthRatio: 0.68, lyricHeightRatio: 0.46)
+        let metrics = metrics(for: context)
         let cardPadding = context.scaled(64)
         // 尺寸(CGFloat)和进度(Double)先各自收敛成命名常量再相乘。
         let glowShift: CGFloat = context.size.width * CGFloat(-0.28 + 0.18 * context.entrance)
@@ -85,8 +90,13 @@ struct AuroraGlassPosterStyle: LyricPosterStyleRendering {
 struct GradientQuotePosterStyle: LyricPosterStyleRendering {
     let descriptor = builtInPosterDescriptor(.gradientQuote, symbol: "quote.opening", order: 1)
 
+    /// 引号 115 + 两段 spacing 104 + 署名 96 + 上下内边距 192。
+    func metrics(for context: LyricPosterRenderContext) -> LyricPosterTypeMetrics {
+        context.metrics(textWidthRatio: 0.76, reservedHeight: 510)
+    }
+
     func makeBody(context: LyricPosterRenderContext) -> AnyView {
-        let metrics = context.metrics(textWidthRatio: 0.76, lyricHeightRatio: 0.50)
+        let metrics = metrics(for: context)
         let margin: CGFloat = (context.size.width - CGFloat(metrics.textWidth)) / 2
         let warmDrift: CGFloat = context.size.height * CGFloat(0.30 + 0.04 * context.entrance)
         let coolDrift: CGFloat = -context.size.height * CGFloat(0.28 + 0.04 * context.entrance)
@@ -154,8 +164,13 @@ struct MagazinePosterStyle: LyricPosterStyleRendering {
     private let paper = Color(red: 0.957, green: 0.945, blue: 0.918)
     private let ink = Color(red: 0.09, green: 0.09, blue: 0.10)
 
+    /// 页眉 58 + 标题线 4 + 两段留白 80 + 页脚线与间距 30 + 署名 96 + 上下内边距 208。
+    func metrics(for context: LyricPosterRenderContext) -> LyricPosterTypeMetrics {
+        context.metrics(textWidthRatio: 0.78, reservedHeight: 480)
+    }
+
     func makeBody(context: LyricPosterRenderContext) -> AnyView {
-        let metrics = context.metrics(textWidthRatio: 0.78, lyricHeightRatio: 0.52)
+        let metrics = metrics(for: context)
         let textWidth = CGFloat(metrics.textWidth)
         let margin: CGFloat = (context.size.width - textWidth) / 2
         let ruleWidth: CGFloat = textWidth * CGFloat(entranceLineWidth(context))
@@ -235,9 +250,22 @@ struct MagazinePosterStyle: LyricPosterStyleRendering {
 struct VinylPosterStyle: LyricPosterStyleRendering {
     let descriptor = builtInPosterDescriptor(.vinyl, symbol: "opticaldisc", order: 3)
 
+    /// 唱片按宽度定, 但方形画幅高度吃紧, 再用高度压一道。
+    private func discSize(_ context: LyricPosterRenderContext) -> CGFloat {
+        min(context.size.width * 0.46, context.size.height * 0.32)
+    }
+
+    /// 唱片 + 两段 spacing 112 + 署名 92 + 上下内边距 160。
+    func metrics(for context: LyricPosterRenderContext) -> LyricPosterTypeMetrics {
+        context.metrics(
+            textWidthRatio: 0.72,
+            reservedHeight: Double(discSize(context)) + 364
+        )
+    }
+
     func makeBody(context: LyricPosterRenderContext) -> AnyView {
-        let metrics = context.metrics(textWidthRatio: 0.72, lyricHeightRatio: 0.34)
-        let discSize = context.size.width * 0.46
+        let metrics = metrics(for: context)
+        let discSize = discSize(context)
 
         return AnyView(
             ZStack {

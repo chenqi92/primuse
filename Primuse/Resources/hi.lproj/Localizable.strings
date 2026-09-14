@@ -3862,3 +3862,4 @@
 "lyric_poster_style_polaroid" = "इंस्टेंट फ़ोटो";
 "lyric_poster_style_cassette" = "कैसेट";
 "lyric_poster_style_fallback" = "पोस्टर";
+"lyric_poster_overflow_hint" = "इस आकार के लिए बहुत अधिक पंक्तियाँ — लंबा आकार चुनें या कम पंक्तियाँ चुनें";

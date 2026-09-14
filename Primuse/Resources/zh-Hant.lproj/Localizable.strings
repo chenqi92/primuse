@@ -3933,3 +3933,4 @@
 "lyric_poster_style_polaroid" = "拍立得";
 "lyric_poster_style_cassette" = "卡帶";
 "lyric_poster_style_fallback" = "海報";
+"lyric_poster_overflow_hint" = "歌詞太多，目前畫幅放不下，換更高的畫幅或少選幾句";

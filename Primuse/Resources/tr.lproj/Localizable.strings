@@ -3862,3 +3862,4 @@
 "lyric_poster_style_polaroid" = "Anında Fotoğraf";
 "lyric_poster_style_cassette" = "Kaset";
 "lyric_poster_style_fallback" = "Poster";
+"lyric_poster_overflow_hint" = "Bu boyut için satır sayısı fazla — daha uzun bir boyut seçin ya da satır sayısını azaltın";

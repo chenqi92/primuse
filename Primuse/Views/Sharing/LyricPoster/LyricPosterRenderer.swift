@@ -19,6 +19,10 @@ enum LyricPosterRenderer {
         AnyView(
             style.makeBody(context: context)
                 .frame(width: context.size.width, height: context.size.height)
+                // 风格内部用了 plusLighter / overlay 混合(光晕、颗粒)。不圈一层
+                // 合成组, 这些混合会算到海报外面的底色上 —— 预览里混进 sheet
+                // 背景, 导出时混进渲染器底色, 两边还不一样。
+                .compositingGroup()
                 .environment(\.colorScheme, style.descriptor.prefersDarkChrome ? .dark : .light)
                 // 海报是定死的版面, 不跟随系统字号 —— 动态字体会把精心算好的
                 // 行数顶出画布。

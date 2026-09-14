@@ -3956,3 +3956,4 @@
 "lyric_poster_style_polaroid" = "Sofortbild";
 "lyric_poster_style_cassette" = "Kassette";
 "lyric_poster_style_fallback" = "Poster";
+"lyric_poster_overflow_hint" = "Zu viele Zeilen für dieses Format – wähle ein höheres Format oder weniger Zeilen";
