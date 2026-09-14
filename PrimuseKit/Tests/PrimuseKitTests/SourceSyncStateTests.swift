@@ -143,6 +143,33 @@ struct SourceSyncStateTests {
         }
     }
 
+    @Test func opaqueCloudSourcesRebuildDiscardedFolderTopology() {
+        // 编辑来源、重新授权等任何一次配置变更都会丢弃整份同步状态。路径型
+        // 来源照样能从 filePath 切出层级，用条目 ID 的网盘不行 —— 拓扑必须
+        // 靠下一次完整目录遍历取回来。
+        for sourceType in [
+            MusicSourceType.aliyunDrive,
+            .googleDrive,
+            .oneDrive,
+            .drime,
+            .pan115,
+            .pan123,
+            .guangya,
+        ] {
+            #expect(SourceSyncFolderTopologyPolicy.requiresRebuild(
+                sourceType: sourceType,
+                state: nil
+            ))
+        }
+
+        for sourceType in [MusicSourceType.webdav, .smb, .baiduPan, .dropbox] {
+            #expect(!SourceSyncFolderTopologyPolicy.requiresRebuild(
+                sourceType: sourceType,
+                state: nil
+            ))
+        }
+    }
+
     @Test func currentCloudTopologyAndPathBasedSourcesDoNotRebuild() {
         let currentItem = SourceSyncIndexedItem(
             stableKey: "opaque-item-id",

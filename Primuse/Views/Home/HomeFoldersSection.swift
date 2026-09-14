@@ -139,6 +139,8 @@ private struct HomeFolderCard: View {
 }
 
 struct HomeFolderManagementView: View {
+    /// 从音乐源进来时直接落在那个来源的节点上，省掉先在全部来源里找一遍。
+    var nodeID: LibraryFolderNodeID?
     var usesInlineControls = false
     @State private var model = HomeDiscoveryModel()
     #if os(iOS)
@@ -146,7 +148,7 @@ struct HomeFolderManagementView: View {
     #endif
 
     var body: some View {
-        HomeFolderBrowser(usesInlineControls: usesInlineControls)
+        HomeFolderBrowser(nodeID: nodeID, usesInlineControls: usesInlineControls)
             .environment(model)
             .background { HomeDiscoveryObserver(model: model) }
             #if os(iOS)

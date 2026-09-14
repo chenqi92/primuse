@@ -524,15 +524,22 @@ final class ScanService {
         let populatedSourceIDs = Set(library.songs.map(\.sourceID))
         let sourceIDs = sourceStore.sources
             .filter { source in
+                // 用不透明条目 ID 的网盘同样只能从同步状态恢复文件夹层级，
+                // 丢了就得靠这里重走一次目录遍历。
+                let usesOpaqueTopology = source.type.usesOpaqueDirectoryIdentifiers
                 guard source.isEnabled,
                       !source.isDeleted,
-                      source.type.isServerLibrary || source.type == .upnp,
+                      source.type.isServerLibrary
+                        || source.type == .upnp
+                        || usesOpaqueTopology,
                       populatedSourceIDs.contains(source.id) else { return false }
                 // The checkpoint is cleared only after both the song snapshot
                 // and folder state are durable. Its presence therefore also
                 // recovers a cancellation or write failure between those two
                 // commits, even when the server kept the same song IDs.
-                if checkpoints[source.id] != nil { return true }
+                // 网盘的中断扫描能从 checkpoint 续传，不该为了拓扑把那份进度
+                // 丢掉重来；它只在拓扑真的缺失时才需要完整遍历。
+                if !usesOpaqueTopology, checkpoints[source.id] != nil { return true }
                 return SourceSyncFolderTopologyPolicy.requiresRebuild(
                     sourceType: source.type,
                     state: syncStates[source.id]
@@ -559,7 +566,9 @@ final class ScanService {
                       let source = sourceStore.source(id: sourceID),
                       source.isEnabled,
                       !source.isDeleted else { continue }
-                if self.checkpoints[sourceID] == nil,
+                let recoversInterruptedCommit = !source.type.usesOpaqueDirectoryIdentifiers
+                    && self.checkpoints[sourceID] != nil
+                if !recoversInterruptedCommit,
                    !SourceSyncFolderTopologyPolicy.requiresRebuild(
                        sourceType: source.type,
                        state: self.syncStates[sourceID]
