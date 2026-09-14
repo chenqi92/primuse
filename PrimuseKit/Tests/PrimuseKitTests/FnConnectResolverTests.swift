@@ -70,8 +70,9 @@ struct FnConnectResolverTests {
         #expect(FnConnectURLProtocol.relayRequestCount == 0)
     }
 
-    @Test func relayCarriesModeAndAccessCodeThroughMusicLoginAndCatalog() async throws {
-        FnConnectURLProtocol.configure(.relayService)
+    @Test(arguments: ["livingroom-nas.5ddd.com", "https://livingroom-nas.fnos.net:443"])
+    func relayCarriesModeAndAccessCodeThroughMusicLoginAndCatalog(relayAddress: String) async throws {
+        FnConnectURLProtocol.configure(.relayService, relayAddress: relayAddress)
         let session = makeSession()
         defer { session.invalidateAndCancel() }
         let source = MusicSource(
@@ -100,6 +101,23 @@ struct FnConnectResolverTests {
         #expect(FnConnectURLProtocol.issues.isEmpty)
         #expect(FnConnectURLProtocol.loginRequestCount == 1)
         #expect(FnConnectURLProtocol.trackRequestCount == 1)
+    }
+
+    @Test(arguments: ["fnos.net", "5ddd.com", "evilfnos.net", "evil5ddd.com",
+                      "livingroom-nas.fnos.net.attacker.test", "livingroom-nas.5ddd.com.attacker.test"])
+    func rejectsUntrustedRelayDomainsBeforeSendingCredentials(relayAddress: String) async {
+        let resolver = FnConnectResolver(data: { request in
+            let url = try #require(request.url)
+            #expect(url.host == "5ddd.com")
+            #expect(url.path == "/api/v1/fn/con")
+            #expect(request.value(forHTTPHeaderField: "x-access-code") == nil)
+            #expect(request.value(forHTTPHeaderField: "Cookie") == nil)
+            return FnConnectDelayedLookup.response(request, json:
+                "{\"code\":0,\"data\":{\"fn\":[\"\(relayAddress)\"]}}")
+        })
+        await #expect(throws: FnConnectError.invalidResponse) {
+            _ = try await resolver.resolve("livingroom-nas", accessCode: "open sesame")
+        }
     }
 
     @Test func distinguishesMissingAndRejectedAccessCodes() async {
@@ -398,6 +416,7 @@ private final class FnConnectURLProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) private static var relayRequestCountStorage = 0
     nonisolated(unsafe) private static var loginRequestCountStorage = 0
     nonisolated(unsafe) private static var trackRequestCountStorage = 0
+    nonisolated(unsafe) private static var relayAddressStorage = "livingroom-nas.5ddd.com"
 
     static var issues: [String] {
         lock.withLock { issueStorage }
@@ -415,9 +434,10 @@ private final class FnConnectURLProtocol: URLProtocol, @unchecked Sendable {
         lock.withLock { trackRequestCountStorage }
     }
 
-    static func configure(_ value: Scenario) {
+    static func configure(_ value: Scenario, relayAddress: String = "livingroom-nas.5ddd.com") {
         lock.withLock {
             scenario = value
+            relayAddressStorage = relayAddress
             issueStorage = []
             relayRequestCountStorage = 0
             loginRequestCountStorage = 0
@@ -450,9 +470,12 @@ private final class FnConnectURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
 
-        if host == "livingroom-nas.5ddd.com" {
+        let relayAddress = Self.lock.withLock { Self.relayAddressStorage }
+        let relayURL = URL(string: relayAddress.contains("://") ? relayAddress : "https://\(relayAddress)")
+        if host == relayURL?.host {
             Self.lock.withLock { Self.relayRequestCountStorage += 1 }
             validateRelayHeaders()
+            if url.scheme != "https" { record("relay request was not HTTPS") }
             if url.path == "/access_code_verify" {
                 if activeScenario == .accessCodeChallenge {
                     respond(status: 401)
@@ -596,7 +619,8 @@ private final class FnConnectURLProtocol: URLProtocol, @unchecked Sendable {
         if activeScenario == .privateRoute {
             return #"{"code":0,"data":{"ipv4":["192.168.50.20"],"ipv6":[],"publicIpv4":["203.0.113.20"],"publicIpv6":[],"port":{"httpPort":5666,"httpsPort":5667},"fn":["livingroom-nas.5ddd.com"]}}"#
         }
-        return #"{"code":0,"data":{"ipv4":[],"ipv6":[],"publicIpv4":[],"publicIpv6":[],"port":{"httpPort":5666,"httpsPort":5667},"fn":["livingroom-nas.5ddd.com"]}}"#
+        let relayAddress = lock.withLock { relayAddressStorage }
+        return #"{"code":0,"data":{"ipv4":[],"ipv6":[],"publicIpv4":[],"publicIpv6":[],"port":{"httpPort":5666,"httpsPort":5667},"fn":["\#(relayAddress)"]}}"#
     }
 }
 

@@ -745,8 +745,7 @@ public struct FnConnectResolver: Sendable {
         guard !trimmed.isEmpty else { return nil }
         let url = URL(string: trimmed.contains("://") ? trimmed : "https://\(trimmed)")
         guard let host = url?.host?.lowercased(),
-              host.hasSuffix(".5ddd.com"),
-              host != "5ddd.com" else { return nil }
+              ["5ddd.com", "fnos.net"].contains(where: { host.hasSuffix(".\($0)") }) else { return nil }
         var components = URLComponents()
         components.scheme = "https"
         components.host = host

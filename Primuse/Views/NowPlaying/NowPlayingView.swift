@@ -2757,7 +2757,8 @@ struct NowPlayingView: View {
             castingRendererName: player.castingRenderer?.friendlyName,
             isSleepTimerActive: player.isSleepTimerActive,
             lyricsFontScale: lyricsFontScale,
-            playbackRate: playbackSettings.playbackRate,
+            canChangePlaybackRate: playbackSettings.outputMode == .effects,
+            playbackRate: playbackSettings.outputMode == .highFidelity ? 1 : playbackSettings.playbackRate,
             isLyricsTranslationEnabled: LyricsTranslationSettingsStore.shared.isEnabled,
             colorScheme: colorScheme,
             colorSchemeContrast: colorSchemeContrast
@@ -2767,8 +2768,11 @@ struct NowPlayingView: View {
             snapshot: snapshot,
             lyricsFontScale: $lyricsFontScale,
             playbackRate: Binding(
-                get: { playbackSettings.playbackRate },
-                set: { playbackSettings.playbackRate = $0 }
+                get: { playbackSettings.outputMode == .highFidelity ? 1 : playbackSettings.playbackRate },
+                set: {
+                    guard playbackSettings.outputMode == .effects else { return }
+                    playbackSettings.playbackRate = $0
+                }
             ),
             immersiveChrome: immersiveChrome,
             onEnterFullScreen: { presentImmersiveLyrics() },
@@ -4913,6 +4917,7 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let castingRendererName: String?
     let isSleepTimerActive: Bool
     let lyricsFontScale: Double
+    let canChangePlaybackRate: Bool
     let playbackRate: Float
     let isLyricsTranslationEnabled: Bool
     let colorScheme: ColorScheme
@@ -5130,6 +5135,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                         )
                     }
                     .pickerStyle(.menu)
+                    .disabled(!snapshot.canChangePlaybackRate)
                 }
             }
 
