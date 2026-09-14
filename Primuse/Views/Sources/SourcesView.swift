@@ -695,7 +695,7 @@ struct SourcesContentView: View {
                 Image(systemName: source.type.iconName)
                     .font(.title3).foregroundStyle(.white)
                     .frame(width: 38, height: 38)
-                    .background(source.isEnabled ? Color.accentColor.gradient : Color.gray.gradient)
+                    .background(source.isEnabled ? source.type.brandTint.gradient : Color.gray.gradient)
                     .clipShape(RoundedRectangle(cornerRadius: 9))
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {

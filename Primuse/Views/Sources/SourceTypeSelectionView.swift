@@ -567,17 +567,18 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
         .toolbarTitleDisplayMode(.inline)
     }
 
-    /// macOS 行 — 横向布局,SF Symbol 走 accent color tint 不加彩块,
-    /// 文字两行紧贴,跟 macOS 系统设置里 source list 的行高一致。
+    /// macOS 行 — 横向布局,图标是品牌色小彩块,跟 macOS 系统设置和本应用的
+    /// 音乐源卡片一致;文字两行紧贴,行高由文字决定,彩块不撑高它。
     private func typeButton(_ type: MusicSourceType) -> some View {
         Button {
             selectSourceType(type)
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: type.iconName)
-                    .font(.system(size: 15))
-                    .foregroundStyle(.tint)
-                    .frame(width: 22, alignment: .center)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 22, height: 22)
+                    .background(type.brandTint, in: .rect(cornerRadius: 5))
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(type.displayName)
@@ -1359,7 +1360,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
                 .font(.title3)
                 .foregroundStyle(.white)
                 .frame(width: 36, height: 36)
-                .background(Color.accentColor)
+                .background(type.brandTint)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 2) {
@@ -1405,6 +1406,65 @@ extension SourceTypeSelectionView where ConnectionContent == EmptyView {
 
 extension MusicSourceType: @retroactive Identifiable {
     public var id: String { rawValue }
+}
+
+private func sourceBrandColor(_ hex: UInt32) -> Color {
+    Color(red: Double((hex >> 16) & 0xFF) / 255,
+          green: Double((hex >> 8) & 0xFF) / 255,
+          blue: Double(hex & 0xFF) / 255)
+}
+
+extension MusicSourceType {
+    /// 来源图标彩块的底色。同一分组里的来源大量共用一个类别字形——9 个网盘都是
+    /// `cloud.fill`,4 个 NAS 都是 `xserve`,4 个 Subsonic 实现都是 `server.rack`
+    /// ——颜色是把它们分开的那条线索,所以同一分组内的取值按色相拉开。
+    /// 取的是品牌近似色,不是厂商官方色值;亮度统一压到白色字形至少 3:1 对比。
+    var brandTint: Color {
+        switch self {
+        // NAS
+        case .synology: sourceBrandColor(0x2E5FA3)
+        case .qnap: sourceBrandColor(0x0290B3)
+        case .ugreen: sourceBrandColor(0x2F8F76)
+        case .fnos: sourceBrandColor(0x7E57C2)
+
+        // 协议
+        case .webdav: sourceBrandColor(0x4B7BEC)
+        case .smb: sourceBrandColor(0x6B8291)
+        case .ftp: sourceBrandColor(0x8D6E63)
+        case .sftp: sourceBrandColor(0x00796B)
+        case .nfs: sourceBrandColor(0x6E5AA8)
+        case .upnp: sourceBrandColor(0x5E35B1)
+        case .s3: sourceBrandColor(0xC96F14)
+
+        // 媒体服务器与服务端曲库
+        case .jellyfin: sourceBrandColor(0x7B4FD6)
+        case .emby: sourceBrandColor(0x3E9142)
+        case .plex: sourceBrandColor(0xBD7E0A)
+        case .subsonic: sourceBrandColor(0x2F6FED)
+        case .navidrome: sourceBrandColor(0x0097A7)
+        case .airsonic: sourceBrandColor(0xC2185B)
+        case .gonic: sourceBrandColor(0x6D4C41)
+        case .fnMusic: sourceBrandColor(0xF4511E)
+        case .daoliyu: sourceBrandColor(0x8E24AA)
+        case .songloft: sourceBrandColor(0x7E7E1C)
+
+        // 网盘
+        case .baiduPan: sourceBrandColor(0x2932E1)
+        case .aliyunDrive: sourceBrandColor(0xF25C00)
+        case .googleDrive: sourceBrandColor(0x0E8C4E)
+        case .oneDrive: sourceBrandColor(0x1789C9)
+        case .dropbox: sourceBrandColor(0x0061FF)
+        case .drime: sourceBrandColor(0xA13BB8)
+        case .pan115: sourceBrandColor(0xD81B60)
+        case .pan123: sourceBrandColor(0x00838F)
+        case .guangya: sourceBrandColor(0x8A6D1F)
+
+        // Apple 与本机
+        case .appleMusic: sourceBrandColor(0xFA2D48)
+        case .appleMusicLibrary: sourceBrandColor(0x5E5CE6)
+        case .local: sourceBrandColor(0x5A6270)
+        }
+    }
 }
 
 #if os(iOS)

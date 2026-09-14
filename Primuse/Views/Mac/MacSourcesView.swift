@@ -302,7 +302,7 @@ struct MacSourcesView: View {
                     .font(.title3)
                     .foregroundStyle(.white)
                     .frame(width: 40, height: 40)
-                    .background(source.isEnabled ? theme.uiAccentColor.gradient : Color.gray.gradient,
+                    .background(source.isEnabled ? source.type.brandTint.gradient : Color.gray.gradient,
                                 in: .rect(cornerRadius: 9))
 
                 VStack(alignment: .leading, spacing: 2) {
