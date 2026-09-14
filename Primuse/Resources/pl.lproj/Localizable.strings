@@ -738,6 +738,13 @@
 "apple_music_cloud_library_unavailable_format" = "Biblioteka chmurowa Apple Music jest niedostępna (błąd Apple %@). Upewnij się, że Muzyka na tym Macu korzysta z tego samego konta Apple i tej samej subskrypcji co iPhone, a następnie włącz opcję Synchronizuj bibliotekę. Twoje lokalne utwory %d zostały zachowane.";
 "apple_music_library_access_failed_format" = "Nie można uzyskać dostępu do biblioteki Apple Music: %@";
 "apple_music_library_done_format" = "Piosenki %d · %@";
+"apple_music_source_needs_authorization_title" = "Wymagany dostęp do Apple Music";
+"apple_music_source_needs_authorization_message" = "Primuse potrzebuje dostępu do Apple Music, aby zsynchronizować bibliotekę. Przyznaj dostęp w Ustawieniach systemowych i dodaj źródło ponownie.";
+"source_remove_apple_music_confirm_title" = "Usunąć Apple Music?";
+"source_remove_apple_music_confirm_message" = "Spowoduje to usunięcie źródła Apple Music, zsynchronizowanych utworów oraz playlist Apple Music odzwierciedlonych w bibliotece. Subskrypcja i biblioteka Apple Music pozostają bez zmian.";
+"source_remove_apple_music_confirm_action" = "Usuń źródło i zsynchronizowaną zawartość";
+"apple_music_add_source_action" = "Dodaj do źródeł muzyki";
+"apple_music_add_source_footer" = "Apple Music synchronizuje się jako źródło muzyki. Dodaj je, aby pobrać bibliotekę; usuń, aby wyczyścić zsynchronizowane utwory i playlisty.";
 "apple_music_library_footer" = "Pobieraj utwory dodane do biblioteki Apple Music do Primuse wraz ze ścieżkami NAS/w chmurze. Odtwarzanie odbywa się za pośrednictwem odtwarzacza systemowego i nie wykorzystuje pamięci lokalnej.";
 "apple_music_library_hint" = "Utwory z Twojej biblioteki Apple Music pojawiają się wraz z resztą Twojej muzyki w Primuse.";
 "apple_music_library_idle" = "Jeszcze nie zsynchronizowane";

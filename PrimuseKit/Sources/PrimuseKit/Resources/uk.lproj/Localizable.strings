@@ -196,6 +196,7 @@
 "ext.synology.quickconnect.error.invalidResponse" = "QuickConnect повернув нерозпізнану відповідь.";
 "ext.tv.scan.serverCatalogBody" = "Імпорт треків через %@ без вибору папок NAS.";
 "src.subtitle.local.mac" = "Сховище Mac";
+"src.subtitle.appleMusic" = "Синхронізація медіатеки Apple Music";
 "src.subtitle.appleMusicLibrary" = "Локальний Apple Music / iTunes";
 "src.displayName.fnos" = "fnOS";
 "ext.tv.settings.intelligence" = "Інтелектуальні функції";

@@ -441,6 +441,7 @@
 "src.subtitle.local" = "iPhone Storage";
 "src.subtitle.local.mac" = "Mac Storage";
 "src.subtitle.local.tv" = "Apple TV Storage";
+"src.subtitle.appleMusic" = "Sync your Apple Music library";
 "src.subtitle.appleMusicLibrary" = "Local Apple Music / iTunes";
 "ext.tv.sources.apiPending" = "API Pending";
 "ext.tv.sources.hint.smb" = "NAS · TrueNAS · Shared folders";

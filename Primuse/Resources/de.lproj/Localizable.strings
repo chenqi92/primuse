@@ -636,6 +636,13 @@
 "apple_music_open_in_app" = "In Apple Music öffnen";
 "apple_music_now_playing_hint" = "Apple Music wird über den System-Player wiedergegeben. Primuse-Funktionen wie Abrufen von Metadaten, Tag-Bearbeitung und EQ sind nicht verfügbar.";
 "apple_music_library_section" = "Apple-Music-Mediathek";
+"apple_music_source_needs_authorization_title" = "Apple Music-Zugriff erforderlich";
+"apple_music_source_needs_authorization_message" = "Primuse benötigt Zugriff auf Apple Music, um deine Mediathek zu synchronisieren. Erteile den Zugriff in den Systemeinstellungen und füge die Quelle erneut hinzu.";
+"source_remove_apple_music_confirm_title" = "Apple Music entfernen?";
+"source_remove_apple_music_confirm_message" = "Entfernt die Apple Music-Quelle, die synchronisierten Titel und die in deine Mediathek gespiegelten Apple Music-Playlists. Dein Apple Music-Abo und deine Mediathek bleiben unverändert.";
+"source_remove_apple_music_confirm_action" = "Quelle und synchronisierte Inhalte entfernen";
+"apple_music_add_source_action" = "Zu Musikquellen hinzufügen";
+"apple_music_add_source_footer" = "Apple Music wird als Musikquelle synchronisiert. Hinzufügen holt deine Mediathek, Entfernen löscht die synchronisierten Titel und Playlists.";
 "apple_music_library_footer" = "Hol Titel, die du zu deiner Apple-Music-Mediathek hinzugefügt hast, neben NAS- / Cloud-Titeln in Primuse. Die Wiedergabe läuft über den System-Player und belegt keinen lokalen Speicher.";
 "apple_music_library_idle" = "Noch nicht synchronisiert";
 "apple_music_library_syncing" = "Apple-Music-Mediathek wird synchronisiert…";

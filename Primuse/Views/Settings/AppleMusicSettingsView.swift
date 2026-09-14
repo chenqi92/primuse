@@ -12,6 +12,7 @@ import AppKit
 struct AppleMusicSettingsView: View {
     @Environment(AppleMusicService.self) private var appleMusic
     @Environment(AppleMusicLibraryService.self) private var appleMusicLibrary
+    @Environment(SourcesStore.self) private var sourceStore
 
     var body: some View {
         Form {
@@ -41,7 +42,11 @@ struct AppleMusicSettingsView: View {
             .settingsAnchor("appleMusic.authorize")
 
             if appleMusic.authState == .authorized {
-                librarySection.settingsAnchor("appleMusic.sync")
+                if isSourceInstalled {
+                    librarySection.settingsAnchor("appleMusic.sync")
+                } else {
+                    addSourceSection.settingsAnchor("appleMusic.sync")
+                }
             }
         }
         .task { await appleMusicLibrary.refreshAfterAccountChange() }
@@ -49,6 +54,29 @@ struct AppleMusicSettingsView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+    }
+
+    /// 同步归音乐源管。没把 Apple Music 添加进音乐源时这里只给添加入口 ——
+    /// 否则点了"同步"也不会有任何反应, 因为同步的落点(音乐源)不存在。
+    private var isSourceInstalled: Bool {
+        AppleMusicSourcePolicy.isInstalled(
+            activeSourceIDs: Set(sourceStore.sources.map(\.id))
+        )
+    }
+
+    private var addSourceSection: some View {
+        Section {
+            Button {
+                AppServices.shared.installAppleMusicSource()
+            } label: {
+                Label("apple_music_add_source_action", systemImage: "plus.circle")
+            }
+        } header: {
+            Text("apple_music_library_section")
+        } footer: {
+            Text("apple_music_add_source_footer")
+                .font(.footnote)
+        }
     }
 
     /// 把 Apple Music 用户资料库拉进 Primuse Library。state 切换时直接 reflect

@@ -636,6 +636,13 @@
 "apple_music_open_in_app" = "Apple Music에서 열기";
 "apple_music_now_playing_hint" = "Apple Music은 시스템 플레이어로 재생되므로 스크래핑, 태그 편집, EQ 같은 Primuse 기능은 적용되지 않습니다.";
 "apple_music_library_section" = "Apple Music 라이브러리";
+"apple_music_source_needs_authorization_title" = "Apple Music 접근 권한 필요";
+"apple_music_source_needs_authorization_message" = "보관함을 동기화하려면 Apple Music 접근 권한이 필요합니다. 시스템 설정에서 권한을 허용한 뒤 다시 추가하세요.";
+"source_remove_apple_music_confirm_title" = "Apple Music을 제거할까요?";
+"source_remove_apple_music_confirm_message" = "Apple Music 음악 소스, 동기화된 곡, 보관함에 미러링된 Apple Music 재생목록을 제거합니다. Apple Music 구독과 보관함에는 영향을 주지 않습니다.";
+"source_remove_apple_music_confirm_action" = "소스 및 동기화 항목 제거";
+"apple_music_add_source_action" = "음악 소스에 추가";
+"apple_music_add_source_footer" = "Apple Music은 음악 소스로 동기화됩니다. 추가하면 보관함을 가져오고, 제거하면 동기화된 곡과 재생목록을 정리합니다.";
 "apple_music_library_footer" = "Apple Music 라이브러리에 추가한 곡을 NAS / 클라우드 곡과 함께 Primuse로 가져옵니다. 재생은 시스템 플레이어를 통해 이루어지며 로컬 저장 공간을 사용하지 않습니다.";
 "apple_music_library_idle" = "아직 동기화 안 됨";
 "apple_music_library_syncing" = "Apple Music 라이브러리 동기화 중…";

@@ -738,6 +738,13 @@
 "apple_music_cloud_library_unavailable_format" = "Apple Music क्लाउड लाइब्रेरी अनुपलब्ध है (Apple त्रुटि %@)। सुनिश्चित करें कि इस Mac पर संगीत आपके iPhone के समान Apple खाते और सदस्यता का उपयोग करता है, फिर सिंक लाइब्रेरी चालू करें। आपके %d स्थानीय गीत सुरक्षित रखे गए।";
 "apple_music_library_access_failed_format" = "Apple Music लाइब्रेरी तक पहुंचने में असमर्थ: %@";
 "apple_music_library_done_format" = "%d गाने · %@";
+"apple_music_source_needs_authorization_title" = "Apple Music एक्सेस आवश्यक";
+"apple_music_source_needs_authorization_message" = "लाइब्रेरी सिंक करने के लिए Primuse को Apple Music एक्सेस चाहिए। सिस्टम सेटिंग्स में अनुमति दें और स्रोत फिर से जोड़ें।";
+"source_remove_apple_music_confirm_title" = "Apple Music हटाएँ?";
+"source_remove_apple_music_confirm_message" = "इससे Apple Music स्रोत, सिंक किए गए गाने और लाइब्रेरी में मिरर की गई Apple Music प्लेलिस्ट हट जाएँगी। आपकी Apple Music सदस्यता और लाइब्रेरी पर कोई असर नहीं पड़ेगा।";
+"source_remove_apple_music_confirm_action" = "स्रोत और सिंक सामग्री हटाएँ";
+"apple_music_add_source_action" = "म्यूज़िक स्रोतों में जोड़ें";
+"apple_music_add_source_footer" = "Apple Music एक म्यूज़िक स्रोत के रूप में सिंक होता है। जोड़ने पर लाइब्रेरी आती है, हटाने पर सिंक किए गए गाने और प्लेलिस्ट साफ़ हो जाते हैं।";
 "apple_music_library_footer" = "अपने Apple Music लाइब्रेरी में जोड़े गए गानों को NAS / क्लाउड ट्रैक के साथ Primuse में खींचें। प्लेबैक सिस्टम प्लेयर के माध्यम से चलता है और किसी स्थानीय स्टोरेज का उपयोग नहीं करता है।";
 "apple_music_library_hint" = "आपकी Apple Music लाइब्रेरी के गाने Primuse में आपके बाकी संगीत के साथ दिखाई देते हैं।";
 "apple_music_library_idle" = "अभी तक समन्वयित नहीं हुआ";

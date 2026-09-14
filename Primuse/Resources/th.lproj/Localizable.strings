@@ -738,6 +738,13 @@
 "apple_music_cloud_library_unavailable_format" = "Apple Music คลังเพลงคลาวด์ไม่พร้อมใช้งาน (Apple ข้อผิดพลาด %@) ตรวจสอบให้แน่ใจว่าเพลงใน Mac นี้ใช้บัญชี Apple และการสมัครรับข้อมูลเดียวกันกับ iPhone ของคุณ จากนั้นเปิดซิงค์คลังเพลง เพลงท้องถิ่น %d ของคุณได้รับการเก็บรักษาไว้";
 "apple_music_library_access_failed_format" = "ไม่สามารถเข้าถึงคลังเพลง Apple Music: %@";
 "apple_music_library_done_format" = "%d เพลง · %@";
+"apple_music_source_needs_authorization_title" = "ต้องมีสิทธิ์เข้าถึง Apple Music";
+"apple_music_source_needs_authorization_message" = "Primuse ต้องการสิทธิ์เข้าถึง Apple Music เพื่อซิงค์คลังเพลง โปรดอนุญาตในการตั้งค่าระบบ แล้วเพิ่มแหล่งเพลงอีกครั้ง";
+"source_remove_apple_music_confirm_title" = "นำ Apple Music ออกไหม";
+"source_remove_apple_music_confirm_message" = "การดำเนินการนี้จะนำแหล่งเพลง Apple Music เพลงที่ซิงค์ไว้ และเพลย์ลิสต์ Apple Music ที่มิเรอร์ไว้ในคลังเพลงออก โดยไม่กระทบการสมัครสมาชิกและคลังเพลง Apple Music ของคุณ";
+"source_remove_apple_music_confirm_action" = "นำแหล่งเพลงและข้อมูลที่ซิงค์ออก";
+"apple_music_add_source_action" = "เพิ่มไปยังแหล่งเพลง";
+"apple_music_add_source_footer" = "Apple Music ซิงค์ในรูปแบบแหล่งเพลง เพิ่มเพื่อดึงคลังเพลงเข้ามา และนำออกเพื่อล้างเพลงและเพลย์ลิสต์ที่ซิงค์ไว้";
 "apple_music_library_footer" = "ดึงเพลงที่คุณเพิ่มลงในคลังเพลง Apple Music ของคุณไปที่ Primuse ควบคู่ไปกับ NAS / แทร็กคลาวด์ การเล่นจะดำเนินการผ่านเครื่องเล่นระบบและไม่ใช้ที่จัดเก็บในตัวเครื่อง";
 "apple_music_library_hint" = "เพลงในคลังเพลง Apple Music ของคุณจะปรากฏพร้อมกับเพลงที่เหลือของคุณใน Primuse";
 "apple_music_library_idle" = "ยังไม่ได้ซิงค์";

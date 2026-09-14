@@ -637,6 +637,7 @@
 "src.displayName.guangya"    = "GuangYa Pan";
 "src.displayName.ugreen" = "Ugreen";
 "src.subtitle.aliyunDrive" = "Aliyun Drive PDS";
+"src.subtitle.appleMusic" = "Synchronizuj bibliotekę Apple Music";
 "src.subtitle.appleMusicLibrary" = "Lokalny Apple Music / iTunes";
 "src.subtitle.awaitingPublicAPI" = "Oczekiwanie na publiczne API · Jeszcze niedostępne";
 "src.subtitle.baiduPan" = "Baidu Pan OAuth";

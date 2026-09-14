@@ -15,6 +15,7 @@ struct MacSourcesView: View {
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(ThemeService.self) private var theme
+    @Environment(AppleMusicLibraryService.self) private var appleMusicLibrary
 
     @State private var showAddSource = false
     @State private var editingSource: MusicSource?
@@ -145,8 +146,11 @@ struct MacSourcesView: View {
                 ))
             }
             Button("cancel", role: .cancel) { sourceToDelete = nil }
-        } message: { _ in
-            Text("source_remove_confirm_message")
+        } message: { source in
+            // 移除 Apple Music 还会带走同步进来的歌与镜像歌单, 单独讲清楚。
+            Text(source.type == .appleMusic
+                 ? "source_remove_apple_music_confirm_message"
+                 : "source_remove_confirm_message")
         }
     }
 
@@ -491,6 +495,9 @@ struct MacSourcesView: View {
             .background(Color.orange.opacity(0.06), in: .rect(cornerRadius: 9))
         } else if let scan = scanning, scan.isScanning || scan.canResume {
             scanBox(scan)
+        } else if source.type == .appleMusic {
+            // Apple Music 没有连接器扫描, 卡片正文直接显示订阅资料库的同步状态。
+            appleMusicSyncStatus(songCount: displayedSongCount)
         } else {
             let metadataSummary = backfill.sourceStatusSummary(forSource: source.id)
             if metadataSummary.affectedCount > 0 {
@@ -701,9 +708,18 @@ struct MacSourcesView: View {
     @ViewBuilder
     private func actionsRow(_ source: MusicSource, scanning: ScanService.ScanState?, dirs: [String]) -> some View {
         HStack(spacing: 6) {
-            // 整库来源（含已由 basePath 限定范围的 Local）直接扫描，
-            // 不再进入没有意义的「连接 + 选目录」流程。
-            if source.type.scansEntireLibrary {
+            // Apple Music 没有连接器, 也就没有目录 / 扫描 / 体检 —— 它的"扫描"
+            // 就是同步一次订阅资料库。
+            if source.type == .appleMusic {
+                pill(
+                    appleMusicSyncTitle,
+                    systemImage: "arrow.triangle.2.circlepath",
+                    tint: PMColor.ok
+                ) {
+                    appleMusicLibrary.sync()
+                }
+                .disabled(isAppleMusicSyncing || !source.isEnabled)
+            } else if source.type.scansEntireLibrary {
                 scanPill(source, scanning: scanning)
                 pill("settings_title", systemImage: "slider.horizontal.3") { editingSource = source }
             } else if dirs.isEmpty {
@@ -830,6 +846,49 @@ struct MacSourcesView: View {
             return "\(source.type.displayName) · \(summary)"
         }
         return source.type.displayName
+    }
+
+    // MARK: - Apple Music
+
+    private var isAppleMusicSyncing: Bool {
+        if case .syncing = appleMusicLibrary.state { return true }
+        return false
+    }
+
+    private var appleMusicSyncTitle: LocalizedStringKey {
+        if case .done = appleMusicLibrary.state { return "apple_music_library_resync" }
+        return "apple_music_library_sync"
+    }
+
+    @ViewBuilder
+    private func appleMusicSyncStatus(songCount: Int) -> some View {
+        HStack(spacing: 6) {
+            if songCount > 0 {
+                Text(verbatim: songCount.formatted())
+                    .foregroundStyle(PMColor.text)
+                    .monospacedDigit()
+                Text(Lz("songs_count_inline"))
+                Text(verbatim: "·")
+            }
+            switch appleMusicLibrary.state {
+            case .idle:
+                Text("apple_music_library_idle")
+            case .syncing:
+                ProgressView().controlSize(.small)
+                Text("apple_music_library_syncing")
+            case .done(_, let at):
+                Text(verbatim: String(
+                    format: String(localized: "source_synced_ago_format"),
+                    Self.relativeFormatter.localizedString(for: at, relativeTo: Date())
+                ))
+            case .failed(let message):
+                Text(verbatim: message)
+                    .foregroundStyle(PMColor.bad)
+            }
+            Spacer()
+        }
+        .font(.system(size: 12))
+        .foregroundStyle(PMColor.textMuted)
     }
 
     private func syncedText(_ source: MusicSource) -> String {
@@ -960,11 +1019,10 @@ struct MacSourcesView: View {
 
     // MARK: - Helpers (reused logic)
 
-    /// Apple Music (MusicKit 流播) 是 AppServices 兜底 upsert 的虚拟 source,
-    /// 没有目录/扫描/编辑概念 — Mac 上走 Settings → Apple Music 授权 tab,
-    /// 留在 Sources 列表里只会让用户误点 connect 按钮。直接隐藏。
+    /// Apple Music 现在是用户自己添加的音乐源, 跟其它源一起列出来 ——
+    /// 之前它是 AppServices 兜底补出来的虚拟源, 只能隐藏以免用户误点连接按钮。
     private var sources: [MusicSource] {
-        sourceStore.sources.filter { $0.type != .appleMusic }
+        sourceStore.sources
     }
 
     private func beginDirectorySelectionSession(for source: MusicSource) {

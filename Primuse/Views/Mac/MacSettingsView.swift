@@ -3421,6 +3421,7 @@ private struct MacSTAppleMusicView: View {
     @Environment(AppleMusicService.self) private var appleMusic
     @Environment(AppleMusicLibraryService.self) private var library
     @Environment(MusicLibrary.self) private var musicLibrary
+    @Environment(SourcesStore.self) private var sourceStore
     @AppStorage(AppleMusicFeatureSettings.syncUserLibraryKey) private var syncUserLibrary = true
     @AppStorage(AppleMusicFeatureSettings.catalogSearchEnabledKey) private var catalogSearchEnabled = true
     @AppStorage(AppleMusicFeatureSettings.autoAddToSmartPlaylistsKey) private var autoAddToSmartPlaylists = false
@@ -3494,10 +3495,22 @@ private struct MacSTAppleMusicView: View {
                     }
                     MacSTRow(Lz("Last Synced")) {
                         MacSTInfoText(text: lastSyncText)
-                        MacSTButton(title: Lz("Re-Sync"), systemImage: "arrow.clockwise") {
-                            library.sync()
+                        // 同步的落点是"Apple Music 音乐源"。没添加过就没有落点,
+                        // 这里直接给添加入口, 而不是一个点了没反应的重新同步。
+                        if isSourceInstalled {
+                            MacSTButton(title: Lz("Re-Sync"), systemImage: "arrow.clockwise") {
+                                library.sync()
+                            }
+                            .disabled(!syncUserLibrary)
+                        } else {
+                            MacSTButton(
+                                title: String(localized: "apple_music_add_source_action"),
+                                systemImage: "plus.circle",
+                                prominent: true
+                            ) {
+                                AppServices.shared.installAppleMusicSource()
+                            }
                         }
-                        .disabled(!syncUserLibrary)
                     }
                     .settingsAnchor("appleMusic.sync")
                 }
@@ -3513,6 +3526,12 @@ private struct MacSTAppleMusicView: View {
                 }
             }
         }
+    }
+
+    private var isSourceInstalled: Bool {
+        AppleMusicSourcePolicy.isInstalled(
+            activeSourceIDs: Set(sourceStore.sources.map(\.id))
+        )
     }
 
     private var syncUserLibraryBinding: Binding<Bool> {

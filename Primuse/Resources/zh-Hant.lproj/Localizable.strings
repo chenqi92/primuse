@@ -408,6 +408,13 @@
 "apple_music_open_in_app" = "在 Apple Music 中開啟";
 "apple_music_now_playing_hint" = "Apple Music 在系統側播放，刮削 / 標籤編輯 / 等化器等 Primuse 功能不適用。";
 "apple_music_library_section" = "Apple Music 資料庫";
+"apple_music_source_needs_authorization_title" = "需要 Apple Music 權限";
+"apple_music_source_needs_authorization_message" = "Primuse 需要 Apple Music 權限才能同步資料庫。請在系統設定中授予權限後重新加入。";
+"source_remove_apple_music_confirm_title" = "移除 Apple Music？";
+"source_remove_apple_music_confirm_message" = "將移除 Apple Music 音樂來源、已同步的歌曲，以及鏡像到資料庫的 Apple Music 播放列表。你的 Apple Music 訂閱與資料庫不受影響。";
+"source_remove_apple_music_confirm_action" = "移除音樂來源及同步內容";
+"apple_music_add_source_action" = "加入音樂來源";
+"apple_music_add_source_footer" = "Apple Music 以音樂來源的方式同步。加入後拉取資料庫，移除即清除同步的歌曲與播放列表。";
 "apple_music_library_footer" = "把 Apple Music 你已加入資料庫的歌拉到 Primuse Library，跟 NAS / 雲端硬碟歌一起顯示。播放走系統播放器，不佔本機儲存空間。";
 "apple_music_library_idle" = "尚未同步";
 "apple_music_library_syncing" = "正在同步 Apple Music 資料庫…";

@@ -419,6 +419,13 @@
 "apple_music_open_in_app" = "Open in Apple Music";
 "apple_music_now_playing_hint" = "Apple Music plays through the system player. Primuse features like scraping, tag editing and EQ don't apply.";
 "apple_music_library_section" = "Apple Music Library";
+"apple_music_source_needs_authorization_title" = "Apple Music Access Required";
+"apple_music_source_needs_authorization_message" = "Primuse needs Apple Music access to sync your library. Grant access in System Settings, then add the source again.";
+"source_remove_apple_music_confirm_title" = "Remove Apple Music?";
+"source_remove_apple_music_confirm_message" = "This removes the Apple Music source, the songs it synced, and the Apple Music playlists mirrored into your library. Your Apple Music subscription and library are not affected.";
+"source_remove_apple_music_confirm_action" = "Remove Source and Synced Content";
+"apple_music_add_source_action" = "Add to Music Sources";
+"apple_music_add_source_footer" = "Apple Music syncs as a music source. Add it to pull your library in; remove it to clear the synced songs and playlists.";
 "apple_music_library_footer" = "Pull songs you've added to your Apple Music library into Primuse, alongside NAS / cloud tracks. Playback runs through the system player and uses no local storage.";
 "apple_music_library_idle" = "Not synced yet";
 "apple_music_library_syncing" = "Syncing Apple Music library…";

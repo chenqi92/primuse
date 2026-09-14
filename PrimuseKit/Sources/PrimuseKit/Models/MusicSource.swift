@@ -502,7 +502,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
             return String(localized: "src.subtitle.pan123", bundle: Bundle.primuseKit)
         case .guangya:
             return String(localized: "src.subtitle.guangya", bundle: Bundle.primuseKit)
-        case .appleMusic: return "Apple Music"
+        case .appleMusic: return PMString("src.subtitle.appleMusic")
         case .local:
             #if os(macOS)
             return PMString("src.subtitle.local.mac")

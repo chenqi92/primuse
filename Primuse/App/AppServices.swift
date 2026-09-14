@@ -823,26 +823,13 @@ final class AppServices {
             return await player.prepareAppleMusicPlaybackHandoff(requestID: requestID)
         }
 
-        // 确保 Apple Music 虚拟 source 一直存在 — 用户首次安装 / iCloud
-        // 同步过来时, 我们这边没这个 source 记录, library 里的 Apple Music
-        // 歌就会因为 sourceID 找不到 mount 被 visibleSongs 过滤掉。
-        // 这里手动 upsert 一个 enabled=true 的固定 ID source, 让 song.sourceID
-        // 总能对得上。
+        // Apple Music 是用户自己添加的音乐源, 不再无条件补一个删不掉的虚拟源。
+        // 这里只清理误加的重复记录:Apple Music 是系统单例, 只该有
+        // systemSourceID 这一个, 早期"添加源"列表把 .appleMusic 也列了出来,
+        // 用户可能加出 type=.appleMusic 但 id 非系统的重复源。
         let amSourceID = AppleMusicLibraryService.systemSourceID
-        // 清理误加的重复 Apple Music 源:Apple Music 是系统单例,只该有 systemSourceID 这一个。
-        // 早期"添加源"列表把 .appleMusic 也列了出来,用户可能加出 type=.appleMusic 但 id 非系统的重复源。
         for dup in store.allSources where dup.type == .appleMusic && dup.id != amSourceID && !dup.isDeleted {
             store.remove(id: dup.id)
-        }
-        if store.allSources.first(where: { $0.id == amSourceID }) == nil {
-            store.upsert(MusicSource(
-                id: amSourceID,
-                name: "Apple Music",
-                type: .appleMusic,
-                authType: .none,
-                isEnabled: true,
-                songCount: 0
-            ))
         }
         self.dlnaRenderer = DLNARendererService(player: player)
         self.visualizer = AudioVisualizerService()
@@ -864,6 +851,9 @@ final class AppServices {
 
         library.updateDisabledSourceIDs(
             Set(store.sources.filter { !$0.isEnabled }.map(\.id))
+        )
+        library.updateAppleMusicSourceInstalled(
+            AppleMusicSourcePolicy.isInstalled(activeSourceIDs: Set(store.sources.map(\.id)))
         )
         let playbackRestoreFinishedAt = ProcessInfo.processInfo.systemUptime
 
@@ -1210,6 +1200,13 @@ final class AppServices {
     /// prepared successors whose source availability changed; audible current
     /// playback is deliberately preserved.
     private func reconcileDisabledSourceIDs() {
+        // Apple Music 的"已添加"状态跟停用状态走同一条源变更通知:移除之后
+        // 它的镜像歌单必须当场从资料库里消失, 而不是等清理线程跑完。
+        musicLibrary.updateAppleMusicSourceInstalled(
+            AppleMusicSourcePolicy.isInstalled(
+                activeSourceIDs: Set(sourcesStore.sources.map(\.id))
+            )
+        )
         let previous = musicLibrary.disabledSourceIDs
         let current = Set(
             sourcesStore.sources.lazy.filter { !$0.isEnabled }.map(\.id)
@@ -1226,6 +1223,32 @@ final class AppServices {
         playerService.sourceAvailabilityDidChange(
             for: previous.symmetricDifference(current)
         )
+    }
+
+    /// Apple Music 音乐源的记录。ID 固定, 所以之前移除过再加回来时, 旧的墓碑
+    /// 会被这一次写入直接顶掉, 同步过的歌也还能按 sourceID 对上。
+    var appleMusicSourceRecord: MusicSource {
+        MusicSource(
+            id: AppleMusicSourcePolicy.sourceID,
+            name: "Apple Music",
+            type: .appleMusic,
+            authType: .none,
+            isEnabled: true,
+            songCount: 0
+        )
+    }
+
+    /// 用户在"添加源"里选了 Apple Music:授权之后建源并立刻开始同步。这个源
+    /// 没有主机、目录或凭据要填 —— 添加它本身就是"授权 + 开始同步"。
+    func installAppleMusicSource() {
+        sourcesStore.upsert(appleMusicSourceRecord)
+        startAppleMusicSourceSync()
+    }
+
+    /// 源记录已经由调用方写进 SourcesStore, 这里只负责让同步立刻跑起来。
+    func startAppleMusicSourceSync() {
+        musicLibrary.updateAppleMusicSourceInstalled(true)
+        appleMusicLibrary.sync()
     }
 
     private func observeSiriRadioCatalog() {
@@ -1523,6 +1546,12 @@ final class AppServices {
             knownSongIDs: removedSongIDs
         )
         musicLibrary.pruneServerPlaylistMirrors(forSourceIDs: sourceIDs)
+        // 移除 Apple Music 源要连同步来的歌单一起清:「Apple Music 资料库」
+        // 全集镜像和用户歌单镜像都不属于服务端歌单前缀, 不会被上面那一步带走。
+        if sourceIDs.contains(AppleMusicSourcePolicy.sourceID) {
+            appleMusicLibrary.sourceWasRemoved()
+            musicLibrary.pruneAppleMusicMirrorPlaylists()
+        }
         radioStationsStore.removeServerMirrors(forSourceIDs: sourceIDs)
         sourcesStore.resetLocalScanState(for: sourceIDs)
 

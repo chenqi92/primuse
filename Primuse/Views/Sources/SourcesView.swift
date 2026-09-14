@@ -4,6 +4,7 @@ import PrimuseKit
 private enum SourceAlert: Identifiable {
     case confirm(SourceCacheRequest)
     case completed(SourceCacheCompletion)
+    case appleMusicRemoval(MusicSource)
     #if os(iOS)
     case localImport(SourceLocalImportAlert)
     case managedCopyRemoval(MusicSource)
@@ -13,6 +14,7 @@ private enum SourceAlert: Identifiable {
         switch self {
         case .confirm(let request): "confirm-\(request.id.uuidString)"
         case .completed(let completion): "completed-\(completion.id.uuidString)"
+        case .appleMusicRemoval(let source): "apple-music-removal-\(source.id)"
         #if os(iOS)
         case .localImport(let alert): "local-import-\(alert.id.uuidString)"
         case .managedCopyRemoval(let source): "managed-copy-removal-\(source.id)"
@@ -387,7 +389,7 @@ struct SourcesContentView: View {
     @State private var preparingCacheSourceID: String?
     @State private var cachePreparationTask: Task<Void, Never>?
     @State private var cloudDirectoryNameRefreshID = UUID()
-    /// Apple Music 这个虚拟 source 没有目录 / 体检的概念, 行内按钮换成
+    /// Apple Music 源没有目录 / 体检的概念, 行内按钮换成
     /// "打开 Apple Music 设置" 的跳转 ── 走 NavigationStack 的 destination 而不是 sheet,
     /// 让推入栈跟其他 Settings 子页体验一致 (左上角"返回"而不是"完成")。
     @State private var openAppleMusicSettings = false
@@ -555,6 +557,15 @@ struct SourcesContentView: View {
                         title: Text(cacheCompletionTitle(for: completion)),
                         message: Text(cacheCompletionMessage(for: completion)),
                         dismissButton: .default(Text("done"))
+                    )
+                case .appleMusicRemoval(let source):
+                    return Alert(
+                        title: Text("source_remove_apple_music_confirm_title"),
+                        message: Text("source_remove_apple_music_confirm_message"),
+                        primaryButton: .destructive(Text("source_remove_apple_music_confirm_action")) {
+                            scheduleDelete(source)
+                        },
+                        secondaryButton: .cancel(Text("cancel"))
                     )
                 #if os(iOS)
                 case .localImport(let alert):
@@ -873,10 +884,24 @@ struct SourcesContentView: View {
             }
             #endif
 
+            if source.type == .appleMusic {
+                appleMusicSyncStatus
+            }
+
             HStack(spacing: 10) {
                 if source.type == .appleMusic {
-                    // Apple Music 走 ApplicationMusicPlayer, 没有目录/扫描/体检概念,
-                    // 行内只给一个跳转设置的入口。
+                    // Apple Music 走 ApplicationMusicPlayer, 没有目录/体检概念。
+                    // 同步就是这个源的"扫描", 所以直接摆在行内, 跟别的源一致。
+                    sourceActionButton(
+                        appleMusicSyncTitle,
+                        systemImage: "arrow.triangle.2.circlepath",
+                        prominence: .success,
+                        isLoading: isAppleMusicSyncing,
+                        isDisabled: isAppleMusicSyncing || !source.isEnabled
+                    ) {
+                        appleMusicLibrary.sync()
+                    }
+
                     sourceActionButton(
                         "source_apple_music_open_settings",
                         systemImage: "applelogo",
@@ -979,8 +1004,8 @@ struct SourcesContentView: View {
                     systemImage: source.isEnabled ? "eye.slash" : "eye"
                 )
             }
-            // Apple Music 没有 edit / diagnose / delete 概念 ── 删了 AppServices
-            // 下次启动会自动重建, 反而带来困惑; 编辑/体检都依赖 connector。
+            // Apple Music 没有 edit / diagnose 概念 ── 两者都依赖 connector。
+            // 但它跟其它音乐源一样可以移除:移除即取消授权同步并清掉同步产物。
             if source.id != AppleMusicLibraryService.systemSourceID {
                 Button { editingSource = source } label: { Label("edit", systemImage: "pencil") }
                 Button { diagnosingSource = source } label: { Label("source_diagnostics", systemImage: "stethoscope") }
@@ -992,13 +1017,13 @@ struct SourcesContentView: View {
                     }
                     .disabled(scanning?.isScanning == true)
                 }
-                Divider()
-                Button(role: .destructive) { requestDelete(source) } label: { Label("delete", systemImage: "trash") }
             }
+            Divider()
+            Button(role: .destructive) { requestDelete(source) } label: { Label("delete", systemImage: "trash") }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) { requestDelete(source) } label: { Label("delete", systemImage: "trash") }
             if source.id != AppleMusicLibraryService.systemSourceID {
-                Button(role: .destructive) { requestDelete(source) } label: { Label("delete", systemImage: "trash") }
                 Button { editingSource = source } label: { Label("edit", systemImage: "pencil") }.tint(.orange)
                 Button { diagnosingSource = source } label: { Label("source_diagnostics_short", systemImage: "stethoscope") }.tint(.blue)
             }
@@ -1013,6 +1038,58 @@ struct SourcesContentView: View {
             .tint(source.isEnabled ? .gray : .green)
         }
     }
+
+    // MARK: - Apple Music 同步
+
+    private var isAppleMusicSyncing: Bool {
+        if case .syncing = appleMusicLibrary.state { return true }
+        return false
+    }
+
+    private var appleMusicSyncTitle: LocalizedStringKey {
+        if case .done = appleMusicLibrary.state { return "apple_music_library_resync" }
+        return "apple_music_library_sync"
+    }
+
+    /// Apple Music 源的"扫描进度"—— 同步状态直接显示在卡片里, 不必再跳设置页。
+    @ViewBuilder
+    private var appleMusicSyncStatus: some View {
+        switch appleMusicLibrary.state {
+        case .idle:
+            Text("apple_music_library_idle")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .syncing:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("apple_music_library_syncing")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        case .done(let count, let at):
+            Label(
+                String(
+                    format: String(localized: "apple_music_library_done_format"),
+                    count,
+                    Self.appleMusicSyncDateFormatter.string(from: at)
+                ),
+                systemImage: "checkmark.circle.fill"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        case .failed(let message):
+            Label(message, systemImage: "exclamationmark.triangle")
+                .font(.caption)
+                .foregroundStyle(.red)
+        }
+    }
+
+    private static let appleMusicSyncDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
+        return formatter
+    }()
 
     private func serverCatalogAutoRefreshControl(for source: MusicSource) -> some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -2097,6 +2174,11 @@ struct SourcesContentView: View {
             return
         }
         #endif
+        // 移除 Apple Music 会一并删掉同步进来的歌和镜像歌单, 先说清楚再删。
+        if source.id == AppleMusicLibraryService.systemSourceID {
+            sourceAlert = .appleMusicRemoval(source)
+            return
+        }
         scheduleDelete(source)
     }
 

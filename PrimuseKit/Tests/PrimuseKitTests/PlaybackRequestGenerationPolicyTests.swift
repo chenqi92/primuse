@@ -130,24 +130,27 @@ struct AppleMusicLibraryPlaybackGatePolicyTests {
             requestIsPending: true,
             isCancelled: false,
             syncEnabled: true,
+            sourceInstalled: true,
             sourceEnabled: true,
             isAuthorized: true
         ))
 
-        let rejectedInputs: [(Bool, Bool, Bool, Bool, Bool)] = [
-            (false, false, true, true, true),
-            (true, true, true, true, true),
-            (true, false, false, true, true),
-            (true, false, true, false, true),
-            (true, false, true, true, false),
+        let rejectedInputs: [(Bool, Bool, Bool, Bool, Bool, Bool)] = [
+            (false, false, true, true, true, true),
+            (true, true, true, true, true, true),
+            (true, false, false, true, true, true),
+            (true, false, true, false, true, true),
+            (true, false, true, true, false, true),
+            (true, false, true, true, true, false),
         ]
         for input in rejectedInputs {
             #expect(!AppleMusicLibraryPlaybackGatePolicy.canContinue(
                 requestIsPending: input.0,
                 isCancelled: input.1,
                 syncEnabled: input.2,
-                sourceEnabled: input.3,
-                isAuthorized: input.4
+                sourceInstalled: input.3,
+                sourceEnabled: input.4,
+                isAuthorized: input.5
             ))
         }
     }

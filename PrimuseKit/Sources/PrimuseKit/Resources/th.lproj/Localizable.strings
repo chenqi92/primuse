@@ -637,6 +637,7 @@
 "src.displayName.guangya"    = "GuangYa Pan";
 "src.displayName.ugreen" = "Ugreen";
 "src.subtitle.aliyunDrive" = "Aliyun Drive PDS";
+"src.subtitle.appleMusic" = "ซิงค์คลังเพลง Apple Music";
 "src.subtitle.appleMusicLibrary" = "ท้องถิ่น Apple Music / iTunes";
 "src.subtitle.awaitingPublicAPI" = "กำลังรอสาธารณะ API · ยังไม่มีให้บริการ";
 "src.subtitle.baiduPan" = "Baidu Pan OAuth";

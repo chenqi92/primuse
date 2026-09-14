@@ -443,6 +443,7 @@
 "src.subtitle.local" = "iPhone ストレージ";
 "src.subtitle.local.mac" = "Mac ストレージ";
 "src.subtitle.local.tv" = "Apple TV ストレージ";
+"src.subtitle.appleMusic" = "Apple Music ライブラリを同期";
 "src.subtitle.appleMusicLibrary" = "ローカルの Apple Music / iTunes";
 "ext.tv.sources.apiPending" = "API 公開待ち";
 "ext.tv.sources.hint.smb" = "NAS · TrueNAS · 共有フォルダ";

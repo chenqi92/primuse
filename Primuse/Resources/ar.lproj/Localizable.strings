@@ -738,6 +738,13 @@
 "apple_music_cloud_library_unavailable_format" = "Apple Music المكتبة السحابية غير متاحة (Apple خطأ %@). تأكد من أن الموسيقى الموجودة على Mac تستخدم نفس حساب Apple والاشتراك مثل iPhone الخاص بك، ثم قم بتشغيل مكتبة المزامنة. تم الحفاظ على أغانيك المحلية %d.";
 "apple_music_library_access_failed_format" = "غير قادر على الوصول إلى مكتبة Apple Music: %@";
 "apple_music_library_done_format" = "%d أغاني · %@";
+"apple_music_source_needs_authorization_title" = "مطلوب الوصول إلى Apple Music";
+"apple_music_source_needs_authorization_message" = "يحتاج Primuse إلى الوصول إلى Apple Music لمزامنة مكتبتك. امنح الإذن من إعدادات النظام ثم أضف المصدر مرة أخرى.";
+"source_remove_apple_music_confirm_title" = "إزالة Apple Music؟";
+"source_remove_apple_music_confirm_message" = "سيؤدي هذا إلى إزالة مصدر Apple Music والأغاني التي تمت مزامنتها وقوائم تشغيل Apple Music المنسوخة إلى مكتبتك. لن يتأثر اشتراكك أو مكتبتك في Apple Music.";
+"source_remove_apple_music_confirm_action" = "إزالة المصدر والمحتوى المتزامن";
+"apple_music_add_source_action" = "إضافة إلى مصادر الموسيقى";
+"apple_music_add_source_footer" = "تتم مزامنة Apple Music كمصدر موسيقى. أضفه لجلب مكتبتك، وأزله لمسح الأغاني وقوائم التشغيل المتزامنة.";
 "apple_music_library_footer" = "اسحب الأغاني التي أضفتها إلى مكتبتك Apple Music إلى Primuse، إلى جانب NAS / المسارات السحابية. يتم تشغيل التشغيل من خلال مشغل النظام ولا يستخدم أي مساحة تخزين محلية.";
 "apple_music_library_hint" = "تظهر الأغاني الموجودة في مكتبتك Apple Music بجانب بقية الموسيقى الخاصة بك في Primuse.";
 "apple_music_library_idle" = "لم تتم المزامنة بعد";

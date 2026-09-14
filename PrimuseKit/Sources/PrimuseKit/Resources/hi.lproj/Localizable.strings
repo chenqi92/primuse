@@ -637,6 +637,7 @@
 "src.displayName.guangya"    = "GuangYa Pan";
 "src.displayName.ugreen" = "Ugreen";
 "src.subtitle.aliyunDrive" = "Aliyun Drive PDS";
+"src.subtitle.appleMusic" = "अपनी Apple Music लाइब्रेरी सिंक करें";
 "src.subtitle.appleMusicLibrary" = "स्थानीय Apple Music / iTunes";
 "src.subtitle.awaitingPublicAPI" = "जनता की प्रतीक्षा में API · अभी तक उपलब्ध नहीं है";
 "src.subtitle.baiduPan" = "Baidu Pan OAuth";

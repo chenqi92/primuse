@@ -637,6 +637,7 @@
 "src.displayName.guangya"    = "GuangYa Pan";
 "src.displayName.ugreen" = "Ugreen";
 "src.subtitle.aliyunDrive" = "Aliyun Drive PDS";
+"src.subtitle.appleMusic" = "مزامنة مكتبة Apple Music";
 "src.subtitle.appleMusicLibrary" = "محلي Apple Music / iTunes";
 "src.subtitle.awaitingPublicAPI" = "في انتظار الجمهور API · غير متوفر بعد";
 "src.subtitle.baiduPan" = "Baidu Pan OAuth";

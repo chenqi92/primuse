@@ -26,8 +26,8 @@ import iTunesLibrary
 @MainActor
 @Observable
 final class AppleMusicLibraryService {
-    /// Apple Music 那个虚拟 source 的固定 ID — 全 Primuse 里 hard-code 这个值,
-    /// 不走 UUID, 让 song.sourceID 一致, 多次启动 / 重装也能 match 上。
+    /// Apple Music 音乐源的固定 ID — 全 Primuse 里 hard-code 这个值,
+    /// 不走 UUID, 让 song.sourceID 一致, 移除后重新添加也能 match 上。
     nonisolated static let systemSourceID = AppleMusicLibraryIdentity.sourceID
 
     /// 「Apple Music 资料库」镜像歌单的固定 ID。每次 sync 完整覆盖,
@@ -152,7 +152,11 @@ final class AppleMusicLibraryService {
 
     func refreshAfterAccountChange() async {
         guard !isRefreshingAccess,
-              AppleMusicFeatureSettings.syncUserLibraryEnabled else { return }
+              AppleMusicSourcePolicy.isSyncable(
+                  isInstalled: library.appleMusicSourceInstalled,
+                  isSourceEnabled: !library.disabledSourceIDs.contains(Self.systemSourceID),
+                  isSyncPreferenceEnabled: AppleMusicFeatureSettings.syncUserLibraryEnabled
+              ) else { return }
         isRefreshingAccess = true
         defer { isRefreshingAccess = false }
         do {
@@ -213,11 +217,13 @@ final class AppleMusicLibraryService {
     /// 不大 (大部分用户几百到几千首), 一次性拉全。失败时 state=.failed, UI
     /// 显示错误并允许重试。
     func sync() {
-        guard AppleMusicFeatureSettings.syncUserLibraryEnabled else {
-            cancel()
-            return
-        }
-        guard !library.disabledSourceIDs.contains(Self.systemSourceID) else {
+        // Apple Music 是用户自己添加的音乐源。源被移除后还继续拉, 拉回来的歌
+        // 会因为找不到源被启动对账当成孤儿再删一次, 用户只会看到歌反复闪现。
+        guard AppleMusicSourcePolicy.isSyncable(
+            isInstalled: library.appleMusicSourceInstalled,
+            isSourceEnabled: !library.disabledSourceIDs.contains(Self.systemSourceID),
+            isSyncPreferenceEnabled: AppleMusicFeatureSettings.syncUserLibraryEnabled
+        ) else {
             cancel()
             return
         }
@@ -244,6 +250,7 @@ final class AppleMusicLibraryService {
             requestIsPending: appleMusic.isPlaybackRequestPending(requestID),
             isCancelled: Task.isCancelled,
             syncEnabled: AppleMusicFeatureSettings.syncUserLibraryEnabled,
+            sourceInstalled: library.appleMusicSourceInstalled,
             sourceEnabled: !library.disabledSourceIDs.contains(Self.systemSourceID),
             isAuthorized: appleMusic.authState == .authorized
         )
@@ -518,8 +525,11 @@ final class AppleMusicLibraryService {
         let selected = queue.entries[queue.startIndex].song
         guard let starting = await musicKitSong(amID: selected.filePath),
               appleMusic.isPlaybackRequestActive(requestID), !Task.isCancelled,
-              AppleMusicFeatureSettings.syncUserLibraryEnabled,
-              !library.disabledSourceIDs.contains(Self.systemSourceID) else { return nil }
+              AppleMusicSourcePolicy.isSyncable(
+                  isInstalled: library.appleMusicSourceInstalled,
+                  isSourceEnabled: !library.disabledSourceIDs.contains(Self.systemSourceID),
+                  isSyncPreferenceEnabled: AppleMusicFeatureSettings.syncUserLibraryEnabled
+              ) else { return nil }
         let source = playbackSource(for: starting)
         let indices = PlaybackQueueSegmentPolicy.indices(
             traversal: Array(queue.entries.indices), currentIndex: queue.startIndex
@@ -574,6 +584,19 @@ final class AppleMusicLibraryService {
         syncTask?.cancel()
         syncTask = nil
         state = .idle
+    }
+
+    /// 用户把 Apple Music 从音乐源里移除了。停掉同步并丢掉所有内存缓存 ——
+    /// 资料库里的歌与镜像歌单由源清理链路删除, 这里只负责不再有任何一条
+    /// 缓存记录能让已删除的歌重新解析出封面或播放队列。重新添加时从零再拉。
+    func sourceWasRemoved() {
+        cancel()
+        subscriptionUpdatesTask?.cancel()
+        subscriptionUpdatesTask = nil
+        lastAccess = nil
+        lastSyncAt = nil
+        invalidateAccountCaches()
+        UserDefaults.standard.removeObject(forKey: Self.syncedStorefrontKey)
     }
 
     /// 给 UI 层 (CachedArtworkView) 用 ── 拿到 MusicKit.Song 后通过 ArtworkImage

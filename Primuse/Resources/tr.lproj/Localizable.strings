@@ -1747,6 +1747,13 @@
 "cloud_guide_onedrive" = "Bir uygulamayı kaydetmek için entra.microsoft.com adresine gidin";
 "ai_models_loaded_format" = "%d modelleri getirildi";
 "SHA256: Manually Trusted · Stored Locally" = "SHA256: Manuel Olarak Güvenilir · Yerel Olarak Depolanır";
+"apple_music_source_needs_authorization_title" = "Apple Music Erişimi Gerekli";
+"apple_music_source_needs_authorization_message" = "Primuse’un kitaplığını eşitlemesi için Apple Music erişimi gerekir. Sistem Ayarları’ndan izin verip kaynağı yeniden ekleyin.";
+"source_remove_apple_music_confirm_title" = "Apple Music kaldırılsın mı?";
+"source_remove_apple_music_confirm_message" = "Apple Music kaynağı, eşitlenen şarkılar ve kitaplığa yansıtılan Apple Music çalma listeleri kaldırılır. Apple Music aboneliğiniz ve kitaplığınız etkilenmez.";
+"source_remove_apple_music_confirm_action" = "Kaynağı ve Eşitlenenleri Kaldır";
+"apple_music_add_source_action" = "Müzik Kaynaklarına Ekle";
+"apple_music_add_source_footer" = "Apple Music bir müzik kaynağı olarak eşitlenir. Ekleyince kitaplığınız alınır, kaldırınca eşitlenen şarkı ve çalma listeleri temizlenir.";
 "apple_music_library_footer" = "Apple Music arşivinize eklediğiniz şarkıları, NAS / bulut parçalarının yanı sıra Primuse'ye çekin. Oynatma, sistem oynatıcısı üzerinden yürütülür ve yerel depolama alanı kullanmaz.";
 "smart_field_genre" = "Tür";
 "From URL" = "URL'den";

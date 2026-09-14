@@ -1747,6 +1747,13 @@
 "cloud_guide_onedrive" = "Перейдіть на entra.microsoft.com, щоб зареєструвати програму";
 "ai_models_loaded_format" = "Завантажено моделі %d";
 "SHA256: Manually Trusted · Stored Locally" = "SHA256: Довірено вручну · Зберігається локально";
+"apple_music_source_needs_authorization_title" = "Потрібен доступ до Apple Music";
+"apple_music_source_needs_authorization_message" = "Primuse потребує доступу до Apple Music, щоб синхронізувати медіатеку. Надайте доступ у системних параметрах і додайте джерело знову.";
+"source_remove_apple_music_confirm_title" = "Видалити Apple Music?";
+"source_remove_apple_music_confirm_message" = "Буде видалено джерело Apple Music, синхронізовані пісні та плейлісти Apple Music, скопійовані до медіатеки. Підписка й медіатека Apple Music не зміняться.";
+"source_remove_apple_music_confirm_action" = "Видалити джерело та синхронізоване";
+"apple_music_add_source_action" = "Додати до джерел музики";
+"apple_music_add_source_footer" = "Apple Music синхронізується як джерело музики. Додайте, щоб отримати медіатеку; видаліть, щоб очистити синхронізовані пісні та плейлісти.";
 "apple_music_library_footer" = "Перетягніть пісні, які ви додали до своєї медіатеки Apple Music, у Primuse разом із NAS / хмарними треками. Відтворення виконується через системний програвач і не використовує локальне сховище.";
 "smart_field_genre" = "Жанр";
 "From URL" = "Від URL";

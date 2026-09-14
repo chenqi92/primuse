@@ -2862,10 +2862,11 @@ final class MusicLibrary {
     private var mirrorPlaylistSuppressions: [String: MirrorPlaylistSuppression] = [:]
     /// Live (non-deleted) playlists for normal UI use. Apple Music's library
     /// and user-playlist mirrors are read-only snapshots, so keep them stored
-    /// for fast re-enable but hide them whenever Apple Music library sync or
-    /// its virtual source is disabled.
+    /// for fast re-enable but hide them whenever Apple Music library sync is
+    /// off, or its music source is disabled or has been removed.
     var playlists: [Playlist] {
         let hidesAppleMusicMirrors = !appleMusicLibrarySyncEnabled
+            || !appleMusicSourceInstalled
             || disabledSourceIDs.contains(AppleMusicLibraryIdentity.sourceID)
         return allPlaylists.filter { playlist in
             guard !playlist.isDeleted else { return false }
@@ -3046,6 +3047,10 @@ final class MusicLibrary {
     /// SwiftUI views when the macOS settings toggle changes.
     private(set) var appleMusicLibrarySyncEnabled =
         AppleMusicLibraryPreferences.syncUserLibraryEnabled
+    /// Apple Music 现在跟其它音乐源一样由用户添加/移除。移除之后它的镜像歌单
+    /// 在被清理线程真正删掉之前还留在集合里,这个标记让它们当场从资料库里消失。
+    /// 默认 true:没有源列表可读的目标(tvOS 共享这份 MusicLibrary)保持原行为。
+    private(set) var appleMusicSourceInstalled = true
 
     /// Cached filtered views — rebuilt only when songs/disabled state change
     private var visibleSongsReference = LibraryArrayReference<Song>()
@@ -3446,6 +3451,13 @@ final class MusicLibrary {
     func updateAppleMusicLibrarySyncEnabled(_ enabled: Bool) {
         guard appleMusicLibrarySyncEnabled != enabled else { return }
         appleMusicLibrarySyncEnabled = enabled
+        playlistCollectionRevision &+= 1
+    }
+
+    /// 由源列表驱动:Apple Music 被添加为音乐源时为 true,被移除后为 false。
+    func updateAppleMusicSourceInstalled(_ installed: Bool) {
+        guard appleMusicSourceInstalled != installed else { return }
+        appleMusicSourceInstalled = installed
         playlistCollectionRevision &+= 1
     }
 
@@ -6562,6 +6574,42 @@ final class MusicLibrary {
         prunePlaylists(withIDPrefixes: prefixes, keepingIDs: [])
     }
 
+    /// 移除 Apple Music 音乐源时,连同它同步出来的镜像歌单一起删掉 ——
+    /// 「Apple Music 资料库」全集镜像和每一个用户歌单镜像。只删源不删歌单,
+    /// 用户会留下一批永远不再更新、在界面上也删不掉的空歌单。用户自己手动
+    /// 隐藏过的记录一并清掉,重新添加 Apple Music 才能回到干净状态。
+    func pruneAppleMusicMirrorPlaylists() {
+        // S2: 镜像歌单与隐藏表都要等发布之后才在集合里。
+        if deferringUntilReady({ [weak self] in
+            self?.pruneAppleMusicMirrorPlaylists()
+        }) { return }
+        let staleIDs = AppleMusicSourcePolicy.mirrorPlaylistIDs(in: allPlaylists.map(\.id))
+        let staleSuppressionIDs = mirrorPlaylistSuppressions
+            .filter { $0.value.key.sourceID == AppleMusicSourcePolicy.sourceID }
+            .map(\.key)
+        guard !staleIDs.isEmpty || !staleSuppressionIDs.isEmpty else { return }
+
+        allPlaylists.removeAll { staleIDs.contains($0.id) }
+        for id in staleIDs {
+            playlistSongIDs[id] = nil
+            pendingPlaylistIdentities[id] = nil
+        }
+        if !staleSuppressionIDs.isEmpty {
+            let previous = mirrorPlaylistSuppressions
+            for id in staleSuppressionIDs {
+                mirrorPlaylistSuppressions[id] = nil
+            }
+            if !persistPlaylistDurabilityLedger() {
+                mirrorPlaylistSuppressions = previous
+            }
+        }
+        sortPlaylists()
+        persistSnapshot()
+        for id in staleIDs {
+            notifyPlaylistDeleted(id)
+        }
+    }
+
     private func prunePlaylists(withIDPrefixes prefixes: Set<String>, keepingIDs: Set<String>) {
         guard !prefixes.isEmpty else { return }
         // S2: `prunePlaylists(withIDPrefix:)` 与 `pruneServerPlaylistMirrors` 共用
@@ -6921,6 +6969,7 @@ final class MusicLibrary {
     ) -> [LibraryFolderVirtualCollectionDescriptor] {
         let sourceID = AppleMusicLibraryIdentity.sourceID
         guard appleMusicLibrarySyncEnabled,
+              appleMusicSourceInstalled,
               !disabledSourceIDs.contains(sourceID) else {
             return []
         }

@@ -637,6 +637,13 @@
 "apple_music_open_in_app" = "Apple Music で開く";
 "apple_music_now_playing_hint" = "Apple Music はシステムのプレーヤーで再生されます。スクレイピング、タグ編集、EQ などの Primuse の機能は適用されません。";
 "apple_music_library_section" = "Apple Music ライブラリ";
+"apple_music_source_needs_authorization_title" = "Apple Music へのアクセスが必要です";
+"apple_music_source_needs_authorization_message" = "ライブラリを同期するには Apple Music へのアクセスが必要です。システム設定で許可してから、もう一度追加してください。";
+"source_remove_apple_music_confirm_title" = "Apple Music を削除しますか？";
+"source_remove_apple_music_confirm_message" = "Apple Music ソース、同期した曲、ライブラリにミラーされた Apple Music のプレイリストを削除します。Apple Music のサブスクリプションとライブラリには影響しません。";
+"source_remove_apple_music_confirm_action" = "ソースと同期内容を削除";
+"apple_music_add_source_action" = "ミュージックソースに追加";
+"apple_music_add_source_footer" = "Apple Music はミュージックソースとして同期します。追加するとライブラリを取り込み、削除すると同期した曲とプレイリストを消去します。";
 "apple_music_library_footer" = "Apple Music ライブラリに追加した曲を、NAS / クラウドの曲と並べて Primuse に取り込みます。再生はシステムのプレーヤーを通して行われ、ローカルストレージは使用しません。";
 "apple_music_library_idle" = "未同期";
 "apple_music_library_syncing" = "Apple Music ライブラリを同期中…";

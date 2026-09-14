@@ -196,6 +196,7 @@
 "ext.synology.quickconnect.error.invalidResponse" = "QuickConnect tanınmayan bir yanıt döndürdü.";
 "ext.tv.scan.serverCatalogBody" = "NAS klasörlerini seçmeden parçaları %@ aracılığıyla içe aktarın.";
 "src.subtitle.local.mac" = "Mac depolama alanı";
+"src.subtitle.appleMusic" = "Apple Music kitaplığını eşitle";
 "src.subtitle.appleMusicLibrary" = "Yerel Apple Music / iTunes";
 "src.displayName.fnos" = "fnOS";
 "ext.tv.settings.intelligence" = "Akıllı özellikler";

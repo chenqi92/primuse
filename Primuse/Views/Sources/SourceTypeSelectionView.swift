@@ -3,11 +3,15 @@ import PrimuseKit
 import UniformTypeIdentifiers
 #if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
 #endif
 
 struct SourceTypeSelectionView<ConnectionContent: View>: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(ThemeService.self) private var theme
+    @Environment(AppleMusicService.self) private var appleMusic
+    @Environment(SourcesStore.self) private var sourceStore
     let submitIntent: AddSourceSubmitIntent
     let onAdd: (MusicSource) throws -> Void
     let onConnectionStart: (MusicSource) -> Void
@@ -61,6 +65,9 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
         }
     }
     @State private var addTarget: AddSourceTarget?
+    /// Apple Music 没有表单可填 —— 点它就是请求授权, 通过之后直接建源并同步。
+    @State private var isAuthorizingAppleMusic = false
+    @State private var showAppleMusicAuthorizationAlert = false
     @State private var connectionSource: MusicSource?
     @State private var connectionCommitIsDeferred = false
     @State private var connectionWasCommitted = false
@@ -82,8 +89,84 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
         .sheet(item: $addTarget, onDismiss: finishConnectionFlowIfNeeded) { target in
             addFlowContent(for: target)
         }
+        .alert(
+            "apple_music_source_needs_authorization_title",
+            isPresented: $showAppleMusicAuthorizationAlert
+        ) {
+            Button("open_system_settings") { openAppleMusicPrivacySettings() }
+            Button("cancel", role: .cancel) {}
+        } message: {
+            Text("apple_music_source_needs_authorization_message")
+        }
         .onAppear { discoveryService.startDiscovery() }
         .onDisappear { discoveryService.stopDiscovery() }
+    }
+
+    /// Apple 分组:Apple Music 订阅资料库(两端都有), 外加 macOS 的本机
+    /// Apple Music / iTunes 资料库。Apple Music 是系统单例, 已添加就不再列出。
+    private var appleSectionTypes: [MusicSourceType] {
+        var types: [MusicSourceType] = []
+        if !appleMusicIsInstalled {
+            types.append(.appleMusic)
+        }
+        #if os(macOS)
+        types.append(.appleMusicLibrary)
+        #endif
+        return types
+    }
+
+    /// Apple Music 是系统单例音乐源:已经添加过就不再出现在"添加源"列表里。
+    private var appleMusicIsInstalled: Bool {
+        AppleMusicSourcePolicy.isInstalled(
+            activeSourceIDs: Set(sourceStore.sources.map(\.id))
+        )
+    }
+
+    /// 统一的类型入口。除 Apple Music 外都进配置表单; Apple Music 没有主机 /
+    /// 凭据要填, 添加它就等于授权 + 开始同步。
+    private func selectSourceType(_ type: MusicSourceType) {
+        guard !type.isAwaitingPublicAPI else { return }
+        guard type != .appleMusic else {
+            addAppleMusicSource()
+            return
+        }
+        addTarget = .type(type)
+    }
+
+    private func addAppleMusicSource() {
+        guard !isAuthorizingAppleMusic, !appleMusicIsInstalled else { return }
+        isAuthorizingAppleMusic = true
+        Task { @MainActor in
+            if appleMusic.authState != .authorized {
+                await appleMusic.requestAuthorization()
+            }
+            isAuthorizingAppleMusic = false
+            guard appleMusic.authState == .authorized else {
+                showAppleMusicAuthorizationAlert = true
+                return
+            }
+            // 走跟其它源同一条 onAdd:各个宿主(来源页 / 引导页)靠它收尾。
+            do {
+                try onAdd(AppServices.shared.appleMusicSourceRecord)
+            } catch {
+                plog("⛔ Apple Music source add failed: \(error.localizedDescription)")
+                return
+            }
+            AppServices.shared.startAppleMusicSourceSync()
+            dismiss()
+        }
+    }
+
+    private func openAppleMusicPrivacySettings() {
+        #if os(iOS)
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+        #elseif os(macOS)
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Media"
+        ) else { return }
+        NSWorkspace.shared.open(url)
+        #endif
     }
 
     @ViewBuilder
@@ -175,7 +258,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
 
                     macProtocolSection(
                         title: "Apple",
-                        types: [.appleMusicLibrary]
+                        types: appleSectionTypes
                     )
 
                     ForEach(MusicSourceType.groupedByCategory, id: \.0) { category, types in
@@ -323,8 +406,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
         .disabled(type.isAwaitingPublicAPI)
         .opacity(type.isAwaitingPublicAPI ? 0.62 : 1)
         .onTapGesture(count: 2) {
-            guard !type.isAwaitingPublicAPI else { return }
-            addTarget = .type(type)
+            selectSourceType(type)
         }
     }
 
@@ -389,7 +471,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
 
             Button {
                 if let pendingType {
-                    addTarget = .type(pendingType)
+                    selectSourceType(pendingType)
                 }
             } label: {
                 Text("next")
@@ -464,10 +546,10 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
                 }
             }
 
-            // Apple Music / iTunes 资料库 — 单独 section 置顶,避免被埋进
-            // Local 分类底部找不到。
+            // Apple Music 订阅资料库 + 本机 Apple Music / iTunes 资料库 —
+            // 单独 section 置顶,避免被埋进 Local 分类底部找不到。
             Section("Apple") {
-                typeButton(.appleMusicLibrary)
+                ForEach(appleSectionTypes, id: \.self) { typeButton($0) }
             }
 
             // 其它来源按 category 分组,过滤掉已在上面单独展示的 appleMusicLibrary
@@ -489,8 +571,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
     /// 文字两行紧贴,跟 macOS 系统设置里 source list 的行高一致。
     private func typeButton(_ type: MusicSourceType) -> some View {
         Button {
-            guard !type.isAwaitingPublicAPI else { return }
-            addTarget = .type(type)
+            selectSourceType(type)
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: type.iconName)
@@ -679,16 +760,33 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
                 iosLocalImportProgressSection(localImportProgress)
             }
 
+            // Apple Music 订阅资料库单独置顶。添加它等于授权并开始同步,
+            // 已经添加过就不再列出来。
+            if !appleSectionTypes.isEmpty {
+                Section(header: Text(verbatim: "Apple")) {
+                    ForEach(appleSectionTypes, id: \.self) { type in
+                        Button {
+                            selectSourceType(type)
+                        } label: {
+                            iosSourceTypeRow(type)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
             ForEach(MusicSourceType.groupedByCategory, id: \.0) { category, types in
-                let filtered = types.filter { $0 != .local && $0 != .appleMusicLibrary }
+                // Apple 分组已在上面单独展示, 这里不再重复列 Apple Music。
+                let filtered = types.filter {
+                    $0 != .local && $0 != .appleMusicLibrary && $0 != .appleMusic
+                }
                 if category == .local {
                     iosLocalImportSection
                 } else if !filtered.isEmpty {
                     Section(header: Text(category.displayNameFallback)) {
                         ForEach(filtered, id: \.self) { type in
                             Button {
-                                guard !type.isAwaitingPublicAPI else { return }
-                                addTarget = .type(type)
+                                selectSourceType(type)
                             } label: {
                                 iosSourceTypeRow(type)
                             }
