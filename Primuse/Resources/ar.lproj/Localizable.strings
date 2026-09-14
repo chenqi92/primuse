@@ -744,8 +744,6 @@
 "source_remove_apple_music_confirm_message" = "سيؤدي هذا إلى إزالة مصدر Apple Music والأغاني التي تمت مزامنتها وقوائم تشغيل Apple Music المنسوخة إلى مكتبتك. لن يتأثر اشتراكك أو مكتبتك في Apple Music.";
 "source_remove_apple_music_confirm_action" = "إزالة المصدر والمحتوى المتزامن";
 "apple_music_add_source_action" = "إضافة إلى مصادر الموسيقى";
-"apple_music_add_source_footer" = "تتم مزامنة Apple Music كمصدر موسيقى. أضفه لجلب مكتبتك، وأزله لمسح الأغاني وقوائم التشغيل المتزامنة.";
-"apple_music_library_footer" = "اسحب الأغاني التي أضفتها إلى مكتبتك Apple Music إلى Primuse، إلى جانب NAS / المسارات السحابية. يتم تشغيل التشغيل من خلال مشغل النظام ولا يستخدم أي مساحة تخزين محلية.";
 "apple_music_library_hint" = "تظهر الأغاني الموجودة في مكتبتك Apple Music بجانب بقية الموسيقى الخاصة بك في Primuse.";
 "apple_music_library_idle" = "لم تتم المزامنة بعد";
 "apple_music_library_not_authorized" = "Apple Music غير مصرح به. قم بتفعيله في الإعدادات → Apple Music.";
@@ -2753,9 +2751,7 @@
 "server_share_verbatim_url_footer" = "Primuse يشارك هذا الخادم الذي تم إرجاعه URL تمامًا كما تم استلامه ولا يستبدل أبدًا دفقًا مصادقًا URL.";
 "services_integrations" = "الخدمات والتكامل";
 "settings_apple_music_connect" = "تواصل Apple Music";
-"settings_apple_music_connected" = "Apple Music متصل";
 "settings_apple_music_denied" = "Apple Music تم رفض الدخول. قم بتفعيله في الإعدادات → Primuse.";
-"settings_apple_music_footer" = "يتيح Primuse البحث في كتالوج Apple Music وتشغيل النتائج إذا كان لديك اشتراك نشط. اضغط على نتيجة لتشغيلها في مشغل الموسيقى الخاص بالنظام.";
 "settings_apple_music_section" = "Apple Music";
 "settings_appletv_section" = "Apple TV";
 "settings_dlna_devices_empty" = "لا توجد أجهزة متصلة حتى الآن. اختر Primuse في تطبيق نقطة التحكم على نفس Wi-Fi.";
@@ -2987,7 +2983,6 @@
 "sort_title" = "العنوان";
 "sort_z_to_a" = "ض – أ";
 "source" = "المصدر";
-"source_apple_music_open_settings" = "افتح إعدادات Apple Music";
 "source_auth_failed_message_generic" = "فشل تسجيل الدخول. تحقق من بيانات الاعتماد أو الحالة NAS.";
 "source_auth_failed_re_enter" = "إعادة إدخال كلمة المرور";
 "source_auth_failed_title" = "فشل تسجيل الدخول";

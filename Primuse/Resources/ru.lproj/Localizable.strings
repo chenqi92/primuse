@@ -851,7 +851,6 @@
 "stats_unique_songs" = "Уникальные песни";
 "connecting_title" = "Соединение";
 "yearly_meta_time_big_format" = "%d%% ночь";
-"source_apple_music_open_settings" = "Откройте настройки Apple Music.";
 "sync_now" = "Синхронизировать сейчас";
 "library_recommendations_title" = "Рекомендации";
 "volume_high_fidelity_system_hint" = "High Fidelity Direct использует единичный коэффициент усиления. Отрегулируйте громкость с помощью элементов управления системы.";
@@ -1353,7 +1352,6 @@
 "intent_set_liked_description" = "Добавьте или удалите текущую песню из списка понравившихся.";
 "cloud_authorizing_step4" = "Primuse получает обратный вызов и сохраняет токен доступа.";
 "theme_color_teal" = "Бирюзовый";
-"settings_apple_music_footer" = "Позволяет Primuse выполнять поиск в каталоге Apple Music и воспроизводить результаты, если у вас есть активная подписка. Коснитесь результата, чтобы воспроизвести его в системном музыкальном проигрывателе.";
 "yearly_meta_genres_sub" = "Цвета звука, которые вы чаще всего слышали в этом году";
 "family_sharing_active" = "Семейный доступ активен";
 "exit_full_screen" = "Выход из полноэкранного режима";
@@ -1756,8 +1754,6 @@
 "source_remove_apple_music_confirm_message" = "Будут удалены источник Apple Music, синхронизированные песни и плейлисты Apple Music, скопированные в медиатеку. Подписка и медиатека Apple Music не затрагиваются.";
 "source_remove_apple_music_confirm_action" = "Удалить источник и синхронизированное";
 "apple_music_add_source_action" = "Добавить в источники музыки";
-"apple_music_add_source_footer" = "Apple Music синхронизируется как источник музыки. Добавьте, чтобы загрузить медиатеку; удалите, чтобы очистить синхронизированные песни и плейлисты.";
-"apple_music_library_footer" = "Перенесите песни, которые вы добавили в свою медиатеку Apple Music, в Primuse вместе с NAS/облачными треками. Воспроизведение осуществляется через системный проигрыватель и не использует локальное хранилище.";
 "smart_field_genre" = "Жанр";
 "From URL" = "От URL";
 "scrape_metadata_toggle" = "Метаданные (название, исполнитель, альбом)";
@@ -2173,7 +2169,6 @@
 "yearly_month_n_format" = "Месяц %d";
 "relay_share_service_builtin" = "Встроенный";
 "stats_legend_max_format" = "пик %d";
-"settings_apple_music_connected" = "Apple Music подключен";
 "ai_embedding_model" = "Встраиваемая модель (необязательно)";
 "tag_editor_filename_label" = "Имя файла.";
 "status_quota_exceeded" = "Память iCloud заполнена.";

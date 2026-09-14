@@ -744,8 +744,6 @@
 "source_remove_apple_music_confirm_message" = "Spowoduje to usunięcie źródła Apple Music, zsynchronizowanych utworów oraz playlist Apple Music odzwierciedlonych w bibliotece. Subskrypcja i biblioteka Apple Music pozostają bez zmian.";
 "source_remove_apple_music_confirm_action" = "Usuń źródło i zsynchronizowaną zawartość";
 "apple_music_add_source_action" = "Dodaj do źródeł muzyki";
-"apple_music_add_source_footer" = "Apple Music synchronizuje się jako źródło muzyki. Dodaj je, aby pobrać bibliotekę; usuń, aby wyczyścić zsynchronizowane utwory i playlisty.";
-"apple_music_library_footer" = "Pobieraj utwory dodane do biblioteki Apple Music do Primuse wraz ze ścieżkami NAS/w chmurze. Odtwarzanie odbywa się za pośrednictwem odtwarzacza systemowego i nie wykorzystuje pamięci lokalnej.";
 "apple_music_library_hint" = "Utwory z Twojej biblioteki Apple Music pojawiają się wraz z resztą Twojej muzyki w Primuse.";
 "apple_music_library_idle" = "Jeszcze nie zsynchronizowane";
 "apple_music_library_not_authorized" = "Apple Music nie jest autoryzowany. Włącz tę opcję w Ustawieniach → Apple Music.";
@@ -2753,9 +2751,7 @@
 "server_share_verbatim_url_footer" = "Primuse udostępnia ten adres URL zwrócony przez serwer dokładnie w takiej postaci, w jakiej został odebrany i nigdy nie zastępuje adresu URL uwierzytelnionego strumienia.";
 "services_integrations" = "Usługi i integracje";
 "settings_apple_music_connect" = "Podłącz Apple Music";
-"settings_apple_music_connected" = "Podłączono Apple Music";
 "settings_apple_music_denied" = "Odmowa dostępu Apple Music. Włącz tę opcję w Ustawieniach → Primuse.";
-"settings_apple_music_footer" = "Umożliwia Primuse przeszukiwanie katalogu Apple Music i odtwarzanie wyników, jeśli masz aktywną subskrypcję. Stuknij wynik, aby odtworzyć go w systemowym odtwarzaczu muzyki.";
 "settings_apple_music_section" = "Apple Music";
 "settings_appletv_section" = "Apple TV";
 "settings_dlna_devices_empty" = "Nie ma jeszcze podłączonych urządzeń. Wybierz Primuse w aplikacji punktu kontrolnego na tym samym Wi-Fi.";
@@ -2987,7 +2983,6 @@
 "sort_title" = "Tytuł";
 "sort_z_to_a" = "Z–A";
 "source" = "Źródło";
-"source_apple_music_open_settings" = "Otwórz ustawienia Apple Music";
 "source_auth_failed_message_generic" = "Logowanie nie powiodło się. Sprawdź poświadczenia lub status NAS.";
 "source_auth_failed_re_enter" = "Wprowadź ponownie hasło";
 "source_auth_failed_title" = "Logowanie nie powiodło się";

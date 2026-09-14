@@ -579,7 +579,6 @@
 		71AAE2BB7825575B805E18A7 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 26DD8E7908AD9D808A2CD73D /* Localizable.strings */; };
 		71BE9C5ACD7D4A804A7ED279 /* AppleMusicTVPlaybackPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8684652DAFFA83849B94BE /* AppleMusicTVPlaybackPolicy.swift */; };
 		71C60F0F8ACFF948E692212D /* BoundedAsyncChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57AEB5228DD8790FB07D8877 /* BoundedAsyncChannel.swift */; };
-		71D397E7FE7A0229E73F3516 /* AppleMusicSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C0972757BF62ABB73F2E55A /* AppleMusicSettingsView.swift */; };
 		7210AD10697C91EB7309F068 /* AISettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C25D3D08BB0FD71403FAFD2 /* AISettingsStore.swift */; };
 		7228D937586E66F92F267E8D /* EqualizerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EA999555F455617E1DF9281 /* EqualizerService.swift */; };
 		722E2A82BC5297BCB3942AE1 /* CloudAccountMigrationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 767EFEC3E3EDDF4D07DBB168 /* CloudAccountMigrationService.swift */; };
@@ -590,7 +589,6 @@
 		731960A337291B311A1CB746 /* Bundle+AppVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CD88BFBBCA5054A7248399F /* Bundle+AppVersion.swift */; };
 		731F196C5E41C34D8A22835D /* PlaylistDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 564355C7C182D7C30114AC27 /* PlaylistDetailView.swift */; };
 		736B88C0482339485F824541 /* ScraperResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF9694CD231B4175BED85BEA /* ScraperResult.swift */; };
-		737C6E5D2CBEE39F683E4FBA /* AppleMusicSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C0972757BF62ABB73F2E55A /* AppleMusicSettingsView.swift */; };
 		73AC215B300A8F0FDC954F57 /* AppIconService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A796306024AE3678DB56D02A /* AppIconService.swift */; };
 		73B4EFBC7B09D57388B12DBF /* HomeDiscovery.strings in Resources */ = {isa = PBXBuildFile; fileRef = 37B6EF903623F1A187DD21B2 /* HomeDiscovery.strings */; };
 		73B6C372A8A78B8A33E5B01C /* SingleSongScrapeGatePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E0FB3345193EA2D67A00D95 /* SingleSongScrapeGatePolicy.swift */; };
@@ -1581,7 +1579,6 @@
 		1AE8A78DAC80BEED65803A6B /* LRCLIBScraper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LRCLIBScraper.swift; sourceTree = "<group>"; };
 		1BB0C0D9F755D99D1104F866 /* AppleMusicCatalogSearchAvailabilityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicCatalogSearchAvailabilityPolicy.swift; sourceTree = "<group>"; };
 		1BDE4BBD8FD4AD127A06C030 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/InfoPlist.strings; sourceTree = "<group>"; };
-		1C0972757BF62ABB73F2E55A /* AppleMusicSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicSettingsView.swift; sourceTree = "<group>"; };
 		1C44F4E77941AFFB35281878 /* AudioPlayerService+Casting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AudioPlayerService+Casting.swift"; sourceTree = "<group>"; };
 		1C838745C0E7363819E91534 /* ServerListeningStatsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerListeningStatsService.swift; sourceTree = "<group>"; };
 		1CE7D5D400172509FECAFA70 /* OutputDeviceVolumeController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputDeviceVolumeController.swift; sourceTree = "<group>"; };
@@ -3874,7 +3871,6 @@
 			children = (
 				767016AFD74B46B9E0E7AE80 /* AISettingsView.swift */,
 				F52CBE601DF2ED6B33A3FD92 /* AppIconSettingsView.swift */,
-				1C0972757BF62ABB73F2E55A /* AppleMusicSettingsView.swift */,
 				780AC3E761A5E47669455B60 /* ArtistNameSettingsView.swift */,
 				77F4CE0ADBC65CBECCD665AC /* AudioEffectsView.swift */,
 				7796B8917487FB64D4FA58B8 /* CarPlayContentPicker.swift */,
@@ -4806,7 +4802,6 @@
 				CD9A71AAAF2507192D415B71 /* AppleMusicLibrarySource.swift in Sources */,
 				195625F2567DFD42CB036420 /* AppleMusicNowPlayingView.swift in Sources */,
 				8BEA6CCE8C0A082112A37999 /* AppleMusicService.swift in Sources */,
-				71D397E7FE7A0229E73F3516 /* AppleMusicSettingsView.swift in Sources */,
 				D0AAC0E1E234974EC4A77B59 /* ArtistDetailView.swift in Sources */,
 				C5406B607A6DE9C97C8459BC /* ArtistListView.swift in Sources */,
 				152920B6D3906F588742E8DC /* ArtistNameSettingsStore.swift in Sources */,
@@ -5315,7 +5310,6 @@
 				EEB5B873F81C5BEDCB6978B3 /* AppleMusicLibrarySource.swift in Sources */,
 				8DE5F8385E278E024A68F672 /* AppleMusicNowPlayingView.swift in Sources */,
 				8AA778C48503E495C3D088BF /* AppleMusicService.swift in Sources */,
-				737C6E5D2CBEE39F683E4FBA /* AppleMusicSettingsView.swift in Sources */,
 				645CAB01826996C17CB7E772 /* ArtistDetailView.swift in Sources */,
 				F3E8C3E3C7DA98A5BA56ABB9 /* ArtistListView.swift in Sources */,
 				CE8A6615C58A0E102C3A0BBE /* ArtistNameSettingsStore.swift in Sources */,

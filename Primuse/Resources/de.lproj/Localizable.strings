@@ -643,8 +643,6 @@
 "source_remove_apple_music_confirm_message" = "Entfernt die Apple Music-Quelle, die synchronisierten Titel und die in deine Mediathek gespiegelten Apple Music-Playlists. Dein Apple Music-Abo und deine Mediathek bleiben unverändert.";
 "source_remove_apple_music_confirm_action" = "Quelle und synchronisierte Inhalte entfernen";
 "apple_music_add_source_action" = "Zu Musikquellen hinzufügen";
-"apple_music_add_source_footer" = "Apple Music wird als Musikquelle synchronisiert. Hinzufügen holt deine Mediathek, Entfernen löscht die synchronisierten Titel und Playlists.";
-"apple_music_library_footer" = "Hol Titel, die du zu deiner Apple-Music-Mediathek hinzugefügt hast, neben NAS- / Cloud-Titeln in Primuse. Die Wiedergabe läuft über den System-Player und belegt keinen lokalen Speicher.";
 "apple_music_library_idle" = "Noch nicht synchronisiert";
 "apple_music_library_syncing" = "Apple-Music-Mediathek wird synchronisiert…";
 "apple_music_library_done_format" = "%d Titel · %@";
@@ -1310,10 +1308,7 @@
 "search_match_fuzzy" = "Ungefähre Übereinstimmung";
 "settings_apple_music_section" = "Apple Music";
 "settings_apple_music_connect" = "Apple Music verbinden";
-"settings_apple_music_connected" = "Apple Music verbunden";
 "settings_apple_music_denied" = "Zugriff auf Apple Music verweigert. Aktiviere ihn unter „Einstellungen“ → „Primuse“.";
-"settings_apple_music_footer" = "Erlaubt Primuse, den Apple Music-Katalog zu durchsuchen und Ergebnisse abzuspielen, sofern du ein aktives Abo hast. Tippe auf ein Ergebnis, um es in der System-App „Musik“ abzuspielen.";
-"source_apple_music_open_settings" = "Apple Music-Einstellungen öffnen";
 "apple_music_library_playlist_name" = "Apple Music Mediathek";
 "playlist_liked_name" = "Gefällt mir";
 "settings_dlna_section" = "DLNA-Empfänger";

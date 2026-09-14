@@ -744,8 +744,6 @@
 "source_remove_apple_music_confirm_message" = "Isso remove a fonte do Apple Music, as músicas sincronizadas e as playlists do Apple Music espelhadas na sua biblioteca. Sua assinatura e biblioteca do Apple Music não são afetadas.";
 "source_remove_apple_music_confirm_action" = "Remover fonte e conteúdo sincronizado";
 "apple_music_add_source_action" = "Adicionar às fontes de música";
-"apple_music_add_source_footer" = "O Apple Music sincroniza como uma fonte de música. Adicione para trazer sua biblioteca; remova para limpar as músicas e playlists sincronizadas.";
-"apple_music_library_footer" = "Extraia as músicas que você adicionou à sua biblioteca Apple Music para o Primuse, junto com as faixas NAS/nuvem. A reprodução é executada no reprodutor do sistema e não utiliza armazenamento local.";
 "apple_music_library_hint" = "As músicas da sua biblioteca Apple Music aparecem junto com o restante das suas músicas no Primuse.";
 "apple_music_library_idle" = "Ainda não sincronizado";
 "apple_music_library_not_authorized" = "Apple Music não está autorizado. Ative-o em Configurações → Apple Music.";
@@ -2753,9 +2751,7 @@
 "server_share_verbatim_url_footer" = "Primuse compartilha esse URL retornado pelo servidor exatamente como recebido e nunca substitui um URL de fluxo autenticado.";
 "services_integrations" = "Serviços e Integrações";
 "settings_apple_music_connect" = "Conectar Apple Music";
-"settings_apple_music_connected" = "Apple Music conectado";
 "settings_apple_music_denied" = "Acesso Apple Music negado. Ative-o em Configurações → Primuse.";
-"settings_apple_music_footer" = "Permite que o Primuse pesquise o catálogo Apple Music e reproduza os resultados se você tiver uma assinatura ativa. Toque em um resultado para reproduzi-lo no reprodutor de música do sistema.";
 "settings_apple_music_section" = "Apple Music";
 "settings_appletv_section" = "Apple TV";
 "settings_dlna_devices_empty" = "Nenhum dispositivo conectado ainda. Escolha Primuse em um aplicativo de ponto de controle no mesmo Wi-Fi.";
@@ -2987,7 +2983,6 @@
 "sort_title" = "Título";
 "sort_z_to_a" = "Z–A";
 "source" = "Origem";
-"source_apple_music_open_settings" = "Abrir configurações Apple Music";
 "source_auth_failed_message_generic" = "Falha no login. Verifique as credenciais ou o status do NAS.";
 "source_auth_failed_re_enter" = "Digite novamente a senha";
 "source_auth_failed_title" = "Falha no login";

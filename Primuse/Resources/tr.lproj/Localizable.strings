@@ -851,7 +851,6 @@
 "stats_unique_songs" = "Benzersiz Şarkılar";
 "connecting_title" = "Bağlanıyor";
 "yearly_meta_time_big_format" = "%d%% gece";
-"source_apple_music_open_settings" = "Apple Music Ayarlarını Aç";
 "sync_now" = "Şimdi Eşitle";
 "library_recommendations_title" = "Öneriler";
 "volume_high_fidelity_system_hint" = "High Fidelity Direct, birlik kazancını kullanır. Ses seviyesini sistem kontrolleriyle ayarlayın.";
@@ -1353,7 +1352,6 @@
 "intent_set_liked_description" = "Geçerli şarkıyı Beğenilenler'e ekleyin veya kaldırın.";
 "cloud_authorizing_step4" = "Primuse geri aramayı alır ve erişim belirtecini kaydeder";
 "theme_color_teal" = "Deniz mavisi";
-"settings_apple_music_footer" = "Etkin bir aboneliğiniz varsa Primuse'nin Apple Music kataloğunda arama yapmasına ve sonuçları oynatmasına izin verir. Sistem Müzik çalarında oynatmak için bir sonuca dokunun.";
 "yearly_meta_genres_sub" = "Bu yıl en çok duyduğunuz sesin renkleri";
 "family_sharing_active" = "Aile paylaşımı aktif";
 "exit_full_screen" = "Tam Ekrandan Çık";
@@ -1756,8 +1754,6 @@
 "source_remove_apple_music_confirm_message" = "Apple Music kaynağı, eşitlenen şarkılar ve kitaplığa yansıtılan Apple Music çalma listeleri kaldırılır. Apple Music aboneliğiniz ve kitaplığınız etkilenmez.";
 "source_remove_apple_music_confirm_action" = "Kaynağı ve Eşitlenenleri Kaldır";
 "apple_music_add_source_action" = "Müzik Kaynaklarına Ekle";
-"apple_music_add_source_footer" = "Apple Music bir müzik kaynağı olarak eşitlenir. Ekleyince kitaplığınız alınır, kaldırınca eşitlenen şarkı ve çalma listeleri temizlenir.";
-"apple_music_library_footer" = "Apple Music arşivinize eklediğiniz şarkıları, NAS / bulut parçalarının yanı sıra Primuse'ye çekin. Oynatma, sistem oynatıcısı üzerinden yürütülür ve yerel depolama alanı kullanmaz.";
 "smart_field_genre" = "Tür";
 "From URL" = "URL'den";
 "scrape_metadata_toggle" = "Üst veriler (başlık, sanatçı, albüm)";
@@ -2173,7 +2169,6 @@
 "yearly_month_n_format" = "Ay %d";
 "relay_share_service_builtin" = "Dahili";
 "stats_legend_max_format" = "zirve %d";
-"settings_apple_music_connected" = "Apple Music bağlı";
 "ai_embedding_model" = "Gömme modeli (isteğe bağlı)";
 "tag_editor_filename_label" = "Dosya adı";
 "status_quota_exceeded" = "iCloud depolama alanı dolu";

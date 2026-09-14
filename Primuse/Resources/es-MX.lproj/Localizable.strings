@@ -744,8 +744,6 @@
 "source_remove_apple_music_confirm_message" = "Esto quita la fuente de Apple Music, las canciones sincronizadas y las listas de reproducción de Apple Music replicadas en tu biblioteca. Tu suscripción y biblioteca de Apple Music no se ven afectadas.";
 "source_remove_apple_music_confirm_action" = "Quitar fuente y contenido sincronizado";
 "apple_music_add_source_action" = "Agregar a fuentes de música";
-"apple_music_add_source_footer" = "Apple Music se sincroniza como una fuente de música. Agrégala para traer tu biblioteca; quítala para borrar las canciones y listas sincronizadas.";
-"apple_music_library_footer" = "Extraiga las canciones que ha agregado a su biblioteca Apple Music a Primuse, junto con las pistas de NAS/nube. La reproducción se ejecuta a través del reproductor del sistema y no utiliza almacenamiento local.";
 "apple_music_library_hint" = "Las canciones de su biblioteca Apple Music aparecen junto con el resto de su música en Primuse.";
 "apple_music_library_idle" = "Aún no sincronizado";
 "apple_music_library_not_authorized" = "Apple Music no está autorizado. Habilítelo en Configuración → Apple Music.";
@@ -2753,9 +2751,7 @@
 "server_share_verbatim_url_footer" = "Primuse comparte esta URL devuelta por el servidor exactamente como la recibió y nunca la sustituye por una URL de transmisión autenticada.";
 "services_integrations" = "Servicios e integraciones";
 "settings_apple_music_connect" = "Conectar Apple Music";
-"settings_apple_music_connected" = "Apple Music conectado";
 "settings_apple_music_denied" = "Acceso denegado a Apple Music. Habilítelo en Configuración → Primuse.";
-"settings_apple_music_footer" = "Permite que Primuse busque en el catálogo de Apple Music y reproduzca los resultados si tiene una suscripción activa. Toque un resultado para reproducirlo en el reproductor de música del sistema.";
 "settings_apple_music_section" = "Apple Music";
 "settings_appletv_section" = "Apple TV";
 "settings_dlna_devices_empty" = "Aún no hay dispositivos conectados. Elija Primuse en una aplicación de punto de control en el mismo Wi-Fi.";
@@ -2987,7 +2983,6 @@
 "sort_title" = "Título";
 "sort_z_to_a" = "Z–A";
 "source" = "Origen";
-"source_apple_music_open_settings" = "Abrir configuración de Apple Music";
 "source_auth_failed_message_generic" = "Error al iniciar sesión. Verifique las credenciales o el estado de NAS.";
 "source_auth_failed_re_enter" = "Reingresar contraseña";
 "source_auth_failed_title" = "Error al iniciar sesión";

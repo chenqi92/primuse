@@ -302,7 +302,10 @@ private struct SettingsPageContent: View {
         case .relay: RelaySettingsView()
         case .dlna: DLNARendererSettingsView()
         case .intelligence: AISettingsView()
-        case .appleMusic: AppleMusicSettingsView()
+        // Apple Music 在 iOS 上没有独立设置页:授权与同步都长在音乐源那一行上。
+        // 枚举成员仍要保留 —— macOS 的 Apple Music 设置页(资料库同步 / 目录搜索
+        // 等开关)走 MacSettingsView, 不经过这里。
+        case .appleMusic: EmptyView()
         case .scrobble: ScrobbleSettingsView()
         case .statistics: ListeningStatsView()
         case .domains: TrustedDomainsView()

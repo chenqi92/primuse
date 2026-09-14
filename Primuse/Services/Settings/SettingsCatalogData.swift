@@ -160,9 +160,11 @@ enum SettingsCatalogData {
         SettingDefinition(id: "intelligence.insecureHTTP", titleKey: "ai_allow_insecure_local_http", iosPage: .intelligence, macPage: .intelligence, anchor: "intelligence.providers", hint: "Choose a provider to configure this setting."),
         SettingDefinition(id: "intelligence.testConnection", titleKey: "ai_test_connection", iosPage: .intelligence, macPage: .intelligence, anchor: "intelligence.providers", hint: "Choose a provider to configure this setting."),
         SettingDefinition(id: "intelligence.deleteAPIKey", titleKey: "ai_delete_current_api_key", iosPage: .intelligence, macPage: .intelligence, anchor: "intelligence.providers", hint: "Choose a provider to configure this setting."),
-        SettingDefinition(id: "appleMusic.authorize", titleKey: "settings_apple_music_connect", iosPage: .appleMusic, macPage: .appleMusic, keywords: ["Authorize"]),
-        SettingDefinition(id: "appleMusic.systemSettings", titleKey: "open_system_settings", iosPage: .appleMusic, macPage: .appleMusic, keywords: ["Open System Settings"], anchor: "appleMusic.authorize"),
-        SettingDefinition(id: "appleMusic.sync", titleKey: "apple_music_library_sync", iosPage: .appleMusic, macPage: .appleMusic, keywords: ["Re-Sync"], hint: "Manage Apple Music authorization and sync on this page."),
+        // iOS 上这三项都落在音乐源列表的 Apple Music 那一行; macOS 仍有独立的
+        // Apple Music 设置页, 所以两端的锚点分开写。
+        SettingDefinition(id: "appleMusic.authorize", titleKey: "settings_apple_music_connect", iosPage: .sources, macPage: .appleMusic, keywords: ["Authorize", "Apple Music"], anchor: "sources.appleMusic", macAnchor: "appleMusic.authorize"),
+        SettingDefinition(id: "appleMusic.systemSettings", titleKey: "open_system_settings", iosPage: .sources, macPage: .appleMusic, keywords: ["Open System Settings", "Apple Music"], anchor: "sources.appleMusic", macAnchor: "appleMusic.authorize"),
+        SettingDefinition(id: "appleMusic.sync", titleKey: "apple_music_library_sync", iosPage: .sources, macPage: .appleMusic, keywords: ["Re-Sync", "Apple Music"], anchor: "sources.appleMusic", macAnchor: "appleMusic.sync", hint: "Manage Apple Music authorization and sync on this page."),
         SettingDefinition(id: "appleMusic.syncUserLibrary", titleKey: "Sync User Library", table: "SettingsSearch", iosPage: nil, macPage: .appleMusic),
         SettingDefinition(id: "appleMusic.catalogSearch", titleKey: "Catalog Search", table: "SettingsSearch", iosPage: nil, macPage: .appleMusic),
         SettingDefinition(id: "appleMusic.autoSmartPlaylists", titleKey: "Auto Add to Smart Playlists", table: "SettingsSearch", iosPage: nil, macPage: .appleMusic),

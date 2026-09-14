@@ -1,5 +1,10 @@
 import SwiftUI
 import PrimuseKit
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 private enum SourceAlert: Identifiable {
     case confirm(SourceCacheRequest)
@@ -369,6 +374,7 @@ struct SourcesContentView: View {
     @Environment(SourcesStore.self) private var sourceStore
     @Environment(MusicLibrary.self) private var library
     @Environment(AppleMusicLibraryService.self) private var appleMusicLibrary
+    @Environment(AppleMusicService.self) private var appleMusic
     @Environment(ScanService.self) private var scanService
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(MetadataBackfillService.self) private var backfill
@@ -389,10 +395,8 @@ struct SourcesContentView: View {
     @State private var preparingCacheSourceID: String?
     @State private var cachePreparationTask: Task<Void, Never>?
     @State private var cloudDirectoryNameRefreshID = UUID()
-    /// Apple Music 源没有目录 / 体检的概念, 行内按钮换成
-    /// "打开 Apple Music 设置" 的跳转 ── 走 NavigationStack 的 destination 而不是 sheet,
-    /// 让推入栈跟其他 Settings 子页体验一致 (左上角"返回"而不是"完成")。
-    @State private var openAppleMusicSettings = false
+    /// Apple Music 授权请求在途。授权框是系统弹的, 期间按钮转圈防止重复点。
+    @State private var isAuthorizingAppleMusic = false
     /// 各源磁盘占用(字节), 后台 .task 填充, 卡片读取。键为 source.id。
     @State private var sourceSizes: [String: Int64] = [:]
     #if os(iOS)
@@ -585,9 +589,6 @@ struct SourcesContentView: View {
                     )
                 #endif
                 }
-            }
-            .navigationDestination(isPresented: $openAppleMusicSettings) {
-                AppleMusicSettingsView()
             }
             .navigationDestination(item: $inspectingLocalRemovalsSource) { source in
                 SourceLocalRemovalsView(source: source)
@@ -885,29 +886,29 @@ struct SourcesContentView: View {
             #endif
 
             if source.type == .appleMusic {
-                appleMusicSyncStatus
+                // 设置搜索里搜 "Apple Music" 落到这儿 —— 授权与同步都在这一行上,
+                // iOS 不再有单独的 Apple Music 设置页可跳。
+                appleMusicSyncStatus.settingsAnchor("sources.appleMusic")
             }
 
             HStack(spacing: 10) {
                 if source.type == .appleMusic {
                     // Apple Music 走 ApplicationMusicPlayer, 没有目录/体检概念。
                     // 同步就是这个源的"扫描", 所以直接摆在行内, 跟别的源一致。
-                    sourceActionButton(
-                        appleMusicSyncTitle,
-                        systemImage: "arrow.triangle.2.circlepath",
-                        prominence: .success,
-                        isLoading: isAppleMusicSyncing,
-                        isDisabled: isAppleMusicSyncing || !source.isEnabled
-                    ) {
-                        appleMusicLibrary.sync()
-                    }
-
-                    sourceActionButton(
-                        "source_apple_music_open_settings",
-                        systemImage: "applelogo",
-                        prominence: .accent
-                    ) {
-                        openAppleMusicSettings = true
+                    // 授权也在这一行里要回来 —— 它是这个源唯一的连接步骤, 不值得
+                    // 为它单开一个只有"授权 + 同步"的设置页。
+                    if appleMusic.authState == .authorized {
+                        sourceActionButton(
+                            appleMusicSyncTitle,
+                            systemImage: "arrow.triangle.2.circlepath",
+                            prominence: .success,
+                            isLoading: isAppleMusicSyncing,
+                            isDisabled: isAppleMusicSyncing || !source.isEnabled
+                        ) {
+                            appleMusicLibrary.sync()
+                        }
+                    } else {
+                        appleMusicAuthorizationButton
                     }
                 } else if source.type == .local {
                     #if os(iOS)
@@ -1051,9 +1052,77 @@ struct SourcesContentView: View {
         return "apple_music_library_sync"
     }
 
+    /// 未授权时顶替同步按钮。添加这个源时已经过过一次授权, 会走到这里的是事后
+    /// 在系统设置里撤回了授权的人 —— 留一个点了只会失败的"同步"没有意义, 直接
+    /// 把授权要回来。`.notDetermined` 还能就地弹系统授权框; 被拒或被屏幕使用
+    /// 时间 / MDM 限制的, app 内再问系统也不会再弹, 只能送去系统设置。
+    @ViewBuilder
+    private var appleMusicAuthorizationButton: some View {
+        switch appleMusic.authState {
+        case .notDetermined:
+            sourceActionButton(
+                "settings_apple_music_connect",
+                systemImage: "applelogo",
+                prominence: .accent,
+                isLoading: isAuthorizingAppleMusic,
+                isDisabled: isAuthorizingAppleMusic
+            ) {
+                isAuthorizingAppleMusic = true
+                Task { @MainActor in
+                    await appleMusic.requestAuthorization()
+                    isAuthorizingAppleMusic = false
+                    guard appleMusic.authState == .authorized else { return }
+                    appleMusicLibrary.sync()
+                }
+            }
+        case .denied, .restricted:
+            sourceActionButton(
+                "open_system_settings",
+                systemImage: "gear",
+                prominence: .accent
+            ) {
+                openAppleMusicPrivacySettings()
+            }
+        case .authorized:
+            EmptyView()
+        }
+    }
+
+    private func openAppleMusicPrivacySettings() {
+        #if os(iOS)
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+        #elseif os(macOS)
+        // 系统设置 → 隐私与安全性 → 媒体与 Apple Music。
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Media"
+        ) else { return }
+        NSWorkspace.shared.open(url)
+        #endif
+    }
+
     /// Apple Music 源的"扫描进度"—— 同步状态直接显示在卡片里, 不必再跳设置页。
     @ViewBuilder
     private var appleMusicSyncStatus: some View {
+        switch appleMusic.authState {
+        case .denied, .restricted:
+            // 授权被撤回后同步状态会停在上一次的结果上, 只显示它会让人以为是
+            // 同步本身出了问题 —— 先把真正卡住这个源的那件事说清楚。
+            Label(
+                String(localized: "settings_apple_music_denied"),
+                systemImage: "exclamationmark.triangle"
+            )
+            .font(.caption)
+            .foregroundStyle(.orange)
+        case .notDetermined, .authorized:
+            // 还没授权时同步状态就是"尚未同步", 与旁边的"连接 Apple Music"
+            // 按钮说的是同一件事, 不必再多一行警告。
+            appleMusicSyncStateLabel
+        }
+    }
+
+    @ViewBuilder
+    private var appleMusicSyncStateLabel: some View {
         switch appleMusicLibrary.state {
         case .idle:
             Text("apple_music_library_idle")

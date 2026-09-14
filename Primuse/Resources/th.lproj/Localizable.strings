@@ -744,8 +744,6 @@
 "source_remove_apple_music_confirm_message" = "การดำเนินการนี้จะนำแหล่งเพลง Apple Music เพลงที่ซิงค์ไว้ และเพลย์ลิสต์ Apple Music ที่มิเรอร์ไว้ในคลังเพลงออก โดยไม่กระทบการสมัครสมาชิกและคลังเพลง Apple Music ของคุณ";
 "source_remove_apple_music_confirm_action" = "นำแหล่งเพลงและข้อมูลที่ซิงค์ออก";
 "apple_music_add_source_action" = "เพิ่มไปยังแหล่งเพลง";
-"apple_music_add_source_footer" = "Apple Music ซิงค์ในรูปแบบแหล่งเพลง เพิ่มเพื่อดึงคลังเพลงเข้ามา และนำออกเพื่อล้างเพลงและเพลย์ลิสต์ที่ซิงค์ไว้";
-"apple_music_library_footer" = "ดึงเพลงที่คุณเพิ่มลงในคลังเพลง Apple Music ของคุณไปที่ Primuse ควบคู่ไปกับ NAS / แทร็กคลาวด์ การเล่นจะดำเนินการผ่านเครื่องเล่นระบบและไม่ใช้ที่จัดเก็บในตัวเครื่อง";
 "apple_music_library_hint" = "เพลงในคลังเพลง Apple Music ของคุณจะปรากฏพร้อมกับเพลงที่เหลือของคุณใน Primuse";
 "apple_music_library_idle" = "ยังไม่ได้ซิงค์";
 "apple_music_library_not_authorized" = "Apple Music ไม่ได้รับอนุญาต เปิดใช้งานได้ในการตั้งค่า → Apple Music";
@@ -2753,9 +2751,7 @@
 "server_share_verbatim_url_footer" = "Primuse แบ่งปันเซิร์ฟเวอร์นี้ที่ส่งคืน URL ทุกประการตามที่ได้รับและไม่เคยแทนที่สตรีมที่ได้รับการรับรองความถูกต้อง URL";
 "services_integrations" = "บริการและการบูรณาการ";
 "settings_apple_music_connect" = "เชื่อมต่อ Apple Music";
-"settings_apple_music_connected" = "Apple Music เชื่อมต่อแล้ว";
 "settings_apple_music_denied" = "Apple Music การเข้าถึงถูกปฏิเสธ เปิดใช้งานได้ในการตั้งค่า → Primuse";
-"settings_apple_music_footer" = "ให้ Primuse ค้นหาแคตตาล็อก Apple Music และเล่นผลลัพธ์หากคุณสมัครสมาชิกอยู่ แตะผลลัพธ์เพื่อเล่นในระบบเครื่องเล่นเพลง";
 "settings_apple_music_section" = "Apple Music";
 "settings_appletv_section" = "Apple TV";
 "settings_dlna_devices_empty" = "ยังไม่มีอุปกรณ์ที่เชื่อมต่อ เลือก Primuse ในแอปจุดควบคุมบน Wi-Fi เดียวกัน";
@@ -2987,7 +2983,6 @@
 "sort_title" = "ชื่อเพลง";
 "sort_z_to_a" = "ซี–เอ";
 "source" = "แหล่งข้อมูล";
-"source_apple_music_open_settings" = "เปิดการตั้งค่า Apple Music";
 "source_auth_failed_message_generic" = "การเข้าสู่ระบบล้มเหลว ตรวจสอบข้อมูลรับรองหรือสถานะ NAS";
 "source_auth_failed_re_enter" = "ป้อนรหัสผ่านอีกครั้ง";
 "source_auth_failed_title" = "การลงชื่อเข้าใช้ล้มเหลว";

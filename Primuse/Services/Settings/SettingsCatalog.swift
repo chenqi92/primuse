@@ -172,7 +172,10 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
                 .appearance, .scraping, .artists,
                 .deleted, .storage, .cacheSync, .cloud, .intelligence, .appleMusic, .domains, .about, .keyboard, .widgets, .siri].contains(self)
         #else
-        return self != .keyboard && self != .widgets
+        // Apple Music 的授权与同步都在音乐源那一行上完成, iOS 不再单开一页
+        // 只有"授权 + 同步"两件事的设置页。macOS 那页有资料库同步、目录搜索
+        // 等真正的开关, 保留。
+        return self != .keyboard && self != .widgets && self != .appleMusic
         #endif
     }
 }

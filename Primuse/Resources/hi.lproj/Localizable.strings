@@ -744,8 +744,6 @@
 "source_remove_apple_music_confirm_message" = "इससे Apple Music स्रोत, सिंक किए गए गाने और लाइब्रेरी में मिरर की गई Apple Music प्लेलिस्ट हट जाएँगी। आपकी Apple Music सदस्यता और लाइब्रेरी पर कोई असर नहीं पड़ेगा।";
 "source_remove_apple_music_confirm_action" = "स्रोत और सिंक सामग्री हटाएँ";
 "apple_music_add_source_action" = "म्यूज़िक स्रोतों में जोड़ें";
-"apple_music_add_source_footer" = "Apple Music एक म्यूज़िक स्रोत के रूप में सिंक होता है। जोड़ने पर लाइब्रेरी आती है, हटाने पर सिंक किए गए गाने और प्लेलिस्ट साफ़ हो जाते हैं।";
-"apple_music_library_footer" = "अपने Apple Music लाइब्रेरी में जोड़े गए गानों को NAS / क्लाउड ट्रैक के साथ Primuse में खींचें। प्लेबैक सिस्टम प्लेयर के माध्यम से चलता है और किसी स्थानीय स्टोरेज का उपयोग नहीं करता है।";
 "apple_music_library_hint" = "आपकी Apple Music लाइब्रेरी के गाने Primuse में आपके बाकी संगीत के साथ दिखाई देते हैं।";
 "apple_music_library_idle" = "अभी तक समन्वयित नहीं हुआ";
 "apple_music_library_not_authorized" = "Apple Music अधिकृत नहीं है। इसे सेटिंग्स → Apple Music में सक्षम करें।";
@@ -2753,9 +2751,7 @@
 "server_share_verbatim_url_footer" = "Primuse इस सर्वर द्वारा लौटाए गए URL को बिल्कुल उसी तरह साझा करता है जैसा कि प्राप्त हुआ था और कभी भी किसी प्रमाणित स्ट्रीम URL को प्रतिस्थापित नहीं करता है।";
 "services_integrations" = "सेवाएँ और एकीकरण";
 "settings_apple_music_connect" = "कनेक्ट Apple Music";
-"settings_apple_music_connected" = "Apple Music जुड़ा";
 "settings_apple_music_denied" = "Apple Music पहुंच अस्वीकृत। इसे सेटिंग्स → Primuse में सक्षम करें।";
-"settings_apple_music_footer" = "आइए Primuse Apple Music कैटलॉग खोजें और परिणाम चलाएं यदि आपके पास सक्रिय सदस्यता है। सिस्टम म्यूजिक प्लेयर में चलाने के लिए परिणाम पर टैप करें।";
 "settings_apple_music_section" = "Apple Music";
 "settings_appletv_section" = "Apple TV";
 "settings_dlna_devices_empty" = "अभी तक कोई कनेक्टेड डिवाइस नहीं है। उसी Wi-Fi पर नियंत्रण बिंदु ऐप में Primuse चुनें।";
@@ -2987,7 +2983,6 @@
 "sort_title" = "शीर्षक";
 "sort_z_to_a" = "जेड-ए";
 "source" = "स्रोत";
-"source_apple_music_open_settings" = "Apple Music सेटिंग्स खोलें";
 "source_auth_failed_message_generic" = "लॉगिन विफल। क्रेडेंशियल या NAS स्थिति जांचें।";
 "source_auth_failed_re_enter" = "पासवर्ड पुनः दर्ज करें";
 "source_auth_failed_title" = "साइन-इन विफल रहा";

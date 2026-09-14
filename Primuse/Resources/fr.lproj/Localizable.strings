@@ -643,8 +643,6 @@
 "source_remove_apple_music_confirm_message" = "Cela supprime la source Apple Music, les morceaux synchronisés et les playlists Apple Music copiées dans votre bibliothèque. Votre abonnement et votre bibliothèque Apple Music ne sont pas affectés.";
 "source_remove_apple_music_confirm_action" = "Supprimer la source et le contenu synchronisé";
 "apple_music_add_source_action" = "Ajouter aux sources musicales";
-"apple_music_add_source_footer" = "Apple Music se synchronise comme une source musicale. L’ajouter importe votre bibliothèque, la supprimer efface les morceaux et playlists synchronisés.";
-"apple_music_library_footer" = "Intégrez à Primuse les morceaux que vous avez ajoutés à votre bibliothèque Apple Music, aux côtés de vos titres NAS / cloud. La lecture passe par le lecteur du système et n'utilise aucun stockage local.";
 "apple_music_library_idle" = "Pas encore synchronisé";
 "apple_music_library_syncing" = "Synchronisation de la bibliothèque Apple Music…";
 "apple_music_library_done_format" = "%d morceaux · %@";
@@ -1310,10 +1308,7 @@
 "search_match_fuzzy" = "Correspondance approximative";
 "settings_apple_music_section" = "Apple Music";
 "settings_apple_music_connect" = "Connecter Apple Music";
-"settings_apple_music_connected" = "Apple Music connecté";
 "settings_apple_music_denied" = "Accès à Apple Music refusé. Activez-le dans Réglages → Primuse.";
-"settings_apple_music_footer" = "Permet à Primuse de rechercher dans le catalogue Apple Music et de lire les résultats si vous avez un abonnement actif. Touchez un résultat pour le lire dans le lecteur Musique du système.";
-"source_apple_music_open_settings" = "Ouvrir les réglages d'Apple Music";
 "apple_music_library_playlist_name" = "Bibliothèque Apple Music";
 "playlist_liked_name" = "Morceaux aimés";
 "settings_dlna_section" = "Récepteur DLNA";
