@@ -92,6 +92,8 @@
 "error.fnConnect.accessCodeRequired" = "เซิร์ฟเวอร์ FN Connect นี้ต้องใช้รหัสการเข้าถึง";
 "error.fnConnect.invalidID" = "รูปแบบ FN ID ไม่ถูกต้อง";
 "error.fnConnect.invalidResponse" = "FN Connect ส่งคืนข้อมูลที่ไม่รู้จัก";
+"error.fnConnect.discoveryUnavailable" = "FN Connect ไม่สามารถดึงที่อยู่การเชื่อมต่อของอุปกรณ์นี้ได้ในขณะนี้";
+"error.fnConnect.musicServiceUnavailable" = "ที่อยู่ FN Connect ตอบกลับแล้ว แต่การตรวจสอบบริการ Feiniu Music ไม่สำเร็จ";
 "error.fnConnect.serverNotFound" = "ไม่พบ FN ID นี้ ตรวจสอบให้แน่ใจว่าเปิดใช้งาน FN Connect บน NAS แล้ว";
 "error.fnConnect.unreachable" = "ไม่มีเส้นทาง FN Connect โดยตรงหรือรีเลย์";
 "error.fnMusic.authenticationFailed" = "การลงชื่อเข้าใช้ Feiniu Music ล้มเหลว ตรวจสอบบัญชี รหัสผ่าน และการอนุญาตของคลังเพลง";

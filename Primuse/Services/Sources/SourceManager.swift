@@ -3434,6 +3434,22 @@ final class SourceManager {
     }
 
     private static func advice(for error: Error, source: MusicSource) -> SourceDiagnosticAdvice {
+        if let fnError = error as? FnConnectError {
+            let suggestion: String
+            switch fnError {
+            case .unreachable, .discoveryUnavailable:
+                suggestion = networkAdvice().suggestion
+            case .musicServiceUnavailable, .invalidResponse:
+                suggestion = serverAdvice(message: fnError.localizedDescription).suggestion
+            case .invalidID, .serverNotFound, .accessCodeRequired, .accessCodeRejected:
+                suggestion = ""
+            }
+            return SourceDiagnosticAdvice(
+                title: String(localized: "source_diag_connection_title"),
+                message: fnError.localizedDescription,
+                suggestion: suggestion
+            )
+        }
         if let cloudError = error as? CloudDriveError {
             switch cloudError {
             case .credentialTemporarilyUnavailable:

@@ -740,7 +740,14 @@ public enum RangeStreamingPrefetchPolicy {
     }
 
     public static func allowsBackgroundPrewarm(for sourceType: MusicSourceType) -> Bool {
-        allowsAutomaticTrailingFill(for: sourceType)
+        // MusicKit owns Apple Music playback and downloads; its items cannot
+        // be materialized through a file-source connector.
+        switch sourceType {
+        case .local, .appleMusic, .appleMusicLibrary:
+            return false
+        default:
+            return allowsAutomaticTrailingFill(for: sourceType)
+        }
     }
 
     /// Selects the cache work for one queued track. A source can advertise

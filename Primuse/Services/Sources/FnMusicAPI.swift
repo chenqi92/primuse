@@ -67,6 +67,9 @@ actor FnMusicAPI {
             session: session,
             dataLoader: { request in
                 try await TrustedHTTPTransport.data(for: request, session: session)
+            },
+            diagnosticLogger: { message in
+                plog("\(message) source=\(sourceID.prefix(8))")
             }
         )
     }
@@ -590,6 +593,7 @@ actor FnMusicAPI {
         guard httpMediaResponseLooksLikeErrorBody(response, data: data) else { return }
         if let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let code = intValue(envelope["code"]) {
+            plog("FN Music media response source=\(sourceID.prefix(8)) status=\(response.statusCode) code=\(code)")
             if code == 120001 || code == 401 || code == 403 {
                 invalidateToken(ifMatching: requestToken)
                 throw SourceError.authenticationFailed

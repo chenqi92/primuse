@@ -467,6 +467,8 @@
 "error.fnConnect.invalidID" = "Das FN-ID-Format ist ungültig.";
 "error.fnConnect.serverNotFound" = "Diese FN ID wurde nicht gefunden. Prüfe, ob FN Connect auf dem NAS aktiviert ist.";
 "error.fnConnect.invalidResponse" = "FN Connect hat unbekannte Daten zurückgegeben.";
+"error.fnConnect.discoveryUnavailable" = "FN Connect kann derzeit keine Verbindungsadressen für dieses Gerät abrufen.";
+"error.fnConnect.musicServiceUnavailable" = "Die FN Connect-Adresse hat geantwortet, aber die Prüfung des Feiniu Music-Dienstes ist fehlgeschlagen.";
 "error.fnConnect.accessCodeRequired" = "Dieser FN-Connect-Server benötigt einen Zugangscode.";
 "error.fnConnect.accessCodeRejected" = "Der FN-Connect-Zugangscode ist ungültig.";
 "error.fnConnect.unreachable" = "Weder die direkte noch die Relay-Verbindung über FN Connect ist verfügbar.";

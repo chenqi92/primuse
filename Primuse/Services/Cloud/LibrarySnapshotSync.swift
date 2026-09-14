@@ -352,8 +352,9 @@ final class LibrarySnapshotSync: Sendable {
                       rawLibraryData,
                       cloudSources: cloudSources
                   ) else {
+            guard !Task.isCancelled else { return .failure(.cancelled) }
             plog("LibrarySnapshotSync: cloud snapshot source filtering failed")
-            return .failure(Task.isCancelled ? .cancelled : .snapshotPreparationFailed)
+            return .failure(.snapshotPreparationFailed)
         }
         let libraryData = preparedSnapshot.data
         let fm = FileManager.default

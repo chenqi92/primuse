@@ -315,12 +315,18 @@ actor MetadataAssetStore {
     }
 
     func lyrics(named fileName: String?) -> [LyricLine]? {
-        guard let fileName, !fileName.isEmpty else { return nil }
+        // Legacy local references are JSON basenames. Remote sidecar paths
+        // belong to the source connector, not this cache directory.
+        guard let fileName, !fileName.isEmpty,
+              !fileName.contains("/"), !fileName.contains("\\"),
+              (fileName as NSString).pathExtension.lowercased() == "json" else { return nil }
         do {
             let data = try Data(contentsOf: lyricsDirectory.appendingPathComponent(fileName))
             let lines = try decoder.decode([LyricLine].self, from: data)
             return LyricVoiceTimelinePolicy.groupingOverlappingSecondaryLines(in: lines)
         } catch {
+            if (error as NSError).domain == NSCocoaErrorDomain,
+               (error as NSError).code == NSFileReadNoSuchFileError { return nil }
             plog("MetadataAssetStore: failed to read lyrics '\(fileName)': \(error.localizedDescription)")
             return nil
         }

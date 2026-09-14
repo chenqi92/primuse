@@ -633,6 +633,8 @@
 "ext.tv.settings.tip.menu.title" = "Menü / Geri";
 "ext.tv.sources.restore" = "Geri yükle";
 "error.fnConnect.invalidResponse" = "FN Connect tanınmayan verileri döndürdü.";
+"error.fnConnect.discoveryUnavailable" = "FN Connect şu anda bu cihazın bağlantı adreslerini alamıyor.";
+"error.fnConnect.musicServiceUnavailable" = "FN Connect adresi yanıt verdi ancak Feiniu Music hizmeti denetimi başarısız oldu.";
 "ai_recommendation_intent_adjacentDiscovery_detail" = "Tanıdık tarzlardaki farklı sanatçılar";
 "fullscreen_effect_native" = "Orijinal";
 "send_to_tv_error_cloud_unavailable" = "CloudKit mevcut değil. iCloud oturum açmayı, iCloud Senkronizasyonunu ve uygulamanın iCloud erişimini kontrol edin.";

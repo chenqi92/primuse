@@ -1,14 +1,11 @@
 import Foundation
 
-/// 日志脱敏规则。五条正则只在首次使用时编译一次并常驻, 之前每写一行日志都
-/// 要重新构造五个 `NSRegularExpression`, 批量元数据回填时这笔开销按行累加。
-///
-/// 规则的模式、模板与执行顺序与旧实现完全一致。
+/// 正则实例常驻复用，避免批量日志反复编译脱敏规则。
 public enum LogRedactionPolicy {
     /// 1. URL / 查询串里的 key=value。key 后紧跟 = 语义明确, 即便是 code/state/k
     ///    这类短名, 出现在 query 串里也几乎一定是凭证, 故保留全集。
     private static let queryParameterRule = makeRule(
-        #"(?i)([?&](?:access_token|refresh_token|api_key|x-plex-token|token|code|state|k|client_secret|password|pwd|pass|sid|_sid|authorization|cookie)=)[^&#\s"')\]]+"#,
+        #"(?i)([?&](?:access_token|refresh_token|api_key|x-plex-token|token|code|state|k|client_secret|password|pwd|pass|sid|_sid|authorization|cookie|u|t|s|p)=)[^&#\s"')\]]+"#,
         "$1<redacted>"
     )
     /// 2. HTTP 头 Authorization / Cookie

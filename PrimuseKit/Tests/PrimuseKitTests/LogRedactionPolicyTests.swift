@@ -4,6 +4,20 @@ import Testing
 
 @Suite("Log redaction policy")
 struct LogRedactionPolicyTests {
+    @Test("Subsonic credentials are redacted in every NSError URL")
+    func redactsSubsonicErrorURLs() {
+        let url = "https://nas.invalid/rest/ping.view?u=listener&t=secret-token&s=random-salt&p=enc%3A736563726574&v=1.16.1&c=Primuse&f=json"
+        let message = "NSErrorFailingURLStringKey=\(url), NSErrorFailingURLKey=\(url)"
+        let redacted = LogRedactionPolicy.redact(message)
+        for value in ["listener", "secret-token", "random-salt", "enc%3A736563726574"] {
+            #expect(!redacted.contains(value))
+        }
+        #expect(redacted.components(separatedBy: "u=<redacted>").count == 3)
+        #expect(redacted.contains("&v=1.16.1&c=Primuse&f=json"))
+        #expect(LogRedactionPolicy.redact(redacted) == redacted)
+        #expect(LogRedactionPolicy.redact("position t=3 duration s=60") == "position t=3 duration s=60")
+    }
+
     @Test("URL query credentials keep their key and lose the value")
     func redactsQueryParameters() {
         // 非凭证参数放在前面: 裸 key=value 规则(规则 5)的值字符类不排除 &,

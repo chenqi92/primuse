@@ -3,6 +3,15 @@ import Testing
 
 @Suite("Range Streaming Prefetch Policy")
 struct RangeStreamingPrefetchPolicyTests {
+    @Test("MusicKit and local files never enter connector prewarm")
+    func platformManagedSourcesSkipConnectorPrewarm() {
+        for type: MusicSourceType in [.appleMusic, .appleMusicLibrary, .local] {
+            #expect(!RangeStreamingPrefetchPolicy.allowsBackgroundPrewarm(for: type))
+        }
+        #expect(RangeStreamingPrefetchPolicy.allowsBackgroundPrewarm(for: .fnMusic))
+        #expect(RangeStreamingPrefetchPolicy.allowsBackgroundPrewarm(for: .baiduPan))
+    }
+
     @Test("FTP and OneDrive use demand-driven range reads")
     func constrainedConnectorsDisableBackgroundPrefetch() {
         #expect(RangeStreamingPrefetchPolicy.aheadCount(for: .ftp, defaultValue: 4) == 0)

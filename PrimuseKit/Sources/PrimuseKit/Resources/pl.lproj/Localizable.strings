@@ -92,6 +92,8 @@
 "error.fnConnect.accessCodeRequired" = "Ten serwer FN Connect wymaga kodu dostępu.";
 "error.fnConnect.invalidID" = "Format identyfikatora FN jest nieprawidłowy.";
 "error.fnConnect.invalidResponse" = "FN Connect zwrócił nierozpoznane dane.";
+"error.fnConnect.discoveryUnavailable" = "FN Connect nie może obecnie pobrać adresów połączenia dla tego urządzenia.";
+"error.fnConnect.musicServiceUnavailable" = "Adres FN Connect odpowiedział, ale sprawdzenie usługi Feiniu Music nie powiodło się.";
 "error.fnConnect.serverNotFound" = "Nie znaleziono tego identyfikatora FN. Upewnij się, że FN Connect jest włączony w NAS.";
 "error.fnConnect.unreachable" = "Ani bezpośrednia, ani przekaźnikowa trasa FN Connect nie jest dostępna.";
 "error.fnMusic.authenticationFailed" = "Logowanie do Feiniu Music nie powiodło się. Sprawdź konto, hasło i uprawnienia do biblioteki.";

@@ -5,6 +5,26 @@ import XCTest
 
 @MainActor
 final class ScrapeOptionsTaskTests: XCTestCase {
+    func testLyricsCacheReadsLocalBasenamesWithoutFollowingRemoteReferences() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LyricsReferences-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MetadataAssetStore(storageDirectory: directory)
+        let lines = [LyricLine(timestamp: 0, text: "Cached lyrics")]
+        let fileName = await store.storeLyrics(lines, for: "cached-song")
+        let cached = await store.lyrics(named: fileName)
+        XCTAssertEqual(cached, lines)
+
+        let nested = store.lyricsDirectoryURL.appendingPathComponent("remote", isDirectory: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try JSONEncoder().encode(lines).write(to: nested.appendingPathComponent("song.json"))
+        for reference in ["remote/song.json", "/music/song.lrc", "https://nas.invalid/song.json",
+                          "remote\\song.json", "song.lrc"] {
+            let result = await store.lyrics(named: reference)
+            XCTAssertNil(result)
+        }
+    }
+
     @MainActor
     private final class SuspendedRequest {
         let started = XCTestExpectation(description: "Request started")

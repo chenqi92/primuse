@@ -92,6 +92,8 @@
 "error.fnConnect.accessCodeRequired" = "इस एफएन कनेक्ट सर्वर को एक एक्सेस कोड की आवश्यकता है।";
 "error.fnConnect.invalidID" = "एफएन ID प्रारूप अमान्य है।";
 "error.fnConnect.invalidResponse" = "एफएन कनेक्ट ने अपरिचित डेटा लौटाया।";
+"error.fnConnect.discoveryUnavailable" = "FN Connect अभी इस डिवाइस के कनेक्शन पते प्राप्त नहीं कर सकता।";
+"error.fnConnect.musicServiceUnavailable" = "FN Connect पते से जवाब मिला, लेकिन Feiniu Music सेवा की जाँच विफल रही।";
 "error.fnConnect.serverNotFound" = "यह एफएन ID नहीं मिला। सुनिश्चित करें कि NAS पर FN कनेक्ट सक्षम है।";
 "error.fnConnect.unreachable" = "न तो प्रत्यक्ष और न ही रिले एफएन कनेक्ट मार्ग उपलब्ध है।";
 "error.fnMusic.authenticationFailed" = "फेइनिउ म्यूजिक साइन-इन विफल रहा। खाता, पासवर्ड और लाइब्रेरी अनुमति की जाँच करें।";

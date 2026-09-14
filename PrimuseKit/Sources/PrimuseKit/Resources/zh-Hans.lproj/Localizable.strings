@@ -464,6 +464,8 @@
 "error.fnConnect.invalidID" = "FN ID 格式无效。";
 "error.fnConnect.serverNotFound" = "未找到该 FN ID，请确认 NAS 已开启 FN Connect。";
 "error.fnConnect.invalidResponse" = "FN Connect 返回了无法识别的数据。";
+"error.fnConnect.discoveryUnavailable" = "FN Connect 暂时无法查询此设备的连接地址。";
+"error.fnConnect.musicServiceUnavailable" = "FN Connect 地址可访问，但飞牛音乐服务未通过检查。";
 "error.fnConnect.accessCodeRequired" = "该 FN Connect 需要访问码。";
 "error.fnConnect.accessCodeRejected" = "FN Connect 访问码无效。";
 "error.fnConnect.unreachable" = "FN Connect 的直连和中继链路均不可用。";

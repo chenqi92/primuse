@@ -633,6 +633,8 @@
 "ext.tv.settings.tip.menu.title" = "Меню / Назад";
 "ext.tv.sources.restore" = "Відновити";
 "error.fnConnect.invalidResponse" = "FN Connect повернув нерозпізнані дані.";
+"error.fnConnect.discoveryUnavailable" = "FN Connect наразі не може отримати адреси підключення для цього пристрою.";
+"error.fnConnect.musicServiceUnavailable" = "Адреса FN Connect відповіла, але перевірка сервісу Feiniu Music завершилася помилкою.";
 "ai_recommendation_intent_adjacentDiscovery_detail" = "Різні виконавці в знайомих стилях";
 "fullscreen_effect_native" = "Оригінал";
 "send_to_tv_error_cloud_unavailable" = "CloudKit недоступний. Перевірте вхід у систему iCloud, синхронізацію iCloud і доступ програми до iCloud.";

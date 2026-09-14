@@ -182,7 +182,7 @@ struct FnConnectResolverTests {
 
     @Test func mapsCurrentDiscoveryErrors() async {
         for (code, expected) in [(3_000_006, FnConnectError.serverNotFound),
-                                 (3_000_037, .serverNotFound), (3_000_009, .unreachable)] {
+                                 (3_000_037, .serverNotFound), (3_000_009, .discoveryUnavailable)] {
             let resolver = FnConnectResolver(data: { request in
                 (Data("{\"code\":\(code),\"data\":null}".utf8),
                  HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
@@ -190,6 +190,107 @@ struct FnConnectResolverTests {
             })
             await #expect(throws: expected) { _ = try await resolver.resolve("livingroom-nas") }
         }
+    }
+
+    @Test func discoversHTTPSDDNSWhenIPRoutesFail() async throws {
+        for (portJSON, expectedPort) in [("{}", nil), ("{\"httpsPort\":8443}", 8443),
+                                         ("{\"httpsPort\":\"9443\"}", 9443)] as [(String, Int?)] {
+            let resolver = FnConnectResolver(data: { request in
+                let url = try #require(request.url)
+                if url.path == "/api/v1/fn/con" {
+                    return FnConnectDelayedLookup.response(request, json:
+                        "{\"code\":0,\"data\":{\"publicIpv4\":[\"203.0.113.10\"],\"ddns\":[\"music.example.test\"],\"port\":\(portJSON)}}")
+                }
+                if url.host == "203.0.113.10" { throw URLError(.serverCertificateUntrusted) }
+                #expect(url.host == "music.example.test")
+                #expect(url.scheme == "https")
+                #expect(url.port == expectedPort)
+                #expect(request.value(forHTTPHeaderField: "Cookie")?.contains("mode=relay") != true)
+                #expect(request.value(forHTTPHeaderField: "x-access-code") == Data("access-code".utf8).base64EncodedString())
+                return FnConnectDelayedLookup.response(request, json: #"{"code":200,"data":{}}"#)
+            })
+            let endpoint = try await resolver.resolve("livingroom-nas", accessCode: "access-code")
+            #expect(endpoint.route == .direct)
+            #expect(endpoint.baseURL.host == "music.example.test")
+            #expect(endpoint.baseURL.port == expectedPort)
+        }
+    }
+
+    @Test func invalidDDNSNeverReceivesCredentialsAndFailedDDNSFallsBackToRelay() async throws {
+        let resolver = FnConnectResolver(data: { request in
+            let url = try #require(request.url)
+            if url.path == "/api/v1/fn/con" {
+                return FnConnectDelayedLookup.response(request, json:
+                    #"{"code":0,"data":{"ddns":["https://bad.example","user@bad.example","bad.example/path","bad.example?x=1","bad.example#fragment","bad.example:443","-bad.example","bad..example","valid.example"],"fn":["livingroom-nas.5ddd.com"]}}"#)
+            }
+            if url.host == "valid.example" { throw URLError(.cannotConnectToHost) }
+            #expect(url.host == "livingroom-nas.5ddd.com")
+            #expect(request.value(forHTTPHeaderField: "Cookie") == "mode=relay")
+            return FnConnectDelayedLookup.response(request, json: #"{"code":0,"data":{}}"#)
+        })
+        let endpoint = try await resolver.resolve("livingroom-nas", accessCode: "access-code")
+        #expect(endpoint.route == .relay)
+    }
+
+    @Test func musicServiceFailuresAreNotReportedAsUnreachableRoutes() async {
+        for (status, body) in [(200, #"{"code":500,"message":"service unavailable"}"#),
+                               (200, "<html>Music unavailable</html>"),
+                               (503, ""), (401, #"{"code":401}"#)] {
+            let resolver = FnConnectResolver(data: { request in
+                let url = try #require(request.url)
+                if url.path == "/api/v1/fn/con" {
+                    return FnConnectDelayedLookup.response(request, json: #"{"code":0,"data":{}}"#)
+                }
+                if url.path == "/access_code_verify" {
+                    return FnConnectDelayedLookup.response(request, json: "", status: 204)
+                }
+                return FnConnectDelayedLookup.response(request, json: body, status: status)
+            })
+            await #expect(throws: FnConnectError.musicServiceUnavailable) {
+                _ = try await resolver.resolve("livingroom-nas")
+            }
+        }
+    }
+
+    @Test func diagnosticsRetainStagesAndCodesWithoutCredentialsOrServerAddresses() async {
+        let log = FnConnectDiagnosticLog()
+        let resolver = FnConnectResolver(data: { request in
+            let url = try #require(request.url)
+            if url.path == "/api/v1/fn/con" {
+                return FnConnectDelayedLookup.response(request, json: #"{"code":0,"data":{}}"#)
+            }
+            if url.path == "/access_code_verify" {
+                return FnConnectDelayedLookup.response(request, json: "", status: 204)
+            }
+            throw NSError(domain: NSURLErrorDomain, code: NSURLErrorSecureConnectionFailed,
+                          userInfo: [NSLocalizedDescriptionKey: "secret-response-body",
+                                     NSURLErrorFailingURLStringErrorKey: "https://private-nas.5ddd.com/?token=secret-token"])
+        }, diagnosticLogger: { log.append($0) })
+        await #expect(throws: FnConnectError.unreachable) {
+            _ = try await resolver.resolve("private-nas", accessCode: "secret-access-code")
+        }
+        let messages = log.messages.joined(separator: "\n")
+        #expect(messages.contains("stage=discovery route=discovery status=200 code=0"))
+        #expect(messages.contains("stage=access-code route=relay-https status=204"))
+        #expect(messages.contains("stage=music-config route=relay-https error=NSURLErrorDomain/-1200"))
+        #expect(messages.contains("elapsed_ms="))
+        for secret in ["private-nas", "secret-response-body", "secret-token", "secret-access-code",
+                       Data("secret-access-code".utf8).base64EncodedString()] {
+            #expect(!messages.contains(secret))
+        }
+    }
+
+    @Test func discoveryFailureStopsBeforeProbesAndPreservesBusinessCode() async {
+        let log = FnConnectDiagnosticLog()
+        let resolver = FnConnectResolver(data: { request in
+            #expect(request.url?.path == "/api/v1/fn/con")
+            return FnConnectDelayedLookup.response(request, json: #"{"code":3000009,"data":null}"#)
+        }, diagnosticLogger: { log.append($0) })
+        await #expect(throws: FnConnectError.discoveryUnavailable) {
+            _ = try await resolver.resolve("livingroom-nas")
+        }
+        #expect(log.messages.count == 1)
+        #expect(log.messages.first?.contains("stage=discovery route=discovery status=200 code=3000009") == true)
     }
 
     @Test func slowRelayRemainsUsableAfterDirectRoutesFail() async throws {
@@ -273,6 +374,15 @@ struct FnConnectResolverTests {
         configuration.protocolClasses = [FnConnectURLProtocol.self]
         return URLSession(configuration: configuration)
     }
+}
+
+private final class FnConnectDiagnosticLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [String] = []
+
+    var messages: [String] { lock.withLock { storage } }
+
+    func append(_ message: String) { lock.withLock { storage.append(message) } }
 }
 
 private final class FnConnectURLProtocol: URLProtocol, @unchecked Sendable {

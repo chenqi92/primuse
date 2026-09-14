@@ -30,6 +30,8 @@ public enum FnConnectError: Error, LocalizedError, Equatable, Sendable {
     case invalidResponse
     case accessCodeRequired
     case accessCodeRejected
+    case discoveryUnavailable
+    case musicServiceUnavailable
     case unreachable
 
     public var errorDescription: String? {
@@ -44,6 +46,10 @@ public enum FnConnectError: Error, LocalizedError, Equatable, Sendable {
             return PMString("error.fnConnect.accessCodeRequired")
         case .accessCodeRejected:
             return PMString("error.fnConnect.accessCodeRejected")
+        case .discoveryUnavailable:
+            return PMString("error.fnConnect.discoveryUnavailable")
+        case .musicServiceUnavailable:
+            return PMString("error.fnConnect.musicServiceUnavailable")
         case .unreachable:
             return PMString("error.fnConnect.unreachable")
         }
@@ -360,6 +366,7 @@ public enum FnMusicAPIProtocol {
 /// separate: callers still authenticate with the NAS-local Music account.
 public struct FnConnectResolver: Sendable {
     public typealias DataLoader = @Sendable (URLRequest) async throws -> (Data, URLResponse)
+    public typealias DiagnosticLogger = @Sendable (String) -> Void
 
     private static let lookupURL = URL(string: "https://5ddd.com/api/v1/fn/con")!
     private static let lookupPath = "/api/v1/fn/con"
@@ -369,12 +376,14 @@ public struct FnConnectResolver: Sendable {
     private let lookupTimeout: TimeInterval
     private let probeTimeout: TimeInterval
     private let relayProbeTimeout: TimeInterval
+    private let diagnosticLogger: DiagnosticLogger?
 
     public init(
         session: URLSession = .shared,
         lookupTimeout: TimeInterval = 10,
         probeTimeout: TimeInterval = 2,
-        relayProbeTimeout: TimeInterval = 10
+        relayProbeTimeout: TimeInterval = 10,
+        diagnosticLogger: DiagnosticLogger? = nil
     ) {
         self.dataLoader = {
             try await StreamResolverHTTPTransport.data(
@@ -386,18 +395,21 @@ public struct FnConnectResolver: Sendable {
         self.lookupTimeout = lookupTimeout
         self.probeTimeout = probeTimeout
         self.relayProbeTimeout = relayProbeTimeout
+        self.diagnosticLogger = diagnosticLogger
     }
 
     public init(
         data: @escaping DataLoader,
         lookupTimeout: TimeInterval = 10,
         probeTimeout: TimeInterval = 2,
-        relayProbeTimeout: TimeInterval = 10
+        relayProbeTimeout: TimeInterval = 10,
+        diagnosticLogger: DiagnosticLogger? = nil
     ) {
         self.dataLoader = data
         self.lookupTimeout = lookupTimeout
         self.probeTimeout = probeTimeout
         self.relayProbeTimeout = relayProbeTimeout
+        self.diagnosticLogger = diagnosticLogger
     }
 
     public static func fnID(from rawValue: String) -> String? {
@@ -441,15 +453,22 @@ public struct FnConnectResolver: Sendable {
         let parameters = try await lookup(fnID: fnID)
         try Task.checkCancellation()
         let groups = Self.candidateGroups(fnID: fnID, parameters: parameters)
+        guard groups.contains(where: { !$0.isEmpty }) else {
+            diagnosticLogger?("FN Connect stage=candidates result=empty")
+            throw FnConnectError.invalidResponse
+        }
         var sawAccessCodeChallenge = false
+        var sawMusicServiceFailure = false
 
         for group in groups where !group.isEmpty {
             let result = await probe(group, accessCode: accessCode)
             try Task.checkCancellation()
             if let endpoint = result.endpoint {
+                diagnosticLogger?("FN Connect stage=resolved route=\(endpoint.route.rawValue)")
                 return endpoint
             }
             sawAccessCodeChallenge = sawAccessCodeChallenge || result.sawAccessCodeChallenge
+            sawMusicServiceFailure = sawMusicServiceFailure || result.sawMusicServiceFailure
         }
 
         if sawAccessCodeChallenge {
@@ -458,6 +477,7 @@ public struct FnConnectResolver: Sendable {
             }
             throw FnConnectError.accessCodeRequired
         }
+        if sawMusicServiceFailure { throw FnConnectError.musicServiceUnavailable }
         throw FnConnectError.unreachable
     }
 
@@ -482,10 +502,10 @@ public struct FnConnectResolver: Sendable {
             forHTTPHeaderField: FnMusicAPIProtocol.authxHeaderField
         )
 
-        let (data, response) = try await dataLoader(request)
+        let (data, response) = try await load(request, stage: "discovery")
         guard let http = response as? HTTPURLResponse,
               (200...299).contains(http.statusCode),
-              let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let envelope = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let code = Self.int(envelope["code"]) else {
             throw FnConnectError.invalidResponse
         }
@@ -493,7 +513,7 @@ public struct FnConnectResolver: Sendable {
             if [404, 1001, 1004, 3_000_006, 3_000_037].contains(code) {
                 throw FnConnectError.serverNotFound
             }
-            if code == 3_000_009 { throw FnConnectError.unreachable }
+            if code == 3_000_009 { throw FnConnectError.discoveryUnavailable }
             throw FnConnectError.invalidResponse
         }
         guard let data = envelope["data"] as? [String: Any] else {
@@ -505,10 +525,10 @@ public struct FnConnectResolver: Sendable {
     private func probe(
         _ candidates: [Candidate],
         accessCode: String?
-    ) async -> (endpoint: FnMusicResolvedEndpoint?, sawAccessCodeChallenge: Bool) {
+    ) async -> (endpoint: FnMusicResolvedEndpoint?, sawAccessCodeChallenge: Bool, sawMusicServiceFailure: Bool) {
         await withTaskGroup(
             of: (Int, ProbeResult).self,
-            returning: (FnMusicResolvedEndpoint?, Bool).self
+            returning: (FnMusicResolvedEndpoint?, Bool, Bool).self
         ) { group in
             for (index, candidate) in candidates.enumerated() {
                 group.addTask {
@@ -518,12 +538,15 @@ public struct FnConnectResolver: Sendable {
 
             var reachable = Set<Int>()
             var sawAccessCodeChallenge = false
+            var sawMusicServiceFailure = false
             for await (index, result) in group {
                 switch result {
                 case .reachable:
                     reachable.insert(index)
                 case .accessCodeChallenge:
                     sawAccessCodeChallenge = true
+                case .musicServiceFailure:
+                    sawMusicServiceFailure = true
                 case .failed:
                     break
                 }
@@ -531,7 +554,7 @@ public struct FnConnectResolver: Sendable {
             let endpoint = candidates.indices
                 .first(where: { reachable.contains($0) })
                 .map { candidates[$0].endpoint }
-            return (endpoint, sawAccessCodeChallenge)
+            return (endpoint, sawAccessCodeChallenge, sawMusicServiceFailure)
         }
     }
 
@@ -560,13 +583,13 @@ public struct FnConnectResolver: Sendable {
         FnMusicAPIProtocol.applyAuthx(to: &request)
 
         do {
-            let (data, response) = try await dataLoader(request)
+            let (data, response) = try await load(request, stage: "music-config", candidate: candidate)
             guard let http = response as? HTTPURLResponse,
                   (200...299).contains(http.statusCode),
-                  let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let envelope = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                   let code = Self.int(envelope["code"]),
                   code == 0 || code == 200 else {
-                return .failed
+                return .musicServiceFailure
             }
             return .reachable
         } catch {
@@ -588,7 +611,7 @@ public struct FnConnectResolver: Sendable {
         )
 
         do {
-            let (_, response) = try await dataLoader(request)
+            let (_, response) = try await load(request, stage: "access-code", candidate: candidate)
             guard let http = response as? HTTPURLResponse else { return .failed }
             switch http.statusCode {
             case 200...299, 404:
@@ -621,6 +644,31 @@ public struct FnConnectResolver: Sendable {
         }
     }
 
+    /// Keep connection evidence without exporting hosts, credentials, response
+    /// bodies, or NSError descriptions that can contain authenticated URLs.
+    private func load(
+        _ request: URLRequest,
+        stage: String,
+        candidate: Candidate? = nil
+    ) async throws -> (Data, URLResponse) {
+        let started = ProcessInfo.processInfo.systemUptime
+        let route = candidate?.diagnosticLabel ?? "discovery"
+        do {
+            let result = try await dataLoader(request)
+            let status = (result.1 as? HTTPURLResponse).map { String($0.statusCode) } ?? "none"
+            let envelope = try? JSONSerialization.jsonObject(with: result.0) as? [String: Any]
+            let code = Self.int(envelope?["code"]).map(String.init) ?? "none"
+            let elapsed = Int((ProcessInfo.processInfo.systemUptime - started) * 1_000)
+            diagnosticLogger?("FN Connect stage=\(stage) route=\(route) status=\(status) code=\(code) elapsed_ms=\(elapsed)")
+            return result
+        } catch {
+            let nsError = error as NSError
+            let elapsed = Int((ProcessInfo.processInfo.systemUptime - started) * 1_000)
+            diagnosticLogger?("FN Connect stage=\(stage) route=\(route) error=\(nsError.domain)/\(nsError.code) cancelled=\(Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled) elapsed_ms=\(elapsed)")
+            throw error
+        }
+    }
+
     private static func candidateGroups(fnID: String, parameters: Parameters) -> [[Candidate]] {
         let internalIPv4 = unique(parameters.internalIPv4
             .filter(InsecureHTTPHostPolicy.isLocalNetworkHost)
@@ -641,12 +689,36 @@ public struct FnConnectResolver: Sendable {
         let publicIPv4 = unique(parameters.publicIPv4.compactMap {
             candidate(host: $0, port: parameters.httpsPort, scheme: "https", route: .direct)
         })
+        let ddns = unique(parameters.ddns.compactMap {
+            ddnsCandidate(host: $0, port: parameters.ddnsHTTPSPort)
+        })
 
         let relayValues = parameters.relayAddresses.isEmpty
             ? ["\(fnID).5ddd.com"]
             : parameters.relayAddresses
         let relay = unique(relayValues.compactMap { relayCandidate($0) })
-        return [internalIPv4 + internalIPv6, internalHTTPS, publicIPv6, publicIPv4, relay]
+        return [internalIPv4 + internalIPv6, internalHTTPS, publicIPv6, publicIPv4, ddns, relay]
+    }
+
+    private static func ddnsCandidate(host: String, port: Int?) -> Candidate? {
+        // Discovery supplies bare DNS names. Reject URLs and path components
+        // before adding access-code headers to a candidate request.
+        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard host.utf8.count <= 253, !labels.isEmpty,
+              labels.allSatisfy({ label in
+                  (1...63).contains(label.utf8.count)
+                      && label.first != "-" && label.last != "-"
+                      && label.utf8.allSatisfy { byte in
+                          (48...57).contains(byte) || (65...90).contains(byte)
+                              || (97...122).contains(byte) || byte == 45
+                      }
+              }) else { return nil }
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = host.lowercased()
+        components.port = port == 443 ? nil : port
+        guard let url = components.url else { return nil }
+        return Candidate(endpoint: FnMusicResolvedEndpoint(baseURL: url, route: .direct))
     }
 
     private static func candidate(
@@ -703,6 +775,8 @@ public struct FnConnectResolver: Sendable {
         let httpsPort: Int
         let httpPort: Int
         let relayAddresses: [String]
+        let ddns: [String]
+        let ddnsHTTPSPort: Int?
 
         init(json: [String: Any]) {
             let port = json["port"] as? [String: Any] ?? [:]
@@ -713,6 +787,8 @@ public struct FnConnectResolver: Sendable {
             httpsPort = Self.validPort(FnConnectResolver.int(port["httpsPort"])) ?? 5667
             httpPort = Self.validPort(FnConnectResolver.int(port["httpPort"])) ?? 5666
             relayAddresses = Self.strings(json["fn"])
+            ddns = Self.strings(json["ddns"])
+            ddnsHTTPSPort = Self.validPort(FnConnectResolver.int(port["httpsPort"]))
         }
 
         private static func strings(_ value: Any?) -> [String] {
@@ -731,11 +807,20 @@ public struct FnConnectResolver: Sendable {
 
     private struct Candidate: Sendable {
         let endpoint: FnMusicResolvedEndpoint
+
+        var diagnosticLabel: String {
+            if endpoint.usesRelay { return "relay-https" }
+            let host = endpoint.baseURL.host ?? ""
+            let kind = IPv4Address(host) != nil ? "ipv4" : IPv6Address(host) != nil ? "ipv6" : "ddns"
+            let scope = InsecureHTTPHostPolicy.isLocalNetworkHost(host) ? "local" : "public"
+            return "\(scope)-\(kind)-\(endpoint.baseURL.scheme ?? "unknown")"
+        }
     }
 
     private enum ProbeResult: Sendable, Equatable {
         case reachable
         case accessCodeChallenge
+        case musicServiceFailure
         case failed
     }
 }
@@ -761,13 +846,14 @@ public actor FnMusicEndpointProvider {
         source: MusicSource,
         accessCode: String? = nil,
         session: URLSession = .shared,
-        dataLoader: FnConnectResolver.DataLoader? = nil
+        dataLoader: FnConnectResolver.DataLoader? = nil,
+        diagnosticLogger: FnConnectResolver.DiagnosticLogger? = nil
     ) {
         self.accessCode = accessCode
         if let dataLoader {
-            self.resolver = FnConnectResolver(data: dataLoader)
+            self.resolver = FnConnectResolver(data: dataLoader, diagnosticLogger: diagnosticLogger)
         } else {
-            self.resolver = FnConnectResolver(session: session)
+            self.resolver = FnConnectResolver(session: session, diagnosticLogger: diagnosticLogger)
         }
         if source.type == .fnMusic, source.effectiveFnMusicConnectionMode == .fnConnect {
             self.fnID = source.host

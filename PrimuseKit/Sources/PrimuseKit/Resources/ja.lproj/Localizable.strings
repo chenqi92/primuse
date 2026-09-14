@@ -467,6 +467,8 @@
 "error.fnConnect.invalidID" = "FN ID の形式が無効です。";
 "error.fnConnect.serverNotFound" = "この FN ID は見つかりません。NAS で FN Connect が有効になっているか確認してください。";
 "error.fnConnect.invalidResponse" = "FN Connect から認識できないデータが返されました。";
+"error.fnConnect.discoveryUnavailable" = "FN Connectは現在、このデバイスの接続先アドレスを取得できません。";
+"error.fnConnect.musicServiceUnavailable" = "FN Connectのアドレスから応答がありましたが、Feiniu Musicサービスの確認に失敗しました。";
 "error.fnConnect.accessCodeRequired" = "この FN Connect サーバーにはアクセスコードが必要です。";
 "error.fnConnect.accessCodeRejected" = "FN Connect のアクセスコードが無効です。";
 "error.fnConnect.unreachable" = "FN Connect の直接接続とリレー接続のどちらも利用できません。";

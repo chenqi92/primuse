@@ -92,6 +92,8 @@
 "error.fnConnect.accessCodeRequired" = "يتطلب خادم FN Connect هذا رمز وصول.";
 "error.fnConnect.invalidID" = "تنسيق FN ID غير صالح.";
 "error.fnConnect.invalidResponse" = "قام FN Connect بإرجاع بيانات غير معروفة.";
+"error.fnConnect.discoveryUnavailable" = "يتعذر على FN Connect حاليًا جلب عناوين الاتصال لهذا الجهاز.";
+"error.fnConnect.musicServiceUnavailable" = "استجاب عنوان FN Connect، لكن فشل التحقق من خدمة Feiniu Music.";
 "error.fnConnect.serverNotFound" = "لم يتم العثور على هذا FN ID. تأكد من تفعيل FN Connect على NAS.";
 "error.fnConnect.unreachable" = "لا يتوفر مسار FN Connect المباشر أو التتابعي.";
 "error.fnMusic.authenticationFailed" = "فشل تسجيل الدخول إلى Feiniu Music. تحقق من الحساب وكلمة المرور وإذن المكتبة.";
