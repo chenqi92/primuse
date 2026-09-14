@@ -1126,15 +1126,21 @@ public enum LyricsContentParser {
     ) -> String {
         let body = lines.flatMap { line -> [String] in
             var serializedLines = [serializeLine(line)]
-            if includeManualTranslations,
-               let translation = line.manualTranslation,
-               !translation.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                if line.isSynchronized {
-                    serializedLines.append(
-                        "[\(formatTimestamp(line.timestamp))]\(translation.text)"
-                    )
-                } else {
-                    serializedLines.append(translation.text)
+            if includeManualTranslations {
+                // 同一时间戳上的相邻行读进来时并入了原文，写回去要按原样还原。
+                // 只写首选译文的话，「原文 + 注音 + 译文」会在一次回写之后
+                // 退化成两行，注音就永久丢了。
+                let companions = (line.manualTranslation.map { [$0] } ?? [])
+                    + line.alternateManualTranslations.filter { $0.source == .bilingualLRC }
+                for companion in companions
+                where !companion.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    if line.isSynchronized {
+                        serializedLines.append(
+                            "[\(formatTimestamp(line.timestamp))]\(companion.text)"
+                        )
+                    } else {
+                        serializedLines.append(companion.text)
+                    }
                 }
             }
             return serializedLines

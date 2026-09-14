@@ -430,14 +430,23 @@ public enum LyricManualTranslationPolicy {
             }
             guard !backgroundCarriesTranslations else { return false }
             guard !preferredText.isEmpty || !alternates.isEmpty else { continue }
-            guard alternates.isEmpty,
+            // 一个时间戳可以承载多行：外语歌的「原文 + 注音 + 译文」按原顺序
+            // 写回去，仍能被重新读成同一结构。其它来源的多语言字段没有这种
+            // 顺序约定，写成双语 LRC 就分不清哪一行是哪种语言，只能走结构化存储。
+            guard alternates.allSatisfy({ $0.source == .bilingualLRC }),
                   !preferredText.isEmpty,
-                  !preferredText.contains(where: \.isNewline),
-                  translationTextRoundTripsAsLiteralLRC(preferredText),
                   line.isSynchronized,
                   !line.isWordLevel,
                   line.voice == .primary,
                   line.background?.isEmpty != false else {
+                return false
+            }
+            let persistedTexts = [preferredText] + alternates.map {
+                $0.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            guard persistedTexts.allSatisfy({
+                !$0.contains(where: \.isNewline) && translationTextRoundTripsAsLiteralLRC($0)
+            }) else {
                 return false
             }
         }
@@ -1065,44 +1074,109 @@ public enum LyricBilingualPairingPolicy {
 
         let tolerance = max(0, timestampTolerance)
         let clusters = adjacentTimestampClusters(in: lines, tolerance: tolerance)
-        let timestampClusterCount = clusters.filter { cluster in
-            cluster.contains { isPairableSourceLine(lines[$0]) }
-        }.count
-        let candidates = clusters.compactMap { cluster -> PairCandidate? in
-            guard cluster.count == 2 else { return nil }
-            let firstIndex = cluster[0]
-            let secondIndex = cluster[1]
-            let first = lines[firstIndex]
-            let second = lines[secondIndex]
-            // 原文允许自带逐字时间轴：不少工具(如 Lyrico)会把逐字原文和整行
-            // 译文写成同一个时间戳的相邻两行。此前原文因为带音节而被排除在配对
-            // 之外，译文于是留成独立一行 —— 它和原文时间戳相同又排在后面，
-            // 高亮便落到译文上，原文的逐字扫光和点按都随之失效。
-            guard isPairableSourceLine(first),
-                  isOrdinarySynchronizedLine(second),
-                  !appearsSpeakerAttributed(first.text),
-                  !appearsSpeakerAttributed(second.text),
-                  first.manualTranslation == nil,
-                  second.manualTranslation == nil,
-                  first.alternateManualTranslations.isEmpty,
-                  second.alternateManualTranslations.isEmpty,
-                  let firstEvidence = dominantScript(in: first.text),
-                  let secondEvidence = dominantScript(in: second.text),
-                  firstEvidence.family != secondEvidence.family else {
+        // 只有同一个时间戳上重复出现的行才存在「是不是双语」的歧义。单独成行的
+        // 歌词不参与分母 —— 否则一首中文歌里只夹了几句外语和它们的译文时，比例
+        // 永远达不到门槛，那几句的原文就一直高亮不了。
+        var repeatedClusterCounts: [Int: Int] = [:]
+        for cluster in clusters where cluster.count >= 2
+            && cluster.contains(where: { isPairableSourceLine(lines[$0]) }) {
+            repeatedClusterCounts[cluster.count, default: 0] += 1
+        }
+
+        let candidates = clusters.compactMap { makeCandidate(cluster: $0, in: lines) }
+        var accepted: [PairCandidate] = []
+        for (rowCount, group) in Dictionary(grouping: candidates, by: \.rowCount) {
+            accepted.append(contentsOf: dominantCandidates(
+                in: group,
+                repeatedClusterCount: repeatedClusterCounts[rowCount] ?? group.count
+            ))
+        }
+        guard !accepted.isEmpty else { return lines }
+
+        let candidateBySourceIndex = Dictionary(
+            uniqueKeysWithValues: accepted.map { ($0.sourceIndex, $0) }
+        )
+        let absorbedIndexes = Set(accepted.flatMap(\.companionIndexes))
+        return lines.enumerated().compactMap { index, line in
+            guard !absorbedIndexes.contains(index) else { return nil }
+            guard let candidate = candidateBySourceIndex[index] else { return line }
+
+            // 文件里的先后顺序就是作者想要的阅读顺序：注音写在译文前面就先显示
+            // 注音。这里不去猜哪一条是注音、哪一条是翻译，只把第一条当首选译文。
+            let companions = candidate.companionIndexes.map { companionIndex in
+                LyricManualTranslation(
+                    id: lines[companionIndex].id,
+                    text: lines[companionIndex].text,
+                    source: .bilingualLRC
+                )
+            }
+            var sourceLine = line
+            sourceLine.manualTranslation = companions.first
+            sourceLine.alternateManualTranslations = Array(companions.dropFirst())
+            return sourceLine
+        }
+    }
+
+    /// 一句原文最多吸收两条附属行。外语歌常见「原文 + 注音 + 译文」三行共用一个
+    /// 时间戳，再多就更可能是多声部叠唱，吞掉任何一行都会真的丢内容。
+    private static let maximumRowCount = 3
+
+    private static func makeCandidate(
+        cluster: [Int],
+        in lines: [LyricLine]
+    ) -> PairCandidate? {
+        guard cluster.count >= 2, cluster.count <= maximumRowCount else { return nil }
+
+        let sourceIndex = cluster[0]
+        let source = lines[sourceIndex]
+        // 原文允许自带逐字时间轴：不少工具(如 Lyrico)会把逐字原文和整行
+        // 译文写成同一个时间戳的相邻两行。此前原文因为带音节而被排除在配对
+        // 之外，译文于是留成独立一行 —— 它和原文时间戳相同又排在后面，
+        // 高亮便落到译文上，原文的逐字扫光和点按都随之失效。
+        guard isPairableSourceLine(source),
+              !appearsSpeakerAttributed(source.text),
+              source.manualTranslation == nil,
+              source.alternateManualTranslations.isEmpty,
+              let sourceEvidence = dominantScript(in: source.text) else {
+            return nil
+        }
+
+        var companionFamilies: [ScriptFamily] = []
+        var companionTexts: [String] = []
+        for companionIndex in cluster.dropFirst() {
+            let companion = lines[companionIndex]
+            guard isOrdinarySynchronizedLine(companion),
+                  !appearsSpeakerAttributed(companion.text),
+                  companion.manualTranslation == nil,
+                  companion.alternateManualTranslations.isEmpty,
+                  let evidence = dominantScript(in: companion.text),
+                  evidence.family != sourceEvidence.family else {
                 return nil
             }
-            return PairCandidate(
-                firstIndex: firstIndex,
-                secondIndex: secondIndex,
-                orientation: Orientation(
-                    source: firstEvidence.family,
-                    translation: secondEvidence.family
-                ),
-                sourceText: normalizedText(first.text),
-                translationText: normalizedText(second.text)
-            )
+            companionFamilies.append(evidence.family)
+            companionTexts.append(normalizedText(companion.text))
         }
-        guard candidates.count >= 2 else { return lines }
+
+        return PairCandidate(
+            sourceIndex: sourceIndex,
+            companionIndexes: Array(cluster.dropFirst()),
+            orientation: Orientation(
+                source: sourceEvidence.family,
+                companions: companionFamilies
+            ),
+            sourceText: normalizedText(source.text),
+            companionTexts: companionTexts
+        )
+    }
+
+    /// 同一时间戳上行数相同的候选各自投票。一份文档里既可能整篇都是「原文 +
+    /// 译文」，也可能整篇都是「原文 + 注音 + 译文」，两种结构分开计票才不会
+    /// 互相拉低比例。
+    private static func dominantCandidates(
+        in candidates: [PairCandidate],
+        repeatedClusterCount: Int
+    ) -> [PairCandidate] {
+        guard candidates.count >= 2 else { return [] }
 
         var countByOrientation: [Orientation: Int] = [:]
         for candidate in candidates {
@@ -1110,56 +1184,44 @@ public enum LyricBilingualPairingPolicy {
         }
         guard let highestCount = countByOrientation.values.max(),
               highestCount >= 2 else {
-            return lines
+            return []
         }
         let dominantOrientations = countByOrientation.compactMap { orientation, count in
             count == highestCount ? orientation : nil
         }
         guard dominantOrientations.count == 1,
               let dominantOrientation = dominantOrientations.first else {
-            return lines
+            return []
         }
 
-        let dominantCandidates = candidates.filter {
-            $0.orientation == dominantOrientation
+        let dominant = candidates.filter { $0.orientation == dominantOrientation }
+        // 整段重复的副歌无法区分「译文」和「同一句唱了两遍」，因此原文和每一条
+        // 附属行都要至少出现两种不同文本。
+        let companionTextsAreVaried = dominantOrientation.companions.indices.allSatisfy { slot in
+            Set(dominant.map { $0.companionTexts[slot] }).count >= 2
         }
-        guard Set(dominantCandidates.map(\.sourceText)).count >= 2,
-              Set(dominantCandidates.map(\.translationText)).count >= 2,
-              dominantCandidates.count * 5 >= candidates.count * 4,
-              dominantCandidates.count * 5 >= timestampClusterCount * 3 else {
-            return lines
+        guard Set(dominant.map(\.sourceText)).count >= 2,
+              companionTextsAreVaried,
+              dominant.count * 5 >= candidates.count * 4,
+              dominant.count * 5 >= repeatedClusterCount * 3 else {
+            return []
         }
-
-        let candidateBySourceIndex = Dictionary(
-            uniqueKeysWithValues: dominantCandidates.map { ($0.firstIndex, $0) }
-        )
-        let removedTranslationIndexes = Set(dominantCandidates.map(\.secondIndex))
-        return lines.enumerated().compactMap { index, line in
-            guard !removedTranslationIndexes.contains(index) else { return nil }
-            guard let candidate = candidateBySourceIndex[index] else { return line }
-
-            var sourceLine = line
-            let translationLine = lines[candidate.secondIndex]
-            sourceLine.manualTranslation = LyricManualTranslation(
-                id: translationLine.id,
-                text: translationLine.text,
-                source: .bilingualLRC
-            )
-            return sourceLine
-        }
+        return dominant
     }
 
     private struct PairCandidate {
-        var firstIndex: Int
-        var secondIndex: Int
+        var sourceIndex: Int
+        var companionIndexes: [Int]
         var orientation: Orientation
         var sourceText: String
-        var translationText: String
+        var companionTexts: [String]
+
+        var rowCount: Int { companionIndexes.count + 1 }
     }
 
     private struct Orientation: Hashable {
         var source: ScriptFamily
-        var translation: ScriptFamily
+        var companions: [ScriptFamily]
     }
 
     private struct ScriptEvidence {

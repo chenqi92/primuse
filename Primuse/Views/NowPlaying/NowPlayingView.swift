@@ -5999,6 +5999,23 @@ struct LyricsScrollView: View {
         .padding(.bottom, 4)
     }
 
+    /// 一句歌词下面要显示的附属文本, 顺序与歌词文件里写的一致。
+    ///
+    /// 同一个时间戳上的多行(外语歌常见「原文 + 注音 + 译文」)在解析时已经并进
+    /// 原文, 三行讲的是同一句, 全部列出来才不会把注音或者译文藏掉。文件本身
+    /// 没带译文时才回落到翻译任务给出的那一条。
+    private func companionTexts(for line: LyricLine) -> [String] {
+        let embedded = line.allManualTranslations
+            .filter { $0.source == .bilingualLRC }
+            .map(\.text)
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if !embedded.isEmpty { return embedded }
+        guard let translated = translatedTextByLineID[line.id], !translated.isEmpty else {
+            return []
+        }
+        return [translated]
+    }
+
     /// dimmedByAmbient: 统一动效模式调用时传 true ── 表明行整体明暗由外层
     /// opacity 接管, row 内部不要再按 isActive 离散切换颜色,否则跟外层
     /// .opacity multiply 会双重叠加 + 跳变。
@@ -6019,6 +6036,7 @@ struct LyricsScrollView: View {
         let weight: Font.Weight = dimmedByAmbient ? .semibold : (isActive ? .bold : .semibold)
         let alignment = lyricsAlignment.horizontalAlignment
         let frameAlignment = lyricsAlignment.frameAlignment
+        let companions = companionTexts(for: line)
 
         // 组内(原文与其译文)贴紧，组间(不同时间轴的两句)拉开 —— 两者此前都是
         // 4pt，一句歌词和它的译文看起来跟相邻的另一句一样远，读的时候要自己
@@ -6052,10 +6070,11 @@ struct LyricsScrollView: View {
                 }
                 .frame(width: availableWidth, alignment: frameAlignment)
 
-            // 歌词翻译 — 在原文下面以略小的字号显示, 仅当启用且当前行有翻译。
-            // 字号取原文的 0.65 + medium weight, 视觉上是 secondary。
-            if let translated = translatedTextByLineID[line.id], !translated.isEmpty {
-                Text(translated)
+            // 歌词翻译 — 在原文下面以略小的字号显示。字号取原文的 0.65 +
+            // medium weight, 视觉上是 secondary。注音和译文共用一个时间戳时
+            // 两条都属于这一句, 按文件里的先后顺序依次排在原文下面。
+            ForEach(companions.indices, id: \.self) { slot in
+                Text(companions[slot])
                     .font(.system(size: fontSize * 0.65, weight: .medium))
                     .foregroundStyle(
                         dimmedByAmbient
@@ -6107,9 +6126,9 @@ struct LyricsScrollView: View {
                         }
                         .frame(width: availableWidth, alignment: frameAlignment)
 
-                    if let translated = translatedTextByLineID[bg.id],
-                       !translated.isEmpty {
-                        Text(translated)
+                    let backgroundCompanions = companionTexts(for: bg)
+                    ForEach(backgroundCompanions.indices, id: \.self) { slot in
+                        Text(backgroundCompanions[slot])
                             .font(.system(size: fontSize * 0.7 * 0.65, weight: .medium))
                             .foregroundStyle(appearance.secondary)
                             .multilineTextAlignment(lyricsAlignment.textAlignment)

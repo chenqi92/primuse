@@ -1338,3 +1338,157 @@ struct LyricBilingualWordLevelPairingTests {
         #expect(lines.allSatisfy { $0.syllables?.isEmpty == false })
     }
 }
+
+/// refs #105 —— 同一个时间戳上不止两行，以及整篇里只有几句外语带译文的文档。
+@Suite("Bilingual pairing across mixed lyric documents")
+struct LyricBilingualMixedDocumentPairingTests {
+
+    /// 中文歌里夹着几句外语，外语那几句才带译文。此前整篇的比例达不到门槛，
+    /// 这几句的译文于是留成独立行，外语原文一直高亮不了。
+    @Test("中文歌里少量外语句也能配对")
+    func pairsSparseForeignLinesInsideChineseLyrics() {
+        let lines = LyricsContentParser.parse("""
+        [00:10.00]第一句中文歌词
+        [00:13.00]第二句中文歌词
+        [00:16.00]Sometimes I feel alone
+        [00:16.00]有时候我觉得孤单
+        [00:19.00]第三句中文歌词
+        [00:22.00]Nothing left at all
+        [00:22.00]什么都没有剩下
+        [00:25.00]第四句中文歌词
+        [00:28.00]第五句中文歌词
+        """)
+
+        #expect(lines.count == 7)
+        #expect(lines.map(\.text) == [
+            "第一句中文歌词",
+            "第二句中文歌词",
+            "Sometimes I feel alone",
+            "第三句中文歌词",
+            "Nothing left at all",
+            "第四句中文歌词",
+            "第五句中文歌词",
+        ])
+        #expect(lines[2].manualTranslation?.text == "有时候我觉得孤单")
+        #expect(lines[4].manualTranslation?.text == "什么都没有剩下")
+        // 中文行本身没有译文，不该被相邻句连坐。
+        #expect(lines[0].manualTranslation == nil)
+        #expect(lines[3].manualTranslation == nil)
+        // 每个时间戳只剩一行，高亮不会再落到译文上。
+        #expect(Set(lines.map(\.timestamp)).count == lines.count)
+    }
+
+    private let trilingualLRC = """
+    [00:12.00]<00:12.00>君の <00:12.50>声が
+    [00:12.00]kimi no koe ga
+    [00:12.00]你的声音
+    [00:15.00]<00:15.00>遠くに <00:15.40>消える
+    [00:15.00]tooku ni kieru
+    [00:15.00]消失在远方
+    [00:18.00]<00:18.00>夜の <00:18.30>果てで
+    [00:18.00]yoru no hate de
+    [00:18.00]在夜的尽头
+    """
+
+    /// 原文、注音、译文共用一个时间戳时，原文此前完全不参与配对，
+    /// 高亮落在最后那条译文上。
+    @Test("原文 + 注音 + 译文三行归到同一句")
+    func pairsSourceWithBothPronunciationAndTranslation() {
+        let lines = LyricsContentParser.parse(trilingualLRC)
+
+        #expect(lines.count == 3)
+        #expect(lines[0].text == "君の 声が")
+        #expect(lines[0].isWordLevel)
+        // 文件里的先后顺序就是阅读顺序：注音写在译文前面就先跟着原文。
+        #expect(lines[0].manualTranslation?.text == "kimi no koe ga")
+        #expect(lines[0].alternateManualTranslations.map(\.text) == ["你的声音"])
+        #expect(lines[1].manualTranslation?.text == "tooku ni kieru")
+        #expect(lines[1].alternateManualTranslations.map(\.text) == ["消失在远方"])
+        #expect(lines[2].alternateManualTranslations.map(\.text) == ["在夜的尽头"])
+        #expect(lines.allSatisfy {
+            $0.allManualTranslations.allSatisfy { $0.source == .bilingualLRC }
+        })
+        #expect(Set(lines.map(\.timestamp)).count == lines.count)
+    }
+
+    /// 三行配对后仍要能原样写回。只落首选译文的话，一次回写就会把注音吃掉。
+    @Test("三行结构序列化后可以原样读回")
+    func roundTripsTrilingualRowsThroughSerialization() {
+        let lines = LyricsContentParser.parse(trilingualLRC)
+        let serialized = LyricsContentParser.serialize(lines)
+
+        #expect(serialized.components(separatedBy: "\n").count == 9)
+        #expect(serialized.contains("[00:12.000]kimi no koe ga"))
+        #expect(serialized.contains("[00:12.000]你的声音"))
+
+        let reparsed = LyricsContentParser.parse(serialized)
+        #expect(reparsed.count == 3)
+        #expect(reparsed.map(\.text) == lines.map(\.text))
+        #expect(reparsed.map { $0.manualTranslation?.text } == lines.map { $0.manualTranslation?.text })
+        #expect(reparsed.map { $0.alternateManualTranslations.map(\.text) }
+            == lines.map { $0.alternateManualTranslations.map(\.text) })
+        // 逐字原文的双语文档依旧走本地结构化存储 —— 双语 LRC 不承诺能还原音节。
+        #expect(!LyricManualTranslationPolicy.canPersistAsBilingualLRC(reparsed))
+    }
+
+    /// 纯行级的三行文档可以整体写回双语 LRC：注音和译文按原顺序落在同一时间戳上。
+    @Test("纯行级三行结构可以写回双语 LRC")
+    func persistsPlainTrilingualRowsAsBilingualLRC() {
+        let lines = LyricsContentParser.parse("""
+        [00:12.00]사랑해 그대여
+        [00:12.00]saranghae geudaeyeo
+        [00:12.00]我爱你 亲爱的
+        [00:15.00]바람이 스쳐가
+        [00:15.00]barami seuchyeoga
+        [00:15.00]风轻轻吹过
+        [00:18.00]밤이 깊어가
+        [00:18.00]bami gipeoga
+        [00:18.00]夜色渐深
+        """)
+
+        #expect(lines.count == 3)
+        #expect(lines[0].text == "사랑해 그대여")
+        #expect(lines[0].manualTranslation?.text == "saranghae geudaeyeo")
+        #expect(lines[0].alternateManualTranslations.map(\.text) == ["我爱你 亲爱的"])
+        #expect(LyricManualTranslationPolicy.canPersistAsBilingualLRC(lines))
+
+        let reparsed = LyricsContentParser.parse(LyricsContentParser.serialize(lines))
+        #expect(reparsed.map { $0.allManualTranslations.map(\.text) }
+            == lines.map { $0.allManualTranslations.map(\.text) })
+    }
+
+    /// 三行里有两行带逐字时间轴，更像多声部叠唱，吞掉任何一行都会丢内容。
+    @Test("三行里出现第二条逐字行时不配对")
+    func doesNotAbsorbASecondWordLevelRow() {
+        let lines = LyricsContentParser.parse("""
+        [00:12.00]<00:12.00>君の <00:12.50>声が
+        [00:12.00]<00:12.00>kimi no <00:12.50>koe ga
+        [00:12.00]你的声音
+        [00:15.00]<00:15.00>遠くに <00:15.40>消える
+        [00:15.00]<00:15.00>tooku ni <00:15.40>kieru
+        [00:15.00]消失在远方
+        """)
+
+        #expect(lines.count == 6)
+        #expect(lines.allSatisfy { $0.manualTranslation == nil })
+    }
+
+    /// 同时间戳的重复行朝向对不上时仍然不猜：一半中译外、一半外译中，
+    /// 更可能是对唱或排版错乱，配错了就是把一整句唱词吞掉。
+    @Test("重复行朝向不一致时整篇放弃配对")
+    func leavesInconsistentlyOrientedRepeatsAlone() {
+        let lines = LyricsContentParser.parse("""
+        [00:10.00]First english line
+        [00:10.00]第一句中文
+        [00:13.00]Second english line
+        [00:13.00]第二句中文
+        [00:16.00]第三句中文
+        [00:16.00]Third english line
+        [00:19.00]第四句中文
+        [00:19.00]Fourth english line
+        """)
+
+        #expect(lines.count == 8)
+        #expect(lines.allSatisfy { $0.manualTranslation == nil })
+    }
+}
