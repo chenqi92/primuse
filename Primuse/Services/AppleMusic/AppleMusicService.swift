@@ -174,11 +174,24 @@ final class AppleMusicService {
     /// 全量 SHA256 + Song 结构体投影, 避免每 0.5s 对几千首 queue 烧主线程。
     private var lastQueueSignature: [String] = []
     private let playbackSettings: PlaybackSettingsStore
+    /// 只读:判断 Apple Music 是否还是一个已添加且启用的音乐源。
+    @ObservationIgnored private let library: MusicLibrary
 
-    init(playbackSettings: PlaybackSettingsStore) {
+    init(playbackSettings: PlaybackSettingsStore, library: MusicLibrary) {
         self.playbackSettings = playbackSettings
+        self.library = library
         self.authState = Self.mapStatus(MusicAuthorization.currentStatus)
         plog("AppleMusicService init: authState=\(String(describing: self.authState))")
+    }
+
+    /// 曲库搜索跟资料库同步共用一个前提:Apple Music 得先被添加成音乐源。
+    /// 用户把这个源移除之后,搜索里不该再冒出 Apple Music 的结果。
+    var catalogSearchIsAvailable: Bool {
+        AppleMusicCatalogSearchAvailabilityPolicy.isEnabled(
+            catalogSearchEnabled: AppleMusicFeatureSettings.catalogSearchEnabled,
+            sourceInstalled: library.appleMusicSourceInstalled,
+            disabledSourceIDs: library.disabledSourceIDs
+        )
     }
 
     /// 入口走的是系统弹的授权对话框,首次调有动效, 后续调直接返回现状态。
@@ -192,7 +205,7 @@ final class AppleMusicService {
     /// debounce 错开 (这边再叠 200ms 防止用户连击触发多次 catalog 调用)。
     /// 未授权时直接清结果,不试着 silently request 授权 (避免无端弹窗)。
     func search(query: String) {
-        guard AppleMusicFeatureSettings.catalogSearchEnabled else {
+        guard catalogSearchIsAvailable else {
             clearCatalogSearchResults()
             return
         }
@@ -223,9 +236,7 @@ final class AppleMusicService {
         }
         searchTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(200))
-            guard !Task.isCancelled,
-                  AppleMusicFeatureSettings.catalogSearchEnabled,
-                  let self else { return }
+            guard !Task.isCancelled, let self, self.catalogSearchIsAvailable else { return }
             await self.runSearch(term: trimmed)
         }
     }
@@ -240,7 +251,7 @@ final class AppleMusicService {
     }
 
     private func runSearch(term: String) async {
-        guard AppleMusicFeatureSettings.catalogSearchEnabled else {
+        guard catalogSearchIsAvailable else {
             clearCatalogSearchResults()
             return
         }
@@ -250,7 +261,7 @@ final class AppleMusicService {
             var request = MusicCatalogSearchRequest(term: term, types: [MusicKit.Song.self])
             request.limit = 25
             let response = try await request.response()
-            if !Task.isCancelled, AppleMusicFeatureSettings.catalogSearchEnabled {
+            if !Task.isCancelled, catalogSearchIsAvailable {
                 self.searchResults = Array(response.songs)
                 self.lastSearchError = nil
                 self.lastSearchHitCount = response.songs.count
@@ -260,7 +271,7 @@ final class AppleMusicService {
             // user 继续打字,旧 query 失效,沉默丢弃
         } catch {
             plog("⚠️Apple Music search failed for '\(term)': \(error.localizedDescription)")
-            if !Task.isCancelled, AppleMusicFeatureSettings.catalogSearchEnabled {
+            if !Task.isCancelled, catalogSearchIsAvailable {
                 self.searchResults = []
                 self.lastSearchError = error.localizedDescription
                 self.lastSearchHitCount = -1

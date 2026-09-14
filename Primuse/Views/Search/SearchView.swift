@@ -473,6 +473,7 @@ struct SearchView: View {
     private var appleMusicSearchEnabled: Bool {
         scope == nil && AppleMusicCatalogSearchAvailabilityPolicy.isEnabled(
             catalogSearchEnabled: appleMusicCatalogSearchEnabled,
+            sourceInstalled: library.appleMusicSourceInstalled,
             disabledSourceIDs: library.disabledSourceIDs
         )
     }

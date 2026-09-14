@@ -812,7 +812,7 @@ final class AppServices {
         self.updateChecker = AppUpdateChecker()
         self.coverTintProvider = CoverTintProvider()
         self.spotlightIndex = SpotlightIndexService()
-        let amService = AppleMusicService(playbackSettings: playbackSettings)
+        let amService = AppleMusicService(playbackSettings: playbackSettings, library: library)
         self.appleMusic = amService
         self.appleMusicLibrary = AppleMusicLibraryService(library: library, appleMusic: amService)
         amService.onPlaybackEnded = { [weak player] requestID in
@@ -1202,11 +1202,16 @@ final class AppServices {
     private func reconcileDisabledSourceIDs() {
         // Apple Music 的"已添加"状态跟停用状态走同一条源变更通知:移除之后
         // 它的镜像歌单必须当场从资料库里消失, 而不是等清理线程跑完。
-        musicLibrary.updateAppleMusicSourceInstalled(
-            AppleMusicSourcePolicy.isInstalled(
-                activeSourceIDs: Set(sourcesStore.sources.map(\.id))
-            )
+        let appleMusicInstalled = AppleMusicSourcePolicy.isInstalled(
+            activeSourceIDs: Set(sourcesStore.sources.map(\.id))
         )
+        let appleMusicWasInstalled = musicLibrary.appleMusicSourceInstalled
+        musicLibrary.updateAppleMusicSourceInstalled(appleMusicInstalled)
+        // 从回收站恢复、或者别的设备把这个源同步过来, 跟手动添加是同一件事:
+        // 源一回来就重新拉一次资料库, 否则用户看到一个空的 Apple Music 源。
+        if appleMusicInstalled, !appleMusicWasInstalled {
+            appleMusicLibrary.sync()
+        }
         let previous = musicLibrary.disabledSourceIDs
         let current = Set(
             sourcesStore.sources.lazy.filter { !$0.isEnabled }.map(\.id)

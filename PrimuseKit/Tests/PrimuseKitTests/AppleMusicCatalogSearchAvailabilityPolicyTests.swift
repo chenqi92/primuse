@@ -7,6 +7,7 @@ struct AppleMusicCatalogSearchAvailabilityPolicyTests {
     func enablesSearchWhenEveryGateIsOpen() {
         #expect(AppleMusicCatalogSearchAvailabilityPolicy.isEnabled(
             catalogSearchEnabled: true,
+            sourceInstalled: true,
             disabledSourceIDs: []
         ))
     }
@@ -15,6 +16,7 @@ struct AppleMusicCatalogSearchAvailabilityPolicyTests {
     func catalogPreferenceDisablesSearch() {
         #expect(!AppleMusicCatalogSearchAvailabilityPolicy.isEnabled(
             catalogSearchEnabled: false,
+            sourceInstalled: true,
             disabledSourceIDs: []
         ))
     }
@@ -23,7 +25,17 @@ struct AppleMusicCatalogSearchAvailabilityPolicyTests {
     func sourceDisablesSearch() {
         #expect(!AppleMusicCatalogSearchAvailabilityPolicy.isEnabled(
             catalogSearchEnabled: true,
+            sourceInstalled: true,
             disabledSourceIDs: [AppleMusicLibraryIdentity.sourceID]
+        ))
+    }
+
+    @Test("Removing the Apple Music source removes it from search too")
+    func uninstalledSourceDisablesSearch() {
+        #expect(!AppleMusicCatalogSearchAvailabilityPolicy.isEnabled(
+            catalogSearchEnabled: true,
+            sourceInstalled: false,
+            disabledSourceIDs: []
         ))
     }
 
@@ -31,6 +43,7 @@ struct AppleMusicCatalogSearchAvailabilityPolicyTests {
     func unrelatedSourceDoesNotDisableSearch() {
         #expect(AppleMusicCatalogSearchAvailabilityPolicy.isEnabled(
             catalogSearchEnabled: true,
+            sourceInstalled: true,
             disabledSourceIDs: ["another-source"]
         ))
     }

@@ -596,6 +596,8 @@ final class AppleMusicLibraryService {
         lastAccess = nil
         lastSyncAt = nil
         invalidateAccountCaches()
+        // 搜索结果同属这个源:源没了, 搜索里也不该再留着 Apple Music 的条目。
+        appleMusic.clearCatalogSearchResults()
         UserDefaults.standard.removeObject(forKey: Self.syncedStorefrontKey)
     }
 
