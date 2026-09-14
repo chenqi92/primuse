@@ -558,7 +558,8 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
             || window.titleVisibility != .hidden
             || !window.titlebarAppearsTransparent
             || window.isMovableByWindowBackground
-            || window.toolbar != nil
+            || window.titlebarSeparatorStyle != .none
+            || injectedToolbarNeedsSuppression(in: window)
             || window.backgroundColor.alphaComponent > 0.001 {
             return true
         }
@@ -582,6 +583,13 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
         if window.isMovableByWindowBackground {
             window.isMovableByWindowBackground = false
         }
+        if window.titlebarSeparatorStyle != .none {
+            // `.automatic` makes AppKit track the scroll position of the view
+            // under the title bar and relayout the title bar while a list
+            // scrolls, which drags the standard window buttons with it.
+            // `PMTitleBar` draws its own hairline, so no system separator.
+            window.titlebarSeparatorStyle = .none
+        }
         suppressInjectedToolbar(in: window)
         if window.backgroundColor.alphaComponent > 0.001 {
             window.backgroundColor = .clear
@@ -592,13 +600,25 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
         PMStandardWindowButtonAlignment.align(in: window)
     }
 
-    /// A macOS NavigationStack may install its history control after the host
-    /// view's first update, recreating a top-leading back button even though
-    /// this window uses fully custom chrome. Reassert the window contract when
-    /// AppKit reports an update; assigning only when needed avoids a loop.
+    /// A macOS NavigationStack installs a window toolbar to host its history
+    /// control and `.searchable` field, even though this window uses fully
+    /// custom chrome.
+    ///
+    /// Clearing `window.toolbar` outright is what SwiftUI answers by building
+    /// and assigning a fresh toolbar on its next update pass: the window it
+    /// manages no longer has the toolbar it expects. Every assignment and
+    /// removal relayouts the title bar and reparents the standard window
+    /// buttons, so a list that mounts rows while scrolling — one SwiftUI update
+    /// pass per frame — turned the traffic lights into a flicker. Keep the
+    /// object SwiftUI owns and neutralize it in place instead; an invisible
+    /// toolbar draws no history control and claims no title-bar height.
+    private static func injectedToolbarNeedsSuppression(in window: NSWindow) -> Bool {
+        window.toolbar?.isVisible == true
+    }
+
     private static func suppressInjectedToolbar(in window: NSWindow) {
-        guard window.toolbar != nil else { return }
-        window.toolbar = nil
+        guard let toolbar = window.toolbar, toolbar.isVisible else { return }
+        toolbar.isVisible = false
     }
 
     private static func standardWindowButtonContainerNeedsRepair(in window: NSWindow) -> Bool {
@@ -645,7 +665,12 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
             if view.isHidden {
                 view.isHidden = false
             }
-            if view.alphaValue == 0 {
+            // Match the threshold `standardWindowButtonContainerNeedsRepair`
+            // reports on. Restoring only an exactly-zero alpha left a container
+            // that AppKit had faded to a residual value permanently "broken",
+            // so every window update — many per frame while scrolling — applied
+            // the whole repair again and redrew the buttons.
+            if view.alphaValue <= 0.001 {
                 view.alphaValue = 1
             }
             ancestor = view.superview
@@ -836,36 +861,60 @@ private enum PMStandardWindowButtonAlignment {
 
     static func needsAlignment(in window: NSWindow) -> Bool {
         guard let desiredCenterY = desiredCenterY(in: window) else { return false }
-        let tolerance = pointTolerance(in: window)
         return buttonTypes.contains { type in
             guard let button = window.standardWindowButton(type),
-                  let superview = button.superview
+                  let originY = desiredOriginY(for: button,
+                                               in: window,
+                                               desiredCenterY: desiredCenterY)
             else { return false }
-            let frameInWindow = superview.convert(button.frame, to: nil)
-            return abs(frameInWindow.midY - desiredCenterY) > tolerance
+            return needsMove(button, to: originY, in: window)
         }
     }
 
     static func align(in window: NSWindow) {
         guard let desiredCenterY = desiredCenterY(in: window) else { return }
-        let tolerance = pointTolerance(in: window)
 
         buttonTypes.forEach { type in
             guard let button = window.standardWindowButton(type),
-                  let superview = button.superview
+                  let originY = desiredOriginY(for: button,
+                                               in: window,
+                                               desiredCenterY: desiredCenterY),
+                  needsMove(button, to: originY, in: window)
             else { return }
 
-            let frameInWindow = superview.convert(button.frame, to: nil)
-            guard abs(frameInWindow.midY - desiredCenterY) > tolerance else { return }
-
-            let desiredCenterInSuperview = superview.convert(
-                NSPoint(x: frameInWindow.midX, y: desiredCenterY),
-                from: nil
-            )
-            var frame = button.frame
-            frame.origin.y += desiredCenterInSuperview.y - frame.midY
-            button.setFrameOrigin(frame.origin)
+            button.setFrameOrigin(NSPoint(x: button.frame.origin.x, y: originY))
         }
+    }
+
+    private static func needsMove(_ button: NSView,
+                                  to originY: CGFloat,
+                                  in window: NSWindow) -> Bool {
+        PMWindowButtonAlignmentMath.needsMove(
+            currentOriginY: button.frame.origin.y,
+            targetOriginY: originY,
+            scale: window.backingScaleFactor
+        )
+    }
+
+    /// The button origin that centers it on the anchor, snapped to the backing
+    /// grid. `needsAlignment` and `align` must agree on the very same value:
+    /// an unsnapped target can sit permanently off the pixel grid the button
+    /// frame lands on, so every window update would find the button "drifted"
+    /// and set its frame again — a redraw per event-loop turn that reads as
+    /// flickering traffic lights.
+    private static func desiredOriginY(
+        for button: NSView,
+        in window: NSWindow,
+        desiredCenterY: CGFloat
+    ) -> CGFloat? {
+        guard let superview = button.superview else { return nil }
+        let frameInWindow = superview.convert(button.frame, to: nil)
+        let desiredCenterInSuperview = superview.convert(
+            NSPoint(x: frameInWindow.midX, y: desiredCenterY),
+            from: nil
+        )
+        let originY = button.frame.origin.y + (desiredCenterInSuperview.y - button.frame.midY)
+        return PMWindowButtonAlignmentMath.snapped(originY, scale: window.backingScaleFactor)
     }
 
     private static func desiredCenterY(in window: NSWindow) -> CGFloat? {
@@ -877,9 +926,30 @@ private enum PMStandardWindowButtonAlignment {
         else { return nil }
         return anchor.convert(anchor.bounds, to: nil).midY
     }
+}
 
-    private static func pointTolerance(in window: NSWindow) -> CGFloat {
-        0.5 / max(window.backingScaleFactor, 1)
+/// Backing-grid math for the standard window button alignment above. Kept free
+/// of AppKit so the convergence rule — snap the target, compare against it with
+/// a half-pixel tolerance — can be exercised on its own.
+enum PMWindowButtonAlignmentMath {
+    /// Snaps a title-bar coordinate onto the display's backing pixel grid.
+    static func snapped(_ value: CGFloat, scale: CGFloat) -> CGFloat {
+        let scale = max(scale, 1)
+        return (value * scale).rounded() / scale
+    }
+
+    /// Half a backing pixel. A smaller correction cannot change a rendered
+    /// pixel, so applying it only costs a redraw.
+    static func tolerance(scale: CGFloat) -> CGFloat {
+        0.5 / max(scale, 1)
+    }
+
+    /// Whether a button sitting at `currentOriginY` has to be moved to reach
+    /// the already snapped `targetOriginY`.
+    static func needsMove(currentOriginY: CGFloat,
+                          targetOriginY: CGFloat,
+                          scale: CGFloat) -> Bool {
+        abs(currentOriginY - targetOriginY) > tolerance(scale: scale)
     }
 }
 
