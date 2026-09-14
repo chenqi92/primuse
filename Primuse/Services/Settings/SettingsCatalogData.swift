@@ -68,6 +68,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "storage.wifiOnly", titleKey: "cloud_scan_wifi_only", iosPage: .storage, macPage: nil, keywords: ["wifi", "wi-fi", "cellular", "save data", "省流量", "流量", "手机网络", "蜂窝网络"]),
         SettingDefinition(id: "storage.notifyBackfill", titleKey: "notify_backfill_complete", iosPage: .storage, macPage: nil, keywords: ["notification", "通知", "标签读取完成"]),
         SettingDefinition(id: "storage.retryBackfill", titleKey: "Retry paused tag reading", table: "SettingsSearch", iosPage: .storage, macPage: nil, anchor: "storage.wifiOnly"),
+        SettingDefinition(id: "storage.exportLog", titleKey: "storage_export_log", iosPage: .storage, macPage: nil, keywords: ["log", "日志", "导出日志", "排查", "diagnostics", "troubleshoot"], requiresDiagnosticBuild: true),
         SettingDefinition(id: "appearance.scheme", titleKey: "appearance", iosPage: .appearance, macPage: .appearance, keywords: ["dark mode", "深色", "浅色", "夜间模式", "Theme"]),
         SettingDefinition(id: "appearance.minimalNavigation", titleKey: "minimal_mode_title", iosPage: .appearance, macPage: nil, keywords: ["minimal", "极简", "导航模式"]),
         SettingDefinition(id: "appearance.themeMode", titleKey: "theme_color_mode", iosPage: .themeColor, macPage: .appearance),

@@ -2137,21 +2137,25 @@ struct StorageManagementView: View {
                 Text("metadata_clear_footer")
             }
 
-            // Debug 区只在 Debug 构建里显示 —— 生产 Release 不出现这个入口,
-            // 普通用户看不到 (避免误触把开发日志泄露)。
-            #if DEBUG
-            Section {
-                Button {
-                    logShareItem = LogShareItem(url: FileLogger.shared.logFileURL)
-                } label: {
-                    Label("storage_export_log", systemImage: "square.and.arrow.up.on.square")
+            // Debug 与 TestFlight 才有这个入口。测试用户报障时得能把日志交出来,
+            // 否则只能靠口述复现; App Store 正式版仍然不显示 —— 详见
+            // DiagnosticLogExportPolicy。
+            if DiagnosticLogExportPolicy.exposesExportEntry(
+                channel: Bundle.main.distributionChannel
+            ) {
+                Section {
+                    Button {
+                        logShareItem = LogShareItem(url: FileLogger.shared.logFileURL)
+                    } label: {
+                        Label("storage_export_log", systemImage: "square.and.arrow.up.on.square")
+                    }
+                    .settingsAnchor("storage.exportLog")
+                } header: {
+                    Text("diagnostics_title")
+                } footer: {
+                    Text("storage_export_log_footer")
                 }
-            } header: {
-                Text("debug")
-            } footer: {
-                Text("storage_export_log_footer")
             }
-            #endif
         }
         .sheet(item: $logShareItem) { item in
             ShareSheet(items: [item.url])

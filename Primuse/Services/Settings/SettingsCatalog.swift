@@ -191,6 +191,9 @@ struct SettingDefinition: Identifiable, Hashable, Sendable {
     var macAnchor: String? = nil
     var usesKitLocalization = false
     var hint: String? = nil
+    /// 只在 Debug / TestFlight 构建里存在的行。正式版里要从搜索索引摘掉,
+    /// 否则用户搜得到一条点进去什么也没有的结果。
+    var requiresDiagnosticBuild = false
 
     var page: SettingsPage? {
         #if os(macOS)
@@ -241,7 +244,13 @@ enum SettingsCatalog {
         )
     } + SettingsCatalogData.items
 
-    static let available: [SettingDefinition] = definitions.filter { $0.page?.available == true }
+    static let available: [SettingDefinition] = definitions.filter {
+        guard $0.page?.available == true else { return false }
+        guard $0.requiresDiagnosticBuild else { return true }
+        return DiagnosticLogExportPolicy.exposesExportEntry(
+            channel: Bundle.main.distributionChannel
+        )
+    }
     static let byID: [String: SettingDefinition] = Dictionary(uniqueKeysWithValues: available.map { ($0.id, $0) })
     static let index = SettingsSearchIndex(documents: available.map {
         SettingsSearchDocument(id: $0.id, title: $0.title, path: $0.path,
