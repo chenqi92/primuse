@@ -29,13 +29,24 @@ enum NetworkURLBuilder {
 
         let hostContainsURL = trimmedHost.contains("://")
 
+        // IPv6 地址只走 NetworkHostAuthority 这一套解析。裸写的 fd00::1 拼进
+        // "scheme://\(host)" 会被解析成 host=fd00 加一个非法端口，而地址栏里
+        // 常见的 [fd00::1]:5005 与带 zone 的 fe80::1%en0 一旦写进
+        // percentEncodedHost，Foundation 会直接断言退出。
+        if isIPv6LiteralAddress(trimmedHost) {
+            return makeIPv6URL(
+                address: trimmedHost,
+                defaultScheme: defaultScheme,
+                port: port,
+                path: path,
+                addressPathWins: hostContainsURL,
+                forceScheme: forceScheme
+            )
+        }
+
         var components: URLComponents
         if hostContainsURL, let parsed = URLComponents(string: trimmedHost) {
             components = parsed
-        } else if isLikelyIPv6Literal(trimmedHost) {
-            components = URLComponents()
-            components.scheme = defaultScheme
-            assignHost(trimmedHost, to: &components)
         } else if let parsed = URLComponents(string: "\(defaultScheme)://\(trimmedHost)") {
             components = parsed
         } else {
@@ -69,18 +80,7 @@ enum NetworkURLBuilder {
     }
 
     static func sanitizedHost(_ host: String) -> String {
-        var sanitized = host.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if sanitized.hasPrefix("[") && sanitized.hasSuffix("]") && sanitized.count >= 2 {
-            sanitized.removeFirst()
-            sanitized.removeLast()
-        }
-
-        if sanitized.hasSuffix(".") {
-            sanitized.removeLast()
-        }
-
-        return sanitized
+        NetworkHostAuthority.canonicalHost(host)
     }
 
     static func normalizedPath(_ path: String) -> String {
@@ -92,18 +92,71 @@ enum NetworkURLBuilder {
         return trimmed.hasPrefix("/") ? trimmed : "/\(trimmed)"
     }
 
-    private static func isLikelyIPv6Literal(_ value: String) -> Bool {
-        let sanitized = sanitizedHost(value)
-        return sanitized.contains(":")
-            && sanitized.filter({ $0 == ":" }).count >= 2
-            && sanitized.contains("/") == false
-            && sanitized.contains("?") == false
+    /// 地址里的 authority 段：去掉 scheme 与路径后剩下的 `host` 或 `host:port`。
+    private static func authorityPortion(of address: String) -> String {
+        var remainder = address
+        if let separator = remainder.range(of: "://") {
+            remainder = String(remainder[separator.upperBound...])
+        }
+        if let slash = remainder.firstIndex(of: "/") {
+            remainder = String(remainder[..<slash])
+        }
+        return remainder
+    }
+
+    /// 地址的主机是不是 IPv6 字面量。`[fd00::1]:5005`、裸 `fd00::1`、
+    /// `http://[fd00::1]:5005/dav` 都算，`nas.example.com:5005` 不算。
+    private static func isIPv6LiteralAddress(_ address: String) -> Bool {
+        let authority = authorityPortion(of: address)
+        let host = NetworkHostAuthority.splitHostAndPort(authority).host
+        return NetworkHostAuthority.addressFamily(of: host) == .ipv6
+    }
+
+    /// IPv6 地址的 URL 拼接全部交给 NetworkHostAuthority：套接字要裸字面量、
+    /// URL 要带方括号的形式，两者在那里已经统一。路径优先级与通用分支一致，
+    /// 只有完整 URL 自带的路径才压过调用方传入的 path。
+    private static func makeIPv6URL(
+        address rawAddress: String,
+        defaultScheme: String,
+        port: Int?,
+        path: String?,
+        addressPathWins: Bool,
+        forceScheme: Bool
+    ) -> URL? {
+        var address = rawAddress
+        if forceScheme, let separator = address.range(of: "://") {
+            address = String(address[separator.upperBound...])
+        }
+
+        let addressCarriesPath: Bool = {
+            var remainder = address
+            if let separator = remainder.range(of: "://") {
+                remainder = String(remainder[separator.upperBound...])
+            }
+            return remainder.contains("/")
+        }()
+        guard let path, !(addressPathWins && addressCarriesPath) else {
+            return NetworkHostAuthority.baseURL(
+                address: address,
+                defaultScheme: defaultScheme,
+                port: port
+            )
+        }
+        // 调用方给了 path 且地址不是自带路径的完整 URL：与通用分支一样，
+        // 传入的 path 取代地址里的路径，而不是追加在后面。
+        return NetworkHostAuthority.baseURL(
+            address: authorityPortion(of: address),
+            defaultScheme: defaultScheme,
+            port: port,
+            path: normalizedPath(path)
+        )
     }
 
     private static func assignHost(_ host: String, to components: inout URLComponents) {
         let sanitized = sanitizedHost(host)
-        if isLikelyIPv6Literal(sanitized) {
-            components.percentEncodedHost = "[\(sanitized)]"
+        guard sanitized.isEmpty == false else { return }
+        if NetworkHostAuthority.addressFamily(of: sanitized) == .ipv6 {
+            components.percentEncodedHost = NetworkHostAuthority.percentEncodedURLHost(sanitized)
         } else {
             components.host = sanitized
         }

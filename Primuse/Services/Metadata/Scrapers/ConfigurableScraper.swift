@@ -1133,7 +1133,7 @@ enum PlainHTTPClient {
             throw ScraperError.networkError("Invalid HTTP URL: \(request.url?.absoluteString ?? "nil")")
         }
 
-        let connection = NWConnection(host: NWEndpoint.Host(host), port: port, using: .tcp)
+        let connection = NWConnection(host: socketHost(host), port: port, using: .tcp)
         let queue = DispatchQueue(label: "Primuse.PlainHTTPClient.\(UUID().uuidString)")
 
         // URLRequest 默认 timeoutInterval 为 60s; 未显式设置(<= 0)时退回 15s,
@@ -1241,7 +1241,7 @@ enum PlainHTTPClient {
             throw ScraperError.networkError("Invalid HTTP URL: \(request.url?.absoluteString ?? "nil")")
         }
 
-        let connection = NWConnection(host: NWEndpoint.Host(host), port: port, using: .tcp)
+        let connection = NWConnection(host: socketHost(host), port: port, using: .tcp)
         let queue = DispatchQueue(label: "Primuse.PlainHTTPDownload.\(UUID().uuidString)")
         let timeout = request.timeoutInterval > 0 ? request.timeoutInterval : 300
         let stateBox = try DownloadStateBox(
@@ -1322,6 +1322,16 @@ enum PlainHTTPClient {
         }
     }
 
+    /// `URL.host` 在不同 Foundation 版本上对 IPv6 字面量带不带方括号并不一致,
+    /// 而 `NWEndpoint.Host("[fd00::1]")` 会当成主机名去做一次永远解析不出来的
+    /// DNS 查询。套接字统一拿裸字面量, Host 头统一拿带方括号的形式。
+    private static func socketHost(_ rawHost: String) -> NWEndpoint.Host {
+        let literal = NetworkHostAuthority.canonicalHost(rawHost)
+        if let ipv4 = IPv4Address(literal) { return .ipv4(ipv4) }
+        if let ipv6 = IPv6Address(literal) { return .ipv6(ipv6) }
+        return .name(literal, nil)
+    }
+
     private static func buildRequestData(for request: URLRequest) throws -> Data {
         guard let url = request.url,
               let host = url.host else {
@@ -1336,7 +1346,7 @@ enum PlainHTTPClient {
         let pathWithQuery = path + (encodedQuery.map { "?\($0)" } ?? "")
 
         var headers = request.allHTTPHeaderFields ?? [:]
-        let bracketedHost = host.contains(":") ? "[\(host)]" : host
+        let bracketedHost = NetworkHostAuthority.urlHost(host)
         headers["Host"] = url.port == nil || url.port == 80 ? bracketedHost : "\(bracketedHost):\(url.port!)"
         headers["Connection"] = "close"
         headers["Accept-Encoding"] = "identity"

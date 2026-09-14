@@ -182,6 +182,17 @@ import Testing
         #expect(NetworkHostAuthority.authority(host: "fd7a::1", port: 5000) == "[fd7a::1]:5000")
         #expect(NetworkHostAuthority.authority(host: "nas.local", port: nil) == "nas.local")
 
+        // A zone identifier only survives a URL in escaped form: a raw `%` makes
+        // URLComponents reject the string and traps `percentEncodedHost`.
+        #expect(NetworkHostAuthority.urlHost("fe80::1%en0") == "[fe80::1%en0]")
+        #expect(NetworkHostAuthority.percentEncodedURLHost("fe80::1%en0") == "[fe80::1%25en0]")
+        #expect(NetworkHostAuthority.percentEncodedURLHost("fe80::1%25en0") == "[fe80::1%25en0]")
+        #expect(NetworkHostAuthority.percentEncodedURLHost("nas.local") == "nas.local")
+        #expect(NetworkHostAuthority.authority(host: "fe80::1%en0", port: 5000) == "[fe80::1%25en0]:5000")
+        #expect(NetworkHostAuthority.baseURL(
+            address: "fe80::1%en0", defaultScheme: "http", port: 5005
+        )?.absoluteString == "http://[fe80::1%25en0]:5005")
+
         var split = NetworkHostAuthority.splitHostAndPort("[fd7a::1]:5001")
         #expect(split.host == "fd7a::1")
         #expect(split.port == 5001)

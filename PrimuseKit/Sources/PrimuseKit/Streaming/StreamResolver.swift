@@ -547,10 +547,19 @@ private final class TVPlainHTTPConnection: @unchecked Sendable {
         self.request = request
         self.continuation = continuation
         self.connection = NWConnection(
-            host: NWEndpoint.Host(host),
+            host: Self.socketHost(host),
             port: port,
             using: .tcp
         )
+    }
+
+    /// `URL.host` 对 IPv6 字面量带不带方括号在各版本 Foundation 上并不一致,
+    /// 而 `NWEndpoint.Host("[fd00::1]")` 会被当成主机名去查 DNS, 永远解析不出来。
+    private static func socketHost(_ rawHost: String) -> NWEndpoint.Host {
+        let literal = NetworkHostAuthority.canonicalHost(rawHost)
+        if let ipv4 = IPv4Address(literal) { return .ipv4(ipv4) }
+        if let ipv6 = IPv6Address(literal) { return .ipv6(ipv6) }
+        return .name(literal, nil)
     }
 
     private func start() {
@@ -707,7 +716,7 @@ private final class TVPlainHTTPConnection: @unchecked Sendable {
         if target.isEmpty { target = "/" }
         if let query = components?.percentEncodedQuery, !query.isEmpty { target += "?\(query)" }
 
-        let formattedHost = host.contains(":") ? "[\(host)]" : host
+        let formattedHost = NetworkHostAuthority.urlHost(host)
         let port = url.port ?? 80
         let hostHeader = port == 80 ? formattedHost : "\(formattedHost):\(port)"
         var lines = ["\(method) \(target) HTTP/1.1", "Host: \(hostHeader)"]

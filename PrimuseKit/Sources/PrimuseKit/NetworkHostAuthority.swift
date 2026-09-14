@@ -47,10 +47,24 @@ public enum NetworkHostAuthority {
         return "[\(host)]"
     }
 
+    /// The bracketed form with the zone identifier escaped, which is what a URL
+    /// string and `URLComponents.percentEncodedHost` require: a raw `%` makes
+    /// `URLComponents(string:)` return nil, and assigning it to
+    /// `percentEncodedHost` traps inside Foundation.
+    public static func percentEncodedURLHost(_ rawValue: String) -> String {
+        let host = urlHost(rawValue)
+        guard host.hasPrefix("["), host.contains("%") else { return host }
+        // Idempotent: a zone that already arrived escaped must not be escaped
+        // a second time.
+        return host
+            .replacingOccurrences(of: "%25", with: "%")
+            .replacingOccurrences(of: "%", with: "%25")
+    }
+
     /// `host` or `host:port`, with IPv6 brackets applied before the port is
     /// appended.
     public static func authority(host rawHost: String, port: Int?) -> String? {
-        let host = urlHost(rawHost)
+        let host = percentEncodedURLHost(rawHost)
         guard host.isEmpty == false else { return nil }
         guard let port, (1...65_535).contains(port) else { return host }
         return "\(host):\(port)"
