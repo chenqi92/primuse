@@ -247,6 +247,7 @@ targets:
           - INMediaCategoryMusic
         NSAppleMusicUsageDescription: "Primuse uses Apple Music to search the catalog and play tracks if you have an active subscription."
         NSMotionUsageDescription: "Primuse uses headphone motion to keep Spatial Audio anchored while you move your head."
+        NSPhotoLibraryAddUsageDescription: "Primuse 需要保存歌词海报和实况照片到你的相册。"
         NSUserActivityTypes:
           - com.welape.yuanyin.nowplaying
         UIApplicationSceneManifest:

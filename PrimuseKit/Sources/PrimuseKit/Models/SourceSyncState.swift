@@ -301,11 +301,12 @@ public struct SourceSyncTelemetry: Codable, Sendable, Equatable {
     }
 }
 
-/// Detects legacy snapshots that stored provider item IDs without the
-/// corresponding user-facing names. Reusing those snapshots for an
-/// incremental sync would keep the folder browser permanently unable to
-/// reconstruct the provider hierarchy, so the next user-initiated scan must
-/// perform a complete walk once.
+/// Detects snapshots that cannot describe the provider's folder hierarchy:
+/// legacy rows that stored provider item IDs without the corresponding
+/// user-facing names, and sources whose committed topology was discarded
+/// altogether. Reusing those snapshots for an incremental sync would keep the
+/// folder browser permanently unable to reconstruct the hierarchy, so the next
+/// scan must perform a complete walk once.
 public enum SourceSyncFolderTopologyPolicy {
     public static func requiresRebuild(
         sourceType: MusicSourceType,
@@ -319,11 +320,15 @@ public enum SourceSyncFolderTopologyPolicy {
                     && item.stableKey.hasPrefix("hierarchy-root:")
             }
         }
-        guard let state,
-              usesOpaqueProviderItemIDs(sourceType),
-              !state.index.isEmpty else {
-            return false
-        }
+        guard usesOpaqueProviderItemIDs(sourceType) else { return false }
+        // 这类来源的 `Song.filePath` 是提供方的条目 ID，目录层级只存在于同步
+        // 状态的目录行里。任何一次源配置变更都会丢弃整份同步状态，此后文件夹
+        // 浏览就只剩一张平铺列表，且没有任何途径能把层级算回来 —— 资料库里
+        // 还留着这个来源的歌时，得重走一次目录遍历把拓扑取回来。
+        guard let state else { return true }
+        // 空索引留给尚未扫描过的来源与原生增量游标：那不是丢失的拓扑，
+        // 不值得为它强制一次整库遍历。
+        guard !state.index.isEmpty else { return false }
         return state.index.values.contains { $0.displayName == nil }
     }
 

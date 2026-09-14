@@ -379,6 +379,7 @@ struct SourcesContentView: View {
     @State private var undoToast: UndoDeleteToast?
     @State private var pendingDeleteTasks: [String: Task<Void, Never>] = [:]
     @State private var diagnosingSource: MusicSource?
+    @State private var browsingFoldersSource: MusicSource?
     @State private var inspectingMetadataSource: MusicSource?
     @State private var inspectingLocalRemovalsSource: MusicSource?
     @State private var sourceAlert: SourceAlert?
@@ -516,6 +517,20 @@ struct SourcesContentView: View {
             }
             .sheet(item: $diagnosingSource) { source in
                 SourceDiagnosticsView(source: source)
+            }
+            .sheet(item: $browsingFoldersSource) { source in
+                NavigationStack {
+                    HomeFolderManagementView(nodeID: LibraryFolderNodeID(
+                        sourceID: source.id,
+                        kind: .source,
+                        normalizedRelativePath: ""
+                    ))
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("done") { browsingFoldersSource = nil }
+                        }
+                    }
+                }
             }
             #if os(iOS)
             .sheet(isPresented: $showExistingLocalFileImporter) {
@@ -734,12 +749,24 @@ struct SourcesContentView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
                         ForEach(dirs, id: \.self) { dir in
-                            Label(directoryDisplayName(for: dir, source: source), systemImage: "folder.fill")
-                                .font(.caption2)
-                                .padding(.horizontal, 8).padding(.vertical, 4)
-                                .background(Color.blue.opacity(0.1))
-                                .foregroundStyle(.blue)
-                                .clipShape(Capsule())
+                            let chip = Label(
+                                directoryDisplayName(for: dir, source: source),
+                                systemImage: "folder.fill"
+                            )
+                            .font(.caption2)
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(Color.blue.opacity(0.1))
+                            .foregroundStyle(.blue)
+                            .clipShape(Capsule())
+                            // 刚选完目录的用户就停在这张卡片上，按文件夹听歌的
+                            // 入口原本只在资料库那一侧，这里把它接回来。来源
+                            // 还没扫出歌时点进去只会是空列表，保持静态。
+                            if sourceSongs.isEmpty {
+                                chip
+                            } else {
+                                Button { browsingFoldersSource = source } label: { chip }
+                                    .buttonStyle(.plain)
+                            }
                         }
                     }
                 }
@@ -939,6 +966,11 @@ struct SourcesContentView: View {
         .id("\(source.id)-\(cloudDirectoryNameRefreshID.uuidString)")
         .opacity(source.isEnabled ? 1.0 : 0.55)
         .contextMenu {
+            if !sourceSongs.isEmpty {
+                Button { browsingFoldersSource = source } label: {
+                    Label("library_browse_folder", systemImage: "folder")
+                }
+            }
             Button {
                 toggleSourceEnabled(source)
             } label: {

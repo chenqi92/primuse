@@ -446,6 +446,9 @@ struct NowPlayingView: View {
     @State private var showsImmersiveEffectPicker = false
     @State private var showQueue = false
     @State private var lyrics: [LyricLine] = []
+    /// 歌词页算好的译文, 供歌词海报使用。
+    @State private var lyricTranslationsForSharing: [String: String] = [:]
+    @State private var lyricPosterComposer: LyricPosterComposer?
     @State private var lyricsWritingDirection: LyricWritingDirection = .natural
     @State private var lyricsRevision: UInt = 0
     @State private var lyricsLoadRevision: UInt = 0
@@ -509,6 +512,7 @@ struct NowPlayingView: View {
             || showSongInfo
             || showTagEditor
             || lyricsEditorTargetSong != nil
+            || lyricPosterComposer != nil
             || showSimilarSongs
             || showCastPicker
             || showMusicVideoFullScreen
@@ -588,6 +592,14 @@ struct NowPlayingView: View {
     // 父持有 @AppStorage 仅为了 onChange 触发 CloudKVS 同步;实际渲染字号由
     // LyricsScrollView 子 view 自己读 AppStorage("lyricsFontScale")。
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
+    @AppStorage(LyricPosterPreferences.styleKey) private var lyricPosterStyleRawValue = ""
+    @AppStorage(LyricPosterPreferences.canvasKey) private var lyricPosterCanvasRawValue = ""
+    @AppStorage(LyricPosterPreferences.prefersMotionKey)
+    private var lyricPosterPrefersMotion = LyricPosterPreferences.prefersMotionByDefault
+    @AppStorage(LyricPosterPreferences.includesTranslationKey)
+    private var lyricPosterIncludesTranslation = LyricPosterPreferences.includesTranslationByDefault
+    @AppStorage(LyricPosterPreferences.showsCreditKey)
+    private var lyricPosterShowsCredit = LyricPosterPreferences.showsCreditByDefault
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
 
@@ -808,6 +820,30 @@ struct NowPlayingView: View {
         guard isFullscreenPlayerPresented else { return }
         dismissFullscreenPlayer()
         onMinimize?()
+    }
+
+    /// 打开歌词海报。`anchorLineID` 来自长按的那一句; 从"更多"菜单进入时
+    /// 为 nil, 由策略按当前播放位置定位。
+    private func presentLyricPoster(anchorLineID: String?) {
+        guard let song = player.currentSong else { return }
+        let composer = LyricPosterComposer.make(
+            song: song,
+            lyrics: lyrics,
+            translations: lyricTranslationsForSharing,
+            playbackPosition: player.currentTime,
+            anchorLineID: anchorLineID,
+            writingDirection: lyricsWritingDirection,
+            styleID: lyricPosterStyleRawValue.isEmpty
+                ? nil
+                : LyricPosterStyleID(lyricPosterStyleRawValue),
+            canvas: LyricPosterCanvas(rawValue: lyricPosterCanvasRawValue),
+            prefersMotion: lyricPosterPrefersMotion,
+            includesTranslation: lyricPosterIncludesTranslation,
+            showsCredit: lyricPosterShowsCredit
+        )
+        // 整首都是空行时没有可分享的内容, 静默返回好过弹一张空海报。
+        guard !composer.lines.isEmpty else { return }
+        lyricPosterComposer = composer
     }
 
     private func dismissImmersiveLyrics() {
@@ -1161,6 +1197,9 @@ struct NowPlayingView: View {
         .task(id: initialLyricsLoadIdentity) {
             guard isPresentationSettled else { return }
             consumeAutomaticScrapeCompletion()
+            // 换歌就丢掉上一首的译文缓存: 歌词面板没展开时它不会自己清空,
+            // 从"更多"菜单做海报会带上一首的翻译。
+            lyricTranslationsForSharing = [:]
             if player.isLiveRadio {
                 lyrics = []
             } else {
@@ -1248,6 +1287,12 @@ struct NowPlayingView: View {
             .presentationDetents([.large])
         }
         #endif
+        .sheet(item: $lyricPosterComposer) { composer in
+            LyricPosterShareSheet(composer: composer)
+                #if os(macOS)
+                .presentationDetents([.large])
+                #endif
+        }
         .similarSongsPanel(isPresented: $showSimilarSongs, seed: player.currentSong)
         .sheet(isPresented: $showCastPicker) {
             CastDevicePickerSheet()
@@ -2708,6 +2753,7 @@ struct NowPlayingView: View {
             canOpenAlbum: canOpenCurrentAlbum,
             canOpenArtist: currentArtist != nil && onOpenArtist != nil,
             canShare: player.currentSong != nil,
+            canShareLyrics: player.currentSong != nil && !lyrics.isEmpty,
             castingRendererName: player.castingRenderer?.friendlyName,
             isSleepTimerActive: player.isSleepTimerActive,
             lyricsFontScale: lyricsFontScale,
@@ -2752,6 +2798,7 @@ struct NowPlayingView: View {
                 openURL(url)
             },
             onShare: { shareSong = player.currentSong },
+            onShareLyrics: { presentLyricPoster(anchorLineID: nil) },
             onShowCastPicker: { showCastPicker = true },
             onToggleLyricsTranslation: {
                 LyricsTranslationSettingsStore.shared.isEnabled.toggle()
@@ -2866,7 +2913,11 @@ struct NowPlayingView: View {
                 } else {
                     setStandardLyricsVisible(false)
                 }
-            }
+            },
+            onShareLyricLine: { lineID in
+                presentLyricPoster(anchorLineID: lineID)
+            },
+            exposedTranslations: $lyricTranslationsForSharing
         )
     }
 
@@ -4858,6 +4909,7 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let canOpenAlbum: Bool
     let canOpenArtist: Bool
     let canShare: Bool
+    let canShareLyrics: Bool
     let castingRendererName: String?
     let isSleepTimerActive: Bool
     let lyricsFontScale: Double
@@ -4890,6 +4942,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onOpenArtist: () -> Void
     let onOpenInAppleMusic: () -> Void
     let onShare: () -> Void
+    let onShareLyrics: () -> Void
     let onShowCastPicker: () -> Void
     let onToggleLyricsTranslation: () -> Void
     let onShowSleepTimer: () -> Void
@@ -4989,6 +5042,11 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                         Label(String(localized: "share"), systemImage: "square.and.arrow.up")
                     }
                 }
+
+                Button(action: onShareLyrics) {
+                    Label(String(localized: "lyric_poster_menu"), systemImage: "text.below.photo")
+                }
+                .disabled(!snapshot.canShareLyrics)
             }
 
             Section {
@@ -5207,6 +5265,11 @@ struct LyricsScrollView: View {
     let onAutomaticScrape: () -> Void
     let onTranscribeAudio: () -> Void
     let onBackgroundTap: () -> Void
+    /// 长按某一句 → 打开歌词海报, 并把这句作为选句起点。
+    let onShareLyricLine: (String) -> Void
+    /// 把译文同步给播放页 —— 从"更多"菜单进海报时同样要带上翻译, 而翻译
+    /// 只在这棵歌词树里算过一次, 重算一遍既慢又可能触发系统下载语言包。
+    @Binding var exposedTranslations: [String: String]
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -5427,6 +5490,9 @@ struct LyricsScrollView: View {
             translatedTextByLineID: $translatedTextByLineID,
             activity: $translationActivity
         )
+        .onChange(of: translatedTextByLineID) { _, updated in
+            exposedTranslations = updated
+        }
         .contentShape(Rectangle())
         .simultaneousGesture(
             SpatialTapGesture()
@@ -5969,6 +6035,14 @@ struct LyricsScrollView: View {
                         .onTapGesture { seekToLyricLine(line) }
                         .accessibilityAddTraits(.isButton)
                         .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
+                }
+                // 长按这一句做歌词海报。点按仍然是跳转播放位置 —— 两者
+                // 不冲突, 长按只在手指停留足够久时才触发。
+                .onLongPressGesture(minimumDuration: 0.45) {
+                    onShareLyricLine(line.id)
+                }
+                .accessibilityAction(named: Text("lyric_poster_menu")) {
+                    onShareLyricLine(line.id)
                 }
                 .frame(width: availableWidth, alignment: frameAlignment)
 

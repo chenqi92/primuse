@@ -162,6 +162,7 @@ UGREEN UGOS and the legacy fnOS system-level file APIs are still waiting for sta
 - **Embedded data and sidecars** — read audio tags, embedded artwork, same-name/folder artwork, `.lrc` lyrics, and same-name music videos
 - **Line- and word-synchronized lyrics** — standard LRC, enhanced word timestamps, tap-to-seek, manual browsing with automatic follow recovery, and display across iOS, macOS, tvOS, and Watch
 - **Offline lyric translation** — use Apple's Translation framework and cache results locally, with configurable target languages and cache management
+- **Lyric poster sharing** — press and hold a line to pick a consecutive passage, apply one of several poster styles (aurora glass, magazine, vinyl, film, neon, instant photo, cassette), and export a still image or a Live Photo to Photos or any other app
 - **Built-in scrapers** — Apple Music/iTunes Search, MusicBrainz, and LRCLIB, each used according to its metadata, artwork, or lyrics capabilities
 - **Confidence-aware ranking** — rank candidates using title, artist, album, and duration; manual scraping reports uncertainty to reduce incorrect same-name matches
 - **Batch scraping feedback** — start confirmation, live progress, cancellation, completion statistics, and failure details for long-running library tasks
