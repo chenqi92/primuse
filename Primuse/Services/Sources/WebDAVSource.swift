@@ -41,6 +41,12 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
     private var usesTrustedURLSession = false
     private var connectTask: Task<Void, Error>?
     private var didLogWholeResourceMetadataFallback = false
+    private var didLogFirstRangeRequest = false
+    /// 给整库读取的日志限幅 —— 细节见 DiagnosticLogSampler。
+    private var metadataStatusLogSampler = DiagnosticLogSampler(detailLimit: 20)
+    private var metadataRedirectLogSampler = DiagnosticLogSampler(detailLimit: 10)
+    private var metadataSuccessLogSampler = DiagnosticLogSampler(detailLimit: 3)
+    private static let diagnosticBodyByteLimit = 4096
     private var metadataSuffixRangeCapabilityCache = MetadataSuffixRangeCapabilityCache()
     private var completeMetadataFallbackTasks: [String: Task<URL, Error>] = [:]
     private let cacheDirectory: URL
@@ -593,13 +599,44 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
             return Data()
         }
         let request = try makeRangeRequest(path: path, rangeHeader: rangeHeader)
-        return try await fetchMetadataRange(
+        let startedAt = Date()
+        let data = try await fetchMetadataRange(
             request: request,
             mediaPath: path,
             offset: offset,
             length: length,
             intent: intent
         )
+        logMetadataReadSuccess(
+            url: request.url,
+            rangeHeader: rangeHeader,
+            byteCount: data.count,
+            path: path,
+            startedAt: startedAt
+        )
+        return data
+    }
+
+    /// 只记前几条成功的读取。整批失败的日志里最难回答的问题是"这个源到底
+    /// 有没有成功过一次" —— 有这几行才有对照, 没有就说明一首都没读下来。
+    private func logMetadataReadSuccess(
+        url: URL?,
+        rangeHeader: String,
+        byteCount: Int,
+        path: String,
+        startedAt: Date
+    ) {
+        let endpoint = metadataEndpointKey(for: url) ?? "?"
+        let decision = metadataSuccessLogSampler.record(key: "ok#\(endpoint)")
+        guard decision.detailed else { return }
+        plog(String(
+            format: "🌐 WebDAV metadata ok endpoint=%@ elapsed=%.2fs range=%@ bytes=%d path=%@",
+            endpoint,
+            Date().timeIntervalSince(startedAt),
+            rangeHeader,
+            byteCount,
+            path
+        ))
     }
 
     private func fetchMetadataRange(
@@ -609,6 +646,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         length: Int64,
         intent: MetadataRangeReadIntent
     ) async throws -> Data {
+        let requestStartedAt = Date()
         if offset < 0 {
             return try await fetchMetadataSuffix(
                 request: request,
@@ -666,7 +704,13 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
                 }
                 return slice
             default:
-                throw metadataStatusError(http)
+                throw metadataStatusError(
+                    http,
+                    path: path,
+                    request: request,
+                    bodyPrefix: responsePrefix,
+                    startedAt: requestStartedAt
+                )
             }
         }
         let (bytes, response) = try await bytesFollowingMediaRedirects(for: request)
@@ -705,7 +749,13 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
             }
             return data
         default:
-            throw metadataStatusError(http)
+            throw metadataStatusError(
+                http,
+                path: path,
+                request: request,
+                bodyPrefix: await errorBodyPrefix(bytes),
+                startedAt: requestStartedAt
+            )
         }
     }
 
@@ -716,6 +766,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         length: Int64,
         intent: MetadataRangeReadIntent
     ) async throws -> Data {
+        let requestStartedAt = Date()
         if let cachedURL = cachedCompleteMetadataFallbackURL(for: path),
            intent == .explicitSingleFileCompleteFallback {
             return try boundedMetadataSlice(cachedURL, offset: offset, length: length)
@@ -788,7 +839,17 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
                 return try boundedMetadataSlice(completeURL, offset: offset, length: length)
             }
         default:
-            throw metadataStatusError(http)
+            throw metadataStatusError(
+                http,
+                path: path,
+                request: request,
+                bodyPrefix: try? boundedMetadataSlice(
+                    temporaryURL,
+                    offset: 0,
+                    length: Int64(Self.diagnosticBodyByteLimit)
+                ),
+                startedAt: requestStartedAt
+            )
         }
     }
 
@@ -820,10 +881,16 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
     /// 带上真正回这个状态的主机。挂载代理(alist/OpenList 之类)自己报的 5xx 和
     /// 跟随 302 之后由对象存储报的 5xx, 原本在界面上分不出来 —— 而这两端要查的
     /// 东西完全不同。
-    private func metadataStatusError(_ response: HTTPURLResponse) -> RemoteMetadataHTTPStatusError {
+    private func metadataStatusError(
+        _ response: HTTPURLResponse,
+        path: String,
+        request: URLRequest?,
+        bodyPrefix: Data?,
+        startedAt: Date? = nil
+    ) -> RemoteMetadataHTTPStatusError {
         let responseEndpoint = response.url.flatMap { NetworkEndpointIdentity(url: $0) }
         let sourceEndpoint = (try? serverURL()).flatMap { NetworkEndpointIdentity(url: $0) }
-        return RemoteMetadataHTTPStatusError(
+        let error = RemoteMetadataHTTPStatusError(
             service: "WebDAV",
             statusCode: response.statusCode,
             origin: Self.originDescription(for: response.url),
@@ -831,6 +898,137 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
                 && sourceEndpoint != nil
                 && responseEndpoint != sourceEndpoint
         )
+        logMetadataStatusFailure(
+            response,
+            error: error,
+            path: path,
+            request: request,
+            bodyPrefix: bodyPrefix,
+            startedAt: startedAt
+        )
+        return error
+    }
+
+    /// 导出的日志要能直接回答"这个状态码是谁回的、它说了什么"。挂载代理会把
+    /// 后端的真实原因写在响应体里(alist 之类回的是一小段 JSON), 而那段 body
+    /// 原本是被直接丢掉的 —— 界面上只剩一个光秃秃的状态码。
+    private func logMetadataStatusFailure(
+        _ response: HTTPURLResponse,
+        error: RemoteMetadataHTTPStatusError,
+        path: String,
+        request: URLRequest?,
+        bodyPrefix: Data?,
+        startedAt: Date?
+    ) {
+        let origin = error.origin ?? "?"
+        let decision = metadataStatusLogSampler.record(
+            key: "status#\(origin)#\(response.statusCode)"
+        )
+        guard decision.detailed else {
+            if decision.summarize {
+                plog("🌐 WebDAV metadata HTTP \(response.statusCode) origin=\(origin) x\(decision.count) (details suppressed)")
+            }
+            return
+        }
+        var fields = [
+            "🌐 WebDAV metadata HTTP \(response.statusCode)",
+            "origin=\(origin)",
+            "redirected=\(error.followedRedirect ? "yes" : "no")",
+        ]
+        if let startedAt {
+            fields.append(String(format: "elapsed=%.2fs", Date().timeIntervalSince(startedAt)))
+        }
+        if let range = request?.value(forHTTPHeaderField: "Range") {
+            fields.append("range=\(range)")
+        }
+        fields.append("path=\(path)")
+        for header in ["Content-Type", "Content-Length", "Content-Range", "Server", "Retry-After"] {
+            guard let value = response.value(forHTTPHeaderField: header) else { continue }
+            fields.append("\(header.lowercased())=\(value)")
+        }
+        if let location = response.value(forHTTPHeaderField: "Location") {
+            let destination = URL(string: location, relativeTo: response.url)?.absoluteURL
+            fields.append("location=\(Self.redactedURLDescription(destination))")
+        }
+        if let bodyPrefix, !bodyPrefix.isEmpty {
+            fields.append("body=\(Self.printableBodyPrefix(bodyPrefix))")
+        }
+        plog(fields.joined(separator: " "))
+    }
+
+    /// 302 到对象存储/CDN 是这条链路最容易出问题的一跳: 之后的失败由另一台
+    /// 机器给出, 而原先的日志里连"跳过这一跳"这件事都看不到。
+    private func logMediaRedirect(
+        from request: URLRequest,
+        response: HTTPURLResponse,
+        redirected: URLRequest?
+    ) {
+        guard (300...399).contains(response.statusCode) else { return }
+        let destination = response.value(forHTTPHeaderField: "Location")
+            .flatMap { URL(string: $0, relativeTo: response.url ?? request.url)?.absoluteURL }
+        let destinationKey = destination.flatMap { NetworkEndpointIdentity(url: $0)?.key } ?? "?"
+        let decision = metadataRedirectLogSampler.record(key: "redirect#\(destinationKey)")
+        guard decision.detailed else {
+            if decision.summarize {
+                plog("🌐 WebDAV redirect \(response.statusCode) → \(destinationKey) x\(decision.count) (details suppressed)")
+            }
+            return
+        }
+        var line = "🌐 WebDAV redirect \(response.statusCode)"
+        line += " from=\(Self.originDescription(for: request.url) ?? "?")"
+        line += " to=\(Self.redactedURLDescription(destination))"
+        if let followed = redirected?.url {
+            line += " followed=yes"
+            let requestedScheme = destination?.scheme?.lowercased()
+            let followedScheme = followed.scheme?.lowercased()
+            if let requestedScheme, let followedScheme, requestedScheme != followedScheme {
+                line += " scheme=\(requestedScheme)→\(followedScheme)"
+            }
+        } else {
+            line += " followed=no (redirect policy rejected it)"
+        }
+        plog(line)
+    }
+
+    /// 错误响应体一般只有几百字节。读一小段留给日志, 读失败就算了 —— 诊断
+    /// 信息不值得盖过真正的错误。
+    private func errorBodyPrefix(_ bytes: URLSession.AsyncBytes) async -> Data {
+        var prefix = Data()
+        prefix.reserveCapacity(Self.diagnosticBodyByteLimit)
+        do {
+            for try await byte in bytes {
+                prefix.append(byte)
+                if prefix.count >= Self.diagnosticBodyByteLimit { break }
+            }
+        } catch {
+            // 读不到就少一条线索, 不改变结论。
+        }
+        return prefix
+    }
+
+    /// 错误响应体往往是一小段 JSON 或一整页 HTML。折成一行、截断, 并且不让
+    /// 二进制内容进日志。
+    private static func printableBodyPrefix(_ data: Data, limit: Int = 400) -> String {
+        guard !data.prefix(64).contains(0) else { return "<binary \(data.count) bytes>" }
+        let text = String(decoding: data.prefix(limit * 4), as: UTF8.self)
+        let collapsed = text.split(whereSeparator: { $0.isWhitespace || $0.isNewline })
+            .joined(separator: " ")
+        guard !collapsed.isEmpty else { return "<empty>" }
+        return collapsed.count > limit ? String(collapsed.prefix(limit)) + "…" : collapsed
+    }
+
+    /// 重定向目标常常是一条带签名的临时直链。日志要的是"去了哪台机器、哪条
+    /// 路径", 签名和令牌不必跟着进日志。
+    private static func redactedURLDescription(_ url: URL?) -> String {
+        guard let url else { return "?" }
+        var description = ""
+        if let scheme = url.scheme { description += "\(scheme)://" }
+        description += originDescription(for: url) ?? "?"
+        description += url.path
+        if let query = url.query, !query.isEmpty {
+            description += "?<\(query.split(separator: "&").count) params redacted>"
+        }
+        return description
     }
 
     /// host[:端口], 默认端口省掉 —— 这行是给人看的, 不参与任何判断。
@@ -1059,10 +1257,12 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         response: URLResponse
     ) -> URLRequest? {
         guard let http = response as? HTTPURLResponse else { return nil }
-        return HTTPMediaRedirectRequestPolicy.redirectedRequest(
+        let redirected = HTTPMediaRedirectRequestPolicy.redirectedRequest(
             from: request,
             response: http
         )
+        logMediaRedirect(from: request, response: http, redirected: redirected)
+        return redirected
     }
 
     private func makeRangeRequest(path: String, rangeHeader: String) throws -> URLRequest {
@@ -1079,7 +1279,17 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
             request.setValue("Basic \(credential)", forHTTPHeaderField: "Authorization")
         }
         request.timeoutInterval = 30
+        logFirstRangeRequestIfNeeded(url: url, rangeHeader: rangeHeader)
         return request
+    }
+
+    /// 排查这条链路第一步是"客户端到底发了什么"。每个连接实例记一次就够 ——
+    /// 后面每一首歌的请求只有路径和 Range 在变。
+    private func logFirstRangeRequestIfNeeded(url: URL, rangeHeader: String) {
+        guard !didLogFirstRangeRequest else { return }
+        didLogFirstRangeRequest = true
+        let credentials = username.isEmpty && password.isEmpty ? "none" : "basic"
+        plog("🌐 WebDAV range request endpoint=\(metadataEndpointKey(for: url) ?? "?") range=\(rangeHeader) accept-encoding=identity auth=\(credentials)")
     }
 
     func validateStrictRangeResponse(
@@ -1133,6 +1343,14 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         let expectsMediaResponse = PrimuseConstants.supportedAudioExtensions.contains(fileExtension)
             || PrimuseConstants.supportedMusicVideoExtensions.contains(fileExtension)
         if expectsMediaResponse, httpMediaResponseLooksLikeErrorBody(http, data: data) {
+            let decision = metadataStatusLogSampler.record(
+                key: "non-media#\(metadataEndpointKey(for: http.url) ?? "?")"
+            )
+            if decision.detailed {
+                plog("🌐 WebDAV non-media body HTTP \(http.statusCode) origin=\(Self.originDescription(for: http.url) ?? "?") type=\(http.value(forHTTPHeaderField: "Content-Type") ?? "?") path=\(path) body=\(Self.printableBodyPrefix(data))")
+            } else if decision.summarize {
+                plog("🌐 WebDAV non-media body HTTP \(http.statusCode) x\(decision.count) (details suppressed)")
+            }
             throw SourceError.connectionFailed("WebDAV returned a non-media response")
         }
     }
@@ -1320,6 +1538,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
     }
 
     private func resourceMetadata(at path: String) async throws -> WebDAVMultistatusEntry? {
+        let requestStartedAt = Date()
         let baseURL = try serverURL()
         var request = try makeWebDAVRequest(url: fileURL(for: path), method: "PROPFIND")
         request.setValue("0", forHTTPHeaderField: "Depth")
@@ -1351,7 +1570,13 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
             throw SourceError.authenticationFailed
         }
         guard http.statusCode == 207 || (200...299).contains(http.statusCode) else {
-            throw metadataStatusError(http)
+            throw metadataStatusError(
+                http,
+                path: path,
+                request: request,
+                bodyPrefix: data,
+                startedAt: requestStartedAt
+            )
         }
         guard let target = RemotePathScopePolicy(rootPath: "/")
             .resolvedPath(forStoredPath: path) else {
