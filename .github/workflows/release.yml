@@ -1,0 +1,195 @@
+name: 发布
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - project.yml
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 要发布的版本号，留空则使用 project.yml 中的当前版本
+        required: false
+        type: string
+      dry-run:
+        description: 只生成更新日志并打印，不提交也不发布
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # 新增源文件同样会改动 project.yml，只有版本号或构建号真的变了才算一次发布。
+  # 这样每个版本的改动区间首尾相接，同一条提交不会既进上个版本又进下个版本。
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.check.outputs.proceed }}
+      version: ${{ steps.check.outputs.version }}
+      build: ${{ steps.check.outputs.build }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - name: 判断是否需要发布
+        id: check
+        run: |
+          eval "$(python3 scripts/changelog.py version)"
+          version="${{ inputs.version }}"
+          version="${version:-$marketing}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            proceed=true
+          else
+            proceed="$(python3 scripts/changelog.py is-bump HEAD)"
+          fi
+          {
+            echo "proceed=$proceed"
+            echo "version=$version"
+            echo "build=$build"
+          } >> "$GITHUB_OUTPUT"
+          if [ "$proceed" = "true" ]; then
+            echo "发布 $version（build $build）"
+          else
+            echo "本次提交没有改动版本号或构建号，跳过发布"
+          fi
+
+  release:
+    needs: gate
+    if: needs.gate.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    # 提到 job 级，后面各步骤的 if 条件才能判断这个 secret 是否配置过
+    env:
+      COPILOT_PAT: ${{ secrets.COPILOT_PAT }}
+      VERSION: ${{ needs.gate.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: 生成更新日志草稿
+        run: |
+          python3 scripts/changelog.py draft --version "$VERSION" --output draft.md
+          cp draft.md section.md
+          echo "::group::草稿"
+          cat draft.md
+          echo "::endgroup::"
+
+      - name: 准备 Copilot CLI
+        id: copilot
+        if: env.COPILOT_PAT != ''
+        continue-on-error: true
+        run: |
+          npm install -g @github/copilot
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      # 以下 AI 步骤全部允许失败，失败时沿用脚本草稿，不影响发布
+      - name: 润色中文更新日志
+        id: polish-zh
+        if: steps.copilot.outputs.ready == 'true'
+        continue-on-error: true
+        uses: actions/ai-inference@v3
+        with:
+          prompt-file: .github/prompts/changelog-zh.prompt.yml
+          model: ${{ vars.CHANGELOG_MODEL }}
+          input: |
+            version: ${{ needs.gate.outputs.version }}
+          file_input: |
+            draft: draft.md
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ env.COPILOT_PAT }}
+
+      - name: 采用润色结果
+        if: steps.polish-zh.outcome == 'success' && steps.polish-zh.outputs.response-file != ''
+        continue-on-error: true
+        run: |
+          python3 scripts/changelog.py sanitize \
+            "${{ steps.polish-zh.outputs.response-file }}" \
+            --reference draft.md --output section.md
+          echo "::group::润色后"
+          cat section.md
+          echo "::endgroup::"
+
+      - name: 翻译英文更新日志
+        id: polish-en
+        if: steps.copilot.outputs.ready == 'true'
+        continue-on-error: true
+        uses: actions/ai-inference@v3
+        with:
+          prompt-file: .github/prompts/changelog-en.prompt.yml
+          model: ${{ vars.CHANGELOG_MODEL }}
+          file_input: |
+            section: section.md
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ env.COPILOT_PAT }}
+
+      - name: 采用英文结果
+        id: english
+        if: steps.polish-en.outcome == 'success' && steps.polish-en.outputs.response-file != ''
+        continue-on-error: true
+        run: |
+          python3 scripts/changelog.py sanitize \
+            "${{ steps.polish-en.outputs.response-file }}" \
+            --reference section.md --output section.en.md
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: 写入 CHANGELOG
+        run: |
+          python3 scripts/changelog.py apply section.md
+          if [ -f section.en.md ]; then
+            python3 scripts/changelog.py apply section.en.md --lang en
+          else
+            echo "未生成英文段落，CHANGELOG.en.md 保持不变"
+          fi
+
+      - name: 提交更新日志
+        if: ${{ !inputs.dry-run }}
+        run: |
+          if git diff --quiet -- CHANGELOG.md CHANGELOG.en.md; then
+            echo "更新日志没有变化，跳过提交"
+            exit 0
+          fi
+          git config user.name "chenqi"
+          git config user.email "chenqi92104@icloud.com"
+          git add CHANGELOG.md CHANGELOG.en.md
+          git commit -m "补全 $VERSION 更新日志"
+          git pull --rebase origin main
+          git push
+
+      - name: 发布 Release
+        if: ${{ !inputs.dry-run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/changelog.py extract "$VERSION" --without-heading --output notes.md
+          if [ "${{ steps.english.outputs.ready }}" = "true" ]; then
+            {
+              printf '\n<details>\n<summary>English</summary>\n\n'
+              python3 scripts/changelog.py extract "$VERSION" --lang en --without-heading
+              printf '\n</details>\n'
+            } >> notes.md
+          fi
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            gh release edit "v$VERSION" --notes-file notes.md
+            echo "已更新 Release v$VERSION"
+          else
+            gh release create "v$VERSION" \
+              --title "Primuse $VERSION" \
+              --notes-file notes.md \
+              --target "$(git rev-parse HEAD)"
+            echo "已创建 Release v$VERSION"
+          fi
+
+      - name: 输出结果
+        run: |
+          {
+            echo "## $VERSION（build ${{ needs.gate.outputs.build }}）"
+            echo
+            cat section.md
+          } >> "$GITHUB_STEP_SUMMARY"

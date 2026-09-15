@@ -48,3 +48,7 @@ Docs/
 
 # App 运行时诊断报告 (MetricKit / 崩溃 JSON)
 /logs/
+
+# Python
+__pycache__/
+*.pyc
