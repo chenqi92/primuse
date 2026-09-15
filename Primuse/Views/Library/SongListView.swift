@@ -3118,6 +3118,16 @@ struct SongListView: View {
             )
         }
         ToolbarItem(placement: .topBarTrailing) {
+            SongListShuffleToolbarButton(
+                selection: selection,
+                // playableCount 是投影里存好的值。别换成 filteredSongIDs.count
+                // —— orderedSongIDs 每次求值都要 map 一遍整张列表, 而工具栏
+                // 会跟着列表一起反复重建。
+                isEnabled: !showsFolderBrowser && filteredProjection.playableCount > 1,
+                action: shuffleVisibleSongs
+            )
+        }
+        ToolbarItem(placement: .topBarTrailing) {
             SongListBrowseModeToolbarButton(selection: selection, browseMode: $browseMode)
         }
         ToolbarItem(placement: .topBarTrailing) {
@@ -3917,6 +3927,20 @@ struct SongListView: View {
         let queue = Array(visibleQueue[index...]) + Array(visibleQueue[..<index])
         guard let first = queue.first else { return }
         plog("🎶 SongList setQueue visible=\(visibleQueue.count) queue=\(queue.count) start='\(first.title)'")
+        SiriMediaInteractionDonor.donate(song: first)
+        Task { await player.play(queue: queue, startingAt: 0) }
+    }
+
+    /// 把眼前这份列表直接打乱播放。专辑、歌单、艺人详情页早就各有一个随机
+    /// 播放按钮, 唯独「歌曲」这份总列表没有 —— 只能先随便点开一首歌进播放页,
+    /// 再去底部那排控件里把随机播放打开。
+    private func shuffleVisibleSongs() {
+        let candidates = filteredSongs.filteredPlayable()
+        guard candidates.count > 1 else { return }
+        let queue = candidates.shuffled()
+        guard let first = queue.first else { return }
+        plog("🎶 SongList shuffleAll visible=\(candidates.count) start='\(first.title)'")
+        player.shuffleEnabled = true
         SiriMediaInteractionDonor.donate(song: first)
         Task { await player.play(queue: queue, startingAt: 0) }
     }
@@ -5441,6 +5465,25 @@ private struct SongSortMenuOptions: View {
                     ? Text(verbatim: sortOrder.directionLabel)
                     : Text(verbatim: "")
             )
+        }
+    }
+}
+
+/// 工具栏条目跑在自己的视图图里, 所以可用状态和动作都按值传进来, 不读环境。
+private struct SongListShuffleToolbarButton: View {
+    let selection: SongSelectionModel
+    let isEnabled: Bool
+    let action: () -> Void
+
+    @ViewBuilder
+    var body: some View {
+        if !selection.isActive {
+            Button(action: action) {
+                Image(systemName: "shuffle")
+            }
+            .disabled(!isEnabled)
+            .accessibilityLabel(Text("shuffle_all"))
+            .accessibilityIdentifier("songList.shuffleAll")
         }
     }
 }

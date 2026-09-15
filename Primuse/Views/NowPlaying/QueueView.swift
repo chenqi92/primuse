@@ -16,6 +16,27 @@ struct QueueView: View {
                 #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
                 #endif
+                .toolbar { shuffleToolbarContent }
+        }
+    }
+
+    /// 队列页自己的随机播放开关。在这之前, 想把手上这份队列打乱, 只能先点开
+    /// 播放页、再去底部那排控件里找随机播放 —— 队列就摊在眼前, 却没有入口。
+    /// 只读 `player` 这个存储属性, 不碰 @Environment: 导航栏条目会在转场期间
+    /// 由独立的宿主渲染, 在那里读必需的环境值会直接崩。
+    @ToolbarContentBuilder
+    private var shuffleToolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            let isOn = player.shuffleEnabled
+            Button {
+                player.shuffleEnabled.toggle()
+            } label: {
+                Image(systemName: "shuffle")
+                    .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
+            }
+            .disabled(player.queueCount < 2)
+            .accessibilityLabel(Text("a11y_shuffle"))
+            .accessibilityValue(Text(isOn ? "a11y_value_on" : "a11y_value_off"))
         }
     }
 
