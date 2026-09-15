@@ -164,6 +164,17 @@ enum AutomaticOfflineFailureKind: String, Sendable {
 
     var authenticationRequired: Bool { self == .authentication }
     var requiresSourceCooldown: Bool { self != .transient }
+
+    /// 手动整源缓存里，这一类失败重试有没有意义。
+    /// 凭据错误和权限拒绝要用户先去改设置，重试只是拿同一份错凭据反复敲服务端。
+    var allowsBatchRetry: Bool {
+        switch self {
+        case .authentication, .sourceAccessDenied:
+            return false
+        case .rateLimited, .sourceUnavailable, .resourceDeferred, .transient:
+            return true
+        }
+    }
 }
 
 enum AutomaticOfflineFailureClassifier {
@@ -6130,7 +6141,27 @@ final class SourceManager {
                 let song = playableSongs[nextIndex]
                 nextIndex += 1
                 group.addTask {
-                    _ = await self.waitForOfflineDownload(song, pinIntent: .manual)
+                    var attempt = 1
+                    var result = await self.waitForOfflineDownload(song, pinIntent: .manual)
+                    while case .failed(let kind, _) = result,
+                          OfflineBatchRetryPolicy.shouldRetry(
+                            afterAttempt: attempt,
+                            isRetryable: kind.allowsBatchRetry
+                          ) {
+                        let delay = OfflineBatchRetryPolicy.retryDelay(
+                            afterAttempt: attempt,
+                            isRateLimited: kind == .rateLimited
+                        )
+                        do {
+                            try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                        } catch {
+                            break
+                        }
+                        guard !Task.isCancelled else { break }
+                        attempt += 1
+                        plog("🔁 Offline batch retry '\(song.title)' attempt=\(attempt) after \(kind.rawValue)")
+                        result = await self.waitForOfflineDownload(song, pinIntent: .manual)
+                    }
                     return OfflineDownloadSongResult(
                         snapshot: await self.offlineAudioSnapshot(for: song),
                         fallbackByteCount: max(song.fileSize, 0)
