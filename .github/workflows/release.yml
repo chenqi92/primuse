@@ -16,6 +16,11 @@ on:
         required: false
         type: boolean
         default: false
+      overwrite:
+        description: 重新生成并覆盖 CHANGELOG 中已有的该版本段落
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -73,7 +78,21 @@ jobs:
         with:
           fetch-depth: 0
 
+      # 已经写好的段落通常经过人工润色，自动草稿不该覆盖它；
+      # 同一版本要按新提交重新生成时，手动触发并勾选 overwrite。
+      - name: 检查已有段落
+        id: existing
+        run: |
+          if [ "${{ inputs.overwrite }}" != "true" ] \
+            && python3 scripts/changelog.py extract "$VERSION" >/dev/null 2>&1; then
+            echo "reuse=true" >> "$GITHUB_OUTPUT"
+            echo "CHANGELOG 中已有 $VERSION 段落，直接用它发布"
+          else
+            echo "reuse=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: 生成更新日志草稿
+        if: steps.existing.outputs.reuse != 'true'
         run: |
           python3 scripts/changelog.py draft --version "$VERSION" --output draft.md
           cp draft.md section.md
@@ -83,7 +102,7 @@ jobs:
 
       - name: 准备 Copilot CLI
         id: copilot
-        if: env.COPILOT_PAT != ''
+        if: steps.existing.outputs.reuse != 'true' && env.COPILOT_PAT != ''
         continue-on-error: true
         run: |
           npm install -g @github/copilot
@@ -140,6 +159,7 @@ jobs:
           echo "ready=true" >> "$GITHUB_OUTPUT"
 
       - name: 写入 CHANGELOG
+        if: steps.existing.outputs.reuse != 'true'
         run: |
           python3 scripts/changelog.py apply section.md
           if [ -f section.en.md ]; then
@@ -168,10 +188,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/changelog.py extract "$VERSION" --without-heading --output notes.md
-          if [ "${{ steps.english.outputs.ready }}" = "true" ]; then
+          # 英文段落可能来自本次翻译，也可能是之前写好的，一律以 CHANGELOG.en.md 为准
+          if python3 scripts/changelog.py extract "$VERSION" --lang en --without-heading \
+            --output notes.en.md 2>/dev/null; then
             {
               printf '\n<details>\n<summary>English</summary>\n\n'
-              python3 scripts/changelog.py extract "$VERSION" --lang en --without-heading
+              cat notes.en.md
               printf '\n</details>\n'
             } >> notes.md
           fi
@@ -191,5 +213,5 @@ jobs:
           {
             echo "## $VERSION（build ${{ needs.gate.outputs.build }}）"
             echo
-            cat section.md
+            python3 scripts/changelog.py extract "$VERSION"
           } >> "$GITHUB_STEP_SUMMARY"
