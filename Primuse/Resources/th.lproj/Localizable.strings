@@ -3905,3 +3905,6 @@
 "radio_batch_url_status %lld" = "เซิร์ฟเวอร์ตอบกลับ %lld";
 "radio_batch_import_by_group" = "ตามกลุ่มในรายการ";
 "radio_batch_import_by_group_count %lld" = "ตามกลุ่มในรายการ (%lld)";
+"library_review_clear_rating" = "ล้างคะแนน";
+"server_rating_sync_failed_title" = "ซิงค์คะแนนไม่สำเร็จ";
+"server_rating_sync_failed_message" = "บันทึกคะแนนไว้ในเครื่องแล้ว แต่ยังซิงค์กับเซิร์ฟเวอร์ไม่สำเร็จ";

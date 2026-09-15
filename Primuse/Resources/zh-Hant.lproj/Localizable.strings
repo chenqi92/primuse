@@ -3976,3 +3976,6 @@
 "radio_batch_url_status %lld" = "伺服器回應 %lld。";
 "radio_batch_import_by_group" = "依清單分組";
 "radio_batch_import_by_group_count %lld" = "依清單分組（%lld 個）";
+"library_review_clear_rating" = "清除評分";
+"server_rating_sync_failed_title" = "評分同步失敗";
+"server_rating_sync_failed_message" = "評分已儲存在本機，暫時無法同步至伺服器。";

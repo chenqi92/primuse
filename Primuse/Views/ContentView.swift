@@ -1158,6 +1158,17 @@ struct ContentView: View {
         } message: {
             Text(library.serverFavoriteErrorMessage ?? "")
         }
+        .alert(
+            String(localized: "server_rating_sync_failed_title"),
+            isPresented: Binding(
+                get: { library.serverRatingErrorMessage != nil },
+                set: { if !$0 { library.dismissServerRatingError() } }
+            )
+        ) {
+            Button("done", role: .cancel) {}
+        } message: {
+            Text(library.serverRatingErrorMessage ?? "")
+        }
         // 蜂窝网络下「仅 WiFi」拦住了回填/缓存且确有待办 → 提示用户是否在 5G/4G 继续
         .alert(
             String(localized: "cellular_backfill_title"),

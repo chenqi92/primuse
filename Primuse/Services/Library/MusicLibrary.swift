@@ -2764,9 +2764,33 @@ struct LibraryReview: Codable, Hashable, Identifiable, Sendable {
     let comment: String
     let updatedAt: Date
     let deletedAt: Date?
+    // Numeric clocks retain sub-second edits through ISO8601 snapshots.
+    var ratingModifiedAt: TimeInterval? = nil
+    var commentModifiedAt: TimeInterval? = nil
+    var serverRatingTarget: ServerSongRatingTarget? = nil
 
     var id: String { subject.storageKey }
     var isDeleted: Bool { deletedAt != nil }
+    var ratingVersion: TimeInterval { ratingModifiedAt ?? updatedAt.timeIntervalSince1970 }
+    var commentVersion: TimeInterval { commentModifiedAt ?? updatedAt.timeIntervalSince1970 }
+}
+
+struct ServerSongRatingTarget: Codable, Hashable, Sendable {
+    let sourceID: String
+    let itemID: String
+    let accountFingerprint: String
+
+    static func make(song: Song, source: MusicSource) -> Self? {
+        guard source.type == .navidrome, source.id == song.sourceID,
+              !song.isCueTrack, !song.isStreamDescriptor,
+              let itemID = ServerFavoriteWritebackPolicy.songID(
+                fromConnectorPath: song.filePath, sourceType: source.type
+              ) else { return nil }
+        return Self(
+            sourceID: source.id, itemID: itemID,
+            accountFingerprint: MusicSourceScopeFingerprint.make(for: source, includeSourceID: true)
+        )
+    }
 }
 
 enum LibraryReviewPreferences {
@@ -2785,16 +2809,43 @@ enum LibraryReviewPreferences {
 
 enum LibraryReviewReconciliationPolicy {
     static func winner(local: LibraryReview, remote: LibraryReview) -> LibraryReview {
-        guard local.updatedAt == remote.updatedAt else {
-            return local.updatedAt > remote.updatedAt ? local : remote
+        let rating: LibraryReview
+        if local.ratingVersion != remote.ratingVersion {
+            rating = local.ratingVersion > remote.ratingVersion ? local : remote
+        } else {
+            // Legacy snapshots may have lost ordering within a second. Prefer
+            // an explicit clear over reviving a star from that same second.
+            func key(_ review: LibraryReview) -> String {
+                "\(review.rating == nil ? 1 : 0):\(review.rating ?? 0):\(review.serverRatingTarget?.accountFingerprint ?? ""):"
+                    + "\(review.serverRatingTarget?.itemID ?? "")"
+            }
+            rating = key(local) >= key(remote) ? local : remote
         }
-        let localKey = stableTieBreakKey(local)
-        let remoteKey = stableTieBreakKey(remote)
-        return localKey >= remoteKey ? local : remote
-    }
-
-    private static func stableTieBreakKey(_ review: LibraryReview) -> String {
-        "\(review.deletedAt == nil ? 0 : 1):\(review.rating ?? 0):\(review.comment)"
+        let comment: LibraryReview
+        if local.commentVersion != remote.commentVersion {
+            comment = local.commentVersion > remote.commentVersion ? local : remote
+        } else {
+            let localKey = "\(local.isDeleted ? 1 : 0):\(local.comment)"
+            let remoteKey = "\(remote.isDeleted ? 1 : 0):\(remote.comment)"
+            comment = localKey >= remoteKey ? local : remote
+        }
+        let date = Date(timeIntervalSince1970: max(rating.ratingVersion, comment.commentVersion))
+        var merged = LibraryReview(
+            subject: local.subject, rating: rating.rating, comment: comment.comment,
+            updatedAt: date,
+            deletedAt: rating.rating == nil && comment.comment.isEmpty ? date : nil
+        )
+        merged.ratingModifiedAt = rating.ratingModifiedAt
+        merged.commentModifiedAt = comment.commentModifiedAt
+        // Preserve independent clocks even when one side came from an old client.
+        if rating.ratingVersion != date.timeIntervalSince1970 {
+            merged.ratingModifiedAt = rating.ratingVersion
+        }
+        if comment.commentVersion != date.timeIntervalSince1970 {
+            merged.commentModifiedAt = comment.commentVersion
+        }
+        merged.serverRatingTarget = rating.serverRatingTarget
+        return merged
     }
 }
 
@@ -2994,6 +3045,15 @@ final class MusicLibrary {
     @ObservationIgnored
     var likedStateMutationHandler: ((_ song: Song, _ previous: Bool, _ desired: Bool) -> Void)?
     private(set) var serverFavoriteErrorMessage: String?
+    @ObservationIgnored var serverRatingTargetProvider: ((Song) -> ServerSongRatingTarget?)?
+    @ObservationIgnored var ratingStateMutationHandler: ((LibraryReview) -> Void)?
+    private(set) var serverRatingErrorMessage: String?
+
+    var serverRatingStorageKey: String {
+        // The data container can move during an app update; its absolute path
+        // must not become part of a device's pending-write identity.
+        "primuse.server-ratings.v1." + Self.hashID(snapshotURL.deletingLastPathComponent().lastPathComponent)
+    }
 
     private func identityKey(for song: Song) -> String {
         LibrarySongAdmissionPolicy.identityKey(
@@ -5508,10 +5568,59 @@ final class MusicLibrary {
 
     func libraryReview(for subject: LibraryReviewSubject) -> LibraryReview? {
         _ = libraryReviewRevision
-        guard let review = libraryReviewsBySubject[subject.storageKey], !review.isDeleted else {
-            return nil
+        let review = storedLibraryReview(for: subject)
+        return review?.isDeleted == false ? review : nil
+    }
+
+    func storedLibraryReview(for subject: LibraryReviewSubject) -> LibraryReview? {
+        let exact = libraryReviewsBySubject[subject.storageKey]
+        guard subject.kind == .song,
+              let song = songForSynchronization(id: subject.entityID),
+              let target = serverRatingTargetProvider?(song) else { return exact }
+        let candidates = libraryReviewsBySubject.values.filter {
+            $0.serverRatingTarget == target || ($0.subject == subject && $0.serverRatingTarget == nil)
         }
+        return candidates.reduce(nil as LibraryReview?) { result, next in
+            result.map { LibraryReviewReconciliationPolicy.winner(local: $0, remote: next) } ?? next
+        }
+    }
+
+    func review(forServerRatingTarget target: ServerSongRatingTarget) -> LibraryReview? {
+        libraryReviewsBySubject.values.filter { $0.serverRatingTarget == target }
+            .reduce(nil as LibraryReview?) { result, next in
+                result.map { LibraryReviewReconciliationPolicy.winner(local: $0, remote: next) } ?? next
+            }
+    }
+
+    func bindServerRating(_ target: ServerSongRatingTarget, to subject: LibraryReviewSubject) -> LibraryReview? {
+        guard var review = libraryReviewsBySubject[subject.storageKey],
+              review.serverRatingTarget == nil, review.rating != nil, !review.isDeleted else { return nil }
+        review.serverRatingTarget = target
+        libraryReviewsBySubject[subject.storageKey] = review
+        libraryReviewRevision &+= 1
+        persistSnapshot(after: 0.2)
         return review
+    }
+
+    func restoreLocallyAuthoredServerRating(_ review: LibraryReview) {
+        guard let target = review.serverRatingTarget else { return }
+        let current = self.review(forServerRatingTarget: target)
+            ?? libraryReviewsBySubject[review.subject.storageKey]
+        guard current.map({ $0.ratingVersion < review.ratingVersion }) ?? true else { return }
+        let restored = current.map {
+            LibraryReviewReconciliationPolicy.winner(local: review, remote: $0)
+        } ?? review
+        libraryReviewsBySubject[restored.subject.storageKey] = restored
+        libraryReviewRevision &+= 1
+        persistSnapshot(after: 0.2)
+    }
+
+    func presentServerRatingError() {
+        serverRatingErrorMessage = String(localized: "server_rating_sync_failed_message")
+    }
+
+    func dismissServerRatingError() {
+        serverRatingErrorMessage = nil
     }
 
     func updateLibraryReview(
@@ -5531,22 +5640,39 @@ final class MusicLibrary {
         }) { return }
         let rating = LibraryReviewPreferences.normalizedRating(rating)
         let comment = LibraryReviewPreferences.normalizedComment(comment)
-        let existing = libraryReview(for: subject)
+        let existing = storedLibraryReview(for: subject)
 
         guard existing?.rating != rating || existing?.comment != comment else { return }
 
         let shouldDelete = rating == nil && comment.isEmpty
         if shouldDelete, existing == nil { return }
 
-        libraryReviewsBySubject[subject.storageKey] = LibraryReview(
+        let changedRating = existing?.rating != rating
+        let version = max(
+            updatedAt.timeIntervalSince1970,
+            max(existing?.ratingVersion ?? -.infinity, existing?.commentVersion ?? -.infinity).nextUp
+        )
+        var review = LibraryReview(
             subject: subject,
             rating: shouldDelete ? nil : rating,
             comment: shouldDelete ? "" : comment,
-            updatedAt: updatedAt,
-            deletedAt: shouldDelete ? updatedAt : nil
+            updatedAt: Date(timeIntervalSince1970: version),
+            deletedAt: shouldDelete ? Date(timeIntervalSince1970: version) : nil
         )
+        review.ratingModifiedAt = changedRating ? version : (existing?.ratingVersion ?? 0)
+        review.commentModifiedAt = (existing?.comment ?? "") != comment
+            ? version : (existing?.commentVersion ?? 0)
+        if changedRating, subject.kind == .song,
+           let song = songForSynchronization(id: subject.entityID) {
+            review.serverRatingTarget = serverRatingTargetProvider == nil
+                ? existing?.serverRatingTarget : serverRatingTargetProvider?(song)
+        } else {
+            review.serverRatingTarget = existing?.serverRatingTarget
+        }
+        libraryReviewsBySubject[subject.storageKey] = review
         libraryReviewRevision &+= 1
         persistSnapshot(after: 0.2)
+        if changedRating { ratingStateMutationHandler?(review) }
     }
 
     func songs(forAlbum albumID: String) -> [Song] {
@@ -8620,6 +8746,23 @@ final class MusicLibrary {
         // S2: 换 ID 要作用在发布后的 songs / 歌单成员 / 播放历史上, 空库上做
         // 等于什么都没做, 而随后的拷回还会把旧 ID 原样带回来。
         if deferringUntilReady({ [weak self] in self?.remapSongIDs(replacements) }) { return }
+        var remappedReviews: [String: LibraryReview] = [:]
+        for review in libraryReviewsBySubject.values {
+            let subject = review.subject.kind == .song
+                ? LibraryReviewSubject.song(replacements[review.subject.entityID] ?? review.subject.entityID)
+                : review.subject
+            let remapped = LibraryReview(
+                subject: subject, rating: review.rating, comment: review.comment,
+                updatedAt: review.updatedAt, deletedAt: review.deletedAt,
+                ratingModifiedAt: review.ratingModifiedAt, commentModifiedAt: review.commentModifiedAt,
+                serverRatingTarget: review.serverRatingTarget
+            )
+            remappedReviews[subject.storageKey] = remappedReviews[subject.storageKey].map {
+                LibraryReviewReconciliationPolicy.winner(local: $0, remote: remapped)
+            } ?? remapped
+        }
+        libraryReviewsBySubject = remappedReviews
+        libraryReviewRevision &+= 1
         var seen = Set<String>()
         songs = songs.compactMap { original in
             var song = original
@@ -9292,7 +9435,20 @@ final class MusicLibrary {
             pendingPlaylistIdentities = storage.pendingPlaylistIdentities
             pendingHistoryIdentities = storage.pendingHistoryIdentities
             automaticArtistArtworkCatalogsBySource = storage.automaticArtistArtworkCatalogsBySource
+            let liveReviews = libraryReviewsBySubject
             libraryReviewsBySubject = storage.libraryReviewsBySubject
+            if isExternalSnapshotWriteOwned {
+                // Edits made while an external snapshot was prepared still
+                // belong to this device and must survive its eventual reload.
+                for (key, review) in liveReviews {
+                    libraryReviewsBySubject[key] = libraryReviewsBySubject[key].map {
+                        LibraryReviewReconciliationPolicy.winner(local: review, remote: $0)
+                    } ?? review
+                }
+                if libraryReviewsBySubject != storage.libraryReviewsBySubject {
+                    deferredPersistRequested = true
+                }
+            }
             songStoreRequiresReplacement = storage.songStoreRequiresReplacement
             pendingSnapshotImportID = storage.pendingSnapshotImportID
             derivedIndexSignature = storage.derivedIndexSignature

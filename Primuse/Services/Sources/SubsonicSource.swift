@@ -18,7 +18,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
     ResumablePagedSongCatalogConnector,
     ServerPlaylistConnector, ServerMediaSharingConnector, ServerFavoriteConnector, ServerRadioConnector,
-    ServerListeningStatsConnector {
+    ServerListeningStatsConnector, ServerRatingConnector {
     let sourceID: String
 
     private let sourceType: MusicSourceType
@@ -1095,6 +1095,48 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         return ServerFavoriteSnapshot(itemIDs: (starred.starred2?.song ?? []).map(\.id))
     }
 
+    // MARK: - Server ratings
+
+    func fetchServerRating(itemID: String) async throws -> Int? {
+        try Self.validateRatingItemID(itemID)
+        try await connect()
+        try Task.checkCancellation()
+        let container: GetSongContainer = try await requestJSON(
+            "getSong", query: [URLQueryItem(name: "id", value: itemID)]
+        )
+        guard let song = container.song, song.id == itemID,
+              (0...5).contains(song.userRating ?? 0) else {
+            throw SourceError.connectionFailed("Invalid Subsonic song rating response")
+        }
+        return song.userRating.flatMap { $0 == 0 ? nil : $0 }
+    }
+
+    func setServerRating(itemID: String, rating: Int?) async throws -> Int? {
+        try Self.validateRatingItemID(itemID)
+        guard rating.map({ (1...5).contains($0) }) ?? true else {
+            throw SourceError.connectionFailed("Invalid Subsonic rating")
+        }
+        try await connect()
+        try Task.checkCancellation()
+        let _: EmptyContainer = try await requestJSON("setRating", query: [
+            URLQueryItem(name: "id", value: itemID),
+            URLQueryItem(name: "rating", value: String(rating ?? 0))
+        ])
+        let confirmed = try await fetchServerRating(itemID: itemID)
+        guard confirmed == rating else {
+            throw SourceError.connectionFailed("Subsonic rating confirmation mismatch")
+        }
+        return confirmed
+    }
+
+    private static func validateRatingItemID(_ itemID: String) throws {
+        guard !itemID.isEmpty, itemID != ".", itemID != "..",
+              !itemID.contains("/"),
+              !itemID.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
+            throw SourceError.fileNotFound(itemID)
+        }
+    }
+
     // MARK: - Internet radio
 
     /// `getInternetRadioStations` is part of Subsonic 1.9.0. Navidrome and
@@ -1825,6 +1867,7 @@ private struct SubsonicChild: Decodable, Sendable {
     let created: String?
     let playCount: Int?
     let played: String?
+    let userRating: Int?
     // OpenSubsonic 扩展
     let samplingRate: Int?
     let bitDepth: Int?

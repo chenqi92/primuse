@@ -3905,3 +3905,6 @@
 "radio_batch_url_status %lld" = "सर्वर ने %lld लौटाया।";
 "radio_batch_import_by_group" = "सूची के समूह के अनुसार";
 "radio_batch_import_by_group_count %lld" = "सूची के समूह के अनुसार (%lld)";
+"library_review_clear_rating" = "रेटिंग हटाएँ";
+"server_rating_sync_failed_title" = "रेटिंग सिंक विफल";
+"server_rating_sync_failed_message" = "आपकी रेटिंग स्थानीय रूप से सहेजी गई है। सर्वर के साथ सिंक पूरा नहीं हो सका।";

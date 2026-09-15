@@ -3999,3 +3999,6 @@
 "radio_batch_url_status %lld" = "Der Server antwortete mit %lld.";
 "radio_batch_import_by_group" = "Nach Listengruppe";
 "radio_batch_import_by_group_count %lld" = "Nach Listengruppe (%lld)";
+"library_review_clear_rating" = "Bewertung löschen";
+"server_rating_sync_failed_title" = "Bewertung nicht synchronisiert";
+"server_rating_sync_failed_message" = "Deine Bewertung wurde lokal gespeichert. Die Serversynchronisierung konnte nicht abgeschlossen werden.";

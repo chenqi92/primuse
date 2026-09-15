@@ -271,6 +271,17 @@ struct MacContentView: View {
         } message: {
             Text(library.serverFavoriteErrorMessage ?? "")
         }
+        .alert(
+            String(localized: "server_rating_sync_failed_title"),
+            isPresented: Binding(
+                get: { library.serverRatingErrorMessage != nil },
+                set: { if !$0 { library.dismissServerRatingError() } }
+            )
+        ) {
+            Button("done", role: .cancel) {}
+        } message: {
+            Text(library.serverRatingErrorMessage ?? "")
+        }
         .alert(String(localized: "scrape_song"),
                isPresented: Binding(
                    get: { lyricsScrapeAlertMessage != nil },

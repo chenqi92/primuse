@@ -4000,3 +4000,6 @@
 "radio_batch_url_status %lld" = "サーバーの応答は %lld でした。";
 "radio_batch_import_by_group" = "リストのグループ別";
 "radio_batch_import_by_group_count %lld" = "リストのグループ別（%lld 件）";
+"library_review_clear_rating" = "評価をクリア";
+"server_rating_sync_failed_title" = "評価の同期に失敗しました";
+"server_rating_sync_failed_message" = "評価は端末に保存されています。サーバーとの同期を完了できませんでした。";

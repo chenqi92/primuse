@@ -3905,3 +3905,6 @@
 "radio_batch_url_status %lld" = "ردّ الخادم بالرمز %lld.";
 "radio_batch_import_by_group" = "حسب مجموعة القائمة";
 "radio_batch_import_by_group_count %lld" = "حسب مجموعة القائمة (%lld)";
+"library_review_clear_rating" = "مسح التقييم";
+"server_rating_sync_failed_title" = "تعذّرت مزامنة التقييم";
+"server_rating_sync_failed_message" = "تم حفظ تقييمك محليًا. تعذّر إكمال المزامنة مع الخادم.";

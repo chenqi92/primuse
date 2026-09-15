@@ -3999,3 +3999,6 @@
 "radio_batch_url_status %lld" = "Le serveur a répondu %lld.";
 "radio_batch_import_by_group" = "Par groupe de la liste";
 "radio_batch_import_by_group_count %lld" = "Par groupe de la liste (%lld)";
+"library_review_clear_rating" = "Effacer la note";
+"server_rating_sync_failed_title" = "Échec de synchronisation de la note";
+"server_rating_sync_failed_message" = "Votre note est enregistrée localement. La synchronisation avec le serveur n’a pas pu être terminée.";

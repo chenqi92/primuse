@@ -3905,3 +3905,6 @@
 "radio_batch_url_status %lld" = "Sunucu %lld yanıtı verdi.";
 "radio_batch_import_by_group" = "Liste grubuna göre";
 "radio_batch_import_by_group_count %lld" = "Liste grubuna göre (%lld)";
+"library_review_clear_rating" = "Puanı Temizle";
+"server_rating_sync_failed_title" = "Puan Eşitlenemedi";
+"server_rating_sync_failed_message" = "Puanınız yerel olarak kaydedildi. Sunucu eşitlemesi tamamlanamadı.";

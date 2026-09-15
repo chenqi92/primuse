@@ -3777,3 +3777,6 @@
 "radio_batch_url_status %lld" = "The server answered %lld.";
 "radio_batch_import_by_group" = "By list group";
 "radio_batch_import_by_group_count %lld" = "By list group (%lld)";
+"library_review_clear_rating" = "Clear Rating";
+"server_rating_sync_failed_title" = "Rating Sync Failed";
+"server_rating_sync_failed_message" = "Your rating is saved locally. Server sync could not be completed.";

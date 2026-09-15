@@ -3905,3 +3905,6 @@
 "radio_batch_url_status %lld" = "Сервер відповів %lld.";
 "radio_batch_import_by_group" = "За групами списку";
 "radio_batch_import_by_group_count %lld" = "За групами списку (%lld)";
+"library_review_clear_rating" = "Очистити оцінку";
+"server_rating_sync_failed_title" = "Не вдалося синхронізувати оцінку";
+"server_rating_sync_failed_message" = "Оцінку збережено локально. Не вдалося завершити синхронізацію із сервером.";

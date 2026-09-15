@@ -1852,7 +1852,7 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
     ResumablePagedSongCatalogConnector,
     ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector,
     ServerMediaSharingConnector, ServerFavoriteConnector,
-    ServerRadioConnector, ServerListeningStatsConnector {
+    ServerRadioConnector, ServerListeningStatsConnector, ServerRatingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -1953,6 +1953,24 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
                 itemID: itemID,
                 isFavorite: isFavorite
             )
+        }
+    }
+
+    func fetchServerRating(itemID: String) async throws -> Int? {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerRatingConnector else {
+                throw SourceError.connectionFailed("Server rating connector unavailable")
+            }
+            return try await provider.fetchServerRating(itemID: itemID)
+        }
+    }
+
+    func setServerRating(itemID: String, rating: Int?) async throws -> Int? {
+        try await routing.withMutation { connector in
+            guard let provider = connector as? any ServerRatingConnector else {
+                throw SourceError.connectionFailed("Server rating connector unavailable")
+            }
+            return try await provider.setServerRating(itemID: itemID, rating: rating)
         }
     }
 
@@ -10610,6 +10628,41 @@ final class SourceManager {
             throw CancellationError()
         }
         return snapshot
+    }
+
+    func fetchServerRating(target: ServerSongRatingTarget, source: MusicSource) async throws -> Int? {
+        let scope = Self.audioCacheScopeSignature(for: source)
+        let provider = try await ratingConnector(target: target, source: source, scope: scope)
+        let rating = try await provider.fetchServerRating(itemID: target.itemID)
+        guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: scope) else {
+            throw CancellationError()
+        }
+        return rating
+    }
+
+    func setServerRating(
+        target: ServerSongRatingTarget, source: MusicSource, rating: Int?
+    ) async throws -> Int? {
+        let scope = Self.audioCacheScopeSignature(for: source)
+        let provider = try await ratingConnector(target: target, source: source, scope: scope)
+        let confirmed = try await provider.setServerRating(itemID: target.itemID, rating: rating)
+        guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: scope) else {
+            throw CancellationError()
+        }
+        return confirmed
+    }
+
+    private func ratingConnector(
+        target: ServerSongRatingTarget, source: MusicSource, scope: String
+    ) async throws -> any ServerRatingConnector {
+        try Task.checkCancellation()
+        guard source.type == .navidrome, source.id == target.sourceID,
+              MusicSourceScopeFingerprint.make(for: source, includeSourceID: true) == target.accountFingerprint,
+              await sourceScopeIsCurrent(sourceID: source.id, expectedScope: scope),
+              let provider = connector(for: source) as? any ServerRatingConnector else {
+            throw CancellationError()
+        }
+        return provider
     }
 
     private func sourceScopeIsCurrent(

@@ -4092,3 +4092,6 @@
 "radio_batch_url_status %lld" = "服务器返回 %lld。";
 "radio_batch_import_by_group" = "按清单分组";
 "radio_batch_import_by_group_count %lld" = "按清单分组（%lld 个）";
+"library_review_clear_rating" = "清除评分";
+"server_rating_sync_failed_title" = "评分同步失败";
+"server_rating_sync_failed_message" = "评分已保存在本地，暂未能同步到服务器。";

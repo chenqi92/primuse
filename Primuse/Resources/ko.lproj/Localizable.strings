@@ -3999,3 +3999,6 @@
 "radio_batch_url_status %lld" = "서버가 %lld을(를) 반환했습니다.";
 "radio_batch_import_by_group" = "목록 그룹별";
 "radio_batch_import_by_group_count %lld" = "목록 그룹별(%lld개)";
+"library_review_clear_rating" = "평점 지우기";
+"server_rating_sync_failed_title" = "평점 동기화 실패";
+"server_rating_sync_failed_message" = "평점은 기기에 저장되었습니다. 서버 동기화를 완료하지 못했습니다.";

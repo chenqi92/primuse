@@ -3905,3 +3905,6 @@
 "radio_batch_url_status %lld" = "O servidor respondeu %lld.";
 "radio_batch_import_by_group" = "Por grupo da lista";
 "radio_batch_import_by_group_count %lld" = "Por grupo da lista (%lld)";
+"library_review_clear_rating" = "Limpar avaliação";
+"server_rating_sync_failed_title" = "Falha ao sincronizar avaliação";
+"server_rating_sync_failed_message" = "Sua avaliação foi salva localmente. Não foi possível concluir a sincronização com o servidor.";

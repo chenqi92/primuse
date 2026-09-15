@@ -1692,6 +1692,12 @@ protocol ServerFavoriteConnector: MusicSourceConnector {
     func setServerFavorite(itemID: String, isFavorite: Bool) async throws -> ServerFavoriteSnapshot
 }
 
+/// Nil represents a cleared rating; missing songs and malformed responses throw.
+protocol ServerRatingConnector: MusicSourceConnector {
+    func fetchServerRating(itemID: String) async throws -> Int?
+    func setServerRating(itemID: String, rating: Int?) async throws -> Int?
+}
+
 /// One radio station exposed by a server library. `streamURL` is used for
 /// credential-free internet-radio URLs. `sourcePlaybackPath` is used when the
 /// connector must mint an authenticated URL at playback time (Jellyfin/Emby

@@ -3905,3 +3905,6 @@
 "radio_batch_url_status %lld" = "Сервер ответил %lld.";
 "radio_batch_import_by_group" = "По группам списка";
 "radio_batch_import_by_group_count %lld" = "По группам списка (%lld)";
+"library_review_clear_rating" = "Очистить оценку";
+"server_rating_sync_failed_title" = "Не удалось синхронизировать оценку";
+"server_rating_sync_failed_message" = "Оценка сохранена локально. Не удалось завершить синхронизацию с сервером.";

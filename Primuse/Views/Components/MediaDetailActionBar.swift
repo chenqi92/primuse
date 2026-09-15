@@ -230,6 +230,16 @@ struct LibraryReviewRatingPicker: View {
                 .accessibilityAddTraits(value == rating ? .isSelected : [])
             }
         }
+        .contextMenu {
+            if let rating {
+                Button("library_review_clear_rating", systemImage: "star.slash") { onSelect(rating) }
+            }
+        }
+        .accessibilityActions {
+            if let rating {
+                Button("library_review_clear_rating") { onSelect(rating) }
+            }
+        }
     }
 }
 

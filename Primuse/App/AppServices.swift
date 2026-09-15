@@ -539,6 +539,7 @@ final class AppServices {
     let duplicateCleanup: DuplicateCleanupService
     let batchRemoval: SongBatchRemovalService
     let serverFavoriteSync: ServerFavoriteSyncService
+    let serverRatingSync: ServerRatingSyncService
     let serverListeningStats: ServerListeningStatsService
     let musicIntelligence: MusicIntelligenceService
 
@@ -655,6 +656,7 @@ final class AppServices {
             library: library,
             player: player
         )
+        let ratingSync = ServerRatingSyncService(sourceManager: manager, sourcesStore: store, library: library)
         let sync = CloudKitSyncService(
             library: library,
             sourcesStore: store,
@@ -674,6 +676,7 @@ final class AppServices {
         self.playbackSettingsStore = playbackSettings
         self.cloudSync = sync
         self.serverFavoriteSync = favoriteSync
+        self.serverRatingSync = ratingSync
         self.serverListeningStats = ServerListeningStatsService(sourceManager: manager)
         let theme = ThemeService()
         // 启动时同时恢复固定回退色、主题色来源与封面氛围偏好。
@@ -790,9 +793,12 @@ final class AppServices {
                 applyFence: applyFence
             )
         }
-        scanService.serverFavoriteSyncHandler = { [weak favoriteSync] source, applyFence in
+        scanService.serverFavoriteSyncHandler = { [weak favoriteSync, weak ratingSync] source, applyFence in
             await favoriteSync?.refresh(source: source, applyFence: applyFence)
+            if applyFence() { ratingSync?.resume(sourceID: source.id) }
         }
+        library.serverRatingTargetProvider = { [weak ratingSync] song in ratingSync?.target(for: song) }
+        library.ratingStateMutationHandler = { [weak ratingSync] review in ratingSync?.localRatingDidChange(review) }
         library.likedStateMutationHandler = { [weak favoriteSync] song, previous, desired in
             favoriteSync?.localLikedStateDidChange(
                 song: song,
@@ -926,6 +932,7 @@ final class AppServices {
         // 全都读库。等发布完成再开工 —— 等待时间不计入下面的耗时统计, 这样
         // `🚀 deferred startup` 的含义与历史版本保持一致。
         await musicLibrary.whenReady()
+        serverRatingSync.resume()
         let startedAt = ProcessInfo.processInfo.systemUptime
 
         #if os(iOS)
@@ -1132,6 +1139,7 @@ final class AppServices {
                 guard let self else { return }
                 MainActor.assumeIsolated {
                     self.reconcileDisabledSourceIDs()
+                    self.serverRatingSync.resume()
                 }
             }
         )
@@ -1320,6 +1328,7 @@ final class AppServices {
                 Task { @MainActor [weak self] in
                     self?.serverCatalogAutoRefresh.setApplicationActive(true)
                     self?.alwaysDownload.setApplicationActive(true)
+                    self?.serverRatingSync.resume()
                 }
             }
         )
