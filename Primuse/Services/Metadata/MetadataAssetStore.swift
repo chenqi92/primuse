@@ -1,3 +1,4 @@
+import CoreGraphics
 import CryptoKit
 import Foundation
 import ImageIO
@@ -1132,36 +1133,156 @@ enum LibraryArtworkImageProcessor {
 
         for longSide in targetLongSides {
             guard !withUnsafeCurrentTask(body: { $0?.isCancelled ?? false }) else { return nil }
-            let options: CFDictionary = [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: longSide,
-                kCGImageSourceShouldCacheImmediately: true,
-            ] as CFDictionary
-            guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else {
-                continue
-            }
+            guard let image = encodableImage(from: source, longSide: longSide) else { continue }
             for quality in qualities {
                 guard !withUnsafeCurrentTask(body: { $0?.isCancelled ?? false }) else { return nil }
-                let output = NSMutableData()
-                guard let destination = CGImageDestinationCreateWithData(
-                    output,
-                    UTType.jpeg.identifier as CFString,
-                    1,
-                    nil
-                ) else { continue }
-                CGImageDestinationAddImage(
-                    destination,
-                    image,
-                    [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary
-                )
-                guard CGImageDestinationFinalize(destination) else { continue }
-                let encoded = output as Data
+                guard let encoded = encodeJPEG(image, quality: quality) else { continue }
                 if encoded.count <= LibraryArtworkContentIDPolicy.maximumSyncedArtworkBytes {
                     return encoded
                 }
             }
         }
         return nil
+    }
+
+    /// 取一张长边不超过 `longSide`、且 JPEG 编码器一定收得下的位图。
+    private nonisolated static func encodableImage(
+        from source: CGImageSource,
+        longSide: Int
+    ) -> CGImage? {
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: longSide,
+            kCGImageSourceShouldCacheImmediately: true,
+        ]
+        if let thumbnail = CGImageSourceCreateThumbnailAtIndex(
+            source,
+            0,
+            options as CFDictionary
+        ) {
+            // 缩略图路径带 `WithTransform`，出来就是摆正的。
+            return jpegReadyImage(thumbnail, exifOrientation: 1)
+        }
+        return fullyDecodedImage(from: source, longSide: longSide)
+    }
+
+    /// ImageIO 生成不出缩略图时的兜底：整张解出来自己缩。
+    ///
+    /// `CGImageSourceCreateThumbnailAtIndex` 并不是对每张能解码的图都成功，
+    /// 而它返回 nil 时上层只会得到「这张图无效」——用户看到的就是选了照片
+    /// 却没有任何变化。`CGImageSourceCreateImageAtIndex` 走的是完整解码器，
+    /// 这类图基本都能解出来，代价是要自己按 EXIF 摆正并缩放。
+    private nonisolated static func fullyDecodedImage(
+        from source: CGImageSource,
+        longSide: Int
+    ) -> CGImage? {
+        guard let image = CGImageSourceCreateImageAtIndex(
+            source,
+            0,
+            [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
+        ) else { return nil }
+
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] ?? [:]
+        let orientation = properties[kCGImagePropertyOrientation] as? Int ?? 1
+        let swapsDimensions = ArtworkImageNormalizationPolicy.swapsDimensions(forExif: orientation)
+        guard let bounded = ArtworkImageNormalizationPolicy.boundedPixelSize(
+            width: swapsDimensions ? image.height : image.width,
+            height: swapsDimensions ? image.width : image.height,
+            longSide: longSide
+        ) else { return nil }
+
+        return redrawOpaque(
+            image,
+            width: bounded.width,
+            height: bounded.height,
+            exifOrientation: orientation
+        )
+    }
+
+    /// 本来就是 8 bit 不透明 RGB/灰度的位图原样返回，其余的重画一遍。
+    private nonisolated static func jpegReadyImage(
+        _ image: CGImage,
+        exifOrientation: Int
+    ) -> CGImage? {
+        let alpha = image.alphaInfo
+        let opaqueLayouts: Set<CGImageAlphaInfo> = [.none, .noneSkipFirst, .noneSkipLast]
+        let hasAlpha = !opaqueLayouts.contains(alpha)
+        let model = image.colorSpace?.model
+        guard ArtworkImageNormalizationPolicy.requiresOpaqueRedraw(
+            hasAlpha: hasAlpha,
+            bitsPerComponent: image.bitsPerComponent,
+            usesFloatComponents: image.bitmapInfo.contains(.floatComponents),
+            isJPEGCompatibleColorModel: model == .rgb || model == .monochrome
+        ) else { return image }
+        return redrawOpaque(
+            image,
+            width: image.width,
+            height: image.height,
+            exifOrientation: exifOrientation
+        )
+    }
+
+    /// 重画成不透明的 8 bit sRGB 位图，顺带按 EXIF 摆正。
+    ///
+    /// 透明区域铺白而不是留黑：这一类图多半是深色线条配透明底，压到黑底上
+    /// 整张就糊成一片，而那正是 ImageIO 自己写 JPEG 时的默认行为。
+    private nonisolated static func redrawOpaque(
+        _ image: CGImage,
+        width: Int,
+        height: Int,
+        exifOrientation: Int
+    ) -> CGImage? {
+        guard width > 0, height > 0 else { return nil }
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        ) else { return nil }
+
+        context.interpolationQuality = .high
+        context.setFillColor(gray: 1, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+
+        let steps = ArtworkImageNormalizationPolicy.orientationSteps(forExif: exifOrientation)
+        context.translateBy(x: CGFloat(width) / 2, y: CGFloat(height) / 2)
+        // CGContext 的正角度是逆时针，steps 说的是顺时针。
+        context.rotate(by: -CGFloat(steps.quarterTurnsClockwise) * .pi / 2)
+        // 后写的变换先作用到图上，所以镜像写在旋转之后，语义仍是「先镜像再旋转」。
+        if steps.mirroredHorizontally {
+            context.scaleBy(x: -1, y: 1)
+        }
+
+        let drawsRotated = steps.quarterTurnsClockwise % 2 == 1
+        let drawWidth = drawsRotated ? height : width
+        let drawHeight = drawsRotated ? width : height
+        context.draw(image, in: CGRect(
+            x: -CGFloat(drawWidth) / 2,
+            y: -CGFloat(drawHeight) / 2,
+            width: CGFloat(drawWidth),
+            height: CGFloat(drawHeight)
+        ))
+        return context.makeImage()
+    }
+
+    private nonisolated static func encodeJPEG(_ image: CGImage, quality: Double) -> Data? {
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            output,
+            UTType.jpeg.identifier as CFString,
+            1,
+            nil
+        ) else { return nil }
+        CGImageDestinationAddImage(
+            destination,
+            image,
+            [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary
+        )
+        guard CGImageDestinationFinalize(destination), output.length > 0 else { return nil }
+        return output as Data
     }
 }
