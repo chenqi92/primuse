@@ -1129,6 +1129,7 @@ actor SourceConnectionRouter {
         didSet { selectionRevision &+= 1 }
     }
     private var routeGeneration: UInt64?
+    private var localHandshakeRetryAfter: Date?
     /// The candidate the concurrent probe just proved reachable, so the
     /// handshake does not repeat that probe.
     private var probeVerifiedIndex: Int?
@@ -1165,6 +1166,7 @@ actor SourceConnectionRouter {
     func disconnect() async {
         activeIndex = nil
         probeVerifiedIndex = nil
+        localHandshakeRetryAfter = nil
         await routeDidChange(nil)
         for candidate in candidates {
             await candidate.connector.disconnect()
@@ -1231,13 +1233,18 @@ actor SourceConnectionRouter {
                 await routeDidChange(nil)
             }
             probeVerifiedIndex = nil
+            localHandshakeRetryAfter = nil
             routeGeneration = currentGeneration
         }
 
-        let preferredKind = await runtime.preferredKind(
+        var preferredKind = await runtime.preferredKind(
             for: sourceID,
             availableKinds: candidates.map(\.kind)
         )
+        if preferredKind == .localAddress,
+           let retryAfter = localHandshakeRetryAfter, Date() < retryAfter {
+            preferredKind = .publicAddress
+        }
 
         if let currentIndex = activeIndex,
            excluded.contains(currentIndex) == false {
@@ -1410,6 +1417,7 @@ actor SourceConnectionRouter {
             try await candidate.connector.connect()
         }
         try Task.checkCancellation()
+        if candidate.kind == .localAddress { localHandshakeRetryAfter = nil }
     }
 
     private func prepareConnectionFallback(after error: Error, at index: Int) async throws {
@@ -1417,6 +1425,20 @@ actor SourceConnectionRouter {
         // Abandon only this handshake, not the endpoint's health. Service and
         // trust errors still follow the stricter transport-evidence policy.
         if error is HandshakeDeadlineExceeded { return }
+        if candidates[index].kind == .localAddress,
+           candidates.contains(where: { $0.kind == .publicAddress }),
+           let urlError = error as? URLError,
+           [.networkConnectionLost, .secureConnectionFailed].contains(urlError.code) {
+            // VPNs can accept a private TCP connection even when the NAS
+            // protocol cannot complete. Try the configured public handshake
+            // without declaring the LAN unreachable or bypassing TLS trust.
+            await candidates[index].connector.disconnect()
+            // Keep the working public route through the following range and
+            // metadata requests; a path change allows an immediate LAN retry.
+            localHandshakeRetryAfter = Date().addingTimeInterval(SourceConnectionRuntime.localRetryInterval)
+            plog("Source local handshake failed; trying configured public route source=\(sourceID.prefix(8)) error=\(urlError.errorCode)")
+            return
+        }
         let probeFailure = error as? EndpointProbeFailure
         let underlying = probeFailure?.underlying ?? error
         guard isTransportFailure(underlying) else { throw underlying }
@@ -3043,8 +3065,10 @@ final class SourceManager {
         }
 
         let connector = connector(for: source)
+        let connectionTimeout: TimeInterval = source.type == .fnMusic
+            ? FnMusicSource.connectionTimeout + 5 : 15
         do {
-            try await Self.withTimeout(seconds: 15) {
+            try await Self.withTimeout(seconds: connectionTimeout) {
                 try await connector.connect()
             }
             checks.append(SourceDiagnosticCheck(
@@ -3070,7 +3094,7 @@ final class SourceManager {
             let recovered = await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
             if recovered {
                 do {
-                    try await Self.withTimeout(seconds: 15) {
+                    try await Self.withTimeout(seconds: connectionTimeout) {
                         try await connector.connect()
                     }
                     checks.append(SourceDiagnosticCheck(

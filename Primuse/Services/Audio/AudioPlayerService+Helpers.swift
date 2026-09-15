@@ -155,7 +155,9 @@ extension AudioPlayerService {
         if sourceManager?.isSourceKnownUnavailableForPlayback(sourceID) == true { return true }
         // FN discovery and service probes apply to the entire Music source,
         // and vendor routes have no endpoint for the generic TCP preflight.
-        if error is FnConnectError { return !Task.isCancelled }
+        if error is FnConnectError || error is FnMusicSource.LoginTimeoutError {
+            return !Task.isCancelled
+        }
         if let sourceError = error as? SourceError {
             switch sourceError {
             case .authenticationFailed, .credentialUnavailable:

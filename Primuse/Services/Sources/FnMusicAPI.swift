@@ -105,9 +105,18 @@ actor FnMusicAPI {
         token = userToken
     }
 
+    func cancelPendingLogin() async {
+        // A cancelled waiter may arrive just after login committed its token.
+        // Keep that established session available to subsequent callers.
+        guard token == nil else { return }
+        sessionGeneration &+= 1
+        await endpointProvider.invalidate()
+    }
+
     func logout() async {
         let requestToken = token
         sessionGeneration &+= 1
+        let generation = sessionGeneration
         token = nil
         if let requestToken {
             _ = try? await requestJSON(
@@ -118,6 +127,7 @@ actor FnMusicAPI {
                 cookieToken: requestToken
             )
         }
+        if sessionGeneration == generation { await endpointProvider.invalidate() }
     }
 
     func invalidateSession() {
@@ -201,6 +211,7 @@ actor FnMusicAPI {
         do {
             return try await streamURLOnce(trackGUID: trackGUID)
         } catch {
+            try Task.checkCancellation()
             guard usesFNConnect, FnMusicAPIProtocol.isRouteFailure(error) else { throw error }
             await endpointProvider.invalidate()
             return try await streamURLOnce(trackGUID: trackGUID)
@@ -367,6 +378,7 @@ actor FnMusicAPI {
                 cookieToken: cookieToken
             )
         } catch {
+            try Task.checkCancellation()
             guard usesFNConnect, FnMusicAPIProtocol.isRouteFailure(error) else { throw error }
             await endpointProvider.invalidate()
             return try await requestJSONOnce(
@@ -389,6 +401,7 @@ actor FnMusicAPI {
         cookieToken: String?
     ) async throws -> Any {
         let endpoint = try await endpointProvider.endpoint()
+        try Task.checkCancellation()
         guard let url = FnMusicAPIProtocol.endpointURL(
             serverBaseURL: endpoint.baseURL,
             path: path,
@@ -420,10 +433,25 @@ actor FnMusicAPI {
         }
         FnMusicAPIProtocol.applyAuthx(to: &request, bodyData: bodyData)
 
-        let (data, response) = try await TrustedHTTPTransport.data(
-            for: request,
-            session: session
-        )
+        let requestID = UUID().uuidString.prefix(8)
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let context = "FN Music request=\(requestID) path=\(path) route=\(endpoint.route.rawValue) source=\(sourceID.prefix(8))"
+        plog("\(context) event=start")
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await TrustedHTTPTransport.data(for: request, session: session)
+        } catch {
+            let failure = error as NSError
+            let elapsed = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)
+            plog("\(context) event=failed error=\(failure.domain)/\(failure.code) cancelled=\(Task.isCancelled || OperationCancellationPolicy.isCancellation(error)) elapsed_ms=\(elapsed)")
+            throw error
+        }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        let diagnosticEnvelope = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        let code = intValue(diagnosticEnvelope?["code"]).map(String.init) ?? "none"
+        let elapsed = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)
+        plog("\(context) event=response status=\(status) code=\(code) elapsed_ms=\(elapsed)")
         guard let http = response as? HTTPURLResponse else {
             throw SourceError.connectionFailed(PMString("error.catalog.missingHTTPResponse"))
         }

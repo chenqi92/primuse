@@ -6,6 +6,43 @@ import XCTest
 
 @MainActor
 final class SourceConnectionRouterTests: XCTestCase {
+    func testBrokenLocalProtocolTriesConfiguredPublicHandshakeDespiteReachableTCP() async throws {
+        for error in [URLError(.networkConnectionLost), URLError(.secureConnectionFailed)] {
+            let fixture = Fixture()
+            await fixture.local.failNextConnect(error)
+            let value = try await fixture.read()
+            XCTAssertEqual(value, "wan")
+            XCTAssertEqual(fixture.events.values, [.publicAddress])
+            let localDisconnects = await fixture.local.disconnections
+            XCTAssertEqual(localDisconnects, 1)
+            let nextRead = try await fixture.read()
+            XCTAssertEqual(nextRead, "wan")
+            let localConnections = await fixture.local.connections
+            XCTAssertEqual(localConnections, 1, "Do not repeat the failed LAN handshake on every read")
+            let preferred = await fixture.runtime.preferredKind(for: fixture.id,
+                availableKinds: [.localAddress, .publicAddress], prefersLocalNetwork: true)
+            XCTAssertEqual(preferred, .localAddress, "Protocol failure must not mark the endpoint unreachable")
+            await fixture.runtime.observeNetworkPath(prefersLocalNetwork: true, pathChanged: true)
+            let recovered = try await fixture.read()
+            XCTAssertEqual(recovered, "lan", "A network change should allow immediate LAN recovery")
+        }
+    }
+
+    func testRecoveredLocalHandshakeClearsPublicPreferenceAfterPublicFailure() async throws {
+        let fixture = Fixture()
+        await fixture.local.failNextConnect(URLError(.networkConnectionLost))
+        let initial = try await fixture.read()
+        XCTAssertEqual(initial, "wan")
+        await fixture.remote.failNextRead(URLError(.networkConnectionLost))
+        await fixture.probe.setWANReachable(false)
+        let recovered = try await fixture.read()
+        XCTAssertEqual(recovered, "lan")
+        let next = try await fixture.read()
+        XCTAssertEqual(next, "lan")
+        let publicConnections = await fixture.remote.connections
+        XCTAssertEqual(publicConnections, 1, "Keep the recovered LAN instead of retrying the failed public route")
+    }
+
     func testBusinessAuthenticationTrustAndCancellationErrorsKeepLAN() async throws {
         let errors: [any Error] = [
             PagedSongCatalogError.snapshotChangedDuringPagination, PagedSongCatalogError.unavailable,
@@ -451,9 +488,11 @@ private actor RouterTestConnector: MusicSourceConnector {
 private actor RouterEndpointProbe {
     private(set) var hosts: [String] = []
     private var reachable = true
+    private var wanReachable = true
     private var lanDelay: TimeInterval = 0
     private var nextFailure: (error: any Error, runtime: SourceConnectionRuntime?)?
     func setReachable(_ reachable: Bool) { self.reachable = reachable }
+    func setWANReachable(_ reachable: Bool) { wanReachable = reachable }
     func failNextCheck(_ error: any Error, changingNetwork runtime: SourceConnectionRuntime? = nil) {
         nextFailure = (error, runtime)
     }
@@ -462,6 +501,7 @@ private actor RouterEndpointProbe {
     func setLANDelay(_ seconds: TimeInterval) { lanDelay = seconds }
     func check(_ endpoint: SourceConnectionEndpoint) async throws {
         hosts.append(endpoint.host)
+        if endpoint.host == "wan.invalid", !wanReachable { throw URLError(.cannotConnectToHost) }
         guard endpoint.host == "lan.invalid" else { return }
         if let failure = nextFailure {
             nextFailure = nil

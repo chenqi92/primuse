@@ -13,7 +13,19 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
     private let password: String
     private let audioCacheDirectory: URL
     private let artworkCacheDirectory: URL
-    private var loginTask: Task<Void, Error>?
+    private struct LoginOperation {
+        let id: UUID
+        let task: Task<Void, Error>
+        var waiters: Set<UUID>
+    }
+    private var loginOperation: LoginOperation?
+    private let loginTimeout: TimeInterval
+
+    static let connectionTimeout: TimeInterval = 60
+
+    struct LoginTimeoutError: LocalizedError {
+        var errorDescription: String? { SourceError.timeout.localizedDescription }
+    }
 
     private static let pageSize = 50
 
@@ -28,11 +40,13 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
         username: String,
         password: String,
         alternateTLSValidationHostname: String? = nil,
-        session: URLSession? = nil
+        session: URLSession? = nil,
+        loginTimeout: TimeInterval = FnMusicSource.connectionTimeout
     ) {
         self.sourceID = sourceID
         self.username = username
         self.password = password
+        self.loginTimeout = loginTimeout
         self.api = FnMusicAPI(
             sourceID: sourceID,
             host: host,
@@ -63,25 +77,35 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
     // MARK: - Connection
 
     func connect() async throws {
+        try Task.checkCancellation()
         if await api.isLoggedIn { return }
         guard !username.isEmpty, !password.isEmpty else {
             await reportAuthenticationProblem(PMString("error.fnMusic.missingCredential"))
             throw SourceError.authenticationFailed
         }
-        if let loginTask {
-            try await loginTask.value
-            return
+        let waiterID = UUID()
+        let operation: LoginOperation
+        if var existing = loginOperation {
+            existing.waiters.insert(waiterID)
+            loginOperation = existing
+            operation = existing
+        } else {
+            let task = Task { [api, username, password, loginTimeout] in
+                try await AsyncOperationTimeout.run(seconds: loginTimeout) {
+                    try await api.login(username: username, password: password)
+                }
+            }
+            operation = LoginOperation(id: UUID(), task: task, waiters: [waiterID])
+            loginOperation = operation
         }
-
-        let task = Task { [api, username, password] in
-            try await api.login(username: username, password: password)
-        }
-        loginTask = task
-        defer { loginTask = nil }
         do {
-            try await task.value
+            try await Self.waitForLogin(operation.task)
+            try Task.checkCancellation()
+            await finishLoginWaiter(waiterID, operationID: operation.id, failed: false)
             await MainActor.run { SourceAuthAlert.clear(sourceID: sourceID) }
         } catch {
+            await finishLoginWaiter(waiterID, operationID: operation.id, failed: true)
+            if (error as? URLError)?.code == .timedOut { throw LoginTimeoutError() }
             if case SourceError.authenticationFailed = error {
                 await reportAuthenticationProblem(PMString("error.fnMusic.authenticationFailed"))
             }
@@ -90,7 +114,33 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
     }
 
     func disconnect() async {
+        let operationID = loginOperation?.id
+        loginOperation?.task.cancel()
         await api.logout()
+        if loginOperation?.id == operationID { loginOperation = nil }
+    }
+
+    private func finishLoginWaiter(_ waiterID: UUID, operationID: UUID, failed: Bool) async {
+        guard var operation = loginOperation, operation.id == operationID else { return }
+        operation.waiters.remove(waiterID)
+        loginOperation = operation
+        guard operation.waiters.isEmpty else { return }
+        if failed {
+            operation.task.cancel()
+            await api.cancelPendingLogin()
+        }
+        if loginOperation?.id == operationID { loginOperation = nil }
+    }
+
+    private static func waitForLogin(_ task: Task<Void, Error>) async throws {
+        let race = CancellableResultRace<Void>()
+        let observer = Task { race.resolve(await task.result) }
+        defer { observer.cancel() }
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { race.install($0) }
+        } onCancel: {
+            race.cancel()
+        }
     }
 
     private func reportAuthenticationProblem(_ message: String) async {

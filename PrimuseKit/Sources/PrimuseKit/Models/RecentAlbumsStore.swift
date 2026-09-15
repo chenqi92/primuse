@@ -1,5 +1,4 @@
 import Foundation
-import Darwin
 
 /// Stores recent album info in App Group UserDefaults for Widget access.
 public struct RecentAlbumEntry: Codable, Sendable {
@@ -19,22 +18,32 @@ public struct RecentAlbumEntry: Codable, Sendable {
 public enum RecentAlbumsStore {
     private static let key = "recentAlbums"
     private static let maxCount = 8
+    // Only the app writes this snapshot; widgets read the complete Data value.
+    // Serialize app writers without holding a file lock across iOS suspension.
+    private static let lock = NSLock()
 
     public static func load() -> [RecentAlbumEntry] {
-        withInterprocessLock { loadUnlocked() }
+        load(from: UserDefaults(suiteName: PrimuseConstants.appGroupIdentifier))
     }
 
-    private static func loadUnlocked() -> [RecentAlbumEntry] {
-        guard let defaults = UserDefaults(suiteName: PrimuseConstants.appGroupIdentifier),
-              let data = defaults.data(forKey: key) else {
+    static func load(from defaults: UserDefaults?) -> [RecentAlbumEntry] {
+        lock.withLock { loadUnlocked(from: defaults) }
+    }
+
+    private static func loadUnlocked(from defaults: UserDefaults?) -> [RecentAlbumEntry] {
+        guard let data = defaults?.data(forKey: key) else {
             return []
         }
         return (try? JSONDecoder().decode([RecentAlbumEntry].self, from: data)) ?? []
     }
 
     public static func record(_ entry: RecentAlbumEntry) {
-        withInterprocessLock {
-            var albums = loadUnlocked()
+        record(entry, in: UserDefaults(suiteName: PrimuseConstants.appGroupIdentifier))
+    }
+
+    static func record(_ entry: RecentAlbumEntry, in defaults: UserDefaults?) {
+        lock.withLock {
+            var albums = loadUnlocked(from: defaults)
             // Remove existing entry with same id to avoid duplicates
             albums.removeAll { $0.id == entry.id }
             // Insert at front (most recent first)
@@ -43,12 +52,12 @@ public enum RecentAlbumsStore {
             if albums.count > maxCount {
                 albums = Array(albums.prefix(maxCount))
             }
-            save(albums)
+            save(albums, in: defaults)
         }
     }
 
-    private static func save(_ albums: [RecentAlbumEntry]) {
-        guard let defaults = UserDefaults(suiteName: PrimuseConstants.appGroupIdentifier),
+    private static func save(_ albums: [RecentAlbumEntry], in defaults: UserDefaults?) {
+        guard let defaults,
               let data = try? JSONEncoder().encode(albums) else {
             return
         }
@@ -56,26 +65,12 @@ public enum RecentAlbumsStore {
     }
 
     public static func clear() {
-        withInterprocessLock {
-            UserDefaults(suiteName: PrimuseConstants.appGroupIdentifier)?.removeObject(forKey: key)
-        }
+        clear(in: UserDefaults(suiteName: PrimuseConstants.appGroupIdentifier))
     }
 
-    /// App and widget extension can update the same app-group defaults from
-    /// separate processes. A small advisory lock makes read-modify-write atomic
-    /// for every Primuse participant.
-    private static func withInterprocessLock<T>(_ body: () -> T) -> T {
-        guard let directory = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
-        ) else { return body() }
-        let path = directory.appendingPathComponent("recent-albums.lock").path
-        let fd = Darwin.open(path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
-        guard fd >= 0 else { return body() }
-        defer {
-            _ = flock(fd, LOCK_UN)
-            _ = Darwin.close(fd)
+    static func clear(in defaults: UserDefaults?) {
+        lock.withLock {
+            defaults?.removeObject(forKey: key)
         }
-        guard flock(fd, LOCK_EX) == 0 else { return body() }
-        return body()
     }
 }

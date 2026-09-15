@@ -21,6 +21,10 @@ final class PlaybackSourceAvailabilityTests: XCTestCase {
             let sourceWide = await player.isSourceWideResolutionFailure(error, sourceID: "fn-test")
             XCTAssertTrue(sourceWide)
         }
+        let loginTimeoutIsSourceWide = await player.isSourceWideResolutionFailure(
+            FnMusicSource.LoginTimeoutError(), sourceID: "fn-test"
+        )
+        XCTAssertTrue(loginTimeoutIsSourceWide)
         for error: Error in [SourceError.fileNotFound("one-track"),
                              SourceError.connectionFailed("媒体端点：resource not found"),
                              URLError(.timedOut)] {

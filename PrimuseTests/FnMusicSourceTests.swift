@@ -6,6 +6,73 @@ import XCTest
 
 @MainActor
 final class FnMusicSourceTests: XCTestCase {
+    func testLateLoginCancellationKeepsEstablishedSession() async throws {
+        let host = UUID().uuidString.lowercased() + ".invalid"
+        FnMusicSourceURLProtocol.register(host: host, loginDelay: 0, discoveryDelay: 0)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [FnMusicSourceURLProtocol.self]
+        let api = FnMusicAPI(sourceID: host, host: host, port: 5667, useSSL: true,
+                             basePath: nil, connectionMode: .address, accessCode: nil,
+                             session: URLSession(configuration: configuration))
+        try await api.login(username: "qa", password: "test")
+        await api.cancelPendingLogin()
+        let loggedIn = await api.isLoggedIn
+        XCTAssertTrue(loggedIn)
+        XCTAssertEqual(FnMusicSourceURLProtocol.loginCount(host: host), 1)
+    }
+
+    func testCancelledFNLoginWaiterDoesNotCancelAnotherSourceOrSharedLogin() async throws {
+        let source = makeSource(loginDelay: 0.5)
+        let first = Task { try await source.connect() }
+        let second = Task { try await source.connect() }
+        try await Task.sleep(for: .milliseconds(100))
+        first.cancel()
+        do { try await first.value; XCTFail("Cancelled waiter should return") } catch is CancellationError {}
+        let otherSource = makeSource()
+        try await otherSource.connect()
+        try await second.value
+        let sourceID = await source.sourceID
+        XCTAssertEqual(FnMusicSourceURLProtocol.loginCount(host: sourceID), 1)
+    }
+
+    func testFNLoginDeadlineReleasesWaitingPlaybackAndCanRetry() async throws {
+        let source = makeSource(loginDelay: 5, loginTimeout: 0.1)
+        let start = Date()
+        do { try await source.connect(); XCTFail("Expected bounded login timeout") }
+        catch { XCTAssertTrue(error is FnMusicSource.LoginTimeoutError) }
+        XCTAssertLessThan(Date().timeIntervalSince(start), 2)
+        let sourceID = await source.sourceID
+        FnMusicSourceURLProtocol.setLoginDelay(0, host: sourceID)
+        try await source.connect()
+        XCTAssertEqual(FnMusicSourceURLProtocol.loginCount(host: sourceID), 2)
+    }
+
+    func testDisconnectCancelsFNDiscoveryAndNextGenerationCanConnect() async throws {
+        let source = makeSource(connectionMode: .fnConnect, discoveryDelay: 5)
+        let pending = Task { try await source.connect() }
+        try await Task.sleep(for: .milliseconds(100))
+        await source.disconnect()
+        do { try await pending.value; XCTFail("Retired discovery must be cancelled") }
+        catch { XCTAssertTrue(OperationCancellationPolicy.isCancellation(error)) }
+        let sourceID = await source.sourceID
+        FnMusicSourceURLProtocol.setDiscoveryDelay(0, host: sourceID)
+        try await source.connect()
+        XCTAssertEqual(FnMusicSourceURLProtocol.loginCount(host: sourceID), 1)
+    }
+
+    func testFNDiagnosticAllowsLoginBeyondTheGenericFifteenSecondBudget() async throws {
+        let connector = makeSource(loginDelay: 16)
+        let sourceID = await connector.sourceID
+        XCTAssertTrue(KeychainService.setPassword("test", for: sourceID))
+        defer { _ = KeychainService.deletePassword(for: sourceID) }
+        let source = MusicSource(id: sourceID, name: "FN diagnostic", type: .fnMusic,
+                                 host: sourceID, username: "qa")
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let report = await manager.diagnose(source: source)
+        XCTAssertEqual(report.summaryStatus, .passed)
+        XCTAssertEqual(FnMusicSourceURLProtocol.loginCount(host: sourceID), 1)
+    }
+
     func testLibraryIdentityEncodingPreservesExistingIDs() {
         for input in ["", "Artist:Album", "陈奕迅:十年", "a\u{0}b", String(repeating: "音乐", count: 500)] {
             let expected = SHA256.hash(data: Data(input.utf8)).prefix(16)
@@ -491,14 +558,20 @@ final class FnMusicSourceTests: XCTestCase {
         XCTAssertEqual(disconnects, 1)
     }
 
-    private func makeSource() -> FnMusicSource {
-        let host = UUID().uuidString.lowercased() + ".invalid"
-        FnMusicSourceURLProtocol.register(host: host)
+    private func makeSource(
+        connectionMode: FnMusicConnectionMode = .address,
+        loginDelay: TimeInterval = 0,
+        discoveryDelay: TimeInterval = 0,
+        loginTimeout: TimeInterval = FnMusicSource.connectionTimeout
+    ) -> FnMusicSource {
+        let host = UUID().uuidString.lowercased() + (connectionMode == .address ? ".invalid" : "")
+        FnMusicSourceURLProtocol.register(host: host, loginDelay: loginDelay, discoveryDelay: discoveryDelay)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [FnMusicSourceURLProtocol.self]
         return FnMusicSource(sourceID: host, host: host, port: 5667, useSSL: true,
-                             basePath: nil, connectionMode: .address, accessCode: nil,
-                             username: "qa", password: "test", session: URLSession(configuration: configuration))
+                             basePath: nil, connectionMode: connectionMode, accessCode: nil,
+                             username: "qa", password: "test", session: URLSession(configuration: configuration),
+                             loginTimeout: loginTimeout)
     }
 }
 
@@ -557,20 +630,71 @@ private actor FnMusicScanFixtureConnector: RefreshingMetadataSongConnector {
 
 private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
-    nonisolated(unsafe) private static var states: [String: (logins: Int, favorite: Bool)] = [:]
-    static func register(host: String) { lock.withLock { states[host] = (0, false) } }
+    private struct State {
+        var logins = 0
+        var favorite = false
+        var loginDelay: TimeInterval
+        var discoveryDelay: TimeInterval
+    }
+    nonisolated(unsafe) private static var states: [String: State] = [:]
+    private let responseLock = NSLock()
+    private var stopped = false
+    static func register(host: String, loginDelay: TimeInterval, discoveryDelay: TimeInterval) {
+        lock.withLock { states[host] = State(loginDelay: loginDelay, discoveryDelay: discoveryDelay) }
+    }
+    static func setLoginDelay(_ delay: TimeInterval, host: String) {
+        lock.withLock { states[host]?.loginDelay = delay }
+    }
+    static func setDiscoveryDelay(_ delay: TimeInterval, host: String) {
+        lock.withLock { states[host]?.discoveryDelay = delay }
+    }
     static func loginCount(host: String) -> Int { lock.withLock { states[host]?.logins ?? 0 } }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         guard let url = request.url else { return }
+        if url.path == "/api/v1/fn/con" {
+            let body: Data
+            if let data = request.httpBody {
+                body = data
+            } else if let stream = request.httpBodyStream {
+                stream.open()
+                defer { stream.close() }
+                var result = Data()
+                var buffer = [UInt8](repeating: 0, count: 1024)
+                while stream.hasBytesAvailable {
+                    let count = stream.read(&buffer, maxLength: buffer.count)
+                    guard count > 0 else { break }
+                    result.append(buffer, count: count)
+                }
+                body = result
+            } else { body = Data() }
+            let payload = (try? JSONSerialization.jsonObject(with: body)) as? [String: String]
+            guard let fnID = payload?["fnId"] else { return }
+            let delay = Self.lock.withLock { Self.states[fnID]?.discoveryDelay ?? 0 }
+            let data = try! JSONSerialization.data(withJSONObject: [
+                "code": 0, "data": ["fn": ["\(fnID).fnos.net"]]
+            ])
+            respond(status: 200, headers: ["Content-Type": "application/json"], data: data, delay: delay)
+            return
+        }
+        let host = url.host!.hasSuffix(".fnos.net") ? String(url.host!.dropLast(".fnos.net".count)) : url.host!
+        let delay = Self.lock.withLock {
+            url.lastPathComponent == "password-login" ? Self.states[host]?.loginDelay ?? 0 : 0
+        }
         let (status, headers, data): (Int, [String: String], Data) = Self.lock.withLock {
-            var state = Self.states[url.host!]!
-            defer { Self.states[url.host!] = state }
+            var state = Self.states[host]!
+            defer { Self.states[host] = state }
             let jsonHeaders = ["Content-Type": "application/json"]
             func json(_ payload: Any) -> Data { try! JSONSerialization.data(withJSONObject: payload) }
             func page(_ items: [[String: Any]]) -> Data { json(["code": 0, "data": ["list": items, "total": items.count]]) }
             switch url.lastPathComponent {
+            case "access_code_verify":
+                return (204, [:], Data())
+            case "config":
+                return (200, jsonHeaders, json(["code": 0, "data": [:]]))
+            case "list" where url.path.contains("/track/list"):
+                return (200, jsonHeaders, page([]))
             case "password-login":
                 state.logins += 1
                 return (200, jsonHeaders, json(["code": 200, "data": ["userToken": "token-\(state.logins)"]]))
@@ -590,11 +714,26 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
                 return (404, jsonHeaders, Data())
             }
         }
-        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: headers)!, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: data)
-        client?.urlProtocolDidFinishLoading(self)
+        respond(status: status, headers: headers, data: data, delay: delay)
     }
-    override func stopLoading() {}
+    private func respond(status: Int, headers: [String: String], data: Data, delay: TimeInterval) {
+        let deliver: @Sendable () -> Void = { [self] in
+            responseLock.withLock {
+                guard !stopped else { return }
+                client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: headers)!, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: data)
+                client?.urlProtocolDidFinishLoading(self)
+            }
+        }
+        if delay > 0 {
+            DispatchQueue.global().asyncAfter(deadline: .now() + delay, execute: deliver)
+        } else {
+            deliver()
+        }
+    }
+    override func stopLoading() {
+        responseLock.withLock { stopped = true }
+    }
 }
 
 /// connect() 成功、目录探测失败的假 connector, 记录 connect/disconnect 次数。

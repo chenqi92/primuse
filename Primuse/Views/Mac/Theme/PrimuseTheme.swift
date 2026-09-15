@@ -1078,9 +1078,10 @@ final class PMScrollViewStyle {
             forName: NSWindow.didUpdateNotification, object: nil, queue: .main
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
-            // The observer is delivered on OperationQueue.main. Avoid enqueuing
-            // another run-loop turn for every otherwise unchanged window update.
-            MainActor.assumeIsolated {
+            // AppKit can deliver this from a run-loop callback without a Swift
+            // executor context, even on OperationQueue.main.
+            DispatchQueue.main.async { [weak self, weak window] in
+                guard let window else { return }
                 self?.update(window)
             }
         })
