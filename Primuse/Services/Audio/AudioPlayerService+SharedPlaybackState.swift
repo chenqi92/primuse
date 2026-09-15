@@ -188,7 +188,9 @@ extension AudioPlayerService {
             snapshotQueueIDs = queueEntries.map(\.song.id)
             snapshotCurrentIndex = currentIndex
             snapshotShuffleOrder = shuffleEnabled ? shuffledIndices : []
-            snapshotShufflePosition = shuffleEnabled ? shufflePosition : 0
+            snapshotShufflePosition = shuffleEnabled
+                ? (shuffleAnchorPosition ?? shufflePosition)
+                : 0
             snapshotPendingOrder = shuffleEnabled ? pendingNextShuffleIndices : nil
         } else {
             // Direct playback can briefly have no canonical queue. Persisting

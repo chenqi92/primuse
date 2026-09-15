@@ -245,6 +245,27 @@ extension AudioPlayerService {
         )
     }
 
+    /// The position the playing slot actually occupies in the managed shuffle
+    /// round. Presentation, traversal, reorder and removal all read this, so a
+    /// `shufflePosition` left behind by an earlier state cannot make Up Next
+    /// describe a different successor than the one advance will pick.
+    var shuffleAnchorPosition: Int? {
+        ShuffleTraversalAnchorPolicy.anchorPosition(
+            traversalIndices: shuffledIndices,
+            currentIndex: currentIndex,
+            shufflePosition: shufflePosition
+        )
+    }
+
+    /// Repair the cached hint. Only mutating paths call this: a SwiftUI
+    /// presentation getter must not write observed playback state.
+    @discardableResult
+    func normalizeShufflePosition() -> Int? {
+        guard let anchor = shuffleAnchorPosition else { return nil }
+        if shufflePosition != anchor { shufflePosition = anchor }
+        return anchor
+    }
+
     func nextQueueEntryInQueue(
         respectsRepeatOne: Bool = true
     ) -> QueueEntry? {
@@ -301,8 +322,7 @@ extension AudioPlayerService {
         result.reserveCapacity(maximumCount)
 
         if shuffleEnabled {
-            let anchorPosition = shuffledIndices.firstIndex(of: currentIndex)
-                ?? min(max(shufflePosition, -1), shuffledIndices.count - 1)
+            let anchorPosition = shuffleAnchorPosition ?? -1
             var cursor = anchorPosition
             while result.count < maximumCount,
                   let position = QueueTraversalPolicy.nextAvailableTraversalPosition(
@@ -380,8 +400,7 @@ extension AudioPlayerService {
         }
 
         if shuffleEnabled {
-            let anchorPosition = shuffledIndices.firstIndex(of: currentIndex)
-                ?? min(max(shufflePosition, 0), max(0, shuffledIndices.count - 1))
+            let anchorPosition = shuffleAnchorPosition ?? 0
             if let position = QueueTraversalPolicy.previousAvailableTraversalPosition(
                 in: shuffledIndices,
                 queueCount: queueEntries.count,
@@ -451,6 +470,10 @@ extension AudioPlayerService {
             shufflePosition = position
         }
         currentIndex = target.queueIndex
+        // A target rebuilt from a stale snapshot fails the guards above. The
+        // index still moves, so repair the hint here rather than leaving the
+        // round cut at a position that no longer holds the playing slot.
+        if usesManagedShuffleOrder { normalizeShufflePosition() }
     }
 
     @discardableResult

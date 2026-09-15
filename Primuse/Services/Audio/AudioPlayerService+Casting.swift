@@ -1864,7 +1864,8 @@ extension AudioPlayerService {
         if usesManagedShuffleOrder {
             switch roundOffset {
             case 0:
-                let start = min(max(shufflePosition + 1, 0), shuffledIndices.count)
+                let anchor = normalizeShufflePosition() ?? shufflePosition
+                let start = min(max(anchor + 1, 0), shuffledIndices.count)
                 let currentRawIndices = Array(shuffledIndices.dropFirst(start))
                 let actualCurrentRoundIDs = currentRawIndices.compactMap { index in
                     queueEntries.indices.contains(index) ? queueEntries[index].id : nil
@@ -1920,6 +1921,9 @@ extension AudioPlayerService {
     func removeUpcomingQueueEntry(_ occurrence: QueueReorderOccurrenceID) -> Bool {
         guard canRemoveUpcomingQueueEntries,
               queueEntries.indices.contains(currentIndex) else { return false }
+        // Rebasing the round is checked against the playing slot's position, so
+        // a stale hint would reject the deletion instead of applying it.
+        if usesManagedShuffleOrder { normalizeShufflePosition() }
 
         let currentUpcoming = upcomingQueueEntries.map {
             QueueReorderOccurrenceID(
@@ -2019,7 +2023,7 @@ extension AudioPlayerService {
                 // Pull the tapped track into the current shuffle position. The
                 // displaced index moves to where the tapped one was, so every
                 // other position keeps its relative order (no reshuffle).
-                let anchorPos = min(max(shufflePosition, 0), shuffledIndices.count - 1)
+                let anchorPos = shuffleAnchorPosition ?? 0
                 shuffledIndices.swapAt(anchorPos, targetPos)
                 shufflePosition = anchorPos
             }
@@ -2037,7 +2041,7 @@ extension AudioPlayerService {
             queueCount: queueEntries.count,
             currentIndex: currentIndex,
             shuffledIndices: usesManagedShuffleOrder ? shuffledIndices : nil,
-            shufflePosition: shufflePosition
+            shufflePosition: shuffleAnchorPosition ?? shufflePosition
         )
         return presentationEntries(for: occurrences)
     }
@@ -2054,7 +2058,7 @@ extension AudioPlayerService {
             queueCount: queueEntries.count,
             currentIndex: currentIndex,
             shuffledIndices: usesManagedShuffleOrder ? shuffledIndices : nil,
-            shufflePosition: shufflePosition,
+            shufflePosition: shuffleAnchorPosition ?? shufflePosition,
             nextRoundIndices: nextRoundIndices
         )
         return presentationEntries(for: occurrences)
