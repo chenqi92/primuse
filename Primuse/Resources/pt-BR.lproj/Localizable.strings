@@ -1287,6 +1287,9 @@
 "files_scanned" = "arquivos verificados";
 "filter_albums_placeholder" = "Filtrar álbuns…";
 "filter_artists_placeholder" = "Filtrar artistas…";
+"artist_layout" = "Exibição";
+"artist_layout_grid" = "Grade";
+"artist_layout_list" = "Lista";
 "filter_by" = "Filtro";
 "filter_downloaded" = "Baixado";
 "filter_downloaded_empty_desc" = "As músicas baixadas para reprodução offline aparecem aqui.";

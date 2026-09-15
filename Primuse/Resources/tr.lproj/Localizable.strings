@@ -2086,6 +2086,9 @@
 "home_radio_wall_badge" = "CANLI";
 "ai_error_keychain" = "API anahtarı güvenli bir şekilde kaydedilemedi veya okunamadı.";
 "filter_artists_placeholder" = "Sanatçıları filtrele…";
+"artist_layout" = "Görünüm";
+"artist_layout_grid" = "Izgara";
+"artist_layout_list" = "Liste";
 "home_mode_switch_a11y" = "Müzik ve radyo arasında geçiş yapın";
 "Clean Up Now" = "Şimdi Temizleyin";
 "scraper_review_headers" = "Başlıklar";

@@ -2152,6 +2152,9 @@
 "filter_songs_placeholder" = "Filter songs…";
 "filter_albums_placeholder" = "Filter albums…";
 "filter_artists_placeholder" = "Filter artists…";
+"artist_layout" = "Layout";
+"artist_layout_grid" = "Grid";
+"artist_layout_list" = "List";
 "onboarding_experience_title" = "More than listening on your phone";
 "onboarding_experience_media" = "Lossless audio, word-synced lyrics, and music videos";
 "onboarding_experience_devices" = "AirPlay, DLNA, Apple TV, and in-car playback";

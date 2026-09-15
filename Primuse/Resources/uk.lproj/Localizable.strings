@@ -2086,6 +2086,9 @@
 "home_radio_wall_badge" = "НАЖИВО";
 "ai_error_keychain" = "Ключ API не вдалося зберегти або безпечно прочитати.";
 "filter_artists_placeholder" = "Фільтрувати виконавців…";
+"artist_layout" = "Вигляд";
+"artist_layout_grid" = "Сітка";
+"artist_layout_list" = "Список";
 "home_mode_switch_a11y" = "Перемикання між музикою та радіо";
 "Clean Up Now" = "Прибирай зараз";
 "scraper_review_headers" = "Заголовки";

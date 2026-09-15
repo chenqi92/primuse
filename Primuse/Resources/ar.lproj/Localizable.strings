@@ -1287,6 +1287,9 @@
 "files_scanned" = "الملفات الممسوحة ضوئيا";
 "filter_albums_placeholder" = "تصفية الألبومات...";
 "filter_artists_placeholder" = "تصفية الفنانين…";
+"artist_layout" = "العرض";
+"artist_layout_grid" = "شبكة";
+"artist_layout_list" = "قائمة";
 "filter_by" = "تصفية";
 "filter_downloaded" = "تم التحميل";
 "filter_downloaded_empty_desc" = "تظهر هنا الأغاني التي تم تنزيلها للتشغيل دون الاتصال بالإنترنت.";

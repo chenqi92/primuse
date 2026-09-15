@@ -1,9 +1,40 @@
 import SwiftUI
 import PrimuseKit
 
+/// iPhone / iPad 上艺术家页的版式。Mac 走 master-detail，不参与这个开关。
+enum ArtistLayoutMode: String, CaseIterable, Identifiable {
+    case grid
+    case list
+
+    var id: String { rawValue }
+
+    var titleKey: String.LocalizationValue {
+        switch self {
+        case .grid: return "artist_layout_grid"
+        case .list: return "artist_layout_list"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .grid: return "circle.grid.2x2"
+        case .list: return "list.bullet"
+        }
+    }
+
+    static let storageKey = "artist.layoutMode"
+}
+
 struct ArtistListView: View {
     let artists: [Artist]
     @State private var searchText: String = ""
+
+    @AppStorage(ArtistLayoutMode.storageKey)
+    private var layoutModeRaw = ArtistLayoutMode.grid.rawValue
+
+    private var layoutMode: ArtistLayoutMode {
+        ArtistLayoutMode(rawValue: layoutModeRaw) ?? .grid
+    }
 
     private var filteredArtists: [Artist] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -39,27 +70,12 @@ struct ArtistListView: View {
                 systemImage: "music.mic"
             )
         } else {
-            List(filteredArtists) { artist in
-                NavigationLink(value: artist) {
-                    HStack(spacing: 12) {
-                        ArtistArtworkView(
-                            artist: artist,
-                            size: 44,
-                            cornerRadius: 22
-                        )
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(displayName(for: artist))
-                                .font(.body)
-
-                            Text("\(artist.albumCount) \(String(localized: "albums_count")) · \(artist.songCount) \(String(localized: "songs_count"))")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+            Group {
+                switch layoutMode {
+                case .grid: artistGrid
+                case .list: artistList
                 }
             }
-            .listStyle(.plain)
             .overlay {
                 if filteredArtists.isEmpty {
                     ContentUnavailableView.search(text: searchText)
@@ -71,8 +87,93 @@ struct ArtistListView: View {
                 placement: .navigationBarDrawer(displayMode: .always),
                 prompt: Text("filter_artists_placeholder")
             )
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    layoutMenu
+                }
+            }
             #endif
         }
+    }
+
+    #if os(iOS)
+    private var layoutMenu: some View {
+        Menu {
+            Picker("artist_layout", selection: $layoutModeRaw) {
+                ForEach(ArtistLayoutMode.allCases) { mode in
+                    Label(String(localized: mode.titleKey), systemImage: mode.icon)
+                        .tag(mode.rawValue)
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Label("artist_layout", systemImage: layoutMode.icon)
+        }
+    }
+    #endif
+
+    /// 圆形头像网格。`.adaptive` 让 iPhone 落到两列、iPad 自然摊开更多列,
+    /// 和专辑网格用的是同一套断点。
+    private var gridColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: 150), spacing: 16)]
+    }
+
+    private var artistGrid: some View {
+        ScrollView {
+            LazyVGrid(columns: gridColumns, spacing: 24) {
+                ForEach(filteredArtists) { artist in
+                    NavigationLink(value: artist) {
+                        artistGridCell(artist)
+                    }
+                    .buttonStyle(.plain)
+                    .mediaZoomSource(.artist, id: artist.id)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 18)
+        }
+    }
+
+    private func artistGridCell(_ artist: Artist) -> some View {
+        VStack(spacing: 10) {
+            ArtistArtworkView(artist: artist, cornerRadius: 0)
+                .clipShape(Circle())
+                // 浅色照片在浅色背景上会糊掉边界,补一圈发丝线。
+                .overlay {
+                    Circle().strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+                }
+
+            Text(displayName(for: artist))
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity)
+        }
+    }
+
+    private var artistList: some View {
+        List(filteredArtists) { artist in
+            NavigationLink(value: artist) {
+                HStack(spacing: 12) {
+                    ArtistArtworkView(
+                        artist: artist,
+                        size: 44,
+                        cornerRadius: 22
+                    )
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(displayName(for: artist))
+                            .font(.body)
+
+                        Text("\(artist.albumCount) \(String(localized: "albums_count")) · \(artist.songCount) \(String(localized: "songs_count"))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .listStyle(.plain)
     }
 
     #if os(macOS)

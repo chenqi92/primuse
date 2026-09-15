@@ -2086,6 +2086,9 @@
 "home_radio_wall_badge" = "ПРЯМОЙ ЭФИР";
 "ai_error_keychain" = "Не удалось сохранить или безопасно прочитать ключ API.";
 "filter_artists_placeholder" = "Фильтровать исполнителей…";
+"artist_layout" = "Вид";
+"artist_layout_grid" = "Сетка";
+"artist_layout_list" = "Список";
 "home_mode_switch_a11y" = "Переключение между музыкой и радио.";
 "Clean Up Now" = "Убери сейчас";
 "scraper_review_headers" = "Заголовки";

@@ -1287,6 +1287,9 @@
 "files_scanned" = "przeskanowane pliki";
 "filter_albums_placeholder" = "Filtruj albumy…";
 "filter_artists_placeholder" = "Filtruj artystów…";
+"artist_layout" = "Widok";
+"artist_layout_grid" = "Siatka";
+"artist_layout_list" = "Lista";
 "filter_by" = "Filtr";
 "filter_downloaded" = "Pobrano";
 "filter_downloaded_empty_desc" = "Tutaj pojawiają się utwory pobrane do odtwarzania offline.";

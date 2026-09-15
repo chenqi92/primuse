@@ -1287,6 +1287,9 @@
 "files_scanned" = "फ़ाइलें स्कैन की गईं";
 "filter_albums_placeholder" = "एल्बम फ़िल्टर करें...";
 "filter_artists_placeholder" = "कलाकारों को फ़िल्टर करें...";
+"artist_layout" = "दिखावट";
+"artist_layout_grid" = "ग्रिड";
+"artist_layout_list" = "सूची";
 "filter_by" = "फ़िल्टर";
 "filter_downloaded" = "डाउनलोड किया गया";
 "filter_downloaded_empty_desc" = "ऑफ़लाइन प्लेबैक के लिए डाउनलोड किए गए गाने यहां दिखाई देते हैं।";

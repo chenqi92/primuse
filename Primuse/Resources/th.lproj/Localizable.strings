@@ -1287,6 +1287,9 @@
 "files_scanned" = "ไฟล์";
 "filter_albums_placeholder" = "กรองอัลบั้ม...";
 "filter_artists_placeholder" = "กรองศิลปิน...";
+"artist_layout" = "รูปแบบ";
+"artist_layout_grid" = "ตาราง";
+"artist_layout_list" = "รายการ";
 "filter_by" = "ตัวกรอง";
 "filter_downloaded" = "ดาวน์โหลดแล้ว";
 "filter_downloaded_empty_desc" = "เพลงที่ดาวน์โหลดสำหรับเล่นแบบออฟไลน์จะปรากฏที่นี่";

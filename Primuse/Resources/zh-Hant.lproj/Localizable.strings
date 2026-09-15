@@ -2287,6 +2287,9 @@
 "filter_songs_placeholder" = "篩選歌曲…";
 "filter_albums_placeholder" = "篩選專輯…";
 "filter_artists_placeholder" = "篩選藝人…";
+"artist_layout" = "版式";
+"artist_layout_grid" = "網格";
+"artist_layout_list" = "列表";
 "onboarding_experience_title" = "不只是在手機上聽歌";
 "onboarding_experience_media" = "無損音訊、逐字歌詞與 MV";
 "onboarding_experience_devices" = "支援 AirPlay、DLNA、Apple TV 與車載播放";

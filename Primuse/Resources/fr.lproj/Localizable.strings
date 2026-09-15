@@ -2302,6 +2302,9 @@
 "filter_songs_placeholder" = "Filtrer les titres…";
 "filter_albums_placeholder" = "Filtrer les albums…";
 "filter_artists_placeholder" = "Filtrer les artistes…";
+"artist_layout" = "Affichage";
+"artist_layout_grid" = "Grille";
+"artist_layout_list" = "Liste";
 "onboarding_experience_title" = "La musique au-delà du téléphone";
 "onboarding_experience_media" = "Audio sans perte, paroles mot à mot et clips vidéo";
 "onboarding_experience_devices" = "AirPlay, DLNA, Apple TV et lecture en voiture";

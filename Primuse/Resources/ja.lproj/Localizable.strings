@@ -2303,6 +2303,9 @@
 "filter_songs_placeholder" = "曲を絞り込む…";
 "filter_albums_placeholder" = "アルバムを絞り込む…";
 "filter_artists_placeholder" = "アーティストを絞り込む…";
+"artist_layout" = "表示";
+"artist_layout_grid" = "グリッド";
+"artist_layout_list" = "リスト";
 "onboarding_experience_title" = "スマートフォンだけにとどまらない音楽体験";
 "onboarding_experience_media" = "ロスレス音源、単語同期歌詞、ミュージックビデオ";
 "onboarding_experience_devices" = "AirPlay、DLNA、Apple TV、車載再生";

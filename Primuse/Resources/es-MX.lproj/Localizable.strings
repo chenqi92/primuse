@@ -1287,6 +1287,9 @@
 "files_scanned" = "archivos escaneados";
 "filter_albums_placeholder" = "Filtrar álbumes…";
 "filter_artists_placeholder" = "Filtrar artistas…";
+"artist_layout" = "Presentación";
+"artist_layout_grid" = "Cuadrícula";
+"artist_layout_list" = "Lista";
 "filter_by" = "Filtro";
 "filter_downloaded" = "Descargado";
 "filter_downloaded_empty_desc" = "Las canciones descargadas para reproducción sin conexión aparecen aquí.";

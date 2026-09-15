@@ -2302,6 +2302,9 @@
 "filter_songs_placeholder" = "곡 필터…";
 "filter_albums_placeholder" = "앨범 필터…";
 "filter_artists_placeholder" = "아티스트 필터…";
+"artist_layout" = "보기 방식";
+"artist_layout_grid" = "그리드";
+"artist_layout_list" = "목록";
 "onboarding_experience_title" = "휴대폰을 넘어서는 음악 경험";
 "onboarding_experience_media" = "무손실 오디오, 단어별 가사 및 뮤직비디오";
 "onboarding_experience_devices" = "AirPlay, DLNA, Apple TV 및 차량 재생";
