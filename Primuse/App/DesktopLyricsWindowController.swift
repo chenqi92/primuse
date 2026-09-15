@@ -20,6 +20,24 @@ final class DesktopLyricsWindowController {
     /// (音量/主题等高频) 触发, 只在 lock 真正变化时才动 panel, 避免主线程噪声。
     private var lastKnownLocked: Bool = false
 
+    /// autosave name 带 v2 后缀:之前默认 600x140 太窄会截断长歌词,
+    /// 改默认值时换 key 让老用户也跳到新的宽默认值,而不是停在旧
+    /// 持久化的 600pt 上看 ... 截断。
+    private static let frameAutosaveName = "PrimuseDesktopLyrics_v2"
+
+    /// 一次拖动的起点:按下瞬间的鼠标屏幕坐标 + panel 当时的原点。
+    /// 每个拖动事件都按"当前鼠标 - 起点鼠标"算绝对位移,而不是累加
+    /// SwiftUI 给的 translation —— panel 是跟着手一起走的,窗口坐标系
+    /// 里的位移每次都被自身的移动抵消回去,累加的写法会让窗口抖在原地。
+    private var dragAnchor: (mouse: NSPoint, origin: NSPoint)?
+
+    /// 直接读 UserDefaults 而不是 @AppStorage 包装,因为这个类不是
+    /// SwiftUI View,@AppStorage 的"自动跟随"在非 View 上下文里
+    /// 不一定每次都拿到最新值。
+    private var isLockedNow: Bool {
+        UserDefaults.standard.bool(forKey: "desktopLyricsLocked")
+    }
+
     /// 横向布局 (single/dual) 默认尺寸 —— 参考主流桌面歌词软件的宽度
     /// 习惯 (网易云 / QQ 音乐 / LyricsX 都是屏幕宽度 60-75%):跟随主屏
     /// visibleFrame 宽度的 70%,clamp 到 [900, 1400]。短边 (height) 固定
@@ -123,14 +141,60 @@ final class DesktopLyricsWindowController {
         // 锁定时:
         //   - 不再设 ignoresMouseEvents=true,否则 SwiftUI 收不到 hover,
         //     用户没法在 panel 上 hover 出解锁按钮。
-        //   - 关掉 isMovableByWindowBackground 防止误拖。
+        //   - 拖动由 updateWindowDrag 按锁定态拦掉,防止误拖。
         //   - 解锁路径:hover 浮现的锁按钮 / 菜单栏开关 / ⇧⌘L 快捷键。
-        // 直接读 UserDefaults 而不是 @AppStorage 包装,因为这个类不是
-        // SwiftUI View,@AppStorage 的"自动跟随"在非 View 上下文里
-        // 不一定每次都拿到最新值。
-        let isLocked = UserDefaults.standard.bool(forKey: "desktopLyricsLocked")
         panel?.ignoresMouseEvents = false
-        panel?.isMovableByWindowBackground = !isLocked
+        // 拖动过程中被锁上就把这次拖动作废,免得松手前还继续跟手。
+        if isLockedNow { dragAnchor = nil }
+    }
+
+    // MARK: - 窗口拖动
+
+    /// 桌面歌词的拖动自己做,不再交给 NSWindow.isMovableByWindowBackground ——
+    /// panel 的 contentView 是 SwiftUI 的承载视图,它会把背景区域的 mouseDown
+    /// 一并吃掉,AppKit 那条"点背景拖窗口"的路径就再也拿不到事件 (macOS 27 上
+    /// 表现为解锁状态下歌词完全拖不动,只能待在初始位置)。改由 SwiftUI 侧识别
+    /// 拖拽手势、这里直接搬 panel,行为在各版本 macOS 上都一致。
+    /// 锁定时直接不动,菜单栏/悬浮锁按钮解锁后才恢复。
+    private func updateWindowDrag() {
+        guard let panel, !isLockedNow else { return }
+        // 第一帧只记锚点:锚点同时取"此刻的鼠标位置"和"此刻的窗口原点",
+        // 之后的位移都相对这一刻算,所以起手不会有跳一下的偏移。
+        guard let anchor = dragAnchor else {
+            dragAnchor = (NSEvent.mouseLocation, panel.frame.origin)
+            return
+        }
+        let mouse = NSEvent.mouseLocation
+        panel.setFrameOrigin(NSPoint(
+            x: anchor.origin.x + (mouse.x - anchor.mouse.x),
+            y: anchor.origin.y + (mouse.y - anchor.mouse.y)
+        ))
+    }
+
+    private func endWindowDrag() {
+        guard dragAnchor != nil else { return }
+        dragAnchor = nil
+        // setFrameOrigin 是代码改的 frame,不会触发 autosave 的自动落盘,
+        // 松手时显式存一次,下次打开才回到用户拖好的位置。
+        panel?.saveFrame(usingName: Self.frameAutosaveName)
+    }
+
+    /// 存下来的 frame 可能整块落在屏幕外 (拔掉外接屏、换分辨率、显示器重新排列),
+    /// 那样窗口就"打开了但看不见"。只要和任何一块屏的可见区域都不相交就挪回主屏。
+    private func moveOnScreenIfNeeded(_ panel: NSPanel) {
+        let frame = panel.frame
+        guard !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(frame) }) else { return }
+        applyDefaultOrigin(panel)
+    }
+
+    /// 默认位置:横向居中、贴 Dock 上方。
+    private func applyDefaultOrigin(_ panel: NSPanel) {
+        guard let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame else { return }
+        let frame = panel.frame
+        panel.setFrameOrigin(NSPoint(
+            x: visible.midX - frame.width / 2,
+            y: visible.minY + 80
+        ))
     }
 
     private func makePanel() -> NSPanel {
@@ -147,37 +211,37 @@ final class DesktopLyricsWindowController {
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.level = .floating
-        panel.isMovableByWindowBackground = true
+        // 拖动改由 updateWindowDrag 负责,这里保持关闭:
+        // 两条路径同时生效会把同一次拖动算两遍,窗口跑得比鼠标快一倍。
+        panel.isMovableByWindowBackground = false
         panel.isFloatingPanel = true
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
         panel.hidesOnDeactivate = false
         panel.minSize = NSSize(width: 90, height: 70)
-        // autosave name 带 v2 后缀:之前默认 600x140 太窄会截断长歌词,
-        // 改默认值时换 key 让老用户也跳到新的宽默认值,而不是停在旧
-        // 持久化的 600pt 上看 ... 截断。
-        panel.setFrameAutosaveName("PrimuseDesktopLyrics_v2")
+        panel.setFrameAutosaveName(Self.frameAutosaveName)
+        // setFrameAutosaveName 只登记"以后自动存",不会把上次存的 frame 读回来
+        // (读是 setFrameUsingName 的事)。少了这一步,每次开桌面歌词都回到
+        // contentRect 给的 (0, 80) —— 也就是屏幕左下角偏上一点点,用户上次
+        // 拖到哪全白费。
+        if panel.setFrameUsingName(Self.frameAutosaveName) {
+            moveOnScreenIfNeeded(panel)
+        } else {
+            applyDefaultOrigin(panel)
+        }
 
         let host = NSHostingController(
             rootView: DesktopLyricsView(
                 onClose: { [weak self] in self?.hide() },
                 onLayoutChange: { [weak self] layout in
                     self?.applyLayoutSize(layout)
-                }
+                },
+                onWindowDragChanged: { [weak self] in self?.updateWindowDrag() },
+                onWindowDragEnded: { [weak self] in self?.endWindowDrag() }
             ).applyPrimuseEnvironments()
         )
         host.view.frame = panel.contentView?.bounds ?? .zero
         host.view.autoresizingMask = [.width, .height]
         panel.contentView = host.view
-
-        // 默认横向居中、贴 Dock 上方;v2 autosave 没保存过 frame 时
-        // (origin == .zero) 走这条路径,保存过就跟随用户上次拖到的位置。
-        if let screen = NSScreen.main, panel.frame.origin == .zero {
-            let frame = panel.frame
-            panel.setFrameOrigin(NSPoint(
-                x: screen.visibleFrame.midX - frame.width / 2,
-                y: screen.visibleFrame.minY + 80
-            ))
-        }
         return panel
     }
 }

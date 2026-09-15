@@ -20,6 +20,11 @@ struct DesktopLyricsView: View {
     /// 把 panel 拉成横宽或竖窄。SwiftUI 内部的 GeometryReader 会跟着
     /// 新尺寸刷新字号。
     var onLayoutChange: ((DesktopLyricsLayout) -> Void)? = nil
+    /// 面板拖动回调,由 controller 注入并真正搬动 NSPanel。桌面歌词不能靠
+    /// NSWindow 自带的"点背景拖窗口":SwiftUI 承载视图会把背景区域的
+    /// mouseDown 吃掉,AppKit 那条路径收不到事件,面板就怎么都拖不动。
+    var onWindowDragChanged: (() -> Void)? = nil
+    var onWindowDragEnded: (() -> Void)? = nil
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(SourceManager.self) private var sourceManager
@@ -58,6 +63,29 @@ struct DesktopLyricsView: View {
             return preferences.coverDrivenAmbient ? theme.accentColor : theme.uiAccentColor
         }
         return Color.fromHexString(colorHex) ?? .white
+    }
+
+    /// 四边留给 NSPanel 自己做缩放的宽度 —— 从这条边带里起手的拖拽不当成
+    /// 移动面板,免得跟"从边缘拖拽改尺寸"抢同一个手势。
+    private static let resizeEdgeMargin: CGFloat = 8
+
+    /// 面板拖动 —— minimumDistance 给 2pt,工具栏按钮的点击 (位移 0) 就不会
+    /// 被误判成拖动。位移量不在这里算:面板跟着手一起走,局部坐标系里的
+    /// translation 会被面板自身的移动抵消掉;controller 那边按屏幕坐标算绝对
+    /// 位移,所以这里只负责告诉它"又拖了一帧 / 松手了"。
+    private func windowDragGesture(in size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 2)
+            .onChanged { value in
+                guard Self.allowsWindowDrag(from: value.startLocation, in: size) else { return }
+                onWindowDragChanged?()
+            }
+            .onEnded { _ in onWindowDragEnded?() }
+    }
+
+    private static func allowsWindowDrag(from start: CGPoint, in size: CGSize) -> Bool {
+        let m = resizeEdgeMargin
+        return start.x > m && start.y > m
+            && start.x < size.width - m && start.y < size.height - m
     }
 
     private var lyricsWritingDirection: LyricWritingDirection {
@@ -99,6 +127,13 @@ struct DesktopLyricsView: View {
                 .padding(.horizontal, 18)
                 .padding(.bottom, 16)
                 .frame(width: geo.size.width, height: geo.size.height)
+                // 关掉玻璃背景后面板整片透明,没有 contentShape 空白处按不到,
+                // 拖动就只能从有字的地方起手。
+                .contentShape(Rectangle())
+                // 用 .gesture 而不是 .highPriorityGesture:叠在上层的工具栏按钮、
+                // popover 有自己的手势,点按钮不会顺手把面板拖走。锁定时只留子
+                // 视图手势,悬浮的解锁按钮照样能点,面板本身不动。
+                .gesture(windowDragGesture(in: geo.size), including: locked ? .subviews : .all)
         }
         .frame(minWidth: minPanelSize.width, minHeight: minPanelSize.height)
         // 关掉 showBackground 就只剩浮动文字,跟锁定态一样无 chrome。
