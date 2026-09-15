@@ -1349,7 +1349,9 @@ actor ConnectorScanner {
             || existing.albumArtistName != incoming.albumArtistName
             || existing.albumTitle != incoming.albumTitle
             || existing.trackNumber != incoming.trackNumber
-            || existing.fileFormat != incoming.fileFormat
+            // 扫描按扩展名猜格式, 回填按文件签名修正格式 —— 两者对同一份字节
+            // 给出不同答案是常态。见 AudioFormat.describeSameBytes。
+            || !AudioFormat.describeSameBytes(existing.fileFormat, incoming.fileFormat)
         return sizeChanged || mtimeChanged || revisionChanged || revisionAdded || mtimeAdded
             || cueChanged
     }

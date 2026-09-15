@@ -120,6 +120,25 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
         }
     }
 
+    /// 回填会用文件签名把扫描按扩展名猜出的格式修正掉 —— `.wav` 容器里装的
+    /// DTS 流最终存成 `.dts`。修正只发生在读过字节的一侧: 此后扫描永远给
+    /// `.wav`、库里永远是 `.dts`, 两个值再也不会相等。
+    ///
+    /// 新增任何「按签名修正格式」的逻辑时必须同步往这里加一对, 否则那条
+    /// 修正就会让扫描与库永久分歧。
+    private static let signatureRefinements: [Set<AudioFormat>] = [
+        [.wav, .dts],
+    ]
+
+    /// 这两个格式是否可能描述同一份字节。
+    ///
+    /// 用在「文件内容有没有变」的判断上: 指纹一致时两边格式不等只说明识别
+    /// 口径不同, 不是文件被换过。把它当成内容变化会每次扫描都清掉已经补好
+    /// 的时长、标签和封面, 回填再补回来, 循环往复。
+    public static func describeSameBytes(_ lhs: AudioFormat, _ rhs: AudioFormat) -> Bool {
+        lhs == rhs || signatureRefinements.contains([lhs, rhs])
+    }
+
     /// UTI / file-type identifier for `AVAssetResourceLoadingContentInformationRequest.contentType`.
     /// Returns nil for formats AVPlayer can't play natively (FFmpeg-required) —
     /// caller falls back to full-download playback for those.

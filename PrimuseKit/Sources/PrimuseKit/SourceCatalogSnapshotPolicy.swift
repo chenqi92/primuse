@@ -224,8 +224,14 @@ public enum ServerSongCatalogMergePolicy {
         let cueChanged = existing.cueSheetPath != incoming.cueSheetPath
             || existing.cueStartTime != incoming.cueStartTime
             || existing.cueEndTime != incoming.cueEndTime
+        // 扫描按扩展名猜格式, 回填按文件签名修正格式 —— 两者对同一份字节给出
+        // 不同答案是常态, 不是文件被换过。见 AudioFormat.describeSameBytes。
+        let formatChanged = !AudioFormat.describeSameBytes(
+            existing.fileFormat,
+            incoming.fileFormat
+        )
         return sizeChanged || modifiedChanged || revisionChanged
-            || existing.fileFormat != incoming.fileFormat || cueChanged
+            || formatChanged || cueChanged
     }
 }
 

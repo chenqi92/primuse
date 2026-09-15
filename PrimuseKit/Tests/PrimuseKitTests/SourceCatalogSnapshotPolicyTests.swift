@@ -214,6 +214,29 @@ struct ServerSongCatalogMergePolicyTests {
         ))
     }
 
+    /// 回填用文件签名把 `.wav` 容器里的 DTS 流修正成 `.dts` 存进库, 而扫描
+    /// 只看扩展名, 永远给 `.wav`。指纹一模一样时这不是"文件被换过" —— 当成
+    /// 内容变化会每次扫描都把补好的时长、标签和封面清掉, 回填再补回来。
+    @Test func signatureRefinedFormatIsNotAContentReplacement() {
+        var existing = song(revision: "r1")
+        existing.fileFormat = .dts
+        var rescanned = existing
+        rescanned.fileFormat = .wav
+
+        #expect(!ServerSongCatalogMergePolicy.contentChanged(
+            existing: existing,
+            incoming: rescanned
+        ))
+
+        // 指纹本身变了仍然是内容替换, 放宽不能把这种情况也吃掉。
+        var replaced = rescanned
+        replaced.revision = "r2"
+        #expect(ServerSongCatalogMergePolicy.contentChanged(
+            existing: existing,
+            incoming: replaced
+        ))
+    }
+
     private func song(revision: String) -> Song {
         Song(
             id: "song",
