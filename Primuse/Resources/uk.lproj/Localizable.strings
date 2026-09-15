@@ -3864,3 +3864,28 @@
 "lyric_poster_style_cassette" = "Касета";
 "lyric_poster_style_fallback" = "Постер";
 "lyric_poster_overflow_hint" = "Забагато рядків для цього формату — виберіть вищий формат або менше рядків";
+
+// MARK: - Radio folders, tags & logo link
+"radio_search_placeholder" = "Пошук станцій, тек або тегів";
+"radio_folder_all" = "Усі";
+"radio_folder_ungrouped" = "Без теки";
+"radio_folder_new" = "Нова тека";
+"radio_folder_name" = "Назва теки";
+"radio_folder_rename" = "Перейменувати теку";
+"radio_folder_delete" = "Видалити теку";
+"radio_folder_delete_message" = "Станції повернуться до «Без теки» і не будуть видалені.";
+"radio_folder_move" = "Перемістити до теки";
+"radio_folder_remove_from" = "Прибрати з теки";
+"radio_tags" = "Теги";
+"radio_tag_new" = "Новий тег";
+"radio_tag_name" = "Назва тега";
+"radio_tag_rename" = "Перейменувати тег";
+"radio_tag_delete" = "Видалити тег";
+"radio_tag_delete_message" = "Цей тег буде знято з усіх станцій.";
+"radio_filter_empty_title" = "Немає відповідних станцій";
+"radio_filter_empty_description" = "Жодна станція не відповідає поточній теці, тегам або пошуку.";
+"radio_filter_clear" = "Очистити фільтри";
+"radio_logo_url" = "Посилання на зображення";
+"radio_logo_url_hint" = "Вставте http- або https-адресу зображення. Її буде використано, якщо логотип не вибрано.";
+"radio_logo_url_invalid" = "Введіть коректну http- або https-адресу зображення.";
+"radio_batch_import_into" = "Імпортувати до";

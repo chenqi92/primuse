@@ -121,6 +121,12 @@ public struct RadioStation: Codable, Identifiable, Hashable, Sendable {
     public var remoteLogoURL: String?
     /// 远程台标是从哪来的。决定一个新发现的候选值不值得覆盖它。
     public var remoteLogoSource: RadioLogoSource?
+    /// 用户给这个电台归的文件夹。一个电台最多进一个文件夹，没有就是「未分组」。
+    /// 存名字而不是 id：文件夹本身没有独立记录，见 `RadioStationOrganization`。
+    public var folderName: String?
+    /// 用户贴在这个电台上的标签。可选而不是空数组 —— 旧快照里没有这个键，
+    /// 合成的 `Codable` 要靠可选类型才解得出来。
+    public var tagNames: [String]?
 
     public init(
         id: String = UUID().uuidString,
@@ -142,7 +148,9 @@ public struct RadioStation: Codable, Identifiable, Hashable, Sendable {
         sourcePlaybackPath: String? = nil,
         homepageURL: String? = nil,
         remoteLogoURL: String? = nil,
-        remoteLogoSource: RadioLogoSource? = nil
+        remoteLogoSource: RadioLogoSource? = nil,
+        folderName: String? = nil,
+        tagNames: [String]? = nil
     ) {
         self.id = id
         self.name = name
@@ -164,6 +172,18 @@ public struct RadioStation: Codable, Identifiable, Hashable, Sendable {
         self.homepageURL = homepageURL
         self.remoteLogoURL = remoteLogoURL
         self.remoteLogoSource = remoteLogoSource
+        self.folderName = folderName
+        self.tagNames = tagNames
+    }
+
+    /// 归一化之后的标签。界面和筛选一律走这里，免得各处自己判空、自己去重。
+    public var assignedTagNames: [String] {
+        RadioStationOrganization.normalizedTagNames(tagNames) ?? []
+    }
+
+    /// 归一化之后的文件夹名，空白串一律当作没有文件夹。
+    public var assignedFolderName: String? {
+        RadioStationOrganization.normalizedFolderName(folderName)
     }
 
     public var isServerMirror: Bool {
@@ -332,9 +352,12 @@ public enum RadioStationArtworkResolutionPolicy {
         // 悄悄换上一张网上抓来的图，比显示占位符更糟 —— 用户会以为自己选的图
         // 被顶掉了，而且分不清眼前这张是哪来的。
         //
+        // 用户自己填的图片链接不在此列：那也是用户的选择，只是存成了地址，
+        // 所以它始终参与，手选图加载不出来时由它兜底。
+        //
         // 这里刻意不带 `sourceID` 和 `filePath`：这个地址属于公网，不属于任何
         // 音乐源，带上 sourceID 只会让加载层先去问一个不存在的连接器。
-        if !hasOwnedLogo,
+        if !hasOwnedLogo || station.remoteLogoSource?.isUserProvided == true,
            let remote = cleaned(station.remoteLogoURL),
            let normalized = RadioLogoURLPolicy.normalized(remote) {
             candidates.append(.cachedOrSource(RadioStationArtworkRemoteRequest(

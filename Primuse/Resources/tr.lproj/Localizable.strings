@@ -3864,3 +3864,28 @@
 "lyric_poster_style_cassette" = "Kaset";
 "lyric_poster_style_fallback" = "Poster";
 "lyric_poster_overflow_hint" = "Bu boyut için satır sayısı fazla — daha uzun bir boyut seçin ya da satır sayısını azaltın";
+
+// MARK: - Radio folders, tags & logo link
+"radio_search_placeholder" = "İstasyon, klasör veya etiket ara";
+"radio_folder_all" = "Tümü";
+"radio_folder_ungrouped" = "Klasörsüz";
+"radio_folder_new" = "Yeni Klasör";
+"radio_folder_name" = "Klasör Adı";
+"radio_folder_rename" = "Klasörü Yeniden Adlandır";
+"radio_folder_delete" = "Klasörü Sil";
+"radio_folder_delete_message" = "İstasyonlar “Klasörsüz” bölümüne döner, silinmez.";
+"radio_folder_move" = "Klasöre Taşı";
+"radio_folder_remove_from" = "Klasörden Çıkar";
+"radio_tags" = "Etiketler";
+"radio_tag_new" = "Yeni Etiket";
+"radio_tag_name" = "Etiket Adı";
+"radio_tag_rename" = "Etiketi Yeniden Adlandır";
+"radio_tag_delete" = "Etiketi Sil";
+"radio_tag_delete_message" = "Bu etiket tüm istasyonlardan kaldırılır.";
+"radio_filter_empty_title" = "Eşleşen İstasyon Yok";
+"radio_filter_empty_description" = "Geçerli klasör, etiket veya aramayla eşleşen istasyon yok.";
+"radio_filter_clear" = "Filtreleri Temizle";
+"radio_logo_url" = "Görsel Bağlantısı";
+"radio_logo_url_hint" = "http veya https görsel adresi yapıştırın. Logo seçilmediğinde kullanılır.";
+"radio_logo_url_invalid" = "Geçerli bir http veya https görsel adresi girin.";
+"radio_batch_import_into" = "Şuraya aktar";

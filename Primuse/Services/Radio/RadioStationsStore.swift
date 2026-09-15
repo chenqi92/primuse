@@ -23,6 +23,12 @@ final class RadioStationsStore {
     }
 
     private let storeURL: URL
+    /// 空文件夹的本机占位清单。文件夹本身没有独立记录(见
+    /// `RadioStationOrganization`)，所以「建好文件夹再往里放电台」这一步
+    /// 需要一个地方记住这个名字。它只属于本机，不进 CloudKit 也不进快照 ——
+    /// 文件夹一旦装进第一个电台，别的设备自然就看见它了。
+    private let folderPlaceholdersURL: URL
+    private var folderPlaceholders: [String] = []
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
@@ -35,6 +41,7 @@ final class RadioStationsStore {
         let directory = base.appendingPathComponent("Primuse", isDirectory: true)
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         self.storeURL = storeURL ?? directory.appendingPathComponent("radio-stations.json")
+        self.folderPlaceholdersURL = directory.appendingPathComponent("radio-folders.json")
         self.allStations = []
 
         let encoder = JSONEncoder()
@@ -47,6 +54,7 @@ final class RadioStationsStore {
         self.decoder = decoder
 
         load()
+        loadFolderPlaceholders()
         materializeLogos(for: allStations)
     }
 
@@ -127,9 +135,10 @@ final class RadioStationsStore {
               let normalized = RadioLogoURLPolicy.normalized(urlString) else {
             return
         }
-        // 用户在发现期间自己选了图就作废这次结果。
+        // 用户在发现期间自己选了图、或者自己填了图片链接，就作废这次结果。
         guard allStations[index].logoData?.isEmpty ?? true,
-              allStations[index].logoFileName?.isEmpty ?? true else {
+              allStations[index].logoFileName?.isEmpty ?? true,
+              allStations[index].remoteLogoSource?.isUserProvided != true else {
             return
         }
 
@@ -155,6 +164,164 @@ final class RadioStationsStore {
         notifyChanged(ids: [id])
     }
 
+    // MARK: - 文件夹与标签
+
+    /// 现有文件夹，含本机记下的空文件夹。
+    var folders: [RadioStationFolderSummary] {
+        RadioStationOrganization.folders(in: stations, additionalNames: folderPlaceholders)
+    }
+
+    /// 没有归入任何文件夹的电台数量。
+    var ungroupedStationCount: Int {
+        RadioStationOrganization.ungroupedCount(in: stations)
+    }
+
+    /// 现有标签，按名称排序。
+    var tags: [RadioStationTagSummary] {
+        RadioStationOrganization.tags(in: stations)
+    }
+
+    /// 建一个还没有电台的文件夹。它先只活在本机，装进第一个电台后才跟着同步走。
+    @discardableResult
+    func createFolder(_ rawName: String) -> String? {
+        guard let name = RadioStationOrganization.normalizedFolderName(rawName) else { return nil }
+        rememberFolder(name)
+        return name
+    }
+
+    /// 把若干电台归入一个文件夹；`nil` 表示移出文件夹。
+    ///
+    /// 服务器镜像也允许归类 —— 文件夹是用户自己的整理方式，跟这个电台是不是
+    /// 音乐源给的无关。镜像每次对账都会把这里写的值原样带回去。
+    func setFolder(_ rawName: String?, forStationIDs ids: [String]) {
+        let name = RadioStationOrganization.normalizedFolderName(rawName)
+        if let name { rememberFolder(name) }
+        organize(ids: ids) { station in
+            guard station.assignedFolderName != name else { return false }
+            station.folderName = name
+            return true
+        }
+    }
+
+    func renameFolder(_ rawOldName: String, to rawNewName: String) {
+        guard let oldName = RadioStationOrganization.normalizedFolderName(rawOldName),
+              let newName = RadioStationOrganization.normalizedFolderName(rawNewName),
+              oldName != newName else { return }
+        let ids = stations
+            .filter { $0.assignedFolderName.map { RadioStationOrganization.isSameName($0, oldName) } == true }
+            .map(\.id)
+        forgetFolder(oldName)
+        rememberFolder(newName)
+        organize(ids: ids) { station in
+            station.folderName = newName
+            return true
+        }
+    }
+
+    /// 删掉文件夹本身，里面的电台退回未分组 —— 删一个整理方式不该连电台一起删。
+    func deleteFolder(_ rawName: String) {
+        guard let name = RadioStationOrganization.normalizedFolderName(rawName) else { return }
+        let ids = stations
+            .filter { $0.assignedFolderName.map { RadioStationOrganization.isSameName($0, name) } == true }
+            .map(\.id)
+        forgetFolder(name)
+        organize(ids: ids) { station in
+            station.folderName = nil
+            return true
+        }
+    }
+
+    func addTag(_ rawName: String, toStationIDs ids: [String]) {
+        guard let name = RadioStationOrganization.normalizedTagName(rawName) else { return }
+        organize(ids: ids) { station in
+            guard case .updated(let updated) = RadioStationOrganization.adding(
+                tag: name,
+                to: station.tagNames
+            ) else { return false }
+            station.tagNames = updated
+            return true
+        }
+    }
+
+    func removeTag(_ rawName: String, fromStationIDs ids: [String]) {
+        guard let name = RadioStationOrganization.normalizedTagName(rawName) else { return }
+        organize(ids: ids) { station in
+            guard case .updated(let updated) = RadioStationOrganization.removing(
+                tag: name,
+                from: station.tagNames
+            ) else { return false }
+            station.tagNames = updated
+            return true
+        }
+    }
+
+    func renameTag(_ rawOldName: String, to rawNewName: String) {
+        guard let oldName = RadioStationOrganization.normalizedTagName(rawOldName),
+              let newName = RadioStationOrganization.normalizedTagName(rawNewName) else { return }
+        organize(ids: stations.map(\.id)) { station in
+            guard case .updated(let updated) = RadioStationOrganization.renaming(
+                tag: oldName,
+                to: newName,
+                in: station.tagNames
+            ) else { return false }
+            station.tagNames = updated
+            return true
+        }
+    }
+
+    func deleteTag(_ rawName: String) {
+        removeTag(rawName, fromStationIDs: stations.map(\.id))
+    }
+
+    /// 批量改整理字段。整批只落一次盘、只发一次通知 —— 逐个 `update` 会按
+    /// 电台数触发同样多次写盘和同步入队。
+    private func organize(ids: [String], mutate: (inout RadioStation) -> Bool) {
+        guard !ids.isEmpty else { return }
+        let targets = Set(ids)
+        let now = Date()
+        var changedIDs: [String] = []
+        for index in allStations.indices where
+            targets.contains(allStations[index].id) && !allStations[index].isDeleted {
+            var updated = allStations[index]
+            guard mutate(&updated) else { continue }
+            updated.modifiedAt = now
+            allStations[index] = updated
+            changedIDs.append(updated.id)
+        }
+        guard !changedIDs.isEmpty else { return }
+        persist()
+        notifyChanged(ids: changedIDs)
+    }
+
+    private func rememberFolder(_ name: String) {
+        guard !folderPlaceholders.contains(where: {
+            RadioStationOrganization.isSameName($0, name)
+        }) else { return }
+        folderPlaceholders.append(name)
+        persistFolderPlaceholders()
+    }
+
+    private func forgetFolder(_ name: String) {
+        let kept = folderPlaceholders.filter { !RadioStationOrganization.isSameName($0, name) }
+        guard kept.count != folderPlaceholders.count else { return }
+        folderPlaceholders = kept
+        persistFolderPlaceholders()
+    }
+
+    private func loadFolderPlaceholders() {
+        guard let data = try? Data(contentsOf: folderPlaceholdersURL),
+              let names = try? decoder.decode([String].self, from: data) else {
+            folderPlaceholders = []
+            return
+        }
+        folderPlaceholders = names.compactMap(RadioStationOrganization.normalizedFolderName)
+    }
+
+    private func persistFolderPlaceholders() {
+        guard let data = try? encoder.encode(folderPlaceholders) else { return }
+        try? data.write(to: folderPlaceholdersURL, options: .atomic)
+    }
+
     /// Device-local recency is intentionally not pushed through CloudKit.
     func markPlayed(_ id: String, at date: Date = Date()) {
         guard let index = allStations.firstIndex(where: { $0.id == id }) else { return }
@@ -163,7 +330,15 @@ final class RadioStationsStore {
     }
 
     func moveStations(from offsets: IndexSet, to destination: Int) {
-        var ordered = stations
+        moveStations(from: offsets, to: destination, within: stations)
+    }
+
+    /// 在 `visible` 这个子集内部拖动排序。
+    ///
+    /// 可见电台在全局顺序里占据的**位置**不动，只是它们彼此之间的先后调换 ——
+    /// 筛选状态下直接拿可见下标去改全局顺序，会把没显示出来的电台一起搅乱。
+    func moveStations(from offsets: IndexSet, to destination: Int, within visible: [RadioStation]) {
+        var ordered = visible
         let validOffsets = offsets.filter { ordered.indices.contains($0) }
         guard !validOffsets.isEmpty else { return }
 
@@ -174,7 +349,13 @@ final class RadioStationsStore {
         let removedBeforeDestination = validOffsets.filter { $0 < destination }.count
         let insertionIndex = max(0, min(ordered.count, destination - removedBeforeDestination))
         ordered.insert(contentsOf: moving, at: insertionIndex)
-        applyPriorityOrder(ordered.map(\.id))
+
+        let visibleIDs = Set(visible.map(\.id))
+        var reordered = ordered.map(\.id).makeIterator()
+        let globalOrder = stations.map(\.id).map { id in
+            visibleIDs.contains(id) ? (reordered.next() ?? id) : id
+        }
+        applyPriorityOrder(globalOrder)
     }
 
     func moveStation(id: String, by offset: Int) {
@@ -341,7 +522,11 @@ final class RadioStationsStore {
                 serverStationID: serverID,
                 sourceName: source.name,
                 sourcePlaybackPath: normalizedPlaybackPath,
-                homepageURL: normalizedHTTPURLString(serverStation.homepageURL)
+                homepageURL: normalizedHTTPURLString(serverStation.homepageURL),
+                // 文件夹和标签是用户在本地整理出来的，服务器不知道也管不着 ——
+                // 每次对账都得原样带回去，否则一刷新就被清空。
+                folderName: existing?.folderName,
+                tagNames: existing?.tagNames
             )
             if existing == nil, nextSortOrder != nil {
                 nextSortOrder = (nextSortOrder ?? 0) + 1
@@ -484,6 +669,8 @@ final class RadioStationsStore {
             && lhs.homepageURL == rhs.homepageURL
             && lhs.remoteLogoURL == rhs.remoteLogoURL
             && lhs.remoteLogoSource == rhs.remoteLogoSource
+            && lhs.folderName == rhs.folderName
+            && lhs.tagNames == rhs.tagNames
     }
 }
 

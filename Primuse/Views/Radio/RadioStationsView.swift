@@ -24,46 +24,69 @@ struct RadioStationsView: View {
     @State private var showDeleteConfirm = false
     @State private var showExporter = false
     @State private var exportDocument = RadioPlaylistDocument()
+    @State private var folderScope: RadioStationFilter.FolderScope = .all
+    @State private var activeTags: Set<String> = []
+    @State private var searchText = ""
+    @State private var namePrompt: RadioNamePrompt?
+    @State private var namePromptText = ""
+    @State private var folderToDelete: String?
+    @State private var tagToDelete: String?
 
     private let columns = [
         GridItem(.adaptive(minimum: 320, maximum: 460), spacing: 16)
     ]
 
-    private var selectedStations: [RadioStation] {
-        store.stations.filter { selection.contains($0.id) && !$0.isServerMirror }
+    private var filter: RadioStationFilter {
+        RadioStationFilter(folder: folderScope, tagNames: activeTags, searchText: searchText)
     }
 
-    private var editableStationIDs: Set<String> {
-        Set(store.stations.filter { !$0.isServerMirror }.map(\.id))
+    private var visibleStations: [RadioStation] {
+        RadioStationOrganization.filtered(store.stations, with: filter)
+    }
+
+    private var folders: [RadioStationFolderSummary] { store.folders }
+    private var tags: [RadioStationTagSummary] { store.tags }
+
+    /// 未收窄时按文件夹分段展示 —— 这才是文件夹的用处。一旦在搜索或筛选，
+    /// 用户要的是一份结果清单，分段只会让他多滚几屏。
+    private var showsFolderSections: Bool {
+        !filter.isNarrowed && folders.contains { !$0.isEmpty }
+    }
+
+    /// 选中项里能被编辑/导出/删除的那部分。服务器镜像不在其列。
+    private var selectedStations: [RadioStation] {
+        visibleStations.filter { selection.contains($0.id) && !$0.isServerMirror }
+    }
+
+    /// 选中项的全部 id。归类(文件夹/标签)对服务器镜像同样成立 —— 那是用户
+    /// 自己的整理方式，跟电台是不是音乐源给的无关。
+    private var selectedIDs: [String] {
+        visibleStations.filter { selection.contains($0.id) }.map(\.id)
+    }
+
+    private var visibleStationIDs: Set<String> {
+        Set(visibleStations.map(\.id))
     }
 
     /// 管理态且有选中时，标题让位给计数 —— 批量操作藏在菜单里，选了几条
     /// 得有个地方看得见。
     private var navigationTitleText: String {
-        guard isManaging, !selectedStations.isEmpty else {
+        guard isManaging, !selectedIDs.isEmpty else {
             return String(localized: "radio_title")
         }
         return String(
             format: String(localized: "radio_manage_selected %lld"),
-            selectedStations.count
+            selectedIDs.count
         )
     }
 
     var body: some View {
-        Group {
-            if store.stations.isEmpty {
-                ContentUnavailableView {
-                    Label("radio_empty_title", systemImage: "radio")
-                } description: {
-                    Text("radio_empty_description")
-                }
-            } else if isManaging {
-                manageList
-            } else {
-                stationGrid
-            }
+        VStack(spacing: 0) {
+            organizeBar
+            content
         }
         .navigationTitle(navigationTitleText)
+        .searchable(text: $searchText, prompt: Text("radio_search_placeholder"))
         .toolbar { toolbarContent }
         // 进列表时给还没有台标的电台排一次自动发现。重复进入是安全的 ——
         // 已有台标的、正在找的、还在退避期的都会被服务自己挡掉。
@@ -124,6 +147,191 @@ struct RadioStationsView: View {
                 pendingInsecureStation?.url.flatMap(TrustedHTTPTransport.trustTarget(for:)) ?? ""
             ))
         }
+        .alert(namePrompt?.title ?? "", isPresented: Binding(
+            get: { namePrompt != nil },
+            set: { if !$0 { namePrompt = nil } }
+        )) {
+            TextField(namePrompt?.fieldTitle ?? "", text: $namePromptText)
+                #if os(iOS)
+                .textInputAutocapitalization(.words)
+                #endif
+            Button("cancel", role: .cancel) { namePrompt = nil }
+            Button("save") { commitNamePrompt() }
+        }
+        .confirmationDialog(
+            String(localized: "radio_folder_delete"),
+            isPresented: Binding(
+                get: { folderToDelete != nil },
+                set: { if !$0 { folderToDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("delete", role: .destructive) {
+                guard let name = folderToDelete else { return }
+                if case .folder(let current) = folderScope,
+                   RadioStationOrganization.isSameName(current, name) {
+                    folderScope = .all
+                }
+                store.deleteFolder(name)
+                folderToDelete = nil
+            }
+            Button("cancel", role: .cancel) { folderToDelete = nil }
+        } message: {
+            Text("radio_folder_delete_message")
+        }
+        .confirmationDialog(
+            String(localized: "radio_tag_delete"),
+            isPresented: Binding(
+                get: { tagToDelete != nil },
+                set: { if !$0 { tagToDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("delete", role: .destructive) {
+                guard let name = tagToDelete else { return }
+                activeTags.remove(name)
+                store.deleteTag(name)
+                tagToDelete = nil
+            }
+            Button("cancel", role: .cancel) { tagToDelete = nil }
+        } message: {
+            Text("radio_tag_delete_message")
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if store.stations.isEmpty {
+            ContentUnavailableView {
+                Label("radio_empty_title", systemImage: "radio")
+            } description: {
+                Text("radio_empty_description")
+            }
+        } else if visibleStations.isEmpty {
+            ContentUnavailableView {
+                Label("radio_filter_empty_title", systemImage: "line.3.horizontal.decrease.circle")
+            } description: {
+                Text("radio_filter_empty_description")
+            } actions: {
+                Button("radio_filter_clear") { clearFilters() }
+            }
+        } else if isManaging {
+            manageList
+        } else {
+            stationGrid
+        }
+    }
+
+    // MARK: - 文件夹与标签筛选条
+
+    @ViewBuilder
+    private var organizeBar: some View {
+        let folderChips = folders
+        let tagChips = tags
+        if !folderChips.isEmpty || !tagChips.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                if !folderChips.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            RadioFilterChip(
+                                title: String(localized: "radio_folder_all"),
+                                systemImage: "square.grid.2x2",
+                                count: store.stations.count,
+                                isSelected: isScopeSelected(.all)
+                            ) { folderScope = .all }
+
+                            let ungrouped = store.ungroupedStationCount
+                            if ungrouped > 0 {
+                                RadioFilterChip(
+                                    title: String(localized: "radio_folder_ungrouped"),
+                                    systemImage: "tray",
+                                    count: ungrouped,
+                                    isSelected: isScopeSelected(.ungrouped)
+                                ) { folderScope = .ungrouped }
+                            }
+
+                            ForEach(folderChips) { folder in
+                                RadioFilterChip(
+                                    title: folder.name,
+                                    systemImage: "folder",
+                                    count: folder.stationCount,
+                                    isSelected: isScopeSelected(.folder(folder.name))
+                                ) {
+                                    folderScope = isScopeSelected(.folder(folder.name))
+                                        ? .all
+                                        : .folder(folder.name)
+                                }
+                                .contextMenu { folderChipActions(folder.name) }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                }
+
+                if !tagChips.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(tagChips) { tag in
+                                RadioFilterChip(
+                                    title: tag.name,
+                                    systemImage: "tag",
+                                    count: tag.stationCount,
+                                    isSelected: activeTags.contains(tag.name),
+                                    tint: RadioTagPalette.color(for: tag.name)
+                                ) {
+                                    if activeTags.contains(tag.name) {
+                                        activeTags.remove(tag.name)
+                                    } else {
+                                        activeTags.insert(tag.name)
+                                    }
+                                }
+                                .contextMenu { tagChipActions(tag.name) }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                }
+            }
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+        }
+    }
+
+    @ViewBuilder
+    private func folderChipActions(_ name: String) -> some View {
+        Button("radio_folder_rename", systemImage: "pencil") {
+            beginPrompt(.renameFolder(name))
+        }
+        Button("radio_folder_delete", systemImage: "trash", role: .destructive) {
+            folderToDelete = name
+        }
+    }
+
+    @ViewBuilder
+    private func tagChipActions(_ name: String) -> some View {
+        Button("radio_tag_rename", systemImage: "pencil") {
+            beginPrompt(.renameTag(name))
+        }
+        Button("radio_tag_delete", systemImage: "trash", role: .destructive) {
+            tagToDelete = name
+        }
+    }
+
+    private func isScopeSelected(_ scope: RadioStationFilter.FolderScope) -> Bool {
+        switch (folderScope, scope) {
+        case (.all, .all), (.ungrouped, .ungrouped):
+            return true
+        case (.folder(let lhs), .folder(let rhs)):
+            return RadioStationOrganization.isSameName(lhs, rhs)
+        default:
+            return false
+        }
+    }
+
+    private func clearFilters() {
+        folderScope = .all
+        activeTags = []
+        searchText = ""
     }
 
     @ToolbarContentBuilder
@@ -145,22 +353,38 @@ struct RadioStationsView: View {
                 Menu {
                     Section {
                         Button {
-                            if selection == editableStationIDs {
+                            if selection == visibleStationIDs {
                                 selection = []
                             } else {
-                                selection = editableStationIDs
+                                selection = visibleStationIDs
                             }
                         } label: {
                             Label(
-                                selection == editableStationIDs
+                                selection == visibleStationIDs
                                     ? String(localized: "radio_manage_deselect_all")
                                     : String(localized: "select_all"),
-                                systemImage: selection == editableStationIDs
+                                systemImage: selection == visibleStationIDs
                                     ? "circle"
                                     : "checkmark.circle"
                             )
                         }
-                        .disabled(editableStationIDs.isEmpty)
+                        .disabled(visibleStationIDs.isEmpty)
+                    }
+
+                    Section {
+                        Menu {
+                            folderAssignmentActions(for: selectedIDs)
+                        } label: {
+                            Label("radio_folder_move", systemImage: "folder")
+                        }
+                        .disabled(selectedIDs.isEmpty)
+
+                        Menu {
+                            tagAssignmentActions(for: selectedIDs)
+                        } label: {
+                            Label("radio_tags", systemImage: "tag")
+                        }
+                        .disabled(selectedIDs.isEmpty)
                     }
 
                     Section {
@@ -202,7 +426,7 @@ struct RadioStationsView: View {
             }
         } else {
             ToolbarItemGroup(placement: .primaryAction) {
-                if !editableStationIDs.isEmpty {
+                if !store.stations.isEmpty {
                     Button {
                         withAnimation(.easeInOut(duration: 0.2)) { isManaging = true }
                     } label: {
@@ -217,8 +441,11 @@ struct RadioStationsView: View {
                     Button("radio_add", systemImage: "plus") {
                         showingNewStation = true
                     }
+                    Divider()
+                    Button("radio_folder_new", systemImage: "folder.badge.plus") {
+                        beginPrompt(.createFolder(assigning: []))
+                    }
                     if !store.stations.isEmpty {
-                        Divider()
                         Button("radio_priority_sort_by_name", systemImage: "arrow.up.arrow.down") {
                             store.sortStationsByName()
                         }
@@ -230,30 +457,184 @@ struct RadioStationsView: View {
         }
     }
 
+    // MARK: - 归类动作
+
+    /// 「移动到文件夹」的菜单内容。`ids` 为空时调用方已经把整个菜单禁掉了。
+    @ViewBuilder
+    private func folderAssignmentActions(for ids: [String]) -> some View {
+        Button("radio_folder_new", systemImage: "folder.badge.plus") {
+            beginPrompt(.createFolder(assigning: ids))
+        }
+        if !folders.isEmpty {
+            Divider()
+            ForEach(folders) { folder in
+                Button(folder.name, systemImage: "folder") {
+                    store.setFolder(folder.name, forStationIDs: ids)
+                }
+            }
+        }
+        Divider()
+        Button("radio_folder_remove_from", systemImage: "tray") {
+            store.setFolder(nil, forStationIDs: ids)
+        }
+    }
+
+    /// 「标签」的菜单内容。已经贴在**全部**选中电台上的标签打勾，再点一次是撕掉。
+    @ViewBuilder
+    private func tagAssignmentActions(for ids: [String]) -> some View {
+        Button("radio_tag_new", systemImage: "tag.fill") {
+            beginPrompt(.createTag(assigning: ids))
+        }
+        if !tags.isEmpty {
+            Divider()
+            let targets = store.stations.filter { ids.contains($0.id) }
+            ForEach(tags) { tag in
+                let applied = !targets.isEmpty && targets.allSatisfy { station in
+                    station.assignedTagNames.contains {
+                        RadioStationOrganization.isSameName($0, tag.name)
+                    }
+                }
+                Button {
+                    if applied {
+                        store.removeTag(tag.name, fromStationIDs: ids)
+                    } else {
+                        store.addTag(tag.name, toStationIDs: ids)
+                    }
+                } label: {
+                    Label(tag.name, systemImage: applied ? "checkmark.circle.fill" : "tag")
+                }
+            }
+        }
+    }
+
+    private func beginPrompt(_ prompt: RadioNamePrompt) {
+        namePromptText = prompt.initialText
+        namePrompt = prompt
+    }
+
+    private func commitNamePrompt() {
+        defer { namePrompt = nil }
+        guard let prompt = namePrompt else { return }
+        let text = namePromptText
+        switch prompt {
+        case .createFolder(let ids):
+            guard let name = store.createFolder(text) else { return }
+            if !ids.isEmpty { store.setFolder(name, forStationIDs: ids) }
+        case .renameFolder(let old):
+            guard let name = RadioStationOrganization.normalizedFolderName(text) else { return }
+            store.renameFolder(old, to: name)
+            if case .folder(let current) = folderScope,
+               RadioStationOrganization.isSameName(current, old) {
+                folderScope = .folder(name)
+            }
+        case .createTag(let ids):
+            store.addTag(text, toStationIDs: ids)
+        case .renameTag(let old):
+            guard let name = RadioStationOrganization.normalizedTagName(text) else { return }
+            store.renameTag(old, to: name)
+            if activeTags.remove(old) != nil { activeTags.insert(name) }
+        }
+    }
+
+    /// 卡片上的 `#N` 是电台在**全局**优先级里的位次，不随筛选变化 ——
+    /// 上一台/下一台、CarPlay、电视端用的都是这份全局顺序。
+    private var priorityByID: [String: Int] {
+        Dictionary(uniqueKeysWithValues: store.stations.enumerated().map { ($1.id, $0 + 1) })
+    }
+
     private var stationGrid: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
-                ForEach(Array(store.stations.enumerated()), id: \.element.id) { index, station in
-                    RadioStationCard(
-                        station: station,
-                        priority: index + 1,
-                        isCurrent: player.currentRadioStation?.id == station.id,
-                        isPlaying: player.currentRadioStation?.id == station.id
-                            && (player.isPlaying || player.isLoading),
-                        metadataTitle: player.currentRadioStation?.id == station.id
-                            ? player.radioMetadataTitle
-                            : nil,
-                        canMoveUp: index > 0,
-                        canMoveDown: index < store.stations.count - 1,
-                        onPlay: { toggle(station) },
-                        onEdit: { editingStation = station },
-                        onDelete: { store.remove(id: station.id) },
-                        onMoveUp: { store.moveStation(id: station.id, by: -1) },
-                        onMoveDown: { store.moveStation(id: station.id, by: 1) }
-                    )
+        let priorities = priorityByID
+        let total = store.stations.count
+        return ScrollView {
+            LazyVGrid(
+                columns: columns,
+                alignment: .leading,
+                spacing: 16,
+                pinnedViews: [.sectionHeaders]
+            ) {
+                if showsFolderSections {
+                    ForEach(RadioStationOrganization.grouped(visibleStations)) { group in
+                        Section {
+                            ForEach(group.stations) { station in
+                                stationCard(
+                                    station,
+                                    priority: priorities[station.id] ?? 1,
+                                    total: total
+                                )
+                            }
+                        } header: {
+                            folderSectionHeader(group)
+                        }
+                    }
+                } else {
+                    ForEach(visibleStations) { station in
+                        stationCard(station, priority: priorities[station.id] ?? 1, total: total)
+                    }
                 }
             }
             .padding(16)
+        }
+    }
+
+    private func stationCard(
+        _ station: RadioStation,
+        priority: Int,
+        total: Int
+    ) -> some View {
+        RadioStationCard(
+            station: station,
+            priority: priority,
+            isCurrent: player.currentRadioStation?.id == station.id,
+            isPlaying: player.currentRadioStation?.id == station.id
+                && (player.isPlaying || player.isLoading),
+            metadataTitle: player.currentRadioStation?.id == station.id
+                ? player.radioMetadataTitle
+                : nil,
+            canMoveUp: priority > 1,
+            canMoveDown: priority < total,
+            onPlay: { toggle(station) },
+            onEdit: { editingStation = station },
+            onDelete: { store.remove(id: station.id) },
+            onMoveUp: { store.moveStation(id: station.id, by: -1) },
+            onMoveDown: { store.moveStation(id: station.id, by: 1) },
+            organizeActions: { organizeMenu(for: station) }
+        )
+    }
+
+    /// 单条电台的归类菜单。批量版在工具栏里，这里是给「就改这一个」用的。
+    @ViewBuilder
+    private func organizeMenu(for station: RadioStation) -> some View {
+        Menu {
+            folderAssignmentActions(for: [station.id])
+        } label: {
+            Label("radio_folder_move", systemImage: "folder")
+        }
+        Menu {
+            tagAssignmentActions(for: [station.id])
+        } label: {
+            Label("radio_tags", systemImage: "tag")
+        }
+    }
+
+    private func folderSectionHeader(_ group: RadioStationFolderGroup) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: group.isUngrouped ? "tray" : "folder.fill")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(group.name ?? String(localized: "radio_folder_ungrouped"))
+                .font(.subheadline.weight(.semibold))
+            Text(verbatim: "\(group.stations.count)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background)
+        .contextMenu {
+            if let name = group.name {
+                folderChipActions(name)
+            }
         }
     }
 
@@ -263,21 +644,23 @@ struct RadioStationsView: View {
     /// 再要求他去菜单里点一次「选择」才出现勾选圈，中间那个状态看着像坏了。
     /// 勾选圈、拖动柄、批量选中手势全由系统提供。
     ///
-    /// 单条操作不在这里：网格态的卡片自带 ⋯ 菜单(编辑/上移/下移/删除)，
+    /// 单条操作不在这里：网格态的卡片自带 ⋯ 菜单(编辑/归类/上移/下移/删除)，
     /// 所以这一屏可以专心做多选，不必再兼顾左右滑 —— 编辑态下系统本来也会
     /// 吞掉滑动手势。
+    ///
+    /// 服务器镜像在这里是**可以选中**的：它不能改名不能删，但归入文件夹、
+    /// 贴标签是用户自己的整理，对镜像同样成立。
     private var manageList: some View {
         List(selection: $selection) {
             Section {
-                ForEach(store.stations) { station in
+                ForEach(visibleStations) { station in
                     manageRow(station: station)
                         .tag(station.id)
-                        .selectionDisabled(station.isServerMirror)
                         .deleteDisabled(station.isServerMirror)
                 }
-                .onMove(perform: store.moveStations)
+                .onMove(perform: moveVisible)
                 .onDelete { offsets in
-                    let ordered = store.stations
+                    let ordered = visibleStations
                     for index in offsets where ordered.indices.contains(index) {
                         store.remove(id: ordered[index].id)
                     }
@@ -292,6 +675,12 @@ struct RadioStationsView: View {
         #endif
     }
 
+    /// 在当前可见的子集里拖动排序。筛选状态下不能直接把可见下标喂给全局顺序 ——
+    /// 那会把没显示出来的电台一起搅乱。
+    private func moveVisible(from offsets: IndexSet, to destination: Int) {
+        store.moveStations(from: offsets, to: destination, within: visibleStations)
+    }
+
     private func manageRow(station: RadioStation) -> some View {
         HStack(spacing: 12) {
             RadioStationArtworkView(station: station, size: 52, cornerRadius: 11)
@@ -304,6 +693,7 @@ struct RadioStationsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                RadioStationOrganizeLabels(station: station)
                 Text(station.displayEndpoint)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
@@ -393,7 +783,7 @@ extension UTType {
 }
 
 
-private struct RadioStationCard: View {
+private struct RadioStationCard<OrganizeActions: View>: View {
     let station: RadioStation
     let priority: Int
     let isCurrent: Bool
@@ -406,6 +796,7 @@ private struct RadioStationCard: View {
     let onDelete: () -> Void
     let onMoveUp: () -> Void
     let onMoveDown: () -> Void
+    @ViewBuilder let organizeActions: () -> OrganizeActions
 
     var body: some View {
         HStack(spacing: 8) {
@@ -446,6 +837,8 @@ private struct RadioStationCard: View {
                             .font(.caption)
                             .foregroundStyle(isCurrent ? Color.accentColor : .secondary)
                             .lineLimit(2)
+
+                        RadioStationOrganizeLabels(station: station)
 
                         Text(station.displayEndpoint)
                             .font(.caption2)
@@ -499,13 +892,17 @@ private struct RadioStationCard: View {
         } else {
             Button("edit", systemImage: "pencil", action: onEdit)
         }
+        organizeActions()
         Button("radio_priority_move_up", systemImage: "arrow.up", action: onMoveUp)
             .disabled(!canMoveUp)
         Button("radio_priority_move_down", systemImage: "arrow.down", action: onMoveDown)
             .disabled(!canMoveDown)
         // 自动发现失败过的台在退避期里不会再自己去找，这里给用户一个
         // 「现在就再试一次」的出口。用户自己选过图的台不提供 —— 那会覆盖他的选择。
-        if !station.isServerMirror, station.logoData == nil, station.logoFileName == nil {
+        if !station.isServerMirror,
+           station.logoData == nil,
+           station.logoFileName == nil,
+           station.remoteLogoSource?.isUserProvided != true {
             Button("radio_logo_fetch", systemImage: "photo.badge.arrow.down") {
                 RadioLogoDiscoveryService.shared.discoverNow(for: station)
             }
@@ -817,6 +1214,7 @@ struct RadioStationEditorView: View {
     @State private var name: String
     @State private var urlString: String
     @State private var logoData: Data?
+    @State private var logoURLString: String
     @State private var pickerItem: PhotosPickerItem?
     @State private var isTesting = false
     @State private var isSaving = false
@@ -829,10 +1227,23 @@ struct RadioStationEditorView: View {
         _name = State(initialValue: station?.name ?? "")
         _urlString = State(initialValue: station?.streamURL ?? "")
         _logoData = State(initialValue: station?.logoData)
+        _logoURLString = State(initialValue: station?.remoteLogoURL ?? "")
+    }
+
+    /// 填了地址就必须是个能用的 http(s) 地址。留空表示不要远程台标。
+    private var normalizedLogoURL: String? {
+        RadioLogoURLPolicy.normalized(logoURLString)
+    }
+
+    private var isLogoURLAcceptable: Bool {
+        logoURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || normalizedLogoURL != nil
     }
 
     private var canSave: Bool {
-        RadioStationValidation.isValid(name: name, urlString: urlString) && !isSaving
+        RadioStationValidation.isValid(name: name, urlString: urlString)
+            && isLogoURLAcceptable
+            && !isSaving
     }
 
     var body: some View {
@@ -847,9 +1258,9 @@ struct RadioStationEditorView: View {
                         #endif
                 }
 
-                Section("radio_logo_optional") {
+                Section {
                     HStack(spacing: 16) {
-                        RadioEditorArtwork(data: logoData)
+                        RadioEditorArtwork(data: logoData, remoteURLString: normalizedLogoURL)
                         VStack(alignment: .leading, spacing: 10) {
                             PhotosPicker(selection: $pickerItem, matching: .images) {
                                 Label("radio_choose_logo", systemImage: "photo")
@@ -862,6 +1273,24 @@ struct RadioStationEditorView: View {
                             }
                         }
                     }
+
+                    TextField("radio_logo_url", text: $logoURLString)
+                        .font(.footnote)
+                        .autocorrectionDisabled()
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.URL)
+                        #endif
+
+                    if !isLogoURLAcceptable {
+                        Text("radio_logo_url_invalid")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                } header: {
+                    Text("radio_logo_optional")
+                } footer: {
+                    Text("radio_logo_url_hint")
                 }
 
                 Section {
@@ -963,7 +1392,8 @@ struct RadioStationEditorView: View {
     }
 
     private func save() {
-        guard let normalizedURL = RadioStationValidation.normalizedURLString(urlString) else { return }
+        guard let normalizedURL = RadioStationValidation.normalizedURLString(urlString),
+              isLogoURLAcceptable else { return }
         isSaving = true
         Task {
             let id = station?.id ?? UUID().uuidString
@@ -975,6 +1405,22 @@ struct RadioStationEditorView: View {
                 // 用户把台标清掉了，磁盘上那张旧图得一起清 —— 否则锁屏与车机
                 // 仍会按电台的 songID 从缓存里把它读出来。
                 await MetadataAssetStore.shared.invalidateCoverCache(forSongID: "radio:\(id)")
+            }
+            let logoURL = normalizedLogoURL
+            // 地址没动过就保留它原来的来源 —— 打开编辑页按一下保存，不该把
+            // 自动找来的台标"升格"成用户指定的，那会让自动发现从此再也不更新它。
+            let logoSource: RadioLogoSource?
+            if let logoURL {
+                logoSource = logoURL == station?.remoteLogoURL
+                    ? (station?.remoteLogoSource ?? .userProvidedURL)
+                    : .userProvidedURL
+            } else {
+                logoSource = nil
+            }
+            if logoURL != station?.remoteLogoURL {
+                await MetadataAssetStore.shared.invalidateCoverCache(
+                    forSongID: RadioStationArtworkResolutionPolicy.remoteLogoCacheSongID(for: id)
+                )
             }
             let value = RadioStation(
                 id: id,
@@ -989,8 +1435,10 @@ struct RadioStationEditorView: View {
                 lastPlayedAt: station?.lastPlayedAt,
                 sortOrder: station?.sortOrder,
                 homepageURL: station?.homepageURL,
-                remoteLogoURL: station?.remoteLogoURL,
-                remoteLogoSource: station?.remoteLogoSource
+                remoteLogoURL: logoURL,
+                remoteLogoSource: logoSource,
+                folderName: station?.folderName,
+                tagNames: station?.tagNames
             )
             store.upsert(value)
             isSaving = false
@@ -1001,6 +1449,12 @@ struct RadioStationEditorView: View {
 
 private struct RadioEditorArtwork: View {
     let data: Data?
+    var remoteURLString: String?
+
+    private var remoteURL: URL? {
+        guard data == nil, let remoteURLString else { return nil }
+        return URL(string: remoteURLString)
+    }
 
     var body: some View {
         Group {
@@ -1008,6 +1462,25 @@ private struct RadioEditorArtwork: View {
                 Image(platformRadioImage: image)
                     .resizable()
                     .scaledToFill()
+            } else if let remoteURL {
+                // 只是给编辑页看一眼填对没有。真正的列表/锁屏台标仍然走
+                // RadioStationArtworkContent 那套缓存与回退。
+                AsyncImage(url: remoteURL) { phase in
+                    if let image = phase.image {
+                        image.resizable().scaledToFill()
+                    } else {
+                        ZStack {
+                            Color.secondary.opacity(0.12)
+                            if phase.error == nil {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "photo.badge.exclamationmark")
+                                    .font(.title3)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
             } else {
                 ZStack {
                     Color.secondary.opacity(0.12)

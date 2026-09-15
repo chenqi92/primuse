@@ -9,6 +9,9 @@ import Foundation
 public enum RadioLogoSource: String, Codable, CaseIterable, Sendable, Hashable {
     /// 用户在编辑页手选的图片，直接以字节形式存在电台里。
     case userProvided
+    /// 用户在编辑页自己填的图片链接。它同样是用户的选择，只是存的是地址 ——
+    /// 自动发现绝不覆盖它，可信度仅次于用户手选的图。
+    case userProvidedURL
     /// 用户导入的 m3u/pls 清单里显式写的 logo 地址。
     case importedManifest
     /// 在线目录(radio-browser)搜索结果自带的 favicon —— 用户在搜索列表里
@@ -26,17 +29,21 @@ public enum RadioLogoSource: String, Codable, CaseIterable, Sendable, Hashable {
     public var rank: Int {
         switch self {
         case .userProvided: return 0
-        case .importedManifest: return 1
-        case .directoryFavicon: return 2
-        case .icyHeader: return 3
-        case .inbandMetadata: return 4
-        case .homepageIcon: return 5
-        case .directoryLookup: return 6
+        case .userProvidedURL: return 1
+        case .importedManifest: return 2
+        case .directoryFavicon: return 3
+        case .icyHeader: return 4
+        case .inbandMetadata: return 5
+        case .homepageIcon: return 6
+        case .directoryLookup: return 7
         }
     }
 
-    /// 自动发现能够写入的来源。`userProvided` 只能由用户操作产生。
-    public var isAutomatic: Bool { self != .userProvided }
+    /// 用户亲手指定的台标 —— 不管是图片字节还是图片链接，自动流程都不能动它。
+    public var isUserProvided: Bool { self == .userProvided || self == .userProvidedURL }
+
+    /// 自动发现能够写入的来源。用户指定的两种只能由用户操作产生。
+    public var isAutomatic: Bool { !isUserProvided }
 }
 
 /// 台标地址的清洗与判定。全是纯函数，发现流程和解析器共用一份实现，

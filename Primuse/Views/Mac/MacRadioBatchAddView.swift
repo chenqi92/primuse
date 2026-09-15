@@ -42,6 +42,11 @@ struct MacRadioBatchAddView: View {
     @State private var directoryQuery = ""
     @State private var isSearchingDirectory = false
     @State private var directorySearched = false
+    /// 这一批导进哪个文件夹。批量导入正是电台数量失控的起点，所以归类要在
+    /// 这一步就能定，而不是导完再一个个挑出来。
+    @State private var importFolderName: String?
+    @State private var showFolderNamePrompt = false
+    @State private var folderNameDraft = ""
 
     private var playableCount: Int { candidates.filter(\.isPlayable).count }
     private var duplicateCount: Int { candidates.filter { $0.status == .duplicate }.count }
@@ -339,6 +344,8 @@ struct MacRadioBatchAddView: View {
 
             Spacer()
 
+            importFolderPicker
+
             Button {
                 selection = Set(candidates.filter(\.isPlayable).map(\.id))
             } label: {
@@ -348,6 +355,47 @@ struct MacRadioBatchAddView: View {
             }
             .buttonStyle(.plain)
             .disabled(playableCount == 0)
+        }
+    }
+
+    private var importFolderPicker: some View {
+        Menu {
+            Button("radio_folder_ungrouped", systemImage: "tray") { importFolderName = nil }
+            if !store.folders.isEmpty {
+                Divider()
+                ForEach(store.folders) { folder in
+                    Button(folder.name, systemImage: "folder") { importFolderName = folder.name }
+                }
+            }
+            Divider()
+            Button("radio_folder_new", systemImage: "folder.badge.plus") {
+                folderNameDraft = ""
+                showFolderNamePrompt = true
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: importFolderName == nil ? "tray" : "folder")
+                    .font(.system(size: 10.5))
+                Text(importFolderName ?? String(localized: "radio_batch_import_into"))
+                    .font(.system(size: 11.5, weight: .medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(PMColor.text)
+            .padding(.horizontal, 9)
+            .frame(height: 24)
+            .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .alert("radio_folder_new", isPresented: $showFolderNamePrompt) {
+            TextField("radio_folder_name", text: $folderNameDraft)
+            Button("cancel", role: .cancel) {}
+            Button("save") {
+                guard let name = store.createFolder(folderNameDraft) else { return }
+                importFolderName = name
+            }
         }
     }
 
@@ -530,7 +578,8 @@ struct MacRadioBatchAddView: View {
                     .map { RadioStreamFormat.inferred(from: $0) } ?? .automatic,
                 homepageURL: candidate.homepageURLString,
                 remoteLogoURL: candidate.logoURLString,
-                remoteLogoSource: candidate.logoSource
+                remoteLogoSource: candidate.logoSource,
+                folderName: importFolderName
             )
             store.upsert(station)
             added.append(station)

@@ -3959,3 +3959,28 @@
 "lyric_poster_style_cassette" = "カセット";
 "lyric_poster_style_fallback" = "ポスター";
 "lyric_poster_overflow_hint" = "この画幅には歌詞が多すぎます。縦長の画幅にするか行数を減らしてください";
+
+// MARK: - Radio folders, tags & logo link
+"radio_search_placeholder" = "放送局・フォルダ・タグを検索";
+"radio_folder_all" = "すべて";
+"radio_folder_ungrouped" = "未分類";
+"radio_folder_new" = "新規フォルダ";
+"radio_folder_name" = "フォルダ名";
+"radio_folder_rename" = "フォルダ名を変更";
+"radio_folder_delete" = "フォルダを削除";
+"radio_folder_delete_message" = "中の放送局は未分類に戻ります。削除はされません。";
+"radio_folder_move" = "フォルダへ移動";
+"radio_folder_remove_from" = "フォルダから外す";
+"radio_tags" = "タグ";
+"radio_tag_new" = "新規タグ";
+"radio_tag_name" = "タグ名";
+"radio_tag_rename" = "タグ名を変更";
+"radio_tag_delete" = "タグを削除";
+"radio_tag_delete_message" = "このタグはすべての放送局から外れます。";
+"radio_filter_empty_title" = "該当する放送局がありません";
+"radio_filter_empty_description" = "現在のフォルダ・タグ・検索語に合う放送局がありません。";
+"radio_filter_clear" = "フィルタを解除";
+"radio_logo_url" = "画像リンク";
+"radio_logo_url_hint" = "http または https の画像アドレスを貼り付けます。ロゴ画像を選んでいないときに使われます。";
+"radio_logo_url_invalid" = "有効な http または https の画像アドレスを入力してください。";
+"radio_batch_import_into" = "読み込み先";

@@ -3864,3 +3864,28 @@
 "lyric_poster_style_cassette" = "Casete";
 "lyric_poster_style_fallback" = "Póster";
 "lyric_poster_overflow_hint" = "Demasiados versos para este formato: elige uno más alto o menos versos";
+
+// MARK: - Radio folders, tags & logo link
+"radio_search_placeholder" = "Buscar estaciones, carpetas o etiquetas";
+"radio_folder_all" = "Todas";
+"radio_folder_ungrouped" = "Sin carpeta";
+"radio_folder_new" = "Nueva carpeta";
+"radio_folder_name" = "Nombre de la carpeta";
+"radio_folder_rename" = "Renombrar carpeta";
+"radio_folder_delete" = "Eliminar carpeta";
+"radio_folder_delete_message" = "Las estaciones vuelven a “Sin carpeta”. No se eliminan.";
+"radio_folder_move" = "Mover a carpeta";
+"radio_folder_remove_from" = "Quitar de la carpeta";
+"radio_tags" = "Etiquetas";
+"radio_tag_new" = "Nueva etiqueta";
+"radio_tag_name" = "Nombre de la etiqueta";
+"radio_tag_rename" = "Renombrar etiqueta";
+"radio_tag_delete" = "Eliminar etiqueta";
+"radio_tag_delete_message" = "Esta etiqueta se quita de todas las estaciones.";
+"radio_filter_empty_title" = "No hay estaciones que coincidan";
+"radio_filter_empty_description" = "Ninguna estación coincide con la carpeta, las etiquetas o la búsqueda.";
+"radio_filter_clear" = "Borrar filtros";
+"radio_logo_url" = "Enlace de imagen";
+"radio_logo_url_hint" = "Pega una dirección de imagen http o https. Se usa cuando no eliges un logo.";
+"radio_logo_url_invalid" = "Escribe una dirección de imagen http o https válida.";
+"radio_batch_import_into" = "Importar en";

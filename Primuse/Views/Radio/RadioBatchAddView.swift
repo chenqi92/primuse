@@ -68,6 +68,11 @@ struct RadioBatchAddView: View {
     @State private var directoryQuery = ""
     @State private var isSearchingDirectory = false
     @State private var directorySearched = false
+    /// 这一批导进哪个文件夹。批量导入正是电台数量失控的起点，所以归类要在
+    /// 这一步就能定，而不是导完再一个个挑出来。
+    @State private var importFolderName: String?
+    @State private var showFolderNamePrompt = false
+    @State private var folderNameDraft = ""
 
     private var playableCount: Int {
         candidates.filter(\.isPlayable).count
@@ -350,28 +355,75 @@ struct RadioBatchAddView: View {
     // MARK: - 结果表
 
     private var resultHeader: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 6) {
-                statusPill(count: playableCount, key: "radio_batch_status_playable", tint: .green)
-                if duplicateCount > 0 {
-                    statusPill(count: duplicateCount, key: "radio_batch_status_duplicate", tint: .orange)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                HStack(spacing: 6) {
+                    statusPill(count: playableCount, key: "radio_batch_status_playable", tint: .green)
+                    if duplicateCount > 0 {
+                        statusPill(count: duplicateCount, key: "radio_batch_status_duplicate", tint: .orange)
+                    }
+                    if invalidCount > 0 {
+                        statusPill(count: invalidCount, key: "radio_batch_status_invalid", tint: .red)
+                    }
                 }
-                if invalidCount > 0 {
-                    statusPill(count: invalidCount, key: "radio_batch_status_invalid", tint: .red)
+
+                Spacer(minLength: 8)
+
+                Button {
+                    selectAllPlayable()
+                } label: {
+                    Text("radio_batch_select_playable")
+                        .font(.caption.weight(.semibold))
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.accentColor)
+                .disabled(playableCount == 0)
             }
 
-            Spacer(minLength: 8)
+            importFolderPicker
+        }
+    }
 
-            Button {
-                selectAllPlayable()
+    private var importFolderPicker: some View {
+        HStack(spacing: 6) {
+            Text("radio_batch_import_into")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Menu {
+                Button("radio_folder_ungrouped", systemImage: "tray") {
+                    importFolderName = nil
+                }
+                if !store.folders.isEmpty {
+                    Divider()
+                    ForEach(store.folders) { folder in
+                        Button(folder.name, systemImage: "folder") {
+                            importFolderName = folder.name
+                        }
+                    }
+                }
+                Divider()
+                Button("radio_folder_new", systemImage: "folder.badge.plus") {
+                    folderNameDraft = ""
+                    showFolderNamePrompt = true
+                }
             } label: {
-                Text("radio_batch_select_playable")
-                    .font(.caption.weight(.semibold))
+                Label(
+                    importFolderName ?? String(localized: "radio_folder_ungrouped"),
+                    systemImage: importFolderName == nil ? "tray" : "folder"
+                )
+                .font(.caption.weight(.semibold))
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.accentColor)
-            .disabled(playableCount == 0)
+
+            Spacer(minLength: 0)
+        }
+        .alert("radio_folder_new", isPresented: $showFolderNamePrompt) {
+            TextField("radio_folder_name", text: $folderNameDraft)
+            Button("cancel", role: .cancel) {}
+            Button("save") {
+                guard let name = store.createFolder(folderNameDraft) else { return }
+                importFolderName = name
+            }
         }
     }
 
@@ -571,7 +623,8 @@ struct RadioBatchAddView: View {
                     .map { RadioStreamFormat.inferred(from: $0) } ?? .automatic,
                 homepageURL: candidate.homepageURLString,
                 remoteLogoURL: candidate.logoURLString,
-                remoteLogoSource: candidate.logoSource
+                remoteLogoSource: candidate.logoSource,
+                folderName: importFolderName
             )
             store.upsert(station)
             added.append(station)

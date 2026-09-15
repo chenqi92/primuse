@@ -17,6 +17,7 @@ struct MacRadioStationEditorView: View {
     @State private var name: String
     @State private var urlString: String
     @State private var logoData: Data?
+    @State private var logoURLString: String
     @State private var isTesting = false
     @State private var isSaving = false
     @State private var testResult: TestResult?
@@ -33,10 +34,23 @@ struct MacRadioStationEditorView: View {
         _name = State(initialValue: station?.name ?? "")
         _urlString = State(initialValue: station?.streamURL ?? "")
         _logoData = State(initialValue: station?.logoData)
+        _logoURLString = State(initialValue: station?.remoteLogoURL ?? "")
+    }
+
+    /// 填了地址就必须是个能用的 http(s) 地址。留空表示不要远程台标。
+    private var normalizedLogoURL: String? {
+        RadioLogoURLPolicy.normalized(logoURLString)
+    }
+
+    private var isLogoURLAcceptable: Bool {
+        logoURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || normalizedLogoURL != nil
     }
 
     private var canSave: Bool {
-        RadioStationValidation.isValid(name: name, urlString: urlString) && !isSaving
+        RadioStationValidation.isValid(name: name, urlString: urlString)
+            && isLogoURLAcceptable
+            && !isSaving
     }
 
     var body: some View {
@@ -47,6 +61,7 @@ struct MacRadioStationEditorView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: PMSpace.m14) {
                     logoRow
+                    logoURLRow
                     fieldRow(label: String(localized: "radio_name"), text: $name)
                     fieldRow(
                         label: String(localized: "radio_stream_url"),
@@ -151,6 +166,25 @@ struct MacRadioStationEditorView: View {
             Group {
                 if let logoData, let image = NSImage(data: logoData) {
                     Image(nsImage: image).resizable().scaledToFill()
+                } else if let previewURL = normalizedLogoURL.flatMap(URL.init(string:)) {
+                    // 只是给编辑页看一眼填对没有；列表和锁屏的台标仍走
+                    // RadioStationArtworkContent 那套缓存与回退。
+                    AsyncImage(url: previewURL) { phase in
+                        if let image = phase.image {
+                            image.resizable().scaledToFill()
+                        } else {
+                            ZStack {
+                                PMColor.card
+                                if phase.error == nil {
+                                    ProgressView().controlSize(.small)
+                                } else {
+                                    Image(systemName: "photo.badge.exclamationmark")
+                                        .font(.system(size: 20))
+                                        .foregroundStyle(PMColor.textFaint)
+                                }
+                            }
+                        }
+                    }
                 } else {
                     ZStack {
                         PMColor.card
@@ -205,6 +239,24 @@ struct MacRadioStationEditorView: View {
             }
 
             Spacer(minLength: 0)
+        }
+    }
+
+    private var logoURLRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            fieldRow(
+                label: String(localized: "radio_logo_url"),
+                text: $logoURLString,
+                monospaced: true
+            )
+            HStack(spacing: PMSpace.s10) {
+                Text(verbatim: "").frame(width: 96)
+                Text(isLogoURLAcceptable ? "radio_logo_url_hint" : "radio_logo_url_invalid")
+                    .font(PMFont.caption)
+                    .foregroundStyle(isLogoURLAcceptable ? PMColor.textFaint : PMColor.bad)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
         }
     }
 
@@ -341,7 +393,8 @@ struct MacRadioStationEditorView: View {
 
     private func save() {
         guard let normalizedURL = RadioStationValidation.normalizedURLString(urlString),
-              let url = URL(string: normalizedURL) else { return }
+              let url = URL(string: normalizedURL),
+              isLogoURLAcceptable else { return }
         isSaving = true
         Task {
             let id = station?.id ?? UUID().uuidString
@@ -353,6 +406,22 @@ struct MacRadioStationEditorView: View {
                 // 用户把台标清掉了，磁盘上那张旧图得一起清 —— 否则锁屏与车机
                 // 仍会按电台的 songID 从缓存里把它读出来。
                 await MetadataAssetStore.shared.invalidateCoverCache(forSongID: "radio:\(id)")
+            }
+            let logoURL = normalizedLogoURL
+            // 地址没动过就保留原来的来源 —— 打开编辑页按一下保存，不该把自动
+            // 找来的台标"升格"成用户指定的，那会让自动发现从此再也不更新它。
+            let logoSource: RadioLogoSource?
+            if let logoURL {
+                logoSource = logoURL == station?.remoteLogoURL
+                    ? (station?.remoteLogoSource ?? .userProvidedURL)
+                    : .userProvidedURL
+            } else {
+                logoSource = nil
+            }
+            if logoURL != station?.remoteLogoURL {
+                await MetadataAssetStore.shared.invalidateCoverCache(
+                    forSongID: RadioStationArtworkResolutionPolicy.remoteLogoCacheSongID(for: id)
+                )
             }
             let value = RadioStation(
                 id: id,
@@ -367,8 +436,10 @@ struct MacRadioStationEditorView: View {
                 lastPlayedAt: station?.lastPlayedAt,
                 sortOrder: station?.sortOrder,
                 homepageURL: station?.homepageURL,
-                remoteLogoURL: station?.remoteLogoURL,
-                remoteLogoSource: station?.remoteLogoSource
+                remoteLogoURL: logoURL,
+                remoteLogoSource: logoSource,
+                folderName: station?.folderName,
+                tagNames: station?.tagNames
             )
             store.upsert(value)
             isSaving = false

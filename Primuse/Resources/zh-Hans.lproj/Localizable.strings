@@ -4051,3 +4051,28 @@
 "lyric_poster_style_cassette" = "磁带";
 "lyric_poster_style_fallback" = "海报";
 "lyric_poster_overflow_hint" = "歌词太多，当前画幅放不下，换更高的画幅或少选几句";
+
+// MARK: - Radio folders, tags & logo link
+"radio_search_placeholder" = "搜索电台、文件夹或标签";
+"radio_folder_all" = "全部";
+"radio_folder_ungrouped" = "未分组";
+"radio_folder_new" = "新建文件夹";
+"radio_folder_name" = "文件夹名称";
+"radio_folder_rename" = "重命名文件夹";
+"radio_folder_delete" = "删除文件夹";
+"radio_folder_delete_message" = "文件夹里的电台会退回未分组，不会被删除。";
+"radio_folder_move" = "移动到文件夹";
+"radio_folder_remove_from" = "移出文件夹";
+"radio_tags" = "标签";
+"radio_tag_new" = "新建标签";
+"radio_tag_name" = "标签名称";
+"radio_tag_rename" = "重命名标签";
+"radio_tag_delete" = "删除标签";
+"radio_tag_delete_message" = "这个标签会从所有电台上移除。";
+"radio_filter_empty_title" = "没有匹配的电台";
+"radio_filter_empty_description" = "当前文件夹、标签或搜索词下没有电台。";
+"radio_filter_clear" = "清除筛选";
+"radio_logo_url" = "图片链接";
+"radio_logo_url_hint" = "填 http 或 https 图片地址。没有选择台标图片时用它。";
+"radio_logo_url_invalid" = "请填写有效的 http 或 https 图片地址。";
+"radio_batch_import_into" = "导入到";

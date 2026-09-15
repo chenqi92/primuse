@@ -3935,3 +3935,28 @@
 "lyric_poster_style_cassette" = "卡帶";
 "lyric_poster_style_fallback" = "海報";
 "lyric_poster_overflow_hint" = "歌詞太多，目前畫幅放不下，換更高的畫幅或少選幾句";
+
+// MARK: - Radio folders, tags & logo link
+"radio_search_placeholder" = "搜尋電台、資料夾或標籤";
+"radio_folder_all" = "全部";
+"radio_folder_ungrouped" = "未分類";
+"radio_folder_new" = "新增資料夾";
+"radio_folder_name" = "資料夾名稱";
+"radio_folder_rename" = "重新命名資料夾";
+"radio_folder_delete" = "刪除資料夾";
+"radio_folder_delete_message" = "資料夾裡的電台會退回未分類，不會被刪除。";
+"radio_folder_move" = "移至資料夾";
+"radio_folder_remove_from" = "移出資料夾";
+"radio_tags" = "標籤";
+"radio_tag_new" = "新增標籤";
+"radio_tag_name" = "標籤名稱";
+"radio_tag_rename" = "重新命名標籤";
+"radio_tag_delete" = "刪除標籤";
+"radio_tag_delete_message" = "這個標籤會從所有電台上移除。";
+"radio_filter_empty_title" = "沒有符合的電台";
+"radio_filter_empty_description" = "目前的資料夾、標籤或搜尋條件下沒有電台。";
+"radio_filter_clear" = "清除篩選";
+"radio_logo_url" = "圖片連結";
+"radio_logo_url_hint" = "填入 http 或 https 圖片位址。未選擇台標圖片時會使用它。";
+"radio_logo_url_invalid" = "請填入有效的 http 或 https 圖片位址。";
+"radio_batch_import_into" = "匯入至";

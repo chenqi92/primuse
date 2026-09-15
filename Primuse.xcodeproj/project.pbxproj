@@ -561,6 +561,7 @@
 		6D9BF53E47BF012AB355FFFF /* ScraperSourceGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9492D5CC5D1370DFED401085 /* ScraperSourceGate.swift */; };
 		6DD6D15BF9CFC4498FD3D062 /* CloudDirectoryNameStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6603576133F7798EFB9267D0 /* CloudDirectoryNameStore.swift */; };
 		6E4EDD3796879951FDF3A5EF /* RadioLogoURLPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EEC93D45D5A129ED4E3A0D3 /* RadioLogoURLPolicy.swift */; };
+		4ACFA68B9E14BC8BD2E72C7B /* RadioStationOrganization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49F4846F135C99D10C356D27 /* RadioStationOrganization.swift */; };
 		6E53C03FF0B15B39510AE06F /* TVPlaylistsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2505E223E326D2B217B3F45C /* TVPlaylistsView.swift */; };
 		6E870A3160971D796543F417 /* PlaylistDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 564355C7C182D7C30114AC27 /* PlaylistDetailView.swift */; };
 		6EC9F7E5AB947C4F5DCFAEAD /* RadioLiveMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CC8835E64B7801131883F2D /* RadioLiveMetadata.swift */; };
@@ -1221,6 +1222,7 @@
 		F3E8C3E3C7DA98A5BA56ABB9 /* ArtistListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02F0CA17DCBE23FCB6FF6791 /* ArtistListView.swift */; };
 		F3EA7BACCB01D8BF92192A3E /* AudioEffectsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78324748ACDF339A48E0E8D4 /* AudioEffectsService.swift */; };
 		F41811AEA0646B4F680416AA /* RadioCandidateLogoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CC6F2F1E70E26868240EDF8 /* RadioCandidateLogoView.swift */; };
+		6516456C06D5C3D57721013E /* RadioStationOrganizeUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DFD319B97F040FB19E9B70E /* RadioStationOrganizeUI.swift */; };
 		F42267DB1E4B85832BE4E52D /* ScrapeOptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11180515D910975A39CBE6C5 /* ScrapeOptionsView.swift */; };
 		F45510F7EDAE425A749A03CF /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F652918A8A39CEF7841384ED /* OnboardingView.swift */; };
 		F4B6FD2C0B6D5AF88FB9CA4B /* SourceMetadataStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32E0F03194B56BD2C0A053F5 /* SourceMetadataStatusView.swift */; };
@@ -1241,6 +1243,7 @@
 		F8D7D39C9FA9E48BA85E1452 /* MetadataReading.strings in Resources */ = {isa = PBXBuildFile; fileRef = 155BBB618C591B42B945696F /* MetadataReading.strings */; };
 		F9049DEBC46D78EB9137EB7D /* PrimuseSettingsIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 465B35F98B45AB86C0B0080B /* PrimuseSettingsIntents.swift */; };
 		F918EE6E00C1951EE8A63B1D /* RadioCandidateLogoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CC6F2F1E70E26868240EDF8 /* RadioCandidateLogoView.swift */; };
+		258E9ACB5C3404CE8E0D4EB1 /* RadioStationOrganizeUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DFD319B97F040FB19E9B70E /* RadioStationOrganizeUI.swift */; };
 		F92FCB0CCB720B0F2A644274 /* SharedNowPlayingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 136E43CE662D6E0E06C21E26 /* SharedNowPlayingState.swift */; };
 		F96F6724D08B5EDCD5B75987 /* DropboxSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC2D3494E7475F44773698F9 /* DropboxSource.swift */; };
 		F9BD261E8D2A741B071F0307 /* ImmersiveTypographyFieldPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40B5788CDC6F1B7679A28630 /* ImmersiveTypographyFieldPolicy.swift */; };
@@ -1842,6 +1845,7 @@
 		5EAD109C14E9AC3B214FCB5B /* ISOBaseMediaLyricsParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISOBaseMediaLyricsParser.swift; sourceTree = "<group>"; };
 		5EBFB113C5765B93854AF59F /* OfflineRangeDownloadRetryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineRangeDownloadRetryTests.swift; sourceTree = "<group>"; };
 		5EEC93D45D5A129ED4E3A0D3 /* RadioLogoURLPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioLogoURLPolicy.swift; sourceTree = "<group>"; };
+		49F4846F135C99D10C356D27 /* RadioStationOrganization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioStationOrganization.swift; sourceTree = "<group>"; };
 		5F0573A96AD716FE233A53EC /* ar */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ar; path = ar.lproj/CacheSync.strings; sourceTree = "<group>"; };
 		5F11DEFF416BD4CA82C00584 /* TagMetadataWritebackCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagMetadataWritebackCoordinator.swift; sourceTree = "<group>"; };
 		5F14A8B457724588F5559B41 /* ProtocolHTTPStreamResolvers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolHTTPStreamResolvers.swift; sourceTree = "<group>"; };
@@ -2080,6 +2084,7 @@
 		9C762DE96ECE88A51C812174 /* PMVolumeSlider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PMVolumeSlider.swift; sourceTree = "<group>"; };
 		9C97847160F9C32E9789C1FB /* AudioSilenceStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSilenceStream.swift; sourceTree = "<group>"; };
 		9CC6F2F1E70E26868240EDF8 /* RadioCandidateLogoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioCandidateLogoView.swift; sourceTree = "<group>"; };
+		1DFD319B97F040FB19E9B70E /* RadioStationOrganizeUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioStationOrganizeUI.swift; sourceTree = "<group>"; };
 		9D64868ED9B01B2808EEFF51 /* SFTPSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPSource.swift; sourceTree = "<group>"; };
 		9D90034644AC0D8B867E2DB2 /* TopShelfProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopShelfProvider.swift; sourceTree = "<group>"; };
 		9DBC2B70BCBD093D16124715 /* tr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = tr; path = tr.lproj/InfoPlist.strings; sourceTree = "<group>"; };
@@ -3424,6 +3429,7 @@
 				4CC8835E64B7801131883F2D /* RadioLiveMetadata.swift */,
 				3DBCB5A42A29C5A2F88B3F0C /* RadioLogoDiscoveryPolicy.swift */,
 				5EEC93D45D5A129ED4E3A0D3 /* RadioLogoURLPolicy.swift */,
+				49F4846F135C99D10C356D27 /* RadioStationOrganization.swift */,
 				9606AA541D05C5311136A0BC /* RadioStreamTitleParser.swift */,
 			);
 			path = Radio;
@@ -3870,6 +3876,7 @@
 			children = (
 				3A895C0BB7B716450DBD0A73 /* RadioBatchAddView.swift */,
 				9CC6F2F1E70E26868240EDF8 /* RadioCandidateLogoView.swift */,
+				1DFD319B97F040FB19E9B70E /* RadioStationOrganizeUI.swift */,
 				619F72A778551BB017F0840A /* RadioStationsView.swift */,
 			);
 			path = Radio;
@@ -4695,6 +4702,7 @@
 				6EC9F7E5AB947C4F5DCFAEAD /* RadioLiveMetadata.swift in Sources */,
 				0EA465C8DC3980650EBD682F /* RadioLogoDiscoveryPolicy.swift in Sources */,
 				6E4EDD3796879951FDF3A5EF /* RadioLogoURLPolicy.swift in Sources */,
+				4ACFA68B9E14BC8BD2E72C7B /* RadioStationOrganization.swift in Sources */,
 				BF3408300898A64231169232 /* RadioSnapshotUploadPolicy.swift in Sources */,
 				BD977311BC272B1E6739BC96 /* RadioStation.swift in Sources */,
 				C60738C80E60A9FF96D9B6F1 /* RadioStreamTitleParser.swift in Sources */,
@@ -5046,6 +5054,7 @@
 				5AD01C4504371E9EE47EE591 /* QueueView.swift in Sources */,
 				C60CBE0D26F59A84CCB5931F /* RadioBatchAddView.swift in Sources */,
 				F41811AEA0646B4F680416AA /* RadioCandidateLogoView.swift in Sources */,
+				6516456C06D5C3D57721013E /* RadioStationOrganizeUI.swift in Sources */,
 				B55B2E0B01F069C0238B0FF7 /* RadioDirectoryClient.swift in Sources */,
 				9618F8E76B4E5775F085DDD8 /* RadioFLACAudioDecoder.swift in Sources */,
 				555CBFB8B4B1018C69981F0E /* RadioFLACDecoderBridge.m in Sources */,
@@ -5554,6 +5563,7 @@
 				9B2A49C180BA29D56A74D9CD /* QueueView.swift in Sources */,
 				A645E6AE800CAA447E72B3B7 /* RadioBatchAddView.swift in Sources */,
 				F918EE6E00C1951EE8A63B1D /* RadioCandidateLogoView.swift in Sources */,
+				258E9ACB5C3404CE8E0D4EB1 /* RadioStationOrganizeUI.swift in Sources */,
 				5FA7E93E1A11D32470CC8623 /* RadioDirectoryClient.swift in Sources */,
 				BD43C09F5EE8E43023150698 /* RadioFLACAudioDecoder.swift in Sources */,
 				2DB549769D6C287EEC6947D5 /* RadioFLACDecoderBridge.m in Sources */,

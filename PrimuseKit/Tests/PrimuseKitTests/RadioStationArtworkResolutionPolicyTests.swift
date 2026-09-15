@@ -385,6 +385,48 @@ struct RadioStationArtworkResolutionPolicyTests {
         #expect(withLocal.playbackSong.coverArtFileName == "station-cover.jpg")
     }
 
+    // MARK: - 用户自己填的图片链接
+
+    @Test("A user-entered logo link still backs up a hand-picked image")
+    func userProvidedLogoURLRemainsAFallback() {
+        let plan = RadioStationArtworkResolutionPolicy.makePlan(for: makeStation(
+            logoData: Data([0x01]),
+            remoteLogoURL: "https://cdn.example.test/logo.png",
+            remoteLogoSource: .userProvidedURL
+        ))
+
+        #expect(plan.candidates.count == 2)
+        guard case .cachedOrSource(let request) = plan.candidates.last else {
+            Issue.record("Expected the user link to remain as a fallback candidate")
+            return
+        }
+        #expect(request.coverReference == "https://cdn.example.test/logo.png")
+    }
+
+    @Test("A user-entered link is the only candidate when no image was picked")
+    func userProvidedLogoURLAlone() {
+        let plan = RadioStationArtworkResolutionPolicy.makePlan(for: makeStation(
+            remoteLogoURL: "https://cdn.example.test/logo.png",
+            remoteLogoSource: .userProvidedURL
+        ))
+
+        #expect(plan.candidates.count == 1)
+    }
+
+    @Test("Automatic discovery cannot outrank a link the user typed")
+    func userProvidedLogoURLOutranksDiscovery() {
+        for candidate in RadioLogoSource.allCases where candidate.isAutomatic {
+            #expect(!RadioLogoURLPolicy.shouldReplace(
+                current: .userProvidedURL,
+                with: candidate
+            ))
+        }
+        #expect(RadioLogoURLPolicy.shouldReplace(current: .icyHeader, with: .userProvidedURL))
+        #expect(RadioLogoSource.userProvidedURL.isUserProvided)
+        #expect(!RadioLogoSource.userProvidedURL.isAutomatic)
+        #expect(RadioLogoSource.userProvided.rank < RadioLogoSource.userProvidedURL.rank)
+    }
+
     private func makeStation(
         id: String = "station",
         logoData: Data? = nil,
@@ -392,7 +434,8 @@ struct RadioStationArtworkResolutionPolicyTests {
         streamFormat: RadioStreamFormat = .aac,
         sourceID: String? = nil,
         sourcePlaybackPath: String? = nil,
-        remoteLogoURL: String? = nil
+        remoteLogoURL: String? = nil,
+        remoteLogoSource: RadioLogoSource? = nil
     ) -> RadioStation {
         RadioStation(
             id: id,
@@ -406,7 +449,9 @@ struct RadioStationArtworkResolutionPolicyTests {
             sourceName: sourceID == nil ? nil : "Server",
             sourcePlaybackPath: sourcePlaybackPath,
             remoteLogoURL: remoteLogoURL,
-            remoteLogoSource: remoteLogoURL == nil ? nil : .icyHeader
+            remoteLogoSource: remoteLogoURL == nil
+                ? nil
+                : (remoteLogoSource ?? .icyHeader)
         )
     }
 }

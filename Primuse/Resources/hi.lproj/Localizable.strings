@@ -3864,3 +3864,28 @@
 "lyric_poster_style_cassette" = "कैसेट";
 "lyric_poster_style_fallback" = "पोस्टर";
 "lyric_poster_overflow_hint" = "इस आकार के लिए बहुत अधिक पंक्तियाँ — लंबा आकार चुनें या कम पंक्तियाँ चुनें";
+
+// MARK: - Radio folders, tags & logo link
+"radio_search_placeholder" = "स्टेशन, फ़ोल्डर या टैग खोजें";
+"radio_folder_all" = "सभी";
+"radio_folder_ungrouped" = "बिना फ़ोल्डर";
+"radio_folder_new" = "नया फ़ोल्डर";
+"radio_folder_name" = "फ़ोल्डर का नाम";
+"radio_folder_rename" = "फ़ोल्डर का नाम बदलें";
+"radio_folder_delete" = "फ़ोल्डर हटाएँ";
+"radio_folder_delete_message" = "स्टेशन “बिना फ़ोल्डर” में लौट आते हैं, हटाए नहीं जाते।";
+"radio_folder_move" = "फ़ोल्डर में ले जाएँ";
+"radio_folder_remove_from" = "फ़ोल्डर से हटाएँ";
+"radio_tags" = "टैग";
+"radio_tag_new" = "नया टैग";
+"radio_tag_name" = "टैग का नाम";
+"radio_tag_rename" = "टैग का नाम बदलें";
+"radio_tag_delete" = "टैग हटाएँ";
+"radio_tag_delete_message" = "यह टैग हर स्टेशन से हट जाएगा।";
+"radio_filter_empty_title" = "कोई मेल खाता स्टेशन नहीं";
+"radio_filter_empty_description" = "मौजूदा फ़ोल्डर, टैग या खोज से कोई स्टेशन मेल नहीं खाता।";
+"radio_filter_clear" = "फ़िल्टर हटाएँ";
+"radio_logo_url" = "छवि लिंक";
+"radio_logo_url_hint" = "http या https छवि पता चिपकाएँ। लोगो छवि न चुनने पर यही उपयोग होता है।";
+"radio_logo_url_invalid" = "मान्य http या https छवि पता दर्ज करें।";
+"radio_batch_import_into" = "इसमें आयात करें";

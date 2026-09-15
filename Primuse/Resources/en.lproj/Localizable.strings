@@ -3736,3 +3736,28 @@
 "lyric_poster_style_cassette" = "Cassette";
 "lyric_poster_style_fallback" = "Poster";
 "lyric_poster_overflow_hint" = "Too many lines for this format — pick a taller format or fewer lines";
+
+// MARK: - Radio folders, tags & logo link
+"radio_search_placeholder" = "Search stations, folders or tags";
+"radio_folder_all" = "All";
+"radio_folder_ungrouped" = "Ungrouped";
+"radio_folder_new" = "New Folder";
+"radio_folder_name" = "Folder Name";
+"radio_folder_rename" = "Rename Folder";
+"radio_folder_delete" = "Delete Folder";
+"radio_folder_delete_message" = "The stations move back to Ungrouped. They are not deleted.";
+"radio_folder_move" = "Move to Folder";
+"radio_folder_remove_from" = "Remove from Folder";
+"radio_tags" = "Tags";
+"radio_tag_new" = "New Tag";
+"radio_tag_name" = "Tag Name";
+"radio_tag_rename" = "Rename Tag";
+"radio_tag_delete" = "Delete Tag";
+"radio_tag_delete_message" = "This tag is removed from every station.";
+"radio_filter_empty_title" = "No Matching Stations";
+"radio_filter_empty_description" = "No station matches the current folder, tags or search.";
+"radio_filter_clear" = "Clear Filters";
+"radio_logo_url" = "Image Link";
+"radio_logo_url_hint" = "Paste an http or https image address. It is used when no logo image is chosen.";
+"radio_logo_url_invalid" = "Enter a valid http or https image address.";
+"radio_batch_import_into" = "Import into";

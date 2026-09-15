@@ -219,6 +219,8 @@ final class RadioLogoDiscoveryService {
 
     private func hasUserProvidedLogo(_ station: RadioStation) -> Bool {
         if let data = station.logoData, !data.isEmpty { return true }
+        // 用户自己填的图片链接和手选的图一样，是他明确的选择。
+        if station.remoteLogoSource?.isUserProvided == true { return true }
         // 服务器镜像的 `logoFileName` 是音乐源给的封面引用，同样不该被顶掉。
         return station.logoFileName?.isEmpty == false
     }

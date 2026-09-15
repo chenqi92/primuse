@@ -3864,3 +3864,28 @@
 "lyric_poster_style_cassette" = "เทปคาสเซ็ต";
 "lyric_poster_style_fallback" = "โปสเตอร์";
 "lyric_poster_overflow_hint" = "บรรทัดมากเกินไปสำหรับขนาดนี้ — เลือกขนาดที่สูงขึ้นหรือลดจำนวนบรรทัด";
+
+// MARK: - Radio folders, tags & logo link
+"radio_search_placeholder" = "ค้นหาสถานี โฟลเดอร์ หรือแท็ก";
+"radio_folder_all" = "ทั้งหมด";
+"radio_folder_ungrouped" = "ไม่ได้จัดกลุ่ม";
+"radio_folder_new" = "โฟลเดอร์ใหม่";
+"radio_folder_name" = "ชื่อโฟลเดอร์";
+"radio_folder_rename" = "เปลี่ยนชื่อโฟลเดอร์";
+"radio_folder_delete" = "ลบโฟลเดอร์";
+"radio_folder_delete_message" = "สถานีจะกลับไปอยู่ในรายการที่ไม่ได้จัดกลุ่ม และจะไม่ถูกลบ";
+"radio_folder_move" = "ย้ายไปโฟลเดอร์";
+"radio_folder_remove_from" = "นำออกจากโฟลเดอร์";
+"radio_tags" = "แท็ก";
+"radio_tag_new" = "แท็กใหม่";
+"radio_tag_name" = "ชื่อแท็ก";
+"radio_tag_rename" = "เปลี่ยนชื่อแท็ก";
+"radio_tag_delete" = "ลบแท็ก";
+"radio_tag_delete_message" = "แท็กนี้จะถูกนำออกจากทุกสถานี";
+"radio_filter_empty_title" = "ไม่พบสถานีที่ตรงกัน";
+"radio_filter_empty_description" = "ไม่มีสถานีที่ตรงกับโฟลเดอร์ แท็ก หรือคำค้นปัจจุบัน";
+"radio_filter_clear" = "ล้างตัวกรอง";
+"radio_logo_url" = "ลิงก์รูปภาพ";
+"radio_logo_url_hint" = "วางที่อยู่รูปภาพแบบ http หรือ https จะใช้เมื่อยังไม่ได้เลือกรูปโลโก้";
+"radio_logo_url_invalid" = "กรอกที่อยู่รูปภาพแบบ http หรือ https ที่ถูกต้อง";
+"radio_batch_import_into" = "นำเข้าไปยัง";
