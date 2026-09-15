@@ -4,6 +4,42 @@
 
 ---
 
+## [1.9.7] (build 73-74) - 2026-09-14
+
+This release adds the Guangya Cloud music source and lyric poster sharing, brings Apple Music into the unified music source list, and fixes external network connections, playback queue reordering, and embedded artwork reading.
+
+### Added
+
+- **Guangya Cloud music source** — add Guangya Cloud as a music source, with scanning and playback working like any other source
+- **Lyric poster sharing** — turn selected lyrics into a shareable poster image, with adjustable layout and colors
+- **Cloud drive folder browsing** — the cloud drive folder hierarchy is rebuilt and music sources gained a folder entry, so you can browse by the original directory structure (#109)
+- **Manual playlist ordering** — press and hold a track in a playlist to drag it into a new position
+- **Shuffle shortcut** — a shuffle button is now available at the top of the song list and the playback queue (#115)
+- **Diagnostic log export** — TestFlight builds can export runtime logs from Storage Management
+
+### Changed
+
+- **Apple Music in the music source list** — authorization, library sync, and removal all happen in the music source list, so Apple Music can be added and removed like any other source; once removed, its content no longer appears in search (#112)
+- **Scanning continues after leaving the app** — a scan keeps running after you leave the app and resumes where it left off when you return (#99)
+- **Server-side deletion sync** — tracks deleted on the server are removed locally, and sources that do not support deletion now only drop the local record (#107 #103 #95)
+- **Tag reading backs off** — tag reading slows down automatically when a server returns 5xx, and WebDAV requests and responses are recorded for troubleshooting
+- **Music source icon colors** — each music source icon now uses its own brand color
+- **Device transfer layout** — the primary action moved to the navigation bar, leaving more room for the list
+- **Lyric annotations and translations** — annotations and translations are laid out together with the original line, and foreign-language lines in mixed-language songs are highlighted again
+
+### Fixed
+
+- **Embedded artwork** — fixed embedded artwork that could not be read for some tracks after a bulk import and could never be recovered afterwards (#116)
+- **External and remote connections** — fixed external music source connections failing and crashing the app, along with fnOS remote connections and their error handling
+- **IPv6 addresses** — fixed IPv6 music source addresses failing to connect and directories failing to load
+- **Playback queue reordering** — fixed a crash while dragging to reorder; with shuffle on, automatic track changes now match Play Next after reordering (#108)
+- **Lyric poster layout** — fixed blank poster previews and clipped layouts
+- **Quick favorites editing** — fixed slow opening and laggy input when editing quick favorites
+- **Playback speed** — fixed the playback speed control failing to open
+- **macOS window buttons** — fixed the window buttons in the top-left flickering while scrolling
+
+---
+
 ## [1.7.3] (build 24) - 2026-07-26
 
 This release consolidates changes made after 1.7.0 that had not yet been documented, with a focus on very large libraries, real multi-source deletion, Apple Music, Baidu Netdisk, search playback, CarPlay, and cross-device sync.
