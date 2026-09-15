@@ -21,6 +21,12 @@ enum AppNavigationRootLayout: Equatable, Sendable {
     case minimal
 }
 
+enum AppTabSelectionPolicy {
+    static func resolve(_ storedValue: Int) -> Int {
+        (0...3).contains(storedValue) ? storedValue : 0
+    }
+}
+
 enum AppNavigationLayoutPolicy {
     static func rootLayout(
         mode: AppNavigationMode,
@@ -309,6 +315,17 @@ extension View {
 
 #if os(iOS)
 extension View {
+    @ViewBuilder
+    fileprivate func softNavigationScrollEdges() -> some View {
+        if #available(iOS 27.0, *) {
+            // iOS 27 changes the automatic edge appearance; retain the soft
+            // transition without changing earlier systems' contextual styles.
+            scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
+        } else {
+            self
+        }
+    }
+
     @ViewBuilder
     fileprivate func minimalSafeAreaBar<Bar: View>(
         edge: VerticalEdge,
@@ -759,6 +776,7 @@ struct ContentView: View {
                     .toolbar(systemTabBarVisibility, for: .tabBar)
             }
         }
+        .softNavigationScrollEdges()
         .environment(\.minimalNavigationDetailTransitionHandler) {
             transitionID, detailScope, isVisible in
             updateMinimalNavigationDetailTransition(
@@ -913,6 +931,7 @@ struct ContentView: View {
                     }
                 }
         }
+        .softNavigationScrollEdges()
     }
 
     /// 把 sidebar 选项映射到具体 detail 视图。Library 的子项 (Songs / Albums
@@ -1087,8 +1106,9 @@ struct ContentView: View {
             if AppNavigationMode(rawValue: navigationModeRawValue) == nil {
                 navigationModeRawValue = AppNavigationMode.standard.rawValue
             }
-            if !(0...3).contains(selectedTab) {
-                selectedTab = 0
+            let restoredTab = AppTabSelectionPolicy.resolve(selectedTab)
+            if restoredTab != selectedTab {
+                selectedTab = restoredTab
                 sidebarSelection = .home
             }
             activateMinimalLandingPageIfNeeded()
@@ -1187,10 +1207,12 @@ struct ContentView: View {
     }
 
     private var searchAwareTabSelection: Binding<Int> {
-        Binding(get: { selectedTab }, set: { selectTab($0) })
+        // TabView validates its first selection before the restoration task runs.
+        Binding(get: { AppTabSelectionPolicy.resolve(selectedTab) }, set: { selectTab($0) })
     }
 
     private func selectTab(_ tab: Int) {
+        let tab = AppTabSelectionPolicy.resolve(tab)
         if tab == 2, selectedTab != 2 {
             // Capture before switching tabs triggers the detail's onDisappear.
             let context = searchNavigation.scope(for: selectedTab)

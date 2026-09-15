@@ -6,6 +6,18 @@ import SwiftUI
 @testable import Primuse
 
 final class LibraryDisplayConfigurationTests: XCTestCase {
+    func testTabSelectionPreservesEveryVisibleTab() {
+        for tab in 0...3 {
+            XCTAssertEqual(AppTabSelectionPolicy.resolve(tab), tab)
+        }
+    }
+
+    func testUnknownTabSelectionRestoresHome() {
+        for storedValue in [Int.min, -1, 4, 100, Int.max] {
+            XCTAssertEqual(AppTabSelectionPolicy.resolve(storedValue), 0)
+        }
+    }
+
     @MainActor
     func testHomeAndListeningStatsKeepTheSameHistoricalCounts() {
         let calendar = ListeningCalendar.make(locale: Locale(identifier: "zh_CN"), timeZone: TimeZone(identifier: "Asia/Shanghai")!)
