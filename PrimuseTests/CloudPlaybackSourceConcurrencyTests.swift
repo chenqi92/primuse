@@ -746,6 +746,112 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testLocalBackfillRecoversMiddleArtworkAndDoesNotRepeatACompleteMiss() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceID = "local-artwork-fallback-\(UUID().uuidString)"
+        let source = MusicSource(
+            id: sourceID,
+            name: "Local artwork fixture",
+            type: .local,
+            basePath: directory.path
+        )
+        let coverData = try XCTUnwrap(Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        ))
+        let coveredPayload = Self.makeWaveFixture(middleCover: coverData)
+        let uncoveredPayload = Self.makeWaveFixture(middleCover: nil)
+        let coveredPath = "/covered.wav"
+        let uncoveredPath = "/uncovered.wav"
+        let coveredURL = directory.appendingPathComponent(String(coveredPath.dropFirst()))
+        let uncoveredURL = directory.appendingPathComponent(String(uncoveredPath.dropFirst()))
+        try coveredPayload.write(to: coveredURL)
+        try uncoveredPayload.write(to: uncoveredURL)
+
+        let connector = CompleteArtworkFixtureConnector(
+            sourceID: sourceID,
+            payloads: [coveredPath: coveredPayload, uncoveredPath: uncoveredPayload],
+            localURLs: [coveredPath: coveredURL, uncoveredPath: uncoveredURL]
+        )
+        let manager = SourceManager(
+            sourcesProvider: { [source] },
+            connectorFactory: { _ in connector }
+        )
+        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
+        let coveredSong = Song(
+            id: "covered-\(UUID().uuidString)",
+            title: "Covered",
+            artistName: "Fixture Artist",
+            duration: 1,
+            fileFormat: .wav,
+            filePath: coveredPath,
+            sourceID: sourceID,
+            fileSize: Int64(coveredPayload.count)
+        )
+        let uncoveredSong = Song(
+            id: "uncovered-\(UUID().uuidString)",
+            title: "Uncovered",
+            artistName: "Fixture Artist",
+            duration: 1,
+            fileFormat: .wav,
+            filePath: uncoveredPath,
+            sourceID: sourceID,
+            fileSize: Int64(uncoveredPayload.count)
+        )
+        library.addSongs([coveredSong, uncoveredSong], affectedSourceIDs: [sourceID])
+        await library.waitForPendingIndex()
+
+        let defaults = UserDefaults.standard
+        let readingModeKey = MetadataBackfillExecutionPolicy.readingModeDefaultsKey
+        let previousReadingMode = defaults.object(forKey: readingModeKey)
+        defaults.set(MetadataReadingMode.automatic.rawValue, forKey: readingModeKey)
+        defer {
+            if let previousReadingMode {
+                defaults.set(previousReadingMode, forKey: readingModeKey)
+            } else {
+                defaults.removeObject(forKey: readingModeKey)
+            }
+        }
+        let backfill = MetadataBackfillService(
+            library: library,
+            sourceManager: manager,
+            backfillableSourceIDs: { [sourceID] },
+            offlineReadableSourceIDs: { [sourceID] },
+            localFileSourceIDs: { [sourceID] }
+        )
+        defer { backfill.stop() }
+        backfill.refreshStatusSnapshot()
+        XCTAssertEqual(backfill.remainingCount(forSource: sourceID), 2)
+
+        backfill.start()
+        await backfill.waitUntilIdle()
+        await library.waitForPendingIndex()
+
+        let recovered = try XCTUnwrap(library.song(id: coveredSong.id))
+        XCTAssertNotNil(recovered.coverArtFileName)
+        let cachedCover = await MetadataAssetStore.shared.cachedCoverData(forSongID: coveredSong.id)
+        XCTAssertEqual(cachedCover, coverData)
+        XCTAssertNil(library.song(id: uncoveredSong.id)?.coverArtFileName)
+        let firstCoveredRequestCount = await connector.localURLRequestCount(for: coveredPath)
+        let firstUncoveredRequestCount = await connector.localURLRequestCount(for: uncoveredPath)
+        XCTAssertEqual(firstCoveredRequestCount, 1)
+        XCTAssertEqual(firstUncoveredRequestCount, 1)
+
+        backfill.refreshStatusSnapshot()
+        XCTAssertEqual(backfill.remainingCount(forSource: sourceID), 0)
+        backfill.start()
+        await backfill.waitUntilIdle()
+        let finalCoveredRequestCount = await connector.localURLRequestCount(for: coveredPath)
+        let finalUncoveredRequestCount = await connector.localURLRequestCount(for: uncoveredPath)
+        XCTAssertEqual(finalCoveredRequestCount, 1)
+        XCTAssertEqual(
+            finalUncoveredRequestCount,
+            1,
+            "A confirmed complete-file artwork miss must remain in artworkGivenUpIDs"
+        )
+    }
+
     func testLocalLyricsCreateAndReplaceThroughCanonicalRoot() async throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -1123,6 +1229,72 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
             incompleteSongIDs: []
         )
     }
+
+    private static func makeWaveFixture(middleCover: Data?) -> Data {
+        func appendUInt16LE(_ value: UInt16, to data: inout Data) {
+            var little = value.littleEndian
+            withUnsafeBytes(of: &little) { data.append(contentsOf: $0) }
+        }
+        func appendUInt32LE(_ value: UInt32, to data: inout Data) {
+            var little = value.littleEndian
+            withUnsafeBytes(of: &little) { data.append(contentsOf: $0) }
+        }
+        func appendUInt32BE(_ value: UInt32, to data: inout Data) {
+            var big = value.bigEndian
+            withUnsafeBytes(of: &big) { data.append(contentsOf: $0) }
+        }
+        func syncSafe(_ value: Int) -> [UInt8] {
+            [
+                UInt8((value >> 21) & 0x7f),
+                UInt8((value >> 14) & 0x7f),
+                UInt8((value >> 7) & 0x7f),
+                UInt8(value & 0x7f)
+            ]
+        }
+
+        var wave = Data("RIFF".utf8)
+        appendUInt32LE(0, to: &wave)
+        wave.append(Data("WAVEfmt ".utf8))
+        appendUInt32LE(16, to: &wave)
+        appendUInt16LE(1, to: &wave)
+        appendUInt16LE(1, to: &wave)
+        appendUInt32LE(8_000, to: &wave)
+        appendUInt32LE(16_000, to: &wave)
+        appendUInt16LE(2, to: &wave)
+        appendUInt16LE(16, to: &wave)
+        let audioByteCount = 4 * 1_024 * 1_024 + 64 * 1_024
+        wave.append(Data("data".utf8))
+        appendUInt32LE(UInt32(audioByteCount), to: &wave)
+        wave.append(Data(repeating: 0, count: audioByteCount))
+
+        if let middleCover {
+            var picturePayload = Data([0])
+            picturePayload.append(Data("image/png".utf8))
+            picturePayload.append(contentsOf: [0, 3, 0])
+            picturePayload.append(middleCover)
+            var pictureFrame = Data("APIC".utf8)
+            appendUInt32BE(UInt32(picturePayload.count), to: &pictureFrame)
+            pictureFrame.append(contentsOf: [0, 0])
+            pictureFrame.append(picturePayload)
+            var id3 = Data([0x49, 0x44, 0x33, 3, 0, 0])
+            id3.append(contentsOf: syncSafe(pictureFrame.count))
+            id3.append(pictureFrame)
+            wave.append(Data("id3 ".utf8))
+            appendUInt32LE(UInt32(id3.count), to: &wave)
+            wave.append(id3)
+            if id3.count % 2 != 0 { wave.append(0) }
+            let trailingByteCount = 512 * 1_024
+            wave.append(Data("JUNK".utf8))
+            appendUInt32LE(UInt32(trailingByteCount), to: &wave)
+            wave.append(Data(repeating: 0, count: trailingByteCount))
+        }
+
+        var riffSize = UInt32(wave.count - 8).littleEndian
+        withUnsafeBytes(of: &riffSize) { bytes in
+            wave.replaceSubrange(4..<8, with: bytes)
+        }
+        return wave
+    }
 }
 
 private struct ReadResult: Sendable {
@@ -1202,6 +1374,64 @@ private actor FetchRequestRecorder {
 private struct FixtureRangeRequest: Sendable {
     let offset: Int64
     let length: Int64
+}
+
+private actor CompleteArtworkFixtureConnector: MusicSourceConnector {
+    let sourceID: String
+    private let payloads: [String: Data]
+    private let localURLs: [String: URL]
+    private var localURLRequests: [String: Int] = [:]
+
+    init(sourceID: String, payloads: [String: Data], localURLs: [String: URL]) {
+        self.sourceID = sourceID
+        self.payloads = payloads
+        self.localURLs = localURLs
+    }
+
+    func connect() async throws {}
+    func disconnect() async {}
+
+    func listFiles(at path: String) async throws -> [RemoteFileItem] { [] }
+
+    func localURL(for path: String) async throws -> URL {
+        guard let url = localURLs[path] else { throw SourceError.fileNotFound(path) }
+        localURLRequests[path, default: 0] += 1
+        return url
+    }
+
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
+        let payload = payloads[path]
+        return AsyncThrowingStream { continuation in
+            if let payload { continuation.yield(payload) }
+            continuation.finish()
+        }
+    }
+
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
+        AsyncThrowingStream { $0.finish() }
+    }
+
+    func fetchRange(
+        path: String,
+        offset: Int64,
+        length: Int64,
+        priority _: RangeFetchPriority
+    ) async throws -> Data {
+        guard let payload = payloads[path] else { throw SourceError.fileNotFound(path) }
+        let start = offset >= 0 ? offset : Int64(payload.count) + offset
+        guard start >= 0,
+              length > 0,
+              start < Int64(payload.count),
+              let requestedEnd = SafeByteRange.exclusiveEnd(offset: start, length: length) else {
+            return Data()
+        }
+        let end = min(requestedEnd, Int64(payload.count))
+        return payload.subdata(in: Int(start)..<Int(end))
+    }
+
+    func localURLRequestCount(for path: String) -> Int {
+        localURLRequests[path, default: 0]
+    }
 }
 
 private final class FixtureRangeConnector: MusicSourceConnector, @unchecked Sendable {

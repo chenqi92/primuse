@@ -5,6 +5,92 @@ import XCTest
 
 final class PlaybackSourceAvailabilityTests: XCTestCase {
     @MainActor
+    func testShuffleQuickActionInstallsEveryPlayableCandidateAndAnchorsTheSelectedEntry() throws {
+        let suite = "shuffle-quick-action-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let player = AudioPlayerService(
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")),
+            activateAudioSession: { _ in XCTFail("Queue construction must not activate audio") }
+        )
+        let playable = (0..<4).map {
+            Song(
+                id: "playable-\($0)",
+                title: "Playable \($0)",
+                duration: 180,
+                fileFormat: .flac,
+                filePath: "/playable-\($0).flac",
+                sourceID: "source"
+            )
+        }
+        let unplayable = Song(
+            id: "unplayable",
+            title: "Unplayable",
+            duration: 0,
+            fileFormat: .flac,
+            filePath: "",
+            sourceID: "source"
+        )
+        let candidates = (playable + [unplayable]).filteredPlayable()
+        let shuffledQueue = candidates.shuffled()
+        let selectedID = try XCTUnwrap(shuffledQueue.first?.id)
+
+        player.shuffleEnabled = true
+        player.setQueue(shuffledQueue, startAt: 0)
+
+        XCTAssertEqual(Set(player.queue.map(\.id)), Set(playable.map(\.id)))
+        XCTAssertEqual(player.queue.count, playable.count)
+        XCTAssertEqual(player.currentIndex, 0)
+        XCTAssertEqual(player.queuedSong(at: player.currentIndex)?.id, selectedID)
+        XCTAssertEqual(player.shuffledIndices.first, player.currentIndex)
+        XCTAssertEqual(Set(player.shuffledIndices), Set(player.queue.indices))
+    }
+
+    @MainActor
+    func testQueueShuffleTraversalSkipsDisabledSourcesAndReturnsToRawOrderWhenDisabled() throws {
+        let suite = "shuffle-source-availability-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let disabledSourceID = "disabled-source"
+        let library = MusicLibrary(
+            disabledSourceIDs: [disabledSourceID],
+            storageDirectory: directory.appendingPathComponent("library")
+        )
+        let player = AudioPlayerService(
+            library: library,
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")),
+            activateAudioSession: { _ in XCTFail("Queue traversal must not activate audio") }
+        )
+        let songs = [
+            Song(id: "current", title: "Current", duration: 180, fileFormat: .flac,
+                 filePath: "/current.flac", sourceID: "enabled-source"),
+            Song(id: "disabled", title: "Disabled", duration: 180, fileFormat: .flac,
+                 filePath: "/disabled.flac", sourceID: disabledSourceID),
+            Song(id: "next", title: "Next", duration: 180, fileFormat: .flac,
+                 filePath: "/next.flac", sourceID: "enabled-source"),
+            Song(id: "after", title: "After", duration: 180, fileFormat: .flac,
+                 filePath: "/after.flac", sourceID: "enabled-source")
+        ]
+        player.setQueue(songs, startAt: 0)
+        player.shuffleEnabled = true
+        player.shuffledIndices = [0, 1, 2, 3]
+        player.shufflePosition = 0
+
+        XCTAssertEqual(player.nextQueueTraversalTarget()?.queueIndex, 2)
+        XCTAssertTrue(player.advanceToNextIndex())
+        XCTAssertEqual(player.currentIndex, 2)
+
+        player.shuffleEnabled = false
+        XCTAssertEqual(player.nextQueueTraversalTarget()?.queueIndex, 3)
+    }
+
+    @MainActor
     func testFNConnectionFailureSkipsTheSourceWithoutAFileLevelNetworkProbe() async throws {
         let suite = "fn-source-failure-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
