@@ -196,6 +196,14 @@ def split_document(path: Path) -> tuple[str, list[tuple[str, str]]]:
     return header, sections
 
 
+def version_key(version: str) -> tuple[int, ...]:
+    """把版本号转成可比较的元组，解析不了的排到最后。"""
+    try:
+        return tuple(int(part) for part in version.split("."))
+    except ValueError:
+        return (0,)
+
+
 def strip_trailing_rule(section: str) -> str:
     """去掉段落末尾的分隔线，只留正文。"""
     return re.sub(r"\n+---\s*\n*$", "\n", section).rstrip() + "\n"
@@ -279,9 +287,17 @@ def cmd_apply(args: argparse.Namespace) -> None:
     version = args.version or SECTION_HEADING.match(section).group(1)
 
     header, sections = split_document(path)
-    rebuilt = [f"{section}\n---\n\n" if name == version else body for name, body in sections]
-    if not any(name == version for name, _ in sections):
-        rebuilt.insert(0, f"{section}\n---\n\n")
+    block = f"{section}\n---\n\n"
+    if any(name == version for name, _ in sections):
+        rebuilt = [block if name == version else body for name, body in sections]
+    else:
+        # 按版本号降序插到正确位置，补写历史版本时才不会打乱既有顺序
+        position = next(
+            (index for index, (name, _) in enumerate(sections) if version_key(name) < version_key(version)),
+            len(sections),
+        )
+        rebuilt = [body for _, body in sections]
+        rebuilt.insert(position, block)
 
     path.write_text(header + "".join(rebuilt), encoding="utf-8")
     print(f"已写入 {path.name} 的 {version} 段落")
