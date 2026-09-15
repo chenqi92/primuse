@@ -31,10 +31,22 @@ struct RadioStationsView: View {
     @State private var namePromptText = ""
     @State private var folderToDelete: String?
     @State private var tagToDelete: String?
+    @AppStorage(RadioStationLayoutMode.storageKey)
+    private var layoutModeRaw = RadioStationLayoutMode.list.rawValue
 
-    private let columns = [
-        GridItem(.adaptive(minimum: 320, maximum: 460), spacing: 16)
-    ]
+    private var layoutMode: RadioStationLayoutMode {
+        RadioStationLayoutMode(rawValue: layoutModeRaw) ?? .list
+    }
+
+    /// 列表版一行一个宽卡片；封面版是方格台标墙，一屏能放下三四倍的台。
+    private var columns: [GridItem] {
+        switch layoutMode {
+        case .list:
+            return [GridItem(.adaptive(minimum: 320, maximum: 460), spacing: 16)]
+        case .cover:
+            return [GridItem(.adaptive(minimum: 108, maximum: 170), spacing: 14)]
+        }
+    }
 
     private var filter: RadioStationFilter {
         RadioStationFilter(folder: folderScope, tagNames: activeTags, searchText: searchText)
@@ -435,6 +447,18 @@ struct RadioStationsView: View {
                 }
 
                 Menu {
+                    Picker("radio_layout", selection: $layoutModeRaw) {
+                        ForEach(RadioStationLayoutMode.allCases) { mode in
+                            Label(String(localized: mode.titleKey), systemImage: mode.icon)
+                                .tag(mode.rawValue)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                } label: {
+                    Label("radio_layout", systemImage: layoutMode.icon)
+                }
+
+                Menu {
                     Button("radio_batch_add_title", systemImage: "square.and.arrow.down") {
                         showingBatchAdd = true
                     }
@@ -549,14 +573,14 @@ struct RadioStationsView: View {
             LazyVGrid(
                 columns: columns,
                 alignment: .leading,
-                spacing: 16,
+                spacing: layoutMode == .cover ? 14 : 16,
                 pinnedViews: [.sectionHeaders]
             ) {
                 if showsFolderSections {
                     ForEach(RadioStationOrganization.grouped(visibleStations)) { group in
                         Section {
                             ForEach(group.stations) { station in
-                                stationCard(
+                                stationItem(
                                     station,
                                     priority: priorities[station.id] ?? 1,
                                     total: total
@@ -568,7 +592,7 @@ struct RadioStationsView: View {
                     }
                 } else {
                     ForEach(visibleStations) { station in
-                        stationCard(station, priority: priorities[station.id] ?? 1, total: total)
+                        stationItem(station, priority: priorities[station.id] ?? 1, total: total)
                     }
                 }
             }
@@ -576,29 +600,81 @@ struct RadioStationsView: View {
         }
     }
 
-    private func stationCard(
+    @ViewBuilder
+    private func stationItem(
         _ station: RadioStation,
         priority: Int,
         total: Int
     ) -> some View {
-        RadioStationCard(
-            station: station,
-            priority: priority,
-            isCurrent: player.currentRadioStation?.id == station.id,
-            isPlaying: player.currentRadioStation?.id == station.id
-                && (player.isPlaying || player.isLoading),
-            metadataTitle: player.currentRadioStation?.id == station.id
-                ? player.radioMetadataTitle
-                : nil,
-            canMoveUp: priority > 1,
-            canMoveDown: priority < total,
-            onPlay: { toggle(station) },
-            onEdit: { editingStation = station },
-            onDelete: { store.remove(id: station.id) },
-            onMoveUp: { store.moveStation(id: station.id, by: -1) },
-            onMoveDown: { store.moveStation(id: station.id, by: 1) },
-            organizeActions: { organizeMenu(for: station) }
-        )
+        let isCurrent = player.currentRadioStation?.id == station.id
+        let isPlaying = isCurrent && (player.isPlaying || player.isLoading)
+        switch layoutMode {
+        case .list:
+            RadioStationCard(
+                station: station,
+                priority: priority,
+                isCurrent: isCurrent,
+                isPlaying: isPlaying,
+                metadataTitle: isCurrent ? player.radioMetadataTitle : nil,
+                onPlay: { toggle(station) },
+                actions: { stationActions(for: station, priority: priority, total: total) }
+            )
+        case .cover:
+            RadioStationCoverTile(
+                station: station,
+                isCurrent: isCurrent,
+                isPlaying: isPlaying,
+                onPlay: { toggle(station) },
+                actions: { stationActions(for: station, priority: priority, total: total) }
+            )
+        }
+    }
+
+    /// 一条电台的全部单条操作。列表卡片的 ⋯ 菜单和封面格的长按菜单共用这一份 ——
+    /// 两种版式给的是同一组能力，不该有哪个少一项。
+    @ViewBuilder
+    private func stationActions(
+        for station: RadioStation,
+        priority: Int,
+        total: Int
+    ) -> some View {
+        if station.isServerMirror {
+            Label(station.displayEndpoint, systemImage: "server.rack")
+                .foregroundStyle(.secondary)
+        } else {
+            Button("edit", systemImage: "pencil") { editingStation = station }
+        }
+
+        organizeMenu(for: station)
+
+        Button("radio_priority_move_up", systemImage: "arrow.up") {
+            store.moveStation(id: station.id, by: -1)
+        }
+        .disabled(priority <= 1)
+
+        Button("radio_priority_move_down", systemImage: "arrow.down") {
+            store.moveStation(id: station.id, by: 1)
+        }
+        .disabled(priority >= total)
+
+        // 自动发现失败过的台在退避期里不会再自己去找，这里给用户一个
+        // 「现在就再试一次」的出口。用户自己选过图或填过链接的不提供 ——
+        // 那会覆盖他的选择。
+        if !station.isServerMirror,
+           station.logoData == nil,
+           station.logoFileName == nil,
+           station.remoteLogoSource?.isUserProvided != true {
+            Button("radio_logo_fetch", systemImage: "photo.badge.arrow.down") {
+                RadioLogoDiscoveryService.shared.discoverNow(for: station)
+            }
+        }
+
+        if !station.isServerMirror {
+            Divider()
+            Button("delete", systemImage: "trash", role: .destructive) {
+                store.remove(id: station.id)
+            }
+        }
     }
 
     /// 单条电台的归类菜单。批量版在工具栏里，这里是给「就改这一个」用的。
@@ -750,7 +826,8 @@ struct RadioStationsView: View {
     }
 }
 
-/// 导出选中电台为 `.m3u`。带 `#EXTINF` 名字，导回来时 `RadioImportParser` 能还原。
+/// 导出选中电台为 `.m3u`。带 `#EXTINF` 名字、`group-title` 和 `tvg-logo`，
+/// 导回来时 `RadioImportParser` 能连文件夹和台标一起还原，别的播放器也认这两个属性。
 struct RadioPlaylistDocument: FileDocument {
     static var readableContentTypes: [UTType] { [.m3uPlaylist, .plainText] }
 
@@ -767,11 +844,27 @@ struct RadioPlaylistDocument: FileDocument {
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
         var lines = ["#EXTM3U"]
         for station in stations {
-            lines.append("#EXTINF:-1,\(station.name)")
+            var attributes = ""
+            if let folder = station.assignedFolderName {
+                attributes += " group-title=\"\(Self.attributeValue(folder))\""
+            }
+            if let logo = RadioLogoURLPolicy.normalized(station.remoteLogoURL) {
+                attributes += " tvg-logo=\"\(Self.attributeValue(logo))\""
+            }
+            lines.append("#EXTINF:-1\(attributes),\(Self.attributeValue(station.name))")
             lines.append(station.streamURL)
         }
         let data = Data(lines.joined(separator: "\n").utf8)
         return FileWrapper(regularFileWithContents: data)
+    }
+
+    /// 属性值里出现引号或换行会让这一行的结构塌掉，直接去掉。
+    private static func attributeValue(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\"", with: "")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .trimmingCharacters(in: .whitespaces)
     }
 }
 
@@ -783,20 +876,14 @@ extension UTType {
 }
 
 
-private struct RadioStationCard<OrganizeActions: View>: View {
+private struct RadioStationCard<Actions: View>: View {
     let station: RadioStation
     let priority: Int
     let isCurrent: Bool
     let isPlaying: Bool
     let metadataTitle: String?
-    let canMoveUp: Bool
-    let canMoveDown: Bool
     let onPlay: () -> Void
-    let onEdit: () -> Void
-    let onDelete: () -> Void
-    let onMoveUp: () -> Void
-    let onMoveDown: () -> Void
-    @ViewBuilder let organizeActions: () -> OrganizeActions
+    @ViewBuilder let actions: () -> Actions
 
     var body: some View {
         HStack(spacing: 8) {
@@ -816,7 +903,7 @@ private struct RadioStationCard<OrganizeActions: View>: View {
                                     .foregroundStyle(.secondary)
                             }
                             Spacer(minLength: 4)
-                            Text("#\(priority)")
+                            Text(verbatim: "#\(priority)")
                                 .font(.caption2.monospacedDigit())
                                 .foregroundStyle(.secondary)
                         }
@@ -860,7 +947,7 @@ private struct RadioStationCard<OrganizeActions: View>: View {
             .buttonStyle(.plain)
 
             Menu {
-                managementActions
+                actions()
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 14, weight: .semibold))
@@ -880,36 +967,82 @@ private struct RadioStationCard<OrganizeActions: View>: View {
                 .stroke(isCurrent ? Color.accentColor.opacity(0.35) : Color.secondary.opacity(0.1), lineWidth: 0.7)
         }
         .contextMenu {
-            managementActions
+            actions()
         }
     }
+}
 
-    @ViewBuilder
-    private var managementActions: some View {
-        if station.isServerMirror {
-            Label(station.displayEndpoint, systemImage: "server.rack")
-                .foregroundStyle(.secondary)
-        } else {
-            Button("edit", systemImage: "pencil", action: onEdit)
-        }
-        organizeActions()
-        Button("radio_priority_move_up", systemImage: "arrow.up", action: onMoveUp)
-            .disabled(!canMoveUp)
-        Button("radio_priority_move_down", systemImage: "arrow.down", action: onMoveDown)
-            .disabled(!canMoveDown)
-        // 自动发现失败过的台在退避期里不会再自己去找，这里给用户一个
-        // 「现在就再试一次」的出口。用户自己选过图的台不提供 —— 那会覆盖他的选择。
-        if !station.isServerMirror,
-           station.logoData == nil,
-           station.logoFileName == nil,
-           station.remoteLogoSource?.isUserProvided != true {
-            Button("radio_logo_fetch", systemImage: "photo.badge.arrow.down") {
-                RadioLogoDiscoveryService.shared.discoverNow(for: station)
+/// 封面版的一格。台标占满整格，名字和状态压在下面两行 ——
+/// 台标齐全时这一屏能放下三四倍的电台。
+private struct RadioStationCoverTile<Actions: View>: View {
+    let station: RadioStation
+    let isCurrent: Bool
+    let isPlaying: Bool
+    let onPlay: () -> Void
+    @ViewBuilder let actions: () -> Actions
+
+    var body: some View {
+        Button(action: onPlay) {
+            VStack(alignment: .leading, spacing: 7) {
+                // 用空白容器定尺寸，台标以 .fit 填进去 —— 台标是 logo 不是照片，
+                // 完整显示比填满后裁掉台名更重要，也不会让长图反过来撑大网格列。
+                Color.clear
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(1, contentMode: .fit)
+                    .overlay {
+                        RadioStationArtworkContent(
+                            station: station,
+                            decodeSize: 200,
+                            contentMode: .fit
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: isPlaying ? "stop.fill" : "play.fill")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(isPlaying ? Color.red : Color.accentColor)
+                            .frame(width: 28, height: 28)
+                            .background(.thinMaterial, in: Circle())
+                            .padding(7)
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(
+                                isCurrent ? Color.accentColor : Color.secondary.opacity(0.15),
+                                lineWidth: isCurrent ? 1.6 : 0.6
+                            )
+                    }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(station.name)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(isCurrent ? Color.accentColor : .primary)
+                        .lineLimit(1)
+
+                    HStack(spacing: 4) {
+                        if isCurrent {
+                            Circle().fill(.red).frame(width: 5, height: 5)
+                        }
+                        if station.isServerMirror {
+                            Image(systemName: "server.rack")
+                                .font(.system(size: 8))
+                                .foregroundStyle(.tertiary)
+                        }
+                        Text(station.playbackSubtitle)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    RadioStationOrganizeLabels(station: station, maximumTags: 1)
+                }
             }
+            .contentShape(Rectangle())
         }
-        if !station.isServerMirror {
-            Divider()
-            Button("delete", systemImage: "trash", role: .destructive, action: onDelete)
+        .buttonStyle(.plain)
+        .contextMenu {
+            actions()
         }
     }
 }
@@ -1470,24 +1603,18 @@ private struct RadioEditorArtwork: View {
                         image.resizable().scaledToFill()
                     } else {
                         ZStack {
-                            Color.secondary.opacity(0.12)
+                            RadioStationPlaceholderArtwork()
                             if phase.error == nil {
-                                ProgressView().controlSize(.small)
-                            } else {
-                                Image(systemName: "photo.badge.exclamationmark")
-                                    .font(.title3)
-                                    .foregroundStyle(.secondary)
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .tint(.white)
                             }
                         }
                     }
                 }
             } else {
-                ZStack {
-                    Color.secondary.opacity(0.12)
-                    Image(systemName: "radio")
-                        .font(.title)
-                        .foregroundStyle(.secondary)
-                }
+                // 没有图就用和列表、锁屏同一张默认台标，而不是另画一个灰格子。
+                RadioStationPlaceholderArtwork()
             }
         }
         .frame(width: 84, height: 84)

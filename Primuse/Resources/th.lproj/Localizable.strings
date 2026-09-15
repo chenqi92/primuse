@@ -3890,3 +3890,15 @@
 "radio_logo_url_hint" = "วางที่อยู่รูปภาพแบบ http หรือ https จะใช้เมื่อยังไม่ได้เลือกรูปโลโก้";
 "radio_logo_url_invalid" = "กรอกที่อยู่รูปภาพแบบ http หรือ https ที่ถูกต้อง";
 "radio_batch_import_into" = "นำเข้าไปยัง";
+
+// MARK: - Radio layout & playlist link import
+"radio_layout" = "รูปแบบ";
+"radio_layout_cover" = "ปก";
+"radio_layout_list" = "รายการ";
+"radio_batch_entry_url" = "ลิงก์";
+"radio_batch_url_hint" = "วางที่อยู่ของรายการสถานีแบบ .m3u, .m3u8, .pls หรือ .txt";
+"radio_batch_url_fetch" = "ดึงข้อมูล";
+"radio_batch_url_invalid" = "กรอกที่อยู่รายการแบบ http หรือ https ที่ถูกต้อง";
+"radio_batch_url_status %lld" = "เซิร์ฟเวอร์ตอบกลับ %lld";
+"radio_batch_import_by_group" = "ตามกลุ่มในรายการ";
+"radio_batch_import_by_group_count %lld" = "ตามกลุ่มในรายการ (%lld)";

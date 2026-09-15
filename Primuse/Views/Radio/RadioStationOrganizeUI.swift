@@ -44,6 +44,33 @@ enum RadioNamePrompt: Identifiable, Hashable {
     }
 }
 
+/// 电台列表的两种版式。封面版把台标放大成方格，适合台标齐全、靠图认台；
+/// 列表版一行一个台，名字、正在播的曲目和地址都看得全。
+enum RadioStationLayoutMode: String, CaseIterable, Identifiable {
+    case cover
+    case list
+
+    var id: String { rawValue }
+
+    var titleKey: String.LocalizationValue {
+        switch self {
+        case .cover: return "radio_layout_cover"
+        case .list: return "radio_layout_list"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .cover: return "square.grid.2x2"
+        case .list: return "list.bullet"
+        }
+    }
+
+    /// 存进 `@AppStorage` 的键。iPhone 和 Mac 各记各的 —— 同一个人在手机上
+    /// 想要封面墙，在桌面上想要信息密度高的列表，这很正常。
+    static let storageKey = "radio.layoutMode"
+}
+
 /// 标签配色。颜色由标签名算出来(见 `RadioStationOrganization.paletteIndex`)，
 /// 不落库也不让用户选 —— 同一个标签在每台设备上都是同一个颜色。
 /// 用的是系统语义色，明暗两套外观各自有合适的对比度。

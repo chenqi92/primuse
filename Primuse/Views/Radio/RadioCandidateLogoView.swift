@@ -19,16 +19,13 @@ struct RadioCandidateLogoView: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.secondary.opacity(0.12))
+            // 清单没给台标、或者那张图读不出来时，显示和电台列表一样的默认台标 ——
+            // 同一个电台在勾选前后不该长得不一样。
+            RadioStationPlaceholderArtwork()
             if let image {
                 Image(platformImage: image)
                     .resizable()
                     .scaledToFill()
-            } else {
-                Image(systemName: "dot.radiowaves.left.and.right")
-                    .font(.system(size: size * 0.4))
-                    .foregroundStyle(.secondary)
             }
         }
         .frame(width: size, height: size)

@@ -275,4 +275,106 @@ struct RadioImportParserTests {
         #expect(candidates[1].status == .duplicate)
         #expect(candidates[2].status == .invalid)
     }
+
+    // MARK: - 分组与带逗号的台名(issue #119)
+
+    @Test("group-title becomes the candidate's group")
+    func groupTitleIsCaptured() {
+        let text = """
+        #EXTM3U
+        #EXTINF:-1 group-title="1-Radio#Music" tvg-id="Big B Radio #Apop" tvg-logo="https://cdn.example.test/logog.png?t=158645",Big B Radio #Apop
+        https://antares.example.test/proxy/apop?mp=/s
+        #EXTINF:-1 group-title="0-Radio#华语",2CR澳洲中文广播电台
+        https://streaming.example.test/2cr-chinese-radio
+        #EXTINF:-1,Electric Radio
+        https://stream-168.example.test/gocfnmkdsmttv
+        """
+        let candidates = RadioImportParser.parse(text)
+
+        #expect(candidates.count == 3)
+        #expect(candidates[0].name == "Big B Radio #Apop")
+        #expect(candidates[0].groupTitle == "1-Radio#Music")
+        #expect(candidates[0].logoURLString == "https://cdn.example.test/logog.png?t=158645")
+        #expect(candidates[1].groupTitle == "0-Radio#华语")
+        #expect(candidates[1].name == "2CR澳洲中文广播电台")
+        // 没写分组的条目不该继承上一条的分组。
+        #expect(candidates[2].groupTitle == nil)
+        #expect(candidates.allSatisfy { $0.status == .playable })
+    }
+
+    @Test("A comma inside the station name survives")
+    func commaInsideStationName() {
+        let text = """
+        #EXTM3U
+        #EXTINF:-1 group-title="Pop, Rock" tvg-logo="https://e.test/a.png",Radio X, Sydney
+        https://e.test/live
+        """
+        let candidates = RadioImportParser.parse(text)
+
+        #expect(candidates.count == 1)
+        #expect(candidates[0].name == "Radio X, Sydney")
+        #expect(candidates[0].groupTitle == "Pop, Rock")
+        #expect(candidates[0].logoURLString == "https://e.test/a.png")
+    }
+
+    @Test("An unbalanced quote still yields a usable name")
+    func unbalancedQuote() {
+        let text = """
+        #EXTM3U
+        #EXTINF:-1 tvg-id="broken,Some Station
+        https://e.test/live
+        """
+        let candidates = RadioImportParser.parse(text)
+
+        #expect(candidates.count == 1)
+        #expect(candidates[0].name == "Some Station")
+    }
+
+    @Test("EXTGRP applies until the next one changes it")
+    func extgrpRunsUntilChanged() {
+        let text = """
+        #EXTM3U
+        #EXTGRP:News
+        #EXTINF:-1,First
+        https://e.test/1
+        #EXTINF:-1,Second
+        https://e.test/2
+        #EXTGRP:Music
+        #EXTINF:-1,Third
+        https://e.test/3
+        #EXTINF:-1 group-title="Jazz",Fourth
+        https://e.test/4
+        """
+        let candidates = RadioImportParser.parse(text)
+
+        #expect(candidates.map(\.groupTitle) == ["News", "News", "Music", "Jazz"])
+    }
+
+    @Test("Group names are normalized like folder names")
+    func groupNamesAreNormalized() {
+        let text = """
+        #EXTM3U
+        #EXTINF:-1 group-title="  华语   电台  ",A
+        https://e.test/1
+        #EXTINF:-1 group-title="   ",B
+        https://e.test/2
+        """
+        let candidates = RadioImportParser.parse(text)
+
+        #expect(candidates[0].groupTitle == "华语 电台")
+        #expect(candidates[1].groupTitle == nil)
+    }
+
+    @Test("A plain music playlist line keeps the whole title")
+    func plainExtinfTitle() {
+        let text = """
+        #EXTM3U
+        #EXTINF:184,Artist - Title, Live
+        https://e.test/1
+        """
+        let candidates = RadioImportParser.parse(text)
+
+        #expect(candidates[0].name == "Artist - Title, Live")
+    }
+
 }

@@ -3984,3 +3984,15 @@
 "radio_logo_url_hint" = "Füge eine http- oder https-Bildadresse ein. Sie wird verwendet, wenn kein Logobild gewählt ist.";
 "radio_logo_url_invalid" = "Gib eine gültige http- oder https-Bildadresse ein.";
 "radio_batch_import_into" = "Importieren nach";
+
+// MARK: - Radio layout & playlist link import
+"radio_layout" = "Darstellung";
+"radio_layout_cover" = "Cover";
+"radio_layout_list" = "Liste";
+"radio_batch_entry_url" = "Adresse";
+"radio_batch_url_hint" = "Füge die Adresse einer .m3u-, .m3u8-, .pls- oder .txt-Senderliste ein.";
+"radio_batch_url_fetch" = "Laden";
+"radio_batch_url_invalid" = "Gib eine gültige http- oder https-Listenadresse ein.";
+"radio_batch_url_status %lld" = "Der Server antwortete mit %lld.";
+"radio_batch_import_by_group" = "Nach Listengruppe";
+"radio_batch_import_by_group_count %lld" = "Nach Listengruppe (%lld)";

@@ -4077,3 +4077,15 @@
 "radio_logo_url_hint" = "填 http 或 https 图片地址。没有选择台标图片时用它。";
 "radio_logo_url_invalid" = "请填写有效的 http 或 https 图片地址。";
 "radio_batch_import_into" = "导入到";
+
+// MARK: - Radio layout & playlist link import
+"radio_layout" = "版式";
+"radio_layout_cover" = "封面";
+"radio_layout_list" = "列表";
+"radio_batch_entry_url" = "链接";
+"radio_batch_url_hint" = "填一个 .m3u、.m3u8、.pls 或 .txt 电台清单的地址。";
+"radio_batch_url_fetch" = "获取";
+"radio_batch_url_invalid" = "请填写有效的 http 或 https 清单地址。";
+"radio_batch_url_status %lld" = "服务器返回 %lld。";
+"radio_batch_import_by_group" = "按清单分组";
+"radio_batch_import_by_group_count %lld" = "按清单分组（%lld 个）";

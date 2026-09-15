@@ -3890,3 +3890,15 @@
 "radio_logo_url_hint" = "Вставьте http- или https-адрес изображения. Он используется, если логотип не выбран.";
 "radio_logo_url_invalid" = "Введите корректный http- или https-адрес изображения.";
 "radio_batch_import_into" = "Импортировать в";
+
+// MARK: - Radio layout & playlist link import
+"radio_layout" = "Вид";
+"radio_layout_cover" = "Обложки";
+"radio_layout_list" = "Список";
+"radio_batch_entry_url" = "Ссылка";
+"radio_batch_url_hint" = "Вставьте адрес списка станций .m3u, .m3u8, .pls или .txt.";
+"radio_batch_url_fetch" = "Загрузить";
+"radio_batch_url_invalid" = "Введите корректный http- или https-адрес списка.";
+"radio_batch_url_status %lld" = "Сервер ответил %lld.";
+"radio_batch_import_by_group" = "По группам списка";
+"radio_batch_import_by_group_count %lld" = "По группам списка (%lld)";

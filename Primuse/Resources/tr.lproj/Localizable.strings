@@ -3890,3 +3890,15 @@
 "radio_logo_url_hint" = "http veya https görsel adresi yapıştırın. Logo seçilmediğinde kullanılır.";
 "radio_logo_url_invalid" = "Geçerli bir http veya https görsel adresi girin.";
 "radio_batch_import_into" = "Şuraya aktar";
+
+// MARK: - Radio layout & playlist link import
+"radio_layout" = "Görünüm";
+"radio_layout_cover" = "Kapaklar";
+"radio_layout_list" = "Liste";
+"radio_batch_entry_url" = "Bağlantı";
+"radio_batch_url_hint" = ".m3u, .m3u8, .pls veya .txt istasyon listesinin adresini yapıştırın.";
+"radio_batch_url_fetch" = "Getir";
+"radio_batch_url_invalid" = "Geçerli bir http veya https liste adresi girin.";
+"radio_batch_url_status %lld" = "Sunucu %lld yanıtı verdi.";
+"radio_batch_import_by_group" = "Liste grubuna göre";
+"radio_batch_import_by_group_count %lld" = "Liste grubuna göre (%lld)";

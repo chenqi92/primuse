@@ -27,6 +27,9 @@ public struct RadioImportCandidate: Identifiable, Hashable, Sendable {
     public var homepageURLString: String?
     /// 台标是从哪来的，决定它在自动发现里的可信度。
     public var logoSource: RadioLogoSource?
+    /// 清单里写的分组(`group-title` 或 `#EXTGRP:`)。导入时可以直接当文件夹用 ——
+    /// 一份几百条的 IPTV 清单，分组是它自带的唯一整理方式，丢掉太可惜。
+    public var groupTitle: String?
 
     public init(
         id: UUID = UUID(),
@@ -36,7 +39,8 @@ public struct RadioImportCandidate: Identifiable, Hashable, Sendable {
         duplicateOfName: String? = nil,
         logoURLString: String? = nil,
         homepageURLString: String? = nil,
-        logoSource: RadioLogoSource? = nil
+        logoSource: RadioLogoSource? = nil,
+        groupTitle: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -46,6 +50,7 @@ public struct RadioImportCandidate: Identifiable, Hashable, Sendable {
         self.logoURLString = logoURLString
         self.homepageURLString = homepageURLString
         self.logoSource = logoSource
+        self.groupTitle = groupTitle
     }
 
     public var isPlayable: Bool { status == .playable }
@@ -72,19 +77,22 @@ public enum RadioImportParser {
         public var logoURLString: String?
         public var homepageURLString: String?
         public var logoSource: RadioLogoSource?
+        public var groupTitle: String?
 
         public init(
             name: String? = nil,
             urlString: String,
             logoURLString: String? = nil,
             homepageURLString: String? = nil,
-            logoSource: RadioLogoSource? = nil
+            logoSource: RadioLogoSource? = nil,
+            groupTitle: String? = nil
         ) {
             self.name = name
             self.urlString = urlString
             self.logoURLString = logoURLString
             self.homepageURLString = homepageURLString
             self.logoSource = logoSource
+            self.groupTitle = groupTitle
         }
     }
 
@@ -132,6 +140,8 @@ public enum RadioImportParser {
             let homepage = RadioLogoURLPolicy.normalized(entry.homepageURLString)
             // 只有真的拿到台标地址才记来源，否则来源字段会骗人。
             let logoSource = logo == nil ? nil : (entry.logoSource ?? .importedManifest)
+            // 分组名按文件夹名的规矩清洗一遍，导入时可以原样当文件夹用。
+            let group = RadioStationOrganization.normalizedFolderName(entry.groupTitle)
 
             guard let normalizedURL = RadioStationValidation.normalizedURLString(entry.urlString) else {
                 return RadioImportCandidate(
@@ -140,7 +150,8 @@ public enum RadioImportParser {
                     status: .invalid,
                     logoURLString: logo,
                     homepageURLString: homepage,
-                    logoSource: logoSource
+                    logoSource: logoSource,
+                    groupTitle: group
                 )
             }
             let name = entry.name.map(RadioStationValidation.normalizedName)
@@ -154,7 +165,8 @@ public enum RadioImportParser {
                     status: .invalid,
                     logoURLString: logo,
                     homepageURLString: homepage,
-                    logoSource: logoSource
+                    logoSource: logoSource,
+                    groupTitle: group
                 )
             }
             if let owner = seen[key] {
@@ -165,7 +177,8 @@ public enum RadioImportParser {
                     duplicateOfName: owner,
                     logoURLString: logo,
                     homepageURLString: homepage,
-                    logoSource: logoSource
+                    logoSource: logoSource,
+                    groupTitle: group
                 )
             }
             seen[key] = name
@@ -175,7 +188,8 @@ public enum RadioImportParser {
                 status: .playable,
                 logoURLString: logo,
                 homepageURLString: homepage,
-                logoSource: logoSource
+                logoSource: logoSource,
+                groupTitle: group
             )
         }
     }
@@ -243,12 +257,20 @@ public enum RadioImportParser {
 
     /// `#EXTINF:<秒>,<名字>` 后面紧跟的那一行是 URL。没有 EXTINF 的裸 URL 也收。
     ///
-    /// EXTINF 的属性区(`tvg-logo="..."`)是 IPTV/电台清单里最常见的台标来源，
-    /// 单独的 `#EXTIMG:` 行也有播放器在用 —— 两种都收，取先出现的那个。
+    /// EXTINF 的属性区(`tvg-logo="..."` / `group-title="..."`)是 IPTV 与电台清单
+    /// 里最常见的台标和分组来源，单独的 `#EXTIMG:` / `#EXTGRP:` 行也有播放器在用。
+    ///
+    /// 属性区和名字的分界见 `nameSeparatorIndex`：按最后一个逗号切会把
+    /// `Radio X, Sydney` 砍成「Sydney」，按第一个切又会把 `a="x",b="y",Name`
+    /// 的属性当成名字。
     private static func parseM3U(_ text: String) -> [Entry] {
         var entries: [Entry] = []
         var pendingName: String?
         var pendingLogo: String?
+        var pendingGroup: String?
+        // `#EXTGRP:` 按约定一直作用到下一个 `#EXTGRP:`，所以它要跨条目保留；
+        // `group-title` 是写在条目自己身上的，只作用于紧跟的那一条。
+        var runningGroup: String?
 
         for rawLine in text.components(separatedBy: .newlines) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
@@ -256,15 +278,19 @@ public enum RadioImportParser {
 
             let lowered = line.lowercased()
             if lowered.hasPrefix("#extinf") {
-                // 逗号后面才是名字；逗号前是时长和可选的属性(可能自带逗号，
-                // 所以取最后一个逗号之后的内容)。
-                if let commaIndex = line.lastIndex(of: ",") {
-                    let name = String(line[line.index(after: commaIndex)...])
-                        .trimmingCharacters(in: .whitespaces)
-                    pendingName = name.isEmpty ? nil : name
-                    let attributes = String(line[line.startIndex..<commaIndex])
-                    pendingLogo = pendingLogo ?? logoAttribute(in: attributes)
-                }
+                guard let commaIndex = nameSeparatorIndex(in: line) else { continue }
+                let name = String(line[line.index(after: commaIndex)...])
+                    .trimmingCharacters(in: .whitespaces)
+                pendingName = name.isEmpty ? nil : name
+                let attributes = String(line[line.startIndex..<commaIndex])
+                pendingLogo = pendingLogo ?? attributeValue(
+                    in: attributes,
+                    keys: ["tvg-logo", "logo", "tvg-logo-small", "url-logo", "icon"]
+                )
+                pendingGroup = pendingGroup ?? attributeValue(
+                    in: attributes,
+                    keys: ["group-title", "tvg-group", "group"]
+                )
                 continue
             }
             if lowered.hasPrefix("#extimg") {
@@ -273,16 +299,66 @@ public enum RadioImportParser {
                 pendingLogo = pendingLogo ?? (value.isEmpty ? nil : value)
                 continue
             }
+            if lowered.hasPrefix("#extgrp") {
+                let value = line.drop(while: { $0 != ":" }).dropFirst()
+                    .trimmingCharacters(in: .whitespaces)
+                runningGroup = value.isEmpty ? nil : value
+                continue
+            }
             guard !line.hasPrefix("#") else { continue }
             entries.append(Entry(
                 name: pendingName,
                 urlString: line,
-                logoURLString: pendingLogo
+                logoURLString: pendingLogo,
+                groupTitle: pendingGroup ?? runningGroup
             ))
             pendingName = nil
             pendingLogo = nil
+            pendingGroup = nil
         }
         return entries
+    }
+
+    /// 属性区和名字的分界逗号。
+    ///
+    /// 两种真实写法必须同时照顾到，而光看逗号位置分不开它们：
+    /// - `tvg-id="a",tvg-name="b",Real Name` —— 逗号是属性之间的分隔符；
+    /// - `group-title="Pop, Rock" tvg-logo="…",Radio X, Sydney` —— 台名自带逗号。
+    ///
+    /// 所以规则是：跳过引号里的逗号，再看每个逗号**后面**像不像又一条 `键=值`；
+    /// 像就继续往后找，不像就是名字的开头。引号不成对(清单里少写一个引号很常见)
+    /// 时退回第一个逗号，总比整行解析失败强。
+    private static func nameSeparatorIndex(in line: String) -> String.Index? {
+        var quote: Character?
+        var firstUnquoted: String.Index?
+        var firstAny: String.Index?
+        var index = line.startIndex
+
+        while index < line.endIndex {
+            let character = line[index]
+            if let open = quote {
+                if character == open { quote = nil }
+            } else if character == "\"" || character == "'" {
+                quote = character
+            } else if character == "," {
+                if firstUnquoted == nil { firstUnquoted = index }
+                if !looksLikeAttributeAssignment(line[line.index(after: index)...]) {
+                    return index
+                }
+            }
+            if character == ",", firstAny == nil { firstAny = index }
+            index = line.index(after: index)
+        }
+        return firstUnquoted ?? firstAny
+    }
+
+    /// 这一段是不是以 `键=` 开头。是的话它属于属性区，不是名字。
+    private static func looksLikeAttributeAssignment(_ rest: Substring) -> Bool {
+        var slice = rest.drop { $0 == " " || $0 == "\t" }
+        let key = slice.prefix { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
+        guard !key.isEmpty else { return false }
+        slice = slice.dropFirst(key.count).drop { $0 == " " || $0 == "\t" }
+        return slice.first == "="
     }
 
     /// `FileN=` 是 URL，`TitleN=` 是同一个 N 的名字，顺序不保证，所以先按序号收集。
@@ -320,15 +396,15 @@ public enum RadioImportParser {
         }
     }
 
-    /// 从 EXTINF 属性区里取台标。`tvg-logo` 最常见，`logo` / `tvg-logo-small`
-    /// 之类的写法也见得到；值可能用双引号、单引号，或者干脆不加引号。
-    private static func logoAttribute(in attributes: String) -> String? {
-        for key in ["tvg-logo", "logo", "tvg-logo-small", "url-logo", "icon"] {
+    /// 从 EXTINF 属性区里取一个属性值。同一个概念在不同导出工具里叫法不一样，
+    /// 所以按优先级给一串候选键；值可能用双引号、单引号，或者干脆不加引号。
+    private static func attributeValue(in attributes: String, keys: [String]) -> String? {
+        for key in keys {
             guard let range = attributes.range(of: "\(key)=", options: .caseInsensitive) else {
                 continue
             }
             // 属性名必须是完整的一段，否则 `logo=` 会命中 `tvg-logo=` 的尾巴，
-            // 把值切成半截。
+            // 把值切成半截；`group=` 同理会命中 `group-title=` 之外的写法。
             if range.lowerBound > attributes.startIndex {
                 let previous = attributes[attributes.index(before: range.lowerBound)]
                 guard previous.isWhitespace || previous == ":" || previous == "," else { continue }

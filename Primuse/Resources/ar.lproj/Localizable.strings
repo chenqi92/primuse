@@ -3890,3 +3890,15 @@
 "radio_logo_url_hint" = "الصق عنوان صورة http أو https. يُستخدم عند عدم اختيار صورة شعار.";
 "radio_logo_url_invalid" = "أدخل عنوان صورة http أو https صالحًا.";
 "radio_batch_import_into" = "استيراد إلى";
+
+// MARK: - Radio layout & playlist link import
+"radio_layout" = "العرض";
+"radio_layout_cover" = "الأغلفة";
+"radio_layout_list" = "قائمة";
+"radio_batch_entry_url" = "رابط";
+"radio_batch_url_hint" = "الصق عنوان قائمة محطات بصيغة ‎.m3u أو ‎.m3u8 أو ‎.pls أو ‎.txt.";
+"radio_batch_url_fetch" = "جلب";
+"radio_batch_url_invalid" = "أدخل عنوان قائمة http أو https صالحًا.";
+"radio_batch_url_status %lld" = "ردّ الخادم بالرمز %lld.";
+"radio_batch_import_by_group" = "حسب مجموعة القائمة";
+"radio_batch_import_by_group_count %lld" = "حسب مجموعة القائمة (%lld)";

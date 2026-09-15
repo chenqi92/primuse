@@ -3961,3 +3961,15 @@
 "radio_logo_url_hint" = "填入 http 或 https 圖片位址。未選擇台標圖片時會使用它。";
 "radio_logo_url_invalid" = "請填入有效的 http 或 https 圖片位址。";
 "radio_batch_import_into" = "匯入至";
+
+// MARK: - Radio layout & playlist link import
+"radio_layout" = "版式";
+"radio_layout_cover" = "封面";
+"radio_layout_list" = "列表";
+"radio_batch_entry_url" = "連結";
+"radio_batch_url_hint" = "填一個 .m3u、.m3u8、.pls 或 .txt 電台清單的位址。";
+"radio_batch_url_fetch" = "取得";
+"radio_batch_url_invalid" = "請填入有效的 http 或 https 清單位址。";
+"radio_batch_url_status %lld" = "伺服器回應 %lld。";
+"radio_batch_import_by_group" = "依清單分組";
+"radio_batch_import_by_group_count %lld" = "依清單分組（%lld 個）";

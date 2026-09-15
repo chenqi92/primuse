@@ -174,24 +174,18 @@ struct MacRadioStationEditorView: View {
                             image.resizable().scaledToFill()
                         } else {
                             ZStack {
-                                PMColor.card
+                                RadioStationPlaceholderArtwork()
                                 if phase.error == nil {
-                                    ProgressView().controlSize(.small)
-                                } else {
-                                    Image(systemName: "photo.badge.exclamationmark")
-                                        .font(.system(size: 20))
-                                        .foregroundStyle(PMColor.textFaint)
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .tint(.white)
                                 }
                             }
                         }
                     }
                 } else {
-                    ZStack {
-                        PMColor.card
-                        Image(systemName: "radio")
-                            .font(.system(size: 22))
-                            .foregroundStyle(PMColor.textFaint)
-                    }
+                    // 没有图就用和列表、锁屏同一张默认台标。
+                    RadioStationPlaceholderArtwork()
                 }
             }
             .frame(width: 72, height: 72)

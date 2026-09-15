@@ -12,7 +12,7 @@ struct MacRadioBatchAddView: View {
     @Environment(\.dismiss) private var dismiss
 
     private enum Entry: String, CaseIterable, Identifiable {
-        case paste, file, directory
+        case paste, file, url, directory
 
         var id: String { rawValue }
 
@@ -20,6 +20,7 @@ struct MacRadioBatchAddView: View {
             switch self {
             case .paste: return "radio_batch_entry_paste"
             case .file: return "radio_batch_entry_file"
+            case .url: return "radio_batch_entry_url"
             case .directory: return "radio_batch_entry_directory"
             }
         }
@@ -28,9 +29,18 @@ struct MacRadioBatchAddView: View {
             switch self {
             case .paste: return "doc.on.clipboard"
             case .file: return "doc.text"
+            case .url: return "link"
             case .directory: return "globe"
             }
         }
+    }
+
+    /// 这一批电台归到哪里。`manifestGroups` 是清单自带的 `group-title` /
+    /// `#EXTGRP:` —— 一份几百条的清单，它自己的分组比任何事后整理都准。
+    private enum ImportDestination: Hashable {
+        case ungrouped
+        case manifestGroups
+        case folder(String)
     }
 
     @State private var entry: Entry = .paste
@@ -44,9 +54,12 @@ struct MacRadioBatchAddView: View {
     @State private var directorySearched = false
     /// 这一批导进哪个文件夹。批量导入正是电台数量失控的起点，所以归类要在
     /// 这一步就能定，而不是导完再一个个挑出来。
-    @State private var importFolderName: String?
+    @State private var destination: ImportDestination = .ungrouped
     @State private var showFolderNamePrompt = false
     @State private var folderNameDraft = ""
+    @State private var playlistURLString = ""
+    @State private var isFetchingPlaylist = false
+    @State private var insecurePlaylistHost: String?
 
     private var playableCount: Int { candidates.filter(\.isPlayable).count }
     private var duplicateCount: Int { candidates.filter { $0.status == .duplicate }.count }
@@ -66,6 +79,7 @@ struct MacRadioBatchAddView: View {
                     switch entry {
                     case .paste: pasteInput
                     case .file: fileInput
+                    case .url: urlInput
                     case .directory: directoryInput
                     }
 
@@ -254,6 +268,101 @@ struct MacRadioBatchAddView: View {
         }
     }
 
+    private var urlInput: some View {
+        VStack(alignment: .leading, spacing: PMSpace.s10) {
+            Text("radio_batch_url_hint")
+                .font(PMFont.caption)
+                .foregroundStyle(PMColor.textMuted)
+
+            HStack(spacing: PMSpace.s) {
+                TextField(
+                    text: $playlistURLString,
+                    prompt: Text(verbatim: "https://example.com/radio.m3u")
+                ) {
+                    Text("radio_batch_entry_url")
+                }
+                .textFieldStyle(.plain)
+                .font(PMFont.mono)
+                .foregroundStyle(PMColor.text)
+                .padding(.horizontal, PMSpace.s10)
+                .frame(height: 28)
+                .background(PMColor.bgElev, in: .rect(cornerRadius: PMRadius.s))
+                .overlay {
+                    RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
+                        .strokeBorder(PMColor.dividerStrong, lineWidth: 0.5)
+                }
+                .onSubmit { fetchPlaylist() }
+
+                Button {
+                    fetchPlaylist()
+                } label: {
+                    Group {
+                        if isFetchingPlaylist {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Text("radio_batch_url_fetch")
+                                .font(PMFont.bodyM)
+                                .foregroundStyle(PMColor.text)
+                        }
+                    }
+                    .frame(height: 28)
+                    .padding(.horizontal, 12)
+                    .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
+                            .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(isFetchingPlaylist || playlistURLString.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ).isEmpty)
+            }
+        }
+        .alert("insecure_http_warning_title", isPresented: Binding(
+            get: { insecurePlaylistHost != nil },
+            set: { if !$0 { insecurePlaylistHost = nil } }
+        )) {
+            Button("cancel", role: .cancel) { insecurePlaylistHost = nil }
+            Button("insecure_http_continue", role: .destructive) {
+                guard let host = insecurePlaylistHost else { return }
+                SSLTrustStore.shared.allowInsecureHTTP(domain: host)
+                insecurePlaylistHost = nil
+                fetchPlaylist()
+            }
+        } message: {
+            Text(String(
+                format: String(localized: "insecure_http_warning_message %@"),
+                insecurePlaylistHost ?? ""
+            ))
+        }
+    }
+
+    private func fetchPlaylist() {
+        guard !isFetchingPlaylist else { return }
+        let address = playlistURLString
+        isFetchingPlaylist = true
+        Task {
+            defer { isFetchingPlaylist = false }
+            do {
+                let text = try await RadioPlaylistDownloader.fetch(address)
+                reparse(text)
+                if candidates.isEmpty {
+                    errorMessage = String(localized: "radio_batch_file_no_entries")
+                }
+            } catch let error as TrustedHTTPTransportError {
+                // 明文 http 的清单地址跟电台流一样，得先问过用户再连。
+                guard case .permissionRequired(let host) = error else {
+                    errorMessage = error.localizedDescription
+                    return
+                }
+                insecurePlaylistHost = host
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
     private var directoryInput: some View {
         VStack(alignment: .leading, spacing: PMSpace.s10) {
             Text("radio_batch_directory_hint")
@@ -358,13 +467,58 @@ struct MacRadioBatchAddView: View {
         }
     }
 
+    /// 清单自带的分组名，按出现顺序去重。
+    private var manifestGroups: [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+        for candidate in candidates {
+            guard let group = candidate.groupTitle else { continue }
+            guard seen.insert(RadioStationOrganization.comparisonKey(group)).inserted else { continue }
+            result.append(group)
+        }
+        return result
+    }
+
+    private var destinationLabel: String {
+        switch destination {
+        case .ungrouped: return String(localized: "radio_batch_import_into")
+        case .manifestGroups: return String(localized: "radio_batch_import_by_group")
+        case .folder(let name): return name
+        }
+    }
+
+    private var destinationIcon: String {
+        switch destination {
+        case .ungrouped: return "tray"
+        case .manifestGroups: return "square.grid.3x1.folder.badge.plus"
+        case .folder: return "folder"
+        }
+    }
+
     private var importFolderPicker: some View {
         Menu {
-            Button("radio_folder_ungrouped", systemImage: "tray") { importFolderName = nil }
+            let groups = manifestGroups
+            if !groups.isEmpty {
+                Button {
+                    destination = .manifestGroups
+                } label: {
+                    Label(
+                        String(
+                            format: String(localized: "radio_batch_import_by_group_count %lld"),
+                            groups.count
+                        ),
+                        systemImage: "square.grid.3x1.folder.badge.plus"
+                    )
+                }
+                Divider()
+            }
+            Button("radio_folder_ungrouped", systemImage: "tray") { destination = .ungrouped }
             if !store.folders.isEmpty {
                 Divider()
                 ForEach(store.folders) { folder in
-                    Button(folder.name, systemImage: "folder") { importFolderName = folder.name }
+                    Button(folder.name, systemImage: "folder") {
+                        destination = .folder(folder.name)
+                    }
                 }
             }
             Divider()
@@ -374,9 +528,9 @@ struct MacRadioBatchAddView: View {
             }
         } label: {
             HStack(spacing: 5) {
-                Image(systemName: importFolderName == nil ? "tray" : "folder")
+                Image(systemName: destinationIcon)
                     .font(.system(size: 10.5))
-                Text(importFolderName ?? String(localized: "radio_batch_import_into"))
+                Text(destinationLabel)
                     .font(.system(size: 11.5, weight: .medium))
                     .lineLimit(1)
             }
@@ -394,8 +548,17 @@ struct MacRadioBatchAddView: View {
             Button("cancel", role: .cancel) {}
             Button("save") {
                 guard let name = store.createFolder(folderNameDraft) else { return }
-                importFolderName = name
+                destination = .folder(name)
             }
+        }
+    }
+
+    /// 一条候选最终进哪个文件夹。
+    private func folderName(for candidate: RadioImportCandidate) -> String? {
+        switch destination {
+        case .ungrouped: return nil
+        case .manifestGroups: return candidate.groupTitle
+        case .folder(let name): return name
         }
     }
 
@@ -441,6 +604,12 @@ struct MacRadioBatchAddView: View {
                         .foregroundStyle(PMColor.textFaint)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                    if let group = candidate.groupTitle {
+                        Label(group, systemImage: "folder")
+                            .font(PMFont.captionS)
+                            .foregroundStyle(PMColor.textMuted)
+                            .lineLimit(1)
+                    }
                     if let duplicateOfName = candidate.duplicateOfName {
                         Text(String(
                             format: String(localized: "radio_batch_duplicate_of %@"),
@@ -523,8 +692,7 @@ struct MacRadioBatchAddView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             let data = try Data(contentsOf: url)
-            guard let text = String(data: data, encoding: .utf8)
-                    ?? String(data: data, encoding: .isoLatin1) else {
+            guard let text = RadioPlaylistText.decode(data) else {
                 errorMessage = String(localized: "radio_batch_file_unreadable")
                 return
             }
@@ -559,6 +727,18 @@ struct MacRadioBatchAddView: View {
     private func applyCandidates(_ next: [RadioImportCandidate]) {
         candidates = next
         selection = Set(next.filter(\.isPlayable).map(\.id))
+
+        // 清单自带分组时默认就按它分；换了一批没有分组的清单再退回不分组，
+        // 免得标签停在一个空选项上。
+        let hasGroups = next.contains { $0.groupTitle != nil }
+        switch destination {
+        case .ungrouped where hasGroups:
+            destination = .manifestGroups
+        case .manifestGroups where !hasGroups:
+            destination = .ungrouped
+        default:
+            break
+        }
     }
 
     private func addSelected() async {
@@ -579,10 +759,15 @@ struct MacRadioBatchAddView: View {
                 homepageURL: candidate.homepageURLString,
                 remoteLogoURL: candidate.logoURLString,
                 remoteLogoSource: candidate.logoSource,
-                folderName: importFolderName
+                folderName: folderName(for: candidate)
             )
             store.upsert(station)
             added.append(station)
+        }
+        // 清单分组也记进文件夹清单，这样即使用户随后把里面的台都移走，
+        // 文件夹本身还在。
+        for name in Set(added.compactMap(\.folderName)) {
+            store.createFolder(name)
         }
 
         dismiss()

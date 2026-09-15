@@ -21,10 +21,22 @@ struct MacRadioStationsView: View {
     @State private var namePromptText = ""
     @State private var folderToDelete: String?
     @State private var tagToDelete: String?
+    @AppStorage(RadioStationLayoutMode.storageKey)
+    private var layoutModeRaw = RadioStationLayoutMode.list.rawValue
 
-    private let columns = [
-        GridItem(.adaptive(minimum: 340, maximum: 520), spacing: PMSpace.m16)
-    ]
+    private var layoutMode: RadioStationLayoutMode {
+        RadioStationLayoutMode(rawValue: layoutModeRaw) ?? .list
+    }
+
+    /// 列表版一行一个宽卡片；封面版是方格台标墙，一屏能放下三四倍的台。
+    private var columns: [GridItem] {
+        switch layoutMode {
+        case .list:
+            return [GridItem(.adaptive(minimum: 340, maximum: 520), spacing: PMSpace.m16)]
+        case .cover:
+            return [GridItem(.adaptive(minimum: 130, maximum: 190), spacing: PMSpace.m)]
+        }
+    }
 
     private var stations: [RadioStation] { store.stations }
 
@@ -179,6 +191,7 @@ struct MacRadioStationsView: View {
 
                 if !stations.isEmpty {
                     searchField
+                    layoutToggle
                 }
 
                 if !stations.isEmpty {
@@ -231,6 +244,36 @@ struct MacRadioStationsView: View {
         .padding(.horizontal, 36)
         .padding(.top, 28)
         .padding(.bottom, 20)
+    }
+
+    /// 两格分段开关。Mac 上版式是随时会切的，藏进菜单里太深。
+    private var layoutToggle: some View {
+        HStack(spacing: 2) {
+            ForEach(RadioStationLayoutMode.allCases) { mode in
+                Button {
+                    layoutModeRaw = mode.rawValue
+                } label: {
+                    Image(systemName: mode.icon)
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(layoutMode == mode ? PMColor.text : PMColor.textMuted)
+                        .frame(width: 30, height: 26)
+                        .background(
+                            layoutMode == mode ? PMColor.glassBtn : .clear,
+                            in: .rect(cornerRadius: PMRadius.xs)
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(String(localized: mode.titleKey))
+            }
+        }
+        .padding(2)
+        .frame(height: 32)
+        .background(PMColor.bgElev, in: .rect(cornerRadius: PMRadius.m))
+        .overlay {
+            RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
+                .strokeBorder(PMColor.dividerStrong, lineWidth: 0.5)
+        }
     }
 
     private var searchField: some View {
@@ -430,31 +473,101 @@ struct MacRadioStationsView: View {
         let priorities = priorityByID
         let total = stations.count
         return ScrollView(.vertical, showsIndicators: false) {
-            LazyVGrid(columns: columns, alignment: .leading, spacing: PMSpace.m16) {
+            LazyVGrid(
+                columns: columns,
+                alignment: .leading,
+                spacing: layoutMode == .cover ? PMSpace.m : PMSpace.m16
+            ) {
                 ForEach(visibleStations) { station in
-                    let priority = priorities[station.id] ?? 1
-                    MacRadioStationCard(
-                        station: station,
-                        priority: priority,
-                        isCurrent: player.currentRadioStation?.id == station.id,
-                        isPlaying: player.currentRadioStation?.id == station.id
-                            && (player.isPlaying || player.isLoading),
-                        metadataTitle: player.currentRadioStation?.id == station.id
-                            ? player.radioMetadataTitle
-                            : nil,
-                        canMoveUp: priority > 1,
-                        canMoveDown: priority < total,
-                        onPlay: { toggle(station) },
-                        onEdit: { editingStation = station },
-                        onDelete: { stationToDelete = station },
-                        onMoveUp: { store.moveStation(id: station.id, by: -1) },
-                        onMoveDown: { store.moveStation(id: station.id, by: 1) },
-                        organizeActions: { organizeMenu(for: station) }
-                    )
+                    stationItem(station, priority: priorities[station.id] ?? 1, total: total)
                 }
             }
             .padding(.horizontal, 28)
             .padding(.bottom, 36)
+        }
+    }
+
+    @ViewBuilder
+    private func stationItem(
+        _ station: RadioStation,
+        priority: Int,
+        total: Int
+    ) -> some View {
+        let isCurrent = player.currentRadioStation?.id == station.id
+        let isPlaying = isCurrent && (player.isPlaying || player.isLoading)
+        switch layoutMode {
+        case .list:
+            MacRadioStationCard(
+                station: station,
+                priority: priority,
+                isCurrent: isCurrent,
+                isPlaying: isPlaying,
+                metadataTitle: isCurrent ? player.radioMetadataTitle : nil,
+                canMoveUp: priority > 1,
+                canMoveDown: priority < total,
+                onPlay: { toggle(station) },
+                onEdit: { editingStation = station },
+                onMoveUp: { store.moveStation(id: station.id, by: -1) },
+                onMoveDown: { store.moveStation(id: station.id, by: 1) },
+                actions: { stationActions(for: station, priority: priority, total: total) }
+            )
+        case .cover:
+            MacRadioStationCoverTile(
+                station: station,
+                isCurrent: isCurrent,
+                isPlaying: isPlaying,
+                onPlay: { toggle(station) },
+                actions: { stationActions(for: station, priority: priority, total: total) }
+            )
+        }
+    }
+
+    /// 一条电台的全部单条操作。两种版式的右键菜单共用这一份。
+    @ViewBuilder
+    private func stationActions(
+        for station: RadioStation,
+        priority: Int,
+        total: Int
+    ) -> some View {
+        if station.isServerMirror {
+            Label(station.displayEndpoint, systemImage: "server.rack")
+        } else {
+            Button { editingStation = station } label: { Label("edit", systemImage: "pencil") }
+        }
+
+        organizeMenu(for: station)
+
+        Button {
+            store.moveStation(id: station.id, by: -1)
+        } label: {
+            Label("radio_priority_move_up", systemImage: "arrow.up")
+        }
+        .disabled(priority <= 1)
+
+        Button {
+            store.moveStation(id: station.id, by: 1)
+        } label: {
+            Label("radio_priority_move_down", systemImage: "arrow.down")
+        }
+        .disabled(priority >= total)
+
+        // 退避期里的台在这里可以被手动催一次；用户自己选过图或填过链接的不提供。
+        if !station.isServerMirror,
+           station.logoData == nil,
+           station.logoFileName == nil,
+           station.remoteLogoSource?.isUserProvided != true {
+            Button {
+                RadioLogoDiscoveryService.shared.discoverNow(for: station)
+            } label: {
+                Label("radio_logo_fetch", systemImage: "photo.badge.arrow.down")
+            }
+        }
+
+        if !station.isServerMirror {
+            Divider()
+            Button(role: .destructive) { stationToDelete = station } label: {
+                Label("delete", systemImage: "trash")
+            }
         }
     }
 
@@ -648,7 +761,7 @@ struct MacRadioStationsView: View {
 
 // MARK: - Station card
 
-private struct MacRadioStationCard<OrganizeActions: View>: View {
+private struct MacRadioStationCard<Actions: View>: View {
     let station: RadioStation
     let priority: Int
     let isCurrent: Bool
@@ -658,10 +771,9 @@ private struct MacRadioStationCard<OrganizeActions: View>: View {
     let canMoveDown: Bool
     let onPlay: () -> Void
     let onEdit: () -> Void
-    let onDelete: () -> Void
     let onMoveUp: () -> Void
     let onMoveDown: () -> Void
-    @ViewBuilder let organizeActions: () -> OrganizeActions
+    @ViewBuilder let actions: () -> Actions
 
     @State private var hover = false
 
@@ -758,33 +870,91 @@ private struct MacRadioStationCard<OrganizeActions: View>: View {
         .onHover { hover = $0 }
         .animation(.easeOut(duration: 0.12), value: hover)
         .contextMenu {
-            if station.isServerMirror {
-                Label(station.displayEndpoint, systemImage: "server.rack")
-            } else {
-                Button { onEdit() } label: { Label("edit", systemImage: "pencil") }
-            }
-            organizeActions()
-            Button { onMoveUp() } label: { Label("radio_priority_move_up", systemImage: "arrow.up") }
-                .disabled(!canMoveUp)
-            Button { onMoveDown() } label: { Label("radio_priority_move_down", systemImage: "arrow.down") }
-                .disabled(!canMoveDown)
-            // 退避期里的台在这里可以被手动催一次；用户自己选过图或填过链接的不提供。
-            if !station.isServerMirror,
-               station.logoData == nil,
-               station.logoFileName == nil,
-               station.remoteLogoSource?.isUserProvided != true {
-                Button {
-                    RadioLogoDiscoveryService.shared.discoverNow(for: station)
-                } label: {
-                    Label("radio_logo_fetch", systemImage: "photo.badge.arrow.down")
+            actions()
+        }
+    }
+}
+
+// MARK: - Cover tile
+
+/// 封面版的一格。台标占满整格，名字和状态压在下面 ——
+/// 台标齐全时一屏能放下三四倍的电台。
+private struct MacRadioStationCoverTile<Actions: View>: View {
+    let station: RadioStation
+    let isCurrent: Bool
+    let isPlaying: Bool
+    let onPlay: () -> Void
+    @ViewBuilder let actions: () -> Actions
+
+    @State private var hover = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            // 用空白容器定尺寸，台标以 .fit 填进去 —— 台标是 logo 不是照片，
+            // 完整显示比填满后裁掉台名更重要，也不会让长图反过来撑大网格列。
+            Color.clear
+                .frame(maxWidth: .infinity)
+                .aspectRatio(1, contentMode: .fit)
+                .overlay {
+                    RadioStationArtworkContent(
+                        station: station,
+                        decodeSize: 220,
+                        contentMode: .fit
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-            }
-            if !station.isServerMirror {
-                Divider()
-                Button(role: .destructive) { onDelete() } label: {
-                    Label("delete", systemImage: "trash")
+                .clipShape(RoundedRectangle(cornerRadius: PMRadius.l, style: .continuous))
+                .overlay(alignment: .bottomTrailing) {
+                    if hover || isCurrent {
+                        PMRoundBtn(
+                            icon: isPlaying ? "stop.fill" : "play.fill",
+                            size: PMSize.smallBtn,
+                            iconSize: 11,
+                            style: isCurrent ? .accent : .glass
+                        ) {
+                            onPlay()
+                        }
+                        .padding(6)
+                    }
                 }
+                .overlay {
+                    RoundedRectangle(cornerRadius: PMRadius.l, style: .continuous)
+                        .strokeBorder(
+                            isCurrent ? PMColor.brand.opacity(0.75) : PMColor.cardBorder,
+                            lineWidth: isCurrent ? 1.5 : 0.5
+                        )
+                }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(station.name)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(isCurrent ? PMColor.brand : PMColor.text)
+                    .lineLimit(1)
+
+                HStack(spacing: 4) {
+                    if isPlaying {
+                        Circle().fill(PMColor.bad).frame(width: 5, height: 5)
+                    }
+                    if station.isServerMirror {
+                        Image(systemName: "server.rack")
+                            .font(.system(size: 8))
+                            .foregroundStyle(PMColor.textFaint)
+                    }
+                    Text(station.playbackSubtitle)
+                        .font(.system(size: 10))
+                        .foregroundStyle(PMColor.textMuted)
+                        .lineLimit(1)
+                }
+
+                RadioStationOrganizeLabels(station: station, maximumTags: 1)
             }
+        }
+        .contentShape(Rectangle())
+        .onHover { hover = $0 }
+        .animation(.easeOut(duration: 0.12), value: hover)
+        .onTapGesture { onPlay() }
+        .contextMenu {
+            actions()
         }
     }
 }

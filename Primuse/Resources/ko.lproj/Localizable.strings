@@ -3984,3 +3984,15 @@
 "radio_logo_url_hint" = "http 또는 https 이미지 주소를 붙여 넣으세요. 로고 이미지를 고르지 않았을 때 사용됩니다.";
 "radio_logo_url_invalid" = "올바른 http 또는 https 이미지 주소를 입력하세요.";
 "radio_batch_import_into" = "가져올 위치";
+
+// MARK: - Radio layout & playlist link import
+"radio_layout" = "보기 방식";
+"radio_layout_cover" = "커버";
+"radio_layout_list" = "목록";
+"radio_batch_entry_url" = "링크";
+"radio_batch_url_hint" = ".m3u, .m3u8, .pls 또는 .txt 방송국 목록의 주소를 붙여 넣으세요.";
+"radio_batch_url_fetch" = "가져오기";
+"radio_batch_url_invalid" = "올바른 http 또는 https 목록 주소를 입력하세요.";
+"radio_batch_url_status %lld" = "서버가 %lld을(를) 반환했습니다.";
+"radio_batch_import_by_group" = "목록 그룹별";
+"radio_batch_import_by_group_count %lld" = "목록 그룹별(%lld개)";

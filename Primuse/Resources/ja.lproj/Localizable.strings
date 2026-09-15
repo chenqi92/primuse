@@ -3985,3 +3985,15 @@
 "radio_logo_url_hint" = "http または https の画像アドレスを貼り付けます。ロゴ画像を選んでいないときに使われます。";
 "radio_logo_url_invalid" = "有効な http または https の画像アドレスを入力してください。";
 "radio_batch_import_into" = "読み込み先";
+
+// MARK: - Radio layout & playlist link import
+"radio_layout" = "表示";
+"radio_layout_cover" = "カバー";
+"radio_layout_list" = "リスト";
+"radio_batch_entry_url" = "リンク";
+"radio_batch_url_hint" = ".m3u / .m3u8 / .pls / .txt の放送局リストのアドレスを貼り付けます。";
+"radio_batch_url_fetch" = "取得";
+"radio_batch_url_invalid" = "有効な http または https のリストアドレスを入力してください。";
+"radio_batch_url_status %lld" = "サーバーの応答は %lld でした。";
+"radio_batch_import_by_group" = "リストのグループ別";
+"radio_batch_import_by_group_count %lld" = "リストのグループ別（%lld 件）";

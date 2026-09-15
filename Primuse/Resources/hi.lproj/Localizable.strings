@@ -3890,3 +3890,15 @@
 "radio_logo_url_hint" = "http या https छवि पता चिपकाएँ। लोगो छवि न चुनने पर यही उपयोग होता है।";
 "radio_logo_url_invalid" = "मान्य http या https छवि पता दर्ज करें।";
 "radio_batch_import_into" = "इसमें आयात करें";
+
+// MARK: - Radio layout & playlist link import
+"radio_layout" = "दिखावट";
+"radio_layout_cover" = "कवर";
+"radio_layout_list" = "सूची";
+"radio_batch_entry_url" = "लिंक";
+"radio_batch_url_hint" = ".m3u, .m3u8, .pls या .txt स्टेशन सूची का पता चिपकाएँ।";
+"radio_batch_url_fetch" = "लाएँ";
+"radio_batch_url_invalid" = "मान्य http या https सूची पता दर्ज करें।";
+"radio_batch_url_status %lld" = "सर्वर ने %lld लौटाया।";
+"radio_batch_import_by_group" = "सूची के समूह के अनुसार";
+"radio_batch_import_by_group_count %lld" = "सूची के समूह के अनुसार (%lld)";

@@ -3890,3 +3890,15 @@
 "radio_logo_url_hint" = "Wklej adres obrazu http lub https. Zostanie użyty, gdy nie wybrano logo.";
 "radio_logo_url_invalid" = "Podaj prawidłowy adres obrazu http lub https.";
 "radio_batch_import_into" = "Importuj do";
+
+// MARK: - Radio layout & playlist link import
+"radio_layout" = "Widok";
+"radio_layout_cover" = "Okładki";
+"radio_layout_list" = "Lista";
+"radio_batch_entry_url" = "Odnośnik";
+"radio_batch_url_hint" = "Wklej adres listy stacji .m3u, .m3u8, .pls lub .txt.";
+"radio_batch_url_fetch" = "Pobierz";
+"radio_batch_url_invalid" = "Podaj prawidłowy adres listy http lub https.";
+"radio_batch_url_status %lld" = "Serwer odpowiedział %lld.";
+"radio_batch_import_by_group" = "Według grupy z listy";
+"radio_batch_import_by_group_count %lld" = "Według grupy z listy (%lld)";
