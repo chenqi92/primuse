@@ -246,6 +246,7 @@ struct TagEditorView: View {
             .safeAreaInset(edge: .bottom) {
                 if !navigationQueue.isEmpty { queueNavigationBar }
             }
+            .floatingInputPanelClearance()
             .navigationTitle(String(localized: "tag_editor_title_navigation"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

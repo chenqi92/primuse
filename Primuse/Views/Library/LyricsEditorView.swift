@@ -181,6 +181,7 @@ struct LyricsEditorView: View {
                 Divider()
                 editorStack
             }
+            .floatingInputPanelClearance()
             .toolbar(.hidden, for: .navigationBar)
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {

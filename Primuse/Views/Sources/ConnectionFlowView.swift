@@ -304,6 +304,7 @@ struct ConnectionFlowView: View {
             }
         }
         .scrollDismissesKeyboard(.interactively)
+        .floatingInputPanelClearance()
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { otpFocused = true }
         }

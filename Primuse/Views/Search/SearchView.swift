@@ -597,10 +597,12 @@ struct SearchView: View {
     private var iosBody: some View {
         if usesMinimalNavigation {
             iosSearchContent
+                .floatingInputPanelClearance()
         } else {
             iosSearchContent
                 .searchable(text: $searchText, prompt: Text(searchPrompt))
                 .onSubmit(of: .search) { addRecentSearch(searchText) }
+                .floatingInputPanelClearance()
         }
     }
 

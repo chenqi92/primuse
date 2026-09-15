@@ -326,6 +326,7 @@ struct AddSourceView: View {
         NavigationStack {
             Form { formSections }
             .scrollDismissesKeyboard(.interactively)
+            .floatingInputPanelClearance()
             .navigationTitle(isEditing ? String(localized: "edit_source") : sourceType.displayName)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

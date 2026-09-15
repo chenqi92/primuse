@@ -286,6 +286,7 @@ struct AIPlaylistEditorView: View {
                     )
                 }
             }
+            .floatingInputPanelClearance()
             .navigationTitle(isEditing ? "ai_playlist_add_songs" : "ai_playlist_new")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)

@@ -125,6 +125,7 @@ struct SmartPlaylistEditorView: View {
                     }
                 }
             }
+            .floatingInputPanelClearance()
             .navigationTitle(isEditing ? "rule_smart_playlist_edit" : "rule_smart_playlist_new")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)

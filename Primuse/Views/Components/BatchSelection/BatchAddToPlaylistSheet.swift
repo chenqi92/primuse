@@ -97,6 +97,7 @@ struct BatchAddToPlaylistSheet: View {
                     Text("playlists_title")
                 }
             }
+            .floatingInputPanelClearance()
             .navigationTitle(Text("add_to_playlist"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
