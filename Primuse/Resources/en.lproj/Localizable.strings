@@ -1366,6 +1366,7 @@
 "cast_lan_devices" = "Local network devices";
 "cast_scanning" = "Searching for devices…";
 "cast_dlna_required_hint" = "The device must support the UPnP/DLNA renderer protocol and be on the same Wi-Fi as your iPhone.";
+"cast_error_track_change_rejected" = "This device refused to switch tracks. Cast to it again, or restart the device.";
 "refresh" = "Refresh";
 "family_sharing_title" = "Family Sharing";
 "family_sharing_active" = "Family sharing active";

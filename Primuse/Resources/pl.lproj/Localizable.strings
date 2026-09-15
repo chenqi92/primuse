@@ -929,6 +929,7 @@
 "carplay_up_next" = "Dalej";
 "cast_casting_to_format" = "Przesyłanie do: %@";
 "cast_dlna_required_hint" = "Urządzenie musi obsługiwać protokół renderowania UPnP/DLNA i znajdować się na tym samym Wi-Fi, co Twoje iPhone.";
+"cast_error_track_change_rejected" = "Urządzenie odmówiło zmiany utworu. Prześlij ponownie lub uruchom ponownie urządzenie.";
 "cast_lan_devices" = "Urządzenia sieci lokalnej";
 "cast_local_device" = "To iPhone";
 "cast_local_subtitle" = "Graj na tym urządzeniu";

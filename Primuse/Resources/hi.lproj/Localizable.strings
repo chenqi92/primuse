@@ -929,6 +929,7 @@
 "carplay_up_next" = "अगला";
 "cast_casting_to_format" = "इस पर कास्ट हो रहा है: %@";
 "cast_dlna_required_hint" = "डिवाइस को UPnP/DLNA रेंडरर प्रोटोकॉल का समर्थन करना चाहिए और आपके iPhone के समान Wi-Fi पर होना चाहिए।";
+"cast_error_track_change_rejected" = "डिवाइस ने ट्रैक बदलने से इनकार कर दिया। दोबारा कास्ट करें या डिवाइस को रीस्टार्ट करें।";
 "cast_lan_devices" = "स्थानीय नेटवर्क उपकरण";
 "cast_local_device" = "यह iPhone";
 "cast_local_subtitle" = "इस डिवाइस पर चलाएँ";

@@ -249,6 +249,7 @@ extension AudioPlayerService {
         castingCommandGeneration &+= 1
         let operationGeneration = castingCommandGeneration
         castingPositionTask?.cancel(); castingPositionTask = nil
+        castingObservedRendererPlayback = false
         let controller = castingController
         let resumeSong = currentSong
         let resumeTime = currentTime
@@ -306,19 +307,39 @@ extension AudioPlayerService {
         currentSong = song
         currentTime = seconds
         duration = song.duration.sanitizedDuration
+        castingObservedRendererPlayback = false
+        // 投放模式的曲末只有轮询看得见, 靠这张票据授权它接下一首。
+        // startCasting 会先作废本机那一张, 这里给续播的这首补上。
+        if autoPlay, playbackAdvancePolicy.activeTicket?.itemID != song.id {
+            beginAutomaticAdvanceTransport(itemID: song.id, reason: "cast-song")
+        }
         do {
             let uri = try await resolveCastURI(for: song)
             guard castingCommandGeneration == operationGeneration,
                   castingController === controller,
                   currentSong?.id == song.id,
                   !autoPlay || interruptionResumePolicy.playbackIsIntended else { return }
-            try await controller.setAVTransportURI(uri: uri.absoluteString,
-                                                    title: song.title,
-                                                    artist: song.artistName)
+            let loaded = try await loadCastTrack(
+                uri.absoluteString,
+                for: song,
+                on: controller,
+                generation: operationGeneration
+            )
             guard castingCommandGeneration == operationGeneration,
                   castingController === controller,
                   currentSong?.id == song.id,
                   !autoPlay || interruptionResumePolicy.playbackIsIntended else { return }
+            guard loaded else {
+                // 两遍都没换过去。让设备停下来 —— 继续放着界面上已经翻过去的
+                // 那一首, 比没声音更难理解。
+                try? await controller.stop()
+                isPlaying = false
+                plog("⚠️ Cast: \(controller.renderer.friendlyName) refused to switch to '\(song.title)'")
+                showPlaybackError(String(localized: "cast_error_track_change_rejected"))
+                updateNowPlayingInfo()
+                updatePlaybackState()
+                return
+            }
             if autoPlay {
                 try await controller.play()
                 guard castingCommandGeneration == operationGeneration,
@@ -355,6 +376,92 @@ extension AudioPlayerService {
         updatePlaybackState()
     }
 
+    /// 把一条 URI 装进渲染器, 必要时先把它停下来, 装完回读确认。
+    ///
+    /// 返回设备是否确认换到了这一条。UPnP 规范允许在播放中直接
+    /// SetAVTransportURI, 但很多音箱固件做不到 —— 见
+    /// `RemoteRendererTransportPolicy.requiresStopBeforeLoading`。
+    private func loadCastTrack(
+        _ uri: String,
+        for song: Song,
+        on controller: RemoteRendererController,
+        generation: UInt64
+    ) async throws -> Bool {
+        for attempt in 1...RemoteRendererTransportPolicy.maximumLoadAttempts {
+            // 重试这一遍不再问设备状态: 上一遍已经证明它没换过去。
+            let state = attempt == 1
+                ? await controller.currentTransportState()
+                : RemoteRendererTransportState.unknown
+            guard castingCommandGeneration == generation,
+                  castingController === controller else { return false }
+            if RemoteRendererTransportPolicy.requiresStopBeforeLoading(state) {
+                do {
+                    try await controller.stop()
+                } catch {
+                    plog("⚠️ Cast: stop before loading failed: \(error.localizedDescription)")
+                }
+                try? await Task.sleep(
+                    for: .milliseconds(RemoteRendererTransportPolicy.stopSettleMilliseconds)
+                )
+                guard castingCommandGeneration == generation,
+                      castingController === controller else { return false }
+            }
+            try await controller.setAVTransportURI(uri: uri,
+                                                    title: song.title,
+                                                    artist: song.artistName)
+            guard castingCommandGeneration == generation,
+                  castingController === controller else { return false }
+            if await castTrackIsLoaded(uri, on: controller) { return true }
+            plog("⚠️ Cast: \(controller.renderer.friendlyName) still reports the previous track (attempt \(attempt))")
+        }
+        return false
+    }
+
+    /// 回读渲染器装载的 URI 做确认。
+    ///
+    /// 第一次不符不下结论 —— 少数固件的状态变量慢一拍才更新, 误判会把一首
+    /// 本来放得好好的歌当成"设备拒绝换曲"停掉。
+    private func castTrackIsLoaded(
+        _ uri: String,
+        on controller: RemoteRendererController
+    ) async -> Bool {
+        for confirmation in 1...2 {
+            do {
+                let reported = try await controller.getCurrentURI()
+                if RemoteRendererTransportPolicy.didLoadRequestedURI(
+                    reported: reported,
+                    requested: uri
+                ) {
+                    return true
+                }
+            } catch {
+                // 设备不实现 GetMediaInfo 就没法确认, 也不能当成装载失败。
+                return true
+            }
+            if confirmation == 1 {
+                try? await Task.sleep(
+                    for: .milliseconds(RemoteRendererTransportPolicy.uriReadbackRetryMilliseconds)
+                )
+            }
+        }
+        return false
+    }
+
+    /// 渲染器把一首放完了 —— 队列往下走。
+    ///
+    /// 本机播放由解码回调触发 handleTrackEnd, 投放模式只有轮询看得见曲末,
+    /// 这里接回同一条路径, 重复 / 随机 / 睡眠定时的规则才跟本机一致。
+    private func advanceAfterCastingTrackEnd() async {
+        guard isCastingMode,
+              let ticket = playbackAdvancePolicy.activeTicket else { return }
+        plog("📡 Cast: renderer finished '\(currentSong?.title ?? "nil")' → advancing queue")
+        await handleTrackEnd(
+            advanceTicket: ticket,
+            trigger: "cast-track-end",
+            transportIsActive: true
+        )
+    }
+
     /// 给 renderer 拿一个它能 HTTP GET 的 URL:
     /// - file:// (本地 / cached): 注册到 DLNAMediaServer, 返回 http://<iphone>:49160/<token>/...
     /// - https / http (NAS / Cloud HTTP source): 直接给, renderer 拉 (前提同 LAN 或公网可达)
@@ -385,15 +492,33 @@ extension AudioPlayerService {
                 let sampleGeneration = self.castingCommandGeneration
                 do {
                     let pos = try await controller.getPositionInfo()
-                    let state = try await controller.getTransportInfo()
+                    let state = RemoteRendererTransportState(
+                        reported: try await controller.getTransportInfo()
+                    )
                     guard !Task.isCancelled,
                           self.castingController === controller,
                           self.castingCommandGeneration == sampleGeneration else {
                         continue
                     }
+                    // 曲末要拿停止之前的进度判断: 设备一停, RelTime 常常直接
+                    // 回 0, 先写进新采样就再也看不出它播到哪儿了。
+                    if RemoteRendererTransportPolicy.shouldAdvanceAfterTrackEnd(
+                        state: state,
+                        hasObservedPlayback: self.castingObservedRendererPlayback,
+                        lastKnownTime: self.currentTime,
+                        knownDuration: self.duration
+                    ) {
+                        self.castingObservedRendererPlayback = false
+                        await self.advanceAfterCastingTrackEnd()
+                        continue
+                    }
                     if pos.currentTime >= 0 { self.currentTime = pos.currentTime }
                     if pos.duration > 0 { self.duration = pos.duration }
-                    let isRendererPlaying = state == "PLAYING"
+                    // 状态读不懂就只更新进度: 凭一个不认识的字符串翻转播放
+                    // 状态, 界面会无缘无故显示暂停。
+                    guard let isRendererPlaying = RemoteRendererTransportPolicy
+                        .isRenderingAudio(state) else { continue }
+                    if isRendererPlaying { self.castingObservedRendererPlayback = true }
                     if self.isPlaying != isRendererPlaying {
                         self.isPlaying = isRendererPlaying
                         self.updateNowPlayingInfo()
@@ -434,6 +559,13 @@ extension AudioPlayerService {
 
     func setCastingPlayback(shouldPlay: Bool) {
         guard let controller = castingController else { return }
+        // 暂停会作废曲末票据, 重新播放要补一张回来 —— 否则这一首放完,
+        // 队列就停在这儿不往下走了。
+        if shouldPlay,
+           let song = currentSong,
+           playbackAdvancePolicy.activeTicket?.itemID != song.id {
+            beginAutomaticAdvanceTransport(itemID: song.id, reason: "cast-resume")
+        }
         castingCommandGeneration &+= 1
         let commandGeneration = castingCommandGeneration
         Task { [weak self] in
@@ -496,6 +628,17 @@ extension AudioPlayerService {
         sourceManager?.cancelBackgroundAudioCaching(keeping: [])
         pendingAppleMusicRestoredPosition = nil
         finishCastingHandoffForStop(ownerID: stopOwnerID)
+        // 投放时停止只清了本机状态, 远端还在放 —— 界面已经空了音箱却还在出声。
+        if let controller = castingController {
+            castingObservedRendererPlayback = false
+            Task { @MainActor in
+                do {
+                    try await controller.stop()
+                } catch {
+                    plog("⚠️ Cast stop failed: \(error.localizedDescription)")
+                }
+            }
+        }
         if isAppleMusicMode
             || activeAppleMusicRequestID != nil
             || AppServices.shared.appleMusic.activePlaybackRequestID != nil {

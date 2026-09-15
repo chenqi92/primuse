@@ -773,6 +773,7 @@
 "source_diag_scan_ready_warning" = "Kaynağa ulaşılabilir ancak taramadan önce uyarıları inceleyiniz.";
 "scrape_accuracy_notice" = "Otomatik sonuçlar hatalı olabilir. Eşleşmiyorlarsa Manuel Aramayı kullanın ve parça sürelerini karşılaştırın.";
 "cast_dlna_required_hint" = "Cihaz, UPnP/DLNA oluşturucu protokolünü desteklemeli ve iPhone'nizle aynı Wi-Fi üzerinde olmalıdır.";
+"cast_error_track_change_rejected" = "Cihaz parça değiştirmeyi reddetti. Yeniden yayınlayın veya cihazı yeniden başlatın.";
 "rescan" = "Yeniden tara";
 "Syncing…" = "Senkronizasyon yapılıyor…";
 "source_diag_preparing_scan" = "Taramadan önce kaynak kontrol ediliyor...";

@@ -929,6 +929,7 @@
 "carplay_up_next" = "التالي";
 "cast_casting_to_format" = "البث إلى: %@";
 "cast_dlna_required_hint" = "يجب أن يدعم الجهاز بروتوكول العرض UPnP/DLNA وأن يكون على نفس Wi-Fi مثل iPhone.";
+"cast_error_track_change_rejected" = "رفض الجهاز تغيير المقطع. أعد البث إليه أو أعد تشغيل الجهاز.";
 "cast_lan_devices" = "أجهزة الشبكة المحلية";
 "cast_local_device" = "هذا iPhone";
 "cast_local_subtitle" = "تشغيل على هذا الجهاز";

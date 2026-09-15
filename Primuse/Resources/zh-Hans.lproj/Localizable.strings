@@ -1367,6 +1367,7 @@
 "cast_lan_devices" = "局域网设备";
 "cast_scanning" = "正在搜索投屏设备…";
 "cast_dlna_required_hint" = "设备需支持 UPnP/DLNA 渲染器协议,并跟你的 iPhone 在同一 Wi-Fi 下。";
+"cast_error_track_change_rejected" = "投放设备拒绝切歌,可以重新投放或重启设备再试。";
 "refresh" = "刷新";
 "family_sharing_title" = "家庭共享";
 "family_sharing_active" = "家庭共享已启用";

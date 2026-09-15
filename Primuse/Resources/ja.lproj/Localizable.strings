@@ -1344,6 +1344,7 @@
 "cast_lan_devices" = "ローカルネットワークのデバイス";
 "cast_scanning" = "デバイスを検索中…";
 "cast_dlna_required_hint" = "デバイスは UPnP/DLNA レンダラープロトコルに対応し、iPhone と同じ Wi-Fi に接続されている必要があります。";
+"cast_error_track_change_rejected" = "デバイスが曲の切り替えを拒否しました。もう一度キャストするか、デバイスを再起動してください。";
 "refresh" = "再読み込み";
 "family_sharing_title" = "ファミリー共有";
 "family_sharing_active" = "ファミリー共有が有効です";

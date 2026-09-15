@@ -916,6 +916,7 @@
 		B4302BD1B956F6B517A799E2 /* OfflinePlaybackPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65ACCFD1629CC080B918B6E8 /* OfflinePlaybackPolicy.swift */; };
 		B46DB93A08A537C8BB1CF426 /* PlaybackOwnershipLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F7E1E6323BAAF426686AB6B /* PlaybackOwnershipLease.swift */; };
 		B4757F43F22197C6497DF963 /* RemoteGatewayBackoffPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09540B602EB547F8069B8F64 /* RemoteGatewayBackoffPolicy.swift */; };
+		28B1BC7F51EE38B5D8EAEC9E /* RemoteRendererTransportPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8580068D9EE88330F6318DA /* RemoteRendererTransportPolicy.swift */; };
 		B4919DB98A38031DE3CB8C9E /* WatchPlayerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FE14B295320AA20C02A9BB3 /* WatchPlayerStore.swift */; };
 		B4A627384B3D168B7BF384F0 /* PrimuseKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B1E36F2FECF46E724081F983 /* PrimuseKit.framework */; };
 		B4B6F6A17D3D9A742DF743AA /* SongBatchRemovalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61EACF0F812C134ED35D5209 /* SongBatchRemovalService.swift */; };
@@ -1514,6 +1515,7 @@
 		09162255A250ACB54D607FA4 /* HomeDiscoveryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeDiscoveryModel.swift; sourceTree = "<group>"; };
 		094FD6A8E0AA8F10DC855B92 /* th */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = th; path = th.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		09540B602EB547F8069B8F64 /* RemoteGatewayBackoffPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteGatewayBackoffPolicy.swift; sourceTree = "<group>"; };
+		D8580068D9EE88330F6318DA /* RemoteRendererTransportPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteRendererTransportPolicy.swift; sourceTree = "<group>"; };
 		095BFC637C29F6F7EC50F2C8 /* TVMetadataInspectionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVMetadataInspectionStore.swift; sourceTree = "<group>"; };
 		09B9293AFE6E82ABC6C9C896 /* NetworkHostAuthority.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkHostAuthority.swift; sourceTree = "<group>"; };
 		09CE2F3FC6DBC83E5C139F8D /* SynologyQuickConnectResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyQuickConnectResolver.swift; sourceTree = "<group>"; };
@@ -2926,6 +2928,7 @@
 				0849A8F36C03A6B9E0D99387 /* PrivateOverlayHostPolicy.swift */,
 				7A6E761F8B6C6057418F1EFC /* QueueBatchRemovalPolicy.swift */,
 				09540B602EB547F8069B8F64 /* RemoteGatewayBackoffPolicy.swift */,
+				D8580068D9EE88330F6318DA /* RemoteRendererTransportPolicy.swift */,
 				4A5E3854301A90D6807F3BEA /* ScanTLSTrustRetryPolicy.swift */,
 				EBD6678B75E0ED0C185FD110 /* SceneTransitionScanQuiescePolicy.swift */,
 				35F073A9086FA22C2E168810 /* ServerCatalogDeletionPolicy.swift */,
@@ -4718,6 +4721,7 @@
 				E875AA6A0F8395A2B79757C7 /* RecentlyDeletedPurgePlan.swift in Sources */,
 				17F49E86FA92CB0D1341670E /* RelayStreamResolver.swift in Sources */,
 				B4757F43F22197C6497DF963 /* RemoteGatewayBackoffPolicy.swift in Sources */,
+				28B1BC7F51EE38B5D8EAEC9E /* RemoteRendererTransportPolicy.swift in Sources */,
 				055E8F5093B42BCBDF08DA4F /* S3StreamResolver.swift in Sources */,
 				12C7978BCBFE0B91090B8657 /* SSDPNetworkInterfaces.swift in Sources */,
 				4D3A4ACF3185CCECCC8DF8B7 /* STRMDescriptor.swift in Sources */,

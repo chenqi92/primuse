@@ -929,6 +929,7 @@
 "carplay_up_next" = "ถัดไป";
 "cast_casting_to_format" = "กำลังแคสต์ไปที่: %@";
 "cast_dlna_required_hint" = "อุปกรณ์ต้องรองรับโปรโตคอลเรนเดอร์ UPnP/DLNA และอยู่ใน Wi-Fi เดียวกันกับ iPhone ของคุณ";
+"cast_error_track_change_rejected" = "อุปกรณ์ปฏิเสธการเปลี่ยนเพลง ลองแคสต์อีกครั้งหรือรีสตาร์ทอุปกรณ์";
 "cast_lan_devices" = "อุปกรณ์เครือข่ายท้องถิ่น";
 "cast_local_device" = "นี่ iPhone";
 "cast_local_subtitle" = "เล่นบนอุปกรณ์นี้";

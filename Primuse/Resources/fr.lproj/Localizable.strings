@@ -1343,6 +1343,7 @@
 "cast_lan_devices" = "Appareils du réseau local";
 "cast_scanning" = "Recherche d'appareils…";
 "cast_dlna_required_hint" = "L'appareil doit prendre en charge le protocole de lecteur UPnP/DLNA et être sur le même Wi-Fi que votre iPhone.";
+"cast_error_track_change_rejected" = "L'appareil a refusé de changer de morceau. Relancez la diffusion ou redémarrez l'appareil.";
 "refresh" = "Actualiser";
 "family_sharing_title" = "Partage familial";
 "family_sharing_active" = "Partage familial activé";

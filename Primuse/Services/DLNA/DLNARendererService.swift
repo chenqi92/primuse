@@ -2885,8 +2885,10 @@ final class RemoteRendererController {
         return (cur, dur)
     }
 
-    /// 返回 transport state ── "PLAYING" / "PAUSED_PLAYBACK" / "STOPPED" / "TRANSITIONING" 等。
-    func getTransportInfo() async throws -> String {
+    /// 返回 transport state ── "PLAYING" / "PAUSED_PLAYBACK" / "STOPPED" /
+    /// "TRANSITIONING" 等。设备回了但字段读不出来时返回 nil, 由调用方归一成
+    /// "状态不明", 不要替它猜成已停止。
+    func getTransportInfo() async throws -> String? {
         guard let url = renderer.avTransportControlURL else { throw missingService("AVTransport") }
         let body = """
         <u:GetTransportInfo xmlns:u="\(Self.avTransportNS)">
@@ -2895,7 +2897,33 @@ final class RemoteRendererController {
         """
         let resp = try await postSOAP(controlURL: url, action: "GetTransportInfo",
                                       namespace: Self.avTransportNS, body: body)
-        return Self.extract(tag: "CurrentTransportState", from: resp) ?? "STOPPED"
+        return Self.extract(tag: "CurrentTransportState", from: resp)
+    }
+
+    /// GetTransportInfo 的容错版本 —— 状态拿不到时回 .unknown, 让调用方按最坏
+    /// 情况处理, 而不是把一次网络失败当成"设备已经停住了"。
+    func currentTransportState() async -> RemoteRendererTransportState {
+        do {
+            return RemoteRendererTransportState(reported: try await getTransportInfo())
+        } catch {
+            return .unknown
+        }
+    }
+
+    /// 回读渲染器当前装载的 URI。
+    ///
+    /// SetAVTransportURI 回 200 并不代表固件真的换了曲目 —— 有的设备先答应
+    /// 下来, 然后继续把当前这首放完。装完回读一次才知道换没换。
+    func getCurrentURI() async throws -> String? {
+        guard let url = renderer.avTransportControlURL else { throw missingService("AVTransport") }
+        let body = """
+        <u:GetMediaInfo xmlns:u="\(Self.avTransportNS)">
+        <InstanceID>0</InstanceID>
+        </u:GetMediaInfo>
+        """
+        let resp = try await postSOAP(controlURL: url, action: "GetMediaInfo",
+                                      namespace: Self.avTransportNS, body: body)
+        return Self.extract(tag: "CurrentURI", from: resp)
     }
 
     // MARK: RenderingControl

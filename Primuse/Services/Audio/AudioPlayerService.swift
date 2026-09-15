@@ -792,6 +792,13 @@ final class AudioPlayerService {
 
     /// 1Hz 轮询 GetPositionInfo + GetTransportInfo 同步进度 / 播放状态。
     var castingPositionTask: Task<Void, Never>?
+
+    /// 当前这首歌在渲染器上是否真的出过声。
+    ///
+    /// 投放模式没有解码器回调, 曲末只能靠轮询看到"设备停了"。刚装上 URI 还
+    /// 没起播时设备也回 STOPPED, 所以必须先确认它播过, 那个停止才算曲末。
+    var castingObservedRendererPlayback = false
+
     /// Replacement Apple Music requests await the same renderer Stop instead
     /// of observing a temporarily detached controller and starting early.
     var appleMusicCastingHandoffTask: Task<Bool, Never>?
