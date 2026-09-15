@@ -4818,29 +4818,32 @@ private struct LibraryFolderNodeBranch: View {
 
     @ViewBuilder
     private func rowAction(for node: LibraryFolderNode) -> some View {
-        if selection.isActive {
-            LibraryFolderSelectionButton(
-                node: node,
-                folderCache: folderCache,
-                listCache: listCache,
-                selection: selection
-            )
-        } else {
-            primaryRowAction(for: node)
-            .buttonStyle(.plain)
-            .contextMenu {
-                Button {
-                    selection.activate()
-                    selection.selectAll(actionSongIDs())
-                } label: {
-                    Label("batch_select", systemImage: "checkmark.circle")
-                }
-                .disabled(node.descendantSongCount == 0)
+        ZStack(alignment: .leading) {
+            if selection.isActive {
+                LibraryFolderSelectionButton(
+                    node: node,
+                    folderCache: folderCache,
+                    listCache: listCache,
+                    selection: selection
+                )
+            } else {
+                primaryRowAction(for: node)
+                    .buttonStyle(.plain)
             }
-            .accessibilityAction(named: Text("batch_select")) {
+        }
+        // The menu must outlive the navigation-to-selection content change.
+        .contextMenu {
+            Button {
                 selection.activate()
                 selection.selectAll(actionSongIDs())
+            } label: {
+                Label("batch_select", systemImage: "checkmark.circle")
             }
+            .disabled(node.descendantSongCount == 0)
+        }
+        .accessibilityAction(named: Text("batch_select")) {
+            selection.activate()
+            selection.selectAll(actionSongIDs())
         }
     }
 

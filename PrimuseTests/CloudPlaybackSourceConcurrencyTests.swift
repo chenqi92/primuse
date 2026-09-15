@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import Network
 import PrimuseKit
 import XCTest
 @testable import Primuse
@@ -94,6 +95,89 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
             XCTAssertTrue(error is CancellationError, "Unexpected error: \(error)")
         }
         await source.disconnect()
+    }
+
+    func testWebDAVConcurrentConnectDisconnectAndReconnect() async throws {
+        let server = try WebDAVLifecycleHTTPServer()
+        let port = try await server.start()
+        defer { server.stop() }
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for _ in 0..<16 {
+                group.addTask {
+                    let sourceID = "webdav-lifecycle-\(UUID().uuidString)"
+                    let source = WebDAVSource(sourceID: sourceID, host: "127.0.0.1", port: Int(port),
+                                              useSsl: false, basePath: "/Music", username: "", password: "")
+                    do {
+                        for _ in 0..<3 {
+                            try await source.connect()
+                            let files = try await source.listFiles(at: "/")
+                            XCTAssertEqual(files.map(\.path), ["/song.flac"])
+                            await source.disconnect()
+                        }
+                    } catch {
+                        await source.disconnect()
+                        throw error
+                    }
+                }
+            }
+            try await group.waitForAll()
+        }
+        XCTAssertEqual(server.requests.count, 96)
+        XCTAssertTrue(server.requests.allSatisfy { $0.method == "PROPFIND" && $0.authorization == nil })
+    }
+
+    func testWebDAVHTTPDownloadUsesCredentialsAndPublishesOnlySuccessfulFiles() async throws {
+        let server = try WebDAVLifecycleHTTPServer()
+        let port = try await server.start()
+        defer { server.stop() }
+        let sourceID = "webdav-download-\(UUID().uuidString)"
+        let source = WebDAVSource(sourceID: sourceID, host: "127.0.0.1", port: Int(port),
+                                  useSsl: false, basePath: "/Music", username: "reader", password: "fixture")
+        addTeardownBlock { await source.disconnect() }
+        try await source.connect()
+        let url = try await source.localURL(for: "/song.flac")
+        XCTAssertEqual(try Data(contentsOf: url), WebDAVLifecycleHTTPServer.audio)
+        let cachedURL = try await source.localURL(for: "/song.flac")
+        XCTAssertEqual(url, cachedURL)
+        XCTAssertEqual(server.requests.filter { $0.method == "GET" && $0.path == "/Music/song.flac" }.count, 1)
+        for _ in 0..<2 {
+            do {
+                _ = try await source.localURL(for: "/denied.flac")
+                XCTFail("An authentication error must not publish a cache file")
+            } catch {
+                XCTAssertEqual(SourceFileDeletionFailureReason.classify(error), .authenticationRequired)
+            }
+        }
+        XCTAssertEqual(server.requests.filter { $0.path == "/Music/denied.flac" }.count, 2)
+        XCTAssertTrue(server.requests.allSatisfy {
+            $0.authorization == "Basic \(Data("reader:fixture".utf8).base64EncodedString())"
+        })
+    }
+
+    func testWebDAVDisconnectCancelsPendingConnectAndAllowsFreshConnection() async throws {
+        let server = try WebDAVLifecycleHTTPServer(holdFirstListing: true)
+        let port = try await server.start()
+        defer { server.stop() }
+        let source = WebDAVSource(sourceID: "webdav-reconnect-\(UUID().uuidString)", host: "127.0.0.1",
+                                  port: Int(port), useSsl: false, basePath: "/Music", username: "", password: "")
+        addTeardownBlock { await source.disconnect() }
+        let pending = Task { try await source.connect() }
+        for _ in 0..<200 where server.requests.isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(server.requests.count, 1)
+        await source.disconnect()
+        async let replacement: Void = source.connect()
+        do {
+            try await pending.value
+            XCTFail("The old connection must not complete after disconnect")
+        } catch {
+            XCTAssertTrue(OperationCancellationPolicy.isCancellation(error))
+        }
+        try await replacement
+        let files = try await source.listFiles(at: "/")
+        XCTAssertEqual(files.map(\.path), ["/song.flac"])
+        XCTAssertEqual(server.requests.count, 3)
     }
 
     @MainActor
@@ -1502,4 +1586,130 @@ private final class FixtureRangeConnector: MusicSourceConnector, @unchecked Send
     }
 
     func requests() async -> [FixtureRangeRequest] { await recorder.requests() }
+}
+
+private final class WebDAVLifecycleHTTPServer: @unchecked Sendable {
+    struct Request: Sendable {
+        let method: String
+        let path: String
+        let authorization: String?
+    }
+
+    static let audio = Data("fLaC-webdav-lifecycle-fixture".utf8)
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "WebDAVLifecycleHTTPServer")
+    private let lock = NSLock()
+    private let holdFirstListing: Bool
+    private var recorded: [Request] = []
+    private var connections: [NWConnection] = []
+    private var didFinishStarting = false
+
+    var requests: [Request] { lock.withLock { recorded } }
+
+    init(holdFirstListing: Bool = false) throws {
+        self.holdFirstListing = holdFirstListing
+        listener = try NWListener(using: .tcp, on: .any)
+    }
+
+    func start() async throws -> UInt16 {
+        try await withCheckedThrowingContinuation { continuation in
+            listener.stateUpdateHandler = { [weak self] state in
+                guard let self else { return }
+                let result: Result<UInt16, Error>
+                switch state {
+                case .ready:
+                    guard let port = self.listener.port else { return }
+                    result = .success(port.rawValue)
+                case .failed(let error): result = .failure(error)
+                default: return
+                }
+                let shouldResume = self.lock.withLock {
+                    guard !self.didFinishStarting else { return false }
+                    self.didFinishStarting = true
+                    return true
+                }
+                if shouldResume { continuation.resume(with: result) }
+            }
+            listener.newConnectionHandler = { [weak self] connection in
+                guard let self else { connection.cancel(); return }
+                self.lock.withLock { self.connections.append(connection) }
+                connection.start(queue: self.queue)
+                self.receive(on: connection, accumulated: Data())
+            }
+            listener.start(queue: queue)
+        }
+    }
+
+    func stop() {
+        listener.cancel()
+        let active = lock.withLock { connections }
+        active.forEach { $0.cancel() }
+    }
+
+    private func receive(on connection: NWConnection, accumulated: Data) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, complete, error in
+            guard let self else { connection.cancel(); return }
+            var bytes = accumulated
+            bytes.append(data ?? Data())
+            if let headerEnd = bytes.range(of: Data("\r\n\r\n".utf8)),
+               let header = String(data: bytes[..<headerEnd.lowerBound], encoding: .utf8) {
+                let lines = header.components(separatedBy: "\r\n")
+                let requestLine = lines[0].split(separator: " ")
+                let headers = Dictionary(lines.dropFirst().compactMap { line -> (String, String)? in
+                    guard let separator = line.firstIndex(of: ":") else { return nil }
+                    return (line[..<separator].lowercased(),
+                            line[line.index(after: separator)...].trimmingCharacters(in: .whitespaces))
+                }, uniquingKeysWith: { _, last in last })
+                let bodyLength = Int(headers["content-length"] ?? "0") ?? 0
+                if requestLine.count >= 2, bytes.count >= headerEnd.upperBound + bodyLength {
+                    self.respond(on: connection, request: Request(
+                        method: String(requestLine[0]), path: String(requestLine[1]),
+                        authorization: headers["authorization"]
+                    ))
+                    return
+                }
+            }
+            guard !complete, error == nil, bytes.count < 1_048_576 else { connection.cancel(); return }
+            self.receive(on: connection, accumulated: bytes)
+        }
+    }
+
+    private func respond(on connection: NWConnection, request: Request) {
+        let shouldHold = lock.withLock {
+            recorded.append(request)
+            return holdFirstListing && recorded.count == 1 && request.method == "PROPFIND"
+        }
+        if shouldHold { return }
+
+        let status: String
+        let contentType: String
+        let body: Data
+        if request.method == "PROPFIND", request.path == "/Music/" {
+            status = "207 Multi-Status"
+            contentType = "application/xml"
+            body = Data("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <D:multistatus xmlns:D="DAV:">
+              <D:response><D:href>/Music/</D:href><D:propstat><D:prop>
+                <D:resourcetype><D:collection/></D:resourcetype>
+              </D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>
+              <D:response><D:href>/Music/song.flac</D:href><D:propstat><D:prop>
+                <D:displayname>song.flac</D:displayname><D:resourcetype/>
+                <D:getcontentlength>\(Self.audio.count)</D:getcontentlength>
+              </D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>
+            </D:multistatus>
+            """.utf8)
+        } else if request.method == "GET", request.path == "/Music/song.flac" {
+            status = "200 OK"
+            contentType = "audio/flac"
+            body = Self.audio
+        } else {
+            status = "401 Unauthorized"
+            contentType = "text/plain"
+            body = Data()
+        }
+        var response = Data("HTTP/1.1 \(status)\r\nContent-Type: \(contentType)\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8)
+        response.append(body)
+        connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
+    }
 }

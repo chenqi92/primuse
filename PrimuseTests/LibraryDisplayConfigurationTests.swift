@@ -404,6 +404,75 @@ final class SongSelectionLayoutTests: XCTestCase {
     }
 }
 
+#if os(iOS)
+@MainActor
+final class SongSelectionViewIdentityTests: XCTestCase {
+    func testLeadingRowKeepsItsMenuHostWhenSelectionChanges() async throws {
+        try await assertRowSurvivesSelection(style: .leading)
+    }
+
+    func testOverlayRowKeepsItsMenuHostWhenSelectionChanges() async throws {
+        try await assertRowSurvivesSelection(style: .overlay)
+    }
+
+    private func assertRowSurvivesSelection(style: SongSelectionStyle) async throws {
+        let selection = SongSelectionModel()
+        let probe = SongSelectionViewIdentityProbe()
+        let host = UIHostingController(rootView:
+            SongSelectionIdentityView(probe: probe)
+                .frame(height: 60)
+                .contextMenu {
+                    Button("batch_select") { selection.activate(seed: "song") }
+                }
+                .songSelectable(songID: "song", selection: selection, style: style, orderedIDs: { ["song"] })
+        )
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = host
+        window.isHidden = false
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        host.view.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(100))
+        let originalView = try XCTUnwrap(probe.createdViews.first)
+        XCTAssertEqual(probe.createdViews.count, 1)
+
+        for _ in 0..<2 {
+            selection.activate(seed: "song")
+            try await Task.sleep(for: .milliseconds(100))
+            host.view.layoutIfNeeded()
+            XCTAssertEqual(probe.createdViews.count, 1, "Entering selection must keep the menu source alive")
+            XCTAssertTrue(probe.createdViews.first === originalView)
+            XCTAssertNotNil(originalView.window)
+
+            selection.deactivate()
+            try await Task.sleep(for: .milliseconds(100))
+            host.view.layoutIfNeeded()
+            XCTAssertEqual(probe.createdViews.count, 1, "Leaving selection must preserve row identity")
+            XCTAssertNotNil(originalView.window)
+        }
+    }
+}
+
+@MainActor
+private final class SongSelectionViewIdentityProbe {
+    var createdViews: [UIView] = []
+}
+
+private struct SongSelectionIdentityView: UIViewRepresentable {
+    let probe: SongSelectionViewIdentityProbe
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        probe.createdViews.append(view)
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {}
+}
+#endif
+
 final class PlayerAppearancePreferencesTests: XCTestCase {
     func testEveryImmersiveEffectDisplaysLyricsButNativeDoesNot() {
         XCTAssertFalse(FullscreenPlayerEffect.native.displaysLyrics)

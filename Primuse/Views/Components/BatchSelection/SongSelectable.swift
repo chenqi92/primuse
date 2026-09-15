@@ -67,25 +67,69 @@ private struct SongSelectableModifier: ViewModifier {
         let isActive = selection.isActive
         let isSelected = membership.isSelected
 
+        #if os(iOS)
+        // Keep the row and its context-menu host alive while a menu action
+        // enters selection; replacing the subtree races menu dismissal.
+        iosContent(content, isActive: isActive, isSelected: isSelected)
+        #else
         if isActive {
             activeContent(content, isSelected: isSelected)
         } else {
-            #if os(iOS)
-            if let defaultAction {
-                inactiveContent(content)
-                    .accessibilityAction(named: Text("play")) {
-                        defaultAction()
-                    }
-                    .highPriorityGesture(longPressGesture)
-            } else {
-                inactiveContent(content)
-                    .highPriorityGesture(longPressGesture)
-            }
-            #else
             inactiveContent(content)
-            #endif
         }
+        #endif
     }
+
+    #if os(iOS)
+    private func iosContent(_ content: Content, isActive: Bool, isSelected: Bool) -> some View {
+        Group {
+            switch style {
+            case .leading:
+                HStack(alignment: .center, spacing: isActive ? 12 : 0) {
+                    if isActive {
+                        SongSelectionLeadingSlot(isSelected: isSelected)
+                    }
+                    content
+                }
+            case .overlay:
+                content.overlay(alignment: .topTrailing) {
+                    if isActive {
+                        SongSelectionCheckmark(isSelected: isSelected)
+                            .background(Circle().fill(.background).padding(2))
+                            .padding(10)
+                            .allowsHitTesting(false)
+                    }
+                }
+            }
+        }
+        .overlay {
+            if isActive, defaultAction == nil {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { handleTap() }
+            }
+        }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(isActive
+            ? Text(isSelected ? "library_folder_selection_all" : "library_folder_selection_none")
+            : Text(verbatim: ""))
+        .accessibilityAddTraits(isActive ? (isSelected ? [.isButton, .isSelected] : .isButton) : [])
+        .accessibilityActions {
+            Button("batch_select") {
+                if selection.isActive {
+                    handleTap()
+                } else {
+                    selection.activate(seed: songID)
+                }
+            }
+            if !isActive, let defaultAction {
+                Button("play", action: defaultAction)
+            }
+        }
+        .highPriorityGesture(longPressGesture, including: isActive ? .subviews : .all)
+    }
+    #endif
 
     private func inactiveContent(_ content: Content) -> some View {
         content

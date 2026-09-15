@@ -1,6 +1,5 @@
 import CryptoKit
 import Foundation
-import FilesProvider
 import PrimuseKit
 
 enum WebDAVDirectoryListingConfirmationPolicy {
@@ -37,8 +36,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
     private let password: String
     private let alternateTLSValidationHostname: String?
     private let mutationSession: URLSession?
-    private var provider: WebDAVFileProvider?
-    private var usesTrustedURLSession = false
+    private var isConnected = false
+    private var connectionGeneration = UUID()
     private var connectTask: Task<Void, Error>?
     private var didLogWholeResourceMetadataFallback = false
     private var didLogFirstRangeRequest = false
@@ -153,73 +152,40 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
     }
 
     func connect() async throws {
+        try Task.checkCancellation()
         ensureTransportSessions()
+        let generation = connectionGeneration
         if let connectTask {
             try await connectTask.value
+            guard connectionGeneration == generation else { throw CancellationError() }
             return
         }
-        if provider != nil || usesTrustedURLSession {
+        if isConnected {
             return
         }
         let task = Task { [weak self] in
             guard let self else { throw CancellationError() }
-            try await self.establishConnection()
+            try await self.establishConnection(generation: generation)
         }
         connectTask = task
-        defer { connectTask = nil }
+        defer {
+            if connectionGeneration == generation { connectTask = nil }
+        }
         try await task.value
+        guard connectionGeneration == generation else { throw CancellationError() }
     }
 
-    private func establishConnection() async throws {
-
-        let baseURL = try serverURL()
-        let requiresPlainSocket = TrustedHTTPTransport.requiresPlainSocket(for: baseURL)
-        let usesAppManagedTransport = useSsl || requiresPlainSocket
-        if usesAppManagedTransport {
-            try await establishTrustedConnection()
-            return
-        }
-
-        // 匿名 WebDAV 必须完全不带凭据；传一个 user/password 都为空的
-        // URLCredential 仍可能让底层生成空的 Authorization challenge 响应。
-        let credential: URLCredential? = if username.isEmpty && password.isEmpty {
-            nil
-        } else {
-            URLCredential(user: username, password: password, persistence: .forSession)
-        }
-
-        guard let provider = WebDAVFileProvider(
-            baseURL: baseURL,
-            credential: credential
-        ) else {
-            throw SourceError.connectionFailed("Invalid WebDAV URL")
-        }
-
-        self.provider = provider
-
-        do {
-            _ = try await listFiles(at: "/")
-            try Task.checkCancellation()
-        } catch {
-            self.provider = nil
-            provider.session.invalidateAndCancel()
-            guard useSsl, SSLTrustStore.sslErrorDomain(from: error) != nil else {
-                throw error
-            }
-            // FilesProvider owns a final URLSession delegate and cannot apply
-            // Primuse's endpoint-scoped TOFU policy. Retry this connector with
-            // our shared trusted transport so the normal certificate prompt,
-            // pinning, and rotation checks remain in force.
-            try await establishTrustedConnection()
-        }
-    }
-    private func establishTrustedConnection() async throws {
-        usesTrustedURLSession = true
+    private func establishConnection(generation: UUID) async throws {
+        guard connectionGeneration == generation else { throw CancellationError() }
+        // All WebDAV transports use per-connector sessions. FilesProvider's
+        // lazy session initialization mutates unsynchronized process-wide maps.
         do {
             _ = try await listFilesUsingTrustedTransport(at: "/")
             try Task.checkCancellation()
+            guard connectionGeneration == generation else { throw CancellationError() }
+            isConnected = true
         } catch {
-            usesTrustedURLSession = false
+            guard connectionGeneration == generation else { throw CancellationError() }
             if useSsl, SSLTrustStore.sslErrorDomain(from: error) != nil {
                 resetDirectorySession()
             }
@@ -229,13 +195,12 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
 
 
     func disconnect() async {
+        connectionGeneration = UUID()
+        isConnected = false
         connectTask?.cancel()
         connectTask = nil
         completeMetadataFallbackTasks.values.forEach { $0.cancel() }
         completeMetadataFallbackTasks.removeAll()
-        provider?.session.invalidateAndCancel()
-        provider = nil
-        usesTrustedURLSession = false
         directorySession?.invalidateAndCancel()
         directorySession = nil
         rangeSession?.invalidateAndCancel()
@@ -245,7 +210,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
     }
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
-        guard provider != nil || usesTrustedURLSession else {
+        guard isConnected else {
             throw SourceError.connectionFailed("Not connected")
         }
 
@@ -369,9 +334,10 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
     }
 
     func localURL(for path: String) async throws -> URL {
-        guard provider != nil || usesTrustedURLSession else {
+        guard isConnected else {
             throw SourceError.connectionFailed("Not connected")
         }
+        let generation = connectionGeneration
 
         // 缓存名用 SHA256 哈希: 朴素的 '/' → '_' 替换会让 "/A/B.mp3" 与 "/A_B.mp3"
         // 撞到同一缓存键、播到错误文件。
@@ -382,49 +348,29 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
             return localPath
         }
 
-        // Download to a sibling temp path then atomically rename. FilesProvider's
-        // copyItem moves a (possibly truncated) temp file to the destination even
-        // on failure, so writing straight to localPath would leave a half-written
-        // file that future calls treat as a complete cache hit (and never self-heal).
+        // Publish only complete downloads so cancellation cannot leave a partial
+        // file that subsequent reads mistake for a complete cache hit.
         let tempPath = cacheDirectory.appendingPathComponent(
             "\(baseName).part-\(UUID().uuidString)"
         )
 
         do {
-            if usesTrustedURLSession {
-                let request = try makeWebDAVRequest(
-                    url: fileURL(for: path),
-                    method: "GET"
-                )
-                let (downloadedURL, response) = try await downloadFollowingMediaRedirects(
-                    for: request
-                )
-                guard let http = response as? HTTPURLResponse,
-                      (200...299).contains(http.statusCode) else {
-                    try? FileManager.default.removeItem(at: downloadedURL)
-                    if let status = (response as? HTTPURLResponse)?.statusCode,
-                       status == 401 || status == 403 {
-                        throw SourceError.authenticationFailed
-                    }
-                    throw SourceError.connectionFailed(
-                        "WebDAV download failed: HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)"
-                    )
+            let request = try makeWebDAVRequest(url: fileURL(for: path), method: "GET")
+            let (downloadedURL, response) = try await downloadFollowingMediaRedirects(for: request)
+            defer { try? FileManager.default.removeItem(at: downloadedURL) }
+            try Task.checkCancellation()
+            guard connectionGeneration == generation else { throw CancellationError() }
+            guard let http = response as? HTTPURLResponse,
+                  (200...299).contains(http.statusCode) else {
+                if let status = (response as? HTTPURLResponse)?.statusCode,
+                   status == 401 || status == 403 {
+                    throw SourceError.authenticationFailed
                 }
-                try FileManager.default.moveItem(at: downloadedURL, to: tempPath)
-            } else if let provider {
-                let providerPath = providerRelativePath(path)
-                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                    provider.copyItem(path: providerPath, toLocalURL: tempPath) { error in
-                        if let error {
-                            continuation.resume(throwing: error)
-                        } else {
-                            continuation.resume(returning: ())
-                        }
-                    }
-                }
-            } else {
-                throw SourceError.connectionFailed("Not connected")
+                throw SourceError.connectionFailed(
+                    "WebDAV download failed: HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)"
+                )
             }
+            try FileManager.default.moveItem(at: downloadedURL, to: tempPath)
             if FileManager.default.fileExists(atPath: localPath.path) {
                 try? FileManager.default.removeItem(at: tempPath)
             } else {
@@ -1777,11 +1723,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         }
     }
 
-    /// Strips the leading "/" so the path is resolved relative to baseURL.
-    /// WebDAVFileProvider does relative-URL resolution, and an absolute path
-    /// (one that starts with "/") will replace baseURL's path component —
-    /// dropping basePath entirely.
-    private func providerRelativePath(_ path: String) -> String {
+    /// Keep source-relative paths inside the configured server base directory.
+    private func sourceRelativePath(_ path: String) -> String {
         if path == "/" { return "" }
         return path.hasPrefix("/") ? String(path.dropFirst()) : path
     }
@@ -1797,8 +1740,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
             throw SourceError.connectionFailed("Invalid WebDAV URL")
         }
 
-        // WebDAVFileProvider needs a directory-style baseURL (trailing "/")
-        // so that relative path resolution preserves basePath.
+        // Directory-style URLs preserve basePath during relative resolution.
         let absolute = baseURL.absoluteString
         if absolute.hasSuffix("/") {
             return baseURL
@@ -1910,7 +1852,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
 
     private func fileURL(for path: String) throws -> URL {
         var url = try serverURL()
-        let relative = providerRelativePath(path)
+        let relative = sourceRelativePath(path)
         for component in relative.split(separator: "/") {
             url.appendPathComponent(String(component), isDirectory: false)
         }
