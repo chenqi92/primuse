@@ -21,6 +21,36 @@ private struct LibraryPreparingView: View {
     }
 }
 
+private struct MacServerSyncErrorAlerts: ViewModifier {
+    @Environment(MusicLibrary.self) private var library
+
+    func body(content: Content) -> some View {
+        content
+            .alert(
+                String(localized: "server_favorite_update_failed_title"),
+                isPresented: Binding(
+                    get: { library.serverFavoriteErrorMessage != nil },
+                    set: { if !$0 { library.dismissServerFavoriteError() } }
+                )
+            ) {
+                Button("done", role: .cancel) {}
+            } message: {
+                Text(library.serverFavoriteErrorMessage ?? "")
+            }
+            .alert(
+                String(localized: "server_rating_sync_failed_title"),
+                isPresented: Binding(
+                    get: { library.serverRatingErrorMessage != nil },
+                    set: { if !$0 { library.dismissServerRatingError() } }
+                )
+            ) {
+                Button("done", role: .cancel) {}
+            } message: {
+                Text(library.serverRatingErrorMessage ?? "")
+            }
+    }
+}
+
 /// 1.6 重设计后的 macOS 根布局: 自定义 TitleBar + Sidebar + Detail + BottomBar 四件套,
 /// 不再依赖 NavigationSplitView。标题栏背景透明且内容延伸至顶部,导航和搜索由
 /// `PMTitleBar` 绘制,窗口控制保留 AppKit 原生实现。
@@ -260,28 +290,7 @@ struct MacContentView: View {
         .sheet(isPresented: $showAIPlaylistEditor) {
             AIPlaylistEditorView(existing: nil)
         }
-        .alert(
-            String(localized: "server_favorite_update_failed_title"),
-            isPresented: Binding(
-                get: { library.serverFavoriteErrorMessage != nil },
-                set: { if !$0 { library.dismissServerFavoriteError() } }
-            )
-        ) {
-            Button("done", role: .cancel) {}
-        } message: {
-            Text(library.serverFavoriteErrorMessage ?? "")
-        }
-        .alert(
-            String(localized: "server_rating_sync_failed_title"),
-            isPresented: Binding(
-                get: { library.serverRatingErrorMessage != nil },
-                set: { if !$0 { library.dismissServerRatingError() } }
-            )
-        ) {
-            Button("done", role: .cancel) {}
-        } message: {
-            Text(library.serverRatingErrorMessage ?? "")
-        }
+        .modifier(MacServerSyncErrorAlerts())
         .alert(String(localized: "scrape_song"),
                isPresented: Binding(
                    get: { lyricsScrapeAlertMessage != nil },
