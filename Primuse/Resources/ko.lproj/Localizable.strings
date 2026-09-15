@@ -387,6 +387,7 @@
 "icon_appearance_hint" = "아이콘은 홈 화면 모드를 따릅니다. 홈 화면을 길게 누른 다음 편집 → 사용자화 → 자동을 선택하세요.";
 "icon_theme_11" = "컬러 브러시";
 "icon_theme_12" = "pikaqiu";
+"icon_theme_13" = "Chris’s Muse";
 "icon_theme_6" = "소프트 노트";
 "icon_theme_9" = "클래식 아이콘";
 "queue_title" = "재생 대기열";

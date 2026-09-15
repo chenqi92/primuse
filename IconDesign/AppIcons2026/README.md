@@ -1,18 +1,21 @@
 # Primuse app icon system
 
-The production catalog contains one primary icon and four alternates:
+The production catalog contains one primary icon and five alternates:
 
 - `00-folded-note.png` — primary folded-note icon.
 - `12-pikaqiu.png` — user-submitted gradient music-note icon on an adaptive light, dark, or tinted background.
 - `09-classic-record.png` — historical record-and-note artwork restored as the classic icon.
 - `11-color-brush.png` — a multicolor lacquer brush that fuses the Primuse P, Jingu Bang, and music note.
 - `06-soft-note.png` — restored original soft-gradient music note.
+- `13-chris-muse.png` — Chris’s Muse, designed by Chris, with a white dimensional note on red in Light and a pink-red note on charcoal in Dark.
 
 Private Library, Lossless Audio, Record Collection, Speaker Play, and Muse Spark are intentionally no longer part of the catalog.
 
 ## Appearance system
 
 The folded note, Pikaqiu, classic record, and soft note preserve their Light, Dark, and Tinted PNGs without palette normalization. Color Brush derives pure-white Light plus grayscale Tinted artwork from its selected pure-black source.
+
+Chris’s Muse preserves the artwork from `13-chris-muse-light-original.jpg` and `13-chris-muse-dark-original.jpg`. The supplied rounded outer rim is removed so platform masking does not create a second edge; the note's dimensional highlights are retained. Its Tinted variant uses a silver-white note on charcoal. The selected original JPEGs are retained alongside the prepared PNGs in `raw/`.
 
 All iOS masters are 1024×1024 full-bleed RGB PNGs with no baked platform corner mask. macOS sizes are derived from the primary Light icon with the platform-specific inset and rounded mask. watchOS uses the primary Light artwork so the white-background default remains consistent across all three platforms.
 

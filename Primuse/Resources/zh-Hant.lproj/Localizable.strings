@@ -152,6 +152,7 @@
 "icon_appearance_hint" = "圖示會跟隨主畫面外觀切換。請長按主畫面空白處，然後選擇「編輯」→「自訂」→「自動」。";
 "icon_theme_11" = "流彩筆觸";
 "icon_theme_12" = "皮卡丘";
+"icon_theme_13" = "Chris’s Muse";
 "icon_theme_6" = "清新音符";
 "icon_theme_9" = "經典圖示";
 "queue_title" = "播放佇列";

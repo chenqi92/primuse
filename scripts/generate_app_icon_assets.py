@@ -17,6 +17,14 @@ WATCH_ICONSET = ROOT / "PrimuseWatch" / "Resources" / "Assets.xcassets" / "AppIc
 
 EXACT_ICONS = [
     (
+        "13-chris-muse",
+        "AppIcon13",
+        "AppIcon13Preview",
+        "13-chris-muse.png",
+        "13-chris-muse-dark.png",
+        "13-chris-muse-tinted.png",
+    ),
+    (
         "00-folded-note",
         "AppIcon",
         "AppIconPreview",
@@ -54,7 +62,7 @@ BRUSH_ICONS = [
     ("11-color-brush-source.png", "11-color-brush", "AppIcon11", "AppIcon11Preview"),
 ]
 
-CATALOG_ORDER = ["AppIcon", "AppIcon12", "AppIcon9", "AppIcon11", "AppIcon6"]
+CATALOG_ORDER = ["AppIcon", "AppIcon12", "AppIcon9", "AppIcon11", "AppIcon6", "AppIcon13"]
 
 
 def save_direct_ios_assets(

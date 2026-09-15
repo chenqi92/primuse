@@ -161,6 +161,7 @@
 "icon_appearance_hint" = "图标会跟随主屏幕外观切换。请长按主屏幕空白处，然后选择“编辑”→“自定义”→“自动”。";
 "icon_theme_11" = "流彩笔触";
 "icon_theme_12" = "皮卡丘";
+"icon_theme_13" = "Chris’s Muse";
 "icon_theme_6" = "清新音符";
 "icon_theme_9" = "经典图标";
 "queue_title" = "播放队列";
