@@ -592,9 +592,14 @@ final class MetadataBackfillService {
         #endif
     }
 
+    /// 完整文件就在本机磁盘上、打开它不产生任何下载的源。
+    private func locallyReadableSourceIDs() -> Set<String> {
+        offlineReadableSourceIDs().union(localFileSourceIDs())
+    }
+
     private func readingEnvironment(sourceID: String? = nil) -> MetadataReadingEnvironment {
         let sourceIDs = sourceID.map { Set([$0]) } ?? activeSourceIDs
-        let localIDs = offlineReadableSourceIDs().union(localFileSourceIDs())
+        let localIDs = locallyReadableSourceIDs()
         return MetadataReadingEnvironment.current(
             playbackActive: playbackIsActive(),
             offlineSource: !sourceIDs.isEmpty && sourceIDs.isSubset(of: localIDs)
@@ -1472,6 +1477,23 @@ final class MetadataBackfillService {
             }
             markQueueDirty()
             UserDefaults.standard.set(true, forKey: formatSpecificTitleKey)
+        }
+
+        // 封面落在 head/tail 两个有界窗口之外时(超过 4 MB 上限的 ID3 标签、
+        // 夹在中段的 moov 等), 这首歌以前会被直接记进 artworkGivenUpIDs
+        // 永久跳过。同一张专辑的标签由同一个工具写出、布局一致, 于是整张
+        // 专辑集体没有封面, 而「重新读取标签」走的是同一条有界路径, 救不
+        // 回来。现在本地源会在放弃之前完整读一次文件, 手动重读对任何源都
+        // 会完整读一次 —— 清一次旧集合, 让此前被永久跳过的歌重新试一遍。
+        let artworkCompleteReadKey = "primuse.backfillState.v2026_09_artworkCompleteRead"
+        if !UserDefaults.standard.bool(forKey: artworkCompleteReadKey) {
+            if !artworkGivenUpIDs.isEmpty {
+                plog("📥 Backfill: reopening \(artworkGivenUpIDs.count) rows given up on embedded artwork")
+                artworkGivenUpIDs.removeAll()
+                saveArtworkGivenUp()
+            }
+            markQueueDirty()
+            UserDefaults.standard.set(true, forKey: artworkCompleteReadKey)
         }
     }
 
@@ -4537,12 +4559,43 @@ final class MetadataBackfillService {
         // was recoverable. This is the authoritative fallback for raw DTS and
         // other elementary streams; background maintenance never downloads a
         // whole library for this purpose.
+        //
+        // 封面也算进这个回退条件。同一张专辑往往由同一个工具写标签,
+        // 封面的大小和摆放位置一致 —— 一旦它落在 head/tail 这两个有界
+        // 窗口之外(超过 4 MB 上限的 ID3 标签、夹在中段的 moov 等),
+        // 整张专辑会集体读不出封面, 而 duration 照样读得到。少了这一条,
+        // 「重新读取标签」跟后台那次一样只读有界区间, 拿不到封面就把这首歌
+        // 记进 artworkGivenUpIDs 永久跳过, 用户再没有任何办法把封面补回来。
+        let boundedReadMissedArtwork = Self.needsEmbeddedArtworkBackfill(song)
+            && metadata.coverArtFileName == nil
+            && metadata.coverArtData == nil
         if isExplicitReread,
            (song.fileFormat.requiresFFmpeg
                 || metadata.detectedFileSignature == .unknown
-                || metadataLooksMissing(metadata)) {
+                || metadataLooksMissing(metadata)
+                || boundedReadMissedArtwork) {
             metadata = try await loadCompleteFileMetadata(for: song)
             artistInspectionCompleted = true
+        } else if boundedReadMissedArtwork,
+                  locallyReadableSourceIDs().contains(song.sourceID) {
+            // 后台维护不会为了封面去下载整个远程库, 但本地源的「完整文件」
+            // 就是磁盘上那一个文件, 多打开它一次没有网络代价。导入完成后
+            // 直接就有封面, 用户不必自己去找「重新读取标签」。
+            // 这一步只在这首歌真的还缺封面时走一次: 读不到就记进
+            // artworkGivenUpIDs, 之后不再重复这次开销。
+            do {
+                let complete = try await loadCompleteFileMetadata(for: song)
+                // 只有真把封面读出来了才换掉有界结果。这次补读是专为封面做的,
+                // 不该顺带改写已经读好的时长和标签。
+                if complete.coverArtFileName != nil || complete.coverArtData != nil {
+                    metadata = complete
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // 有界区间已经读出了可用的标签, 不能因为这次补读失败就丢掉。
+                plog("📥 Backfill: '\(song.title)' complete-file artwork read failed: \(error.localizedDescription)")
+            }
         }
 
         if MetadataReadEvidencePolicy.completeReadIsUnrecognizedAudio(
