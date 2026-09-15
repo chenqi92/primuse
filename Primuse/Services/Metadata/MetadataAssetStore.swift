@@ -858,40 +858,53 @@ actor MetadataAssetStore {
         return true
     }
 
-    /// 删掉 content/ 下没人引用的 jpeg。在 dedup 跑完后调一次, 用户清缓存
-    /// 也会调到。开销 O(redirects + content), 都是 32 字节读, 很轻。
-    ///
-    /// 竞态保护: 收集 referencedShas 与扫 content/ 之间存在窗口, 期间并发的
-    /// writeContentAddressed 可能先写 content/<sha>.jpg、后写 redirect ref ——
-    /// 若新 content 文件在收集 referencedShas 之后落盘, 它不会出现在引用集合
-    /// 里, 会被误判成孤儿删掉, 随后写下的 redirect 就指向已删内容。所以只删
-    /// mtime 早于本次 GC 启动前 5 分钟的孤儿, 给"内容已写、ref 待写"的在途
-    /// 写入留足缓冲, 永不碰新近写入的 content 文件。
-    @discardableResult
-    nonisolated private static func collectOrphanedContent(
-        targetDirs: [URL],
-        contentDir: URL
-    ) -> Bool {
+    /// `writeContentAddressed` 先写 content 字节、后写 redirect ref, 两步之间
+    /// 有窗口。比这个年龄新的 content 文件一律不碰 —— 它的 ref 可能正在路上,
+    /// 删掉就会留下一个指向已删内容的引用。孤儿 GC 与容量驱逐共用。
+    nonisolated private static let inFlightWriteGrace: TimeInterval = 5 * 60
+
+    /// 扫一遍所有 redirect ref, 建立 sha → 引用它的 ref 文件。孤儿 GC 只用
+    /// 它的 key 集合; 容量驱逐还要用它在删 content 的同时清掉悬空 ref。
+    /// nil = 中途被取消。
+    nonisolated private static func contentReferenceMap(
+        targetDirs: [URL]
+    ) -> [String: [URL]]? {
         let fm = FileManager.default
         let prefix = MetadataAssetStore.redirectPrefixData
-        // 早于这个时刻写入的 content 文件才允许被当孤儿删除。
-        let cutoff = Date().addingTimeInterval(-5 * 60)
-
-        // 收集所有正在被引用的 SHA
-        var referencedShas = Set<String>()
+        var map: [String: [URL]] = [:]
         for dir in targetDirs {
-            guard !currentTaskIsCancelled() else { return false }
+            guard !currentTaskIsCancelled() else { return nil }
             guard let enumerator = fm.enumerator(at: dir, includingPropertiesForKeys: [.isRegularFileKey]) else { continue }
             for case let fileURL as URL in enumerator {
-                guard !currentTaskIsCancelled() else { return false }
+                guard !currentTaskIsCancelled() else { return nil }
                 guard fileURL.pathExtension == "jpg" else { continue }
                 guard let raw = try? Data(contentsOf: fileURL), raw.starts(with: prefix) else { continue }
                 let shaBytes = raw.dropFirst(prefix.count)
                 if let sha = String(data: Data(shaBytes), encoding: .utf8), !sha.isEmpty {
-                    referencedShas.insert(sha)
+                    map[sha, default: []].append(fileURL)
                 }
             }
         }
+        return map
+    }
+
+    /// 删掉 content/ 下没人引用的 jpeg。在 dedup 跑完后调一次, 用户清缓存
+    /// 也会调到。开销 O(redirects + content), 都是 32 字节读, 很轻。
+    ///
+    /// 竞态保护: 建引用表与扫 content/ 之间存在窗口, 期间并发的
+    /// writeContentAddressed 可能先写 content/<sha>.jpg、后写 redirect ref ——
+    /// 若新 content 文件在建表之后才落盘, 它不会出现在引用表里, 会被误判成
+    /// 孤儿删掉, 随后写下的 redirect 就指向已删内容。所以只删 mtime 早于
+    /// `inFlightWriteGrace` 的孤儿, 给"内容已写、ref 待写"的在途写入留足
+    /// 缓冲, 永不碰新近写入的 content 文件。
+    @discardableResult
+    nonisolated private static func collectOrphanedContent(
+        references: [String: [URL]],
+        contentDir: URL
+    ) -> Bool {
+        let fm = FileManager.default
+        // 早于这个时刻写入的 content 文件才允许被当孤儿删除。
+        let cutoff = Date().addingTimeInterval(-inFlightWriteGrace)
 
         // 扫 content/, 没在 referenced 集合里、且写入时间早于 cutoff 的才是孤儿
         guard let contents = try? fm.contentsOfDirectory(
@@ -902,7 +915,7 @@ actor MetadataAssetStore {
         for file in contents where file.pathExtension == "jpg" {
             guard !currentTaskIsCancelled() else { return false }
             let sha = file.deletingPathExtension().lastPathComponent
-            guard !referencedShas.contains(sha) else { continue }
+            guard references[sha] == nil else { continue }
             let mtime = (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
             guard mtime < cutoff else { continue }  // 新近写入的, 可能 ref 还在途, 留着
             if (try? fm.removeItem(at: file)) != nil { removed += 1 }
@@ -916,13 +929,108 @@ actor MetadataAssetStore {
     // MARK: - Size cap / eviction
 
     /// content/ 总大小超 `maxBytes` 时, 按 mtime 倒序(最老优先)删掉 content
-    /// 文件直到回到上限以下。被驱逐的 SHA 对应的 ref 文件下次读会落到
-    /// readContentAddressed → nil → CachedArtworkView 网络重新拉。
+    /// 文件直到回到上限以下。
+    ///
+    /// 删 content 的同时必须把指向它的 ref 一并删掉并播出去。只删 content
+    /// 会留下「有封面引用、字节却没了」的悬空状态: 读出来是 nil, 而
+    /// `needsEmbeddedArtworkBackfill` 看到非空的 coverArtFileName 就认定这首
+    /// 歌已经有封面, 永远不会重读 —— 内嵌封面又没有任何远端可以回源, 于是
+    /// 用户只剩手动「重新读取文件标签」一条路。旧注释说的"下次读会落到
+    /// nil → CachedArtworkView 网络重新拉"只对刮削来的网络封面成立。
+    ///
+    /// `protectedRefs` 引用到的 content 直接跳过: 本地源的内嵌封面要重新解析
+    /// 音频文件才能重建, 代价远高于它占的那点空间。
     @discardableResult
-    func evictArtworkContentIfNeeded(maxBytes: Int64 = 500 * 1024 * 1024) -> Bool {
-        evictArtworkDirectoryIfNeeded(artworkContentDirectory, maxBytes: maxBytes)
+    private func evictArtworkContentIfNeeded(
+        maxBytes: Int64 = 500 * 1024 * 1024,
+        references: [String: [URL]],
+        protectedRefs: Set<String>
+    ) -> Bool {
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(
+            at: artworkContentDirectory,
+            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]
+        ) else { return true }
+
+        struct Entry {
+            let url: URL
+            let sha: String
+            let size: Int64
+            let mtime: Date
+            let isProtected: Bool
+        }
+        var entries: [Entry] = []
+        var total: Int64 = 0
+        var protectedBytes: Int64 = 0
+        // 和孤儿 GC 同一条理由: 刚落盘的 content 可能还有一个 ref 在路上。
+        let cutoff = Date().addingTimeInterval(-Self.inFlightWriteGrace)
+        for url in contents where url.pathExtension == "jpg" {
+            guard !Self.currentTaskIsCancelled() else { return false }
+            let sha = url.deletingPathExtension().lastPathComponent
+            let v = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+            let size = Int64(v?.fileSize ?? 0)
+            let mtime = v?.contentModificationDate ?? .distantPast
+            let isProtected = mtime >= cutoff || (references[sha]?.contains {
+                protectedRefs.contains($0.lastPathComponent)
+            } ?? false)
+            entries.append(Entry(url: url, sha: sha, size: size, mtime: mtime, isProtected: isProtected))
+            total += size
+            if isProtected { protectedBytes += size }
+        }
+        guard total > maxBytes else { return true }
+
+        entries.sort { $0.mtime < $1.mtime }  // 老的在前
+        var freed: Int64 = 0
+        var evictedContent = 0
+        var skippedProtected = 0
+        var evictedRefs: Set<String> = []
+        for e in entries {
+            guard !Self.currentTaskIsCancelled() else { return false }
+            if total - freed <= maxBytes { break }
+            if e.isProtected {
+                skippedProtected += 1
+                continue
+            }
+            guard (try? fm.removeItem(at: e.url)) != nil else { continue }
+            freed += e.size
+            evictedContent += 1
+            for refURL in references[e.sha] ?? [] {
+                guard (try? fm.removeItem(at: refURL)) != nil else { continue }
+                evictedRefs.insert(refURL.lastPathComponent)
+            }
+        }
+        plog(
+            "🧹 artwork content evict: freed=\(freed / 1024 / 1024)MB "
+                + "total=\(total / 1024 / 1024)MB cap=\(maxBytes / 1024 / 1024)MB "
+                + "content=\(evictedContent) refs=\(evictedRefs.count) "
+                + "protectedSkipped=\(skippedProtected) protected=\(protectedBytes / 1024 / 1024)MB"
+        )
+        if total - freed > maxBytes {
+            plog(
+                "⚠️ artwork content evict: still \((total - freed) / 1024 / 1024)MB over cap "
+                    + "after skipping \(skippedProtected) protected item(s)"
+            )
+        }
+        if !evictedRefs.isEmpty {
+            Self.postArtworkContentEvicted(refs: evictedRefs)
+        }
+        return true
     }
 
+    /// 让资料库把这些 ref 从 `Song.coverArtFileName` 上摘掉, 回填队列才会重新
+    /// 认得出「这首歌缺封面」。
+    nonisolated private static func postArtworkContentEvicted(refs: Set<String>) {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .primuseArtworkContentEvicted,
+                object: nil,
+                userInfo: ["refs": refs]
+            )
+        }
+    }
+
+    /// 派生缓存的纯容量驱逐 —— 目录里放的是可以随时重算的副本, 没有别处
+    /// 指向它们, 所以不需要连带清理引用。
     private func evictArtworkDirectoryIfNeeded(_ directory: URL, maxBytes: Int64) -> Bool {
         let fm = FileManager.default
         guard let contents = try? fm.contentsOfDirectory(
@@ -956,18 +1064,29 @@ actor MetadataAssetStore {
 
     /// Runs all artwork migrations and cleanup in one cancellable maintenance
     /// pass. The caller records cadence only when this returns true.
-    func performScheduledContentMaintenance() -> Bool {
+    ///
+    /// `protectedCoverRefs` 是调用方交来的「不要为了腾空间删掉」的封面引用,
+    /// 目前是本地源的内嵌封面 —— 它们没有远端可以回源。
+    func performScheduledContentMaintenance(
+        protectedCoverRefs: Set<String> = []
+    ) -> Bool {
         let targetDirs = [artworkDirectory, albumArtworkDirectory, artistArtworkDirectory]
         guard Self.runDedupMigrationIfNeeded(
             targetDirs: targetDirs,
             contentDir: artworkContentDirectory
         ) else { return false }
+        // dedup 会重写 ref, 所以引用表要在它之后建, 孤儿 GC 与容量驱逐共用。
+        guard let references = Self.contentReferenceMap(targetDirs: targetDirs) else {
+            return false
+        }
         guard Self.collectOrphanedContent(
-            targetDirs: targetDirs,
+            references: references,
             contentDir: artworkContentDirectory
         ) else { return false }
-        return evictArtworkContentIfNeeded()
-            && evictArtworkDirectoryIfNeeded(portableArtworkDirectoryURL, maxBytes: 48 * 1024 * 1024)
+        return evictArtworkContentIfNeeded(
+            references: references,
+            protectedRefs: protectedCoverRefs
+        ) && evictArtworkDirectoryIfNeeded(portableArtworkDirectoryURL, maxBytes: 48 * 1024 * 1024)
     }
 
     nonisolated private static func currentTaskIsCancelled() -> Bool {

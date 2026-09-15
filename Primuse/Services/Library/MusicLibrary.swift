@@ -10990,6 +10990,13 @@ extension Notification.Name {
     /// placeholders and the active player retry their artwork lookup, while
     /// cover-driven theme extraction refreshes from the same cache entry.
     static let primuseArtworkDidCache = Notification.Name("primuse.artworkDidCache")
+    /// Posted when the artwork content pool evicts cover bytes for capacity.
+    /// `userInfo["refs"]` is the `Set<String>` of cover reference file names
+    /// whose bytes are gone. Listeners must clear the matching
+    /// `Song.coverArtFileName` so the backfill queue can read the cover again —
+    /// a reference left pointing at deleted bytes reads as "this song already
+    /// has a cover" and is never repaired.
+    static let primuseArtworkContentEvicted = Notification.Name("primuse.artworkContentEvicted")
     /// Posted when songs leave the library because the user deleted them or a
     /// complete re-scan no longer sees their source files. `userInfo["songs"]`
     /// is the removed `[Song]`; listeners drop audio/artwork/lyrics caches.

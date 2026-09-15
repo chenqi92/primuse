@@ -718,6 +718,20 @@ final class AppServices {
                 []
                 #endif
             },
+            // 打开原始文件不产生下载的源。上面两个集合各自按平台裁剪过, iOS
+            // 上「读取文件夹」这类非托管的本地源两边都不在, 用它们判断能不能
+            // 白读一次完整文件会漏掉一整类源。
+            directFileSourceIDs: {
+                Set(store.sources.filter {
+                    guard $0.isEnabled else { return false }
+                    if $0.type == .local { return true }
+                    #if os(iOS)
+                    return LocalImportService.isManagedSource($0)
+                    #else
+                    return false
+                    #endif
+                }.map(\.id))
+            },
             manuallyReadableSourceIDs: {
                 Set(store.sources.filter {
                     $0.isEnabled

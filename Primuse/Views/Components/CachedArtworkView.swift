@@ -1768,16 +1768,25 @@ struct CachedArtworkView: View {
             }
         }
 
-        // Case 3: No ref — try embedded extraction from locally cached audio file only
+        // Case 3: embedded extraction from a file already on this device.
         // 直播流没有「本地缓存的音频文件」可供抽取内嵌封面，跳过。
+        //
+        // 本地源要走 directLocalFileURL: 它的音频文件本来就在磁盘上, 从不
+        // 产生缓存副本, 所以 cachedURLForBackgroundRead 对它永远是 nil。
+        // 少了这一条, 封面 content 被容量驱逐之后本地源就再没有任何回源路径,
+        // 界面上是封面凭空消失且刷新不回来。
         if let sourceID, !isLiveRadioReference, let filePath {
             let inferredFormat = fileFormat
                 ?? AudioFormat.from(fileExtension: (filePath as NSString).pathExtension)
                 ?? .mp3
             let dummySong = Song(id: "", title: "", fileFormat: inferredFormat, filePath: filePath,
                                  sourceID: sourceID, fileSize: 0, dateAdded: Date())
-            if let cachedURL = await sourceManager.cachedURLForBackgroundRead(for: dummySong) {
-                let metadata = await FileMetadataReader.read(from: cachedURL)
+            var localURL = await sourceManager.cachedURLForBackgroundRead(for: dummySong)
+            if localURL == nil {
+                localURL = await sourceManager.directLocalFileURL(for: dummySong)
+            }
+            if let localURL {
+                let metadata = await FileMetadataReader.read(from: localURL)
                 return metadata.coverArtData
             }
         }

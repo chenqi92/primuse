@@ -942,7 +942,15 @@ private actor ScheduledFileMaintenance {
         plog("ScheduledFileMaintenance: starting scheduled file cleanup")
         guard SourceManager.pruneStalePartialFiles() else { return }
         guard !Task.isCancelled else { return }
-        guard await MetadataAssetStore.shared.performScheduledContentMaintenance() else {
+        // 本地源的内嵌封面不参与容量驱逐 —— 删掉它只能靠重新解析音频文件,
+        // 远比它占的空间贵。
+        let protectedCoverRefs = await MainActor.run {
+            AppServices.shared.metadataBackfill.evictionProtectedCoverRefs()
+        }
+        guard !Task.isCancelled else { return }
+        guard await MetadataAssetStore.shared.performScheduledContentMaintenance(
+            protectedCoverRefs: protectedCoverRefs
+        ) else {
             return
         }
         guard !Task.isCancelled else { return }

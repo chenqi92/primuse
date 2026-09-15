@@ -5775,6 +5775,27 @@ final class SourceManager {
         return target
     }
 
+    /// 只在打开文件不产生任何传输时返回它的本地 URL。本地源的音频文件本来
+    /// 就躺在磁盘上, 读它的标签跟读缓存副本一样便宜; 远程源一律返回 nil ——
+    /// 界面滚动绝不能顺手触发整文件下载。
+    ///
+    /// 和 `cachedURLForBackgroundRead` 的区别: 那个只认音频缓存目录里的下载
+    /// 副本, 而本地源从不产生副本, 所以在那里永远是 nil。
+    func directLocalFileURL(for song: Song) async -> URL? {
+        guard let sources = try? await sourcesProvider(),
+              let source = sources.first(where: {
+                  $0.id == song.sourceID && $0.isEnabled && !$0.isDeleted
+              }),
+              source.type == .local else {
+            return nil
+        }
+        let connector = connector(for: source)
+        // 本地源的 connect 只校验根目录/书签是否还在, 廉价且幂等。跳过它会在
+        // 书签权限已失效时返回一个读不了的 URL。
+        guard (try? await connector.connect()) != nil else { return nil }
+        return try? await connector.localURL(for: song.filePath)
+    }
+
     func offlineAudioSnapshot(for song: Song) -> OfflineAudioCacheSnapshot {
         guard audioCacheReadsAreAllowed(for: song.sourceID) else { return .notCached }
         if let snapshot = offlineAudioSnapshots[song.id] {

@@ -365,6 +365,11 @@ final class MetadataBackfillService {
     // A filesystem reader may use a mounted/provider volume. Its CPU budget
     // must not grant the offline network-policy exemption of sandbox copies.
     private let localFileSourceIDs: () -> Set<String>
+    /// 打开这些源的原始文件不产生任何下载 —— 文件就在本机磁盘上。和上面两个
+    /// 集合的区别在于它跨平台、也不参与 CPU/网络预算: 那两个各自按平台裁剪过,
+    /// iOS 上的文件夹书签源两边都不在, 用它们判断「能不能白读一次完整文件」
+    /// 会漏掉整整一类本地源。
+    private let directFileSourceIDs: () -> Set<String>
     private let manuallyReadableSourceIDs: () -> Set<String>
     private let metadataService = MetadataService()
     private let failedURL: URL
@@ -592,14 +597,54 @@ final class MetadataBackfillService {
         #endif
     }
 
-    /// 完整文件就在本机磁盘上、打开它不产生任何下载的源。
-    private func locallyReadableSourceIDs() -> Set<String> {
-        offlineReadableSourceIDs().union(localFileSourceIDs())
+    /// 交给资产库的「不要为了腾空间删掉」的封面引用。
+    ///
+    /// 本地源的内嵌封面没有任何远端可以回源: content 字节一旦被容量驱逐,
+    /// 就只能重新解析音频文件。它占的空间远不如重建它的代价值钱, 所以让
+    /// 容量驱逐跳过这些, 先去删刮削来的、随时能重新下载的封面。
+    func evictionProtectedCoverRefs() -> Set<String> {
+        let directIDs = directFileSourceIDs()
+        guard !directIDs.isEmpty else { return [] }
+        var refs: Set<String> = []
+        for song in library.songs where directIDs.contains(song.sourceID) {
+            guard let ref = song.coverArtFileName, !ref.isEmpty,
+                  !ref.contains("/"), !ref.contains("://") else { continue }
+            refs.insert(ref)
+        }
+        return refs
+    }
+
+    /// 封面 content 被容量驱逐后, 把对应的 `coverArtFileName` 摘掉。留着它
+    /// 等于告诉回填队列「这首歌已经有封面」, 于是谁也不会再去读一次 ——
+    /// 界面上就是封面凭空消失且再也回不来。
+    private func clearEvictedArtworkReferences(_ refs: Set<String>) {
+        guard !refs.isEmpty else { return }
+        let affected = library.songs.filter { song in
+            guard let ref = song.coverArtFileName, !ref.isEmpty else { return false }
+            return refs.contains(ref)
+        }
+        guard !affected.isEmpty else { return }
+        let cleared = affected.map { song -> Song in
+            var copy = song
+            copy.coverArtFileName = nil
+            return copy
+        }
+        let ids = Set(cleared.map(\.id))
+        artworkGivenUpIDs.subtract(ids)
+        sessionGivenUpIDs.subtract(ids)
+        saveArtworkGivenUp()
+        library.replaceSongs(cleared)
+        plog("📥 Backfill: reopening \(cleared.count) rows whose cover bytes were evicted")
+        markQueueDirty()
+        refreshRemainingCounts(force: true)
+        start()
     }
 
     private func readingEnvironment(sourceID: String? = nil) -> MetadataReadingEnvironment {
         let sourceIDs = sourceID.map { Set([$0]) } ?? activeSourceIDs
-        let localIDs = locallyReadableSourceIDs()
+        // 读取预算沿用原来的两个集合。directFileSourceIDs 只回答「能不能白读
+        // 一次完整文件」, 不该顺带把文件夹书签源提升成免网络策略的沙盒副本。
+        let localIDs = offlineReadableSourceIDs().union(localFileSourceIDs())
         return MetadataReadingEnvironment.current(
             playbackActive: playbackIsActive(),
             offlineSource: !sourceIDs.isEmpty && sourceIDs.isSubset(of: localIDs)
@@ -807,6 +852,7 @@ final class MetadataBackfillService {
         bareOnlySourceIDs: @escaping () -> Set<String> = { [] },
         offlineReadableSourceIDs: @escaping () -> Set<String> = { [] },
         localFileSourceIDs: @escaping () -> Set<String> = { [] },
+        directFileSourceIDs: @escaping () -> Set<String> = { [] },
         manuallyReadableSourceIDs: (() -> Set<String>)? = nil,
         playbackIsActive: @escaping () -> Bool = { false }
     ) {
@@ -817,6 +863,7 @@ final class MetadataBackfillService {
         self.bareOnlySourceIDs = bareOnlySourceIDs
         self.offlineReadableSourceIDs = offlineReadableSourceIDs
         self.localFileSourceIDs = localFileSourceIDs
+        self.directFileSourceIDs = directFileSourceIDs
         self.manuallyReadableSourceIDs = manuallyReadableSourceIDs ?? backfillableSourceIDs
         let appSupport = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
         let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
@@ -919,6 +966,19 @@ final class MetadataBackfillService {
                 self.saveInspectionState()
                 self.saveRetryCounts()
                 self.refreshQueue(startImmediately: Self.canRunAutomaticMaintenance)
+            }
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: .primuseArtworkContentEvicted,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self else { return }
+            let refs = (note.userInfo?["refs"] as? Set<String>) ?? []
+            guard !refs.isEmpty else { return }
+            MainActor.assumeIsolated {
+                self.clearEvictedArtworkReferences(refs)
             }
         }
 
@@ -4577,7 +4637,7 @@ final class MetadataBackfillService {
             metadata = try await loadCompleteFileMetadata(for: song)
             artistInspectionCompleted = true
         } else if boundedReadMissedArtwork,
-                  locallyReadableSourceIDs().contains(song.sourceID) {
+                  directFileSourceIDs().contains(song.sourceID) {
             // 后台维护不会为了封面去下载整个远程库, 但本地源的「完整文件」
             // 就是磁盘上那一个文件, 多打开它一次没有网络代价。导入完成后
             // 直接就有封面, 用户不必自己去找「重新读取标签」。
