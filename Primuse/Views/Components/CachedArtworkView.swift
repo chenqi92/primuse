@@ -1801,11 +1801,6 @@ struct CachedArtworkView: View {
     /// downsamples and force-decodes the bitmap so SwiftUI never re-decodes
     /// at draw time.
     private nonisolated static func decode(_ data: Data, bucket: Bucket) -> PlatformImage? {
-        guard ArtworkImageCompatibility.isCompleteImage(data),
-              !ArtworkImageCompatibility.hasRedundantJPEGSampling(data) else {
-            return nil
-        }
-        guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         let maxPixel: Int
         switch bucket {
         case .thumb:
@@ -1815,6 +1810,20 @@ struct CachedArtworkView: View {
         case .full:
             maxPixel = fullMaxPixel
         }
+        // ImageIO 没有 SVG 解码器，矢量图走栅格化器。放在 ImageIO 之前是因为
+        // 下面那两道完整性检查都是按位图容器写的，SVG 一进去就被判为坏图。
+        if SVGImageSupport.looksLikeSVG(data) {
+            guard let image = SVGArtworkRasterizer.makeCGImage(
+                from: data,
+                maximumPixelSize: maxPixel
+            ) else { return nil }
+            return PlatformImage.fromCGImage(image)
+        }
+        guard ArtworkImageCompatibility.isCompleteImage(data),
+              !ArtworkImageCompatibility.hasRedundantJPEGSampling(data) else {
+            return nil
+        }
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         let opts: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,

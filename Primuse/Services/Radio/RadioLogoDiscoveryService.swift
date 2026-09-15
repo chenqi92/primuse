@@ -10,6 +10,10 @@ private enum RadioLogoDiscoveryTransport {
     /// 主页 HTML 只读这么多 —— 图标声明都在 `<head>` 里。
     static let maximumHTMLPrefixBytes = 128 * 1_024
 
+    /// 矢量台标栅格化后的边长。和用户手选台标的处理尺寸一致，
+    /// 封面格、锁屏和车机都够用。
+    static let rasterizedLogoPixelSize = 512
+
     static let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
@@ -401,6 +405,14 @@ final class RadioLogoDiscoveryService {
         }
         // Content-Type 只作参考：不少电台服务器把 PNG 标成 application/octet-stream。
         // 真正说了算的是能不能解码出一张完整的图。
+        if SVGImageSupport.isCompleteSVG(data) {
+            // 矢量台标当场栅格化再入库。存进封面缓存的必须是位图 —— 这份缓存
+            // 还要被电视端、小组件和锁屏读到，而它们没有矢量解析器。
+            return SVGArtworkRasterizer.pngData(
+                from: data,
+                maximumPixelSize: RadioLogoDiscoveryTransport.rasterizedLogoPixelSize
+            )
+        }
         guard ArtworkImageCompatibility.isCompleteImage(data) else { return nil }
         return data
     }

@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		6269F5046DC515220CCDDE20 /* SVGImageSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D6A5A09B58684011FD69F2 /* SVGImageSupport.swift */; };
+		F78012996EC4B244618336DF /* SVGArtworkRasterizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF5D0977B8B5C6EC045DC185 /* SVGArtworkRasterizer.swift */; };
+		EAA0BCAD82D6E5504588F137 /* SVGArtworkRasterizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF5D0977B8B5C6EC045DC185 /* SVGArtworkRasterizer.swift */; };
 		00253E72EDEA9E0D926D0185 /* AssetReaderDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23F224C180F61FD6AD00DD7B /* AssetReaderDecoder.swift */; };
 		009F6DB5B5567F00941DC59F /* iTunesLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 085DFD0DBF1B85D82AE401E0 /* iTunesLibrary.framework */; };
 		0114DC49D0F15E94FDF09739 /* libswresample.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8F8034D1C470B837DB46D3E0 /* libswresample.xcframework */; };
@@ -61,6 +64,8 @@
 		0A18CCDD67F005E9D83F5B18 /* LibrarySnapshotSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBD558438D10637EAEB78840 /* LibrarySnapshotSync.swift */; };
 		0A29AD1261453B6735CB9962 /* MusicLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2105927D98B1DF9885EB81 /* MusicLibrary.swift */; };
 		0A6519792957182F0B026F08 /* SFBAudioEngine in Frameworks */ = {isa = PBXBuildFile; productRef = F018F7A8A3643BE3A12DF666 /* SFBAudioEngine */; };
+		EDCE45CF66BDE3E0BD2B975A /* SwiftDraw in Frameworks */ = {isa = PBXBuildFile; productRef = 180FBEA81081E2C9A709440E /* SwiftDraw */; };
+		6AF84885B42C199CB7B3A00C /* SwiftDraw in Frameworks */ = {isa = PBXBuildFile; productRef = 1AC9F6B1D02CDF7EB9931AE0 /* SwiftDraw */; };
 		0A7502E27B419FCFBD15D42E /* CarPlayLayoutBlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52C3403EC845D6ACC43FC90C /* CarPlayLayoutBlock.swift */; };
 		0AA5FC01195AA39AA63D8C29 /* ImmersiveWaveformBarLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 546F7524838D87A6BF48961D /* ImmersiveWaveformBarLayout.swift */; };
 		0ACA25C2348D8CA0D4AE2966 /* EmbyLyricsTrackEventParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98C6228B8950A5EAB88F9960 /* EmbyLyricsTrackEventParser.swift */; };
@@ -1484,6 +1489,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		C0D6A5A09B58684011FD69F2 /* SVGImageSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SVGImageSupport.swift; sourceTree = "<group>"; };
+		FF5D0977B8B5C6EC045DC185 /* SVGArtworkRasterizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SVGArtworkRasterizer.swift; sourceTree = "<group>"; };
 		00315BE49B8ED4049B2713AB /* SyncedCredentialAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncedCredentialAvailability.swift; sourceTree = "<group>"; };
 		0039D9169F515627C5A4C159 /* CueSheetParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueSheetParser.swift; sourceTree = "<group>"; };
 		0079EF685D04AD5701F7F80F /* PrimuseWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimuseWatchApp.swift; sourceTree = "<group>"; };
@@ -2466,6 +2473,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EDCE45CF66BDE3E0BD2B975A /* SwiftDraw in Frameworks */,
 				E0E03B2F7D320A3094204E82 /* DeviceCheck.framework in Frameworks */,
 				83D5D5AEB6EA850B28E6B5D2 /* GRDB in Frameworks */,
 				FF0491E244913A3757FE4626 /* AMSMB2 in Frameworks */,
@@ -2516,6 +2524,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6AF84885B42C199CB7B3A00C /* SwiftDraw in Frameworks */,
 				B89E0EA8C5EEDDD8E9358E47 /* DeviceCheck.framework in Frameworks */,
 				FEB5F758E236185CCDAA50BC /* GRDB in Frameworks */,
 				6EDE5A5CD7699006B6EE5241 /* AMSMB2 in Frameworks */,
@@ -2816,6 +2825,7 @@
 		414F61F3A9ADE8E8099A5662 /* PrimuseKit */ = {
 			isa = PBXGroup;
 			children = (
+				C0D6A5A09B58684011FD69F2 /* SVGImageSupport.swift */,
 				B8201B4D10F3B60D364411E9 /* AI */,
 				C161382065B391D1C54B9209 /* Import */,
 				38CBDB962B370140AC75A17D /* Internal */,
@@ -3606,6 +3616,7 @@
 		C63B81F36C12AC4B80ACE514 /* Metadata */ = {
 			isa = PBXGroup;
 			children = (
+				FF5D0977B8B5C6EC045DC185 /* SVGArtworkRasterizer.swift */,
 				BDAD15BF82B69F8C89D6F752 /* Scrapers */,
 				9E4DEB871B6A33BFDF98131D /* ArtworkFetchService.swift */,
 				21027666DF946697326B985E /* EmbeddedMetadataWritebackCoordinator.swift */,
@@ -4093,6 +4104,7 @@
 			);
 			name = Primuse;
 			packageProductDependencies = (
+				180FBEA81081E2C9A709440E /* SwiftDraw */,
 				C39C5A4CDC0E68A52651A1DB /* GRDB */,
 				D27B8A9F7EB545A6FD182BB9 /* AMSMB2 */,
 				3A537C7C5A22FAD8101B5ADA /* FilesProvider */,
@@ -4162,6 +4174,7 @@
 			);
 			name = PrimuseMac;
 			packageProductDependencies = (
+				1AC9F6B1D02CDF7EB9931AE0 /* SwiftDraw */,
 				7AC1781A1BBF520E45B2D2D2 /* GRDB */,
 				BF09E2210DA639E4F6EBD3E8 /* AMSMB2 */,
 				B2C3B6B4EB6D34863A2508CB /* FilesProvider */,
@@ -4339,6 +4352,7 @@
 				5D1F5170FF958C6D23501EA2 /* XCRemoteSwiftPackageReference "GRDB.swift" */,
 				21EA0EB8036EED38290BD521 /* XCRemoteSwiftPackageReference "NFSKit" */,
 				BB7F62B1FCDD8924C0B18F5F /* XCRemoteSwiftPackageReference "SFBAudioEngine" */,
+				0784CB7897E9AB0E8545482D /* XCRemoteSwiftPackageReference "SwiftDraw" */,
 				47E64858A997CBFB17040255 /* XCRemoteSwiftPackageReference "swift-crypto" */,
 				2978E46D4F61457C5F4EFF1E /* XCRemoteSwiftPackageReference "swift-nio" */,
 			);
@@ -4557,6 +4571,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6269F5046DC515220CCDDE20 /* SVGImageSupport.swift in Sources */,
 				6F139A773725A49F443C3494 /* AIAvailabilityPolicy.swift in Sources */,
 				A7815B97AB23C3B0112CF13D /* AIIntelligenceModels.swift in Sources */,
 				223571A3D35282EEE8DC3CD8 /* AIRemoteProviderConfiguration.swift in Sources */,
@@ -4821,6 +4836,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EAA0BCAD82D6E5504588F137 /* SVGArtworkRasterizer.swift in Sources */,
 				5E5CD445E8005257DD9A9D76 /* AICredentialStore.swift in Sources */,
 				FD44254364FA0DB15420FBA1 /* AIPlaylistEditorView.swift in Sources */,
 				B418E40C20D78B4D573CFB4D /* AIRecommendationLibraryView.swift in Sources */,
@@ -5332,6 +5348,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F78012996EC4B244618336DF /* SVGArtworkRasterizer.swift in Sources */,
 				370A83F06945E4CAAD111042 /* AICredentialStore.swift in Sources */,
 				BEDC249FC1AF38BC9516765B /* AIPlaylistEditorView.swift in Sources */,
 				FB0911208AD3966703462CC2 /* AIRecommendationLibraryView.swift in Sources */,
@@ -6815,6 +6832,14 @@
 				minimumVersion = 0.12.1;
 			};
 		};
+		0784CB7897E9AB0E8545482D /* XCRemoteSwiftPackageReference "SwiftDraw" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/swhitty/SwiftDraw.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.9.6;
+			};
+		};
 		CC0D700D53C2657611962EDA /* XCRemoteSwiftPackageReference "FileProvider" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/amosavian/FileProvider.git";
@@ -6960,6 +6985,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 5D1F5170FF958C6D23501EA2 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
 			productName = GRDB;
+		};
+		180FBEA81081E2C9A709440E /* SwiftDraw */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0784CB7897E9AB0E8545482D /* XCRemoteSwiftPackageReference "SwiftDraw" */;
+			productName = SwiftDraw;
+		};
+		1AC9F6B1D02CDF7EB9931AE0 /* SwiftDraw */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0784CB7897E9AB0E8545482D /* XCRemoteSwiftPackageReference "SwiftDraw" */;
+			productName = SwiftDraw;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

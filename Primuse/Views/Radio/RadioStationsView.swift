@@ -1149,6 +1149,10 @@ private enum RadioStationArtworkResourceResolver {
         from data: Data,
         maximumPixelSize: Int
     ) -> CGImage? {
+        // 矢量台标 ImageIO 解不了，先交给栅格化器。
+        if SVGImageSupport.looksLikeSVG(data) {
+            return SVGArtworkRasterizer.makeCGImage(from: data, maximumPixelSize: maximumPixelSize)
+        }
         guard ArtworkImageCompatibility.isCompleteImage(data),
               !ArtworkImageCompatibility.hasRedundantJPEGSampling(data),
               let source = CGImageSourceCreateWithData(data as CFData, nil) else {
@@ -1584,46 +1588,38 @@ private struct RadioEditorArtwork: View {
     let data: Data?
     var remoteURLString: String?
 
-    private var remoteURL: URL? {
-        guard data == nil, let remoteURLString else { return nil }
-        return URL(string: remoteURLString)
-    }
-
     var body: some View {
         Group {
             if let data, let image = PlatformRadioImage(data: data) {
                 Image(platformRadioImage: image)
                     .resizable()
                     .scaledToFill()
-            } else if let remoteURL {
-                // 只是给编辑页看一眼填对没有。真正的列表/锁屏台标仍然走
-                // RadioStationArtworkContent 那套缓存与回退。
-                AsyncImage(url: remoteURL) { phase in
-                    if let image = phase.image {
-                        image.resizable().scaledToFill()
-                    } else {
-                        ZStack {
-                            RadioStationPlaceholderArtwork()
-                            if phase.error == nil {
-                                ProgressView()
-                                    .controlSize(.small)
-                                    .tint(.white)
-                            }
-                        }
-                    }
-                }
+                    .frame(width: 84, height: 84)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            } else if let remoteURLString {
+                // 走和列表同一套加载器，矢量台标在这里也能预览；
+                // 加载不出来时它自己会显示默认台标。
+                RadioCandidateLogoView(urlString: remoteURLString, size: 84, cornerRadius: 14)
             } else {
-                // 没有图就用和列表、锁屏同一张默认台标，而不是另画一个灰格子。
                 RadioStationPlaceholderArtwork()
+                    .frame(width: 84, height: 84)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
         }
-        .frame(width: 84, height: 84)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
 private enum RadioLogoProcessor {
     static func process(_ data: Data) -> Data? {
+        // 矢量图先栅格化再往下走：`logoData` 会进 CloudKit 同步，被电视端、
+        // 小组件和锁屏直接读，那些地方没有矢量解析器。
+        if SVGImageSupport.looksLikeSVG(data) {
+            guard let rasterized = SVGArtworkRasterizer.pngData(
+                from: data,
+                maximumPixelSize: 512
+            ) else { return nil }
+            return process(rasterized)
+        }
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let width = properties[kCGImagePropertyPixelWidth] as? CGFloat,

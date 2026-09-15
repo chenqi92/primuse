@@ -165,31 +165,25 @@ struct MacRadioStationEditorView: View {
         HStack(spacing: PMSpace.m14) {
             Group {
                 if let logoData, let image = NSImage(data: logoData) {
-                    Image(nsImage: image).resizable().scaledToFill()
-                } else if let previewURL = normalizedLogoURL.flatMap(URL.init(string:)) {
-                    // 只是给编辑页看一眼填对没有；列表和锁屏的台标仍走
-                    // RadioStationArtworkContent 那套缓存与回退。
-                    AsyncImage(url: previewURL) { phase in
-                        if let image = phase.image {
-                            image.resizable().scaledToFill()
-                        } else {
-                            ZStack {
-                                RadioStationPlaceholderArtwork()
-                                if phase.error == nil {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                        .tint(.white)
-                                }
-                            }
-                        }
-                    }
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 72, height: 72)
+                        .clipShape(RoundedRectangle(cornerRadius: PMRadius.l, style: .continuous))
+                } else if let previewURL = normalizedLogoURL {
+                    // 走和列表同一套加载器，矢量台标在这里也能预览；
+                    // 加载不出来时它自己会显示默认台标。
+                    RadioCandidateLogoView(
+                        urlString: previewURL,
+                        size: 72,
+                        cornerRadius: PMRadius.l
+                    )
                 } else {
-                    // 没有图就用和列表、锁屏同一张默认台标。
                     RadioStationPlaceholderArtwork()
+                        .frame(width: 72, height: 72)
+                        .clipShape(RoundedRectangle(cornerRadius: PMRadius.l, style: .continuous))
                 }
             }
-            .frame(width: 72, height: 72)
-            .clipShape(RoundedRectangle(cornerRadius: PMRadius.l, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: PMRadius.l, style: .continuous)
                     .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
@@ -445,6 +439,16 @@ struct MacRadioStationEditorView: View {
 /// 把选中的图缩到 512 长边再转 JPEG，控制在 store 的体积上限内。
 enum MacRadioLogoProcessor {
     static func process(_ data: Data) -> Data? {
+        // 矢量图先栅格化再往下走：`logoData` 会进 CloudKit 同步，被电视端、
+        // 小组件和锁屏直接读，那些地方没有矢量解析器。
+        // NSOpenPanel 的 `.image` 类型包含 SVG，所以这条路是走得到的。
+        if SVGImageSupport.looksLikeSVG(data) {
+            guard let rasterized = SVGArtworkRasterizer.pngData(
+                from: data,
+                maximumPixelSize: 512
+            ) else { return nil }
+            return process(rasterized)
+        }
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let width = properties[kCGImagePropertyPixelWidth] as? CGFloat,

@@ -279,6 +279,15 @@
       }
     },
     {
+      "identity" : "swiftdraw",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swhitty/SwiftDraw.git",
+      "state" : {
+        "revision" : "8c700311546e556ee92c2e8617d6cd64c44e108d",
+        "version" : "0.9.6"
+      }
+    },
+    {
       "identity" : "tta-cpp-binary-xcframework",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/sbooth/tta-cpp-binary-xcframework",

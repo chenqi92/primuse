@@ -47,6 +47,9 @@ packages:
   SFBAudioEngine:
     url: https://github.com/sbooth/SFBAudioEngine.git
     from: "0.12.1"
+  SwiftDraw:
+    url: https://github.com/swhitty/SwiftDraw.git
+    from: "0.9.6"
 
 schemes:
   CarPlayEditorUI:
@@ -162,6 +165,10 @@ targets:
         product: NFSKit
       - package: SFBAudioEngine
         product: SFBAudioEngine
+      # SwiftDraw 只给 iOS 与 macOS：0.9.6 的 CoreGraphics 渲染分支只写了
+      # macOS / iOS 两条，tvOS 上编不过。
+      - package: SwiftDraw
+        product: SwiftDraw
       - framework: Frameworks/FFmpeg/libavutil.xcframework
         embed: true
       - framework: Frameworks/FFmpeg/libswresample.xcframework
@@ -489,6 +496,10 @@ targets:
         product: NFSKit
       - package: SFBAudioEngine
         product: SFBAudioEngine
+      # SwiftDraw 只给 iOS 与 macOS：0.9.6 的 CoreGraphics 渲染分支只写了
+      # macOS / iOS 两条，tvOS 上编不过。
+      - package: SwiftDraw
+        product: SwiftDraw
       - framework: Frameworks/FFmpeg/libavutil.xcframework
         embed: true
       - framework: Frameworks/FFmpeg/libswresample.xcframework
