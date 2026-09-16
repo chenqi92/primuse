@@ -2207,7 +2207,7 @@ private struct RoutedSongloftConnector: RoutedConnectorProxy, RefreshingMetadata
 
 private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     MediaServerWritebackConnector, ServerLyricsConnector, ServerPlaylistConnector,
-    ServerFavoriteConnector, ResumablePagedSongCatalogConnector,
+    ServerFavoriteConnector, IncrementalSongCatalogConnector,
     ServerRadioConnector, ServerRadioStreamResolvingConnector, ServerListeningStatsConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
@@ -2239,6 +2239,18 @@ private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetad
                 return nil
             }
             return try await scanner.expectedSongCatalogCount()
+        }
+    }
+
+    func songCatalogChanges(
+        since marker: ServerCatalogSyncMarker,
+        knownSongs: [Song]
+    ) async throws -> SongCatalogChanges {
+        try await routing.withRead { connector in
+            guard let scanner = connector as? any IncrementalSongCatalogConnector else {
+                throw PagedSongCatalogError.unavailable
+            }
+            return try await scanner.songCatalogChanges(since: marker, knownSongs: knownSongs)
         }
     }
 

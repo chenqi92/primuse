@@ -2212,6 +2212,39 @@ final class ScanService {
             }
         }
 
+        // 先问服务器"自上次以来变了什么"。答得上来就不用把 7 万首再拉一遍;
+        // 答不上来 (没有基线、到了该走一次全量的时候、服务器不认这个过滤)
+        // 就落回下面的完整分页遍历。
+        if source.type.usesPagedCatalogStaging,
+           let incrementalConnector = connector as? any IncrementalSongCatalogConnector,
+           let previousState = syncStates[source.id],
+           previousState.isUsable(sourceID: source.id, scopeFingerprint: scopeFingerprint),
+           let marker = previousState.catalogSyncMarker,
+           ServerCatalogIncrementalSyncPolicy.refusal(
+               mode: mode,
+               marker: marker,
+               lastFullScanAt: previousState.lastFullScanAt,
+               requiresDeepScan: previousState.requiresDeepScan
+           ) == nil {
+            let handled = await performCatalogIncrementalSync(
+                source: source,
+                generation: generation,
+                directories: directories,
+                connector: incrementalConnector,
+                marker: marker,
+                previousState: previousState,
+                knownSongs: knownExisting,
+                sourceManager: sourceManager,
+                library: library,
+                sourceStore: sourceStore,
+                scraperService: scraperService,
+                scopeFingerprint: scopeFingerprint,
+                identityScopeFingerprint: identityScopeFingerprint
+            )
+            if handled { return }
+            guard scanFenceIsValid() else { return }
+        }
+
         var activeCheckpoint = checkpoint
         // Offset-based Subsonic catalogues do not expose a sufficiently strong
         // immutable revision for deletions. Every family member may still use
@@ -2945,6 +2978,174 @@ final class ScanService {
         }
     }
 
+    /// Commits one incremental catalogue pass, or returns false to let the
+    /// complete walk take over.
+    ///
+    /// Deletions are the reason this is not simply "apply the change feed".
+    /// A feed can only name rows that still exist, so the connector has to have
+    /// read the catalogue's complete id listing before anything may be removed;
+    /// when it has not, `authoritativeSongIDs` is nil and the reconciliation
+    /// below sees every known row as present.
+    private func performCatalogIncrementalSync(
+        source: MusicSource,
+        generation: Int,
+        directories: [String],
+        connector: any IncrementalSongCatalogConnector,
+        marker: ServerCatalogSyncMarker,
+        previousState: SourceSyncState,
+        knownSongs: [Song],
+        sourceManager: SourceManager,
+        library: MusicLibrary,
+        sourceStore: SourcesStore,
+        scraperService: MusicScraperService?,
+        scopeFingerprint: String,
+        identityScopeFingerprint: String
+    ) async -> Bool {
+        let fenceIsValid: () -> Bool = {
+            do {
+                try self.checkScanCommitFence(
+                    sourceID: source.id,
+                    generation: generation,
+                    expectedScopeFingerprint: scopeFingerprint,
+                    expectedScopeDirectories: directories,
+                    sourceStore: sourceStore
+                )
+                return true
+            } catch {
+                return false
+            }
+        }
+        do {
+            guard fenceIsValid() else { return true }
+            let changes = try await connector.songCatalogChanges(
+                since: marker,
+                knownSongs: knownSongs
+            )
+            guard fenceIsValid() else { return true }
+
+            let existingByID = Dictionary(
+                knownSongs.map { ($0.id, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            // Same merge the complete walk applies to a staged page: a stable
+            // remote row keeps the lyrics, replay gain and pinyin this device
+            // backfilled, and only a real content replacement overwrites them.
+            let upserts = changes.upserts.map { scanned -> Song in
+                var incoming = scanned.song
+                if let existing = existingByID[incoming.id] {
+                    incoming.dateAdded = existing.dateAdded
+                    incoming = ServerSongCatalogMergePolicy.merged(
+                        existing: existing,
+                        incoming: incoming
+                    )
+                }
+                return incoming
+            }
+
+            // Rows this device removed locally are kept out of the library but
+            // still have retained records, and they obey the same rule as the
+            // complete walk: one listing that fails to name them is not
+            // permission to forget them.
+            let knownSongIDs = Set(existingByID.keys)
+                .union(library.locallyRemovedSongIDs(forSourceID: source.id))
+            let authoritativeSongIDs = changes.authoritativeSongIDs ?? knownSongIDs
+            let deletionPlan = ServerCatalogDeletionConfirmationPolicy.plan(
+                existingSongIDs: knownSongIDs,
+                authoritativeSongIDs: authoritativeSongIDs,
+                previousMissingCounts: previousState.missingCatalogSongIDs,
+                previousEvidenceRevision: previousState.deletionEvidenceRevision,
+                currentRevision: source.type.catalogRevisionTracksServerScans
+                    ? changes.marker.catalogRevision
+                    : nil,
+                authority: source.type.catalogDeletionAuthority
+            )
+            let prunableSongIDs = ServerCatalogDeletionConfirmationPolicy
+                .retainedAuthoritativeSongIDs(
+                    existingSongIDs: knownSongIDs,
+                    authoritativeSongIDs: authoritativeSongIDs,
+                    confirmedDeletionSongIDs: deletionPlan.confirmedDeletionSongIDs
+                )
+            if !deletionPlan.confirmedDeletionSongIDs.isEmpty {
+                plog("🗑️ \(source.name): removing \(deletionPlan.confirmedDeletionSongIDs.count) song(s) the server no longer lists")
+            }
+
+            // This pass only saw part of the catalogue, so its folder rows are
+            // merged into the committed topology instead of replacing it.
+            var mergedIndex = previousState.index
+            for item in changes.hierarchyItems {
+                mergedIndex[item.stableKey] = item
+            }
+
+            let committedAt = Date()
+            let candidateState = SourceSyncState(
+                sourceID: source.id,
+                scopeFingerprint: scopeFingerprint,
+                identityScopeFingerprint: identityScopeFingerprint,
+                index: mergedIndex,
+                scanEpoch: previousState.scanEpoch + 1,
+                // Losing a suspicious share of the source is exactly where an
+                // incremental answer should stop being trusted: the next pass
+                // verifies the catalogue completely instead of taking the
+                // change feed's word for it a second time.
+                requiresDeepScan: deletionPlan.isMassDisappearance,
+                // Deliberately not refreshed: the periodic complete walk is the
+                // backstop for anything the change feed failed to report, and
+                // moving this would postpone it forever.
+                lastFullScanAt: previousState.lastFullScanAt,
+                lastSuccessfulSyncAt: committedAt,
+                identityAliases: previousState.identityAliases,
+                rootIdentities: previousState.rootIdentities,
+                reconciliation: deletionPlan.isMassDisappearance
+                    ? SourceSyncReconciliation(
+                        kind: .serverCatalogMassDisappearance,
+                        unresolvedStableKeys: Array(deletionPlan.pendingSongIDs),
+                        detectedAt: committedAt
+                    )
+                    : nil,
+                missingCatalogSongIDs: deletionPlan.missingCounts,
+                deletionEvidenceRevision: deletionPlan.evidenceRevision,
+                catalogSyncMarker: changes.marker
+            )
+            try await completeScan(
+                sourceID: source.id,
+                generation: generation,
+                songs: upserts,
+                authoritativeSongIDs: prunableSongIDs,
+                pruneMissingSongs: true,
+                expectedScopeFingerprint: scopeFingerprint,
+                expectedScopeDirectories: directories,
+                library: library,
+                sourceStore: sourceStore,
+                scraperService: scraperService,
+                sourceManager: sourceManager,
+                syncState: candidateState,
+                source: source
+            )
+            guard fenceIsValid() else { return true }
+            let inspectedIDs = Set(
+                changes.upserts.compactMap { $0.titleMetadataInspected ? $0.song.id : nil }
+            )
+            if !inspectedIDs.isEmpty {
+                metadataInspectionHandler?(inspectedIDs)
+            }
+            plog("⚡️ \(source.name): incremental catalogue sync committed \(upserts.count) row(s)")
+            return true
+        } catch let error where OperationCancellationPolicy.isCancellation(error) {
+            if fenceIsValid() {
+                recordScanInterruption(sourceID: source.id)
+            }
+            return true
+        } catch {
+            // Every other failure — an unsupported filter, an unreadable answer,
+            // a dropped connection — hands the scan to the complete walk, which
+            // reports its own outcome. An incremental shortcut must never be
+            // the reason a scan fails.
+            guard fenceIsValid() else { return true }
+            plog("↷ \(source.name): incremental catalogue sync unavailable (\(error.localizedDescription)); walking the catalogue")
+            return false
+        }
+    }
+
     /// Stages Navidrome's authoritative `search3` pages in the durable scan
     /// checkpoint. The live library is changed only after the first page and
     /// server revision still match at the terminal boundary.
@@ -3397,7 +3598,14 @@ final class ScanService {
                         )
                         : nil,
                     missingCatalogSongIDs: deletionPlan.missingCounts,
-                    deletionEvidenceRevision: deletionPlan.evidenceRevision
+                    deletionEvidenceRevision: deletionPlan.evidenceRevision,
+                    // This walk verified the whole catalogue, so it is the
+                    // baseline the next pass may ask "what changed" against.
+                    catalogSyncMarker: ServerCatalogIncrementalSyncPolicy.seedMarker(
+                        catalogRevision: initialRevision,
+                        itemCount: expectedCatalogCount,
+                        now: committedAt
+                    )
                 )
                 try await completeScan(
                     sourceID: source.id,

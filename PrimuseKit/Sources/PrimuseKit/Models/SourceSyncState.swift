@@ -52,6 +52,11 @@ public struct SourceSyncState: Codable, Sendable, Equatable {
     /// `missingCatalogSongIDs`. Re-reading the same revision is the same
     /// observation, not a second witness.
     public var deletionEvidenceRevision: String?
+    /// What a catalogue source needs to ask its server "what changed" next
+    /// time. Written only by a pass that committed a complete, verified view of
+    /// the catalogue, so an incremental answer is always measured against a
+    /// known-good baseline. Nil for every other kind of source.
+    public var catalogSyncMarker: ServerCatalogSyncMarker?
     public var lastTelemetry: SourceSyncTelemetry?
 
     public init(
@@ -72,6 +77,7 @@ public struct SourceSyncState: Codable, Sendable, Equatable {
         missingStableKeys: [String: Int] = [:],
         missingCatalogSongIDs: [String: Int] = [:],
         deletionEvidenceRevision: String? = nil,
+        catalogSyncMarker: ServerCatalogSyncMarker? = nil,
         lastTelemetry: SourceSyncTelemetry? = nil
     ) {
         self.schemaVersion = schemaVersion
@@ -91,6 +97,7 @@ public struct SourceSyncState: Codable, Sendable, Equatable {
         self.missingStableKeys = missingStableKeys
         self.missingCatalogSongIDs = missingCatalogSongIDs
         self.deletionEvidenceRevision = deletionEvidenceRevision
+        self.catalogSyncMarker = catalogSyncMarker
         self.lastTelemetry = lastTelemetry
     }
 
@@ -131,6 +138,7 @@ public struct SourceSyncState: Codable, Sendable, Equatable {
         case missingStableKeys
         case missingCatalogSongIDs
         case deletionEvidenceRevision
+        case catalogSyncMarker
         case lastTelemetry
     }
 
@@ -189,6 +197,12 @@ public struct SourceSyncState: Codable, Sendable, Equatable {
         deletionEvidenceRevision = try container.decodeIfPresent(
             String.self,
             forKey: .deletionEvidenceRevision
+        )
+        // A marker written by a newer build must not invalidate the whole
+        // per-source state: losing it only costs one complete walk.
+        catalogSyncMarker = try? container.decodeIfPresent(
+            ServerCatalogSyncMarker.self,
+            forKey: .catalogSyncMarker
         )
         lastTelemetry = try container.decodeIfPresent(
             SourceSyncTelemetry.self,

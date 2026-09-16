@@ -1440,6 +1440,38 @@ extension ResumablePagedSongCatalogConnector {
     func expectedSongCatalogCount() async throws -> Int? { nil }
 }
 
+/// What one incremental pass over a server catalogue found.
+struct SongCatalogChanges: Sendable {
+    /// Rows to add or refresh.
+    var upserts: [ConnectorScannedSong]
+    /// Every song id the catalogue still contains — including untouched rows
+    /// the pass never fetched. Nil when the pass did not read a complete id
+    /// listing and therefore may not conclude that anything was removed.
+    var authoritativeSongIDs: Set<String>?
+    /// Provider folder rows for the upserted songs. They are merged into the
+    /// committed topology rather than replacing it, since this pass only saw
+    /// part of the catalogue.
+    var hierarchyItems: [SourceSyncIndexedItem]
+    /// Marker to persist for the next pass.
+    var marker: ServerCatalogSyncMarker
+}
+
+/// A catalogue that can describe what changed since a previous pass instead of
+/// re-transferring every row.
+///
+/// Deletions are the hard half. A "what changed since T" feed can only report
+/// rows that still exist — a deleted row simply stops appearing, so no feed can
+/// name it. The connector therefore has to read the catalogue's complete id
+/// listing before it may report `authoritativeSongIDs`, and leaves it nil when
+/// it could not. Throwing `PagedSongCatalogError.unavailable` hands the scan
+/// back to the complete walk.
+protocol IncrementalSongCatalogConnector: ResumablePagedSongCatalogConnector {
+    func songCatalogChanges(
+        since marker: ServerCatalogSyncMarker,
+        knownSongs: [Song]
+    ) async throws -> SongCatalogChanges
+}
+
 struct IncrementalSourceChanges: Sendable {
     var cursors: [String: String]
     var changedParentPaths: Set<String>

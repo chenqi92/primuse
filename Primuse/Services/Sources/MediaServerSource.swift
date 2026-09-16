@@ -5,7 +5,7 @@ import PrimuseKit
 actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackConnector,
     ServerLyricsConnector, ServerPlaylistConnector, ServerFavoriteConnector, ServerRadioConnector,
     ServerRadioStreamResolvingConnector, ServerListeningStatsConnector,
-    ResumablePagedSongCatalogConnector {
+    IncrementalSongCatalogConnector {
     typealias RequestDataLoader = @Sendable (URLRequest) async throws -> (Data, URLResponse)
 
     private static let maximumCatalogTracks = 10_000_000
@@ -1022,6 +1022,276 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                     currentOffset: offset,
                     receivedCount: itemIDs.count
                 )
+        )
+    }
+
+    // MARK: - Incremental Catalog Sync
+
+    private static let incrementalPageSize = 500
+
+    /// `DateLastSaved` of the rows changed since `since`, counted only.
+    private func fetchModifiedAudioItemCount(
+        parentID: String,
+        since: Date
+    ) async throws -> Int {
+        guard let userID else { throw SourceError.authenticationFailed }
+        let data = try await performRequest(
+            path: "/Users/\(userID)/Items",
+            queryItems: modifiedItemQueryItems(
+                parentID: parentID,
+                since: since,
+                startIndex: 0,
+                limit: 1,
+                fields: nil
+            )
+        )
+        let response = try decoder.decode(ItemResponse.self, from: data)
+        // No reported total means no way to tell a filtered answer from an
+        // unfiltered one. The complete walk can.
+        guard let total = response.totalRecordCount else {
+            throw PagedSongCatalogError.unavailable
+        }
+        guard total >= 0, total <= Self.maximumCatalogTracks else {
+            throw SourceError.connectionFailed(PMString("error.catalog.invalidTotal"))
+        }
+        return total
+    }
+
+    private func modifiedItemQueryItems(
+        parentID: String,
+        since: Date,
+        startIndex: Int,
+        limit: Int,
+        fields: String?
+    ) -> [URLQueryItem] {
+        var items = [
+            URLQueryItem(name: "ParentId", value: parentID),
+            URLQueryItem(name: "IncludeItemTypes", value: "Audio"),
+            URLQueryItem(name: "Recursive", value: "true"),
+            URLQueryItem(name: "SortBy", value: "SortName"),
+            URLQueryItem(name: "SortOrder", value: "Ascending"),
+            URLQueryItem(name: "MinDateLastSaved", value: Self.serverTimestamp(since)),
+            URLQueryItem(name: "StartIndex", value: String(startIndex)),
+            URLQueryItem(name: "Limit", value: String(limit))
+        ]
+        if let fields {
+            items.append(URLQueryItem(name: "Fields", value: fields))
+            items.append(URLQueryItem(name: "EnableUserData", value: "true"))
+        } else {
+            items.append(URLQueryItem(name: "EnableImages", value: "false"))
+            items.append(URLQueryItem(name: "EnableUserData", value: "false"))
+        }
+        return items
+    }
+
+    /// Every audio item id the catalogue currently lists. This is the only way
+    /// to find a deletion: a row that stopped existing is absent from every
+    /// change feed, so it can only be found by what the catalogue no longer
+    /// names. The rows come back without images, user data or media details,
+    /// which keeps the listing far lighter than a metadata walk.
+    private func enumerateCatalogItemIDs(layout: CatalogLayout) async throws -> Set<String> {
+        guard let userID else { throw SourceError.authenticationFailed }
+        var result: Set<String> = []
+        for segment in layout.segments where segment.count > 0 {
+            var startIndex = 0
+            while startIndex < segment.count {
+                try Task.checkCancellation()
+                let limit = min(Self.incrementalPageSize, segment.count - startIndex)
+                let data = try await performRequest(
+                    path: "/Users/\(userID)/Items",
+                    queryItems: [
+                        URLQueryItem(name: "ParentId", value: segment.library.id),
+                        URLQueryItem(name: "IncludeItemTypes", value: "Audio"),
+                        URLQueryItem(name: "Recursive", value: "true"),
+                        URLQueryItem(name: "SortBy", value: "SortName"),
+                        URLQueryItem(name: "SortOrder", value: "Ascending"),
+                        URLQueryItem(name: "EnableImages", value: "false"),
+                        URLQueryItem(name: "EnableUserData", value: "false"),
+                        URLQueryItem(name: "StartIndex", value: String(startIndex)),
+                        URLQueryItem(name: "Limit", value: String(limit))
+                    ]
+                )
+                let response = try decoder.decode(ItemResponse.self, from: data)
+                if let total = response.totalRecordCount, total != segment.count {
+                    throw PagedSongCatalogError.snapshotChangedDuringPagination
+                }
+                guard !response.items.isEmpty else {
+                    throw PagedSongCatalogError.snapshotChangedDuringPagination
+                }
+                guard response.items.count <= limit else {
+                    throw PagedSongCatalogError.snapshotChangedDuringPagination
+                }
+                for item in response.items { result.insert(item.id) }
+                startIndex += response.items.count
+                guard result.count <= Self.maximumCatalogTracks else {
+                    throw SourceError.connectionFailed(PMString("error.catalog.invalidTotal"))
+                }
+            }
+        }
+        return result
+    }
+
+    func songCatalogChanges(
+        since marker: ServerCatalogSyncMarker,
+        knownSongs: [Song]
+    ) async throws -> SongCatalogChanges {
+        guard kind != .plex else { throw PagedSongCatalogError.unavailable }
+        try await connect()
+        let layout = try await rebuildCatalogLayout()
+        let totalCount = MediaServerCatalogPagingPolicy.totalCount(
+            segmentCounts: layout.segments.map(\.count)
+        )
+
+        var knownSongIDsByItemID: [String: String] = [:]
+        knownSongIDsByItemID.reserveCapacity(knownSongs.count)
+        for song in knownSongs {
+            guard let itemID = itemID(from: song.filePath), !itemID.isEmpty else { continue }
+            knownSongIDsByItemID[itemID] = song.id
+        }
+        // A library row whose path carries no item id cannot be matched against
+        // the catalogue, so this pass could not tell "absent" from "unmatched".
+        guard knownSongIDsByItemID.count == knownSongs.count else {
+            throw PagedSongCatalogError.unavailable
+        }
+        let knownItemIDs = Set(knownSongIDsByItemID.keys)
+
+        var modifiedCount = 0
+        for segment in layout.segments {
+            modifiedCount += try await fetchModifiedAudioItemCount(
+                parentID: segment.library.id,
+                since: marker.modifiedSince
+            )
+        }
+        guard !ServerCatalogIncrementalSyncPolicy.modifiedFilterLooksIgnored(
+            modifiedCount: modifiedCount,
+            totalCount: totalCount
+        ) else {
+            throw PagedSongCatalogError.unavailable
+        }
+
+        guard let userID else { throw SourceError.authenticationFailed }
+        var fetched: [(item: AudioItem, library: Library)] = []
+        if modifiedCount > 0 {
+            for segment in layout.segments {
+                var startIndex = 0
+                while startIndex < segment.count {
+                    try Task.checkCancellation()
+                    let data = try await performRequest(
+                        path: "/Users/\(userID)/Items",
+                        queryItems: modifiedItemQueryItems(
+                            parentID: segment.library.id,
+                            since: marker.modifiedSince,
+                            startIndex: startIndex,
+                            limit: Self.incrementalPageSize,
+                            fields: Self.catalogItemFields
+                        )
+                    )
+                    let response = try decoder.decode(ItemResponse.self, from: data)
+                    if response.items.isEmpty { break }
+                    guard response.items.count <= Self.incrementalPageSize else {
+                        throw PagedSongCatalogError.snapshotChangedDuringPagination
+                    }
+                    for item in response.items {
+                        fetched.append((item, segment.library))
+                    }
+                    startIndex += response.items.count
+                    guard fetched.count <= Self.maximumCatalogTracks else {
+                        throw SourceError.connectionFailed(PMString("error.catalog.invalidTotal"))
+                    }
+                    if let total = response.totalRecordCount, startIndex >= total { break }
+                    if response.items.count < Self.incrementalPageSize { break }
+                }
+            }
+        }
+        let changedItemIDs = Set(fetched.map(\.item.id))
+
+        let remoteItemIDs: Set<String>?
+        if ServerCatalogIncrementalSyncPolicy.requiresCatalogEnumeration(
+            previousRevision: marker.catalogRevision,
+            currentRevision: layout.revision,
+            previousItemCount: marker.itemCount,
+            currentItemCount: totalCount,
+            changedItemIDs: changedItemIDs,
+            knownItemIDs: knownItemIDs
+        ) {
+            remoteItemIDs = try await enumerateCatalogItemIDs(layout: layout)
+        } else {
+            remoteItemIDs = nil
+        }
+
+        // Rows the listing revealed that the change feed never named. Normally
+        // empty — a server that reports a creation as a change covers them.
+        let needed = ServerCatalogIncrementalSyncPolicy.itemIDsNeedingFetch(
+            changedItemIDs: changedItemIDs,
+            remoteItemIDs: remoteItemIDs,
+            knownItemIDs: knownItemIDs
+        )
+        let stragglers = needed.subtracting(changedItemIDs)
+        if !stragglers.isEmpty {
+            let ordered = Array(stragglers)
+            for segment in layout.segments {
+                for start in stride(from: 0, to: ordered.count, by: 200) {
+                    try Task.checkCancellation()
+                    let batch = Array(ordered[start..<min(start + 200, ordered.count)])
+                    let items = try await fetchAudioItems(
+                        parentID: segment.library.id,
+                        itemIDs: batch
+                    )
+                    for item in items {
+                        fetched.append((item, segment.library))
+                    }
+                }
+            }
+        }
+
+        var upserts: [ConnectorScannedSong] = []
+        var hierarchyItems: [SourceSyncIndexedItem] = []
+        var fetchedSongIDs: Set<String> = []
+        var newestSaved: Date?
+        var seenItemIDs: Set<String> = []
+        let fallbackDateAdded = layout.startedAt
+        for entry in fetched {
+            guard needed.contains(entry.item.id) else { continue }
+            guard seenItemIDs.insert(entry.item.id).inserted else { continue }
+            if kind == .emby {
+                embyLyricsProbedItemIDs.insert(entry.item.id)
+                embyLyricsStreams[entry.item.id] = entry.item.embyLyricsStream
+            }
+            if let saved = entry.item.dateLastSaved,
+               saved > (newestSaved ?? Date.distantPast) {
+                newestSaved = saved
+            }
+            let scanned = ConnectorScannedSong(
+                song: buildSong(from: entry.item, dateAddedFallback: fallbackDateAdded),
+                displayName: entry.item.name,
+                titleMetadataInspected: ServerCatalogMetadataInspectionPolicy.hasUsableTitle(
+                    entry.item.name
+                ),
+                folderLocation: libraryFolderLocation(for: entry.item, library: entry.library)
+            )
+            fetchedSongIDs.insert(scanned.song.id)
+            hierarchyItems.append(contentsOf: scanned.providerHierarchyItems)
+            upserts.append(scanned)
+        }
+
+        return SongCatalogChanges(
+            upserts: upserts,
+            authoritativeSongIDs: ServerCatalogIncrementalSyncPolicy.authoritativeSongIDs(
+                knownSongIDsByItemID: knownSongIDsByItemID,
+                remoteItemIDs: remoteItemIDs,
+                fetchedSongIDs: fetchedSongIDs
+            ),
+            hierarchyItems: hierarchyItems,
+            marker: ServerCatalogSyncMarker(
+                catalogRevision: layout.revision,
+                // Only the server's own clock may move the watermark, and only
+                // forward. With no observation the previous value stands:
+                // asking for the same window again costs a little, while
+                // missing an edit would not surface until the next complete
+                // walk.
+                modifiedSince: max(newestSaved ?? .distantPast, marker.modifiedSince),
+                itemCount: totalCount
+            )
         )
     }
 
@@ -2100,6 +2370,59 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         )
     }
 
+    static let catalogItemFields = [
+        "Album",
+        "AlbumArtist",
+        "AlbumArtists",
+        "AlbumId",
+        "AlbumPrimaryImageTag",
+        "ArtistItems",
+        "Artists",
+        "DateCreated",
+        "DateLastSaved",
+        "Genres",
+        "IndexNumber",
+        "MediaSources",
+        "MediaStreams",
+        "ParentIndexNumber",
+        "ParentId",
+        "Path",
+        "ProductionYear",
+        "UserData"
+    ].joined(separator: ",")
+
+    /// Jellyfin and Emby read date filters as ISO-8601. Fractional seconds are
+    /// left out: every build accepts the plain internet date-time form.
+    private static func serverTimestamp(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.string(from: date)
+    }
+
+    /// Full rows for a bounded set of ids, used only for the stragglers an
+    /// incremental pass found in the id listing but not in the change feed.
+    private func fetchAudioItems(
+        parentID: String,
+        itemIDs: [String]
+    ) async throws -> [AudioItem] {
+        guard !itemIDs.isEmpty else { return [] }
+        guard let userID else { throw SourceError.authenticationFailed }
+        let data = try await performRequest(
+            path: "/Users/\(userID)/Items",
+            queryItems: [
+                URLQueryItem(name: "ParentId", value: parentID),
+                URLQueryItem(name: "IncludeItemTypes", value: "Audio"),
+                URLQueryItem(name: "Recursive", value: "true"),
+                URLQueryItem(name: "Ids", value: itemIDs.joined(separator: ",")),
+                URLQueryItem(name: "Fields", value: Self.catalogItemFields),
+                URLQueryItem(name: "EnableUserData", value: "true"),
+                URLQueryItem(name: "Limit", value: String(itemIDs.count))
+            ]
+        )
+        return try decoder.decode(ItemResponse.self, from: data).items
+    }
+
     private func fetchAudioItems(
         parentID: String,
         startIndex: Int,
@@ -2107,25 +2430,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     ) async throws -> ItemResponse {
         guard let userID else { throw SourceError.authenticationFailed }
 
-        let fields = [
-            "Album",
-            "AlbumArtist",
-            "AlbumArtists",
-            "AlbumId",
-            "AlbumPrimaryImageTag",
-            "ArtistItems",
-            "Artists",
-            "DateCreated",
-            "Genres",
-            "IndexNumber",
-            "MediaSources",
-            "MediaStreams",
-            "ParentIndexNumber",
-            "ParentId",
-            "Path",
-            "ProductionYear",
-            "UserData"
-        ].joined(separator: ",")
+        let fields = Self.catalogItemFields
 
         let data = try await performRequest(
             path: "/Users/\(userID)/Items",
@@ -3541,6 +3846,10 @@ private struct AudioItem: Decodable {
     let parentIndexNumber: Int?
     let productionYear: Int?
     let dateCreated: Date?
+    /// Server-clock time of the last write to this record. It is the watermark
+    /// an incremental pass advances, so it must never be replaced by this
+    /// device's clock.
+    let dateLastSaved: Date?
     let runTimeTicks: Int?
     let genres: [String]?
     let mediaStreams: [AudioStream]?
@@ -3565,6 +3874,7 @@ private struct AudioItem: Decodable {
         case parentIndexNumber = "ParentIndexNumber"
         case productionYear = "ProductionYear"
         case dateCreated = "DateCreated"
+        case dateLastSaved = "DateLastSaved"
         case runTimeTicks = "RunTimeTicks"
         case genres = "Genres"
         case mediaStreams = "MediaStreams"
