@@ -161,6 +161,12 @@ final class AudioEngine {
     private static let transportFadeStepCount = 6
     private static let transportFadeStepDuration: Duration = .milliseconds(8)
 
+    private var engineIdleShutdownTask: Task<Void, Never>?
+    /// How long the render graph stays live after a transport pause. It covers
+    /// Play/Pause tapping and picking the next song from a paused transport,
+    /// which is where a hardware restart is both audible and avoidable.
+    private static let engineIdleShutdownDelay: Duration = .seconds(12)
+
     /// DLNA 后台保活用 ── 喂一段 -90 dB 的极小振幅 buffer 让 iOS audio
     /// background mode 不挂起进程, NWListener 才能持续接 SSDP / control 请求。
     /// 真歌在播时主路径已经撑住 session, 这两个 nil; 真歌停 + DLNA 后台保活
@@ -245,6 +251,7 @@ final class AudioEngine {
 
     private func tearDownGraph() {
         cancelTransportFade(restoreVolume: false)
+        cancelEngineIdleShutdown()
         stopSilenceKeepAlive()
         nodeRegistry.resetTimeline(for: .primary)
         nodeRegistry.resetTimeline(for: .crossfade)
@@ -405,13 +412,16 @@ final class AudioEngine {
     // MARK: - Engine Control
 
     func start() throws {
+        cancelEngineIdleShutdown()
         try setUp()
         applySpatialAudioConfiguration()
         guard let engine, !engine.isRunning else { return }
+        flushEffectChain()
         try engine.start()
     }
 
     func stop() {
+        cancelEngineIdleShutdown()
         playbackClockReadsSuspended = true
         nodeRegistry.resetTimeline(for: .primary)
         nodeRegistry.resetTimeline(for: .crossfade)
@@ -872,6 +882,7 @@ final class AudioEngine {
     @discardableResult
     func play() -> Bool {
         cancelTransportFade(restoreVolume: true)
+        cancelEngineIdleShutdown()
         if engine == nil || !isSetUp {
             do { try setUp() } catch {
                 plog("Failed to set up engine: \(error)")
@@ -885,6 +896,7 @@ final class AudioEngine {
         }
         applySpatialAudioConfiguration()
         if !engine.isRunning {
+            flushEffectChain()
             do { try engine.start() } catch {
                 plog("Failed to start engine: \(error)")
                 isPlaying = false
@@ -940,11 +952,11 @@ final class AudioEngine {
         playbackClockReadsSuspended = true
         playerNode?.pause()
         crossfadePlayerNode?.pause()
-        // Pausing every player node leaves AVAudioEngine and the audio hardware
-        // running. Stop that render activity without releasing the prepared
-        // graph so system Now Playing can observe a real paused transport and
-        // resume() can restart the same scheduled buffers.
-        engine?.pause()
+        // Pausing every player node already silences the transport: the graph
+        // keeps rendering, so the effect chain drains its own tail instead of
+        // freezing it. The idle timer releases the hardware once the pause
+        // turns out not to be a quick one.
+        scheduleEngineIdleShutdown()
         isPlaying = false
     }
 
@@ -997,8 +1009,10 @@ final class AudioEngine {
     private func resumeImmediately() -> Bool {
         // After audio interruption (e.g. phone call, other app), the engine stops.
         // Restart it before resuming playback.
+        cancelEngineIdleShutdown()
         applySpatialAudioConfiguration()
         if let engine, !engine.isRunning {
+            flushEffectChain()
             do { try engine.start() } catch {
                 plog("Failed to restart engine after interruption: \(error)")
                 isPlaying = false
@@ -1031,6 +1045,7 @@ final class AudioEngine {
     /// Restart the engine and player node if they were stopped (e.g. by a configuration change).
     @discardableResult
     func restartIfNeeded() -> Bool {
+        cancelEngineIdleShutdown()
         guard let engine else {
             isPlaying = false
             return false
@@ -1038,6 +1053,7 @@ final class AudioEngine {
         if !engine.isRunning {
             do {
                 applySpatialAudioConfiguration()
+                flushEffectChain()
                 try engine.start()
             } catch {
                 plog("Failed to restart engine: \(error)")
@@ -1206,6 +1222,55 @@ final class AudioEngine {
     func resetPlayerVolume() {
         cancelTransportFade(restoreVolume: false)
         playerNode?.volume = 1.0
+    }
+
+    /// A paused AVAudioEngine freezes its whole render graph. The spatial
+    /// environment, the EQ / compressor / reverb chain and the time-pitch node
+    /// each hold the tail of whatever was playing, and restarting the engine
+    /// pushes that stale tail to the output before any new audio — heard as a
+    /// glitch when Play resumes, and as a fragment of the previous song when a
+    /// new one starts from a paused transport. Clearing those buffers while the
+    /// graph is silent is what keeps the next start clean.
+    ///
+    /// The high-fidelity graph connects the player straight to the output node
+    /// with no unit in between, so it has nothing to flush — and materialising
+    /// `mainMixerNode` there would splice a mixer into that direct path.
+    private func flushEffectChain() {
+        guard outputMode == .effects, let engine else { return }
+        environmentNode?.reset()
+        playerMixer?.reset()
+        eqNode?.reset()
+        compressorNode?.reset()
+        reverbNode?.reset()
+        timePitchNode?.reset()
+        engine.mainMixerNode.reset()
+    }
+
+    /// Keeps the graph running across a transport pause, then releases the
+    /// hardware once the pause is clearly not momentary. Within the window a
+    /// resume — or a song started from the paused transport — reuses the live
+    /// graph: no `AVAudioEngine.start()` on the critical path, and no frozen
+    /// tail waiting to be flushed into the first moments of the new audio.
+    private func scheduleEngineIdleShutdown() {
+        cancelEngineIdleShutdown()
+        engineIdleShutdownTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: Self.engineIdleShutdownDelay)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.engineIdleShutdownTask = nil
+            // A transport that came back to life owns the graph again.
+            guard !self.isPlaying, self.playerNode?.isPlaying != true else { return }
+            self.engine?.pause()
+            self.flushEffectChain()
+        }
+    }
+
+    private func cancelEngineIdleShutdown() {
+        engineIdleShutdownTask?.cancel()
+        engineIdleShutdownTask = nil
     }
 
     private func cancelTransportFade(restoreVolume: Bool) {
