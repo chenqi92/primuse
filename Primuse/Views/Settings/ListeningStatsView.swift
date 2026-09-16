@@ -1371,16 +1371,16 @@ struct MobileListeningActivityView: View {
                 monthGrid(date: model.today, model: model, maximum: maximum)
                 dayDetail(model: model)
             case .year, .all:
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14),
-                                         count: dynamicTypeSize.isAccessibilitySize ? 2 : 3), spacing: 16) {
-                    ForEach(model.months(in: year), id: \.self) { month in
-                        Button { selectedDay = nil; expandedMonth = month } label: {
-                            miniMonth(date: month, model: model, maximum: maximum)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(month.formatted(.dateTime.year().month(.wide)))
-                        .accessibilityValue(playCountLabel(model.days(in: .month, containing: month).compactMap(\.count).reduce(0, +)))
+                let months = model.months(in: year)
+                eagerGrid(count: months.count, columns: dynamicTypeSize.isAccessibilitySize ? 2 : 3,
+                          horizontalSpacing: 14, verticalSpacing: 16) { index in
+                    let month = months[index]
+                    Button { selectedDay = nil; expandedMonth = month } label: {
+                        miniMonth(date: month, model: model, maximum: maximum)
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(month.formatted(.dateTime.year().month(.wide)))
+                    .accessibilityValue(playCountLabel(model.days(in: .month, containing: month).compactMap(\.count).reduce(0, +)))
                 }
             }
             legend
@@ -1451,16 +1451,15 @@ struct MobileListeningActivityView: View {
     private func monthGrid(date: Date, model: ListeningActivityCalendar, maximum: Int) -> some View {
         let cells = model.monthCells(containing: date)
         let count = ((cells.lastIndex { $0 != nil } ?? 0) / 7 + 1) * 7
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 5), count: 7), spacing: 5) {
-            ForEach(0..<7, id: \.self) { offset in
-                Text(model.calendar.veryShortStandaloneWeekdaySymbols[(model.calendar.firstWeekday - 1 + offset) % 7])
+        return eagerGrid(count: count + 7, columns: 7, horizontalSpacing: 5, verticalSpacing: 5) { index in
+            if index < 7 {
+                Text(model.calendar.veryShortStandaloneWeekdaySymbols[(model.calendar.firstWeekday - 1 + index) % 7])
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
                     .accessibilityHidden(true)
-            }
-            ForEach(0..<count, id: \.self) { index in
-                if let day = cells[index] {
+            } else {
+                if let day = cells[index - 7] {
                     Button { selectedDay = day.date } label: {
                         Text(model.calendar.component(.day, from: day.date), format: .number.grouping(.never))
                             .font(.callout.monospacedDigit())
@@ -1498,16 +1497,36 @@ struct MobileListeningActivityView: View {
                     .font(.system(size: 8, weight: .semibold))
                     .foregroundStyle(.tertiary)
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 7), spacing: 2) {
-                ForEach(cells.indices, id: \.self) { index in
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(cells[index].map { fill($0, maximum: maximum) } ?? .clear)
-                        .frame(height: 9)
-                }
+            eagerGrid(count: cells.count, columns: 7, horizontalSpacing: 2, verticalSpacing: 2) { index in
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(cells[index].map { fill($0, maximum: maximum) } ?? .clear)
+                    .frame(height: 9)
             }
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
+    }
+
+    // Form must measure every calendar row up front; lazy estimates can oscillate
+    // as the enclosing collection view repeatedly asks for the cell's height.
+    private func eagerGrid<Content: View>(
+        count: Int, columns: Int, horizontalSpacing: CGFloat, verticalSpacing: CGFloat,
+        @ViewBuilder content: @escaping (Int) -> Content
+    ) -> some View {
+        VStack(spacing: verticalSpacing) {
+            ForEach(0..<((count + columns - 1) / columns), id: \.self) { row in
+                HStack(alignment: .top, spacing: horizontalSpacing) {
+                    ForEach(0..<columns, id: \.self) { column in
+                        let index = row * columns + column
+                        if index < count {
+                            content(index).frame(maxWidth: .infinity)
+                        } else {
+                            Color.clear.frame(height: 0).frame(maxWidth: .infinity)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private func dayDetail(model: ListeningActivityCalendar) -> some View {

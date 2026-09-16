@@ -406,6 +406,92 @@ final class SongSelectionLayoutTests: XCTestCase {
 
 #if os(iOS)
 @MainActor
+final class ListeningStatsLayoutTests: XCTestCase {
+    func testWeeklyCalendarFormLayoutSettlesOnCompactPhone() async throws {
+        try await assertCalendarLayoutSettles(range: .week)
+    }
+
+    func testMonthlyCalendarFormLayoutSettlesOnCompactPhone() async throws {
+        try await assertCalendarLayoutSettles(range: .month)
+    }
+
+    func testYearlyCalendarFormLayoutSettlesOnCompactPhone() async throws {
+        try await assertCalendarLayoutSettles(range: .year)
+    }
+
+    func testAllTimeCalendarFormLayoutSettlesOnCompactPhone() async throws {
+        try await assertCalendarLayoutSettles(range: .all)
+    }
+
+    private func assertCalendarLayoutSettles(range: ServerListeningStatsRange) async throws {
+        let calendar = ListeningCalendar.current
+        let today = calendar.startOfDay(for: Date())
+        let counts = (0..<400).map { offset in
+            (date: calendar.date(byAdding: .day, value: -offset, to: today)!, count: offset % 13)
+        }
+        for typeSize in [DynamicTypeSize.large, .accessibility3] {
+            let host = UIHostingController(rootView: NavigationStack {
+                Form {
+                    Section {
+                        MobileListeningActivityView(counts: counts, range: range)
+                            .padding(.vertical, 4)
+                    }
+                }
+                .navigationTitle("stats_title")
+                .navigationBarTitleDisplayMode(.inline)
+            }
+            .environment(\.locale, Locale(identifier: "ru_RU"))
+            .environment(\.dynamicTypeSize, typeSize))
+            let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+            let window = UIWindow(windowScene: scene)
+            window.frame = CGRect(x: 0, y: 0, width: 375, height: 812)
+            window.overrideUserInterfaceStyle = .light
+            window.rootViewController = host
+            window.isHidden = false
+            defer {
+                window.isHidden = true
+                window.rootViewController = nil
+            }
+            for width in [375.0, 320.0, 430.0, 375.0] {
+                window.frame.size.width = width
+                host.view.setNeedsLayout()
+                host.view.layoutIfNeeded()
+                try await Task.sleep(for: .milliseconds(100))
+                let list = try XCTUnwrap(collectionView(in: host.view))
+                XCTAssertFalse(list.visibleCells.isEmpty, "The calendar must actually render in a self-sizing list cell")
+                let expectedHeight = list.contentSize.height
+                XCTAssertGreaterThan(expectedHeight, 100)
+                for _ in 0..<5 {
+                    host.view.setNeedsLayout()
+                    host.view.layoutIfNeeded()
+                    try await Task.sleep(for: .milliseconds(20))
+                    XCTAssertEqual(list.contentSize.height, expectedHeight, accuracy: 1,
+                                   "Repeated measurement at the same width must not change the row height")
+                }
+                if width == 320 {
+                    let image = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
+                        host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+                    }
+                    let attachment = XCTAttachment(image: image)
+                    attachment.name = "calendar-\(range.rawValue)-\(typeSize)"
+                    attachment.lifetime = .keepAlways
+                    add(attachment)
+                }
+                list.setContentOffset(CGPoint(x: 0, y: max(0, list.contentSize.height - list.bounds.height)), animated: false)
+                list.layoutIfNeeded()
+                try await Task.sleep(for: .milliseconds(50))
+                list.setContentOffset(.zero, animated: false)
+            }
+        }
+    }
+
+    private func collectionView(in view: UIView) -> UICollectionView? {
+        if let collection = view as? UICollectionView { return collection }
+        return view.subviews.lazy.compactMap { self.collectionView(in: $0) }.first
+    }
+}
+
+@MainActor
 final class SongSelectionViewIdentityTests: XCTestCase {
     func testLeadingRowKeepsItsMenuHostWhenSelectionChanges() async throws {
         try await assertRowSurvivesSelection(style: .leading)
