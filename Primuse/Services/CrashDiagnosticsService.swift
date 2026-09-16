@@ -10,27 +10,56 @@ private let crashLog = Logger(subsystem: "com.welape.yuanyin", category: "Crash"
 /// 落本地 (App Group container),用户在设置里能查看 + 通过分享面板手动
 /// 发邮件给我。
 ///
-/// 何时触发:
-/// - app 启动 24h 内: `didReceive(_ payloads: [MXDiagnosticPayload])` 会被
-///   异步回调,把上次启动里发生的 crash / hang / disk write 异常等打包给我
-/// - app 一天上线最多一次,我把每份 payload 直接 dump JSON 到 disk,文件名
+/// 系统通过异步序列或旧版 subscriber 交付诊断，每份报告保存为 JSON，文件名
 ///   形如 `crash-<unix-ts>-<uuid8>.json`(uuid8 保证同一秒内多份 payload 不互相覆盖)
-/// - 文件容量上限 50 份, 超过按时间最老的删 (LRU)
+/// 文件容量上限 50 份, 超过按时间最老的删 (LRU)
 @MainActor
 final class CrashDiagnosticsService: NSObject {
     static let directoryName = "DiagnosticReports"
     static let maxReports = 50
+    private var isRegistered = false
+    private var diagnosticTask: Task<Void, Never>?
+    private let directoryOverride: URL?
 
-    /// 启动时注册到 MetricKit。`MXMetricManager` 是单例,无需保存返回值。
-    /// 必须保持 self 引用至 app 死亡 (AppServices 持有,生命周期对齐)。
+    init(directory: URL? = nil) {
+        directoryOverride = directory
+        super.init()
+    }
+
+    deinit {
+        diagnosticTask?.cancel()
+    }
+
     func register() {
+        guard !isRegistered else { return }
+        isRegistered = true
+        #if compiler(>=6.4)
+        if #available(iOS 27.0, macOS 27.0, *) {
+            diagnosticTask = Task.detached(priority: .utility) { [weak self] in
+                let manager = MetricKit.MetricManager()
+                // Keep the manager alive for the entire asynchronous subscription.
+                defer { withExtendedLifetime(manager) {} }
+                for await report in manager.diagnosticReports {
+                    guard !Task.isCancelled else { break }
+                    do {
+                        let data = try JSONEncoder().encode(report)
+                        await self?.persistData(data)
+                    } catch {
+                        crashLog.error("Failed to encode diagnostic report: \(error.localizedDescription)")
+                    }
+                }
+            }
+            crashLog.notice("CrashDiagnosticsService registered with MetricManager")
+            return
+        }
+        #endif
         MXMetricManager.shared.add(self)
         crashLog.notice("CrashDiagnosticsService registered with MetricKit")
     }
 
     /// 列出已收集的报告(给 Settings 视图渲染列表用),按时间倒序。
     func reports() -> [DiagnosticReport] {
-        guard let dir = Self.reportsDirectory() else { return [] }
+        guard let dir = reportsDirectory() else { return [] }
         let fm = FileManager.default
         let urls = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.creationDateKey], options: [.skipsHiddenFiles])) ?? []
         return urls
@@ -46,7 +75,7 @@ final class CrashDiagnosticsService: NSObject {
 
     /// 用户在 settings 里点 "清空"。删全部本地报告。
     func clearAll() {
-        guard let dir = Self.reportsDirectory() else { return }
+        guard let dir = reportsDirectory() else { return }
         let fm = FileManager.default
         let urls = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
         for url in urls {
@@ -55,11 +84,16 @@ final class CrashDiagnosticsService: NSObject {
         crashLog.notice("Cleared all diagnostic reports")
     }
 
-    private static func reportsDirectory() -> URL? {
-        guard let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
-        ) else { return nil }
-        let dir = containerURL.appendingPathComponent(directoryName, isDirectory: true)
+    private func reportsDirectory() -> URL? {
+        let dir: URL
+        if let directoryOverride {
+            dir = directoryOverride
+        } else {
+            guard let containerURL = FileManager.default.containerURL(
+                forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
+            ) else { return nil }
+            dir = containerURL.appendingPathComponent(Self.directoryName, isDirectory: true)
+        }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
@@ -67,19 +101,23 @@ final class CrashDiagnosticsService: NSObject {
     private nonisolated func persistPayload(_ payload: MXDiagnosticPayload) {
         // payload.jsonRepresentation() 给完整结构化数据,可直接写盘
         let data = payload.jsonRepresentation()
-        Task { @MainActor in
-            guard let dir = Self.reportsDirectory() else { return }
-            let stamp = Int(Date().timeIntervalSince1970)
-            let unique = UUID().uuidString.prefix(8)
-            let filename = "crash-\(stamp)-\(unique).json"
-            let url = dir.appendingPathComponent(filename)
-            do {
-                try data.write(to: url, options: .atomic)
-                crashLog.notice("Wrote diagnostic payload to \(filename)")
-                pruneOldReports()
-            } catch {
-                crashLog.error("Failed to write diagnostic payload: \(error.localizedDescription)")
-            }
+        Task { @MainActor [weak self] in
+            self?.persistData(data)
+        }
+    }
+
+    func persistData(_ data: Data) {
+        guard let dir = reportsDirectory() else { return }
+        let stamp = Int(Date().timeIntervalSince1970)
+        let unique = UUID().uuidString.prefix(8)
+        let filename = "crash-\(stamp)-\(unique).json"
+        let url = dir.appendingPathComponent(filename)
+        do {
+            try data.write(to: url, options: .atomic)
+            crashLog.notice("Wrote diagnostic payload to \(filename)")
+            pruneOldReports()
+        } catch {
+            crashLog.error("Failed to write diagnostic payload: \(error.localizedDescription)")
         }
     }
 

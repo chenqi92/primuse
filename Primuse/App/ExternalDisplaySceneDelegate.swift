@@ -6,6 +6,41 @@ import UIKit
 
 private let externalDisplayLog = Logger(subsystem: "com.welape.yuanyin", category: "ExternalDisplay")
 
+struct ExternalDisplaySceneAccessoryModifier: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        #if compiler(>=6.4)
+        if #available(iOS 27.0, *) {
+            content.sceneAccessory {
+                ExternalNonInteractiveAccessory {
+                    ExternalDisplaySceneContent()
+                }
+            }
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
+}
+
+private struct ExternalDisplaySceneContent: View {
+    @AppStorage(AppThemePreferences.iOSAppearanceKey) private var appearanceRawValue = ""
+
+    var body: some View {
+        let services = AppServices.shared
+        ExternalDisplayNowPlayingView()
+            .environment(services.playerService)
+            .environment(services.themeService)
+            .environment(services.musicLibrary)
+            .environment(services.sourceManager)
+            .environment(services.scraperService)
+            .tint(services.themeService.uiAccentColor)
+            .preferredColorScheme((IOSAppearancePreference(rawValue: appearanceRawValue) ?? .system).colorScheme)
+    }
+}
+
 /// 接外接屏 / AirPlay 镜像扩展 / DisplayPort over USB-C 时,iPad 给我们额外
 /// 配一个 UIScene。这里把那块屏渲染成"全屏现在播放" —— 大封面 + 大字标题 +
 /// 歌词,不带控件 (`externalDisplayNonInteractive` 不接受触摸)。播控仍在主屏。
@@ -30,18 +65,10 @@ final class ExternalDisplaySceneDelegate: UIResponder, UIWindowSceneDelegate {
         externalDisplayLog.notice("🖥 external display scene didConnect (\(windowScene.screen.bounds.size.width)x\(windowScene.screen.bounds.size.height))")
 
         let window = UIWindow(windowScene: windowScene)
-        let services = AppServices.shared
         let appearance = IOSAppearancePreference(
             rawValue: UserDefaults.standard.string(forKey: AppThemePreferences.iOSAppearanceKey) ?? ""
         ) ?? .system
-        let rootView = ExternalDisplayNowPlayingView()
-            .environment(services.playerService)
-            .environment(services.themeService)
-            .environment(services.musicLibrary)
-            .environment(services.sourceManager)
-            .environment(services.scraperService)
-            .tint(services.themeService.uiAccentColor)
-        let host = UIHostingController(rootView: rootView)
+        let host = UIHostingController(rootView: ExternalDisplaySceneContent())
         host.view.backgroundColor = .clear
         window.rootViewController = host
         switch appearance {

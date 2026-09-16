@@ -88,6 +88,7 @@ extension Notification.Name {
                   playedAt: now.addingTimeInterval(-Double(i * 3600)), listenedSec: 180)
         }
         PlayHistoryStore.shared.entries = entries
+        checkInitialPresentation()
         let snapshot = ListeningStatsView.makeStatsSnapshot(entries: entries, range: .year, displayYear: nil, now: now, calendar: calendar)
         checkHeatmap(snapshot: snapshot)
         let request = ListeningStatsView.StatsSnapshotRequest(
@@ -149,6 +150,39 @@ extension Notification.Name {
             window.close()
         }
         print("Listening statistics rendering checks passed")
+    }
+
+    @MainActor private static func checkInitialPresentation() {
+        let suiteName = "ListeningStatsRenderingSmoke.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let sources = SourcesStore()
+        sources.sources = [MusicSource(id: "server", name: "Server", type: .navidrome)]
+        defaults.set("server", forKey: "stats.selectedServerSourceID")
+
+        for initialRange: PlayHistoryStore.Range? in [nil, .week, .month, .all] {
+            let model = ListeningStatsView.Model()
+            let host = NSHostingView(rootView: ListeningStatsView(
+                initialRange: initialRange, initiallyShowsLocalHistory: true, model: model
+            ).environment(sources).defaultAppStorage(defaults))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 800),
+                                  styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = host
+            defer { window.close() }
+            host.layoutSubtreeIfNeeded()
+            let deadline = Date().addingTimeInterval(3)
+            while model.snapshot == nil && Date() < deadline {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+                host.layoutSubtreeIfNeeded()
+            }
+            precondition(model.snapshot != nil, "Explicit local history must override the saved server source")
+            precondition(model.request?.presentation.range == (initialRange ?? .year),
+                         "The mounted statistics page must retain its requested initial range")
+            precondition(defaults.string(forKey: "stats.selectedServerSourceID") == "server",
+                         "A local-history link must preserve the user's saved server preference")
+        }
+        print("Statistics initial range and local-history override checks passed")
     }
 
     @MainActor private static func checkFirstPublication(

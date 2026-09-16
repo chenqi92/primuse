@@ -158,7 +158,7 @@ struct TVRoot: View {
     enum Tab: Hashable { case home, library, nowPlaying, playlists, sources, search }
 
     @Environment(TVStore.self) private var store
-    @State private var tab: Tab = .home
+    @State private var tab: Tab
     @State private var libraryFilter: TVLibraryView.Filter = .albums
     @State private var showSettings = false
     @State private var showQueue = false
@@ -178,17 +178,21 @@ struct TVRoot: View {
     @State private var certificateTrustStore = TVServerCertificateTrustStore.shared
 
     init() {
+        let initialTab: Tab
         #if DEBUG
         // 截图预览用:SIMCTL_CHILD_TV_SCREEN=<tab> 直接进入指定页。
         switch TVDebugLaunch.screen {
-        case "library": _tab = State(initialValue: .library)
-        case "playlists": _tab = State(initialValue: .playlists)
+        case "library": initialTab = .library
+        case "playlists": initialTab = .playlists
         case "sources", "sourcePicker", "sourceForm", "credentials", "otp", "scan", "recycleBin":
-            _tab = State(initialValue: .sources)
-        case "search": _tab = State(initialValue: .search)
-        default: break
+            initialTab = .sources
+        case "search": initialTab = .search
+        default: initialTab = .home
         }
+        #else
+        initialTab = .home
         #endif
+        _tab = State(initialValue: initialTab)
     }
 
     var body: some View {

@@ -1162,7 +1162,12 @@ struct NowPlayingView: View {
                     ImmersivePlayerView(
                         effect: fullscreenPlayerEffectBinding,
                         lyrics: lyrics,
-                        lyricCompanions: { companionTexts(for: $0) },
+                        lyricCompanions: {
+                            LyricsScrollView.companionTexts(
+                                for: $0,
+                                translatedTextByLineID: lyricTranslationsForSharing
+                            )
+                        },
                         lyricsWritingDirection: lyricsWritingDirection,
                         isResolvingLyrics: isResolvingLyrics,
                         isSceneActive: isVisualSceneActive,
@@ -6120,7 +6125,10 @@ struct LyricsScrollView: View {
     /// 同一个时间戳上的多行(外语歌常见「原文 + 注音 + 译文」)在解析时已经并进
     /// 原文, 三行讲的是同一句, 全部列出来才不会把注音或者译文藏掉。文件本身
     /// 没带译文时才回落到翻译任务给出的那一条。
-    private func companionTexts(for line: LyricLine) -> [String] {
+    static func companionTexts(
+        for line: LyricLine,
+        translatedTextByLineID: [String: String]
+    ) -> [String] {
         // A romanization reads the original line out loud, so it sits between
         // the sung text and any translation.
         let romanization = (line.romanization ?? "")
@@ -6158,7 +6166,7 @@ struct LyricsScrollView: View {
         let weight: Font.Weight = dimmedByAmbient ? .semibold : (isActive ? .bold : .semibold)
         let alignment = lyricsAlignment.horizontalAlignment
         let frameAlignment = lyricsAlignment.frameAlignment
-        let companions = companionTexts(for: line)
+        let companions = Self.companionTexts(for: line, translatedTextByLineID: translatedTextByLineID)
 
         // 组内(原文与其译文)贴紧，组间(不同时间轴的两句)拉开 —— 两者此前都是
         // 4pt，一句歌词和它的译文看起来跟相邻的另一句一样远，读的时候要自己
@@ -6248,7 +6256,7 @@ struct LyricsScrollView: View {
                         }
                         .frame(width: availableWidth, alignment: frameAlignment)
 
-                    let backgroundCompanions = companionTexts(for: bg)
+                    let backgroundCompanions = Self.companionTexts(for: bg, translatedTextByLineID: translatedTextByLineID)
                     ForEach(backgroundCompanions.indices, id: \.self) { slot in
                         Text(backgroundCompanions[slot])
                             .font(.system(size: fontSize * 0.7 * 0.65, weight: .medium))

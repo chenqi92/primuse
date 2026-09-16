@@ -4,6 +4,51 @@ import XCTest
 @testable import Primuse
 
 final class LifecycleRegressionTests: XCTestCase {
+    @MainActor
+    func testDiagnosticReportsPreserveBothJSONFormatsWithoutOverwriting() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let service = CrashDiagnosticsService(directory: directory)
+        let legacy = Data(#"{"crashDiagnostics":[{"exceptionType":1}]}"#.utf8)
+        let modern = Data(#"{"result":{"crash":{}},"timeRange":{"start":1,"duration":2}}"#.utf8)
+
+        service.persistData(legacy)
+        service.persistData(modern)
+        service.persistData(modern)
+
+        let reports = service.reports()
+        XCTAssertEqual(reports.count, 3)
+        XCTAssertEqual(Set(reports.map(\.url)).count, 3)
+        let contents = try reports.map { try Data(contentsOf: $0.url) }
+        XCTAssertEqual(contents.filter { $0 == legacy }.count, 1)
+        XCTAssertEqual(contents.filter { $0 == modern }.count, 2)
+        XCTAssertEqual(reports.map(\.sizeBytes).sorted(), [legacy.count, modern.count, modern.count].sorted())
+    }
+
+    @MainActor
+    func testDiagnosticRetentionRemovesOnlyTheOldestReport() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        for index in 0..<CrashDiagnosticsService.maxReports {
+            let url = directory.appendingPathComponent("legacy-\(index).json")
+            try Data("{\"index\":\(index)}".utf8).write(to: url)
+            try FileManager.default.setAttributes(
+                [.creationDate: Date(timeIntervalSince1970: 1_000_000 + Double(index))],
+                ofItemAtPath: url.path
+            )
+        }
+        let service = CrashDiagnosticsService(directory: directory)
+        let newest = Data(#"{"result":{"hang":{}}}"#.utf8)
+        service.persistData(newest)
+
+        XCTAssertEqual(service.reports().count, CrashDiagnosticsService.maxReports)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("legacy-0.json").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("legacy-1.json").path))
+        let latest = try XCTUnwrap(service.reports().first)
+        XCTAssertEqual(try Data(contentsOf: latest.url), newest)
+    }
+
     #if os(iOS)
     @MainActor
     func testBackgroundPlaybackPreservesPendingSceneSettlement() async {

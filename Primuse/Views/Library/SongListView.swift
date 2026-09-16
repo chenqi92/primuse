@@ -746,7 +746,7 @@ struct SongListView: View {
     @Binding private var locationRequest: SongLibraryLocationRequest?
     @State private var locatedSongID: String?
     @State private var locationHighlightTask: Task<Void, Never>?
-    @State private var sortOrder: SongSortOrder = .title
+    @State private var sortOrder: SongSortOrder
     @State private var songFilter: SongFilter
     @State private var downloadedSongIDs: Set<String> = []
     @State private var downloadedFilterRevision = 0
@@ -794,9 +794,9 @@ struct SongListView: View {
     #if os(macOS)
     @State private var macViewMode: MacSongsViewMode = .list
     @State private var macRowDensity: MacSongsRowDensity = .standard
-    @State private var visibleColumns: Set<MacSongsColumn> = MacSongsColumn.defaultVisible
-    @State private var columnOrder: [MacSongsColumn] = MacSongsColumn.defaultOrder
-    @State private var columnWidths: [MacSongsColumn: CGFloat] = MacSongsColumn.defaultWidths
+    @State private var visibleColumns: Set<MacSongsColumn>
+    @State private var columnOrder: [MacSongsColumn]
+    @State private var columnWidths: [MacSongsColumn: CGFloat]
     @State private var resizingColumn: MacSongsColumn?
     @State private var resizingStartWidth: CGFloat = 0
     @State private var columnDropTarget: MacSongsColumn?

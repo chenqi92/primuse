@@ -33,12 +33,6 @@ final class PrimuseAppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 
-    func applicationDidBecomeActive(_ application: UIApplication) {
-        Task { @MainActor in
-            await AppIconService.shared.restorePrimaryIconIfNeeded()
-        }
-    }
-
     /// 系统在用户从 iMessage / 邮件 / Files 点开 .ck 分享链接时调这里, 把
     /// CKShare metadata 传给 app。我们转交给 CloudKitSyncService.acceptShare
     /// 完成 share 接受 + 启动 participant 侧的 sharedEngine。
@@ -1394,6 +1388,7 @@ struct PrimuseApp: App {
         ContentView()
             .preferredColorScheme(iOSAppearance.colorScheme)
             .modifier(IOSWindowAppearanceModifier(preference: iOSAppearance))
+            .modifier(ExternalDisplaySceneAccessoryModifier())
             .automaticAppReviewPrompt()
     }
     #else
@@ -2047,6 +2042,14 @@ struct PrimuseApp: App {
                 }
             }
         }
+        #if os(iOS)
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            guard phase == .active else { return }
+            Task { @MainActor in
+                await AppIconService.shared.restorePrimaryIconIfNeeded()
+            }
+        }
+        #endif
         #if os(macOS)
         // 标题栏背景和标题由 PMWindowChromeConfigurator 隐藏。这里保留 SwiftUI
         // 默认窗口样式,避免 `.hiddenTitleBar` 连同原生窗口按钮容器一起隐藏。

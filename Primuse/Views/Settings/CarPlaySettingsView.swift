@@ -7,7 +7,7 @@ struct CarPlaySettingsView: View {
     @State private var model: CarPlayEditorModel
     @State private var catalog = CarPlayEditorCatalog.shared
     @State private var folders = CarPlayFolderLibrary.shared
-    @State private var showingLibrary = false
+    @State private var showingLibrary: Bool
     @State private var addingModule = false
     @State private var addingContent = false
     @State private var addingTabContent = false

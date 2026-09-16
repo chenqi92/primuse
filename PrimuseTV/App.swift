@@ -62,12 +62,12 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 
-    func applicationDidBecomeActive(_ application: UIApplication) {
+    func sceneDidBecomeActive() {
         playMediaHandler.refreshRadioVocabulary()
         store.applicationDidBecomeActive()
     }
 
-    func applicationDidEnterBackground(_ application: UIApplication) {
+    func sceneDidEnterBackground() {
         Task { await store.persistForLifecycle() }
     }
 
@@ -86,6 +86,7 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
 @main
 struct PrimuseTVApp: App {
     @UIApplicationDelegateAdaptor(PrimuseTVAppDelegate.self) private var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
     @State private var themeState = TVThemeState.shared
     @State private var appearanceState = TVAppearanceState()
     @State private var musicIntelligence = MusicIntelligenceService()
@@ -151,6 +152,14 @@ struct PrimuseTVApp: App {
                 // 注意:不在回到前台时自动重新拉快照。否则会用手机端的权威状态覆盖
                 // Apple TV 上的本地改动(如本地启用某个源)。仅在启动时拉一次 + 设置页
                 // 手动刷新;手机端发送即是「主动触发」,下次启动 TV app 会拉到。
+        }
+        .onChange(of: scenePhase, initial: true) { previousPhase, phase in
+            switch phase {
+            case .active: appDelegate.sceneDidBecomeActive()
+            case .background:
+                if previousPhase != .background { appDelegate.sceneDidEnterBackground() }
+            default: break
+            }
         }
     }
 }

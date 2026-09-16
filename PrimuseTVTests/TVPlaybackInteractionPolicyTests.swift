@@ -1424,10 +1424,11 @@ final class TVRemoteSeekFocusTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(25))
         }
         try XCTUnwrap(coordinator).perform(.seek)
+        let minimumScrubberWidth = host.view.bounds.width * 0.25
         var focusedFrame = CGRect.zero
         for _ in 0..<80 {
             focusedFrame = UIFocusSystem(for: host.view)?.focusedItem?.frame ?? .zero
-            if focusedFrame.width > 600 && (20...80).contains(focusedFrame.height) { break }
+            if focusedFrame.width > minimumScrubberWidth && (20...80).contains(focusedFrame.height) { break }
             try await Task.sleep(for: .milliseconds(25))
         }
         try await Task.sleep(for: .milliseconds(250))
@@ -1440,7 +1441,8 @@ final class TVRemoteSeekFocusTests: XCTestCase {
         add(attachment)
         // SwiftUI exposes a UIFocusItem rather than a UIView; its wide, shallow
         // bounds distinguish the progress control from tabs and transport buttons.
-        XCTAssertGreaterThan(focusedFrame.width, 600)
+        // Use the host width so different simulator display sizes remain valid.
+        XCTAssertGreaterThan(focusedFrame.width, minimumScrubberWidth)
         XCTAssertTrue((20...80).contains(focusedFrame.height), "Unexpected focused frame: \(focusedFrame)")
         XCTAssertEqual(store.nowPlaying.songID, "seek-focus")
         XCTAssertEqual(store.currentTime, 0)

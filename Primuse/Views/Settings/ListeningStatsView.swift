@@ -14,15 +14,15 @@ struct ListeningStatsView: View {
     @AppStorage("stats.selectedServerSourceID")
     private var selectedServerSourceID = ""
     #if os(macOS)
-    @State private var range: PlayHistoryStore.Range = .year
+    @State private var range: PlayHistoryStore.Range
     @State private var statsRefreshGeneration = 0
     @State private var model: Model
     #else
-    @State private var range: PlayHistoryStore.Range = .month
+    @State private var range: PlayHistoryStore.Range
     @State private var activityChart: MobileActivityChart = .duration
     #endif
     @State private var statsCalendar = ListeningCalendar.current
-    @State private var prefersLocalSource = false
+    @State private var prefersLocalSource: Bool
     @State private var heatmapYear: Int?
     @State private var rankTab: RankTab = .songs
     @State private var showClearConfirm = false

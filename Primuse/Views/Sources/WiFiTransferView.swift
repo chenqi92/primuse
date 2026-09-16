@@ -47,7 +47,7 @@ struct WiFiTransferView: View {
     @Environment(AudioPlayerService.self) private var player
     @State private var receiver = WiFiTransferReceiver()
     @State private var sender = WiFiTransferSender()
-    @State private var mode = "send"
+    @State private var mode: String
     @State private var pendingScan: Task<Void, Never>?
     @State private var needsScan = false
     @State private var changedLyrics: Set<String> = []
