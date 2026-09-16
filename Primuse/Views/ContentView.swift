@@ -734,6 +734,15 @@ struct ContentView: View {
         visibleLibrarySections.map(SidebarItem.libraryChild(for:))
     }
 
+    private var searchTabRole: TabRole {
+        #if compiler(>=6.4)
+        // iOS 27 no longer separates a search tab unless it activates search.
+        // Keep the independent button without changing search activation.
+        if #available(iOS 27.0, *) { return .prominent }
+        #endif
+        return .search
+    }
+
     @ViewBuilder
     private var tabRoot: some View {
         TabView(selection: searchAwareTabSelection) {
@@ -762,7 +771,8 @@ struct ContentView: View {
                 .toolbar(systemTabBarVisibility, for: .tabBar)
             }
 
-            Tab(value: 2, role: .search) {
+            Tab(String(localized: "search_title"), systemImage: "magnifyingglass",
+                value: 2, role: searchTabRole) {
                 SearchView(searchText: $searchText, scope: $searchScope,
                            contextualScope: searchContext, onShowInLibrary: showSongInLibrary)
                     .id("primuse.tab.search")
