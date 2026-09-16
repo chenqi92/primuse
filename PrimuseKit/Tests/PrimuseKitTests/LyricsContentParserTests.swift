@@ -469,6 +469,47 @@ struct LyricsContentParserTests {
 
     /// Apple Music word-timed documents mark backing vocals and authored
     /// translations with `ttm:role`. Both used to be appended to the sung line.
+    @Test("An LRC offset header moves the timeline and is applied only once")
+    func appliesLRCOffsetHeader() throws {
+        let content = """
+        [ti:Demo]
+        [offset:+500]
+        [00:10.00]First line
+        [00:12.00]<00:12.00>Second <00:12.50>line
+        """
+
+        let parsed = LyricsContentParser.parseText(content)
+        #expect(parsed.count == 2)
+        #expect(parsed[0].timestamp == 9.5)
+        #expect(parsed[1].syllables?.map(\.start) == [11.5, 12])
+        // The tag is consumed, so re-reading a saved document cannot shift twice.
+        #expect(parsed[0].metadataLines == ["[ti:Demo]"])
+        let roundTrip = LyricsContentParser.parseText(LyricsContentParser.serialize(parsed))
+        #expect(roundTrip.first?.timestamp == 9.5)
+    }
+
+    @Test("A negative LRC offset delays the timeline")
+    func appliesNegativeLRCOffsetHeader() throws {
+        let parsed = LyricsContentParser.parseText("[offset:-1200]\n[00:10.00]First line")
+        #expect(parsed.first?.timestamp == 11.2)
+        #expect(parsed.first?.metadataLines == nil)
+    }
+
+    @Test("An LRC offset never moves a line before the start of the track")
+    func clampsLRCOffsetAtZero() throws {
+        let parsed = LyricsContentParser.parseText("[offset:+20000]\n[00:10.00]First\n[00:30.00]Second")
+        #expect(parsed.map(\.timestamp) == [0, 10])
+    }
+
+    @Test("Unusable LRC offset headers leave the document untouched", arguments: [
+        "[offset:0]", "[offset:abc]", "[offset:99999999]", "[offset:]",
+    ])
+    func ignoresUnusableLRCOffsetHeaders(_ header: String) throws {
+        let parsed = LyricsContentParser.parseText("\(header)\n[00:10.00]First line")
+        #expect(parsed.first?.timestamp == 10)
+        #expect(parsed.first?.metadataLines == [header])
+    }
+
     private let issue125TTML = """
     <?xml version="1.0" encoding="UTF-8"?>
     <tt xmlns="http://www.w3.org/ns/ttml"

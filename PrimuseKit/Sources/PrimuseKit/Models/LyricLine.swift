@@ -120,6 +120,76 @@ public enum LyricSyllablePlaybackTimingPolicy {
     }
 }
 
+/// Applies an LRC/ELRC `[offset:]` header. Jellyfin and OpenSubsonic both
+/// report a document offset, and hand-tuned `.lrc` files use the same tag, so
+/// the value has to reach the timeline instead of staying in metadata.
+public enum LyricDocumentOffsetPolicy {
+    /// Past this magnitude the tag is far more likely to be malformed than an
+    /// intended correction, so the document is left untouched.
+    public static let maximumMagnitude: TimeInterval = 600
+
+    /// The tag records milliseconds. A positive value displays the lyrics
+    /// earlier, matching the OpenSubsonic track offset already in use.
+    public static func offsetSeconds(in metadataLines: [String]) -> TimeInterval? {
+        for line in metadataLines.reversed() {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.hasPrefix("["), trimmed.hasSuffix("]") else { continue }
+            let body = trimmed.dropFirst().dropLast()
+            guard let separator = body.firstIndex(of: ":"),
+                  body[..<separator].trimmingCharacters(in: .whitespaces).lowercased() == "offset"
+            else { continue }
+            var value = body[body.index(after: separator)...]
+                .trimmingCharacters(in: .whitespaces)
+            if value.hasPrefix("+") { value.removeFirst() }
+            guard let milliseconds = Double(value), milliseconds.isFinite else { continue }
+            let seconds = milliseconds / 1_000
+            guard seconds != 0, abs(seconds) <= maximumMagnitude else { return nil }
+            return seconds
+        }
+        return nil
+    }
+
+    public static func removingOffsetTag(from metadataLines: [String]) -> [String] {
+        metadataLines.filter { line in
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.hasPrefix("["), trimmed.hasSuffix("]"),
+                  let separator = trimmed.dropFirst().dropLast().firstIndex(of: ":") else {
+                return true
+            }
+            let key = trimmed.dropFirst().dropLast()[..<separator]
+                .trimmingCharacters(in: .whitespaces)
+                .lowercased()
+            return key != "offset"
+        }
+    }
+
+    public static func applying(offset: TimeInterval, to lines: [LyricLine]) -> [LyricLine] {
+        guard offset != 0, offset.isFinite else { return lines }
+        return lines.map { shifting($0, by: offset) }
+    }
+
+    private static func shifting(_ line: LyricLine, by offset: TimeInterval) -> LyricLine {
+        var shifted = line
+        shifted.timestamp = moved(line.timestamp, by: offset)
+        shifted.endTimestamp = line.endTimestamp.map { moved($0, by: offset) }
+        shifted.syllables = line.syllables?.map { syllable in
+            var moved = syllable
+            moved.start = self.moved(syllable.start, by: offset)
+            moved.end = self.moved(syllable.end, by: offset)
+            return moved
+        }
+        shifted.background = line.background?.map { shifting($0, by: offset) }
+        return shifted
+    }
+
+    /// Millisecond rounding keeps shifted values printable as LRC timestamps
+    /// instead of accumulating binary floating-point noise.
+    private static func moved(_ time: TimeInterval, by offset: TimeInterval) -> TimeInterval {
+        guard time.isFinite else { return time }
+        return max(0, ((time - offset) * 1_000).rounded() / 1_000)
+    }
+}
+
 /// The base writing direction of one lyrics document. `natural` deliberately
 /// leaves mixed-language lyrics to the platform's Unicode bidi handling.
 public enum LyricWritingDirection: String, Codable, Hashable, Sendable {
@@ -1044,7 +1114,14 @@ public enum LyricsContentParser {
             return lhs.element.timestamp < rhs.element.timestamp
         }.map(\.element)
         if !metadataLines.isEmpty, !lines.isEmpty {
-            lines[0].metadataLines = metadataLines
+            // `[offset:]` belongs to the document's timeline, not to playback
+            // preferences. Applying it here keeps every surface — rendering,
+            // seeking, the editor and writeback — on one set of timestamps.
+            if let offset = LyricDocumentOffsetPolicy.offsetSeconds(in: metadataLines) {
+                lines = LyricDocumentOffsetPolicy.applying(offset: offset, to: lines)
+                metadataLines = LyricDocumentOffsetPolicy.removingOffsetTag(from: metadataLines)
+            }
+            lines[0].metadataLines = metadataLines.isEmpty ? nil : metadataLines
         }
         return lines
     }
