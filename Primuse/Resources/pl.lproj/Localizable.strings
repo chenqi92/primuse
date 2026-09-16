@@ -2020,6 +2020,7 @@
 "no_genres_desc" = "Dodaj tagi gatunku do utworów, aby przeglądać swoją bibliotekę w ten sposób.";
 "no_insecure_http_domains" = "Żaden publiczny host nie może używać HTTP";
 "no_lyrics" = "Brak dostępnego tekstu";
+"lyrics_loading" = "Wczytywanie tekstu";
 "no_new_songs" = "Brak nowych piosenek";
 "no_playlists" = "Brak list odtwarzania";
 "no_playlists_desc" = "Utwórz listę odtwarzania, aby uporządkować swoją muzykę";

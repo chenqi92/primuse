@@ -348,6 +348,7 @@
 "now_playing" = "Aktuelle Wiedergabe";
 "lyrics_title" = "Liedtext";
 "no_lyrics" = "Kein Liedtext verfügbar";
+"lyrics_loading" = "Songtext wird geladen";
 "lyrics_font_size" = "Schriftgröße";
 "lyrics_font_small" = "Klein";
 "lyrics_font_medium" = "Mittel";

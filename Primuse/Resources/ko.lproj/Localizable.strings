@@ -348,6 +348,7 @@
 "now_playing" = "재생 중";
 "lyrics_title" = "가사";
 "no_lyrics" = "사용할 수 있는 가사 없음";
+"lyrics_loading" = "가사 불러오는 중";
 "lyrics_font_size" = "글자 크기";
 "lyrics_font_small" = "작게";
 "lyrics_font_medium" = "중간";

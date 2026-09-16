@@ -3342,6 +3342,7 @@
 "settings_dlna_footer" = "Aynı Wi-Fi üzerindeki diğer cihazlar (VLC, Synology Audio Station, Plex, Hi-Fi Cast, vb.) Primuse'yi bir medya oluşturucu olarak görecek ve sesi oynatma için itebilecektir.";
 "batch_scrape_counts_format" = "%d Güncellendi · Güncellenmedi %d · Başarısız %d";
 "no_lyrics" = "Şarkı sözü mevcut değil";
+"lyrics_loading" = "Şarkı sözleri yükleniyor";
 "error_metadata_tag_read_timeout %@" = "Etiketlerin okunması %@ saniye sonra zaman aşımına uğradı.";
 "cloud_err_no_client_id" = "İstemci Kimliği yapılandırılmadı";
 "ai_compatibility_openai_responses" = "OpenAI Yanıtlar API";

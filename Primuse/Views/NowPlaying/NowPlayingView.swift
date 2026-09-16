@@ -452,6 +452,13 @@ struct NowPlayingView: View {
     @State private var lyricsWritingDirection: LyricWritingDirection = .natural
     @State private var lyricsRevision: UInt = 0
     @State private var lyricsLoadRevision: UInt = 0
+    /// 歌词还没有结论的那段时间属于哪一次加载。切歌 / 重新刮削会推进
+    /// lyricsLoadRevision, 晚到的收尾因此不会把新一轮的加载态抹掉。
+    @State private var lyricsResolvingRevision: UInt?
+    @State private var lyricsResolutionTimeoutTask: Task<Void, Never>?
+    /// 占位最多显示这么久。NAS 不可达时 Tier 3 能挂很长时间, 不封顶的话
+    /// "暂无歌词 + 去刮削"就一直出不来, 用户连手动刮削都点不到。
+    private static let lyricsResolutionTimeout: Duration = .seconds(6)
     @State private var isResolvingScrapeTarget = false
     @State private var scrapeAlertMessage: String?
     @State private var showNoScraperSourceAlert = false
@@ -1157,6 +1164,7 @@ struct NowPlayingView: View {
                         lyrics: lyrics,
                         lyricCompanions: { companionTexts(for: $0) },
                         lyricsWritingDirection: lyricsWritingDirection,
+                        isResolvingLyrics: isResolvingLyrics,
                         isSceneActive: isVisualSceneActive,
                         onDismiss: dismissFullscreenPlayer,
                         onMinimize: minimizeFullscreenPlayer,
@@ -1202,6 +1210,7 @@ struct NowPlayingView: View {
             // 从"更多"菜单做海报会带上一首的翻译。
             lyricTranslationsForSharing = [:]
             if player.isLiveRadio {
+                clearLyricsResolution()
                 lyrics = []
             } else {
                 await loadLyrics()
@@ -2901,6 +2910,7 @@ struct NowPlayingView: View {
             lyrics: lyrics,
             lyricsWritingDirection: lyricsWritingDirection,
             lyricsRevision: lyricsRevision,
+            isResolvingLyrics: isResolvingLyrics,
             player: player,
             songID: player.currentSong?.id,
             isSceneActive: isVisualSceneActive,
@@ -3097,6 +3107,7 @@ struct NowPlayingView: View {
     private func loadLyrics() async {
         lyricsLoadRevision &+= 1
         let loadRevision = lyricsLoadRevision
+        beginLyricsResolution(loadRevision)
         guard let song = player.currentSong else { setLyrics([]); return }
         let loadStart = Date()
 
@@ -3131,6 +3142,8 @@ struct NowPlayingView: View {
                            !latest.isEmpty {
                             setLyricsIfCurrent(latest, for: song, loadRevision: loadRevision)
                         }
+                        // 这条分支可能一行歌词都没写出去, 但这次查询已经结束。
+                        endLyricsResolution(loadRevision)
                         return
                     }
                     plog(String(format: "📜 Apple Music lyrics fetched '%@' in %.0fms (%d lines)",
@@ -3195,6 +3208,9 @@ struct NowPlayingView: View {
 
         // Tier 3: 首次必走 (无 cache, 无本地 sidecar)
         guard setLyricsIfCurrent([], for: song, loadRevision: loadRevision) else { return }
+        // 上一行已经把"没有歌词"写进 UI, 但 Tier 3 还在路上。重新接上加载态,
+        // 否则联网取词的这几百毫秒里播放页会先谎报一次"暂无歌词, 去刮削"。
+        beginLyricsResolution(loadRevision)
         plog(String(format: "📜 loadLyrics '%@' miss Tier1+2, falling to Tier3 (NAS fetch)", song.title))
         runLyricsTier3Fetch(song: song, currentCache: nil, loadRevision: loadRevision)
     }
@@ -3289,6 +3305,9 @@ struct NowPlayingView: View {
         let isRefresh = currentCache != nil
 
         Task {
+            // Tier 3 的出口有十来个, 统一在这里收尾: 首次加载的占位只能由这次
+            // 请求结束, 不论它是拿到歌词、拿到空结果还是抛错。
+            defer { endLyricsResolution(loadRevision) }
             let tier3Start = Date()
             do {
                 guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
@@ -3461,7 +3480,35 @@ struct NowPlayingView: View {
             && player.currentSong?.id == songID
     }
 
+    /// 歌词结果未知: 本地缓存没命中, 正在问服务端 / 在线歌词源。歌词区这时
+    /// 显示占位骨架, 而不是"暂无歌词 + 去刮削"。
+    private var isResolvingLyrics: Bool {
+        lyricsResolvingRevision == lyricsLoadRevision
+    }
+
+    private func beginLyricsResolution(_ loadRevision: UInt) {
+        lyricsResolvingRevision = loadRevision
+        lyricsResolutionTimeoutTask?.cancel()
+        lyricsResolutionTimeoutTask = Task {
+            try? await Task.sleep(for: Self.lyricsResolutionTimeout)
+            guard !Task.isCancelled else { return }
+            endLyricsResolution(loadRevision)
+        }
+    }
+
+    private func endLyricsResolution(_ loadRevision: UInt) {
+        guard lyricsResolvingRevision == loadRevision else { return }
+        clearLyricsResolution()
+    }
+
+    private func clearLyricsResolution() {
+        lyricsResolvingRevision = nil
+        lyricsResolutionTimeoutTask?.cancel()
+        lyricsResolutionTimeoutTask = nil
+    }
+
     private func setLyrics(_ value: [LyricLine]) {
+        clearLyricsResolution()
         lyricsWritingDirection = LyricWritingDirectionPolicy.resolve(in: value)
         lyrics = value
         lyricsRevision &+= 1
@@ -5241,6 +5288,64 @@ private enum LyricsTranslationActivity: Equatable {
     case systemUnavailable
 }
 
+/// 歌词还没有结论时的占位。照着歌词自身的排版节奏画几行骨架 —— 结果没回来
+/// 之前空歌词只是"还不知道", 直接落到"暂无歌词 + 去刮削"等于每首需要联网
+/// 取词的歌都先谎报一次没有歌词。骨架本身延迟淡入, 本地缓存命中的那几十
+/// 毫秒里不会闪一下。
+private struct LyricsLoadingSkeleton: View {
+    let alignment: PlayerLyricsAlignment
+    let tint: Color
+    let layoutDirection: LayoutDirection
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    @State private var isVisible = false
+    @State private var isPulsing = false
+
+    /// 行宽照着真实歌词的长短参差, 骨架才像歌词而不像列表。
+    private static let rowWidthRatios: [Double] = [0.78, 0.58, 0.86, 0.46]
+    private static let rowHeight: CGFloat = 17
+    private static let rowSpacing: CGFloat = 26
+    private static let topInset: CGFloat = 72
+    private static let horizontalPadding: CGFloat = 24
+    private static let appearDelay: Duration = .milliseconds(240)
+
+    var body: some View {
+        GeometryReader { geo in
+            let available = max(geo.size.width - Self.horizontalPadding * 2, 1)
+            VStack(alignment: alignment.horizontalAlignment, spacing: Self.rowSpacing) {
+                ForEach(Array(Self.rowWidthRatios.enumerated()), id: \.offset) { index, ratio in
+                    Capsule(style: .continuous)
+                        .fill(tint.opacity(isPulsing ? 0.26 : 0.12))
+                        .frame(width: available * ratio, height: Self.rowHeight)
+                        .animation(pulseAnimation(index: index), value: isPulsing)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: alignment.frameAlignment)
+            .padding(.horizontal, Self.horizontalPadding)
+            .padding(.top, Self.topInset)
+        }
+        .environment(\.layoutDirection, layoutDirection)
+        .opacity(isVisible ? 1 : 0)
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("lyrics_loading"))
+        .task {
+            try? await Task.sleep(for: Self.appearDelay)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.28)) { isVisible = true }
+            isPulsing = true
+        }
+    }
+
+    private func pulseAnimation(index: Int) -> Animation? {
+        guard !reduceMotion else { return nil }
+        return .easeInOut(duration: 1.15)
+            .repeatForever(autoreverses: true)
+            .delay(Double(index) * 0.14)
+    }
+}
+
 /// 暂停后的歌词定位刷新只依赖这一层的 currentTime/isPlaying 读取。
 private struct LyricsPausedTimeObserver: View {
     let player: AudioPlayerService
@@ -5263,6 +5368,8 @@ struct LyricsScrollView: View {
     let lyrics: [LyricLine]
     let lyricsWritingDirection: LyricWritingDirection
     let lyricsRevision: UInt
+    /// 歌词结果还没回来。空歌词此时是"还不知道", 不是"没有"。
+    let isResolvingLyrics: Bool
     let player: AudioPlayerService
     let songID: String?
     let isSceneActive: Bool
@@ -5431,7 +5538,15 @@ struct LyricsScrollView: View {
     var body: some View {
         Group {
             if lyrics.isEmpty {
-                emptyLyricsView
+                if isResolvingLyrics {
+                    LyricsLoadingSkeleton(
+                        alignment: lyricsAlignment,
+                        tint: appearance.faint,
+                        layoutDirection: lyricLayoutDirection
+                    )
+                } else {
+                    emptyLyricsView
+                }
             } else if hasWordLevelLyrics {
                 smoothWordLyricsView
             } else {

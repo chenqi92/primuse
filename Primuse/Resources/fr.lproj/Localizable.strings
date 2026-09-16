@@ -348,6 +348,7 @@
 "now_playing" = "En cours de lecture";
 "lyrics_title" = "Paroles";
 "no_lyrics" = "Aucune parole disponible";
+"lyrics_loading" = "Chargement des paroles";
 "lyrics_font_size" = "Taille du texte";
 "lyrics_font_small" = "Petite";
 "lyrics_font_medium" = "Moyenne";

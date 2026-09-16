@@ -14,6 +14,8 @@ struct ImmersivePlayerView: View {
     /// translation exists for the current target language.
     let lyricCompanions: (LyricLine) -> [String]
     let lyricsWritingDirection: LyricWritingDirection
+    /// 歌词结果还没回来。空歌词此时是"还不知道", 不是"没有"。
+    let isResolvingLyrics: Bool
     let isSceneActive: Bool
     let onDismiss: () -> Void
     let onMinimize: () -> Void
@@ -235,7 +237,9 @@ struct ImmersivePlayerView: View {
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
             lyricInterlude: lyricInterlude,
-            lyricsPlaceholder: String(localized: "no_lyrics"),
+            lyricsPlaceholder: isResolvingLyrics
+                ? String(localized: "lyrics_loading")
+                : String(localized: "no_lyrics"),
             controlsInset: controlsInset(metrics)
         ) { side in
             ZStack {

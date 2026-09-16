@@ -120,6 +120,7 @@
 "now_playing" = "正在播放";
 "lyrics_title" = "歌词";
 "no_lyrics" = "暂无歌词";
+"lyrics_loading" = "正在加载歌词";
 "lyrics_font_size" = "字号";
 "lyrics_font_small" = "小";
 "lyrics_font_medium" = "中";

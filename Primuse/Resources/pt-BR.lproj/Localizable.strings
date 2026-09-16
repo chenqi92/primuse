@@ -2020,6 +2020,7 @@
 "no_genres_desc" = "Adicione tags de gênero às músicas para navegar em sua biblioteca dessa maneira.";
 "no_insecure_http_domains" = "Nenhum host público pode usar HTTP";
 "no_lyrics" = "Nenhuma letra disponível";
+"lyrics_loading" = "Carregando a letra";
 "no_new_songs" = "Nenhuma música nova";
 "no_playlists" = "Sem listas de reprodução";
 "no_playlists_desc" = "Crie uma playlist para organizar suas músicas";

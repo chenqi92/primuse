@@ -119,6 +119,7 @@
 "now_playing" = "Now Playing";
 "lyrics_title" = "Lyrics";
 "no_lyrics" = "No lyrics available";
+"lyrics_loading" = "Loading lyrics";
 "lyrics_font_size" = "Font Size";
 "lyrics_font_small" = "Small";
 "lyrics_font_medium" = "Medium";

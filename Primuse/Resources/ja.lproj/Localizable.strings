@@ -349,6 +349,7 @@
 "now_playing" = "再生中";
 "lyrics_title" = "歌詞";
 "no_lyrics" = "歌詞がありません";
+"lyrics_loading" = "歌詞を読み込み中";
 "lyrics_font_size" = "文字サイズ";
 "lyrics_font_small" = "小";
 "lyrics_font_medium" = "中";

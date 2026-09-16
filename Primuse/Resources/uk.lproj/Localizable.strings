@@ -3342,6 +3342,7 @@
 "settings_dlna_footer" = "Інші пристрої на тому самому Wi-Fi (VLC, Synology Audio Station, Plex, Hi-Fi Cast тощо) бачитимуть Primuse як медіа-рендерер і можуть передавати аудіо для відтворення.";
 "batch_scrape_counts_format" = "Оновлено %d · Не оновлено %d · Помилка %d";
 "no_lyrics" = "Немає тексту";
+"lyrics_loading" = "Завантаження тексту пісні";
 "error_metadata_tag_read_timeout %@" = "Час очікування читання тегів минув через %@ секунд.";
 "cloud_err_no_client_id" = "Ідентифікатор клієнта не налаштовано";
 "ai_compatibility_openai_responses" = "OpenAI Відповіді API";
