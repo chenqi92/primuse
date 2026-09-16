@@ -1870,6 +1870,7 @@
 "lyrics_translation_on" = "عرض ترجمة الكلمات";
 "lyrics_translation_overall_footer" = "إظهار النص المترجم أسفل كل سطر باستخدام نظام الترجمة الذكية.";
 "lyrics_translation_section" = "الترجمة";
+"lyrics_romanization_section" = "الكتابة اللاتينية";
 "lyrics_translation_target" = "ترجمة ل";
 "lyrics_translation_target_language" = "لغة الهدف";
 "lyrics_translation_title" = "ترجمة كلمات الأغاني";

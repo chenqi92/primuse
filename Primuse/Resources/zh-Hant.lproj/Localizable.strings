@@ -3381,6 +3381,7 @@
 "recently_deleted_clear_all_failed_format" = "%d 個項目未能清除，已保留在最近刪除中。";
 "lyrics_settings_title" = "歌詞設定";
 "lyrics_translation_section" = "歌詞翻譯";
+"lyrics_romanization_section" = "羅馬音";
 "lyrics_display_section" = "顯示";
 "lyrics_audio_tools_section" = "從音訊產生歌詞";
 "lyrics_audio_tools_footer" = "聽歌識詞會產生可編輯的時間軸歌詞草稿；校對並確認前不會儲存。";

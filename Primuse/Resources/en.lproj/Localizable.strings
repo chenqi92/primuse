@@ -3181,6 +3181,7 @@
 "recently_deleted_clear_all_failed_format" = "%d items could not be cleared and remain in Recently Deleted.";
 "lyrics_settings_title" = "Lyrics Settings";
 "lyrics_translation_section" = "Translation";
+"lyrics_romanization_section" = "Romanization";
 "lyrics_display_section" = "Display";
 "lyrics_audio_tools_section" = "Lyrics from Audio";
 "lyrics_audio_tools_footer" = "Song transcription creates an editable, timed lyric draft. Nothing is saved until you review and confirm it.";

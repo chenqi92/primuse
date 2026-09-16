@@ -3396,6 +3396,7 @@
 "recently_deleted_clear_all_failed_format" = "%d Elemente konnten nicht gelöscht werden und verbleiben unter „Zuletzt gelöscht“.";
 "lyrics_settings_title" = "Liedtexteinstellungen";
 "lyrics_translation_section" = "Übersetzung";
+"lyrics_romanization_section" = "Umschrift";
 "lyrics_display_section" = "Darstellung";
 "lyrics_audio_tools_section" = "Liedtext aus Audio";
 "lyrics_audio_tools_footer" = "Die Song-Transkription erstellt einen bearbeitbaren, zeitcodierten Liedtextentwurf. Gespeichert wird erst nach Prüfung und Bestätigung.";

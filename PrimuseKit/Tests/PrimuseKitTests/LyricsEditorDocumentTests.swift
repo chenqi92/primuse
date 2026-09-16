@@ -7,6 +7,59 @@ struct LyricsEditorDocumentTests {
 
     // MARK: - 解析
 
+    @Test("A romanization is editable, protected, and forces structured storage")
+    func editsRomanization() throws {
+        var document = LyricsEditorDocument(lyricLines: [
+            LyricLine(
+                timestamp: 1,
+                text: "君と歩く",
+                isSynchronized: true,
+                romanization: "kimi to aruku"
+            ),
+            LyricLine(timestamp: 5, text: "Plain line", isSynchronized: true),
+        ])
+
+        // LRC cannot carry a romanization, so a plain row may not gain one…
+        document.updateRomanization("new", at: 1)
+        #expect(document.lines[1].romanization == nil)
+        // …but an existing one can always be edited or cleared.
+        document.updateRomanization("kimi to aruku yo", at: 0)
+        #expect(document.lines[0].romanization == "kimi to aruku yo")
+        // A structured target may add one.
+        document.updateRomanization("purein rain", at: 1, allowsStructuredOnly: true)
+        #expect(document.lines[1].romanization == "purein rain")
+
+        // It is document content: a row carrying one keeps its stamp and needs
+        // a format that can hold it.
+        #expect(!document.lines[0].canClearStamp)
+        #expect(LyricsStructuredPersistencePolicy.requiresTTML(document.lyricLines()))
+        #expect(!LyricsStructuredPersistencePolicy.requiresTTML([
+            LyricLine(timestamp: 1, text: "Portable", isSynchronized: true),
+        ]))
+
+        document.updateRomanization("   ", at: 0)
+        #expect(document.lines[0].romanization == nil)
+    }
+
+    @Test("Adding a romanization changes the document fingerprint")
+    func romanizationChangesFingerprint() {
+        let plain = [LyricLine(timestamp: 1, text: "君と歩く", isSynchronized: true)]
+        let romanized = [
+            LyricLine(
+                timestamp: 1,
+                text: "君と歩く",
+                isSynchronized: true,
+                romanization: "kimi to aruku"
+            ),
+        ]
+
+        #expect(
+            LyricsDocumentFingerprint(lines: plain)
+                != LyricsDocumentFingerprint(lines: romanized)
+        )
+        #expect(!LyricsContentParser.areSemanticallyEquivalent(plain, romanized))
+    }
+
     @Test("Keeps unstamped lines that the playback parser drops")
     func keepsUnstampedLines() {
         let document = LyricsEditorDocument(parsing: """

@@ -339,6 +339,9 @@ private struct LyricsFingerprintWriter {
         append(line.alternateManualTranslations) { writer, translation in
             writer.append(translation)
         }
+        // A romanization is document content: an edit that only adds or
+        // removes one must still read as a changed document.
+        append(line.romanization)
     }
 
     private mutating func append(_ value: LyricManualTranslation?) {

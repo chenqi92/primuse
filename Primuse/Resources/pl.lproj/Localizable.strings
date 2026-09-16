@@ -1870,6 +1870,7 @@
 "lyrics_translation_on" = "Pokaż tłumaczenie tekstu";
 "lyrics_translation_overall_footer" = "Pokaż przetłumaczony tekst pod każdym wierszem, korzystając z tłumaczenia systemowego lub inteligentnego.";
 "lyrics_translation_section" = "Tłumaczenie";
+"lyrics_romanization_section" = "Transkrypcja";
 "lyrics_translation_target" = "Przetłumacz na";
 "lyrics_translation_target_language" = "Język docelowy";
 "lyrics_translation_title" = "Tłumaczenie tekstu";

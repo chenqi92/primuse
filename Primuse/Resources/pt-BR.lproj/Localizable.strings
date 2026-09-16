@@ -1870,6 +1870,7 @@
 "lyrics_translation_on" = "Mostrar tradução das letras";
 "lyrics_translation_overall_footer" = "Mostrar texto traduzido abaixo de cada linha usando sistema ou tradução inteligente.";
 "lyrics_translation_section" = "Tradução";
+"lyrics_romanization_section" = "Romanização";
 "lyrics_translation_target" = "Traduzir para";
 "lyrics_translation_target_language" = "Idioma Alvo";
 "lyrics_translation_title" = "Tradução de letras";

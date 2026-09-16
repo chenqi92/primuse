@@ -3396,6 +3396,7 @@
 "recently_deleted_clear_all_failed_format" = "%d개 항목을 지우지 못해 최근 삭제 항목에 남겨 두었습니다.";
 "lyrics_settings_title" = "가사 설정";
 "lyrics_translation_section" = "번역";
+"lyrics_romanization_section" = "로마자";
 "lyrics_display_section" = "표시";
 "lyrics_audio_tools_section" = "오디오에서 가사 만들기";
 "lyrics_audio_tools_footer" = "곡 받아쓰기는 편집 가능한 시간 정보 가사 초안을 만듭니다. 검토하고 확인하기 전에는 저장하지 않습니다.";

@@ -1345,6 +1345,7 @@
 "api_key" = "API Ключ";
 "stats_clear_confirm" = "Очистити історію прослуховування?";
 "lyrics_translation_section" = "Переклад";
+"lyrics_romanization_section" = "Латиниця";
 "yearly_month_11" = "листопад";
 "stats_title" = "Статистика прослуховування";
 "a11y_prev_track" = "Попередній трек";

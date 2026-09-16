@@ -3396,6 +3396,7 @@
 "recently_deleted_clear_all_failed_format" = "%d éléments n’ont pas pu être supprimés et restent dans les suppressions récentes.";
 "lyrics_settings_title" = "Réglages des paroles";
 "lyrics_translation_section" = "Traduction";
+"lyrics_romanization_section" = "Romanisation";
 "lyrics_display_section" = "Affichage";
 "lyrics_audio_tools_section" = "Paroles depuis l’audio";
 "lyrics_audio_tools_footer" = "La transcription crée un brouillon de paroles horodatées et modifiables. Rien n’est enregistré avant vérification et confirmation.";

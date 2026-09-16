@@ -71,6 +71,7 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
 
     public var canClearStamp: Bool {
         manualTranslation == nil
+            && romanization == nil
             && alternateManualTranslations.isEmpty
             && endTimestamp == nil
             && voice == .primary
@@ -80,6 +81,7 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
 
     var hasProtectedSupplementalFields: Bool {
         manualTranslation != nil
+            || romanization != nil
             || !alternateManualTranslations.isEmpty
             || endTimestamp != nil
             || voice != .primary
@@ -106,6 +108,13 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
 
     /// 新建译文由调用方标明是可落盘的双语 LRC，还是只能留在本地
     /// 结构化缓存；从独立容器字段读入的译文仍保留原有来源和语言。
+    /// An empty value removes the romanization: the editor's field is also the
+    /// only way to delete one.
+    mutating func replaceRomanization(_ newText: String) {
+        let trimmed = newText.trimmingCharacters(in: .whitespacesAndNewlines)
+        romanization = trimmed.isEmpty ? nil : newText
+    }
+
     mutating func replaceManualTranslation(
         _ newText: String,
         newSource: LyricManualTranslationSource = .bilingualLRC
@@ -186,6 +195,7 @@ public enum LyricsStructuredPersistencePolicy {
         let syllableTextDoesNotCoverLine = !syllables.isEmpty
             && syllables.map(\.text).joined() != line.text
         return line.endTimestamp != nil
+            || line.romanization != nil
             || line.voice != .primary
             || line.background?.isEmpty == false
             || line.languageCode != nil
@@ -660,6 +670,18 @@ public struct LyricsEditorDocument: Hashable, Sendable {
 
     /// 双语 LRC 只能无损关联普通行级时间戳。当写回目标只是
     /// Primuse 的结构化缓存时，调用方可显式允许纯文本或字级行。
+    /// A romanization can only be written back inside a structured document
+    /// (TTML), so a plain LRC target may only clear an existing one.
+    public mutating func updateRomanization(
+        _ text: String,
+        at index: Int,
+        allowsStructuredOnly: Bool = false
+    ) {
+        guard lines.indices.contains(index),
+              lines[index].romanization != nil || allowsStructuredOnly else { return }
+        lines[index].replaceRomanization(text)
+    }
+
     public mutating func updateManualTranslation(
         _ text: String,
         at index: Int,

@@ -1390,6 +1390,7 @@ public enum LyricsContentParser {
                   optionalTimesEqual(left.endTimestamp, right.endTimestamp, tolerance: tolerance),
                   manualTranslationsEqual(left.manualTranslation, right.manualTranslation),
                   left.alternateManualTranslations == right.alternateManualTranslations,
+                  left.romanization == right.romanization,
                   areSemanticallyEquivalent(
                     left.background ?? [],
                     right.background ?? [],

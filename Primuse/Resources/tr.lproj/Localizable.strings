@@ -1345,6 +1345,7 @@
 "api_key" = "API Anahtarı";
 "stats_clear_confirm" = "Dinleme geçmişi temizlensin mi?";
 "lyrics_translation_section" = "Çeviri";
+"lyrics_romanization_section" = "Latin harfleri";
 "yearly_month_11" = "Kasım";
 "stats_title" = "Dinleme İstatistikleri";
 "a11y_prev_track" = "Önceki parça";

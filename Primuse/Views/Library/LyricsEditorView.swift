@@ -73,6 +73,7 @@ struct LyricsEditorView: View {
 
     @FocusState private var focusedLine: UUID?
     @FocusState private var focusedTranslationLine: UUID?
+    @FocusState private var focusedRomanizationLine: UUID?
     @FocusState private var liveDraftFocused: Bool
 
     enum Mode { case timing, text }
@@ -189,6 +190,7 @@ struct LyricsEditorView: View {
                     Button(String(localized: "done")) {
                         focusedLine = nil
                         focusedTranslationLine = nil
+                        focusedRomanizationLine = nil
                     }
                 }
             }
@@ -1410,6 +1412,7 @@ struct LyricsEditorView: View {
                 if newMode == .timing {
                     focusedLine = nil
                     focusedTranslationLine = nil
+                    focusedRomanizationLine = nil
                     prepareTimingSession()
                 }
                 withAnimation(.easeInOut(duration: 0.2)) { mode = newMode }
@@ -1806,6 +1809,30 @@ struct LyricsEditorView: View {
                 }
             }
 
+            // 罗马音只有结构化文档(TTML)存得下, 所以 LRC 目标下只允许清除
+            // 既有的那一条, 不提供新增。
+            if mode == .text,
+               line.romanization != nil || allowsStructuredOnlyTranslationEditing {
+                HStack(alignment: .firstTextBaseline, spacing: 7) {
+                    Image(systemName: "textformat.abc")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
+
+                    TextField(
+                        String(localized: "lyrics_romanization_section"),
+                        text: romanizationBinding(for: index),
+                        axis: .vertical
+                    )
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+                    .focused($focusedRomanizationLine, equals: line.id)
+                    .environment(\.layoutDirection, .leftToRight)
+                }
+            }
+
             if let syllables = line.syllables, !syllables.isEmpty {
                 wordTimingStrip(
                     line: line,
@@ -2057,6 +2084,22 @@ struct LyricsEditorView: View {
                     selectedTextSyllable = nil
                 }
                 document.updateText(newValue, at: index)
+            }
+        )
+    }
+
+    private func romanizationBinding(for index: Int) -> Binding<String> {
+        Binding(
+            get: {
+                guard document.lines.indices.contains(index) else { return "" }
+                return document.lines[index].romanization ?? ""
+            },
+            set: { newValue in
+                document.updateRomanization(
+                    newValue,
+                    at: index,
+                    allowsStructuredOnly: allowsStructuredOnlyTranslationEditing
+                )
             }
         )
     }
