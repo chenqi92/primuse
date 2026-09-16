@@ -3077,6 +3077,7 @@
 "source_diag_directory_ok_format" = "Lea el directorio correctamente, se encontraron elementos visibles de %d.";
 "source_diag_directory_title" = "Acceso al directorio";
 "source_diag_preparing_scan" = "Comprobando la fuente antes de escanear...";
+"source_diag_checking_changes" = "Buscando cambios en el servidor...";
 "source_diag_run_again" = "Ejecutar nuevamente";
 "source_diag_running" = "Comprobando la conexión y la preparación del escaneo...";
 "source_diag_scan_ready_ok" = "Esta fuente se puede escanear ahora.";

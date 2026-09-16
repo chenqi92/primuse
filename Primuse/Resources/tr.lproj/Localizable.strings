@@ -777,6 +777,7 @@
 "rescan" = "Yeniden tara";
 "Syncing…" = "Senkronizasyon yapılıyor…";
 "source_diag_preparing_scan" = "Taramadan önce kaynak kontrol ediliyor...";
+"source_diag_checking_changes" = "Sunucudaki değişiklikler denetleniyor...";
 "The update will be installed from the App Store." = "Güncelleme App Store'den yüklenecektir.";
 "error_scrobble_http %@ %@" = "Scrobbling sunucusu HTTP %@: %@ döndürdü";
 "base_path_hint" = "Temel Yol (ör. /dav)";

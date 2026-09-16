@@ -2244,13 +2244,18 @@ private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetad
 
     func songCatalogChanges(
         since marker: ServerCatalogSyncMarker,
-        knownSongs: [Song]
+        knownSongs: [Song],
+        progress: SongCatalogChangeProgress?
     ) async throws -> SongCatalogChanges {
         try await routing.withRead { connector in
             guard let scanner = connector as? any IncrementalSongCatalogConnector else {
                 throw PagedSongCatalogError.unavailable
             }
-            return try await scanner.songCatalogChanges(since: marker, knownSongs: knownSongs)
+            return try await scanner.songCatalogChanges(
+                since: marker,
+                knownSongs: knownSongs,
+                progress: progress
+            )
         }
     }
 

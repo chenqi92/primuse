@@ -1341,6 +1341,7 @@
 "source_diag_summary_failed" = "需要處理";
 "source_diag_summary_detail_format" = "%@ · %@";
 "source_diag_preparing_scan" = "掃描前正在檢查音樂源...";
+"source_diag_checking_changes" = "正在檢查伺服器上的變更...";
 "source_diag_config_title" = "設定";
 "source_diag_config_ok" = "必要設定已填寫。";
 "source_diag_config_missing_host" = "缺少主機位址。";

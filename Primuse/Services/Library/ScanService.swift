@@ -2978,6 +2978,25 @@ final class ScanService {
         }
     }
 
+    /// Keeps the source card moving while a change pass reads the catalogue's
+    /// id listing, which is the one part of an incremental sync that can take
+    /// as long as a scan.
+    private func publishCatalogCheckProgress(
+        sourceID: String,
+        checkedCount: Int? = nil,
+        totalCount: Int? = nil
+    ) {
+        guard var state = scanStates[sourceID], state.isScanning else { return }
+        state.currentFile = String(localized: "source_diag_checking_changes")
+        // Counts arrive only once the id listing starts. Until then the card
+        // keeps whatever a resumed scan already put there rather than dropping
+        // to zero and back.
+        if let checkedCount { state.scannedCount = checkedCount }
+        if let totalCount { state.totalCount = totalCount }
+        state.failureMessage = nil
+        scanStates[sourceID] = state
+    }
+
     /// Commits one incremental catalogue pass, or returns false to let the
     /// complete walk take over.
     ///
@@ -3017,9 +3036,20 @@ final class ScanService {
         }
         do {
             guard fenceIsValid() else { return true }
+            publishCatalogCheckProgress(sourceID: source.id)
+            let progressSourceID = source.id
             let changes = try await connector.songCatalogChanges(
                 since: marker,
-                knownSongs: knownSongs
+                knownSongs: knownSongs,
+                progress: { [weak self] checkedCount, totalCount in
+                    Task { @MainActor in
+                        self?.publishCatalogCheckProgress(
+                            sourceID: progressSourceID,
+                            checkedCount: checkedCount,
+                            totalCount: totalCount
+                        )
+                    }
+                }
             )
             guard fenceIsValid() else { return true }
 
@@ -3135,13 +3165,19 @@ final class ScanService {
                 recordScanInterruption(sourceID: source.id)
             }
             return true
+        } catch PagedSongCatalogError.unavailable {
+            // The connector said it cannot answer incrementally — Plex has no
+            // usable change filter, and a server that ignores the one Jellyfin
+            // and Emby take reports it here too. This is the designed answer,
+            // not a failure, so it walks the catalogue without a warning.
+            return fenceIsValid() ? false : true
         } catch {
-            // Every other failure — an unsupported filter, an unreadable answer,
-            // a dropped connection — hands the scan to the complete walk, which
-            // reports its own outcome. An incremental shortcut must never be
-            // the reason a scan fails.
+            // Every other failure — an unreadable answer, a moved catalogue, a
+            // dropped connection — also hands the scan to the complete walk,
+            // which reports its own outcome. An incremental shortcut must never
+            // be the reason a scan fails.
             guard fenceIsValid() else { return true }
-            plog("↷ \(source.name): incremental catalogue sync unavailable (\(error.localizedDescription)); walking the catalogue")
+            plog("↷ \(source.name): incremental catalogue sync failed (\(error.localizedDescription)); walking the catalogue")
             return false
         }
     }

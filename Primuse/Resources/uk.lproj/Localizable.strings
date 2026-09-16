@@ -777,6 +777,7 @@
 "rescan" = "Повторне сканування";
 "Syncing…" = "Синхронізація…";
 "source_diag_preparing_scan" = "Перевірка джерела перед скануванням...";
+"source_diag_checking_changes" = "Перевірка змін на сервері...";
 "The update will be installed from the App Store." = "Оновлення буде встановлено з App Store.";
 "error_scrobble_http %@ %@" = "Скроблінговий сервер повернув HTTP %@: %@";
 "base_path_hint" = "Базовий шлях (наприклад, /dav)";

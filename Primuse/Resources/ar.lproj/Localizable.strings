@@ -3077,6 +3077,7 @@
 "source_diag_directory_ok_format" = "تمت قراءة الدليل بنجاح، وتم العثور على %d عنصر مرئي.";
 "source_diag_directory_title" = "الوصول إلى الدليل";
 "source_diag_preparing_scan" = "التحقق من المصدر قبل المسح...";
+"source_diag_checking_changes" = "التحقق من التغييرات على الخادم...";
 "source_diag_run_again" = "تشغيل مرة أخرى";
 "source_diag_running" = "التحقق من الاتصال وجاهزية المسح...";
 "source_diag_scan_ready_ok" = "يمكن فحص هذا المصدر الآن.";

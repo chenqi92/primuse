@@ -1468,9 +1468,16 @@ struct SongCatalogChanges: Sendable {
 protocol IncrementalSongCatalogConnector: ResumablePagedSongCatalogConnector {
     func songCatalogChanges(
         since marker: ServerCatalogSyncMarker,
-        knownSongs: [Song]
+        knownSongs: [Song],
+        progress: SongCatalogChangeProgress?
     ) async throws -> SongCatalogChanges
 }
+
+/// Reports how far a change pass has got, in rows compared against the
+/// catalogue. Finding a deletion means reading the complete id listing, which
+/// on a large library is a minute of requests the card would otherwise spend
+/// on a motionless label.
+typealias SongCatalogChangeProgress = @Sendable (_ checkedCount: Int, _ totalCount: Int) -> Void
 
 struct IncrementalSourceChanges: Sendable {
     var cursors: [String: String]

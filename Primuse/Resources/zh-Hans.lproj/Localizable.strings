@@ -1422,6 +1422,7 @@
 "source_diag_summary_failed" = "需要处理";
 "source_diag_summary_detail_format" = "%@ · %@";
 "source_diag_preparing_scan" = "扫描前正在检查音乐源...";
+"source_diag_checking_changes" = "正在检查服务器上的变更...";
 "source_diag_config_title" = "配置";
 "source_diag_config_ok" = "必要配置已填写。";
 "source_diag_config_missing_host" = "缺少主机地址。";

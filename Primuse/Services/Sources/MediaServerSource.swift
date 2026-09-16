@@ -898,6 +898,38 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         return (total, marker)
     }
 
+    /// The same probe against a Plex section: one track sorted newest-first
+    /// gives both the section's total and its most recent addition.
+    private func fetchPlexCatalogProbe(
+        sectionID: String
+    ) async throws -> (totalCount: Int, newestCreatedMarker: String) {
+        let response = try await fetchPlexTracks(
+            sectionID: sectionID,
+            startIndex: 0,
+            limit: 1,
+            sort: "addedAt:desc"
+        )
+        guard let total = response.totalCount else {
+            throw PagedSongCatalogError.unavailable
+        }
+        guard total >= 0, total <= Self.maximumCatalogTracks else {
+            throw SourceError.connectionFailed(PMString("error.catalog.invalidTotal"))
+        }
+        let marker = response.items.first?.addedAt.map(String.init) ?? "-"
+        return (total, marker)
+    }
+
+    private func catalogProbe(
+        for library: Library
+    ) async throws -> (totalCount: Int, newestCreatedMarker: String) {
+        switch kind {
+        case .jellyfin, .emby:
+            return try await fetchAudioCatalogProbe(parentID: library.id)
+        case .plex:
+            return try await fetchPlexCatalogProbe(sectionID: library.id)
+        }
+    }
+
     /// Rebuilds the offset space and the revision marker together: the marker
     /// is derived from exactly the counts the offsets are based on, so a
     /// catalogue that moved under the walk cannot pass verification.
@@ -910,7 +942,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         var segments: [CatalogSegment] = []
         var marker = "\(serviceIdentifier):catalog:v1"
         for library in libraries {
-            let probe = try await fetchAudioCatalogProbe(parentID: library.id)
+            let probe = try await catalogProbe(for: library)
             segments.append(CatalogSegment(library: library, count: probe.totalCount))
             marker += "|\(library.id)=\(probe.totalCount)@\(probe.newestCreatedMarker)"
         }
@@ -926,16 +958,11 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     }
 
     func stableSongCatalogRevision() async throws -> String? {
-        // Plex sections report their own totals, but a staged page would also
-        // have to restore the `plexItems` cache the walk fills in. It keeps the
-        // compatibility walk until that is modelled.
-        guard kind != .plex else { throw PagedSongCatalogError.unavailable }
         try await connect()
         return try await rebuildCatalogLayout().revision
     }
 
     func expectedSongCatalogCount() async throws -> Int? {
-        guard kind != .plex else { return nil }
         try await connect()
         let layout: CatalogLayout
         if let cached = catalogLayout {
@@ -948,8 +975,90 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         )
     }
 
+    /// One library's slice of a page, in whichever shape the server answers.
+    private struct CatalogPageSlice {
+        let itemIDs: [String]
+        let songs: [ConnectorScannedSong]
+    }
+
+    private func catalogPageSlice(
+        segment: CatalogSegment,
+        startIndex: Int,
+        limit: Int,
+        dateAddedFallback: Date
+    ) async throws -> CatalogPageSlice {
+        var itemIDs: [String] = []
+        var songs: [ConnectorScannedSong] = []
+        switch kind {
+        case .jellyfin, .emby:
+            let result = try await fetchAudioItems(
+                parentID: segment.library.id,
+                startIndex: startIndex,
+                limit: limit
+            )
+            if let total = result.totalRecordCount, total != segment.count {
+                throw PagedSongCatalogError.snapshotChangedDuringPagination
+            }
+            guard result.items.count <= limit else {
+                throw PagedSongCatalogError.snapshotChangedDuringPagination
+            }
+            for item in result.items {
+                if kind == .emby {
+                    embyLyricsProbedItemIDs.insert(item.id)
+                    embyLyricsStreams[item.id] = item.embyLyricsStream
+                }
+                itemIDs.append(item.id)
+                songs.append(
+                    ConnectorScannedSong(
+                        song: buildSong(from: item, dateAddedFallback: dateAddedFallback),
+                        displayName: item.name,
+                        titleMetadataInspected: ServerCatalogMetadataInspectionPolicy.hasUsableTitle(
+                            item.name
+                        ),
+                        folderLocation: libraryFolderLocation(
+                            for: item,
+                            library: segment.library
+                        )
+                    )
+                )
+            }
+        case .plex:
+            let result = try await fetchPlexTracks(
+                sectionID: segment.library.id,
+                startIndex: startIndex,
+                limit: limit
+            )
+            if let total = result.totalCount, total != segment.count {
+                throw PagedSongCatalogError.snapshotChangedDuringPagination
+            }
+            guard result.items.count <= limit else {
+                throw PagedSongCatalogError.snapshotChangedDuringPagination
+            }
+            for item in result.items {
+                // Keeps playback and write-back off an extra per-track request.
+                // Every reader of this cache already falls back to fetching the
+                // track, so a resumed walk that never filled it still works.
+                plexItems[item.ratingKey] = item
+                itemIDs.append(item.ratingKey)
+                songs.append(
+                    ConnectorScannedSong(
+                        song: buildSong(from: item),
+                        displayName: item.title,
+                        titleMetadataInspected: ServerCatalogMetadataInspectionPolicy.hasUsableTitle(
+                            item.title
+                        ),
+                        folderLocation: libraryFolderLocation(
+                            for: item,
+                            library: segment.library
+                        )
+                    )
+                )
+            }
+        }
+        return CatalogPageSlice(itemIDs: itemIDs, songs: songs)
+    }
+
     func songCatalogPage(from path: String, offset: Int) async throws -> PagedSongCatalogPage {
-        guard kind != .plex else { throw PagedSongCatalogError.unavailable }
         guard offset >= 0 else {
             throw PagedSongCatalogError.snapshotChangedDuringPagination
         }
@@ -976,38 +1085,15 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
 
         for request in requests {
             let segment = layout.segments[request.segmentIndex]
-            let result = try await fetchAudioItems(
-                parentID: segment.library.id,
+            let slice = try await catalogPageSlice(
+                segment: segment,
                 startIndex: request.startIndex,
-                limit: request.limit
+                limit: request.limit,
+                dateAddedFallback: layout.startedAt
             )
-            if let total = result.totalRecordCount, total != segment.count {
-                throw PagedSongCatalogError.snapshotChangedDuringPagination
-            }
-            guard result.items.count <= request.limit else {
-                throw PagedSongCatalogError.snapshotChangedDuringPagination
-            }
-            for item in result.items {
-                if kind == .emby {
-                    embyLyricsProbedItemIDs.insert(item.id)
-                    embyLyricsStreams[item.id] = item.embyLyricsStream
-                }
-                itemIDs.append(item.id)
-                songs.append(
-                    ConnectorScannedSong(
-                        song: buildSong(from: item, dateAddedFallback: layout.startedAt),
-                        displayName: item.name,
-                        titleMetadataInspected: ServerCatalogMetadataInspectionPolicy.hasUsableTitle(
-                            item.name
-                        ),
-                        folderLocation: libraryFolderLocation(
-                            for: item,
-                            library: segment.library
-                        )
-                    )
-                )
-            }
-            if result.items.count < request.limit {
+            itemIDs.append(contentsOf: slice.itemIDs)
+            songs.append(contentsOf: slice.songs)
+            if slice.itemIDs.count < request.limit {
                 endedEarly = true
                 break
             }
@@ -1089,7 +1175,11 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     /// change feed, so it can only be found by what the catalogue no longer
     /// names. The rows come back without images, user data or media details,
     /// which keeps the listing far lighter than a metadata walk.
-    private func enumerateCatalogItemIDs(layout: CatalogLayout) async throws -> Set<String> {
+    private func enumerateCatalogItemIDs(
+        layout: CatalogLayout,
+        totalCount: Int,
+        progress: SongCatalogChangeProgress?
+    ) async throws -> Set<String> {
         guard let userID else { throw SourceError.authenticationFailed }
         var result: Set<String> = []
         for segment in layout.segments where segment.count > 0 {
@@ -1126,6 +1216,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 guard result.count <= Self.maximumCatalogTracks else {
                     throw SourceError.connectionFailed(PMString("error.catalog.invalidTotal"))
                 }
+                progress?(result.count, totalCount)
             }
         }
         return result
@@ -1133,8 +1224,14 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
 
     func songCatalogChanges(
         since marker: ServerCatalogSyncMarker,
-        knownSongs: [Song]
+        knownSongs: [Song],
+        progress: SongCatalogChangeProgress?
     ) async throws -> SongCatalogChanges {
+        // Plex pages and resumes like the others, but it has no equivalent of
+        // `MinDateLastSaved` that can be expressed as an ordinary query item —
+        // its filter syntax puts the comparison operator in the parameter name.
+        // Its scans stay complete walks, which are now resumable and published
+        // as they go.
         guard kind != .plex else { throw PagedSongCatalogError.unavailable }
         try await connect()
         let layout = try await rebuildCatalogLayout()
@@ -1214,7 +1311,11 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             changedItemIDs: changedItemIDs,
             knownItemIDs: knownItemIDs
         ) {
-            remoteItemIDs = try await enumerateCatalogItemIDs(layout: layout)
+            remoteItemIDs = try await enumerateCatalogItemIDs(
+                layout: layout,
+                totalCount: totalCount,
+                progress: progress
+            )
         } else {
             remoteItemIDs = nil
         }
@@ -3537,13 +3638,14 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     private func fetchPlexTracks(
         sectionID: String,
         startIndex: Int,
-        limit: Int
+        limit: Int,
+        sort: String = "titleSort:asc"
     ) async throws -> PlexTrackResponse {
         let data = try await performRequest(
             path: "/library/sections/\(sectionID)/all",
             queryItems: [
                 URLQueryItem(name: "type", value: "10"),
-                URLQueryItem(name: "sort", value: "titleSort:asc"),
+                URLQueryItem(name: "sort", value: sort),
                 URLQueryItem(name: "X-Plex-Container-Start", value: String(startIndex)),
                 URLQueryItem(name: "X-Plex-Container-Size", value: String(limit))
             ]
@@ -4292,6 +4394,10 @@ private struct PlexHistoryItem: Decodable {
 private struct PlexAudioItem: Decodable {
     let ratingKey: String
     let title: String
+    /// Epoch seconds the server recorded this track at. Only the catalogue
+    /// probe reads it, to tell a section that gained tracks from one that did
+    /// not when the count alone cannot.
+    let addedAt: Int?
     let parentRatingKey: String?
     let grandparentRatingKey: String?
     let parentTitle: String?
@@ -4311,6 +4417,7 @@ private struct PlexAudioItem: Decodable {
     enum CodingKeys: String, CodingKey {
         case ratingKey
         case title
+        case addedAt
         case parentRatingKey
         case grandparentRatingKey
         case parentTitle
@@ -4332,6 +4439,9 @@ private struct PlexAudioItem: Decodable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         ratingKey = try container.decode(String.self, forKey: .ratingKey)
         title = try container.decode(String.self, forKey: .title)
+        // Plex sends this one as a number on some builds and as a numeric
+        // string on others, like the view counters below it.
+        addedAt = try container.decodeLossyIntIfPresent(forKey: .addedAt)
         parentRatingKey = try container.decodeIfPresent(String.self, forKey: .parentRatingKey)
         grandparentRatingKey = try container.decodeIfPresent(String.self, forKey: .grandparentRatingKey)
         parentTitle = try container.decodeIfPresent(String.self, forKey: .parentTitle)

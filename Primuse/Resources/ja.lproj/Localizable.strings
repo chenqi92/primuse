@@ -1399,6 +1399,7 @@
 "source_diag_summary_failed" = "要対応";
 "source_diag_summary_detail_format" = "%@ · %@";
 "source_diag_preparing_scan" = "スキャン前にソースを確認中...";
+"source_diag_checking_changes" = "サーバーの変更を確認中...";
 "source_diag_config_title" = "構成";
 "source_diag_config_ok" = "必要な設定が入力されています。";
 "source_diag_config_missing_host" = "ホストアドレスが入力されていません。";

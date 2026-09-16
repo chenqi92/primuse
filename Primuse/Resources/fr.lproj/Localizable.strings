@@ -1398,6 +1398,7 @@
 "source_diag_summary_failed" = "Action requise";
 "source_diag_summary_detail_format" = "%@ · %@";
 "source_diag_preparing_scan" = "Vérification de la source avant l'analyse...";
+"source_diag_checking_changes" = "Recherche des modifications sur le serveur...";
 "source_diag_config_title" = "Configuration";
 "source_diag_config_ok" = "Les réglages requis sont présents.";
 "source_diag_config_missing_host" = "L'adresse de l'hôte est manquante.";

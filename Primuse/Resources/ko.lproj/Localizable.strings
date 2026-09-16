@@ -1398,6 +1398,7 @@
 "source_diag_summary_failed" = "조치 필요";
 "source_diag_summary_detail_format" = "%@ · %@";
 "source_diag_preparing_scan" = "스캔 전 소스를 확인하는 중...";
+"source_diag_checking_changes" = "서버의 변경 사항을 확인하는 중...";
 "source_diag_config_title" = "구성";
 "source_diag_config_ok" = "필수 설정이 모두 입력되어 있습니다.";
 "source_diag_config_missing_host" = "호스트 주소가 없습니다.";

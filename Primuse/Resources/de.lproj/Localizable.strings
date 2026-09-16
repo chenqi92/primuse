@@ -1398,6 +1398,7 @@
 "source_diag_summary_failed" = "Aktion erforderlich";
 "source_diag_summary_detail_format" = "%@ · %@";
 "source_diag_preparing_scan" = "Quelle wird vor dem Scan geprüft …";
+"source_diag_checking_changes" = "Änderungen auf dem Server werden geprüft …";
 "source_diag_config_title" = "Konfiguration";
 "source_diag_config_ok" = "Erforderliche Einstellungen sind vorhanden.";
 "source_diag_config_missing_host" = "Hostadresse fehlt.";
