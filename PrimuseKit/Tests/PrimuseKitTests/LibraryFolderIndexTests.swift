@@ -648,6 +648,105 @@ struct LibraryFolderIndexTests {
         #expect(source.placementNodeID(for: songs[0]) == album.id)
     }
 
+    @Test("Several opaque scan roots resolve only when listings report the caller's root identifier")
+    func resolvesSeveralOpaqueScanRootsByCallerIdentifier() throws {
+        // 用户在网盘里挨个挑了两个文件夹当扫描根。多根场景没有唯一的根别名
+        // 可以兜底,所以目录列举回填的 parentPath 必须就是调用方用来定位那个
+        // 目录的标识 —— 光鸭的根在服务端没有 ID(列表接口不传 parentId 即为
+        // 根),一旦回填成空串就和扫描根对不上,整棵树散成未分类。
+        let hierarchy = LibraryFolderProviderHierarchy(
+            roots: [
+                LibraryFolderProviderRootDescriptor(path: "0", displayName: "整盘"),
+                LibraryFolderProviderRootDescriptor(path: "folder-b", displayName: "日语"),
+            ],
+            items: [
+                LibraryFolderProviderItemDescriptor(
+                    path: "album-a",
+                    displayName: "范特西",
+                    parentPath: "0",
+                    isDirectory: true
+                ),
+                LibraryFolderProviderItemDescriptor(
+                    path: "song-in-album",
+                    displayName: "爱在西元前.flac",
+                    parentPath: "album-a",
+                    isDirectory: false
+                ),
+                LibraryFolderProviderItemDescriptor(
+                    path: "song-in-b",
+                    displayName: "打上花火.flac",
+                    parentPath: "folder-b",
+                    isDirectory: false
+                ),
+            ]
+        )
+        let source = LibraryFolderSourceDescriptor(
+            sourceID: "guangya",
+            displayName: "光鸭云盘",
+            scanRoots: ["0", "folder-b"],
+            pathSemantics: .opaque,
+            providerHierarchy: hierarchy
+        )
+        let songs = [
+            testSong(id: "album-song", path: "song-in-album", sourceID: "guangya"),
+            testSong(id: "b-song", path: "song-in-b", sourceID: "guangya"),
+        ]
+
+        let index = LibraryFolderIndexBuilder.build(sources: [source], songs: songs)
+        let sourceNode = try #require(index.sourceNode(for: "guangya"))
+        let roots = index.children(of: sourceNode.id).filter { $0.kind == .scanRoot }
+        #expect(roots.count == 2)
+        let album = try #require(
+            roots
+                .flatMap { index.children(of: $0.id) }
+                .first { $0.displayName == "范特西" }
+        )
+        #expect(index.directSongIDs(in: album.id) == ["album-song"])
+        let japanese = try #require(roots.first { $0.displayName == "日语" })
+        #expect(index.directSongIDs(in: japanese.id) == ["b-song"])
+        #expect(!index.children(of: sourceNode.id).contains { $0.kind == .uncategorized })
+    }
+
+    @Test("Opaque listings that drop the caller's root identifier fall out of the tree")
+    func opaqueListingsLosingRootIdentifierBecomeUncategorized() throws {
+        // 同一棵树,只把根下那一行的 parentPath 换成空串 —— 这正是「歌都在,
+        // 却没有文件夹」的形状,用它钉住连接器回填 parentPath 的契约。
+        let source = LibraryFolderSourceDescriptor(
+            sourceID: "guangya",
+            displayName: "光鸭云盘",
+            scanRoots: ["0", "folder-b"],
+            pathSemantics: .opaque,
+            providerHierarchy: LibraryFolderProviderHierarchy(
+                roots: [
+                    LibraryFolderProviderRootDescriptor(path: "0", displayName: "整盘"),
+                    LibraryFolderProviderRootDescriptor(path: "folder-b", displayName: "日语"),
+                ],
+                items: [
+                    LibraryFolderProviderItemDescriptor(
+                        path: "album-a",
+                        displayName: "范特西",
+                        parentPath: "",
+                        isDirectory: true
+                    ),
+                    LibraryFolderProviderItemDescriptor(
+                        path: "song-in-album",
+                        displayName: "爱在西元前.flac",
+                        parentPath: "album-a",
+                        isDirectory: false
+                    ),
+                ]
+            )
+        )
+        let song = testSong(id: "album-song", path: "song-in-album", sourceID: "guangya")
+
+        let index = LibraryFolderIndexBuilder.build(sources: [source], songs: [song])
+        let sourceNode = try #require(index.sourceNode(for: "guangya"))
+        let uncategorized = try #require(
+            index.children(of: sourceNode.id).first { $0.kind == .uncategorized }
+        )
+        #expect(index.directSongIDs(in: uncategorized.id) == ["album-song"])
+    }
+
     @Test("Provider root aliases attach scanned children without exposing root IDs")
     func resolvesProviderRootAlias() throws {
         let source = LibraryFolderSourceDescriptor(

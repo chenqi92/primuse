@@ -36,12 +36,22 @@ public enum GuangYaAPIProtocol {
     public static var userInfoPath: String { "openapi/v1/user/get_user_info" }
 
     /// 列表接口限频 5 次/秒/IP,其余业务接口 2 次/秒/IP。连接器按这个间隔自我节流,
-    /// 免得整库扫描把服务端打到限频。
-    public static let fileListMinimumInterval: TimeInterval = 0.2
-    public static let defaultMinimumInterval: TimeInterval = 0.5
+    /// 免得整库扫描把服务端打到限频。间隔取的是比限频上限更慢的一档:厂商文档
+    /// 明确要求给并发留余量,踩着 5 次/秒、2 次/秒发请求时,服务端按秒计窗口
+    /// 只要和客户端错开一点就会判超,整库扫描会被 429 打断。
+    public static let fileListMinimumInterval: TimeInterval = 0.25
+    public static let defaultMinimumInterval: TimeInterval = 0.6
 
-    /// 单页条数。列表接口 `pageSize` 必填。
-    public static let defaultPageSize = 200
+    /// 撞到限频后整条闸门冷却这么久。单请求各自退避挡不住限频:并发的其他请求
+    /// 仍在按原间隔发,服务端看到的还是超限的流量。
+    public static let rateLimitCooldown: TimeInterval = 2.0
+
+    /// 单页条数。列表接口 `pageSize` 必填,但文档没有写上限 —— 取一个网盘普遍
+    /// 接受的值,并让翻页逻辑容忍服务端把它截短。
+    public static let defaultPageSize = 100
+
+    /// 翻页的硬上限,防止服务端 `total` 与实际返回长期对不上时无限翻页。
+    public static let maximumFileListPages = 2_000
     /// 排序:按更新时间降序,和光鸭网页端默认一致。
     public static let defaultOrderBy = 3
     public static let defaultSortType = 1
@@ -388,8 +398,32 @@ public enum GuangYaAPIProtocol {
             return FileListPage(total: 0, entries: [])
         }
         let entries = list.compactMap(parseFileEntry)
-        guard entries.count == list.count else { return nil }
+        // 单个条目解析不出来(缺 fileId / fileName / resType 的异常行)只跳过它,
+        // 不把整页判成解析失败 —— 整页失败会让这个目录连同整次扫描一起报错,
+        // 用户侧的表现是「歌进来了但没有文件夹」外加反复重试。整页都读不出
+        // 条目时才当成应答不可用。
+        guard !entries.isEmpty || list.isEmpty else { return nil }
         return FileListPage(total: intValue(payload["total"]) ?? entries.count, entries: entries)
+    }
+
+    /// 是否还要继续翻下一页。
+    ///
+    /// 不能只看「本页不满 pageSize 就是到底」:`pageSize` 的上限文档没写,服务端
+    /// 有权把它截短,那样每个目录都只会扫到第一页。以服务端自己给的 `total`
+    /// 为准,拿不到 total 时才回落到满页判断;空页与页数上限兜住异常应答。
+    public static func shouldRequestNextPage(
+        receivedCount: Int,
+        accumulatedCount: Int,
+        reportedTotal: Int?,
+        requestedPageSize: Int,
+        nextPage: Int,
+        pageLimit: Int = maximumFileListPages
+    ) -> Bool {
+        guard receivedCount > 0, nextPage < pageLimit else { return false }
+        if let reportedTotal, reportedTotal > 0 {
+            return accumulatedCount < reportedTotal
+        }
+        return receivedCount >= max(1, requestedPageSize)
     }
 
     public static func parseFileDetail(_ data: Data) -> FileEntry? {

@@ -26,6 +26,31 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         let rangeError = MetadataBackfillService.BackfillRangeExpansionError(format: "FLAC")
         XCTAssertTrue(MetadataBackfillService.isTransientBackfillError(rangeError))
         XCTAssertFalse(MetadataBackfillService.needsSourceEndpointProbe(rangeError))
+
+        // 网盘自家的业务码和 HTTP 码不共用编号空间 —— 光鸭的 101(内部错误)、
+        // 116(签名无效)与文件本身无关,按 HTTP 语义判成永久失败,会让一整批
+        // 标签完好的歌显示成「信息不完善」,非得用户手动重新检查才恢复。
+        XCTAssertTrue(
+            MetadataBackfillService.isTransientBackfillError(
+                CloudDriveError.apiError(101, "internal business error")
+            )
+        )
+        XCTAssertTrue(
+            MetadataBackfillService.isTransientBackfillError(
+                CloudDriveError.apiError(116, "invalid sign")
+            )
+        )
+        // 资源本身读不到的仍然是永久失败,不该反复消耗配额。
+        XCTAssertFalse(
+            MetadataBackfillService.isTransientBackfillError(
+                CloudDriveError.apiError(404, "not found")
+            )
+        )
+        XCTAssertFalse(
+            MetadataBackfillService.isTransientBackfillError(
+                CloudDriveError.apiError(410, "gone")
+            )
+        )
     }
 
     @MainActor

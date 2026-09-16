@@ -3883,6 +3883,12 @@ final class MetadataBackfillService {
         setCellularPromptPresented(false)
     }
 
+    /// 明确表示目标资源本身读不到的 HTTP 状态码。408 / 425 / 429 与 5xx 可以
+    /// 重试,401 / 403 多半是 token 或权限还没就绪,都不在其列。
+    private static let permanentAPIErrorCodes: Set<Int> = [
+        400, 404, 405, 410, 414, 415, 416, 451,
+    ]
+
     /// 回填读取失败是否属于「瞬时、可重试」错误(连接/鉴权/超时/限流/网络/取消),
     /// 而非「永久」错误(文件已不存在、4xx 客户端错误)。瞬时错误不标 failed,
     /// 下一轮自动重试,避免重装/启动初期源未就绪时把歌永久钉成「无法读取」。
@@ -3903,17 +3909,12 @@ final class MetadataBackfillService {
         case CloudDriveError.fileNotFound:
             return false
         case CloudDriveError.apiError(let code, _):
-            // HTTP 408/425/429 are explicitly retryable. Provider body codes
-            // may be negative, so they remain transient unless a connector
-            // first maps a documented permanent code (such as Baidu -9) to
-            // `fileNotFound`.
-            return code < 0
-                || code == 401
-                || code == 403
-                || code == 408
-                || code == 425
-                || code == 429
-                || code >= 500
+            // 只有明确说明「这个资源本身读不到」的 HTTP 码才算永久,其余一律
+            // 倾向重试。各家网盘的业务码和 HTTP 码不共用编号空间(光鸭的 101
+            // 内部错误、116 签名无效都是正数),按 HTTP 语义去读,会把一整批
+            // 本来正常的歌永久钉成「信息不完善」,只能靠用户手动重新检查才
+            // 恢复。确定性的永久码由连接器负责映射成 `fileNotFound`。
+            return !permanentAPIErrorCodes.contains(code)
         default:
             return true // 未知的读取错误 → 当瞬时, 倾向重试而非永久卡死
         }

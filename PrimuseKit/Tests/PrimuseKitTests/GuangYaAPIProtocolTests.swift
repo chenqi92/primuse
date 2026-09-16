@@ -120,6 +120,92 @@ struct GuangYaAPIProtocolTests {
         #expect(page.entries.isEmpty)
     }
 
+    @Test("坏条目只跳过自己,不让整页解析失败")
+    func skipsUnparsableEntriesInsteadOfFailingPage() throws {
+        let json = """
+        {"code":0,"msg":"success[0]","data":{"total":2,"list":[
+          {"fileId":"1","fileName":"ok.flac","fileSize":1,"resType":1,"ctime":1},
+          {"fileName":"缺 fileId 的异常行","resType":1}
+        ]}}
+        """
+        // 整页判失败会让这个目录连同整次扫描一起报错,用户侧看到的是
+        // 「歌进来了但没有文件夹」外加反复重试,代价远大于漏掉一行。
+        let page = try #require(GuangYaAPIProtocol.parseFileList(Data(json.utf8)))
+        #expect(page.entries.count == 1)
+        #expect(page.entries[0].fileID == "1")
+
+        // 一条都读不出来才算应答不可用。
+        let allUnparsable = Data(#"{"code":0,"msg":"success[0]","data":{"total":1,"list":[{"fileName":"x"}]}}"#.utf8)
+        #expect(GuangYaAPIProtocol.parseFileList(allUnparsable) == nil)
+    }
+
+    // MARK: - 翻页
+
+    @Test("服务端把 pageSize 截短时仍按 total 翻完")
+    func paginationFollowsReportedTotal() {
+        // 请求 100 条、服务端只给 50 条:按「本页不满就是到底」判断的话,
+        // 每个目录都只会扫到第一页,剩下 270 首歌永远进不了资料库。
+        #expect(GuangYaAPIProtocol.shouldRequestNextPage(
+            receivedCount: 50,
+            accumulatedCount: 50,
+            reportedTotal: 320,
+            requestedPageSize: 100,
+            nextPage: 1
+        ))
+        #expect(!GuangYaAPIProtocol.shouldRequestNextPage(
+            receivedCount: 20,
+            accumulatedCount: 320,
+            reportedTotal: 320,
+            requestedPageSize: 100,
+            nextPage: 7
+        ))
+    }
+
+    @Test("拿不到 total 时回落到满页判断")
+    func paginationFallsBackToFullPage() {
+        #expect(GuangYaAPIProtocol.shouldRequestNextPage(
+            receivedCount: 100,
+            accumulatedCount: 100,
+            reportedTotal: nil,
+            requestedPageSize: 100,
+            nextPage: 1
+        ))
+        #expect(!GuangYaAPIProtocol.shouldRequestNextPage(
+            receivedCount: 37,
+            accumulatedCount: 137,
+            reportedTotal: nil,
+            requestedPageSize: 100,
+            nextPage: 2
+        ))
+    }
+
+    @Test("空页与页数上限都终止翻页")
+    func paginationStopsOnEmptyPageAndPageLimit() {
+        #expect(!GuangYaAPIProtocol.shouldRequestNextPage(
+            receivedCount: 0,
+            accumulatedCount: 100,
+            reportedTotal: 999,
+            requestedPageSize: 100,
+            nextPage: 1
+        ))
+        #expect(!GuangYaAPIProtocol.shouldRequestNextPage(
+            receivedCount: 100,
+            accumulatedCount: 100,
+            reportedTotal: 10_000,
+            requestedPageSize: 100,
+            nextPage: 5,
+            pageLimit: 5
+        ))
+    }
+
+    @Test("限频间隔比厂商上限更慢,给并发留出余量")
+    func throttleIntervalsLeaveHeadroom() {
+        // 文档:列表 5 次/秒、其余业务接口 2 次/秒,并明确要求不要贴着上限发。
+        #expect(GuangYaAPIProtocol.fileListMinimumInterval > 1.0 / 5.0)
+        #expect(GuangYaAPIProtocol.defaultMinimumInterval > 1.0 / 2.0)
+        #expect(GuangYaAPIProtocol.rateLimitCooldown > GuangYaAPIProtocol.defaultMinimumInterval)
+    }
+
     @Test("业务码非 0 时不产出数据")
     func rejectsNonZeroBusinessCode() {
         let invalidToken = Data(#"{"code":117,"msg":"无效token"}"#.utf8)

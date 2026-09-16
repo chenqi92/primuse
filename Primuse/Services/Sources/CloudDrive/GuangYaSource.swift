@@ -15,7 +15,9 @@ import PrimuseKit
 /// `{code, msg, data}`;`code == 117` 表示 access_token 失效,刷新后重试。
 ///
 /// 光鸭用「文件 ID」而非层级路径标识文件 —— `RemoteFileItem.path` / `Song.filePath`
-/// 存的是 fileId 字符串,根目录用空串表示(列表接口不传 `parentId` 即为根)。
+/// 存的是 fileId 字符串,根目录在服务端没有 ID(列表接口不传 `parentId` 即为根),
+/// 请求侧用空串代表它。文件夹层级只能靠 `RemoteFileItem.parentPath` 重建,那里
+/// 填的是调用方用来定位本目录的标识,不是请求参数。
 ///
 /// 开放平台目前只有读接口(列目录 / 详情 / 直链 / 用户信息),没有上传与删除,
 /// 所以刮削的封面与歌词不回写光鸭,留在 Primuse 本地元数据缓存里
@@ -66,6 +68,7 @@ actor GuangYaSource: MusicSourceConnector, OAuthCloudSource {
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         let parentID = GuangYaAPIProtocol.isRootIdentifier(path) ? "" : path
         var items: [RemoteFileItem] = []
+        var seenFileIDs = Set<String>()
         var page = 0
         var reportedTotal: Int?
         while true {
@@ -79,7 +82,8 @@ actor GuangYaSource: MusicSourceConnector, OAuthCloudSource {
             guard let listPage = GuangYaAPIProtocol.parseFileList(data) else {
                 throw CloudDriveError.invalidResponse
             }
-            for entry in listPage.entries {
+            let countBeforePage = items.count
+            for entry in listPage.entries where seenFileIDs.insert(entry.fileID).inserted {
                 items.append(RemoteFileItem(
                     name: entry.fileName,
                     path: entry.fileID,
@@ -89,16 +93,24 @@ actor GuangYaSource: MusicSourceConnector, OAuthCloudSource {
                     // 开放平台不返回内容哈希 / etag,没有可信的版本标识。
                     revision: nil,
                     providerID: entry.fileID,
-                    parentPath: parentID
+                    // 文件夹层级只能靠这个字段重建,填的必须是调用方用来定位
+                    // 本目录的那个标识。根目录在光鸭侧没有 ID,若填成空串就和
+                    // 扫描根记下的值("/" 或具体 fileId)对不上,整棵树会散成
+                    // 一张平铺列表。
+                    parentPath: path
                 ))
             }
             if reportedTotal == nil, listPage.total > 0 { reportedTotal = listPage.total }
-            // 翻页终止:本页不满 → 到底;已取够 total → 到底;空页 → 到底
-            // (三条都留着,免得服务端某天少给一个字段就翻不停)。
-            if listPage.entries.isEmpty { break }
-            if listPage.entries.count < GuangYaAPIProtocol.defaultPageSize { break }
-            if let reportedTotal, items.count >= reportedTotal { break }
+            // 本页没带来任何新条目 → 服务端在重复同一页,再翻下去也是原地踏步。
+            guard items.count > countBeforePage else { break }
             page += 1
+            guard GuangYaAPIProtocol.shouldRequestNextPage(
+                receivedCount: listPage.entries.count,
+                accumulatedCount: items.count,
+                reportedTotal: reportedTotal,
+                requestedPageSize: GuangYaAPIProtocol.defaultPageSize,
+                nextPage: page
+            ) else { break }
         }
         return items
     }
@@ -188,6 +200,18 @@ actor GuangYaSource: MusicSourceConnector, OAuthCloudSource {
         try await Task.sleep(for: .seconds(delay))
     }
 
+    /// 撞到限频时把整条闸门往后推。只让当前这个请求退避没有用:同一条闸门上
+    /// 排着的其他请求仍按原间隔发出,服务端看到的流量还是超限的。
+    private func applyRateLimitCooldown(_ gate: RequestGate) {
+        let resumeAt = Date().addingTimeInterval(GuangYaAPIProtocol.rateLimitCooldown)
+        switch gate {
+        case .fileList:
+            fileListGateEnd = max(fileListGateEnd, resumeAt)
+        case .business:
+            businessGateEnd = max(businessGateEnd, resumeAt)
+        }
+    }
+
     // MARK: - 鉴权请求
 
     /// 发一个带签名头的业务 GET,校验 `{code}` 为 0,并把业务错误码翻成
@@ -253,6 +277,7 @@ actor GuangYaSource: MusicSourceConnector, OAuthCloudSource {
             guard let http = response as? HTTPURLResponse else {
                 throw CloudDriveError.invalidResponse
             }
+            if http.statusCode == 429 { applyRateLimitCooldown(gate) }
             if CloudHTTPRetryPolicy.shouldRetry(statusCode: http.statusCode), transientAttempt < 4 {
                 transientAttempt += 1
                 try await Task.sleep(for: .seconds(delay))
@@ -273,6 +298,17 @@ actor GuangYaSource: MusicSourceConnector, OAuthCloudSource {
                 throw CloudDriveError.invalidResponse
             }
             guard envelope.isSuccess else {
+                // 101 是服务端自报的内部错误,厂商文档把它列为「安全请求可以
+                // 有界重试」。业务接口全是 GET,重试没有副作用;不重试的话,
+                // 整库扫描期间任何一次偶发 101 都会让那个目录连同整次扫描
+                // 一起失败。
+                if envelope.code == GuangYaAPIProtocol.ResultCode.internalError,
+                   transientAttempt < 4 {
+                    transientAttempt += 1
+                    try await Task.sleep(for: .seconds(delay))
+                    delay = min(delay * 2, 8)
+                    continue
+                }
                 throw Self.connectorError(for: envelope, notFoundPath: notFoundPath)
             }
             return data

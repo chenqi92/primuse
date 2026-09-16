@@ -329,6 +329,10 @@ public enum SourceSyncFolderTopologyPolicy {
         // 空索引留给尚未扫描过的来源与原生增量游标：那不是丢失的拓扑，
         // 不值得为它强制一次整库遍历。
         guard !state.index.isEmpty else { return false }
+        // 扫描中途失败时会留下一份「只够浏览」的部分层级，连同没走完的目录
+        // 队列一起。有了它用户立刻能按文件夹浏览，但层级并不完整，所以仍要
+        // 排进自动重建把剩下的目录走完。
+        if !state.pendingDirectories.isEmpty { return true }
         return state.index.values.contains { $0.displayName == nil }
     }
 

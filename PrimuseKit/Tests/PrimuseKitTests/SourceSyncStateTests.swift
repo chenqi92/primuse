@@ -205,6 +205,41 @@ struct SourceSyncStateTests {
         }
     }
 
+    @Test func partialTopologyLeftByAFailedScanStillRebuilds() {
+        // 扫描中途失败时会落一份「只够浏览」的层级,连同没走完的目录队列。
+        // 用户因此立刻能按文件夹浏览,但层级并不完整,仍要排进自动重建。
+        let folder = SourceSyncIndexedItem(
+            stableKey: "folder-id",
+            path: "folder-id",
+            displayName: "范特西",
+            parentPath: "root-id",
+            isDirectory: true,
+            size: 0,
+            modifiedDate: nil,
+            revision: nil
+        )
+        let partialState = SourceSyncState(
+            sourceID: "source",
+            scopeFingerprint: "scope",
+            index: [folder.stableKey: folder],
+            pendingDirectories: ["not-yet-listed-id"],
+            requiresDeepScan: true
+        )
+        var completedState = partialState
+        completedState.pendingDirectories = []
+
+        for sourceType in [MusicSourceType.guangya, .pan123, .oneDrive] {
+            #expect(SourceSyncFolderTopologyPolicy.requiresRebuild(
+                sourceType: sourceType,
+                state: partialState
+            ))
+            #expect(!SourceSyncFolderTopologyPolicy.requiresRebuild(
+                sourceType: sourceType,
+                state: completedState
+            ))
+        }
+    }
+
     @Test func serverAndUPnPTopologyRequireOneLegacyRebuild() {
         let legacyState = SourceSyncState(
             sourceID: "source",

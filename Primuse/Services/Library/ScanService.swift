@@ -2632,6 +2632,11 @@ final class ScanService {
             scanEpoch: nextScanEpoch
         )
 
+        // 扫描失败时用它把已经走通的目录层级留下来,见
+        // `preserveDiscoveredFolderTopology`。
+        var lastObservedSyncIndex: [String: SourceSyncIndexedItem] = [:]
+        var lastObservedPendingDirectories: [String] = []
+
         do {
             var lastSongs: [Song] = []
             var lastIncrementalMutation = 0
@@ -2679,6 +2684,8 @@ final class ScanService {
                 lastSongs = update.songs
 
                 if let directoryState = update.resumeState {
+                    lastObservedSyncIndex = directoryState.index
+                    lastObservedPendingDirectories = directoryState.pendingDirectories
                     // Update the in-memory checkpoint on every completed (or
                     // in-flight) directory. Disk encoding remains throttled;
                     // cancellation forces the latest snapshot to disk.
@@ -2830,11 +2837,77 @@ final class ScanService {
                 return
             }
             guard scanFenceIsValid() else { return }
+            let discoveredSyncIndex = await scanner.syncIndexSnapshot()
+            await preserveDiscoveredFolderTopology(
+                source: source,
+                discovered: discoveredSyncIndex,
+                fallbackIndex: lastObservedSyncIndex,
+                pendingDirectories: lastObservedPendingDirectories,
+                scopeFingerprint: scopeFingerprint,
+                identityScopeFingerprint: identityScopeFingerprint,
+                scanEpoch: nextScanEpoch,
+                rootIdentities: rootIdentities,
+                previousState: workingState
+            )
+            guard scanFenceIsValid() else { return }
             recordScanFailure(
                 sourceID: source.id,
                 message: sourceManager.scanFailureMessage(for: error, source: source)
             )
             Self.notifyScanFailed(sourceName: source.name, error: error)
+        }
+    }
+
+    /// 扫描以失败告终时,把这次已经走通的目录层级留下来。
+    ///
+    /// 用不透明条目 ID 的网盘,`Song.filePath` 是提供方的条目 ID,文件夹层级
+    /// 只存在于同步状态的目录行里,推不出来。歌曲在扫描途中就被增量写进资料
+    /// 库了,而目录行只在整次扫描成功时才提交 —— 中途任何一个子目录失败
+    /// (限频、偶发内部错误)都会让用户看到「歌都在,却没有文件夹」,重开 App
+    /// 也回不来。这里补一份只供浏览的层级。
+    ///
+    /// 它刻意不具权威性:`requiresDeepScan` 保持为真,所以下次仍然完整遍历,
+    /// 也不会被当成增量基线;游标、`lastFullScanAt` 与删除对账状态都原样沿用
+    /// 上一份,这次失败的扫描不会把任何一首歌判成已删除。没走完的目录队列
+    /// 一并留下,层级因此仍会被排进自动重建。
+    private func preserveDiscoveredFolderTopology(
+        source: MusicSource,
+        discovered: [String: SourceSyncIndexedItem],
+        fallbackIndex: [String: SourceSyncIndexedItem],
+        pendingDirectories: [String],
+        scopeFingerprint: String,
+        identityScopeFingerprint: String,
+        scanEpoch: Int64,
+        rootIdentities: [SourceSyncRootIdentity],
+        previousState: SourceSyncState?
+    ) async {
+        guard source.type.usesOpaqueDirectoryIdentifiers else { return }
+        // 已经有一份层级就别拿半份结果盖掉它。
+        if let previousState, previousState.index.values.contains(where: \.isDirectory) { return }
+        let index = discovered.values.contains(where: \.isDirectory) ? discovered : fallbackIndex
+        guard index.values.contains(where: \.isDirectory) else { return }
+        do {
+            try await persistSyncState(SourceSyncState(
+                sourceID: source.id,
+                scopeFingerprint: scopeFingerprint,
+                identityScopeFingerprint: identityScopeFingerprint,
+                cursors: previousState?.cursors ?? [:],
+                index: index,
+                // 留下「还有目录没走完」的痕迹:层级不完整,
+                // `SourceSyncFolderTopologyPolicy` 据此在下次回到前台时自动
+                // 补一次完整遍历。
+                pendingDirectories: pendingDirectories,
+                scanEpoch: scanEpoch,
+                requiresDeepScan: true,
+                lastFullScanAt: previousState?.lastFullScanAt,
+                lastSuccessfulSyncAt: previousState?.lastSuccessfulSyncAt,
+                identityAliases: previousState?.identityAliases ?? [:],
+                rootIdentities: rootIdentities,
+                reconciliation: previousState?.reconciliation,
+                missingStableKeys: previousState?.missingStableKeys ?? [:]
+            ))
+        } catch {
+            plog("⚠️ 未能保留 \(source.name) 的部分文件夹层级: \(error.localizedDescription)")
         }
     }
 
