@@ -467,6 +467,124 @@ struct LyricsContentParserTests {
         #expect(roundTrip.syllables?.map(\.text).joined() == "Hi\nthere")
     }
 
+    /// Apple Music word-timed documents mark backing vocals and authored
+    /// translations with `ttm:role`. Both used to be appended to the sung line.
+    private let issue125TTML = """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <tt xmlns="http://www.w3.org/ns/ttml"
+        xmlns:ttm="http://www.w3.org/ns/ttml#metadata"
+        xmlns:itunes="http://music.apple.com/lyric-ttml-internal"
+        itunes:timing="Word" xml:lang="en">
+      <body>
+        <div>
+          <p begin="00:00:46.000" end="00:00:49.000" ttm:agent="v1">
+            <span begin="00:00:46.000" end="00:00:46.400">'Cause</span>
+            <span begin="00:00:46.400" end="00:00:46.800"> my</span>
+            <span begin="00:00:46.800" end="00:00:47.400"> heart</span>
+            <span ttm:role="x-bg" begin="00:00:44.000" end="00:00:45.200">
+              <span begin="00:00:44.000" end="00:00:44.600">belongs</span>
+              <span begin="00:00:44.600" end="00:00:45.200"> to you</span>
+              <span ttm:role="x-translation" xml:lang="fa">به تو</span>
+            </span>
+            <span ttm:role="x-translation" xml:lang="fa">قلب من</span>
+            <span ttm:role="x-roman">'Cause my heart</span>
+          </p>
+        </div>
+      </body>
+    </tt>
+    """
+
+    @Test("Issue 125 keeps backing vocals and translations off the sung line")
+    func parsesRoleTaggedTTMLSpans() throws {
+        let line = try #require(LyricsContentParser.parse(issue125TTML).first)
+
+        #expect(line.text == "'Cause my heart")
+        #expect(line.syllables?.map(\.text) == ["'Cause", " my", " heart"])
+        #expect(line.syllables?.map(\.start) == [46, 46.4, 46.8])
+        #expect(line.manualTranslation?.text == "قلب من")
+        #expect(line.manualTranslation?.languageCode == "fa")
+
+        let background = try #require(line.background?.first)
+        #expect(background.voice == .secondary)
+        #expect(background.text == "belongs to you")
+        #expect(background.timestamp == 44)
+        #expect(background.endTimestamp == 45.2)
+        #expect(background.syllables?.map(\.start) == [44, 44.6])
+        #expect(background.manualTranslation?.text == "به تو")
+    }
+
+    @Test("Issue 125 word highlighting never runs backwards inside one row")
+    func keepsRoleTaggedRowsMonotonic() throws {
+        let line = try #require(LyricsContentParser.parse(issue125TTML).first)
+        let syllables = try #require(line.syllables)
+
+        // Every rendered syllable of a row must finish in reading order;
+        // an inlined backing group used to light up the tail of the row first.
+        let ends = syllables.map {
+            LyricSyllablePlaybackTimingPolicy.effectiveEnd(for: $0)
+        }
+        #expect(ends == ends.sorted())
+        #expect(syllables.allSatisfy { !$0.text.contains("belongs") })
+        #expect(syllables.allSatisfy { !$0.text.contains("قلب") })
+    }
+
+    @Test("Issue 125 roles survive a TTML round-trip")
+    func preservesRoleTaggedSpansAcrossSerialization() throws {
+        let parsed = LyricsContentParser.parse(issue125TTML)
+        let serialized = LyricsContentParser.serializeTTML(parsed)
+        #expect(serialized.contains("ttm:role=\"x-bg\""))
+        #expect(serialized.contains("ttm:role=\"x-translation\""))
+
+        let roundTrip = try #require(LyricsContentParser.parse(serialized).first)
+        #expect(roundTrip.text == "'Cause my heart")
+        #expect(roundTrip.syllables?.map(\.text) == ["'Cause", " my", " heart"])
+        #expect(roundTrip.manualTranslation?.text == "قلب من")
+        #expect(roundTrip.background?.first?.text == "belongs to you")
+        #expect(roundTrip.background?.first?.syllables?.map(\.start) == [44, 44.6])
+        #expect(roundTrip.background?.first?.manualTranslation?.text == "به تو")
+    }
+
+    @Test("A backing-only TTML paragraph keeps its words")
+    func keepsBackingOnlyParagraphs() throws {
+        let content = """
+        <tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata">
+          <body><div>
+            <p begin="1s" end="3s"><span begin="1s" end="3s">Lead line</span></p>
+            <p begin="4s" end="5s"><span ttm:role="x-bg" begin="4s" end="5s">(Ooh)</span></p>
+          </div></body>
+        </tt>
+        """
+
+        let parsed = LyricsContentParser.parse(content)
+        #expect(parsed.count == 2)
+        #expect(parsed[1].text == "(Ooh)")
+        #expect(parsed[1].voice == .secondary)
+        #expect(parsed[1].timestamp == 4)
+    }
+
+    @Test("A line-level TTML paragraph keeps its text next to a translation")
+    func keepsLineLevelTextWithTranslation() throws {
+        let content = """
+        <tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata">
+          <body><div>
+            <p begin="1s" end="3s">Hello world<span ttm:role="x-translation" xml:lang="zh-CN">你好世界</span></p>
+          </div></body>
+        </tt>
+        """
+
+        let parsed = LyricsContentParser.parse(content)
+        let line = try #require(parsed.first)
+        #expect(line.text == "Hello world")
+        #expect(!line.isWordLevel)
+        #expect(line.manualTranslation?.text == "你好世界")
+
+        let roundTrip = try #require(
+            LyricsContentParser.parse(LyricsContentParser.serializeTTML(parsed)).first
+        )
+        #expect(roundTrip.text == "Hello world")
+        #expect(roundTrip.manualTranslation?.text == "你好世界")
+    }
+
     @Test("TTML zero-duration line windows survive serialization")
     func preservesZeroDurationLineWindows() throws {
         let content = """

@@ -1669,9 +1669,41 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         let languageCode: String?
     }
 
+    /// A `ttm:role` Apple Music actually ships inside a lyric paragraph. Only
+    /// the default role is sung by the lead voice, so every other role must
+    /// stay out of the main line's text and syllable timeline.
+    private enum SpanRole {
+        /// `x-bg` — a backing vocal group singing on its own time window.
+        case background
+        /// `x-translation` — an authored translation of the enclosing line.
+        case translation
+        /// `x-roman` — a romanization of the enclosing line.
+        case romanization
+
+        init?(rawValue: String) {
+            switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "x-bg":
+                self = .background
+            case "x-translation":
+                self = .translation
+            case "x-roman", "x-romaji", "x-romanization":
+                self = .romanization
+            default:
+                return nil
+            }
+        }
+    }
+
+    private struct PendingTranslation {
+        let text: String
+        let languageCode: String?
+    }
+
     private struct SpanContext {
         var pendingText = ""
         var segments: [SpanSegment] = []
+        var translations: [PendingTranslation] = []
+        let role: SpanRole?
         let begin: TimeInterval?
         let end: TimeInterval?
         let languageCode: String?
@@ -1717,6 +1749,8 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
     private var currentDirectText = ""
     private var currentUntimedPrefix = ""
     private var currentSyllables: [PendingSyllable] = []
+    private var currentTranslations: [PendingTranslation] = []
+    private var currentBackgroundLines: [LyricLine] = []
     private var spanStack: [SpanContext] = []
 
     static func looksLikeTTML(_ content: String) -> Bool {
@@ -1759,8 +1793,7 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
     }
 
     static func serialize(_ lines: [LyricLine]) -> String {
-        let flattenedLines = LyricVoiceTimelinePolicy.flattenedLines(lines)
-        let usesSecondaryVoice = flattenedLines.contains { $0.voice == .secondary }
+        let usesSecondaryVoice = lines.contains { $0.voice == .secondary }
         let declaredLanguageCode = lines.lazy
             .compactMap(\.metadataLines)
             .compactMap(LyricManualTranslationPolicy.declaredLanguageCode(in:))
@@ -1772,7 +1805,7 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
                 <ttm:agent xml:id="v2" type="person"/>
               """
             : "    <ttm:agent xml:id=\"v1\" type=\"person\"/>"
-        let paragraphs = flattenedLines.compactMap { line -> String? in
+        let paragraphs = lines.compactMap { line -> String? in
             let text = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return nil }
 
@@ -1791,26 +1824,34 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
             }
             let attributeText = attributes.isEmpty ? "" : " " + attributes.joined(separator: " ")
 
-            guard let syllables = line.syllables, !syllables.isEmpty else {
+            let effectiveLineLanguage = line.languageCode ?? declaredLanguageCode
+            var children = syllableSpans(
+                in: line,
+                lineLanguageCode: effectiveLineLanguage,
+                indent: "        "
+            )
+            children += (line.background ?? []).map { background in
+                backgroundSpan(
+                    background,
+                    parentLanguageCode: effectiveLineLanguage,
+                    indent: "        "
+                )
+            }
+            children += translationSpans(
+                in: line,
+                lineLanguageCode: effectiveLineLanguage,
+                indent: "        "
+            )
+
+            guard !children.isEmpty else {
                 return "      <p\(attributeText)>\(escapeTTMLText(text))</p>"
             }
-
-            let spans = syllables.map { syllable -> String in
-                var spanAttributes = "begin=\"\(formatTimestamp(syllable.start))\""
-                if syllable.endTiming == .explicit,
-                   syllable.end >= syllable.start {
-                    spanAttributes += " end=\"\(formatTimestamp(syllable.end))\""
-                }
-                let effectiveLineLanguage = line.languageCode ?? declaredLanguageCode
-                if let syllableLanguageCode = syllable.languageCode,
-                   syllableLanguageCode != effectiveLineLanguage {
-                    spanAttributes += " xml:lang=\"\(syllableLanguageCode)\""
-                }
-                return "        <span \(spanAttributes)>\(escapeTTMLText(syllable.text))</span>"
-            }.joined(separator: "\n")
+            // A line-level row keeps its own text; word-level rows carry it in
+            // their syllable spans already.
+            let inlineText = line.syllables?.isEmpty == false ? "" : escapeTTMLText(text)
             return """
-                  <p\(attributeText)>
-            \(spans)
+                  <p\(attributeText)>\(inlineText)
+            \(children.joined(separator: "\n"))
                   </p>
             """
         }.joined(separator: "\n")
@@ -1829,6 +1870,85 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
             </div>
           </body>
         </tt>
+        """
+    }
+
+    private static func syllableSpans(
+        in line: LyricLine,
+        lineLanguageCode: String?,
+        indent: String
+    ) -> [String] {
+        guard let syllables = line.syllables, !syllables.isEmpty else { return [] }
+        return syllables.map { syllable in
+            var attributes = "begin=\"\(formatTimestamp(syllable.start))\""
+            if syllable.endTiming == .explicit, syllable.end >= syllable.start {
+                attributes += " end=\"\(formatTimestamp(syllable.end))\""
+            }
+            if let syllableLanguageCode = syllable.languageCode,
+               syllableLanguageCode != lineLanguageCode {
+                attributes += " xml:lang=\"\(syllableLanguageCode)\""
+            }
+            return "\(indent)<span \(attributes)>\(escapeTTMLText(syllable.text))</span>"
+        }
+    }
+
+    private static func translationSpans(
+        in line: LyricLine,
+        lineLanguageCode: String?,
+        indent: String
+    ) -> [String] {
+        line.allManualTranslations.compactMap { translation in
+            let text = translation.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return nil }
+            var attributes = "ttm:role=\"x-translation\""
+            if let languageCode = translation.languageCode,
+               languageCode != lineLanguageCode {
+                attributes += " xml:lang=\"\(languageCode)\""
+            }
+            return "\(indent)<span \(attributes)>\(escapeTTMLText(text))</span>"
+        }
+    }
+
+    /// Backing vocals stay nested in their lead paragraph so a round trip
+    /// keeps them off the lead line's own timeline.
+    private static func backgroundSpan(
+        _ line: LyricLine,
+        parentLanguageCode: String?,
+        indent: String
+    ) -> String {
+        var attributes = "ttm:role=\"x-bg\""
+        if line.isSynchronized {
+            attributes += " begin=\"\(formatTimestamp(line.timestamp))\""
+        }
+        if let end = line.endTime, end >= line.timestamp {
+            attributes += " end=\"\(formatTimestamp(end))\""
+        }
+        let languageCode = line.languageCode
+        if let languageCode, languageCode != parentLanguageCode {
+            attributes += " xml:lang=\"\(languageCode)\""
+        }
+
+        let childIndent = indent + "  "
+        var children = syllableSpans(
+            in: line,
+            lineLanguageCode: languageCode ?? parentLanguageCode,
+            indent: childIndent
+        )
+        children += translationSpans(
+            in: line,
+            lineLanguageCode: languageCode ?? parentLanguageCode,
+            indent: childIndent
+        )
+
+        let text = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !children.isEmpty else {
+            return "\(indent)<span \(attributes)>\(escapeTTMLText(text))</span>"
+        }
+        let inlineText = line.syllables?.isEmpty == false ? "" : escapeTTMLText(text)
+        return """
+        \(indent)<span \(attributes)>\(inlineText)
+        \(children.joined(separator: "\n"))
+        \(indent)</span>
         """
     }
 
@@ -1930,6 +2050,7 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
             || Self.timeAttribute("dur", in: attributes) != nil
         let begin = explicitBegin ?? (carriesOwnTiming ? inheritedBegin : nil)
         spanStack.append(SpanContext(
+            role: Self.attribute("role", in: attributes).flatMap(SpanRole.init(rawValue:)),
             begin: begin,
             end: Self.endTime(
                 in: attributes,
@@ -1985,6 +2106,18 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         let text = segments.map(\.text).joined()
         guard !text.isEmpty else { return }
 
+        switch span.role {
+        case .romanization:
+            // A romanization repeats the line in another script. It is never
+            // sung on its own, so it must not become lyric text or a cue.
+            return
+        case .translation:
+            recordTranslation(text: text, languageCode: span.languageCode)
+            return
+        case .background, nil:
+            break
+        }
+
         // A timed descendant is the more precise cue. An untimed/style-only
         // subtree inherits the enclosing span's timing as one cue instead.
         let resolvedSegments: [SpanSegment]
@@ -2034,12 +2167,98 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
             }
         }
 
+        if span.role == .background {
+            // Backing vocals run on their own time window and frequently
+            // overlap the lead words. Inlining them would make one rendered
+            // row sweep backwards, so they become a background sub-line.
+            if let background = makeBackgroundLine(from: span, segments: resolvedSegments) {
+                currentBackgroundLines.append(background)
+            }
+            return
+        }
+
         if !spanStack.isEmpty {
             spanStack[spanStack.count - 1].segments.append(contentsOf: resolvedSegments)
             return
         }
 
         resolvedSegments.forEach(consumeSpanSegment)
+    }
+
+    /// Stores an authored translation on the enclosing background span when
+    /// there is one, otherwise on the paragraph itself.
+    private func recordTranslation(text: String, languageCode: String?) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let translation = PendingTranslation(text: trimmed, languageCode: languageCode)
+        if spanStack.isEmpty {
+            currentTranslations.append(translation)
+        } else {
+            spanStack[spanStack.count - 1].translations.append(translation)
+        }
+    }
+
+    private func makeBackgroundLine(
+        from span: SpanContext,
+        segments: [SpanSegment]
+    ) -> LyricLine? {
+        var syllables: [PendingSyllable] = []
+        var untimedPrefix = ""
+        for segment in segments where !segment.text.isEmpty {
+            guard let begin = segment.begin else {
+                if syllables.isEmpty {
+                    untimedPrefix += segment.text
+                } else {
+                    syllables[syllables.count - 1].text += segment.text
+                }
+                continue
+            }
+            syllables.append(PendingSyllable(
+                text: untimedPrefix + segment.text,
+                start: begin,
+                explicitEnd: segment.end,
+                languageCode: segment.languageCode == currentLineLanguageCode
+                    ? nil
+                    : segment.languageCode
+            ))
+            untimedPrefix = ""
+        }
+
+        let text = segments.map(\.text).joined()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+
+        let normalized = normalizedSyllables(syllables, lineEnd: span.end)
+        let languageCode = span.languageCode ?? currentLineLanguageCode
+        var line = LyricLine(
+            timestamp: span.begin ?? normalized.first?.start ?? currentLineBegin ?? 0,
+            text: text,
+            isSynchronized: span.begin != nil || !normalized.isEmpty,
+            syllables: normalized.isEmpty ? nil : normalized,
+            endTimestamp: span.end ?? normalized.last?.end,
+            voice: .secondary,
+            languageCode: languageCode == documentLanguageCode ? nil : languageCode
+        )
+        Self.attach(translations: span.translations, to: &line)
+        return line
+    }
+
+    /// TTML translations are authored inside the document, so they carry the
+    /// same authority as a container translation field.
+    private static func attach(
+        translations: [PendingTranslation],
+        to line: inout LyricLine
+    ) {
+        let attached = translations.map {
+            LyricManualTranslation(
+                text: $0.text,
+                languageCode: $0.languageCode,
+                source: .embeddedField
+            )
+        }
+        guard let preferred = attached.first else { return }
+        line.manualTranslation = preferred
+        line.alternateManualTranslations = Array(attached.dropFirst())
     }
 
     private func flushPendingSpanText(at index: Int) {
@@ -2094,21 +2313,29 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         if !text.isEmpty {
             let syllables = normalizedSyllables(currentSyllables, lineEnd: currentLineEnd)
             let timestamp = currentLineBegin ?? syllables.first?.start ?? 0
-            parsedLines.append((
-                order: nextLineOrder,
-                line: LyricLine(
-                    timestamp: timestamp,
-                    text: text,
-                    isSynchronized: currentLineBegin != nil || !syllables.isEmpty,
-                    syllables: syllables.isEmpty ? nil : syllables,
-                    endTimestamp: currentLineEnd,
-                    voice: currentLineVoice,
-                    languageCode: currentLineLanguageCode == documentLanguageCode
-                        ? nil
-                        : currentLineLanguageCode
-                )
-            ))
+            var line = LyricLine(
+                timestamp: timestamp,
+                text: text,
+                isSynchronized: currentLineBegin != nil || !syllables.isEmpty,
+                syllables: syllables.isEmpty ? nil : syllables,
+                endTimestamp: currentLineEnd,
+                voice: currentLineVoice,
+                background: currentBackgroundLines.isEmpty ? nil : currentBackgroundLines,
+                languageCode: currentLineLanguageCode == documentLanguageCode
+                    ? nil
+                    : currentLineLanguageCode
+            )
+            Self.attach(translations: currentTranslations, to: &line)
+            parsedLines.append((order: nextLineOrder, line: line))
             nextLineOrder += 1
+        } else {
+            // A paragraph carrying only a backing group still has lyrics. Keep
+            // them as ordinary secondary rows so overlap grouping can decide
+            // where they belong.
+            for background in currentBackgroundLines {
+                parsedLines.append((order: nextLineOrder, line: background))
+                nextLineOrder += 1
+            }
         }
 
         resetParagraph()
@@ -2151,6 +2378,8 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         currentDirectText = ""
         currentUntimedPrefix = ""
         currentSyllables.removeAll(keepingCapacity: true)
+        currentTranslations.removeAll(keepingCapacity: true)
+        currentBackgroundLines.removeAll(keepingCapacity: true)
         spanStack.removeAll(keepingCapacity: true)
     }
 
