@@ -842,6 +842,10 @@ struct ImmersivePlayerView: View {
                 writingDirection: LyricWritingDirectionPolicy.resolvePresentationDirection(
                     for: lyrics[position],
                     documentFallback: lyricsWritingDirection
+                ),
+                background: ImmersiveStageBackgroundLyric.rows(
+                    for: lyrics[position],
+                    documentFallback: lyricsWritingDirection
                 )
             )
         }

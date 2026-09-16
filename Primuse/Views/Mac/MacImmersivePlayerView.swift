@@ -799,6 +799,10 @@ struct MacImmersivePlayerView: View {
                 writingDirection: LyricWritingDirectionPolicy.resolvePresentationDirection(
                     for: lyrics[position],
                     documentFallback: documentDirection
+                ),
+                background: ImmersiveStageBackgroundLyric.rows(
+                    for: lyrics[position],
+                    documentFallback: documentDirection
                 )
             )
         }

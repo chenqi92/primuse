@@ -765,7 +765,21 @@ struct TVImmersivePlayerView: View {
                 syllables: immersiveSyllables(for: store.lyrics[position]),
                 startTime: store.lyrics[position].isSynchronized ? store.lyrics[position].time : nil,
                 endTime: immersiveLineEnd(at: position),
-                writingDirection: store.lyrics[position].writingDirection
+                writingDirection: store.lyrics[position].writingDirection,
+                background: store.lyrics[position].background.compactMap { background in
+                    let text = background.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !text.isEmpty else { return nil }
+                    return ImmersiveStageBackgroundLyric(
+                        id: background.id,
+                        text: text,
+                        syllables: immersiveSyllables(for: background),
+                        startTime: background.isSynchronized ? background.time : nil,
+                        endTime: background.syllables.last.map {
+                            LyricSyllablePlaybackTimingPolicy.effectiveEnd(for: $0.lyricSyllable)
+                        },
+                        writingDirection: background.writingDirection
+                    )
+                }
             )
         }
     }

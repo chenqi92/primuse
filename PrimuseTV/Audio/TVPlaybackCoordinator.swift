@@ -1635,7 +1635,15 @@ final class TVPlaybackCoordinator {
     ) -> [TVLyricLine] {
         let documentWritingDirection = LyricWritingDirectionPolicy.resolve(in: lines)
         return lines.map { line in
-            TVLyricLine(id: line.id,
+            toTVLyricLine(line, documentWritingDirection: documentWritingDirection)
+        }
+    }
+
+    nonisolated private static func toTVLyricLine(
+        _ line: LyricLine,
+        documentWritingDirection: LyricWritingDirection
+    ) -> TVLyricLine {
+        TVLyricLine(id: line.id,
                         time: line.timestamp,
                         text: line.text,
                         isSynchronized: line.isSynchronized,
@@ -1653,8 +1661,12 @@ final class TVPlaybackCoordinator {
                         writingDirection: LyricWritingDirectionPolicy.resolvePresentationDirection(
                             for: line,
                             documentFallback: documentWritingDirection
-                        ))
-        }
+                        ),
+                        // Backing groups keep their own timeline; nesting them
+                        // stops them from competing for the current row.
+                        background: (line.background ?? []).map {
+                            toTVLyricLine($0, documentWritingDirection: documentWritingDirection)
+                        })
     }
 
     /// 取 .lrc 用的 session:接受自签证书(个人 NAS),与播放用的 resource loader 同策略。

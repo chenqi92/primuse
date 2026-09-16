@@ -12,6 +12,10 @@ struct ImmersiveStageLyric: Identifiable, Equatable {
     let startTime: TimeInterval?
     let endTime: TimeInterval?
     let writingDirection: LyricWritingDirection?
+    /// Backing vocals answering this line. They run on their own time window,
+    /// so they are nested instead of taking a row of their own — a row of
+    /// their own would compete with the lead line for the current position.
+    let background: [ImmersiveStageBackgroundLyric]
 
     init(
         id: Int,
@@ -22,7 +26,8 @@ struct ImmersiveStageLyric: Identifiable, Equatable {
         syllables: [LyricSyllable]? = nil,
         startTime: TimeInterval? = nil,
         endTime: TimeInterval? = nil,
-        writingDirection: LyricWritingDirection? = nil
+        writingDirection: LyricWritingDirection? = nil,
+        background: [ImmersiveStageBackgroundLyric] = []
     ) {
         self.id = id
         self.text = text
@@ -33,6 +38,58 @@ struct ImmersiveStageLyric: Identifiable, Equatable {
         self.startTime = startTime
         self.endTime = endTime
         self.writingDirection = writingDirection
+        self.background = background
+    }
+}
+
+/// One backing-vocal row. It never nests further, which keeps the row view
+/// free of recursion.
+struct ImmersiveStageBackgroundLyric: Identifiable, Equatable {
+    let id: String
+    let text: String
+    let syllables: [LyricSyllable]?
+    let startTime: TimeInterval?
+    let endTime: TimeInterval?
+    let writingDirection: LyricWritingDirection?
+
+    init(
+        id: String,
+        text: String,
+        syllables: [LyricSyllable]? = nil,
+        startTime: TimeInterval? = nil,
+        endTime: TimeInterval? = nil,
+        writingDirection: LyricWritingDirection? = nil
+    ) {
+        self.id = id
+        self.text = text
+        self.syllables = syllables?.isEmpty == false ? syllables : nil
+        self.startTime = startTime
+        self.endTime = endTime
+        self.writingDirection = writingDirection
+    }
+}
+
+extension ImmersiveStageBackgroundLyric {
+    /// Projects the backing groups of one lyric line onto the stage model.
+    static func rows(
+        for line: LyricLine,
+        documentFallback: LyricWritingDirection
+    ) -> [ImmersiveStageBackgroundLyric] {
+        (line.background ?? []).compactMap { background in
+            let text = background.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return nil }
+            return ImmersiveStageBackgroundLyric(
+                id: background.id,
+                text: text,
+                syllables: background.syllables,
+                startTime: background.isSynchronized ? background.timestamp : nil,
+                endTime: background.endTime,
+                writingDirection: LyricWritingDirectionPolicy.resolvePresentationDirection(
+                    for: background,
+                    documentFallback: documentFallback
+                )
+            )
+        }
     }
 }
 
@@ -1340,6 +1397,96 @@ struct ImmersiveStageView<Artwork: View>: View {
         lineLimit: Int,
         textAlignment: TextAlignment
     ) -> some View {
+        VStack(alignment: lyricStackAlignment(for: textAlignment), spacing: fontSize * 0.18) {
+            leadLyricLine(
+                line,
+                fontSize: fontSize,
+                lineLimit: lineLimit,
+                textAlignment: textAlignment
+            )
+            ForEach(line.background) { background in
+                backgroundLyricLine(
+                    background,
+                    isLineActive: line.isActive,
+                    fontSize: fontSize * 0.7,
+                    lineLimit: lineLimit,
+                    textAlignment: textAlignment
+                )
+            }
+        }
+        .environment(\.layoutDirection, layoutDirection(for: line))
+    }
+
+    private func lyricStackAlignment(for textAlignment: TextAlignment) -> HorizontalAlignment {
+        switch textAlignment {
+        case .leading: .leading
+        case .center: .center
+        case .trailing: .trailing
+        }
+    }
+
+    /// Backing vocals sweep on their own window while the lead line is on
+    /// screen, and stay dim once the lead line has moved on.
+    @ViewBuilder
+    private func backgroundLyricLine(
+        _ line: ImmersiveStageBackgroundLyric,
+        isLineActive: Bool,
+        fontSize: CGFloat,
+        lineLimit: Int,
+        textAlignment: TextAlignment
+    ) -> some View {
+        let stageLyric = ImmersiveStageLyric(
+            id: line.id.hashValue,
+            text: line.text,
+            isActive: isLineActive,
+            offset: 0,
+            syllables: line.syllables,
+            startTime: line.startTime,
+            endTime: line.endTime,
+            writingDirection: line.writingDirection
+        )
+        Group {
+            if isLineActive, line.syllables != nil || hasLineTiming(stageLyric) {
+                TimelineView(.animation(
+                    minimumInterval: reduceMotion ? 0.10 : 1 / 30,
+                    paused: !playbackClockIsActive
+                )) { _ in
+                    activeLyricText(
+                        stageLyric,
+                        fontSize: fontSize,
+                        lineLimit: lineLimit,
+                        textAlignment: textAlignment,
+                        progress: activeLyricProgress(
+                            for: stageLyric,
+                            at: playbackTime?() ?? track.elapsed
+                        )
+                    )
+                }
+            } else {
+                Text(line.text)
+                    .font(.system(size: fontSize, weight: .medium))
+                    .foregroundStyle(ImmersiveStagePalette.text.opacity(0.42))
+                    .multilineTextAlignment(textAlignment)
+                    .lineLimit(lineLimit)
+                    .minimumScaleFactor(0.72)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityHidden(true)
+            }
+        }
+        .opacity(0.72)
+        // The lead row already carries the spoken lyric, so the backing group
+        // must not announce itself as a second "current lyric".
+        .accessibilityHidden(true)
+        .environment(\.layoutDirection, layoutDirection(for: stageLyric))
+    }
+
+    @ViewBuilder
+    private func leadLyricLine(
+        _ line: ImmersiveStageLyric,
+        fontSize: CGFloat,
+        lineLimit: Int,
+        textAlignment: TextAlignment
+    ) -> some View {
         Group {
             if line.isActive, line.syllables != nil || hasLineTiming(line) {
                 TimelineView(.animation(
@@ -1381,7 +1528,6 @@ struct ImmersiveStageView<Artwork: View>: View {
                     .accessibilityHidden(true)
             }
         }
-        .environment(\.layoutDirection, layoutDirection(for: line))
     }
 
     private func hasLineTiming(_ line: ImmersiveStageLyric) -> Bool {

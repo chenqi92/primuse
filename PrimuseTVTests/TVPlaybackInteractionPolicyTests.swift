@@ -1200,6 +1200,35 @@ final class TVLyricSyllableTimingTests: XCTestCase {
         XCTAssertEqual(lines[3].writingDirection, .leftToRight)
     }
 
+    func testConversionNestsBackingVocalsInsteadOfAddingRows() throws {
+        let source = LyricsContentParser.parse("""
+        <tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata">
+          <body><div>
+            <p begin="00:00:10.000" end="00:00:13.000" ttm:agent="v1">
+              <span begin="00:00:10.000" end="00:00:10.600">Lead</span>
+              <span begin="00:00:10.600" end="00:00:13.000"> line</span>
+              <span ttm:role="x-bg" begin="00:00:11.000" end="00:00:12.000">
+                <span begin="00:00:11.000" end="00:00:11.500">Back</span>
+                <span begin="00:00:11.500" end="00:00:12.000">ing</span>
+              </span>
+            </p>
+          </div></body>
+        </tt>
+        """)
+        let lines = TVPlaybackCoordinator.toTVLyrics(source, duration: 0)
+
+        // A backing group must not become a row of its own: it overlaps the
+        // lead line and would take the current-row position from it.
+        XCTAssertEqual(lines.count, 1)
+        XCTAssertEqual(lines[0].text, "Lead line")
+        XCTAssertEqual(lines[0].background.count, 1)
+        XCTAssertEqual(lines[0].background[0].text, "Backing")
+        XCTAssertEqual(lines[0].background[0].time, 11, accuracy: 0.001)
+        XCTAssertEqual(lines[0].background[0].syllables.count, 2)
+        XCTAssertEqual(lines[0].background[0].syllables[0].start, 11, accuracy: 0.001)
+        XCTAssertTrue(lines[0].background[0].background.isEmpty)
+    }
+
     func testConversionPreservesAbsoluteELRCTimestampsAndProvenance() throws {
         let sourceLine = try XCTUnwrap(
             LyricsContentParser.parse(

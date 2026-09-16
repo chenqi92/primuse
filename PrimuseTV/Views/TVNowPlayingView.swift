@@ -699,6 +699,30 @@ struct TVNowPlayingView: View {
                     .shadow(color: isCur ? store.nowPlaying.tint.opacity(0.5) : .clear, radius: 16, y: 2)
                     .multilineTextAlignment(.leading)
             }
+            ForEach(ln.background) { background in
+                // Backing vocals sing over their own window inside this line,
+                // so they follow the same clock at a smaller size.
+                if isCur, !background.syllables.isEmpty {
+                    TimelineView(.animation(
+                        minimumInterval: reduceMotion ? 0.10 : 1 / 30,
+                        paused: !store.isPlaying
+                    )) { context in
+                        TVKaraokeLine(
+                            syllables: background.syllables,
+                            currentTime: store.interpolatedTime(at: context.date),
+                            size: size * 0.7,
+                            tint: store.nowPlaying.tint,
+                            writingDirection: background.writingDirection
+                        )
+                    }
+                    .opacity(0.72)
+                } else {
+                    Text(background.text)
+                        .font(.system(size: size * 0.7, weight: .semibold))
+                        .foregroundStyle(TVColor.text.opacity(0.62))
+                        .multilineTextAlignment(.leading)
+                }
+            }
             if !ln.romanization.isEmpty {
                 Text(ln.romanization).tvFont(.caption)
                     .foregroundStyle(TVColor.textFaint)
