@@ -1429,6 +1429,15 @@ struct PagedSongCatalogPage: Sendable {
 protocol ResumablePagedSongCatalogConnector: MusicSourceConnector {
     func stableSongCatalogRevision() async throws -> String?
     func songCatalogPage(from path: String, offset: Int) async throws -> PagedSongCatalogPage
+    /// Rows the flattened catalogue is expected to yield, when the provider
+    /// reports a total. It turns the scan card from an open-ended counter into
+    /// real progress, which is the difference between "1106" and "1106 / 70234"
+    /// on a library that takes minutes to walk. Nil keeps the open counter.
+    func expectedSongCatalogCount() async throws -> Int?
+}
+
+extension ResumablePagedSongCatalogConnector {
+    func expectedSongCatalogCount() async throws -> Int? { nil }
 }
 
 struct IncrementalSourceChanges: Sendable {

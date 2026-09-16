@@ -136,3 +136,150 @@ struct ServerCatalogDeletionConfirmationPolicyTests {
         #expect(retained == ["a", "b", "d", "e"])
     }
 }
+
+extension ServerCatalogDeletionConfirmationPolicyTests {
+    private func plan(
+        existing: Set<String>,
+        authoritative: Set<String>,
+        previousCounts: [String: Int] = [:],
+        previousRevision: String? = nil,
+        revision: String?,
+        authority: CatalogDeletionAuthority
+    ) -> ServerCatalogDeletionConfirmationPolicy.Plan {
+        ServerCatalogDeletionConfirmationPolicy.plan(
+            existingSongIDs: existing,
+            authoritativeSongIDs: authoritative,
+            previousMissingCounts: previousCounts,
+            previousEvidenceRevision: previousRevision,
+            currentRevision: revision,
+            authority: authority
+        )
+    }
+
+    /// Jellyfin and Emby verify a complete snapshot by item id, so deleting a
+    /// track on the server must take effect on the very next scan.
+    @Test func authoritativeSnapshotRemovesOnTheFirstWalk() {
+        let result = plan(
+            existing: ["a", "b", "c"],
+            authoritative: ["a", "b"],
+            revision: nil,
+            authority: .authoritative
+        )
+        #expect(result.confirmedDeletionSongIDs == ["c"])
+        #expect(result.pendingSongIDs.isEmpty)
+        #expect(result.isMassDisappearance == false)
+    }
+
+    /// The one case an authoritative snapshot still may not decide alone: an
+    /// unmounted library looks exactly like a bulk deletion.
+    @Test func authoritativeSnapshotStillRepeatsASuspiciousLoss() {
+        let existing = Set((0..<200).map { "song-\($0)" })
+        let survivors = Set((0..<100).map { "song-\($0)" })
+        let first = plan(
+            existing: existing,
+            authoritative: survivors,
+            revision: nil,
+            authority: .authoritative
+        )
+        #expect(first.isMassDisappearance)
+        #expect(first.confirmedDeletionSongIDs.isEmpty)
+        #expect(first.pendingSongIDs.count == 100)
+
+        let second = plan(
+            existing: existing,
+            authoritative: survivors,
+            previousCounts: first.missingCounts,
+            revision: nil,
+            authority: .authoritative
+        )
+        #expect(second.confirmedDeletionSongIDs.isEmpty)
+
+        let third = plan(
+            existing: existing,
+            authoritative: survivors,
+            previousCounts: second.missingCounts,
+            revision: nil,
+            authority: .authoritative
+        )
+        #expect(third.confirmedDeletionSongIDs.count == 100)
+    }
+
+    /// A compatibility or degraded listing may merge rows but never remove any,
+    /// no matter how many times it repeats the same absence.
+    @Test func neverAuthorityRemovesNothingEvenWhenRepeated() {
+        var counts: [String: Int] = [:]
+        for _ in 0..<5 {
+            let result = plan(
+                existing: ["a", "b"],
+                authoritative: ["a"],
+                previousCounts: counts,
+                revision: nil,
+                authority: .never
+            )
+            #expect(result.confirmedDeletionSongIDs.isEmpty)
+            #expect(result.pendingSongIDs == ["b"])
+            counts = result.missingCounts
+        }
+    }
+
+    /// Subsonic keeps the two-revision bar it was designed around.
+    @Test func confirmationRequiredStillNeedsTwoDistinctRevisions() {
+        let first = plan(
+            existing: ["a", "b"],
+            authoritative: ["a"],
+            revision: "r1",
+            authority: .confirmationRequired
+        )
+        #expect(first.confirmedDeletionSongIDs.isEmpty)
+
+        let repeated = plan(
+            existing: ["a", "b"],
+            authoritative: ["a"],
+            previousCounts: first.missingCounts,
+            previousRevision: "r1",
+            revision: "r1",
+            authority: .confirmationRequired
+        )
+        #expect(repeated.confirmedDeletionSongIDs.isEmpty, "a re-read is the same observation")
+
+        let moved = plan(
+            existing: ["a", "b"],
+            authoritative: ["a"],
+            previousCounts: repeated.missingCounts,
+            previousRevision: "r1",
+            revision: "r2",
+            authority: .confirmationRequired
+        )
+        #expect(moved.confirmedDeletionSongIDs == ["b"])
+    }
+
+    /// A row that came back clears its history under every authority.
+    @Test func recoveredRowsClearTheirWitnessHistory() {
+        for authority in [
+            CatalogDeletionAuthority.authoritative,
+            .confirmationRequired,
+            .never,
+        ] {
+            let result = plan(
+                existing: ["a", "b"],
+                authoritative: ["a", "b"],
+                previousCounts: ["b": 2],
+                revision: "r9",
+                authority: authority
+            )
+            #expect(result.confirmedDeletionSongIDs.isEmpty)
+            #expect(result.missingCounts.isEmpty)
+            #expect(result.evidenceRevision == "r9")
+        }
+    }
+
+    @Test func witnessBarMatchesTheAuthority() {
+        typealias Policy = ServerCatalogDeletionConfirmationPolicy
+        #expect(Policy.requiredWitnesses(for: .authoritative, isMassDisappearance: false) == 1)
+        #expect(Policy.requiredWitnesses(for: .authoritative, isMassDisappearance: true) == 3)
+        #expect(Policy.requiredWitnesses(for: .confirmationRequired, isMassDisappearance: false) == 2)
+        #expect(Policy.requiredWitnesses(for: .confirmationRequired, isMassDisappearance: true) == 3)
+        #expect(Policy.requiredWitnesses(for: .never, isMassDisappearance: false) == nil)
+        #expect(Policy.requiredWitnesses(for: .never, isMassDisappearance: true) == nil)
+    }
+}

@@ -4,7 +4,8 @@ import PrimuseKit
 
 actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackConnector,
     ServerLyricsConnector, ServerPlaylistConnector, ServerFavoriteConnector, ServerRadioConnector,
-    ServerRadioStreamResolvingConnector, ServerListeningStatsConnector {
+    ServerRadioStreamResolvingConnector, ServerListeningStatsConnector,
+    ResumablePagedSongCatalogConnector {
     typealias RequestDataLoader = @Sendable (URLRequest) async throws -> (Data, URLResponse)
 
     private static let maximumCatalogTracks = 10_000_000
@@ -44,6 +45,10 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     private var plexMachineIdentifier: String?
     private var embyLyricsStreams: [String: EmbyLyricsStreamDescriptor] = [:]
     private var embyLyricsProbedItemIDs: Set<String> = []
+    /// Flattened offset space for the resumable paged catalogue. Jellyfin and
+    /// Emby page per library, so the walk needs one deterministic order and the
+    /// per-library counts to translate a global offset into a request.
+    private var catalogLayout: CatalogLayout?
 
     init(
         sourceID: String,
@@ -265,6 +270,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         plexMachineIdentifier = nil
         embyLyricsStreams.removeAll()
         embyLyricsProbedItemIDs.removeAll()
+        catalogLayout = nil
     }
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
@@ -839,6 +845,184 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             }
             continuation.onTermination = { _ in task.cancel() }
         }
+    }
+
+    // MARK: - Resumable Paged Catalog
+
+    /// One music library's slice of the flattened catalogue offset space.
+    /// `MediaServerCatalogPagingPolicy` owns the offset arithmetic.
+    private struct CatalogSegment {
+        let library: Library
+        let count: Int
+    }
+
+    private struct CatalogLayout {
+        let revision: String
+        let segments: [CatalogSegment]
+        let startedAt: Date
+    }
+
+    /// Item count plus the newest `DateCreated` for one library. Both come from
+    /// a single one-item request, so probing the whole server costs one cheap
+    /// round trip per library.
+    private func fetchAudioCatalogProbe(
+        parentID: String
+    ) async throws -> (totalCount: Int, newestCreatedMarker: String) {
+        guard let userID else { throw SourceError.authenticationFailed }
+        let data = try await performRequest(
+            path: "/Users/\(userID)/Items",
+            queryItems: [
+                URLQueryItem(name: "ParentId", value: parentID),
+                URLQueryItem(name: "IncludeItemTypes", value: "Audio"),
+                URLQueryItem(name: "Recursive", value: "true"),
+                URLQueryItem(name: "SortBy", value: "DateCreated"),
+                URLQueryItem(name: "SortOrder", value: "Descending"),
+                URLQueryItem(name: "Fields", value: "DateCreated"),
+                URLQueryItem(name: "EnableImages", value: "false"),
+                URLQueryItem(name: "EnableUserData", value: "false"),
+                URLQueryItem(name: "StartIndex", value: "0"),
+                URLQueryItem(name: "Limit", value: "1")
+            ]
+        )
+        let response = try decoder.decode(ItemResponse.self, from: data)
+        // Without a server-reported total there is no offset space to page
+        // over. The compatibility walk still works, so hand the scan back to it.
+        guard let total = response.totalRecordCount else {
+            throw PagedSongCatalogError.unavailable
+        }
+        guard total >= 0, total <= Self.maximumCatalogTracks else {
+            throw SourceError.connectionFailed(PMString("error.catalog.invalidTotal"))
+        }
+        let newest = response.items.first?.dateCreated
+        let marker = newest.map { String(Int64($0.timeIntervalSince1970)) } ?? "-"
+        return (total, marker)
+    }
+
+    /// Rebuilds the offset space and the revision marker together: the marker
+    /// is derived from exactly the counts the offsets are based on, so a
+    /// catalogue that moved under the walk cannot pass verification.
+    private func rebuildCatalogLayout() async throws -> CatalogLayout {
+        // Sorted by id rather than by the server's presentation order: the
+        // offset space has to mean the same thing after an app relaunch for a
+        // staged page to still line up.
+        let libraries = preferredLibraries(from: try await fetchLibraries())
+            .sorted { $0.id < $1.id }
+        var segments: [CatalogSegment] = []
+        var marker = "\(serviceIdentifier):catalog:v1"
+        for library in libraries {
+            let probe = try await fetchAudioCatalogProbe(parentID: library.id)
+            segments.append(CatalogSegment(library: library, count: probe.totalCount))
+            marker += "|\(library.id)=\(probe.totalCount)@\(probe.newestCreatedMarker)"
+        }
+        let catalogCount = MediaServerCatalogPagingPolicy.totalCount(
+            segmentCounts: segments.map(\.count)
+        )
+        guard catalogCount <= Self.maximumCatalogTracks else {
+            throw SourceError.connectionFailed(PMString("error.catalog.invalidTotal"))
+        }
+        let layout = CatalogLayout(revision: marker, segments: segments, startedAt: Date())
+        catalogLayout = layout
+        return layout
+    }
+
+    func stableSongCatalogRevision() async throws -> String? {
+        // Plex sections report their own totals, but a staged page would also
+        // have to restore the `plexItems` cache the walk fills in. It keeps the
+        // compatibility walk until that is modelled.
+        guard kind != .plex else { throw PagedSongCatalogError.unavailable }
+        try await connect()
+        return try await rebuildCatalogLayout().revision
+    }
+
+    func expectedSongCatalogCount() async throws -> Int? {
+        guard kind != .plex else { return nil }
+        try await connect()
+        let layout: CatalogLayout
+        if let cached = catalogLayout {
+            layout = cached
+        } else {
+            layout = try await rebuildCatalogLayout()
+        }
+        return MediaServerCatalogPagingPolicy.totalCount(
+            segmentCounts: layout.segments.map(\.count)
+        )
+    }
+
+    func songCatalogPage(from path: String, offset: Int) async throws -> PagedSongCatalogPage {
+        guard kind != .plex else { throw PagedSongCatalogError.unavailable }
+        guard offset >= 0 else {
+            throw PagedSongCatalogError.snapshotChangedDuringPagination
+        }
+        try await connect()
+        let layout: CatalogLayout
+        if let cached = catalogLayout {
+            layout = cached
+        } else {
+            layout = try await rebuildCatalogLayout()
+        }
+
+        let pageSize = SubsonicCatalogPagingPolicy.pageSize
+        let requests = MediaServerCatalogPagingPolicy.pageRequests(
+            offset: offset,
+            pageSize: pageSize,
+            segmentCounts: layout.segments.map(\.count)
+        )
+        var songs: [ConnectorScannedSong] = []
+        var itemIDs: [String] = []
+        // A library that answers with fewer rows than its own reported count
+        // has moved. Stop the page there: a short page can only be terminal,
+        // and the caller's terminal probe then rejects the snapshot.
+        var endedEarly = false
+
+        for request in requests {
+            let segment = layout.segments[request.segmentIndex]
+            let result = try await fetchAudioItems(
+                parentID: segment.library.id,
+                startIndex: request.startIndex,
+                limit: request.limit
+            )
+            if let total = result.totalRecordCount, total != segment.count {
+                throw PagedSongCatalogError.snapshotChangedDuringPagination
+            }
+            guard result.items.count <= request.limit else {
+                throw PagedSongCatalogError.snapshotChangedDuringPagination
+            }
+            for item in result.items {
+                if kind == .emby {
+                    embyLyricsProbedItemIDs.insert(item.id)
+                    embyLyricsStreams[item.id] = item.embyLyricsStream
+                }
+                itemIDs.append(item.id)
+                songs.append(
+                    ConnectorScannedSong(
+                        song: buildSong(from: item, dateAddedFallback: layout.startedAt),
+                        displayName: item.name,
+                        titleMetadataInspected: ServerCatalogMetadataInspectionPolicy.hasUsableTitle(
+                            item.name
+                        ),
+                        folderLocation: libraryFolderLocation(
+                            for: item,
+                            library: segment.library
+                        )
+                    )
+                )
+            }
+            if result.items.count < request.limit {
+                endedEarly = true
+                break
+            }
+        }
+
+        return PagedSongCatalogPage(
+            songs: songs,
+            itemIDs: itemIDs,
+            nextOffset: endedEarly
+                ? nil
+                : SubsonicCatalogPagingPolicy.nextOffset(
+                    currentOffset: offset,
+                    receivedCount: itemIDs.count
+                )
+        )
     }
 
     func fetchServerListeningStats() async throws -> ServerListeningStatsPayload {

@@ -805,6 +805,51 @@ private final class CheckpointWriteCounter: @unchecked Sendable {
     }
 }
 
+@Suite("Scan checkpoint walked count")
+struct ScanCheckpointWalkedCountTests {
+    @Test("The walked count survives a round trip")
+    func walkedCountRoundTrips() throws {
+        let checkpoint = ScanCheckpoint(
+            phase: .scanning,
+            intent: .fullScan,
+            directories: ["/Music"],
+            songs: [],
+            scannedSongCount: 41_233,
+            totalCount: 0,
+            currentFile: "tail.flac",
+            updatedAt: Date(timeIntervalSince1970: 123)
+        )
+        let data = try JSONEncoder().encode(checkpoint)
+        let decoded = try JSONDecoder().decode(ScanCheckpoint.self, from: data)
+        #expect(decoded.scannedSongCount == 41_233)
+        #expect(decoded == checkpoint)
+    }
+
+    /// A checkpoint written before the walked count existed stored the whole
+    /// accumulated catalogue in `songs`. It must still decode, and its progress
+    /// still reads from that array.
+    @Test("A checkpoint from an older build still decodes")
+    func legacyCheckpointDecodes() throws {
+        let legacy = Data("""
+        {
+          "schemaVersion": 1,
+          "phase": "scanning",
+          "intent": "fullScan",
+          "directories": ["/Music"],
+          "songs": [],
+          "totalCount": 7,
+          "currentFile": "old.flac",
+          "updatedAt": 123,
+          "automaticResumeFailureCount": 0
+        }
+        """.utf8)
+        let decoded = try JSONDecoder().decode(ScanCheckpoint.self, from: legacy)
+        #expect(decoded.scannedSongCount == nil)
+        #expect(decoded.totalCount == 7)
+        #expect(decoded.directories == ["/Music"])
+    }
+}
+
 private func makeCheckpoint(
     phase: ScanCheckpointPhase = .scanning,
     intent: ScanCheckpointIntent = .fullScan,

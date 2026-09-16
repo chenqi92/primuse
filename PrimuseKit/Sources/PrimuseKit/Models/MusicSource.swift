@@ -206,6 +206,34 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         }
     }
 
+    /// 走可续扫的分页暂存目录（`ResumablePagedSongCatalogConnector`）。整页
+    /// 校验通过就落进私有 SQLite 暂存区，中断后能从下一页接着走，不必把 7 万
+    /// 首重新拉一遍。
+    public var usesPagedCatalogStaging: Bool {
+        isSubsonicFamily || isMediaServer
+    }
+
+    /// How much one completed catalogue walk may conclude about rows it did
+    /// not see. Jellyfin and Emby enumerate by stable item id and report a
+    /// per-library total with every page, so a snapshot that passed first-page,
+    /// per-page total and terminal-probe verification really is complete.
+    /// Subsonic's `search3` cannot express that, so it stays evidence.
+    public var catalogDeletionAuthority: CatalogDeletionAuthority {
+        if isSubsonicFamily { return SubsonicCatalogPagingPolicy.deletionAuthority }
+        return .authoritative
+    }
+
+    /// True when `stableSongCatalogRevision()` reflects a server-side library
+    /// scan rather than the catalogue's own contents. Subsonic reports
+    /// `getScanStatus.lastScan`, which ticks every time the server re-reads its
+    /// library. A media server's marker is derived from the item counts
+    /// themselves, so re-observing the same absence yields the same marker —
+    /// it cannot be used as deletion evidence, and each complete walk has to
+    /// count as its own witness instead.
+    public var catalogRevisionTracksServerScans: Bool {
+        isSubsonicFamily
+    }
+
     /// 服务端整库源：没有"用户选目录"这一步，靠 "/" 哨兵触发 connector
     /// 的全库 `scanSongs(from:)`。媒体服务器(Jellyfin/Emby/Plex)、Subsonic
     /// 系(Navidrome/Airsonic/Gonic)以及飞牛音乐。Apple Music Library 虽也

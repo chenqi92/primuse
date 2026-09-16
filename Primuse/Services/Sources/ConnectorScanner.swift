@@ -20,9 +20,10 @@ actor ConnectorScanner {
     /// snapshots so MetadataBackfillService does not repeat the same inspection
     /// with one Range request per song.
     private var pendingMetadataInspectedSongIDs: Set<String> = []
-    /// Rows the song-scanning walk added or refreshed since the last drain.
-    /// Catalogue sources turn `deliversIntermediateSnapshots` off, so this is
-    /// what ScanService publishes mid-scan instead of the accumulated array.
+    /// Rows this scan added or refreshed since the last drain. ScanService
+    /// publishes these on every intermediate flush instead of resubmitting the
+    /// accumulated catalogue, which is what made a large library's scan spend
+    /// its time re-merging rows it had already committed.
     private var pendingChangedSongs: [Song] = []
 
     init(connector: any MusicSourceConnector, sourceID: String) {
@@ -71,14 +72,15 @@ actor ConnectorScanner {
         var mutationCount: Int = 0
         var totalCount: Int
         var currentFile: String
-        /// Every song known for this source after this update. Empty on the
-        /// progress-only updates a catalogue walk emits while
-        /// `deliversIntermediateSnapshots` is off; `carriesFullSnapshot` says
-        /// which kind of update this is.
+        /// Every song known for this source after this update. Empty on
+        /// progress-only updates; `carriesFullSnapshot` says which kind of
+        /// update this is.
         var songs: [Song]
-        /// False while a catalogue walk is only reporting progress. The
-        /// accumulated snapshot then arrives with the terminal update, and the
-        /// rows discovered in between come from `takePendingChangedSongs()`.
+        /// False while the walk is only reporting progress. The accumulated
+        /// snapshot then arrives with a later update — at the next directory
+        /// boundary for a file walk, or with the terminal update for a
+        /// catalogue — and the rows discovered in between are drained through
+        /// `takePendingChangedSongs()`.
         var carriesFullSnapshot: Bool = true
         /// Present for generic file/NAS walks. ScanService persists it in the
         /// same checkpoint as `songs`, so an interrupted scan resumes at the
@@ -412,25 +414,18 @@ actor ConnectorScanner {
         resumeState: SourceScanResumeState? = nil,
         identityIndex: [String: SourceSyncIndexedItem] = [:],
         identityMissingStableKeys: [String: Int] = [:],
-        scanEpoch: Int64 = 0,
-        // 整库目录源(媒体服务器/Subsonic/UPnP)不消费中间快照, 见 ScanService
-        // 的 requiresAtomicCatalogCommit。给它们每次 yield 都附上累积数组,
-        // 只会让下一次 append 触发整份写时复制 —— 7 万首的曲库里这是 O(n²),
-        // 光复制就要几分钟。关掉之后它们改用 takePendingChangedSongs() 取增量。
-        deliversIntermediateSnapshots: Bool = true
+        scanEpoch: Int64 = 0
     ) -> AsyncThrowingStream<ScanUpdate, Error> {
         completedSyncIndex = [:]
         completedReconciliation = nil
         completedMissingStableKeys = [:]
         pendingMetadataInspectedSongIDs.removeAll(keepingCapacity: true)
         pendingChangedSongs.removeAll(keepingCapacity: true)
-        // A file walk's update carries the complete song snapshot. An unbounded
-        // stream retains every pending snapshot when a fast remote listing
-        // outruns the consumer, and subsequent appends then copy those shared
-        // arrays. Keep only the newest pending snapshot; the final yield below
-        // still carries the complete scan result. Dropping intermediate updates
-        // is why the catalogue delta accumulates in the actor rather than
-        // riding along on each update.
+        // 只有终态那一条带完整快照, 中途全是进度。带上累积数组的那一条会被
+        // 流缓冲和消费端各持有一份引用, 于是紧接着的 append 必然触发整份写时
+        // 复制 —— 每 20 首一次, 7 万首的库里就是 O(n²)。中途新增/刷新的行改
+        // 由 takePendingChangedSongs() 取, 累积在 actor 里, 所以
+        // `.bufferingNewest(1)` 丢掉中间更新也不会丢行。
         return AsyncThrowingStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task {
                 do {
@@ -458,6 +453,16 @@ actor ConnectorScanner {
                     var scannedCount = totalCount > 0 ? min(initialCount, totalCount) : initialCount
                     var addedCount = 0
                     var mutationCount = 0
+                    // 每一处改动都经过这里登记。ScanService 的中间 flush 因此可以
+                    // 只提交增量: 原本每 1.5 s 把整份累积目录再交给 addSongs 一次,
+                    // 7 万首的库等于一遍遍重跑整库准入判定与索引合并, 全在主线程上。
+                    // 行内容没变就什么都不算 —— 重扫时绝大多数行都走这一支。
+                    func recordRow(_ song: Song, for songID: String) {
+                        guard existingByID[songID] != song else { return }
+                        existingByID[songID] = song
+                        pendingChangedSongs.append(song)
+                        mutationCount += 1
+                    }
                     let usableResumeState = resumeState?.isUsable == true ? resumeState : nil
                     var encounteredSongIDs = usableResumeState?.encounteredSongIDs ?? []
                     let identityBaseline = identityIndex.merging(
@@ -480,6 +485,7 @@ actor ConnectorScanner {
                             ScanUpdate(
                                 scannedCount: scannedCount,
                                 addedCount: addedCount,
+                                mutationCount: mutationCount,
                                 totalCount: totalCount,
                                 currentFile: "",
                                 songs: allSongs
@@ -530,8 +536,8 @@ actor ConnectorScanner {
                                                 mutationCount: mutationCount,
                                                 totalCount: totalCount,
                                                 currentFile: scannedSong.displayName,
-                                                songs: deliversIntermediateSnapshots ? allSongs : [],
-                                                carriesFullSnapshot: deliversIntermediateSnapshots
+                                                songs: [],
+                                                carriesFullSnapshot: false
                                             )
                                         )
                                     }
@@ -548,11 +554,7 @@ actor ConnectorScanner {
                                                 if refreshed != existing,
                                                    let idx = allSongIndexByID[scannedSong.song.id] {
                                                     allSongs[idx] = refreshed
-                                                    existingByID[scannedSong.song.id] = refreshed
-                                                    mutationCount += 1
-                                                    if !deliversIntermediateSnapshots {
-                                                        pendingChangedSongs.append(refreshed)
-                                                    }
+                                                    recordRow(refreshed, for: scannedSong.song.id)
                                                 }
                                             }
                                             continue
@@ -568,23 +570,15 @@ actor ConnectorScanner {
                                         if let idx = allSongIndexByID[scannedSong.song.id] {
                                             allSongs[idx] = replacement
                                         }
-                                        existingByID[scannedSong.song.id] = replacement
-                                        mutationCount += 1
-                                        if !deliversIntermediateSnapshots {
-                                            pendingChangedSongs.append(replacement)
-                                        }
+                                        recordRow(replacement, for: scannedSong.song.id)
                                         continue
                                     }
 
                                     scannedCount += 1
                                     addedCount += 1
-                                    mutationCount += 1
                                     allSongs.append(scannedSong.song)
                                     allSongIndexByID[scannedSong.song.id] = allSongs.count - 1
-                                    existingByID[scannedSong.song.id] = scannedSong.song
-                                    if !deliversIntermediateSnapshots {
-                                        pendingChangedSongs.append(scannedSong.song)
-                                    }
+                                    recordRow(scannedSong.song, for: scannedSong.song.id)
 
                                     // Server-side song scanners can enumerate
                                     // thousands of tracks faster than the UI can
@@ -599,8 +593,8 @@ actor ConnectorScanner {
                                                 mutationCount: mutationCount,
                                                 totalCount: totalCount,
                                                 currentFile: scannedSong.displayName,
-                                                songs: deliversIntermediateSnapshots ? allSongs : [],
-                                                carriesFullSnapshot: deliversIntermediateSnapshots
+                                                songs: [],
+                                                carriesFullSnapshot: false
                                             )
                                         )
                                     }
@@ -670,9 +664,11 @@ actor ConnectorScanner {
                         ScanUpdate(
                             scannedCount: scannedCount,
                             addedCount: addedCount,
+                            mutationCount: mutationCount,
                             totalCount: totalCount,
                             currentFile: pendingDirectories.last ?? "",
-                            songs: allSongs,
+                            songs: [],
+                            carriesFullSnapshot: false,
                             resumeState: SourceScanResumeState(
                                 pendingDirectories: pendingDirectories,
                                 encounteredSongIDs: encounteredSongIDs,
@@ -695,9 +691,11 @@ actor ConnectorScanner {
                             ScanUpdate(
                                 scannedCount: scannedCount,
                                 addedCount: addedCount,
+                                mutationCount: mutationCount,
                                 totalCount: totalCount,
                                 currentFile: directory,
-                                songs: allSongs,
+                                songs: [],
+                                carriesFullSnapshot: false,
                                 resumeState: inFlightResumeState
                             )
                         )
@@ -758,9 +756,11 @@ actor ConnectorScanner {
                                         ScanUpdate(
                                             scannedCount: scannedCount,
                                             addedCount: addedCount,
+                                            mutationCount: mutationCount,
                                             totalCount: totalCount,
                                             currentFile: item.name,
-                                            songs: allSongs
+                                            songs: [],
+                                            carriesFullSnapshot: false
                                         )
                                     )
                                 }
@@ -812,7 +812,7 @@ actor ConnectorScanner {
                                             applySidecarHints(from: item, to: &refreshed)
                                             refreshSuspiciousSourceTitle(in: &refreshed, from: item)
                                             allSongs[idx] = refreshed
-                                            existingByID[songID] = refreshed
+                                            recordRow(refreshed, for: songID)
                                         }
                                         continue
                                     }
@@ -847,19 +847,19 @@ actor ConnectorScanner {
                                                 in: replacement
                                             )
                                             allSongs[idx] = replacement
-                                            existingByID[songID] = replacement
+                                            recordRow(replacement, for: songID)
                                         } else if let idx = allSongIndexByID[songID] {
                                             var refreshed = existing
                                             refreshed.filePath = descriptorSong.filePath
                                             refreshed.lastModified = descriptorSong.lastModified ?? existing.lastModified
                                             applySidecarHints(from: item, to: &refreshed)
                                             allSongs[idx] = refreshed
-                                            existingByID[songID] = refreshed
+                                            recordRow(refreshed, for: songID)
                                         }
                                     } else {
                                         allSongs.append(descriptorSong)
                                         allSongIndexByID[songID] = allSongs.count - 1
-                                        existingByID[songID] = descriptorSong
+                                        recordRow(descriptorSong, for: songID)
                                         scannedCount += 1
                                         addedCount += 1
                                     }
@@ -893,7 +893,7 @@ actor ConnectorScanner {
                                                     in: replacement
                                                 )
                                                 allSongs[index] = replacement
-                                                existingByID[cueSong.id] = replacement
+                                                recordRow(replacement, for: cueSong.id)
                                             } else if let index = allSongIndexByID[cueSong.id] {
                                                 var refreshed = existing
                                                 refreshed.filePath = cueSong.filePath
@@ -905,13 +905,13 @@ actor ConnectorScanner {
                                                 refreshed.cueStartTime = cueSong.cueStartTime
                                                 refreshed.cueEndTime = cueSong.cueEndTime
                                                 allSongs[index] = refreshed
-                                                existingByID[cueSong.id] = refreshed
+                                                recordRow(refreshed, for: cueSong.id)
                                             }
                                             continue
                                         }
                                         allSongs.append(cueSong)
                                         allSongIndexByID[cueSong.id] = allSongs.count - 1
-                                        existingByID[cueSong.id] = cueSong
+                                        recordRow(cueSong, for: cueSong.id)
                                         scannedCount += 1
                                         addedCount += 1
                                     }
@@ -964,7 +964,7 @@ actor ConnectorScanner {
                                                 refreshed.duration = repairedDuration
                                             }
                                             allSongs[idx] = refreshed
-                                            existingByID[songID] = refreshed
+                                            recordRow(refreshed, for: songID)
                                         }
                                         continue
                                     }
@@ -977,7 +977,7 @@ actor ConnectorScanner {
                                             in: replacement
                                         )
                                         allSongs[idx] = replacement
-                                        existingByID[songID] = replacement
+                                        recordRow(replacement, for: songID)
                                     }
                                     continue
                                 }
@@ -985,21 +985,28 @@ actor ConnectorScanner {
                                 let newSong = buildBareSong(from: item, songID: songID)
                                 allSongs.append(newSong)
                                 allSongIndexByID[songID] = allSongs.count - 1
-                                existingByID[songID] = newSong
+                                recordRow(newSong, for: songID)
                                 scannedCount += 1
                                 addedCount += 1
 
                                 // Yield progress every 20 items — yielding on every
                                 // file made the SwiftUI publisher chain the bottleneck
                                 // when scanning fast cloud listings.
+                                //
+                                // 不带累积数组: 这一条的 resume 状态把正在走的目录
+                                // 原样排回队列, checkpoint 要的本来就是上一个走完的
+                                // 目录那份快照。附上整份 allSongs 只会让下一次
+                                // append 触发整份写时复制。
                                 if addedCount % Self.progressYieldStride == 0 {
                                     continuation.yield(
                                         ScanUpdate(
                                             scannedCount: scannedCount,
                                             addedCount: addedCount,
+                                            mutationCount: mutationCount,
                                             totalCount: totalCount,
                                             currentFile: item.name,
-                                            songs: allSongs,
+                                            songs: [],
+                                            carriesFullSnapshot: false,
                                             resumeState: SourceScanResumeState(
                                                 pendingDirectories: pendingDirectories + [directory] + failedDirectories,
                                                 encounteredSongIDs: encounteredSongIDs,
@@ -1026,9 +1033,11 @@ actor ConnectorScanner {
                                 ScanUpdate(
                                     scannedCount: scannedCount,
                                     addedCount: addedCount,
+                                    mutationCount: mutationCount,
                                     totalCount: totalCount,
                                     currentFile: "",
-                                    songs: allSongs,
+                                    songs: [],
+                                    carriesFullSnapshot: false,
                                     resumeState: SourceScanResumeState(
                                         pendingDirectories: pendingDirectories + failedDirectories,
                                         encounteredSongIDs: encounteredSongIDs,
@@ -1082,9 +1091,11 @@ actor ConnectorScanner {
                                     ScanUpdate(
                                         scannedCount: scannedCount,
                                         addedCount: addedCount,
+                                        mutationCount: mutationCount,
                                         totalCount: totalCount,
                                         currentFile: "",
-                                        songs: allSongs,
+                                        songs: [],
+                                        carriesFullSnapshot: false,
                                         resumeState: SourceScanResumeState(
                                             pendingDirectories: pendingDirectories + failedDirectories,
                                             encounteredSongIDs: encounteredSongIDs,
@@ -1108,9 +1119,11 @@ actor ConnectorScanner {
                                 ScanUpdate(
                                     scannedCount: scannedCount,
                                     addedCount: addedCount,
+                                    mutationCount: mutationCount,
                                     totalCount: totalCount,
                                     currentFile: directory,
-                                    songs: allSongs,
+                                    songs: [],
+                                    carriesFullSnapshot: false,
                                     resumeState: SourceScanResumeState(
                                         pendingDirectories: pendingDirectories + failedDirectories,
                                         encounteredSongIDs: encounteredSongIDs,
@@ -1157,10 +1170,12 @@ actor ConnectorScanner {
 
                     completedSyncIndex = syncIndex
 
+                    // 终态快照: completeScan 的删除对账就是拿这一份和资料库比。
                     continuation.yield(
                         ScanUpdate(
                             scannedCount: scannedCount,
                             addedCount: addedCount,
+                            mutationCount: mutationCount,
                             totalCount: totalCount,
                             currentFile: "",
                             songs: allSongs,

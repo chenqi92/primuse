@@ -39,6 +39,27 @@ public enum ServerCatalogDeletionConfirmationPolicy {
     /// Witnesses required for rows that disappeared in a suspicious pass.
     public static let massDisappearanceWitnessCount = 3
 
+    /// How many complete observations must agree before an absent row may be
+    /// removed. `nil` means "never remove it from this kind of listing".
+    ///
+    /// An authoritative snapshot decides on its own, but a pass that lost a
+    /// suspicious share of the source still has to be repeated — an unmounted
+    /// library reads exactly like a bulk deletion, and that is the one case
+    /// where being wrong costs the user their playlists.
+    public static func requiredWitnesses(
+        for authority: CatalogDeletionAuthority,
+        isMassDisappearance: Bool
+    ) -> Int? {
+        switch authority {
+        case .never:
+            return nil
+        case .authoritative:
+            return isMassDisappearance ? massDisappearanceWitnessCount : 1
+        case .confirmationRequired:
+            return isMassDisappearance ? massDisappearanceWitnessCount : requiredWitnessCount
+        }
+    }
+
     public struct Plan: Sendable, Equatable {
         /// Rows that may be removed from the library now.
         public var confirmedDeletionSongIDs: Set<String>
@@ -77,12 +98,15 @@ public enum ServerCatalogDeletionConfirmationPolicy {
     ///   - currentRevision: revision of this snapshot. `nil` for servers that
     ///     expose no scan marker; each complete walk then counts on its own,
     ///     which is still two full catalogue transfers apart.
+    ///   - authority: how much this listing may conclude about rows it did not
+    ///     see. Defaults to the conservative bar.
     public static func plan(
         existingSongIDs: Set<String>,
         authoritativeSongIDs: Set<String>,
         previousMissingCounts: [String: Int],
         previousEvidenceRevision: String?,
-        currentRevision: String?
+        currentRevision: String?,
+        authority: CatalogDeletionAuthority = .confirmationRequired
     ) -> Plan {
         let missing = existingSongIDs.subtracting(authoritativeSongIDs)
         guard !missing.isEmpty else {
@@ -98,9 +122,10 @@ public enum ServerCatalogDeletionConfirmationPolicy {
 
         let isMassDisappearance = missing.count >= massDisappearanceFloor
             && Double(missing.count) >= Double(existingSongIDs.count) * massDisappearanceRatio
-        let witnessBar = isMassDisappearance
-            ? massDisappearanceWitnessCount
-            : requiredWitnessCount
+        let witnessBar = requiredWitnesses(
+            for: authority,
+            isMassDisappearance: isMassDisappearance
+        )
 
         var counts: [String: Int] = [:]
         counts.reserveCapacity(missing.count)
@@ -110,7 +135,7 @@ public enum ServerCatalogDeletionConfirmationPolicy {
             let previous = previousMissingCounts[songID] ?? 0
             let witnesses = isRepeatedObservation ? max(previous, 1) : previous + 1
             counts[songID] = witnesses
-            if witnesses >= witnessBar {
+            if let witnessBar, witnesses >= witnessBar {
                 confirmed.insert(songID)
             } else {
                 pending.insert(songID)

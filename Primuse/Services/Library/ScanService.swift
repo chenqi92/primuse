@@ -824,7 +824,7 @@ final class ScanService {
         // durable recovery marker until the fresh preparing checkpoint replaces
         // it. This closes the relaunch window between detecting an interrupted
         // song/topology commit and recording the corrective deep scan.
-        let supportsAtomicCatalogResume = source.type.isSubsonicFamily
+        let supportsAtomicCatalogResume = source.type.usesPagedCatalogStaging
         let checkpoint = mode == .deep
             || (requiresAtomicCatalogCommit && !supportsAtomicCatalogResume)
             ? nil
@@ -839,6 +839,8 @@ final class ScanService {
             BaiduSnapshotProgressPolicy.progress(for: $0)
         }
         let resumeCount = resumedSnapshotProgress?.completedCount
+            ?? checkpoint?.subsonicCatalogState?.stagedSongCount
+            ?? checkpoint?.scannedSongCount
             ?? checkpoint?.songs.count
             ?? 0
         let resumeTotal = resumedSnapshotProgress?.totalCount
@@ -858,6 +860,9 @@ final class ScanService {
             // MetadataBackfill.isStillReadable 会据此把这些行的读取结果全丢掉。
             // 其余字段的更新仍由首次增量 flush 与 completeScan 通过
             // existingForScan 一并提交, 完整扫描结束后再做真正的删除对账。
+            // 连接器扫描的 checkpoint 只存还没入库的那一小段 (见
+            // `ScanCheckpoint.songs`), 所以这里通常只有几十行; 专用 NAS
+            // 遍历仍然存整份快照, 两种都按缺什么补什么处理。
             let seedSongs = resumeSongs.filter { row in
                 guard let existing = library.song(id: row.id) else { return true }
                 return Self.resumeSeedNeedsUpdate(checkpointRow: row, libraryRow: existing)
@@ -2212,7 +2217,7 @@ final class ScanService {
         // immutable revision for deletions. Every family member may still use
         // the durable paged path and publish merge-only page observations.
         var allowsAuthoritativeCatalogPrune = !source.type.isSubsonicFamily
-        if source.type.isSubsonicFamily,
+        if source.type.usesPagedCatalogStaging,
            let pagedConnector = connector as? any ResumablePagedSongCatalogConnector,
            let pagedCatalogStore {
             let handled = await scanPagedServerCatalog(
@@ -2234,10 +2239,14 @@ final class ScanService {
             )
             if handled { return }
             guard scanFenceIsValid() else { return }
-            // `unavailable` means this compatibility walk has no strong,
-            // immutable server revision. It may safely add/refresh rows, but
-            // it must never turn a moving/partial listing into deletions.
-            allowsAuthoritativeCatalogPrune = false
+            // `unavailable` sends the scan back to the connector's own walk.
+            // Subsonic's legacy album walk has no strong, immutable revision
+            // behind it, so it may add and refresh rows but must never turn a
+            // moving or partial listing into deletions. A media server's walk
+            // does check the reported total on every page, and keeps the
+            // authority its source type declares.
+            allowsAuthoritativeCatalogPrune =
+                source.type.catalogDeletionAuthority == .authoritative
             activeCheckpoint = checkpoints[source.id]
         } else if activeCheckpoint?.subsonicCatalogState != nil {
             do {
@@ -2629,8 +2638,7 @@ final class ScanService {
                 scopeFingerprint: scopeFingerprint
             ),
             identityMissingStableKeys: workingState?.missingStableKeys ?? [:],
-            scanEpoch: nextScanEpoch,
-            deliversIntermediateSnapshots: !requiresAtomicCatalogCommit
+            scanEpoch: nextScanEpoch
         )
 
         // 扫描失败时用它把已经走通的目录层级留下来,见
@@ -2646,7 +2654,12 @@ final class ScanService {
             // 已经边扫边发过行的整库源, 终态快照会和资料库里的现状相等,
             // `SourceCatalogSnapshotPolicy.hasChanges` 因此会把首次扫描误判成
             // 空操作, 连带跳过后台刮削入队。
-            var publishedIntermediateCatalogRows = false
+            var publishedIntermediateRows = false
+            // 走过但还没进资料库的行。checkpoint 只带这一小段: 已经发布的行由
+            // 资料库自己持久化, 把整份累积目录再塞进 checkpoint 只会让每次落盘
+            // 重新编码一遍全库 —— 而写入间隔本来就随体积变长, 越大的库反而存得
+            // 越少。带上尾巴就能既小又频繁。
+            var unpublishedRows: [Song] = []
             for try await update in stream {
                 if Self.requiresAutomaticServerCatalogResourceGate(source.type),
                    Self.shouldDeferAutomaticServerCatalogWork(
@@ -2670,6 +2683,7 @@ final class ScanService {
                     sourceStore: sourceStore
                 )
                 let metadataInspectedSongIDs = await scanner.takeMetadataInspectedSongIDs()
+                unpublishedRows.append(contentsOf: await scanner.takePendingChangedSongs())
                 try checkScanCommitFence(
                     sourceID: source.id,
                     generation: generation,
@@ -2699,7 +2713,8 @@ final class ScanService {
                     persistCheckpoint(
                         sourceID: source.id,
                         directories: directories,
-                        songs: lastSongs,
+                        songs: unpublishedRows,
+                        scannedSongCount: update.scannedCount,
                         totalCount: update.totalCount,
                         currentFile: update.currentFile,
                         directoryState: directoryState,
@@ -2719,61 +2734,42 @@ final class ScanService {
                 let timeSinceFlush = Date().timeIntervalSince(lastFlushAt)
                 let shouldFlushIncrementally = pendingDelta >= currentFlushBatchSize
                     || (pendingDelta > 0 && timeSinceFlush >= currentFlushInterval)
-                if shouldFlushIncrementally, requiresAtomicCatalogCommit {
-                    // 整库目录源的歌曲与文件夹层级仍然是一份快照, 但歌曲行可以
-                    // 边走边发: 只合并、不修剪、不通知删除, 删除对账与层级提交
-                    // 留给 completeScan 的终态快照。7 万首的媒体服务器原本要等
-                    // 整轮走完才第一次入库, 期间资料库和首页都是空的。
-                    // 与 scanPagedServerCatalog 里 Subsonic 的分页发布同义。
-                    let stagedRows = await scanner.takePendingChangedSongs()
-                    try checkScanCommitFence(
-                        sourceID: source.id,
-                        generation: generation,
-                        expectedScopeFingerprint: scopeFingerprint,
-                        expectedScopeDirectories: directories,
-                        sourceStore: sourceStore
-                    )
-                    if !stagedRows.isEmpty {
+                if shouldFlushIncrementally {
+                    // 中间 flush 只交这一批新增/刷新的行, 不再把整份累积目录
+                    // 重新提交一遍 —— 后者在 7 万首的库里等于每 1.5 s 重跑一次
+                    // 整库准入判定与索引合并, 全在主线程上。
+                    //
+                    // 只合并、不修剪、不通知删除: 还没扫到的歌不该被当成远端
+                    // 少了一首而清掉本地缓存。删除对账留给 completeScan 的终态
+                    // 快照, 整库目录源的文件夹层级也一样。7 万首的媒体服务器
+                    // 原本要等整轮走完才第一次入库, 期间资料库和首页都是空的。
+                    let changedRows = unpublishedRows
+                    unpublishedRows.removeAll(keepingCapacity: true)
+                    if !changedRows.isEmpty {
                         library.addSongs(
-                            stagedRows,
+                            changedRows,
                             affectedSourceIDs: Set([source.id]),
                             notifyRemovals: false,
                             pruneMissingSongs: false,
                             mergeServerCatalogRows: source.type.isSubsonicFamily,
+                            // 派生集合与 Spotlight 脏位合并到短上限的延后维护里,
+                            // 免得滚动时每次 flush 都在主线程上重发一遍整库可见
+                            // 集合; 最终提交仍然立即维护。
                             indexMaintenance: .deferredIncremental
                         )
-                        publishedIntermediateCatalogRows = true
+                        publishedIntermediateRows = true
+                        // 不用 `songs.filter {}.count`: 那会为了一个计数临时分配
+                        // 一整份匹配歌曲数组 (整库 retain 一遍)。
                         let acceptedCount = library.songCountsBySourceID()[source.id] ?? 0
                         rememberCoalescingSourceStore(sourceStore)
                         sourceStore.updateLocalCoalesced(source.id) { $0.songCount = acceptedCount }
                     }
-                    lastIncrementalMutation = observedMutationCount
-                    lastFlushAt = Date()
-                } else if shouldFlushIncrementally {
-                    // 中间 flush ── lastSongs 是当前累积的部分扫描结果, 还没
-                    // 扫到的歌会被 addSongs 临时移除, 下次 flush 又补回。
-                    // 这种"伪移除"不该触发缓存清理, 否则扫描中用户的本地
-                    // 缓存被反复清空。
-                    library.addSongs(
-                        lastSongs,
-                        affectedSourceIDs: Set([source.id]),
-                        notifyRemovals: false,
-                        pruneMissingSongs: false,
-                        // 中间 flush 每 1.5 s 一次。派生集合与 Spotlight 脏位
-                        // 合并到短上限的延后维护里, 免得滚动时每次 flush 都
-                        // 在主线程上重发一遍整库可见集合; 最终提交仍然立即维护。
-                        indexMaintenance: .deferredIncremental
-                    )
-                    // 不用 `songs.filter {}.count`: 那会为了一个计数临时分配
-                    // 一整份匹配歌曲数组 (整库 retain 一遍)。
-                    let acceptedCount = library.songCountsBySourceID()[source.id] ?? 0
-                    rememberCoalescingSourceStore(sourceStore)
-                    sourceStore.updateLocalCoalesced(source.id) { $0.songCount = acceptedCount }
                     if update.resumeState == nil, !requiresAtomicCatalogCommit {
                         persistCheckpoint(
                             sourceID: source.id,
                             directories: directories,
-                            songs: lastSongs,
+                            songs: unpublishedRows,
+                            scannedSongCount: update.scannedCount,
                             totalCount: update.totalCount,
                             currentFile: update.currentFile,
                             baselineCursors: baselineCursors,
@@ -2817,7 +2813,7 @@ final class ScanService {
                 generation: generation,
                 songs: lastSongs,
                 pruneMissingSongs: allowsAuthoritativeCatalogPrune,
-                forcesCatalogCommit: publishedIntermediateCatalogRows,
+                forcesCatalogCommit: publishedIntermediateRows,
                 expectedScopeFingerprint: scopeFingerprint,
                 expectedScopeDirectories: directories,
                 library: library,
@@ -3014,6 +3010,7 @@ final class ScanService {
                 }
 
                 let initialRevision = try await connector.stableSongCatalogRevision()
+                let expectedCatalogCount = try await connector.expectedSongCatalogCount() ?? 0
                 try checkScanCommitFence(
                     sourceID: source.id,
                     generation: generation,
@@ -3237,7 +3234,7 @@ final class ScanService {
                         sourceID: source.id,
                         directories: directories,
                         songs: [],
-                        totalCount: stageSnapshot.stagedSongCount,
+                        totalCount: expectedCatalogCount,
                         currentFile: page.songs.last?.displayName ?? "",
                         directoryState: directoryState,
                         subsonicCatalogState: nextState
@@ -3264,7 +3261,7 @@ final class ScanService {
                         sourceID: source.id,
                         scannedCount: stageSnapshot.stagedSongCount,
                         addedCount: stageSnapshot.addedSongCount,
-                        totalCount: 0,
+                        totalCount: expectedCatalogCount,
                         currentFile: page.songs.last?.displayName ?? "",
                         lastPublishedAt: &lastProgressPublishedAt
                     )
@@ -3358,12 +3355,20 @@ final class ScanService {
                 // is not permission to forget them.
                 let knownSongIDs = Set(finalExistingByID.keys)
                     .union(library.locallyRemovedSongIDs(forSourceID: source.id))
+                // A content-derived marker stops moving once the catalogue
+                // settles, so reusing it as evidence would freeze every absence
+                // at one witness and nothing would ever be removed. Those
+                // sources pass nil and let each complete walk count on its own.
+                let deletionEvidenceRevision = source.type.catalogRevisionTracksServerScans
+                    ? initialRevision
+                    : nil
                 let deletionPlan = ServerCatalogDeletionConfirmationPolicy.plan(
                     existingSongIDs: knownSongIDs,
                     authoritativeSongIDs: stagedCommit.0.authoritativeSongIDs,
                     previousMissingCounts: previousState?.missingCatalogSongIDs ?? [:],
                     previousEvidenceRevision: previousState?.deletionEvidenceRevision,
-                    currentRevision: initialRevision
+                    currentRevision: deletionEvidenceRevision,
+                    authority: source.type.catalogDeletionAuthority
                 )
                 let prunableSongIDs = ServerCatalogDeletionConfirmationPolicy
                     .retainedAuthoritativeSongIDs(
@@ -3496,7 +3501,7 @@ final class ScanService {
                 guard pagedFenceIsValid() else { return true }
                 guard snapshotRestartCount < 2 else {
                     let error = SourceError.connectionFailed(
-                        "Navidrome catalog changed during pagination"
+                        "Server catalog changed during pagination"
                     )
                     recordScanFailure(
                         sourceID: source.id,
@@ -3847,7 +3852,7 @@ final class ScanService {
         }
         var catalogSongs = songs
         let detectedCatalogChanges: Bool
-        if let authoritativeSongIDs, source?.type.isSubsonicFamily == true {
+        if let authoritativeSongIDs, source?.type.usesPagedCatalogStaging == true {
             let librarySongsSnapshot = library.songs
             let existingIDs = await Task.detached(priority: .utility) {
                 Set(
@@ -4315,6 +4320,7 @@ final class ScanService {
         sourceID: String,
         directories: [String],
         songs: [Song],
+        scannedSongCount: Int? = nil,
         totalCount: Int,
         currentFile: String,
         directoryState: SourceScanResumeState? = nil,
@@ -4328,6 +4334,7 @@ final class ScanService {
             intent: existing?.intent ?? .fullScan,
             directories: normalizedDirectories(directories),
             songs: songs,
+            scannedSongCount: scannedSongCount ?? existing?.scannedSongCount,
             totalCount: totalCount,
             currentFile: currentFile,
             updatedAt: Date(),

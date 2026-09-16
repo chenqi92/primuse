@@ -23,7 +23,17 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
     public var phase: ScanCheckpointPhase
     public var intent: ScanCheckpointIntent
     public var directories: [String]
+    /// Rows this scan has produced that are not yet in the library. A file or
+    /// NAS walk publishes its rows as it goes and the library persists them on
+    /// its own schedule, so carrying the whole accumulated catalogue here would
+    /// re-encode every song on every checkpoint write — and on a large library
+    /// that grows the write interval until the checkpoint is barely written at
+    /// all. Keeping only the tail keeps checkpoints small and frequent.
+    /// Dedicated NAS walks still store their complete snapshot here.
     public var songs: [Song]
+    /// Rows walked so far, kept separately now that `songs` may hold only the
+    /// tail. Nil in checkpoints written by older builds.
+    public var scannedSongCount: Int?
     public var totalCount: Int
     public var currentFile: String
     public var updatedAt: Date
@@ -61,6 +71,7 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
         intent: ScanCheckpointIntent,
         directories: [String],
         songs: [Song],
+        scannedSongCount: Int? = nil,
         totalCount: Int,
         currentFile: String,
         updatedAt: Date,
@@ -79,6 +90,7 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
         self.intent = intent
         self.directories = directories
         self.songs = songs
+        self.scannedSongCount = scannedSongCount
         self.totalCount = totalCount
         self.currentFile = currentFile
         self.updatedAt = updatedAt
@@ -184,6 +196,7 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
         case intent
         case directories
         case songs
+        case scannedSongCount
         case totalCount
         case currentFile
         case updatedAt
@@ -210,6 +223,12 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
             ?? .fullScan
         directories = try container.decode([String].self, forKey: .directories)
         songs = try container.decode([Song].self, forKey: .songs)
+        // Checkpoints from builds that stored the whole accumulated catalogue
+        // have no separate count; their `songs` is that count.
+        scannedSongCount = try container.decodeIfPresent(
+            Int.self,
+            forKey: .scannedSongCount
+        )
         totalCount = try container.decode(Int.self, forKey: .totalCount)
         currentFile = try container.decode(String.self, forKey: .currentFile)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)

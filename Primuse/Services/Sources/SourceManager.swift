@@ -1894,6 +1894,15 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
         }
     }
 
+    func expectedSongCatalogCount() async throws -> Int? {
+        try await routing.withRead { connector in
+            guard let scanner = connector as? any ResumablePagedSongCatalogConnector else {
+                return nil
+            }
+            return try await scanner.expectedSongCatalogCount()
+        }
+    }
+
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
         try await routing.withRead { connector in
             guard let provider = connector as? any ServerPlaylistConnector else {
@@ -2198,13 +2207,40 @@ private struct RoutedSongloftConnector: RoutedConnectorProxy, RefreshingMetadata
 
 private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     MediaServerWritebackConnector, ServerLyricsConnector, ServerPlaylistConnector,
-    ServerFavoriteConnector,
+    ServerFavoriteConnector, ResumablePagedSongCatalogConnector,
     ServerRadioConnector, ServerRadioStreamResolvingConnector, ServerListeningStatsConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
     let routedPreferredDeleteBatchSize: Int
     let serverLyricsCapabilities: ServerLyricsCapabilities
+
+    func stableSongCatalogRevision() async throws -> String? {
+        try await routing.withRead { connector in
+            guard let scanner = connector as? any ResumablePagedSongCatalogConnector else {
+                throw PagedSongCatalogError.unavailable
+            }
+            return try await scanner.stableSongCatalogRevision()
+        }
+    }
+
+    func songCatalogPage(from path: String, offset: Int) async throws -> PagedSongCatalogPage {
+        try await routing.withRead { connector in
+            guard let scanner = connector as? any ResumablePagedSongCatalogConnector else {
+                throw PagedSongCatalogError.unavailable
+            }
+            return try await scanner.songCatalogPage(from: path, offset: offset)
+        }
+    }
+
+    func expectedSongCatalogCount() async throws -> Int? {
+        try await routing.withRead { connector in
+            guard let scanner = connector as? any ResumablePagedSongCatalogConnector else {
+                return nil
+            }
+            return try await scanner.expectedSongCatalogCount()
+        }
+    }
 
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
         try await routing.withRead { connector in
