@@ -638,6 +638,11 @@ public struct LyricLine: Identifiable, Hashable, Sendable {
     /// more than one language-qualified lyrics field. `manualTranslation`
     /// remains the explicitly selected translation used by existing UI.
     public var alternateManualTranslations: [LyricManualTranslation]
+    /// An authored romanization of this line, from TTML `x-roman` or a source
+    /// that ships a romanized track. It reads the original out loud rather
+    /// than translating it, so it belongs to no target language and must not
+    /// be offered as a translation. It carries no timing of its own.
+    public var romanization: String?
 
     public init(
         id: String = UUID().uuidString,
@@ -652,7 +657,8 @@ public struct LyricLine: Identifiable, Hashable, Sendable {
         languageCode: String? = nil,
         documentIsLocalOverride: Bool = false,
         manualTranslation: LyricManualTranslation? = nil,
-        alternateManualTranslations: [LyricManualTranslation] = []
+        alternateManualTranslations: [LyricManualTranslation] = [],
+        romanization: String? = nil
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -667,6 +673,7 @@ public struct LyricLine: Identifiable, Hashable, Sendable {
         self.documentIsLocalOverride = documentIsLocalOverride
         self.manualTranslation = manualTranslation
         self.alternateManualTranslations = alternateManualTranslations
+        self.romanization = romanization
     }
 
     /// 行结束时间。结构化行末与最后一字取较晚者；普通 LRC 无信息，外部仍需靠下一行推断。
@@ -798,7 +805,7 @@ extension LyricLine: Codable {
     private enum CodingKeys: String, CodingKey {
         case id, timestamp, text, isSynchronized, syllables, endTimestamp
         case voice, background, metadataLines, languageCode, documentIsLocalOverride
-        case manualTranslation, alternateManualTranslations
+        case manualTranslation, alternateManualTranslations, romanization
     }
 
     public init(from decoder: Decoder) throws {
@@ -826,6 +833,7 @@ extension LyricLine: Codable {
             [LyricManualTranslation].self,
             forKey: .alternateManualTranslations
         ) ?? []
+        self.romanization = try c.decodeIfPresent(String.self, forKey: .romanization)
 
         // Older parsers cached square-bracket word lyrics as unsynchronized
         // source text. Recover only that lossless shape, retaining row identity
@@ -863,6 +871,7 @@ extension LyricLine: Codable {
         if !alternateManualTranslations.isEmpty {
             try c.encode(alternateManualTranslations, forKey: .alternateManualTranslations)
         }
+        try c.encodeIfPresent(romanization, forKey: .romanization)
     }
 }
 
@@ -1798,6 +1807,7 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         var pendingText = ""
         var segments: [SpanSegment] = []
         var translations: [PendingTranslation] = []
+        var romanization: String?
         let role: SpanRole?
         let begin: TimeInterval?
         let end: TimeInterval?
@@ -1845,6 +1855,7 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
     private var currentUntimedPrefix = ""
     private var currentSyllables: [PendingSyllable] = []
     private var currentTranslations: [PendingTranslation] = []
+    private var currentRomanization: String?
     private var currentBackgroundLines: [LyricLine] = []
     private var spanStack: [SpanContext] = []
 
@@ -1937,6 +1948,9 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
                 lineLanguageCode: effectiveLineLanguage,
                 indent: "        "
             )
+            if let romanizationSpan = romanizationSpan(in: line, indent: "        ") {
+                children.append(romanizationSpan)
+            }
 
             guard !children.isEmpty else {
                 return "      <p\(attributeText)>\(escapeTTMLText(text))</p>"
@@ -2004,6 +2018,12 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         }
     }
 
+    private static func romanizationSpan(in line: LyricLine, indent: String) -> String? {
+        let text = (line.romanization ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        return "\(indent)<span ttm:role=\"x-roman\">\(escapeTTMLText(text))</span>"
+    }
+
     /// Backing vocals stay nested in their lead paragraph so a round trip
     /// keeps them off the lead line's own timeline.
     private static func backgroundSpan(
@@ -2034,6 +2054,9 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
             lineLanguageCode: languageCode ?? parentLanguageCode,
             indent: childIndent
         )
+        if let romanizationSpan = romanizationSpan(in: line, indent: childIndent) {
+            children.append(romanizationSpan)
+        }
 
         let text = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !children.isEmpty else {
@@ -2204,7 +2227,9 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         switch span.role {
         case .romanization:
             // A romanization repeats the line in another script. It is never
-            // sung on its own, so it must not become lyric text or a cue.
+            // sung on its own, so it is kept beside the line instead of
+            // becoming lyric text or a cue.
+            recordRomanization(text: text)
             return
         case .translation:
             recordTranslation(text: text, languageCode: span.languageCode)
@@ -2280,6 +2305,19 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         resolvedSegments.forEach(consumeSpanSegment)
     }
 
+    /// Stores an authored romanization on the enclosing background span when
+    /// there is one, otherwise on the paragraph itself.
+    private func recordRomanization(text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if spanStack.isEmpty {
+            currentRomanization = currentRomanization ?? trimmed
+        } else {
+            let index = spanStack.count - 1
+            spanStack[index].romanization = spanStack[index].romanization ?? trimmed
+        }
+    }
+
     /// Stores an authored translation on the enclosing background span when
     /// there is one, otherwise on the paragraph itself.
     private func recordTranslation(text: String, languageCode: String?) {
@@ -2332,7 +2370,8 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
             syllables: normalized.isEmpty ? nil : normalized,
             endTimestamp: span.end ?? normalized.last?.end,
             voice: .secondary,
-            languageCode: languageCode == documentLanguageCode ? nil : languageCode
+            languageCode: languageCode == documentLanguageCode ? nil : languageCode,
+            romanization: span.romanization
         )
         Self.attach(translations: span.translations, to: &line)
         return line
@@ -2418,7 +2457,8 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
                 background: currentBackgroundLines.isEmpty ? nil : currentBackgroundLines,
                 languageCode: currentLineLanguageCode == documentLanguageCode
                     ? nil
-                    : currentLineLanguageCode
+                    : currentLineLanguageCode,
+                romanization: currentRomanization
             )
             Self.attach(translations: currentTranslations, to: &line)
             parsedLines.append((order: nextLineOrder, line: line))
@@ -2474,6 +2514,7 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
         currentUntimedPrefix = ""
         currentSyllables.removeAll(keepingCapacity: true)
         currentTranslations.removeAll(keepingCapacity: true)
+        currentRomanization = nil
         currentBackgroundLines.removeAll(keepingCapacity: true)
         spanStack.removeAll(keepingCapacity: true)
     }

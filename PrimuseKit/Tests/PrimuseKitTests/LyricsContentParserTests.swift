@@ -469,6 +469,43 @@ struct LyricsContentParserTests {
 
     /// Apple Music word-timed documents mark backing vocals and authored
     /// translations with `ttm:role`. Both used to be appended to the sung line.
+    @Test("A TTML romanization is kept beside its line, never as lyric text")
+    func keepsTTMLRomanization() throws {
+        let line = try #require(LyricsContentParser.parse(issue125TTML).first)
+
+        #expect(line.romanization == "'Cause my heart")
+        #expect(line.text == "'Cause my heart")
+        #expect(line.syllables?.count == 3)
+        // A romanization matches no target language, so it must never be
+        // selectable as a translation.
+        #expect(line.allManualTranslations.allSatisfy { $0.text != "'Cause my heart" })
+        #expect(LyricManualTranslationPolicy.preferredTranslation(
+            for: line,
+            targetLanguageCode: "en"
+        ) == nil)
+
+        let serialized = LyricsContentParser.serializeTTML([line])
+        #expect(serialized.contains("ttm:role=\"x-roman\""))
+        let roundTrip = try #require(LyricsContentParser.parse(serialized).first)
+        #expect(roundTrip.romanization == "'Cause my heart")
+    }
+
+    @Test("A romanization survives the cache encoding")
+    func keepsRomanizationAcrossCacheEncoding() throws {
+        let line = LyricLine(
+            timestamp: 1,
+            text: "君と歩く",
+            romanization: "kimi to aruku"
+        )
+        let data = try JSONEncoder().encode([line])
+        let decoded = try JSONDecoder().decode([LyricLine].self, from: data)
+
+        #expect(decoded.first?.romanization == "kimi to aruku")
+        // Caches written before the field existed keep decoding.
+        let legacy = Data(#"[{"timestamp":1,"text":"君と歩く","isSynchronized":true}]"#.utf8)
+        #expect(try JSONDecoder().decode([LyricLine].self, from: legacy).first?.romanization == nil)
+    }
+
     @Test("An LRC offset header moves the timeline and is applied only once")
     func appliesLRCOffsetHeader() throws {
         let content = """

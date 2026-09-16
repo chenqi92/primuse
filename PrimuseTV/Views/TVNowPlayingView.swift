@@ -699,6 +699,10 @@ struct TVNowPlayingView: View {
                     .shadow(color: isCur ? store.nowPlaying.tint.opacity(0.5) : .clear, radius: 16, y: 2)
                     .multilineTextAlignment(.leading)
             }
+            if !ln.romanization.isEmpty {
+                Text(ln.romanization).tvFont(.caption)
+                    .foregroundStyle(TVColor.textFaint)
+            }
             if !ln.translation.isEmpty {
                 Text(ln.translation).tvFont(.caption).italic()
                     .foregroundStyle(TVColor.textFaint)

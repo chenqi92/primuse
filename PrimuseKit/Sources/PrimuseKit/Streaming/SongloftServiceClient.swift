@@ -266,11 +266,12 @@ public actor SongloftServiceClient {
                 }
             }
             if let romanization = value.rlyric, romanization != primary {
+                // A romanized track reads the original out loud; it matches no
+                // target language, so it must not be offered as a translation.
                 let romanized = LyricsContentParser.parse(romanization)
                 for index in lines.indices where lines[index].isSynchronized {
                     if let paired = romanized.first(where: { abs($0.timestamp - lines[index].timestamp) < 0.02 }) {
-                        lines[index].alternateManualTranslations.append(LyricManualTranslation(
-                            id: "songloft:\(id):romanization:\(index)", text: paired.text, source: .embeddedField))
+                        lines[index].romanization = paired.text
                     }
                 }
             }

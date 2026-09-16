@@ -296,6 +296,9 @@ struct TVLyricLine: Identifiable, Hashable {
     let isSynchronized: Bool
     let syllables: [TVSyllable]
     let translation: String
+    /// Authored romanization of the line, shown between the sung text and the
+    /// translation.
+    let romanization: String
     let writingDirection: LyricWritingDirection
 
     init(
@@ -305,6 +308,7 @@ struct TVLyricLine: Identifiable, Hashable {
         isSynchronized: Bool = true,
         syllables: [TVSyllable] = [],
         translation: String = "",
+        romanization: String = "",
         writingDirection: LyricWritingDirection = .natural
     ) {
         self.id = id
@@ -313,6 +317,7 @@ struct TVLyricLine: Identifiable, Hashable {
         self.isSynchronized = isSynchronized
         self.syllables = syllables
         self.translation = translation
+        self.romanization = romanization
         self.writingDirection = writingDirection
     }
 }

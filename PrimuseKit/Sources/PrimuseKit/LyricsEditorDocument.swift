@@ -24,6 +24,9 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
     /// 容器中其它语言的人工译文。当前分栏编辑首选译文，但这些字段必须随
     /// 结构化模型保留，避免打开编辑器就丢掉未选中的语言。
     public var alternateManualTranslations: [LyricManualTranslation]
+    /// Authored romanization travelling with the row. The editor does not edit
+    /// it yet, but dropping it on save would lose document content.
+    public var romanization: String?
 
     public init(
         id: UUID = UUID(),
@@ -36,7 +39,8 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
         languageCode: String? = nil,
         documentIsLocalOverride: Bool = false,
         manualTranslation: LyricManualTranslation? = nil,
-        alternateManualTranslations: [LyricManualTranslation] = []
+        alternateManualTranslations: [LyricManualTranslation] = [],
+        romanization: String? = nil
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -49,6 +53,7 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
         self.documentIsLocalOverride = documentIsLocalOverride
         self.manualTranslation = manualTranslation
         self.alternateManualTranslations = alternateManualTranslations
+        self.romanization = romanization
     }
 
     public var isStamped: Bool { timestamp != nil }
@@ -222,7 +227,8 @@ public struct LyricsEditorDocument: Hashable, Sendable {
                 languageCode: $0.languageCode,
                 documentIsLocalOverride: $0.documentIsLocalOverride,
                 manualTranslation: $0.manualTranslation,
-                alternateManualTranslations: $0.alternateManualTranslations
+                alternateManualTranslations: $0.alternateManualTranslations,
+                romanization: $0.romanization
             )
         }
     }
@@ -266,7 +272,8 @@ public struct LyricsEditorDocument: Hashable, Sendable {
                     languageCode: $0.languageCode,
                     documentIsLocalOverride: $0.documentIsLocalOverride,
                     manualTranslation: $0.manualTranslation,
-                    alternateManualTranslations: $0.alternateManualTranslations
+                    alternateManualTranslations: $0.alternateManualTranslations,
+                    romanization: $0.romanization
                 )
             })
             timedBlock.removeAll(keepingCapacity: true)
@@ -344,7 +351,8 @@ public struct LyricsEditorDocument: Hashable, Sendable {
                 languageCode: line.languageCode,
                 documentIsLocalOverride: line.documentIsLocalOverride,
                 manualTranslation: line.manualTranslation,
-                alternateManualTranslations: line.alternateManualTranslations
+                alternateManualTranslations: line.alternateManualTranslations,
+                romanization: line.romanization
             )
         }
         if !result.isEmpty, !metadataLines.isEmpty {

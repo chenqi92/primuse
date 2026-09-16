@@ -1649,6 +1649,7 @@ final class TVPlaybackCoordinator {
                             )
                         },
                         translation: line.manualTranslation?.text ?? "",
+                        romanization: line.romanization ?? "",
                         writingDirection: LyricWritingDirectionPolicy.resolvePresentationDirection(
                             for: line,
                             documentFallback: documentWritingDirection

@@ -6005,15 +6005,21 @@ struct LyricsScrollView: View {
     /// 原文, 三行讲的是同一句, 全部列出来才不会把注音或者译文藏掉。文件本身
     /// 没带译文时才回落到翻译任务给出的那一条。
     private func companionTexts(for line: LyricLine) -> [String] {
+        // A romanization reads the original line out loud, so it sits between
+        // the sung text and any translation.
+        let romanization = (line.romanization ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let leading = romanization.isEmpty ? [] : [romanization]
+
         let embedded = line.allManualTranslations
             .filter { $0.source == .bilingualLRC }
             .map(\.text)
             .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        if !embedded.isEmpty { return embedded }
+        if !embedded.isEmpty { return leading + embedded }
         guard let translated = translatedTextByLineID[line.id], !translated.isEmpty else {
-            return []
+            return leading
         }
-        return [translated]
+        return leading + [translated]
     }
 
     /// dimmedByAmbient: 统一动效模式调用时传 true ── 表明行整体明暗由外层
