@@ -65,6 +65,7 @@
 		0A7502E27B419FCFBD15D42E /* CarPlayLayoutBlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52C3403EC845D6ACC43FC90C /* CarPlayLayoutBlock.swift */; };
 		0AA5FC01195AA39AA63D8C29 /* ImmersiveWaveformBarLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 546F7524838D87A6BF48961D /* ImmersiveWaveformBarLayout.swift */; };
 		0ACA25C2348D8CA0D4AE2966 /* EmbyLyricsTrackEventParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98C6228B8950A5EAB88F9960 /* EmbyLyricsTrackEventParser.swift */; };
+		C39D964A362CDB6F52696555 /* ID3SynchronizedLyricsParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2927D22B8C17D747053784C /* ID3SynchronizedLyricsParser.swift */; };
 		A44F3571354A9E67A3C13C45 /* WordTimedLyricsParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 086BC76B812CC1EA3156E90B /* WordTimedLyricsParser.swift */; };
 		0ACB1D658F47D5EAA17E73DF /* SongloftSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A373D69542A894AC0E311DF /* SongloftSource.swift */; };
 		0ADD6ADCDD5C664E159B9F76 /* CarPlayLayoutConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA81D957BD070901D2869F60 /* CarPlayLayoutConfiguration.swift */; };
@@ -2102,6 +2103,7 @@
 		984D9BE82FF301BBD6F0FAD7 /* NasHttpStreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NasHttpStreamResolver.swift; sourceTree = "<group>"; };
 		986B24BF4F85684EE7B21FCE /* FTPByteReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FTPByteReader.swift; sourceTree = "<group>"; };
 		98C6228B8950A5EAB88F9960 /* EmbyLyricsTrackEventParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbyLyricsTrackEventParser.swift; sourceTree = "<group>"; };
+		A2927D22B8C17D747053784C /* ID3SynchronizedLyricsParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ID3SynchronizedLyricsParser.swift; sourceTree = "<group>"; };
 		086BC76B812CC1EA3156E90B /* WordTimedLyricsParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordTimedLyricsParser.swift; sourceTree = "<group>"; };
 		990A639E33222FF0B5BBA76A /* uk */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = uk; path = uk.lproj/SettingsSearch.strings; sourceTree = "<group>"; };
 		992934DD86AE09796F7BC1A3 /* MusicBrainzScraper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicBrainzScraper.swift; sourceTree = "<group>"; };
@@ -3483,6 +3485,7 @@
 				732672310E1B3E948C873A39 /* EmbeddedTagMetadataParser.swift */,
 				98C6228B8950A5EAB88F9960 /* EmbyLyricsTrackEventParser.swift */,
 				BFBAC811D0608D247E8F6CF3 /* FilenameTagParser.swift */,
+				A2927D22B8C17D747053784C /* ID3SynchronizedLyricsParser.swift */,
 				DBCB026F846B0E1D4C27C84B /* ID3TextMetadataParser.swift */,
 				5EAD109C14E9AC3B214FCB5B /* ISOBaseMediaLyricsParser.swift */,
 				6F1B93D05CDCAFE2A5C5E1CB /* MetadataInspectionPolicy.swift */,
@@ -4654,6 +4657,7 @@
 				6FE53DDA9986F85A3897E582 /* EQPreset.swift in Sources */,
 				8C79DA90AA64CCACA16842D0 /* EmbeddedTagMetadataParser.swift in Sources */,
 				0ACA25C2348D8CA0D4AE2966 /* EmbyLyricsTrackEventParser.swift in Sources */,
+				C39D964A362CDB6F52696555 /* ID3SynchronizedLyricsParser.swift in Sources */,
 				A44F3571354A9E67A3C13C45 /* WordTimedLyricsParser.swift in Sources */,
 				F2653E4EE8C4DDEF022FCB9F /* FilenameTagParser.swift in Sources */,
 				D30F45C7D75AC421CA393294 /* FloatingInputPanelClearancePolicy.swift in Sources */,

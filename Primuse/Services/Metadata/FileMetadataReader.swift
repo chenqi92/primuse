@@ -1120,6 +1120,7 @@ enum FileMetadataReader {
 
         var cursor = id3ExtendedHeaderLength(in: tag, version: majorVersion, flags: data[5])
         var pictures: [ID3Picture] = []
+        var synchronizedLyrics: [ID3LyricsFrame] = []
         var result = ID3NativeMetadata()
 
         while cursor < tag.count {
@@ -1139,6 +1140,8 @@ enum FileMetadataReader {
                     pictures.append(picture)
                 } else if frameID == "ULT", let lyrics = parseID3LyricsFrame(payload) {
                     applyID3LyricsFrame(lyrics, to: &result)
+                } else if frameID == "SLT", let lyrics = parseID3SynchronizedLyricsFrame(payload) {
+                    synchronizedLyrics.append(lyrics)
                 } else if frameID == "TXX", let pair = parseID3UserTextFrame(payload) {
                     applyID3UserText(pair, to: &result)
                 }
@@ -1166,10 +1169,18 @@ enum FileMetadataReader {
                     pictures.append(picture)
                 } else if frameID == "USLT", let lyrics = parseID3LyricsFrame(payload) {
                     applyID3LyricsFrame(lyrics, to: &result)
+                } else if frameID == "SYLT", let lyrics = parseID3SynchronizedLyricsFrame(payload) {
+                    synchronizedLyrics.append(lyrics)
                 } else if frameID == "TXXX", let pair = parseID3UserTextFrame(payload) {
                     applyID3UserText(pair, to: &result)
                 }
             }
+        }
+
+        // A timed frame is applied last so it can take over from an
+        // unsynchronized USLT frame carrying the same lyrics.
+        for frame in synchronizedLyrics {
+            applyID3SynchronizedLyricsFrame(frame, to: &result)
         }
 
         let preferred = pictures.first(where: { $0.type == 3 }) ?? pictures.first
@@ -1271,6 +1282,34 @@ enum FileMetadataReader {
             languageCode: languageCode,
             description: description
         )
+    }
+
+    private static func parseID3SynchronizedLyricsFrame(_ payload: Data) -> ID3LyricsFrame? {
+        guard let frame = ID3SynchronizedLyricsParser.parse(payload) else { return nil }
+        return ID3LyricsFrame(
+            text: frame.text,
+            languageCode: frame.languageCode,
+            description: frame.descriptor
+        )
+    }
+
+    /// Timed lyrics outrank an unsynchronized frame with the same content: the
+    /// tag holds one song's words, and the copy that can follow playback is
+    /// the more useful one.
+    private static func applyID3SynchronizedLyricsFrame(
+        _ frame: ID3LyricsFrame,
+        to metadata: inout ID3NativeMetadata
+    ) {
+        guard let existing = metadata.lyricsText,
+              LyricsFormat.detect(existing) == .plain else {
+            applyID3LyricsFrame(frame, to: &metadata)
+            return
+        }
+        metadata.lyricsText = frame.text
+        metadata.lyricsLanguageCode = frame.languageCode ?? metadata.lyricsLanguageCode
+        if let languageCode = frame.languageCode {
+            metadata.languageTaggedLyrics[languageCode] = frame.text
+        }
     }
 
     private static func applyID3LyricsFrame(
