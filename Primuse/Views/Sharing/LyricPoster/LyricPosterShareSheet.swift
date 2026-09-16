@@ -591,8 +591,9 @@ private struct LyricPosterLinePicker: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(line.text)
                         .foregroundStyle(.primary)
-                    if let translation = line.translation, !translation.isEmpty {
-                        Text(translation)
+                    ForEach([line.romanization, line.translation].compactMap { $0 }
+                        .filter { !$0.isEmpty }, id: \.self) { companion in
+                        Text(companion)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

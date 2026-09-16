@@ -290,18 +290,20 @@ struct LyricPosterPassageView: View {
                         .multilineTextAlignment(textAlignment)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    if !metrics.hidesTranslation,
-                       let translation = line.translation,
-                       !translation.isEmpty {
-                        Text(translation)
-                            .font(.system(
-                                size: metrics.translationFontSize,
-                                weight: .medium,
-                                design: fontDesign
-                            ))
-                            .foregroundStyle(translationStyle)
-                            .multilineTextAlignment(textAlignment)
-                            .fixedSize(horizontal: false, vertical: true)
+                    if !metrics.hidesTranslation {
+                        // 注音读的是原文, 排在原文与译文之间。
+                        ForEach([line.romanization, line.translation].compactMap { $0 }
+                            .filter { !$0.isEmpty }, id: \.self) { companion in
+                            Text(companion)
+                                .font(.system(
+                                    size: metrics.translationFontSize,
+                                    weight: .medium,
+                                    design: fontDesign
+                                ))
+                                .foregroundStyle(translationStyle)
+                                .multilineTextAlignment(textAlignment)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
                 .frame(width: metrics.textWidth, alignment: frameAlignment)

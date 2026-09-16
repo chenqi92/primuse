@@ -146,8 +146,10 @@ final class LyricPosterComposer: Identifiable {
     }
 
     /// 这段选句里是否真的有译文可显示 —— 没有时"显示翻译"开关不必出现。
+    /// Drives the poster's secondary-row switch: a romanization alone is
+    /// enough to make it meaningful.
     var hasTranslation: Bool {
-        content.hasTranslation
+        content.hasCompanionText
     }
 
     /// 当前风格 + 画幅下歌词已经排不进版面。导出的图会被裁, 所以要明说,

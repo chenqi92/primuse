@@ -8,6 +8,10 @@ public struct LyricPosterLine: Identifiable, Hashable, Sendable {
     /// Translation shown under the source line when the user has translation
     /// turned on. Poster styles may drop it when the layout runs out of room.
     public let translation: String?
+    /// Authored romanization of the source line. It shares the translation's
+    /// switch and its fate when the layout runs out of room: both are
+    /// secondary rows under the sung text.
+    public let romanization: String?
     public let timestamp: TimeInterval
     public let endTimestamp: TimeInterval?
     public let isSynchronized: Bool
@@ -16,6 +20,7 @@ public struct LyricPosterLine: Identifiable, Hashable, Sendable {
         id: String,
         text: String,
         translation: String? = nil,
+        romanization: String? = nil,
         timestamp: TimeInterval,
         endTimestamp: TimeInterval? = nil,
         isSynchronized: Bool
@@ -23,6 +28,7 @@ public struct LyricPosterLine: Identifiable, Hashable, Sendable {
         self.id = id
         self.text = text
         self.translation = translation
+        self.romanization = romanization
         self.timestamp = timestamp
         self.endTimestamp = endTimestamp
         self.isSynchronized = isSynchronized
@@ -58,6 +64,13 @@ public struct LyricPosterContent: Hashable, Sendable {
 
     public var hasTranslation: Bool {
         lines.contains { ($0.translation?.isEmpty == false) }
+    }
+
+    /// Any secondary row under the sung text — a translation, a romanization,
+    /// or both. Layout and the share sheet switch on this rather than on the
+    /// translation alone.
+    public var hasCompanionText: Bool {
+        hasTranslation || lines.contains { ($0.romanization?.isEmpty == false) }
     }
 
     /// Total characters across source lines. Layout uses it to pick a type
@@ -124,10 +137,12 @@ public enum LyricPosterSelectionPolicy {
             let text = normalized(line.text)
             guard !text.isEmpty else { return nil }
             let translation = translations[line.id].map(normalized).flatMap { $0.isEmpty ? nil : $0 }
+            let romanization = line.romanization.map(normalized).flatMap { $0.isEmpty ? nil : $0 }
             return LyricPosterLine(
                 id: line.id,
                 text: text,
                 translation: translation,
+                romanization: romanization,
                 timestamp: line.timestamp,
                 endTimestamp: line.endTime,
                 isSynchronized: line.isSynchronized

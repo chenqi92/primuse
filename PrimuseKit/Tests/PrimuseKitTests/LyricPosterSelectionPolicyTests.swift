@@ -15,6 +15,30 @@ struct LyricPosterSelectionPolicyTests {
         }
     }
 
+    @Test func romanizationTravelsWithTheSelectedLine() {
+        let document = [
+            LyricLine(id: "a", timestamp: 0, text: "君と歩く", romanization: " kimi to aruku "),
+            LyricLine(id: "b", timestamp: 3, text: "Plain line"),
+        ]
+        let selectable = LyricPosterSelectionPolicy.selectableLines(
+            from: document,
+            translations: ["a": "和你一起走"]
+        )
+
+        #expect(selectable[0].romanization == "kimi to aruku")
+        #expect(selectable[0].translation == "和你一起走")
+        #expect(selectable[1].romanization == nil)
+
+        // A romanization alone still makes the poster's secondary-row switch
+        // meaningful, even with translation off.
+        let romanizedOnly = LyricPosterContent(
+            songTitle: "Song",
+            lines: LyricPosterSelectionPolicy.selectableLines(from: document)
+        )
+        #expect(!romanizedOnly.hasTranslation)
+        #expect(romanizedOnly.hasCompanionText)
+    }
+
     @Test func blankAndWhitespaceOnlyLinesAreNotSelectable() {
         let document = [
             LyricLine(id: "a", timestamp: 0, text: "  hello  "),

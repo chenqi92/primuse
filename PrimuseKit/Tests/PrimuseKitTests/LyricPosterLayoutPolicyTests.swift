@@ -5,7 +5,8 @@ import Testing
 struct LyricPosterLayoutPolicyTests {
     private func content(
         _ texts: [String],
-        translations: [String?]? = nil
+        translations: [String?]? = nil,
+        romanizations: [String?]? = nil
     ) -> LyricPosterContent {
         LyricPosterContent(
             songTitle: "Song",
@@ -15,6 +16,7 @@ struct LyricPosterLayoutPolicyTests {
                     id: "l\(index)",
                     text: text,
                     translation: translations?[index],
+                    romanization: romanizations?[index],
                     timestamp: Double(index),
                     isSynchronized: true
                 )
@@ -71,6 +73,32 @@ struct LyricPosterLayoutPolicyTests {
             lyricHeightRatio: 0.24
         )
         #expect(crowdedMetrics.hidesTranslation)
+    }
+
+    @Test func romanizationTakesRoomAndIsDroppedWithTheTranslation() {
+        let texts = Array(repeating: "一句中等长度的中文歌词", count: 6)
+        let plain = LyricPosterLayoutPolicy.metrics(for: content(texts), canvas: .portrait)
+        let romanized = LyricPosterLayoutPolicy.metrics(
+            for: content(texts, romanizations: Array(repeating: "yi ju zhong deng chang du", count: 6)),
+            canvas: .portrait
+        )
+        // 注音占版面, 所以正文只会更小或持平, 不可能更大。
+        #expect(romanized.lyricFontSize <= plain.lyricFontSize)
+        #expect(!romanized.hidesTranslation)
+
+        let crowded = content(
+            Array(repeating: "这是一句非常非常长的中文歌词用于把版面彻底填满", count: 8),
+            romanizations: Array(
+                repeating: String(repeating: "zhe shi yi ju fei chang chang de ge ci ", count: 3),
+                count: 8
+            )
+        )
+        // 注音与译文同进同退: 挤到放不下时一起让位。
+        #expect(LyricPosterLayoutPolicy.metrics(
+            for: crowded,
+            canvas: .square,
+            lyricHeightRatio: 0.24
+        ).hidesTranslation)
     }
 
     @Test func leadingTightensBeforeTypeShrinksToTheFloor() {

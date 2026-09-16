@@ -102,14 +102,14 @@ public enum LyricPosterLayoutPolicy {
                 captionFontSize: width * 0.026,
                 textWidth: textWidth,
                 estimatedHeight: height,
-                hidesTranslation: includesTranslation ? false : content.hasTranslation,
+                hidesTranslation: includesTranslation ? false : content.hasCompanionText,
                 overflows: overflows
             )
         }
 
-        // 放宽的顺序: 先缩字号, 再收行距, 最后才舍弃译文 —— 译文是用户开着
-        // 翻译才会有的东西, 不到放不下不该擅自拿掉。
-        let translationPasses = content.hasTranslation ? [true, false] : [false]
+        // 放宽的顺序: 先缩字号, 再收行距, 最后才舍弃注音与译文 —— 它们是歌词
+        // 自带或用户开着翻译才会有的东西, 不到放不下不该擅自拿掉。
+        let translationPasses = content.hasCompanionText ? [true, false] : [false]
         // 候选字号从大到小, 末尾一定带上下限本身: 按固定步长递减会跨过下限
         // (55, 54 … 24, 然后 23 就退出了), 于是"最小字号都放不下"这个判断
         // 其实从没试过最小字号, 差一两个点的版面会被误判成放不下。
@@ -163,16 +163,21 @@ public enum LyricPosterLayoutPolicy {
         )
     }
 
-    /// 每行(以及它的译文)的 em 宽度。字号变化不影响它, 所以只量一次。
-    private static func lineWidths(of content: LyricPosterContent) -> [(text: Double, translation: Double?)] {
+    /// 每行(以及它下面的注音 / 译文)的 em 宽度。字号变化不影响它, 所以只量一次。
+    private static func lineWidths(
+        of content: LyricPosterContent
+    ) -> [(text: Double, companions: [Double])] {
         content.lines.map { line in
-            let translation = line.translation.flatMap { $0.isEmpty ? nil : estimatedEmWidth(of: $0) }
-            return (estimatedEmWidth(of: line.text), translation)
+            let companions = [line.romanization, line.translation]
+                .compactMap { $0 }
+                .filter { !$0.isEmpty }
+                .map(estimatedEmWidth(of:))
+            return (estimatedEmWidth(of: line.text), companions)
         }
     }
 
     private static func blockHeight(
-        widths: [(text: Double, translation: Double?)],
+        widths: [(text: Double, companions: [Double])],
         lyricFontSize: Double,
         textWidth: Double,
         includesTranslation: Bool,
@@ -184,14 +189,16 @@ public enum LyricPosterLayoutPolicy {
         for width in widths {
             let rows = rowCount(emWidth: width.text, fontSize: lyricFontSize, textWidth: textWidth)
             total += Double(rows) * lyricFontSize * lineHeightFactor
-            if includesTranslation, let translationWidth = width.translation {
-                let translationRows = rowCount(
-                    emWidth: translationWidth,
-                    fontSize: translationSize,
-                    textWidth: textWidth
-                )
-                total += Double(translationRows) * translationSize * lineHeightFactor
-                total += translationSize * 0.24
+            if includesTranslation {
+                for companionWidth in width.companions {
+                    let companionRows = rowCount(
+                        emWidth: companionWidth,
+                        fontSize: translationSize,
+                        textWidth: textWidth
+                    )
+                    total += Double(companionRows) * translationSize * lineHeightFactor
+                    total += translationSize * 0.24
+                }
             }
         }
         total += lyricFontSize * lineSpacingFactor * Double(max(widths.count - 1, 0))
