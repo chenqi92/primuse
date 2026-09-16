@@ -16,6 +16,10 @@ struct ImmersiveStageLyric: Identifiable, Equatable {
     /// so they are nested instead of taking a row of their own — a row of
     /// their own would compete with the lead line for the current position.
     let background: [ImmersiveStageBackgroundLyric]
+    /// Authored rows that belong to this line but are not sung: a romanization
+    /// first, then a translation. They are resolved by the platform container,
+    /// which knows whether a translation is available at all.
+    let companions: [String]
 
     init(
         id: Int,
@@ -27,7 +31,8 @@ struct ImmersiveStageLyric: Identifiable, Equatable {
         startTime: TimeInterval? = nil,
         endTime: TimeInterval? = nil,
         writingDirection: LyricWritingDirection? = nil,
-        background: [ImmersiveStageBackgroundLyric] = []
+        background: [ImmersiveStageBackgroundLyric] = [],
+        companions: [String] = []
     ) {
         self.id = id
         self.text = text
@@ -39,6 +44,10 @@ struct ImmersiveStageLyric: Identifiable, Equatable {
         self.endTime = endTime
         self.writingDirection = writingDirection
         self.background = background
+        self.companions = companions.compactMap {
+            let trimmed = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
     }
 }
 
@@ -1412,6 +1421,19 @@ struct ImmersiveStageView<Artwork: View>: View {
                     lineLimit: lineLimit,
                     textAlignment: textAlignment
                 )
+            }
+            ForEach(line.companions.indices, id: \.self) { slot in
+                Text(line.companions[slot])
+                    .font(.system(size: fontSize * 0.55, weight: .medium))
+                    .foregroundStyle(
+                        ImmersiveStagePalette.text.opacity(line.isActive ? 0.62 : 0.34)
+                    )
+                    .multilineTextAlignment(textAlignment)
+                    .lineLimit(lineLimit)
+                    .minimumScaleFactor(0.72)
+                    .fixedSize(horizontal: false, vertical: true)
+                    // The lead row already announces the line.
+                    .accessibilityHidden(true)
             }
         }
         .environment(\.layoutDirection, layoutDirection(for: line))

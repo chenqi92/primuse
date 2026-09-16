@@ -779,7 +779,11 @@ struct TVImmersivePlayerView: View {
                         },
                         writingDirection: background.writingDirection
                     )
-                }
+                },
+                companions: [
+                    store.lyrics[position].romanization,
+                    store.lyrics[position].translation,
+                ]
             )
         }
     }

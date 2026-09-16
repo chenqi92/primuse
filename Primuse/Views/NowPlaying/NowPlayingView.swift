@@ -1155,6 +1155,7 @@ struct NowPlayingView: View {
                     ImmersivePlayerView(
                         effect: fullscreenPlayerEffectBinding,
                         lyrics: lyrics,
+                        lyricCompanions: { companionTexts(for: $0) },
                         lyricsWritingDirection: lyricsWritingDirection,
                         isSceneActive: isVisualSceneActive,
                         onDismiss: dismissFullscreenPlayer,

@@ -803,7 +803,11 @@ struct MacImmersivePlayerView: View {
                 background: ImmersiveStageBackgroundLyric.rows(
                     for: lyrics[position],
                     documentFallback: documentDirection
-                )
+                ),
+                companions: [
+                    lyrics[position].romanization,
+                    lyrics[position].manualTranslation?.text,
+                ].compactMap { $0 }
             )
         }
     }

@@ -10,6 +10,9 @@ import PrimuseKit
 struct ImmersivePlayerView: View {
     @Binding var effect: FullscreenPlayerEffect
     let lyrics: [LyricLine]
+    /// Resolved by the player, which is the only place that knows whether a
+    /// translation exists for the current target language.
+    let lyricCompanions: (LyricLine) -> [String]
     let lyricsWritingDirection: LyricWritingDirection
     let isSceneActive: Bool
     let onDismiss: () -> Void
@@ -846,7 +849,8 @@ struct ImmersivePlayerView: View {
                 background: ImmersiveStageBackgroundLyric.rows(
                     for: lyrics[position],
                     documentFallback: lyricsWritingDirection
-                )
+                ),
+                companions: lyricCompanions(lyrics[position])
             )
         }
     }
