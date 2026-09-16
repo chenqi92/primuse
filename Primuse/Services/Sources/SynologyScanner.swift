@@ -323,7 +323,7 @@ actor SynologyScanner {
                 // Lyrics sidecar: prefer song.lrc, then song.ttml.
                 let lyricsRef = Self.sameNameSidecarPath(
                     baseName: baseName,
-                    extensions: PrimuseConstants.supportedLyricsExtensions,
+                    extensions: PrimuseConstants.readableLyricsExtensions,
                     in: parentDir,
                     nameByLowercase: nameByLowercase
                 )
@@ -708,7 +708,7 @@ actor SynologyScanner {
         if coverRef == nil { coverRef = folderCoverPath }
         let lyricsRef = Self.sameNameSidecarPath(
             baseName: baseName,
-            extensions: PrimuseConstants.supportedLyricsExtensions,
+            extensions: PrimuseConstants.readableLyricsExtensions,
             in: parentDir,
             nameByLowercase: nameByLowercase
         )

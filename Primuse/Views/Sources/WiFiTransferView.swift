@@ -458,7 +458,7 @@ struct WiFiTransferView: View {
         setupError = nil
         needsScan = true
         let changedURL = URL(fileURLWithPath: "/" + path)
-        if PrimuseConstants.supportedLyricsExtensions.contains(changedURL.pathExtension.lowercased()) {
+        if PrimuseConstants.readableLyricsExtensions.contains(changedURL.pathExtension.lowercased()) {
             changedLyrics.insert(changedURL.deletingPathExtension().path)
         }
         if deleted {

@@ -44,7 +44,7 @@ enum SidecarMetadataLoader {
         let directory = audioURL.deletingLastPathComponent()
         let baseName = audioURL.deletingPathExtension().lastPathComponent
 
-        for ext in PrimuseConstants.supportedLyricsExtensions {
+        for ext in PrimuseConstants.readableLyricsExtensions {
             let lyricsURL = directory.appendingPathComponent("\(baseName).\(ext)")
             if FileManager.default.fileExists(atPath: lyricsURL.path) {
                 return lyricsURL

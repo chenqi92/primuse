@@ -969,7 +969,7 @@ enum LyricsSidecarTargetPolicy {
         for item in items where !item.isDirectory {
             let itemName = item.name as NSString
             guard itemName.deletingPathExtension.caseInsensitiveCompare(baseName) == .orderedSame,
-                  PrimuseConstants.supportedLyricsExtensions.contains(
+                  PrimuseConstants.readableLyricsExtensions.contains(
                     itemName.pathExtension.lowercased()
                   ) else { continue }
             uniqueByPath[item.path] = item
@@ -995,7 +995,7 @@ enum LyricsSidecarTargetPolicy {
             let referenceExtension = (referenceName as NSString).pathExtension.lowercased()
             if referenceDirectory == songDirectory,
                referenceBase.caseInsensitiveCompare(songBase) == .orderedSame,
-               PrimuseConstants.supportedLyricsExtensions.contains(referenceExtension) {
+               PrimuseConstants.readableLyricsExtensions.contains(referenceExtension) {
                 return resolvedReference
             }
         }

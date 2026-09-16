@@ -11073,7 +11073,7 @@ private extension SourceManager {
         let songBase = (songFileName as NSString).deletingPathExtension
 
         var paths: [String] = []
-        for ext in PrimuseConstants.supportedLyricsExtensions {
+        for ext in PrimuseConstants.readableLyricsExtensions {
             paths.append((songDir as NSString).appendingPathComponent("\(songBase).\(ext)"))
         }
         paths.append((songDir as NSString).appendingPathComponent("\(songBase)-cover.jpg"))
@@ -11097,7 +11097,7 @@ private extension SourceManager {
         isSafeSameDirectorySidecar(
             path,
             for: song,
-            allowedExtensions: Set(PrimuseConstants.supportedLyricsExtensions),
+            allowedExtensions: Set(PrimuseConstants.readableLyricsExtensions),
             allowedBaseSuffixes: [""]
         )
     }

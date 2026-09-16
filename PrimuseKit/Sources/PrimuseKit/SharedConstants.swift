@@ -1487,7 +1487,15 @@ public enum PrimuseConstants {
     public static let smallFileThreshold: Int64 = 50 * 1024 * 1024 // 50 MB
 
     public static let supportedCoverExtensions = ["jpg", "jpeg", "png", "apng", "webp", "gif"]
+    /// Extensions Primuse both reads and writes. Sidecar writeback serializes
+    /// LRC or TTML, so only these may be chosen as a write target.
     public static let supportedLyricsExtensions = ["lrc", "ttml"]
+    /// Extensions Primuse can read. The word-timed formats are parsed by
+    /// content, so they are discovered and cleaned up next to a song like any
+    /// other sidecar, but they are never picked as a writeback target — that
+    /// would put LRC text inside a `.lys` or `.qrc` file.
+    public static let readableLyricsExtensions = supportedLyricsExtensions
+        + ["elrc", "lys", "yrc", "qrc"]
     public static let supportedMusicVideoExtensions = ["mp4", "m4v", "mov"]
     public static let supportedStreamDescriptorExtensions: Set<String> = ["strm"]
     public static let folderCoverNames = ["cover", "folder", "album", "front", "artwork"]

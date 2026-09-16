@@ -618,7 +618,7 @@ struct CloudDriveHelper: Sendable {
     /// Find `{basename}.{lrc,...}` in the same dir.
     private func findSameNameLyrics(basename: String, in candidates: [RemoteFileItem]) -> String? {
         let baseLower = basename.lowercased()
-        for ext in PrimuseConstants.supportedLyricsExtensions {
+        for ext in PrimuseConstants.readableLyricsExtensions {
             if let m = candidates.first(where: {
                 ($0.name as NSString).lowercased == "\(baseLower).\(ext)"
             }) { return m.path }

@@ -38,7 +38,7 @@ final class WiFiTransferFiles {
     static let maximumFileSize: Int64 = 8 * 1024 * 1024 * 1024
     static let extensions = PrimuseConstants.supportedAudioExtensions
         .union(PrimuseConstants.supportedCueSheetExtensions)
-        .union(PrimuseConstants.supportedLyricsExtensions)
+        .union(PrimuseConstants.readableLyricsExtensions)
         .union(PrimuseConstants.supportedCoverExtensions)
     let root: URL
     private let staging: URL

@@ -412,7 +412,7 @@ struct DirectoryPreviewPane: View {
     }
 
     private var hasLyrics: Bool {
-        files.contains { PrimuseConstants.supportedLyricsExtensions.contains(fileExtension($0.name)) }
+        files.contains { PrimuseConstants.readableLyricsExtensions.contains(fileExtension($0.name)) }
             || audioFiles.contains { $0.sidecarHints?.lyricsPath != nil }
     }
 

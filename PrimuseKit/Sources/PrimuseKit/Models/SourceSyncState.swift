@@ -599,7 +599,7 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
 
     public func sameNameLyrics(basename: String) -> Item? {
         let base = basename.lowercased()
-        for fileExtension in PrimuseConstants.supportedLyricsExtensions {
+        for fileExtension in PrimuseConstants.readableLyricsExtensions {
             if let match = firstItemByLowercasedName["\(base).\(fileExtension)"] {
                 return match.item
             }

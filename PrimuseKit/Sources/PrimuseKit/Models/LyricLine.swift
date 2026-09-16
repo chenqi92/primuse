@@ -880,6 +880,11 @@ public enum LyricsFormat: String, Codable, Sendable, CaseIterable {
             if lines.contains(where: \.isSynchronized) { return .lineLevel }
             return .plain
         }
+        if let wordTimedFormat = WordTimedLyricsParser.detect(content),
+           WordTimedLyricsParser.parse(content, as: wordTimedFormat)
+            .contains(where: \.containsWordLevelContent) {
+            return .wordLevel
+        }
         if content.range(of: #"<\d+:\d+(?:[.:]\d+)?>"#, options: .regularExpression) != nil {
             return .wordLevel
         }
@@ -1041,6 +1046,13 @@ public enum LyricsContentParser {
         if TTMLLyricsParser.looksLikeTTML(content) {
             return TTMLLyricsParser.parse(content)
         }
+        // Millisecond word-timed documents (.lys / .yrc / .qrc) are recognized
+        // by content so the sidecar, embedded-tag and server paths all read
+        // them without a separate loader.
+        if let format = WordTimedLyricsParser.detect(content) {
+            let wordTimedLines = WordTimedLyricsParser.parse(content, as: format)
+            if !wordTimedLines.isEmpty { return wordTimedLines }
+        }
 
         var lines: [LyricLine] = []
         var metadataLines: [String] = []
@@ -1183,6 +1195,12 @@ public enum LyricsContentParser {
             // Malformed XML must not fall through and surface its tags as
             // unsynchronized lyric lines.
             return TTMLLyricsParser.parse(text)
+        }
+        if WordTimedLyricsParser.detect(text) != nil {
+            // A word-timed document must not degrade into plain rows carrying
+            // its own timing markers as text.
+            let wordTimedLines = WordTimedLyricsParser.parse(text)
+            if !wordTimedLines.isEmpty { return wordTimedLines }
         }
         let synchronized = parse(text, options: options)
         if !synchronized.isEmpty { return synchronized }

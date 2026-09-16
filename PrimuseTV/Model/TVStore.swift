@@ -2279,7 +2279,7 @@ final class TVStore {
             removeTransferredSongsFromQueue(ids)
         }
         let url = URL(fileURLWithPath: "/" + path)
-        if PrimuseConstants.supportedLyricsExtensions.contains(url.pathExtension.lowercased()) {
+        if PrimuseConstants.readableLyricsExtensions.contains(url.pathExtension.lowercased()) {
             transferLyricsStems.insert(url.deletingPathExtension().path)
         }
         TVLocalTransferSource.markPendingScan(in: defaults)
