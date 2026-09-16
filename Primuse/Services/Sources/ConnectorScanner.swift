@@ -20,6 +20,10 @@ actor ConnectorScanner {
     /// snapshots so MetadataBackfillService does not repeat the same inspection
     /// with one Range request per song.
     private var pendingMetadataInspectedSongIDs: Set<String> = []
+    /// Rows the song-scanning walk added or refreshed since the last drain.
+    /// Catalogue sources turn `deliversIntermediateSnapshots` off, so this is
+    /// what ScanService publishes mid-scan instead of the accumulated array.
+    private var pendingChangedSongs: [Song] = []
 
     init(connector: any MusicSourceConnector, sourceID: String) {
         self.connector = connector
@@ -43,6 +47,15 @@ actor ConnectorScanner {
         return ids
     }
 
+    /// Drains the rows discovered since the previous call. Accumulating inside
+    /// the actor keeps the delta complete even though the update stream only
+    /// buffers the newest element and may drop the ones in between.
+    func takePendingChangedSongs() -> [Song] {
+        let rows = pendingChangedSongs
+        pendingChangedSongs.removeAll(keepingCapacity: true)
+        return rows
+    }
+
     struct ScanUpdate: Sendable {
         /// Total songs known for this source after this scan run — existing
         /// (from prior runs) plus anything newly discovered. Drives the
@@ -58,7 +71,15 @@ actor ConnectorScanner {
         var mutationCount: Int = 0
         var totalCount: Int
         var currentFile: String
+        /// Every song known for this source after this update. Empty on the
+        /// progress-only updates a catalogue walk emits while
+        /// `deliversIntermediateSnapshots` is off; `carriesFullSnapshot` says
+        /// which kind of update this is.
         var songs: [Song]
+        /// False while a catalogue walk is only reporting progress. The
+        /// accumulated snapshot then arrives with the terminal update, and the
+        /// rows discovered in between come from `takePendingChangedSongs()`.
+        var carriesFullSnapshot: Bool = true
         /// Present for generic file/NAS walks. ScanService persists it in the
         /// same checkpoint as `songs`, so an interrupted scan resumes at the
         /// next unfinished directory without making partial results authoritative.
@@ -391,17 +412,25 @@ actor ConnectorScanner {
         resumeState: SourceScanResumeState? = nil,
         identityIndex: [String: SourceSyncIndexedItem] = [:],
         identityMissingStableKeys: [String: Int] = [:],
-        scanEpoch: Int64 = 0
+        scanEpoch: Int64 = 0,
+        // 整库目录源(媒体服务器/Subsonic/UPnP)不消费中间快照, 见 ScanService
+        // 的 requiresAtomicCatalogCommit。给它们每次 yield 都附上累积数组,
+        // 只会让下一次 append 触发整份写时复制 —— 7 万首的曲库里这是 O(n²),
+        // 光复制就要几分钟。关掉之后它们改用 takePendingChangedSongs() 取增量。
+        deliversIntermediateSnapshots: Bool = true
     ) -> AsyncThrowingStream<ScanUpdate, Error> {
         completedSyncIndex = [:]
         completedReconciliation = nil
         completedMissingStableKeys = [:]
         pendingMetadataInspectedSongIDs.removeAll(keepingCapacity: true)
-        // Each update carries the complete song snapshot. An unbounded stream
-        // retains every pending snapshot when a fast remote listing outruns the
-        // consumer, and subsequent appends then copy those shared arrays. Keep
-        // only the newest pending snapshot; the final yield below still carries
-        // the complete scan result.
+        pendingChangedSongs.removeAll(keepingCapacity: true)
+        // A file walk's update carries the complete song snapshot. An unbounded
+        // stream retains every pending snapshot when a fast remote listing
+        // outruns the consumer, and subsequent appends then copy those shared
+        // arrays. Keep only the newest pending snapshot; the final yield below
+        // still carries the complete scan result. Dropping intermediate updates
+        // is why the catalogue delta accumulates in the actor rather than
+        // riding along on each update.
         return AsyncThrowingStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task {
                 do {
@@ -501,7 +530,8 @@ actor ConnectorScanner {
                                                 mutationCount: mutationCount,
                                                 totalCount: totalCount,
                                                 currentFile: scannedSong.displayName,
-                                                songs: allSongs
+                                                songs: deliversIntermediateSnapshots ? allSongs : [],
+                                                carriesFullSnapshot: deliversIntermediateSnapshots
                                             )
                                         )
                                     }
@@ -520,6 +550,9 @@ actor ConnectorScanner {
                                                     allSongs[idx] = refreshed
                                                     existingByID[scannedSong.song.id] = refreshed
                                                     mutationCount += 1
+                                                    if !deliversIntermediateSnapshots {
+                                                        pendingChangedSongs.append(refreshed)
+                                                    }
                                                 }
                                             }
                                             continue
@@ -537,6 +570,9 @@ actor ConnectorScanner {
                                         }
                                         existingByID[scannedSong.song.id] = replacement
                                         mutationCount += 1
+                                        if !deliversIntermediateSnapshots {
+                                            pendingChangedSongs.append(replacement)
+                                        }
                                         continue
                                     }
 
@@ -546,6 +582,9 @@ actor ConnectorScanner {
                                     allSongs.append(scannedSong.song)
                                     allSongIndexByID[scannedSong.song.id] = allSongs.count - 1
                                     existingByID[scannedSong.song.id] = scannedSong.song
+                                    if !deliversIntermediateSnapshots {
+                                        pendingChangedSongs.append(scannedSong.song)
+                                    }
 
                                     // Server-side song scanners can enumerate
                                     // thousands of tracks faster than the UI can
@@ -560,7 +599,8 @@ actor ConnectorScanner {
                                                 mutationCount: mutationCount,
                                                 totalCount: totalCount,
                                                 currentFile: scannedSong.displayName,
-                                                songs: allSongs
+                                                songs: deliversIntermediateSnapshots ? allSongs : [],
+                                                carriesFullSnapshot: deliversIntermediateSnapshots
                                             )
                                         )
                                     }

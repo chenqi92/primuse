@@ -81,7 +81,7 @@ final class FnMusicSourceTests: XCTestCase {
         }
     }
 
-    func testFailedAtomicScanDoesNotPublishPartialSongs() async throws {
+    func testInterruptedAtomicScanPublishesWalkedRowsAndRemovesNothing() async throws {
         let fixture = try makeScanFixture(count: 250, failAfterPage: true)
         let old = Song(id: "old", title: "Old", fileFormat: .flac,
                        filePath: "/old.flac", sourceID: fixture.source.id)
@@ -91,7 +91,6 @@ final class FnMusicSourceTests: XCTestCase {
         fixture.library.replacePlaylistSongs(playlistID: "saved", songIDs: [old.id])
         XCTAssertEqual(fixture.library.rawSongIDs(forPlaylist: "saved"), [old.id])
         let baseline = fixture.library.songs
-        let generation = fixture.library.songMutationGenerationForMaintenance
         var inspectedIDs: Set<String> = []
         fixture.scan.metadataInspectionHandler = { inspectedIDs.formUnion($0) }
         XCTAssertTrue(fixture.start())
@@ -102,17 +101,21 @@ final class FnMusicSourceTests: XCTestCase {
         let reachedPage = await fixture.connector.isWaiting
         XCTAssertTrue(reachedPage)
         // Let the main-actor consumer drain the first page while the producer
-        // remains blocked, so coalescing cannot hide an intermediate commit.
+        // remains blocked.
         try await Task.sleep(for: .milliseconds(500))
         XCTAssertEqual(inspectedIDs.count, 250)
-        XCTAssertEqual(fixture.library.songs, baseline)
-        XCTAssertEqual(fixture.library.songMutationGenerationForMaintenance, generation)
+        // 整库源边走边发: 走完的行在整轮结束前就已经进资料库,
+        // 7 万首的服务器不再整轮扫完之前都是空库。
+        let published = fixture.library.songs
+        XCTAssertGreaterThan(published.count, baseline.count)
+        XCTAssertTrue(published.contains(where: { $0.id == old.id }))
         await fixture.connector.release()
         await fixture.scan.waitForActiveScansToComplete()
         XCTAssertNotNil(fixture.scan.scanStates[fixture.source.id]?.failureMessage)
-        XCTAssertEqual(fixture.library.songs, baseline)
+        // 中途失败仍然不做删除对账: 既有歌与歌单成员一首都不能少。
+        XCTAssertGreaterThanOrEqual(fixture.library.songs.count, published.count)
+        XCTAssertTrue(fixture.library.songs.contains(where: { $0.id == old.id }))
         XCTAssertEqual(fixture.library.rawSongIDs(forPlaylist: "saved"), [old.id])
-        XCTAssertEqual(fixture.library.songMutationGenerationForMaintenance, generation)
     }
 
     func testUnchangedFnMusicRescanDoesNotInvalidateLibrary() async throws {

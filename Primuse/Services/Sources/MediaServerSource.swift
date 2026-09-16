@@ -686,7 +686,10 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    let pageSize = 200
+                    // 一次 200 条时 7 万首的曲库要串行发 350 个请求, 每个都带
+                    // MediaSources/MediaStreams。Subsonic 系同样的整库分页用
+                    // 500, 媒体服务器对齐过来, 往返次数降到原来的四成。
+                    let pageSize = 500
                     var seenTrackIDs: Set<String> = []
 
                     for library in libraries {

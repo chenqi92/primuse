@@ -2629,7 +2629,8 @@ final class ScanService {
                 scopeFingerprint: scopeFingerprint
             ),
             identityMissingStableKeys: workingState?.missingStableKeys ?? [:],
-            scanEpoch: nextScanEpoch
+            scanEpoch: nextScanEpoch,
+            deliversIntermediateSnapshots: !requiresAtomicCatalogCommit
         )
 
         // 扫描失败时用它把已经走通的目录层级留下来,见
@@ -2642,6 +2643,10 @@ final class ScanService {
             var lastIncrementalMutation = 0
             var lastFlushAt = Date()
             var lastProgressPublishedAt = Date.distantPast
+            // 已经边扫边发过行的整库源, 终态快照会和资料库里的现状相等,
+            // `SourceCatalogSnapshotPolicy.hasChanges` 因此会把首次扫描误判成
+            // 空操作, 连带跳过后台刮削入队。
+            var publishedIntermediateCatalogRows = false
             for try await update in stream {
                 if Self.requiresAutomaticServerCatalogResourceGate(source.type),
                    Self.shouldDeferAutomaticServerCatalogWork(
@@ -2681,7 +2686,9 @@ final class ScanService {
                     currentFile: update.currentFile,
                     lastPublishedAt: &lastProgressPublishedAt
                 )
-                lastSongs = update.songs
+                if update.carriesFullSnapshot {
+                    lastSongs = update.songs
+                }
 
                 if let directoryState = update.resumeState {
                     lastObservedSyncIndex = directoryState.index
@@ -2712,7 +2719,37 @@ final class ScanService {
                 let timeSinceFlush = Date().timeIntervalSince(lastFlushAt)
                 let shouldFlushIncrementally = pendingDelta >= currentFlushBatchSize
                     || (pendingDelta > 0 && timeSinceFlush >= currentFlushInterval)
-                if shouldFlushIncrementally, !requiresAtomicCatalogCommit {
+                if shouldFlushIncrementally, requiresAtomicCatalogCommit {
+                    // 整库目录源的歌曲与文件夹层级仍然是一份快照, 但歌曲行可以
+                    // 边走边发: 只合并、不修剪、不通知删除, 删除对账与层级提交
+                    // 留给 completeScan 的终态快照。7 万首的媒体服务器原本要等
+                    // 整轮走完才第一次入库, 期间资料库和首页都是空的。
+                    // 与 scanPagedServerCatalog 里 Subsonic 的分页发布同义。
+                    let stagedRows = await scanner.takePendingChangedSongs()
+                    try checkScanCommitFence(
+                        sourceID: source.id,
+                        generation: generation,
+                        expectedScopeFingerprint: scopeFingerprint,
+                        expectedScopeDirectories: directories,
+                        sourceStore: sourceStore
+                    )
+                    if !stagedRows.isEmpty {
+                        library.addSongs(
+                            stagedRows,
+                            affectedSourceIDs: Set([source.id]),
+                            notifyRemovals: false,
+                            pruneMissingSongs: false,
+                            mergeServerCatalogRows: source.type.isSubsonicFamily,
+                            indexMaintenance: .deferredIncremental
+                        )
+                        publishedIntermediateCatalogRows = true
+                        let acceptedCount = library.songCountsBySourceID()[source.id] ?? 0
+                        rememberCoalescingSourceStore(sourceStore)
+                        sourceStore.updateLocalCoalesced(source.id) { $0.songCount = acceptedCount }
+                    }
+                    lastIncrementalMutation = observedMutationCount
+                    lastFlushAt = Date()
+                } else if shouldFlushIncrementally {
                     // 中间 flush ── lastSongs 是当前累积的部分扫描结果, 还没
                     // 扫到的歌会被 addSongs 临时移除, 下次 flush 又补回。
                     // 这种"伪移除"不该触发缓存清理, 否则扫描中用户的本地
@@ -2780,6 +2817,7 @@ final class ScanService {
                 generation: generation,
                 songs: lastSongs,
                 pruneMissingSongs: allowsAuthoritativeCatalogPrune,
+                forcesCatalogCommit: publishedIntermediateCatalogRows,
                 expectedScopeFingerprint: scopeFingerprint,
                 expectedScopeDirectories: directories,
                 library: library,
@@ -3783,6 +3821,10 @@ final class ScanService {
         songs: [Song],
         authoritativeSongIDs: Set<String>? = nil,
         pruneMissingSongs: Bool = true,
+        // True when the walk already published rows into the library. The
+        // terminal snapshot then equals what is already stored, so the change
+        // detection below would otherwise read a first scan as a no-op.
+        forcesCatalogCommit: Bool = false,
         expectedScopeFingerprint: String? = nil,
         expectedScopeDirectories: [String] = [],
         library: MusicLibrary,
@@ -3804,7 +3846,7 @@ final class ScanService {
             )
         }
         var catalogSongs = songs
-        let commitsCatalogSnapshot: Bool
+        let detectedCatalogChanges: Bool
         if let authoritativeSongIDs, source?.type.isSubsonicFamily == true {
             let librarySongsSnapshot = library.songs
             let existingIDs = await Task.detached(priority: .utility) {
@@ -3819,7 +3861,7 @@ final class ScanService {
             // does not have — new songs, and the retained records of rows this
             // device removed locally — so set inequality would force a full
             // catalogue rewrite on every no-op scan.
-            commitsCatalogSnapshot = !songs.isEmpty
+            detectedCatalogChanges = !songs.isEmpty
                 || !existingIDs.subtracting(authoritativeSongIDs).isEmpty
         } else if source?.type.isSubsonicFamily == true {
             let existingSongs = library.songs.filter { $0.sourceID == sourceID }
@@ -3837,15 +3879,16 @@ final class ScanService {
                 )
             }.value
             catalogSongs = prepared.0
-            commitsCatalogSnapshot = prepared.1
+            detectedCatalogChanges = prepared.1
         } else if source?.type == .fnMusic {
             let existingSongs = library.songs.filter { $0.sourceID == sourceID }
-            commitsCatalogSnapshot = await Task.detached(priority: .utility) {
+            detectedCatalogChanges = await Task.detached(priority: .utility) {
                 SourceCatalogSnapshotPolicy.hasChanges(existing: existingSongs, candidate: songs)
             }.value
         } else {
-            commitsCatalogSnapshot = true
+            detectedCatalogChanges = true
         }
+        let commitsCatalogSnapshot = detectedCatalogChanges || forcesCatalogCommit
         try Task.checkCancellation()
         guard isCurrentScan(sourceID, generation: generation) else {
             throw CancellationError()
