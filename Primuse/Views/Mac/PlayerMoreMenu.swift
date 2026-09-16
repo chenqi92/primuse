@@ -330,6 +330,11 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         // 发白、文字对比度很低。铺一层 flat 不透明 bg (不画圆角描边 —— 系统 chrome
         // 已经裁圆角带边框, 自己再画会变双框)。
         .background(PMColor.bg)
+        // popover 一打开, SwiftUI 就把初始键盘焦点放在第一个按钮(上一首)上, 给它描一圈
+        // accent 焦点环。菜单行是整幅宽的, 环的左右两边正好落在菜单边界外被裁掉, 屏幕上
+        // 只剩贴着行上下沿的两条横线, 看着像凭空多了两条分隔线。这个菜单是鼠标点开的,
+        // 原生菜单打开时同样不高亮任何一项, 所以直接关掉焦点描边。
+        .focusEffectDisabled()
     }
 
     private func menuHeader(_ song: Song) -> some View {
@@ -430,6 +435,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         }
         .padding(.vertical, 6)
         .frame(width: 160)
+        .focusEffectDisabled()
     }
 
     private func fontPickerRow(_ title: LocalizedStringKey, value: Double) -> some View {
