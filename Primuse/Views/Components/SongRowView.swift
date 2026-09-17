@@ -400,7 +400,7 @@ struct SongRowView: View {
                 Text(song.title)
                     .font(.subheadline)
                     .lineLimit(1)
-                    .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)
+                    .foregroundStyle(isPlaying ? skin.color(.accent) : skin.color(.textPrimary))
                     .opacity(isReadingDetails ? 0.75 : 1)
 
                 HStack(spacing: 4) {
@@ -467,7 +467,7 @@ struct SongRowView: View {
                     }
                 }
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.skin(.textSecondary))
                 .lineLimit(1)
             }
 

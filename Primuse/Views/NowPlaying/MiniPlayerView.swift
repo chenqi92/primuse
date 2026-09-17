@@ -67,7 +67,7 @@ struct MiniPlayerSwipeContent: View {
                         .font(titleFont)
                         .fontWeight(.semibold)
                         .lineLimit(1)
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(.skin(.textPrimary))
 
                     if showsSubtitle,
                        let song = player.currentSong,
@@ -76,7 +76,7 @@ struct MiniPlayerSwipeContent: View {
                         Text(artist)
                             .font(.caption2)
                             .lineLimit(1)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.skin(.textSecondary))
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
