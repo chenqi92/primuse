@@ -328,29 +328,19 @@ struct PlaylistDetailView: View {
                 // Songs
                 LazyVStack(spacing: 0) {
                     ForEach(songs) { song in
+                        // 「移出歌单」挂在行自己的长按菜单里 —— 在行外面再套一层
+                        // contextMenu 的话，SwiftUI 只认最里面那一份，外层永远弹不出来。
+                        // 所有外部镜像歌单都只读：本地无法把删除回写到源端，
+                        // 下次同步也会覆盖任何临时改动，所以那些歌单不给这个入口。
                         SongRowView(
                             song: song,
                             isPlaying: player.currentSong?.id == song.id,
                             showsActions: false,
+                            onRemoveFromPlaylist: allowsPlaylistRemoval
+                                ? { library.remove(songID: song.id, fromPlaylist: playlist.id) }
+                                : nil,
                             context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
                         )
-                        .contextMenu {
-                            // 所有外部镜像歌单都只读：本地无法把删除回写到源端，
-                            // 下次同步也会覆盖任何临时改动。
-                            Button {
-                                selection.activate(seed: song.id)
-                            } label: {
-                                Label("batch_select", systemImage: "checkmark.circle")
-                            }
-
-                            if allowsPlaylistRemoval {
-                                Button(role: .destructive) {
-                                    library.remove(songID: song.id, fromPlaylist: playlist.id)
-                                } label: {
-                                    Label("remove_from_playlist", systemImage: "trash")
-                                }
-                            }
-                        }
                         .songSelectable(
                             songID: song.id,
                             selection: selection,

@@ -44,6 +44,10 @@ struct SongRowView: View {
     /// 非 nil 时由外层列表接管长按，直接进入多选并选中这一行。
     var selection: SongSelectionModel? = nil
 
+    /// 歌单页专属：非 nil 时单曲菜单多一项「移出歌单」。行自己不知道它属于
+    /// 哪个歌单，也不该知道镜像 / 智能歌单能不能改成员，所以由歌单页决定传不传。
+    var onRemoveFromPlaylist: (() -> Void)? = nil
+
     /// Resolved by the parent so rows do not individually observe every
     /// backfill state mutation.
     var detailsState: SongDetailsState = .ready
@@ -158,6 +162,7 @@ struct SongRowView: View {
 
             // Group 3: Destructive
             Section {
+                removeFromPlaylistMenuButton
                 if canDeleteSourceFile {
                     Button(role: .destructive) {
                         showDeleteConfirm = true
@@ -527,6 +532,7 @@ struct SongRowView: View {
 
                     // Group 3: Destructive
                     Section {
+                        removeFromPlaylistMenuButton
                         if canDeleteSourceFile {
                             Button(role: .destructive) {
                                 showDeleteConfirm = true
@@ -802,6 +808,25 @@ struct SongRowView: View {
             // Remove from library and keep the source badge in sync.
             let remaining = library.deleteSong(song)
             sourcesStore.updateLocal(song.sourceID) { $0.songCount = remaining }
+        }
+    }
+
+    /// 长按菜单和尾部 ⋯ 菜单共用这一份 —— 两个入口给的是同一组能力，
+    /// 不该有哪个少一项。
+    ///
+    /// 点下去这一行就从列表里消失，也就是承载菜单的子树在菜单收起过程中被拆掉。
+    /// 这里跟电台长按菜单里的「删除」(`RadioStationsView.stationActions`)、
+    /// 首页置顶文件夹的「取消置顶」(`HomeFoldersSection`) 一样直接改数据，不延后：
+    /// 之前出事的是进入多选时**替换**行的子树(见 `SongSelectableModifier`)，
+    /// 整行移除走的是 SwiftUI 常规的行删除路径。
+    @ViewBuilder
+    private var removeFromPlaylistMenuButton: some View {
+        if let onRemoveFromPlaylist {
+            Button(role: .destructive) {
+                onRemoveFromPlaylist()
+            } label: {
+                Label(String(localized: "remove_from_playlist"), systemImage: "minus.circle")
+            }
         }
     }
 
@@ -1678,6 +1703,7 @@ extension SongRowView {
         showAlbum: Bool = true,
         showsActions: Bool = true,
         selection: SongSelectionModel? = nil,
+        onRemoveFromPlaylist: (() -> Void)? = nil,
         queueSwipeActionsEnabled: Bool = true,
         context: RowContext
     ) {
@@ -1686,6 +1712,7 @@ extension SongRowView {
         self.showAlbum = showAlbum
         self.showsActions = showsActions
         self.selection = selection
+        self.onRemoveFromPlaylist = onRemoveFromPlaylist
         self.queueSwipeActionsEnabled = queueSwipeActionsEnabled
         self.sourceName = context.sourceName
         self.sourceIconName = context.sourceIconName
