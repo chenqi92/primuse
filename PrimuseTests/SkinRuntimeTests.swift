@@ -117,4 +117,36 @@ final class SkinRuntimeTests: XCTestCase {
             Set(ImmersivePresentationFallbackPolicy.supportedEffectRawValues)
         )
     }
+
+    func testCompanionEffectsStayListedWhileTheirSkinIsUsable() {
+        // 极简随 App 提供,它带来的效果对所有人可见,而且排在「封面驱动」这一组的最后(新效果只能追加)。
+        _ = SkinRuntime(defaults: defaults)
+        XCTAssertTrue(FullscreenPlayerEffect.coverMosaic.isAvailable)
+        XCTAssertEqual(FullscreenEffectCollection.coverReactive.effects.last, .coverMosaic)
+        XCTAssertEqual(FullscreenPlayerEffect.allCases.last, .coverMosaic)
+        XCTAssertEqual(FullscreenPlayerEffect.particleBloom.advanced(by: 1), .coverMosaic)
+    }
+
+    func testEffectsOwnedOnlyByALockedSkinAreHiddenUntilItIsUnlocked() {
+        let locked = SkinDefinition(
+            id: "neon",
+            nameKey: "k",
+            descriptionKey: "k",
+            access: .unlockable(unlockID: "skin.neon"),
+            colors: SkinCatalog.classic.colors,
+            metrics: SkinCatalog.classic.metrics,
+            typography: SkinCatalog.classic.typography,
+            motion: SkinCatalog.classic.motion,
+            companions: SkinCompanions(immersiveStageIDs: ["vinylDeck"])
+        )
+        defer { FullscreenEffectAvailability.update(catalog: SkinCatalog.all, unlocked: []) }
+
+        FullscreenEffectAvailability.update(catalog: SkinCatalog.all + [locked], unlocked: [])
+        XCTAssertFalse(FullscreenPlayerEffect.vinylDeck.isAvailable)
+        XCTAssertFalse(FullscreenEffectCollection.coverReactive.effects.contains(.vinylDeck))
+        XCTAssertTrue(FullscreenPlayerEffect.coverFlow.isAvailable)
+
+        FullscreenEffectAvailability.update(catalog: SkinCatalog.all + [locked], unlocked: ["skin.neon"])
+        XCTAssertTrue(FullscreenPlayerEffect.vinylDeck.isAvailable)
+    }
 }
