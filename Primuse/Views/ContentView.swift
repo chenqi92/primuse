@@ -70,12 +70,14 @@ enum AppNavigationChromePolicy {
 }
 
 enum MinimalNavigationPage: Hashable, Identifiable, Sendable {
+    case home
     case librarySection(LibrarySection)
     case search
     case settings
 
     var id: String {
         switch self {
+        case .home: return "home"
         case .librarySection(let section): return "library:\(section.rawValue)"
         case .search: return "search"
         case .settings: return "settings"
@@ -84,6 +86,12 @@ enum MinimalNavigationPage: Hashable, Identifiable, Sendable {
 }
 
 enum MinimalNavigationPolicy {
+    /// 自绘顶栏里要不要带「首页」这一项。默认带:首页上的继续听、为你推荐、排行这些内容,
+    /// 不该因为换了导航方式就再也进不去;只想留资料库分类的人可以关掉它。
+    static let showsHomeKey = "primuse.navigation.minimal.showsHome.v1"
+    static let showsHomeByDefault = true
+
+    /// 资料库的落脚页:顶栏左上角那颗资料库按钮去的地方,也是没有首页时的起始页。
     static func homePage(visibleSections: [LibrarySection]) -> MinimalNavigationPage {
         visibleSections.first.map(MinimalNavigationPage.librarySection) ?? .search
     }
@@ -92,17 +100,43 @@ enum MinimalNavigationPolicy {
         visibleSections.map(MinimalNavigationPage.librarySection)
     }
 
+    /// 顶栏分类行里的全部项:首页(如果显示)在最前,后面是资料库分类。
+    static func chipPages(
+        visibleSections: [LibrarySection],
+        showsHome: Bool
+    ) -> [MinimalNavigationPage] {
+        (showsHome ? [MinimalNavigationPage.home] : []) + libraryPages(visibleSections: visibleSections)
+    }
+
+    /// 启动或切到自绘顶栏时,当前停着的标签页要不要改落到资料库的落脚页。
+    ///
+    /// 首页标签只有在顶栏带「首页」时才留得住;资料库标签还没定下分类时也要落过去。
+    /// 已经在用自绘顶栏的人此前从不会停在首页标签上,所以他们的起始页不受影响。
+    static func redirectsToLibraryHome(
+        selectedTab: Int,
+        activeLibrarySection: LibrarySection?,
+        showsHome: Bool
+    ) -> Bool {
+        switch selectedTab {
+        case 0: return !showsHome
+        case 1: return activeLibrarySection == nil
+        default: return false
+        }
+    }
+
     static func selectedPage(
         selectedTab: Int,
         activeLibrarySection: LibrarySection?,
-        visibleSections: [LibrarySection]
+        visibleSections: [LibrarySection],
+        showsHome: Bool = false
     ) -> MinimalNavigationPage {
-        let homePage = homePage(visibleSections: visibleSections)
+        let libraryHomePage = Self.homePage(visibleSections: visibleSections)
+        let homePage = showsHome ? MinimalNavigationPage.home : libraryHomePage
         switch selectedTab {
         case 0: return homePage
         case 1:
             guard let activeLibrarySection, visibleSections.contains(activeLibrarySection) else {
-                return homePage
+                return libraryHomePage
             }
             return .librarySection(activeLibrarySection)
         case 2: return .search
@@ -689,6 +723,8 @@ struct ContentView: View {
     private var librarySectionOrderRawValue = ""
     @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey)
     private var hiddenLibrarySectionsRawValue = ""
+    @AppStorage(MinimalNavigationPolicy.showsHomeKey)
+    private var minimalShowsHome = MinimalNavigationPolicy.showsHomeByDefault
     @State private var showInitialOnboarding = false
     private let legacyTabBarClearance: CGFloat = 49
     /// 顶栏几何来自当前界面样式。折叠判定要用同一组数值算滞回带宽,
@@ -872,13 +908,18 @@ struct ContentView: View {
                 searchScope: $searchScope,
                 searchContext: searchContext,
                 categoriesCollapsed: $minimalNavigationCategoriesCollapsed,
-                libraryPages: MinimalNavigationPolicy.libraryPages(
+                libraryPages: MinimalNavigationPolicy.chipPages(
+                    visibleSections: visibleLibrarySections,
+                    showsHome: minimalShowsHome
+                ),
+                libraryHomePage: MinimalNavigationPolicy.homePage(
                     visibleSections: visibleLibrarySections
                 ),
                 selection: MinimalNavigationPolicy.selectedPage(
                     selectedTab: selectedTab,
                     activeLibrarySection: minimalLibrarySection,
-                    visibleSections: visibleLibrarySections
+                    visibleSections: visibleLibrarySections,
+                    showsHome: minimalShowsHome
                 ),
                 onSelect: selectMinimalPage,
                 onSubmitSearch: submitMinimalSearch
@@ -1166,6 +1207,9 @@ struct ContentView: View {
                 synchronizeSidebarForCurrentSelection()
             }
         }
+        .onChange(of: minimalShowsHome) { _, _ in
+            activateMinimalLandingPageIfNeeded()
+        }
         .onChange(of: visibleLibrarySections) { _, sections in
             guard navigationMode == .minimal, selectedTab == 1,
                   minimalLibrarySection.map({ !sections.contains($0) }) ?? true else { return }
@@ -1250,7 +1294,11 @@ struct ContentView: View {
 
     private func activateMinimalLandingPageIfNeeded() {
         guard navigationMode == .minimal else { return }
-        guard selectedTab == 0 || (selectedTab == 1 && minimalLibrarySection == nil) else {
+        guard MinimalNavigationPolicy.redirectsToLibraryHome(
+            selectedTab: selectedTab,
+            activeLibrarySection: minimalLibrarySection,
+            showsHome: minimalShowsHome
+        ) else {
             synchronizeSidebarForCurrentSelection()
             return
         }
@@ -1282,6 +1330,9 @@ struct ContentView: View {
     private func selectMinimalPage(_ page: MinimalNavigationPage) {
         showNowPlaying = false
         switch page {
+        case .home:
+            selectedTab = 0
+            sidebarSelection = .home
         case .librarySection(let section):
             selectedTab = 1
             sidebarSelection = SidebarItem.libraryChild(for: section)
@@ -1802,7 +1853,10 @@ private struct MinimalTopNavigationBar: View {
     @Binding var searchScope: LibrarySearchScope?
     let searchContext: LibrarySearchScope?
     @Binding var categoriesCollapsed: Bool
+    /// 分类行里的全部项:带首页时首页在最前,后面是资料库分类。
     let libraryPages: [MinimalNavigationPage]
+    /// 左上角资料库按钮去的页面。
+    let libraryHomePage: MinimalNavigationPage
     let selection: MinimalNavigationPage
     let onSelect: (MinimalNavigationPage) -> Void
     let onSubmitSearch: () -> Void
@@ -2008,7 +2062,7 @@ private struct MinimalTopNavigationBar: View {
 
     private var libraryHomeButton: some View {
         Button {
-            select(libraryPages.first ?? .search)
+            select(libraryHomePage)
         } label: {
             Image(systemName: "books.vertical")
                 .font(.system(size: 16, weight: .semibold))
@@ -2170,6 +2224,8 @@ private struct MinimalTopNavigationBar: View {
     @ViewBuilder
     private func pageTitle(_ page: MinimalNavigationPage) -> some View {
         switch page {
+        case .home:
+            Text("home_title")
         case .librarySection(let section):
             Text(section.title)
         case .search:

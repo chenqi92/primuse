@@ -3274,6 +3274,8 @@
 "skin_detail_posters_format" = "%d lyric posters";
 "skin_detail_unlock" = "Unlock";
 "skin_detail_unavailable" = "Not available yet";
+"minimal_shows_home_footer" = "When off, the top bar keeps only your library categories.";
+"minimal_shows_home_title" = "Show Home in the Top Bar";
 "lyric_poster_style_deep_sea" = "Deep Sea";
 "settings_hub_appearance_title" = "Appearance & Skins";
 "settings_hub_all" = "All Settings";

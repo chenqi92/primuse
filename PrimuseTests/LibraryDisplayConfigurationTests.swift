@@ -346,6 +346,101 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         )
     }
 
+    func testMinimalHomeEntryIsOptionalAndLeadsTheCategoryRow() {
+        let sections: [LibrarySection] = [.favorites, .songs]
+        XCTAssertEqual(
+            MinimalNavigationPolicy.chipPages(visibleSections: sections, showsHome: true),
+            [.home, .librarySection(.favorites), .librarySection(.songs)]
+        )
+        XCTAssertEqual(
+            MinimalNavigationPolicy.chipPages(visibleSections: sections, showsHome: false),
+            [.librarySection(.favorites), .librarySection(.songs)]
+        )
+        XCTAssertEqual(
+            MinimalNavigationPolicy.chipPages(visibleSections: [], showsHome: true),
+            [.home]
+        )
+        // The library button keeps going to the first category, never to Home.
+        XCTAssertEqual(
+            MinimalNavigationPolicy.homePage(visibleSections: sections),
+            .librarySection(.favorites)
+        )
+    }
+
+    func testMinimalHomeTabSelectsHomeOnlyWhenTheEntryIsShown() {
+        let sections: [LibrarySection] = [.favorites, .songs]
+        XCTAssertEqual(
+            MinimalNavigationPolicy.selectedPage(
+                selectedTab: 0,
+                activeLibrarySection: nil,
+                visibleSections: sections,
+                showsHome: true
+            ),
+            .home
+        )
+        XCTAssertEqual(
+            MinimalNavigationPolicy.selectedPage(
+                selectedTab: 0,
+                activeLibrarySection: nil,
+                visibleSections: sections,
+                showsHome: false
+            ),
+            .librarySection(.favorites)
+        )
+        XCTAssertEqual(
+            MinimalNavigationPolicy.selectedPage(
+                selectedTab: 99,
+                activeLibrarySection: nil,
+                visibleSections: sections,
+                showsHome: true
+            ),
+            .home
+        )
+        // The library tab without a category still resolves to the library landing page.
+        XCTAssertEqual(
+            MinimalNavigationPolicy.selectedPage(
+                selectedTab: 1,
+                activeLibrarySection: nil,
+                visibleSections: sections,
+                showsHome: true
+            ),
+            .librarySection(.favorites)
+        )
+    }
+
+    /// People already using the custom top bar were never left on the Home tab, so adding the
+    /// Home entry must not move where they start.
+    func testMinimalLandingOnlyLeavesHomeWhenTheEntryIsHidden() {
+        XCTAssertFalse(
+            MinimalNavigationPolicy.redirectsToLibraryHome(
+                selectedTab: 0, activeLibrarySection: nil, showsHome: true
+            )
+        )
+        XCTAssertTrue(
+            MinimalNavigationPolicy.redirectsToLibraryHome(
+                selectedTab: 0, activeLibrarySection: nil, showsHome: false
+            )
+        )
+        XCTAssertTrue(
+            MinimalNavigationPolicy.redirectsToLibraryHome(
+                selectedTab: 1, activeLibrarySection: nil, showsHome: true
+            )
+        )
+        XCTAssertFalse(
+            MinimalNavigationPolicy.redirectsToLibraryHome(
+                selectedTab: 1, activeLibrarySection: .songs, showsHome: true
+            )
+        )
+        for tab in [2, 3] {
+            XCTAssertFalse(
+                MinimalNavigationPolicy.redirectsToLibraryHome(
+                    selectedTab: tab, activeLibrarySection: nil, showsHome: false
+                )
+            )
+        }
+        XCTAssertTrue(MinimalNavigationPolicy.showsHomeByDefault)
+    }
+
     func testMinimalDeepLinksSelectTheirLibraryCategory() {
         XCTAssertNil(MinimalNavigationPolicy.section(for: .root))
         XCTAssertEqual(

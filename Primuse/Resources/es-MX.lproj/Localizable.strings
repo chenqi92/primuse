@@ -1999,6 +1999,8 @@
 "skin_detail_posters_format" = "%d pósteres de letras";
 "skin_detail_unlock" = "Desbloquear";
 "skin_detail_unavailable" = "Aún no disponible";
+"minimal_shows_home_footer" = "Si se desactiva, la barra superior solo conserva las categorías de tu biblioteca.";
+"minimal_shows_home_title" = "Mostrar Inicio en la barra superior";
 "lyric_poster_style_deep_sea" = "Mar profundo";
 "settings_hub_appearance_title" = "Apariencia y aspectos";
 "settings_hub_all" = "Toda la configuración";

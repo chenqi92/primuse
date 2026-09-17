@@ -3489,6 +3489,8 @@
 "skin_detail_posters_format" = "가사 포스터 %d개";
 "skin_detail_unlock" = "잠금 해제";
 "skin_detail_unavailable" = "아직 사용할 수 없음";
+"minimal_shows_home_footer" = "끄면 상단 막대에 보관함 카테고리만 남습니다.";
+"minimal_shows_home_title" = "상단 막대에 홈 표시";
 "lyric_poster_style_deep_sea" = "딥 시";
 "settings_hub_appearance_title" = "화면 표시 및 스킨";
 "settings_hub_all" = "모든 설정";

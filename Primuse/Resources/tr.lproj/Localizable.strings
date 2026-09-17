@@ -3276,6 +3276,8 @@
 "skin_detail_posters_format" = "%d şarkı sözü posteri";
 "skin_detail_unlock" = "Kilidi aç";
 "skin_detail_unavailable" = "Henüz kullanılamıyor";
+"minimal_shows_home_footer" = "Kapalıyken üst çubukta yalnızca arşiv kategorileri kalır.";
+"minimal_shows_home_title" = "Üst çubukta Ana Sayfa'yı göster";
 "lyric_poster_style_deep_sea" = "Derin Deniz";
 "settings_hub_appearance_title" = "Görünüm ve temalar";
 "settings_hub_all" = "Tüm ayarlar";

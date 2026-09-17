@@ -3489,6 +3489,8 @@
 "skin_detail_posters_format" = "%d Songtext-Poster";
 "skin_detail_unlock" = "Entsperren";
 "skin_detail_unavailable" = "Noch nicht verfügbar";
+"minimal_shows_home_footer" = "Wenn deaktiviert, zeigt die obere Leiste nur noch deine Mediathek-Kategorien.";
+"minimal_shows_home_title" = "Start in der oberen Leiste anzeigen";
 "lyric_poster_style_deep_sea" = "Tiefsee";
 "settings_hub_appearance_title" = "Erscheinungsbild & Skins";
 "settings_hub_all" = "Alle Einstellungen";

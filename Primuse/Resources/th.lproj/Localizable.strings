@@ -1999,6 +1999,8 @@
 "skin_detail_posters_format" = "โปสเตอร์เนื้อเพลง %d แบบ";
 "skin_detail_unlock" = "ปลดล็อก";
 "skin_detail_unavailable" = "ยังไม่เปิดให้ใช้";
+"minimal_shows_home_footer" = "เมื่อปิด แถบด้านบนจะเหลือเฉพาะหมวดหมู่ของคลังเพลง";
+"minimal_shows_home_title" = "แสดงหน้าหลักในแถบด้านบน";
 "lyric_poster_style_deep_sea" = "ทะเลลึก";
 "settings_hub_appearance_title" = "การปรากฏตัวและสกิน";
 "settings_hub_all" = "การตั้งค่าทั้งหมด";
