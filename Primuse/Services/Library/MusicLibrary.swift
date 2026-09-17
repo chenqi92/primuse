@@ -2992,6 +2992,15 @@ final class MusicLibrary {
     /// stick.
     private(set) var deletedSongIdentities: Set<String> = []
 
+    /// 每条墓碑的证据: 什么时候删的、源文件到底删了没有、删除那一刻这行的
+    /// 签名, 以及撤销时刻。远端源问不到"文件此刻在不在磁盘上", 只能靠比签名
+    /// 判断"同一路径上现在这一份是不是另一个文件"。
+    ///
+    /// 本版本之前产生的墓碑在这里没有记录, 它们退化成「无证据的旧墓碑」——
+    /// 永不因扫描撤销, 与历史行为一致。没有任何界面读它, 所以不参与观察。
+    @ObservationIgnored
+    private(set) var deletedSongIdentityDetails: [String: LibrarySongTombstoneDetail] = [:]
+
     /// Identity keys the user removed from *this device's* library only.
     ///
     /// `deletedSongIdentities` is part of the portable snapshot and is unioned
@@ -4532,7 +4541,11 @@ final class MusicLibrary {
         // 那一支, 所以这份数组通常是空的, 不会再物化一份 `[Song]`。
         var tombstonedCandidates: [Song] = []
         var tombstoneKeyBySongID: [String: String] = [:]
+        // 两条放行规则各自需要的输入: 本机源要探针, 远端源要证据表。两样都
+        // 没有就没有任何撤销的可能, 连候选都不必收(旧库全是无证据的旧墓碑,
+        // 走的正是这条零开销路径)。
         let canRevokeTombstones = deviceLocalFilePresenceProbe != nil
+            || !deletedSongIdentityDetails.isEmpty
         for song in newSongs {
             if hasAdmissionFilters {
                 switch admissionVerdict(song, prefixes: identityPrefixBySourceID) {
@@ -4572,11 +4585,18 @@ final class MusicLibrary {
         // 更早开始的扫描随后才 flush 时, 文件已经不在磁盘上, 探针为 false, 这
         // 批仍然被挡住 —— 删除不会被一次迟到的扫描撤销。
         //
+        // 远端源没有"文件在不在磁盘上"可问, 改比签名: 删除那一刻记下的大小 /
+        // 修改时间 / 修订标记与扫描到的这一份不同, 才说明服务端在同一路径上
+        // 放了另一个文件。同样不拿"扫描时间晚于删除时间"当证据 —— 续扫会重放
+        // 删除之前暂存的目录页, 它带的是旧签名, 按签名比才挡得住。
+        //
         // 「从资料库移除但保留源文件」那一种删除在删的时候就被记进了设备本地
         // 排除账本, 于是 `admissionVerdict` 给的是 `.blockedByDeviceExclusion`,
         // 根本不会进到这份候选里 —— 它的文件本来就一直在。
-        if !tombstonedCandidates.isEmpty, let probe = deviceLocalFilePresenceProbe {
-            let presentSongIDs = probe(tombstonedCandidates)
+        if !tombstonedCandidates.isEmpty {
+            // 探针是本机源那条规则用的; 没装探针(tvOS / 测试 / 离主线程装载)
+            // 时远端源那条规则照样成立, 它只需要证据表和扫描到的签名。
+            let presentSongIDs = deviceLocalFilePresenceProbe?(tombstonedCandidates) ?? []
             var revokedKeys: Set<String> = []
             for song in tombstonedCandidates {
                 // 放行规则只有一份, 在 `LibrarySongAdmissionPolicy` 里 —— 那份
@@ -4584,7 +4604,11 @@ final class MusicLibrary {
                 guard let recordedKey = tombstoneKeyBySongID[song.id],
                       let key = LibrarySongAdmissionPolicy.revocableTombstoneKey(
                           for: .blockedByTombstone(key: recordedKey),
-                          isDeviceLocalFilePresent: presentSongIDs.contains(song.id)
+                          isDeviceLocalFilePresent: presentSongIDs.contains(song.id),
+                          detail: deletedSongIdentityDetails[recordedKey],
+                          scannedFileSize: song.fileSize,
+                          scannedLastModified: song.lastModified,
+                          scannedRevision: song.revision
                       ) else { continue }
                 revokedKeys.insert(key)
                 blockedIDs.remove(song.id)
@@ -5028,9 +5052,15 @@ final class MusicLibrary {
     }
 
     /// Delete a single song and rebuild index
+    ///
+    /// `sourceFileDeleted` 说的是"调用这里之前, 源文件确实已经删掉了(并且删除
+    /// 被确认过)"。默认取保守侧 false: 只有 true 的墓碑才可能因为日后同一路径
+    /// 上出现另一个文件而被撤销, 所以拿不准的路径必须落在 false 上。
     @discardableResult
-    func deleteSong(_ song: Song) -> Int {
-        if deferringUntilReady({ [weak self] in _ = self?.deleteSong(song) }) { return 0 }
+    func deleteSong(_ song: Song, sourceFileDeleted: Bool = false) -> Int {
+        if deferringUntilReady({ [weak self] in
+            _ = self?.deleteSong(song, sourceFileDeleted: sourceFileDeleted)
+        }) { return 0 }
         discardRetainedSongs { $0.id == song.id }
         songs.removeAll { $0.id == song.id }
         songIndexByID = Self.makeSongIndex(songs)
@@ -5038,6 +5068,7 @@ final class MusicLibrary {
         // mount-UUID+path) so re-adding the same Baidu account on
         // a fresh source UUID doesn't bypass it.
         deletedSongIdentities.insert(identityKey(for: song))
+        recordTombstoneEvidence(for: [song], sourceFileDeleted: sourceFileDeleted)
         recordExclusionsForRetainedSourceFiles([song])
         let remaining = songs.filter { $0.sourceID == song.sourceID }.count
         pruneVisibleCachesAfterRemoval(
@@ -5060,15 +5091,21 @@ final class MusicLibrary {
     /// watchdog killed the app. Doing the bulk operations once amortizes
     /// the work to a single O(N) pass.
     @discardableResult
-    func deleteSongs(_ songsToDelete: [Song]) -> [String: Int] {
+    func deleteSongs(
+        _ songsToDelete: [Song],
+        sourceFileDeleted: Bool = false
+    ) -> [String: Int] {
         guard !songsToDelete.isEmpty else { return [:] }
-        if deferringUntilReady({ [weak self] in _ = self?.deleteSongs(songsToDelete) }) { return [:] }
+        if deferringUntilReady({ [weak self] in
+            _ = self?.deleteSongs(songsToDelete, sourceFileDeleted: sourceFileDeleted)
+        }) { return [:] }
         let idsToDelete = Set(songsToDelete.map(\.id))
         discardRetainedSongs { idsToDelete.contains($0.id) }
         let affectedSourceIDs = Set(songsToDelete.map(\.sourceID))
         for song in songsToDelete {
             deletedSongIdentities.insert(identityKey(for: song))
         }
+        recordTombstoneEvidence(for: songsToDelete, sourceFileDeleted: sourceFileDeleted)
         recordExclusionsForRetainedSourceFiles(songsToDelete)
         songs.removeAll { idsToDelete.contains($0.id) }
         songIndexByID = Self.makeSongIndex(songs)
@@ -5091,6 +5128,30 @@ final class MusicLibrary {
         persistSongChanges(deletingIDs: idsToDelete, needsPromptCompatibilitySnapshot: true)
         postSongsRemoved(songsToDelete, songIDs: idsToDelete)
         return remainingCounts
+    }
+
+    /// 给这一批新墓碑记下证据。远端源日后在同一路径上又看到文件时, 只有这份
+    /// 签名能回答"是不是另一个文件"—— 陈旧的目录页重放的是旧签名, 所以按签名
+    /// 比才挡得住, 而"扫描时间晚于删除时间"挡不住(续扫会重放删除之前暂存的
+    /// 目录页, 可以晚到几天之后才交上来)。
+    ///
+    /// 体积: 未压缩约 276 字节/条(其中一多半是被重复一次的身份键), 但快照上
+    /// 传前会压缩, 三千条实测只多 ~17 KB。只给本版本之后产生的墓碑记, 撤销后
+    /// 的记录过了保留期由跨设备合并清掉。
+    private func recordTombstoneEvidence(for deletedSongs: [Song], sourceFileDeleted: Bool) {
+        let now = Date()
+        for song in deletedSongs {
+            deletedSongIdentityDetails[identityKey(for: song)] = LibrarySongTombstoneDetail(
+                deletedAt: now,
+                sourceFileDeleted: sourceFileDeleted,
+                fileSize: song.fileSize > 0 ? song.fileSize : nil,
+                lastModified: song.lastModified,
+                revision: song.revision,
+                // 重新删除同一路径时证据整条换新, 旧的撤销记录不再有意义 ——
+                // `deletedAt` 已经推到现在, 墓碑自然重新生效。
+                revivedAt: nil
+            )
+        }
     }
 
     /// 删库记录的那一刻源文件还在磁盘上, 说明用户选的是「从资料库移除, 源文件
@@ -5359,12 +5420,38 @@ final class MusicLibrary {
         revokeDeletedSongIdentities([identityKey(for: song)])
     }
 
-    /// 撤销一批全局删除墓碑。单首恢复和扫描期的"文件又回到磁盘上"复活走同一
-    /// 条语义, 免得两处各写一套"什么时候能重新入库"。落盘只发一次。
+    /// 撤销一批全局删除墓碑。单首恢复、本机源的"文件又回到磁盘上"复活、远端源
+    /// 的"同一路径换了文件"复活走同一条语义, 免得几处各写一套"什么时候能重新
+    /// 入库"。落盘只发一次。
+    ///
+    /// 光把键从集合里拿掉撑不过一次跨设备同步 —— 另一台设备尚未同步的旧快照
+    /// 会在并集里把它原样带回来。所以撤销要在证据表上打 `revivedAt`, 合并时
+    /// 按键做 last-writer-wins 才减得掉(见 `LibrarySongTombstoneLedgerMergePolicy`)。
     private func revokeDeletedSongIdentities(_ keys: Set<String>) {
         let revoked = keys.intersection(deletedSongIdentities)
         guard !revoked.isEmpty else { return }
         deletedSongIdentities.subtract(revoked)
+        let now = Date()
+        for key in revoked {
+            if var detail = deletedSongIdentityDetails[key] {
+                detail.revivedAt = now
+                deletedSongIdentityDetails[key] = detail
+            } else {
+                // 无证据的旧墓碑(本机源那条规则不需要证据也能放行)也要留下
+                // 撤销标记, 否则别的设备的旧快照会把它并回来。删除时刻不可考,
+                // 用与设备本地账本同一个纪元哨兵 —— 只要日后真的重新删除,
+                // `deletedAt` 会被推到那一刻, 墓碑自然重新生效。
+                //
+                // 不用 `.distantPast`: 它编码成 `0001-01-01T00:00:00Z`, 而整份
+                // 快照共用一个 `.iso8601` 解码器, 万一哪个平台的格式化器不认这
+                // 个年份, 坏的就不只是这一条记录, 是整个 library-cache.json。
+                deletedSongIdentityDetails[key] = LibrarySongTombstoneDetail(
+                    deletedAt: Date(timeIntervalSince1970: 0),
+                    sourceFileDeleted: true,
+                    revivedAt: now
+                )
+            }
+        }
         persistSnapshot()
     }
 
@@ -8935,6 +9022,7 @@ final class MusicLibrary {
         var playlistSongIDs: [String: [String]] = [:]
         var recentPlaybackSongIDs: [String] = []
         var deletedSongIdentities: Set<String> = []
+        var deletedSongIdentityDetails: [String: LibrarySongTombstoneDetail] = [:]
         var pendingPlaylistIdentities: [String: [PendingSongIdentity]] = [:]
         var pendingHistoryIdentities: [PendingSongIdentity] = []
         var automaticArtistArtworkCatalogsBySource: [String: SourceArtistArtworkCatalog] = [:]
@@ -9286,7 +9374,14 @@ final class MusicLibrary {
             // Old `deletedSongIDs` field stored mount-UUID-derived song.id
             // tombstones — useless after re-OAuth changes the source UUID.
             // Drop them silently; new identity-based tombstones replace.
-            deletedSongIdentities = Set(snapshot.deletedSongIdentities ?? [])
+            // 装载时对账一次: 证据表说已撤销的键不再进集合, 过了保留期的撤销
+            // 记录和孤儿记录一并清掉。一次启动只跑一遍。
+            let tombstoneLedger = MusicLibrary.reconciledTombstoneLedger(
+                identities: Set(snapshot.deletedSongIdentities ?? []),
+                details: snapshot.deletedSongIdentityDetails ?? [:]
+            )
+            deletedSongIdentities = tombstoneLedger.identities
+            deletedSongIdentityDetails = tombstoneLedger.details
             pendingPlaylistIdentities = snapshot.pendingPlaylistIdentities ?? [:]
             pendingHistoryIdentities = snapshot.pendingHistoryIdentities ?? []
             cleanPlaylistEntries()
@@ -9492,6 +9587,7 @@ final class MusicLibrary {
             storage.playlistSongIDs = playlistSongIDs
             storage.recentPlaybackSongIDs = recentPlaybackSongIDs
             storage.deletedSongIdentities = deletedSongIdentities
+            storage.deletedSongIdentityDetails = deletedSongIdentityDetails
             storage.pendingPlaylistIdentities = pendingPlaylistIdentities
             storage.pendingHistoryIdentities = pendingHistoryIdentities
             storage.automaticArtistArtworkCatalogsBySource = automaticArtistArtworkCatalogsBySource
@@ -9547,6 +9643,7 @@ final class MusicLibrary {
             playlistSongIDs = storage.playlistSongIDs
             recentPlaybackSongIDs = storage.recentPlaybackSongIDs
             deletedSongIdentities = storage.deletedSongIdentities
+            deletedSongIdentityDetails = storage.deletedSongIdentityDetails
             pendingPlaylistIdentities = storage.pendingPlaylistIdentities
             pendingHistoryIdentities = storage.pendingHistoryIdentities
             automaticArtistArtworkCatalogsBySource = storage.automaticArtistArtworkCatalogsBySource
@@ -10191,6 +10288,9 @@ final class MusicLibrary {
             playlistSongIDs: playlistSongIDs,
             recentPlaybackSongIDs: recentPlaybackSongIDs,
             deletedSongIdentities: Array(deletedSongIdentities),
+            deletedSongIdentityDetails: deletedSongIdentityDetails.isEmpty
+                ? nil
+                : deletedSongIdentityDetails,
             pendingPlaylistIdentities: pendingPlaylistIdentities.isEmpty ? nil : pendingPlaylistIdentities,
             pendingHistoryIdentities: pendingHistoryIdentities.isEmpty ? nil : pendingHistoryIdentities
         )
@@ -10350,6 +10450,25 @@ final class MusicLibrary {
         }
     }
 
+    /// 装载时对账一次墓碑账本, 规则与跨设备合并完全一致, 只是这里没有第二份
+    /// 快照可并: 证据表说已撤销的键不该还留在集合里(旧版本写回的快照可能两者
+    /// 不一致), 已撤销的记录留到保留期结束再清, 仍然生效的证据跟着键走。
+    nonisolated static func reconciledTombstoneLedger(
+        identities: Set<String>,
+        details: [String: LibrarySongTombstoneDetail],
+        now: Date = Date()
+    ) -> (identities: Set<String>, details: [String: LibrarySongTombstoneDetail]) {
+        guard !details.isEmpty else { return (identities, [:]) }
+        let merged = LibrarySongTombstoneLedgerMergePolicy.merge(
+            localIdentities: Array(identities),
+            localDetails: details,
+            incomingIdentities: nil,
+            incomingDetails: nil,
+            now: now
+        )
+        return (Set(merged.identities), merged.details)
+    }
+
     nonisolated static func isValidSnapshotData(_ data: Data) -> Bool {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -10405,7 +10524,19 @@ final class MusicLibrary {
         var identities = Set<PendingSongIdentity>()
         incoming.pendingHistoryIdentities = ((local.pendingHistoryIdentities ?? []) + (incoming.pendingHistoryIdentities ?? []))
             .filter { identities.insert($0).inserted }
-        incoming.deletedSongIdentities = Array(Set(local.deletedSongIdentities ?? []).union(incoming.deletedSongIdentities ?? []))
+        // 墓碑不能再简单取并集: 本机刚撤销的键会被另一台设备尚未同步的旧快照
+        // 原样带回来, 复活撑不过一次同步。按键做 last-writer-wins, 并集之后减
+        // 掉证据表判定已撤销的那些。
+        let mergedTombstones = LibrarySongTombstoneLedgerMergePolicy.merge(
+            localIdentities: local.deletedSongIdentities,
+            localDetails: local.deletedSongIdentityDetails,
+            incomingIdentities: incoming.deletedSongIdentities,
+            incomingDetails: incoming.deletedSongIdentityDetails
+        )
+        incoming.deletedSongIdentities = mergedTombstones.identities
+        incoming.deletedSongIdentityDetails = mergedTombstones.details.isEmpty
+            ? nil
+            : mergedTombstones.details
         var reviewsBySubject = Dictionary(
             (incoming.libraryReviews ?? []).map { ($0.subject.storageKey, $0) },
             uniquingKeysWith: { local, remote in
@@ -11198,6 +11329,11 @@ final class MusicLibrary {
         /// Persisted via Array because Set isn't Codable-stable across
         /// SDK revs. Optional so old snapshots decode without it.
         var deletedSongIdentities: [String]?
+        /// 每条墓碑的证据, 见 `MusicLibrary.deletedSongIdentityDetails`。
+        /// Optional: 旧快照没有这张表, 解码照常; 旧版本的 App 写回快照时会把
+        /// 它整个丢掉, 那些键退化成「无证据的旧墓碑」, 永不因扫描撤销 ——
+        /// 安全退化, 不会把已删的歌放回来。
+        var deletedSongIdentityDetails: [String: LibrarySongTombstoneDetail]? = nil
         /// CloudKit-pulled playlist entries waiting for a local song to
         /// match. Optional so old snapshots decode cleanly with no entries.
         var pendingPlaylistIdentities: [String: [PendingSongIdentity]]?

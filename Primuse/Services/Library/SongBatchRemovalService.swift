@@ -210,7 +210,13 @@ final class SongBatchRemovalService {
             case .deviceLocal:
                 removedCount = removeFromThisDeviceOnly(removable)
             case .libraryOnly, .sourceFiles:
-                let remainingCounts = library.deleteSongs(removable)
+                // `.sourceFiles` 只把确认删掉了的行交到这里, 所以墓碑日后可以
+                // 在同一路径换了文件时让路; `.libraryOnly` 的源文件是故意留着
+                // 的 —— 弹窗承诺过重新扫描不会把它们加回来, 墓碑永不撤销。
+                let remainingCounts = library.deleteSongs(
+                    removable,
+                    sourceFileDeleted: mode == .sourceFiles
+                )
                 for (sourceID, remaining) in remainingCounts {
                     sourcesStore.updateLocal(sourceID) { $0.songCount = remaining }
                 }

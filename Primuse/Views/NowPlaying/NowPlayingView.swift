@@ -2659,7 +2659,8 @@ struct NowPlayingView: View {
                 return
             }
             // Remove from library and keep the source badge in sync.
-            let remaining = library.deleteSong(song)
+            // 源文件已确认删除, 墓碑可以在同一路径换了文件时让路。
+            let remaining = library.deleteSong(song, sourceFileDeleted: true)
             sourcesStore.updateLocal(song.sourceID) { $0.songCount = remaining }
         }
     }

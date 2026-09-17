@@ -806,7 +806,9 @@ struct SongRowView: View {
                 return
             }
             // Remove from library and keep the source badge in sync.
-            let remaining = library.deleteSong(song)
+            // 源文件已经确认删掉了 —— 日后同一路径上出现的另一个文件是用户
+            // 重新放回来的, 墓碑该让路。
+            let remaining = library.deleteSong(song, sourceFileDeleted: true)
             sourcesStore.updateLocal(song.sourceID) { $0.songCount = remaining }
         }
     }

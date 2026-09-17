@@ -576,7 +576,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: songID)
             CachedArtworkView.invalidateCache(for: songID)
             sourceManager.deleteAudioCache(for: song)
-            let remaining = library.deleteSong(song)
+            // 源文件已确认删除, 墓碑可以在同一路径换了文件时让路。
+            let remaining = library.deleteSong(song, sourceFileDeleted: true)
             sourcesStore.updateLocal(song.sourceID) { $0.songCount = remaining }
 
             // AudioPlayerService 不监听 .primuseSongsRemoved, 删除后这首歌仍留在

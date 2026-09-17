@@ -304,7 +304,8 @@ final class RecentlyDeletedBatchTests: XCTestCase {
         let library = MusicLibrary(storageDirectory: directory)
         let song = Self.makeLocalSong()
         library.addSongs([song])
-        library.deleteSong(song)
+        // 界面上的删除是先删掉源文件、确认之后才来删库记录的。
+        library.deleteSong(song, sourceFileDeleted: true)
         XCTAssertTrue(library.songs.isEmpty)
         XCTAssertEqual(library.deletedSongIdentities, ["\(song.sourceID):\(song.filePath)"])
 
@@ -339,7 +340,7 @@ final class RecentlyDeletedBatchTests: XCTestCase {
         let library = MusicLibrary(storageDirectory: directory)
         let song = Self.makeLocalSong()
         library.addSongs([song])
-        library.deleteSong(song)
+        library.deleteSong(song, sourceFileDeleted: true)
         library.deviceLocalFilePresenceProbe = { _ in [] }
 
         library.addSongs([song])
@@ -392,7 +393,7 @@ final class RecentlyDeletedBatchTests: XCTestCase {
         library.addSongs([song])
         // 文件一直在磁盘上 —— 删除前后都是。
         library.deviceLocalFilePresenceProbe = { candidates in Set(candidates.map(\.id)) }
-        library.deleteSong(song)
+        library.deleteSong(song, sourceFileDeleted: false)
         XCTAssertTrue(library.songs.isEmpty)
 
         library.addSongs([song])
@@ -416,7 +417,7 @@ final class RecentlyDeletedBatchTests: XCTestCase {
         let restored = Self.makeLocalSong()
         let stillGone = Self.makeLocalSong(id: "local-track-2", filePath: "/Album/track-2.flac")
         library.addSongs([restored, stillGone])
-        library.deleteSongs([restored, stillGone])
+        library.deleteSongs([restored, stillGone], sourceFileDeleted: true)
         XCTAssertEqual(library.deletedSongIdentities.count, 2)
 
         library.deviceLocalFilePresenceProbe = { candidates in
@@ -428,6 +429,159 @@ final class RecentlyDeletedBatchTests: XCTestCase {
             library.deletedSongIdentities,
             ["\(stillGone.sourceID):\(stillGone.filePath)"]
         )
+    }
+
+    // MARK: - Remote sources: the server put a different file back (#134)
+
+    private static func makeRemoteSong(
+        id: String = "webdav-track",
+        sourceID: String = "webdav-source",
+        filePath: String = "/Music/Album/track.flac",
+        fileSize: Int64 = 5_000_000,
+        lastModified: Date? = Date(timeIntervalSince1970: 1_700_000_000),
+        revision: String? = nil
+    ) -> Song {
+        var song = Song(
+            id: id,
+            title: "Track",
+            artistName: "Tester",
+            duration: 180,
+            fileFormat: .flac,
+            filePath: filePath,
+            sourceID: sourceID
+        )
+        song.fileSize = fileSize
+        song.lastModified = lastModified
+        song.revision = revision
+        return song
+    }
+
+    /// 服务端上删掉之后又在同一路径放了另一个文件(重新上传了改好标签的那份)。
+    /// 签名变了就是证据, 墓碑让路。
+    func testARemoteFileReplacedAtTheSamePathIsReadmitted() throws {
+        let directory = try Self.makeIsolatedStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let original = Self.makeRemoteSong()
+        library.addSongs([original])
+        library.deleteSongs([original], sourceFileDeleted: true)
+        XCTAssertTrue(library.songs.isEmpty)
+
+        // 同一份文件又被扫描到(续扫重放的陈旧目录页): 签名没变, 仍然挡住。
+        library.addSongs([original])
+        XCTAssertTrue(library.songs.isEmpty)
+
+        // 换了一份: 大小和修改时间都变了。
+        let replacement = Self.makeRemoteSong(
+            fileSize: 5_400_000,
+            lastModified: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+        library.addSongs([replacement])
+        XCTAssertEqual(library.songs.map(\.id), [replacement.id])
+        XCTAssertTrue(library.deletedSongIdentities.isEmpty)
+        // 撤销要留痕, 否则跨设备并集会把墓碑带回来。
+        let key = "\(original.sourceID):\(original.filePath)"
+        XCTAssertNotNil(library.deletedSongIdentityDetails[key]?.revivedAt)
+    }
+
+    /// 「从资料库移除」承诺过源文件保留、重扫不会加回。用户之后给整个文件夹
+    /// 批量重写标签会改掉所有文件的大小与修改时间 —— 不能因此全带回来。
+    func testALibraryOnlyRemovalIsNotRevivedByRewrittenTags() throws {
+        let directory = try Self.makeIsolatedStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let song = Self.makeRemoteSong()
+        library.addSongs([song])
+        library.deleteSongs([song], sourceFileDeleted: false)
+
+        let retagged = Self.makeRemoteSong(
+            fileSize: 5_400_000,
+            lastModified: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+        library.addSongs([retagged])
+        XCTAssertTrue(library.songs.isEmpty)
+        XCTAssertEqual(library.deletedSongIdentities, ["\(song.sourceID):\(song.filePath)"])
+    }
+
+    /// 本版本之前产生的墓碑没有证据, 远端源那条规则对它们无效。
+    func testAnEvidenceFreeTombstoneStillBlocksARemoteRescan() throws {
+        let directory = try Self.makeIsolatedStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let song = Self.makeRemoteSong()
+        library.addSongs([song])
+        // 默认参数就是保守侧, 等价于旧调用方没有交代源文件删没删。
+        library.deleteSongs([song])
+
+        let replacement = Self.makeRemoteSong(fileSize: 9_000_000)
+        library.addSongs([replacement])
+        XCTAssertTrue(library.songs.isEmpty)
+    }
+
+    /// 撤销必须扛得住跨设备并集: 另一台设备尚未同步的旧快照里还有这个键。
+    func testARevivedIdentityIsNotResurrectedByAnotherDeviceSnapshot() async throws {
+        let directory = try Self.makeIsolatedStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let original = Self.makeRemoteSong()
+        library.addSongs([original])
+        library.deleteSongs([original], sourceFileDeleted: true)
+        let replacement = Self.makeRemoteSong(fileSize: 5_400_000)
+        library.addSongs([replacement])
+        XCTAssertEqual(library.songs.map(\.id), [replacement.id])
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("Snapshot did not persist")
+        }
+
+        let key = "\(original.sourceID):\(original.filePath)"
+        let localData = try Data(
+            contentsOf: directory.appendingPathComponent("library-cache.json")
+        )
+        // 另一台设备的旧快照: 墓碑还在, 没有证据表。
+        let staleIncoming = try XCTUnwrap(
+            "{\"songs\":[],\"playlists\":[],\"deletedSongIdentities\":[\"\(key)\"]}"
+                .data(using: .utf8)
+        )
+        let merged = try MusicLibrary.mergingSnapshotUserState(
+            localData: localData,
+            incomingData: staleIncoming,
+            locallyRetainedSongIDs: []
+        )
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: merged) as? [String: Any]
+        )
+        let tombstones = object["deletedSongIdentities"] as? [String] ?? []
+        XCTAssertFalse(tombstones.contains(key))
+
+        // 重新装载合并后的快照, 替换那一份仍然在库里。
+        let receiving = try Self.makeIsolatedStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: receiving) }
+        try merged.write(to: receiving.appendingPathComponent("library-cache.json"))
+        let reopened = MusicLibrary(storageDirectory: receiving)
+        XCTAssertTrue(reopened.deletedSongIdentities.isEmpty)
+        reopened.addSongs([replacement])
+        XCTAssertEqual(reopened.songs.map(\.id), [replacement.id])
+    }
+
+    /// 撤销之后再删一次同一路径, 墓碑要重新生效。
+    func testDeletingTheSamePathAgainAfterARevivalBlocksOnceMore() throws {
+        let directory = try Self.makeIsolatedStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let original = Self.makeRemoteSong()
+        library.addSongs([original])
+        library.deleteSongs([original], sourceFileDeleted: true)
+        let replacement = Self.makeRemoteSong(fileSize: 5_400_000)
+        library.addSongs([replacement])
+        XCTAssertEqual(library.songs.map(\.id), [replacement.id])
+
+        library.deleteSongs([replacement], sourceFileDeleted: true)
+        let key = "\(original.sourceID):\(original.filePath)"
+        XCTAssertEqual(library.deletedSongIdentities, [key])
+        XCTAssertNil(library.deletedSongIdentityDetails[key]?.revivedAt)
+        // 同一份再交上来不该放行。
+        library.addSongs([replacement])
+        XCTAssertTrue(library.songs.isEmpty)
     }
 
     func testOnlyWebDAVPermissionFailuresOfferDeviceLocalRemoval() throws {

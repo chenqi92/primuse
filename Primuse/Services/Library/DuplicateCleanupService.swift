@@ -254,7 +254,13 @@ final class DuplicateCleanupService {
             // `primuseSongsRemoved` now performs cache cleanup once for this
             // whole batch. The previous path deleted caches per song here and
             // then deleted the same caches again from that notification.
-            let remainingCounts = self.library.deleteSongs(removableSongs)
+            // `removableSongs` 只收 `shouldRemoveLibraryRecord` 为真的那些 ——
+            // 源端文件确实删掉了(或本来就不存在), 所以墓碑日后可以在同一路径
+            // 换了文件时让路。
+            let remainingCounts = self.library.deleteSongs(
+                removableSongs,
+                sourceFileDeleted: true
+            )
             for (sourceID, remaining) in remainingCounts {
                 self.sourcesStore.updateLocal(sourceID) { $0.songCount = remaining }
             }
