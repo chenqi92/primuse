@@ -216,7 +216,7 @@ struct TVSettingsView: View {
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: showsEffectPicker)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: showsThemePicker)
         .fullScreenCover(isPresented: $showsAISettings) {
-            TVAISettingsContainer()
+            TVAISettingsView()
                 .environment(intelligence)
         }
         .fullScreenCover(isPresented: $showsMetadata) {
@@ -490,30 +490,6 @@ struct TVSettingsView: View {
             .fill(TVColor.divider)
             .frame(height: 1)
             .padding(.leading, 80)
-    }
-}
-
-private struct TVAISettingsContainer: View {
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        // 模态自己铺一层不透明底 —— 跟 TVMetadataMaintenanceView / TVQueueView
-        // 等其它 fullScreenCover 一致。这里原先只有 NavigationStack + Form,
-        // 背景全指望系统给:tvOS 27 起 Form 与 NavigationStack 的默认背景换成
-        // 了透明材质,下面的设置页就直接透上来,两层界面透明度一致地叠在一起,
-        // 肉眼分不出当前是哪一层、焦点在哪一层。
-        ZStack {
-            TVColor.bg.ignoresSafeArea()
-            NavigationStack {
-                AISettingsView()
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button(PMString("done")) { dismiss() }
-                        }
-                    }
-            }
-        }
-        .onExitCommand { dismiss() }
     }
 }
 

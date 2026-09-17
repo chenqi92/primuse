@@ -866,6 +866,10 @@ final class AISettingsEditorModel {
     }
 }
 
+// 电视端不走这套 `Form` 界面:tvOS 有自己的 `TVAISettingsView`(面板行 + 10ft 字号),
+// 这里的分组表在 1920 宽的画面上会把标题和控件甩到左右两端。上面的
+// `AISettingsEditorModel` 仍然全平台共用。
+#if !os(tvOS)
 struct AISettingsView: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
     @State private var editor = AISettingsEditorModel()
@@ -919,30 +923,6 @@ struct AISettingsView: View {
         }
     }
 
-    /// 图标块和状态点在电视上要按 10ft 距离放大:手机上的 38pt 方块、8pt 圆点
-    /// 在 1920×1080 的电视界面里小到看不清。
-    private var connectionSummaryIconSize: CGFloat {
-        #if os(tvOS)
-        64
-        #else
-        38
-        #endif
-    }
-    private var connectionSummaryGlyphSize: CGFloat {
-        #if os(tvOS)
-        32
-        #else
-        19
-        #endif
-    }
-    private var connectionSummaryDotSize: CGFloat {
-        #if os(tvOS)
-        18
-        #else
-        8
-        #endif
-    }
-
     private var connectionSummary: some View {
         let usesRelay = editor.primuseRelayEnabled && editor.status == .idle
         let isReady = usesRelay ? primuseRelayIsOperational : editor.hasUsableAPIKey
@@ -951,9 +931,9 @@ struct AISettingsView: View {
         return Section {
             HStack(spacing: 14) {
                 Image(systemName: isReady ? "sparkles" : "key.horizontal")
-                    .font(.system(size: connectionSummaryGlyphSize, weight: .semibold))
+                    .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(Color.accentColor)
-                    .frame(width: connectionSummaryIconSize, height: connectionSummaryIconSize)
+                    .frame(width: 38, height: 38)
                     .background(
                         Color.accentColor.opacity(0.12),
                         in: RoundedRectangle(cornerRadius: 10)
@@ -972,7 +952,7 @@ struct AISettingsView: View {
                 Spacer()
                 Circle()
                     .fill(stateColor)
-                    .frame(width: connectionSummaryDotSize, height: connectionSummaryDotSize)
+                    .frame(width: 8, height: 8)
             }
             .padding(.vertical, 4)
         }
@@ -981,9 +961,7 @@ struct AISettingsView: View {
     private var primuseRelaySection: some View {
         Section {
             Toggle("ai_primuse_relay_enabled", isOn: editor.primuseRelayBinding)
-            #if !os(tvOS)
             .settingsAnchor("intelligence.relay")
-            #endif
 
             if !usesCompactMobileLayout || editor.primuseRelayEnabled {
                 Button {
@@ -997,9 +975,7 @@ struct AISettingsView: View {
                         }
                         Text("ai_primuse_relay_test_connection")
                     }
-                    #if !os(tvOS)
                     .settingsAnchor("intelligence.relayTest")
-                    #endif
                 }
                 .disabled(!editor.canTestPrimuseRelayConnection)
 
@@ -1046,16 +1022,12 @@ struct AISettingsView: View {
                 "ai_enable_semantic_search",
                 isOn: editor.semanticSearchBinding
             )
-            #if !os(tvOS)
             .settingsAnchor("intelligence.semanticSearch")
-            #endif
             Toggle(
                 "ai_enable_recommendations",
                 isOn: editor.recommendationsBinding
             )
-            #if !os(tvOS)
             .settingsAnchor("intelligence.recommendations")
-            #endif
         } header: {
             if usesCompactMobileLayout {
                 Text("ai_capability_section")
@@ -1135,17 +1107,13 @@ struct AISettingsView: View {
             }
 
             Toggle("ai_fallback_enabled", isOn: editor.fallbackBinding)
-            #if !os(tvOS)
             .settingsAnchor("intelligence.fallback")
-            #endif
 
             HStack {
                 Button("ai_add_provider", systemImage: "plus") {
                     editor.addProvider()
                 }
-                #if !os(tvOS)
                 .settingsAnchor("intelligence.addProvider")
-                #endif
                 Spacer()
                 if editor.selectedProviderID != editor.draftProviderSet.primaryProviderID {
                     Button("ai_set_primary") {
@@ -1162,9 +1130,7 @@ struct AISettingsView: View {
         } footer: {
             Text(editor.providerListFooterText)
         }
-        #if !os(tvOS)
         .settingsAnchor("intelligence.providers")
-        #endif
     }
 
     private var providerDetailLinkSection: some View {
@@ -1466,6 +1432,8 @@ struct AISettingsView: View {
     }
 }
 
+#endif
+
 extension AIProviderPreset {
     var localizedTitle: String {
         switch self {
@@ -1507,22 +1475,19 @@ extension AIProviderCompatibilityMode {
     }
 }
 
+#if !os(tvOS)
 private extension View {
     @ViewBuilder
     func aiProviderPrimaryAction(
         isPrimary: Bool,
         action: @escaping () -> Void
     ) -> some View {
-        #if os(tvOS)
-        self
-        #else
         swipeActions(edge: .leading) {
             if !isPrimary {
                 Button("ai_set_primary", action: action)
                     .tint(.accentColor)
             }
         }
-        #endif
     }
 }
 
@@ -1553,3 +1518,4 @@ private struct AIModelSelectionField: View {
         }
     }
 }
+#endif
