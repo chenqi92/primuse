@@ -111,7 +111,7 @@ struct SkinStyle: Equatable, Sendable {
 
     /// 已按 Dynamic Type 缩放的点值。圆角、描边、阴影这类形状语言不参与缩放
     /// (见 `SkinMetricToken.scalesWithDynamicType`)。
-    func metric(_ token: SkinMetricToken) -> CGFloat {
+    @MainActor func metric(_ token: SkinMetricToken) -> CGFloat {
         let base = rawMetric(token)
         guard token.scalesWithDynamicType else { return base }
         return scaled(base, anchor: token.scalingAnchor)
@@ -130,7 +130,7 @@ struct SkinStyle: Equatable, Sendable {
             ?? SkinTypeSpec(size: 15)
     }
 
-    func font(_ token: SkinTypographyToken) -> Font {
+    @MainActor func font(_ token: SkinTypographyToken) -> Font {
         let spec = typeSpec(token)
         return .system(
             size: scaled(CGFloat(spec.size), anchor: spec.relativeTo),
@@ -145,7 +145,7 @@ struct SkinStyle: Equatable, Sendable {
     }
 
     /// 字体的缩放后字号。需要把图标对齐到文字时使用。
-    func fontSize(_ token: SkinTypographyToken) -> CGFloat {
+    @MainActor func fontSize(_ token: SkinTypographyToken) -> CGFloat {
         let spec = typeSpec(token)
         return scaled(CGFloat(spec.size), anchor: spec.relativeTo)
     }
@@ -174,10 +174,13 @@ struct SkinStyle: Equatable, Sendable {
 
     // MARK: - Dynamic Type
 
+    /// 缩放要经过 UIKit 的字体度量,所以这条路径(连同 `metric` / `font` / `fontSize`)限定在主线程;
+    /// 取色那条路径不经过这里,仍可在任意上下文调用(`ShapeStyle.resolve(in:)` 就不在主 actor 上)。
+    ///
     /// 与 `@ScaledMetric` 同源:都走 `UIFontMetrics`。区别在于这里每次求值都用
     /// 当前档位,所以换样式时能立刻反映新的基准值 —— `@ScaledMetric` 的存储值
     /// 只在视图首次建立时取一次,换样式不会更新。
-    private func scaled(_ value: CGFloat, anchor: SkinTextStyle) -> CGFloat {
+    @MainActor private func scaled(_ value: CGFloat, anchor: SkinTextStyle) -> CGFloat {
         #if os(iOS)
         return UIFontMetrics(forTextStyle: anchor.uiTextStyle).scaledValue(
             for: value,

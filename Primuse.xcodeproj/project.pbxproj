@@ -777,6 +777,7 @@
 		94F9EF08B1D414C905DA55EB /* EmbeddedMetadataWritebackCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21027666DF946697326B985E /* EmbeddedMetadataWritebackCoordinator.swift */; };
 		953074ECE1F5A2939361B90D /* SpotlightIndexService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A140A9563DF6E39E6BF9CEF6 /* SpotlightIndexService.swift */; };
 		953439D65552DF4F98DADC01 /* LibraryDisplayConfigurationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11F8874E486A4FC4E629861 /* LibraryDisplayConfigurationTests.swift */; };
+		BAEB6E61F614B124DC49F8E3 /* SkinRuntimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4AB45E8F1EB5FFC31343832 /* SkinRuntimeTests.swift */; };
 		953506057FBB8C8638906545 /* GoogleDriveSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FF18B2B6584B7988608C004 /* GoogleDriveSource.swift */; };
 		95A46BF131D560E1897BAE8B /* MediaServerSTRMRedirectTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84E23C9293FD5D2A2D5CB33F /* MediaServerSTRMRedirectTests.swift */; };
 		95F3F2225ACA5C0BCB210EC5 /* SnapshotBaselineGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43E211D770F5AFA413218EBB /* SnapshotBaselineGate.swift */; };
@@ -2468,6 +2469,7 @@
 		F032004B023B2AE64349E763 /* TVArtistArtworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVArtistArtworkView.swift; sourceTree = "<group>"; };
 		F10291362C83153950BFA661 /* Artist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Artist.swift; sourceTree = "<group>"; };
 		F11F8874E486A4FC4E629861 /* LibraryDisplayConfigurationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryDisplayConfigurationTests.swift; sourceTree = "<group>"; };
+		D4AB45E8F1EB5FFC31343832 /* SkinRuntimeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinRuntimeTests.swift; sourceTree = "<group>"; };
 		F246393058D148228F7BA7B9 /* LibraryDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryDatabase.swift; sourceTree = "<group>"; };
 		F24FFA868034F06D26F041E3 /* StreamResolverRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamResolverRegistry.swift; sourceTree = "<group>"; };
 		F25171D68A21B5B738C8852E /* pt-BR */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "pt-BR"; path = "pt-BR.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
@@ -3962,6 +3964,7 @@
 				2BDF06CB5240A50E638F346F /* FolderPlaylistTests.swift */,
 				E618E93EA660ED2F816D9E3E /* JellyfinSourceCreationTransactionTests.swift */,
 				F11F8874E486A4FC4E629861 /* LibraryDisplayConfigurationTests.swift */,
+				D4AB45E8F1EB5FFC31343832 /* SkinRuntimeTests.swift */,
 				5FD5D86A8481B9E7508C26DE /* LibraryLyricsSearchSeamTests.swift */,
 				7826427B3ABC3D7FA65097A8 /* LibraryPortableArtworkTests.swift */,
 				F3C14C6A1A8A4E15C1A2438D /* LibraryPreviewSessionTests.swift */,
@@ -4644,6 +4647,7 @@
 				8875BEE025B62684BAE8EB86 /* FolderPlaylistTests.swift in Sources */,
 				7AC8B7D62196F7C0440AC523 /* JellyfinSourceCreationTransactionTests.swift in Sources */,
 				953439D65552DF4F98DADC01 /* LibraryDisplayConfigurationTests.swift in Sources */,
+				BAEB6E61F614B124DC49F8E3 /* SkinRuntimeTests.swift in Sources */,
 				7293F1BB61A8E25FF4691061 /* LibraryLyricsSearchSeamTests.swift in Sources */,
 				099981F4529A8B42B8B8B80C /* LibraryPortableArtworkTests.swift in Sources */,
 				70CA13D65306908C0E27527C /* LibraryPreviewSessionTests.swift in Sources */,

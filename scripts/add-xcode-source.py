@@ -13,7 +13,7 @@ The sibling must live in the same directory as the new files.
 import argparse, hashlib, os, re, sys
 
 PBX = 'Primuse.xcodeproj/project.pbxproj'
-SOURCE_ROOTS = ['Primuse', 'PrimuseKit/Sources']
+SOURCE_ROOTS = ['Primuse', 'PrimuseKit/Sources', 'PrimuseTests']
 UNREGISTERED_OK = {'AppSecrets.example.swift'}
 
 
