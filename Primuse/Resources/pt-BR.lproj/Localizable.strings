@@ -2127,7 +2127,8 @@
 "output_mode_effects" = "Efeitos e Processamento";
 "output_mode_effects_desc" = "Usa o gráfico de processamento completo para EQ, dinâmica, reverberação, áudio espacial, ReplayGain, velocidade de reprodução, crossfade, volume do aplicativo e visualização.";
 "output_mode_high_fidelity" = "Alta fidelidade direta";
-"output_mode_high_fidelity_desc" = "Caminho de sinal mais curto com ganho unitário. Ignora EQ, dinâmica, reverberação, processamento espacial, ReplayGain, mudanças de velocidade, crossfade, volume do aplicativo e toques no visualizador; a correspondência da taxa de amostragem é automática.";
+"output_mode_high_fidelity_desc" = "Caminho de sinal mais curto: ignora equalizador, dinâmica, reverberação, áudio espacial, ReplayGain, mudanças de velocidade e crossfade, com correspondência automática da taxa de amostragem. O volume continua funcionando, exceto na saída direta DSD.";
+"output_mode_high_fidelity_confirm_title" = "Ativar Alta fidelidade direta?";
 "output_sr_matching" = "Ajustar a taxa de amostragem de saída";
 "output_sr_matching_desc" = "Peça ao sistema para alterar a taxa de amostragem do hardware para corresponder à faixa atual e reduzir a reamostragem. Apenas dispositivo iOS; algum hardware pode ignorar a dica.";
 "output_sr_matching_fidelity_desc" = "Sempre habilitado no modo High Fidelity Direct. O sistema operacional e o dispositivo de saída ainda podem rejeitar uma taxa de amostragem solicitada.";

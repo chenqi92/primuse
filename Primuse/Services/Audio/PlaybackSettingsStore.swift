@@ -54,10 +54,12 @@ struct PlaybackSettings: Codable, Sendable {
     static let defaultsKey = "primuse_playback_settings_v1"
     static let lockScreenLyricsRolloutKey = "primuse_lock_screen_lyrics_default_enabled_v1"
 
-    /// New installs start on the shortest, DSP-free signal path. Existing
-    /// persisted settings without this field decode as `.effects` below so an
-    /// update never silently changes a user's configured sound.
-    var outputMode: AudioOutputMode = .highFidelity
+    /// New installs start on the full processing graph. High-fidelity direct
+    /// bypasses EQ, playback speed, crossfade, spatial audio and ReplayGain —
+    /// out of the box that reads as "those features are broken" rather than as
+    /// a deliberate choice, so it is opt-in (with an explanation) instead of
+    /// the default. Existing persisted settings keep whatever they have.
+    var outputMode: AudioOutputMode = .effects
     var dsdPlaybackMode: DSDPlaybackMode = .automatic
     var gaplessEnabled: Bool = false
     var crossfadeEnabled: Bool = false
@@ -140,7 +142,7 @@ struct PlaybackSettings: Codable, Sendable {
     }
 
     init(
-        outputMode: AudioOutputMode = .highFidelity,
+        outputMode: AudioOutputMode = .effects,
         dsdPlaybackMode: DSDPlaybackMode = .automatic,
         gaplessEnabled: Bool = false,
         crossfadeEnabled: Bool = false,

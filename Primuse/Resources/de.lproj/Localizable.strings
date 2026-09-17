@@ -2357,7 +2357,8 @@
 "audio_output_mode" = "Ausgabemodus";
 "output_mode_high_fidelity" = "Hi-Fi-Direktausgabe";
 "output_mode_effects" = "Effekte & Verarbeitung";
-"output_mode_high_fidelity_desc" = "Kürzester Signalweg mit unveränderter Verstärkung; umgeht alle DSP-Effekte und passt die Abtastrate automatisch an.";
+"output_mode_high_fidelity_desc" = "Kürzester Signalweg: umgeht EQ, Dynamik, Hall, räumliches Audio, ReplayGain, Geschwindigkeitsänderung und Crossfade und passt die Abtastrate automatisch an. Die Lautstärke lässt sich weiterhin regeln – außer bei DSD-Direktausgabe.";
+"output_mode_high_fidelity_confirm_title" = "Hi-Fi-Direktausgabe aktivieren?";
 "output_mode_effects_desc" = "Verwendet die vollständige Verarbeitungskette für EQ, Dynamik, Hall, Spatial Audio, ReplayGain, Tempo, Crossfade und Visualisierung.";
 "volume_high_fidelity_system_hint" = "Die Hi-Fi-Direktausgabe verwendet unveränderte Verstärkung. Regeln Sie die Lautstärke über das System.";
 "volume_output_device_hint" = "Regelt die Lautstärke des Ausgabegeräts; der Direktpfad bleibt bit-perfekt.";

@@ -1467,6 +1467,24 @@ private struct MacSTPlaybackView: View {
     // 接真 Store, 拖滑块/切 toggle 会立即写回 PlaybackSettingsStore 并 persist。
     @Environment(PlaybackSettingsStore.self) private var store
     @Environment(SourceManager.self) private var sourceManager
+    @State private var highFidelityConfirmShown = false
+
+    /// 高保真直通会让这一页下面大半截失效 —— 均衡器、变速、淡入淡出、空间音频、
+    /// 回放增益全被绕过去, 用户多半不知道自己刚关掉了什么, 只会觉得这些功能坏了。
+    /// 开启前先把清单摆出来, 确认过再切; 关回音效模式不用问。
+    private var outputModeSelection: Binding<AudioOutputMode> {
+        Binding(
+            get: { store.outputMode },
+            set: { newValue in
+                guard newValue != store.outputMode else { return }
+                if newValue == .highFidelity {
+                    highFidelityConfirmShown = true
+                } else {
+                    store.outputMode = newValue
+                }
+            }
+        )
+    }
 
     var body: some View {
         @Bindable var s = store
@@ -1477,7 +1495,7 @@ private struct MacSTPlaybackView: View {
                     ? Lz("Direct output · Unity gain · DSP bypass")
                     : Lz("EQ · Spatial · ReplayGain · Crossfade"), divider: false) {
                     MacSTPicker(
-                        selection: $s.outputMode,
+                        selection: outputModeSelection,
                         options: AudioOutputMode.allCases.map { ($0, $0.displayName) },
                         width: 180
                     )
@@ -1500,6 +1518,12 @@ private struct MacSTPlaybackView: View {
                 .settingsAnchor("playback.matchSampleRate")
                 .disabled(s.outputMode == .highFidelity)
             }
+        }
+        .alert("output_mode_high_fidelity_confirm_title", isPresented: $highFidelityConfirmShown) {
+            Button("cancel", role: .cancel) {}
+            Button("enable") { store.outputMode = .highFidelity }
+        } message: {
+            Text("output_mode_high_fidelity_desc")
         }
 
         MacSTSection(Lz("Playback Rate & Quality")) {

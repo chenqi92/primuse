@@ -1588,13 +1588,31 @@ private extension Array {
 
 struct PlaybackSettingsView: View {
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
+    @State private var highFidelityConfirmShown = false
+
+    /// 高保真直通会让半个播放设置页失效 —— 均衡器、变速、淡入淡出、空间音频、
+    /// 回放增益全被绕过去,用户多半不知道自己刚关掉了什么,只会觉得这些功能坏了。
+    /// 开启前先把清单摆出来,确认过再切;关回音效模式不用问。
+    private var outputModeSelection: Binding<AudioOutputMode> {
+        Binding(
+            get: { playbackSettings.outputMode },
+            set: { newValue in
+                guard newValue != playbackSettings.outputMode else { return }
+                if newValue == .highFidelity {
+                    highFidelityConfirmShown = true
+                } else {
+                    playbackSettings.outputMode = newValue
+                }
+            }
+        )
+    }
 
     var body: some View {
         @Bindable var settings = playbackSettings
 
         Form {
             Section {
-                Picker("audio_output_mode", selection: $settings.outputMode) {
+                Picker("audio_output_mode", selection: outputModeSelection) {
                     ForEach(AudioOutputMode.allCases, id: \.self) { mode in
                         Text(mode.displayName).tag(mode)
                     }
@@ -1758,6 +1776,12 @@ struct PlaybackSettingsView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .alert("output_mode_high_fidelity_confirm_title", isPresented: $highFidelityConfirmShown) {
+            Button("cancel", role: .cancel) {}
+            Button("enable") { playbackSettings.outputMode = .highFidelity }
+        } message: {
+            Text("output_mode_high_fidelity_desc")
+        }
     }
 }
 

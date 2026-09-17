@@ -2127,7 +2127,8 @@
 "output_mode_effects" = "Efekty i przetwarzanie";
 "output_mode_effects_desc" = "Wykorzystuje wykres pełnego przetwarzania dla EQ, dynamiki, pogłosu, dźwięku przestrzennego, ReplayGain, prędkości odtwarzania, przenikania, głośności aplikacji i wizualizacji.";
 "output_mode_high_fidelity" = "Bezpośrednie odtwarzanie Hi-Fi";
-"output_mode_high_fidelity_desc" = "Najkrótsza ścieżka sygnału przy wzmocnieniu jedności. Omija EQ, dynamikę, pogłos, przetwarzanie przestrzenne, ReplayGain, zmiany prędkości, przenikanie, głośność aplikacji i dotknięcia wizualizatora; dopasowanie częstotliwości próbkowania jest automatyczne.";
+"output_mode_high_fidelity_desc" = "Najkrótsza ścieżka sygnału: pomija korektor, dynamikę, pogłos, dźwięk przestrzenny, ReplayGain, zmianę prędkości i przenikanie; częstotliwość próbkowania dopasowuje się automatycznie. Głośność nadal działa, z wyjątkiem bezpośredniego wyjścia DSD.";
+"output_mode_high_fidelity_confirm_title" = "Włączyć bezpośrednie odtwarzanie Hi-Fi?";
 "output_sr_matching" = "Dopasuj częstotliwość próbkowania wyjścia";
 "output_sr_matching_desc" = "Poproś system o przełączenie sprzętowej częstotliwości próbkowania, aby dopasować ją do bieżącej ścieżki i zmniejszyć ponowne próbkowanie. Tylko urządzenie iOS; niektóre urządzenia mogą zignorować podpowiedź.";
 "output_sr_matching_fidelity_desc" = "Zawsze włączone w trybie High Fidelity Direct. System operacyjny i urządzenie wyjściowe mogą w dalszym ciągu odrzucić żądaną częstotliwość próbkowania.";

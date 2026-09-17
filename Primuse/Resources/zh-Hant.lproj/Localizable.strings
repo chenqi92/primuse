@@ -2342,7 +2342,8 @@
 "audio_output_mode" = "輸出模式";
 "output_mode_high_fidelity" = "高傳真直通";
 "output_mode_effects" = "音效處理";
-"output_mode_high_fidelity_desc" = "以單位增益使用最短信號路徑，略過等化器、動態處理、殘響、空間音訊、ReplayGain、變速、淡入淡出、App 音量與視覺化取樣，並自動匹配取樣率。";
+"output_mode_high_fidelity_desc" = "使用最短訊號路徑，略過等化器、動態處理、殘響、空間音訊、ReplayGain、變速與淡入淡出，並自動匹配取樣率。音量仍可調整，DSD 直通時除外。";
+"output_mode_high_fidelity_confirm_title" = "開啟高傳真直通？";
 "output_mode_effects_desc" = "使用完整處理鏈，支援等化器、動態處理、殘響、空間音訊、ReplayGain、變速、淡入淡出、App 音量與視覺化。";
 "volume_high_fidelity_system_hint" = "高傳真直通使用單位增益，請使用系統音量調整。";
 "volume_output_device_hint" = "調整輸出裝置音量，直通訊號維持逐位元精確。";

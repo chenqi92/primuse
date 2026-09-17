@@ -2358,7 +2358,8 @@
 "audio_output_mode" = "出力モード";
 "output_mode_high_fidelity" = "高音質ダイレクト";
 "output_mode_effects" = "エフェクト処理";
-"output_mode_high_fidelity_desc" = "ユニティゲインの最短信号経路で、すべての DSP をバイパスし、サンプルレートを自動調整します。";
+"output_mode_high_fidelity_desc" = "最短の信号経路で再生し、EQ・ダイナミクス・リバーブ・空間オーディオ・ReplayGain・速度変更・クロスフェードをバイパスして、サンプルレートを自動で合わせます。音量は引き続き調整できます（DSD ダイレクト出力時を除く）。";
+"output_mode_high_fidelity_confirm_title" = "高音質ダイレクトをオンにしますか？";
 "output_mode_effects_desc" = "EQ、ダイナミクス、リバーブ、空間オーディオ、ReplayGain、速度、クロスフェード、ビジュアライザーを使用します。";
 "volume_high_fidelity_system_hint" = "高音質ダイレクトではユニティゲインを使用します。音量はシステム側で調整してください。";
 "volume_output_device_hint" = "出力デバイスの音量を調整します。ダイレクト信号はビットパーフェクトのままです。";

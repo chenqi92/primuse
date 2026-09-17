@@ -923,7 +923,8 @@
 "Control item by item which data goes through iCloud" = "Verilerin iCloud üzerinden geçtiği öğeye göre kontrol";
 "Lyrics Write-Back" = "Şarkı sözlerini kaynağa geri yazma";
 "Unknown halls of heaven" = "Cennetin bilinmeyen salonları";
-"output_mode_high_fidelity_desc" = "Birlik kazançta en kısa sinyal yolu. EQ, dinamikler, yankı, uzamsal işleme, ReplayGain, hız değişiklikleri, çapraz geçiş, uygulama ses seviyesi ve görselleştirici dokunuşlarını atlar; Örnek oranı eşleştirmesi otomatiktir.";
+"output_mode_high_fidelity_desc" = "En kısa sinyal yolu: EQ, dinamikler, yankı, uzamsal ses, ReplayGain, hız değişikliği ve çapraz geçiş atlanır; örnekleme hızı otomatik eşleşir. Ses düzeyi yine ayarlanabilir, DSD doğrudan çıkışı hariç.";
+"output_mode_high_fidelity_confirm_title" = "Yüksek doğruluklu doğrudan oynatma açılsın mı?";
 "metadata_status_state_source_unavailable" = "Kaynak Mevcut Değil";
 "ai_primuse_relay_diagnostic_credential_detail" = "Yerel cihaz kimlik bilgisi okunamadı veya kaydedilemedi. Primuse bir sonraki testte onu yeniden oluşturacak; Bu devam ederse Anahtarlık erişiminin mevcut olduğunu onaylayın.";
 "lyrics_editor_empty_live" = "Dinlerken yaz";
