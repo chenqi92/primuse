@@ -3838,6 +3838,263 @@ final class SourceManager {
         return components.queryItems?.contains(where: { $0.name == transcodedStreamQueryKey }) ?? false
     }
 
+    /// `url` 是否是「按网络选择传输音质」产生的转码流。比
+    /// `isTranscodedStreamURL` 更窄 —— 存量的 WMA 转码流不带这个标记。
+    nonisolated static func isAdaptiveTranscodedStreamURL(_ url: URL) -> Bool {
+        AdaptiveStreamQualityPolicy.isAdaptiveTranscodedStreamURL(url)
+    }
+
+    /// 这首歌这次该怎么取流。
+    ///
+    /// 只对支持服务端转码的 Subsonic 系来源返回非 `.original`。所有判定
+    /// 条件都在 `AdaptiveStreamQualityPolicy` 这个纯函数里, 取流路由与
+    /// URL 拼装共用同一个结论, 不会各算各的。
+    func transcodePlan(for song: Song, source: MusicSource) -> SourceTranscodePlan {
+        guard source.type.isSubsonicFamily else { return .original }
+        let settings = PlaybackSettings.load()
+        // 两项都是默认的 `.original` 时策略第一步就返回, 下面的判断都走不到。
+        guard settings.wifiStreamQuality != .original
+                || settings.cellularStreamQuality != .original else {
+            return .original
+        }
+        let monitor = NetworkMonitor.shared
+        return AdaptiveStreamQualityPolicy.plan(
+            wifiPreference: settings.wifiStreamQuality,
+            cellularPreference: settings.cellularStreamQuality,
+            isExpensive: monitor.isExpensive,
+            isConstrained: monitor.isConstrained,
+            formatIsLossless: song.fileFormat.isLossless,
+            formatRequiresCompleteLocalFile: FileFormatRouter.requiresCompleteLocalFile(song.fileFormat),
+            isCueTrack: song.isCueTrack,
+            sourceBitRateKbps: song.bitRate,
+            fileSize: song.fileSize,
+            duration: song.duration
+        )
+    }
+
+    /// 服务端转码产物的落盘位置。
+    ///
+    /// **绝不是** `cacheURL(for:)` —— 那是原文件的持久缓存。转码产物是一次性的
+    /// 临时件, 放在 Caches 下自己的目录里, 不进缓存索引、不参与用户配置的
+    /// 音频缓存额度, 只受本目录自己的上限约束。
+    nonisolated static func adaptiveTranscodeDirectoryURL() -> URL {
+        FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+            .appendingPathComponent(
+                AdaptiveStreamQualityPolicy.transcodeCacheDirectoryName,
+                isDirectory: true
+            )
+    }
+
+    func adaptiveTranscodeFileURL(for song: Song, bitRateKbps: Int) -> URL {
+        let directory = Self.adaptiveTranscodeDirectoryURL()
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent(
+            AdaptiveStreamQualityPolicy.transcodeFileName(
+                songID: song.id,
+                bitRateKbps: bitRateKbps
+            )
+        )
+    }
+
+    /// 已经完整落盘的转码产物。`StreamingDownloadDecoder` 只在整段下载
+    /// 结束后才原子安装到这个路径, 所以「文件存在」即「完整」。
+    func completedAdaptiveTranscodeURL(for song: Song, bitRateKbps: Int) -> URL? {
+        let url = Self.adaptiveTranscodeFileURL(song: song, bitRateKbps: bitRateKbps)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
+    }
+
+    private nonisolated static func adaptiveTranscodeFileURL(song: Song, bitRateKbps: Int) -> URL {
+        adaptiveTranscodeDirectoryURL().appendingPathComponent(
+            AdaptiveStreamQualityPolicy.transcodeFileName(
+                songID: song.id,
+                bitRateKbps: bitRateKbps
+            )
+        )
+    }
+
+    /// 在途的转码物化。**全局只保留一个** —— 按转码文件名识别: 同名的请求
+    /// 直接 join 已有的那个(所以同一个路径永远只有一个写者), 换了名字就把
+    /// 上一个取消掉(用户已经翻页了, 那份预取没人要了)。
+    ///
+    /// `control` 是这份下载自己的中断句柄: `Task.value` 的等待不响应取消,
+    /// 光取消 Task 也不保证立刻断开 URLSession, 要靠它 `invalidateAndCancel`。
+    private var adaptiveTranscodeMaterialization: (
+        name: String,
+        task: Task<URL?, Never>,
+        control: StreamingDownloadSessionControl
+    )?
+
+    /// 正在物化的那份转码产物的文件名, 清理时要保护它。
+    private var inFlightAdaptiveTranscodeName: String? {
+        adaptiveTranscodeMaterialization?.name
+    }
+
+    /// 最近一次交出去的转码产物 —— 正在播的那首就是它。清理时一并保护,
+    /// 不依赖文件系统的 access time(有的卷是 noatime 挂载的)。
+    private var lastServedAdaptiveTranscodeName: String?
+
+    /// 取一份完整的转码产物 —— 已经在盘上就直接返回, 否则下载+校验+原子安装。
+    ///
+    /// 预取与播放共用这一个入口, 因此两条路不可能同时写同一个文件:
+    /// 播放撞上在途预取时会 join 它, 而不是另起一份下载。
+    func materializeAdaptiveTranscode(
+        song: Song,
+        bitRateKbps: Int,
+        streamURL: URL,
+        sourceStreamEpoch: UInt64
+    ) async -> URL? {
+        let destination = adaptiveTranscodeFileURL(for: song, bitRateKbps: bitRateKbps)
+        let name = destination.lastPathComponent
+        if FileManager.default.fileExists(atPath: destination.path) {
+            lastServedAdaptiveTranscodeName = name
+            return destination
+        }
+        if let existing = adaptiveTranscodeMaterialization {
+            if existing.name == name {
+                return await existing.task.value
+            }
+            // 换歌了: 上一份预取没人要, 取消它腾出带宽。
+            existing.control.cancel()
+            existing.task.cancel()
+        }
+        // 先把目录压回上限, 保护即将写入的这一份。
+        pruneAdaptiveTranscodeCache(alsoKeeping: [name])
+        let maximumBytes = AdaptiveStreamQualityPolicy.maximumTranscodedTransferBytes(
+            bitRateKbps: bitRateKbps,
+            duration: song.duration
+        )
+        let sourceID = song.sourceID
+        let control = StreamingDownloadSessionControl()
+        let task = Task<URL?, Never> {
+            do {
+                return try await StreamingDownloadDecoder.materializeCompleteFile(
+                    from: streamURL,
+                    to: destination,
+                    maximumDownloadBytes: Int(clamping: maximumBytes),
+                    sourceID: sourceID,
+                    streamEpoch: sourceStreamEpoch,
+                    control: control
+                )
+            } catch {
+                if !(error is CancellationError) {
+                    plog("⚠️ Transcode materialization failed for '\(song.title)': \(error.localizedDescription)")
+                }
+                return nil
+            }
+        }
+        adaptiveTranscodeMaterialization = (name, task, control)
+        let result = await task.value
+        if adaptiveTranscodeMaterialization?.name == name {
+            adaptiveTranscodeMaterialization = nil
+        }
+        if result != nil {
+            lastServedAdaptiveTranscodeName = name
+        }
+        return result
+    }
+
+    /// 播放方放弃等待(切歌 / 停止)时调用, 立刻中断那份已经没人要的下载。
+    ///
+    /// 不中断的话, 播放器开下一首之前要等上一首的解码任务退役, 而那个任务正卡在
+    /// 对这份下载的等待上 —— 转码文件还没下完时连按下一首, 每一下都会被上一首
+    /// 剩余的下载时间拖住。只认播放方: 预取一侧被取消不会走到这里, 所以不会把
+    /// 播放正在等的下载一起砍掉。
+    func cancelAdaptiveTranscodeMaterialization(named name: String) {
+        guard let existing = adaptiveTranscodeMaterialization, existing.name == name else { return }
+        existing.control.cancel()
+        existing.task.cancel()
+    }
+
+    /// 这首歌在这个码率下的转码产物文件名 —— 也是在途物化的识别键。
+    func adaptiveTranscodeFileName(for song: Song, bitRateKbps: Int) -> String {
+        AdaptiveStreamQualityPolicy.transcodeFileName(songID: song.id, bitRateKbps: bitRateKbps)
+    }
+
+    /// 队列预取: 解析出 adaptive 地址后走同一个单飞物化入口。
+    private func prefetchAdaptiveTranscode(
+        song: Song,
+        source: MusicSource,
+        bitRateKbps: Int
+    ) async {
+        let destination = adaptiveTranscodeFileURL(for: song, bitRateKbps: bitRateKbps)
+        guard !FileManager.default.fileExists(atPath: destination.path) else { return }
+        guard !(await playbackSourceEndpointsAreUnavailable(for: source)) else { return }
+        let conn = connector(for: source)
+        guard let adaptive = conn as? any NetworkAdaptiveTranscodingConnector else { return }
+        do {
+            try Task.checkCancellation()
+            try await conn.connect()
+            let streamEpoch = CloudPlaybackSource.streamEpochTicket(sourceID: source.id)
+            guard let streamURL = try await adaptive.streamingURL(
+                for: song.filePath,
+                transcode: .transcode(bitRateKbps: bitRateKbps)
+            ) else { return }
+            try Task.checkCancellation()
+            plog("⏩ Transcode prefetch: '\(song.title)' @\(bitRateKbps)kbps")
+            _ = await materializeAdaptiveTranscode(
+                song: song,
+                bitRateKbps: bitRateKbps,
+                streamURL: streamURL,
+                sourceStreamEpoch: streamEpoch
+            )
+        } catch {
+            if !(error is CancellationError) {
+                plog("⚠️ Transcode prefetch failed for '\(song.title)': \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// 清理转码目录, 同时保护正在物化的那一份。
+    func pruneAdaptiveTranscodeCache(alsoKeeping names: Set<String>) {
+        var protectedNames = names
+        if let inFlight = inFlightAdaptiveTranscodeName {
+            protectedNames.insert(inFlight)
+        }
+        if let lastServed = lastServedAdaptiveTranscodeName {
+            protectedNames.insert(lastServed)
+        }
+        let keeping = protectedNames
+        Task.detached(priority: .utility) {
+            Self.pruneAdaptiveTranscodeCache(keeping: keeping)
+        }
+    }
+
+    /// 把转码目录压回容量上限。开始写一份新的转码产物之前调用,
+    /// 正在播的与正在物化的那两份由 `keeping` 保护。因为是先清后写,
+    /// 目录最多临时超出一首歌的体积。
+    nonisolated static func pruneAdaptiveTranscodeCache(keeping protectedNames: Set<String> = []) {
+        let directory = adaptiveTranscodeDirectoryURL()
+        let manager = FileManager.default
+        guard let entries = try? manager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.fileSizeKey, .contentAccessDateKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        var records: [AdaptiveTranscodeFileRecord] = []
+        records.reserveCapacity(entries.count)
+        for entry in entries {
+            let values = try? entry.resourceValues(
+                forKeys: [.fileSizeKey, .contentAccessDateKey, .contentModificationDateKey]
+            )
+            let byteCount = Int64(values?.fileSize ?? 0)
+            let accessed = values?.contentAccessDate
+                ?? values?.contentModificationDate
+                ?? Date(timeIntervalSince1970: 0)
+            records.append(
+                AdaptiveTranscodeFileRecord(
+                    name: entry.lastPathComponent,
+                    byteCount: byteCount,
+                    lastAccessedAt: accessed
+                )
+            )
+        }
+        let victims = AdaptiveStreamQualityPolicy.filesToEvict(records, keeping: protectedNames)
+        for victim in victims {
+            try? manager.removeItem(at: directory.appendingPathComponent(victim))
+        }
+    }
+
     enum ResolvedSTRMTarget: Sendable {
         case remote(URL)
         case sourcePath(String)
@@ -3885,9 +4142,14 @@ final class SourceManager {
         }
     }
 
+    /// - Parameter transcodePlanOverride: 一次播放(playID)内必须始终用同一个
+    ///   取流计划。seek / 断流恢复会重新解析 URL, 那时不能再读一次网络状态 ——
+    ///   中途切网会让同一首歌的解码器种类与时间轴漂移。传 nil 表示现场计算
+    ///   (新歌开播)。
     func resolveURL(
         for song: Song,
-        acquirePlaybackCacheLease: Bool = true
+        acquirePlaybackCacheLease: Bool = true,
+        transcodePlanOverride: SourceTranscodePlan? = nil
     ) async throws -> URL {
         _ = await ensureAudioCacheScopeValidated(for: song.sourceID)
         // Priority 1: Cached local file (instant playback). 必须在 connect() 之前判断:
@@ -3925,8 +4187,16 @@ final class SourceManager {
             streamEpoch: streamEpoch
         )
 
+        // 本次取流计划只算一次, 取流路由与 URL 拼装共用它。
+        let transcodePlan = transcodePlanOverride
+            ?? self.transcodePlan(for: song, source: source)
+
         let prefersAuthenticatedSubsonicWANStream =
-            shouldPreferAuthenticatedSubsonicWANStream(source: source, song: song)
+            shouldPreferAuthenticatedSubsonicWANStream(
+                source: source,
+                song: song,
+                plan: transcodePlan
+            )
 
         if song.isStreamDescriptor {
             let target = try await resolveSTRMTarget(
@@ -3943,7 +4213,9 @@ final class SourceManager {
             case .remote(let url):
                 return url
             case .openListSourcePath(let path, let url):
-                if permitsConfiguredDirectURL(for: source, song: song),
+                // STRM 描述符指向的是外部地址, 服务端转码参数对它没有意义 ——
+                // 显式按 .original 判定, 这条分支行为一行不变。
+                if permitsConfiguredDirectURL(for: source, song: song, plan: .original),
                    !requiresConnectorBackedHTTPTransport(for: source) {
                     return url
                 }
@@ -3960,7 +4232,8 @@ final class SourceManager {
             case .sourcePath(let path):
                 // Legacy server STRM rows can still carry the wrapper's byte
                 // length. Materialize them before choosing a bounded decoder.
-                if !source.type.isMediaServer, permitsConfiguredDirectURL(for: source, song: song) {
+                if !source.type.isMediaServer,
+                   permitsConfiguredDirectURL(for: source, song: song, plan: .original) {
                     let streamURL = try await conn.streamingURL(for: path)
                     try await ensureCurrentPlaybackResolutionScope(
                         sourceID: source.id,
@@ -3986,7 +4259,7 @@ final class SourceManager {
         // cloud-stream:// scheme 后会调 makeStreamingInputSource 走 sparse cache。
         // 对高延迟 WAN NAS, Priority 3 的 plain HTTP URL 更稳: 播放层会直接
         // 对这个 URL 做 Range, 避免每个 chunk 都回到 connector/API。
-        if shouldUseRangeStreamingForPlayback(source: source, song: song) {
+        if shouldUseRangeStreamingForPlayback(source: source, song: song, plan: transcodePlan) {
             var components = URLComponents()
             components.scheme = Self.cloudStreamingScheme
             components.host = song.sourceID
@@ -4003,7 +4276,7 @@ final class SourceManager {
         // progressive MP3 stream retain that existing direct-stream behavior
         // unless their endpoint needs connector-owned TLS handling.
         if !prefersAuthenticatedSubsonicWANStream,
-           !permitsConfiguredDirectURL(for: source, song: song) {
+           !permitsConfiguredDirectURL(for: source, song: song, plan: transcodePlan) {
             let local = try await conn.localURL(for: song.filePath)
             try await ensureCurrentPlaybackResolutionScope(
                 sourceID: source.id,
@@ -4016,7 +4289,16 @@ final class SourceManager {
         // Priority 3: plain HTTP streaming URL. For known-size audio the
         // player now wraps it in an HTTP Range InputSource; unknown-size
         // legacy rows still fall back to StreamingDownloadDecoder.
-        let streamURL = try await conn.streamingURL(for: song.filePath)
+        //
+        // 计划为转码时走细化协议的重载, 让连接器把同一个结论拼进 URL。
+        // 计划为 .original 时仍然调原方法, 与改动前逐字一致。
+        let streamURL: URL?
+        if transcodePlan.isTranscode,
+           let adaptive = conn as? any NetworkAdaptiveTranscodingConnector {
+            streamURL = try await adaptive.streamingURL(for: song.filePath, transcode: transcodePlan)
+        } else {
+            streamURL = try await conn.streamingURL(for: song.filePath)
+        }
         try await ensureCurrentPlaybackResolutionScope(
             sourceID: source.id,
             expectedScope: expectedScope,
@@ -8738,8 +9020,36 @@ final class SourceManager {
         }.value
 
         await AudioCacheManager.shared.clearUnpinnedAccessEntries()
-        plog("🧹 clearAudioCache: freed \(result.freedBytes / 1024 / 1024)MB, failed=\(result.failedCount)")
-        return result
+        // 按网络转码产生的临时 mp3 从不进缓存索引, 上面那轮清理看不见它们。
+        // 用户按「清理缓存」时把它们一并删掉。
+        let freedTranscodeBytes = await Task.detached(priority: .utility) {
+            Self.clearAdaptiveTranscodeCache()
+        }.value
+        plog("🧹 clearAudioCache: freed \((result.freedBytes + freedTranscodeBytes) / 1024 / 1024)MB, failed=\(result.failedCount)")
+        return (result.freedBytes + freedTranscodeBytes, result.failedCount)
+    }
+
+    /// 清空转码临时目录, 返回释放的字节数。
+    @discardableResult
+    nonisolated static func clearAdaptiveTranscodeCache() -> Int64 {
+        let directory = adaptiveTranscodeDirectoryURL()
+        let manager = FileManager.default
+        guard let entries = try? manager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else { return 0 }
+        var freed: Int64 = 0
+        for entry in entries {
+            let size = Int64((try? entry.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
+            do {
+                try manager.removeItem(at: entry)
+                freed += size
+            } catch {
+                continue
+            }
+        }
+        return freed
     }
 
     /// nonisolated —— 只吃 Sendable 的 URL / Set, 供 `Task.detached` 在后台跑。
@@ -9056,12 +9366,30 @@ final class SourceManager {
             // Local-source audio is already the durable local file. Copying it
             // into the remote/offline cache only duplicates storage.
             guard source.type != .local else { return }
+            // 本次会以转码流播放的曲目, 预取的是**转码产物**而不是原文件:
+            // 原文件那份播放根本用不到, 体积还大得多, 在移动网络上正好抵消掉
+            // 转码省下的流量。而转码这条链路是「整份下完再解码」, 冷转码的
+            // 下载速度受服务端编码速度限制, 不提前备好每首歌开头都要静音等待。
+            let plan = transcodePlan(for: song, source: source)
+            if case .transcode(let bitRateKbps) = plan {
+                await prefetchAdaptiveTranscode(
+                    song: song,
+                    source: source,
+                    bitRateKbps: bitRateKbps
+                )
+                return
+            }
             guard RangeStreamingPrefetchPolicy.allowsBackgroundPrewarm(for: source.type) else {
                 plog("⏩ Cache: skip \(source.type.rawValue) prewarm for '\(song.title)' (foreground Range playback keeps priority)")
                 return
             }
 
-            let usesRangeStreaming = shouldUseRangeStreamingForPlayback(source: source, song: song)
+            // 计划上面已经解过了, 直接传下去, 别再解一遍设置 JSON。
+            let usesRangeStreaming = shouldUseRangeStreamingForPlayback(
+                source: source,
+                song: song,
+                plan: plan
+            )
             let mode = RangeStreamingPrefetchPolicy.backgroundCacheMode(
                 cacheEnabled: cacheEnabled,
                 supportsRangeStreaming: source.supportsRangeStreaming,
@@ -9393,20 +9721,26 @@ final class SourceManager {
         )
     }
 
+    /// - Parameter expectedTransferBytes: 预期要传多少字节。默认用原文件大小。
+    ///   服务端转码流的长度与原文件无关(实测冷转码既没有 Content-Length 也不
+    ///   支持 Range), 调用方要按码率×时长自行估算后传进来, 否则配额会按一个
+    ///   毫不相干的数字批下来。
     func prepareHTTPStreamingCache(
         for song: Song,
-        prefersPersistentCache: Bool
+        prefersPersistentCache: Bool,
+        expectedTransferBytes: Int64? = nil
     ) async -> (
         url: URL,
         relativePath: String?,
         persistOnComplete: Bool,
         maximumTransferBytes: Int64
     )? {
+        let reserveBytes = expectedTransferBytes ?? song.fileSize
         if prefersPersistentCache,
            await ensureAudioCacheScopeValidated(for: song.sourceID),
            await retainAudioCacheLeaseForPlayback(
                song,
-               reserveBytes: song.fileSize,
+               reserveBytes: reserveBytes,
                mode: .persistentCache,
                requiresTransferReservation: true
            ),
@@ -9432,7 +9766,7 @@ final class SourceManager {
             : .temporaryPhysical
         guard await retainAudioCacheLeaseForPlayback(
             song,
-            reserveBytes: song.fileSize,
+            reserveBytes: reserveBytes,
             mode: physicalMode,
             requiresTransferReservation: true
         ), let maximum = playbackAudioCacheLeases[song.id]?.maximumTransferBytes else {
@@ -10258,7 +10592,27 @@ final class SourceManager {
         return nil
     }
 
-    private func shouldUseRangeStreamingForPlayback(source: MusicSource, song: Song) -> Bool {
+    /// 这首歌这次会不会以「服务端转码流」的形式交付。
+    ///
+    /// 两种来源：格式本地解不了(存量 WMA 路径)，或者本次网络策略选了转码。
+    /// 取流路由的每一处都必须问同一个问题 —— 否则会出现「上层按原文件大小
+    /// 做 Range，下层却拿到一条长度未知的转码流」。
+    private func usesServerTranscodedStream(
+        source: MusicSource,
+        song: Song,
+        plan: SourceTranscodePlan? = nil
+    ) -> Bool {
+        if source.type.isSubsonicFamily, SubsonicSource.requiresServerTranscode(song.fileFormat) {
+            return true
+        }
+        return (plan ?? transcodePlan(for: song, source: source)).isTranscode
+    }
+
+    private func shouldUseRangeStreamingForPlayback(
+        source: MusicSource,
+        song: Song,
+        plan: SourceTranscodePlan? = nil
+    ) -> Bool {
         guard source.supportsRangeStreaming, song.fileSize > 0 else { return false }
         // FFmpeg fallback formats need a seekable complete file. Routing them
         // through the generic SFB range InputSource would fail to open or, for
@@ -10266,17 +10620,24 @@ final class SourceManager {
         // Fall through to a direct HTTP URL (full-download decoder) or the
         // connector's localURL download instead.
         if FileFormatRouter.requiresCompleteLocalFile(song.fileFormat) { return false }
-        // 服务端转码源: 需要服务端转码的格式(WMA)走渐进流(streamingURL 返回
-        // 转码 mp3), 不能按原文件 fileSize 做 Range, 否则会读越界。
-        if source.type.isSubsonicFamily, SubsonicSource.requiresServerTranscode(song.fileFormat) {
+        // 计划只解一次往下传 —— 每算一遍都是一次 PlaybackSettings 的 JSON 解码。
+        let resolvedPlan = plan ?? transcodePlan(for: song, source: source)
+        // 服务端转码源: 需要服务端转码的格式(WMA), 以及本次按网络策略选择了
+        // 转码的曲目, 都走长度未知的渐进流, 不能按原文件 fileSize 做 Range,
+        // 否则会读越界。
+        if usesServerTranscodedStream(source: source, song: song, plan: resolvedPlan) {
             return false
         }
-        return !shouldPreferPlainStreamingForPlayback(source: source, song: song)
+        return !shouldPreferPlainStreamingForPlayback(source: source, song: song, plan: resolvedPlan)
     }
 
-    private func shouldPreferPlainStreamingForPlayback(source: MusicSource, song: Song) -> Bool {
+    private func shouldPreferPlainStreamingForPlayback(
+        source: MusicSource,
+        song: Song,
+        plan: SourceTranscodePlan? = nil
+    ) -> Bool {
         if source.type.isSubsonicFamily {
-            return shouldPreferAuthenticatedSubsonicWANStream(source: source, song: song)
+            return shouldPreferAuthenticatedSubsonicWANStream(source: source, song: song, plan: plan)
         }
 
         // With more than one enabled endpoint, connector-backed Range reads
@@ -10331,12 +10692,15 @@ final class SourceManager {
     /// complete local file.
     private func shouldPreferAuthenticatedSubsonicWANStream(
         source: MusicSource,
-        song: Song
+        song: Song,
+        plan: SourceTranscodePlan? = nil
     ) -> Bool {
         guard source.type.isSubsonicFamily else { return false }
 
-        let usesServerTranscodedStream = SubsonicSource.requiresServerTranscode(
-            song.fileFormat
+        let usesServerTranscodedStream = usesServerTranscodedStream(
+            source: source,
+            song: song,
+            plan: plan
         )
         guard !FileFormatRouter.requiresCompleteLocalFile(song.fileFormat)
                 || usesServerTranscodedStream else {
@@ -10380,10 +10744,14 @@ final class SourceManager {
 
     private func permitsConfiguredDirectURL(
         for source: MusicSource,
-        song: Song
+        song: Song,
+        plan: SourceTranscodePlan? = nil
     ) -> Bool {
-        let usesServerTranscodedStream = source.type.isSubsonicFamily
-            && SubsonicSource.requiresServerTranscode(song.fileFormat)
+        let usesServerTranscodedStream = usesServerTranscodedStream(
+            source: source,
+            song: song,
+            plan: plan
+        )
         return ConfiguredSourceDirectURLPolicy.permitsDirectURL(
             requiresCompleteLocalFile: FileFormatRouter.requiresCompleteLocalFile(song.fileFormat),
             usesServerTranscodedStream: usesServerTranscodedStream,

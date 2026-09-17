@@ -4006,3 +4006,13 @@
 "library_review_clear_rating" = "Effacer la note";
 "server_rating_sync_failed_title" = "Échec de synchronisation de la note";
 "server_rating_sync_failed_message" = "Votre note est enregistrée localement. La synchronisation avec le serveur n’a pas pu être terminée.";
+
+/* Streaming quality */
+"streaming_quality_section" = "Qualité de transfert";
+"streaming_quality_wifi" = "Wi-Fi";
+"streaming_quality_cellular" = "Données cellulaires";
+"streaming_quality_original" = "Originale";
+"streaming_quality_320" = "320 kbit/s";
+"streaming_quality_192" = "192 kbit/s";
+"streaming_quality_128" = "128 kbit/s";
+"streaming_quality_desc" = "Sur les serveurs prenant en charge le transcodage (Subsonic / Navidrome et compatibles), diffuse à un débit plus faible pour économiser les données mobiles. « Originale » transmet le fichier source tel quel. Un morceau transcodé est téléchargé en entier avant de démarrer : le premier morceau et tout morceau atteint manuellement commence après une courte attente, tandis que le morceau suivant est préparé à l’avance. Un morceau transcodé ne peut pas être parcouru tant que son téléchargement n’est pas terminé, il est exclu de la lecture sans blanc et du fondu enchaîné, et n’est jamais enregistré dans le cache hors ligne. Un changement de réseau prend effet au morceau suivant.";

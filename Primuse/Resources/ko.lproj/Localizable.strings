@@ -4006,3 +4006,13 @@
 "library_review_clear_rating" = "평점 지우기";
 "server_rating_sync_failed_title" = "평점 동기화 실패";
 "server_rating_sync_failed_message" = "평점은 기기에 저장되었습니다. 서버 동기화를 완료하지 못했습니다.";
+
+/* Streaming quality */
+"streaming_quality_section" = "전송 음질";
+"streaming_quality_wifi" = "Wi-Fi";
+"streaming_quality_cellular" = "셀룰러";
+"streaming_quality_original" = "원본";
+"streaming_quality_320" = "320 kbps";
+"streaming_quality_192" = "192 kbps";
+"streaming_quality_128" = "128 kbps";
+"streaming_quality_desc" = "트랜스코딩을 지원하는 서버(Subsonic / Navidrome 및 호환 구현)에서 더 낮은 비트레이트로 전송해 데이터를 절약합니다. ‘원본’은 원본 파일을 그대로 전송합니다. 트랜스코딩된 곡은 재생 전에 파일 전체를 내려받으므로 첫 곡과 직접 건너뛴 곡은 잠시 기다린 뒤 시작되며, 다음 곡은 미리 준비됩니다. 트랜스코딩된 곡은 다운로드가 끝나야 탐색할 수 있고, 갭리스 재생과 크로스페이드에서 제외되며 오프라인 캐시에도 저장되지 않습니다. 네트워크 전환은 다음 곡부터 적용됩니다.";

@@ -4006,3 +4006,13 @@
 "library_review_clear_rating" = "Bewertung löschen";
 "server_rating_sync_failed_title" = "Bewertung nicht synchronisiert";
 "server_rating_sync_failed_message" = "Deine Bewertung wurde lokal gespeichert. Die Serversynchronisierung konnte nicht abgeschlossen werden.";
+
+/* Streaming quality */
+"streaming_quality_section" = "Übertragungsqualität";
+"streaming_quality_wifi" = "WLAN";
+"streaming_quality_cellular" = "Mobilfunk";
+"streaming_quality_original" = "Original";
+"streaming_quality_320" = "320 kbit/s";
+"streaming_quality_192" = "192 kbit/s";
+"streaming_quality_128" = "128 kbit/s";
+"streaming_quality_desc" = "Auf Servern mit Transcoding-Unterstützung (Subsonic / Navidrome und kompatible) mit niedrigerer Bitrate übertragen, um mobiles Datenvolumen zu sparen. „Original“ überträgt die Quelldatei unverändert. Ein transcodierter Titel wird vor dem Start vollständig geladen; der erste Titel und jeder manuell angesprungene Titel beginnt daher nach kurzer Wartezeit, der nächste Titel wird im Voraus vorbereitet. Ein transcodierter Titel lässt sich erst nach Abschluss des Downloads durchsuchen, nimmt nicht an lückenloser Wiedergabe und Überblendung teil und wird nie im Offline-Cache gespeichert. Ein Netzwechsel wirkt sich ab dem nächsten Titel aus.";

@@ -688,6 +688,7 @@
 		851E6702527455803F1ACB6B /* ImmersiveStageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BD6D04DA8CE429DC75434F6 /* ImmersiveStageView.swift */; };
 		8520FA42E71C65B9E1BF42FF /* SourceFailureClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B352CFED2A2E7082B6E15745 /* SourceFailureClassifier.swift */; };
 		853427FA20B67053FED472A3 /* TVSourceAssetReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 139EF58C77552DC03F51190D /* TVSourceAssetReader.swift */; };
+		7E02045B443F9CBCA3471CC8 /* AdaptiveStreamQualityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4414F2A304060A61C3FD944F /* AdaptiveStreamQualityPolicy.swift */; };
 		8555E09C98B0CBABEC2E578A /* AudioCacheEvictionPlanPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1484D3544FDD6966114DAE4 /* AudioCacheEvictionPlanPolicy.swift */; };
 		855F531A2B63BA3F028FA596 /* HomeListeningRankingSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D58A8EAF8B5EACE572269A93 /* HomeListeningRankingSection.swift */; };
 		856C70EA0F1E8E9D577A8A5F /* TVPlaybackPipelinePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1C899A774E84E601D74500D /* TVPlaybackPipelinePolicy.swift */; };
@@ -2246,6 +2247,7 @@
 		C071122841653E54A0C33448 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		C07C8B0ADA2EED1691D8C139 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/Localizable.strings; sourceTree = "<group>"; };
 		C0EA70A3586C3DBE1A6F2EF7 /* uk */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = uk; path = uk.lproj/CacheSync.strings; sourceTree = "<group>"; };
+		4414F2A304060A61C3FD944F /* AdaptiveStreamQualityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdaptiveStreamQualityPolicy.swift; sourceTree = "<group>"; };
 		C1484D3544FDD6966114DAE4 /* AudioCacheEvictionPlanPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCacheEvictionPlanPolicy.swift; sourceTree = "<group>"; };
 		C208EEAE5B4BC5D1329D5DCD /* PrimuseWatchWidgetsBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimuseWatchWidgetsBundle.swift; sourceTree = "<group>"; };
 		C239241684E81EFF2E2AB9A0 /* SimulatorCredentialFallbackPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorCredentialFallbackPolicy.swift; sourceTree = "<group>"; };
@@ -2873,6 +2875,7 @@
 				348354B891B8440B08E799A2 /* ArtworkAnimation.swift */,
 				2376120CE2C0666E66D5030E /* ArtworkAnimationDiskCache.swift */,
 				A7F9350F06F1B48DBBD28F80 /* ArtworkImageNormalizationPolicy.swift */,
+				4414F2A304060A61C3FD944F /* AdaptiveStreamQualityPolicy.swift */,
 				C1484D3544FDD6966114DAE4 /* AudioCacheEvictionPlanPolicy.swift */,
 				07AA00C9862F805BCB17DCDC /* AudioCachePathResolver.swift */,
 				EF05E72BAE806E5D952FD853 /* AudioCachePrewarmSeedRetention.swift */,
@@ -4627,6 +4630,7 @@
 				EC687A4F2368042B6F39DB9C /* ArtworkAnimationDiskCache.swift in Sources */,
 				B4D3CDE92E1DB45400781F6D /* ArtworkImageNormalizationPolicy.swift in Sources */,
 				1B9B1554521D744F3E328FBB /* AtomicBackupFileWriter.swift in Sources */,
+				7E02045B443F9CBCA3471CC8 /* AdaptiveStreamQualityPolicy.swift in Sources */,
 				8555E09C98B0CBABEC2E578A /* AudioCacheEvictionPlanPolicy.swift in Sources */,
 				A484DA90CAF9FCFB38DDE3ED /* AudioCachePathResolver.swift in Sources */,
 				1BEDBE25CD693A9F19690397 /* AudioCachePrewarmSeedRetention.swift in Sources */,

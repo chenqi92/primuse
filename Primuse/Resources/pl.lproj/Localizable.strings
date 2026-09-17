@@ -3912,3 +3912,13 @@
 "library_review_clear_rating" = "Usuń ocenę";
 "server_rating_sync_failed_title" = "Błąd synchronizacji oceny";
 "server_rating_sync_failed_message" = "Ocena została zapisana lokalnie. Nie udało się ukończyć synchronizacji z serwerem.";
+
+/* Streaming quality */
+"streaming_quality_section" = "Jakość transmisji";
+"streaming_quality_wifi" = "Wi-Fi";
+"streaming_quality_cellular" = "Sieć komórkowa";
+"streaming_quality_original" = "Oryginalna";
+"streaming_quality_320" = "320 kb/s";
+"streaming_quality_192" = "192 kb/s";
+"streaming_quality_128" = "128 kb/s";
+"streaming_quality_desc" = "Na serwerach obsługujących transkodowanie (Subsonic / Navidrome i zgodne) przesyła z niższą przepływnością, aby oszczędzać dane komórkowe. „Oryginalna” przesyła plik źródłowy bez zmian. Transkodowany utwór jest pobierany w całości przed rozpoczęciem odtwarzania, więc pierwszy utwór i każdy, do którego przejdziesz ręcznie, zaczyna się po krótkim oczekiwaniu, a następny utwór jest przygotowywany z wyprzedzeniem. Transkodowanego utworu nie można przewijać, dopóki pobieranie się nie zakończy, nie bierze on udziału w odtwarzaniu bez przerw ani w przenikaniu i nigdy nie trafia do pamięci offline. Zmiana sieci działa od następnego utworu.";

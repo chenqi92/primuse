@@ -3912,3 +3912,13 @@
 "library_review_clear_rating" = "Borrar calificación";
 "server_rating_sync_failed_title" = "Error al sincronizar la calificación";
 "server_rating_sync_failed_message" = "Tu calificación se guardó localmente. No se pudo completar la sincronización con el servidor.";
+
+/* Streaming quality */
+"streaming_quality_section" = "Calidad de transmisión";
+"streaming_quality_wifi" = "Wi-Fi";
+"streaming_quality_cellular" = "Datos móviles";
+"streaming_quality_original" = "Original";
+"streaming_quality_320" = "320 kbps";
+"streaming_quality_192" = "192 kbps";
+"streaming_quality_128" = "128 kbps";
+"streaming_quality_desc" = "En servidores compatibles con transcodificación (Subsonic / Navidrome y similares), transmite con menor tasa de bits para ahorrar datos móviles. «Original» envía el archivo de origen sin cambios. Una pista transcodificada se descarga por completo antes de empezar, así que la primera pista y cualquiera a la que saltes manualmente comienza tras una breve espera; la siguiente pista se prepara con antelación. Una pista transcodificada no se puede desplazar hasta que termine su descarga, queda fuera de la reproducción sin pausas y del fundido cruzado, y nunca se guarda en la caché sin conexión. Cambiar de red surte efecto en la siguiente pista.";

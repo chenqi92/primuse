@@ -6,6 +6,8 @@ enum SettingsCatalogData {
         SettingDefinition(id: "playback.outputMode", titleKey: "audio_output_mode", iosPage: .playback, macPage: .playback, keywords: ["bit perfect", "DAC", "高保真", "直通", "音质", "无损", "DSP", "Output Mode"]),
         SettingDefinition(id: "playback.dsdMode", titleKey: "dsd_playback_mode", iosPage: .playback, macPage: .playback, keywords: ["DSD Playback"]),
         SettingDefinition(id: "playback.matchSampleRate", titleKey: "output_sr_matching", iosPage: .playback, macPage: .playback, keywords: ["Match Hardware Sample Rate"]),
+        SettingDefinition(id: "playback.wifiStreamQuality", titleKey: "streaming_quality_wifi", iosPage: .playback, macPage: .playback, keywords: ["wifi", "wi-fi", "bitrate", "transcode", "音质", "码率", "转码", "省流量", "流量", "Streaming Quality"]),
+        SettingDefinition(id: "playback.cellularStreamQuality", titleKey: "streaming_quality_cellular", iosPage: .playback, macPage: .playback, keywords: ["cellular", "mobile data", "bitrate", "transcode", "音质", "码率", "转码", "省流量", "流量", "蜂窝网络", "手机网络", "卡顿", "断流"]),
         SettingDefinition(id: "playback.speed", titleKey: "playback_rate", iosPage: .playback, macPage: .playback, keywords: ["speed", "倍速", "速度", "语速", "播放太快", "Playback Rate"]),
         SettingDefinition(id: "playback.resetSpeed", titleKey: "playback_rate_reset", iosPage: .playback, macPage: nil, anchor: "playback.speed"),
         SettingDefinition(id: "playback.gapless", titleKey: "gapless_playback", iosPage: .playback, macPage: .playback, keywords: ["gapless", "无缝", "曲目间隔", "歌曲衔接", "Gapless Playback"]),

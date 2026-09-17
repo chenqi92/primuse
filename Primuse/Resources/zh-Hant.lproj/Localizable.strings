@@ -3983,3 +3983,13 @@
 "library_review_clear_rating" = "清除評分";
 "server_rating_sync_failed_title" = "評分同步失敗";
 "server_rating_sync_failed_message" = "評分已儲存在本機，暫時無法同步至伺服器。";
+
+/* Streaming quality */
+"streaming_quality_section" = "傳輸音質";
+"streaming_quality_wifi" = "Wi-Fi";
+"streaming_quality_cellular" = "行動網路";
+"streaming_quality_original" = "原始音質";
+"streaming_quality_320" = "320 kbps";
+"streaming_quality_192" = "192 kbps";
+"streaming_quality_128" = "128 kbps";
+"streaming_quality_desc" = "在支援轉碼的伺服器（Subsonic / Navidrome 及相容實作）上以較低位元率傳輸以節省流量。選擇「原始音質」則原樣傳輸來源檔案。轉碼曲目要先把轉碼檔案下載完整才開始播放，因此第一首與手動跳到的曲目開頭會有短暫等待，接著播的下一首會提前準備好。轉碼曲目在下載完成前不能拖曳進度，不參與無縫播放與交叉淡化，也不會寫入離線快取。切換網路會在下一首生效。";

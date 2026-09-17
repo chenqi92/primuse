@@ -1,5 +1,6 @@
 @preconcurrency import AVFoundation
 import Foundation
+import PrimuseKit
 
 final class StreamingDownloadSessionControl: @unchecked Sendable {
     private let lock = NSLock()
@@ -92,11 +93,121 @@ final class StreamingDownloadDecoder: Sendable {
         url.scheme == "http" || url.scheme == "https"
     }
 
+    // MARK: - 整份物化(播放与预取共用)
+
+    /// 把一条长度未知、不支持 Range 的远程流整份下载下来，校验它确实是音频，
+    /// 再原子安装到 `destination`。服务端转码流的播放路径与预取路径共用这一份
+    /// 实现 —— 传输配置、信任策略、字节上限、streamEpoch 语义和坏文件判据
+    /// 都只有一处。
+    ///
+    /// `destination` 已存在时直接返回，不重复下载。
+    ///
+    /// **为什么必须校验**：转码产物没有原文件缓存那套按 `fileSize` 的完整性
+    /// 兜底(它是「存在即完整」)，而 Subsonic 系服务端出错时经常回
+    /// HTTP 200 + JSON/XML 错误体。把那种 body 装进去就等于永久缓存了一个
+    /// 放不出声的文件。
+    static func materializeCompleteFile(
+        from url: URL,
+        to destination: URL,
+        maximumDownloadBytes: Int?,
+        sourceID: String?,
+        streamEpoch: UInt64?,
+        control: StreamingDownloadSessionControl? = nil
+    ) async throws -> URL {
+        if FileManager.default.fileExists(atPath: destination.path) {
+            return destination
+        }
+        try Task.checkCancellation()
+        try ensureCurrentStreamEpoch(sourceID: sourceID, streamEpoch: streamEpoch)
+
+        let tempPath = NSTemporaryDirectory() + "primuse_tc_\(UUID().uuidString)"
+        let tempURL = URL(fileURLWithPath: tempPath)
+
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 600
+        let session = URLSession(
+            configuration: config,
+            delegate: SmartSSLDelegate(),
+            delegateQueue: nil
+        )
+        control?.installCancellationHandler {
+            session.invalidateAndCancel()
+        }
+        defer { session.finishTasksAndInvalidate() }
+
+        do {
+            var request = URLRequest(url: url)
+            request.setValue(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+                forHTTPHeaderField: "User-Agent"
+            )
+            let startTime = CFAbsoluteTimeGetCurrent()
+            let (downloadedURL, response) = try await TrustedHTTPTransport.download(
+                for: request,
+                session: session,
+                maximumRangedBodyBytes: maximumDownloadBytes,
+                wholeResponsePrefixLimit: nil
+            )
+            guard let http = response as? HTTPURLResponse,
+                  (200...299).contains(http.statusCode) else {
+                try? FileManager.default.removeItem(at: downloadedURL)
+                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                throw AudioDecoderError.decodingFailed("HTTP \(code)")
+            }
+            try FileManager.default.moveItem(at: downloadedURL, to: tempURL)
+
+            let byteCount = (try? FileManager.default.attributesOfItem(atPath: tempPath)[.size] as? Int64) ?? 0
+            var leadingBytes: [UInt8] = []
+            if let handle = try? FileHandle(forReadingFrom: tempURL) {
+                let head = try? handle.read(
+                    upToCount: AdaptiveStreamQualityPolicy.payloadSniffPrefixLength
+                )
+                try? handle.close()
+                leadingBytes = Array(head ?? Data())
+            }
+            let verdict = AdaptiveStreamQualityPolicy.verifyTranscodedPayload(
+                contentType: http.value(forHTTPHeaderField: "Content-Type"),
+                byteCount: byteCount,
+                leadingBytes: leadingBytes
+            )
+            guard verdict == .accepted else {
+                try? FileManager.default.removeItem(at: tempURL)
+                plog("⚠️ Transcode: rejected payload for \(destination.lastPathComponent) — \(verdict)")
+                throw AudioDecoderError.decodingFailed("transcoded payload rejected: \(verdict)")
+            }
+
+            try Task.checkCancellation()
+            try ensureCurrentStreamEpoch(sourceID: sourceID, streamEpoch: streamEpoch)
+            try installCacheFile(
+                from: tempURL,
+                to: destination,
+                sourceID: sourceID,
+                streamEpoch: streamEpoch
+            )
+            let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+            plog("🎚 Transcode: materialized \(byteCount / 1024)KB in \(String(format: "%.1f", elapsed))s → \(destination.lastPathComponent)")
+            return destination
+        } catch {
+            try? FileManager.default.removeItem(at: tempURL)
+            throw error
+        }
+    }
+
     /// Download a remote URL completely, then decode it.
     /// - Parameters:
     ///   - url: Remote HTTP/HTTPS URL
     ///   - outputFormat: Target PCM format for the audio engine
     ///   - cacheFileURL: If provided, the downloaded file is moved here after decoding starts
+    ///   - completedFileProvider: 非 nil 时由它给出一份**已经完整落盘**的文件,
+    ///     Step 1 的下载与随后的 typed 临时路径 / installCacheFile 全部跳过 ——
+    ///     文件已经在它该在的位置上。传 provider 而不是现成的 URL, 是为了让
+    ///     「预取还在途时等它完成」这段等待留在本 Task 内: 既定的取消语义与
+    ///     调用方的首块超时因此照常覆盖它。默认 nil 时本函数行为逐字节不变。
+    ///   - removesDestinationOnDecodeFailure: 解码在**零输出**下失败时删掉
+    ///     `completedFileProvider` 给出的那份文件。只给转码产物用 —— 它是
+    ///     「存在即完整」, 留一个解不开的文件会被后续播放反复命中。原文件
+    ///     缓存的既有保留语义不受影响。
     /// - Returns: AsyncThrowingStream of PCM buffers ready for AVAudioPlayerNode
     func decode(
         from url: URL,
@@ -107,6 +218,8 @@ final class StreamingDownloadDecoder: Sendable {
         sourceID: String? = nil,
         streamEpoch: UInt64? = nil,
         sessionControl: StreamingDownloadSessionControl? = nil,
+        completedFileProvider: (@Sendable () async throws -> URL)? = nil,
+        removesDestinationOnDecodeFailure: Bool = false,
         onResolveSourceLength: (@Sendable (TimeInterval) -> Void)? = nil
     ) -> AudioBufferStream {
         let control = sessionControl ?? StreamingDownloadSessionControl()
@@ -117,6 +230,28 @@ final class StreamingDownloadDecoder: Sendable {
                 let tempURL = URL(fileURLWithPath: tempPath)
 
                 do {
+                    // 预取路径已经把这份完整文件准备好(或正在准备)时, 跳过
+                    // Step 1 的整份下载。等待留在这个 Task 内, 所以取消与
+                    // 调用方的首块超时照常覆盖它。
+                    if let completedFileProvider {
+                        let ready = try await completedFileProvider()
+                        try Task.checkCancellation()
+                        try Self.ensureCurrentStreamEpoch(
+                            sourceID: sourceID,
+                            streamEpoch: streamEpoch
+                        )
+                        try await Self.decodeCompleteFile(
+                            at: ready,
+                            outputFormat: outputFormat,
+                            fileExtension: fileExtension,
+                            removesFileOnZeroOutputFailure: removesDestinationOnDecodeFailure,
+                            onResolveSourceLength: onResolveSourceLength,
+                            continuation: continuation
+                        )
+                        continuation.finish()
+                        return
+                    }
+
                     // Step 1: Download the complete file
                     try Self.ensureCurrentStreamEpoch(
                         sourceID: sourceID,
@@ -321,6 +456,71 @@ final class StreamingDownloadDecoder: Sendable {
             continuation.onTermination = { _ in
                 control.cancel()
             }
+        }
+    }
+
+    /// 解码一份已经完整落盘的文件, 直接把 PCM 推给调用方。
+    ///
+    /// 与 `decode` 内既有的解码段同构(同样的路由、同样的「零输出才回退
+    /// FFmpeg」规则), 但不搬文件也不装缓存 —— 它已经在目标路径上。
+    private static func decodeCompleteFile(
+        at fileURL: URL,
+        outputFormat: AVAudioFormat,
+        fileExtension: String?,
+        removesFileOnZeroOutputFailure: Bool,
+        onResolveSourceLength: (@Sendable (TimeInterval) -> Void)?,
+        continuation: AudioBufferStream.Continuation
+    ) async throws {
+        let ext = (fileExtension ?? fileURL.pathExtension).lowercased()
+        var yieldedBuffers = 0
+        do {
+            let decoder = await FileFormatRouter.decoder(for: fileURL)
+            guard decoder is FFmpegAudioDecoder || decoder.canDecode(url: fileURL) else {
+                throw AudioDecoderError.unsupportedFormat(ext)
+            }
+            if let info = try? await decoder.fileInfo(for: fileURL), info.duration > 0 {
+                onResolveSourceLength?(info.duration)
+            }
+            plog("🎚 Transcode: decoding prepared .\(ext) via \(String(describing: type(of: decoder)))")
+            do {
+                for try await buffer in decoder.decode(from: fileURL, outputFormat: outputFormat) {
+                    try Task.checkCancellation()
+                    yieldedBuffers += 1
+                    try await AudioBufferStreamFactory.yieldWithBackpressure(buffer, to: continuation)
+                }
+            } catch {
+                let fallback = FFmpegAudioDecoder()
+                let fallbackCanDecode: Bool
+                do {
+                    fallbackCanDecode = try await fallback.canDecodeAsync(url: fileURL)
+                } catch {
+                    fallbackCanDecode = true
+                }
+                guard yieldedBuffers == 0,
+                      !(decoder is FFmpegAudioDecoder),
+                      fallbackCanDecode else { throw error }
+                plog("↳ Transcode: native open failed; retrying with FFmpeg")
+                if let info = try? await fallback.fileInfo(for: fileURL), info.duration > 0 {
+                    onResolveSourceLength?(info.duration)
+                }
+                for try await buffer in fallback.decode(from: fileURL, outputFormat: outputFormat) {
+                    try Task.checkCancellation()
+                    yieldedBuffers += 1
+                    try await AudioBufferStreamFactory.yieldWithBackpressure(buffer, to: continuation)
+                }
+            }
+        } catch {
+            // 一个字节都没解出来就失败 —— 这份文件是坏的(或格式对不上)。
+            // 转码产物是「存在即完整」, 留着会被后续每次播放反复命中,
+            // 所以就地删掉, 下次重新取。取消不算失败。
+            if removesFileOnZeroOutputFailure,
+               yieldedBuffers == 0,
+               !(error is CancellationError),
+               !Task.isCancelled {
+                try? FileManager.default.removeItem(at: fileURL)
+                plog("🗑 Transcode: removed undecodable file \(fileURL.lastPathComponent)")
+            }
+            throw error
         }
     }
 

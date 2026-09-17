@@ -3912,3 +3912,13 @@
 "library_review_clear_rating" = "Puanı Temizle";
 "server_rating_sync_failed_title" = "Puan Eşitlenemedi";
 "server_rating_sync_failed_message" = "Puanınız yerel olarak kaydedildi. Sunucu eşitlemesi tamamlanamadı.";
+
+/* Streaming quality */
+"streaming_quality_section" = "Aktarım kalitesi";
+"streaming_quality_wifi" = "Wi-Fi";
+"streaming_quality_cellular" = "Hücresel veri";
+"streaming_quality_original" = "Orijinal";
+"streaming_quality_320" = "320 kbps";
+"streaming_quality_192" = "192 kbps";
+"streaming_quality_128" = "128 kbps";
+"streaming_quality_desc" = "Kod dönüştürmeyi destekleyen sunucularda (Subsonic / Navidrome ve uyumlular) mobil veriden tasarruf etmek için daha düşük bit hızıyla aktarır. “Orijinal”, kaynak dosyayı olduğu gibi gönderir. Kod dönüştürülen bir parça çalmaya başlamadan önce tamamen indirilir; bu yüzden ilk parça ve elle geçtiğiniz her parça kısa bir beklemeden sonra başlar, sıradaki parça ise önceden hazırlanır. Kod dönüştürülen bir parçada indirme bitene kadar ileri sarılamaz, boşluksuz çalma ve çapraz geçişe katılmaz ve çevrimdışı önbelleğe hiçbir zaman kaydedilmez. Ağ değişikliği bir sonraki parçada geçerli olur.";

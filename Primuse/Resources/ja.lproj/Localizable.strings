@@ -4007,3 +4007,13 @@
 "library_review_clear_rating" = "評価をクリア";
 "server_rating_sync_failed_title" = "評価の同期に失敗しました";
 "server_rating_sync_failed_message" = "評価は端末に保存されています。サーバーとの同期を完了できませんでした。";
+
+/* Streaming quality */
+"streaming_quality_section" = "転送音質";
+"streaming_quality_wifi" = "Wi-Fi";
+"streaming_quality_cellular" = "モバイル通信";
+"streaming_quality_original" = "オリジナル";
+"streaming_quality_320" = "320 kbps";
+"streaming_quality_192" = "192 kbps";
+"streaming_quality_128" = "128 kbps";
+"streaming_quality_desc" = "トランスコードに対応したサーバー（Subsonic / Navidrome など）では、低いビットレートで転送して通信量を節約できます。「オリジナル」は元ファイルをそのまま転送します。トランスコードした曲は再生前にファイル全体をダウンロードするため、最初の曲と手動でスキップした曲は少し待ってから始まります。次の曲はあらかじめ準備されます。トランスコードした曲はダウンロードが終わるまでシークできず、ギャップレス再生とクロスフェードの対象外になり、オフラインキャッシュにも保存されません。ネットワークの切り替えは次の曲から反映されます。";

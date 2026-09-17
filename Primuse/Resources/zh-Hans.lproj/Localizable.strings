@@ -4099,3 +4099,13 @@
 "library_review_clear_rating" = "清除评分";
 "server_rating_sync_failed_title" = "评分同步失败";
 "server_rating_sync_failed_message" = "评分已保存在本地，暂未能同步到服务器。";
+
+/* Streaming quality */
+"streaming_quality_section" = "传输音质";
+"streaming_quality_wifi" = "Wi-Fi";
+"streaming_quality_cellular" = "移动网络";
+"streaming_quality_original" = "原始音质";
+"streaming_quality_320" = "320 kbps";
+"streaming_quality_192" = "192 kbps";
+"streaming_quality_128" = "128 kbps";
+"streaming_quality_desc" = "在支持转码的服务器（Subsonic / Navidrome 及兼容实现）上按更低码率传输以节省流量。选择「原始音质」则原样传输源文件。转码曲目要先把转码文件下载完整才开始播放，因此第一首和手动跳到的曲目开头会有短暂等待，接着播的下一首会提前准备好。转码曲目在下载完成前不能拖动进度，不参与无缝播放与交叉淡化，也不会写入离线缓存。切换网络在下一首生效。";

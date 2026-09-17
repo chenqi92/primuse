@@ -1562,6 +1562,25 @@ private struct MacSTPlaybackView: View {
                         )
                     }
                 }
+                MacSTRow(
+                    String(localized: "streaming_quality_wifi"),
+                    hint: String(localized: "streaming_quality_desc")
+                ) {
+                    MacSTPicker(
+                        selection: $s.wifiStreamQuality,
+                        options: StreamQualityPreference.allCases.map { ($0, $0.displayName) },
+                        width: 160
+                    )
+                }
+                .settingsAnchor("playback.wifiStreamQuality")
+                MacSTRow(String(localized: "streaming_quality_cellular")) {
+                    MacSTPicker(
+                        selection: $s.cellularStreamQuality,
+                        options: StreamQualityPreference.allCases.map { ($0, $0.displayName) },
+                        width: 160
+                    )
+                }
+                .settingsAnchor("playback.cellularStreamQuality")
             }
         }
 

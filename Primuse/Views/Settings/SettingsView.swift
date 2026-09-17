@@ -1634,6 +1634,26 @@ struct PlaybackSettingsView: View {
             }
 
             Section {
+                Picker("streaming_quality_wifi", selection: $settings.wifiStreamQuality) {
+                    ForEach(StreamQualityPreference.allCases, id: \.self) { quality in
+                        Text(quality.displayName).tag(quality)
+                    }
+                }
+                .settingsAnchor("playback.wifiStreamQuality")
+
+                Picker("streaming_quality_cellular", selection: $settings.cellularStreamQuality) {
+                    ForEach(StreamQualityPreference.allCases, id: \.self) { quality in
+                        Text(quality.displayName).tag(quality)
+                    }
+                }
+                .settingsAnchor("playback.cellularStreamQuality")
+            } header: {
+                Text("streaming_quality_section")
+            } footer: {
+                Text("streaming_quality_desc")
+            }
+
+            Section {
                 Toggle("output_sr_matching", isOn: Binding(
                     get: { settings.outputMode == .highFidelity || settings.matchOutputSampleRate },
                     set: { settings.matchOutputSampleRate = $0 }

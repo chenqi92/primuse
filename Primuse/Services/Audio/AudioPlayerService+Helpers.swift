@@ -556,9 +556,27 @@ extension AudioPlayerService {
         return hadQuery ? base + "?…" : base
     }
 
+    /// 整曲下载路径下那份「已经完整落盘、可以拖动」的文件。
+    ///
+    /// 普通情况是原文件的持久缓存。本次按网络转码时换成转码产物自己的临时
+    /// 文件 —— 转码字节永远不会出现在 `cacheURL(for:)`, 所以那里也查不到。
+    func completedFullDownloadURL(for song: Song) -> URL? {
+        if let bitRateKbps = activeTranscodePlan.transcodedBitRateKbps {
+            return sourceManager?.completedAdaptiveTranscodeURL(
+                for: song,
+                bitRateKbps: bitRateKbps
+            )
+        }
+        return sourceManager?.cachedURL(for: song)
+    }
+
+    /// - Parameter transcodePlanOverride: 同一首歌重新解析地址时(seek / 断流
+    ///   恢复)必须复用开播时那份取流计划, 否则中途切网会让解码器种类与时间轴
+    ///   漂移。新歌开播传 nil, 由 SourceManager 现场计算。
     func resolvedURL(
         for song: Song,
-        forContinuousPreparation: Bool = false
+        forContinuousPreparation: Bool = false,
+        transcodePlanOverride: SourceTranscodePlan? = nil
     ) async throws -> URL {
         // DLNA renderer items are ephemeral and intentionally never registered
         // with SourceManager. Their filePath is the controller-provided HTTP(S)
@@ -575,7 +593,8 @@ extension AudioPlayerService {
             do {
                 let url = try await sourceManager.resolveURL(
                     for: song,
-                    acquirePlaybackCacheLease: !forContinuousPreparation
+                    acquirePlaybackCacheLease: !forContinuousPreparation,
+                    transcodePlanOverride: transcodePlanOverride
                 )
                 plog("🔗 resolvedURL for '\(song.title)': \(url.isFileURL ? "LOCAL" : url.scheme?.uppercased() ?? "?") → \(redactedURL(url))")
                 return url

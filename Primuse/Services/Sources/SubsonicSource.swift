@@ -15,6 +15,7 @@ import PrimuseKit
 ///
 /// 离线下载始终取 `download` 原文件。
 actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector, ServerLyricsConnector,
+    NetworkAdaptiveTranscodingConnector,
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
     ResumablePagedSongCatalogConnector,
     ServerPlaylistConnector, ServerMediaSharingConnector, ServerFavoriteConnector, ServerRadioConnector,
@@ -729,6 +730,29 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     }
 
     // MARK: - Playback URLs
+
+    /// 按网络选择传输音质时用的取流地址。`plan` 为 `.original` 时逐字转发给
+    /// 既有实现 —— 默认设置下这条重载与原方法完全等价。
+    func streamingURL(for path: String, transcode plan: SourceTranscodePlan) async throws -> URL? {
+        guard let bitRate = plan.transcodedBitRateKbps else {
+            return try await streamingURL(for: path)
+        }
+        try await connect()
+        guard let songID = songID(from: path) else { throw SourceError.fileNotFound(path) }
+        // 服务端转码 mp3 渐进流: 长度未知、不支持 Range。两个标记各司其职 ——
+        // transcoded 让播放层别按原文件大小取流, adaptive 让它知道这是本次
+        // 网络策略的产物(不写原文件的持久缓存、下完才可拖动)。
+        return buildRESTURL(
+            method: "stream",
+            query: [
+                URLQueryItem(name: "id", value: songID),
+                URLQueryItem(name: "format", value: AdaptiveStreamQualityPolicy.transcodedFileExtension),
+                URLQueryItem(name: "maxBitRate", value: String(bitRate)),
+                URLQueryItem(name: SourceStreamQuery.transcoded, value: "1"),
+                URLQueryItem(name: SourceStreamQuery.adaptive, value: "1")
+            ]
+        )
+    }
 
     func streamingURL(for path: String) async throws -> URL? {
         try await connect()

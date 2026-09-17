@@ -927,6 +927,10 @@ final class AudioPlayerService {
     }
     var activeDecoderKind: DecoderKind = .native
     var activeDSDPlaybackMode: DSDPlaybackMode = .pcm
+    /// 当前这首歌的取流计划。一次播放内固定不变, 换歌时由 `playFromURL`
+    /// 从新解析出来的 URL 重新确定 —— 播放途中 Wi-Fi 与蜂窝互切只对下一首
+    /// 生效, 不会让正在播的这首换一条取流路径。
+    var activeTranscodePlan: SourceTranscodePlan = .original
 
     // MARK: - Sleep Timer
     var sleepTimerEndDate: Date?
@@ -3484,6 +3488,9 @@ final class AudioPlayerService {
         }
         let id = UUID()
         playID = id
+        // 换歌就丢掉上一首的取流计划。Apple Music / 音乐视频等分支在下面直接
+        // return, 不会走到 playFromURL 那次按 URL 的赋值, 所以必须在这里清。
+        activeTranscodePlan = .original
         // 拖动进度触发的整文件物化会一直下到底, 切歌 / 停止时必须一并取消,
         // 否则被放弃的传输继续占用带宽和缓存配额。Apple Music / 投屏分支在
         // 下面直接 return, 取消必须排在它们前面。
@@ -4232,6 +4239,11 @@ final class AudioPlayerService {
         audioEngine.sampleTimeOffset = 0
         crossfadeTriggered = false; isCrossfading = false
         activeDecoderKind = .native
+        // 本次播放的取流计划直接从已解析的 URL 反推 —— URL 就是那次决策的产物。
+        // 之后这首歌的 seek / 断流恢复都复用它, 中途切换 Wi-Fi 与蜂窝不会让
+        // 同一首歌换一条取流路径。换歌时这里会被重新赋值。
+        activeTranscodePlan = AdaptiveStreamQualityPolicy.plan(fromResolvedURL: url)
+        let isAdaptiveTranscodedStream = activeTranscodePlan.isTranscode
         var activeDSDMode: DSDPlaybackMode = .pcm
 
         if !bypassSystemMediaPlayback,
@@ -4245,7 +4257,9 @@ final class AudioPlayerService {
         }
 
         let remoteWAVProbeOutcome: RemoteWAVPlaybackPolicy.ProbeOutcome?
-        if (isRemoteURL || isCloudStream), song.fileFormat == .wav {
+        // 转码流交付的是 mp3, 探测原 WAV 容器既得不到有用结论, 又要在移动网络上
+        // 额外拉 256KB 原文件 —— 正好抵消掉转码省下的流量。
+        if (isRemoteURL || isCloudStream), song.fileFormat == .wav, !isAdaptiveTranscodedStream {
             remoteWAVProbeOutcome = await probeRemoteWAVPayload(for: song)
         } else {
             remoteWAVProbeOutcome = nil
@@ -4323,12 +4337,25 @@ final class AudioPlayerService {
             let stream: AudioBufferStream
             if isRemoteURL {
                 if FileFormatRouter.requiresCompleteLocalFile(song.fileFormat)
-                    || remoteWAVRequiresCompleteFile {
-                    let reason = remoteWAVRequiresCompleteFile
-                        ? "remote WAV content probe requires safe local routing"
-                        : "custom formats require a local seekable stream"
+                    || remoteWAVRequiresCompleteFile
+                    || isAdaptiveTranscodedStream {
+                    // 按网络转码的流与 WMA 转码流形状一致: 无 Content-Length、
+                    // 不支持 Range。这条「整曲下载后解码」的链路今天就在承载
+                    // 那种响应, 是唯一有生产运行证据的路径, 所以复用它。
+                    let reason: String
+                    if isAdaptiveTranscodedStream {
+                        reason = "network-adaptive transcoded stream has no length or ranges"
+                    } else if remoteWAVRequiresCompleteFile {
+                        reason = "remote WAV content probe requires safe local routing"
+                    } else {
+                        reason = "custom formats require a local seekable stream"
+                    }
                     plog("▶️ Decoder: full-download (\(reason))")
-                    let cacheURL = playbackSettings.audioCacheEnabled ? sourceManager?.cacheURL(for: song) : nil
+                    // 转码产物绝不写进原文件的持久缓存 —— 那会让一份 128kbps 的
+                    // mp3 永久顶替用户的无损文件。它落到自己的临时目录里。
+                    let cacheURL = isAdaptiveTranscodedStream
+                        ? nil
+                        : (playbackSettings.audioCacheEnabled ? sourceManager?.cacheURL(for: song) : nil)
                     await playWithStreamingDownload(
                         song: song,
                         url: url,
@@ -4336,7 +4363,8 @@ final class AudioPlayerService {
                         playID: id,
                         cacheURL: cacheURL,
                         sourceStreamEpoch: sourceStreamEpoch,
-                        shouldRecordPlaybackStart: shouldRecordPlaybackStart
+                        shouldRecordPlaybackStart: shouldRecordPlaybackStart,
+                        adaptiveTranscodePlan: activeTranscodePlan
                     )
                     return
                 }
@@ -5109,10 +5137,14 @@ final class AudioPlayerService {
     /// Full-download fallback for remote URLs whose length is unknown or
     /// whose server rejects Range reads. Handles self-signed HTTPS
     /// certificates that AVAssetReader cannot.
+    /// - Parameter adaptiveTranscodePlan: 非 `.original` 时这条流是服务端按
+    ///   网络策略转出来的 mp3。它的长度与 `song.fileSize` 无关, 落盘位置也不是
+    ///   原文件的持久缓存, 解码器要按实际交付的 mp3 选而不是按 `song.fileFormat`。
     private func playWithStreamingDownload(
         song: Song, url: URL, outputFormat: AVAudioFormat,
         playID id: UUID, cacheURL: URL?, sourceStreamEpoch: UInt64,
-        shouldRecordPlaybackStart: Bool = true
+        shouldRecordPlaybackStart: Bool = true,
+        adaptiveTranscodePlan: SourceTranscodePlan = .original
     ) async {
         _ = retireStreamingDownloadPreparation()
         await awaitStreamingDownloadRetirement()
@@ -5121,9 +5153,19 @@ final class AudioPlayerService {
             ticket: sourceStreamEpoch
         ), playID == id else { return }
 
+        // 转码流的字节数与原文件毫无关系, 按码率×时长自己估一个配额;
+        // 原始路径继续用 song.fileSize(传 nil 即可), 行为不变。
+        let adaptiveTranscodeBitRate = adaptiveTranscodePlan.transcodedBitRateKbps
+        let expectedTransferBytes = adaptiveTranscodeBitRate.map {
+            AdaptiveStreamQualityPolicy.maximumTranscodedTransferBytes(
+                bitRateKbps: $0,
+                duration: song.duration
+            )
+        }
         guard let prepared = await sourceManager?.prepareHTTPStreamingCache(
             for: song,
-            prefersPersistentCache: cacheURL != nil
+            prefersPersistentCache: cacheURL != nil,
+            expectedTransferBytes: expectedTransferBytes
         ) else {
             guard playID == id else { return }
             showPlaybackError(String(localized: "offline_download_failed"))
@@ -5149,8 +5191,52 @@ final class AudioPlayerService {
             sourceManager?.finalizeStreamingSession(for: song)
             return
         }
-        let admittedCacheURL = prepared.persistOnComplete ? prepared.url : nil
+        // 转码产物走 SourceManager 的单飞物化: 已经被预取好就直接用(开头
+        // 零等待), 预取还在途就 join 它, 都没有才由这里下载。同一个文件路径
+        // 因此永远只有一个写者。这段等待留在 decode 的 Task 内, 所以下面
+        // `awaitFirstBuffer` 的首块超时与既有取消语义照常覆盖它。
+        let streamURL = url
+        let completedFileProvider: (@Sendable () async throws -> URL)?
+        if let bitRateKbps = adaptiveTranscodeBitRate, let manager = sourceManager {
+            let transcodeFileName = manager.adaptiveTranscodeFileName(
+                for: song,
+                bitRateKbps: bitRateKbps
+            )
+            completedFileProvider = { [song] in
+                // 对共享下载的等待本身不响应取消。切歌时这个 Task 会被取消,
+                // 而播放器要等它退役才开下一首 —— 所以一被取消就把那份已经没人
+                // 要的下载中断掉, 否则每次跳歌都得等上一首剩下的下载跑完。
+                try await withTaskCancellationHandler {
+                    guard let ready = await manager.materializeAdaptiveTranscode(
+                        song: song,
+                        bitRateKbps: bitRateKbps,
+                        streamURL: streamURL,
+                        sourceStreamEpoch: sourceStreamEpoch
+                    ) else {
+                        throw AudioDecoderError.decodingFailed("transcoded stream unavailable")
+                    }
+                    return ready
+                } onCancel: {
+                    Task { @MainActor in
+                        manager.cancelAdaptiveTranscodeMaterialization(named: transcodeFileName)
+                    }
+                }
+            }
+        } else {
+            completedFileProvider = nil
+        }
+        // adaptive 时 Step 1 与 installCacheFile 都不会执行, 这里传 nil 让
+        // 「转码产物绝不进原文件持久缓存」在类型上就成立。
+        let admittedCacheURL = adaptiveTranscodeBitRate == nil
+            ? (prepared.persistOnComplete ? prepared.url : nil)
+            : nil
         let admittedMaximumBytes = Int(clamping: prepared.maximumTransferBytes)
+        // 交付的是 mp3, 不是 song.fileFormat 描述的原始容器。扩展名是
+        // StreamingDownloadDecoder 选解码器的唯一依据 —— 传 "flac" 会让它用
+        // SFB 的原生 FLAC 解码器去开一份 mp3。
+        let downloadFileExtension = adaptiveTranscodeBitRate == nil
+            ? song.fileFormat.rawValue
+            : AdaptiveStreamQualityPolicy.transcodedFileExtension
         let preparationID = UUID()
         let sessionControl = StreamingDownloadSessionControl()
         activeStreamingDownloadPreparation = ActiveStreamingDownloadPreparation(
@@ -5162,12 +5248,20 @@ final class AudioPlayerService {
             from: url,
             outputFormat: outputFormat,
             cacheFileURL: admittedCacheURL,
-            fileExtension: song.fileFormat.rawValue,
+            fileExtension: downloadFileExtension,
             maximumDownloadBytes: admittedMaximumBytes,
             sourceID: song.sourceID,
             streamEpoch: sourceStreamEpoch,
             sessionControl: sessionControl,
-            onResolveSourceLength: makeResolveLengthCallback(for: song)
+            completedFileProvider: completedFileProvider,
+            // 解不开的转码产物要就地删掉 —— 它是「存在即完整」, 留着会被
+            // 后续每次播放反复命中。原文件缓存的既有保留语义不受影响。
+            removesDestinationOnDecodeFailure: adaptiveTranscodeBitRate != nil,
+            // 转码产物不是这首歌的权威来源, 不拿它回写库里的时长 ——
+            // 策略本来就要求时长已知才允许转码。
+            onResolveSourceLength: adaptiveTranscodeBitRate == nil
+                ? makeResolveLengthCallback(for: song)
+                : nil
         )
         let stream = segmented(rawStream, for: song)
         let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
@@ -5730,6 +5824,10 @@ final class AudioPlayerService {
         url: URL,
         sourceStreamEpoch: UInt64
     ) async -> InputSource? {
+        // 兜底: 服务端转码流的长度与 song.fileSize 无关, 一旦按它做 Range
+        // 就会读越界, 还会把转码字节写进原文件的持久缓存。调用方本来都在
+        // 更早处分流了, 这里是最后一道闸。
+        guard !SourceManager.isTranscodedStreamURL(url) else { return nil }
         guard song.fileSize > 0,
               url.scheme == "http" || url.scheme == "https",
               CloudPlaybackSource.isStreamEpochTicketCurrent(
@@ -5805,6 +5903,10 @@ final class AudioPlayerService {
     func decoderKind(for song: Song, url: URL) async -> DecoderKind {
         if url.scheme == SourceManager.cloudStreamingScheme { return .cloudStream }
         if url.scheme == "http" || url.scheme == "https" {
+            // 按网络转码的流走「整曲下载后解码」, 这里必须报同一种 ——
+            // gapless / crossfade 的准入是按这个返回值判的, 报错种类会让它们
+            // 拿一条根本不会被这么解码的流去做准备。
+            if SourceManager.isAdaptiveTranscodedStreamURL(url) { return .streaming }
             if SourceManager.isTranscodedStreamURL(url) { return .assetReader }
             return song.fileSize > 0 ? .httpStream : .streaming
         }

@@ -1887,6 +1887,22 @@ protocol OAuthCloudSource: MusicSourceConnector {
 
 enum SourceStreamQuery {
     static let transcoded = "primuse_transcoded"
+    /// 只标记「按网络策略转码」出来的流。`transcoded` 还覆盖 WMA 这类
+    /// 「本地解不了才转码」的存量路径, 两者必须能分开 —— 本功能新增的每一处
+    /// 判断都只认这个键, 存量 WMA 行为因此一行不变。
+    static let adaptive = AdaptiveStreamQualityPolicy.adaptiveStreamQueryKey
+}
+
+/// 能按「用户设置 + 当前网络」改变取流音质的连接器。
+///
+/// 判定本身留在 `SourceManager`: 同一个结论还要决定走不走 Range 取流、
+/// 要不要后台预取原文件, 两边一旦各算各的就会出现「按原文件大小对转码流做
+/// Range」这种越界。连接器只负责把已经定好的结论拼进 URL。
+///
+/// 这是细化协议 —— 共享的 `MusicSourceConnector.streamingURL(for:)` 签名
+/// 一行未动, 其余连接器无需任何改动。
+protocol NetworkAdaptiveTranscodingConnector: MusicSourceConnector {
+    func streamingURL(for path: String, transcode: SourceTranscodePlan) async throws -> URL?
 }
 
 /// 共享判定: NAS download 端点在会话失效时常回 HTTP 200 + JSON / HTML 登录页。

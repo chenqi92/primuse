@@ -1,4 +1,5 @@
 import Foundation
+import PrimuseKit
 
 enum AudioOutputMode: String, Codable, Sendable, CaseIterable {
     case highFidelity
@@ -50,6 +51,19 @@ enum CrossfadeMode: String, Codable, Sendable, CaseIterable {
     }
 }
 
+/// 传输音质选项的本地化标题。枚举本身住在 PrimuseKit(判定逻辑要能在没有
+/// Xcode 的环境里跑测试)，文案留在 app 侧的 Localizable.strings 里。
+extension StreamQualityPreference {
+    var displayName: String {
+        switch self {
+        case .original: String(localized: "streaming_quality_original")
+        case .kbps320: String(localized: "streaming_quality_320")
+        case .kbps192: String(localized: "streaming_quality_192")
+        case .kbps128: String(localized: "streaming_quality_128")
+        }
+    }
+}
+
 struct PlaybackSettings: Codable, Sendable {
     static let defaultsKey = "primuse_playback_settings_v1"
     static let lockScreenLyricsRolloutKey = "primuse_lock_screen_lyrics_default_enabled_v1"
@@ -73,6 +87,10 @@ struct PlaybackSettings: Codable, Sendable {
     var spatialHeadTrackingEnabled: Bool = false
     var audioCacheEnabled: Bool = true
     var audioCacheLimitBytes: Int64 = AudioCacheManager.defaultMaxCacheSize
+    /// 支持转码的服务端(Subsonic / Navidrome 等)上按网络类型选用的传输音质。
+    /// 默认两项都是 `.original` —— 那时整条取流链路与未引入本功能时一致。
+    var wifiStreamQuality: StreamQualityPreference = .original
+    var cellularStreamQuality: StreamQualityPreference = .original
     var skipLeadingSilenceEnabled: Bool = true
     var skipTrailingSilenceEnabled: Bool = false
     var prewarmQueueCount: Int = 3
@@ -121,6 +139,10 @@ struct PlaybackSettings: Codable, Sendable {
         spatialHeadTrackingEnabled = try c.decodeIfPresent(Bool.self, forKey: .spatialHeadTrackingEnabled) ?? false
         audioCacheEnabled = try c.decodeIfPresent(Bool.self, forKey: .audioCacheEnabled) ?? true
         audioCacheLimitBytes = try c.decodeIfPresent(Int64.self, forKey: .audioCacheLimitBytes) ?? AudioCacheManager.defaultMaxCacheSize
+        // 旧的持久化 JSON 里没有这两个键，必须解出 .original —— 升级上来的
+        // 用户不能因为装了新版本就被改成转码。
+        wifiStreamQuality = try c.decodeIfPresent(StreamQualityPreference.self, forKey: .wifiStreamQuality) ?? .original
+        cellularStreamQuality = try c.decodeIfPresent(StreamQualityPreference.self, forKey: .cellularStreamQuality) ?? .original
         skipLeadingSilenceEnabled = try c.decodeIfPresent(Bool.self, forKey: .skipLeadingSilenceEnabled) ?? true
         skipTrailingSilenceEnabled = try c.decodeIfPresent(Bool.self, forKey: .skipTrailingSilenceEnabled) ?? false
         prewarmQueueCount = try c.decodeIfPresent(Int.self, forKey: .prewarmQueueCount) ?? 3
@@ -154,6 +176,8 @@ struct PlaybackSettings: Codable, Sendable {
         spatialHeadTrackingEnabled: Bool = false,
         audioCacheEnabled: Bool = true,
         audioCacheLimitBytes: Int64 = AudioCacheManager.defaultMaxCacheSize,
+        wifiStreamQuality: StreamQualityPreference = .original,
+        cellularStreamQuality: StreamQualityPreference = .original,
         skipLeadingSilenceEnabled: Bool = true,
         skipTrailingSilenceEnabled: Bool = false,
         prewarmQueueCount: Int = 3,
@@ -185,6 +209,8 @@ struct PlaybackSettings: Codable, Sendable {
         self.spatialHeadTrackingEnabled = spatialHeadTrackingEnabled
         self.audioCacheEnabled = audioCacheEnabled
         self.audioCacheLimitBytes = audioCacheLimitBytes
+        self.wifiStreamQuality = wifiStreamQuality
+        self.cellularStreamQuality = cellularStreamQuality
         self.skipLeadingSilenceEnabled = skipLeadingSilenceEnabled
         self.skipTrailingSilenceEnabled = skipTrailingSilenceEnabled
         self.prewarmQueueCount = prewarmQueueCount
@@ -285,6 +311,8 @@ final class PlaybackSettingsStore {
         }
     }
     var audioCacheLimitBytes: Int64 { didSet { persist() } }
+    var wifiStreamQuality: StreamQualityPreference { didSet { persist() } }
+    var cellularStreamQuality: StreamQualityPreference { didSet { persist() } }
     var skipLeadingSilenceEnabled: Bool { didSet { persist() } }
     var skipTrailingSilenceEnabled: Bool { didSet { persist() } }
     var prewarmQueueCount: Int {
@@ -346,6 +374,8 @@ final class PlaybackSettingsStore {
         self.spatialHeadTrackingEnabled = s.spatialAudioEnabled && s.spatialHeadTrackingEnabled
         self.audioCacheEnabled = s.audioCacheEnabled
         self.audioCacheLimitBytes = s.audioCacheLimitBytes
+        self.wifiStreamQuality = s.wifiStreamQuality
+        self.cellularStreamQuality = s.cellularStreamQuality
         self.skipLeadingSilenceEnabled = s.skipLeadingSilenceEnabled
         self.skipTrailingSilenceEnabled = s.skipTrailingSilenceEnabled
         self.prewarmQueueCount = max(0, min(8, s.prewarmQueueCount))
@@ -392,6 +422,8 @@ final class PlaybackSettingsStore {
         spatialHeadTrackingEnabled = s.spatialAudioEnabled && s.spatialHeadTrackingEnabled
         audioCacheEnabled = s.audioCacheEnabled
         audioCacheLimitBytes = s.audioCacheLimitBytes
+        wifiStreamQuality = s.wifiStreamQuality
+        cellularStreamQuality = s.cellularStreamQuality
         skipLeadingSilenceEnabled = s.skipLeadingSilenceEnabled
         skipTrailingSilenceEnabled = s.skipTrailingSilenceEnabled
         prewarmQueueCount = max(0, min(8, s.prewarmQueueCount))
@@ -426,6 +458,8 @@ final class PlaybackSettingsStore {
             spatialHeadTrackingEnabled: spatialHeadTrackingEnabled,
             audioCacheEnabled: audioCacheEnabled,
             audioCacheLimitBytes: audioCacheLimitBytes,
+            wifiStreamQuality: wifiStreamQuality,
+            cellularStreamQuality: cellularStreamQuality,
             skipLeadingSilenceEnabled: skipLeadingSilenceEnabled,
             skipTrailingSilenceEnabled: skipTrailingSilenceEnabled,
             prewarmQueueCount: prewarmQueueCount,

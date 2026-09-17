@@ -948,7 +948,7 @@ extension AudioPlayerService {
         // every later play command would otherwise return through this guard.
         if activeDecoderKind == .streaming, let song = currentSong {
             let decision = FullDownloadSeekPolicy.decision(
-                hasSeekableFile: sourceManager?.cachedURL(for: song) != nil,
+                hasSeekableFile: completedFullDownloadURL(for: song) != nil,
                 isInterruptionRecovery: isRecovery
             )
             switch decision {
@@ -1162,7 +1162,12 @@ extension AudioPlayerService {
                 let sourceStreamEpoch = CloudPlaybackSource.streamEpochTicket(
                     sourceID: song.sourceID
                 )
-                let url = try await resolvedURL(for: song)
+                // 重新解析这首歌的地址时沿用开播时那份取流计划: 中途切换
+                // Wi-Fi 与蜂窝不能让同一首歌改走另一条链路。
+                let url = try await resolvedURL(
+                    for: song,
+                    transcodePlanOverride: activeTranscodePlan
+                )
                 guard !Task.isCancelled, playID == id else { return }
                 let resolvedDecoderKind = await decoderKind(for: song, url: url)
                 guard !Task.isCancelled, playID == id else { return }
@@ -1203,7 +1208,7 @@ extension AudioPlayerService {
                 var seekURL: URL
                 var seekDecoderKind = activeDecoderKind
                 if activeDecoderKind == .streaming {
-                    var cached = sourceManager?.cachedURL(for: song)
+                    var cached = completedFullDownloadURL(for: song)
                     if cached == nil, isRecovery, !isColdSessionRestore {
                         cached = await materializeCachedURLForPlaybackRecovery(
                             song,
