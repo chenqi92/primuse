@@ -32,6 +32,13 @@ public struct SourceRoutePathCondition: Sendable, Equatable {
     public static let tunnelProbeTimeout: TimeInterval = 3
     public static let cellularProbeTimeout: TimeInterval = 2
     public static let unknownProbeTimeout: TimeInterval = 2
+    /// A public address has to be resolved and then reached across the
+    /// Internet. A DDNS name whose only record is an AAAA is the slowest case:
+    /// the lookup happens before the first SYN and there is no second address
+    /// family to fall back to. One second is a LAN budget, and applying it to a
+    /// public route retired an endpoint whose own handshake is allowed twenty
+    /// seconds (`SourceConnectionHandshakePolicy.remoteFallbackTimeout`).
+    public static let remoteProbeTimeout: TimeInterval = 4
 
     public var interfaceClass: SourceRouteInterfaceClass
     /// A tunnel interface is present even if Wi-Fi is still the primary one.
@@ -100,13 +107,20 @@ public struct SourceRoutePathCondition: Sendable, Equatable {
     }
 
     /// An overlay address needs the tunnel budget even when the path looks like
-    /// plain Wi-Fi, which is exactly what a split tunnel reports.
+    /// plain Wi-Fi, which is exactly what a split tunnel reports. A public
+    /// address is not on the LAN either, whatever interface the device is on,
+    /// so it must not be judged by the LAN budget.
     public func probeTimeout(for endpoint: SourceConnectionEndpoint?) -> TimeInterval {
-        guard let host = endpoint?.normalized.host,
-              PrivateOverlayHostPolicy.isOverlayHost(host) else {
+        guard let host = endpoint?.normalized.host, host.isEmpty == false else {
             return baseProbeTimeout
         }
-        return max(baseProbeTimeout, Self.tunnelProbeTimeout)
+        if PrivateOverlayHostPolicy.isOverlayHost(host) {
+            return max(baseProbeTimeout, Self.tunnelProbeTimeout)
+        }
+        if InsecureHTTPHostPolicy.isLocalNetworkHost(host) {
+            return baseProbeTimeout
+        }
+        return max(baseProbeTimeout, Self.remoteProbeTimeout)
     }
 
     /// A tunnel that just came up drops the packet that triggers its own

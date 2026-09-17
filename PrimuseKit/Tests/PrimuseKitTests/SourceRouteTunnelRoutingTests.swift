@@ -45,6 +45,48 @@ import Testing
         #expect(direct.retriesTimedOutProbe(for: nil) == false)
     }
 
+    /// A public address is never on the LAN, whatever interface the device is
+    /// using. It has to be resolved and then reached across the Internet — a
+    /// DDNS name whose only record is an AAAA is the slowest case — so the LAN
+    /// budget used to retire a route whose own handshake is allowed 20 seconds.
+    @Test func publicAddressesAreNotJudgedByTheLANProbeBudget() {
+        let lan = SourceConnectionEndpoint(host: "192.168.1.20", port: 5006, useSsl: false)
+        let lanName = SourceConnectionEndpoint(host: "nas.local", port: 5006, useSsl: false)
+        let ula = SourceConnectionEndpoint(host: "fd00::5", port: 5006, useSsl: false)
+        let tailnet = SourceConnectionEndpoint(host: "nas.tail1a2b.ts.net", port: 5000, useSsl: true)
+        let remoteName = SourceConnectionEndpoint(host: "dav.example.com", port: 8443, useSsl: true)
+        let remoteLiteral = SourceConnectionEndpoint(host: "2408:8207::1", port: 8443, useSsl: true)
+        let remoteURL = SourceConnectionEndpoint(
+            host: "https://dav.example.com:8443/dav", port: 443, useSsl: false
+        )
+
+        let wifi = SourceRoutePathCondition(interfaceClass: .directLocal)
+        #expect(wifi.probeTimeout(for: lan) == SourceRoutePathCondition.directProbeTimeout)
+        #expect(wifi.probeTimeout(for: lanName) == SourceRoutePathCondition.directProbeTimeout)
+        #expect(wifi.probeTimeout(for: ula) == SourceRoutePathCondition.directProbeTimeout)
+        #expect(wifi.probeTimeout(for: nil) == SourceRoutePathCondition.directProbeTimeout)
+        #expect(wifi.probeTimeout(for: tailnet) == SourceRoutePathCondition.tunnelProbeTimeout)
+        #expect(wifi.probeTimeout(for: remoteName) == SourceRoutePathCondition.remoteProbeTimeout)
+        #expect(wifi.probeTimeout(for: remoteLiteral) == SourceRoutePathCondition.remoteProbeTimeout)
+        #expect(wifi.probeTimeout(for: remoteURL) == SourceRoutePathCondition.remoteProbeTimeout)
+        #expect(SourceRoutePathCondition.remoteProbeTimeout
+            > SourceRoutePathCondition.directProbeTimeout)
+        #expect(SourceRoutePathCondition.remoteProbeTimeout
+            < SourceConnectionHandshakePolicy.localFallbackTimeout)
+
+        // A slower path never shrinks below its own budget.
+        let tunnel = SourceRoutePathCondition(interfaceClass: .tunnel, usesTunnel: true)
+        #expect(tunnel.probeTimeout(for: remoteName) >= SourceRoutePathCondition.tunnelProbeTimeout)
+        #expect(tunnel.probeTimeout(for: lan) == SourceRoutePathCondition.tunnelProbeTimeout)
+        let cellular = SourceRoutePathCondition(interfaceClass: .cellular)
+        #expect(cellular.probeTimeout(for: remoteName)
+            >= SourceRoutePathCondition.cellularProbeTimeout)
+        #expect(cellular.probeTimeout(for: lan) == SourceRoutePathCondition.cellularProbeTimeout)
+
+        // The wider budget must not turn every dead WAN route into two waits.
+        #expect(wifi.retriesTimedOutProbe(for: remoteName) == false)
+    }
+
     @Test(arguments: ["192.168.1.20", "fd7a:115c:a1e0::1", "nas.example.com"])
     func defaultPathAddressFamiliesCannotRejectAnEndpoint(host: String) async throws {
         let endpoint = SourceConnectionEndpoint(host: host, port: 445, useSsl: false)
@@ -323,6 +365,43 @@ import Testing
             .normalized.host == "192.168.1.4")
         #expect(SourceConnectionEndpoint(host: "nas.local:445", port: 139, useSsl: false)
             .normalized.port == 445)
+    }
+
+    /// A WebDAV source reached by a DNS name whose only record is an AAAA. The
+    /// name must survive every builder as a name: bracketing it, or storing it
+    /// as a literal, makes the lookup fail before a packet is ever sent.
+    @Test(arguments: ["dav.example.com", "ddns.example.com.", "my-nas.dyndns.example.org"])
+    func dnsNamesNeverBecomeAddressLiterals(name: String) throws {
+        let canonical = NetworkHostAuthority.canonicalHost(name)
+        #expect(canonical.hasSuffix(".") == false)
+        #expect(NetworkHostAuthority.addressFamily(of: name) == .name)
+        #expect(NetworkHostAuthority.urlHost(name) == canonical)
+        #expect(NetworkHostAuthority.percentEncodedURLHost(name) == canonical)
+        #expect(NetworkHostAuthority.authority(host: name, port: 8443) == "\(canonical):8443")
+        #expect(NetworkHostAuthority.baseURL(
+            address: name, defaultScheme: "https", port: 8443, path: "/dav"
+        )?.absoluteString == "https://\(canonical):8443/dav")
+        let embeddedPortURL = try #require(NetworkHostAuthority.baseURL(
+            address: "http://\(name):8080/dav/", defaultScheme: "https", port: 8443
+        ))
+        #expect(embeddedPortURL.host == canonical)
+        #expect(embeddedPortURL.absoluteString == "http://\(canonical):8080/dav/")
+
+        var endpoint = SourceConnectionEndpoint(host: name, port: 8443, useSsl: true).normalized
+        #expect(endpoint.host == canonical)
+        #expect(endpoint.urlHost == canonical)
+        #expect(endpoint.displayDescription == "\(canonical):8443")
+        endpoint = SourceConnectionEndpoint(
+            host: "https://\(name):8443/dav", port: 443, useSsl: false
+        ).normalized
+        #expect(endpoint.host == canonical)
+        #expect(endpoint.port == 8443)
+        #expect(endpoint.useSsl)
+        #expect(endpoint.pathPrefix == "/dav")
+
+        // Such a name is a public route, never a LAN or overlay one.
+        #expect(InsecureHTTPHostPolicy.isLocalNetworkHost(name) == false)
+        #expect(PrivateOverlayHostPolicy.isPrivateOrOverlayHost(name) == false)
     }
 }
 
