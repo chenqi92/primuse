@@ -24,14 +24,24 @@ public enum PlaybackVolumeControlPolicy {
     /// - Parameters:
     ///   - isLiveRadio: 电台走独立的 AVPlayer，音量始终由应用施加，
     ///     与本地播放选的输出模式无关。
+    ///   - isCastingToRemoteRenderer: 正在投屏。声音在远端设备上出，本地
+    ///     输出设备的硬件音量与它无关，音量要发给渲染器，属于应用侧音量。
+    ///   - isSystemManagedPlayback: 这一刻的声音由系统播放器负责(Apple Music
+    ///     的 DRM 流)。应用拿不到任何增益节点，输出模式选什么都一样，只能交给
+    ///     输出设备的硬件音量。
     ///   - isHighFidelityDirect: 本地播放正处于高保真直通(图里没有增益节点)。
     ///   - outputDeviceVolumeIsControllable: 当前输出设备暴露了可写的硬件音量。
     public static func target(
         isLiveRadio: Bool,
+        isCastingToRemoteRenderer: Bool = false,
+        isSystemManagedPlayback: Bool = false,
         isHighFidelityDirect: Bool,
         outputDeviceVolumeIsControllable: Bool
     ) -> PlaybackVolumeControlTarget {
-        if isLiveRadio { return .applicationGain }
+        if isLiveRadio || isCastingToRemoteRenderer { return .applicationGain }
+        if isSystemManagedPlayback {
+            return outputDeviceVolumeIsControllable ? .outputDevice : .unavailable
+        }
         guard isHighFidelityDirect else { return .applicationGain }
         return outputDeviceVolumeIsControllable ? .outputDevice : .unavailable
     }

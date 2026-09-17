@@ -88,6 +88,52 @@ struct PlaybackVolumeControlPolicyTests {
         ) == 0)
     }
 
+    @Test("投屏时声音在远端出，音量走应用侧发给渲染器")
+    func castingUsesApplicationGain() {
+        for hiFi in [true, false] {
+            for controllable in [true, false] {
+                #expect(PlaybackVolumeControlPolicy.target(
+                    isLiveRadio: false,
+                    isCastingToRemoteRenderer: true,
+                    isSystemManagedPlayback: false,
+                    isHighFidelityDirect: hiFi,
+                    outputDeviceVolumeIsControllable: controllable
+                ) == .applicationGain)
+            }
+        }
+    }
+
+    @Test("系统播放器负责发声时，音效模式也拿不到应用增益")
+    func systemManagedPlaybackNeverUsesApplicationGain() {
+        for hiFi in [true, false] {
+            #expect(PlaybackVolumeControlPolicy.target(
+                isLiveRadio: false,
+                isCastingToRemoteRenderer: false,
+                isSystemManagedPlayback: true,
+                isHighFidelityDirect: hiFi,
+                outputDeviceVolumeIsControllable: true
+            ) == .outputDevice)
+            #expect(PlaybackVolumeControlPolicy.target(
+                isLiveRadio: false,
+                isCastingToRemoteRenderer: false,
+                isSystemManagedPlayback: true,
+                isHighFidelityDirect: hiFi,
+                outputDeviceVolumeIsControllable: false
+            ) == .unavailable)
+        }
+    }
+
+    @Test("投屏优先于系统播放器判定 —— 投屏目标自己有音量")
+    func castingWinsOverSystemManagedPlayback() {
+        #expect(PlaybackVolumeControlPolicy.target(
+            isLiveRadio: false,
+            isCastingToRemoteRenderer: true,
+            isSystemManagedPlayback: true,
+            isHighFidelityDirect: true,
+            outputDeviceVolumeIsControllable: true
+        ) == .applicationGain)
+    }
+
     @Test("图标读数与滑块同源")
     func indicatorMatchesSlider() {
         for target in [PlaybackVolumeControlTarget.applicationGain, .outputDevice, .unavailable] {

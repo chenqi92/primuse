@@ -786,6 +786,8 @@ final class AudioPlayerService {
 
     /// 跟当前 castingRenderer 对应的 SOAP controller。生命周期跟 castingRenderer 绑定。
     var castingController: RemoteRendererController?
+    /// 投屏音量提交的防抖句柄，见 `pushVolumeToCastingRenderer`。
+    @ObservationIgnored private var castingVolumePushTask: Task<Void, Never>?
     /// Orders asynchronous renderer commands. Any newer Play/Pause/ownership
     /// change makes an older network response observationally stale.
     var castingCommandGeneration: UInt64 = 0
@@ -3438,6 +3440,8 @@ final class AudioPlayerService {
         // 键盘快捷键和滑块都会看起来失灵。这种情况下音量由输出设备硬件承担。
         if PlaybackVolumeControlPolicy.target(
             isLiveRadio: isLiveRadio,
+            isCastingToRemoteRenderer: isCastingMode,
+            isSystemManagedPlayback: isAppleMusicMode,
             isHighFidelityDirect: playbackSettings.outputMode == .highFidelity,
             outputDeviceVolumeIsControllable: OutputDeviceVolumeController.shared.isControllable
         ) == .outputDevice {
@@ -3448,6 +3452,26 @@ final class AudioPlayerService {
         audioEngine.setVolume(clamped, persist: persist)
         radioPlaybackController.setVolume(clamped)
         activeSystemMediaPlayer?.volume = clamped
+        pushVolumeToCastingRenderer(clamped)
+    }
+
+    /// 投屏时声音是在远端设备上出的，本地的应用增益和输出设备硬件音量都够不着
+    /// 它 —— 音量得走 UPnP RenderingControl 的 SetVolume 发过去。
+    ///
+    /// 拖动过程中每个鼠标事件都会写一次音量，而 SetVolume 是一次 SOAP 往返，
+    /// 全发出去会把渲染器打满，所以停手 0.25 秒后只提交最后那一个值。渲染器
+    /// 没有 RenderingControl 服务时调用会抛错，忽略即可 —— 那台设备本来就只
+    /// 能在它自己那边调音量。
+    private func pushVolumeToCastingRenderer(_ value: Float) {
+        guard let controller = castingController else { return }
+        let percent = Int((value * 100).rounded())
+        castingVolumePushTask?.cancel()
+        castingVolumePushTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            try? await controller.setVolume(percent)
+            self?.castingVolumePushTask = nil
+        }
     }
 
     func play(song: Song, caller: String = #fileID, callerLine: Int = #line) async {

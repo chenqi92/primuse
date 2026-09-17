@@ -245,7 +245,7 @@ final class AudioEngine {
         let controller = OutputDeviceVolumeController.shared
         // start() 幂等：音量条、快捷键和播放服务都可能第一个碰到它。
         controller.start()
-        controller.preferredDeviceID = currentOutputDeviceID
+        controller.preferredDeviceID = volumeControlDeviceID
     }
     #endif
 
@@ -694,6 +694,17 @@ final class AudioEngine {
     }
 
     private static let followsSystemKey = "primuse_output_follows_system"
+
+    /// 音量控件该绑定的输出设备。
+    ///
+    /// 跟随系统时返回 nil —— 交给控制器自己盯系统默认输出设备的变化。
+    /// 这里如果钉一个具体 id 上去,控制器就会认为用户选定了设备
+    /// 而不再跟随系统: 之后用户在系统里换输出(接上 AirPods、拔掉外置声卡),
+    /// 音量条仍然读写那台旧设备 —— 表现就是滑块显示的是别人的音量、拖到 0 也
+    /// 照样有声音。用户在应用内显式钉过设备时才返回那一台。
+    var volumeControlDeviceID: AudioDeviceID? {
+        followsSystemOutput ? nil : currentOutputDeviceID
+    }
 
     /// 取当前 audio unit 在用的设备 ID,用于在 picker 里高亮当前选中项。
     var currentOutputDeviceID: AudioDeviceID? {

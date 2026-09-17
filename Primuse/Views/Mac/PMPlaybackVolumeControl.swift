@@ -16,6 +16,8 @@ private struct PMVolumeControlState {
         let controller = OutputDeviceVolumeController.shared
         target = PlaybackVolumeControlPolicy.target(
             isLiveRadio: player.isLiveRadio,
+            isCastingToRemoteRenderer: player.isCastingMode,
+            isSystemManagedPlayback: player.isAppleMusicMode,
             isHighFidelityDirect: player.playbackSettings.outputMode == .highFidelity,
             outputDeviceVolumeIsControllable: controller.isControllable
         )
@@ -99,10 +101,10 @@ struct PMPlaybackVolumeSlider: View {
         }
         .task {
             // 硬件音量可能被系统音量键或别的应用改动，得盯着；
-            // 输出设备也要跟上引擎当前钉住的那一台。
+            // 输出设备也要跟上引擎当前用的那一台。
             let controller = OutputDeviceVolumeController.shared
             controller.start()
-            controller.preferredDeviceID = engine.currentOutputDeviceID
+            controller.preferredDeviceID = engine.volumeControlDeviceID
         }
     }
 
