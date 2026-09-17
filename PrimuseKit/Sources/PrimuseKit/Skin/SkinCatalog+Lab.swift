@@ -137,7 +137,7 @@ extension SkinCatalog {
                 .homeLayout: SkinSlotVariant.HomeLayout.classic.rawValue,
                 .listRow: SkinSlotVariant.ListRow.classic.rawValue,
                 .card: SkinSlotVariant.Card.classic.rawValue,
-                .playerStage: SkinSlotVariant.PlayerStage.classic.rawValue,
+                .playerStage: SkinSlotVariant.PlayerStage.sheetActions.rawValue,
             ]
         )
     }()

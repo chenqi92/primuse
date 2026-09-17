@@ -1999,6 +1999,8 @@
 "skin_detail_posters_format" = "Plakaty z tekstem: %d";
 "skin_detail_unlock" = "Odblokuj";
 "skin_detail_unavailable" = "Jeszcze niedostępne";
+"now_playing_panel_manage_section" = "Porządkowanie";
+"now_playing_panel_song_section" = "Ten utwór";
 "minimal_shows_home_footer" = "Po wyłączeniu górny pasek pokazuje tylko kategorie biblioteki.";
 "minimal_shows_home_title" = "Pokaż Start na górnym pasku";
 "lyric_poster_style_deep_sea" = "Głębia";

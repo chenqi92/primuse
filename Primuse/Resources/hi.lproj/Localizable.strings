@@ -1999,6 +1999,8 @@
 "skin_detail_posters_format" = "%d लिरिक पोस्टर";
 "skin_detail_unlock" = "अनलॉक करें";
 "skin_detail_unavailable" = "अभी उपलब्ध नहीं";
+"now_playing_panel_manage_section" = "व्यवस्थित करें";
+"now_playing_panel_song_section" = "यह गीत";
 "minimal_shows_home_footer" = "बंद करने पर शीर्ष बार में केवल लाइब्रेरी श्रेणियाँ रहती हैं।";
 "minimal_shows_home_title" = "शीर्ष बार में होम दिखाएँ";
 "lyric_poster_style_deep_sea" = "गहरा सागर";

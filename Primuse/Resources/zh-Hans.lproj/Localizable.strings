@@ -3590,6 +3590,8 @@
 "skin_detail_posters_format" = "%d 款歌词海报";
 "skin_detail_unlock" = "解锁";
 "skin_detail_unavailable" = "尚未开放";
+"now_playing_panel_manage_section" = "整理";
+"now_playing_panel_song_section" = "这首歌";
 "minimal_shows_home_footer" = "关闭后，顶栏只保留资料库分类。";
 "minimal_shows_home_title" = "在顶栏显示首页";
 "lyric_poster_style_deep_sea" = "深海";

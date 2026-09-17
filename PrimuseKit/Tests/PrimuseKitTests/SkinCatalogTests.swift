@@ -256,6 +256,8 @@ struct SkinCatalogTests {
         #expect(skin.bottomChrome == .floatingCapsule)
         #expect(skin.detailHeader == .coverWall)
         #expect(skin.settingsRoot == .hub)
+        #expect(skin.playerStage == .sheetActions)
+        #expect(SkinCatalog.classic.playerStage == .classic)
         #expect(SkinCatalog.classic.navigationHeader == .classic)
         #expect(SkinCatalog.classic.bottomChrome == .classic)
         #expect(SkinCatalog.classic.detailHeader == .classic)

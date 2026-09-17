@@ -1999,6 +1999,8 @@
 "skin_detail_posters_format" = "ملصقات الكلمات: %d";
 "skin_detail_unlock" = "فتح القفل";
 "skin_detail_unavailable" = "غير متاح بعد";
+"now_playing_panel_manage_section" = "تنظيم";
+"now_playing_panel_song_section" = "هذه الأغنية";
 "minimal_shows_home_footer" = "عند الإيقاف، يحتفظ الشريط العلوي بفئات المكتبة فقط.";
 "minimal_shows_home_title" = "إظهار الصفحة الرئيسية في الشريط العلوي";
 "lyric_poster_style_deep_sea" = "أعماق البحر";

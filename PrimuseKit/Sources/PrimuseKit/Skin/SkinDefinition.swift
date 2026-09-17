@@ -64,7 +64,11 @@ public enum SkinSlotVariant {
     public enum HomeLayout: String, CaseIterable, Sendable { case classic }
     public enum ListRow: String, CaseIterable, Sendable { case classic }
     public enum Card: String, CaseIterable, Sendable { case classic }
-    public enum PlayerStage: String, CaseIterable, Sendable { case classic }
+    public enum PlayerStage: String, CaseIterable, Sendable {
+        case classic
+        /// 播放页的「更多」以分组面板呈现(常用的几项提到第一排),而不是一长条系统菜单。
+        case sheetActions
+    }
 }
 
 /// 插槽实现的标识。样式定义里存的是这个字符串,读取时再还原成枚举。

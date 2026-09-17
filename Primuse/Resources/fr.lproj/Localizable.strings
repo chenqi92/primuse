@@ -3489,6 +3489,8 @@
 "skin_detail_posters_format" = "%d affiches de paroles";
 "skin_detail_unlock" = "Déverrouiller";
 "skin_detail_unavailable" = "Pas encore disponible";
+"now_playing_panel_manage_section" = "Organiser";
+"now_playing_panel_song_section" = "Ce morceau";
 "minimal_shows_home_footer" = "Si désactivé, la barre supérieure ne conserve que les catégories de la bibliothèque.";
 "minimal_shows_home_title" = "Afficher Accueil dans la barre supérieure";
 "lyric_poster_style_deep_sea" = "Abysses";

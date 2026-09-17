@@ -3274,6 +3274,8 @@
 "skin_detail_posters_format" = "%d lyric posters";
 "skin_detail_unlock" = "Unlock";
 "skin_detail_unavailable" = "Not available yet";
+"now_playing_panel_manage_section" = "Organize";
+"now_playing_panel_song_section" = "This Song";
 "minimal_shows_home_footer" = "When off, the top bar keeps only your library categories.";
 "minimal_shows_home_title" = "Show Home in the Top Bar";
 "lyric_poster_style_deep_sea" = "Deep Sea";

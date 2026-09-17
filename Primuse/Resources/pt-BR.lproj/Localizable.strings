@@ -1999,6 +1999,8 @@
 "skin_detail_posters_format" = "%d pôsteres de letras";
 "skin_detail_unlock" = "Desbloquear";
 "skin_detail_unavailable" = "Ainda não disponível";
+"now_playing_panel_manage_section" = "Organizar";
+"now_playing_panel_song_section" = "Esta música";
 "minimal_shows_home_footer" = "Quando desativado, a barra superior mantém apenas as categorias da biblioteca.";
 "minimal_shows_home_title" = "Mostrar Início na barra superior";
 "lyric_poster_style_deep_sea" = "Mar profundo";

@@ -3276,6 +3276,8 @@
 "skin_detail_posters_format" = "Постери з текстом пісень: %d";
 "skin_detail_unlock" = "Розблокувати";
 "skin_detail_unavailable" = "Поки недоступно";
+"now_playing_panel_manage_section" = "Упорядкувати";
+"now_playing_panel_song_section" = "Ця пісня";
 "minimal_shows_home_footer" = "Якщо вимкнено, у верхній панелі залишаються лише категорії медіатеки.";
 "minimal_shows_home_title" = "Показувати «Головну» у верхній панелі";
 "lyric_poster_style_deep_sea" = "Глибоке море";

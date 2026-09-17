@@ -3490,6 +3490,8 @@
 "skin_detail_posters_format" = "歌詞ポスター %d 種";
 "skin_detail_unlock" = "ロック解除";
 "skin_detail_unavailable" = "まだ利用できません";
+"now_playing_panel_manage_section" = "整理";
+"now_playing_panel_song_section" = "この曲";
 "minimal_shows_home_footer" = "オフにすると、トップバーにはライブラリのカテゴリだけが残ります。";
 "minimal_shows_home_title" = "トップバーにホームを表示";
 "lyric_poster_style_deep_sea" = "ディープシー";

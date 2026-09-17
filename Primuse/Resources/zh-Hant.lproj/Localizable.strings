@@ -3474,6 +3474,8 @@
 "skin_detail_posters_format" = "%d 款歌詞海報";
 "skin_detail_unlock" = "解鎖";
 "skin_detail_unavailable" = "尚未開放";
+"now_playing_panel_manage_section" = "整理";
+"now_playing_panel_song_section" = "這首歌";
 "minimal_shows_home_footer" = "關閉後，頂部列只保留資料庫分類。";
 "minimal_shows_home_title" = "在頂部列顯示首頁";
 "lyric_poster_style_deep_sea" = "深海";

@@ -3489,6 +3489,8 @@
 "skin_detail_posters_format" = "%d Songtext-Poster";
 "skin_detail_unlock" = "Entsperren";
 "skin_detail_unavailable" = "Noch nicht verfügbar";
+"now_playing_panel_manage_section" = "Verwalten";
+"now_playing_panel_song_section" = "Dieser Titel";
 "minimal_shows_home_footer" = "Wenn deaktiviert, zeigt die obere Leiste nur noch deine Mediathek-Kategorien.";
 "minimal_shows_home_title" = "Start in der oberen Leiste anzeigen";
 "lyric_poster_style_deep_sea" = "Tiefsee";

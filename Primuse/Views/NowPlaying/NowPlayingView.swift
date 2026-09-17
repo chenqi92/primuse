@@ -4968,7 +4968,10 @@ struct AirPlayButton: View {
 /// Only state that can legitimately change the native menu's contents. Playback
 /// progress and lyric scroll state are intentionally absent, so their frequent
 /// updates cannot invalidate an already-presented menu.
-private struct NowPlayingMoreMenuSnapshot: Equatable {
+///
+/// Not private: the grouped actions panel (another presentation of the same menu,
+/// chosen by the interface skin) lives in its own file and reads the same snapshot.
+struct NowPlayingMoreMenuSnapshot: Equatable {
     let songID: String?
     let hasSong: Bool
     let isScrapingCurrentSong: Bool
@@ -5005,6 +5008,11 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     let immersiveChrome: Bool
+    /// 「更多」怎么呈现由界面皮肤决定:系统菜单,或分组面板。两者的内容与动作是同一份。
+    @Environment(\.skin) private var skin
+    @State private var showsActionsPanel = false
+    /// 面板里选中的、要等面板收起之后再执行的动作(它们大多会再弹出一个面板)。
+    @State private var pendingPanelAction: (() -> Void)?
 
     let onEnterFullScreen: () -> Void
     let onAddToPlaylist: () -> Void
@@ -5037,6 +5045,68 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     }
 
     var body: some View {
+        #if os(iOS)
+        switch skin.skin.playerStage {
+        case .sheetActions:
+            actionsPanelButton
+        case .classic:
+            nativeMenu
+        }
+        #else
+        nativeMenu
+        #endif
+    }
+
+    #if os(iOS)
+    private var actionsPanelButton: some View {
+        Button {
+            showsActionsPanel = true
+        } label: {
+            moreLabel
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("a11y_more_actions"))
+        .sheet(isPresented: $showsActionsPanel, onDismiss: { runPendingPanelAction() }) {
+            NowPlayingActionsPanel(
+                snapshot: snapshot,
+                lyricsFontScale: $lyricsFontScale,
+                playbackRate: $playbackRate,
+                lyricsMotionEnabled: $lyricsMotionEnabled,
+                actions: NowPlayingMoreActions(
+                    enterFullScreen: onEnterFullScreen,
+                    addToPlaylist: onAddToPlaylist,
+                    scrape: onScrape,
+                    reloadLyricsFromSource: onReloadLyricsFromSource,
+                    showSimilarSongs: onShowSimilarSongs,
+                    editTags: onEditTags,
+                    editLyrics: onEditLyrics,
+                    showSongInfo: onShowSongInfo,
+                    openAlbum: onOpenAlbum,
+                    openArtist: onOpenArtist,
+                    openInAppleMusic: onOpenInAppleMusic,
+                    share: onShare,
+                    shareLyrics: onShareLyrics,
+                    showCastPicker: onShowCastPicker,
+                    toggleLyricsTranslation: onToggleLyricsTranslation,
+                    showSleepTimer: onShowSleepTimer,
+                    delete: onDelete
+                ),
+                performAfterDismiss: { action in
+                    pendingPanelAction = action
+                    showsActionsPanel = false
+                }
+            )
+        }
+    }
+
+    private func runPendingPanelAction() {
+        let action = pendingPanelAction
+        pendingPanelAction = nil
+        action?()
+    }
+    #endif
+
+    private var nativeMenu: some View {
         Menu {
             if snapshot.showsFullScreenAction {
                 Section {
@@ -5219,32 +5289,37 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                 }
             }
         } label: {
-            if immersiveChrome {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(appearance.primary.opacity(0.88))
-                    .frame(width: 44, height: 44)
-                    .background {
-                        Circle()
-                            .fill(.ultraThinMaterial)
-                            .environment(\.colorScheme, .dark)
-                        Circle().fill(.black.opacity(0.16))
-                    }
-                    .overlay {
-                        Circle().strokeBorder(.white.opacity(0.20), lineWidth: 0.8)
-                    }
-            } else {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(appearance.secondary)
-                    .frame(width: 38, height: 38)
-                    .background(appearance.primary.opacity(0.065), in: Circle())
-                    .overlay {
-                        Circle()
-                            .strokeBorder(appearance.primary.opacity(0.14), lineWidth: 0.75)
-                    }
-                    .frame(width: 44, height: 44)
-            }
+            moreLabel
+        }
+    }
+
+    @ViewBuilder
+    private var moreLabel: some View {
+        if immersiveChrome {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(appearance.primary.opacity(0.88))
+                .frame(width: 44, height: 44)
+                .background {
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                        .environment(\.colorScheme, .dark)
+                    Circle().fill(.black.opacity(0.16))
+                }
+                .overlay {
+                    Circle().strokeBorder(.white.opacity(0.20), lineWidth: 0.8)
+                }
+        } else {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(appearance.secondary)
+                .frame(width: 38, height: 38)
+                .background(appearance.primary.opacity(0.065), in: Circle())
+                .overlay {
+                    Circle()
+                        .strokeBorder(appearance.primary.opacity(0.14), lineWidth: 0.75)
+                }
+                .frame(width: 44, height: 44)
         }
     }
 }
