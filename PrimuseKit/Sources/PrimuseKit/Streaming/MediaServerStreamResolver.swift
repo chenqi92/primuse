@@ -118,7 +118,9 @@ public actor MediaServerStreamResolver: StreamResolver {
     }
 
     private func login(base: URL, username: String, password: String, deviceID: String, emby: Bool) async throws -> String {
-        var req = URLRequest(url: base.appendingPathComponent("Users/AuthenticateByName"))
+        var req = URLRequest(
+            url: ProxyPrefixedBasePathPolicy.appending("Users/AuthenticateByName", to: base)
+        )
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let authValue = Self.mediaBrowserAuth(deviceID: deviceID, token: nil)
@@ -137,7 +139,9 @@ public actor MediaServerStreamResolver: StreamResolver {
     // MARK: - Plex 元数据 → partKey
 
     private func plexPartKey(base: URL, ratingKey: String, token: String, deviceID: String) async throws -> String {
-        var req = URLRequest(url: base.appendingPathComponent("library/metadata/\(ratingKey)"))
+        var req = URLRequest(
+            url: ProxyPrefixedBasePathPolicy.appending("library/metadata/\(ratingKey)", to: base)
+        )
         req.setValue(token, forHTTPHeaderField: "X-Plex-Token")
         req.setValue(deviceID, forHTTPHeaderField: "X-Plex-Client-Identifier")
         req.setValue("Primuse", forHTTPHeaderField: "X-Plex-Product")
@@ -153,24 +157,23 @@ public actor MediaServerStreamResolver: StreamResolver {
 
     // MARK: - 纯函数(可单测)
 
+    /// host 自带的那截路径以前在第一个 `/` 处被截掉,反代前缀写在地址栏里时
+    /// 整段就丢了;basePath 里嵌套的完整 URL 也要逐字保留。
     static func baseURL(host: String, port: Int?, useSsl: Bool, basePath: String?) -> URL? {
-        var h = host.trimmingCharacters(in: .whitespaces)
-        guard !h.isEmpty else { return nil }
-        var scheme = useSsl ? "https" : "http"
-        if let r = h.range(of: "://") { scheme = String(h[..<r.lowerBound]).lowercased(); h = String(h[r.upperBound...]) }
-        if let slash = h.firstIndex(of: "/") { h = String(h[..<slash]) }
+        let address = ProxyPrefixedBasePathPolicy.splitAddress(host)
         // 裸 IPv6 字面量自带冒号,旧的 `!h.contains(":")` 判断会把端口整个丢掉,
         // 拼出来的还是个非法 URL。
-        let split = NetworkHostAuthority.splitHostAndPort(h)
+        let split = NetworkHostAuthority.splitHostAndPort(address.authority)
         guard let hostPort = NetworkHostAuthority.authority(
             host: split.host,
             port: split.port ?? port
         ) else { return nil }
-        guard var url = URL(string: "\(scheme)://\(hostPort)") else { return nil }
-        if let bp = basePath?.trimmingCharacters(in: .whitespaces), !bp.isEmpty {
-            for c in bp.split(separator: "/") { url.appendPathComponent(String(c)) }
-        }
-        return url
+        return ProxyPrefixedBasePathPolicy.baseURL(
+            scheme: address.scheme ?? (useSsl ? "https" : "http"),
+            authority: hostPort,
+            hostPath: address.pathPrefix,
+            basePath: basePath
+        )
     }
 
     static func itemID(from filePath: String) -> String? {
@@ -181,8 +184,10 @@ public actor MediaServerStreamResolver: StreamResolver {
     }
 
     static func jellyfinStreamURL(base: URL, itemID: String, token: String) -> URL? {
-        guard var comp = URLComponents(url: base.appendingPathComponent("Audio/\(itemID)/stream"),
-                                       resolvingAgainstBaseURL: false) else { return nil }
+        guard var comp = URLComponents(
+            url: ProxyPrefixedBasePathPolicy.appending("Audio/\(itemID)/stream", to: base),
+            resolvingAgainstBaseURL: false
+        ) else { return nil }
         comp.queryItems = [URLQueryItem(name: "Static", value: "true"),
                            URLQueryItem(name: "api_key", value: token)]
         return FormSafeQueryURLBuilder.url(from: comp)
@@ -190,7 +195,7 @@ public actor MediaServerStreamResolver: StreamResolver {
 
     static func jellyfinLiveRadioStreamURL(base: URL, itemID: String, token: String) -> URL? {
         guard var comp = URLComponents(
-            url: base.appendingPathComponent("Audio/\(itemID)/stream.mp3"),
+            url: ProxyPrefixedBasePathPolicy.appending("Audio/\(itemID)/stream.mp3", to: base),
             resolvingAgainstBaseURL: false
         ) else { return nil }
         comp.queryItems = [
@@ -204,8 +209,10 @@ public actor MediaServerStreamResolver: StreamResolver {
 
     static func plexStreamURL(base: URL, partKey: String, token: String) -> URL? {
         // partKey 形如 /library/parts/123/file.mp3,直接拼到 base 上。
-        guard var comp = URLComponents(url: base.appendingPathComponent(partKey),
-                                       resolvingAgainstBaseURL: false) else { return nil }
+        guard var comp = URLComponents(
+            url: ProxyPrefixedBasePathPolicy.appending(partKey, to: base),
+            resolvingAgainstBaseURL: false
+        ) else { return nil }
         comp.queryItems = [URLQueryItem(name: "X-Plex-Token", value: token)]
         return FormSafeQueryURLBuilder.url(from: comp)
     }

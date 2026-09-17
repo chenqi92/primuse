@@ -97,9 +97,7 @@ public struct SubsonicStreamResolver: StreamResolver {
     static func streamURL(base: URL, username: String, token: String, salt: String,
                           songID: String, transcode: Bool, bitRate: Int = transcodeBitRate,
                           apiVersion: String = apiVersion, encodedPassword: String? = nil) -> URL? {
-        var url = base
-        url.appendPathComponent("rest")
-        url.appendPathComponent("stream.view")
+        let url = ProxyPrefixedBasePathPolicy.appending("rest/stream.view", to: base)
         guard var comp = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
         var items = [
             URLQueryItem(name: "u", value: username),
@@ -124,30 +122,23 @@ public struct SubsonicStreamResolver: StreamResolver {
         return FormSafeQueryURLBuilder.url(from: comp)
     }
 
-    /// host 可能已含 scheme / 端口;basePath 逐段拼到路径。返回不含 /rest 的基址。
+    /// host 可能已含 scheme / 端口 / 路径;basePath 接在它后面。返回不含 /rest
+    /// 的基址。host 自带的那截路径以前在第一个 `/` 处被截掉,反代前缀写在地址
+    /// 栏里时整段就丢了。
     static func makeBaseURL(host: String, port: Int?, useSsl: Bool, basePath: String?) -> URL? {
-        var h = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !h.isEmpty else { return nil }
-        var scheme = useSsl ? "https" : "http"
-        if let r = h.range(of: "://") {
-            scheme = String(h[..<r.lowerBound]).lowercased()
-            h = String(h[r.upperBound...])
-        }
-        // 去掉 host 上多余的路径段(只保留 host[:port])。
-        if let slash = h.firstIndex(of: "/") { h = String(h[..<slash]) }
+        let address = ProxyPrefixedBasePathPolicy.splitAddress(host)
         // 裸 IPv6 字面量自带冒号,旧的 `!h.contains(":")` 判断会把端口整个丢掉。
-        let split = NetworkHostAuthority.splitHostAndPort(h)
+        let split = NetworkHostAuthority.splitHostAndPort(address.authority)
         guard let hostPort = NetworkHostAuthority.authority(
             host: split.host,
             port: split.port ?? port
         ) else { return nil }
-        guard var url = URL(string: "\(scheme)://\(hostPort)") else { return nil }
-        if let bp = basePath?.trimmingCharacters(in: .whitespacesAndNewlines), !bp.isEmpty {
-            for component in bp.split(separator: "/") {
-                url.appendPathComponent(String(component))
-            }
-        }
-        return url
+        return ProxyPrefixedBasePathPolicy.baseURL(
+            scheme: address.scheme ?? (useSsl ? "https" : "http"),
+            authority: hostPort,
+            hostPath: address.pathPrefix,
+            basePath: basePath
+        )
     }
 
     /// 从 `/songs/{id}.{suffix}` 形式的 filePath 取回服务端 songID。
@@ -419,9 +410,7 @@ public struct SubsonicLyricsClient: @unchecked Sendable {
         query: [URLQueryItem],
         context: RequestContext
     ) -> URL? {
-        var url = context.baseURL
-        url.appendPathComponent("rest")
-        url.appendPathComponent("\(method).view")
+        let url = ProxyPrefixedBasePathPolicy.appending("rest/\(method).view", to: context.baseURL)
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return nil
         }

@@ -1498,9 +1498,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     /// 构造 `{baseURL}/rest/{method}.view?<auth>&<query>`。`.view` 后缀
     /// 在整个 Subsonic 家族通用(Navidrome 会自动剥离)。
     private func buildRESTURL(method: String, query: [URLQueryItem]) -> URL? {
-        var url = baseURL
-        url.appendPathComponent("rest")
-        url.appendPathComponent("\(method).view")
+        let url = ProxyPrefixedBasePathPolicy.appending("rest/\(method).view", to: baseURL)
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
         components.queryItems = authQueryItems() + query
         return components.url
@@ -1539,15 +1537,11 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     private static func makeBaseURL(host: String, port: Int?, useSsl: Bool, basePath: String?) -> URL {
         let rawHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         let scheme = useSsl ? "https" : "http"
-        var url = NetworkURLBuilder.baseURL(host: rawHost, scheme: scheme, port: port)
+        let url = NetworkURLBuilder.baseURL(host: rawHost, scheme: scheme, port: port)
             ?? URL(string: "\(scheme)://localhost")!
-        let normalizedBasePath = (basePath ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if normalizedBasePath.isEmpty == false {
-            for component in normalizedBasePath.split(separator: "/") {
-                url.appendPathComponent(String(component))
-            }
-        }
-        return url
+        // 反代前缀(`https://proxy/https://nav:4533`)必须逐字接上去: 逐段
+        // appendPathComponent 会把 `//` 折成 `/`、把 `https:` 转义成 `https%3A`。
+        return ProxyPrefixedBasePathPolicy.appending(basePath, to: url)
     }
 
     /// 去掉空白; 空串或 Navidrome 占位符(如 "[Unknown Artist]")视作"无值"返回 nil。

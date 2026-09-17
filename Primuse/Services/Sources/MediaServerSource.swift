@@ -3153,10 +3153,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     }
 
     private func buildURL(path: String, queryItems: [URLQueryItem] = []) -> URL {
-        var url = baseURL
-        for component in path.split(separator: "/") {
-            url.appendPathComponent(String(component))
-        }
+        let url = ProxyPrefixedBasePathPolicy.appending(path, to: baseURL)
 
         guard queryItems.isEmpty == false,
               var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
@@ -3776,17 +3773,12 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     ) -> URL {
         let rawHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         let scheme = useSsl ? "https" : "http"
-        var url = NetworkURLBuilder.baseURL(host: rawHost, scheme: scheme, port: port)
+        let url = NetworkURLBuilder.baseURL(host: rawHost, scheme: scheme, port: port)
             ?? URL(string: "\(scheme)://localhost")!
 
-        let normalizedBasePath = (basePath ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if normalizedBasePath.isEmpty == false {
-            for pathComponent in normalizedBasePath.split(separator: "/") {
-                url.appendPathComponent(String(pathComponent))
-            }
-        }
-
-        return url
+        // 反代前缀(`https://proxy/https://emby:8096`)必须逐字接上去: 逐段
+        // appendPathComponent 会把 `//` 折成 `/`、把 `https:` 转义成 `https%3A`。
+        return ProxyPrefixedBasePathPolicy.appending(basePath, to: url)
     }
 }
 

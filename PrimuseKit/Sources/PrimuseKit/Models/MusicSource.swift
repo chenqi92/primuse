@@ -798,9 +798,15 @@ public struct SourceConnectionEndpoint: Codable, Hashable, Sendable {
         }
 
         let urlPath = Self.normalizedPath(components?.percentEncodedPath.removingPercentEncoding)
+        // 粘贴进来的反代地址(`https://proxy.example.com/https://nav:4533`)里,
+        // 端口属于外层代理,而端口框里预填的是源类型的默认端口(Navidrome 的
+        // 4533 之类),一定是错的。地址自己没写端口就按 scheme 取 443/80。
+        let proxyPort = ProxyPrefixedBasePathPolicy.embeddedURLProxyPort(
+            for: ProxyPrefixedBasePathPolicy.splitAddress(address)
+        )
         return SourceConnectionEndpoint(
             host: parsedHost,
-            port: components?.port ?? port,
+            port: components?.port ?? proxyPort ?? port,
             useSsl: normalizedSSL,
             pathPrefix: urlPath ?? Self.normalizedPath(pathPrefix)
         )
