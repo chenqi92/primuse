@@ -122,9 +122,10 @@ struct SkinSettingsSection: View {
         }
     }
 
-    /// 皮肤名与描述随 PrimuseKit 一起本地化(样式定义在那一层)。
+    /// 皮肤名与描述随 PrimuseKit 一起本地化(皮肤定义在那一层),要经 kit 公开的入口去取 ——
+    /// kit 自己的 bundle 对 App 不可见。
     static func localized(_ key: String) -> String {
-        String(localized: String.LocalizationValue(key), bundle: .primuseKit)
+        PMString(key)
     }
 }
 

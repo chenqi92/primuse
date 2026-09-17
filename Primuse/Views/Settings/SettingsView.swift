@@ -346,10 +346,8 @@ struct SettingsView: View {
                 sourcesStore.sources.count
             )
         case .appearance:
-            return String(
-                localized: String.LocalizationValue(skin.skin.nameKey),
-                bundle: .primuseKit
-            )
+            // 皮肤名在 PrimuseKit 的语言表里。
+            return PMString(skin.skin.nameKey)
         case .playback:
             return service.status(for: "playback.outputMode").value
         case .lyrics:
