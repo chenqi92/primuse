@@ -247,6 +247,10 @@
 "ext.tv.settings.tip.search.title"         = "検索フィールド";
 "ext.tv.settings.tip.search.body"          = "キーボードを表示 · 音声入力に対応";
 "ext.tv.settings.noSnapshot"               = "ライブラリのスナップショットが見つかりません";
+"ext.tv.settings.icloudSyncEnabled"        = "iCloud データを同期";
+"ext.tv.settings.syncNoAccount"            = "iCloud にサインインしていません";
+"ext.tv.settings.syncUnreachable"          = "iCloud に接続できません。ネットワークを確認してください";
+"ext.tv.settings.syncedNoTransferable"     = "同期済み · 端末内のローカルファイルは転送されません";
 "ext.tv.settings.synced"                   = "同期済み · %@曲";
 
 // tvOS — Sources

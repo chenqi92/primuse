@@ -27,6 +27,9 @@ struct TVSettingsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var onNavigate: (TVRoot.Tab) -> Void = { _ in }
     @AppStorage("tvAutoSync") private var autoSync = true
+    /// 与 iOS / macOS 同一个键、同一个默认值。CloudKit 在账号退出或切换时会把它
+    /// 强制关掉,Apple TV 上必须有地方能再打开。
+    @AppStorage("primuse.iCloudSyncEnabled") private var iCloudSyncEnabled = true
     @AppStorage(AppThemePreferences.accentHexKey)
     private var accentHex = AppThemePreferences.defaultAccentHex
     @AppStorage(AppThemePreferences.colorModeKey)
@@ -89,6 +92,13 @@ struct TVSettingsView: View {
                             .foregroundStyle(TVColor.text)
                             .padding(.bottom, 24)
                         settingsSection(String(localized: "sync")) {
+                            toggleRow("icloud", PMString("ext.tv.settings.icloudSyncEnabled"), isOn: $iCloudSyncEnabled)
+                                .onChange(of: iCloudSyncEnabled) { _, value in
+                                    // 只改偏好不生效:引擎要跟着起停,与 iOS 的
+                                    // CloudSyncSettingsView 做同一件事。
+                                    Task { await store.setCloudSyncEnabled(value) }
+                                }
+                            settingDivider
                             navRow("icloud.fill", PMString("ext.tv.settings.icloudSync"), syncValue, trailing: "arrow.clockwise", action: sync)
                             settingDivider
                             toggleRow("arrow.triangle.2.circlepath", PMString("ext.tv.settings.autoSync"), isOn: $autoSync)
@@ -257,11 +267,28 @@ struct TVSettingsView: View {
         isSyncing = true
         syncMsg = nil
         Task {
-            let succeeded = await store.bootstrap()
+            let outcome = await store.bootstrapWithOutcome()
             isSyncing = false
-            syncMsg = succeeded
-                ? PMString("ext.tv.settings.synced", TVFmt.count(store.songs.count))
-                : PMString("ext.tv.settings.noSnapshot")
+            syncMsg = syncStatusText(for: outcome)
+        }
+    }
+
+    /// 同步结果的一句话解释。没登录、连不上、云端没快照、本机写不进去要分开讲,
+    /// 「装上了但一首歌都用不了」也得说明白是手机本机文件不跨设备,而不是没同步。
+    private func syncStatusText(for outcome: TVSyncOutcome) -> String {
+        switch outcome {
+        case .installed:
+            return PMString("ext.tv.settings.synced", TVFmt.count(store.songs.count))
+        case .installedWithoutTransferableSongs:
+            return PMString("ext.tv.settings.syncedNoTransferable")
+        case .accountUnavailable:
+            return PMString("ext.tv.settings.syncNoAccount")
+        case .cloudUnreachable:
+            return PMString("ext.tv.settings.syncUnreachable")
+        case .noSnapshot:
+            return PMString("ext.tv.settings.noSnapshot")
+        case .localStorageUnavailable:
+            return PMString("ext.tv.persistence.failed")
         }
     }
 

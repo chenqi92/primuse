@@ -247,6 +247,10 @@
 "ext.tv.settings.tip.search.title"         = "Suchfeld";
 "ext.tv.settings.tip.search.body"          = "Öffnet die Tastatur · Sprachdiktierfunktion unterstützt";
 "ext.tv.settings.noSnapshot"               = "Kein Mediathek-Snapshot gefunden";
+"ext.tv.settings.icloudSyncEnabled"        = "iCloud-Daten synchronisieren";
+"ext.tv.settings.syncNoAccount"            = "Nicht bei iCloud angemeldet";
+"ext.tv.settings.syncUnreachable"          = "iCloud nicht erreichbar – Netzwerk prüfen";
+"ext.tv.settings.syncedNoTransferable"     = "Synchronisiert · Lokale Dateien bleiben auf dem Telefon";
 "ext.tv.settings.synced"                   = "Synchronisiert · %@ Titel";
 
 // tvOS — Sources

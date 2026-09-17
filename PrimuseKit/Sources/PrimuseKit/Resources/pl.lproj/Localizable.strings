@@ -307,6 +307,10 @@
 "ext.tv.settings.library" = "Biblioteka";
 "ext.tv.settings.libraryStat" = "Piosenki %1$@ · Albumy %2$d · Artyści %3$d";
 "ext.tv.settings.noSnapshot" = "Nie znaleziono migawki biblioteki";
+"ext.tv.settings.icloudSyncEnabled" = "Synchronizuj dane iCloud";
+"ext.tv.settings.syncNoAccount" = "Nie zalogowano do iCloud";
+"ext.tv.settings.syncUnreachable" = "Brak połączenia z iCloud — sprawdź sieć";
+"ext.tv.settings.syncedNoTransferable" = "Zsynchronizowano · Pliki lokalne zostają na telefonie";
 "ext.tv.settings.notSynced" = "Jeszcze nie zsynchronizowane";
 "ext.tv.settings.playlists" = "Playlisty";
 "ext.tv.settings.remoteTips" = "Zdalne wskazówki";

@@ -307,6 +307,10 @@
 "ext.tv.settings.library" = "คลังเพลง";
 "ext.tv.settings.libraryStat" = "%1$@ เพลง · %2$d อัลบั้ม · %3$d ศิลปิน";
 "ext.tv.settings.noSnapshot" = "ไม่พบสแนปช็อตของคลังเพลง";
+"ext.tv.settings.icloudSyncEnabled" = "ซิงค์ข้อมูล iCloud";
+"ext.tv.settings.syncNoAccount" = "ยังไม่ได้ลงชื่อเข้าใช้ iCloud";
+"ext.tv.settings.syncUnreachable" = "เชื่อมต่อ iCloud ไม่ได้ — ตรวจสอบเครือข่าย";
+"ext.tv.settings.syncedNoTransferable" = "ซิงค์แล้ว · ไฟล์ในเครื่องจะอยู่บนโทรศัพท์เท่านั้น";
 "ext.tv.settings.notSynced" = "ยังไม่ได้ซิงค์";
 "ext.tv.settings.playlists" = "เพลย์ลิสต์";
 "ext.tv.settings.remoteTips" = "เคล็ดลับระยะไกล";

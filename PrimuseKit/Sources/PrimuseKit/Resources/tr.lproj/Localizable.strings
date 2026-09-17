@@ -543,6 +543,10 @@
 "fullscreen_effect_cover_gallery_subtitle" = "Önde güncel sanat eserleri ve arkasında arşiv kapakları hareket ediyor";
 "ext.tv.home.madeForYou" = "Sizin İçin Üretildi";
 "ext.tv.settings.noSnapshot" = "Arşiv anlık görüntüsü bulunamadı";
+"ext.tv.settings.icloudSyncEnabled" = "iCloud verilerini eşitle";
+"ext.tv.settings.syncNoAccount" = "iCloud'da oturum açılmadı";
+"ext.tv.settings.syncUnreachable" = "iCloud'a ulaşılamıyor — ağı kontrol edin";
+"ext.tv.settings.syncedNoTransferable" = "Eşitlendi · Yerel dosyalar telefonda kalır";
 "ext.tv.settings.libraryStat" = "%1$@ şarkıları · %2$d albümleri · %3$d sanatçıları";
 "ext.tv.search.path" = "Yol: %@";
 "ext.tv.options.eyebrow" = "Seçenekler";

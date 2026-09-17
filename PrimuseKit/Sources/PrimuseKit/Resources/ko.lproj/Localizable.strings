@@ -247,6 +247,10 @@
 "ext.tv.settings.tip.search.title"         = "검색 필드";
 "ext.tv.settings.tip.search.body"          = "키보드를 표시 · 음성 받아쓰기 지원";
 "ext.tv.settings.noSnapshot"               = "보관함 스냅샷을 찾을 수 없음";
+"ext.tv.settings.icloudSyncEnabled"        = "iCloud 데이터 동기화";
+"ext.tv.settings.syncNoAccount"            = "iCloud에 로그인되어 있지 않음";
+"ext.tv.settings.syncUnreachable"          = "iCloud에 연결할 수 없음. 네트워크를 확인하세요";
+"ext.tv.settings.syncedNoTransferable"     = "동기화됨 · 기기 내 로컬 파일은 전송되지 않음";
 "ext.tv.settings.synced"                   = "동기화됨 · %@곡";
 
 // tvOS — Sources

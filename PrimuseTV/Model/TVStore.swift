@@ -345,6 +345,34 @@ struct TVNowPlaying {
     var sourcePath: String
 }
 
+/// 一次 Apple TV 同步引导的结果。失败原因必须能落到设置页上的一句话:无账号、
+/// 连不上 iCloud、云端还没有快照、本机写不进去在用户那里的处置方式完全不同,
+/// 全都显示成「未找到曲库快照」等于什么都没说。
+enum TVSyncOutcome: Equatable, Sendable {
+    /// 装上了云端快照,本机现在有可浏览的曲库。
+    case installed
+    /// 快照装上了,但没有一首歌能在 Apple TV 上用 —— 手机侧的本机文件源按设计
+    /// 不跨设备同步,这种情况要单独告诉用户,否则看起来就像同步没生效。
+    case installedWithoutTransferableSongs
+    /// iCloud 账号不可用(未登录 / 受限 / 本次构建拿不到 CloudKit 容器)。
+    case accountUnavailable
+    /// CloudKit 请求失败:网络不通、超配额,或服务端报错。
+    case cloudUnreachable
+    /// 连上了,但账号里还没有任何曲库快照。
+    case noSnapshot
+    /// 本机这一侧装不进去:sources.json 残缺,或上一次导入事务没收尾。
+    case localStorageUnavailable
+
+    /// 兼容旧调用点的「这次有没有装上新快照」。
+    var didInstall: Bool {
+        switch self {
+        case .installed, .installedWithoutTransferableSongs: return true
+        case .accountUnavailable, .cloudUnreachable, .noSnapshot, .localStorageUnavailable:
+            return false
+        }
+    }
+}
+
 // MARK: - Store
 
 @MainActor
@@ -530,7 +558,7 @@ final class TVStore {
         !isApplyingSnapshot && !hasPendingSnapshotRecovery && sourcesStore.hasCompleteSnapshot
     }
     @ObservationIgnored private var pendingImportTask: Task<Bool, Never>?
-    @ObservationIgnored private var syncTask: Task<Bool, Never>?
+    @ObservationIgnored private var syncTask: Task<TVSyncOutcome, Never>?
     private var locallyRemovedSourceIDs: Set<String>
     private var locallyScannedSourceIDs: Set<String>
     private var sourceAuthenticationFailures: Set<String> = []
@@ -1445,30 +1473,75 @@ final class TVStore {
 
     // MARK: 启动引导(从 iCloud 拉取快照并重载真实曲库)
 
+    /// 兼容入口:只关心「这次有没有装上新快照」的调用点继续用它。
     @discardableResult
     func bootstrap() async -> Bool {
+        await bootstrapWithOutcome().didInstall
+    }
+
+    /// 带失败原因的引导。设置页要靠它把「没登录 / 连不上 / 云端没快照 / 本机写不进去」
+    /// 分开显示,不要再统一收敛成一句「未找到曲库快照」。
+    @discardableResult
+    func bootstrapWithOutcome() async -> TVSyncOutcome {
         if let syncTask { return await syncTask.value }
         let task = Task { await self.performBootstrap() }
         syncTask = task
-        let succeeded = await task.value
+        let outcome = await task.value
         syncTask = nil
-        return succeeded
+        return outcome
     }
 
-    private func performBootstrap() async -> Bool {
-        guard await retryPendingSnapshotImport() else { return false }
+    private func performBootstrap() async -> TVSyncOutcome {
+        guard await retryPendingSnapshotImport() else { return .localStorageUnavailable }
         #if DEBUG
         injectDebugCredential()   // 先注入,避免与自动播放钩子竞态(CloudKit await 期间)
         #endif
         reload()
         resumePendingSourceUpload()
         let payload = await LibrarySnapshotSync.shared.downloadTVPayload()
-        let installed: Bool
+        var installed = false
         if let payload { installed = await installSnapshot(payload, fromCloud: true) }
-        else { installed = false }
+        // `start()` 只有第一次会真的跑 fetch + send,之后凭 `engine != nil` 直接早退。
+        // 设置页的手动同步要想把 CKSyncEngine 那半边也拉一遍,只能在引擎已经起来的
+        // 情况下自己补一次 `syncNow()`;首次引导交给 `start()`,别重复拉两遍。
+        let engineWasRunning = cloudSync.isStarted
         await cloudSync.start()
+        if engineWasRunning { await cloudSync.syncNow() }
         refreshVisibility()
-        return installed
+        if installed {
+            return hasRealLibrary ? .installed : .installedWithoutTransferableSongs
+        }
+        // 下载到了却装不上,是本机这一侧的问题(sources.json 残缺 / 事务没收尾),
+        // 与「云端没给出快照」是两回事。
+        if payload != nil { return .localStorageUnavailable }
+        return unreachableSnapshotOutcome()
+    }
+
+    /// 快照没拉下来时,用 CloudKit 引擎刚刷新过的账号状态把「没登录」「连不上」和
+    /// 「云端确实还没有快照」区分开 —— 这三种给用户的建议完全不同。状态要在
+    /// `cloudSync.start()` 之后再读:首次引导时下载跑在 `start()` 之前,那会儿
+    /// `status` 还停在 `.disabled`。
+    private func unreachableSnapshotOutcome() -> TVSyncOutcome {
+        switch cloudSync.status {
+        case .accountUnavailable, .unavailableInBuild:
+            return .accountUnavailable
+        case .networkUnavailable, .quotaExceeded, .error:
+            return .cloudUnreachable
+        case .disabled, .idle, .syncing, .upToDate:
+            return .noSnapshot
+        }
+    }
+
+    /// 设置页的 iCloud 同步总开关。CloudKit 在账号退出 / 切换时会把
+    /// `primuse.iCloudSyncEnabled` 强制关掉(`CloudKitSyncService.handleAccountChange`),
+    /// 而 Apple TV 上原本没有任何入口能再打开它。与 iOS 的开关一样:改完偏好还要
+    /// 让引擎跟着起停,只写 UserDefaults 不生效。
+    func setCloudSyncEnabled(_ enabled: Bool) async {
+        if enabled {
+            await cloudSync.start()
+        } else {
+            cloudSync.stop()
+        }
     }
 
     /// 启动局域网「扫码直传」接收端(幂等)。源页出现时调用;收到载荷即落盘 + reload,

@@ -244,6 +244,10 @@
 "ext.tv.settings.tip.search.title"         = "搜索框";
 "ext.tv.settings.tip.search.body"          = "唤出系统键盘 · 支持语音听写";
 "ext.tv.settings.noSnapshot"               = "未找到曲库快照";
+"ext.tv.settings.icloudSyncEnabled"        = "同步 iCloud 数据";
+"ext.tv.settings.syncNoAccount"            = "未登录 iCloud";
+"ext.tv.settings.syncUnreachable"          = "连不上 iCloud，请检查网络";
+"ext.tv.settings.syncedNoTransferable"     = "已同步 · 手机本机文件不传到 Apple TV";
 "ext.tv.settings.synced"                   = "已同步 · %@ 首";
 
 // tvOS — Sources

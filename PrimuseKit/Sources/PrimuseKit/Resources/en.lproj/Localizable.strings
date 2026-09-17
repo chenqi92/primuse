@@ -245,6 +245,10 @@
 "ext.tv.settings.tip.search.title"         = "Search field";
 "ext.tv.settings.tip.search.body"          = "Brings up the keyboard · voice dictation supported";
 "ext.tv.settings.noSnapshot"               = "No library snapshot found";
+"ext.tv.settings.icloudSyncEnabled"        = "Sync iCloud data";
+"ext.tv.settings.syncNoAccount"            = "Not signed in to iCloud";
+"ext.tv.settings.syncUnreachable"          = "Can't reach iCloud — check the network";
+"ext.tv.settings.syncedNoTransferable"     = "Synced · Local files stay on the phone";
 "ext.tv.settings.synced"                   = "Synced · %@ songs";
 
 // tvOS — Sources

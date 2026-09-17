@@ -307,6 +307,10 @@
 "ext.tv.settings.library" = "المكتبة";
 "ext.tv.settings.libraryStat" = "%1$@ أغاني · %2$d ألبومات · %3$d فنانين";
 "ext.tv.settings.noSnapshot" = "لم يتم العثور على لقطة للمكتبة";
+"ext.tv.settings.icloudSyncEnabled" = "مزامنة بيانات iCloud";
+"ext.tv.settings.syncNoAccount" = "لم يتم تسجيل الدخول إلى iCloud";
+"ext.tv.settings.syncUnreachable" = "تعذّر الوصول إلى iCloud — تحقق من الشبكة";
+"ext.tv.settings.syncedNoTransferable" = "تمت المزامنة · تبقى الملفات المحلية على الهاتف";
 "ext.tv.settings.notSynced" = "لم تتم المزامنة بعد";
 "ext.tv.settings.playlists" = "قوائم التشغيل";
 "ext.tv.settings.remoteTips" = "نصائح عن بعد";

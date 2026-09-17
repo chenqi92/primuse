@@ -543,6 +543,10 @@
 "fullscreen_effect_cover_gallery_subtitle" = "Текущая иллюстрация впереди, а за ней движутся обложки медиатеки.";
 "ext.tv.home.madeForYou" = "Создано для тебя";
 "ext.tv.settings.noSnapshot" = "Снимок медиатеки не найден.";
+"ext.tv.settings.icloudSyncEnabled" = "Синхронизировать данные iCloud";
+"ext.tv.settings.syncNoAccount" = "Вход в iCloud не выполнен";
+"ext.tv.settings.syncUnreachable" = "Нет связи с iCloud — проверьте сеть";
+"ext.tv.settings.syncedNoTransferable" = "Синхронизировано · Локальные файлы остаются на телефоне";
 "ext.tv.settings.libraryStat" = "Песни %1$@ · Альбомы %2$d · Исполнители %3$d";
 "ext.tv.search.path" = "Путь: %@";
 "ext.tv.options.eyebrow" = "Опции";

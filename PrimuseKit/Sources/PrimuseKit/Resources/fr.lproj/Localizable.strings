@@ -247,6 +247,10 @@
 "ext.tv.settings.tip.search.title"         = "Champ de recherche";
 "ext.tv.settings.tip.search.body"          = "Ouvre le clavier · dictée vocale prise en charge";
 "ext.tv.settings.noSnapshot"               = "Aucun instantané de bibliothèque trouvé";
+"ext.tv.settings.icloudSyncEnabled"        = "Synchroniser les données iCloud";
+"ext.tv.settings.syncNoAccount"            = "Non connecté à iCloud";
+"ext.tv.settings.syncUnreachable"          = "iCloud inaccessible — vérifiez le réseau";
+"ext.tv.settings.syncedNoTransferable"     = "Synchronisé · Les fichiers locaux restent sur le téléphone";
 "ext.tv.settings.synced"                   = "Synchronisé · %@ titres";
 
 // tvOS — Sources

@@ -543,6 +543,10 @@
 "fullscreen_effect_cover_gallery_subtitle" = "Попереду поточний твір мистецтва, позаду — обкладинки медіатеки";
 "ext.tv.home.madeForYou" = "Створено для вас";
 "ext.tv.settings.noSnapshot" = "Знімок медіатеки не знайдено";
+"ext.tv.settings.icloudSyncEnabled" = "Синхронізувати дані iCloud";
+"ext.tv.settings.syncNoAccount" = "Вхід в iCloud не виконано";
+"ext.tv.settings.syncUnreachable" = "Немає зв'язку з iCloud — перевірте мережу";
+"ext.tv.settings.syncedNoTransferable" = "Синхронізовано · Локальні файли лишаються на телефоні";
 "ext.tv.settings.libraryStat" = "Пісні %1$@ · Альбоми %2$d · Виконавці %3$d";
 "ext.tv.search.path" = "Шлях: %@";
 "ext.tv.options.eyebrow" = "Параметри";
