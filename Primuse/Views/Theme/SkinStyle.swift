@@ -287,16 +287,18 @@ struct SkinPageBackdrop: View {
 private struct SkinPageBackgroundModifier: ViewModifier {
     @Environment(\.skin) private var skin
 
-    @ViewBuilder
+    // 不用 if/else 分支:分支会在换皮肤时重建整页(滚动位置、行内状态、正打开的面板都丢)。
+    // 经典皮肤下 `.automatic` 就是系统默认,底色闭包里什么都不画,与没挂这个修饰符一样。
     func body(content: Content) -> some View {
-        if skin.paintsPageBackground {
-            content
-                // List / Form 自带的系统底色让出来,露出下面的样式底色。
-                .scrollContentBackground(.hidden)
-                .background { SkinPageBackdrop().ignoresSafeArea() }
-        } else {
-            content
-        }
+        let paints = skin.paintsPageBackground
+        return content
+            // List / Form 自带的系统底色让出来,露出下面的样式底色。
+            .scrollContentBackground(paints ? .hidden : .automatic)
+            .background {
+                if paints {
+                    SkinPageBackdrop().ignoresSafeArea()
+                }
+            }
     }
 }
 
@@ -307,15 +309,18 @@ private struct SkinOwnedPageBackgroundModifier: ViewModifier {
     let token: SkinColorToken
     @Environment(\.skin) private var skin
 
-    @ViewBuilder
+    // 同样不分支(理由见上),只有底色闭包里的内容随皮肤变。
     func body(content: Content) -> some View {
-        if skin.paintsPageBackground {
-            content
-                .scrollContentBackground(.hidden)
-                .background { SkinPageBackdrop().ignoresSafeArea() }
-        } else {
-            content.background(skin.color(token).ignoresSafeArea())
-        }
+        let paints = skin.paintsPageBackground
+        return content
+            .scrollContentBackground(paints ? .hidden : .automatic)
+            .background {
+                if paints {
+                    SkinPageBackdrop().ignoresSafeArea()
+                } else {
+                    skin.color(token).ignoresSafeArea()
+                }
+            }
     }
 }
 

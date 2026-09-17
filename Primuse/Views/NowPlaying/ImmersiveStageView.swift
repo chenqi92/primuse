@@ -1268,6 +1268,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 palette: palette,
                 isAnimating: sceneIsAnimating,
                 blurRadius: metrics.f(platform == .tvOS ? 9 : 6),
+                driftAmplitude: platform == .tvOS ? 34 : (platform == .macOS ? 22 : 14),
                 artwork: galleryArtwork
             )
             Color.black.opacity(0.18)
@@ -2128,6 +2129,9 @@ private struct ImmersiveMosaicBackdrop: View {
     let palette: ImmersiveArtworkPalette
     let isAnimating: Bool
     let blurRadius: CGFloat
+    /// 漂移的幅度(点)。故意不按画布尺寸算:循环动画挂在位移上,幅度一变就会以一次
+    /// 不带动画的赋值把它换掉,墙面会停在半途;按平台给个定值,窗口怎么变都不会碰到它。
+    let driftAmplitude: CGFloat
     let artwork: (Int, CGFloat) -> AnyView
 
     @State private var step = 0
@@ -2174,18 +2178,17 @@ private struct ImmersiveMosaicBackdrop: View {
             step: step,
             isLandscape: size.width > size.height
         )
-        let drift = min(size.width, size.height) * 0.04
         let geometry = CoverWallLayoutPolicy.stageGeometry(
             width: Double(size.width),
             height: Double(size.height),
             columns: composition.columns,
             rows: composition.rows,
-            overscan: Double(drift)
+            overscan: Double(driftAmplitude)
         )
         let planeWidth = CGFloat(geometry.planeLength(cells: composition.columns))
         let planeHeight = CGFloat(geometry.planeLength(cells: composition.rows))
-        let driftX: CGFloat = isDrifting ? drift : 0
-        let driftY: CGFloat = isDrifting ? -drift * 0.6 : 0
+        let driftX: CGFloat = isDrifting ? driftAmplitude : 0
+        let driftY: CGFloat = isDrifting ? -driftAmplitude * 0.6 : 0
 
         return ZStack {
             LinearGradient(
