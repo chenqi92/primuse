@@ -10,6 +10,7 @@ struct AlbumDetailView: View {
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(ScraperSettingsStore.self) private var scraperSettings
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.skin) private var skin
     #if os(iOS)
     @Environment(\.legacyBottomChromeOverlayActive)
     private var legacyBottomChromeOverlayActive
@@ -92,7 +93,7 @@ struct AlbumDetailView: View {
     private var iosBody: some View {
         ScrollView {
             VStack(spacing: 20) {
-                iosSummaryCard
+                iosHeader
 
                 LazyVStack(spacing: 0) {
                     ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
@@ -121,7 +122,7 @@ struct AlbumDetailView: View {
                     }
                 }
                 .background(
-                    Color(uiColor: .secondarySystemBackground),
+                    .skin(.surface),
                     in: RoundedRectangle(cornerRadius: 20, style: .continuous)
                 )
             }
@@ -133,7 +134,7 @@ struct AlbumDetailView: View {
                 baseline: 16
             ))
         }
-        .background(Color(uiColor: .systemBackground).ignoresSafeArea())
+        .skinPageBackground(replacing: .canvas)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -162,13 +163,70 @@ struct AlbumDetailView: View {
         }
     }
 
+    /// 专辑头部。怎么画由界面皮肤决定;播放、随机、评分这些内容两种画法共用一份。
+    @ViewBuilder
+    private var iosHeader: some View {
+        switch skin.skin.detailHeader {
+        case .coverWall:
+            VStack(spacing: 18) {
+                CollectionSingleCoverHeader(
+                    title: album.title,
+                    subtitle: album.artistName ?? String(localized: "unknown_artist"),
+                    caption: albumCaption
+                ) {
+                    AlbumArtworkView(
+                        album: album,
+                        size: 180,
+                        cornerRadius: 20,
+                        presentationRole: .animatedHero
+                    )
+                } backdrop: {
+                    AlbumArtworkView(album: album, size: 320, cornerRadius: 0, showsPlaceholder: false)
+                }
+                albumActionRow
+                LibraryReviewSection(subject: .album(album.id), compact: true)
+            }
+        case .classic:
+            iosSummaryCard
+        }
+    }
+
+    private var albumCaption: String {
+        let counts = "\(album.songCount) \(String(localized: "songs_count")) · \(formatDuration(album.totalDuration))"
+        guard let year = album.year else { return counts }
+        return "\(year) · \(counts)"
+    }
+
+    private var albumActionRow: some View {
+        let actionLayout = dynamicTypeSize >= .xxLarge
+            ? AnyLayout(VStackLayout(spacing: 10))
+            : AnyLayout(HStackLayout(spacing: 10))
+
+        return actionLayout {
+            LibraryDetailActionButton(
+                title: "play",
+                systemImage: "play.fill",
+                emphasized: true,
+                onArtwork: false,
+                fillsWidth: true,
+                disabled: songs.filteredPlayable().isEmpty,
+                action: { playAll() }
+            )
+            LibraryDetailActionButton(
+                title: "shuffle",
+                systemImage: "shuffle",
+                onArtwork: false,
+                fillsWidth: true,
+                disabled: songs.filteredPlayable().count < 2,
+                action: shuffleAll
+            )
+        }
+    }
+
     private var iosSummaryCard: some View {
         let identityLayout = dynamicTypeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
             : AnyLayout(HStackLayout(alignment: .center, spacing: 16))
-        let actionLayout = dynamicTypeSize >= .xxLarge
-            ? AnyLayout(VStackLayout(spacing: 10))
-            : AnyLayout(HStackLayout(spacing: 10))
 
         return VStack(alignment: .leading, spacing: 18) {
             identityLayout {
@@ -202,25 +260,7 @@ struct AlbumDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            actionLayout {
-                LibraryDetailActionButton(
-                    title: "play",
-                    systemImage: "play.fill",
-                    emphasized: true,
-                    onArtwork: false,
-                    fillsWidth: true,
-                    disabled: songs.filteredPlayable().isEmpty,
-                    action: { playAll() }
-                )
-                LibraryDetailActionButton(
-                    title: "shuffle",
-                    systemImage: "shuffle",
-                    onArtwork: false,
-                    fillsWidth: true,
-                    disabled: songs.filteredPlayable().count < 2,
-                    action: shuffleAll
-                )
-            }
+            albumActionRow
 
             LibraryReviewSection(subject: .album(album.id), compact: true)
         }

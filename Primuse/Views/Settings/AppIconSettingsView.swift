@@ -84,7 +84,7 @@ struct AppIconSettingsView: View {
         }
         .navigationTitle("app_icon")
         .navigationBarTitleDisplayMode(.inline)
-        .background(Color(uiColor: .systemGroupedBackground))
+        .skinPageBackground(replacing: .canvasSunken)
     }
 }
 

@@ -49,7 +49,7 @@ struct FullscreenPlayerEffectSettingsView: View {
             .padding(.top, 10)
             .padding(.bottom, 40)
         }
-        .background(Color(uiColor: .systemGroupedBackground))
+        .skinPageBackground(replacing: .canvasSunken)
         .navigationTitle("fullscreen_effect_settings_title")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {

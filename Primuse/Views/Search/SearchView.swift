@@ -2321,7 +2321,7 @@ struct SearchView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         #if os(iOS)
-        .background(Color(.systemBackground))
+        .skinPageBackground(replacing: .canvas)
         #else
         .background(Color(NSColor.windowBackgroundColor))
         #endif

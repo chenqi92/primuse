@@ -25,7 +25,7 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
             }
             .ignoresSafeArea(.container, edges: .top)
         }
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .skinPageBackground(replacing: .canvasSunken)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
     }

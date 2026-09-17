@@ -300,10 +300,35 @@ private struct SkinPageBackgroundModifier: ViewModifier {
     }
 }
 
+/// 页面自己铺了一层整页底色的情况(`.background(Color(.systemBackground))` 这类)。
+/// 这层不透明的底色离内容更近,会把外层挂上的皮肤底色整个盖住,所以要换成这个修饰符:
+/// 经典皮肤下解析成原来那种系统底色,自己画底色的皮肤下改铺皮肤的页面底色。
+private struct SkinOwnedPageBackgroundModifier: ViewModifier {
+    let token: SkinColorToken
+    @Environment(\.skin) private var skin
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if skin.paintsPageBackground {
+            content
+                .scrollContentBackground(.hidden)
+                .background { SkinPageBackdrop().ignoresSafeArea() }
+        } else {
+            content.background(skin.color(token).ignoresSafeArea())
+        }
+    }
+}
+
 extension View {
     /// 让这一页用当前样式的页面底色。经典样式下原样返回,系统默认底色不变。
     func skinPageBackground() -> some View {
         modifier(SkinPageBackgroundModifier())
+    }
+
+    /// 替换页面自己铺的整页系统底色。`token` 是经典皮肤下应该还原成的那种底色:
+    /// `.canvas` 对应 systemBackground,`.canvasSunken` 对应 systemGroupedBackground。
+    func skinPageBackground(replacing token: SkinColorToken) -> some View {
+        modifier(SkinOwnedPageBackgroundModifier(token: token))
     }
 }
 

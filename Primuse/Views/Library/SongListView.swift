@@ -4459,7 +4459,11 @@ private struct LibraryFolderRootView: View {
             .padding(.bottom, 112)
             #endif
         }
+        #if os(iOS)
+        .skinPageBackground(replacing: .canvas)
+        #else
         .background(LibraryFolderNodePresentation.background.ignoresSafeArea())
+        #endif
     }
 }
 
@@ -5147,7 +5151,11 @@ private struct LibraryFolderNodeView: View {
                 .padding(.bottom, 112)
                 #endif
             }
+            #if os(iOS)
+            .skinPageBackground(replacing: .canvas)
+            #else
             .background(LibraryFolderNodePresentation.background.ignoresSafeArea())
+            #endif
         } else {
             ContentUnavailableView(
                 "no_songs",

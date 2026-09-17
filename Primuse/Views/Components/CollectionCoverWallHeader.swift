@@ -208,4 +208,93 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
         }
     }
 }
+/// 同一个插槽的单封面画法:专辑这类只有一张封面的集合用它。
+/// 居中的封面压在自己放大、模糊之后的光晕上,下沿融进页面底色。
+struct CollectionSingleCoverHeader<Artwork: View, Backdrop: View>: View {
+    private let title: String
+    private let subtitle: String?
+    private let caption: String
+    private let artwork: Artwork
+    private let backdrop: Backdrop
+
+    @Environment(\.skin) private var skin
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    /// - Parameters:
+    ///   - artwork: 清晰的那张封面,建议 180 见方。
+    ///   - backdrop: 同一张封面的大图,只用来做模糊光晕;「降低透明度」开启时不画。
+    init(
+        title: String,
+        subtitle: String?,
+        caption: String,
+        @ViewBuilder artwork: () -> Artwork,
+        @ViewBuilder backdrop: () -> Backdrop
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.caption = caption
+        self.artwork = artwork()
+        self.backdrop = backdrop()
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            artwork
+                .shadow(color: Color.black.opacity(0.4), radius: 24, y: 14)
+                .accessibilityHidden(true)
+
+            VStack(spacing: 5) {
+                Text(title)
+                    .font(skin.font(.pageTitle))
+                    .foregroundStyle(.skin(.textPrimary))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(skin.font(.bodyStrong))
+                        .foregroundStyle(skin.color(.accent))
+                        .multilineTextAlignment(.center)
+                }
+
+                Text(caption)
+                    .font(skin.font(.caption))
+                    .foregroundStyle(.skin(.textSecondary))
+                    .multilineTextAlignment(.center)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 12)
+        .padding(.bottom, 4)
+        .frame(maxWidth: .infinity)
+        .background(alignment: .top) {
+            if !reduceTransparency {
+                backdrop
+                    .blur(radius: 46)
+                    .saturation(1.4)
+                    .opacity(0.5)
+                    .frame(height: 300)
+                    .frame(maxWidth: .infinity)
+                    .clipped()
+                    .mask {
+                        LinearGradient(
+                            stops: [
+                                .init(color: .clear, location: 0),
+                                .init(color: .black, location: 0.22),
+                                .init(color: .black, location: 0.5),
+                                .init(color: .clear, location: 1),
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    }
+                    .padding(.horizontal, -16)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+}
 #endif
