@@ -2775,9 +2775,9 @@
 "settings_push_to_tv" = "Wyślij teraz do Apple TV";
 "settings_push_to_tv_done" = "Wysłano";
 "settings_push_to_tv_failed" = "Wysyłanie nie powiodło się";
-"settings_push_to_tv_footer" = "Zainstaluj Primuse na swoim Apple TV i zaloguj się przy użyciu tego samego konta iCloud, aby zobaczyć tutaj swoją bibliotekę i źródła — w zestawie dane uwierzytelniające (hasła / tokeny), nie trzeba nic ponownie wprowadzać. Primuse przesyła automatycznie w tle; dotknij „Wyślij teraz do Apple TV”, aby natychmiast dokonać aktualizacji. Źródła, do których telewizor nie może dotrzeć bezpośrednio — pliki lokalne, SMB / SFTP / NFS / WebDAV — wymagają poniższego przekaźnika, który przesyła je strumieniowo z tego telefonu przez ten sam Wi-Fi.";
+"settings_push_to_tv_footer" = "Zainstaluj Primuse na swoim Apple TV i zaloguj się przy użyciu tego samego konta iCloud, aby zobaczyć tutaj swoją bibliotekę i źródła — w zestawie dane uwierzytelniające (hasła / tokeny), nie trzeba nic ponownie wprowadzać. Primuse przesyła automatycznie w tle; dotknij „Wyślij teraz do Apple TV”, aby natychmiast dokonać aktualizacji. Do serwerów NAS, WebDAV, serwerów multimediów i dysków w chmurze Apple TV łączy się samodzielnie. Poniższy przekaźnik jest potrzebny tylko dla muzyki zapisanej w tym telefonie — przesyła ją stąd przez tę samą sieć Wi-Fi. Taka muzyka nie synchronizuje się przez iCloud, więc wyślij ją poleceniem „Przenieś bibliotekę z iPhone” na Apple TV.";
 "settings_relay_enable" = "Pozwól Apple TV grać za pośrednictwem tego urządzenia";
-"settings_relay_footer" = "Gdy opcja ta jest włączona, Apple TV zalogowany do tego samego identyfikatora Apple może odtwarzać źródła lokalne, SMB, SFTP, NFS, WebDAV i inne źródła, do których nie może dotrzeć bezpośrednio – przekazywane przez to urządzenie przez sieć LAN. Pozostaw Primuse otwarty na pierwszym planie i oba urządzenia na tym samym Wi-Fi.";
+"settings_relay_footer" = "Gdy opcja ta jest włączona, Apple TV może odtwarzać muzykę zapisaną w tym telefonie, przekazywaną przez to urządzenie (źródła NFS ustawione na NFSv4 również idą tą drogą). Pozostaw Primuse otwarty na pierwszym planie i oba urządzenia na tym samym Wi-Fi.";
 "settings_relay_section" = "Przekaźnik Apple TV";
 "settings_relay_waiting" = "Pobieranie adresu LAN… (upewnij się, że Wi-Fi jest podłączony)";
 "settings_title" = "Ustawienia";

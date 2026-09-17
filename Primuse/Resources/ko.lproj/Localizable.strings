@@ -1320,11 +1320,11 @@
 "settings_dlna_keepalive_footer" = "켜면 Primuse가 백그라운드에 있고 음악을 재생하지 않을 때에도 다른 기기에서 보내는 푸시를 계속 수신합니다. 단점: 잠금 화면 / 제어 센터에 Primuse가 재생 중으로 표시되고 배터리 소모가 약간 늘어납니다.";
 "settings_relay_section" = "Apple TV 중계";
 "settings_relay_enable" = "Apple TV가 이 기기를 통해 재생하도록 허용";
-"settings_relay_footer" = "켜면 같은 Apple ID로 로그인한 Apple TV가 직접 접근할 수 없는 로컬, SMB, SFTP, NFS, WebDAV 등의 소스를 이 기기를 통해 LAN으로 중계받아 재생할 수 있습니다. Primuse를 전면에서 실행한 상태로 두고 두 기기를 같은 Wi-Fi에 연결해 주세요.";
+"settings_relay_footer" = "켜면 Apple TV가 이 휴대전화에 저장된 음악을 이 기기를 통해 중계받아 재생할 수 있습니다(NFS 버전을 NFSv4로 설정한 소스도 이 경로를 사용합니다). Primuse를 전면에서 실행한 상태로 두고 두 기기를 같은 Wi-Fi에 연결해 주세요.";
 "settings_relay_waiting" = "LAN 주소를 가져오는 중… (Wi-Fi 연결을 확인하세요)";
 "settings_appletv_section" = "Apple TV";
 "settings_push_to_tv" = "지금 Apple TV로 보내기";
-"settings_push_to_tv_footer" = "Apple TV에 Primuse를 설치하고 같은 iCloud 계정으로 로그인하면 여기 있는 보관함과 소스를 그대로 볼 수 있습니다 — 자격 증명(비밀번호 / 토큰)도 포함되어 다시 입력할 필요가 없습니다. Primuse는 백그라운드에서 자동으로 업로드하며, “지금 Apple TV로 보내기”를 누르면 즉시 업데이트됩니다. TV가 직접 접근할 수 없는 소스(로컬 파일, SMB / SFTP / NFS / WebDAV)는 아래 중계 기능이 필요하며, 같은 Wi-Fi에서 이 휴대전화를 통해 스트리밍됩니다.";
+"settings_push_to_tv_footer" = "Apple TV에 Primuse를 설치하고 같은 iCloud 계정으로 로그인하면 여기 있는 보관함과 소스를 그대로 볼 수 있습니다 — 자격 증명(비밀번호 / 토큰)도 포함되어 다시 입력할 필요가 없습니다. Primuse는 백그라운드에서 자동으로 업로드하며, “지금 Apple TV로 보내기”를 누르면 즉시 업데이트됩니다. NAS, WebDAV, 미디어 서버, 클라우드 드라이브에는 Apple TV가 직접 연결합니다. 아래 중계 기능이 필요한 것은 이 휴대전화에 저장된 음악뿐이며, 같은 Wi-Fi에서 이 휴대전화를 통해 재생됩니다. 이 음악은 iCloud로 동기화되지 않으므로 Apple TV의 “iPhone에서 보관함 전송”으로 코드를 스캔해 보내 주세요.";
 "settings_push_to_tv_done" = "보냄";
 "settings_push_to_tv_failed" = "보내기 실패";
 "send_to_tv_title" = "Apple TV로 보내기";

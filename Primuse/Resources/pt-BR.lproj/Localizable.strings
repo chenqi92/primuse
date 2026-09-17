@@ -2775,9 +2775,9 @@
 "settings_push_to_tv" = "Enviar para Apple TV agora";
 "settings_push_to_tv_done" = "Enviado";
 "settings_push_to_tv_failed" = "Falha no envio";
-"settings_push_to_tv_footer" = "Instale o Primuse em seu Apple TV e faça login com a mesma conta iCloud para ver sua biblioteca e fontes aqui – credenciais (senhas/tokens) incluídas, nada para inserir novamente. O Primuse carrega automaticamente em segundo plano; toque em “Enviar para Apple TV agora” para atualizar imediatamente. Fontes que a TV não consegue alcançar diretamente – arquivos locais, SMB/SFTP/NFS/WebDAV – precisam do Relé abaixo, que os transmite deste telefone pelo mesmo Wi-Fi.";
+"settings_push_to_tv_footer" = "Instale o Primuse em seu Apple TV e faça login com a mesma conta iCloud para ver sua biblioteca e fontes aqui – credenciais (senhas/tokens) incluídas, nada para inserir novamente. O Primuse carrega automaticamente em segundo plano; toque em “Enviar para Apple TV agora” para atualizar imediatamente. NAS, WebDAV, servidores de mídia e drives na nuvem o Apple TV alcança sozinho. Só a música guardada neste telefone precisa do Relé abaixo, que a transmite daqui pelo mesmo Wi-Fi; ela não sincroniza pelo iCloud, então envie-a com “Transferir biblioteca de iPhone” no Apple TV.";
 "settings_relay_enable" = "Deixe o Apple TV tocar através deste dispositivo";
-"settings_relay_footer" = "Quando ativado, um Apple TV conectado ao mesmo ID Apple pode reproduzir fontes locais, SMB, SFTP, NFS, WebDAV e outras fontes que não pode alcançar diretamente — retransmitidas através deste dispositivo pela LAN. Mantenha o Primuse aberto em primeiro plano e ambos os dispositivos no mesmo Wi-Fi.";
+"settings_relay_footer" = "Quando ativado, seu Apple TV pode reproduzir a música guardada neste telefone, retransmitida por este dispositivo (fontes NFS definidas como NFSv4 também passam por aqui). Mantenha o Primuse aberto em primeiro plano e ambos os dispositivos no mesmo Wi-Fi.";
 "settings_relay_section" = "Relé Apple TV";
 "settings_relay_waiting" = "Obtendo endereço LAN… (certifique-se de que Wi-Fi esteja conectado)";
 "settings_title" = "Ajustes";

@@ -1321,11 +1321,11 @@
 "settings_dlna_keepalive_footer" = "オンにすると、Primuse がバックグラウンドにあり音楽を再生していないときでも、ほかのデバイスからの送信を受け入れ続けます。トレードオフ: ロック画面／コントロールセンターには Primuse が再生中と表示され、バッテリー消費がわずかに増えます。";
 "settings_relay_section" = "Apple TV リレー";
 "settings_relay_enable" = "このデバイス経由で Apple TV から再生を許可";
-"settings_relay_footer" = "オンにすると、同じ Apple ID でサインインした Apple TV が、直接アクセスできないローカル、SMB、SFTP、NFS、WebDAV などのソースを、LAN 経由でこのデバイスを中継して再生できます。Primuse を前面で開いたままにし、両方のデバイスを同じ Wi-Fi に接続してください。";
+"settings_relay_footer" = "オンにすると、Apple TV はこのデバイスを経由して、この iPhone の中にある音楽を再生できます（NFS バージョンを NFSv4 にしたソースもこの経路です）。Primuse を前面で開いたままにし、両方のデバイスを同じ Wi-Fi に接続してください。";
 "settings_relay_waiting" = "LAN アドレスを取得中…（Wi-Fi に接続されているか確認してください）";
 "settings_appletv_section" = "Apple TV";
 "settings_push_to_tv" = "今すぐ Apple TV に送信";
-"settings_push_to_tv_footer" = "Apple TV に Primuse をインストールし、同じ iCloud アカウントでサインインすると、ここにあるライブラリとソースが表示されます。認証情報（パスワード／トークン）も含まれるため、再入力は不要です。Primuse はバックグラウンドで自動的にアップロードします。「今すぐ Apple TV に送信」をタップするとすぐに更新できます。ローカルファイル、SMB／SFTP／NFS／WebDAV など Apple TV が直接アクセスできないソースには、下のリレーが必要です。リレーは同じ Wi-Fi 経由でこの iPhone からストリーミングします。";
+"settings_push_to_tv_footer" = "Apple TV に Primuse をインストールし、同じ iCloud アカウントでサインインすると、ここにあるライブラリとソースが表示されます。認証情報（パスワード／トークン）も含まれるため、再入力は不要です。Primuse はバックグラウンドで自動的にアップロードします。「今すぐ Apple TV に送信」をタップするとすぐに更新できます。NAS、WebDAV、メディアサーバー、クラウドドライブには Apple TV が自分で接続できます。下のリレーが必要なのは、この iPhone の中にある音楽だけで、同じ Wi-Fi 経由でこの iPhone から再生されます。この音楽は iCloud では同期されないため、Apple TV の「iPhoneからライブラリを転送」でコードを読み取って送ってください。";
 "settings_push_to_tv_done" = "送信しました";
 "settings_push_to_tv_failed" = "送信に失敗しました";
 "send_to_tv_title" = "Apple TV に送信";
