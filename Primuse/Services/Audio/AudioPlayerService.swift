@@ -1594,7 +1594,11 @@ final class AudioPlayerService {
         if let dopFormat {
             _ = audioEngine.prepareHardwareSampleRate(dopFormat.sampleRate)
             if audioEngine.hardwareSupportsDirectFormat(dopFormat) {
-                try audioEngine.configure(outputMode: .highFidelity, directSourceFormat: dopFormat)
+                try audioEngine.configure(
+                    outputMode: .highFidelity,
+                    directSourceFormat: dopFormat,
+                    isDSDCarrier: true
+                )
                 plog("🎧 DSD output: DoP \(dopFormat.sampleRate) Hz direct")
                 return .dop
             }
@@ -3435,20 +3439,8 @@ final class AudioPlayerService {
     func setPlaybackVolume(_ value: Float, persist: Bool = true) {
         guard value.isFinite else { return }
         let clamped = min(max(value, 0), 1)
-        #if os(macOS)
-        // 高保真直通的图里没有增益节点 —— 在那儿改应用音量是无声的操作，
-        // 键盘快捷键和滑块都会看起来失灵。这种情况下音量由输出设备硬件承担。
-        if PlaybackVolumeControlPolicy.target(
-            isLiveRadio: isLiveRadio,
-            isCastingToRemoteRenderer: isCastingMode,
-            isSystemManagedPlayback: isAppleMusicMode,
-            isHighFidelityDirect: playbackSettings.outputMode == .highFidelity,
-            outputDeviceVolumeIsControllable: OutputDeviceVolumeController.shared.isControllable
-        ) == .outputDevice {
-            OutputDeviceVolumeController.shared.setVolume(clamped)
-            return
-        }
-        #endif
+        // 这是应用自己的音量：只缩放 Primuse 送出去的声音，不去碰系统音量，
+        // 也就不会把别的 app 一起调小。
         audioEngine.setVolume(clamped, persist: persist)
         radioPlaybackController.setVolume(clamped)
         activeSystemMediaPlayer?.volume = clamped

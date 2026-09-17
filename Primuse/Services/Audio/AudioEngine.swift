@@ -122,6 +122,13 @@ final class PlayerNodeRegistry: @unchecked Sendable {
 final class AudioEngine {
     private let volumeDefaults: UserDefaults
     private var requestedVolume: Float = 1
+    /// 直通图这一刻搬的是不是 DoP/DSD 码流。DSD 的样本里装的是 1bit 码流，
+    /// 乘任何系数都会变成噪声，所以这种图不能加增益。
+    private(set) var usesDSDCarrier = false
+    #if os(macOS)
+    /// 直通图上一次写应用级输出音量是否成功。
+    private(set) var directOutputVolumeIsSupported = false
+    #endif
     private var engine: AVAudioEngine?
     private var playerNode: AVAudioPlayerNode?
     private var crossfadePlayerNode: AVAudioPlayerNode?
@@ -196,10 +203,17 @@ final class AudioEngine {
     /// Selects the render graph used for the next playback session.
     ///
     /// High-fidelity mode connects the primary player straight to the output
-    /// node and keeps volume at unity. The effects graph retains the spatial,
-    /// EQ, dynamics, reverb, rate, crossfade and visualizer chain.
-    func configure(outputMode: AudioOutputMode, directSourceFormat: AVAudioFormat? = nil) throws {
+    /// node; volume rides on the output unit's own application gain instead of
+    /// a mixer, so the signal stays untouched at full volume. The effects graph
+    /// retains the spatial, EQ, dynamics, reverb, rate, crossfade and
+    /// visualizer chain.
+    func configure(
+        outputMode: AudioOutputMode,
+        directSourceFormat: AVAudioFormat? = nil,
+        isDSDCarrier: Bool = false
+    ) throws {
         let normalizedDirectFormat = outputMode == .highFidelity ? directSourceFormat : nil
+        let normalizedDSDCarrier = outputMode == .highFidelity && isDSDCarrier
         let formatChanged: Bool = {
             switch (self.directSourceFormat, normalizedDirectFormat) {
             case (nil, nil): false
@@ -209,6 +223,7 @@ final class AudioEngine {
         }()
         guard self.outputMode != outputMode
                 || formatChanged
+                || self.usesDSDCarrier != normalizedDSDCarrier
                 || !isSetUp
                 || hardwareConfigurationRecoveryState.requiresGraphRebuild else { return }
 
@@ -220,6 +235,7 @@ final class AudioEngine {
         tearDownGraph()
         self.outputMode = outputMode
         self.directSourceFormat = normalizedDirectFormat
+        self.usesDSDCarrier = normalizedDSDCarrier
         #if os(macOS)
         pendingGraphOutputDeviceID = previousDevice
         defer { pendingGraphOutputDeviceID = nil }
@@ -233,21 +249,10 @@ final class AudioEngine {
     /// internal notification queue.
     func markHardwareConfigurationChanged() {
         hardwareConfigurationRecoveryState.configurationChanged()
-        #if os(macOS)
-        syncOutputDeviceVolumeBinding()
-        #endif
+        // 换设备 / 换采样率会重建输出单元，应用音量得重新写一遍，
+        // 否则换完输出音量悄悄回到满格。
+        applyRequestedVolumeToGraph()
     }
-
-    #if os(macOS)
-    /// 高保真直通把音量交给输出设备的硬件音量，所以输出设备一变，
-    /// 音量控件绑定的设备也必须跟着换，否则拖动会去调另一台设备。
-    private func syncOutputDeviceVolumeBinding() {
-        let controller = OutputDeviceVolumeController.shared
-        // start() 幂等：音量条、快捷键和播放服务都可能第一个碰到它。
-        controller.start()
-        controller.preferredDeviceID = volumeControlDeviceID
-    }
-    #endif
 
     private func tearDownGraph() {
         cancelTransportFade(restoreVolume: false)
@@ -271,6 +276,9 @@ final class AudioEngine {
         reverbNode = nil
         timePitchNode = nil
         outputFormat = nil
+        #if os(macOS)
+        directOutputVolumeIsSupported = false
+        #endif
         isSetUp = false
         isPlaying = false
         playbackClockReadsSuspended = true
@@ -279,9 +287,6 @@ final class AudioEngine {
 
     func setUp() throws {
         guard !isSetUp else { return }
-        #if os(macOS)
-        defer { syncOutputDeviceVolumeBinding() }
-        #endif
 
         nodeRegistry.resetTimeline(for: .primary)
         nodeRegistry.resetTimeline(for: .crossfade)
@@ -320,6 +325,7 @@ final class AudioEngine {
             self.isSetUp = true
             spatialAudioEnabled = false
             spatialHeadTrackingEnabled = false
+            applyRequestedVolumeToGraph()
             return
         }
 
@@ -418,6 +424,7 @@ final class AudioEngine {
         guard let engine, !engine.isRunning else { return }
         flushEffectChain()
         try engine.start()
+        applyRequestedVolumeToGraph()
     }
 
     func stop() {
@@ -694,17 +701,6 @@ final class AudioEngine {
     }
 
     private static let followsSystemKey = "primuse_output_follows_system"
-
-    /// 音量控件该绑定的输出设备。
-    ///
-    /// 跟随系统时返回 nil —— 交给控制器自己盯系统默认输出设备的变化。
-    /// 这里如果钉一个具体 id 上去,控制器就会认为用户选定了设备
-    /// 而不再跟随系统: 之后用户在系统里换输出(接上 AirPods、拔掉外置声卡),
-    /// 音量条仍然读写那台旧设备 —— 表现就是滑块显示的是别人的音量、拖到 0 也
-    /// 照样有声音。用户在应用内显式钉过设备时才返回那一台。
-    var volumeControlDeviceID: AudioDeviceID? {
-        followsSystemOutput ? nil : currentOutputDeviceID
-    }
 
     /// 取当前 audio unit 在用的设备 ID,用于在 picker 里高亮当前选中项。
     var currentOutputDeviceID: AudioDeviceID? {
@@ -1420,29 +1416,89 @@ final class AudioEngine {
     var volume: Float {
         // The control must retain its value before playback prepares a graph
         // and while an output-device change replaces that graph.
-        get { outputMode == .highFidelity ? 1 : requestedVolume }
+        get { applicationGainIsAvailable ? requestedVolume : 1 }
         set { setVolume(newValue) }
+    }
+
+    /// 这一刻应用能不能自己给声音加增益 —— 也就是音量条能不能用。
+    ///
+    /// - 音效模式：走 mainMixer，一直可以。
+    /// - 高保真直通（PCM）：图里没有混音器，改走输出单元的应用级音量。它只缩放
+    ///   本 app 送出去的数据流，不碰设备硬件音量，所以系统音量和别的 app 都不受
+    ///   影响；音量拉满时仍是单位增益，直通依旧逐位精确。
+    /// - DoP / DSD 直通：样本里是 1bit 码流，动不得。
+    var applicationGainIsAvailable: Bool {
+        if outputMode == .effects { return true }
+        #if os(macOS)
+        guard !usesDSDCarrier else { return false }
+        // 图还没建起来时先当可用 —— 起播之前也该能拖音量。真的写不进去时,
+        // 建图那一次写入会把它置回 false, 控件再退回禁用并说明。
+        return !isSetUp || directOutputVolumeIsSupported
+        #else
+        return false
+        #endif
     }
 
     /// 用户设定的音量，不受当前播放图是否施加增益影响。
     ///
-    /// `volume` 表达的是「直通图这一刻的实际增益」，高保真下恒为 1。那个语义
-    /// 只对本地直通链路成立，而电台、MV、系统回退播放各自走独立的 AVPlayer，
-    /// DLNA 上报的也是用户音量 —— 这些路径读 `volume` 会在切过一次高保真本地
-    /// 播放之后统统跳到满音量。它们要的是这个值。
+    /// `volume` 表达的是「当前播放图这一刻的实际增益」，加不了增益的图（DoP /
+    /// DSD 直通）下恒为 1。那个语义只对本地链路成立，而电台、MV、系统回退播放
+    /// 各自走独立的 AVPlayer，DLNA 上报的也是用户音量 —— 这些路径读 `volume`
+    /// 会在切过一次这种图之后统统跳到满音量。它们要的是这个值。
     var userVolume: Float { requestedVolume }
 
     func setVolume(_ value: Float, persist: Bool = true) {
         guard value.isFinite else { return }
         let clamped = min(max(value, 0), 1)
-        if requestedVolume != clamped {
-            requestedVolume = clamped
-            if outputMode == .effects {
-                engine?.mainMixerNode.outputVolume = clamped
-            }
-        }
+        requestedVolume = clamped
+        // 不按「值有没有变」来决定写不写：图重建之后增益级是满格的，
+        // 用户把滑块推回原值时同样得写一次，否则那一次拖动像没反应。
+        applyRequestedVolumeToGraph()
         if persist { persistVolume() }
     }
+
+    /// 把用户音量写到这一刻真正在出声的那一级增益上。
+    private func applyRequestedVolumeToGraph() {
+        guard isSetUp else { return }
+        if outputMode == .effects {
+            engine?.mainMixerNode.outputVolume = requestedVolume
+            return
+        }
+        #if os(macOS)
+        guard !usesDSDCarrier else { return }
+        applyDirectOutputVolume(requestedVolume)
+        #endif
+    }
+
+    #if os(macOS)
+    /// 输出单元（AUHAL）的应用级音量参数 `kHALOutputParam_Volume`。
+    ///
+    /// 它缩放的是本 app 送往设备的数据流，不是设备的硬件音量 —— 系统音量、
+    /// 其它 app 的音量都不会跟着动。高保真直通图里没有混音器，这是唯一能给它
+    /// 加增益的地方。
+    private static let halOutputVolumeParameterID = AudioUnitParameterID(14)
+
+    @discardableResult
+    private func applyDirectOutputVolume(_ value: Float) -> Bool {
+        guard let outputUnit = engine?.outputNode.audioUnit else {
+            directOutputVolumeIsSupported = false
+            return false
+        }
+        let status = AudioUnitSetParameter(
+            outputUnit,
+            Self.halOutputVolumeParameterID,
+            kAudioUnitScope_Global,
+            0,
+            value,
+            0
+        )
+        if status != noErr, engine?.isRunning == true {
+            plog("⚠️ 直通输出音量写不进去, 音量条会退回禁用 status=\(status)")
+        }
+        directOutputVolumeIsSupported = status == noErr
+        return status == noErr
+    }
+    #endif
 
     /// Continuous slider tracking must not broadcast preference changes on
     /// every pointer event. Commit the latest audible value when tracking ends.
@@ -1469,11 +1525,8 @@ final class AudioEngine {
             engine?.mainMixerNode.outputVolume = 1
         }
         #else
-        guard outputMode == .effects else {
-            playerNode?.volume = 1
-            return
-        }
-        engine?.mainMixerNode.outputVolume = requestedVolume
+        if outputMode != .effects { playerNode?.volume = 1 }
+        applyRequestedVolumeToGraph()
         #endif
     }
 
@@ -1510,7 +1563,7 @@ final class AudioEngine {
         // it, which conflicts with the player's existing output connection.
         let mainVol: Float = outputMode == .effects
             ? (engine?.mainMixerNode.outputVolume ?? -1)
-            : 1
+            : (applicationGainIsAvailable ? requestedVolume : 1)
         let hasTime = playerNode.map { PrimusePlayerNodeHasRenderTime($0) } ?? false
         return "mode=\(outputMode.rawValue) eng=\(engRunning) player=\(playerPlaying) pVol=\(playerVol) cVol=\(crossVol) mainVol=\(mainVol) hasRenderTime=\(hasTime)"
     }

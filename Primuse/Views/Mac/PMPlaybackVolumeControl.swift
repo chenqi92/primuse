@@ -7,40 +7,46 @@ import PrimuseKit
 /// 图标、百分比和滑块必须走同一个来源 —— 过去它们各自读 `engine.volume`，
 /// 高保真下那个值恒为 1，于是三者一起显示满格，而滑块又是禁用的，
 /// 用户看到的就是一根「永远满格、拖不动」的死条。
+///
+/// 这里调的自始至终是应用自己的音量，跟系统音量互不影响。
 @MainActor
 private struct PMVolumeControlState {
     let target: PlaybackVolumeControlTarget
     let displayValue: Double
+    /// 控件不可用时用来挑对应的说明：系统播放器在放 / 本地直通加不了增益。
+    let isSystemManagedPlayback: Bool
 
     init(player: AudioPlayerService, engine: AudioEngine) {
-        let controller = OutputDeviceVolumeController.shared
+        isSystemManagedPlayback = player.isAppleMusicMode && !player.isCastingMode
         target = PlaybackVolumeControlPolicy.target(
             isLiveRadio: player.isLiveRadio,
             isCastingToRemoteRenderer: player.isCastingMode,
             isSystemManagedPlayback: player.isAppleMusicMode,
-            isHighFidelityDirect: player.playbackSettings.outputMode == .highFidelity,
-            outputDeviceVolumeIsControllable: controller.isControllable
+            applicationGainIsAvailable: engine.applicationGainIsAvailable
         )
         displayValue = PlaybackVolumeControlPolicy.displayValue(
             target: target,
-            userVolume: Double(engine.userVolume),
-            deviceVolume: controller.volume.map(Double.init)
+            userVolume: Double(engine.userVolume)
         )
     }
 
     var helpKey: LocalizedStringKey {
         switch target {
         case .applicationGain: return "volume"
-        case .outputDevice: return "volume_output_device_hint"
-        case .unavailable: return "volume_high_fidelity_system_hint"
+        case .unavailable:
+            return isSystemManagedPlayback
+                ? "apple_music_now_playing_hint"
+                : "volume_high_fidelity_system_hint"
         }
     }
 
     var accessibilityHelp: String? {
         switch target {
         case .applicationGain: return nil
-        case .outputDevice: return String(localized: "volume_output_device_hint")
-        case .unavailable: return String(localized: "volume_high_fidelity_system_hint")
+        case .unavailable:
+            return isSystemManagedPlayback
+                ? String(localized: "apple_music_now_playing_hint")
+                : String(localized: "volume_high_fidelity_system_hint")
         }
     }
 }
@@ -90,7 +96,7 @@ struct PMPlaybackVolumeSlider: View {
             accessibilityHelp: state.accessibilityHelp,
             onEditingChanged: { editing in
                 isEditing = editing
-                // 只有应用增益需要落盘；设备音量归系统保存。
+                // 拖动过程中不落盘，指针抬起时提交最终值。
                 if !editing { engine.persistVolume() }
             }
         )
@@ -99,13 +105,6 @@ struct PMPlaybackVolumeSlider: View {
             $0.animation = nil
             $0.disablesAnimations = true
         }
-        .task {
-            // 硬件音量可能被系统音量键或别的应用改动，得盯着；
-            // 输出设备也要跟上引擎当前用的那一台。
-            let controller = OutputDeviceVolumeController.shared
-            controller.start()
-            controller.preferredDeviceID = engine.volumeControlDeviceID
-        }
     }
 
     private func write(_ value: Double, target: PlaybackVolumeControlTarget) {
@@ -113,8 +112,6 @@ struct PMPlaybackVolumeSlider: View {
         case .applicationGain:
             // 拖动过程中不落盘，指针抬起时再提交最终值。
             player.setPlaybackVolume(Float(value), persist: !isEditing)
-        case .outputDevice:
-            OutputDeviceVolumeController.shared.setVolume(Float(value))
         case .unavailable:
             break
         }
