@@ -517,15 +517,87 @@ struct ConnectionFlowView: View {
             Spacer()
             Image(systemName: "xmark.circle").font(.system(size: 52)).foregroundStyle(.red)
             Text("connection_failed").font(.headline)
-            Text(errorMessage)
-                .font(.subheadline).foregroundStyle(.secondary)
-                .multilineTextAlignment(.center).padding(.horizontal, 40)
+            failureDetails
             Button { startConnection() } label: {
                 Label("retry", systemImage: "arrow.clockwise").fontWeight(.medium)
             }
             .buttonStyle(.borderedProminent)
             Spacer()
         }
+    }
+
+    /// 失败页以前只有一句"连接失败"加原始错误 —— 连试的是哪台机器、哪个端口都
+    /// 不说。这里补上这次真正用过的完整地址,再按地址本身的形态给一句针对性提示。
+    @ViewBuilder
+    private var failureDetails: some View {
+        VStack(spacing: 10) {
+            if let address = attemptedAddressDescription {
+                Text(String(format: String(localized: "connection_failed_address %@"), address))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .textSelection(.enabled)
+            }
+            if errorMessage.isEmpty == false {
+                Text(errorMessage)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            if let hint = attemptedAddressHint {
+                Label(hint, systemImage: "lightbulb")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+            }
+        }
+        .padding(.horizontal, 40)
+    }
+
+    /// 这次实际连接的那个端点,已经是候选选择之后的结果。不含任何凭据。
+    private var attemptedConnectionSource: MusicSource { activeSynologySource ?? source }
+
+    private var attemptedUsesVendorRemote: Bool {
+        activeSynologyCandidateKind == .vendorRemote
+            || attemptedConnectionSource.effectiveSynologyConnectionMode == .quickConnect
+    }
+
+    private var attemptedAddressDescription: String? {
+        let active = attemptedConnectionSource
+        guard let rawHost = active.host?.trimmingCharacters(in: .whitespacesAndNewlines),
+              rawHost.isEmpty == false else {
+            return nil
+        }
+        // QuickConnect / FN Connect 的"地址"就是那个标识本身。
+        if attemptedUsesVendorRemote { return rawHost }
+        // 反代前缀的群晖把整个地址塞进了 host 字段,原样显示就是最准确的。
+        if rawHost.contains("://") { return rawHost }
+        let endpoint = SourceConnectionEndpoint(
+            host: rawHost,
+            port: active.port ?? source.type.defaultPort(useSsl: active.useSsl),
+            useSsl: active.useSsl,
+            pathPrefix: source.type.supportsEndpointSpecificPath ? active.basePath : nil
+        )
+        return SourceAddressInputPolicy.renderedAddress(for: endpoint, sourceType: source.type)
+    }
+
+    private var attemptedAddressHint: String? {
+        let active = attemptedConnectionSource
+        guard let rawHost = active.host?.trimmingCharacters(in: .whitespacesAndNewlines),
+              rawHost.isEmpty == false else {
+            return nil
+        }
+        let host = rawHost.contains("://")
+            ? (URL(string: rawHost)?.host ?? rawHost)
+            : rawHost
+        let hint = SourceAddressFormPolicy.failureHint(
+            host: host,
+            port: active.port ?? source.type.defaultPort(useSsl: active.useSsl),
+            useSsl: active.useSsl,
+            sourceType: source.type,
+            usesVendorRemoteAccess: attemptedUsesVendorRemote
+        )
+        return SourceConnectionFailureHintText.text(for: hint, sourceType: source.type)
     }
 
     // MARK: - Logic

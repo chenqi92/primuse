@@ -287,6 +287,7 @@
 		38A135AAC750CAF0DE89773E /* CueSheetParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0039D9169F515627C5A4C159 /* CueSheetParser.swift */; };
 		38B71AA0941D7B974C337680 /* ScraperConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BF1A706ED97024BCCCCD9F8 /* ScraperConfigStore.swift */; };
 		38E0E189263F5CC02A9DD486 /* AddSourceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7BBFA50461FE980684501FA /* AddSourceView.swift */; };
+		DD2A67E1029D1A8D48C4442D /* SourceAddressForm.swift in Sources */ = {isa = PBXBuildFile; fileRef = 775B198C9EA7BE68BEE8EEA3 /* SourceAddressForm.swift */; };
 		38F1CB896290BA69CF5682C3 /* TimeInterval+Format.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02C67038ECF67BC44982A1C8 /* TimeInterval+Format.swift */; };
 		392380F2B15058BABF04130F /* LocalImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03F527F89BB056AD3BB3E532 /* LocalImportService.swift */; };
 		393391520F10BA2BC55108E5 /* SubsonicSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6821FC1BF97641265A739D6F /* SubsonicSource.swift */; };
@@ -323,6 +324,7 @@
 		3FD470459B0416DB4CD1D75E /* RevealableSecureField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23CA6DF05BAC0E0F38218C88 /* RevealableSecureField.swift */; };
 		3FD6FE385E58C0A4D5D11355 /* SmartPlaylistEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3577006473AE56E9BA09B47 /* SmartPlaylistEngine.swift */; };
 		3FEDDC3FBAA6BB6E200780CC /* AddSourceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7BBFA50461FE980684501FA /* AddSourceView.swift */; };
+		BB18FC8F1D4A180B1BB11849 /* SourceAddressForm.swift in Sources */ = {isa = PBXBuildFile; fileRef = 775B198C9EA7BE68BEE8EEA3 /* SourceAddressForm.swift */; };
 		4041E19DA2A02C95C8A6D678 /* LyricsLiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25CA9E005BBB76F7367ABAA6 /* LyricsLiveActivityWidget.swift */; };
 		40DC04B56794319CCF81AF24 /* ScrobbleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51E683B96F169512351E3ACE /* ScrobbleService.swift */; };
 		4104522A47C989851CAB4E72 /* SmartPlaylist.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52372EA9E4EDCA492D106A05 /* SmartPlaylist.swift */; };
@@ -1134,6 +1136,7 @@
 		D67F9E6CB1BFE62DFC4EFA45 /* PrivateOverlayHostPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0849A8F36C03A6B9E0D99387 /* PrivateOverlayHostPolicy.swift */; };
 		671B436749F49F2176CCC8DD /* ProxyPrefixedBasePathPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99D0FD719B67752D96057615 /* ProxyPrefixedBasePathPolicy.swift */; };
 		585525EF81A8660C7165F036 /* SourceAddressInputPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D985218C6C887E4DA40AF2D2 /* SourceAddressInputPolicy.swift */; };
+		75EED363BF623E3C83C6FF6A /* SourceAddressFormPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94CB377FB39449D0664E7EC7 /* SourceAddressFormPolicy.swift */; };
 		D520854E33EFECA1BC0B9C1E /* SourceConnectionCandidatePlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AFE245AAF67EBBFCEC27A42 /* SourceConnectionCandidatePlanner.swift */; };
 		7319A57702F1CD6D9AFAAF45 /* SourceEndpointProbeSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEECB0FE54439212E03E560D /* SourceEndpointProbeSession.swift */; };
 		1FBDC2326AFC272C5276CF2C /* SourceEndpointResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7972C2A34A5D5238B4B18888 /* SourceEndpointResolver.swift */; };
@@ -1558,6 +1561,7 @@
 		0849A8F36C03A6B9E0D99387 /* PrivateOverlayHostPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivateOverlayHostPolicy.swift; sourceTree = "<group>"; };
 		99D0FD719B67752D96057615 /* ProxyPrefixedBasePathPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyPrefixedBasePathPolicy.swift; sourceTree = "<group>"; };
 		D985218C6C887E4DA40AF2D2 /* SourceAddressInputPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceAddressInputPolicy.swift; sourceTree = "<group>"; };
+		94CB377FB39449D0664E7EC7 /* SourceAddressFormPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceAddressFormPolicy.swift; sourceTree = "<group>"; };
 		6AFE245AAF67EBBFCEC27A42 /* SourceConnectionCandidatePlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceConnectionCandidatePlanner.swift; sourceTree = "<group>"; };
 		EEECB0FE54439212E03E560D /* SourceEndpointProbeSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceEndpointProbeSession.swift; sourceTree = "<group>"; };
 		7972C2A34A5D5238B4B18888 /* SourceEndpointResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceEndpointResolver.swift; sourceTree = "<group>"; };
@@ -2444,6 +2448,7 @@
 		E7A4B98789824DBE3B31F9D3 /* LibraryFolderSelectionIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryFolderSelectionIndex.swift; sourceTree = "<group>"; };
 		E7A815E77F1B1FD79F7C32A3 /* SourceLyricsDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceLyricsDocument.swift; sourceTree = "<group>"; };
 		E7BBFA50461FE980684501FA /* AddSourceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddSourceView.swift; sourceTree = "<group>"; };
+		775B198C9EA7BE68BEE8EEA3 /* SourceAddressForm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceAddressForm.swift; sourceTree = "<group>"; };
 		E7F90F8D26A59F3DF6BF867F /* SidecarMetadataLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidecarMetadataLoader.swift; sourceTree = "<group>"; };
 		E869595DCD0088EE00182909 /* PrimuseTVTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = PrimuseTVTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E87CDB114A51764BEBD90ED3 /* RadioDirectoryClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioDirectoryClient.swift; sourceTree = "<group>"; };
@@ -2760,6 +2765,7 @@
 			isa = PBXGroup;
 			children = (
 				E7BBFA50461FE980684501FA /* AddSourceView.swift */,
+				775B198C9EA7BE68BEE8EEA3 /* SourceAddressForm.swift */,
 				768665CEDF081091A5DFAED7 /* BrowserChrome.swift */,
 				21727E0AB276B85CA9B19BE9 /* CloudDriveConnectionView.swift */,
 				33778B5B75AE878513F91C1B /* ConnectionFlowView.swift */,
@@ -3056,6 +3062,7 @@
 				0849A8F36C03A6B9E0D99387 /* PrivateOverlayHostPolicy.swift */,
 				99D0FD719B67752D96057615 /* ProxyPrefixedBasePathPolicy.swift */,
 				D985218C6C887E4DA40AF2D2 /* SourceAddressInputPolicy.swift */,
+				94CB377FB39449D0664E7EC7 /* SourceAddressFormPolicy.swift */,
 				6AFE245AAF67EBBFCEC27A42 /* SourceConnectionCandidatePlanner.swift */,
 				EEECB0FE54439212E03E560D /* SourceEndpointProbeSession.swift */,
 				7972C2A34A5D5238B4B18888 /* SourceEndpointResolver.swift */,
@@ -4873,6 +4880,7 @@
 				D67F9E6CB1BFE62DFC4EFA45 /* PrivateOverlayHostPolicy.swift in Sources */,
 				671B436749F49F2176CCC8DD /* ProxyPrefixedBasePathPolicy.swift in Sources */,
 				585525EF81A8660C7165F036 /* SourceAddressInputPolicy.swift in Sources */,
+				75EED363BF623E3C83C6FF6A /* SourceAddressFormPolicy.swift in Sources */,
 				D520854E33EFECA1BC0B9C1E /* SourceConnectionCandidatePlanner.swift in Sources */,
 				7319A57702F1CD6D9AFAAF45 /* SourceEndpointProbeSession.swift in Sources */,
 				1FBDC2326AFC272C5276CF2C /* SourceEndpointResolver.swift in Sources */,
@@ -5005,6 +5013,7 @@
 				7210AD10697C91EB7309F068 /* AISettingsStore.swift in Sources */,
 				7EAF3AB03B362A367BABA9D3 /* AISettingsView.swift in Sources */,
 				3FEDDC3FBAA6BB6E200780CC /* AddSourceView.swift in Sources */,
+				DD2A67E1029D1A8D48C4442D /* SourceAddressForm.swift in Sources */,
 				D397C5DBA94F77ECC4DBA540 /* AlbumCardView.swift in Sources */,
 				0E71A5DC6C92751D3051E4CD /* AlbumDetailView.swift in Sources */,
 				A4EE0DB2522234C6C161DBB9 /* AlbumGridView.swift in Sources */,
@@ -5524,6 +5533,7 @@
 				EB36756FE7E3F05779F6C1F1 /* AISettingsStore.swift in Sources */,
 				BF5E8180398E28714398622E /* AISettingsView.swift in Sources */,
 				38E0E189263F5CC02A9DD486 /* AddSourceView.swift in Sources */,
+				BB18FC8F1D4A180B1BB11849 /* SourceAddressForm.swift in Sources */,
 				C2B1ED1940A5313133B3C27C /* AlbumCardView.swift in Sources */,
 				37095AC2E63B5DE44A74FE29 /* AlbumDetailView.swift in Sources */,
 				705FDC77D0000CD2D3EFC372 /* AlbumGridView.swift in Sources */,
