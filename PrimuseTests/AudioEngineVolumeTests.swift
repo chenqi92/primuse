@@ -163,21 +163,53 @@ final class AudioEngineVolumeTests: XCTestCase {
     }
 
     @MainActor
-    func testHighFidelityKeepsUnityAndRestoresEffectsVolume() throws {
+    func testHighFidelityAppliesApplicationGainAndRestoresEffectsVolume() throws {
         try withDefaults { defaults in
             let engine = AudioEngine(volumeDefaults: defaults)
             engine.volume = 0.43
             try engine.configure(outputMode: .highFidelity)
-            XCTAssertEqual(engine.volume, 1)
             XCTAssertNil(engine.effectsMainMixer)
             // 直通图没有混音器,频谱 tap 改挂在主播放节点上,否则声音响应画面永远静止。
             XCTAssertTrue(engine.visualizerTapNode is AVAudioPlayerNode)
+            XCTAssertFalse(engine.usesDSDCarrier)
+            // 直通 PCM 的增益走输出单元的应用级音量。这台机器上写得进去就该显示
+            // 用户设定值,写不进去时控件会退回禁用,显示满格才诚实。
+            if engine.applicationGainIsAvailable {
+                XCTAssertEqual(engine.volume, 0.43, accuracy: 0.0001)
+            } else {
+                XCTAssertEqual(engine.volume, 1)
+            }
 
             try engine.configure(outputMode: .effects)
             XCTAssertEqual(engine.volume, 0.43, accuracy: 0.0001)
             let mixer = try XCTUnwrap(engine.effectsMainMixer)
             XCTAssertEqual(mixer.outputVolume, 0.43, accuracy: 0.0001)
             XCTAssertTrue(engine.visualizerTapNode === mixer)
+        }
+    }
+
+    @MainActor
+    func testDSDCarrierGraphStaysAtUnityGain() throws {
+        try withDefaults { defaults in
+            let engine = AudioEngine(volumeDefaults: defaults)
+            engine.volume = 0.43
+            let carrier = try XCTUnwrap(
+                AVAudioFormat(standardFormatWithSampleRate: 176_400, channels: 2)
+            )
+            try engine.configure(
+                outputMode: .highFidelity,
+                directSourceFormat: carrier,
+                isDSDCarrier: true
+            )
+            // DSD 的样本里装的是 1bit 码流,乘任何系数都会变成噪声。
+            XCTAssertTrue(engine.usesDSDCarrier)
+            XCTAssertFalse(engine.applicationGainIsAvailable)
+            XCTAssertEqual(engine.volume, 1)
+
+            // 用户音量本身没丢,换回能加增益的图就该原样回来。
+            try engine.configure(outputMode: .effects)
+            XCTAssertFalse(engine.usesDSDCarrier)
+            XCTAssertEqual(engine.volume, 0.43, accuracy: 0.0001)
         }
     }
     #endif

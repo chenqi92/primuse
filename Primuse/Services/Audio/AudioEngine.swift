@@ -1450,9 +1450,10 @@ final class AudioEngine {
     func setVolume(_ value: Float, persist: Bool = true) {
         guard value.isFinite else { return }
         let clamped = min(max(value, 0), 1)
-        requestedVolume = clamped
-        // 不按「值有没有变」来决定写不写：图重建之后增益级是满格的，
+        // 值没变就不重新赋值 —— 拖动时每个鼠标事件都赋一次会让所有观察它的
+        // 视图白重绘一遍。但图里那一级增益每次都要写：图重建之后它是满格的，
         // 用户把滑块推回原值时同样得写一次，否则那一次拖动像没反应。
+        if requestedVolume != clamped { requestedVolume = clamped }
         applyRequestedVolumeToGraph()
         if persist { persistVolume() }
     }
