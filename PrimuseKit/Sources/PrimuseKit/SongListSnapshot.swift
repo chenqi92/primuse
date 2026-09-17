@@ -832,7 +832,7 @@ public enum SongListSnapshotBuilder {
         return entries
     }
 
-    private static func sortedIndices(
+    fileprivate static func sortedIndices(
         songs: [Song],
         order: LibrarySongSortOrder,
         sortValues: SongListSortValues,
@@ -1039,7 +1039,7 @@ public extension SongListSnapshot {
         sortValues: SongListSortValues = .empty
     ) -> [Song] {
         guard songs.count > 1 else { return songs }
-        guard let indices = try? sortedIndices(
+        guard let indices = try? SongListSnapshotBuilder.sortedIndices(
             songs: songs,
             order: order,
             sortValues: sortValues,

@@ -691,6 +691,7 @@ private struct TVAIDivider: View {
     }
 }
 
+@MainActor
 private func tvAIIcon(_ icon: String, focused: Bool, tint: Color) -> some View {
     Image(systemName: icon)
         .font(.system(size: 20, weight: .semibold))
