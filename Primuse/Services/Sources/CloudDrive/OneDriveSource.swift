@@ -592,7 +592,8 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
             containerPath: context.parentID,
             exists: existing != nil,
             existingPath: existing?.path,
-            existingSize: existing?.size
+            existingSize: existing?.size,
+            songBaseName: baseName
         )
     }
 

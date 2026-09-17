@@ -109,4 +109,253 @@ struct LyricsSidecarSelectionPolicyTests {
         #expect(LyricsSidecarSelectionPolicy.writableFileName(replacing: "Song.vtt") == "Song.lrc")
         #expect(LyricsSidecarSelectionPolicy.writableFileName(replacing: "01. Intro.v2.SRT") == "01. Intro.v2.lrc")
     }
+
+    // MARK: - Language-tagged subtitles
+
+    @Test("A language suffix is read from the last dot of the stem")
+    func splitsLanguageTaggedNames() throws {
+        let simple = try #require(LyricsSidecarSelectionPolicy
+            .languageTaggedComponents(ofSidecarNamed: "01. Song.en.vtt"))
+        #expect(simple.baseName == "01. Song")
+        #expect(simple.tag == "en")
+
+        let script = try #require(LyricsSidecarSelectionPolicy
+            .languageTaggedComponents(ofSidecarNamed: "Song.zh-Hans.srt"))
+        #expect(script.baseName == "Song")
+        #expect(script.tag == "zh-Hans")
+
+        let original = try #require(LyricsSidecarSelectionPolicy
+            .languageTaggedComponents(ofSidecarNamed: "Song.en-orig.vtt"))
+        #expect(original.baseName == "Song")
+        #expect(original.tag == "en-orig")
+
+        // yt-dlp keeps the video ID in the name, and a base name may hold any
+        // number of dots; only the last one can be the tag.
+        let dotted = try #require(LyricsSidecarSelectionPolicy
+            .languageTaggedComponents(ofSidecarNamed: "Title [dQw4w9WgXcQ].A.B.ja.srt"))
+        #expect(dotted.baseName == "Title [dQw4w9WgXcQ].A.B")
+        #expect(dotted.tag == "ja")
+    }
+
+    @Test("A suffix that is not a language leaves the name untagged")
+    func rejectsNonLanguageSuffixes() {
+        // The would-be tag here is " Song" — a track number, not a language.
+        #expect(LyricsSidecarSelectionPolicy
+            .languageTaggedComponents(ofSidecarNamed: "01. Song.vtt") == nil)
+        #expect(LyricsSidecarSelectionPolicy
+            .languageTaggedComponents(ofSidecarNamed: "Song.Remix.srt") == nil)
+        #expect(LyricsSidecarSelectionPolicy
+            .languageTaggedComponents(ofSidecarNamed: "Song.live.vtt") == nil)
+        #expect(LyricsSidecarSelectionPolicy
+            .languageTaggedComponents(ofSidecarNamed: "Song.inst.srt") == nil)
+        #expect(LyricsSidecarSelectionPolicy
+            .languageTaggedComponents(ofSidecarNamed: "Song.v2.vtt") == nil)
+        #expect(LyricsSidecarSelectionPolicy
+            .languageTaggedComponents(ofSidecarNamed: "Song.vtt") == nil)
+    }
+
+    @Test("Only subtitle containers carry a language suffix")
+    func tagsOnlySubtitleExtensions() {
+        // `.lrc` and `.ttml` are writable, so admitting a tag here would let a
+        // save land on a file no later read would look for.
+        #expect(LyricsSidecarSelectionPolicy
+            .languageTaggedComponents(ofSidecarNamed: "Song.en.lrc") == nil)
+        #expect(LyricsSidecarSelectionPolicy
+            .languageTaggedComponents(ofSidecarNamed: "Song.en.ttml") == nil)
+        #expect(LyricsSidecarSelectionPolicy
+            .languageTaggedComponents(ofSidecarNamed: "Song.en.lys") == nil)
+        #expect(LyricsSidecarSelectionPolicy.currentDocument(
+            baseName: "Song",
+            names: ["Song.en.lrc"],
+            preferredLanguages: ["en"]
+        ) == .none)
+    }
+
+    @Test("An exactly named document outranks every tagged one")
+    func prefersExactlyNamedDocument() {
+        #expect(LyricsSidecarSelectionPolicy.currentDocument(
+            baseName: "song",
+            names: ["song.en.vtt", "song.lrc"],
+            preferredLanguages: ["en"]
+        ) == .item(1))
+        // Even a read-only exact name wins: the tag tier is the last resort.
+        #expect(LyricsSidecarSelectionPolicy.currentDocument(
+            baseName: "song",
+            names: ["song.en.vtt", "song.srt"],
+            preferredLanguages: ["en"]
+        ) == .item(1))
+    }
+
+    @Test("A lone tagged subtitle is the song's document")
+    func readsSingleTaggedSubtitle() {
+        #expect(LyricsSidecarSelectionPolicy.currentDocument(
+            baseName: "01. Song",
+            names: ["01. Song.flac", "01. Song.en.vtt"],
+            preferredLanguages: ["fr"]
+        ) == .item(1))
+    }
+
+    @Test("The base name of a tagged subtitle is matched case-insensitively")
+    func matchesTaggedBaseNameCaseInsensitively() {
+        #expect(LyricsSidecarSelectionPolicy.currentDocument(
+            baseName: "song",
+            names: ["SONG.EN.VTT"],
+            preferredLanguages: ["en"]
+        ) == .item(0))
+    }
+
+    @Test("The original-language track beats the user's own language")
+    func prefersOriginalLanguageTrack() {
+        // yt-dlp's other tracks are machine translations of this one, and
+        // Primuse puts its own translation layer on top of the original.
+        #expect(LyricsSidecarSelectionPolicy.bestLanguageTagIndex(
+            tags: ["ja", "en-orig"],
+            preferredLanguages: ["ja"]
+        ) == 1)
+    }
+
+    @Test("Preferred languages are honoured in order, strong match first")
+    func ranksPreferredLanguages() {
+        #expect(LyricsSidecarSelectionPolicy.bestLanguageTagIndex(
+            tags: ["fr", "ja", "en"],
+            preferredLanguages: ["ja", "fr"]
+        ) == 1)
+        // Both are English; only one is the requested variant.
+        #expect(LyricsSidecarSelectionPolicy.bestLanguageTagIndex(
+            tags: ["en-GB", "en-US"],
+            preferredLanguages: ["en-US"]
+        ) == 1)
+    }
+
+    @Test("Chinese tags resolve to a script before they are compared")
+    func infersChineseScript() {
+        #expect(LyricsSidecarSelectionPolicy.bestLanguageTagIndex(
+            tags: ["cht", "chs"],
+            preferredLanguages: ["zh-Hans-CN"]
+        ) == 1)
+        #expect(LyricsSidecarSelectionPolicy.bestLanguageTagIndex(
+            tags: ["zh-CN", "zh-TW"],
+            preferredLanguages: ["zh-Hant-TW"]
+        ) == 1)
+    }
+
+    @Test("Nothing preferred still resolves to the same file every time")
+    func fallsBackDeterministically() {
+        #expect(LyricsSidecarSelectionPolicy.bestLanguageTagIndex(
+            tags: ["ko", "ja"],
+            preferredLanguages: ["fr"]
+        ) == 1)
+        #expect(LyricsSidecarSelectionPolicy.bestLanguageTagIndex(
+            tags: [],
+            preferredLanguages: ["fr"]
+        ) == nil)
+    }
+
+    @Test("A tagged subtitle belonging to another song is left alone")
+    func ignoresAnotherSongsSidecar() {
+        // `Track.it.vtt` is the exact-name sidecar of `Track.it.flac`.
+        let names = ["Track.flac", "Track.it.flac", "Track.it.vtt"]
+        #expect(LyricsSidecarSelectionPolicy.currentDocument(
+            baseName: "Track",
+            names: names,
+            preferredLanguages: ["it"]
+        ) == .none)
+        #expect(LyricsSidecarSelectionPolicy.currentDocument(
+            baseName: "Track.it",
+            names: names,
+            preferredLanguages: ["it"]
+        ) == .item(2))
+    }
+
+    @Test("Two tagged subtitles are a choice, never a conflict")
+    func neverConflictsOnTaggedSubtitles() {
+        #expect(LyricsSidecarSelectionPolicy.currentDocument(
+            baseName: "song",
+            names: ["song.en.vtt", "song.ja.srt"],
+            preferredLanguages: ["ja"]
+        ) == .item(1))
+    }
+
+    @Test("A save beside a tagged subtitle drops the tag")
+    func replacesTaggedDocumentWithoutItsTag() throws {
+        // `song.en.lrc` would be invisible to every later read, so the edit
+        // has to land on `song.lrc`.
+        let plain = try #require(LyricsSidecarSelectionPolicy.writableReplacement(
+            targetPath: "/music/album/Song.en.vtt",
+            fileName: "Song.en.vtt",
+            baseName: "Song"
+        ))
+        #expect(plain.targetPath == "/music/album/Song.lrc")
+        #expect(plain.fileName == "Song.lrc")
+
+        // ID-backed drives address the sidecar as the source item plus a
+        // suffix, so only the suffix can be rewritten there.
+        let identifier = try #require(LyricsSidecarSelectionPolicy.writableReplacement(
+            targetPath: "abc123.vtt",
+            fileName: "Song.en.vtt",
+            baseName: "Song"
+        ))
+        #expect(identifier.targetPath == "abc123.lrc")
+        #expect(identifier.fileName == "Song.lrc")
+
+        let uppercase = try #require(LyricsSidecarSelectionPolicy.writableReplacement(
+            targetPath: "/music/Song.EN.VTT",
+            fileName: "Song.EN.VTT",
+            baseName: "Song"
+        ))
+        #expect(uppercase.targetPath == "/music/Song.lrc")
+        #expect(uppercase.fileName == "Song.lrc")
+
+        #expect(LyricsSidecarSelectionPolicy.writableReplacement(
+            targetPath: "nfs::ZXhwb3J0::U29uZy5lbi52dHQ",
+            fileName: "Song.en.vtt",
+            baseName: "Song"
+        ) == nil)
+    }
+
+    @Test("A song whose name ends in a language keeps its own base")
+    func keepsBaseNameThatLooksLikeATag() throws {
+        // `A.en.flac` really is called `A.en`; guessing would rename its
+        // sidecar to `A.lrc` and lose it.
+        let replacement = try #require(LyricsSidecarSelectionPolicy.writableReplacement(
+            targetPath: "/music/A.en.vtt",
+            fileName: "A.en.vtt",
+            baseName: "A.en"
+        ))
+        #expect(replacement.targetPath == "/music/A.en.lrc")
+        #expect(replacement.fileName == "A.en.lrc")
+        #expect(LyricsSidecarSelectionPolicy.writableFileName(
+            replacing: "A.en.vtt",
+            baseName: "A.en"
+        ) == "A.en.lrc")
+    }
+
+    @Test("Without a base name the replacement is unchanged")
+    func keepsLegacyReplacementWithoutBaseName() throws {
+        let legacy = try #require(LyricsSidecarSelectionPolicy.writableReplacement(
+            targetPath: "/music/Song.en.vtt",
+            fileName: "Song.en.vtt"
+        ))
+        #expect(legacy.targetPath == "/music/Song.en.lrc")
+        #expect(legacy.fileName == "Song.en.lrc")
+        #expect(LyricsSidecarSelectionPolicy.writableFileName(replacing: "Song.en.vtt")
+            == "Song.en.lrc")
+    }
+
+    @Test("A directory indexes its tagged subtitles once")
+    func indexesLanguageTaggedDirectory() {
+        let index = LanguageTaggedLyricsIndex(
+            fileNames: ["Song.flac", "Song.en.vtt", "Song.ja.vtt", "Other.fr.srt"],
+            preferredLanguages: ["ja"]
+        )
+        #expect(index.bestMatch(baseName: "Song") == "Song.ja.vtt")
+        #expect(index.bestMatch(baseName: "Other") == "Other.fr.srt")
+        #expect(index.bestMatch(baseName: "Missing") == nil)
+
+        let guarded = LanguageTaggedLyricsIndex(
+            fileNames: ["Track.flac", "Track.it.flac", "Track.it.vtt"],
+            preferredLanguages: ["it"]
+        )
+        #expect(guarded.bestMatch(baseName: "Track") == nil)
+    }
 }

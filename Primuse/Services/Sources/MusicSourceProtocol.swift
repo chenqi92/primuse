@@ -910,6 +910,11 @@ struct LyricsSidecarTarget: Sendable, Equatable {
     /// whose `targetPath` is an encoded address supplies it; a plain path or
     /// an ID-plus-suffix address is rewritten textually instead.
     let writableSiblingPath: String?
+    /// The song's own base name. A language-tagged document such as
+    /// `song.en.vtt` is saved as `song.lrc`, and the base cannot be guessed
+    /// from the document's name: a song genuinely called `A.en` would lose its
+    /// sidecar to `A.lrc`.
+    let songBaseName: String?
 
     init(
         targetPath: String,
@@ -918,7 +923,8 @@ struct LyricsSidecarTarget: Sendable, Equatable {
         exists: Bool,
         existingPath: String? = nil,
         existingSize: Int64? = nil,
-        writableSiblingPath: String? = nil
+        writableSiblingPath: String? = nil,
+        songBaseName: String? = nil
     ) {
         self.targetPath = targetPath
         self.fileName = fileName
@@ -930,6 +936,7 @@ struct LyricsSidecarTarget: Sendable, Equatable {
         self.existingPath = exists ? existingPath : nil
         self.existingSize = exists ? existingSize : nil
         self.writableSiblingPath = writableSiblingPath
+        self.songBaseName = songBaseName
     }
 }
 
@@ -963,7 +970,8 @@ enum LyricsSidecarTargetPolicy {
             containerPath: containerPath,
             exists: existing != nil,
             existingPath: existing?.path,
-            existingSize: existing?.size
+            existingSize: existing?.size,
+            songBaseName: songBase
         )
     }
 
@@ -1006,11 +1014,15 @@ enum LyricsSidecarTargetPolicy {
         if let siblingPath = target.writableSiblingPath {
             replacement = (
                 siblingPath,
-                LyricsSidecarSelectionPolicy.writableFileName(replacing: target.fileName)
+                LyricsSidecarSelectionPolicy.writableFileName(
+                    replacing: target.fileName,
+                    baseName: target.songBaseName
+                )
             )
         } else if let rewritten = LyricsSidecarSelectionPolicy.writableReplacement(
             targetPath: target.targetPath,
-            fileName: target.fileName
+            fileName: target.fileName,
+            baseName: target.songBaseName
         ) {
             replacement = rewritten
         } else {
@@ -1024,7 +1036,8 @@ enum LyricsSidecarTargetPolicy {
             containerPath: target.containerPath,
             exists: false,
             existingPath: nil,
-            existingSize: nil
+            existingSize: nil,
+            songBaseName: target.songBaseName
         )
     }
 

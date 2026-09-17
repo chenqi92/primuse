@@ -11492,6 +11492,9 @@ private extension SourceManager {
         let songBase = (songFileName as NSString).deletingPathExtension
 
         var paths: [String] = []
+        // 这里是按名猜路径、不列目录, 所以带语言后缀的字幕(`<曲名>.en.vtt`)
+        // 无从枚举, 源里删歌时会被留下。留个孤儿文件, 好过把语言后缀一个个
+        // 猜着删、删错别人的文件。
         for ext in PrimuseConstants.readableLyricsExtensions {
             paths.append((songDir as NSString).appendingPathComponent("\(songBase).\(ext)"))
         }

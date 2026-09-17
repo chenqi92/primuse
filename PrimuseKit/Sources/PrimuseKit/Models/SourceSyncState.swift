@@ -517,17 +517,28 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
         var offset: Int
     }
 
+    /// A language-tagged subtitle carries its tag with it: re-deriving it per
+    /// song would run the tag check again for every song in the directory.
+    private struct TaggedItem: Sendable {
+        var item: Item
+        var tag: String
+        var stem: String
+    }
+
     private let firstItemByLowercasedName: [String: IndexedItem]
     private let firstItemByPath: [String: Item]
     private let audioBasenames: Set<String>
+    private let languageTaggedLyricsByBasename: [String: [TaggedItem]]
+    private let preferredLanguages: [String]
     private let cueFingerprint: String?
 
     public let itemCount: Int
 
-    public init(_ items: [Item]) {
+    public init(_ items: [Item], preferredLanguages: [String] = Locale.preferredLanguages) {
         var firstItemByLowercasedName: [String: IndexedItem] = [:]
         var firstItemByPath: [String: Item] = [:]
         var audioBasenames: Set<String> = []
+        var languageTaggedLyricsByBasename: [String: [TaggedItem]] = [:]
         var cuePaths: Set<String> = []
 
         firstItemByLowercasedName.reserveCapacity(items.count)
@@ -556,11 +567,27 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
             if PrimuseConstants.supportedCueSheetExtensions.contains(fileExtension) {
                 cuePaths.insert(item.sidecarPath)
             }
+            // Only the two subtitle extensions can carry a language suffix, so
+            // this costs one set lookup for everything else in the directory.
+            if LyricsSidecarSelectionPolicy.languageTaggedExtensions.contains(fileExtension),
+               let components = LyricsSidecarSelectionPolicy
+                .languageTaggedComponents(ofSidecarNamed: item.sidecarName) {
+                languageTaggedLyricsByBasename[components.baseName.lowercased(), default: []]
+                    .append(
+                        TaggedItem(
+                            item: item,
+                            tag: components.tag,
+                            stem: fileName.deletingPathExtension.lowercased()
+                        )
+                    )
+            }
         }
 
         self.firstItemByLowercasedName = firstItemByLowercasedName
         self.firstItemByPath = firstItemByPath
         self.audioBasenames = audioBasenames
+        self.languageTaggedLyricsByBasename = languageTaggedLyricsByBasename
+        self.preferredLanguages = preferredLanguages
         itemCount = items.count
 
         let cueComponents = cuePaths.sorted().map { path in
@@ -622,7 +649,18 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
                 return match.item
             }
         }
-        return nil
+        // Nothing carries the song's exact name, so the subtitle ecosystem's
+        // `<base>.<lang>.vtt` naming is consulted — that is what yt-dlp writes
+        // and what media-server users name their external subtitles.
+        guard let tagged = languageTaggedLyricsByBasename[base] else { return nil }
+        // `Track.it.vtt` beside `Track.it.flac` is that song's own exact-name
+        // sidecar, not the Italian subtitle of `Track.flac`.
+        let usable = tagged.filter { !audioBasenames.contains($0.stem) }
+        guard let choice = LyricsSidecarSelectionPolicy.bestLanguageTagIndex(
+            tags: usable.map(\.tag),
+            preferredLanguages: preferredLanguages
+        ) else { return nil }
+        return usable[choice].item
     }
 
     public func sameNameMusicVideo(basename: String) -> Item? {
