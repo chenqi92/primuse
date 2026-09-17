@@ -37,6 +37,11 @@ struct LyricPosterShareSheet: View {
     /// 预览最多占这么高, 否则竖版画幅会把风格选择器挤出首屏。
     private static let previewMaximumHeight: CGFloat = 420
 
+    /// 显式初始化。Xcode 27 的 `@State` 改由宏实现，是否还合成逐成员初始化器不再可靠。
+    init(composer: LyricPosterComposer) {
+        self.composer = composer
+    }
+
     var body: some View {
         NavigationStack {
             // 在 ScrollView 外面量一次可用宽度。垂直 ScrollView 给子视图的高度
