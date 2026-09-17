@@ -430,7 +430,7 @@ struct MacImmersivePlayerView: View {
         case .radialPulse, .vinylDeck, .particleBloom:
             .leading
         case .coverFlow, .coverGallery, .starryNight, .flowingLines, .lightRhythm, .kineticTitle, .liveWaveform,
-             .mirrorStage, .auroraVeil, .spectrumHorizon:
+             .mirrorStage, .auroraVeil, .spectrumHorizon, .coverMosaic:
             .trailing
         case .native:
             .center

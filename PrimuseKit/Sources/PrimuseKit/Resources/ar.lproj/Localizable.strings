@@ -548,6 +548,9 @@
 "fullscreen_effect_particle_bloom" = "تفتّح الجسيمات";
 "fullscreen_effect_particle_bloom_subtitle" = "غبار النجوم ينتشر من الغلاف ويسطع مع الإيقاع";
 "fullscreen_effect_particle_bloom_motion" = "مدفوع بالطيف اللحظي · تتفتّح الجسيمات مع الجهير";
+"fullscreen_effect_cover_mosaic" = "فسيفساء الأغلفة";
+"fullscreen_effect_cover_mosaic_subtitle" = "تشكّل أغلفة المكتبة جدارًا مائلًا يملأ الشاشة، ويقف أمامه الغلاف الحالي وكلمات الأغنية";
+"fullscreen_effect_cover_mosaic_motion" = "أغلفة المكتبة الحقيقية · إعادة ترتيب دورية";
 "fullscreen_effect_live_waveform_subtitle" = "يتبع الطيف الأفقي تشغيل الصوت في الوقت الحقيقي";
 "fullscreen_effect_native" = "الأصل";
 "fullscreen_effect_native_motion" = "الانتقال الأصلي · الافتراضي";

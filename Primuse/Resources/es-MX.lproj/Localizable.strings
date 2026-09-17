@@ -1354,6 +1354,9 @@
 "fullscreen_effect_particle_bloom" = "Floración de partículas";
 "fullscreen_effect_particle_bloom_subtitle" = "Polvo de estrellas irradia desde la portada y se ilumina con el ritmo";
 "fullscreen_effect_particle_bloom_motion" = "Espectro en tiempo real · Las partículas florecen con los graves";
+"fullscreen_effect_cover_mosaic" = "Mosaico de portadas";
+"fullscreen_effect_cover_mosaic_subtitle" = "Las portadas de la biblioteca forman un muro inclinado a pantalla completa, con la portada actual y la letra al frente";
+"fullscreen_effect_cover_mosaic_motion" = "Portadas reales de la biblioteca · Reacomodo periódico";
 "fullscreen_effect_live_waveform_subtitle" = "El espectro horizontal sigue la reproducción de audio en tiempo real";
 "fullscreen_effect_lyric_stage" = "Etapa Lírica";
 "fullscreen_effect_lyric_stage_subtitle" = "La letra comienza con un encabezado de pista restringido";

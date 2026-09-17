@@ -155,8 +155,9 @@ extension SkinCatalog {
                 .playerStage: SkinSlotVariant.PlayerStage.sheetActions.rawValue,
             ],
             companions: SkinCompanions(
-                immersiveStageIDs: ["coverGallery"],
+                immersiveStageIDs: ["coverMosaic"],
                 lyricPosterStyleIDs: ["deep_sea"],
+                preferredImmersiveStageID: "coverMosaic",
                 preferredLyricPosterStyleID: "deep_sea"
             )
         )

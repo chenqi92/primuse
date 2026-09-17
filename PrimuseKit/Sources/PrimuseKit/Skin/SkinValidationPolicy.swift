@@ -353,6 +353,20 @@ public enum SkinCompanionPolicy {
         }
     }
 
+    /// 一个「总是有值」的存储项算不算用户的选择。
+    ///
+    /// 全屏效果的存储键在启动时就会被写成默认值,「从没选过」没法靠键是否存在来判断。
+    /// 亲手选过(`userSelected`),或者存储值已经不是默认值(另一台设备同步过来的选择),
+    /// 才算用户的选择;否则返回 nil,交给当前样式建议的那一款。
+    public static func explicitChoice(
+        storedStyleID: String,
+        defaultStyleID: String,
+        userSelected: Bool
+    ) -> String? {
+        if userSelected || storedStyleID != defaultStyleID { return storedStyleID }
+        return nil
+    }
+
     /// 当前该用哪一款。
     ///
     /// - 用户手动选过且那一款仍可用:尊重用户的选择。

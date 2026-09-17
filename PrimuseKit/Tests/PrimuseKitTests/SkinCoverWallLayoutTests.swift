@@ -161,4 +161,115 @@ struct SkinCoverWallLayoutTests {
         #expect(abs(frame.y - 252) < 0.001)
         #expect(abs(frame.side - 244) < 0.001)
     }
+
+    // MARK: - 铺满整屏
+
+    @Test("整屏墙面由两张模板拼成,铺满且无重叠;竖屏上下拼、横屏左右拼")
+    func stageCompositionTilesTheWholePlane() {
+        for isLandscape in [false, true] {
+            for step in 0..<(CoverWallLayoutPolicy.compositionCount * 2) {
+                let composition = CoverWallLayoutPolicy.stageComposition(
+                    coverIDs: covers,
+                    step: step,
+                    isLandscape: isLandscape
+                )
+                #expect(composition.columns == (isLandscape ? 10 : 5))
+                #expect(composition.rows == (isLandscape ? 5 : 10))
+                var occupied: [Int: Int] = [:]
+                for tile in composition.tiles {
+                    for column in tile.column..<(tile.column + tile.span) {
+                        for row in tile.row..<(tile.row + tile.span) {
+                            #expect((0..<composition.columns).contains(column))
+                            #expect((0..<composition.rows).contains(row))
+                            occupied[row * composition.columns + column, default: 0] += 1
+                        }
+                    }
+                }
+                #expect(occupied.count == composition.columns * composition.rows)
+                #expect(occupied.values.allSatisfy { $0 == 1 })
+                #expect(Set(composition.tiles.map(\.id)).count == composition.tiles.count)
+                #expect(composition.tiles.allSatisfy { !$0.isFocus })
+            }
+        }
+    }
+
+    @Test("整屏墙面里同一张封面不挨着出现,接缝两侧也一样")
+    func stageCompositionKeepsRepeatsApart() {
+        // 全屏效果拿到的封面通常只有十来张,远少于三十来个格子,重复是常态。
+        let dozen = (1...12).map { "cover-\($0)" }
+        for isLandscape in [false, true] {
+            for step in 0..<CoverWallLayoutPolicy.compositionCount {
+                let composition = CoverWallLayoutPolicy.stageComposition(
+                    coverIDs: dozen,
+                    step: step,
+                    isLandscape: isLandscape
+                )
+                for first in composition.tiles {
+                    for second in composition.tiles where first.id != second.id {
+                        guard first.coverID == second.coverID else { continue }
+                        let firstSlot = CoverWallLayoutPolicy.Slot(column: first.column, row: first.row, span: first.span)
+                        let secondSlot = CoverWallLayoutPolicy.Slot(column: second.column, row: second.row, span: second.span)
+                        #expect(
+                            !CoverWallLayoutPolicy.areAdjacent(firstSlot, secondSlot),
+                            "\(first.coverID) 在第 \(step) 拍相邻出现(横屏: \(isLandscape))"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @Test("整屏墙面每一拍都换构图,没有封面时不出格子")
+    func stageCompositionChangesEveryStep() {
+        let first = CoverWallLayoutPolicy.stageComposition(coverIDs: covers, step: 0, isLandscape: false)
+        let next = CoverWallLayoutPolicy.stageComposition(coverIDs: covers, step: 1, isLandscape: false)
+        #expect(first != next)
+        #expect(first == CoverWallLayoutPolicy.stageComposition(coverIDs: covers, step: 0, isLandscape: false))
+        let empty = CoverWallLayoutPolicy.stageComposition(coverIDs: [], step: 0, isLandscape: true)
+        #expect(empty.tiles.isEmpty)
+        #expect(empty.columns == 10)
+    }
+
+    @Test("倾斜之后仍盖满各种屏幕,漂移的余量也算在内")
+    func stageGeometryCoversEveryScreen() {
+        let screens: [(Double, Double)] = [
+            (390, 844), (844, 390), (375, 667), (466, 678), (430, 932),
+            (820, 1180), (1180, 820), (1366, 1024), (1728, 1080), (1920, 1080), (2560, 1080),
+        ]
+        for (width, height) in screens {
+            let isLandscape = width > height
+            let columns = isLandscape ? 10 : 5
+            let rows = isLandscape ? 5 : 10
+            let overscan = min(width, height) * 0.04
+            let geometry = CoverWallLayoutPolicy.stageGeometry(
+                width: width,
+                height: height,
+                columns: columns,
+                rows: rows,
+                overscan: overscan
+            )
+            #expect(
+                CoverWallLayoutPolicy.covers(
+                    width: width,
+                    height: height,
+                    geometry: geometry,
+                    columns: columns,
+                    rows: rows,
+                    margin: overscan
+                ),
+                "\(Int(width))×\(Int(height)) 露底"
+            )
+            // 墙面中心就是画面中心。
+            let centerX = geometry.originX + geometry.planeLength(cells: columns) / 2
+            let centerY = geometry.originY + geometry.planeLength(cells: rows) / 2
+            #expect(abs(centerX - width / 2) < 0.001)
+            #expect(abs(centerY - height / 2) < 0.001)
+            // 格子保持在「一面墙」的尺度:不小到认不出封面,也不大到一格占掉半个屏幕。
+            let shortSide = min(width, height)
+            #expect(geometry.cellSize > shortSide * 0.18, "\(Int(width))×\(Int(height)) 格子过小")
+            #expect(geometry.cellSize < shortSide * 0.40, "\(Int(width))×\(Int(height)) 格子过大")
+        }
+        let degenerate = CoverWallLayoutPolicy.stageGeometry(width: 0, height: 100, columns: 5, rows: 10)
+        #expect(degenerate.cellSize == 0)
+    }
 }

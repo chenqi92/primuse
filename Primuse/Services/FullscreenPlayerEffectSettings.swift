@@ -244,7 +244,7 @@ enum AmbientLightOverlayPolicy {
     }
 }
 
-/// 用户可选择的十三类沉浸画面。名称描述效果机制，不再暴露设计稿编号。
+/// 用户可选择的十四类沉浸画面。名称描述效果机制，不再暴露设计稿编号。
 enum ImmersiveEffectScene: Sendable {
     case coverFlow
     case coverGallery
@@ -259,6 +259,7 @@ enum ImmersiveEffectScene: Sendable {
     case liveWaveform
     case spectrumHorizon
     case particleBloom
+    case coverMosaic
 }
 
 /// 保留控制层语义，便于三端共用同一套容器。
@@ -302,7 +303,7 @@ enum FullscreenEffectCollection: Int, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// 三端共享的全屏效果目录。原生播放器保持默认，其余十三项对应十三种实际渲染机制。
+/// 三端共享的全屏效果目录。原生播放器保持默认，其余十四项对应十四种实际渲染机制。
 /// 新增效果追加在末尾，保证 macOS 数字快捷键与既有顺序一致。
 enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     case native
@@ -319,8 +320,12 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     case auroraVeil
     case spectrumHorizon
     case particleBloom
+    case coverMosaic
 
     static let storageKey = "primuse.fullscreenPlayerEffect"
+    /// 用户是否亲手选过效果。存储键在启动时就会被写成默认值,单看它分不出「选了原生」
+    /// 和「从没选过」;界面皮肤只在后一种情况下才用自己带来的那一款。
+    static let userSelectedKey = "primuse.fullscreenPlayerEffect.userSelected"
     static let defaultValue = FullscreenPlayerEffect.native
     static let immersiveCases = allCases.filter { !$0.isNative }
 
@@ -343,6 +348,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .auroraVeil: "auroraVeil"
         case .spectrumHorizon: "spectrumHorizon"
         case .particleBloom: "particleBloom"
+        case .coverMosaic: "coverMosaic"
         }
     }
 
@@ -378,6 +384,8 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
             self = .spectrumHorizon
         case "particleBloom":
             self = .particleBloom
+        case "coverMosaic":
+            self = .coverMosaic
         default:
             return nil
         }
@@ -386,7 +394,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     var collection: FullscreenEffectCollection {
         switch self {
         case .native: .native
-        case .coverFlow, .coverGallery, .vinylDeck, .mirrorStage: .coverReactive
+        case .coverFlow, .coverGallery, .vinylDeck, .mirrorStage, .coverMosaic: .coverReactive
         case .starryNight, .flowingLines, .lightRhythm, .auroraVeil, .kineticTitle: .sceneMotion
         case .radialPulse, .liveWaveform, .spectrumHorizon, .particleBloom: .audioReactive
         }
@@ -407,6 +415,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .auroraVeil: .auroraVeil
         case .spectrumHorizon: .spectrumHorizon
         case .particleBloom: .particleBloom
+        case .coverMosaic: .coverMosaic
         }
     }
 
@@ -447,6 +456,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .auroraVeil: "aurora_veil"
         case .spectrumHorizon: "spectrum_horizon"
         case .particleBloom: "particle_bloom"
+        case .coverMosaic: "cover_mosaic"
         }
     }
 
@@ -482,6 +492,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .auroraVeil: "moon.haze.fill"
         case .spectrumHorizon: "chart.bar.xaxis"
         case .particleBloom: "aqi.medium"
+        case .coverMosaic: "rectangle.3.group.fill"
         }
     }
 }
@@ -543,6 +554,7 @@ final class FullscreenPlayerEffectSync {
 
     func select(_ effect: FullscreenPlayerEffect) {
         install()
+        defaults.set(true, forKey: FullscreenPlayerEffect.userSelectedKey)
         defaults.set(effect.rawValue, forKey: FullscreenPlayerEffect.storageKey)
         pushCurrentValue()
         NotificationCenter.default.post(name: Self.didChangeNotification, object: effect.rawValue)

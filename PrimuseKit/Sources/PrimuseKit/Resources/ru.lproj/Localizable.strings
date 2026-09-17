@@ -273,6 +273,9 @@
 "fullscreen_effect_particle_bloom" = "Цветение частиц";
 "fullscreen_effect_particle_bloom_subtitle" = "Звёздная пыль расходится от обложки и вспыхивает в такт";
 "fullscreen_effect_particle_bloom_motion" = "Спектр в реальном времени · Частицы расцветают на басах";
+"fullscreen_effect_cover_mosaic" = "Мозаика обложек";
+"fullscreen_effect_cover_mosaic_subtitle" = "Обложки медиатеки складываются в наклонную стену на весь экран, перед ней — текущая обложка и текст песни";
+"fullscreen_effect_cover_mosaic_motion" = "Настоящие обложки медиатеки · Периодическая перестановка";
 "ext.tv.otp.authFailed" = "Не удалось войти в систему. Проверьте учетную запись и пароль.";
 "ext.tv.search.eyebrow" = "Поиск";
 "ext.tv.sources.hint.daoliyu" = "Уроженец Даолию API";

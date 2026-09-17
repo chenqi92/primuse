@@ -46,7 +46,12 @@ public struct CoverWallGeometry: Sendable, Equatable {
     public var pitch: Double { cellSize + gap }
 
     public func planeSide(columns: Int) -> Double {
-        Double(columns) * cellSize + Double(max(0, columns - 1)) * gap
+        planeLength(cells: columns)
+    }
+
+    /// 连续 `cells` 格(含中间的间距)的长度。墙面不是正方形时,宽高各算各的。
+    public func planeLength(cells: Int) -> Double {
+        Double(cells) * cellSize + Double(max(0, cells - 1)) * gap
     }
 
     /// 一格在墙平面(未旋转)里的位置与边长。
@@ -190,9 +195,27 @@ public enum CoverWallLayoutPolicy {
             return CoverWallComposition(columns: columns, rows: rows, tiles: [])
         }
 
-        let safeStep = ((step % templates.count) + templates.count) % templates.count
-        let slots = templates[safeStep]
+        let slots = templates[templateIndex(for: step)]
         let focus = focusID.flatMap { pool.contains($0) ? $0 : nil }
+        return CoverWallComposition(
+            columns: columns,
+            rows: rows,
+            tiles: tiles(for: slots, pool: pool, step: step, focus: focus)
+        )
+    }
+
+    static func templateIndex(for step: Int) -> Int {
+        ((step % templates.count) + templates.count) % templates.count
+    }
+
+    /// 把封面分到一组格子里。`focus` 不为空时,第一格固定给它。
+    static func tiles(
+        for slots: [Slot],
+        pool: [String],
+        step: Int,
+        focus: String?
+    ) -> [CoverWallTile] {
+        guard !pool.isEmpty else { return [] }
 
         // 取样窗口随拍移动;封面不够铺满时循环取用。
         let stride = max(1, slots.count / 2)
@@ -220,7 +243,7 @@ public enum CoverWallLayoutPolicy {
         }
 
         var occurrences: [String: Int] = [:]
-        let tiles = assigned.enumerated().map { index, pair -> CoverWallTile in
+        return assigned.enumerated().map { index, pair -> CoverWallTile in
             let (slot, coverID) = pair
             let occurrence = occurrences[coverID, default: 0]
             occurrences[coverID] = occurrence + 1
@@ -233,7 +256,6 @@ public enum CoverWallLayoutPolicy {
                 isFocus: index == 0 && focus != nil
             )
         }
-        return CoverWallComposition(columns: columns, rows: rows, tiles: tiles)
     }
 
     static func areAdjacent(_ first: Slot, _ second: Slot) -> Bool {
@@ -272,20 +294,110 @@ public enum CoverWallLayoutPolicy {
         )
     }
 
-    /// 头图区域是否被倾斜后的墙面完全盖住(用于断言几何)。
-    static func covers(width: Double, height: Double, geometry: CoverWallGeometry) -> Bool {
-        let side = geometry.planeSide(columns: columns)
-        let centerX = geometry.originX + side / 2
-        let centerY = geometry.originY + side / 2
+    // MARK: - 铺满整屏
+
+    /// 整屏墙面换构图的间隔(秒)。比头图慢:它是整屏的背景,换得勤会抢歌词的注意力。
+    public static let stageReflowInterval: Double = 9
+
+    /// 铺满整屏的墙面:两张模板拼成一面 —— 竖屏上下拼(5 列 × 10 行),横屏左右拼(10 列 × 5 行)。
+    ///
+    /// 只用一张 5×5 去盖 16:9 的屏幕,每格要大到半屏高,看上去是几张大图而不是一面墙;
+    /// 拼两张能让格子保持在认得出「一面墙」的大小。两张用相邻的两个模板,接缝两侧的
+    /// 构图不会对称;相邻判定用的是拼接后的坐标,所以接缝两侧也不会挨着出现同一张封面。
+    public static func stageComposition(
+        coverIDs: [String],
+        step: Int,
+        isLandscape: Bool
+    ) -> CoverWallComposition {
+        let totalColumns = isLandscape ? columns * 2 : columns
+        let totalRows = isLandscape ? rows : rows * 2
+        var seen: Set<String> = []
+        let pool = coverIDs.filter { seen.insert($0).inserted }
+        guard !pool.isEmpty else {
+            return CoverWallComposition(columns: totalColumns, rows: totalRows, tiles: [])
+        }
+
+        let first = templates[templateIndex(for: step)]
+        let second = templates[templateIndex(for: step + 1)].map { slot in
+            Slot(
+                column: slot.column + (isLandscape ? columns : 0),
+                row: slot.row + (isLandscape ? 0 : rows),
+                span: slot.span
+            )
+        }
+        return CoverWallComposition(
+            columns: totalColumns,
+            rows: totalRows,
+            tiles: tiles(for: first + second, pool: pool, step: step, focus: nil)
+        )
+    }
+
+    /// 让倾斜之后的墙面盖满整个 `width × height`,墙面中心与画面中心重合。
+    ///
+    /// - Parameter overscan: 四周额外盖出去的距离。墙面缓慢漂移时靠它保证边缘不露底。
+    public static func stageGeometry(
+        width: Double,
+        height: Double,
+        columns: Int,
+        rows: Int,
+        overscan: Double = 0
+    ) -> CoverWallGeometry {
+        guard width > 0, height > 0, columns > 0, rows > 0 else {
+            return CoverWallGeometry(cellSize: 0, gap: 0, originX: 0, originY: 0, rotationDegrees: -14)
+        }
+        let rotationDegrees = -14.0
+        let radians = abs(rotationDegrees) * Double.pi / 180
+        let coveredWidth = width + max(0, overscan) * 2
+        let coveredHeight = height + max(0, overscan) * 2
+        // 画面矩形在墙面坐标系里的外接范围。
+        let neededWidth = coveredWidth * cos(radians) + coveredHeight * sin(radians)
+        let neededHeight = coveredWidth * sin(radians) + coveredHeight * cos(radians)
+        // 间距与格子的比例沿用设计稿(118 : 8)。
+        let gapRatio = 8.0 / 118.0
+        let columnUnits = Double(columns) + Double(columns - 1) * gapRatio
+        let rowUnits = Double(rows) + Double(rows - 1) * gapRatio
+        let cellSize = max(neededWidth / columnUnits, neededHeight / rowUnits)
+        let gap = cellSize * gapRatio
+        let planeWidth = Double(columns) * cellSize + Double(columns - 1) * gap
+        let planeHeight = Double(rows) * cellSize + Double(rows - 1) * gap
+        return CoverWallGeometry(
+            cellSize: cellSize,
+            gap: gap,
+            originX: (width - planeWidth) / 2,
+            originY: (height - planeHeight) / 2,
+            rotationDegrees: rotationDegrees
+        )
+    }
+
+    /// 画面区域(四周再外扩 `margin`)是否被倾斜后的墙面完全盖住(用于断言几何)。
+    static func covers(
+        width: Double,
+        height: Double,
+        geometry: CoverWallGeometry,
+        columns: Int = CoverWallLayoutPolicy.columns,
+        rows: Int = CoverWallLayoutPolicy.rows,
+        margin: Double = 0
+    ) -> Bool {
+        let planeWidth = geometry.planeLength(cells: columns)
+        let planeHeight = geometry.planeLength(cells: rows)
+        let centerX = geometry.originX + planeWidth / 2
+        let centerY = geometry.originY + planeHeight / 2
         let radians = -geometry.rotationDegrees * Double.pi / 180
         let cosine = cos(radians)
         let sine = sin(radians)
-        for (x, y) in [(0.0, 0.0), (width, 0.0), (0.0, height), (width, height)] {
+        let corners = [
+            (-margin, -margin), (width + margin, -margin),
+            (-margin, height + margin), (width + margin, height + margin),
+        ]
+        for (x, y) in corners {
             let dx = x - centerX
             let dy = y - centerY
             let localX = dx * cosine - dy * sine
             let localY = dx * sine + dy * cosine
-            if abs(localX) > side / 2 || abs(localY) > side / 2 { return false }
+            // 留一点浮点余量:刚好贴边的角不该因为舍入被判成露底。
+            if abs(localX) > planeWidth / 2 + 1e-6 || abs(localY) > planeHeight / 2 + 1e-6 {
+                return false
+            }
         }
         return true
     }

@@ -1263,6 +1263,9 @@
 "fullscreen_effect_particle_bloom" = "Цвітіння частинок";
 "fullscreen_effect_particle_bloom_subtitle" = "Зоряний пил розходиться від обкладинки й спалахує в такт";
 "fullscreen_effect_particle_bloom_motion" = "Спектр у реальному часі · Частинки розквітають на басах";
+"fullscreen_effect_cover_mosaic" = "Мозаїка обкладинок";
+"fullscreen_effect_cover_mosaic_subtitle" = "Обкладинки медіатеки складаються в похилу стіну на весь екран, перед нею — поточна обкладинка й текст пісні";
+"fullscreen_effect_cover_mosaic_motion" = "Справжні обкладинки медіатеки · Періодичне перекомпонування";
 "unknown_title" = "Невідомий заголовок";
 "metadata" = "Метадані";
 "synology_auth_error_406" = "Для цього облікового запису застосовується двоетапна перевірка.";

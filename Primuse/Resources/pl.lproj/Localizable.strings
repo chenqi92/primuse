@@ -1354,6 +1354,9 @@
 "fullscreen_effect_particle_bloom" = "Rozkwit cząstek";
 "fullscreen_effect_particle_bloom_subtitle" = "Gwiezdny pył rozchodzi się od okładki i rozbłyska w rytm";
 "fullscreen_effect_particle_bloom_motion" = "Widmo w czasie rzeczywistym · Cząstki rozkwitają na basie";
+"fullscreen_effect_cover_mosaic" = "Mozaika okładek";
+"fullscreen_effect_cover_mosaic_subtitle" = "Okładki z biblioteki tworzą pochyloną ścianę na cały ekran, a przed nią stoją aktualna okładka i tekst utworu";
+"fullscreen_effect_cover_mosaic_motion" = "Prawdziwe okładki z biblioteki · Okresowe przetasowanie";
 "fullscreen_effect_live_waveform_subtitle" = "Widmo poziome podąża za odtwarzanym dźwiękiem w czasie rzeczywistym";
 "fullscreen_effect_lyric_stage" = "Scena liryczna";
 "fullscreen_effect_lyric_stage_subtitle" = "Początek tekstu z powściągliwym nagłówkiem utworu";

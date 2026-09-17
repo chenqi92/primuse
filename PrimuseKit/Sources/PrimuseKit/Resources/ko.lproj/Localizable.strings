@@ -669,6 +669,9 @@
 "fullscreen_effect_particle_bloom" = "파티클 블룸";
 "fullscreen_effect_particle_bloom_subtitle" = "아트워크에서 별가루가 퍼져 나가며 비트에 맞춰 밝아집니다";
 "fullscreen_effect_particle_bloom_motion" = "실시간 스펙트럼 구동 · 저음에 입자 확산";
+"fullscreen_effect_cover_mosaic" = "커버 모자이크";
+"fullscreen_effect_cover_mosaic_subtitle" = "보관함 커버가 기울어진 벽을 이루어 화면을 채우고, 그 앞에 현재 커버와 가사가 놓입니다";
+"fullscreen_effect_cover_mosaic_motion" = "실제 보관함 커버 · 주기적으로 재배치";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";

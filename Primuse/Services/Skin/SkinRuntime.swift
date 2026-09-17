@@ -107,6 +107,30 @@ final class SkinRuntime {
         }
     }
 
+    // MARK: - 配套
+
+    /// 全屏播放实际用哪一款效果:亲手选过的照旧;从没选过时,用当前样式带来的那一款。
+    /// 选中的那一款随样式失效(权益变化、样式下架)时退回原生播放页。
+    func effectiveFullscreenEffect(
+        stored: FullscreenPlayerEffect,
+        userSelected: Bool
+    ) -> FullscreenPlayerEffect {
+        let fallback = FullscreenPlayerEffect.defaultValue.rawValue
+        let rawValue = SkinCompanionPolicy.resolvedStyleID(
+            kind: .immersiveStage,
+            userChoice: SkinCompanionPolicy.explicitChoice(
+                storedStyleID: stored.rawValue,
+                defaultStyleID: fallback,
+                userSelected: userSelected
+            ),
+            activeSkin: activeSkin,
+            fallbackStyleID: fallback,
+            catalog: catalog,
+            unlocked: unlockedIDs
+        )
+        return FullscreenPlayerEffect(rawValue: rawValue) ?? .defaultValue
+    }
+
     // MARK: - 外观
 
     /// 样式对浅深色的要求。有些样式只在一种底色下成立,放到另一种底色会垮,

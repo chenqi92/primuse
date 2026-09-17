@@ -669,6 +669,9 @@
 "fullscreen_effect_particle_bloom" = "Floraison de particules";
 "fullscreen_effect_particle_bloom_subtitle" = "De la poussière d'étoiles rayonne depuis la pochette et s'illumine au rythme";
 "fullscreen_effect_particle_bloom_motion" = "Spectre en temps réel · Les particules s'ouvrent sur les basses";
+"fullscreen_effect_cover_mosaic" = "Mosaïque de pochettes";
+"fullscreen_effect_cover_mosaic_subtitle" = "Les pochettes de la bibliothèque forment un mur incliné plein écran, la pochette actuelle et les paroles devant";
+"fullscreen_effect_cover_mosaic_motion" = "Pochettes réelles · Recomposition périodique";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";

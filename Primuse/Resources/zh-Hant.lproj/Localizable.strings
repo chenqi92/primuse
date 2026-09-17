@@ -1563,6 +1563,9 @@
 "fullscreen_effect_particle_bloom" = "星塵律動";
 "fullscreen_effect_particle_bloom_subtitle" = "星塵從封面向外擴散，隨節拍明暗起伏";
 "fullscreen_effect_particle_bloom_motion" = "即時頻譜驅動 · 低頻推動粒子";
+"fullscreen_effect_cover_mosaic" = "封面拼貼";
+"fullscreen_effect_cover_mosaic_subtitle" = "資料庫封面拼成一面傾斜的牆鋪滿整個畫面，目前封面與歌詞立在牆前";
+"fullscreen_effect_cover_mosaic_motion" = "資料庫真實封面 · 定時重新拼貼";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "图言吐语";
 "immersive_demo_album" = "soundisle";

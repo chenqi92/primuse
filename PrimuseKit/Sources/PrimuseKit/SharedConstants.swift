@@ -6522,6 +6522,7 @@ public enum ImmersivePresentationFallbackPolicy {
         "native", "coverFlow", "coverGallery", "starryNight", "flowingLines",
         "lightRhythm", "kineticTitle", "radialPulse", "liveWaveform",
         "vinylDeck", "mirrorStage", "auroraVeil", "spectrumHorizon", "particleBloom",
+        "coverMosaic",
     ]
 
     public static func effectiveEffectRawValue(

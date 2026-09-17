@@ -1615,6 +1615,9 @@
 "fullscreen_effect_particle_bloom" = "Partikelblüte";
 "fullscreen_effect_particle_bloom_subtitle" = "Sternenstaub strömt vom Cover nach außen und leuchtet im Takt auf";
 "fullscreen_effect_particle_bloom_motion" = "Echtzeit-Spektrum · Partikel blühen bei Bass";
+"fullscreen_effect_cover_mosaic" = "Cover-Mosaik";
+"fullscreen_effect_cover_mosaic_subtitle" = "Bibliothekscover füllen als geneigte Wand den Bildschirm, davor stehen aktuelles Cover und Songtext";
+"fullscreen_effect_cover_mosaic_motion" = "Echte Bibliothekscover · Regelmäßige Neuanordnung";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";

@@ -453,7 +453,7 @@ struct ImmersivePlayerView: View {
         case .radialPulse, .vinylDeck, .particleBloom:
             return .leading
         case .coverFlow, .coverGallery, .starryNight, .flowingLines, .lightRhythm, .kineticTitle, .liveWaveform,
-             .mirrorStage, .auroraVeil, .spectrumHorizon:
+             .mirrorStage, .auroraVeil, .spectrumHorizon, .coverMosaic:
             return .trailing
         case .native:
             return .center

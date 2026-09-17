@@ -273,6 +273,9 @@
 "fullscreen_effect_particle_bloom" = "Parçacık Açılımı";
 "fullscreen_effect_particle_bloom_subtitle" = "Yıldız tozu kapaktan dışarı yayılır ve ritimle parlar";
 "fullscreen_effect_particle_bloom_motion" = "Gerçek zamanlı spektrum · Baslarda parçacıklar açılır";
+"fullscreen_effect_cover_mosaic" = "Kapak Mozaiği";
+"fullscreen_effect_cover_mosaic_subtitle" = "Arşiv kapakları ekranı kaplayan eğik bir duvar oluşturur; güncel kapak ve şarkı sözleri önünde durur";
+"fullscreen_effect_cover_mosaic_motion" = "Gerçek arşiv kapakları · Düzenli yeniden dizilim";
 "ext.tv.otp.authFailed" = "Oturum açma başarısız oldu. Hesabı ve şifreyi kontrol edin.";
 "ext.tv.search.eyebrow" = "Ara";
 "ext.tv.sources.hint.daoliyu" = "Daoliyu yerlisi API";

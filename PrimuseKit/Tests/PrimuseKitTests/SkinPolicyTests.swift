@@ -150,6 +150,34 @@ struct SkinPolicyTests {
         )
     }
 
+    @Test("全屏效果:亲手选过或别的设备同步来的选择算数,其余交给样式建议的那一款")
+    func immersiveStageFollowsTheSkinUntilTheUserChooses() {
+        // 存储键启动时就会被写成默认值,所以「是默认值且没动过手」才算没选过。
+        #expect(SkinCompanionPolicy.explicitChoice(storedStyleID: "native", defaultStyleID: "native", userSelected: false) == nil)
+        #expect(SkinCompanionPolicy.explicitChoice(storedStyleID: "native", defaultStyleID: "native", userSelected: true) == "native")
+        #expect(SkinCompanionPolicy.explicitChoice(storedStyleID: "vinylDeck", defaultStyleID: "native", userSelected: false) == "vinylDeck")
+
+        func effective(stored: String, userSelected: Bool, skin: SkinDefinition) -> String {
+            SkinCompanionPolicy.resolvedStyleID(
+                kind: .immersiveStage,
+                userChoice: SkinCompanionPolicy.explicitChoice(
+                    storedStyleID: stored,
+                    defaultStyleID: "native",
+                    userSelected: userSelected
+                ),
+                activeSkin: skin,
+                fallbackStyleID: "native"
+            )
+        }
+        // 极简带来自己的全屏效果;经典没有建议,保持原生播放页。
+        #expect(effective(stored: "native", userSelected: false, skin: SkinCatalog.minimal) == "coverMosaic")
+        #expect(effective(stored: "native", userSelected: false, skin: SkinCatalog.classic) == "native")
+        // 在极简下亲手选回原生,就一直是原生。
+        #expect(effective(stored: "native", userSelected: true, skin: SkinCatalog.minimal) == "native")
+        #expect(effective(stored: "vinylDeck", userSelected: false, skin: SkinCatalog.minimal) == "vinylDeck")
+        #expect(SkinCatalog.minimal.companions.preferredImmersiveStageID == "coverMosaic")
+    }
+
     @Test("声明了不存在的配套、或建议了自己没带的款式,都不合格")
     func companionDeclarationsAreValidated() {
         let skin = SkinDefinition(

@@ -1354,6 +1354,9 @@
 "fullscreen_effect_particle_bloom" = "Florescer de partículas";
 "fullscreen_effect_particle_bloom_subtitle" = "Poeira estelar irradia da capa e brilha no ritmo";
 "fullscreen_effect_particle_bloom_motion" = "Espectro em tempo real · Partículas florescem nos graves";
+"fullscreen_effect_cover_mosaic" = "Mosaico de capas";
+"fullscreen_effect_cover_mosaic_subtitle" = "As capas da biblioteca formam uma parede inclinada em tela cheia, com a capa atual e a letra à frente";
+"fullscreen_effect_cover_mosaic_motion" = "Capas reais da biblioteca · Reorganização periódica";
 "fullscreen_effect_live_waveform_subtitle" = "O espectro horizontal acompanha a reprodução do áudio em tempo real";
 "fullscreen_effect_lyric_stage" = "Palco Lírico";
 "fullscreen_effect_lyric_stage_subtitle" = "Inicialização da letra com cabeçalho de faixa contido";

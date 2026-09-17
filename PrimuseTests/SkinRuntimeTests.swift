@@ -90,4 +90,31 @@ final class SkinRuntimeTests: XCTestCase {
             XCTAssertNil(runtime.enforcedColorScheme, "\(skinID) 不该锁定深浅色")
         }
     }
+
+    // MARK: - 随皮肤的全屏效果
+
+    func testTheMinimalSkinBringsItsOwnFullscreenEffectUntilTheUserPicksOne() {
+        let runtime = SkinRuntime(defaults: defaults)
+        // 经典没有建议的效果,全屏仍是原生播放页。
+        XCTAssertEqual(runtime.effectiveFullscreenEffect(stored: .native, userSelected: false), .native)
+
+        XCTAssertTrue(runtime.select(SkinCatalog.minimalID))
+        XCTAssertEqual(runtime.effectiveFullscreenEffect(stored: .native, userSelected: false), .coverMosaic)
+        // 亲手选回原生,或者已经在用别的效果,都不被皮肤覆盖。
+        XCTAssertEqual(runtime.effectiveFullscreenEffect(stored: .native, userSelected: true), .native)
+        XCTAssertEqual(runtime.effectiveFullscreenEffect(stored: .vinylDeck, userSelected: false), .vinylDeck)
+    }
+
+    func testEveryCompanionEffectIsARealEffect() {
+        for skin in SkinCatalog.all + SkinCatalog.lab {
+            for styleID in skin.companions.immersiveStageIDs {
+                XCTAssertNotNil(FullscreenPlayerEffect(rawValue: styleID), "\(skin.id) 声明了不存在的全屏效果 \(styleID)")
+                XCTAssertEqual(FullscreenPlayerEffect(rawValue: styleID)?.rawValue, styleID)
+            }
+        }
+        XCTAssertEqual(
+            Set(FullscreenPlayerEffect.allCases.map(\.rawValue)),
+            Set(ImmersivePresentationFallbackPolicy.supportedEffectRawValues)
+        )
+    }
 }

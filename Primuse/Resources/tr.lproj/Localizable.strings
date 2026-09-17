@@ -1263,6 +1263,9 @@
 "fullscreen_effect_particle_bloom" = "Parçacık Açılımı";
 "fullscreen_effect_particle_bloom_subtitle" = "Yıldız tozu kapaktan dışarı yayılır ve ritimle parlar";
 "fullscreen_effect_particle_bloom_motion" = "Gerçek zamanlı spektrum · Baslarda parçacıklar açılır";
+"fullscreen_effect_cover_mosaic" = "Kapak Mozaiği";
+"fullscreen_effect_cover_mosaic_subtitle" = "Arşiv kapakları ekranı kaplayan eğik bir duvar oluşturur; güncel kapak ve şarkı sözleri önünde durur";
+"fullscreen_effect_cover_mosaic_motion" = "Gerçek arşiv kapakları · Düzenli yeniden dizilim";
 "unknown_title" = "Bilinmeyen Başlık";
 "metadata" = "Üst veri";
 "synology_auth_error_406" = "Bu hesap için iki adımlı doğrulama uygulanmaktadır.";

@@ -1263,6 +1263,9 @@
 "fullscreen_effect_particle_bloom" = "Цветение частиц";
 "fullscreen_effect_particle_bloom_subtitle" = "Звёздная пыль расходится от обложки и вспыхивает в такт";
 "fullscreen_effect_particle_bloom_motion" = "Спектр в реальном времени · Частицы расцветают на басах";
+"fullscreen_effect_cover_mosaic" = "Мозаика обложек";
+"fullscreen_effect_cover_mosaic_subtitle" = "Обложки медиатеки складываются в наклонную стену на весь экран, перед ней — текущая обложка и текст песни";
+"fullscreen_effect_cover_mosaic_motion" = "Настоящие обложки медиатеки · Периодическая перестановка";
 "unknown_title" = "Неизвестное название";
 "metadata" = "Метаданные";
 "synology_auth_error_406" = "Для этой учетной записи включена двухэтапная проверка.";

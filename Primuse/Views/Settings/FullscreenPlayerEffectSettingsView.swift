@@ -7,11 +7,20 @@ struct FullscreenPlayerEffectSettingsView: View {
     @Environment(ThemeService.self) private var theme
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var selectedRawValue = FullscreenPlayerEffect.defaultValue.rawValue
+    @AppStorage(FullscreenPlayerEffect.userSelectedKey)
+    private var userSelected = false
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
+    @Environment(SkinRuntime.self) private var skinRuntime: SkinRuntime?
 
-    private var selectedEffect: FullscreenPlayerEffect {
+    private var storedEffect: FullscreenPlayerEffect {
         FullscreenPlayerEffect(rawValue: selectedRawValue) ?? .defaultValue
+    }
+
+    /// 打勾的是全屏播放实际会用的那一款:从没选过时,它是当前界面皮肤带来的效果。
+    private var selectedEffect: FullscreenPlayerEffect {
+        guard let skinRuntime else { return storedEffect }
+        return skinRuntime.effectiveFullscreenEffect(stored: storedEffect, userSelected: userSelected)
     }
 
     private var previewPalette: ImmersiveArtworkPalette {
@@ -54,8 +63,8 @@ struct FullscreenPlayerEffectSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             FullscreenPlayerEffectSync.shared.install()
-            if selectedRawValue != selectedEffect.rawValue {
-                selectedRawValue = selectedEffect.rawValue
+            if selectedRawValue != storedEffect.rawValue {
+                selectedRawValue = storedEffect.rawValue
             }
         }
     }

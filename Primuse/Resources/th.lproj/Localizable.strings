@@ -1354,6 +1354,9 @@
 "fullscreen_effect_particle_bloom" = "ละอองดาวเบ่งบาน";
 "fullscreen_effect_particle_bloom_subtitle" = "ละอองดาวแผ่ออกจากปกอัลบั้มและสว่างขึ้นตามจังหวะ";
 "fullscreen_effect_particle_bloom_motion" = "ขับเคลื่อนด้วยสเปกตรัมแบบเรียลไทม์ · อนุภาคเบ่งบานตามเสียงเบส";
+"fullscreen_effect_cover_mosaic" = "โมเสกหน้าปก";
+"fullscreen_effect_cover_mosaic_subtitle" = "ปกจากคลังเพลงเรียงเป็นผนังเอียงเต็มหน้าจอ โดยมีปกปัจจุบันและเนื้อเพลงอยู่ด้านหน้า";
+"fullscreen_effect_cover_mosaic_motion" = "ปกจริงจากคลังเพลง · จัดเรียงใหม่เป็นระยะ";
 "fullscreen_effect_live_waveform_subtitle" = "สเปกตรัมแนวนอนติดตามเสียงที่เล่นแบบเรียลไทม์";
 "fullscreen_effect_lyric_stage" = "เวทีเนื้อเพลง";
 "fullscreen_effect_lyric_stage_subtitle" = "เนื้อเพลงนำโดยมีส่วนหัวของแทร็กที่จำกัด";

@@ -102,7 +102,7 @@ extension ImmersiveStageBackgroundLyric {
     }
 }
 
-/// iOS、macOS 与 tvOS 共用的十三类动态播放舞台。封面、封面墙与实时频谱由平台容器注入。
+/// iOS、macOS 与 tvOS 共用的十四类动态播放舞台。封面、封面墙与实时频谱由平台容器注入。
 struct ImmersiveStageView<Artwork: View>: View {
     var style: FullscreenPlayerEffect
     var platform: ImmersiveStagePlatform = .iOS
@@ -217,6 +217,8 @@ struct ImmersiveStageView<Artwork: View>: View {
             spectrumHorizonScene
         case .particleBloom:
             particleBloomScene
+        case .coverMosaic:
+            coverMosaicScene
         }
     }
 
@@ -1244,6 +1246,105 @@ struct ImmersiveStageView<Artwork: View>: View {
 
     // MARK: - Shared content
 
+    // MARK: - 14. 封面拼贴
+
+    /// 资料库封面拼成一面倾斜的墙铺满整屏,虚化压暗后退到远处;当前封面、歌名与歌词
+    /// 居中立在墙前。手机横屏高度不够,退回左封面右文字。
+    private var coverMosaicScene: some View {
+        let isPhoneLandscape = metrics.layout == .phoneLandscape
+        let side: CGFloat = metrics.isPortrait
+            ? min(metrics.size.width * 0.58, metrics.size.height * 0.29)
+            : (isPhoneLandscape
+                ? min(metrics.size.height * 0.54, metrics.size.width * 0.28)
+                : min(metrics.size.height * 0.38, metrics.size.width * 0.26))
+        let textWidth: CGFloat? = metrics.isPortrait ? nil : metrics.size.width * 0.58
+        let glowCenter: UnitPoint = metrics.isPortrait
+            ? UnitPoint(x: 0.5, y: 0.30)
+            : (isPhoneLandscape ? UnitPoint(x: 0.26, y: 0.5) : UnitPoint(x: 0.5, y: 0.40))
+
+        return ZStack {
+            ImmersiveMosaicBackdrop(
+                count: galleryArtworkCount,
+                palette: palette,
+                isAnimating: sceneIsAnimating,
+                blurRadius: metrics.f(platform == .tvOS ? 9 : 6),
+                artwork: galleryArtwork
+            )
+            Color.black.opacity(0.18)
+            // 上沿压暗给状态栏与按钮,中段放开让墙面透出来,下半段压到接近纯色给歌词。
+            LinearGradient(
+                stops: [
+                    .init(color: ImmersiveStagePalette.obsidian.opacity(0.62), location: 0),
+                    .init(color: ImmersiveStagePalette.obsidian.opacity(0.26), location: 0.30),
+                    .init(color: ImmersiveStagePalette.obsidian.opacity(0.74), location: 0.64),
+                    .init(color: ImmersiveStagePalette.obsidian.opacity(0.95), location: 1),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            RadialGradient(
+                colors: [palette.primary.opacity(0.30), .clear],
+                center: glowCenter,
+                startRadius: 0,
+                endRadius: side * 1.5
+            )
+            ImmersiveVignette(color: .black, clearStop: 0.20, strength: 0.52)
+
+            if isPhoneLandscape {
+                HStack(spacing: metrics.s(52)) {
+                    artworkPlate(side: side, radius: metrics.f(18))
+                    VStack(alignment: .leading, spacing: metrics.s(18)) {
+                        mosaicTrackBlock(alignment: .leading)
+                        singleLyric(fontSize: metrics.s(20), availableWidth: metrics.size.width * 0.46)
+                    }
+                    .frame(maxWidth: metrics.size.width * 0.46, alignment: .leading)
+                }
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
+                .padding(.top, topInset)
+                .padding(.bottom, bottomInset)
+            } else {
+                VStack(spacing: metrics.s(metrics.isPortrait ? 24 : 22)) {
+                    artworkPlate(side: side, radius: metrics.f(metrics.isPortrait ? 20 : 24))
+                    mosaicTrackBlock(alignment: .center)
+                    singleLyric(
+                        fontSize: metrics.s(metrics.isPortrait ? 24 : (platform == .tvOS ? 38 : 26)),
+                        availableWidth: textWidth,
+                        alignment: .center
+                    )
+                    .padding(.top, metrics.s(metrics.isPortrait ? 14 : 8))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: metrics.isPortrait ? .top : .center)
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
+                .padding(.top, topInset + metrics.s(metrics.isPortrait ? 16 : 0))
+                .padding(.bottom, bottomInset)
+            }
+        }
+    }
+
+    /// 这一款把歌词当主角,歌名退成封面下的一行小标题,所以不用其它画面那种大字标题。
+    private func mosaicTrackBlock(alignment: HorizontalAlignment) -> some View {
+        let isTV = platform == .tvOS
+        let titleSize = metrics.s(isTV ? 44 : (metrics.isPortrait ? 21 : 26))
+        let subtitleSize = metrics.s(isTV ? 27 : (metrics.isPortrait ? 14 : 16))
+        let textAlignment: TextAlignment = alignment == .center ? .center : .leading
+        return VStack(alignment: alignment, spacing: metrics.s(isTV ? 10 : 5)) {
+            Text(track.title)
+                .font(.system(size: titleSize, weight: .semibold))
+                .multilineTextAlignment(textAlignment)
+                .lineLimit(2)
+                .minimumScaleFactor(0.7)
+            Text(track.subtitle)
+                .font(.system(size: subtitleSize, weight: .regular))
+                .foregroundStyle(ImmersiveStagePalette.text.opacity(0.62))
+                .multilineTextAlignment(textAlignment)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .frame(maxWidth: .infinity, alignment: Alignment(horizontal: alignment, vertical: .center))
+    }
+
     private func compactHeader(artSide: CGFloat) -> some View {
         HStack(spacing: metrics.s(platform == .tvOS ? 22 : 13)) {
             artworkPlate(side: artSide, radius: metrics.f(8))
@@ -2015,6 +2116,124 @@ private struct ImmersiveGalleryBackdrop: View {
         guard modulus > 0 else { return value }
         let remainder = value.truncatingRemainder(dividingBy: modulus)
         return remainder < 0 ? remainder + modulus : remainder
+    }
+}
+
+/// 「封面拼贴」的墙面:资料库封面按 `CoverWallLayoutPolicy` 的模板拼成一面倾斜的墙,铺满整屏。
+///
+/// 与「流动封面墙」不同,这里没有逐帧时钟:构图每隔几秒换一次,由一次弹性动画把封面
+/// 送到新位置;其余时间只有一条循环的缓慢漂移,视图树不重算。
+private struct ImmersiveMosaicBackdrop: View {
+    let count: Int
+    let palette: ImmersiveArtworkPalette
+    let isAnimating: Bool
+    let blurRadius: CGFloat
+    let artwork: (Int, CGFloat) -> AnyView
+
+    @State private var step = 0
+    @State private var isDrifting = false
+
+    /// 封面太少时补几块纯色格子,墙面仍然完整;只有真实封面的格子才画图。
+    private var coverIDs: [String] {
+        let total = max(count, CoverWallLayoutPolicy.minimumDistinctCovers + 2)
+        return (0..<total).map { String($0) }
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            wall(in: proxy.size)
+        }
+        .clipped()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .task(id: isAnimating) {
+            guard isAnimating else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(CoverWallLayoutPolicy.stageReflowInterval))
+                if Task.isCancelled { break }
+                step += 1
+            }
+        }
+        .onChange(of: isAnimating, initial: true) { _, animating in
+            if animating {
+                withAnimation(.easeInOut(duration: 26).repeatForever(autoreverses: true)) {
+                    isDrifting = true
+                }
+            } else {
+                // 用一段有限的动画换掉循环动画,墙面滑回原位后停住。
+                withAnimation(.easeOut(duration: 0.6)) {
+                    isDrifting = false
+                }
+            }
+        }
+    }
+
+    private func wall(in size: CGSize) -> some View {
+        let composition = CoverWallLayoutPolicy.stageComposition(
+            coverIDs: coverIDs,
+            step: step,
+            isLandscape: size.width > size.height
+        )
+        let drift = min(size.width, size.height) * 0.04
+        let geometry = CoverWallLayoutPolicy.stageGeometry(
+            width: Double(size.width),
+            height: Double(size.height),
+            columns: composition.columns,
+            rows: composition.rows,
+            overscan: Double(drift)
+        )
+        let planeWidth = CGFloat(geometry.planeLength(cells: composition.columns))
+        let planeHeight = CGFloat(geometry.planeLength(cells: composition.rows))
+        let driftX: CGFloat = isDrifting ? drift : 0
+        let driftY: CGFloat = isDrifting ? -drift * 0.6 : 0
+
+        return ZStack {
+            LinearGradient(
+                colors: [palette.secondary.opacity(0.82), ImmersiveStagePalette.obsidian],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            ZStack(alignment: .topLeading) {
+                ForEach(composition.tiles) { tile in
+                    tileView(tile, geometry: geometry)
+                }
+            }
+            .frame(width: planeWidth, height: planeHeight, alignment: .topLeading)
+            // 同一张封面在两拍之间保持同一个视图身份,所以是「滑过去」而不是一消一现。
+            .animation(.spring(response: 1.2, dampingFraction: 0.86), value: composition)
+            .blur(radius: blurRadius)
+            .rotationEffect(.degrees(geometry.rotationDegrees))
+            .offset(x: driftX, y: driftY)
+        }
+        .frame(width: size.width, height: size.height)
+    }
+
+    private func tileView(_ tile: CoverWallTile, geometry: CoverWallGeometry) -> some View {
+        let frame = geometry.frame(of: tile)
+        let side = CGFloat(frame.side)
+        let cell = CGFloat(geometry.cellSize)
+        let centerX = CGFloat(frame.x) + side / 2
+        let centerY = CGFloat(frame.y) + side / 2
+        let index = Int(tile.coverID) ?? 0
+        let radius = cell * 0.07
+        let zoom: CGFloat = cell > 0 ? side / cell : 1
+
+        return ZStack {
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .fill(index.isMultiple(of: 2) ? palette.primary.opacity(0.26) : Color.white.opacity(0.07))
+            if index < count {
+                // 所有格子都按单格尺寸取图,2×2 的格子放大显示:换构图时封面在大小格之间移动
+                // 不必重新取图(否则会空一下),墙面本来就是虚化的,放大看不出差别。
+                artwork(index, cell)
+                    .frame(width: cell, height: cell)
+                    .scaleEffect(zoom)
+            }
+        }
+        .frame(width: side, height: side)
+        .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+        .position(x: centerX, y: centerY)
+        .transition(.opacity)
     }
 }
 

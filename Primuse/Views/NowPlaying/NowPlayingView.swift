@@ -611,9 +611,25 @@ struct NowPlayingView: View {
     private var lyricPosterShowsCredit = LyricPosterPreferences.showsCreditByDefault
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
+    #if os(iOS)
+    @AppStorage(FullscreenPlayerEffect.userSelectedKey)
+    private var fullscreenPlayerEffectUserSelected = false
+    /// 可选读取:播放页可能被放进一个没有注入皮肤运行时的宿主里,读不到就按存储值走。
+    @Environment(SkinRuntime.self) private var skinRuntime: SkinRuntime?
+    #endif
 
+    /// 实际生效的全屏效果。亲手选过的照旧;从没选过时,用当前界面皮肤带来的那一款。
     private var fullscreenPlayerEffect: FullscreenPlayerEffect {
-        FullscreenPlayerEffect(rawValue: fullscreenPlayerEffectRawValue) ?? .defaultValue
+        let stored = FullscreenPlayerEffect(rawValue: fullscreenPlayerEffectRawValue) ?? .defaultValue
+        #if os(iOS)
+        guard let skinRuntime else { return stored }
+        return skinRuntime.effectiveFullscreenEffect(
+            stored: stored,
+            userSelected: fullscreenPlayerEffectUserSelected
+        )
+        #else
+        return stored
+        #endif
     }
 
     private var fullscreenPlayerEffectBinding: Binding<FullscreenPlayerEffect> {
@@ -1212,8 +1228,8 @@ struct NowPlayingView: View {
                 scheduleImmersiveControlsAutoHide()
             }
         }
-        .onChange(of: fullscreenPlayerEffectRawValue) { _, rawValue in
-            guard let effect = FullscreenPlayerEffect(rawValue: rawValue) else { return }
+        // 盯生效值而不是存储值:在皮肤带来的效果里亲手选回「原生」时,存储值并没有变。
+        .onChange(of: fullscreenPlayerEffect) { _, effect in
             applyFullscreenEffectPresentation(effect)
         }
         .task(id: initialLyricsLoadIdentity) {
