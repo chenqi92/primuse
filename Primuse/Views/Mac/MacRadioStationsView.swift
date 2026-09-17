@@ -648,7 +648,9 @@ struct MacRadioStationsView: View {
                             store.addTag(tag.name, toStationIDs: [station.id])
                         }
                     } label: {
+                        // 是否已打上标签只靠图标区分；macOS 27 起菜单默认隐藏图标，这里要求保留。
                         Label(tag.name, systemImage: applied ? "checkmark.circle.fill" : "tag")
+                            .labelStyle(.titleAndIcon)
                     }
                 }
             }

@@ -1030,6 +1030,8 @@ struct FolderPlaylistMenuButton: View {
                     songIDs: index.songIDs(in: node.id, scope: .descendants)
                 )
             }
+            // 已建成歌单的勾选只靠图标表达；macOS 27 起菜单默认隐藏图标。
+            .labelStyle(.titleAndIcon)
             .disabled(exists || index?.node(withID: node.id) == nil)
             .accessibilityIdentifier("folder.createPlaylist")
         }

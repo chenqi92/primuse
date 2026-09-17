@@ -269,7 +269,9 @@ struct AIRecommendationLibraryView: View {
                     } label: {
                         if effectiveSelectedIntentID
                             == AIRecommendationIntentSelectionPolicy.defaultSelectionID {
+                            // 选中项只靠勾选图标表达；macOS 27 起菜单默认隐藏图标。
                             Label("library_recommendations_theme_none", systemImage: "checkmark")
+                                .labelStyle(.titleAndIcon)
                         } else {
                             Text("library_recommendations_theme_none")
                         }
@@ -289,6 +291,7 @@ struct AIRecommendationLibraryView: View {
                                     } icon: {
                                         Image(systemName: "checkmark")
                                     }
+                                    .labelStyle(.titleAndIcon)
                                 } else {
                                     Text(verbatim: choice.title)
                                 }

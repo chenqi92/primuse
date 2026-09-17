@@ -314,6 +314,8 @@ struct MacBottomBar: View {
                                     ? "checkmark"
                                     : candidate.symbolName
                             )
+                            // 勾选靠图标表达；macOS 27 起菜单默认隐藏图标，这里要求保留。
+                            .labelStyle(.titleAndIcon)
                         }
                     }
                 } header: {

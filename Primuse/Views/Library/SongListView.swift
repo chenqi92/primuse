@@ -5459,7 +5459,9 @@ private struct SongSortMenuOptions: View {
                 sortOrder = sortOrder.selecting(criterion)
             } label: {
                 if sortOrder.criterion == criterion {
+                    // 当前排序与升降序只靠这个图标表达；macOS 27 起菜单默认隐藏图标。
                     Label(criterion.label, systemImage: sortOrder.directionIcon)
+                        .labelStyle(.titleAndIcon)
                 } else {
                     Text(verbatim: criterion.label)
                 }
