@@ -58,6 +58,14 @@ struct AddSourceView: View {
     @State private var showCredentialSaveError = false
     @State private var showSynologyPasswordValidationInfo = false
     @State private var mediaServerCreationTransaction = MediaServerSourceCreationTransaction()
+    /// 用户填的那一到两行地址。上面那组 host/port/useSsl/publicHost/… 仍然是
+    /// 保存路径唯一读取的字段 —— 提交时由 `applyAddressPlan` 一次性写回。
+    @State private var addressRows: [SourceAddressRow] = [SourceAddressRow()]
+    /// 打开编辑页时回显出来的那一份。地址、手填端口、手选协议都没动过就不探测:
+    /// 离线改个名字、换个密码不该因为服务器此刻不在线而失败。
+    @State private var addressBaseline: [SourceAddressFormPolicy.AddressDraft]?
+    @State private var addressProbe = SourceAddressProbeController()
+    @State private var addressSubmitTask: Task<Void, Never>?
     #if os(macOS)
     /// Captures the URL chosen via NSOpenPanel so we can persist a
     /// security-scoped bookmark once the source has an ID.
@@ -101,45 +109,29 @@ struct AddSourceView: View {
         if sourceType == .fnMusic { return fnMusicConnectionMode == .fnConnect }
         return false
     }
-    private var localEndpointIsConfigured: Bool {
-        host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+
+    /// 地址框读出来的结果。纯函数、不发请求,所以每次 body 求值重算一遍也不贵。
+    private var addressReading: SourceAddressFormPolicy.FormReading {
+        SourceAddressFormPolicy.read(addressRows.map(\.draft), sourceType: sourceType)
     }
-    private var publicEndpointIsConfigured: Bool {
-        publicHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+
+    /// 至少有一条能用的地址,而且没有哪一行写坏了(含高级选项里的端口)。
+    private var addressFormIsValid: Bool {
+        addressReading.isSubmittable
+            && addressRows.contains(where: \.hasInvalidManualPort) == false
     }
-    private var vendorIdentifierIsConfigured: Bool {
-        vendorIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+
+    /// 这个源当前是不是走厂商中转。地址框里填了 QuickConnect ID / FN ID 就是。
+    private var usesVendorRemoteAccess: Bool {
+        supportsAdaptiveConnections
+            ? addressReading.placement.usesVendorRemoteAccess
+            : remoteUsesVendor
     }
-    private var localEndpointIsValid: Bool {
-        localEndpointIsConfigured && validatedPort != nil
-    }
-    private var publicEndpointIsValid: Bool {
-        publicEndpointIsConfigured && validatedPublicPort != nil
-    }
-    private var vendorIdentifierIsValid: Bool {
-        let value = vendorIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
-        if sourceType == .synology { return SynologyQuickConnectResolver.isValidQuickConnectID(value) }
-        if sourceType == .fnMusic { return FnConnectResolver.isValidFNID(value) }
-        return false
-    }
-    private var activeRemoteEndpointIsValid: Bool {
-        remoteUsesVendor ? vendorIdentifierIsValid : publicEndpointIsValid
-    }
-    private var adaptiveConnectionIsValid: Bool {
-        if localEndpointIsConfigured && validatedPort == nil { return false }
-        if !remoteUsesVendor, publicEndpointIsConfigured && validatedPublicPort == nil { return false }
-        if remoteUsesVendor, vendorIdentifierIsConfigured && !vendorIdentifierIsValid { return false }
-        // Filling in either side is enough; both filled simply means the router
-        // gets two routes to choose from.
-        return localEndpointIsValid || activeRemoteEndpointIsValid
-    }
+
     private var canSave: Bool {
-        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return false
-        }
         if sourceType.requiresHost {
             if supportsAdaptiveConnections {
-                guard adaptiveConnectionIsValid else { return false }
+                guard addressFormIsValid else { return false }
             } else {
                 let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmedHost.isEmpty else { return false }
@@ -202,7 +194,11 @@ struct AddSourceView: View {
             macOSBody
             #endif
         }
+        // 自适应连接的表单里已经没有 SSL 开关了 —— 协议跟着地址走。这两条
+        // 跟随规则只服务于老的单地址表单;留着会在写回探测结果时把刚定下来的
+        // 端口当成"上一个默认值"改掉。
         .onChange(of: useSsl) { oldValue, newValue in
+            guard !supportsAdaptiveConnections else { return }
             updateDefaultPortForSSLChange(
                 port: $port,
                 from: oldValue,
@@ -210,11 +206,18 @@ struct AddSourceView: View {
             )
         }
         .onChange(of: publicUseSsl) { oldValue, newValue in
+            guard !supportsAdaptiveConnections else { return }
             updateDefaultPortForSSLChange(
                 port: $publicPort,
                 from: oldValue,
                 to: newValue
             )
+        }
+        // 地址一改,正在跑的那一轮探测和它的结论就都作废 —— 留着会让用户以为
+        // 新地址也试过了,而那一轮拿回来的端点对应的已经是旧输入。只盯真正影响
+        // "连到哪里"的那几项,展开高级选项不该清空失败清单。
+        .onChange(of: addressProbeSignature) { _, _ in
+            cancelAddressProbe()
         }
         .onChange(of: synologyConnectionMode) { _, newValue in
             guard !supportsAdaptiveConnections,
@@ -258,10 +261,16 @@ struct AddSourceView: View {
             Text(mediaServerCreationTransaction.failure?.message ?? "")
         }
         .onDisappear {
+            addressSubmitTask?.cancel()
+            addressSubmitTask = nil
             if requiresAuthenticatedMediaServerPreflight {
                 mediaServerCreationTransaction.cancel()
             }
         }
+    }
+
+    private var addressProbeSignature: String {
+        addressRows.map(\.draft.probeSignature).joined(separator: "\n")
     }
 
     /// Follow HTTP's 80/443 defaults only while the field still contains the
@@ -334,8 +343,8 @@ struct AddSourceView: View {
                     Button("cancel") { cancelAndDismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(submitButtonTitle) { saveSource() }
-                        .disabled(canSave == false || mediaServerCreationTransaction.isRunning)
+                    Button(submitButtonTitle) { submit() }
+                        .disabled(isSubmitDisabled)
                         .fontWeight(.semibold)
                 }
             }
@@ -368,10 +377,10 @@ struct AddSourceView: View {
                     .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
                     .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(PMColor.cardBorder, lineWidth: 0.5) }
 
-                Button(submitButtonTitle) { saveSource() }
+                Button(submitButtonTitle) { submit() }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(canSave == false || mediaServerCreationTransaction.isRunning)
+                    .disabled(isSubmitDisabled)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 14)
@@ -516,7 +525,8 @@ struct AddSourceView: View {
 
                 if sourceType == .fnMusic {
                     macInfoRow("fnmusic_account_hint")
-                    if fnMusicConnectionMode == .fnConnect {
+                    // 访问码只在地址被认成 FN ID 时才有意义 —— 不再靠分段选择器。
+                    if usesVendorRemoteAccess {
                         macCustomRow("fnmusic_access_code") {
                             RevealableSecureField(
                                 title: "fnmusic_access_code",
@@ -537,7 +547,7 @@ struct AddSourceView: View {
         macSection("advanced") {
             if sourceType.isServerLibrary
                 && !sourceType.supportsEndpointSpecificPath
-                && !(sourceType == .fnMusic && fnMusicConnectionMode == .fnConnect) {
+                && !(sourceType == .fnMusic && usesVendorRemoteAccess) {
                 macTextRow(
                     sourceType == .fnMusic
                         ? "fnmusic_server_base_path_hint"
@@ -672,72 +682,75 @@ struct AddSourceView: View {
         }
     }
 
+    /// 与 iOS 同一套内容、同一份判断,换成 Mac 表单的卡片行。
     @ViewBuilder
     private var macAdaptiveConnectionSections: some View {
-        macSection("source_connection_local_optional") {
-            macTextRow("source_connection_local_address", text: $host, focus: .host)
-            macTextRow("source_connection_local_port", text: $port, focus: .port, width: 120)
-            if supportsSSLToggle {
-                macToggleRow("use_ssl", isOn: $useSsl)
-            }
-            if sourceType.supportsEndpointPathPrefix {
-                macTextRow(
-                    "source_connection_path_prefix",
-                    text: $localPathPrefix,
-                    focus: .basePath
+        let reading = addressReading
+        macSection("source_address_section") {
+            ForEach($addressRows) { $row in
+                MacSourceAddressRowView(
+                    row: $row,
+                    reading: addressRowReading(reading, for: row.id),
+                    sourceType: sourceType,
+                    attempts: addressProbe.attempts[row.id] ?? [],
+                    canRemove: addressRows.count > 1,
+                    onRemove: { removeAddressRow(row.id) }
                 )
             }
+            macAddressActionRow
+            if let note = unconfirmedServiceNote {
+                macInfoText(note)
+            }
+            macInfoRow("source_address_section_footer")
         }
+    }
 
-        macSection("source_connection_remote_optional") {
-            if sourceType == .synology {
-                macCustomRow("source_connection_remote_method") {
-                    Picker("", selection: $synologyConnectionMode) {
-                        Text("source_connection_public_direct").tag(SynologyConnectionMode.address)
-                        Text("synology_connection_quickconnect").tag(SynologyConnectionMode.quickConnect)
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .frame(maxWidth: 320)
-                }
-            } else if sourceType == .fnMusic {
-                macCustomRow("source_connection_remote_method") {
-                    Picker("", selection: $fnMusicConnectionMode) {
-                        Text("source_connection_public_direct").tag(FnMusicConnectionMode.address)
-                        Text("fnmusic_connection_fnconnect").tag(FnMusicConnectionMode.fnConnect)
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .frame(maxWidth: 320)
-                }
+    private var macAddressActionRow: some View {
+        HStack(spacing: 10) {
+            if addressRows.count < SourceAddressFormPolicy.maximumAddressCount {
+                Button("source_address_add_alternate") { addAddressRow() }
+                    .buttonStyle(.link)
+                    .font(.system(size: 11.5))
             }
-
-            if remoteUsesVendor {
-                macTextRow(
-                    sourceType == .synology ? "synology_quickconnect_id" : "fnmusic_fnid",
-                    text: $vendorIdentifier,
-                    focus: .vendorIdentifier
-                )
-                macInfoRow(
-                    sourceType == .synology
-                        ? "synology_quickconnect_hint"
-                        : "fnmusic_fnconnect_hint"
-                )
-            } else {
-                macTextRow("source_connection_public_address", text: $publicHost, focus: .publicHost)
-                macTextRow("source_connection_public_port", text: $publicPort, focus: .publicPort, width: 120)
-                if supportsSSLToggle {
-                    macToggleRow("use_ssl", isOn: $publicUseSsl)
-                }
-                if sourceType.supportsEndpointPathPrefix {
-                    macTextRow(
-                        "source_connection_path_prefix",
-                        text: $publicBasePath,
-                        focus: .publicBasePath
-                    )
-                }
-            }
+            Spacer(minLength: 12)
+            macAddressProgress
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .top) {
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+        }
+    }
+
+    @ViewBuilder
+    private var macAddressProgress: some View {
+        if addressProbe.isProbing {
+            ProgressView().controlSize(.small)
+            Text("source_address_probing")
+                .font(.system(size: 11.5))
+                .foregroundStyle(PMColor.textFaint)
+            Button("cancel") { cancelAddressProbe() }
+                .buttonStyle(.link)
+                .font(.system(size: 11.5))
+        } else if addressProbe.phase == .unresolved {
+            Button("source_address_probe_save_anyway") { saveWithoutProbing() }
+                .buttonStyle(.link)
+                .font(.system(size: 11.5))
+        }
+    }
+
+    /// 与 `macInfoRow` 同样的外观,但内容是运行时算出来的字符串而不是文案键。
+    private func macInfoText(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11.5))
+            .foregroundStyle(PMColor.textFaint)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .overlay(alignment: .top) {
+                Rectangle().fill(PMColor.divider).frame(height: 0.5)
+            }
     }
 
     private func macSection<Content: View>(_ title: LocalizedStringKey?,
@@ -938,7 +951,8 @@ struct AddSourceView: View {
                     Text("fnmusic_account_hint")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    if fnMusicConnectionMode == .fnConnect {
+                    // 访问码只在地址被认成 FN ID 时才有意义 —— 不再靠分段选择器。
+                    if usesVendorRemoteAccess {
                         RevealableSecureField(
                             title: "fnmusic_access_code",
                             text: $fnConnectAccessCode
@@ -959,7 +973,7 @@ struct AddSourceView: View {
         Section("advanced") {
             if sourceType.isServerLibrary
                 && !sourceType.supportsEndpointSpecificPath
-                && !(sourceType == .fnMusic && fnMusicConnectionMode == .fnConnect) {
+                && !(sourceType == .fnMusic && usesVendorRemoteAccess) {
                 TextField(
                     sourceType == .fnMusic
                         ? "fnmusic_server_base_path_hint"
@@ -990,83 +1004,62 @@ struct AddSourceView: View {
         }
     }
 
+    /// 一个地址框,下面一行实时解读。内网 / 公网不再是两个常驻区块 —— 地址归
+    /// 哪个位置由 `SourceAddressFormPolicy` 判断,用户只要把地址贴进来。
     @ViewBuilder
     private var adaptiveConnectionFormSections: some View {
-        Section("source_connection_local_optional") {
-            TextField("source_connection_local_address", text: $host)
-                .focused($focusedField, equals: .host)
-                .keyboardType(.URL)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                .submitLabel(.next)
-                .onSubmit { focusedField = .port }
-            TextField("source_connection_local_port", text: $port)
-                .focused($focusedField, equals: .port)
-                .keyboardType(.numberPad)
-            if supportsSSLToggle {
-                Toggle("use_ssl", isOn: $useSsl)
-            }
-            if sourceType.supportsEndpointPathPrefix {
-                TextField("source_connection_path_prefix", text: $localPathPrefix)
-                    .focused($focusedField, equals: .basePath)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
+        let reading = addressReading
+        ForEach($addressRows) { $row in
+            Section {
+                SourceAddressRowView(
+                    row: $row,
+                    reading: addressRowReading(reading, for: row.id),
+                    sourceType: sourceType,
+                    attempts: addressProbe.attempts[row.id] ?? [],
+                    canRemove: addressRows.count > 1,
+                    onRemove: { removeAddressRow(row.id) }
+                )
+            } header: {
+                // 分成两个分支而不是三元:`Text(条件 ? "a" : "b")` 会被推断成
+                // `Text(String)`,那个初始化器不做本地化。
+                if addressRows.first?.id == row.id {
+                    Text("source_address_section")
+                } else {
+                    Text("source_address_alternate_section")
+                }
             }
         }
 
-        Section("source_connection_remote_optional") {
-            if sourceType == .synology {
-                Picker("source_connection_remote_method", selection: $synologyConnectionMode) {
-                    Text("source_connection_public_direct").tag(SynologyConnectionMode.address)
-                    Text("synology_connection_quickconnect").tag(SynologyConnectionMode.quickConnect)
-                }
-                .pickerStyle(.segmented)
-            } else if sourceType == .fnMusic {
-                Picker("source_connection_remote_method", selection: $fnMusicConnectionMode) {
-                    Text("source_connection_public_direct").tag(FnMusicConnectionMode.address)
-                    Text("fnmusic_connection_fnconnect").tag(FnMusicConnectionMode.fnConnect)
-                }
-                .pickerStyle(.segmented)
-            }
+        Section {
+            addressActionRows
+        } footer: {
+            Text("source_address_section_footer")
+        }
+    }
 
-            if remoteUsesVendor {
-                TextField(
-                    sourceType == .synology ? "synology_quickconnect_id" : "fnmusic_fnid",
-                    text: $vendorIdentifier
-                )
-                .focused($focusedField, equals: .vendorIdentifier)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                if sourceType == .synology {
-                    Text("synology_quickconnect_hint")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("fnmusic_fnconnect_hint")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } else {
-                TextField("source_connection_public_address", text: $publicHost)
-                    .focused($focusedField, equals: .publicHost)
-                    .keyboardType(.URL)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    .submitLabel(.next)
-                    .onSubmit { focusedField = .publicPort }
-                TextField("source_connection_public_port", text: $publicPort)
-                    .focused($focusedField, equals: .publicPort)
-                    .keyboardType(.numberPad)
-                if supportsSSLToggle {
-                    Toggle("use_ssl", isOn: $publicUseSsl)
-                }
-                if sourceType.supportsEndpointPathPrefix {
-                    TextField("source_connection_path_prefix", text: $publicBasePath)
-                        .focused($focusedField, equals: .publicBasePath)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                }
+    @ViewBuilder
+    private var addressActionRows: some View {
+        if addressRows.count < SourceAddressFormPolicy.maximumAddressCount {
+            Button("source_address_add_alternate") { addAddressRow() }
+        }
+        if addressProbe.isProbing {
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text("source_address_probing")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 12)
+                Button("cancel") { cancelAddressProbe() }
+                    .buttonStyle(.borderless)
             }
+        }
+        if addressProbe.phase == .unresolved {
+            Button("source_address_probe_save_anyway") { saveWithoutProbing() }
+        }
+        if let note = unconfirmedServiceNote {
+            Text(note)
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -1238,6 +1231,16 @@ struct AddSourceView: View {
             host = device.host
             port = "\(device.port)"
             useSsl = device.preferredUseSsl ?? sourceType.defaultSSL
+            // 发现来的端口是实测到的,所以连协议一起写死在地址里 —— 候选只剩
+            // 一个,提交时不会再去试别的。
+            addressRows = [SourceAddressRow(
+                address: SourceAddressFormPolicy.exactAddress(
+                    host: device.host,
+                    port: device.port,
+                    useSsl: useSsl,
+                    sourceType: sourceType
+                )
+            )]
             if sourceType == .synology {
                 synologyConnectionMode = .address
             }
@@ -1254,6 +1257,7 @@ struct AddSourceView: View {
             if sourceType == .s3 {
                 basePath = "us-east-1"
                 publicHost = "s3.amazonaws.com"
+                addressRows = [SourceAddressRow(address: "s3.amazonaws.com")]
             }
             if sourceType == .synology {
                 synologyConnectionMode = .quickConnect
@@ -1305,6 +1309,199 @@ struct AddSourceView: View {
                 ? .fnConnect
                 : .address
         }
+
+        // 已存的端点渲染回地址串,协议与端口都写在里面,再读一遍能原样回到同一个
+        // 端点。留一份基线:这几行没被动过就不重新探测。
+        let drafts = SourceAddressFormPolicy.drafts(for: configuration, sourceType: sourceType)
+        addressRows = drafts.isEmpty ? [SourceAddressRow()] : drafts.map(SourceAddressRow.init(draft:))
+        addressBaseline = drafts.isEmpty ? nil : drafts
+    }
+
+    // MARK: - 地址行
+
+    private var isSubmitDisabled: Bool {
+        canSave == false
+            || mediaServerCreationTransaction.isRunning
+            || addressProbe.isProbing
+    }
+
+    private func addressRowReading(
+        _ reading: SourceAddressFormPolicy.FormReading,
+        for id: UUID
+    ) -> SourceAddressFormPolicy.Reading {
+        guard let index = addressRows.firstIndex(where: { $0.id == id }),
+              index < reading.rows.count else {
+            return .empty
+        }
+        return reading.rows[index]
+    }
+
+    /// 选中的候选只是"有人应答"而不是"确认是这个服务"时,如实说一句。
+    private var unconfirmedServiceNote: String? {
+        for row in addressRows {
+            if let note = SourceAddressReadingText.unconfirmedNote(
+                addressProbe.verdicts[row.id],
+                sourceType: sourceType
+            ) {
+                return note
+            }
+        }
+        return nil
+    }
+
+    private func addAddressRow() {
+        guard addressRows.count < SourceAddressFormPolicy.maximumAddressCount else { return }
+        addressRows.append(SourceAddressRow())
+    }
+
+    private func removeAddressRow(_ id: UUID) {
+        guard addressRows.count > 1 else { return }
+        addressRows.removeAll { $0.id == id }
+    }
+
+    private func cancelAddressProbe() {
+        addressSubmitTask?.cancel()
+        addressSubmitTask = nil
+        addressProbe.invalidate()
+    }
+
+    // MARK: - 提交
+
+    /// 提交分三步:识别 → (需要时)探测 → 把结果写回旧表单那组 @State,再走原来的
+    /// `saveSource()`。凭据事务、媒体服务器预检、S3 字段映射都在那里,一个字没动。
+    private func submit() {
+        guard supportsAdaptiveConnections, sourceType.requiresHost else {
+            autoAssignNameIfNeeded(preferred: host)
+            saveSource()
+            return
+        }
+
+        let reading = addressReading
+        guard reading.isSubmittable else { return }
+
+        guard SourceAddressFormPolicy.requiresProbe(
+            drafts: addressRows.map(\.draft),
+            baseline: addressBaseline
+        ) else {
+            // 编辑已有源且地址没动过:已存的端口与协议本来就是明确的,原样留着。
+            applyAddressPlan(reading, selected: [:])
+            saveSource()
+            return
+        }
+
+        addressSubmitTask?.cancel()
+        addressSubmitTask = Task { @MainActor in
+            let outcome = await addressProbe.probe(
+                rows: addressRows,
+                reading: reading,
+                sourceType: sourceType
+            )
+            guard outcome.isCancelled == false, Task.isCancelled == false else { return }
+            // 一个候选都没应答:尝试清单已经内联列在地址下面了。让用户接着改,
+            // 或者按「仍然保存」坚持用第一个候选 —— 不弹模态框打断。
+            guard outcome.unresolvedRowIDs.isEmpty else { return }
+            applyAddressPlan(reading, selected: outcome.selected)
+            saveSource()
+        }
+    }
+
+    /// 探测不通也要存:取每一行的第一个候选。
+    private func saveWithoutProbing() {
+        let reading = addressReading
+        guard reading.isSubmittable else { return }
+        cancelAddressProbe()
+        applyAddressPlan(reading, selected: [:])
+        saveSource()
+    }
+
+    /// 把识别 + 探测的结果写回 host / port / useSsl / publicHost / … 这组
+    /// `@State`。保存路径读的仍然是这些字段,所以它的语义一点没变。
+    private func applyAddressPlan(
+        _ reading: SourceAddressFormPolicy.FormReading,
+        selected: [UUID: SourceConnectionCandidatePlanner.Candidate]
+    ) {
+        var localEndpoint: SourceConnectionEndpoint?
+        var publicEndpoint: SourceConnectionEndpoint?
+        var resolvedVendorIdentifier: String?
+
+        for (index, row) in addressRows.enumerated() where index < reading.rows.count {
+            switch reading.rows[index] {
+            case let .vendor(vendor):
+                guard reading.placement.slots[index] == .vendor else { continue }
+                resolvedVendorIdentifier = vendor.id
+            case let .endpoint(endpoint):
+                let candidate = selected[row.id] ?? endpoint.preferred
+                guard let slot = endpoint.slot, let candidate else { continue }
+                let value = SourceConnectionCandidatePlanner.endpoint(
+                    for: endpoint.input,
+                    candidate: candidate
+                )
+                if slot == .local {
+                    localEndpoint = value
+                } else {
+                    publicEndpoint = value
+                }
+            case .empty, .invalid:
+                continue
+            }
+        }
+
+        host = localEndpoint?.host ?? ""
+        port = localEndpoint.map { String($0.port) } ?? ""
+        useSsl = localEndpoint?.useSsl ?? sourceType.defaultSSL
+        localPathPrefix = localEndpoint?.pathPrefix ?? ""
+
+        publicHost = publicEndpoint?.host ?? ""
+        publicPort = publicEndpoint.map { String($0.port) } ?? ""
+        publicUseSsl = publicEndpoint?.useSsl ?? (supportsSSLToggle ? true : sourceType.defaultSSL)
+        publicBasePath = publicEndpoint?.pathPrefix ?? ""
+
+        vendorIdentifier = resolvedVendorIdentifier ?? ""
+        let usesVendor = resolvedVendorIdentifier != nil
+        if sourceType == .synology {
+            synologyConnectionMode = usesVendor ? .quickConnect : .address
+        }
+        if sourceType == .fnMusic {
+            fnMusicConnectionMode = usesVendor ? .fnConnect : .address
+        }
+
+        applyAddressPath(localEndpoint?.pathPrefix ?? publicEndpoint?.pathPrefix)
+        autoAssignNameIfNeeded(
+            preferred: resolvedVendorIdentifier ?? localEndpoint?.host ?? publicEndpoint?.host
+        )
+    }
+
+    /// `smb://nas/music` 里的那截路径不属于端点:SMB 的共享名、NFS 的导出路径、
+    /// FTP/SFTP 的起始目录都是源级别的字段。用户没单独填时就用地址里写的那段。
+    private func applyAddressPath(_ rawPath: String?) {
+        guard sourceType.supportsEndpointPathPrefix == false,
+              let path = rawPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              path.isEmpty == false,
+              path != "/" else {
+            return
+        }
+        let relative = path.hasPrefix("/") ? String(path.dropFirst()) : path
+        guard relative.isEmpty == false else { return }
+
+        switch sourceType {
+        case .smb:
+            // 共享名只有一段,更深的目录留给浏览器去选。
+            guard shareName.isEmpty else { return }
+            shareName = relative.split(separator: "/").first.map(String.init) ?? relative
+        case .nfs:
+            guard exportPath.isEmpty else { return }
+            exportPath = path
+        default:
+            guard basePath.isEmpty else { return }
+            basePath = path
+        }
+    }
+
+    /// 名称留空时替用户取一个:主机名最好认,退回类型名。
+    private func autoAssignNameIfNeeded(preferred: String?) {
+        guard name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let candidate = preferred?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        name = candidate.isEmpty ? sourceType.displayName : candidate
     }
 
     private func saveSource() {
@@ -1638,6 +1835,8 @@ struct AddSourceView: View {
     }
 
     private func cancelAndDismiss() {
+        addressSubmitTask?.cancel()
+        addressSubmitTask = nil
         if requiresAuthenticatedMediaServerPreflight {
             mediaServerCreationTransaction.cancel()
         }
