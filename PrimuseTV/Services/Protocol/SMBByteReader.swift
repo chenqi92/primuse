@@ -118,6 +118,7 @@ actor SMBByteReader: ByteRangeReader {
                 await invalidateConnectionWhileLocked()
                 throw CancellationError()
             } catch {
+                retireManagerIfRequestAbandoned(error)
                 let nsError = error as NSError
                 guard SMBConnectionRecoveryPolicy.shouldReconnect(
                     errorDomain: nsError.domain,
@@ -138,6 +139,21 @@ actor SMBByteReader: ByteRangeReader {
         }
         connected = false
         manager = nil
+    }
+
+    /// See `SMBSessionDisposalPolicy`: a session whose request was abandoned
+    /// before its reply arrived must not be closed or released, so it is parked
+    /// in the retirement store and simply stops being used.
+    private func retireManagerIfRequestAbandoned(_ error: Error) {
+        let nsError = error as NSError
+        guard let manager,
+              SMBSessionDisposalPolicy.mayHaveAbandonedRequest(
+                  errorDomain: nsError.domain,
+                  errorCode: nsError.code
+              ) else { return }
+        SMBRetiredSessions.shared.retire(manager)
+        self.manager = nil
+        connected = false
     }
 
     enum SMBReaderError: Error {

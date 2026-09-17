@@ -983,6 +983,30 @@ actor TVSMBLister: TVDirectoryLister {
     }
 
     func list(_ path: String) async throws -> [TVDirEntry] {
+        do {
+            return try await listWhileConnected(path)
+        } catch {
+            retireManagerIfRequestAbandoned(error)
+            throw error
+        }
+    }
+
+    /// See `SMBSessionDisposalPolicy`: a session whose request was abandoned
+    /// before its reply arrived must not be closed or released, so it is parked
+    /// in the retirement store and simply stops being used.
+    private func retireManagerIfRequestAbandoned(_ error: Error) {
+        let nsError = error as NSError
+        guard let manager,
+              SMBSessionDisposalPolicy.mayHaveAbandonedRequest(
+                  errorDomain: nsError.domain,
+                  errorCode: nsError.code
+              ) else { return }
+        SMBRetiredSessions.shared.retire(manager)
+        self.manager = nil
+        connectedShare = nil
+    }
+
+    private func listWhileConnected(_ path: String) async throws -> [TVDirEntry] {
         let (share, rel) = SMBByteReader.resolve(share: configuredShare, path: path)
         let m = try ensureManager()
         // 服务器根(未指定 share):列出可见共享当作一级目录。

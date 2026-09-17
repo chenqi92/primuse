@@ -4329,6 +4329,81 @@ public enum SMBConnectionRecoveryPolicy {
     }
 }
 
+/// Decides whether a failed SMB request may have been abandoned before its
+/// reply arrived.
+///
+/// libsmb2 keeps the directory handle that `smb2_opendir_async` allocated on
+/// the context until the matching reply is serviced. When AMSMB2 stops waiting
+/// on a request — the 60 s operation timeout, a dropped transport — the command
+/// stays queued while still referencing that handle. Closing the session then
+/// runs `smb2_free_all_dirs()` first and fires the queued callback through the
+/// freed handle afterwards, which is an indirect jump through released memory.
+///
+/// A reply that did arrive carries the failure as a status, leaves nothing
+/// queued, and can be torn down normally.
+public enum SMBSessionDisposalPolicy {
+    public static func mayHaveAbandonedRequest(
+        errorDomain: String,
+        errorCode: Int
+    ) -> Bool {
+        guard errorDomain == NSPOSIXErrorDomain else { return false }
+
+        return [
+            // The wait itself gave up or the socket stopped delivering.
+            POSIXErrorCode.ETIMEDOUT,
+            .ECONNRESET,
+            .ECONNABORTED,
+            .ECONNREFUSED,
+            .EPIPE,
+            .ENOTCONN,
+            .ESHUTDOWN,
+            .EBADF,
+            .ENOTSOCK,
+            .ENETRESET,
+            .ENETDOWN,
+            .ENETUNREACH,
+            .EHOSTDOWN,
+            .EHOSTUNREACH,
+            .EIO,
+        ].contains { Int($0.rawValue) == errorCode }
+    }
+}
+
+/// Keeps SMB sessions alive that libsmb2 can no longer close.
+///
+/// Both ways of letting go of a session whose request was abandoned — closing
+/// the share and releasing the last reference — free the directory handle the
+/// still queued command points at, and the callback fired while the context is
+/// torn down jumps through it. Retaining the session is what stops that
+/// teardown from ever running, so a broken session is parked here for the rest
+/// of the process instead of being closed.
+///
+/// `SMBSessionDisposalPolicy` decides which failures land here; ordinary
+/// protocol errors still close their session normally.
+public final class SMBRetiredSessions: @unchecked Sendable {
+    public static let shared = SMBRetiredSessions()
+
+    private let lock = NSLock()
+    private var sessions: [AnyObject] = []
+
+    public init() {}
+
+    /// Retains `session` and reports how many sessions are now being held.
+    @discardableResult
+    public func retire(_ session: AnyObject) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        sessions.append(session)
+        return sessions.count
+    }
+
+    public var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return sessions.count
+    }
+}
+
 public enum GoogleDriveHTTPDisposition: Equatable, Sendable {
     case retryRateLimit
     case permissionDenied

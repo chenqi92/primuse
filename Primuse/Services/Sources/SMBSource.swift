@@ -606,6 +606,7 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
             try await client.connectShare(name: normalizedShareName)
             try Task.checkCancellation()
         } catch {
+            retireClientIfRequestAbandoned(error)
             await invalidateConnection()
             throw error
         }
@@ -634,6 +635,7 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
             try await client.connectShare(name: normalizedShareName)
             try Task.checkCancellation()
         } catch {
+            retireBackgroundClientIfRequestAbandoned(error)
             await invalidateBackgroundConnection()
             throw error
         }
@@ -649,6 +651,7 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
             try Task.checkCancellation()
             return shares
         } catch {
+            retireClientIfRequestAbandoned(error)
             await invalidateConnection()
             throw error
         }
@@ -670,6 +673,36 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         }
         backgroundConnectedShareName = nil
         backgroundClient = nil
+    }
+
+    /// Stops using — without closing — a session whose request may still be
+    /// queued inside libsmb2. Closing or releasing such a session is what turns
+    /// the queued callback into a jump through a freed directory handle.
+    private func retireClientIfRequestAbandoned(_ error: Error) {
+        guard let client, Self.isAbandonedRequest(error) else { return }
+        Self.retire(client, lane: "foreground")
+        self.client = nil
+        connectedShareName = nil
+    }
+
+    private func retireBackgroundClientIfRequestAbandoned(_ error: Error) {
+        guard let backgroundClient, Self.isAbandonedRequest(error) else { return }
+        Self.retire(backgroundClient, lane: "background")
+        self.backgroundClient = nil
+        backgroundConnectedShareName = nil
+    }
+
+    private static func retire(_ session: SMB2Manager, lane: String) {
+        let held = SMBRetiredSessions.shared.retire(session)
+        plog("⚠️ SMB \(lane) session retired after an abandoned request (held: \(held))")
+    }
+
+    private static func isAbandonedRequest(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        return SMBSessionDisposalPolicy.mayHaveAbandonedRequest(
+            errorDomain: nsError.domain,
+            errorCode: nsError.code
+        )
     }
 
     /// Run an SMB request, retrying once if the first attempt leaves the
@@ -697,6 +730,7 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
                     await invalidateBackgroundConnection()
                     throw CancellationError()
                 } catch {
+                    retireBackgroundClientIfRequestAbandoned(error)
                     let nsError = error as NSError
                     guard SMBConnectionRecoveryPolicy.shouldReconnect(
                         errorDomain: nsError.domain,
@@ -732,6 +766,7 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
                 await invalidateConnection()
                 throw CancellationError()
             } catch {
+                retireClientIfRequestAbandoned(error)
                 let nsError = error as NSError
                 guard SMBConnectionRecoveryPolicy.shouldReconnect(
                     errorDomain: nsError.domain,
