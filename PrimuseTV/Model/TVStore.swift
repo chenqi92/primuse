@@ -237,7 +237,7 @@ enum TVScanAdmissionPolicy {
 enum TVPlayability: Equatable {
     case ok                 // 有可用凭据(或 relay 端点),类型受支持
     case missingCredential  // 类型受支持但缺凭据(不在 bundle、无本地输入、无同步密码)
-    case needsRelay         // SMB/SFTP/NFS/WebDAV 等需经 iPhone 中继,但中继端点未同步到
+    case needsRelay         // 手机本机文件 / NFSv4 的 NFS 源需经 iPhone 中继,但中继端点未同步到
     case unsupported        // 类型在 TV 上无 resolver(如 macOS Apple Music 资料库)
 }
 

@@ -6,6 +6,10 @@ struct ConnectorDirectoryBrowserView: View {
     let connector: any MusicSourceConnector
     @Binding var selectedDirectories: [String]
     var onConfirm: ((Bool) -> Void)? = nil
+    /// 失败态「修改地址」的出口。这个视图不知道自己是怎么被呈现的 —— 关掉当前
+    /// sheet、再打开该源的编辑表单全由宿主负责。新建源的事务里没有可回去的
+    /// 表单,宿主不传,按钮就不出现。
+    var onEditAddress: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @Environment(SourcesStore.self) private var sourcesStore
@@ -18,6 +22,7 @@ struct ConnectorDirectoryBrowserView: View {
     @State private var hasLoadedRoot = false
     @State private var rootConnectionValidated = false
     @State private var loadTask: Task<Void, Never>?
+    @State private var failureReport = SourceConnectionFailureReport()
 
     var body: some View {
         Group {
@@ -49,7 +54,9 @@ struct ConnectorDirectoryBrowserView: View {
                     for: source.type,
                     browserPath: "/"
                 ),
-                onConfirm: onConfirm
+                onConfirm: onConfirm,
+                failureSource: source,
+                onEditAddress: onEditAddress
             )
             #else
             iosBody
@@ -93,12 +100,17 @@ struct ConnectorDirectoryBrowserView: View {
                         Image(systemName: "exclamationmark.triangle")
                             .font(.title)
                             .foregroundStyle(.orange)
-                        Text(errorMessage)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
+                        SourceConnectionFailureDetails(
+                            report: failureReport,
+                            errorText: errorMessage,
+                            emphasis: .inline
+                        )
                         Button("retry") { loadDirectory() }
                             .buttonStyle(.bordered)
+                        SourceConnectionEditAddressButton(
+                            report: failureReport,
+                            onEditAddress: onEditAddress
+                        )
                     }
                     .padding(.horizontal, 40)
                     Spacer()
@@ -226,6 +238,7 @@ struct ConnectorDirectoryBrowserView: View {
 
         isLoading = true
         errorMessage = nil
+        failureReport = SourceConnectionFailureReport()
 
         // 捕获本次请求对应的路径, 写回前校验仍是当前目录, 避免快速导航时晚到的响应覆盖列表。
         let request = navigation.beginRequest()
@@ -252,14 +265,24 @@ struct ConnectorDirectoryBrowserView: View {
                         }
                     } catch {
                         guard !Task.isCancelled, navigation.accepts(request) else { return }
-                        errorMessage = error.localizedDescription
+                        await presentFailure(error)
                     }
                 } else {
-                    errorMessage = error.localizedDescription
+                    await presentFailure(error)
                 }
                 isLoading = false
             }
         }
+    }
+
+    /// 先把「这次连的是哪个地址」问出来再落错误文本,免得失败页先闪一下只有
+    /// 错误、随后才补上地址那一行。
+    private func presentFailure(_ error: Error) async {
+        failureReport = await SourceConnectionFailureReport.resolve(
+            for: source,
+            suggestsAddressEdit: SourceConnectionFailureReport.errorSuggestsAddressEdit(error)
+        )
+        errorMessage = error.localizedDescription
     }
 
     private var deferredConfirmationDisabled: Bool {

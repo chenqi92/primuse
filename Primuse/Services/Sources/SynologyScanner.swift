@@ -218,6 +218,11 @@ actor SynologyScanner {
             items.map { ($0.name.lowercased(), $0.name) },
             uniquingKeysWith: { first, _ in first }
         )
+        // 歌词还多一档 `<曲名>.<语言>.vtt` 的命名, 判定要连整个目录一起看。
+        // 和上面的字典一样每个目录只建一次, 每首歌只查表。
+        let languageTaggedLyrics = LanguageTaggedLyricsIndex(
+            fileNames: items.filter { !$0.isDirectory }.map(\.name)
+        )
         let cueTracksByAudioPath = await loadCueTracks(from: items)
         let coverNames = PrimuseConstants.folderCoverNames  // cover.jpg, folder.jpg, etc.
 
@@ -265,6 +270,7 @@ actor SynologyScanner {
                     scanStandaloneVideo(
                         item: item, ext: ext,
                         nameByLowercase: nameByLowercase,
+                        languageTaggedLyrics: languageTaggedLyrics,
                         folderCoverPath: folderCoverPath,
                         allSongs: &allSongs, count: &count, totalCount: totalCount,
                         existingByPath: existingByPath,
@@ -321,11 +327,11 @@ actor SynologyScanner {
                 let parentDir = (item.path as NSString).deletingLastPathComponent
 
                 // Lyrics sidecar: prefer song.lrc, then song.ttml.
-                let lyricsRef = Self.sameNameSidecarPath(
+                let lyricsRef = Self.sameNameLyricsPath(
                     baseName: baseName,
-                    extensions: PrimuseConstants.readableLyricsExtensions,
                     in: parentDir,
-                    nameByLowercase: nameByLowercase
+                    nameByLowercase: nameByLowercase,
+                    languageTagged: languageTaggedLyrics
                 )
 
                 // Cover sidecar: song.jpg → song-cover.jpg → folder-level cover.jpg
@@ -674,6 +680,7 @@ actor SynologyScanner {
     private func scanStandaloneVideo(
         item: SynologyAPI.FileItem, ext: String,
         nameByLowercase: [String: String],
+        languageTaggedLyrics: LanguageTaggedLyricsIndex,
         folderCoverPath: String?,
         allSongs: inout [Song], count: inout Int, totalCount: Int,
         existingByPath: [String: Int],
@@ -706,11 +713,11 @@ actor SynologyScanner {
             }
         }
         if coverRef == nil { coverRef = folderCoverPath }
-        let lyricsRef = Self.sameNameSidecarPath(
+        let lyricsRef = Self.sameNameLyricsPath(
             baseName: baseName,
-            extensions: PrimuseConstants.readableLyricsExtensions,
             in: parentDir,
-            nameByLowercase: nameByLowercase
+            nameByLowercase: nameByLowercase,
+            languageTagged: languageTaggedLyrics
         )
 
         if let idx = existingByPath[item.path] {
@@ -816,6 +823,26 @@ actor SynologyScanner {
                 contentRevision: descriptor.contentRevision
             )
         )
+    }
+
+    /// 歌词比封面、MV 多一档: 同名文件都不在时, 再看 `<曲名>.<语言>.vtt`
+    /// 这类带语言后缀的字幕。返回的路径同样保留清单里的原始大小写。
+    private static func sameNameLyricsPath(
+        baseName: String,
+        in parentDir: String,
+        nameByLowercase: [String: String],
+        languageTagged: LanguageTaggedLyricsIndex
+    ) -> String? {
+        if let exact = sameNameSidecarPath(
+            baseName: baseName,
+            extensions: PrimuseConstants.readableLyricsExtensions,
+            in: parentDir,
+            nameByLowercase: nameByLowercase
+        ) {
+            return exact
+        }
+        guard let tagged = languageTagged.bestMatch(baseName: baseName) else { return nil }
+        return (parentDir as NSString).appendingPathComponent(tagged)
     }
 
     private static func sameNameSidecarPath(

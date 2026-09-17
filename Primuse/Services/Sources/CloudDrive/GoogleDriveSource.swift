@@ -277,7 +277,8 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
             containerPath: lrcContext.parentID,
             exists: existing != nil,
             existingPath: existing?.path,
-            existingSize: existing?.size
+            existingSize: existing?.size,
+            songBaseName: baseName
         )
     }
 

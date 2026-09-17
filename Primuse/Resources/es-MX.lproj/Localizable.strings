@@ -2800,9 +2800,9 @@
 "settings_push_to_tv" = "Enviar a Apple TV ahora";
 "settings_push_to_tv_done" = "Enviado";
 "settings_push_to_tv_failed" = "Error en el envío";
-"settings_push_to_tv_footer" = "Instale Primuse en su Apple TV e inicie sesión con la misma cuenta iCloud para ver su biblioteca y fuentes aquí: credenciales (contraseñas/tokens) incluidas, nada que volver a ingresar. Primuse se carga automáticamente en segundo plano; toque \"Enviar a Apple TV ahora\" para actualizar inmediatamente. Las fuentes a las que el televisor no puede acceder directamente (archivos locales, SMB / SFTP / NFS / WebDAV) necesitan el relé a continuación, que los transmite desde este teléfono a través del mismo Wi-Fi.";
+"settings_push_to_tv_footer" = "Instale Primuse en su Apple TV e inicie sesión con la misma cuenta iCloud para ver su biblioteca y fuentes aquí: credenciales (contraseñas/tokens) incluidas, nada que volver a ingresar. Primuse se carga automáticamente en segundo plano; toque \"Enviar a Apple TV ahora\" para actualizar inmediatamente. El Apple TV llega por sí solo a los NAS, WebDAV, servidores multimedia y discos en la nube. Solo la música guardada en este teléfono necesita el relé de abajo, que la transmite desde aquí por el mismo Wi-Fi; como no se sincroniza por iCloud, envíela con \"Transferir biblioteca desde iPhone\" en el Apple TV.";
 "settings_relay_enable" = "Dejar que Apple TV reproduzca a través de este dispositivo";
-"settings_relay_footer" = "Cuando está activado, un Apple TV conectado con el mismo ID de Apple puede reproducir local, SMB, SFTP, NFS, WebDAV y otras fuentes a las que no puede acceder directamente, transmitidas a través de este dispositivo a través de la LAN. Mantenga Primuse abierto en primer plano y ambos dispositivos en el mismo Wi-Fi.";
+"settings_relay_footer" = "Cuando está activado, su Apple TV puede reproducir la música guardada en este teléfono, transmitida a través de este dispositivo (las fuentes NFS configuradas como NFSv4 también pasan por aquí). Mantenga Primuse abierto en primer plano y ambos dispositivos en el mismo Wi-Fi.";
 "settings_relay_section" = "Relé Apple TV";
 "settings_relay_waiting" = "Obteniendo la dirección LAN… (asegúrese de que Wi-Fi esté conectado)";
 "settings_title" = "Configuración";
@@ -3990,3 +3990,4 @@
 "connection_failed_hint_cleartext_public" = "Esta dirección pasa por Internet sin cifrado y muchos servidores lo rechazan.";
 "connection_failed_hint_private_address" = "Es una dirección de la red local: solo funciona estando en esa misma red.";
 "connection_failed_hint_vendor_relay" = "Esto pasa por el relevo del fabricante: revisa que el equipo esté en línea y el acceso remoto activado.";
+"connection_failed_edit_address" = "Cambiar dirección";

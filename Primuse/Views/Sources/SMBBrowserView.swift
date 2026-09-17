@@ -7,17 +7,20 @@ struct SMBBrowserView: View {
 
     private let connector: any MusicSourceConnector
     private let onConfirm: ((Bool) -> Void)?
+    private let onEditAddress: (() -> Void)?
 
     init(
         source: MusicSource,
         connector: any MusicSourceConnector,
         selectedDirectories: Binding<[String]>,
-        onConfirm: ((Bool) -> Void)? = nil
+        onConfirm: ((Bool) -> Void)? = nil,
+        onEditAddress: (() -> Void)? = nil
     ) {
         self.source = source
         self._selectedDirectories = selectedDirectories
         self.connector = connector
         self.onConfirm = onConfirm
+        self.onEditAddress = onEditAddress
     }
 
     var body: some View {
@@ -25,7 +28,8 @@ struct SMBBrowserView: View {
             source: source,
             connector: connector,
             selectedDirectories: $selectedDirectories,
-            onConfirm: onConfirm
+            onConfirm: onConfirm,
+            onEditAddress: onEditAddress
         )
     }
 }

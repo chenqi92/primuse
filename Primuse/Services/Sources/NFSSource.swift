@@ -332,7 +332,10 @@ actor NFSSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter,
                 exportPath: source.exportPath,
                 relativePath: ((directory.isEmpty ? "/" : directory) as NSString)
                     .appendingPathComponent(
-                        LyricsSidecarSelectionPolicy.writableFileName(replacing: fileName)
+                        LyricsSidecarSelectionPolicy.writableFileName(
+                            replacing: fileName,
+                            baseName: baseName
+                        )
                     )
             )
         }
@@ -343,7 +346,8 @@ actor NFSSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter,
             exists: existing != nil,
             existingPath: existing?.path,
             existingSize: existing?.size,
-            writableSiblingPath: writableSiblingPath
+            writableSiblingPath: writableSiblingPath,
+            songBaseName: baseName
         )
     }
 

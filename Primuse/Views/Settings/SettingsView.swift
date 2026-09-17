@@ -2121,7 +2121,9 @@ private struct AppleTVPushRow: View {
 // MARK: - Apple TV Relay
 
 /// Phase 3:Apple TV 局域网中继开关。开启后,登录同一 Apple ID 的 Apple TV
-/// 可经本机中继播放本地 / SMB / SFTP / NFS / WebDAV 等无法直连的源。
+/// 可经本机中继播放存在本机里的音乐(`.local`),以及显式选了 NFSv4 的 NFS 源
+/// (TV 自带的 NFS 读取只实现 v3)。NAS / WebDAV / 媒体服务器 / 网盘和
+/// SMB / FTP / SFTP 电视端都已直连,不再需要中继,见 TVStore.playability(for:)。
 ///
 /// 开关持久化用 @AppStorage(`phoneRelayEnabled`,与 PhoneRelayServer 守卫的
 /// key 同一个),实际生效靠 onChange 调 server.start/stop;app 启动时

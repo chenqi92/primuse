@@ -320,7 +320,8 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource, LyricsSidecarTargetR
             containerPath: String(parentID),
             exists: existing != nil,
             existingPath: existing?.path,
-            existingSize: existing?.size
+            existingSize: existing?.size,
+            songBaseName: baseName
         )
     }
 

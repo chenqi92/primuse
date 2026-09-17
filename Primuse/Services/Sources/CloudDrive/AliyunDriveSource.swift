@@ -402,7 +402,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
             containerPath: context.parentID,
             exists: existing != nil,
             existingPath: existing?.path,
-            existingSize: existing?.size
+            existingSize: existing?.size,
+            songBaseName: context.baseName
         )
     }
 

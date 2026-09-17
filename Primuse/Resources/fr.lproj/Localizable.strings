@@ -1320,11 +1320,11 @@
 "settings_dlna_keepalive_footer" = "Lorsque cette option est activée, Primuse continue d'accepter les envois d'autres appareils même en arrière-plan et sans lecture en cours. Compromis : l'écran verrouillé / le centre de contrôle indiquera que Primuse est en lecture, et la consommation de batterie augmentera légèrement.";
 "settings_relay_section" = "Relais Apple TV";
 "settings_relay_enable" = "Autoriser l'Apple TV à lire via cet appareil";
-"settings_relay_footer" = "Lorsque cette option est activée, une Apple TV connectée au même identifiant Apple peut lire des sources locales, SMB, SFTP, NFS, WebDAV et autres qu'elle ne peut atteindre directement — relayées par cet appareil sur le réseau local. Gardez Primuse ouvert au premier plan et les deux appareils sur le même Wi-Fi.";
+"settings_relay_footer" = "Lorsque cette option est activée, votre Apple TV peut lire la musique stockée sur ce téléphone, relayée par cet appareil (les sources NFS réglées sur NFSv4 passent aussi par là). Gardez Primuse ouvert au premier plan et les deux appareils sur le même Wi-Fi.";
 "settings_relay_waiting" = "Obtention de l'adresse réseau local… (vérifiez que le Wi-Fi est connecté)";
 "settings_appletv_section" = "Apple TV";
 "settings_push_to_tv" = "Envoyer à l'Apple TV maintenant";
-"settings_push_to_tv_footer" = "Installez Primuse sur votre Apple TV et connectez-vous avec le même compte iCloud pour retrouver votre bibliothèque et vos sources ici — identifiants (mots de passe / jetons) inclus, rien à ressaisir. Primuse les envoie automatiquement en arrière-plan ; touchez « Envoyer à l'Apple TV maintenant » pour mettre à jour immédiatement. Les sources que l'Apple TV ne peut atteindre directement — fichiers locaux, SMB / SFTP / NFS / WebDAV — nécessitent le relais ci-dessous, qui les diffuse depuis ce téléphone sur le même Wi-Fi.";
+"settings_push_to_tv_footer" = "Installez Primuse sur votre Apple TV et connectez-vous avec le même compte iCloud pour retrouver votre bibliothèque et vos sources ici — identifiants (mots de passe / jetons) inclus, rien à ressaisir. Primuse les envoie automatiquement en arrière-plan ; touchez « Envoyer à l'Apple TV maintenant » pour mettre à jour immédiatement. Les NAS, WebDAV, serveurs multimédias et espaces de stockage en ligne, l'Apple TV les atteint tout seul. Seule la musique stockée sur ce téléphone a besoin du relais ci-dessous, qui la diffuse d'ici sur le même Wi-Fi ; elle ne passe jamais par iCloud, envoyez-la donc avec « Transférer la bibliothèque depuis l’iPhone » sur l'Apple TV.";
 "settings_push_to_tv_done" = "Envoyé";
 "settings_push_to_tv_failed" = "Échec de l'envoi";
 "send_to_tv_title" = "Envoyer à l'Apple TV";
@@ -4084,3 +4084,4 @@
 "connection_failed_hint_cleartext_public" = "Cette adresse passe par Internet sans chiffrement, ce que beaucoup de serveurs refusent.";
 "connection_failed_hint_private_address" = "C’est une adresse du réseau local : elle ne fonctionne que sur ce même réseau.";
 "connection_failed_hint_vendor_relay" = "Cela passe par le relais du fabricant : vérifiez que l’appareil est en ligne et que l’accès distant est activé.";
+"connection_failed_edit_address" = "Modifier l’adresse";

@@ -20,6 +20,9 @@ struct MacSourcesView: View {
     @State private var showAddSource = false
     @State private var editingSource: MusicSource?
     @State private var connectingSource: MusicSource?
+    /// 连接失败页点了「修改地址」之后要编辑的那个源。等连接 sheet 完全关掉
+    /// (onDismiss) 再呈现编辑表单, 两个 sheet 不重叠。
+    @State private var pendingAddressEditSource: MusicSource?
     @State private var diagnosingSource: MusicSource?
     @State private var inspectingMetadataSource: MusicSource?
     @State private var inspectingLocalRemovalsSource: MusicSource?
@@ -92,14 +95,17 @@ struct MacSourcesView: View {
                 Task { await sourceManager.refreshConnector(for: updated.id) }
             }
         }
-        .sheet(item: $connectingSource, onDismiss: finishDirectorySelectionSession) { source in
+        .sheet(item: $connectingSource, onDismiss: finishConnectionSheet) { source in
             // 这个 sheet 里既有 (云盘/Synology 的) 授权小步骤, 也有 940 宽的树形
             // 目录浏览器。macOS 的 sheet 会按"首屏内容"定窗宽, 之后切到更宽的浏览
             // 步骤时不会自己变大 → 浏览器被挤到溢出、左右两侧裁切。把固定 ideal
             // 尺寸放在最外层 (不随步骤变), 让窗口一开始就按浏览器的尺寸来。
-            connectionSheet(for: source)
-                .frame(minWidth: 880, idealWidth: 940, minHeight: 600, idealHeight: 680)
-                .onAppear { beginDirectorySelectionSession(for: source) }
+            connectionSheet(
+                for: source,
+                onEditAddress: { requestAddressEdit(for: source) }
+            )
+            .frame(minWidth: 880, idealWidth: 940, minHeight: 600, idealHeight: 680)
+            .onAppear { beginDirectorySelectionSession(for: source) }
         }
         .sheet(item: $diagnosingSource) { source in
             SourceDiagnosticsView(source: source)
@@ -905,7 +911,8 @@ struct MacSourcesView: View {
     private func connectionSheet(
         for source: MusicSource,
         stagedDirectories: Binding<[String]>? = nil,
-        onConfirm: ((Bool) -> Void)? = nil
+        onConfirm: ((Bool) -> Void)? = nil,
+        onEditAddress: (() -> Void)? = nil
     ) -> some View {
         let persistedDirectories = Binding(
             get: { currentSource(for: source).scannedDirectories },
@@ -960,40 +967,48 @@ struct MacSourcesView: View {
                         plog("⚠️ Synology credential transition could not commit source=\(source.id.prefix(8))… error=\(error.localizedDescription)")
                         return false
                     }
-                }
+                },
+                onEditAddress: onEditAddress
             )
         case .smb:
             SMBBrowserView(
                 source: source,
                 connector: sourceManager.connector(for: source),
                 selectedDirectories: selectedDirectories,
-                onConfirm: onConfirm
+                onConfirm: onConfirm,
+                onEditAddress: onEditAddress
             )
         case .webdav:
             WebDAVBrowserView(
                 source: source,
                 connector: sourceManager.connector(for: source),
                 selectedDirectories: selectedDirectories,
-                onConfirm: onConfirm
+                onConfirm: onConfirm,
+                onEditAddress: onEditAddress
             )
         case .ftp:
             FTPBrowserView(
                 source: source,
                 connector: sourceManager.connector(for: source),
-                selectedDirectories: selectedDirectories
+                selectedDirectories: selectedDirectories,
+                onEditAddress: onEditAddress
             )
         case .sftp:
             SFTPBrowserView(
                 source: source,
                 connector: sourceManager.connector(for: source),
-                selectedDirectories: selectedDirectories
+                selectedDirectories: selectedDirectories,
+                onEditAddress: onEditAddress
             )
         case .nfs:
             NFSBrowserView(
                 source: source,
                 connector: sourceManager.connector(for: source),
-                selectedDirectories: selectedDirectories
+                selectedDirectories: selectedDirectories,
+                onEditAddress: onEditAddress
             )
+        // UPnP 的源是发现出来的设备, 没有一条可以改的地址, 所以不给
+        // 「修改地址」的出口。
         case .upnp: UPnPBrowserView(source: source, selectedDirectories: selectedDirectories)
         case .qnap, .ugreen, .fnos, .s3:
             // S3 stores region + dir list together in extraConfig; the S3-aware
@@ -1003,7 +1018,8 @@ struct MacSourcesView: View {
             ConnectorDirectoryBrowserView(
                 source: source,
                 connector: sourceManager.connector(for: source),
-                selectedDirectories: selectedDirectories
+                selectedDirectories: selectedDirectories,
+                onEditAddress: onEditAddress
             )
         case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .drime, .pan115, .pan123,
              .guangya:
@@ -1048,6 +1064,21 @@ struct MacSourcesView: View {
 
     private func cancelDirectorySelectionSession() {
         directorySelectionSession = nil
+    }
+
+    /// 连接失败页的「修改地址」: 先记下目标再关掉连接 sheet, 编辑表单在
+    /// finishConnectionSheet 里等它关完再呈现 —— 同一个视图上两个 sheet
+    /// 不能前一个还没关完就开后一个。
+    private func requestAddressEdit(for source: MusicSource) {
+        pendingAddressEditSource = currentSource(for: source)
+        connectingSource = nil
+    }
+
+    private func finishConnectionSheet() {
+        finishDirectorySelectionSession()
+        guard let pending = pendingAddressEditSource else { return }
+        pendingAddressEditSource = nil
+        editingSource = currentSource(for: pending)
     }
 
     private func setEnabled(_ source: MusicSource, _ enabled: Bool) {

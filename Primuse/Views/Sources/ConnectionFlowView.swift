@@ -11,6 +11,10 @@ struct ConnectionFlowView: View {
     var onPasswordWillChange: (() -> Bool)?
     var onPasswordSaveUncertain: (() -> Void)?
     var onPasswordSaved: (() async -> Bool)?
+    /// 失败页「修改地址」的出口。这个视图不知道自己是怎么被呈现的 —— 关掉当前
+    /// sheet、再打开该源的编辑表单全由宿主负责。宿主没有可回去的表单时传 nil,
+    /// 按钮就不出现。
+    var onEditAddress: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
     @State private var step: FlowStep = .connecting
@@ -32,6 +36,12 @@ struct ConnectionFlowView: View {
     @FocusState private var passwordFocused: Bool
 
     enum FlowStep { case connecting, otp, password, browsing, failed }
+
+    /// 这次失败值不值得去改地址。只有"根本没连上"才算 —— 钥匙串读不出密码、
+    /// 或者服务器已经应答并回了业务错误码, 改地址都解决不了。密码错 / 验证码错
+    /// 走的是 .password / .otp, 压根到不了失败页。
+    private enum FailureCause { case address, other }
+    @State private var failureCause: FailureCause = .other
 
     var body: some View {
         Group {
@@ -518,40 +528,28 @@ struct ConnectionFlowView: View {
             Image(systemName: "xmark.circle").font(.system(size: 52)).foregroundStyle(.red)
             Text("connection_failed").font(.headline)
             failureDetails
-            Button { startConnection() } label: {
-                Label("retry", systemImage: "arrow.clockwise").fontWeight(.medium)
+            VStack(spacing: 12) {
+                Button { startConnection() } label: {
+                    Label("retry", systemImage: "arrow.clockwise").fontWeight(.medium)
+                }
+                .buttonStyle(.borderedProminent)
+
+                // 地址填错了光重试没用。给一条回编辑表单的路,省得关掉整个流程
+                // 再去列表里找这个源。
+                SourceConnectionEditAddressButton(
+                    report: failureReport,
+                    onEditAddress: onEditAddress
+                )
             }
-            .buttonStyle(.borderedProminent)
             Spacer()
         }
     }
 
     /// 失败页以前只有一句"连接失败"加原始错误 —— 连试的是哪台机器、哪个端口都
     /// 不说。这里补上这次真正用过的完整地址,再按地址本身的形态给一句针对性提示。
-    @ViewBuilder
     private var failureDetails: some View {
-        VStack(spacing: 10) {
-            if let address = attemptedAddressDescription {
-                Text(String(format: String(localized: "connection_failed_address %@"), address))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .textSelection(.enabled)
-            }
-            if errorMessage.isEmpty == false {
-                Text(errorMessage)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-            if let hint = attemptedAddressHint {
-                Label(hint, systemImage: "lightbulb")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.leading)
-            }
-        }
-        .padding(.horizontal, 40)
+        SourceConnectionFailureDetails(report: failureReport, errorText: errorMessage)
+            .padding(.horizontal, 40)
     }
 
     /// 这次实际连接的那个端点,已经是候选选择之后的结果。不含任何凭据。
@@ -562,42 +560,14 @@ struct ConnectionFlowView: View {
             || attemptedConnectionSource.effectiveSynologyConnectionMode == .quickConnect
     }
 
-    private var attemptedAddressDescription: String? {
-        let active = attemptedConnectionSource
-        guard let rawHost = active.host?.trimmingCharacters(in: .whitespacesAndNewlines),
-              rawHost.isEmpty == false else {
-            return nil
-        }
-        // QuickConnect / FN Connect 的"地址"就是那个标识本身。
-        if attemptedUsesVendorRemote { return rawHost }
-        // 反代前缀的群晖把整个地址塞进了 host 字段,原样显示就是最准确的。
-        if rawHost.contains("://") { return rawHost }
-        let endpoint = SourceConnectionEndpoint(
-            host: rawHost,
-            port: active.port ?? source.type.defaultPort(useSsl: active.useSsl),
-            useSsl: active.useSsl,
-            pathPrefix: source.type.supportsEndpointSpecificPath ? active.basePath : nil
+    /// 候选已经由这个流程自己选好了,所以直接把结果交给共用的取值逻辑,
+    /// 不必再去问路由记忆。
+    private var failureReport: SourceConnectionFailureReport {
+        SourceConnectionFailureReport.make(
+            forAttempted: attemptedConnectionSource,
+            usesVendorRemoteAccess: attemptedUsesVendorRemote,
+            suggestsAddressEdit: failureCause == .address
         )
-        return SourceAddressInputPolicy.renderedAddress(for: endpoint, sourceType: source.type)
-    }
-
-    private var attemptedAddressHint: String? {
-        let active = attemptedConnectionSource
-        guard let rawHost = active.host?.trimmingCharacters(in: .whitespacesAndNewlines),
-              rawHost.isEmpty == false else {
-            return nil
-        }
-        let host = rawHost.contains("://")
-            ? (URL(string: rawHost)?.host ?? rawHost)
-            : rawHost
-        let hint = SourceAddressFormPolicy.failureHint(
-            host: host,
-            port: active.port ?? source.type.defaultPort(useSsl: active.useSsl),
-            useSsl: active.useSsl,
-            sourceType: source.type,
-            usesVendorRemoteAccess: attemptedUsesVendorRemote
-        )
-        return SourceConnectionFailureHintText.text(for: hint, sourceType: source.type)
     }
 
     // MARK: - Logic
@@ -646,6 +616,7 @@ struct ConnectionFlowView: View {
         if source.connectionConfiguration != nil, candidate == nil {
             pendingPasswordCandidate = nil
             errorMessage = String(localized: "source_connection_no_route")
+            failureCause = .address
             withAnimation { step = .failed }
             return
         }
@@ -688,6 +659,8 @@ struct ConnectionFlowView: View {
                     format: String(localized: "insecure_http_permission_required %@"),
                     trustTarget
                 )
+                // 用户拒绝了明文连接: 换成 https 的地址就是正当出路。
+                failureCause = .address
                 withAnimation { step = .failed }
                 return
             }
@@ -709,11 +682,13 @@ struct ConnectionFlowView: View {
             case .temporarilyUnavailable(let status):
                 plog("⏳ Synology connection deferred: credential temporarily unavailable status=\(status)")
                 errorMessage = String(localized: "credential_temporarily_unavailable")
+                failureCause = .other
                 withAnimation { step = .failed }
                 return
             case .failed(let status):
                 plog("⛔ Synology connection stopped: credential read failed status=\(status)")
                 errorMessage = String(localized: "credential_read_failed")
+                failureCause = .other
                 withAnimation { step = .failed }
                 return
             }
@@ -851,6 +826,8 @@ struct ConnectionFlowView: View {
 
             pendingPasswordCandidate = nil
             errorMessage = result.errorMessage ?? String(localized: "unknown_error")
+            // DSM 已经应答并给了错误码 —— 地址是对的, 问题在账号那边。
+            failureCause = .other
             withAnimation { step = .failed }
         }
     }
@@ -866,6 +843,7 @@ struct ConnectionFlowView: View {
         guard let candidate, source.connectionConfiguration != nil else {
             pendingPasswordCandidate = nil
             errorMessage = error.localizedDescription
+            failureCause = .address
             withAnimation { step = .failed }
             return
         }
@@ -886,6 +864,8 @@ struct ConnectionFlowView: View {
 
         pendingPasswordCandidate = nil
         errorMessage = error.localizedDescription
+        // 所有候选路由都试过了还是连不上, 地址本身最可疑。
+        failureCause = .address
         withAnimation { step = .failed }
     }
 

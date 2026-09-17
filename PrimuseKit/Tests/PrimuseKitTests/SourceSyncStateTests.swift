@@ -1319,6 +1319,41 @@ struct SidecarDirectoryIndexTests {
         #expect(index.sameNameMusicVideo(basename: "track")?.sidecarName == "track.mp4")
     }
 
+    @Test("Language-tagged subtitles are the last lyric tier")
+    func languageTaggedLyricsLookup() {
+        let exact = SidecarDirectoryIndex(
+            [
+                sidecarItem("Track.flac"),
+                sidecarItem("Track.en.vtt"),
+                sidecarItem("Track.lrc"),
+            ],
+            preferredLanguages: ["en"]
+        )
+        #expect(exact.sameNameLyrics(basename: "Track")?.sidecarName == "Track.lrc")
+
+        let tagged = SidecarDirectoryIndex(
+            [
+                sidecarItem("Track.flac"),
+                sidecarItem("Track.en.vtt"),
+                sidecarItem("Track.ja.vtt"),
+            ],
+            preferredLanguages: ["ja"]
+        )
+        #expect(tagged.sameNameLyrics(basename: "Track")?.sidecarName == "Track.ja.vtt")
+
+        // `Track.it.vtt` is the exact-name sidecar of `Track.it.flac`.
+        let otherSong = SidecarDirectoryIndex(
+            [
+                sidecarItem("Track.flac"),
+                sidecarItem("Track.it.flac"),
+                sidecarItem("Track.it.vtt"),
+            ],
+            preferredLanguages: ["it"]
+        )
+        #expect(otherSong.sameNameLyrics(basename: "Track") == nil)
+        #expect(otherSong.sameNameLyrics(basename: "Track.it")?.sidecarName == "Track.it.vtt")
+    }
+
     @Test("Animated artwork extensions are indexed case-insensitively as source sidecars")
     func animatedArtworkLookup() {
         let index = SidecarDirectoryIndex([

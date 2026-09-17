@@ -40,6 +40,11 @@ enum SidecarMetadataLoader {
 
     /// Finds lyrics file that matches the audio file name
     /// e.g., song.flac → song.lrc
+    ///
+    /// A bounded number of `fileExists` probes, so a bulk loop may call it
+    /// once per song. The language-tagged names live in
+    /// `findLanguageTaggedLyrics(for:index:)` because those need the whole
+    /// directory.
     static func findLyrics(for audioURL: URL) -> URL? {
         let directory = audioURL.deletingLastPathComponent()
         let baseName = audioURL.deletingPathExtension().lastPathComponent
@@ -52,6 +57,25 @@ enum SidecarMetadataLoader {
         }
 
         return nil
+    }
+
+    /// Finds `<base>.<lang>.vtt` / `.srt` — what yt-dlp writes and what media
+    /// server users name their external subtitles. Only ever called after
+    /// `findLyrics(for:)` came back empty.
+    /// - Parameter index: the caller's per-directory index. It is required on
+    ///   purpose: answering this needs the whole directory, and a caller that
+    ///   could omit it would list the folder once per song. The playback-time
+    ///   lookups stay on `findLyrics(for:)` for the same reason — they look
+    ///   into the audio cache, one flat directory per source whose generated
+    ///   names can never carry a language suffix.
+    static func findLanguageTaggedLyrics(
+        for audioURL: URL,
+        index: LanguageTaggedLyricsIndex
+    ) -> URL? {
+        let directory = audioURL.deletingLastPathComponent()
+        let baseName = audioURL.deletingPathExtension().lastPathComponent
+        guard let name = index.bestMatch(baseName: baseName) else { return nil }
+        return directory.appendingPathComponent(name)
     }
 
     /// Finds a same-name music video sidecar.

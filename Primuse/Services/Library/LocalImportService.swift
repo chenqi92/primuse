@@ -333,6 +333,7 @@ enum LocalImportService {
         var processed = 0
         var pending: [PendingCommit] = []
         pending.reserveCapacity(identityBatchSize)
+        var taggedSidecars = LanguageTaggedSidecarCache()
         let ffmpegDecoder = FFmpegAudioDecoder()
 
         func flushPending() {
@@ -392,6 +393,7 @@ enum LocalImportService {
                             processed: &processed,
                             result: &result,
                             pending: &pending,
+                            taggedSidecars: &taggedSidecars,
                             progress: progress
                         )
                         if pending.count >= identityBatchSize { flushPending() }
@@ -405,6 +407,7 @@ enum LocalImportService {
                         processed: &processed,
                         result: &result,
                         pending: &pending,
+                        taggedSidecars: &taggedSidecars,
                         progress: progress
                     )
                     if pending.count >= identityBatchSize { flushPending() }
@@ -488,6 +491,7 @@ enum LocalImportService {
         processed: inout Int,
         result: inout CopyResult,
         pending: inout [PendingCommit],
+        taggedSidecars: inout LanguageTaggedSidecarCache,
         progress: ProgressHandler?
     ) async {
         guard !Task.isCancelled else { return }
@@ -650,7 +654,8 @@ enum LocalImportService {
             let sidecars = copySidecarsAtomically(
                 forAudio: sourceURL,
                 audioDest: committed.url,
-                transaction: transaction
+                transaction: transaction,
+                taggedSidecars: &taggedSidecars
             )
             pending.append(PendingCommit(
                 audio: committed,
@@ -971,6 +976,23 @@ enum LocalImportService {
     }
     #endif
 
+    /// 导入是一个目录一个目录走下来的, 所以带语言后缀的字幕索引只按"当前目录"
+    /// 建一次。让每个文件各列一次目录, 大文件夹的开销就是平方级的。
+    private struct LanguageTaggedSidecarCache {
+        private var directoryPath: String?
+        private var cached = LanguageTaggedLyricsIndex(fileNames: [])
+
+        mutating func index(for directory: URL) -> LanguageTaggedLyricsIndex {
+            let path = directory.standardizedFileURL.path
+            guard directoryPath != path else { return cached }
+            directoryPath = path
+            cached = LanguageTaggedLyricsIndex(
+                fileNames: (try? FileManager.default.contentsOfDirectory(atPath: path)) ?? []
+            )
+            return cached
+        }
+    }
+
     /// 把音频同目录的歌词/封面 sidecar 一并带进沙箱 —— 否则导入后
     /// SidecarMetadataLoader 在沙箱里按名找不到, 歌词/封面/MV 全丢。复用它的查找
     /// 规则(同名 .lrc; 同名 MV; 同名 / `<曲名>-cover` / 目录级 cover.jpg 三档封面)定位
@@ -979,7 +1001,8 @@ enum LocalImportService {
     private static func copySidecarsAtomically(
         forAudio srcURL: URL,
         audioDest: URL,
-        transaction: LocalImportFileTransaction
+        transaction: LocalImportFileTransaction,
+        taggedSidecars: inout LanguageTaggedSidecarCache
     ) -> [LocalImportFileTransaction.CommittedFile] {
         let fm = FileManager.default
         let destDir = audioDest.deletingLastPathComponent()
@@ -1011,7 +1034,18 @@ enum LocalImportService {
             }
         }
 
-        if let lrc = SidecarMetadataLoader.findLyrics(for: srcURL) {
+        var lyricsSource = SidecarMetadataLoader.findLyrics(for: srcURL)
+        if lyricsSource == nil {
+            // 带语言后缀的字幕要看整个目录, 缓存按目录建: 枚举器是一个目录一个
+            // 目录往下走的, 所以一份清单能服务同目录里的每一个导入项。
+            lyricsSource = SidecarMetadataLoader.findLanguageTaggedLyrics(
+                for: srcURL,
+                index: taggedSidecars.index(for: srcURL.deletingLastPathComponent())
+            )
+        }
+        // 统一改名成目标音频的 base, 语言后缀正好在这一步被丢掉 ——
+        // `song.en.vtt` 落进沙箱就是 `<base>.vtt`, 之后按同名就能读回。
+        if let lrc = lyricsSource {
             importSidecar(lrc, destinationName: "\(destBase).\(lrc.pathExtension)")
         }
         if let cover = SidecarMetadataLoader.findCoverArt(for: srcURL) {

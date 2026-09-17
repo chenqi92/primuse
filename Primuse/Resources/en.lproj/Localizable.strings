@@ -1343,11 +1343,11 @@
 "settings_dlna_keepalive_footer" = "When enabled, Primuse keeps accepting pushes from other devices even when it's in the background and not playing music. Trade-off: the lock screen / Control Center will show Primuse as playing, and battery use rises slightly.";
 "settings_relay_section" = "Apple TV Relay";
 "settings_relay_enable" = "Let Apple TV play via this device";
-"settings_relay_footer" = "When on, an Apple TV signed in to the same Apple ID can play local, SMB, SFTP, NFS, WebDAV and other sources it can't reach directly — relayed through this device over the LAN. Keep Primuse open in the foreground and both devices on the same Wi-Fi.";
+"settings_relay_footer" = "When on, your Apple TV can play music stored on this phone, relayed through this device (NFS sources set to NFSv4 come through here too). Keep Primuse open in the foreground and both devices on the same Wi-Fi.";
 "settings_relay_waiting" = "Getting LAN address… (make sure Wi-Fi is connected)";
 "settings_appletv_section" = "Apple TV";
 "settings_push_to_tv" = "Send to Apple TV now";
-"settings_push_to_tv_footer" = "Install Primuse on your Apple TV and sign in with the same iCloud account to see your library and sources here — credentials (passwords / tokens) included, nothing to re-enter. Primuse uploads automatically in the background; tap “Send to Apple TV now” to update immediately. Sources the TV can't reach directly — local files, SMB / SFTP / NFS / WebDAV — need the Relay below, which streams them from this phone over the same Wi-Fi.";
+"settings_push_to_tv_footer" = "Install Primuse on your Apple TV and sign in with the same iCloud account to see your library and sources here — credentials (passwords / tokens) included, nothing to re-enter. Primuse uploads automatically in the background; tap “Send to Apple TV now” to update immediately. NAS drives, WebDAV, media servers and cloud drives are all reached by the Apple TV on its own. Only music stored on this phone needs the Relay below, which streams it from here over the same Wi-Fi; that music never travels through iCloud, so send it across with “Transfer Library from iPhone” on the Apple TV.";
 "settings_push_to_tv_done" = "Sent";
 "settings_push_to_tv_failed" = "Send failed";
 "send_to_tv_title" = "Send to Apple TV";
@@ -3862,3 +3862,4 @@
 "connection_failed_hint_cleartext_public" = "This address goes over the Internet without encryption, which many servers refuse.";
 "connection_failed_hint_private_address" = "This is a local network address — it only works while you are on the same network.";
 "connection_failed_hint_vendor_relay" = "This goes through the vendor’s relay — check that the device is online and remote access is turned on.";
+"connection_failed_edit_address" = "Change Address";

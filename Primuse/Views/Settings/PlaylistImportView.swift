@@ -1618,6 +1618,15 @@ struct LyricsFormatConverterView: View {
         if LyricsContentParser.isTTML(sourceText) {
             return conversion == nil ? .invalid : .ttml
         }
+        // A subtitle document parses into line- or word-timed lyrics, so the
+        // conversion alone can no longer tell what the user pasted in.
+        if let subtitle = SubtitleLyricsParser.detect(sourceText) {
+            guard conversion != nil else { return .invalid }
+            switch subtitle {
+            case .webVTT: return .webVTT
+            case .subRip: return .subRip
+            }
+        }
         guard let conversion else { return .invalid }
         switch conversion.sourceFormat {
         case .plain: return .plain
@@ -1782,6 +1791,8 @@ private enum MacLyricsDetectedFormat {
     case lrc
     case elrc
     case ttml
+    case webVTT
+    case subRip
     case plain
     case invalid
 
@@ -1791,6 +1802,8 @@ private enum MacLyricsDetectedFormat {
         case .lrc: "LRC"
         case .elrc: "ELRC"
         case .ttml: "TTML"
+        case .webVTT: "VTT"
+        case .subRip: "SRT"
         case .plain: "TXT"
         case .invalid: String(localized: "lyrics_converter_format_invalid")
         }
@@ -1803,6 +1816,8 @@ private enum MacLyricsDetectedFormat {
         case .lrc: PMColor.ok
         case .elrc: PMColor.dsd
         case .ttml: PMColor.brand
+        case .webVTT: PMColor.flac
+        case .subRip: PMColor.warn
         case .plain: PMColor.textMuted
         case .invalid: PMColor.bad
         }
