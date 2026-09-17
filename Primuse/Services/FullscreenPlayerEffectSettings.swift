@@ -1,4 +1,5 @@
 import Foundation
+import os
 import PrimuseKit
 import SwiftUI
 
@@ -298,8 +299,49 @@ enum FullscreenEffectCollection: Int, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// 这一组里当前能选的效果。随界面皮肤提供、而那套皮肤还不能用的效果不出现。
     var effects: [FullscreenPlayerEffect] {
-        FullscreenPlayerEffect.allCases.filter { $0.collection == self }
+        FullscreenPlayerEffect.allCases.filter { $0.collection == self && $0.isAvailable }
+    }
+}
+
+/// 随界面皮肤提供的全屏效果当前能不能用。
+///
+/// 效果目录是三端共用的纯枚举,不知道皮肤与权益。皮肤运行时在权益变化时把目录与已解锁的项
+/// 告诉这里,各处的效果列表据此把还不能用的效果藏起来。没有皮肤运行时的平台按
+/// 「只有随 App 提供的皮肤可用」判断。
+enum FullscreenEffectAvailability {
+    private static let unavailable = OSAllocatedUnfairLock<Set<String>?>(initialState: nil)
+
+    static func update(catalog: [SkinDefinition], unlocked: Set<String>) {
+        let resolved = unavailableRawValues(catalog: catalog, unlocked: unlocked)
+        unavailable.withLock { $0 = resolved }
+    }
+
+    static func isAvailable(_ effect: FullscreenPlayerEffect) -> Bool {
+        let resolved = unavailable.withLock { current -> Set<String> in
+            if let current { return current }
+            let initial = unavailableRawValues(catalog: SkinCatalog.all, unlocked: [])
+            current = initial
+            return initial
+        }
+        return !resolved.contains(effect.rawValue)
+    }
+
+    private static func unavailableRawValues(
+        catalog: [SkinDefinition],
+        unlocked: Set<String>
+    ) -> Set<String> {
+        Set(
+            FullscreenPlayerEffect.allCases.map(\.rawValue).filter {
+                !SkinCompanionPolicy.isAvailable(
+                    styleID: $0,
+                    kind: .immersiveStage,
+                    catalog: catalog,
+                    unlocked: unlocked
+                )
+            }
+        )
     }
 }
 
@@ -331,6 +373,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
 
     var id: String { rawValue }
     var isNative: Bool { self == .native }
+    var isAvailable: Bool { FullscreenEffectAvailability.isAvailable(self) }
 
     var rawValue: String {
         switch self {
@@ -433,7 +476,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     var usesShowcaseChrome: Bool { !isNative }
 
     func advanced(by offset: Int) -> FullscreenPlayerEffect {
-        let values = Self.immersiveCases
+        let values = Self.immersiveCases.filter(\.isAvailable)
         guard !values.isEmpty else { return self }
         let index = values.firstIndex(of: self) ?? 0
         let wrapped = (index + offset % values.count + values.count) % values.count

@@ -279,7 +279,13 @@ private struct SkinPreviewSchemeModifier: ViewModifier {
 struct SkinDetailSheet: View {
     let skin: SkinDefinition
     @Environment(SkinRuntime.self) private var runtime
+    /// 可选读取:预览或测试宿主里可能没有注入,读不到就只展示详情。
+    @Environment(SkinUnlockStore.self) private var unlockStore: SkinUnlockStore?
     @Environment(\.dismiss) private var dismiss
+
+    private var isUsable: Bool {
+        runtime.availability(of: skin) != .locked
+    }
 
     var body: some View {
         NavigationStack {
@@ -304,7 +310,7 @@ struct SkinDetailSheet: View {
                     includes
                         .padding(.horizontal, 16)
 
-                    unlockButton
+                    unlockArea
                         .padding(.horizontal, 16)
                         .padding(.bottom, 24)
                 }
@@ -318,6 +324,13 @@ struct SkinDetailSheet: View {
             }
         }
         .presentationDetents([.large])
+        .task { await unlockStore?.loadOffers() }
+        // 解锁、恢复、或别的设备上完成的解锁生效后,直接换上这套皮肤并收起详情。
+        .onChange(of: isUsable) { _, usable in
+            guard usable else { return }
+            _ = runtime.select(skin.id)
+            dismiss()
+        }
     }
 
     private var includes: some View {
@@ -379,16 +392,81 @@ struct SkinDetailSheet: View {
     }
 
     @ViewBuilder
-    private var unlockButton: some View {
-        #if DEBUG
-        // 解锁流程尚未接入。开发构建里直接本地解锁,便于在真机上核对皮肤效果;
-        // 正式构建只展示详情。
-        Button {
-            if let unlockID = skin.access.unlockID {
-                runtime.updateEntitlements(unlocked: runtime.unlockedIDs.union([unlockID]))
+    private var unlockArea: some View {
+        if let unlockStore, let unlockID = skin.access.unlockID {
+            let activity = unlockStore.activity(for: unlockID)
+            VStack(spacing: 12) {
+                if let offer = unlockStore.offer(for: skin) {
+                    Button {
+                        Task { await unlockStore.unlock(skin) }
+                    } label: {
+                        HStack(spacing: 8) {
+                            if activity == .working {
+                                ProgressView()
+                            }
+                            Text(verbatim: String(localized: "skin_detail_unlock") + " · " + offer.label)
+                        }
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .disabled(activity == .working)
+                } else if unlockStore.isLoadingOffers {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                } else {
+                    unavailableNotice(unlockStore: unlockStore, unlockID: unlockID)
+                }
+
+                switch activity {
+                case .pending:
+                    statusText("skin_detail_unlock_pending")
+                case .failed:
+                    statusText("skin_detail_unlock_failed")
+                case .idle, .working:
+                    EmptyView()
+                }
+
+                Button {
+                    Task { await unlockStore.restore() }
+                } label: {
+                    HStack(spacing: 6) {
+                        if unlockStore.isRestoring {
+                            ProgressView()
+                        }
+                        Text("skin_detail_restore")
+                    }
+                    .font(.subheadline)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
+                .disabled(unlockStore.isRestoring)
             }
-            _ = runtime.select(skin.id)
-            dismiss()
+        } else {
+            Text("skin_detail_unavailable")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, minHeight: 50)
+        }
+    }
+
+    private func statusText(_ key: LocalizedStringKey) -> some View {
+        Text(key)
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+    }
+
+    /// 商店里还查不到这套皮肤的解锁项:正式构建只说明尚未开放;开发构建可以直接在本机解锁,
+    /// 便于在真机上核对皮肤效果。
+    @ViewBuilder
+    private func unavailableNotice(unlockStore: SkinUnlockStore, unlockID: String) -> some View {
+        #if DEBUG
+        Button {
+            unlockStore.developerUnlock(unlockID)
         } label: {
             Text("skin_detail_unlock")
                 .font(.headline)

@@ -196,9 +196,18 @@ final class LyricPosterStyleRegistry {
 
     private var renderersByID: [LyricPosterStyleID: any LyricPosterStyleRendering] = [:]
     private var order: [LyricPosterStyleID] = []
+    /// 随界面皮肤提供的款式要那套皮肤可用才出现。皮肤运行时在权益变化时更新这两项;
+    /// 没有皮肤运行时的平台按「只有随 App 提供的皮肤可用」判断。
+    private var skinCatalog: [SkinDefinition] = SkinCatalog.all
+    private var unlockedSkinItems: Set<String> = []
 
     private init() {
         registerBuiltInStyles()
+    }
+
+    func updateSkinAvailability(catalog: [SkinDefinition], unlocked: Set<String>) {
+        skinCatalog = catalog
+        unlockedSkinItems = unlocked
     }
 
     func register(_ renderer: any LyricPosterStyleRendering) {
@@ -218,6 +227,14 @@ final class LyricPosterStyleRegistry {
     var descriptors: [LyricPosterStyleDescriptor] {
         order
             .compactMap { renderersByID[$0]?.descriptor }
+            .filter {
+                SkinCompanionPolicy.isAvailable(
+                    styleID: $0.id.rawValue,
+                    kind: .lyricPoster,
+                    catalog: skinCatalog,
+                    unlocked: unlockedSkinItems
+                )
+            }
             .sorted { $0.order < $1.order }
     }
 

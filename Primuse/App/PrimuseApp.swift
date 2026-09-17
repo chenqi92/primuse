@@ -1243,6 +1243,7 @@ struct PrimuseApp: App {
     @State private var themeService: ThemeService
     #if os(iOS)
     @State private var skinRuntime: SkinRuntime
+    @State private var skinUnlockStore: SkinUnlockStore
     #endif
     @State private var scanService: ScanService
     @State private var serverCatalogAutoRefresh: ServerCatalogAutoRefreshCoordinator
@@ -1300,6 +1301,7 @@ struct PrimuseApp: App {
         _themeService = State(initialValue: services.themeService)
         #if os(iOS)
         _skinRuntime = State(initialValue: services.skinRuntime)
+        _skinUnlockStore = State(initialValue: services.skinUnlockStore)
         #endif
         _scanService = State(initialValue: services.scanService)
         _serverCatalogAutoRefresh = State(initialValue: services.serverCatalogAutoRefresh)
@@ -1368,6 +1370,7 @@ struct PrimuseApp: App {
         // 要拿到下面这行注入的强调色,换样式才不会切断「强调色跟随封面」。
         return injected
             .environment(skinRuntime)
+            .environment(skinUnlockStore)
             .skinStyle(skinRuntime)
             .tint(themeService.uiAccentColor)
         #else

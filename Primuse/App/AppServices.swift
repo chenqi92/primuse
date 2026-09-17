@@ -608,6 +608,8 @@ final class AppServices {
     #if os(iOS)
     /// 当前皮肤的唯一事实源(仅 iPhone)。
     let skinRuntime: SkinRuntime
+    /// 已解锁皮肤的权益来源。
+    let skinUnlockStore: SkinUnlockStore
     #endif
     let scanService: ScanService
     let serverCatalogAutoRefresh: ServerCatalogAutoRefreshCoordinator
@@ -782,7 +784,11 @@ final class AppServices {
         #endif
         self.themeService = theme
         #if os(iOS)
-        self.skinRuntime = SkinRuntime()
+        let skinRuntime = SkinRuntime()
+        self.skinRuntime = skinRuntime
+        let skinUnlockStore = SkinUnlockStore(runtime: skinRuntime)
+        self.skinUnlockStore = skinUnlockStore
+        skinUnlockStore.start()
         #endif
         let scanService = ScanService()
         let metadataBackfill = MetadataBackfillService(

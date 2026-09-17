@@ -3270,7 +3270,7 @@
 "minimal_mode_description" = "Alttaki gezinme çubuğunu gizler, Arşiv geçişini yukarıya taşır ve yan düğmeden Ayarlar'ı açar.";
 "skin_section_title" = "Arayüz Teması";
 "skin_section_footer" = "Tema renkleri, düzeni ve hareketi birlikte değiştirir; kendi tam ekran efektlerini ve şarkı sözü posterlerini de getirir.";
-"skin_locked_hint" = "Kilitli temalar henüz kullanılamıyor.";
+"skin_locked_hint" = "Kilitli temaların önce kilidi açılmalıdır. İçeriğini görmek için birine dokunun.";
 "skin_state_active" = "Kullanımda";
 "skin_state_locked" = "Kilitli";
 "skin_detail_interface" = "Tüm arayüz";
@@ -3279,6 +3279,9 @@
 "skin_detail_posters_format" = "%d şarkı sözü posteri";
 "skin_detail_unlock" = "Kilidi aç";
 "skin_detail_unavailable" = "Henüz kullanılamıyor";
+"skin_detail_unlock_failed" = "İşlem tamamlanamadı. Daha sonra yeniden deneyin.";
+"skin_detail_unlock_pending" = "Gönderildi. Onaylandığında kilit otomatik olarak açılır.";
+"skin_detail_restore" = "Kilidi açılmış temaları geri yükle";
 "now_playing_panel_manage_section" = "Düzenle";
 "now_playing_panel_song_section" = "Bu Şarkı";
 "minimal_shows_home_footer" = "Kapalıyken üst çubukta yalnızca arşiv kategorileri kalır.";

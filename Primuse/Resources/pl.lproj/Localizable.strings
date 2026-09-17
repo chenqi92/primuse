@@ -1993,7 +1993,7 @@
 "minimal_mode_description" = "Ukrywa dolny pasek nawigacyjny, przenosi przełączanie Biblioteki na górę i otwiera Ustawienia z bocznego przycisku.";
 "skin_section_title" = "Skórka interfejsu";
 "skin_section_footer" = "Skórka zmienia jednocześnie kolory, układ i animacje oraz wnosi własne efekty pełnoekranowe i plakaty z tekstem.";
-"skin_locked_hint" = "Skórki z kłódką nie są jeszcze dostępne.";
+"skin_locked_hint" = "Skórki z kłódką trzeba najpierw odblokować. Stuknij, aby zobaczyć, co zawiera.";
 "skin_state_active" = "W użyciu";
 "skin_state_locked" = "Zablokowana";
 "skin_detail_interface" = "Cały interfejs";
@@ -2002,6 +2002,9 @@
 "skin_detail_posters_format" = "Plakaty z tekstem: %d";
 "skin_detail_unlock" = "Odblokuj";
 "skin_detail_unavailable" = "Jeszcze niedostępne";
+"skin_detail_unlock_failed" = "Nie udało się dokończyć. Spróbuj ponownie później.";
+"skin_detail_unlock_pending" = "Wysłano. Po zatwierdzeniu odblokuje się automatycznie.";
+"skin_detail_restore" = "Przywróć odblokowane skórki";
 "now_playing_panel_manage_section" = "Porządkowanie";
 "now_playing_panel_song_section" = "Ten utwór";
 "minimal_shows_home_footer" = "Po wyłączeniu górny pasek pokazuje tylko kategorie biblioteki.";

@@ -3483,7 +3483,7 @@
 "minimal_mode_description" = "Masque la navigation inférieure, place les onglets de la bibliothèque en haut et ouvre les réglages via le bouton latéral.";
 "skin_section_title" = "Habillage de l’interface";
 "skin_section_footer" = "Un habillage modifie ensemble les couleurs, la mise en page et les animations, et apporte ses propres effets plein écran et affiches de paroles.";
-"skin_locked_hint" = "Les habillages marqués d’un cadenas ne sont pas encore disponibles.";
+"skin_locked_hint" = "Les habillages avec un cadenas doivent d’abord être débloqués. Touchez-en un pour voir ce qu’il contient.";
 "skin_state_active" = "Actif";
 "skin_state_locked" = "Verrouillé";
 "skin_detail_interface" = "Toute l’interface";
@@ -3492,6 +3492,9 @@
 "skin_detail_posters_format" = "%d affiches de paroles";
 "skin_detail_unlock" = "Déverrouiller";
 "skin_detail_unavailable" = "Pas encore disponible";
+"skin_detail_unlock_failed" = "L’opération n’a pas abouti. Réessayez plus tard.";
+"skin_detail_unlock_pending" = "Demande envoyée. Le déblocage se fera automatiquement après approbation.";
+"skin_detail_restore" = "Restaurer les habillages débloqués";
 "now_playing_panel_manage_section" = "Organiser";
 "now_playing_panel_song_section" = "Ce morceau";
 "minimal_shows_home_footer" = "Si désactivé, la barre supérieure ne conserve que les catégories de la bibliothèque.";

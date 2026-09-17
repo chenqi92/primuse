@@ -1993,7 +1993,7 @@
 "minimal_mode_description" = "ซ่อนแถบนำทางด้านล่าง ย้ายคลังเพลงโดยสลับไปด้านบน และเปิดการตั้งค่าจากปุ่มด้านข้าง";
 "skin_section_title" = "สกินอินเทอร์เฟซ";
 "skin_section_footer" = "สกินจะเปลี่ยนสี เลย์เอาต์ และการเคลื่อนไหวไปพร้อมกัน พร้อมเอฟเฟ็กต์แบบเต็มหน้าจอและโปสเตอร์เนื้อเพลงของตัวเอง";
-"skin_locked_hint" = "สกินที่มีรูปกุญแจยังไม่เปิดให้ใช้";
+"skin_locked_hint" = "สกินที่มีรูปกุญแจต้องปลดล็อกก่อนจึงจะใช้ได้ แตะเพื่อดูสิ่งที่รวมอยู่";
 "skin_state_active" = "กำลังใช้งาน";
 "skin_state_locked" = "ล็อกอยู่";
 "skin_detail_interface" = "อินเทอร์เฟซทั้งหมด";
@@ -2002,6 +2002,9 @@
 "skin_detail_posters_format" = "โปสเตอร์เนื้อเพลง %d แบบ";
 "skin_detail_unlock" = "ปลดล็อก";
 "skin_detail_unavailable" = "ยังไม่เปิดให้ใช้";
+"skin_detail_unlock_failed" = "ดำเนินการไม่สำเร็จ โปรดลองอีกครั้งในภายหลัง";
+"skin_detail_unlock_pending" = "ส่งคำขอแล้ว จะปลดล็อกโดยอัตโนมัติเมื่อได้รับอนุมัติ";
+"skin_detail_restore" = "กู้คืนสกินที่ปลดล็อกแล้ว";
 "now_playing_panel_manage_section" = "จัดระเบียบ";
 "now_playing_panel_song_section" = "เพลงนี้";
 "minimal_shows_home_footer" = "เมื่อปิด แถบด้านบนจะเหลือเฉพาะหมวดหมู่ของคลังเพลง";

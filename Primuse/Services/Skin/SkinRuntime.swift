@@ -96,6 +96,14 @@ final class SkinRuntime {
             activeSkin = resolved
         }
         mirrorLegacyNavigationMode(for: resolved)
+        publishCompanionAvailability()
+    }
+
+    /// 随皮肤提供的全屏效果与歌词海报,要那套皮肤可用才出现在各自的列表里。
+    /// 两个目录都不知道皮肤与权益,由这里在每次变化后告诉它们。
+    private func publishCompanionAvailability() {
+        FullscreenEffectAvailability.update(catalog: catalog, unlocked: unlockedIDs)
+        LyricPosterStyleRegistry.shared.updateSkinAvailability(catalog: catalog, unlocked: unlockedIDs)
     }
 
     /// 导航方式(标签栏 / 自绘顶栏)现在由样式决定。各处仍然读原来那个开关的存储键,

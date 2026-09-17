@@ -1993,7 +1993,7 @@
 "minimal_mode_description" = "नीचे नेविगेशन बार को छुपाता है, लाइब्रेरी स्विचिंग को ऊपर ले जाता है, और साइड बटन से सेटिंग्स खोलता है।";
 "skin_section_title" = "इंटरफ़ेस स्किन";
 "skin_section_footer" = "स्किन रंग, लेआउट और मोशन को एक साथ बदलती है और अपने फ़ुल-स्क्रीन प्रभाव तथा लिरिक पोस्टर भी लाती है।";
-"skin_locked_hint" = "ताले वाली स्किन अभी उपलब्ध नहीं हैं।";
+"skin_locked_hint" = "ताले वाली स्किन को पहले अनलॉक करना होगा। इसमें क्या शामिल है यह देखने के लिए टैप करें।";
 "skin_state_active" = "उपयोग में";
 "skin_state_locked" = "लॉक है";
 "skin_detail_interface" = "पूरा इंटरफ़ेस";
@@ -2002,6 +2002,9 @@
 "skin_detail_posters_format" = "%d लिरिक पोस्टर";
 "skin_detail_unlock" = "अनलॉक करें";
 "skin_detail_unavailable" = "अभी उपलब्ध नहीं";
+"skin_detail_unlock_failed" = "यह पूरा नहीं हो सका। बाद में फिर कोशिश करें।";
+"skin_detail_unlock_pending" = "भेज दिया गया। स्वीकृति मिलते ही यह अपने आप अनलॉक हो जाएगी।";
+"skin_detail_restore" = "अनलॉक की गई स्किन पुनर्स्थापित करें";
 "now_playing_panel_manage_section" = "व्यवस्थित करें";
 "now_playing_panel_song_section" = "यह गीत";
 "minimal_shows_home_footer" = "बंद करने पर शीर्ष बार में केवल लाइब्रेरी श्रेणियाँ रहती हैं।";

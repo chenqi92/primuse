@@ -3483,7 +3483,7 @@
 "minimal_mode_description" = "하단 탐색 막대를 숨기고 보관함 탭을 상단으로 옮기며 측면 버튼에서 설정을 엽니다.";
 "skin_section_title" = "인터페이스 스킨";
 "skin_section_footer" = "스킨은 색상, 레이아웃, 모션을 함께 바꾸고 전용 전체 화면 효과와 가사 포스터도 함께 제공합니다.";
-"skin_locked_hint" = "자물쇠가 표시된 스킨은 아직 사용할 수 없습니다.";
+"skin_locked_hint" = "자물쇠가 있는 스킨은 잠금을 해제해야 사용할 수 있습니다. 탭하면 포함된 내용을 볼 수 있습니다.";
 "skin_state_active" = "사용 중";
 "skin_state_locked" = "잠김";
 "skin_detail_interface" = "전체 인터페이스";
@@ -3492,6 +3492,9 @@
 "skin_detail_posters_format" = "가사 포스터 %d개";
 "skin_detail_unlock" = "잠금 해제";
 "skin_detail_unavailable" = "아직 사용할 수 없음";
+"skin_detail_unlock_failed" = "완료하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+"skin_detail_unlock_pending" = "제출되었습니다. 승인되면 자동으로 잠금이 해제됩니다.";
+"skin_detail_restore" = "잠금 해제한 스킨 복원";
 "now_playing_panel_manage_section" = "정리";
 "now_playing_panel_song_section" = "이 노래";
 "minimal_shows_home_footer" = "끄면 상단 막대에 보관함 카테고리만 남습니다.";

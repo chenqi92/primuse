@@ -3483,7 +3483,7 @@
 "minimal_mode_description" = "Blendet die untere Navigation aus, verschiebt die Mediathek-Tabs nach oben und öffnet die Einstellungen über die seitliche Taste.";
 "skin_section_title" = "Oberflächen-Skin";
 "skin_section_footer" = "Ein Skin ändert Farben, Layout und Bewegung gemeinsam und bringt eigene Vollbildeffekte und Songtext-Poster mit.";
-"skin_locked_hint" = "Skins mit Schloss sind noch nicht verfügbar.";
+"skin_locked_hint" = "Skins mit Schloss müssen zuerst freigeschaltet werden. Tippe darauf, um den Inhalt zu sehen.";
 "skin_state_active" = "Aktiv";
 "skin_state_locked" = "Gesperrt";
 "skin_detail_interface" = "Die gesamte Oberfläche";
@@ -3492,6 +3492,9 @@
 "skin_detail_posters_format" = "%d Songtext-Poster";
 "skin_detail_unlock" = "Entsperren";
 "skin_detail_unavailable" = "Noch nicht verfügbar";
+"skin_detail_unlock_failed" = "Das hat nicht geklappt. Versuche es später erneut.";
+"skin_detail_unlock_pending" = "Übermittelt. Nach der Genehmigung wird automatisch freigeschaltet.";
+"skin_detail_restore" = "Freigeschaltete Skins wiederherstellen";
 "now_playing_panel_manage_section" = "Verwalten";
 "now_playing_panel_song_section" = "Dieser Titel";
 "minimal_shows_home_footer" = "Wenn deaktiviert, zeigt die obere Leiste nur noch deine Mediathek-Kategorien.";

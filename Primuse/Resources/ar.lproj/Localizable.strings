@@ -1993,7 +1993,7 @@
 "minimal_mode_description" = "يخفي شريط التنقل السفلي وينقل تبديل المكتبة إلى الأعلى ويفتح الإعدادات من الزر الجانبي.";
 "skin_section_title" = "مظهر الواجهة";
 "skin_section_footer" = "يغيّر المظهر الألوان والتخطيط والحركة معًا، ويأتي بتأثيرات ملء الشاشة وملصقات الكلمات الخاصة به.";
-"skin_locked_hint" = "المظاهر المقفلة غير متاحة بعد.";
+"skin_locked_hint" = "المظاهر التي عليها قفل تحتاج إلى فتحها أولًا. اضغط على أحدها لمعرفة ما يتضمنه.";
 "skin_state_active" = "قيد الاستخدام";
 "skin_state_locked" = "مقفل";
 "skin_detail_interface" = "الواجهة كاملة";
@@ -2002,6 +2002,9 @@
 "skin_detail_posters_format" = "ملصقات الكلمات: %d";
 "skin_detail_unlock" = "فتح القفل";
 "skin_detail_unavailable" = "غير متاح بعد";
+"skin_detail_unlock_failed" = "لم تكتمل العملية. حاول مرة أخرى لاحقًا.";
+"skin_detail_unlock_pending" = "تم الإرسال. سيُفتح تلقائيًا بعد الموافقة.";
+"skin_detail_restore" = "استعادة المظاهر المفتوحة";
 "now_playing_panel_manage_section" = "تنظيم";
 "now_playing_panel_song_section" = "هذه الأغنية";
 "minimal_shows_home_footer" = "عند الإيقاف، يحتفظ الشريط العلوي بفئات المكتبة فقط.";

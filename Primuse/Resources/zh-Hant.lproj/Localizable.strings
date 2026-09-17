@@ -3468,7 +3468,7 @@
 "minimal_mode_description" = "隱藏底部導覽列，在頂部切換資料庫，並從側邊按鈕開啟設定。";
 "skin_section_title" = "介面外觀";
 "skin_section_footer" = "外觀會一併改變配色、版面與動態效果，並帶來搭配的全螢幕效果與歌詞海報。";
-"skin_locked_hint" = "帶鎖的外觀尚未開放。";
+"skin_locked_hint" = "帶鎖的外觀需要解鎖後使用，點開可以查看它帶來的內容。";
 "skin_state_active" = "使用中";
 "skin_state_locked" = "待解鎖";
 "skin_detail_interface" = "整套介面";
@@ -3477,6 +3477,9 @@
 "skin_detail_posters_format" = "%d 款歌詞海報";
 "skin_detail_unlock" = "解鎖";
 "skin_detail_unavailable" = "尚未開放";
+"skin_detail_unlock_failed" = "沒有完成，請稍後再試。";
+"skin_detail_unlock_pending" = "已提交，核准後會自動解鎖。";
+"skin_detail_restore" = "回復已解鎖的外觀";
 "now_playing_panel_manage_section" = "整理";
 "now_playing_panel_song_section" = "這首歌";
 "minimal_shows_home_footer" = "關閉後，頂部列只保留資料庫分類。";
