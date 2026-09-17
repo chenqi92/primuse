@@ -680,6 +680,10 @@ struct ContentView: View {
     private var hiddenLibrarySectionsRawValue = ""
     @State private var showInitialOnboarding = false
     private let legacyTabBarClearance: CGFloat = 49
+    /// 极简顶栏折叠时让出的分类行高度,跟着动态字体走。折叠判定要靠它算滞回带宽。
+    @ScaledMetric(relativeTo: .subheadline)
+    private var minimalCategoryRowHeight: CGFloat =
+        MinimalNavigationChromeMetrics.categoryRowHeight
 
     /// 与 mainContent 里 LegacyNowPlayingAccessory 的挂载条件同源。
     private var legacyBottomChromeOverlayActive: Bool {
@@ -717,6 +721,10 @@ struct ContentView: View {
             orderRawValue: librarySectionOrderRawValue,
             hiddenRawValue: hiddenLibrarySectionsRawValue
         )
+    }
+
+    private var minimalCollapsibleChromeHeight: CGFloat {
+        minimalCategoryRowHeight + MinimalNavigationChromeMetrics.categoryRowTopPadding
     }
 
     private var minimalTopNavigationHidden: Bool {
@@ -811,7 +819,8 @@ struct ContentView: View {
                 MinimalNavigationScrollObserver(
                     categoriesCollapsed: $minimalNavigationCategoriesCollapsed,
                     isEnabled: !minimalTopNavigationHidden,
-                    refreshID: selectedTab
+                    refreshID: selectedTab,
+                    collapsibleChromeHeight: minimalCollapsibleChromeHeight
                 )
             }
             .onPreferenceChange(MinimalNavigationDetailScopesPreferenceKey.self) { scopes in
@@ -1518,6 +1527,8 @@ private struct MinimalNavigationScrollObserver: UIViewRepresentable {
     @Binding var categoriesCollapsed: Bool
     let isEnabled: Bool
     let refreshID: Int
+    /// 折叠时顶栏让出的高度,决定折叠判定的滞回带宽。
+    let collapsibleChromeHeight: CGFloat
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -1535,6 +1546,9 @@ private struct MinimalNavigationScrollObserver: UIViewRepresentable {
         context.coordinator.onCollapsedChange = { collapsed in
             collapsedBinding.wrappedValue = collapsed
         }
+        context.coordinator.collapsibleChromeHeight = collapsibleChromeHeight
+        // 顶栏上的分类按钮自己也会改这个值,判定要认用户的手动展开。
+        context.coordinator.syncExternalCollapsed(categoriesCollapsed)
         let observationStateChanged = uiView.observesScrolling != isEnabled
         uiView.observesScrolling = isEnabled
         guard isEnabled else {
@@ -1543,6 +1557,7 @@ private struct MinimalNavigationScrollObserver: UIViewRepresentable {
         }
         let pageChanged = uiView.refreshID != refreshID
         uiView.refreshID = refreshID
+        if pageChanged { context.coordinator.resetForPageChange() }
         uiView.scheduleRefresh()
         if observationStateChanged || pageChanged {
             uiView.scheduleRefresh(after: 0.25)
@@ -1612,7 +1627,10 @@ private struct MinimalNavigationScrollObserver: UIViewRepresentable {
 
         weak var scopeView: ScopeView?
         var onCollapsedChange: ((Bool) -> Void)?
+        var collapsibleChromeHeight = MinimalNavigationChromeMetrics.collapsibleHeight
         private var observations: [ObjectIdentifier: Observation] = [:]
+        private var resolver = MinimalNavigationCollapseResolver()
+        private var reportedCollapsed = false
 
         func refresh() {
             guard let scopeView,
@@ -1652,30 +1670,86 @@ private struct MinimalNavigationScrollObserver: UIViewRepresentable {
             observations.removeAll()
         }
 
+        /// 换页后滚动位置完全换了一套,判定从展开重新起算;写回交给随后的刷新,
+        /// 免得在 SwiftUI 的更新过程里改状态。
+        func resetForPageChange() {
+            resolver.reset()
+        }
+
+        /// 顶栏自己把状态改回展开时同步判定,免得下一次采样立刻又折回去。
+        func syncExternalCollapsed(_ collapsed: Bool) {
+            guard collapsed != reportedCollapsed else { return }
+            reportedCollapsed = collapsed
+            if collapsed {
+                resolver.reset(isCollapsed: true)
+            } else {
+                let distance = primaryScrollView().map { self.scrolledDistance($0) } ?? 0
+                resolver.markManuallyExpanded(
+                    at: distance,
+                    now: ProcessInfo.processInfo.systemUptime
+                )
+            }
+        }
+
         private func updateCollapsedState() {
             guard let scopeView,
-                  let window = scopeView.window else { return }
-            let scopeRect = scopeView.convert(scopeView.bounds, to: window)
-            let shouldCollapse = observations.values.contains { observation in
-                guard let scrollView = observation.scrollView,
-                      isVisible(scrollView, inside: scopeRect, window: window) else {
-                    return false
-                }
-                let topOffset = -scrollView.adjustedContentInset.top
-                return scrollView.contentOffset.y - topOffset > 24
+                  scopeView.observesScrolling,
+                  scopeView.window != nil else { return }
+            guard let scrollView = primaryScrollView() else {
+                resolver.reset()
+                report(false)
+                return
             }
+            let collapsed = resolver.update(
+                scrolledDistance: scrolledDistance(scrollView),
+                collapsibleChromeHeight: collapsibleChromeHeight,
+                now: ProcessInfo.processInfo.systemUptime
+            )
+            report(collapsed)
+        }
 
-            DispatchQueue.main.async { [weak self] in
-                self?.onCollapsedChange?(shouldCollapse)
+        /// 只在状态真的翻转时写回。滚动时每一帧都写 Binding 会让整页跟着重绘。
+        private func report(_ collapsed: Bool) {
+            guard collapsed != reportedCollapsed else { return }
+            reportedCollapsed = collapsed
+            onCollapsedChange?(collapsed)
+        }
+
+        /// 已经滚过的内容距离。顶栏收放会改写 adjustedContentInset,这个值跟着跳,
+        /// 判定的滞回带宽就是用来吃下这一跳的。
+        private func scrolledDistance(_ scrollView: UIScrollView) -> CGFloat {
+            scrollView.contentOffset.y + scrollView.adjustedContentInset.top
+        }
+
+        /// 一页里可能同时挂着几个纵向列表(相邻分页、还没拆掉的兄弟页)。取与本页
+        /// 重叠面积最大的那个,免得几个列表各报各的位置互相打架。
+        private func primaryScrollView() -> UIScrollView? {
+            guard let scopeView, let window = scopeView.window else { return nil }
+            let scopeRect = scopeView.convert(scopeView.bounds, to: window)
+            var best: UIScrollView?
+            var bestArea: CGFloat = 0
+            for observation in observations.values {
+                guard let scrollView = observation.scrollView,
+                      isVisible(scrollView, inside: scopeRect, window: window) else { continue }
+                let intersection = scrollView.convert(scrollView.bounds, to: window)
+                    .intersection(scopeRect)
+                guard !intersection.isNull else { continue }
+                let area = intersection.width * intersection.height
+                if area > bestArea {
+                    bestArea = area
+                    best = scrollView
+                }
             }
+            return best
         }
 
         private func verticalScrollViews(in view: UIView) -> [UIScrollView] {
             var result: [UIScrollView] = []
             if let scrollView = view as? UIScrollView,
                scrollView.bounds.height > 80,
-               scrollView.contentSize.height + scrollView.adjustedContentInset.top
-                   + scrollView.adjustedContentInset.bottom > scrollView.bounds.height + 1 {
+               // 只看内容本身够不够长。把安全区算进来的话,顶栏一折叠这条判断就会
+               // 翻面,整个列表会先退出观察再被重新纳入,状态跟着来回跳。
+               scrollView.contentSize.height > scrollView.bounds.height + 1 {
                 result.append(scrollView)
             }
             for subview in view.subviews {
@@ -1717,7 +1791,8 @@ private struct MinimalTopNavigationBar: View {
     @Namespace private var librarySelectionIndicator
 
     // 固定高度与字号跟随 Dynamic Type；默认字号下数值与原来一致。
-    @ScaledMetric(relativeTo: .subheadline) private var chipRowHeight: CGFloat = 37
+    @ScaledMetric(relativeTo: .subheadline)
+    private var chipRowHeight: CGFloat = MinimalNavigationChromeMetrics.categoryRowHeight
     @ScaledMetric(relativeTo: .subheadline) private var chipHeight: CGFloat = 34
     @ScaledMetric(relativeTo: .subheadline) private var collapsedChipHeight: CGFloat = 44
     @ScaledMetric(relativeTo: .subheadline) private var searchFieldMinHeight: CGFloat = 44
@@ -1768,7 +1843,7 @@ private struct MinimalTopNavigationBar: View {
                         .padding(.horizontal, 12)
                     }
                     .frame(height: chipRowHeight)
-                    .padding(.top, 9)
+                    .padding(.top, MinimalNavigationChromeMetrics.categoryRowTopPadding)
                     .onChange(of: selection.id, initial: true) { _, pageID in
                         guard libraryPages.contains(where: { $0.id == pageID }) else { return }
                         if reduceMotion {

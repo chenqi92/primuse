@@ -816,6 +816,7 @@
 		A01C763CCAD36B4CAA4AD13B /* FnMusicAPIProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22F902B402DE1BC8F053FF24 /* FnMusicAPIProtocol.swift */; };
 		A03AFF7FC66D108ED4DAF0D6 /* MediaServerSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D799C291E3FDAA06B4A33EBA /* MediaServerSource.swift */; };
 		A04BFD2AC3A1546B7774DA14 /* BottomChromeClearancePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E40DCC65C7DA2143109929B /* BottomChromeClearancePolicy.swift */; };
+		5F15FA57D208A2AA375E61CC /* MinimalNavigationCollapsePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EC045BC0D7151F6EDC47032 /* MinimalNavigationCollapsePolicy.swift */; };
 		A0E105A9B16AC67FE9764BF2 /* CarPlayContentPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7796B8917487FB64D4FA58B8 /* CarPlayContentPicker.swift */; };
 		A145E09220ABEC39967A4B66 /* Pan123Source.swift in Sources */ = {isa = PBXBuildFile; fileRef = 309F9BB53ECA9FA54F805457 /* Pan123Source.swift */; };
 		A14AFA154222E9F7EB19828C /* AppIntentVocabulary.plist in Resources */ = {isa = PBXBuildFile; fileRef = 2A854F368F59E5BB35E0510A /* AppIntentVocabulary.plist */; };
@@ -2122,6 +2123,7 @@
 		9DC27FF8753FD114DC3BDF7F /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/Localizable.strings; sourceTree = "<group>"; };
 		9DEE649BA34C3BBC7CB67587 /* LogBacklogPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogBacklogPolicy.swift; sourceTree = "<group>"; };
 		9E40DCC65C7DA2143109929B /* BottomChromeClearancePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottomChromeClearancePolicy.swift; sourceTree = "<group>"; };
+		7EC045BC0D7151F6EDC47032 /* MinimalNavigationCollapsePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MinimalNavigationCollapsePolicy.swift; sourceTree = "<group>"; };
 		9E4DEB871B6A33BFDF98131D /* ArtworkFetchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkFetchService.swift; sourceTree = "<group>"; };
 		9EB66896DBE96AD0C44855A9 /* RadioFLACDecoderBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = RadioFLACDecoderBridge.m; sourceTree = "<group>"; };
 		9ED8DF4FB0288A04F35DE51C /* libavformat.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = libavformat.xcframework; path = Frameworks/FFmpeg/libavformat.xcframework; sourceTree = "<group>"; };
@@ -2934,6 +2936,7 @@
 				BA82B3C1FF9F3629EC8F5F0F /* MetadataReadCPUSamplePolicy.swift */,
 				C99953CC3004D92E3B3147BC /* MetadataReadScheduler.swift */,
 				9AB286EEA94A980ADF0391BD /* MetadataReadThroughputSampler.swift */,
+				7EC045BC0D7151F6EDC47032 /* MinimalNavigationCollapsePolicy.swift */,
 				BADE3E47B952DDB0A1371635 /* MotionArtworkProvider.swift */,
 				C5430956811D547F2E2EA473 /* MotionArtworkServiceContract.swift */,
 				567220C185786318966C5C79 /* MusicSourceSecurityScopeFingerprint.swift */,
@@ -4726,6 +4729,7 @@
 				05406A7F73619CF228F01366 /* MetadataReadScheduler.swift in Sources */,
 				99329A4BD91655CBDF214737 /* MetadataReadThroughputSampler.swift in Sources */,
 				4AD960ADD6500C88A7352856 /* MetadataTitleResolutionPolicy.swift in Sources */,
+				5F15FA57D208A2AA375E61CC /* MinimalNavigationCollapsePolicy.swift in Sources */,
 				AF201CC110B79690BE4F987C /* MotionArtworkProvider.swift in Sources */,
 				BB402A126921F04BE2AB57AA /* MotionArtworkServiceContract.swift in Sources */,
 				5D6F48597B8F49A11600BC25 /* MusicSource.swift in Sources */,
