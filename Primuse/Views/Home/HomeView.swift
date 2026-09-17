@@ -249,6 +249,7 @@ struct HomeView: View {
     @Environment(CoverTintProvider.self) private var tintProvider
     @Environment(RadioStationsStore.self) private var radioStationsStore
     @Environment(ThemeService.self) private var theme
+    @Environment(\.skin) private var skin
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
     @Environment(\.legacyBottomChromeOverlayActive)
@@ -2847,9 +2848,10 @@ struct HomeView: View {
         .contentShape(Rectangle())
     }
 
+    /// 首页所有卡片共用的底。经典皮肤下 `.surface` 就是 secondarySystemBackground,与原来一致。
     private var homeCardSurface: Color {
         #if os(iOS)
-        Color(uiColor: .secondarySystemBackground)
+        skin.color(.surface)
         #else
         Color(nsColor: .controlBackgroundColor)
         #endif

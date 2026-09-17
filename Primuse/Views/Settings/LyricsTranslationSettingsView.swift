@@ -13,7 +13,7 @@ struct LyricsSettingsView: View {
     @State private var showClearConfirm = false
 
     var body: some View {
-        Form {
+        SkinForm {
             Section {
                 Toggle("lyrics_translation_enabled", isOn: $settings.isEnabled)
                 .settingsAnchor("lyrics.translationEnabled")
@@ -267,7 +267,7 @@ struct GoogleLyricsTranscriptionSettingsView: View {
     @State private var editor = LyricsTranscriptionSettingsEditorModel()
 
     var body: some View {
-        Form {
+        SkinForm {
             if intelligence.regionAvailability.isRefreshing,
                intelligence.regionAvailability.context.region == .unknown {
                 Section {

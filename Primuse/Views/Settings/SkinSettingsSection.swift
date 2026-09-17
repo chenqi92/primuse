@@ -281,6 +281,7 @@ struct SkinDetailSheet: View {
     @Environment(SkinRuntime.self) private var runtime
     /// 可选读取:预览或测试宿主里可能没有注入,读不到就只展示详情。
     @Environment(SkinUnlockStore.self) private var unlockStore: SkinUnlockStore?
+    @Environment(\.skin) private var skinStyle
     @Environment(\.dismiss) private var dismiss
 
     private var isUsable: Bool {
@@ -368,7 +369,7 @@ struct SkinDetailSheet: View {
             }
         }
         .background(
-            Color(uiColor: .secondarySystemGroupedBackground),
+            skinStyle.cardFill(classic: Color(uiColor: .secondarySystemGroupedBackground)),
             in: RoundedRectangle(cornerRadius: 16, style: .continuous)
         )
     }

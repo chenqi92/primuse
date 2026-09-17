@@ -12,6 +12,7 @@ struct ArtistDetailView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MetadataBackfillService.self) private var backfill
+    @Environment(\.skin) private var skin
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     #if os(iOS)
     @Environment(\.legacyBottomChromeOverlayActive)
@@ -323,7 +324,7 @@ struct ArtistDetailView: View {
                     }
                 }
             }
-            .background(.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(skin.cardFill(classic: .background), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(.primary.opacity(0.06), lineWidth: 0.5)
@@ -644,7 +645,7 @@ struct ArtistDetailView: View {
                     .foregroundStyle(.tertiary)
             }
             .padding(14)
-            .background(.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(skin.cardFill(classic: .background), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(.primary.opacity(0.07), lineWidth: 0.5)

@@ -9,7 +9,7 @@ struct DLNARendererSettingsView: View {
     @AppStorage("dlna.keepAlive") private var keepAlive: Bool = false
 
     var body: some View {
-        Form {
+        SkinForm {
             Section {
                 Toggle(String(localized: "settings_dlna_enable"), isOn: $enabled)
                 .settingsAnchor("dlna.enabled")

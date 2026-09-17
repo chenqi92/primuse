@@ -8,7 +8,7 @@ struct SiriSettingsView: View {
     @State private var authorizationStatus = SiriAuthorizationRuntime.status
 
     var body: some View {
-        Form {
+        SkinForm {
             Section {
                 switch authorizationStatus {
                 case .notDetermined:

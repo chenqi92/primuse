@@ -115,7 +115,7 @@ struct ScrobbleSettingsView: View {
     }
 
     private var iosBody: some View {
-        Form {
+        SkinForm {
             Section {
                 Toggle("scrobble_enabled", isOn: $settings.isEnabled)
                 .settingsAnchor("scrobble.enabled")

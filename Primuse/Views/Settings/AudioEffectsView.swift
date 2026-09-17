@@ -6,7 +6,7 @@ struct AudioEffectsView: View {
     var body: some View {
         @Bindable var fx = effects
 
-        Form {
+        SkinForm {
             // MARK: - Reverb Section
 
             Section {

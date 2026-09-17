@@ -16,7 +16,7 @@ struct ArtistNameSettingsView: View {
     }
 
     var body: some View {
-        Form {
+        SkinForm {
             if store.hasUnsupportedStoredConfiguration {
                 Section {
                     Label("artist_name_settings_newer_version_warning", systemImage: "exclamationmark.triangle")

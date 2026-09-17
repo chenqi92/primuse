@@ -3998,7 +3998,7 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
                 .scrollTargetLayout()
             }
             .scrollPosition($scrollPosition)
-            .background(songListBackground)
+            .skinContainerBackground(replacing: .canvas)
 
             if showsSectionIndex {
                 IOSSongAlphabetIndex(entries: sectionIndexEntries) { entry in
@@ -4045,14 +4045,6 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
         !selection.isActive
             && cache.positionCount >= 24
             && sectionIndexEntries.count > 1
-    }
-
-    private var songListBackground: Color {
-        #if os(macOS)
-        Color(NSColor.windowBackgroundColor)
-        #else
-        Color(UIColor.systemBackground)
-        #endif
     }
 }
 
@@ -4299,15 +4291,7 @@ private struct IOSSongListFilteredContainer: View, @MainActor Equatable {
                 }
             }
         }
-        .background(songListBackground)
-    }
-
-    private var songListBackground: Color {
-        #if os(macOS)
-        Color(NSColor.windowBackgroundColor)
-        #else
-        Color(UIColor.systemBackground)
-        #endif
+        .skinContainerBackground(replacing: .canvas)
     }
 }
 

@@ -876,7 +876,7 @@ struct AISettingsView: View {
     @State private var showsRemoveProviderConfirmation = false
 
     var body: some View {
-        Form {
+        SkinForm {
             if !intelligence.shouldExposeRemoteConfiguration,
                intelligence.regionAvailability.isRefreshing {
                 Section {
@@ -1141,7 +1141,7 @@ struct AISettingsView: View {
 
     private var providerDetailNavigationLink: some View {
         NavigationLink {
-            Form {
+            SkinForm {
                 providerSection
                 modelSection
                 providerPrivacySection

@@ -2228,6 +2228,7 @@ private struct GenreDetailView: View {
     @Environment(\.legacyBottomChromeOverlayActive)
     private var legacyBottomChromeOverlayActive
     #endif
+    @Environment(\.skin) private var skin
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
@@ -2416,7 +2417,7 @@ private struct GenreDetailView: View {
                     }
                 }
             }
-            .background(.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(skin.cardFill(classic: .background), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(.primary.opacity(0.06), lineWidth: 0.5)

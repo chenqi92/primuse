@@ -44,7 +44,7 @@ struct AppearanceSettingsView: View {
     }
 
     var body: some View {
-        List {
+        SkinList {
             Section {
                 ForEach(IOSAppearancePreference.allCases, id: \.self) { option in
                     Button {
@@ -498,7 +498,7 @@ struct ThemeColorSections: View {
 /// 独立页面外壳。设置搜索命中主题色条目时仍会推这一页。
 struct ThemeColorSettingsView: View {
     var body: some View {
-        List { ThemeColorSections() }
+        SkinList { ThemeColorSections() }
             .navigationTitle("theme_color_title")
             .navigationBarTitleDisplayMode(.inline)
     }

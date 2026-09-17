@@ -13,6 +13,7 @@ import AppKit
 struct RadioStationsView: View {
     @Environment(RadioStationsStore.self) private var store
     @Environment(AudioPlayerService.self) private var player
+    @Environment(\.skin) private var skin
     @State private var editingStation: RadioStation?
     @State private var showingNewStation = false
     @State private var showingBatchAdd = false
@@ -706,7 +707,9 @@ struct RadioStationsView: View {
         }
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background)
+        // 吸顶的分组标题要盖住从下面滚过去的行,所以必须不透明:经典皮肤下是系统底色,
+        // 自己画页面底色的皮肤下用皮肤的页面底色。
+        .background(skin.cardFill(classic: .background, token: .canvas))
         .contextMenu {
             if let name = group.name {
                 folderChipActions(name)

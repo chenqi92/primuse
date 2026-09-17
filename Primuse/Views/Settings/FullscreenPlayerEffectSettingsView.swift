@@ -5,6 +5,7 @@ import SwiftUI
 /// 其余卡片停在真实静态帧，避免设置页同时启动多套高频渲染。
 struct FullscreenPlayerEffectSettingsView: View {
     @Environment(ThemeService.self) private var theme
+    @Environment(\.skin) private var skin
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var selectedRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(FullscreenPlayerEffect.userSelectedKey)
@@ -79,7 +80,7 @@ struct FullscreenPlayerEffectSettingsView: View {
         .tint(previewPalette.primary)
         .padding(16)
         .background(
-            Color(uiColor: .secondarySystemGroupedBackground),
+            skin.cardFill(classic: Color(uiColor: .secondarySystemGroupedBackground)),
             in: RoundedRectangle(cornerRadius: 18, style: .continuous)
         )
     }
@@ -140,7 +141,7 @@ struct FullscreenPlayerEffectSettingsView: View {
             }
             .padding(10)
             .background(
-                Color(uiColor: .secondarySystemGroupedBackground),
+                skin.cardFill(classic: Color(uiColor: .secondarySystemGroupedBackground)),
                 in: RoundedRectangle(cornerRadius: 20, style: .continuous)
             )
             .overlay {

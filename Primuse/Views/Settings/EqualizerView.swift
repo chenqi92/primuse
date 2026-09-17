@@ -16,7 +16,7 @@ struct EqualizerView: View {
     /// macOS 版用 grouped Form 视觉,跟其他设置 tab 对齐:启用开关一段、
     /// 频段滑块一段、底部预设卡片一段。
     private var macBody: some View {
-        Form {
+        SkinForm {
             Section {
                 Toggle("eq_enabled", isOn: Binding(
                     get: { eq.isEnabled },

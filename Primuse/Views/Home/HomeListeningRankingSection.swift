@@ -5,6 +5,7 @@ struct HomeListeningRankingSection: View {
     @Environment(HomeDiscoveryModel.self) private var model
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
+    @Environment(\.skin) private var skin
     @AppStorage(LibraryReviewPreferences.enabledKey) private var reviewsEnabled = false
     @State private var period: HomeListeningPeriod = .week
     @State private var category: HomeListeningCategory = .songs
@@ -275,7 +276,7 @@ struct HomeListeningRankingSection: View {
 
     private var rowSurface: Color {
         #if os(iOS)
-        Color(uiColor: .secondarySystemBackground)
+        skin.color(.surface)
         #else
         Color(nsColor: .controlBackgroundColor)
         #endif

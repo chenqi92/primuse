@@ -19,7 +19,7 @@ struct CloudSyncSettingsView: View {
     @State private var isSyncingNow = false
 
     var body: some View {
-        Form {
+        SkinForm {
             Section {
                 Toggle("icloud_sync_enabled", isOn: $enabled)
                 .settingsAnchor("cloud.enabled")

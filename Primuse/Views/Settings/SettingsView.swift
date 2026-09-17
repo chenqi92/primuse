@@ -59,7 +59,7 @@ struct SettingsView: View {
 
     private var settingsContent: some View {
         SettingsFocusedPage(itemID: rootItemID) {
-            List {
+            SkinList {
                 if search.content == .results {
                     searchResults
                 }
@@ -416,7 +416,7 @@ struct SettingsView: View {
     /// 列表上的内容(版本、检查更新、推送到 Apple TV)也跟着各自的分类走。
     @ViewBuilder
     private func categoryPage(_ category: SettingsCategory) -> some View {
-        List {
+        SkinList {
             if category == .about {
                 aboutSection(showsHeader: false)
             } else {
@@ -785,7 +785,7 @@ private struct PlayerAppearanceSettingsView: View {
 
 
     var body: some View {
-        Form {
+        SkinForm {
             Section {
                 Toggle("player_animated_artwork", isOn: $animatedArtworkEnabled)
                 .settingsAnchor("appearance.animatedArtwork")
@@ -936,7 +936,7 @@ private struct LibraryDisplaySettingsView: View {
     }
 
     var body: some View {
-        Form {
+        SkinForm {
             Section {
                 Toggle("library_review_feature_title", isOn: $ratingsAndCommentsEnabled)
                     .settingsAnchor("library.ratingsAndComments")
@@ -1202,7 +1202,7 @@ private struct AIRecommendationIntentDetailView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            SkinForm {
                 Section("ai_recommendation_intent_description_label") {
                     Text(verbatim: details.detail)
                         .textSelection(.enabled)
@@ -1348,7 +1348,7 @@ struct MetadataScrapingView: View {
     var body: some View {
         @Bindable var settings = scraperSettings
 
-        Form {
+        SkinForm {
             Section {
                 ForEach(settings.sources) { source in
                     HStack(spacing: 12) {
@@ -1578,7 +1578,7 @@ struct MetadataScrapingView: View {
 
     private var importScraperSheet: some View {
         NavigationStack {
-            Form {
+            SkinForm {
                 // review 阶段(已生成预览)隐藏输入区, 只显示预览 —— 否则输入栏/键盘
                 // 会和预览同屏遮挡, 也容易让人误以为"预览=已导入"。
                 if importPreview == nil {
@@ -1638,7 +1638,7 @@ struct MetadataScrapingView: View {
 
     private func editConfigSheet(source: ScraperSourceConfig) -> some View {
         NavigationStack {
-            Form {
+            SkinForm {
                 Section {
                     TextEditor(text: $editingConfigJSON)
                         .font(.system(.caption, design: .monospaced))
@@ -1852,7 +1852,7 @@ struct PlaybackSettingsView: View {
     var body: some View {
         @Bindable var settings = playbackSettings
 
-        Form {
+        SkinForm {
             Section {
                 Picker("audio_output_mode", selection: outputModeSelection) {
                     ForEach(AudioOutputMode.allCases, id: \.self) { mode in
@@ -2133,7 +2133,7 @@ struct RelaySettingsView: View {
     @State private var endpoint: RelayEndpoint?
 
     var body: some View {
-        Form {
+        SkinForm {
             Section {
                 Text(String(localized: "settings_push_to_tv_footer"))
                     .font(.callout)
@@ -2248,7 +2248,7 @@ struct StorageManagementView: View {
     var body: some View {
         @Bindable var settings = playbackSettings
 
-        List {
+        SkinList {
             Section {
                 Toggle("cloud_scan_wifi_only", isOn: $cloudScanWifiOnly)
                 .settingsAnchor("storage.wifiOnly")
@@ -2667,7 +2667,7 @@ struct TrustedDomainsView: View {
     @State private var showAddHTTPAlert = false
 
     var body: some View {
-        List {
+        SkinList {
             Section {
                 ForEach(SSLTrustStore.shared.trustedDomains, id: \.self) { domain in
                     VStack(alignment: .leading, spacing: 4) {
@@ -2798,7 +2798,7 @@ struct TrustedDomainsView: View {
 
 struct LicensesView: View {
     var body: some View {
-        List {
+        SkinList {
             Section("open_source") {
                 licenseRow("SFBAudioEngine", "MIT License")
                 licenseRow("FFmpeg 8.1", "LGPL 2.1+")
@@ -2887,7 +2887,7 @@ struct FamilySharingSettingsView: View {
     @State private var isBusy = false
 
     var body: some View {
-        Form {
+        SkinForm {
             // 状态 + 主动作 ── 启用状态和"邀请家人"放一起逻辑紧凑
             Section {
                 if familyEnabled {

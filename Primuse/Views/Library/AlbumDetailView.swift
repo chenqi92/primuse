@@ -266,7 +266,7 @@ struct AlbumDetailView: View {
         }
         .padding(16)
         .background(
-            Color(uiColor: .secondarySystemBackground),
+            .skin(.surface),
             in: RoundedRectangle(cornerRadius: 20, style: .continuous)
         )
         .overlay {

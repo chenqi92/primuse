@@ -23,7 +23,11 @@ SKIP_PREFIXES = (
     'YearlyReport/',
 )
 
-TOKEN = re.compile(r'\.skin\(\.|\bskin\.(?:color|shapeStyle|metric|rawMetric|font|fontSize|animation)\(')
+# A skin-aware container or helper counts as a token read: it hands a whole page's rows (or a card) to the skin.
+TOKEN = re.compile(
+    r'\.skin\(\.|\bskin\.(?:color|shapeStyle|metric|rawMetric|font|fontSize|animation|cardFill)\('
+    r'|\bSkin(?:Form|List)\s*\{|\.skin(?:PageBackground|ListRowBackground)\('
+)
 COLOR_LITERAL = re.compile(
     r'\.(?:foregroundStyle|foregroundColor|fill|stroke|strokeBorder|background|tint)\(\s*\.(?:primary|secondary|tertiary|quaternary)\b'
     r'|\bColor\.(?:primary|secondary|white|black|gray|red|green|blue|orange|pink|purple|yellow)\b'

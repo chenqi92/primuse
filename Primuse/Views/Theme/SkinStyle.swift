@@ -332,6 +332,95 @@ extension View {
     }
 }
 
+// MARK: - 页面里的容器
+
+private struct SkinContainerBackgroundModifier: ViewModifier {
+    let token: SkinColorToken
+    @Environment(\.skin) private var skin
+
+    func body(content: Content) -> some View {
+        content.background(skin.paintsPageBackground ? Color.clear : skin.color(token))
+    }
+}
+
+extension View {
+    /// 页面里的滚动容器自己铺的那层不透明底色。经典皮肤下照旧(`token` 解析成原来的系统底色);
+    /// 自己画页面底色的皮肤下让开,露出页面已经铺好的皮肤底色 —— 在容器里再铺一层的话,
+    /// 渐变会从容器顶部重新起算,留下一道接缝。
+    func skinContainerBackground(replacing token: SkinColorToken) -> some View {
+        modifier(SkinContainerBackgroundModifier(token: token))
+    }
+}
+
+// MARK: - 卡片底
+
+extension SkinStyle {
+    /// 卡片的填充。经典皮肤下原样返回调用处原来的样式(外观保证不变);自己画页面底色的皮肤下
+    /// 用皮肤的卡片底 —— 原来那种不透明的系统底色放到皮肤的页面底色上会是一块突兀的色块。
+    func cardFill<S: ShapeStyle>(classic: S, token: SkinColorToken = .surface) -> AnyShapeStyle {
+        paintsPageBackground ? AnyShapeStyle(color(token)) : AnyShapeStyle(classic)
+    }
+}
+
+// MARK: - 分组列表
+
+private struct SkinListRowBackgroundModifier: ViewModifier {
+    @Environment(\.skin) private var skin
+
+    func body(content: Content) -> some View {
+        // 传 nil 就是系统默认的行底色,所以经典皮肤下这一行等于没写;
+        // 不用 if/else 分支,换皮肤时行的视图身份不变,行内状态不会被重建。
+        content.listRowBackground(skin.paintsPageBackground ? skin.color(.surface) : nil)
+    }
+}
+
+extension View {
+    /// 分组列表的行底色:自己画页面底色的皮肤下换成皮肤的卡片底,经典皮肤下不动。
+    /// 挂在 `Section` 或一组行上,对其中每一行生效;行自己写了 `listRowBackground` 的以行为准。
+    func skinListRowBackground() -> some View {
+        modifier(SkinListRowBackgroundModifier())
+    }
+}
+
+/// 跟随界面皮肤的 `Form`:页面底色与行底色一起交给皮肤,经典皮肤下与系统的 `Form` 完全一样。
+///
+/// 行底色只能从列表内部设置,页面底色只能从列表外部设置 —— 两头各改一处很容易只改一半
+/// (皮肤的底色上浮着系统灰的行)。所以收在一个容器里:设置类页面把 `Form {` 换成
+/// `SkinForm {` 即可,放在弹出的面板里也自洽。
+struct SkinForm<Content: View>: View {
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        Form {
+            Group { content }
+                .skinListRowBackground()
+        }
+        .skinPageBackground()
+    }
+}
+
+/// 跟随界面皮肤的分组 `List`,用法与取舍同 `SkinForm`。
+/// 只用于分组样式的列表;铺满整行的普通列表(歌曲列表)行本身是透明的,不需要它。
+struct SkinList<Content: View>: View {
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        List {
+            Group { content }
+                .skinListRowBackground()
+        }
+        .skinPageBackground()
+    }
+}
+
 // MARK: - Token 到平台类型的映射
 
 extension SkinColorValue {
