@@ -1327,19 +1327,8 @@ struct LibraryView: View {
             // 两个按钮等宽：文案长度不同，让宽度跟着文字走会让它们上下参差。
             // 图标沿用各自在设置页与电台页已有的符号，和上方标题的图标呼应。
             VStack(spacing: 12) {
-                NavigationLink {
-                    SourcesContentView()
-                        #if os(iOS)
-                        .minimalNavigationDetail()
-                        #endif
-                } label: {
-                    Label(
-                        "manage_sources",
-                        systemImage: "externaldrive.connected.to.line.below"
-                    )
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
+                manageSourcesButton
+                    .buttonStyle(.borderedProminent)
 
                 NavigationLink(value: LibrarySection.radio) {
                     Label("radio_manage", systemImage: "radio")
@@ -1351,6 +1340,38 @@ struct LibraryView: View {
             // 空状态是整屏留白，不限宽的话按钮在 iPad 与桌面上会拉成一条横杠。
             .frame(maxWidth: 280)
         }
+    }
+
+    private var manageSourcesLabel: some View {
+        Label(
+            "manage_sources",
+            systemImage: "externaldrive.connected.to.line.below"
+        )
+        .frame(maxWidth: .infinity)
+    }
+
+    /// iOS 上跳到「设置 › 音乐源」，而不是把音乐源页推进资料库自己的导航栈。
+    ///
+    /// 这个按钮只活在空状态里，而空状态在扫到第一首歌的那一刻就会被换成资料库
+    /// 主页 —— 那时用户正停在被它推出来的音乐源页上。承载 NavigationLink 的视图
+    /// 从层级里消失之后，推出去的那一页就成了没有主人的页面，返回键跟着不见，
+    /// 用户被困在里面。设置页自己的导航栈根视图不会中途换掉，音乐源页也本来就
+    /// 住在那里，所以两个入口（这里和首页）都汇到那一处。
+    @ViewBuilder
+    private var manageSourcesButton: some View {
+        #if os(iOS)
+        Button {
+            SettingsNavigation.shared.open(SettingsPage.sources.id)
+        } label: {
+            manageSourcesLabel
+        }
+        #else
+        NavigationLink {
+            SourcesContentView()
+        } label: {
+            manageSourcesLabel
+        }
+        #endif
     }
 
     private func pinExists(_ pin: LibraryPinReference) -> Bool {

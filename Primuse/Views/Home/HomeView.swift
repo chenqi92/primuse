@@ -3080,11 +3080,21 @@ struct HomeView: View {
                 descriptionKey: "home_empty_desc",
                 systemImage: "externaldrive.badge.plus",
                 actionLabel: "manage_sources",
-                action: { switchToSettingsTab?() }
+                action: { openSourcesManagement() }
             )
             .padding(.horizontal, 24)
             Spacer()
         }.frame(maxWidth: .infinity)
+    }
+
+    /// 直达「设置 › 音乐源」。以前只切到设置页的首屏，新用户还得自己在列表里找
+    /// 「音乐源」这一行；资料库空状态上的同名按钮走的也是这一处，两个入口落点一致。
+    private func openSourcesManagement() {
+        #if os(iOS)
+        SettingsNavigation.shared.open(SettingsPage.sources.id)
+        #else
+        switchToSettingsTab?()
+        #endif
     }
 
     private func playSong(_ song: Song) {
