@@ -177,6 +177,24 @@ struct SkinCatalogTests {
         #expect(skin.colors[.chip] == .systemOpacity(.secondaryLabel, opacity: 0.10))
     }
 
+    /// 列表行原来写的是 `.subheadline` / `.caption`。换成按字号造的字体,行高会差一两个点,
+    /// 几千行的列表整体就变了样 —— 所以经典必须仍然解析成系统文本样式。
+    @Test("经典的列表行字体仍是系统文本样式")
+    func classicRowsKeepSystemTextStyles() {
+        let title = SkinCatalog.classic.type(.rowTitle)
+        #expect(title == .textStyle(.subheadline))
+        #expect(title?.followsTextStyle == true)
+        #expect(title?.weight == .regular)
+        #expect(SkinCatalog.classic.type(.rowSubtitle) == .textStyle(.caption))
+        // 极简只把标题加重半级,行高仍由系统文本样式决定。
+        #expect(SkinCatalog.minimal.type(.rowTitle)?.followsTextStyle == true)
+        #expect(SkinCatalog.minimal.type(.rowTitle)?.weight == .medium)
+        // headline 自带 semibold,不给字重时不能被压成 regular。
+        #expect(SkinTypeSpec.textStyle(.headline).weight == .semibold)
+        #expect(SkinTypeSpec.textStyle(.headline, weight: .bold).weight == .bold)
+        #expect(SkinTypeSpec.textStyle(.body).size == 17)
+    }
+
     @Test("控件高度与图标随字号缩放;圆角、描边、阴影、间距不随")
     func onlySizesScale() {
         for token in [SkinMetricToken.radiusCard, .radiusArtwork, .radiusPill, .hairline, .borderWidth,

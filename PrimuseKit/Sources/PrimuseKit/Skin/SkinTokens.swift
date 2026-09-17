@@ -218,6 +218,10 @@ public enum SkinTypographyToken: String, CaseIterable, Sendable, Codable {
     case chromeField
     /// 数字 / 时长这类要求等宽的位置。
     case numeric
+    /// 曲目列表行的标题。
+    case rowTitle
+    /// 曲目列表行的副标题(艺术家 · 专辑 · 时长)。
+    case rowSubtitle
 }
 
 public enum SkinFontWeight: String, Sendable, Codable, CaseIterable {
@@ -231,6 +235,27 @@ public enum SkinFontDesign: String, Sendable, Codable, CaseIterable {
 /// Dynamic Type 的缩放锚点。字号按这个文本样式的比例缩放,和系统控件保持一致。
 public enum SkinTextStyle: String, Sendable, Codable, CaseIterable {
     case largeTitle, title, title2, title3, headline, subheadline, body, callout, footnote, caption
+
+    /// 默认字号档位下这个系统文本样式的字号。
+    public var defaultPointSize: Double {
+        switch self {
+        case .largeTitle: return 34
+        case .title: return 28
+        case .title2: return 22
+        case .title3: return 20
+        case .headline: return 17
+        case .subheadline: return 15
+        case .body: return 17
+        case .callout: return 16
+        case .footnote: return 13
+        case .caption: return 12
+        }
+    }
+
+    /// 系统给这个文本样式的字重。只有 headline 不是 regular。
+    public var defaultWeight: SkinFontWeight {
+        self == .headline ? .semibold : .regular
+    }
 }
 
 public struct SkinTypeSpec: Sendable, Equatable, Codable {
@@ -238,17 +263,39 @@ public struct SkinTypeSpec: Sendable, Equatable, Codable {
     public let weight: SkinFontWeight
     public let design: SkinFontDesign
     public let relativeTo: SkinTextStyle
+    /// 直接用 `relativeTo` 这个系统文本样式,字号、行高、字距都由系统给出;`size` 只是它在默认档位下的参考值。
+    ///
+    /// 视图里原来写 `.font(.subheadline)` 的位置要用这一种:按字号造出来的系统字体行高和文本样式差一两个点,
+    /// 列表行会跟着变高或变矮,经典外观也就变了。
+    public let followsTextStyle: Bool
 
     public init(
         size: Double,
         weight: SkinFontWeight = .regular,
         design: SkinFontDesign = .default,
-        relativeTo: SkinTextStyle = .body
+        relativeTo: SkinTextStyle = .body,
+        followsTextStyle: Bool = false
     ) {
         self.size = size
         self.weight = weight
         self.design = design
         self.relativeTo = relativeTo
+        self.followsTextStyle = followsTextStyle
+    }
+
+    /// 一个系统文本样式。不给字重就用系统为这个样式定的字重。
+    public static func textStyle(
+        _ style: SkinTextStyle,
+        weight: SkinFontWeight? = nil,
+        design: SkinFontDesign = .default
+    ) -> SkinTypeSpec {
+        SkinTypeSpec(
+            size: style.defaultPointSize,
+            weight: weight ?? style.defaultWeight,
+            design: design,
+            relativeTo: style,
+            followsTextStyle: true
+        )
     }
 
     public var isWellFormed: Bool { size > 0 && size <= 200 }

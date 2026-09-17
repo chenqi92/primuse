@@ -114,6 +114,8 @@ extension SkinCatalog {
                 .chromeCompact: SkinTypeSpec(size: 14.5, weight: .semibold, design: .rounded, relativeTo: .subheadline),
                 .chromeField: SkinTypeSpec(size: 16, design: .rounded, relativeTo: .subheadline),
                 .numeric: SkinTypeSpec(size: 13, design: .monospaced, relativeTo: .footnote),
+                .rowTitle: .textStyle(.subheadline, weight: .semibold, design: .rounded),
+                .rowSubtitle: .textStyle(.caption, design: .rounded),
             ],
             motion: [
                 .selection: .spring(response: 0.36, dampingFraction: 0.78),

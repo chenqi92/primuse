@@ -129,6 +129,9 @@ extension SkinCatalog {
                 .chromeCompact: SkinTypeSpec(size: 14, weight: .semibold, relativeTo: .subheadline),
                 .chromeField: SkinTypeSpec(size: 15.5, relativeTo: .subheadline),
                 .numeric: SkinTypeSpec(size: 12, design: .monospaced, relativeTo: .footnote),
+                // 行高交给系统文本样式,只把标题加重半级。
+                .rowTitle: .textStyle(.subheadline, weight: .medium),
+                .rowSubtitle: .textStyle(.caption),
             ],
             motion: [
                 .selection: .spring(response: 0.3, dampingFraction: 0.86),

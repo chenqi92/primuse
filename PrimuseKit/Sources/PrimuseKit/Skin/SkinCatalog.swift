@@ -132,6 +132,9 @@ public enum SkinCatalog {
             .chromeCompact: SkinTypeSpec(size: 14, weight: .semibold, relativeTo: .subheadline),
             .chromeField: SkinTypeSpec(size: 15.5, relativeTo: .subheadline),
             .numeric: SkinTypeSpec(size: 13, design: .monospaced, relativeTo: .footnote),
+            // 列表行今天写的就是 `.subheadline` / `.caption`。
+            .rowTitle: .textStyle(.subheadline),
+            .rowSubtitle: .textStyle(.caption),
         ],
         motion: [
             // 以下曲线取自视图里原有的字面量。

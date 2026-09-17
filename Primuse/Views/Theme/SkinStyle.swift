@@ -132,6 +132,14 @@ struct SkinStyle: Equatable, Sendable {
 
     @MainActor func font(_ token: SkinTypographyToken) -> Font {
         let spec = typeSpec(token)
+        if spec.followsTextStyle {
+            // 字号、行高、字距都交给系统文本样式:原来写 `.font(.subheadline)` 的位置迁过来之后行高不变。
+            return .system(
+                spec.relativeTo.fontTextStyle,
+                design: spec.design.fontDesign,
+                weight: spec.weight.fontWeight
+            )
+        }
         return .system(
             size: scaled(CGFloat(spec.size), anchor: spec.relativeTo),
             weight: spec.weight.fontWeight,
@@ -408,6 +416,23 @@ extension SkinFontDesign {
         case .rounded: return .rounded
         case .serif: return .serif
         case .monospaced: return .monospaced
+        }
+    }
+}
+
+extension SkinTextStyle {
+    var fontTextStyle: Font.TextStyle {
+        switch self {
+        case .largeTitle: return .largeTitle
+        case .title: return .title
+        case .title2: return .title2
+        case .title3: return .title3
+        case .headline: return .headline
+        case .subheadline: return .subheadline
+        case .body: return .body
+        case .callout: return .callout
+        case .footnote: return .footnote
+        case .caption: return .caption
         }
     }
 }

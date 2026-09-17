@@ -398,7 +398,7 @@ struct SongRowView: View {
             // Song info — title and subtitle only, no format/duration clutter
             VStack(alignment: .leading, spacing: 2) {
                 Text(song.title)
-                    .font(.subheadline)
+                    .font(skin.font(.rowTitle))
                     .lineLimit(1)
                     .foregroundStyle(isPlaying ? skin.color(.accent) : skin.color(.textPrimary))
                     .opacity(isReadingDetails ? 0.75 : 1)
@@ -466,7 +466,7 @@ struct SongRowView: View {
                         }
                     }
                 }
-                .font(.caption)
+                .font(skin.font(.rowSubtitle))
                 .foregroundStyle(.skin(.textSecondary))
                 .lineLimit(1)
             }
