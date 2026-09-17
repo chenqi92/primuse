@@ -89,7 +89,9 @@ struct PlaylistDetailView: View {
             displaySortRawValue = ""
         } label: {
             if displaySortOrder == nil {
+                // 当前排序与升降序只靠图标表达；macOS 27 起菜单默认隐藏图标。
                 Label("playlist_order_title", systemImage: "checkmark")
+                    .labelStyle(.titleAndIcon)
             } else {
                 Text("playlist_order_title")
             }
@@ -101,6 +103,7 @@ struct PlaylistDetailView: View {
             } label: {
                 if let order = displaySortOrder, order.criterion == criterion {
                     Label(criterion.label, systemImage: order.isAscending ? "arrow.up" : "arrow.down")
+                        .labelStyle(.titleAndIcon)
                 } else {
                     Text(verbatim: criterion.label)
                 }
