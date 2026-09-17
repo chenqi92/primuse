@@ -5,6 +5,7 @@ import PrimuseKit
 actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackConnector,
     ServerLyricsConnector, ServerPlaylistConnector, ServerFavoriteConnector, ServerRadioConnector,
     ServerRadioStreamResolvingConnector, ServerListeningStatsConnector,
+    NetworkAdaptiveTranscodingConnector,
     IncrementalSongCatalogConnector {
     typealias RequestDataLoader = @Sendable (URLRequest) async throws -> (Data, URLResponse)
 
@@ -360,6 +361,27 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         return audioFileExtension(for: try decoder.decode(AudioItem.self, from: data))
     }
 
+    /// 按网络选择传输音质时用的取流地址。`plan` 为 `.original` 时逐字转发给
+    /// 既有实现 —— 默认设置下这条重载与原方法完全等价。
+    func streamingURL(for path: String, transcode plan: SourceTranscodePlan) async throws -> URL? {
+        // Plex 的转码走另一套会话协商, 不在本功能范围内。
+        guard kind != .plex, let bitRateKbps = plan.transcodedBitRateKbps else {
+            return try await streamingURL(for: path)
+        }
+        try await connect()
+        guard let itemID = itemID(from: path) else {
+            throw SourceError.fileNotFound(path)
+        }
+        let url = try adaptiveTranscodePlaybackURL(for: itemID, bitRateKbps: bitRateKbps)
+        // 需要连接器自己接管传输(明文 / 自签证书)时拿不到可直连的转码地址,
+        // 退回原始音质而不是硬转 —— 播放层会从 URL 反推出 `.original`,
+        // 计划与现实因此始终一致。
+        guard !requiresConnectorBackedTransport(for: url) else {
+            return try await streamingURL(for: path)
+        }
+        return url
+    }
+
     func streamingURL(for path: String) async throws -> URL? {
         try await connect()
 
@@ -628,6 +650,34 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 ]
             )
         }
+    }
+
+    /// 按网络策略转码的取流地址。
+    ///
+    /// 形状与 `radioPlaybackURL` 同源(`/Audio/{id}/stream.mp3` + `Static=false`
+    /// + `AudioCodec=mp3`), 多一个码率上限。`AudioBitrate` 的单位是 **bps**,
+    /// 名字取自 Jellyfin 自己在 `PlaybackInfo` 响应里给出的 `TranscodingUrl`;
+    /// Emby 同源且查询参数绑定不区分大小写。服务端可能给出低于请求值的码率
+    /// (实测 Jellyfin 会把 320k 压到 256k), 那仍然满足「不超过用户设定」。
+    ///
+    /// 两个 primuse 标记让播放层知道这是转码流(别按原文件大小做 Range)、
+    /// 并且是本次网络策略的产物(不写原文件缓存、下完才可拖动)。
+    private func adaptiveTranscodePlaybackURL(for itemID: String, bitRateKbps: Int) throws -> URL {
+        guard kind != .plex, let accessToken else {
+            throw SourceError.authenticationFailed
+        }
+        return buildURL(
+            path: "/Audio/\(itemID)/stream.\(AdaptiveStreamQualityPolicy.transcodedFileExtension)",
+            queryItems: [
+                URLQueryItem(name: "Static", value: "false"),
+                URLQueryItem(name: "AudioCodec", value: "mp3"),
+                URLQueryItem(name: "Container", value: "mp3"),
+                URLQueryItem(name: "AudioBitrate", value: String(bitRateKbps * 1000)),
+                URLQueryItem(name: "api_key", value: accessToken),
+                URLQueryItem(name: SourceStreamQuery.transcoded, value: "1"),
+                URLQueryItem(name: SourceStreamQuery.adaptive, value: "1")
+            ]
+        )
     }
 
     private func radioPlaybackURL(for itemID: String) throws -> URL {

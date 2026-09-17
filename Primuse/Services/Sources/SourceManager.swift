@@ -3844,13 +3844,28 @@ final class SourceManager {
         AdaptiveStreamQualityPolicy.isAdaptiveTranscodedStreamURL(url)
     }
 
+    /// 能按「用户设置 + 当前网络」改变取流音质的来源类型。
+    ///
+    /// Subsonic 系与 Emby / Jellyfin 都有成熟的服务端音频转码端点。
+    /// Plex 的转码走另一套会话协商, 不在本功能范围内。
+    private nonisolated static func supportsAdaptiveTranscoding(_ type: MusicSourceType) -> Bool {
+        type.isSubsonicFamily || type == .jellyfin || type == .emby
+    }
+
     /// 这首歌这次该怎么取流。
     ///
-    /// 只对支持服务端转码的 Subsonic 系来源返回非 `.original`。所有判定
-    /// 条件都在 `AdaptiveStreamQualityPolicy` 这个纯函数里, 取流路由与
-    /// URL 拼装共用同一个结论, 不会各算各的。
+    /// 只对支持服务端转码的来源返回非 `.original`。所有判定条件都在
+    /// `AdaptiveStreamQualityPolicy` 这个纯函数里, 取流路由与 URL 拼装
+    /// 共用同一个结论, 不会各算各的。
     func transcodePlan(for song: Song, source: MusicSource) -> SourceTranscodePlan {
-        guard source.type.isSubsonicFamily else { return .original }
+        guard Self.supportsAdaptiveTranscoding(source.type) else { return .original }
+        // 媒体服务器的取流地址必须能直接交给播放层。多路由 / 备用 TLS 身份 /
+        // 明文或自签端点的源要留在连接器里取流, 那种情况下 `streamingURL`
+        // 会返回 nil —— 与其让计划和现实打架(最后退化成整份下载原文件),
+        // 不如在这里就保持原始音质。
+        if source.type.isMediaServer, requiresConnectorBackedHTTPTransport(for: source) {
+            return .original
+        }
         let settings = PlaybackSettings.load()
         // 两项都是默认的 `.original` 时策略第一步就返回, 下面的判断都走不到。
         guard settings.wifiStreamQuality != .original
