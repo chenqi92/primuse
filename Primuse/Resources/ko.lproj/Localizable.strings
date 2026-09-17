@@ -4059,3 +4059,4 @@
 "connection_failed_hint_cleartext_public" = "이 주소는 암호화 없이 인터넷을 지나기 때문에 많은 서버가 거부합니다.";
 "connection_failed_hint_private_address" = "이 주소는 내부 네트워크 주소라서 같은 네트워크에 있을 때만 연결됩니다.";
 "connection_failed_hint_vendor_relay" = "제조사 중계를 거칩니다. 기기가 온라인인지, 원격 접속이 켜져 있는지 확인하세요.";
+"connection_failed_edit_address" = "주소 변경";

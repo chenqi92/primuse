@@ -3965,3 +3965,4 @@
 "connection_failed_hint_cleartext_public" = "यह पता बिना एन्क्रिप्शन के इंटरनेट से जाता है, और कई सर्वर इसे मना कर देते हैं।";
 "connection_failed_hint_private_address" = "यह लोकल नेटवर्क का पता है — यह उसी नेटवर्क पर रहते हुए ही चलता है।";
 "connection_failed_hint_vendor_relay" = "यह निर्माता के रिले से होकर जाता है — देखें कि डिवाइस ऑनलाइन है और रिमोट एक्सेस चालू है।";
+"connection_failed_edit_address" = "पता बदलें";

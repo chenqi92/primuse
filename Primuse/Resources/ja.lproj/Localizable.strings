@@ -4060,3 +4060,4 @@
 "connection_failed_hint_cleartext_public" = "このアドレスは暗号化なしでインターネットを通るため、多くのサーバーが拒否します。";
 "connection_failed_hint_private_address" = "これは宅内ネットワークのアドレスです。同じネットワークにいるときだけつながります。";
 "connection_failed_hint_vendor_relay" = "これはメーカーの中継を経由します。機器がオンラインで、リモートアクセスが有効か確認してください。";
+"connection_failed_edit_address" = "アドレスを変更";

@@ -3965,3 +3965,4 @@
 "connection_failed_hint_cleartext_public" = "Этот адрес идёт через интернет без шифрования, и многие серверы это отклоняют.";
 "connection_failed_hint_private_address" = "Это адрес локальной сети — он работает только в той же сети.";
 "connection_failed_hint_vendor_relay" = "Подключение идёт через ретранслятор производителя — проверьте, что устройство в сети и удалённый доступ включён.";
+"connection_failed_edit_address" = "Изменить адрес";

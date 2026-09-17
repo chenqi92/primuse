@@ -3965,3 +3965,4 @@
 "connection_failed_hint_cleartext_public" = "ที่อยู่นี้วิ่งผ่านอินเทอร์เน็ตโดยไม่เข้ารหัส ซึ่งเซิร์ฟเวอร์จำนวนมากจะปฏิเสธ";
 "connection_failed_hint_private_address" = "นี่คือที่อยู่ในเครือข่ายภายใน ใช้ได้เฉพาะตอนอยู่ในเครือข่ายเดียวกัน";
 "connection_failed_hint_vendor_relay" = "เส้นทางนี้ผ่านตัวรีเลย์ของผู้ผลิต ตรวจว่าอุปกรณ์ออนไลน์และเปิดการเข้าถึงระยะไกลแล้ว";
+"connection_failed_edit_address" = "เปลี่ยนที่อยู่";

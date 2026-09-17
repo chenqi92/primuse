@@ -3965,3 +3965,4 @@
 "connection_failed_hint_cleartext_public" = "Bu adres internet üzerinden şifresiz gidiyor, birçok sunucu bunu reddeder.";
 "connection_failed_hint_private_address" = "Bu bir yerel ağ adresi — yalnızca aynı ağdayken çalışır.";
 "connection_failed_hint_vendor_relay" = "Bu, üreticinin aktarıcısı üzerinden gidiyor — cihazın çevrimiçi ve uzaktan erişimin açık olduğundan emin olun.";
+"connection_failed_edit_address" = "Adresi Değiştir";

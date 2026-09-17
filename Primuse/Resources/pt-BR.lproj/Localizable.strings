@@ -3965,3 +3965,4 @@
 "connection_failed_hint_cleartext_public" = "Este endereço passa pela internet sem criptografia, e muitos servidores recusam.";
 "connection_failed_hint_private_address" = "Este é um endereço da rede local: só funciona na mesma rede.";
 "connection_failed_hint_vendor_relay" = "Isto passa pelo relay do fabricante: confira se o aparelho está on-line e o acesso remoto ativado.";
+"connection_failed_edit_address" = "Alterar endereço";

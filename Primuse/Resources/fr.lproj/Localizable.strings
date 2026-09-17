@@ -4059,3 +4059,4 @@
 "connection_failed_hint_cleartext_public" = "Cette adresse passe par Internet sans chiffrement, ce que beaucoup de serveurs refusent.";
 "connection_failed_hint_private_address" = "C’est une adresse du réseau local : elle ne fonctionne que sur ce même réseau.";
 "connection_failed_hint_vendor_relay" = "Cela passe par le relais du fabricant : vérifiez que l’appareil est en ligne et que l’accès distant est activé.";
+"connection_failed_edit_address" = "Modifier l’adresse";

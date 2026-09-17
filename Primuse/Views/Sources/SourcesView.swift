@@ -382,6 +382,9 @@ struct SourcesContentView: View {
     @State private var showTransfer = false
     @State private var editingSource: MusicSource?
     @State private var connectingSource: MusicSource?
+    /// 连接失败页点了「修改地址」之后要编辑的那个源。两个 sheet 不能同时在飞,
+    /// 先记在这里, 等连接 sheet 的 onDismiss 里再呈现编辑表单。
+    @State private var pendingAddressEditSource: MusicSource?
     @State private var directorySelectionSession: SourceDirectorySelectionSession?
     @State private var optimisticallyHiddenIDs: Set<String> = []
     @State private var undoToast: UndoDeleteToast?
@@ -517,9 +520,12 @@ struct SourcesContentView: View {
                     Task { await sourceManager.refreshConnector(for: updated.id) }
                 }
             }
-            .sheet(item: $connectingSource, onDismiss: finishDirectorySelectionSession) { source in
-                connectionSheet(for: source)
-                    .onAppear { beginDirectorySelectionSession(for: source) }
+            .sheet(item: $connectingSource, onDismiss: finishConnectionSheet) { source in
+                connectionSheet(
+                    for: source,
+                    onEditAddress: { requestAddressEdit(for: source) }
+                )
+                .onAppear { beginDirectorySelectionSession(for: source) }
             }
             .sheet(item: $diagnosingSource) { source in
                 SourceDiagnosticsView(source: source)
@@ -2048,7 +2054,8 @@ struct SourcesContentView: View {
     private func connectionSheet(
         for source: MusicSource,
         stagedDirectories: Binding<[String]>? = nil,
-        onConfirm: ((Bool) -> Void)? = nil
+        onConfirm: ((Bool) -> Void)? = nil,
+        onEditAddress: (() -> Void)? = nil
     ) -> some View {
         let persistedDirectories = Binding(
             get: { currentSource(for: source).scannedDirectories },
@@ -2111,7 +2118,8 @@ struct SourcesContentView: View {
                         plog("⚠️ Synology credential transition could not commit source=\(source.id.prefix(8))… error=\(error.localizedDescription)")
                         return false
                     }
-                }
+                },
+                onEditAddress: onEditAddress
             )
         case .smb:
             SMBBrowserView(
@@ -2203,6 +2211,21 @@ struct SourcesContentView: View {
 
     private func cancelDirectorySelectionSession() {
         directorySelectionSession = nil
+    }
+
+    /// 连接失败页的「修改地址」: 记下目标再关掉连接 sheet。这里不能直接呈现编辑
+    /// 表单 —— 同一个视图上两个 sheet 不能一个还没关完另一个就开, 否则后者会被
+    /// 系统丢掉。真正的呈现放在 finishConnectionSheet 里。
+    private func requestAddressEdit(for source: MusicSource) {
+        pendingAddressEditSource = currentSource(for: source)
+        connectingSource = nil
+    }
+
+    private func finishConnectionSheet() {
+        finishDirectorySelectionSession()
+        guard let pending = pendingAddressEditSource else { return }
+        pendingAddressEditSource = nil
+        editingSource = currentSource(for: pending)
     }
 
     private func toggleSourceEnabled(_ source: MusicSource) {

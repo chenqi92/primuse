@@ -3837,3 +3837,4 @@
 "connection_failed_hint_cleartext_public" = "This address goes over the Internet without encryption, which many servers refuse.";
 "connection_failed_hint_private_address" = "This is a local network address — it only works while you are on the same network.";
 "connection_failed_hint_vendor_relay" = "This goes through the vendor’s relay — check that the device is online and remote access is turned on.";
+"connection_failed_edit_address" = "Change Address";

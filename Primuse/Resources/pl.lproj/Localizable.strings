@@ -3965,3 +3965,4 @@
 "connection_failed_hint_cleartext_public" = "Ten adres idzie przez internet bez szyfrowania, co wiele serwerów odrzuca.";
 "connection_failed_hint_private_address" = "To adres w sieci lokalnej — działa tylko, gdy jesteś w tej samej sieci.";
 "connection_failed_hint_vendor_relay" = "To idzie przez przekaźnik producenta — sprawdź, czy urządzenie jest online i dostęp zdalny jest włączony.";
+"connection_failed_edit_address" = "Zmień adres";

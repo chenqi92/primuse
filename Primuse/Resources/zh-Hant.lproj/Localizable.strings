@@ -4036,3 +4036,4 @@
 "connection_failed_hint_cleartext_public" = "這個公網位址走的是不加密連線，很多伺服器會直接拒絕。";
 "connection_failed_hint_private_address" = "這是一個內網位址，只有連著同一個網路才通。";
 "connection_failed_hint_vendor_relay" = "這條走的是廠商中轉，先確認裝置在線、遠端存取已經打開。";
+"connection_failed_edit_address" = "修改位址";

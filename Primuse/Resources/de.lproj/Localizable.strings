@@ -4059,3 +4059,4 @@
 "connection_failed_hint_cleartext_public" = "Diese Adresse läuft unverschlüsselt über das Internet, was viele Server ablehnen.";
 "connection_failed_hint_private_address" = "Das ist eine Adresse im lokalen Netzwerk – sie funktioniert nur im selben Netzwerk.";
 "connection_failed_hint_vendor_relay" = "Das läuft über das Relay des Herstellers – prüfen Sie, ob das Gerät online und der Fernzugriff aktiviert ist.";
+"connection_failed_edit_address" = "Adresse ändern";

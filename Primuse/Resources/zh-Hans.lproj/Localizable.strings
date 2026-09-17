@@ -4152,3 +4152,4 @@
 "connection_failed_hint_cleartext_public" = "这个公网地址走的是不加密连接，很多服务器会直接拒绝。";
 "connection_failed_hint_private_address" = "这是一个内网地址，只有连着同一个网络才通。";
 "connection_failed_hint_vendor_relay" = "这条走的是厂商中转，先确认设备在线、远程访问已经打开。";
+"connection_failed_edit_address" = "修改地址";

@@ -3965,3 +3965,4 @@
 "connection_failed_hint_cleartext_public" = "هذا العنوان يمر عبر الإنترنت دون تشفير، وكثير من الخوادم ترفض ذلك.";
 "connection_failed_hint_private_address" = "هذا عنوان داخل الشبكة المحلية، ولا يعمل إلا وأنت على الشبكة نفسها.";
 "connection_failed_hint_vendor_relay" = "يمر هذا عبر مُرحّل الشركة المصنّعة، فتأكد أن الجهاز متصل وأن الوصول عن بُعد مفعّل.";
+"connection_failed_edit_address" = "تغيير العنوان";
