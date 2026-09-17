@@ -6517,6 +6517,13 @@ public enum SourceCreationPersistencePolicy {
 /// Keeps the selected immersive group stable. Missing lyrics or artwork are
 /// handled inside the scene so choosing one group never opens another group.
 public enum ImmersivePresentationFallbackPolicy {
+    /// 当前受支持的全屏效果 id。界面皮肤声明自己带来哪几款效果时,也以这张表为准。
+    public static let supportedEffectRawValues: [String] = [
+        "native", "coverFlow", "coverGallery", "starryNight", "flowingLines",
+        "lightRhythm", "kineticTitle", "radialPulse", "liveWaveform",
+        "vinylDeck", "mirrorStage", "auroraVeil", "spectrumHorizon", "particleBloom",
+    ]
+
     public static func effectiveEffectRawValue(
         selectedRawValue: String,
         hasSynchronizedLyrics: Bool,
@@ -6524,12 +6531,7 @@ public enum ImmersivePresentationFallbackPolicy {
     ) -> String {
         _ = hasSynchronizedLyrics
         _ = hasArtwork
-        let supported = [
-            "native", "coverFlow", "coverGallery", "starryNight", "flowingLines",
-            "lightRhythm", "kineticTitle", "radialPulse", "liveWaveform",
-            "vinylDeck", "mirrorStage", "auroraVeil", "spectrumHorizon", "particleBloom",
-        ]
-        if supported.contains(selectedRawValue) {
+        if supportedEffectRawValues.contains(selectedRawValue) {
             return selectedRawValue
         }
 

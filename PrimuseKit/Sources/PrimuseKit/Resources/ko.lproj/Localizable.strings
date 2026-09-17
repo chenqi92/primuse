@@ -25,6 +25,13 @@
 "src.subtitle.pan123" = "123 오픈 플랫폼 OAuth";
 "src.subtitle.guangya"       = "GuangYa 오픈 플랫폼 OAuth";
 
+"skin.classic.name"          = "클래식";
+"skin.classic.description"   = "탭 막대, 시스템 화면 표시를 따릅니다";
+"skin.midnight.name"         = "미드나이트";
+"skin.midnight.description"  = "항상 다크, 쿨 블루 강조색";
+"skin.minimal.name"          = "미니멀";
+"skin.minimal.description"   = "커버 월, 플로팅 플레이어, 검색 중심 내비게이션";
+
 // 위젯 및 제어 센터 확장
 "ext.widget.appName"                       = "Primuse";
 "ext.widget.unknownSong"                   = "알 수 없는 노래";

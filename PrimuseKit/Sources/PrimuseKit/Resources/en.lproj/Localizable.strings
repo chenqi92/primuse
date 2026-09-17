@@ -23,6 +23,13 @@
 "src.subtitle.pan123"        = "123 Open Platform OAuth";
 "src.subtitle.guangya"       = "GuangYa Open Platform OAuth";
 
+"skin.classic.name"          = "Classic";
+"skin.classic.description"   = "Tab bar, follows the system appearance";
+"skin.midnight.name"         = "Midnight";
+"skin.midnight.description"  = "Always dark, with a cool blue accent";
+"skin.minimal.name"          = "Minimal";
+"skin.minimal.description"   = "Cover wall, floating player, search-first navigation";
+
 // Widget & Control Center extensions
 "ext.widget.appName"                       = "Primuse";
 "ext.widget.unknownSong"                   = "Unknown Song";

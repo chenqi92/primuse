@@ -25,6 +25,13 @@
 "src.subtitle.pan123" = "OAuth de la plateforme ouverte 123";
 "src.subtitle.guangya"       = "OAuth de la plateforme ouverte GuangYa";
 
+"skin.classic.name"          = "Classique";
+"skin.classic.description"   = "Barre d’onglets, suit l’apparence du système";
+"skin.midnight.name"         = "Minuit";
+"skin.midnight.description"  = "Toujours sombre, avec un accent bleu froid";
+"skin.minimal.name"          = "Minimal";
+"skin.minimal.description"   = "Mur de pochettes, lecteur flottant, navigation par la recherche";
+
 // Extensions widget et centre de contrôle
 "ext.widget.appName"                       = "Primuse";
 "ext.widget.unknownSong"                   = "Titre inconnu";

@@ -1241,6 +1241,9 @@ struct PrimuseApp: App {
     @State private var playbackSettingsStore: PlaybackSettingsStore
     @State private var cloudSync: CloudKitSyncService
     @State private var themeService: ThemeService
+    #if os(iOS)
+    @State private var skinRuntime: SkinRuntime
+    #endif
     @State private var scanService: ScanService
     @State private var serverCatalogAutoRefresh: ServerCatalogAutoRefreshCoordinator
     @State private var metadataBackfill: MetadataBackfillService
@@ -1295,6 +1298,9 @@ struct PrimuseApp: App {
         _playbackSettingsStore = State(initialValue: services.playbackSettingsStore)
         _cloudSync = State(initialValue: services.cloudSync)
         _themeService = State(initialValue: services.themeService)
+        #if os(iOS)
+        _skinRuntime = State(initialValue: services.skinRuntime)
+        #endif
         _scanService = State(initialValue: services.scanService)
         _serverCatalogAutoRefresh = State(initialValue: services.serverCatalogAutoRefresh)
         _metadataBackfill = State(initialValue: services.metadataBackfill)
@@ -1357,12 +1363,27 @@ struct PrimuseApp: App {
             #if os(iOS) || os(macOS)
             .environment(audioCacheSync)
             #endif
+        #if os(iOS)
+        // skinStyle 在 tint 之内:样式里 `.tinted` 色位解析成 `Color.accentColor`,
+        // 要拿到下面这行注入的强调色,换样式才不会切断「强调色跟随封面」。
+        return injected
+            .environment(skinRuntime)
+            .skinStyle(skinRuntime)
+            .tint(themeService.uiAccentColor)
+        #else
         return injected.tint(themeService.uiAccentColor)
+        #endif
     }
 
     #if os(iOS)
+    /// 个别界面样式只在一种底色下成立,会锁定浅色或深色;跟随系统的样式(经典、极简)
+    /// 不干预,这里就是用户在「外观」里的选择。
     private var iOSAppearance: IOSAppearancePreference {
-        IOSAppearancePreference(rawValue: iOSAppearanceRawValue) ?? .system
+        switch skinRuntime.enforcedColorScheme {
+        case .some(.dark): return .dark
+        case .some(.light): return .light
+        default: return IOSAppearancePreference(rawValue: iOSAppearanceRawValue) ?? .system
+        }
     }
     #endif
 

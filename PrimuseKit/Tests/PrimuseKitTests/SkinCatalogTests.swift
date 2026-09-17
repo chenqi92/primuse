@@ -1,0 +1,346 @@
+import Foundation
+import Testing
+@testable import PrimuseKit
+
+@Suite("Skin catalog and selection")
+struct SkinCatalogTests {
+
+    // MARK: - 完整性
+
+    /// 少定义一个 token,运行时表现为「某个控件颜色突然回到兜底值」——
+    /// 这种缺陷肉眼走查发现不了,只能靠这条断言拦住。
+    @Test("内置样式目录无缺失、无畸形取值")
+    func builtInCatalogIsComplete() {
+        let issues = SkinValidationPolicy.catalogIssues()
+        #expect(issues.isEmpty, "\(issues)")
+    }
+
+    @Test("每套样式都覆盖全部 token,且插槽已登记")
+    func everySkinCoversEveryToken() {
+        for skin in SkinCatalog.all + SkinCatalog.lab {
+            #expect(skin.colors.count == SkinColorToken.allCases.count)
+            #expect(skin.metrics.count == SkinMetricToken.allCases.count)
+            #expect(skin.typography.count == SkinTypographyToken.allCases.count)
+            #expect(skin.motion.count == SkinMotionToken.allCases.count)
+            for slot in SkinSlot.allCases {
+                #expect(
+                    SkinSlotRegistry.builtIn[slot]?.contains(skin.variant(for: slot)) == true,
+                    "\(skin.id) 的 \(slot.rawValue) 插槽未登记"
+                )
+            }
+        }
+    }
+
+    @Test("缺 token 会被判为不合格")
+    func missingTokenIsRejected() {
+        var colors = SkinCatalog.classic.colors
+        colors.removeValue(forKey: .accent)
+        let broken = SkinDefinition(
+            id: "broken",
+            nameKey: "k",
+            descriptionKey: "k",
+            colors: colors,
+            metrics: SkinCatalog.classic.metrics,
+            typography: SkinCatalog.classic.typography,
+            motion: SkinCatalog.classic.motion
+        )
+        #expect(
+            SkinValidationPolicy.issues(in: broken)
+                .contains(.missingColor(skinID: "broken", token: .accent))
+        )
+    }
+
+    @Test("缺动效位同样不合格")
+    func missingMotionIsRejected() {
+        var motion = SkinCatalog.classic.motion
+        motion.removeValue(forKey: .heroReflow)
+        let broken = SkinDefinition(
+            id: "still",
+            nameKey: "k",
+            descriptionKey: "k",
+            colors: SkinCatalog.classic.colors,
+            metrics: SkinCatalog.classic.metrics,
+            typography: SkinCatalog.classic.typography,
+            motion: motion
+        )
+        #expect(
+            SkinValidationPolicy.issues(in: broken)
+                .contains(.missingMotion(skinID: "still", token: .heroReflow))
+        )
+        #expect(!SkinMotionSpec.spring(response: 0, dampingFraction: 0.8).isWellFormed)
+        #expect(!SkinMotionSpec.easeOut(duration: -1).isWellFormed)
+        #expect(SkinMotionSpec.none.isWellFormed)
+    }
+
+    @Test("未登记的插槽实现会被判为不合格")
+    func unregisteredSlotVariantIsRejected() {
+        var slots = SkinSlotRegistry.allClassic
+        slots[.playerStage] = "not-built"
+        let broken = SkinDefinition(
+            id: "broken-slot",
+            nameKey: "k",
+            descriptionKey: "k",
+            colors: SkinCatalog.classic.colors,
+            metrics: SkinCatalog.classic.metrics,
+            typography: SkinCatalog.classic.typography,
+            motion: SkinCatalog.classic.motion,
+            slots: slots
+        )
+        #expect(
+            SkinValidationPolicy.issues(in: broken)
+                .contains(
+                    .unregisteredSlotVariant(
+                        skinID: "broken-slot",
+                        slot: .playerStage,
+                        variant: "not-built"
+                    )
+                )
+        )
+    }
+
+    @Test("兜底样式必须随 App 提供,否则没解锁的用户会被锁在无法渲染的状态")
+    func fallbackSkinMustBeIncluded() {
+        #expect(!SkinCatalog.fallback.access.requiresUnlock)
+        let lockedFallback = SkinDefinition(
+            id: "locked-default",
+            nameKey: "k",
+            descriptionKey: "k",
+            access: .unlockable(unlockID: "skin.locked-default"),
+            colors: SkinCatalog.classic.colors,
+            metrics: SkinCatalog.classic.metrics,
+            typography: SkinCatalog.classic.typography,
+            motion: SkinCatalog.classic.motion
+        )
+        #expect(
+            SkinValidationPolicy.catalogIssues(
+                [lockedFallback],
+                fallbackID: "locked-default"
+            ).contains(.fallbackSkinRequiresUnlock(id: "locked-default"))
+        )
+    }
+
+    @Test("正式目录里的样式都随 App 提供,经典与极简都在")
+    func shippingCatalogIsIncluded() {
+        #expect(SkinCatalog.all.map(\.id) == [SkinCatalog.classicID, SkinCatalog.minimalID])
+        for skin in SkinCatalog.all {
+            #expect(skin.access == .included, "\(skin.id) 不该需要解锁")
+        }
+        // 打磨中的样式不进正式目录,按 id 默认也查不到。
+        #expect(SkinCatalog.skin(id: "midnight") == nil)
+        #expect(SkinCatalog.skin(id: "midnight", includingLab: true) != nil)
+    }
+
+    // MARK: - classic 必须等同于改造前的观感
+
+    /// 这套结构的前提是「装上之后什么都没变」。classic 的色位除下面四个之外
+    /// 全部映射到系统语义色,因此与改造前逐像素一致,也保留系统的增强对比度行为。
+    @Test("classic 仅这五位不跟随系统语义色或上下文层级")
+    func classicLeansOnSystemColors() {
+        let nonSystem = SkinColorToken.allCases.filter { token in
+            guard let spec = SkinCatalog.classic.colors[token] else { return false }
+            switch spec {
+            case .system, .hierarchical: return false
+            default: return true
+            }
+        }
+        #expect(
+            nonSystem.map(\.rawValue).sorted()
+                == ["accentMuted", "accentSoft", "chip", "chipSelected", "scrim"]
+        )
+    }
+
+    /// 极简顶栏的几何与字号改前改后必须一致 —— 这些数值就是从那个视图里搬出来的,
+    /// 动了就是改了外观,而这次调整只应改变「值从哪来」。
+    @Test("极简顶栏的几何与字号保持原值")
+    func classicPreservesMinimalChromeMetrics() {
+        let skin = SkinCatalog.classic
+        #expect(skin.metric(.chromeChipHeight) == 34)
+        #expect(skin.metric(.chromeChipRowHeight) == 37)
+        #expect(skin.metric(.chromeChipRowSpacing) == 9)
+        #expect(skin.metric(.chromeCollapsedChipHeight) == 44)
+        #expect(skin.metric(.chromeSearchFieldHeight) == 44)
+        #expect(skin.metric(.chromeItemSpacing) == 8)
+        #expect(skin.metric(.chromeChipSpacing) == 7)
+        #expect(skin.metric(.chromeHorizontalInset) == 12)
+        #expect(skin.metric(.chromeTopPadding) == 6)
+        #expect(skin.metric(.chromeBottomPadding) == 8)
+        #expect(skin.metric(.controlHeightLarge) == 44)
+
+        #expect(skin.type(.chrome)?.size == 14.5)
+        #expect(skin.type(.chrome)?.weight == .regular)
+        #expect(skin.type(.chromeCompact)?.size == 14)
+        #expect(skin.type(.chromeCompact)?.weight == .semibold)
+        #expect(skin.type(.chromeField)?.size == 15.5)
+
+        #expect(skin.colors[.accentSoft] == .tinted(opacity: 0.14))
+        #expect(skin.colors[.chipSelected] == .tinted(opacity: 0.16))
+        #expect(skin.colors[.chip] == .systemOpacity(.secondaryLabel, opacity: 0.10))
+    }
+
+    @Test("控件高度与图标随字号缩放;圆角、描边、阴影、间距不随")
+    func onlySizesScale() {
+        for token in [SkinMetricToken.radiusCard, .radiusArtwork, .radiusPill, .hairline, .borderWidth,
+                      .shadowRadius, .shadowOpacity, .spacingMedium, .chromeHorizontalInset,
+                      .chromeChipRowSpacing, .chromeTopPadding] {
+            #expect(!token.scalesWithDynamicType, "\(token.rawValue) 不该随字号缩放")
+        }
+        for token in [SkinMetricToken.chromeChipHeight, .chromeChipRowHeight, .chromeSearchFieldHeight,
+                      .controlHeightLarge, .iconSizeMedium] {
+            #expect(token.scalesWithDynamicType, "\(token.rawValue) 应随字号缩放")
+        }
+        #expect(SkinMetricToken.shadowOpacity.isUnitInterval)
+        #expect(!SkinMetricToken.radiusCard.isUnitInterval)
+    }
+
+    /// 顶栏折叠的滞回带宽 = 分类行高 + 它上方的间距。行高随字号缩放、间距不缩放,
+    /// 与折叠判定那一侧(`MinimalNavigationChromeMetrics`)的算法必须是同一种。
+    @Test("经典顶栏让出的高度与折叠判定用的数值同源")
+    func classicChromeMatchesCollapseMetrics() {
+        let skin = SkinCatalog.classic
+        #expect(skin.metric(.chromeChipRowHeight) == Double(MinimalNavigationChromeMetrics.categoryRowHeight))
+        #expect(skin.metric(.chromeChipRowSpacing) == Double(MinimalNavigationChromeMetrics.categoryRowTopPadding))
+        #expect(SkinMetricToken.chromeChipRowHeight.scalesWithDynamicType)
+        #expect(!SkinMetricToken.chromeChipRowSpacing.scalesWithDynamicType)
+    }
+
+    @Test("样式之间确有差异,否则换样式只是摆设")
+    func skinsDifferSubstantially() {
+        for other in [SkinCatalog.minimal, SkinCatalog.midnight] {
+            let differingColors = SkinColorToken.allCases.filter {
+                SkinCatalog.classic.colors[$0] != other.colors[$0]
+            }
+            #expect(differingColors.count >= 20, "\(other.id) 与经典只差 \(differingColors.count) 个色位")
+        }
+        let differingMetrics = SkinMetricToken.allCases.filter {
+            SkinCatalog.classic.metrics[$0] != SkinCatalog.midnight.metrics[$0]
+        }
+        #expect(differingMetrics.count >= 20)
+        #expect(SkinCatalog.midnight.appearance == .forcesDark)
+        // 极简跟随系统深浅色:「外观」设置在这套样式下必须继续有效。
+        #expect(SkinCatalog.minimal.appearance == .adaptive)
+        #expect(SkinCatalog.minimal.pageBackground == .canvas)
+        #expect(SkinCatalog.classic.pageBackground == .system)
+    }
+
+    @Test("极简的强调色跟随主题色设置,不切断封面取色")
+    func minimalKeepsTheUserAccent() {
+        #expect(SkinCatalog.minimal.colors[.accent] == .system(.tint))
+        #expect(SkinCatalog.minimal.colors[.chromeItemSelected] == .system(.tint))
+        if case .tinted = SkinCatalog.minimal.colors[.accentSoft] {} else {
+            Issue.record("accentSoft 应当由强调色派生")
+        }
+    }
+
+    @Test("极简选用的结构实现")
+    func minimalSlotChoices() {
+        let skin = SkinCatalog.minimal
+        #expect(skin.navigationHeader == .minimal)
+        #expect(skin.bottomChrome == .floatingCapsule)
+        #expect(skin.detailHeader == .coverWall)
+        #expect(skin.settingsRoot == .hub)
+        #expect(SkinCatalog.classic.navigationHeader == .classic)
+        #expect(SkinCatalog.classic.bottomChrome == .classic)
+        #expect(SkinCatalog.classic.detailHeader == .classic)
+        #expect(SkinCatalog.classic.settingsRoot == .classic)
+    }
+
+    @Test("读不出来的插槽取值落到经典实现")
+    func unknownSlotVariantReadsAsClassic() {
+        var slots = SkinSlotRegistry.allClassic
+        slots[.bottomChrome] = "from-a-future-build"
+        let skin = SkinDefinition(
+            id: "future",
+            nameKey: "k",
+            descriptionKey: "k",
+            colors: SkinCatalog.classic.colors,
+            metrics: SkinCatalog.classic.metrics,
+            typography: SkinCatalog.classic.typography,
+            motion: SkinCatalog.classic.motion,
+            slots: slots
+        )
+        #expect(skin.bottomChrome == .classic)
+    }
+
+    @Test("登记表由实现枚举推导,每个插槽至少有经典实现")
+    func registryIsDerivedFromVariantEnums() {
+        for slot in SkinSlot.allCases {
+            #expect(SkinSlotRegistry.builtIn[slot]?.contains(SkinSlotRegistry.classicVariant) == true)
+        }
+        #expect(SkinSlotRegistry.builtIn[.navigationHeader] == ["classic", "minimal"])
+        #expect(SkinSlotRegistry.builtIn[.detailHeader] == ["classic", "coverWall"])
+    }
+
+    @Test("经典的动效取自视图里原有的曲线")
+    func classicPreservesExistingCurves() {
+        let motion = SkinCatalog.classic.motion
+        #expect(motion[.chromeCollapse] == .spring(response: 0.3, dampingFraction: 0.86))
+        #expect(motion[.chromeReveal] == .smooth(duration: 0.26, extraBounce: 0))
+        #expect(motion[.pageSwitch] == .easeOut(duration: 0.18))
+        #expect(motion[.sheet] == .spring(response: 0.45, dampingFraction: 0.92))
+    }
+
+    // MARK: - 解锁与回落
+
+    @Test("待解锁的样式未解锁时不生效")
+    func lockedSkinDoesNotApply() {
+        let catalog = SkinCatalog.all + SkinCatalog.lab
+        let unlockID = "skin.midnight"
+        #expect(SkinSelectionPolicy.availability(of: SkinCatalog.classic, unlocked: []) == .included)
+        #expect(SkinSelectionPolicy.availability(of: SkinCatalog.minimal, unlocked: []) == .included)
+        #expect(SkinSelectionPolicy.availability(of: SkinCatalog.midnight, unlocked: []) == .locked)
+        #expect(
+            SkinSelectionPolicy.availability(of: SkinCatalog.midnight, unlocked: [unlockID]) == .unlocked
+        )
+        #expect(SkinSelectionPolicy.effectiveSkinID(requested: "midnight", catalog: catalog) == "classic")
+        #expect(
+            SkinSelectionPolicy.effectiveSkinID(
+                requested: "midnight",
+                catalog: catalog,
+                unlocked: [unlockID]
+            ) == "midnight"
+        )
+        // 样式 id 本身不是解锁凭据。
+        #expect(
+            SkinSelectionPolicy.effectiveSkinID(
+                requested: "midnight",
+                catalog: catalog,
+                unlocked: ["midnight"]
+            ) == "classic"
+        )
+    }
+
+    /// 这些路径都发生在看不见的地方:样式被下架、权益失效、
+    /// 换设备后同步来一个本机没有的样式 id。打开 App 用肉眼验证不了。
+    @Test("异常来源的样式选择一律回落")
+    func unknownOrRevokedSkinFallsBack() {
+        let catalog = SkinCatalog.all + SkinCatalog.lab
+        #expect(SkinSelectionPolicy.effectiveSkinID(requested: nil) == "classic")
+        #expect(
+            SkinSelectionPolicy.effectiveSkinID(
+                requested: "from-a-future-build",
+                unlocked: ["from-a-future-build"]
+            ) == "classic"
+        )
+        // 打磨中的样式在正式目录里查不到,同步过来也只会回落。
+        #expect(SkinSelectionPolicy.effectiveSkinID(requested: "midnight", unlocked: ["skin.midnight"]) == "classic")
+        #expect(SkinSelectionPolicy.requiresFallback(current: "midnight", catalog: catalog, unlocked: []))
+        #expect(
+            !SkinSelectionPolicy.requiresFallback(
+                current: "midnight",
+                catalog: catalog,
+                unlocked: ["skin.midnight"]
+            )
+        )
+        #expect(!SkinSelectionPolicy.requiresFallback(current: "classic", unlocked: []))
+        #expect(!SkinSelectionPolicy.requiresFallback(current: "minimal", unlocked: []))
+    }
+
+    @Test("样式定义可 JSON 往返,为将来下发样式留口子")
+    func skinDefinitionRoundTripsThroughJSON() throws {
+        for skin in SkinCatalog.all + SkinCatalog.lab {
+            let data = try JSONEncoder().encode(skin)
+            let decoded = try JSONDecoder().decode(SkinDefinition.self, from: data)
+            #expect(decoded == skin)
+        }
+    }
+}

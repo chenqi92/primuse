@@ -10,6 +10,9 @@ import AppKit
 
 struct SettingsView: View {
     @Environment(MusicIntelligenceService.self) private var musicIntelligence
+    @Environment(PlaybackSettingsStore.self) private var playbackSettings
+    @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(\.skin) private var skin
     @Environment(\.openURL) private var openURL
     @Binding private var scraperSettingsRoute: ScraperSettingsRouteState
     @State private var path: [SettingsDestination] = []
@@ -124,6 +127,12 @@ struct SettingsView: View {
                         .onAppear {
                             if itemID == nil { SettingsSearchHistory.shared.record(page.id) }
                         }
+                case .category(let category, let itemID):
+                    SettingsFocusedPage(itemID: itemID) { categoryPage(category) }
+                        .id(destination)
+                        #if os(iOS)
+                        .minimalNavigationDetail()
+                        #endif
                 }
             }
             // 从子页返回根页时结束搜索会话, 免得设置页停在搜索态里,
@@ -165,9 +174,14 @@ struct SettingsView: View {
         if usesMinimalSearch { search.isPresented = false }
         if page == .about || page == .appleTV {
             search.isPresented = false
-            path = []
-            rootItemID = item.id
-            rootFocusRevision = UUID()
+            if usesSettingsHub {
+                // 枢纽根页上没有这些行,它们住在各自的分类页里。
+                path = [.category(page.category, item.id)]
+            } else {
+                path = []
+                rootItemID = item.id
+                rootFocusRevision = UUID()
+            }
         } else {
             path.append(.page(page, item.isPage ? nil : item.id))
         }
@@ -202,7 +216,231 @@ struct SettingsView: View {
         }
     }
 
+    /// 设置根页的组织方式由界面皮肤决定:分区长列表,或「常用 + 分类」的枢纽。
+    /// 两种组织方式用的是同一份 SettingsCatalog、同一批设置页、同一套搜索与锚点。
+    private var usesSettingsHub: Bool { skin.skin.settingsRoot == .hub }
+
+    private func listedPages(in category: SettingsCategory) -> [SettingsPage] {
+        SettingsPage.allCases.filter { page in
+            guard page.category == category, page.available, page.isListed else { return false }
+            // 未开放远程配置的地区不显示智能功能这一项。
+            return page != .intelligence || musicIntelligence.shouldExposeRemoteConfiguration
+        }
+    }
+
     @ViewBuilder private var settingsRows: some View {
+        if usesSettingsHub {
+            hubRows
+        } else {
+            classicRows
+        }
+    }
+
+    // MARK: 枢纽
+
+    /// 常用入口。固定四项:没有音乐源就没有音乐;外观、播放与歌词是日常最常动的三处。
+    private var hubFavoritePages: [SettingsPage] {
+        [SettingsPage.sources, .appearance, .playback, .lyrics].filter { $0.available }
+    }
+
+    private var hubCategories: [SettingsCategory] {
+        SettingsCategory.allCases.filter { $0 == .about || !listedPages(in: $0).isEmpty }
+    }
+
+    @ViewBuilder private var hubRows: some View {
+        Section {
+            // 不用 LazyVGrid:List 行里放惰性网格会让行高与网格互相触发重新布局。
+            VStack(spacing: 10) {
+                ForEach(hubFavoriteRows, id: \.self) { row in
+                    HStack(spacing: 10) {
+                        ForEach(row) { page in
+                            hubFavoriteTile(page)
+                        }
+                    }
+                }
+            }
+            .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+        } header: {
+            Text("settings_hub_frequent")
+        }
+
+        Section {
+            ForEach(hubCategories) { category in
+                NavigationLink(value: SettingsDestination.category(category, nil)) {
+                    hubCategoryLabel(category)
+                }
+                .listRowBackground(skin.color(.surface))
+            }
+        } header: {
+            Text("settings_hub_all")
+        }
+    }
+
+    private var hubFavoriteRows: [[SettingsPage]] {
+        let pages = hubFavoritePages
+        return stride(from: 0, to: pages.count, by: 2).map { index in
+            Array(pages[index..<min(index + 2, pages.count)])
+        }
+    }
+
+    private func hubFavoriteTile(_ page: SettingsPage) -> some View {
+        Button {
+            path.append(.page(page, nil))
+        } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Image(systemName: page.icon)
+                        .font(.system(size: 19, weight: .medium))
+                        .foregroundStyle(hubTint(for: page.category))
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.forward")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.skin(.textQuaternary))
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(LocalizedStringKey(hubFavoriteTitleKey(for: page)))
+                        .font(skin.font(.bodyStrong))
+                        .foregroundStyle(.skin(.textPrimary))
+                        .lineLimit(1)
+                    Text(hubFavoriteSummary(for: page) ?? " ")
+                        .font(skin.font(.meta))
+                        .foregroundStyle(.skin(.textSecondary))
+                        .lineLimit(1)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                skin.color(.surface),
+                in: RoundedRectangle(cornerRadius: skin.rawMetric(.radiusLarge), style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: skin.rawMetric(.radiusLarge), style: .continuous)
+                    .strokeBorder(skin.color(.surfaceBorder), lineWidth: skin.rawMetric(.borderWidth))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("settings.hub.favorite.\(page.rawValue)")
+    }
+
+    /// 外观页在分类列表里按「改的是哪个界面」叫「设置页」;单独拎出来做常用入口时,
+    /// 这个名字说明不了它管什么,换成它真正的内容。
+    private func hubFavoriteTitleKey(for page: SettingsPage) -> String {
+        page == .appearance ? "settings_hub_appearance_title" : page.titleKey
+    }
+
+    /// 磁贴上的一句现状。取不到就留空,不编造。
+    private func hubFavoriteSummary(for page: SettingsPage) -> String? {
+        let service = SettingsActionService(
+            playback: playbackSettings,
+            showsIntelligence: musicIntelligence.shouldExposeRemoteConfiguration
+        )
+        switch page {
+        case .sources:
+            return String(
+                format: String(localized: "sources_count_format"),
+                sourcesStore.sources.count
+            )
+        case .appearance:
+            return String(
+                localized: String.LocalizationValue(skin.skin.nameKey),
+                bundle: .primuseKit
+            )
+        case .playback:
+            return service.status(for: "playback.outputMode").value
+        case .lyrics:
+            guard let value = service.status(for: "lyrics.translationEnabled").value else {
+                return nil
+            }
+            return String(localized: "lyrics_translation_enabled") + " · " + value
+        default:
+            return nil
+        }
+    }
+
+    private func hubCategoryLabel(_ category: SettingsCategory) -> some View {
+        let pages = listedPages(in: category)
+        let preview = pages
+            .prefix(4)
+            .map(\.title)
+            .joined(separator: " · ")
+        let tint = hubTint(for: category)
+
+        return HStack(spacing: 12) {
+            Image(systemName: category.icon)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(tint)
+                .frame(width: 36, height: 36)
+                .background(
+                    tint.opacity(0.18),
+                    in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+                )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(LocalizedStringKey(category.titleKey))
+                    .font(skin.font(.bodyStrong))
+                    .foregroundStyle(.skin(.textPrimary))
+                if !preview.isEmpty {
+                    Text(preview)
+                        .font(skin.font(.meta))
+                        .foregroundStyle(.skin(.textSecondary))
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            if !pages.isEmpty {
+                Text("\(pages.count)")
+                    .font(skin.font(.numeric))
+                    .foregroundStyle(.skin(.textTertiary))
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func hubTint(for category: SettingsCategory) -> Color {
+        switch category {
+        case .library: return .blue
+        case .playback: return .green
+        case .appearance: return skin.color(.accent)
+        case .sync: return .purple
+        case .integrations: return .orange
+        case .security, .about: return .gray
+        }
+    }
+
+    /// 分类页:列出这一类下面原有的设置页。「关于」与「服务与集成」里那几行直接长在
+    /// 列表上的内容(版本、检查更新、推送到 Apple TV)也跟着各自的分类走。
+    @ViewBuilder
+    private func categoryPage(_ category: SettingsCategory) -> some View {
+        List {
+            if category == .about {
+                aboutSection(showsHeader: false)
+            } else {
+                Section {
+                    ForEach(listedPages(in: category)) { page in
+                        settingsRow(for: page)
+                    }
+                    if category == .integrations {
+                        AppleTVPushRow()
+                    }
+                }
+            }
+        }
+        .navigationTitle(LocalizedStringKey(category.titleKey))
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.large)
+        #endif
+    }
+
+    // MARK: 分区长列表
+
+    @ViewBuilder private var classicRows: some View {
         // 分组与顺序全部来自 SettingsCatalog。此前这里是一份手写的 Section
         // 列表，和 macOS 侧栏各持一套定义，改一边不会同步另一边 —— 页面加了
         // 却在某一端看不见，正是这么来的。
@@ -224,7 +462,11 @@ struct SettingsView: View {
             }
         }
 
+        aboutSection(showsHeader: true)
+    }
 
+    @ViewBuilder
+    private func aboutSection(showsHeader: Bool) -> some View {
         Section {
             HStack {
                 Label("version", systemImage: "number")
@@ -273,7 +515,9 @@ struct SettingsView: View {
             }
             .settingsAnchor("about.feedback")
         } header: {
-            Text("about")
+            if showsHeader {
+                Text("about")
+            }
         }
         .settingsAnchor("page.about")
     }

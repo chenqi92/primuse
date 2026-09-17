@@ -3478,6 +3478,21 @@
 "navigation_mode_title" = "Navigation";
 "minimal_mode_title" = "Mode minimal";
 "minimal_mode_description" = "Masque la navigation inférieure, place les onglets de la bibliothèque en haut et ouvre les réglages via le bouton latéral.";
+"skin_section_title" = "Habillage de l’interface";
+"skin_section_footer" = "Un habillage modifie ensemble les couleurs, la mise en page et les animations, et apporte ses propres effets plein écran et affiches de paroles.";
+"skin_locked_hint" = "Les habillages marqués d’un cadenas ne sont pas encore disponibles.";
+"skin_state_active" = "Actif";
+"skin_state_locked" = "Verrouillé";
+"skin_detail_interface" = "Toute l’interface";
+"skin_detail_interface_desc" = "Couleurs · Mise en page · Animations";
+"skin_detail_stages_format" = "%d effets plein écran";
+"skin_detail_posters_format" = "%d affiches de paroles";
+"skin_detail_unlock" = "Déverrouiller";
+"skin_detail_unavailable" = "Pas encore disponible";
+"lyric_poster_style_deep_sea" = "Abysses";
+"settings_hub_appearance_title" = "Apparence et habillages";
+"settings_hub_all" = "Tous les réglages";
+"settings_hub_frequent" = "Souvent utilisés";
 
 // MARK: - Authoritative lyrics refresh
 "lyrics_reload_from_source" = "Recharger les paroles depuis la source musicale";

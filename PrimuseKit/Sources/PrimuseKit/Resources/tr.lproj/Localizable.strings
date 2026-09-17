@@ -361,6 +361,13 @@
 "fullscreen_effect_live_waveform" = "Canlı Dalga Formu";
 "src.subtitle.pan123" = "123 Açık Platform OAuth";
 "src.subtitle.guangya"       = "GuangYa Açık Platform OAuth";
+
+"skin.classic.name"          = "Klasik";
+"skin.classic.description"   = "Sekme çubuğu, sistem görünümünü izler";
+"skin.midnight.name"         = "Gece Yarısı";
+"skin.midnight.description"  = "Her zaman koyu, soğuk mavi vurgulu";
+"skin.minimal.name"          = "Minimal";
+"skin.minimal.description"   = "Kapak duvarı, yüzen oynatıcı, arama odaklı gezinme";
 "serverShare.error.unsupported" = "Bu sunucu genel medya bağlantılarını desteklemiyor veya paylaşım devre dışı.";
 "error.catalog.invalidTrackReference" = "Parça referansı geçersiz.";
 "ext.widget.stats.last30Days" = "Son 30 gün";

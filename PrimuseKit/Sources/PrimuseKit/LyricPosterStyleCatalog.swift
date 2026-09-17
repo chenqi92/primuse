@@ -32,6 +32,9 @@ public extension LyricPosterStyleID {
     static let polaroid = LyricPosterStyleID("polaroid")
     /// Cassette J-card with monospaced tracklist chrome.
     static let cassette = LyricPosterStyleID("cassette")
+    /// Deep navy sheet with a cover tile and a glow in the song's colour.
+    /// Arrives with the Minimal interface skin.
+    static let deepSea = LyricPosterStyleID("deep_sea")
 }
 
 /// Poster aspect. Values are the exported pixel sizes, which are also the
@@ -176,6 +179,14 @@ public enum LyricPosterStyleCatalog {
             preferredCanvas: .square,
             requiresArtwork: false,
             order: 7
+        ),
+        LyricPosterStyleDescriptor(
+            id: .deepSea,
+            nameKey: "lyric_poster_style_deep_sea",
+            symbolName: "water.waves",
+            preferredCanvas: .portrait,
+            requiresArtwork: false,
+            order: 8
         ),
     ]
 

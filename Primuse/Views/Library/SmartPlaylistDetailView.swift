@@ -20,6 +20,7 @@ struct SmartPlaylistDetailView: View {
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(ScraperSettingsStore.self) private var scraperSettings
+    @Environment(\.skin) private var skin
 
     @State private var showEditor = false
     @State private var showNoScraperSourceAlert = false
@@ -58,46 +59,85 @@ struct SmartPlaylistDetailView: View {
         #endif
     }
 
+    /// 智能歌单头部。头图怎么画由界面皮肤决定;规则 / 描述摘要在两种画法下都保留。
+    @ViewBuilder
+    private func smartPlaylistHeader(_ smart: SmartPlaylist, matched: [Song]) -> some View {
+        #if os(iOS)
+        switch skin.skin.detailHeader {
+        case .coverWall:
+            VStack(spacing: 10) {
+                CollectionCoverWallHeader(
+                    title: smart.name,
+                    subtitle: "\(matched.count) \(String(localized: "songs_count"))",
+                    titleSymbol: smart.effectiveKind == .ai ? "sparkles" : "slider.horizontal.3",
+                    songs: matched,
+                    nowPlaying: player.currentSong
+                ) {
+                    classicSmartPlaylistHeader(smart, matched: matched, showsSummary: false)
+                }
+                smartPlaylistSummaryText(smart)
+            }
+        case .classic:
+            classicSmartPlaylistHeader(smart, matched: matched, showsSummary: true)
+        }
+        #else
+        classicSmartPlaylistHeader(smart, matched: matched, showsSummary: true)
+        #endif
+    }
+
+    private func smartPlaylistSummaryText(_ smart: SmartPlaylist) -> some View {
+        Text(playlistSummary(smart))
+            .font(.caption)
+            .foregroundStyle(.tertiary)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal)
+            .lineLimit(3)
+    }
+
+    private func classicSmartPlaylistHeader(
+        _ smart: SmartPlaylist,
+        matched: [Song],
+        showsSummary: Bool
+    ) -> some View {
+        VStack(spacing: 8) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(LinearGradient(
+                        colors: smart.effectiveKind == .ai
+                            ? [.pink.opacity(0.78), .orange.opacity(0.72)]
+                            : [.purple.opacity(0.7), .blue.opacity(0.7)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ))
+                Image(systemName: smart.effectiveKind == .ai
+                      ? "sparkles"
+                      : "slider.horizontal.3")
+                    .font(.system(size: 60))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 180, height: 180)
+
+            Text(smart.name)
+                .font(.title2)
+                .fontWeight(.bold)
+
+            Text("\(matched.count) \(String(localized: "songs_count"))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if showsSummary {
+                smartPlaylistSummaryText(smart)
+            }
+        }
+        .padding(.top, 20)
+    }
+
     private func legacyBody(_ matched: [Song]) -> some View {
         Group {
             if let smart {
                 ScrollView {
                     VStack(spacing: 20) {
-                        // Header
-                        VStack(spacing: 8) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 14)
-                                    .fill(LinearGradient(
-                                        colors: smart.effectiveKind == .ai
-                                            ? [.pink.opacity(0.78), .orange.opacity(0.72)]
-                                            : [.purple.opacity(0.7), .blue.opacity(0.7)],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    ))
-                                Image(systemName: smart.effectiveKind == .ai
-                                      ? "sparkles"
-                                      : "slider.horizontal.3")
-                                    .font(.system(size: 60))
-                                    .foregroundStyle(.white)
-                            }
-                            .frame(width: 180, height: 180)
-
-                            Text(smart.name)
-                                .font(.title2)
-                                .fontWeight(.bold)
-
-                            Text("\(matched.count) \(String(localized: "songs_count"))")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-
-                            Text(playlistSummary(smart))
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal)
-                                .lineLimit(3)
-                        }
-                        .padding(.top, 20)
+                        smartPlaylistHeader(smart, matched: matched)
 
                         // Action buttons
                         HStack(spacing: 12) {

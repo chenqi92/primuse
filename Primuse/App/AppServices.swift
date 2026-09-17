@@ -605,6 +605,10 @@ final class AppServices {
     let playbackSettingsStore: PlaybackSettingsStore
     let cloudSync: CloudKitSyncService
     let themeService: ThemeService
+    #if os(iOS)
+    /// 当前皮肤的唯一事实源(仅 iPhone)。
+    let skinRuntime: SkinRuntime
+    #endif
     let scanService: ScanService
     let serverCatalogAutoRefresh: ServerCatalogAutoRefreshCoordinator
     let alwaysDownload: AlwaysDownloadCoordinator
@@ -777,6 +781,9 @@ final class AppServices {
         theme.setCoverDrivenAmbient(MacUIPreferences.shared.coverDrivenAmbient, animated: false)
         #endif
         self.themeService = theme
+        #if os(iOS)
+        self.skinRuntime = SkinRuntime()
+        #endif
         let scanService = ScanService()
         let metadataBackfill = MetadataBackfillService(
             library: library,

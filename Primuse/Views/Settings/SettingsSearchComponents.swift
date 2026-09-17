@@ -4,6 +4,9 @@ import PrimuseKit
 
 enum SettingsDestination: Hashable {
     case page(SettingsPage, String?)
+    /// 设置枢纽里的一个分类页。第二个值是要在这一页上定位并高亮的设置项
+    /// (版本信息、推送到 Apple TV 这类直接长在列表里的行)。
+    case category(SettingsCategory, String?)
 }
 
 @MainActor

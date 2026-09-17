@@ -600,6 +600,8 @@ struct NowPlayingView: View {
     // LyricsScrollView 子 view 自己读 AppStorage("lyricsFontScale")。
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
     @AppStorage(LyricPosterPreferences.styleKey) private var lyricPosterStyleRawValue = ""
+    /// 只用来读当前界面皮肤建议的海报款式;皮肤很少变,不会给播放页带来额外的重绘。
+    @Environment(\.skin) private var skin
     @AppStorage(LyricPosterPreferences.canvasKey) private var lyricPosterCanvasRawValue = ""
     @AppStorage(LyricPosterPreferences.prefersMotionKey)
     private var lyricPosterPrefersMotion = LyricPosterPreferences.prefersMotionByDefault
@@ -831,6 +833,14 @@ struct NowPlayingView: View {
 
     /// 打开歌词海报。`anchorLineID` 来自长按的那一句; 从"更多"菜单进入时
     /// 为 nil, 由策略按当前播放位置定位。
+    /// 手选过款式就用手选的;从没选过时,用当前界面皮肤带来的那一款。
+    private var initialLyricPosterStyleID: LyricPosterStyleID? {
+        if !lyricPosterStyleRawValue.isEmpty {
+            return LyricPosterStyleID(lyricPosterStyleRawValue)
+        }
+        return skin.skin.companions.preferredLyricPosterStyleID.map { LyricPosterStyleID($0) }
+    }
+
     private func presentLyricPoster(anchorLineID: String?) {
         guard let song = player.currentSong else { return }
         let composer = LyricPosterComposer.make(
@@ -840,9 +850,7 @@ struct NowPlayingView: View {
             playbackPosition: player.currentTime,
             anchorLineID: anchorLineID,
             writingDirection: lyricsWritingDirection,
-            styleID: lyricPosterStyleRawValue.isEmpty
-                ? nil
-                : LyricPosterStyleID(lyricPosterStyleRawValue),
+            styleID: initialLyricPosterStyleID,
             canvas: LyricPosterCanvas(rawValue: lyricPosterCanvasRawValue),
             prefersMotion: lyricPosterPrefersMotion,
             includesTranslation: lyricPosterIncludesTranslation,

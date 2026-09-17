@@ -14,6 +14,7 @@ struct PlaylistDetailView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(MusicScraperService.self) private var scraperService
+    @Environment(\.skin) private var skin
     let playlist: Playlist
     private let onMacInlineBack: (() -> Void)?
 
@@ -251,27 +252,57 @@ struct PlaylistDetailView: View {
         }
     }
 
+    /// 歌单头部。头图怎么画由界面皮肤决定;标题、歌曲数这些内容只有这一份。
+    @ViewBuilder
+    private var playlistHeader: some View {
+        #if os(iOS)
+        switch skin.skin.detailHeader {
+        case .coverWall:
+            CollectionCoverWallHeader(
+                title: currentPlaylist?.name ?? playlist.name,
+                subtitle: playlistSongCountText,
+                titleSymbol: playlist.id == MusicLibrary.likedSongsPlaylistID ? "heart.fill" : nil,
+                songs: songs,
+                nowPlaying: player.currentSong
+            ) {
+                classicPlaylistHeader
+            }
+        case .classic:
+            classicPlaylistHeader
+        }
+        #else
+        classicPlaylistHeader
+        #endif
+    }
+
+    private var playlistSongCountText: String {
+        "\(songs.count) \(String(localized: "songs_count"))"
+    }
+
+    private var classicPlaylistHeader: some View {
+        VStack(spacing: 8) {
+            PlaylistArtworkView(
+                playlist: currentPlaylist ?? playlist,
+                size: 180,
+                cornerRadius: 14,
+                placeholderIcon: coverPlaceholderIcon
+            )
+
+            Text(currentPlaylist?.name ?? playlist.name)
+                .font(.title2)
+                .fontWeight(.bold)
+
+            Text(playlistSongCountText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.top, 20)
+    }
+
     private var legacyPlaylistDetail: some View {
         ScrollView {
             VStack(spacing: 20) {
-                // Playlist header
-                VStack(spacing: 8) {
-                    PlaylistArtworkView(
-                        playlist: currentPlaylist ?? playlist,
-                        size: 180,
-                        cornerRadius: 14,
-                        placeholderIcon: coverPlaceholderIcon
-                    )
-
-                    Text(currentPlaylist?.name ?? playlist.name)
-                        .font(.title2)
-                        .fontWeight(.bold)
-
-                    Text("\(songs.count) \(String(localized: "songs_count"))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.top, 20)
+                playlistHeader
 
                 if isCurrentPlaylistScraping {
                     batchScrapeProgressCard

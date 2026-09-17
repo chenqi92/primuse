@@ -25,6 +25,13 @@
 "src.subtitle.pan123" = "123 Open Platform OAuth";
 "src.subtitle.guangya"       = "GuangYa Open Platform OAuth";
 
+"skin.classic.name"          = "Klassisch";
+"skin.classic.description"   = "Tab-Leiste, folgt dem Systemerscheinungsbild";
+"skin.midnight.name"         = "Mitternacht";
+"skin.midnight.description"  = "Immer dunkel, mit kühlem Blau als Akzent";
+"skin.minimal.name"          = "Minimal";
+"skin.minimal.description"   = "Cover-Wand, schwebender Player, Navigation über die Suche";
+
 // Widget- und Kontrollzentrum-Erweiterungen
 "ext.widget.appName"                       = "Primuse";
 "ext.widget.unknownSong"                   = "Unbekannter Titel";

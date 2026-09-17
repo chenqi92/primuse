@@ -657,6 +657,13 @@
 "src.subtitle.pan115" = "115 แพลตฟอร์มเปิด · เร็วๆ นี้";
 "src.subtitle.pan123" = "123 แพลตฟอร์มเปิด OAuth";
 "src.subtitle.guangya"       = "GuangYa แพลตฟอร์มเปิด OAuth";
+
+"skin.classic.name"          = "คลาสสิก";
+"skin.classic.description"   = "แถบแท็บ ตามลักษณะที่ปรากฏของระบบ";
+"skin.midnight.name"         = "เที่ยงคืน";
+"skin.midnight.description"  = "มืดเสมอ พร้อมสีน้ำเงินเย็นเป็นสีเน้น";
+"skin.minimal.name"          = "มินิมอล";
+"skin.minimal.description"   = "กำแพงปก เครื่องเล่นแบบลอย และการนำทางที่เริ่มจากการค้นหา";
 "src.subtitle.plex" = "Plex เซิร์ฟเวอร์สื่อ";
 "src.subtitle.sftp" = "SSH · การรับรองความถูกต้องของคีย์";
 "src.subtitle.upnp" = "การค้นพบอัตโนมัติ";

@@ -363,6 +363,8 @@ private struct MinimalNavigationRootModifier: ViewModifier {
             content
                 // Empty states have an intrinsic height; bars need the full page bounds.
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // 每个根页面都经过这里,样式自己的页面底色在这一处挂上,不必逐页去改。
+                .skinPageBackground()
                 .toolbar(.hidden, for: .navigationBar)
                 .minimalSafeAreaBar(edge: .top) { bars?.top }
                 .minimalSafeAreaBar(edge: .bottom) { bars?.bottom }
@@ -385,6 +387,7 @@ private struct MinimalNavigationDetailModifier: ViewModifier {
         if isDetail, appNavigationMode == .minimal, let detailScope {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .skinPageBackground()
                 .preference(
                     key: MinimalNavigationDetailScopesPreferenceKey.self,
                     value: Set([detailScope])
@@ -661,6 +664,9 @@ struct ContentView: View {
     @State private var settingsSearch = SettingsSearchState()
     @State private var showNowPlaying = false
     @State private var nowPlayingPresentationID = UUID()
+    /// 悬浮播放条上的队列入口。sheet 挂在这一层而不是播放条里:播放条住在 safeAreaBar 里,
+    /// 从那里弹出面板要依赖它所在宿主的呈现上下文。
+    @State private var showQueueFromBottomChrome = false
     @State private var batchSelectionActive = false
     @State private var carPlayEditorActive = false
     @State private var pendingPlaybackRemovalIDs: Set<String> = []
@@ -685,10 +691,9 @@ struct ContentView: View {
     private var hiddenLibrarySectionsRawValue = ""
     @State private var showInitialOnboarding = false
     private let legacyTabBarClearance: CGFloat = 49
-    /// 极简顶栏折叠时让出的分类行高度,跟着动态字体走。折叠判定要靠它算滞回带宽。
-    @ScaledMetric(relativeTo: .subheadline)
-    private var minimalCategoryRowHeight: CGFloat =
-        MinimalNavigationChromeMetrics.categoryRowHeight
+    /// 顶栏几何来自当前界面样式。折叠判定要用同一组数值算滞回带宽,
+    /// 否则样式把分类行做高之后,带宽会小于顶栏让出的高度,列表又会自己抽搐。
+    @Environment(\.skin) private var skin
 
     /// 与 mainContent 里 LegacyNowPlayingAccessory 的挂载条件同源。
     private var legacyBottomChromeOverlayActive: Bool {
@@ -730,7 +735,7 @@ struct ContentView: View {
     }
 
     private var minimalCollapsibleChromeHeight: CGFloat {
-        minimalCategoryRowHeight + MinimalNavigationChromeMetrics.categoryRowTopPadding
+        skin.metric(.chromeChipRowHeight) + skin.metric(.chromeChipRowSpacing)
     }
 
     private var minimalTopNavigationHidden: Bool {
@@ -839,10 +844,18 @@ struct ContentView: View {
     private var minimalBottomChrome: some View {
         if miniPlayerVisible {
             Group {
-                if sizeClass == .regular {
-                    PadNowPlayingAccessory(onTap: presentNowPlaying)
-                } else {
-                    MinimalNowPlayingAccessory(onTap: presentNowPlaying)
+                switch skin.skin.bottomChrome {
+                case .floatingCapsule:
+                    FloatingCapsulePlayerBar(
+                        onTap: presentNowPlaying,
+                        onOpenQueue: { showQueueFromBottomChrome = true }
+                    )
+                case .classic:
+                    if sizeClass == .regular {
+                        PadNowPlayingAccessory(onTap: presentNowPlaying)
+                    } else {
+                        MinimalNowPlayingAccessory(onTap: presentNowPlaying)
+                    }
                 }
             }
             .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -884,10 +897,7 @@ struct ContentView: View {
         .clipped()
         .allowsHitTesting(!minimalTopNavigationHidden && !batchSelectionActive)
         .accessibilityHidden(minimalTopNavigationHidden || batchSelectionActive)
-        .animation(
-            reduceMotion ? nil : .smooth(duration: 0.26, extraBounce: 0),
-            value: minimalTopNavigationHidden
-        )
+        .animation(skin.animation(.chromeReveal), value: minimalTopNavigationHidden)
     }
 
     @ViewBuilder
@@ -1163,6 +1173,11 @@ struct ContentView: View {
         }
         .fullScreenCover(item: $autoYearlyReport) { data in
             YearlyReportView(data: data)
+        }
+        .sheet(isPresented: $showQueueFromBottomChrome) {
+            QueueView(player: player)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
         // 首启 onboarding —— 仅当未看过且库里没源 (避免 CloudKit 同步迟到时
         // 让老用户重看一次)
@@ -1793,22 +1808,56 @@ private struct MinimalTopNavigationBar: View {
     let onSubmitSearch: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.skin) private var skin
     @FocusState private var searchFieldFocused: Bool
     @Namespace private var librarySelectionIndicator
 
-    // 固定高度与字号跟随 Dynamic Type；默认字号下数值与原来一致。
-    @ScaledMetric(relativeTo: .subheadline)
-    private var chipRowHeight: CGFloat = MinimalNavigationChromeMetrics.categoryRowHeight
-    @ScaledMetric(relativeTo: .subheadline) private var chipHeight: CGFloat = 34
-    @ScaledMetric(relativeTo: .subheadline) private var collapsedChipHeight: CGFloat = 44
-    @ScaledMetric(relativeTo: .subheadline) private var searchFieldMinHeight: CGFloat = 44
-    @ScaledMetric(relativeTo: .subheadline) private var chipFontSize: CGFloat = 14.5
-    @ScaledMetric(relativeTo: .subheadline) private var collapsedChipFontSize: CGFloat = 14
-    @ScaledMetric(relativeTo: .subheadline) private var searchFontSize: CGFloat = 15.5
+    // 尺寸、间距与字号来自当前皮肤,并已按 Dynamic Type 缩放(见 `SkinStyle`)。
+    // 经典皮肤给出的正是这里原来的字面量,所以默认观感不变。
+    //
+    // 进 token 的只有「多处共用的词汇」:高度、间距、字号、主色。组件私有的
+    // 微调 —— 玻璃材质、0.5 描边、阴影参数、聚焦态描边的透明度 —— 留在本文件里,
+    // 它们属于这个 chrome 实现本身。往全局 token 表塞只有一个消费者的条目,
+    // 表会迅速膨胀到没人能通读,那时换皮肤又会退回「逐视图分叉」。
+    // 另一套皮肤要改这些细节,应当换一个 `SkinSlot.navigationHeader` 实现。
+    private var chipRowHeight: CGFloat { skin.metric(.chromeChipRowHeight) }
+    private var chipHeight: CGFloat { skin.metric(.chromeChipHeight) }
+    private var collapsedChipHeight: CGFloat { skin.metric(.chromeCollapsedChipHeight) }
+    private var searchFieldMinHeight: CGFloat { skin.metric(.chromeSearchFieldHeight) }
+    private var chipFontSize: CGFloat { skin.fontSize(.chrome) }
+    private var collapsedChipFontSize: CGFloat { skin.fontSize(.chromeCompact) }
+    private var searchFontSize: CGFloat { skin.fontSize(.chromeField) }
+    /// 圆形按钮的触达尺寸。用未缩放值:今天这里就是固定 44,改成随字号放大
+    /// 会连带改变顶栏布局,那是外观改动,不该混在这次结构调整里。
+    private var actionButtonSize: CGFloat { skin.rawMetric(.controlHeightLarge) }
+
+    /// 自己画页面底色的样式,顶栏控件用样式给的半透明面与描边;经典样式保持原来的
+    /// 毛玻璃叠灰、细描边和一点投影。两种材质是这条栏自己的事,所以留在这里而不进 token 表。
+    private var usesCanvasChrome: Bool { skin.paintsPageBackground }
+
+    private var controlStroke: Color {
+        usesCanvasChrome ? skin.color(.surfaceBorder) : skin.color(.textPrimary).opacity(0.1)
+    }
+
+    private var controlShadow: Color {
+        usesCanvasChrome ? Color.clear : Color.black.opacity(0.07)
+    }
+
+    @ViewBuilder
+    private func controlFill<S: Shape>(_ shape: S) -> some View {
+        if usesCanvasChrome {
+            shape.fill(skin.color(.surface))
+        } else {
+            ZStack {
+                shape.fill(skin.color(.textSecondary).opacity(0.08))
+                shape.fill(.thinMaterial)
+            }
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
+            HStack(spacing: skin.metric(.chromeItemSpacing)) {
                 libraryHomeButton
 
                 searchField
@@ -1822,11 +1871,11 @@ private struct MinimalTopNavigationBar: View {
                 if selection == .search, let searchContext {
                     SearchScopeSwitchButton(scope: $searchScope, context: searchContext)
                         .labelStyle(.iconOnly)
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.system(size: skin.rawMetric(.iconSizeMedium), weight: .semibold))
                         .buttonStyle(.plain)
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(skin.color(.accent))
                         .fixedSize(horizontal: true, vertical: false)
-                        .background(Color.accentColor.opacity(0.14), in: Circle())
+                        .background(skin.color(.accentSoft), in: Circle())
                 }
 
                 actionButton(
@@ -1835,21 +1884,21 @@ private struct MinimalTopNavigationBar: View {
                     title: "settings_title"
                 )
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, skin.metric(.chromeHorizontalInset))
 
             if !categoriesCollapsed {
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 7) {
+                        HStack(spacing: skin.metric(.chromeChipSpacing)) {
                             ForEach(libraryPages) { page in
                                 libraryButton(page)
                                     .id(page.id)
                             }
                         }
-                        .padding(.horizontal, 12)
+                        .padding(.horizontal, skin.metric(.chromeHorizontalInset))
                     }
                     .frame(height: chipRowHeight)
-                    .padding(.top, MinimalNavigationChromeMetrics.categoryRowTopPadding)
+                    .padding(.top, skin.metric(.chromeChipRowSpacing))
                     .onChange(of: selection.id, initial: true) { _, pageID in
                         guard libraryPages.contains(where: { $0.id == pageID }) else { return }
                         if reduceMotion {
@@ -1864,12 +1913,9 @@ private struct MinimalTopNavigationBar: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .padding(.top, 6)
-        .padding(.bottom, 8)
-        .animation(
-            reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.86),
-            value: categoriesCollapsed
-        )
+        .padding(.top, skin.metric(.chromeTopPadding))
+        .padding(.bottom, skin.metric(.chromeBottomPadding))
+        .animation(skin.animation(.chromeCollapse), value: categoriesCollapsed)
         .onChange(of: selection) { _, newSelection in
             settingsSearchPresented = false
             if newSelection != .search {
@@ -1902,8 +1948,8 @@ private struct MinimalTopNavigationBar: View {
     private var searchField: some View {
         HStack(spacing: 9) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(searchFieldFocused ? Color.accentColor : Color.secondary)
+                .font(.system(size: skin.rawMetric(.iconSizeMedium), weight: .semibold))
+                .foregroundStyle(searchFieldFocused ? skin.color(.accent) : skin.color(.textSecondary))
 
             TextField(searchPrompt, text: $searchText)
                 .font(.system(size: searchFontSize))
@@ -1936,18 +1982,19 @@ private struct MinimalTopNavigationBar: View {
         .padding(.leading, 14)
         .padding(.trailing, searchText.isEmpty ? 14 : 6)
         .frame(maxWidth: .infinity, minHeight: searchFieldMinHeight)
-        .background(.thinMaterial, in: Capsule())
-        .background(Color.secondary.opacity(0.08), in: Capsule())
+        .background { controlFill(Capsule()) }
         .overlay {
             Capsule()
                 .stroke(
                     searchFieldFocused
-                        ? Color.accentColor.opacity(0.55)
-                        : Color.primary.opacity(0.08),
+                        ? skin.color(.accent).opacity(0.55)
+                        : (usesCanvasChrome
+                            ? skin.color(.surfaceBorder)
+                            : skin.color(.textPrimary).opacity(0.08)),
                     lineWidth: searchFieldFocused ? 1.5 : 1
                 )
         }
-        .shadow(color: Color.black.opacity(0.07), radius: 5, y: 2)
+        .shadow(color: controlShadow, radius: 5, y: 2)
         .contentShape(Capsule())
         .simultaneousGesture(
             TapGesture().onEnded {
@@ -1965,16 +2012,19 @@ private struct MinimalTopNavigationBar: View {
         } label: {
             Image(systemName: "books.vertical")
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Color.secondary)
-                .frame(width: 44, height: 44)
+                .foregroundStyle(skin.color(.textSecondary))
+                .frame(width: actionButtonSize, height: actionButtonSize)
                 .contentShape(Rectangle())
-                .background(.thinMaterial, in: Circle())
-                .background(Color.secondary.opacity(0.08), in: Circle())
+                .background { controlFill(Circle()) }
                 .overlay {
                     Circle()
-                        .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5)
+                        .strokeBorder(controlStroke, lineWidth: usesCanvasChrome ? 1 : 0.5)
                 }
-                .shadow(color: Color.black.opacity(0.08), radius: 5, y: 2)
+                .shadow(
+                    color: usesCanvasChrome ? Color.clear : Color.black.opacity(0.08),
+                    radius: 5,
+                    y: 2
+                )
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text("library_title"))
@@ -1991,19 +2041,32 @@ private struct MinimalTopNavigationBar: View {
         } label: {
             Image(systemName: systemImage)
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 44, height: 44)
+                // 经典样式里这个键一直是强调色;自己画底色的样式里,只有选中时才点亮。
+                .foregroundStyle(
+                    usesCanvasChrome && !isSelected ? skin.color(.chromeItem) : skin.color(.accent)
+                )
+                .frame(width: actionButtonSize, height: actionButtonSize)
                 .contentShape(Rectangle())
                 .background {
-                    Circle()
-                        .fill(Color.accentColor.opacity(isSelected ? 0.2 : 0.14))
+                    if usesCanvasChrome {
+                        Circle().fill(isSelected ? skin.color(.chipSelected) : skin.color(.surface))
+                    } else {
+                        ZStack {
+                            Circle().fill(.thinMaterial)
+                            Circle().fill(skin.color(.accent).opacity(isSelected ? 0.2 : 0.14))
+                        }
+                    }
                 }
-                .background(.thinMaterial, in: Circle())
                 .overlay {
                     Circle()
-                        .strokeBorder(Color.accentColor.opacity(0.32), lineWidth: 0.5)
+                        .strokeBorder(
+                            usesCanvasChrome && !isSelected
+                                ? skin.color(.surfaceBorder)
+                                : skin.color(.accent).opacity(usesCanvasChrome ? 0.42 : 0.32),
+                            lineWidth: usesCanvasChrome ? 1 : 0.5
+                        )
                 }
-                .shadow(color: Color.black.opacity(0.07), radius: 5, y: 2)
+                .shadow(color: controlShadow, radius: 5, y: 2)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(title))
@@ -2016,8 +2079,13 @@ private struct MinimalTopNavigationBar: View {
             select(page)
         } label: {
             pageTitle(page)
-                .font(.system(size: chipFontSize, weight: isSelected ? .semibold : .regular))
-                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                .font(
+                    .system(
+                        size: chipFontSize,
+                        weight: isSelected ? .semibold : skin.fontWeight(.chrome)
+                    )
+                )
+                .foregroundStyle(isSelected ? skin.color(.accent) : skin.color(.textSecondary))
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
                 .padding(.horizontal, 15)
@@ -2025,22 +2093,22 @@ private struct MinimalTopNavigationBar: View {
                 .background {
                     if isSelected {
                         Capsule()
-                            .fill(Color.accentColor.opacity(0.16))
+                            .fill(skin.color(.chipSelected))
                             .matchedGeometryEffect(
                                 id: "minimal-library-selection",
                                 in: librarySelectionIndicator
                             )
                     } else {
                         Capsule()
-                            .fill(Color.secondary.opacity(0.1))
+                            .fill(skin.color(.chip))
                     }
                 }
                 .overlay {
                     Capsule()
                         .strokeBorder(
                             isSelected
-                                ? Color.accentColor.opacity(0.38)
-                                : Color.primary.opacity(0.06),
+                                ? skin.color(.accent).opacity(0.38)
+                                : skin.color(.textPrimary).opacity(0.06),
                             lineWidth: 0.5
                         )
                 }
@@ -2056,19 +2124,24 @@ private struct MinimalTopNavigationBar: View {
         } label: {
             HStack(spacing: 5) {
                 pageTitle(page)
-                    .font(.system(size: collapsedChipFontSize, weight: .semibold))
+                    .font(
+                        .system(
+                            size: collapsedChipFontSize,
+                            weight: skin.fontWeight(.chromeCompact)
+                        )
+                    )
                     .lineLimit(1)
 
                 Image(systemName: "chevron.down")
                     .font(.system(size: 10, weight: .bold))
             }
-            .foregroundStyle(Color.accentColor)
-            .padding(.horizontal, 12)
+            .foregroundStyle(skin.color(.accent))
+            .padding(.horizontal, skin.metric(.chromeHorizontalInset))
             .frame(height: collapsedChipHeight)
-            .background(Color.accentColor.opacity(0.16), in: Capsule())
+            .background(skin.color(.chipSelected), in: Capsule())
             .overlay {
                 Capsule()
-                    .strokeBorder(Color.accentColor.opacity(0.38), lineWidth: 0.5)
+                    .strokeBorder(skin.color(.accent).opacity(0.38), lineWidth: 0.5)
             }
             .contentShape(Capsule())
         }
@@ -2085,12 +2158,12 @@ private struct MinimalTopNavigationBar: View {
             settingsSearchPresented = false
             searchFieldFocused = false
         }
-        if reduceMotion {
-            onSelect(page)
-        } else {
-            withAnimation(.easeOut(duration: 0.18)) {
+        if let animation = skin.animation(.pageSwitch) {
+            withAnimation(animation) {
                 onSelect(page)
             }
+        } else {
+            onSelect(page)
         }
     }
 

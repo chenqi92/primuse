@@ -657,6 +657,13 @@
 "src.subtitle.pan115" = "115 Otwarta platforma · Już wkrótce";
 "src.subtitle.pan123" = "123 Otwarta platforma OAuth";
 "src.subtitle.guangya"       = "GuangYa Otwarta platforma OAuth";
+
+"skin.classic.name"          = "Klasyczna";
+"skin.classic.description"   = "Pasek kart, zgodna z wyglądem systemu";
+"skin.midnight.name"         = "Północ";
+"skin.midnight.description"  = "Zawsze ciemna, z chłodnym niebieskim akcentem";
+"skin.minimal.name"          = "Minimalna";
+"skin.minimal.description"   = "Ściana okładek, pływający odtwarzacz, nawigacja przez wyszukiwanie";
 "src.subtitle.plex" = "Serwer multimediów Plex";
 "src.subtitle.sftp" = "SSH · Uwierzytelnianie kluczem";
 "src.subtitle.upnp" = "Automatyczne wykrywanie";

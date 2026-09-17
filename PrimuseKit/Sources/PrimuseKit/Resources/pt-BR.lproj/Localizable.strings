@@ -657,6 +657,13 @@
 "src.subtitle.pan115" = "Plataforma Aberta 115 · Em breve";
 "src.subtitle.pan123" = "123 Plataforma Aberta OAuth";
 "src.subtitle.guangya"       = "GuangYa Plataforma Aberta OAuth";
+
+"skin.classic.name"          = "Clássico";
+"skin.classic.description"   = "Barra de abas, segue a aparência do sistema";
+"skin.midnight.name"         = "Meia-noite";
+"skin.midnight.description"  = "Sempre escuro, com destaque azul frio";
+"skin.minimal.name"          = "Mínimo";
+"skin.minimal.description"   = "Mural de capas, player flutuante e navegação centrada na busca";
 "src.subtitle.plex" = "Servidor de mídia Plex";
 "src.subtitle.sftp" = "SSH · Autenticação de chave";
 "src.subtitle.upnp" = "Descoberta automática";

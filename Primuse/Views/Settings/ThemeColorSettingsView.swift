@@ -35,22 +35,9 @@ enum IOSAppearancePreference: String, CaseIterable, Sendable {
 struct AppearanceSettingsView: View {
     @AppStorage(AppThemePreferences.iOSAppearanceKey)
     private var appearanceRawValue = IOSAppearancePreference.system.rawValue
-    @AppStorage(AppNavigationMode.storageKey)
-    private var navigationModeRawValue = AppNavigationMode.standard.rawValue
 
     private var selection: IOSAppearancePreference {
         IOSAppearancePreference(rawValue: appearanceRawValue) ?? .system
-    }
-
-    private var minimalModeEnabled: Binding<Bool> {
-        Binding(
-            get: { AppNavigationMode.resolve(navigationModeRawValue) == .minimal },
-            set: { isEnabled in
-                navigationModeRawValue = (isEnabled
-                    ? AppNavigationMode.minimal
-                    : AppNavigationMode.standard).rawValue
-            }
-        )
     }
 
     var body: some View {
@@ -82,16 +69,8 @@ struct AppearanceSettingsView: View {
             }
             .settingsAnchor("appearance.scheme")
 
-            Section {
-                Toggle(isOn: minimalModeEnabled) {
-                    Label("minimal_mode_title", systemImage: "rectangle.topthird.inset.filled")
-                }
-            } header: {
-                Text("navigation_mode_title")
-            } footer: {
-                Text("minimal_mode_description")
-            }
-            .settingsAnchor("appearance.minimalNavigation")
+            // 「极简模式」不再是单独的开关:导航方式由界面皮肤决定,极简就是其中一套。
+            SkinSettingsSection()
 
             // 主题色与 App 图标改的都是这一层外壳的样子，直接平铺在这一页上：
             // 都是要靠眼睛挑的东西，多一次跳转就得来回对比。

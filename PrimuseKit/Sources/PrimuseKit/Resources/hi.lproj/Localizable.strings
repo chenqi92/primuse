@@ -657,6 +657,13 @@
 "src.subtitle.pan115" = "115 खुला मंच · जल्द आ रहा है";
 "src.subtitle.pan123" = "123 खुला मंच OAuth";
 "src.subtitle.guangya"       = "GuangYa खुला मंच OAuth";
+
+"skin.classic.name"          = "क्लासिक";
+"skin.classic.description"   = "टैब बार, सिस्टम के स्वरूप का पालन करती है";
+"skin.midnight.name"         = "मिडनाइट";
+"skin.midnight.description"  = "हमेशा डार्क, ठंडे नीले उच्चारण के साथ";
+"skin.minimal.name"          = "न्यूनतम";
+"skin.minimal.description"   = "कवर वॉल, फ़्लोटिंग प्लेयर, खोज-केंद्रित नेविगेशन";
 "src.subtitle.plex" = "Plex मीडिया सर्वर";
 "src.subtitle.sftp" = "SSH · कुंजी प्रमाणीकरण";
 "src.subtitle.upnp" = "स्वचालित खोज";

@@ -3478,6 +3478,21 @@
 "navigation_mode_title" = "Navigation";
 "minimal_mode_title" = "Minimalmodus";
 "minimal_mode_description" = "Blendet die untere Navigation aus, verschiebt die Mediathek-Tabs nach oben und öffnet die Einstellungen über die seitliche Taste.";
+"skin_section_title" = "Oberflächen-Skin";
+"skin_section_footer" = "Ein Skin ändert Farben, Layout und Bewegung gemeinsam und bringt eigene Vollbildeffekte und Songtext-Poster mit.";
+"skin_locked_hint" = "Skins mit Schloss sind noch nicht verfügbar.";
+"skin_state_active" = "Aktiv";
+"skin_state_locked" = "Gesperrt";
+"skin_detail_interface" = "Die gesamte Oberfläche";
+"skin_detail_interface_desc" = "Farben · Layout · Bewegung";
+"skin_detail_stages_format" = "%d Vollbildeffekte";
+"skin_detail_posters_format" = "%d Songtext-Poster";
+"skin_detail_unlock" = "Entsperren";
+"skin_detail_unavailable" = "Noch nicht verfügbar";
+"lyric_poster_style_deep_sea" = "Tiefsee";
+"settings_hub_appearance_title" = "Erscheinungsbild & Skins";
+"settings_hub_all" = "Alle Einstellungen";
+"settings_hub_frequent" = "Häufig verwendet";
 
 // MARK: - Authoritative lyrics refresh
 "lyrics_reload_from_source" = "Liedtext aus Musikquelle neu laden";

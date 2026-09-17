@@ -254,6 +254,8 @@ final class LyricPosterStyleRegistry {
         register(NeonNightPosterStyle())
         register(PolaroidPosterStyle())
         register(CassettePosterStyle())
+        // 随界面皮肤提供的款式。
+        register(DeepSeaPosterStyle())
     }
 }
 

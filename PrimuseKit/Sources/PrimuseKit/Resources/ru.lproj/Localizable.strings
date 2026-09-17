@@ -361,6 +361,13 @@
 "fullscreen_effect_live_waveform" = "Живая форма волны";
 "src.subtitle.pan123" = "123 Открытая платформа OAuth";
 "src.subtitle.guangya"       = "GuangYa Открытая платформа OAuth";
+
+"skin.classic.name"          = "Классическая";
+"skin.classic.description"   = "Панель вкладок, следует системному оформлению";
+"skin.midnight.name"         = "Полночь";
+"skin.midnight.description"  = "Всегда тёмная, с холодным синим акцентом";
+"skin.minimal.name"          = "Минимальный";
+"skin.minimal.description"   = "Стена обложек, плавающий плеер, навигация через поиск";
 "serverShare.error.unsupported" = "Этот сервер не поддерживает общедоступные медиа-ссылки, или общий доступ отключен.";
 "error.catalog.invalidTrackReference" = "Неверная ссылка на дорожку.";
 "ext.widget.stats.last30Days" = "Последние 30 дней";

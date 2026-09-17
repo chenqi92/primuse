@@ -657,6 +657,13 @@
 "src.subtitle.pan115" = "115 منصة مفتوحة · قريباً";
 "src.subtitle.pan123" = "123 منصة مفتوحة OAuth";
 "src.subtitle.guangya"       = "GuangYa منصة مفتوحة OAuth";
+
+"skin.classic.name"          = "كلاسيكي";
+"skin.classic.description"   = "شريط علامات التبويب، يتبع مظهر النظام";
+"skin.midnight.name"         = "منتصف الليل";
+"skin.midnight.description"  = "داكن دائمًا مع لون أزرق بارد";
+"skin.minimal.name"          = "الأدنى";
+"skin.minimal.description"   = "جدار أغلفة، مشغّل عائم، وتنقّل يبدأ بالبحث";
 "src.subtitle.plex" = "Plex خادم الوسائط";
 "src.subtitle.sftp" = "SSH · مفتاح التوثيق";
 "src.subtitle.upnp" = "الاكتشاف التلقائي";

@@ -3263,6 +3263,21 @@
 "navigation_mode_title" = "Navigation";
 "minimal_mode_title" = "Minimal Mode";
 "minimal_mode_description" = "Hides the bottom navigation bar, moves Library switching to the top, and opens Settings from the side button.";
+"skin_section_title" = "Interface Skin";
+"skin_section_footer" = "A skin changes colors, layout, and motion together, and brings its own full-screen effects and lyric posters.";
+"skin_locked_hint" = "Skins with a lock aren’t available yet.";
+"skin_state_active" = "In Use";
+"skin_state_locked" = "Locked";
+"skin_detail_interface" = "The whole interface";
+"skin_detail_interface_desc" = "Colors · Layout · Motion";
+"skin_detail_stages_format" = "%d full-screen effects";
+"skin_detail_posters_format" = "%d lyric posters";
+"skin_detail_unlock" = "Unlock";
+"skin_detail_unavailable" = "Not available yet";
+"lyric_poster_style_deep_sea" = "Deep Sea";
+"settings_hub_appearance_title" = "Appearance & Skins";
+"settings_hub_all" = "All Settings";
+"settings_hub_frequent" = "Frequently Used";
 
 // MARK: - Authoritative lyrics refresh
 "lyrics_reload_from_source" = "Reload Lyrics from Music Source";

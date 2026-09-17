@@ -22,6 +22,13 @@
 "src.subtitle.pan123" = "123 開放平台 OAuth";
 "src.subtitle.guangya"       = "光鴨開放平台 OAuth";
 
+"skin.classic.name"          = "經典";
+"skin.classic.description"   = "標籤列導覽,跟隨系統外觀";
+"skin.midnight.name"         = "午夜";
+"skin.midnight.description"  = "恆定深色,冷藍強調";
+"skin.minimal.name"          = "極簡";
+"skin.minimal.description"   = "封面牆、懸浮播放列、搜尋優先的導覽";
+
 // 小工具與控制中心擴充
 "ext.widget.appName"                       = "Primuse";
 "ext.widget.unknownSong"                   = "未知歌曲";

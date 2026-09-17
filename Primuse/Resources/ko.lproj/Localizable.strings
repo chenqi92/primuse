@@ -3478,6 +3478,21 @@
 "navigation_mode_title" = "탐색";
 "minimal_mode_title" = "미니멀 모드";
 "minimal_mode_description" = "하단 탐색 막대를 숨기고 보관함 탭을 상단으로 옮기며 측면 버튼에서 설정을 엽니다.";
+"skin_section_title" = "인터페이스 스킨";
+"skin_section_footer" = "스킨은 색상, 레이아웃, 모션을 함께 바꾸고 전용 전체 화면 효과와 가사 포스터도 함께 제공합니다.";
+"skin_locked_hint" = "자물쇠가 표시된 스킨은 아직 사용할 수 없습니다.";
+"skin_state_active" = "사용 중";
+"skin_state_locked" = "잠김";
+"skin_detail_interface" = "전체 인터페이스";
+"skin_detail_interface_desc" = "색상 · 레이아웃 · 모션";
+"skin_detail_stages_format" = "전체 화면 효과 %d개";
+"skin_detail_posters_format" = "가사 포스터 %d개";
+"skin_detail_unlock" = "잠금 해제";
+"skin_detail_unavailable" = "아직 사용할 수 없음";
+"lyric_poster_style_deep_sea" = "딥 시";
+"settings_hub_appearance_title" = "화면 표시 및 스킨";
+"settings_hub_all" = "모든 설정";
+"settings_hub_frequent" = "자주 사용";
 
 // MARK: - Authoritative lyrics refresh
 "lyrics_reload_from_source" = "음악 소스에서 가사 다시 불러오기";

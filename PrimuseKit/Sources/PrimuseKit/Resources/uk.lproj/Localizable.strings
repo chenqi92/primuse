@@ -361,6 +361,13 @@
 "fullscreen_effect_live_waveform" = "Жива форма сигналу";
 "src.subtitle.pan123" = "123 Відкрита платформа OAuth";
 "src.subtitle.guangya"       = "GuangYa Відкрита платформа OAuth";
+
+"skin.classic.name"          = "Класична";
+"skin.classic.description"   = "Панель вкладок, дотримується системного оформлення";
+"skin.midnight.name"         = "Північ";
+"skin.midnight.description"  = "Завжди темна, з холодним синім акцентом";
+"skin.minimal.name"          = "Мінімальний";
+"skin.minimal.description"   = "Стіна обкладинок, плаваючий плеєр, навігація через пошук";
 "serverShare.error.unsupported" = "Цей сервер не підтримує загальнодоступні медіапосилання, або спільний доступ вимкнено.";
 "error.catalog.invalidTrackReference" = "Посилання на трек недійсне.";
 "ext.widget.stats.last30Days" = "Останні 30 днів";

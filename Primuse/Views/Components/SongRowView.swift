@@ -25,6 +25,8 @@ struct SongRowView: View {
     /// `@Environment` lets us update the source badge count without
     /// drilling through callbacks at every call site.
     @Environment(SourcesStore.self) private var sourcesStore
+    /// 封面圆角跟随界面皮肤。皮肤只在用户手动切换时变,不会给列表带来额外的刷新。
+    @Environment(\.skin) private var skin
 
     let song: Song
     var actionRequest: SongRowActionRequest? = nil
@@ -364,7 +366,7 @@ struct SongRowView: View {
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,
                     songID: song.id,
-                    size: 44, cornerRadius: 6,
+                    size: 44, cornerRadius: skin.rawMetric(.radiusArtwork),
                     sourceID: song.sourceID,
                     filePath: song.filePath,
                     fileFormat: song.fileFormat
@@ -372,7 +374,7 @@ struct SongRowView: View {
 
                 if isPlaying {
                     Color.black.opacity(0.35)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .clipShape(RoundedRectangle(cornerRadius: skin.rawMetric(.radiusArtwork)))
                         .frame(width: 44, height: 44)
                     // While the player is still loading the active track,
                     // show a spinner instead of the playing-waveform so the
