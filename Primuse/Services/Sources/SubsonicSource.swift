@@ -46,7 +46,9 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     private static let airsonicAPIVersion = "1.15.0"
     private static let clientName = "Primuse"
     private static let pageSize = SubsonicCatalogPagingPolicy.pageSize
-    private static let transcodeBitRate = 320  // 转码目标码率 kbps
+    /// 本地解不了的格式(WMA)转码 mp3 的目标码率 kbps。
+    /// `SourceManager` 要用它给这类歌恒定一个转码计划, 所以不是 private。
+    static let transcodeBitRate = 320
     private static let catalogRequestMaximumAttempts = 3
     private static let catalogSnapshotMaximumAttempts = 2
 

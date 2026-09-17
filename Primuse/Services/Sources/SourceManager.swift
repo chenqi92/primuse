@@ -3866,6 +3866,18 @@ final class SourceManager {
         if source.type.isMediaServer, requiresConnectorBackedHTTPTransport(for: source) {
             return .original
         }
+        // 本地解不了的格式(WMA)必须由服务端转码, 与用户的音质设置无关。
+        // 让它走和「按网络转码」同一条链路: 独立的转码目录、安装前校验、
+        // 下完可拖动、提前准备下一首。
+        //
+        // 这一条不能交给下面的策略函数 —— 它会因为 `requiresCompleteLocalFile`
+        // 把 WMA 判成 `.original`。整轨 CUE 分轨除外: 每条分轨都会各转一份
+        // 整专辑, 放大倍数比它解决的问题更糟, 那种组合保持原样。
+        if source.type.isSubsonicFamily,
+           SubsonicSource.requiresServerTranscode(song.fileFormat),
+           !song.isCueTrack {
+            return .transcode(bitRateKbps: SubsonicSource.transcodeBitRate)
+        }
         let settings = PlaybackSettings.load()
         // 两项都是默认的 `.original` 时策略第一步就返回, 下面的判断都走不到。
         guard settings.wifiStreamQuality != .original
