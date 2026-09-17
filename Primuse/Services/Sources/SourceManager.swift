@@ -10813,40 +10813,11 @@ final class SourceManager {
         return SSLTrustStore.isTrustedSync(domain: endpoint.key)
     }
 
+    /// 内网判定只有一份, 在 `InsecureHTTPHostPolicy` 里。这里原先另写过一遍,
+    /// IPv6 一侧只认 `::1` 和 `fe80:` 前缀, 漏掉了家用路由 / NAS 最常见的
+    /// ULA(`fc00::/7`), 用这类地址添加的 NAS 会被当成外网主机取流。
     private nonisolated static func isProbablyLocalHost(_ rawHost: String) -> Bool {
-        let trimmed = rawHost
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard !trimmed.isEmpty else { return false }
-
-        let host: String
-        if let url = URL(string: trimmed), let parsed = url.host {
-            host = parsed
-        } else {
-            host = trimmed
-                .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-                .split(separator: ":", maxSplits: 1)
-                .first
-                .map(String.init) ?? trimmed
-        }
-
-        if host == "localhost" || host.hasSuffix(".local") { return true }
-        if host == "::1" || host.hasPrefix("fe80:") { return true }
-
-        let octets = host.split(separator: ".").compactMap { Int($0) }
-        guard octets.count == 4 else { return false }
-        switch octets[0] {
-        case 10, 127:
-            return true
-        case 169:
-            return octets[1] == 254
-        case 172:
-            return (16...31).contains(octets[1])
-        case 192:
-            return octets[1] == 168
-        default:
-            return false
-        }
+        InsecureHTTPHostPolicy.isLocalNetworkHost(rawHost)
     }
 
     /// Get the shared connector for a song's source (for playback and file writing).
