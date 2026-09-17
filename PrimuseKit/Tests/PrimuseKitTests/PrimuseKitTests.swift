@@ -148,6 +148,61 @@ import Testing
     #expect(MusicSourceType.fnos.category == .nas)
 }
 
+@Test func testPublishedTLSPortsFollowTheSSLToggle() {
+    // 厂商自己公布了两个端口的类型。以前打开 SSL 仍停在明文口,表单于是给出
+    // 一个服务端根本没在监听的地址。
+    #expect(MusicSourceType.emby.defaultPort(useSsl: false) == 8096)
+    #expect(MusicSourceType.emby.defaultPort(useSsl: true) == 8920)
+    #expect(MusicSourceType.jellyfin.defaultPort(useSsl: false) == 8096)
+    #expect(MusicSourceType.jellyfin.defaultPort(useSsl: true) == 8920)
+    #expect(MusicSourceType.synology.defaultPort(useSsl: false) == 5000)
+    #expect(MusicSourceType.synology.defaultPort(useSsl: true) == 5001)
+    #expect(MusicSourceType.qnap.defaultPort(useSsl: false) == 8080)
+    #expect(MusicSourceType.qnap.defaultPort(useSsl: true) == 443)
+    #expect(MusicSourceType.ugreen.defaultPort(useSsl: false) == 9999)
+    #expect(MusicSourceType.ugreen.defaultPort(useSsl: true) == 9443)
+    #expect(MusicSourceType.fnos.defaultPort(useSsl: false) == 5666)
+    #expect(MusicSourceType.fnos.defaultPort(useSsl: true) == 5667)
+
+    // `defaultPort` 是已保存记录的回退值,不能跟着改:它决定 port 为空的旧源
+    // 连到哪里。
+    #expect(MusicSourceType.emby.defaultPort == 8096)
+    #expect(MusicSourceType.jellyfin.defaultPort == 8096)
+    #expect(MusicSourceType.synology.defaultPort == 5001)
+    #expect(MusicSourceType.qnap.defaultPort == 8080)
+    #expect(MusicSourceType.ugreen.defaultPort == 9999)
+    #expect(MusicSourceType.fnos.defaultPort == 5666)
+
+    // 没有公布独立 TLS 端口的类型保持一个端口:它们的 https 靠反代,猜一个
+    // 端口只会多试一次注定失败的连接。
+    #expect(MusicSourceType.plex.defaultPort(useSsl: true) == 32400)
+    #expect(MusicSourceType.plex.defaultPort(useSsl: false) == 32400)
+    #expect(MusicSourceType.navidrome.defaultPort(useSsl: true) == 4533)
+    #expect(MusicSourceType.navidrome.defaultPort(useSsl: false) == 4533)
+    #expect(MusicSourceType.subsonic.defaultPort(useSsl: true) == 4040)
+    #expect(MusicSourceType.gonic.defaultPort(useSsl: true) == 4747)
+    #expect(MusicSourceType.songloft.defaultPort(useSsl: true) == 58091)
+    #expect(MusicSourceType.daoliyu.defaultPort(useSsl: true) == 4000)
+
+    // 新建源仍按类型的默认 SSL 取端口,所以这几行的结果没有变。
+    #expect(MusicSource(name: "Emby", type: .emby).port == 8096)
+    #expect(MusicSource(name: "Synology", type: .synology).port == 5001)
+    #expect(MusicSource(name: "QNAP", type: .qnap).port == 8080)
+}
+
+@Test func testHTTPTransportTypes() {
+    #expect(MusicSourceType.emby.usesHTTPTransport)
+    #expect(MusicSourceType.webdav.usesHTTPTransport)
+    #expect(MusicSourceType.s3.usesHTTPTransport)
+    #expect(MusicSourceType.synology.usesHTTPTransport)
+    #expect(!MusicSourceType.smb.usesHTTPTransport)
+    #expect(!MusicSourceType.ftp.usesHTTPTransport)
+    #expect(!MusicSourceType.sftp.usesHTTPTransport)
+    #expect(!MusicSourceType.nfs.usesHTTPTransport)
+    #expect(!MusicSourceType.local.usesHTTPTransport)
+    #expect(!MusicSourceType.appleMusic.usesHTTPTransport)
+}
+
 @Test func vendorNASWithoutPublicAPIsRemainMarkedUnavailable() {
     #expect(MusicSourceType.ugreen.isAwaitingPublicAPI)
     #expect(MusicSourceType.fnos.isAwaitingPublicAPI)

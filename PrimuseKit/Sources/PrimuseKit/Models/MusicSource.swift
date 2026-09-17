@@ -349,11 +349,25 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     /// Returns the conventional port for the selected transport. WebDAV and
     /// S3 follow HTTP(S), while protocol-specific services keep their fixed
     /// default regardless of the SSL toggle shown by some UIs.
+    ///
+    /// Services that ship two published ports must list both: a form that left
+    /// Emby on 8096 after the user turned SSL on was offering a port the server
+    /// does not serve TLS on. Only vendor-documented pairs appear here — a type
+    /// whose TLS story is "put a reverse proxy in front of it" (Subsonic family,
+    /// Plex's single 32400) keeps one port for both transports on purpose.
     public func defaultPort(useSsl: Bool) -> Int {
         switch self {
         case .webdav, .s3:
             return useSsl ? 443 : 80
-        case .fnMusic:
+        case .jellyfin, .emby:
+            return useSsl ? 8920 : 8096
+        case .synology:
+            return useSsl ? 5001 : 5000
+        case .qnap:
+            return useSsl ? 443 : 8080
+        case .ugreen:
+            return useSsl ? 9443 : 9999
+        case .fnos, .fnMusic:
             return useSsl ? 5667 : 5666
         default:
             return defaultPort
@@ -415,6 +429,22 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
 
     public var supportsVendorRemoteAccess: Bool {
         self == .synology || self == .fnMusic
+    }
+
+    /// Whether the address a user types is reached over HTTP(S). These are the
+    /// types where the transport is a free choice between two schemes, so the
+    /// address bar can leave it out and let the app try the alternatives;
+    /// SMB/FTP/SFTP/NFS have exactly one wire protocol and one port to try.
+    public var usesHTTPTransport: Bool {
+        switch self {
+        case .synology, .qnap, .ugreen, .fnos, .webdav, .s3,
+             .jellyfin, .emby, .plex,
+             .subsonic, .navidrome, .airsonic, .gonic,
+             .fnMusic, .daoliyu, .songloft:
+            return true
+        default:
+            return false
+        }
     }
 
     public var isCloudDrive: Bool {

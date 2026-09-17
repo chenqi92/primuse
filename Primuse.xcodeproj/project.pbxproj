@@ -1114,6 +1114,11 @@
 		D65FEA94417351D09D50866C /* SwiftDraw in Frameworks */ = {isa = PBXBuildFile; productRef = 9F0BF05D8F994013247F0024 /* SwiftDraw */; };
 		D67F9E6CB1BFE62DFC4EFA45 /* PrivateOverlayHostPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0849A8F36C03A6B9E0D99387 /* PrivateOverlayHostPolicy.swift */; };
 		671B436749F49F2176CCC8DD /* ProxyPrefixedBasePathPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99D0FD719B67752D96057615 /* ProxyPrefixedBasePathPolicy.swift */; };
+		585525EF81A8660C7165F036 /* SourceAddressInputPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D985218C6C887E4DA40AF2D2 /* SourceAddressInputPolicy.swift */; };
+		D520854E33EFECA1BC0B9C1E /* SourceConnectionCandidatePlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AFE245AAF67EBBFCEC27A42 /* SourceConnectionCandidatePlanner.swift */; };
+		7319A57702F1CD6D9AFAAF45 /* SourceEndpointProbeSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEECB0FE54439212E03E560D /* SourceEndpointProbeSession.swift */; };
+		1FBDC2326AFC272C5276CF2C /* SourceEndpointResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7972C2A34A5D5238B4B18888 /* SourceEndpointResolver.swift */; };
+		941A607E19B137E92D128C11 /* SourceServiceFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAE5359A924CB3DC30F82570 /* SourceServiceFingerprint.swift */; };
 		D6D6D89F4FC3879D8BA162FB /* MiniPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 973D5A18BC4228928E42C0C1 /* MiniPlayerView.swift */; };
 		D71A326EEEF5016E847109F1 /* ServerMediaShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 228E9AF235163595E752F32C /* ServerMediaShareSheet.swift */; };
 		D75F3CECE43988C7E655D461 /* LastFmSimilarAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86755A200F0E3D194EE50F3E /* LastFmSimilarAPI.swift */; };
@@ -1530,6 +1535,11 @@
 		07ED3C52285096B184672237 /* SmartPlaylistDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartPlaylistDetailView.swift; sourceTree = "<group>"; };
 		0849A8F36C03A6B9E0D99387 /* PrivateOverlayHostPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivateOverlayHostPolicy.swift; sourceTree = "<group>"; };
 		99D0FD719B67752D96057615 /* ProxyPrefixedBasePathPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyPrefixedBasePathPolicy.swift; sourceTree = "<group>"; };
+		D985218C6C887E4DA40AF2D2 /* SourceAddressInputPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceAddressInputPolicy.swift; sourceTree = "<group>"; };
+		6AFE245AAF67EBBFCEC27A42 /* SourceConnectionCandidatePlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceConnectionCandidatePlanner.swift; sourceTree = "<group>"; };
+		EEECB0FE54439212E03E560D /* SourceEndpointProbeSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceEndpointProbeSession.swift; sourceTree = "<group>"; };
+		7972C2A34A5D5238B4B18888 /* SourceEndpointResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceEndpointResolver.swift; sourceTree = "<group>"; };
+		FAE5359A924CB3DC30F82570 /* SourceServiceFingerprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceServiceFingerprint.swift; sourceTree = "<group>"; };
 		084B2D5E63FFB860DAEA3CAB /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/Localizable.strings; sourceTree = "<group>"; };
 		085DFD0DBF1B85D82AE401E0 /* iTunesLibrary.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = iTunesLibrary.framework; path = System/Library/Frameworks/iTunesLibrary.framework; sourceTree = SDKROOT; };
 		086F7E4EDFB6719527A8AECF /* MacSourcesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSourcesView.swift; sourceTree = "<group>"; };
@@ -2974,6 +2984,11 @@
 				BCCF013D8E0B66E09EA22637 /* PrimuseSignposts.swift */,
 				0849A8F36C03A6B9E0D99387 /* PrivateOverlayHostPolicy.swift */,
 				99D0FD719B67752D96057615 /* ProxyPrefixedBasePathPolicy.swift */,
+				D985218C6C887E4DA40AF2D2 /* SourceAddressInputPolicy.swift */,
+				6AFE245AAF67EBBFCEC27A42 /* SourceConnectionCandidatePlanner.swift */,
+				EEECB0FE54439212E03E560D /* SourceEndpointProbeSession.swift */,
+				7972C2A34A5D5238B4B18888 /* SourceEndpointResolver.swift */,
+				FAE5359A924CB3DC30F82570 /* SourceServiceFingerprint.swift */,
 				7A6E761F8B6C6057418F1EFC /* QueueBatchRemovalPolicy.swift */,
 				09540B602EB547F8069B8F64 /* RemoteGatewayBackoffPolicy.swift */,
 				0AF231BD6DF081771CCE843D /* RemoteRendererTransportPolicy.swift */,
@@ -4778,6 +4793,11 @@
 				BC02A489404F9843C90DDFB7 /* PrimuseSignposts.swift in Sources */,
 				D67F9E6CB1BFE62DFC4EFA45 /* PrivateOverlayHostPolicy.swift in Sources */,
 				671B436749F49F2176CCC8DD /* ProxyPrefixedBasePathPolicy.swift in Sources */,
+				585525EF81A8660C7165F036 /* SourceAddressInputPolicy.swift in Sources */,
+				D520854E33EFECA1BC0B9C1E /* SourceConnectionCandidatePlanner.swift in Sources */,
+				7319A57702F1CD6D9AFAAF45 /* SourceEndpointProbeSession.swift in Sources */,
+				1FBDC2326AFC272C5276CF2C /* SourceEndpointResolver.swift in Sources */,
+				941A607E19B137E92D128C11 /* SourceServiceFingerprint.swift in Sources */,
 				3A16590B3C55976D6DCFDC90 /* ProtocolHTTPStreamResolvers.swift in Sources */,
 				17D31FB2ACDDC55B73DB9320 /* QueueBatchRemovalPolicy.swift in Sources */,
 				9B6DC920BBF4FE1D1E19F53F /* RadioHomepageIconParser.swift in Sources */,
