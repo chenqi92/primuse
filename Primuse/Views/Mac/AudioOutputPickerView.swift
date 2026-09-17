@@ -94,6 +94,10 @@ struct AudioOutputPickerView: View {
             }
         }
         .frame(width: 280)
+        // popover 一打开就会把键盘焦点放在第一个按钮上, 给它描一圈 accent 焦点环。
+        // 行是整幅宽的, 环的左右两边落在 popover 边界外被裁掉, 只剩贴着行上下沿的
+        // 两条横线, 看着像凭空多了两条分隔线。菜单是鼠标点开的, 关掉焦点描边。
+        .focusEffectDisabled()
         // 系统 popover 已经包了 chrome (material + 圆角 + 边框 + 阴影 + 箭头), 不要
         // 再自己画 RoundedRectangle / strokeBorder / shadow, 否则跟系统 chrome 叠成
         // 双层框 (用户截图里那一圈外框就是这么来的)。同 CastDevicePickerSheet。

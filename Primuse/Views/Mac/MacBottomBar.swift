@@ -269,6 +269,7 @@ struct MacBottomBar: View {
                 .popover(isPresented: $castShown, arrowEdge: .top) {
                     CastDevicePickerSheet()
                         .frame(minWidth: 420, minHeight: 460)
+                        .focusEffectDisabled()
                 }
             }
 

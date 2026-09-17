@@ -98,11 +98,14 @@ struct MacLibraryHeader: View {
                         }
                         .buttonStyle(.plain)
                         .popover(isPresented: $showMoreMenu, arrowEdge: .bottom) {
-                            if let moreMenu {
-                                moreMenu
-                            } else if let makeMoreMenu {
-                                makeMoreMenu()
+                            Group {
+                                if let moreMenu {
+                                    moreMenu
+                                } else if let makeMoreMenu {
+                                    makeMoreMenu()
+                                }
                             }
+                            .focusEffectDisabled()
                         }
                     }
                 }

@@ -521,6 +521,7 @@ struct DesktopLyricsView: View {
             .help(Text("settings_title"))
             .popover(isPresented: $settingsShown, arrowEdge: .bottom) {
                 settingsPopover
+                    .focusEffectDisabled()
             }
         }
         .padding(.horizontal, 10)
@@ -564,6 +565,7 @@ struct DesktopLyricsView: View {
             .pmPointingHand()
             .popover(isPresented: $colorPaletteShown, arrowEdge: .trailing) {
                 colorPalette
+                    .focusEffectDisabled()
             }
 
             Divider().padding(.vertical, 3)

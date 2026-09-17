@@ -53,6 +53,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 MacSleepTimerPopover {
                     showSleepTimer = false
                 }
+                .focusEffectDisabled()
             }
         #else
         baseBody
@@ -218,6 +219,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                         showSimilarSongs = false
                         menuShown = false
                     }
+                    .focusEffectDisabled()
                 }
             }
             if let song = player.currentSong {
