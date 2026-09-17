@@ -185,7 +185,7 @@ UGREEN UGOS and the legacy fnOS system-level file APIs are still waiting for sta
 |-----------|---------------------|
 | Development tools | Xcode 26.0+, Swift 6.0+, and a macOS development environment |
 | iPhone / iPad | iOS / iPadOS 18.0+ |
-| Mac app | macOS 26.0+ |
+| Mac app | macOS 15.0+ |
 | Apple TV | tvOS 17.0+ |
 | Apple Watch | watchOS 10.0+ |
 

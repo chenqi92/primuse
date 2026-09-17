@@ -280,7 +280,7 @@ struct MacMiniPlayerView: View {
             }
             .buttonStyle(.plain)
             .pmPointingHand()
-            .glassEffect(.regular.interactive(), in: .circle)
+            .pmGlassControl(Circle())
             .popover(isPresented: $airPlayShown, arrowEdge: .top) {
                 AudioOutputPickerView()
             }
@@ -345,7 +345,7 @@ struct MacMiniPlayerView: View {
             }
             .buttonStyle(.plain)
             .pmPointingHand()
-            .glassEffect(.regular.interactive(), in: .circle)
+            .pmGlassControl(Circle())
             .help(Text("lyrics_word"))
 
             // Queue —— 切到下半部分显示当前队列。
@@ -357,7 +357,7 @@ struct MacMiniPlayerView: View {
             }
             .buttonStyle(.plain)
             .pmPointingHand()
-            .glassEffect(.regular.interactive(), in: .circle)
+            .pmGlassControl(Circle())
             .help(Text("queue_title"))
 
             Button { airPlayShown.toggle() } label: {
@@ -365,7 +365,7 @@ struct MacMiniPlayerView: View {
             }
             .buttonStyle(.plain)
             .pmPointingHand()
-            .glassEffect(.regular.interactive(), in: .circle)
+            .pmGlassControl(Circle())
             .popover(isPresented: $airPlayShown, arrowEdge: .top) {
                 AudioOutputPickerView()
             }
@@ -388,7 +388,7 @@ struct MacMiniPlayerView: View {
             }
             .frame(width: 28, height: 28)
             .fixedSize()
-            .glassEffect(.regular.interactive(), in: .circle)
+            .pmGlassControl(Circle())
             .pmPointingHand()
         }
         .frame(maxWidth: .infinity, alignment: .center)

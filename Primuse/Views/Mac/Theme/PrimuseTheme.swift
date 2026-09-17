@@ -292,6 +292,28 @@ extension View {
         modifier(PMCard(cornerRadius: cornerRadius, padding: padding))
     }
 
+    /// 圆形 / 胶囊控件的玻璃背景。macOS 26 起用系统 Liquid Glass, 更早的系统
+    /// 没有这组 API, 退回 ultraThinMaterial + 细描边 — 形状、尺寸与命中区域
+    /// 保持一致, 只是少了折射高光。
+    @ViewBuilder
+    func pmGlassControl(_ shape: some InsettableShape, interactive: Bool = true) -> some View {
+        if #available(macOS 26.0, *) {
+            if interactive {
+                glassEffect(.regular.interactive(), in: shape)
+            } else {
+                glassEffect(.regular, in: shape)
+            }
+        } else {
+            background {
+                ZStack {
+                    shape.fill(.ultraThinMaterial)
+                    shape.fill(Color.white.opacity(0.04))
+                }
+            }
+            .overlay { shape.strokeBorder(PMColor.cardBorder, lineWidth: 0.5) }
+        }
+    }
+
     /// 把整个视图渲染到 NSVisualEffectView 之上 — 用在主窗口背景, 让玻璃模式真有底层模糊可吸。
     func pmWindowBackground() -> some View {
         background(NSVisualEffectBackdrop().ignoresSafeArea())

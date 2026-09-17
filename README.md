@@ -185,7 +185,7 @@ Apple TV 客户端可以浏览整座曲库、直接连接多种音乐源，并�
 |------|----------|
 | 开发工具 | Xcode 26.0+、Swift 6.0+、macOS 开发环境 |
 | iPhone / iPad | iOS / iPadOS 18.0+ |
-| Mac App | macOS 26.0+ |
+| Mac App | macOS 15.0+ |
 | Apple TV | tvOS 17.0+ |
 | Apple Watch | watchOS 10.0+ |
 

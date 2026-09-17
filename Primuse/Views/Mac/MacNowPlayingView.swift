@@ -389,13 +389,13 @@ struct MacNowPlayingView: View {
                     circleIcon("square.and.arrow.up")
                 }
                 .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: .circle)
+                .pmGlassControl(Circle())
                 .help(Text("share"))
             }
             if !isWindowFullScreen {
                 Button(action: onClose) { circleIcon("chevron.down") }
                     .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: .circle)
+                    .pmGlassControl(Circle())
                     .help(Text("close"))
             }
         }
@@ -515,7 +515,7 @@ struct MacNowPlayingView: View {
                                 circleIcon("arrow.up.left.and.arrow.down.right")
                             }
                             .buttonStyle(.plain)
-                            .glassEffect(.regular.interactive(), in: .circle)
+                            .pmGlassControl(Circle())
                             .padding(12)
                             .help(Text("full_screen_player"))
                         }
@@ -966,7 +966,7 @@ struct MacNowPlayingView: View {
         }
         .buttonStyle(.plain)
         .keyboardShortcut(.cancelAction)
-        .glassEffect(.regular.interactive(), in: .capsule)
+        .pmGlassControl(Capsule())
         .help(Text("exit_full_screen"))
     }
 
@@ -998,7 +998,7 @@ struct MacNowPlayingView: View {
         .buttonStyle(.plain)
         .pmPointingHand()
         .fixedSize()
-        .glassEffect(.regular.interactive(), in: .capsule)
+        .pmGlassControl(Capsule())
         .overlay(alignment: .topLeading) {
             if showsNativeFullscreenEffectPicker {
                 ImmersiveEffectPickerSurface(
@@ -1030,7 +1030,7 @@ struct MacNowPlayingView: View {
                     .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .circle)
+            .pmGlassControl(Circle())
             .help(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
             .disabled(player.currentSong == nil)
 
@@ -1043,7 +1043,7 @@ struct MacNowPlayingView: View {
                         .contentTransition(.symbolEffect(.replace))
                 }
                 .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: .circle)
+                .pmGlassControl(Circle())
                 .help(Text("MV"))
                 .disabled(player.isLoading)
             }
@@ -1058,7 +1058,7 @@ struct MacNowPlayingView: View {
                            fill: theme.accentColor.opacity(0.9))
             }
             .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .circle)
+            .pmGlassControl(Circle())
             .help(Text("lyrics_word"))
             .disabled(player.currentSong == nil)
 
@@ -1069,7 +1069,7 @@ struct MacNowPlayingView: View {
                 circleIcon("magnifyingglass")
             }
             .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .circle)
+            .pmGlassControl(Circle())
             .help(Text("search_title"))
 
             // Font smaller
@@ -1083,7 +1083,7 @@ struct MacNowPlayingView: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .circle)
+            .pmGlassControl(Circle())
             .help(Text("lyrics_font_smaller"))
             .disabled(lyrics.isEmpty)
 
@@ -1098,7 +1098,7 @@ struct MacNowPlayingView: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .circle)
+            .pmGlassControl(Circle())
             .help(Text("lyrics_font_larger"))
             .disabled(lyrics.isEmpty)
 
@@ -1108,7 +1108,7 @@ struct MacNowPlayingView: View {
             }
             .frame(width: 36, height: 36)
             .fixedSize()
-            .glassEffect(.regular.interactive(), in: .circle)
+            .pmGlassControl(Circle())
             .help(Text("more"))
 
             if !isWindowFullScreen {
@@ -1118,7 +1118,7 @@ struct MacNowPlayingView: View {
                     circleIcon("chevron.down")
                 }
                 .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: .circle)
+                .pmGlassControl(Circle())
                 .help(Text("close"))
                 .keyboardShortcut(.cancelAction)
             }
@@ -1147,7 +1147,7 @@ struct MacNowPlayingView: View {
         .overlay {
             Capsule().strokeBorder(playerGlassBorder, lineWidth: 0.5)
         }
-        .glassEffect(.regular.interactive(), in: .capsule)
+        .pmGlassControl(Capsule())
         .help(!player.isLiveRadio && player.playbackSettings.outputMode == .highFidelity
             ? Text("volume_high_fidelity_system_hint")
             : Text("volume"))

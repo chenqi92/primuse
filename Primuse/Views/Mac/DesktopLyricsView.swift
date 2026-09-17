@@ -139,7 +139,7 @@ struct DesktopLyricsView: View {
         // 关掉 showBackground 就只剩浮动文字,跟锁定态一样无 chrome。
         .background {
             if showBackground && !locked {
-                Color.clear.glassEffect(.regular, in: .rect(cornerRadius: Self.cornerRadius))
+                Color.clear.pmGlassControl(RoundedRectangle(cornerRadius: Self.cornerRadius), interactive: false)
             }
         }
         // 工具栏走 .overlay 不进 ZStack —— ZStack 里跟内容竞争 frame

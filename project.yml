@@ -3,7 +3,7 @@ options:
   bundleIdPrefix: com.welape
   deploymentTarget:
     iOS: "18.0"
-    macOS: "26.0"
+    macOS: "15.0"
     watchOS: "10.0"
     tvOS: "17.0"
   xcodeVersion: "16.0"
@@ -313,7 +313,7 @@ targets:
         CURRENT_PROJECT_VERSION: "$(inherited)"
         SKIP_INSTALL: YES
         IPHONEOS_DEPLOYMENT_TARGET: "18.0"
-        MACOSX_DEPLOYMENT_TARGET: "26.0"
+        MACOSX_DEPLOYMENT_TARGET: "15.0"
 
   PrimuseTests:
     type: bundle.unit-test
