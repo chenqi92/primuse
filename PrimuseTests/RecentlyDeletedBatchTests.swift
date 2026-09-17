@@ -278,6 +278,158 @@ final class RecentlyDeletedBatchTests: XCTestCase {
         XCTAssertNil(reopened.songForSynchronization(id: song.id))
     }
 
+    // MARK: - Tombstoned device-local files the user put back (#134)
+
+    private static func makeLocalSong(
+        id: String = "local-track",
+        sourceID: String = "local-source",
+        filePath: String = "/Album/track.flac"
+    ) -> Song {
+        Song(
+            id: id,
+            title: "Track",
+            artistName: "Tester",
+            duration: 180,
+            fileFormat: .flac,
+            filePath: filePath,
+            sourceID: sourceID
+        )
+    }
+
+    /// 用户删掉标签不全的几首、改好标签后又把同名文件导了回来。文件此刻确实
+    /// 在磁盘上, 所以墓碑必须让路并被撤销, 否则那几首永远进不了资料库。
+    func testRescanReadmitsATombstonedLocalFileThatIsBackOnDisk() async throws {
+        let directory = try Self.makeIsolatedStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let song = Self.makeLocalSong()
+        library.addSongs([song])
+        library.deleteSong(song)
+        XCTAssertTrue(library.songs.isEmpty)
+        XCTAssertEqual(library.deletedSongIdentities, ["\(song.sourceID):\(song.filePath)"])
+
+        // 没装探针(离主线程装载 / tvOS)时保持历史行为: 一律拦下。
+        library.addSongs([song])
+        XCTAssertTrue(library.songs.isEmpty)
+
+        var probedSongIDs: [String] = []
+        library.deviceLocalFilePresenceProbe = { candidates in
+            probedSongIDs.append(contentsOf: candidates.map(\.id))
+            return Set(candidates.map(\.id))
+        }
+        library.addSongs([song])
+        XCTAssertEqual(probedSongIDs, [song.id])
+        XCTAssertEqual(library.songs.map(\.id), [song.id])
+        XCTAssertTrue(library.deletedSongIdentities.isEmpty)
+
+        // 撤销要落盘, 否则下次冷启动墓碑又把它挡回去。
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("Snapshot did not persist")
+        }
+        let reopened = MusicLibrary(storageDirectory: directory)
+        XCTAssertEqual(reopened.songs.map(\.id), [song.id])
+        XCTAssertTrue(reopened.deletedSongIdentities.isEmpty)
+    }
+
+    /// 竞态: 用户刚删掉一首, 而一轮更早开始的扫描随后才把结果交上来。文件已
+    /// 经不在磁盘上, 探针为 false, 删除不能被这次迟到的 flush 撤销。
+    func testAStaleScanFlushDoesNotUndoADeletionWhenTheFileIsGone() throws {
+        let directory = try Self.makeIsolatedStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let song = Self.makeLocalSong()
+        library.addSongs([song])
+        library.deleteSong(song)
+        library.deviceLocalFilePresenceProbe = { _ in [] }
+
+        library.addSongs([song])
+        XCTAssertTrue(library.songs.isEmpty)
+        XCTAssertEqual(library.deletedSongIdentities, ["\(song.sourceID):\(song.filePath)"])
+    }
+
+    /// 「从本机移除」那本账的语义就是源文件故意留在原处, 所以文件在磁盘上是
+    /// 常态而不是证据。它只能由设置里的恢复界面撤销。
+    func testADeviceLocalExclusionIsNeverRevokedByAScan() throws {
+        let directory = try Self.makeIsolatedStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let song = Self.makeLocalSong()
+        library.addSongs([song])
+        try library.removeSongsFromThisDevice([song])
+        library.deviceLocalFilePresenceProbe = { candidates in Set(candidates.map(\.id)) }
+
+        library.addSongs([song])
+        XCTAssertTrue(library.songs.isEmpty)
+        XCTAssertTrue(library.isExcludedOnThisDevice(song))
+        XCTAssertTrue(library.deletedSongIdentities.isEmpty)
+    }
+
+    /// 常态零开销: 库里没有任何删除记录时, 准入判定连探针都不该问一次。
+    func testTheProbeIsNotConsultedWhenNothingWasEverDeleted() throws {
+        let directory = try Self.makeIsolatedStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        var probeCallCount = 0
+        library.deviceLocalFilePresenceProbe = { _ in
+            probeCallCount += 1
+            return []
+        }
+        library.addSongs([Self.makeLocalSong(), Self.makeLocalSong(
+            id: "local-track-2",
+            filePath: "/Album/track-2.flac"
+        )])
+        XCTAssertEqual(library.songs.count, 2)
+        XCTAssertEqual(probeCallCount, 0)
+    }
+
+    /// 批量删除的「从资料库移除」承诺"源文件不会被删除, 但重新扫描时它们不会
+    /// 再被加回"。删库记录时文件还在磁盘上就是这个语义, 复活必须跳过它们。
+    func testRemovingFromTheLibraryWhileKeepingTheFileSurvivesARescan() async throws {
+        let directory = try Self.makeIsolatedStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let song = Self.makeLocalSong()
+        library.addSongs([song])
+        // 文件一直在磁盘上 —— 删除前后都是。
+        library.deviceLocalFilePresenceProbe = { candidates in Set(candidates.map(\.id)) }
+        library.deleteSong(song)
+        XCTAssertTrue(library.songs.isEmpty)
+
+        library.addSongs([song])
+        XCTAssertTrue(library.songs.isEmpty)
+        XCTAssertFalse(library.deletedSongIdentities.isEmpty)
+
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("Snapshot did not persist")
+        }
+        let reopened = MusicLibrary(storageDirectory: directory)
+        reopened.deviceLocalFilePresenceProbe = { candidates in Set(candidates.map(\.id)) }
+        reopened.addSongs([song])
+        XCTAssertTrue(reopened.songs.isEmpty)
+    }
+
+    /// 另一首歌的墓碑还在, 不能被这一批的复活顺手带走。
+    func testOnlyTheIdentitiesWhoseFilesCameBackAreRevoked() throws {
+        let directory = try Self.makeIsolatedStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let restored = Self.makeLocalSong()
+        let stillGone = Self.makeLocalSong(id: "local-track-2", filePath: "/Album/track-2.flac")
+        library.addSongs([restored, stillGone])
+        library.deleteSongs([restored, stillGone])
+        XCTAssertEqual(library.deletedSongIdentities.count, 2)
+
+        library.deviceLocalFilePresenceProbe = { candidates in
+            Set(candidates.filter { $0.id == restored.id }.map(\.id))
+        }
+        library.addSongs([restored, stillGone])
+        XCTAssertEqual(library.songs.map(\.id), [restored.id])
+        XCTAssertEqual(
+            library.deletedSongIdentities,
+            ["\(stillGone.sourceID):\(stillGone.filePath)"]
+        )
+    }
+
     func testOnlyWebDAVPermissionFailuresOfferDeviceLocalRemoval() throws {
         let webdav = MusicSource(id: "webdav-source", name: "WebDAV", type: .webdav)
         let smb = MusicSource(id: "smb-source", name: "SMB", type: .smb)

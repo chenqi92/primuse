@@ -8,6 +8,93 @@ import AppKit
 import UIKit
 #endif
 
+#if os(iOS) || os(macOS)
+/// 本机文件源的"这个路径此刻在不在磁盘上"判定, 供资料库在删除墓碑命中时
+/// 反查。只 stat, 不打开文件, 也不写任何东西。
+///
+/// 路径解析刻意与 `LocalFileSource` 同形: 有安全域书签就按虚拟路径分量落到
+/// 对应的根, 没有书签就用源记录里的 basePath(iOS 上重装会换掉数据容器 UUID,
+/// 所以再走一次沙箱重定位)。这里不能直接借用连接器 —— 它是 actor, 而准入
+/// 判定跑在主 actor 的同步路径上。两边一旦走岔, 结果只会是"探针答 false、
+/// 墓碑继续拦着", 不会放错歌进来。
+private enum DeviceLocalSongFilePresence {
+    struct Root {
+        let virtualPathComponent: String?
+        let url: URL
+    }
+
+    /// nil = 这个源解析不出可用的磁盘根, 整批都不放行。
+    static func roots(for source: MusicSource) -> [Root]? {
+        if let references = LocalBookmarkStore.resolveReferences(sourceID: source.id) {
+            // 空数组 = 有书签记录但至少一份解析不出来(权限被收回)。此时磁盘上
+            // 有没有文件无从判断, 宁可继续拦着。
+            guard !references.isEmpty else { return nil }
+            return references.map {
+                Root(virtualPathComponent: $0.virtualPathComponent, url: $0.url)
+            }
+        }
+        guard let basePath = source.basePath, !basePath.isEmpty else { return nil }
+        #if os(iOS)
+        // 「Wi-Fi 传输 / 拷进 App 文件夹」这类托管导入源固定在当前沙箱的
+        // Documents/LocalMusic 下, 存下来的绝对路径可能还指向旧容器。
+        let isManagedLocalImport = source.id == LocalImportService.existingSourceID
+            && (URL(fileURLWithPath: basePath).lastPathComponent == "LocalMusic"
+                || basePath.contains("/Documents/LocalMusic"))
+        if isManagedLocalImport {
+            return [Root(virtualPathComponent: nil, url: LocalImportService.musicDirectory)]
+        }
+        let base = PrimuseSandboxPathResolver.existingURL(forStoredAbsolutePath: basePath)
+            ?? URL(fileURLWithPath: basePath)
+        #else
+        let base = URL(fileURLWithPath: basePath)
+        #endif
+        return [Root(virtualPathComponent: nil, url: base)]
+    }
+
+    static func fileExists(_ filePath: String, in roots: [Root]) -> Bool {
+        let relativePath = filePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !relativePath.isEmpty else { return false }
+        for root in roots {
+            let candidate: URL
+            if let component = root.virtualPathComponent {
+                if relativePath == component {
+                    // 单独选中的一个文件: 虚拟路径分量本身就是它。
+                    candidate = root.url
+                } else {
+                    let prefix = component + "/"
+                    guard relativePath.hasPrefix(prefix) else { continue }
+                    candidate = root.url.appendingPathComponent(
+                        String(relativePath.dropFirst(prefix.count))
+                    )
+                }
+            } else {
+                candidate = root.url.appendingPathComponent(relativePath)
+            }
+            if isExistingRegularFile(candidate, inside: root.url) { return true }
+        }
+        return false
+    }
+
+    private static func isExistingRegularFile(_ candidate: URL, inside root: URL) -> Bool {
+        let rootPath = root.standardizedFileURL.path
+        let candidatePath = candidate.standardizedFileURL.path
+        let rootPrefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        // `..` 一路拼出去的路径不算这个源的文件。相等是允许的 —— 用户单独
+        // 选中一个文件时, 那个文件本身就是根。
+        guard candidatePath == rootPath || candidatePath.hasPrefix(rootPrefix) else { return false }
+        // 连接器活着的时候安全域已经开着, 但复活判定也可能在它之前跑到;
+        // 自己开一次并配对关掉, 不会动到连接器持有的那一份。
+        let accessed = root.startAccessingSecurityScopedResource()
+        defer { if accessed { root.stopAccessingSecurityScopedResource() } }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: candidatePath, isDirectory: &isDirectory) else {
+            return false
+        }
+        return !isDirectory.boolValue
+    }
+}
+#endif
+
 /// Foreground-only, cheap change detection for server catalogues.
 ///
 /// It never transfers a catalogue to decide: one `getScanStatus`-shaped request
@@ -885,6 +972,33 @@ final class AppServices {
         library.sourceIdentityResolver = { [weak store] sourceID in
             store?.allSources.first(where: { $0.id == sourceID })?.cloudAccountID
         }
+        #if os(iOS) || os(macOS)
+        // 只在准入判定命中删除墓碑时才被调用, 所以常态一次都不跑。回答的是
+        // "这首歌属于本机文件源, 而且它的文件此刻确实在磁盘上" —— 本机源的
+        // 文件就躺在沙箱/用户选中的目录里, 磁盘就是事实; 文件又在了就说明是
+        // 用户自己把它放回来的, 墓碑该让路(见 MusicLibrary.addSongs)。
+        // 按源分组后每个源只解析一次根目录, 一批候选共用。
+        library.deviceLocalFilePresenceProbe = { [weak store] candidates in
+            guard let store else { return [] }
+            var present: Set<String> = []
+            for (sourceID, songs) in Dictionary(grouping: candidates, by: \.sourceID) {
+                guard let source = store.allSources.first(where: { $0.id == sourceID }),
+                      // 平台媒体库(.appleMusicLibrary)也归 .local 这一类, 但它的
+                      // filePath 解析不出磁盘位置, 所以只认 .local。
+                      source.type == .local,
+                      source.isEnabled,
+                      !source.isDeleted,
+                      let roots = DeviceLocalSongFilePresence.roots(for: source) else { continue }
+                for song in songs where DeviceLocalSongFilePresence.fileExists(
+                    song.filePath,
+                    in: roots
+                ) {
+                    present.insert(song.id)
+                }
+            }
+            return present
+        }
+        #endif
 
         loadPendingSourceCloudCleanups()
         observeSourceLifecycle()

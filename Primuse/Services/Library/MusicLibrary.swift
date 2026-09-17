@@ -3029,6 +3029,22 @@ final class MusicLibrary {
         }
     }
 
+    /// 回答"这些歌属于本机文件源, 而且它们的文件此刻确实在磁盘上吗"。
+    /// 准入判定只在命中全局墓碑时才问它, 所以常态(库里没有删除记录)是零
+    /// 开销 —— `hasAdmissionFilters` 先短路了整批。另一个调用点是删除的那
+    /// 一刻(`recordExclusionsForRetainedSourceFiles`), 用来认出"源文件是
+    /// 故意保留的"那一种删除。
+    ///
+    /// 签名收的是一批而不是一首: 本机源的根目录要么是沙箱里的目录、要么是
+    /// 一份安全域书签, 解析一次就够整批用, 按源分组后只解析一次比逐首解析
+    /// 便宜得多。返回的是文件确实存在的那些 `song.id`。
+    ///
+    /// nil 时保持历史行为(墓碑一律拦下): 离主线程的装载路径和 tvOS 拿不到
+    /// 源目录, 而它们本来就不做墓碑准入过滤, 见 `StartupStorage`。
+    /// 由 `AppServices` 在安装 `sourceIdentityResolver` 的地方一并装上。
+    @ObservationIgnored
+    var deviceLocalFilePresenceProbe: ((_ candidates: [Song]) -> Set<String>)?
+
     /// 封面覆盖解析的记忆化结果, 按 owner 存一条。解析 `.selectedSong` 覆盖时
     /// 的慢路径 (跨设备挂载导致 songID 不同, 且模糊匹配也落空) 要整库扫一遍,
     /// 而它的答案在 `songs` 不变之前不可能改变 —— 卡片 body 却会随
@@ -3072,13 +3088,14 @@ final class MusicLibrary {
     }
 
     /// 批量准入。`prefixes` 在一批的开头按源解析一次, 于是一首歌只构造一次
-    /// 身份键, 也不再为每一行在源表里线性找一遍账号 ID。判定与
-    /// `isBlockedFromLibrary(_:)` 完全一致。
-    private func isBlockedFromLibrary(
+    /// 身份键, 也不再为每一行在源表里线性找一遍账号 ID。拦下与否的判定与
+    /// `isBlockedFromLibrary(_:)` 完全一致; 多出来的只是"被哪本账拦下的",
+    /// 因为全局墓碑可以在文件回到磁盘上时撤销, 而「从本机移除」不行。
+    private func admissionVerdict(
         _ song: Song,
         prefixes: [String: String]
-    ) -> Bool {
-        LibrarySongAdmissionPolicy.isBlocked(
+    ) -> LibrarySongAdmissionPolicy.Verdict {
+        LibrarySongAdmissionPolicy.verdict(
             sourceID: song.sourceID,
             filePath: song.filePath,
             prefixes: prefixes,
@@ -4472,11 +4489,11 @@ final class MusicLibrary {
         // Filter out paths the user has explicitly deleted. Identity
         // key is account+path (not mount-UUID+path) — re-OAuth of the
         // same upstream account mints a new mount.id but the path is
-        // unchanged, and we want the tombstone to keep working. The
-        // user can reverse the tombstone via `restoreDeletedSong`.
-        // `isBlockedFromLibrary` additionally drops rows the user removed from
-        // this device only (source file intentionally left in place), so a
-        // rescan of that source does not re-add them here.
+        // unchanged, and we want the tombstone to keep working.
+        // 墓碑不是永久判决: 本机文件源的歌只要文件此刻又在磁盘上, 下面的
+        // 复活步骤会当场撤销它 (`restoreDeletedSong` 是同一套撤销语义的
+        // 单首入口)。准入判定另外还会丢掉设备本地排除账本里的行 —— 源文件
+        // 是故意留着的, 所以文件在不在都不放行, 重扫永远不会把它们加回来。
         // 给每首新歌就近填 albumID/artistID。这样后台 rebuildIndex 不需要回头
         // mutate songs 数组, 1w+ 首库扫描时 main actor 不会被全表 ID 重赋值
         // 卡到。计算成本 = SHA256(string) × 2 per song, 1w 首约 5ms 总。
@@ -4511,11 +4528,26 @@ final class MusicLibrary {
             }
         }
         var blockedIDs: Set<String> = []
+        // 命中全局墓碑的行单独记一份, 好在循环之后一次性问探针。只装墓碑
+        // 那一支, 所以这份数组通常是空的, 不会再物化一份 `[Song]`。
+        var tombstonedCandidates: [Song] = []
+        var tombstoneKeyBySongID: [String: String] = [:]
+        let canRevokeTombstones = deviceLocalFilePresenceProbe != nil
         for song in newSongs {
-            if hasAdmissionFilters,
-               isBlockedFromLibrary(song, prefixes: identityPrefixBySourceID) {
-                blockedIDs.insert(song.id)
-                continue
+            if hasAdmissionFilters {
+                switch admissionVerdict(song, prefixes: identityPrefixBySourceID) {
+                case .admitted:
+                    break
+                case .blockedByTombstone(let key):
+                    blockedIDs.insert(song.id)
+                    if canRevokeTombstones, tombstoneKeyBySongID.updateValue(key, forKey: song.id) == nil {
+                        tombstonedCandidates.append(song)
+                    }
+                    continue
+                case .blockedByDeviceExclusion:
+                    blockedIDs.insert(song.id)
+                    continue
+                }
             }
             if pruneMissingSongs {
                 if authoritativeIncomingIDs == nil {
@@ -4528,6 +4560,50 @@ final class MusicLibrary {
             if songIndexByID[song.id] == nil {
                 appendedIDs.insert(song.id)
             }
+        }
+
+        // 墓碑挡的是"陈旧目录快照 / 其它设备的旧快照"把已删的歌带回来; 对本机
+        // 文件源来说磁盘就是事实。文件此刻确实躺在磁盘上, 就说明是用户自己又
+        // 把它放回来了(删掉标签不全的几首、改好标签后重新导入同名文件), 这时
+        // 墓碑让路并当场撤销 —— 否则那几首无论怎么重扫、换哪种导入方式都永远
+        // 进不了资料库, 只有卸载重装才好。
+        //
+        // 证据取「文件现在存在」而不是「扫描看见过它」: 用户刚删掉一首、而一轮
+        // 更早开始的扫描随后才 flush 时, 文件已经不在磁盘上, 探针为 false, 这
+        // 批仍然被挡住 —— 删除不会被一次迟到的扫描撤销。
+        //
+        // 「从资料库移除但保留源文件」那一种删除在删的时候就被记进了设备本地
+        // 排除账本, 于是 `admissionVerdict` 给的是 `.blockedByDeviceExclusion`,
+        // 根本不会进到这份候选里 —— 它的文件本来就一直在。
+        if !tombstonedCandidates.isEmpty, let probe = deviceLocalFilePresenceProbe {
+            let presentSongIDs = probe(tombstonedCandidates)
+            var revokedKeys: Set<String> = []
+            for song in tombstonedCandidates {
+                // 放行规则只有一份, 在 `LibrarySongAdmissionPolicy` 里 —— 那份
+                // 是能脱离 App 单独跑测试的, 这里不再另写一遍。
+                guard let recordedKey = tombstoneKeyBySongID[song.id],
+                      let key = LibrarySongAdmissionPolicy.revocableTombstoneKey(
+                          for: .blockedByTombstone(key: recordedKey),
+                          isDeviceLocalFilePresent: presentSongIDs.contains(song.id)
+                      ) else { continue }
+                revokedKeys.insert(key)
+                blockedIDs.remove(song.id)
+                // 循环里跳过的记账在这里补上, 否则这几首会被下面的
+                // `shouldRemove` 当成"扫描没交出来"而立刻又被剪掉。
+                if pruneMissingSongs {
+                    if authoritativeIncomingIDs == nil {
+                        incomingIDs.insert(song.id)
+                    }
+                    if explicitAffectedSourceIDs == nil {
+                        sourceIDs.insert(song.sourceID)
+                    }
+                }
+                if songIndexByID[song.id] == nil {
+                    appendedIDs.insert(song.id)
+                }
+            }
+            // 整批撤销一次、落盘一次: 逐首撤销会把整份快照重新编码 N 遍。
+            revokeDeletedSongIdentities(revokedKeys)
         }
 
         // A degraded/partial provider response is not an authoritative source
@@ -4962,6 +5038,7 @@ final class MusicLibrary {
         // mount-UUID+path) so re-adding the same Baidu account on
         // a fresh source UUID doesn't bypass it.
         deletedSongIdentities.insert(identityKey(for: song))
+        recordExclusionsForRetainedSourceFiles([song])
         let remaining = songs.filter { $0.sourceID == song.sourceID }.count
         pruneVisibleCachesAfterRemoval(
             removedIDs: [song.id],
@@ -4992,6 +5069,7 @@ final class MusicLibrary {
         for song in songsToDelete {
             deletedSongIdentities.insert(identityKey(for: song))
         }
+        recordExclusionsForRetainedSourceFiles(songsToDelete)
         songs.removeAll { idsToDelete.contains($0.id) }
         songIndexByID = Self.makeSongIndex(songs)
         var remainingCounts = Dictionary(
@@ -5013,6 +5091,37 @@ final class MusicLibrary {
         persistSongChanges(deletingIDs: idsToDelete, needsPromptCompatibilitySnapshot: true)
         postSongsRemoved(songsToDelete, songIDs: idsToDelete)
         return remainingCounts
+    }
+
+    /// 删库记录的那一刻源文件还在磁盘上, 说明用户选的是「从资料库移除, 源文件
+    /// 保留」(批量删除的 `.libraryOnly`) —— 弹窗明确承诺过"重新扫描时不会再被
+    /// 加回"。这类身份同时记进设备本地排除账本, 于是扫描期的墓碑复活会跳过
+    /// 它们: 它们的文件本来就一直在, "文件在磁盘上"不构成"用户又把它放回来了"。
+    ///
+    /// 删源文件、单首删除、重复项清理都是先确认文件删掉了才来删库记录, 所以
+    /// 这三条路上探针一律答 false, 什么也不会记。不装探针(tvOS / 测试)时同样
+    /// 什么都不记, 行为与历史版本一致。
+    ///
+    /// 只记身份、不记保留曲目记录: 恢复界面读的是保留目录, 这里不往里放东西,
+    /// 所以界面和快照导出都与今天完全一样。
+    private func recordExclusionsForRetainedSourceFiles(_ deletedSongs: [Song]) {
+        guard let probe = deviceLocalFilePresenceProbe else { return }
+        let retainedSongIDs = probe(deletedSongs)
+        guard !retainedSongIDs.isEmpty else { return }
+        var changed = false
+        for song in deletedSongs where retainedSongIDs.contains(song.id) {
+            // 两种键形态都写, 与 `removeSongsFromThisDevice` 一致: 账号解析器
+            // 要到启动装载之后才装上。
+            if deviceLocalExcludedSongIdentities.insert(identityKey(for: song)).inserted {
+                changed = true
+            }
+            if deviceLocalExcludedSongIdentities.insert("\(song.sourceID):\(song.filePath)").inserted {
+                changed = true
+            }
+        }
+        guard changed else { return }
+        do { try persistDeviceLocalExclusions() }
+        catch { plog("Retained-file exclusion update failed: \(error.localizedDescription)") }
     }
 
     /// Persist the local exclusion before removing rows. Retained catalogue
@@ -5247,9 +5356,15 @@ final class MusicLibrary {
     func restoreDeletedSong(_ song: Song) {
         // S2: 墓碑集合在发布时整体拷回, 排队后重放才能真正撤销删除。
         if deferringUntilReady({ [weak self] in self?.restoreDeletedSong(song) }) { return }
-        let key = identityKey(for: song)
-        guard deletedSongIdentities.contains(key) else { return }
-        deletedSongIdentities.remove(key)
+        revokeDeletedSongIdentities([identityKey(for: song)])
+    }
+
+    /// 撤销一批全局删除墓碑。单首恢复和扫描期的"文件又回到磁盘上"复活走同一
+    /// 条语义, 免得两处各写一套"什么时候能重新入库"。落盘只发一次。
+    private func revokeDeletedSongIdentities(_ keys: Set<String>) {
+        let revoked = keys.intersection(deletedSongIdentities)
+        guard !revoked.isEmpty else { return }
+        deletedSongIdentities.subtract(revoked)
         persistSnapshot()
     }
 
