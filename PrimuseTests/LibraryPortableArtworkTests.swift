@@ -213,6 +213,47 @@ final class LibraryPortableArtworkTests: XCTestCase {
         XCTAssertNil(smallObject["artworkCacheReferences"])
     }
 
+    /// 手动「清除封面与歌词」和容量驱逐留下的是同一种残局: ref 和 content 都
+    /// 没了, 而 `Song.coverArtFileName` 还留在歌曲记录上。那个字段就是回填队列
+    /// 判断「这首歌要不要重读封面」的唯一依据, 不摘掉就再也补不回来。清空必须
+    /// 把删掉的 ref 一次性播出去, 让资料库摘掉它们。
+    func testClearingAllAssetsAnnouncesTheClearedSongCoverReferences() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = MetadataAssetStore(storageDirectory: root)
+        let cover = try image(jpeg: true)
+        let songIDs = ["song-a", "song-b"]
+        for songID in songIDs {
+            store.storeCoverSync(cover, for: songID)
+        }
+        // 专辑封面是派生副本, 键也不同, 不该混进这份通知里。
+        _ = await store.storeAlbumCover(cover, forAlbumID: "album-1")
+
+        var observedRefs: Set<String>?
+        let received = XCTestExpectation(description: "artwork content evicted")
+        let token = NotificationCenter.default.addObserver(
+            forName: .primuseArtworkContentEvicted,
+            object: nil,
+            queue: .main
+        ) { note in
+            observedRefs = note.userInfo?["refs"] as? Set<String>
+            received.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        await store.clearAll()
+        await fulfillment(of: [received], timeout: 5)
+
+        XCTAssertEqual(
+            observedRefs,
+            Set(songIDs.map { store.expectedCoverFileName(for: $0) })
+        )
+        for songID in songIDs {
+            let cached = await store.cachedCoverData(forSongID: songID)
+            XCTAssertNil(cached)
+        }
+    }
+
     func testExhaustedArtworkBudgetStopsConvertingRemainingCovers() async throws {
         let root = try directory()
         defer { try? FileManager.default.removeItem(at: root) }

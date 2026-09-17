@@ -707,7 +707,7 @@ actor MetadataAssetStore {
         // 注意: artwork/ 下还有 album / artist 子目录, 父目录 contentsOf 会
         // 把它们当文件 entry 一并 removeItem (递归删整棵), 子调用 clear()
         // 时再补建即可。content/ 是 root-level 兄弟目录, 必须显式清。
-        clear(directory: artworkDirectory)
+        let removedArtworkEntries = clear(directory: artworkDirectory)
         if lyricsMutationReservations.isEmpty {
             clear(directory: lyricsDirectory)
         }
@@ -719,6 +719,29 @@ actor MetadataAssetStore {
         let fm = FileManager.default
         try? fm.createDirectory(at: albumArtworkDirectory, withIntermediateDirectories: true)
         try? fm.createDirectory(at: artistArtworkDirectory, withIntermediateDirectories: true)
+
+        // 手动清空和容量驱逐留下的是同一种残局, 所以走同一条善后链路:
+        // ref 和 content 都没了, 而 `Song.coverArtFileName` 还留着 —— 回填
+        // 队列的判据就是它, 非空就认定"这首歌已经有封面", 于是谁也不会再去
+        // 读一次, 界面上就是封面凭空消失且再也回不来 (远端源尤其: 内嵌封面
+        // 没有别的地方可以回源)。整批一次性播出去, 观察者那边是一次
+        // `replaceSongs` 发布; 拆成小批反而会把 O(整库) 的发布成本乘上批数。
+        let clearedCoverRefs = Self.songCoverReferenceNames(in: removedArtworkEntries)
+        if !clearedCoverRefs.isEmpty {
+            Self.postArtworkContentEvicted(refs: clearedCoverRefs)
+        }
+    }
+
+    /// `artwork/` 顶层的 `<hash>.jpg` 才是挂在 `Song.coverArtFileName` 上的
+    /// 引用; album/ 与 artist/ 两个子目录是另一套键、也不进歌曲记录, 按扩展名
+    /// 就能把它们排除掉 (目录 entry 没有 `jpg` 扩展名)。
+    nonisolated private static func songCoverReferenceNames(in removed: [URL]) -> Set<String> {
+        var names: Set<String> = []
+        names.reserveCapacity(removed.count)
+        for url in removed where url.pathExtension == "jpg" {
+            names.insert(url.lastPathComponent)
+        }
+        return names
     }
 
     func cacheSize() -> Int64 {
@@ -730,15 +753,22 @@ actor MetadataAssetStore {
             + directorySize(portableArtworkDirectoryURL)
     }
 
-    private func clear(directory: URL) {
+    /// 返回**确实删掉了**的那些 entry。删失败的不能报出去: 调用方会据此让
+    /// 资料库把对应的 `coverArtFileName` 摘掉, 而那个文件其实还在。
+    @discardableResult
+    private func clear(directory: URL) -> [URL] {
         let fileManager = FileManager.default
         guard let contents = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
-            return
+            return []
         }
 
+        var removed: [URL] = []
+        removed.reserveCapacity(contents.count)
         for fileURL in contents {
-            try? fileManager.removeItem(at: fileURL)
+            guard (try? fileManager.removeItem(at: fileURL)) != nil else { continue }
+            removed.append(fileURL)
         }
+        return removed
     }
 
     private func directorySize(_ directory: URL) -> Int64 {
