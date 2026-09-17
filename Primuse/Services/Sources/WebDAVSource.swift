@@ -1662,22 +1662,14 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
     }
 
+    /// href 里的主机名不参与判断: 反向代理、内网穿透和 CDN 后面的服务端会用自己
+    /// 的上游地址拼绝对 href, 和用户填的地址天然对不上。后续请求一律是"用户填的
+    /// baseURL + 这里算出来的 source path", href 的 scheme/主机/端口从不用来发请求,
+    /// 拿它做校验只会把整页条目连同目录自身那条一起丢掉。越界与 `..` 由
+    /// `WebDAVPathPolicy` 按路径拦。
     private func sourcePath(forWebDAVHref href: String, baseURL: URL) -> String? {
-        let escapedHref = href.addingPercentEncoding(
-            withAllowedCharacters: CharacterSet(charactersIn: " ").inverted
-        ) ?? href
-        guard let absoluteURL = URL(string: escapedHref, relativeTo: baseURL)?.absoluteURL else {
-            return nil
-        }
-        if let responseHost = absoluteURL.host,
-           let baseHost = baseURL.host,
-           InsecureHTTPHostPolicy.normalizedHost(responseHost)
-            != InsecureHTTPHostPolicy.normalizedHost(baseHost) {
-            return nil
-        }
-
-        return WebDAVPathPolicy(basePath: baseURL.path)
-            .sourcePath(forServerPath: absoluteURL.standardized.path)
+        WebDAVPathPolicy(basePath: baseURL.path)
+            .sourcePath(forHref: href, baseURL: baseURL)
     }
 
     private static func webDAVDate(_ value: String?) -> Date? {

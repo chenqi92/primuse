@@ -942,6 +942,29 @@ public struct WebDAVPathPolicy: Equatable, Sendable {
         self.basePath = Self.normalizeAbsolutePath(basePath ?? "/")
     }
 
+    /// Converts a PROPFIND `<D:href>` to a source-relative path, resolving a
+    /// relative reference against the configured base URL.
+    ///
+    /// Only the path is read. RFC 4918 lets a server answer with an absolute
+    /// path or a full URI, and a server behind a reverse proxy, a tunnel or a
+    /// CDN routinely builds that URI from its own upstream address — an href of
+    /// `http://192.168.1.10:5005/dav/Music/` while the client is connected to
+    /// `https://dav.example.com`. The href's scheme, host and port never
+    /// address a request, because every follow-up call is built from the
+    /// configured base URL plus the source path returned here, so a mismatch
+    /// says nothing about whether the entry belongs to this source. Scope is
+    /// enforced by `sourcePath(forServerPath:)`, which keeps the result inside
+    /// the configured root and rejects parent references.
+    public func sourcePath(forHref href: String, baseURL: URL) -> String? {
+        let escapedHref = href.addingPercentEncoding(
+            withAllowedCharacters: CharacterSet(charactersIn: " ").inverted
+        ) ?? href
+        guard let absoluteURL = URL(string: escapedHref, relativeTo: baseURL)?.absoluteURL else {
+            return nil
+        }
+        return sourcePath(forServerPath: absoluteURL.standardized.path)
+    }
+
     /// Converts an absolute server href/path to a source-relative path. The
     /// full configured root is preferred; its final component is also accepted
     /// for reverse proxies that expose an upstream WebDAV root such as `/dav`
