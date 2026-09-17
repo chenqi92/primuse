@@ -29,7 +29,7 @@ struct TVSettingsView: View {
     @AppStorage("tvAutoSync") private var autoSync = true
     /// 与 iOS / macOS 同一个键、同一个默认值。CloudKit 在账号退出或切换时会把它
     /// 强制关掉,Apple TV 上必须有地方能再打开。
-    @AppStorage("primuse.iCloudSyncEnabled") private var iCloudSyncEnabled = true
+    @AppStorage(CloudSyncChannel.masterDefaultsKey) private var iCloudSyncEnabled = true
     @AppStorage(AppThemePreferences.accentHexKey)
     private var accentHex = AppThemePreferences.defaultAccentHex
     @AppStorage(AppThemePreferences.colorModeKey)
@@ -71,7 +71,11 @@ struct TVSettingsView: View {
     }
     private var syncValue: String {
         if isSyncing { return PMString("ext.tv.settings.syncing") }
-        return syncMsg ?? PMString("ext.tv.settings.tapToPull")
+        if let syncMsg { return syncMsg }
+        // 总开关关着时别再写「点按拉取最新曲库」—— 点了也不会拉。
+        return iCloudSyncEnabled
+            ? PMString("ext.tv.settings.tapToPull")
+            : PMString("ext.tv.settings.syncDisabled")
     }
     private var artistRulesValue: String {
         PMString(
@@ -96,6 +100,7 @@ struct TVSettingsView: View {
                                 .onChange(of: iCloudSyncEnabled) { _, value in
                                     // 只改偏好不生效:引擎要跟着起停,与 iOS 的
                                     // CloudSyncSettingsView 做同一件事。
+                                    syncMsg = nil   // 上一次的结果对新状态不再成立
                                     Task { await store.setCloudSyncEnabled(value) }
                                 }
                             settingDivider
@@ -289,6 +294,8 @@ struct TVSettingsView: View {
             return PMString("ext.tv.settings.noSnapshot")
         case .localStorageUnavailable:
             return PMString("ext.tv.persistence.failed")
+        case .syncDisabled:
+            return PMString("ext.tv.settings.syncDisabled")
         }
     }
 

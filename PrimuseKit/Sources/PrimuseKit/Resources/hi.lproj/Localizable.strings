@@ -311,6 +311,7 @@
 "ext.tv.settings.syncNoAccount" = "iCloud में साइन इन नहीं है";
 "ext.tv.settings.syncUnreachable" = "iCloud तक नहीं पहुँच सके — नेटवर्क जाँचें";
 "ext.tv.settings.syncedNoTransferable" = "सिंक हो गया · लोकल फ़ाइलें फ़ोन पर ही रहती हैं";
+"ext.tv.settings.syncDisabled" = "iCloud सिंक बंद है";
 "ext.tv.settings.notSynced" = "अभी तक समन्वयित नहीं हुआ";
 "ext.tv.settings.playlists" = "प्लेलिस्ट";
 "ext.tv.settings.remoteTips" = "रिमोट टिप्स";

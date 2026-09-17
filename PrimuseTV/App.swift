@@ -1,4 +1,5 @@
 #if os(tvOS)
+import CloudKit
 import Intents
 import SwiftUI
 import UIKit
@@ -49,6 +50,9 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        // CKSyncEngine 靠 CloudKit 的静默推送才知道该去拉取。不注册就只剩启动时
+        // 那一次和设置页的手动同步 —— 与 iOS / macOS 端注册的理由完全相同。
+        application.registerForRemoteNotifications()
         radioCatalogObserver = NotificationCenter.default.addObserver(
             forName: .primuseTVSiriRadioCatalogDidChange,
             object: nil,
@@ -69,6 +73,25 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
 
     func sceneDidEnterBackground() {
         Task { await store.persistForLifecycle() }
+    }
+
+    /// CloudKit 的私有库变更推送。转发是必须的:引擎不会自己截获这条通知,
+    /// iOS 端同一个回调(`PrimuseAppDelegate.application(_:didReceiveRemoteNotification:
+    /// fetchCompletionHandler:)`)也是自己判完 `CKDatabaseNotification` 再调
+    /// `syncNow()`。非 CloudKit 的推送原样放行,报 `.noData`。
+    func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        guard CKDatabaseNotification(fromRemoteNotificationDictionary: userInfo) != nil else {
+            completionHandler(.noData)
+            return
+        }
+        Task { @MainActor in
+            await store.handleCloudKitPush()
+            completionHandler(.newData)
+        }
     }
 
     func application(_ application: UIApplication, handlerFor intent: INIntent) -> Any? {

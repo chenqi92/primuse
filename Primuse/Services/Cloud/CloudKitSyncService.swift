@@ -2813,7 +2813,7 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             didCompleteInitialUpload = false
             isParticipantOfShare = false
             Self.familySharingEnabled = false
-            UserDefaults.standard.set(false, forKey: "primuse.iCloudSyncEnabled")
+            UserDefaults.standard.set(false, forKey: CloudSyncChannel.masterDefaultsKey)
             stop(updateStatus: true)
             status = .accountUnavailable(.unknown)
         case .signIn:

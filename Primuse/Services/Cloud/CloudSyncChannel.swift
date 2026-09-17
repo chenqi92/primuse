@@ -24,10 +24,21 @@ enum CloudSyncChannel: String, CaseIterable, Sendable {
         "primuse.iCloudSync.channel.\(rawValue)"
     }
 
+    /// The master switch's UserDefaults key. Every platform's settings UI binds
+    /// to this one key, and `CloudKitSyncService` forces it off when the iCloud
+    /// account signs out or switches.
+    static let masterDefaultsKey = "primuse.iCloudSyncEnabled"
+
+    /// The master switch alone. Transfers that belong to no single channel —
+    /// the whole-library snapshot Apple TV pulls, for one — have to consult it
+    /// directly, otherwise they keep running after the user turned sync off.
+    static func isMasterEnabled(defaults: UserDefaults = .standard) -> Bool {
+        (defaults.object(forKey: masterDefaultsKey) as? Bool) ?? true
+    }
+
     /// True when both the master switch and this channel's switch are on.
     static func isEnabled(_ channel: CloudSyncChannel, defaults: UserDefaults = .standard) -> Bool {
-        let master = (defaults.object(forKey: "primuse.iCloudSyncEnabled") as? Bool) ?? true
-        guard master else { return false }
+        guard isMasterEnabled(defaults: defaults) else { return false }
         return (defaults.object(forKey: channel.defaultsKey) as? Bool) ?? true
     }
 

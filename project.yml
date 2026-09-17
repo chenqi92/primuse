@@ -716,6 +716,8 @@ targets:
         CFBundleName: "Primuse"
         UIBackgroundModes:
           - audio
+          # CloudKit 的静默推送靠它才能送到 app,CKSyncEngine 据此拉取远端变更。
+          - remote-notification
         # 声明支持的本地化语言。tvOS app 文案走 PrimuseKit.framework 里的 .lproj,主 app 包内
         # 没有 .lproj;若不在此显式声明,系统会认为本 app 只支持开发区域(en),即便 Apple TV
         # 设成中文也回落英文。声明后跟随设备语言:中文设备显示中文、英文显示英文。

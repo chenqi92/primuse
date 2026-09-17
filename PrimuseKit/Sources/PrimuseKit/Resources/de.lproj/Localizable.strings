@@ -251,6 +251,7 @@
 "ext.tv.settings.syncNoAccount"            = "Nicht bei iCloud angemeldet";
 "ext.tv.settings.syncUnreachable"          = "iCloud nicht erreichbar – Netzwerk prüfen";
 "ext.tv.settings.syncedNoTransferable"     = "Synchronisiert · Lokale Dateien bleiben auf dem Telefon";
+"ext.tv.settings.syncDisabled"             = "iCloud-Synchronisierung ist aus";
 "ext.tv.settings.synced"                   = "Synchronisiert · %@ Titel";
 
 // tvOS — Sources

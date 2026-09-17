@@ -311,6 +311,7 @@
 "ext.tv.settings.syncNoAccount" = "لم يتم تسجيل الدخول إلى iCloud";
 "ext.tv.settings.syncUnreachable" = "تعذّر الوصول إلى iCloud — تحقق من الشبكة";
 "ext.tv.settings.syncedNoTransferable" = "تمت المزامنة · تبقى الملفات المحلية على الهاتف";
+"ext.tv.settings.syncDisabled" = "مزامنة iCloud متوقفة";
 "ext.tv.settings.notSynced" = "لم تتم المزامنة بعد";
 "ext.tv.settings.playlists" = "قوائم التشغيل";
 "ext.tv.settings.remoteTips" = "نصائح عن بعد";

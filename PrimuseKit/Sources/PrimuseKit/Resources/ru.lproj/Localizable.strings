@@ -547,6 +547,7 @@
 "ext.tv.settings.syncNoAccount" = "Вход в iCloud не выполнен";
 "ext.tv.settings.syncUnreachable" = "Нет связи с iCloud — проверьте сеть";
 "ext.tv.settings.syncedNoTransferable" = "Синхронизировано · Локальные файлы остаются на телефоне";
+"ext.tv.settings.syncDisabled" = "Синхронизация с iCloud выключена";
 "ext.tv.settings.libraryStat" = "Песни %1$@ · Альбомы %2$d · Исполнители %3$d";
 "ext.tv.search.path" = "Путь: %@";
 "ext.tv.options.eyebrow" = "Опции";

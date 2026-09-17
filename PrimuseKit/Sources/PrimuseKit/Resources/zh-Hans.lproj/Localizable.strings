@@ -248,6 +248,7 @@
 "ext.tv.settings.syncNoAccount"            = "未登录 iCloud";
 "ext.tv.settings.syncUnreachable"          = "连不上 iCloud，请检查网络";
 "ext.tv.settings.syncedNoTransferable"     = "已同步 · 手机本机文件不传到 Apple TV";
+"ext.tv.settings.syncDisabled"             = "iCloud 同步已关闭";
 "ext.tv.settings.synced"                   = "已同步 · %@ 首";
 
 // tvOS — Sources

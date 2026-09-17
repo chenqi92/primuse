@@ -362,12 +362,15 @@ enum TVSyncOutcome: Equatable, Sendable {
     case noSnapshot
     /// 本机这一侧装不进去:sources.json 残缺,或上一次导入事务没收尾。
     case localStorageUnavailable
+    /// 用户自己关掉了 iCloud 同步总开关,这次什么都没往云端要。
+    case syncDisabled
 
     /// 兼容旧调用点的「这次有没有装上新快照」。
     var didInstall: Bool {
         switch self {
         case .installed, .installedWithoutTransferableSongs: return true
-        case .accountUnavailable, .cloudUnreachable, .noSnapshot, .localStorageUnavailable:
+        case .accountUnavailable, .cloudUnreachable, .noSnapshot,
+             .localStorageUnavailable, .syncDisabled:
             return false
         }
     }
@@ -1492,11 +1495,24 @@ final class TVStore {
     }
 
     private func performBootstrap() async -> TVSyncOutcome {
+        // 这里必须在引擎起来之前就返回。本机快照事务没收尾时,`library-cache.json`
+        // 与 `tv-pending-library-import.json` 谁是真相还没定:此刻让 CKSyncEngine
+        // 跑起来,它拉回来的歌单会写进 library-cache.json,而下次启动
+        // `recoverTVSnapshot()` 会拿 pending 整份盖回去,刚同步下来的改动就没了;
+        // 它同样会把这台机器半残的 sources 推上云端。歌单/设置的同步要等导入收尾,
+        // 由下一次 bootstrap(或 reload() 里那次重试成功后的下一次)把引擎带起来。
         guard await retryPendingSnapshotImport() else { return .localStorageUnavailable }
         #if DEBUG
         injectDebugCredential()   // 先注入,避免与自动播放钩子竞态(CloudKit await 期间)
         #endif
         reload()
+        // 总开关关掉后就不该再向 iCloud 要东西 —— 整库快照不属于任何一个
+        // channel,`downloadTVPayload()` 自己不看这个开关,只能在这里挡。
+        // 局域网扫码直传走 `applyLANPayload`,不经过这里,不受影响。
+        guard CloudSyncChannel.isMasterEnabled(defaults: defaults) else {
+            refreshVisibility()
+            return .syncDisabled
+        }
         resumePendingSourceUpload()
         let payload = await LibrarySnapshotSync.shared.downloadTVPayload()
         var installed = false
@@ -1541,6 +1557,19 @@ final class TVStore {
             await cloudSync.start()
         } else {
             cloudSync.stop()
+        }
+    }
+
+    /// 收到 CloudKit 私有库变更推送。推送可能比引导先到(系统为了投递它把 app
+    /// 拉起来),所以引擎没起来时先 `start()`(它自己会跑一次 fetch),起来了才补
+    /// 一次 `syncNow()` —— 与 `performBootstrap()` 里的判断同一条规则。总开关关着
+    /// 时什么都不做,免得一条推送把用户刚关掉的同步又打开。
+    func handleCloudKitPush() async {
+        guard CloudSyncChannel.isMasterEnabled(defaults: defaults) else { return }
+        if cloudSync.isStarted {
+            await cloudSync.syncNow()
+        } else {
+            await cloudSync.start()
         }
     }
 
@@ -3008,6 +3037,9 @@ final class TVStore {
 
     private func resumePendingSourceUpload() {
         guard !hasPendingSnapshotRecovery, sourcesStore.hasCompleteSnapshot else { return }
+        // 总开关关掉时不往云端回传。`tv.pendingSourceUpload` 标记原样留着,用户
+        // 重新打开同步后的下一次引导会把它补发出去。
+        guard CloudSyncChannel.isMasterEnabled(defaults: defaults) else { return }
         guard pendingUpload == nil, defaults.string(forKey: "tv.pendingSourceUpload") != nil else { return }
         pendingUpload = Task { @MainActor [weak self] in
             guard let self else { return }

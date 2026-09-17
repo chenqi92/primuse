@@ -251,6 +251,7 @@
 "ext.tv.settings.syncNoAccount"            = "iCloud にサインインしていません";
 "ext.tv.settings.syncUnreachable"          = "iCloud に接続できません。ネットワークを確認してください";
 "ext.tv.settings.syncedNoTransferable"     = "同期済み · 端末内のローカルファイルは転送されません";
+"ext.tv.settings.syncDisabled"             = "iCloud 同期はオフです";
 "ext.tv.settings.synced"                   = "同期済み · %@曲";
 
 // tvOS — Sources

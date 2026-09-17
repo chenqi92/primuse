@@ -249,6 +249,7 @@
 "ext.tv.settings.syncNoAccount"            = "Not signed in to iCloud";
 "ext.tv.settings.syncUnreachable"          = "Can't reach iCloud — check the network";
 "ext.tv.settings.syncedNoTransferable"     = "Synced · Local files stay on the phone";
+"ext.tv.settings.syncDisabled"             = "iCloud sync is off";
 "ext.tv.settings.synced"                   = "Synced · %@ songs";
 
 // tvOS — Sources

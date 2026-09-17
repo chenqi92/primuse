@@ -311,6 +311,7 @@
 "ext.tv.settings.syncNoAccount" = "No has iniciado sesión en iCloud";
 "ext.tv.settings.syncUnreachable" = "No se puede conectar con iCloud: revisa la red";
 "ext.tv.settings.syncedNoTransferable" = "Sincronizado · Los archivos locales se quedan en el teléfono";
+"ext.tv.settings.syncDisabled" = "La sincronización con iCloud está desactivada";
 "ext.tv.settings.notSynced" = "Aún no sincronizado";
 "ext.tv.settings.playlists" = "Listas de reproducción";
 "ext.tv.settings.remoteTips" = "Puntas remotas";

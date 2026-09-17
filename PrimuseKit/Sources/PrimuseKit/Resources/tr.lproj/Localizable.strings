@@ -547,6 +547,7 @@
 "ext.tv.settings.syncNoAccount" = "iCloud'da oturum açılmadı";
 "ext.tv.settings.syncUnreachable" = "iCloud'a ulaşılamıyor — ağı kontrol edin";
 "ext.tv.settings.syncedNoTransferable" = "Eşitlendi · Yerel dosyalar telefonda kalır";
+"ext.tv.settings.syncDisabled" = "iCloud eşitlemesi kapalı";
 "ext.tv.settings.libraryStat" = "%1$@ şarkıları · %2$d albümleri · %3$d sanatçıları";
 "ext.tv.search.path" = "Yol: %@";
 "ext.tv.options.eyebrow" = "Seçenekler";

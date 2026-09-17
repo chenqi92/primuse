@@ -311,6 +311,7 @@
 "ext.tv.settings.syncNoAccount" = "ยังไม่ได้ลงชื่อเข้าใช้ iCloud";
 "ext.tv.settings.syncUnreachable" = "เชื่อมต่อ iCloud ไม่ได้ — ตรวจสอบเครือข่าย";
 "ext.tv.settings.syncedNoTransferable" = "ซิงค์แล้ว · ไฟล์ในเครื่องจะอยู่บนโทรศัพท์เท่านั้น";
+"ext.tv.settings.syncDisabled" = "การซิงค์ iCloud ปิดอยู่";
 "ext.tv.settings.notSynced" = "ยังไม่ได้ซิงค์";
 "ext.tv.settings.playlists" = "เพลย์ลิสต์";
 "ext.tv.settings.remoteTips" = "เคล็ดลับระยะไกล";
