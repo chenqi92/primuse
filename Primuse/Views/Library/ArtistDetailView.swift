@@ -208,7 +208,74 @@ struct ArtistDetailView: View {
         }
     }
 
+    /// 头图跟着界面皮肤的详情头图插槽走。封面墙要凑得够四张不同的封面才铺得起来,
+    /// 凑不够的艺术家(只有一两张专辑)仍用原来的头图。
+    @ViewBuilder
     private func iosHero(topInset: CGFloat) -> some View {
+        switch skin.skin.detailHeader {
+        case .coverWall where CollectionCoverWall.isAvailable(for: songs):
+            coverWallHero
+        case .coverWall, .classic:
+            classicHero(topInset: topInset)
+        }
+    }
+
+    private var artistSummaryText: String {
+        "\(songs.count) \(String(localized: "songs_count")) · \(albumCount) \(String(localized: "albums_count"))"
+    }
+
+    /// 封面墙头图:艺术家的专辑封面铺成墙,头像压在墙面渐隐的那一段上;播放与随机两个按钮照旧,
+    /// 只是换成压在页面底色上的样式。
+    private var coverWallHero: some View {
+        let actionLayout = dynamicTypeSize >= .xxLarge
+            ? AnyLayout(VStackLayout(spacing: 10))
+            : AnyLayout(HStackLayout(spacing: 10))
+
+        return VStack(spacing: 14) {
+            CollectionCoverWallHeader(
+                title: displayArtistName,
+                subtitle: artistSummaryText,
+                titleAccessory: AnyView(
+                    ArtistArtworkView(artist: artist, size: 72, cornerRadius: 36)
+                        .overlay { Circle().stroke(skin.color(.surfaceBorder), lineWidth: 1) }
+                        .shadow(color: .black.opacity(0.28), radius: 12, y: 5)
+                ),
+                songs: songs,
+                nowPlaying: player.currentSong
+            ) {
+                EmptyView()
+            }
+
+            Text(verbatim: monthlyListenText)
+                .font(skin.font(.caption))
+                .foregroundStyle(.skin(.textSecondary))
+                .padding(.horizontal, 20)
+
+            actionLayout {
+                LibraryDetailActionButton(
+                    title: "play",
+                    systemImage: "play.fill",
+                    emphasized: true,
+                    fillsWidth: true,
+                    disabled: playableSongs.isEmpty,
+                    action: playAll
+                )
+                LibraryDetailActionButton(
+                    title: "shuffle",
+                    systemImage: "shuffle",
+                    onArtwork: false,
+                    fillsWidth: true,
+                    disabled: playableSongs.count < 2,
+                    action: shuffleAll
+                )
+            }
+            .padding(.horizontal, 20)
+        }
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity)
+    }
+
+    private func classicHero(topInset: CGFloat) -> some View {
         let identityLayout = dynamicTypeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
             : AnyLayout(HStackLayout(alignment: .center, spacing: 18))

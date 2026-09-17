@@ -13,6 +13,7 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
     private let title: String
     private let subtitle: String
     private let titleSymbol: String?
+    private let titleAccessory: AnyView?
     private let coverIDs: [String]
     private let coverSongs: [String: Song]
     private let focusCoverID: String?
@@ -23,12 +24,14 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
     @State private var step = 0
 
     /// - Parameters:
+    ///   - titleAccessory: 标题上方的一小块内容(艺术家页的头像)。压在墙面渐隐的那一段上。
     ///   - songs: 集合里的歌,按页面上看到的顺序。只会扫前面一段。
     ///   - nowPlaying: 正在播放的歌。它的封面在这面墙里时会成为焦点。
     init(
         title: String,
         subtitle: String,
         titleSymbol: String? = nil,
+        titleAccessory: AnyView? = nil,
         songs: [Song],
         nowPlaying: Song?,
         @ViewBuilder fallback: () -> Fallback
@@ -36,6 +39,7 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
         self.title = title
         self.subtitle = subtitle
         self.titleSymbol = titleSymbol
+        self.titleAccessory = titleAccessory
         self.fallback = fallback()
 
         let focusGroupKey = nowPlaying.map(Self.groupKey(for:))
@@ -62,9 +66,7 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
 
     /// 同一张专辑的歌只占一格;没有专辑信息的歌按封面文件分组,再不行就各算各的。
     private static func groupKey(for song: Song) -> String {
-        if let albumID = song.albumID, !albumID.isEmpty { return "album:" + albumID }
-        if let cover = song.coverArtFileName, !cover.isEmpty { return "cover:" + cover }
-        return "song:" + song.id
+        CollectionCoverWall.groupKey(for: song)
     }
 
     private var showsWall: Bool {
@@ -124,6 +126,11 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
 
     private var titleBlock: some View {
         VStack(spacing: 6) {
+            if let titleAccessory {
+                titleAccessory
+                    .padding(.bottom, 6)
+                    .accessibilityHidden(true)
+            }
             HStack(spacing: 8) {
                 if let titleSymbol {
                     Image(systemName: titleSymbol)
@@ -208,6 +215,30 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
         }
     }
 }
+/// 封面墙能不能铺得起来。头图外面还要跟着换画法的页面(艺术家页的按钮在墙面下是另一种样式)
+/// 先问这里,再决定用哪种头图;判断规则与 `CollectionCoverWallHeader` 内部用的是同一份。
+enum CollectionCoverWall {
+    static func isAvailable(for songs: [Song]) -> Bool {
+        let pooled = CoverWallLayoutPolicy.pool(
+            from: songs,
+            candidate: { song in
+                CoverWallCandidate(
+                    songID: song.id,
+                    groupKey: groupKey(for: song),
+                    hasKnownArtwork: !(song.coverArtFileName ?? "").isEmpty
+                )
+            }
+        )
+        return CoverWallLayoutPolicy.prefersWall(distinctCoverCount: pooled.count)
+    }
+
+    static func groupKey(for song: Song) -> String {
+        if let albumID = song.albumID, !albumID.isEmpty { return "album:" + albumID }
+        if let cover = song.coverArtFileName, !cover.isEmpty { return "cover:" + cover }
+        return "song:" + song.id
+    }
+}
+
 /// 同一个插槽的单封面画法:专辑这类只有一张封面的集合用它。
 /// 居中的封面压在自己放大、模糊之后的光晕上,下沿融进页面底色。
 struct CollectionSingleCoverHeader<Artwork: View, Backdrop: View>: View {
