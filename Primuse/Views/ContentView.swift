@@ -28,12 +28,17 @@ enum AppTabSelectionPolicy {
 }
 
 enum AppNavigationLayoutPolicy {
+    /// `allowsSidebar` 只在 iPad 上为 true。iPhone 的宽度等级会随开合
+    /// (iPhone Duo 内外屏)和大屏机型横竖屏来回翻转，整棵根视图在侧边栏和
+    /// 标签栏之间互换会把各页已经推进去的详情页全部清掉；TabView 自己就能
+    /// 适配这些形态，所以 iPhone 始终留在标签栏。
     static func rootLayout(
         mode: AppNavigationMode,
-        usesRegularWidth: Bool
+        usesRegularWidth: Bool,
+        allowsSidebar: Bool
     ) -> AppNavigationRootLayout {
         if mode == .minimal { return .minimal }
-        return usesRegularWidth ? .standardSidebar : .standardTabs
+        return usesRegularWidth && allowsSidebar ? .standardSidebar : .standardTabs
     }
 }
 
@@ -633,9 +638,9 @@ struct ContentView: View {
     private var miniPlayerVisible: Bool {
         miniPlayerActive && !batchSelectionActive && !carPlayEditorActive
     }
-    /// iPad (regular) 走 NavigationSplitView; iPhone / iPad 分屏小窗 (compact)
-    /// 走 TabView。Apple 推荐用 horizontalSizeClass 而不是 idiom 来判断,以
-    /// 适配 Stage Manager / 分屏 / 折叠态。
+    /// iPad (regular) 走 NavigationSplitView; iPhone 与 iPad 分屏小窗 (compact)
+    /// 走 TabView。iPad 上按 horizontalSizeClass 适配 Stage Manager / 分屏;
+    /// iPhone 为什么不切侧边栏见 `AppNavigationLayoutPolicy`。
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(AppNavigationMode.storageKey)
@@ -705,7 +710,8 @@ struct ContentView: View {
     private var rootLayout: AppNavigationRootLayout {
         AppNavigationLayoutPolicy.rootLayout(
             mode: navigationMode,
-            usesRegularWidth: sizeClass == .regular
+            usesRegularWidth: sizeClass == .regular,
+            allowsSidebar: UIDevice.current.userInterfaceIdiom == .pad
         )
     }
 

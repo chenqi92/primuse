@@ -151,21 +151,37 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         XCTAssertEqual(AppNavigationMode.resolve(AppNavigationMode.minimal.rawValue), .minimal)
     }
 
-    func testStandardRootLayoutsRemainWidthAdaptive() {
+    func testStandardRootLayoutsRemainWidthAdaptiveOnPad() {
         XCTAssertEqual(
-            AppNavigationLayoutPolicy.rootLayout(mode: .standard, usesRegularWidth: false),
+            AppNavigationLayoutPolicy.rootLayout(mode: .standard, usesRegularWidth: false, allowsSidebar: true),
             .standardTabs
         )
         XCTAssertEqual(
-            AppNavigationLayoutPolicy.rootLayout(mode: .standard, usesRegularWidth: true),
+            AppNavigationLayoutPolicy.rootLayout(mode: .standard, usesRegularWidth: true, allowsSidebar: true),
             .standardSidebar
         )
         XCTAssertEqual(
-            AppNavigationLayoutPolicy.rootLayout(mode: .minimal, usesRegularWidth: false),
+            AppNavigationLayoutPolicy.rootLayout(mode: .minimal, usesRegularWidth: false, allowsSidebar: true),
             .minimal
         )
         XCTAssertEqual(
-            AppNavigationLayoutPolicy.rootLayout(mode: .minimal, usesRegularWidth: true),
+            AppNavigationLayoutPolicy.rootLayout(mode: .minimal, usesRegularWidth: true, allowsSidebar: true),
+            .minimal
+        )
+    }
+
+    func testPhoneKeepsTabsWhenWidthBecomesRegular() {
+        // iPhone Duo 展开、大屏 iPhone 横屏都是 regular 宽度，根布局不能跟着换。
+        XCTAssertEqual(
+            AppNavigationLayoutPolicy.rootLayout(mode: .standard, usesRegularWidth: true, allowsSidebar: false),
+            .standardTabs
+        )
+        XCTAssertEqual(
+            AppNavigationLayoutPolicy.rootLayout(mode: .standard, usesRegularWidth: false, allowsSidebar: false),
+            .standardTabs
+        )
+        XCTAssertEqual(
+            AppNavigationLayoutPolicy.rootLayout(mode: .minimal, usesRegularWidth: true, allowsSidebar: false),
             .minimal
         )
     }
