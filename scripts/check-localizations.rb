@@ -279,6 +279,12 @@ HAN_LITERAL_ALLOWLIST = {
   "PrimuseKit/Sources/PrimuseKit/LyricTranslationGroupingPolicy.swift" => [
     /"男", "女", "主唱", "副唱", "合唱", "和声", "独唱", "对唱"/
   ],
+  # Noise markers that transcription tools write into subtitle files. They are
+  # matched against file content, never shown as UI copy.
+  "PrimuseKit/Sources/PrimuseKit/Metadata/SubtitleLyricsParser.swift" => [
+    /"\[音乐\]", "\[音樂\]"/,
+    /"\[掌声\]"/
+  ],
   "PrimuseKit/Sources/PrimuseKit/SharedConstants.swift" => [
     /未知|未知标题|未知標題|未知歌曲|无标题|無標題/
   ],
