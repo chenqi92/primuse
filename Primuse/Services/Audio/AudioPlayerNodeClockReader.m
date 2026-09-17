@@ -24,3 +24,13 @@ BOOL PrimusePlayerNodeHasRenderTime(AVAudioPlayerNode *node) {
         return NO;
     }
 }
+
+BOOL PrimuseStartPlayerNode(AVAudioPlayerNode *node) {
+    @try {
+        [node play];
+        return node.isPlaying;
+    } @catch (NSException *exception) {
+        NSLog(@"⚠️ AVAudioPlayerNode play raised %@: %@", exception.name, exception.reason);
+        return NO;
+    }
+}

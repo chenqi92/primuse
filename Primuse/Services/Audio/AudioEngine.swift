@@ -783,7 +783,12 @@ final class AudioEngine {
         }
 
         node.scheduleBuffer(buffer, at: nil, options: [.loops], completionHandler: nil)
-        node.play()
+        guard startPlayerNode(node) else {
+            plog("⚠️ AudioEngine keepAlive node start rejected")
+            keepAliveEngine.detach(node)
+            standaloneKeepAliveEngine = nil
+            return
+        }
         keepAlivePlayerNode = node
         keepAliveBuffer = buffer
         plog("🛡 AudioEngine silence keepAlive ON")
@@ -879,7 +884,7 @@ final class AudioEngine {
     }
 
     func playCrossfadeNode() {
-        crossfadePlayerNode?.play()
+        startPlayerNode(crossfadePlayerNode)
     }
 
     func stopCrossfadeNode() {
@@ -889,6 +894,20 @@ final class AudioEngine {
     }
 
     // MARK: - Playback Control
+
+    /// Starts a player node without letting AVFAudio terminate the app.
+    ///
+    /// `AVAudioPlayerNode.play()` raises an Objective-C exception when the
+    /// graph is no longer running by the time the node starts, and an audio
+    /// interruption or route change landing between the engine check and this
+    /// call is enough to hit that window. Swift cannot catch it, so the start
+    /// goes through the Objective-C shim and a rejected start comes back as
+    /// `false` for the transport to report.
+    @discardableResult
+    private func startPlayerNode(_ node: AVAudioPlayerNode?) -> Bool {
+        guard let node else { return false }
+        return PrimuseStartPlayerNode(node)
+    }
 
     @discardableResult
     func play() -> Bool {
@@ -914,7 +933,19 @@ final class AudioEngine {
                 return false
             }
         }
-        playerNode?.play()
+        if !startPlayerNode(playerNode), !engine.isRunning {
+            // The graph stopped between the start above and the node start.
+            // The audio is still scheduled on the node, so bring the engine
+            // back once before giving up on this song.
+            flushEffectChain()
+            do { try engine.start() } catch {
+                plog("Failed to restart engine after a rejected node start: \(error)")
+                isPlaying = false
+                playbackClockReadsSuspended = true
+                return false
+            }
+            startPlayerNode(playerNode)
+        }
         isPlaying = engine.isRunning && (playerNode?.isPlaying ?? false)
         playbackClockReadsSuspended = !isPlaying
         return isPlaying
@@ -1034,9 +1065,9 @@ final class AudioEngine {
             isPlaying = false
             return false
         }
-        playerNode?.play()
+        startPlayerNode(playerNode)
         if (crossfadePlayerNode?.volume ?? 0) > 0 {
-            crossfadePlayerNode?.play()
+            startPlayerNode(crossfadePlayerNode)
         }
         isPlaying = playerNode?.isPlaying ?? false
         playbackClockReadsSuspended = !isPlaying
@@ -1072,7 +1103,7 @@ final class AudioEngine {
                 return false
             }
         }
-        playerNode?.play()
+        startPlayerNode(playerNode)
         isPlaying = engine.isRunning && (playerNode?.isPlaying ?? false)
         playbackClockReadsSuspended = !isPlaying
         return isPlaying
