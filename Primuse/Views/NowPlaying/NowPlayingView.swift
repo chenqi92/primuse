@@ -1484,18 +1484,20 @@ struct NowPlayingView: View {
                     .padding(.top, 14)
             }
 
-            Spacer(minLength: 18)
-
-            if let station = player.currentRadioStation {
-                RadioStationArtworkView(
-                    station: station,
-                    size: artworkSize,
-                    cornerRadius: max(18, artworkSize * 0.06)
-                )
-                .shadow(color: .black.opacity(0.34), radius: 28, y: 14)
+            // 台标只吃文字和控件之外剩下的高度。只按宽度取值时，iPhone Duo 外屏、
+            // 内屏分屏半幅这类宽而矮的窗口会把底部控件顶出屏幕。
+            GeometryReader { artworkGeometry in
+                let fittedSize = min(artworkSize, artworkGeometry.size.height - 42)
+                if let station = player.currentRadioStation, fittedSize >= 48 {
+                    RadioStationArtworkView(
+                        station: station,
+                        size: fittedSize,
+                        cornerRadius: max(18, fittedSize * 0.06)
+                    )
+                    .shadow(color: .black.opacity(0.34), radius: 28, y: 14)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
-
-            Spacer(minLength: 24)
 
             VStack(spacing: 8) {
                 Text(player.currentRadioStation?.name ?? player.currentSong?.title ?? "")

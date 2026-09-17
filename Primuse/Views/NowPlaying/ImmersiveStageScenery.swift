@@ -111,7 +111,11 @@ struct ImmersiveStageMetrics {
         case .phoneLandscape:
             scale = min(max(size.width / 852, 0.78), 1.25)
         case .phonePortrait:
-            scale = min(max(size.width / 393, 0.82), 1.35)
+            // 竖屏同样受高度约束。699 = 393 × 667 / 375,即 iPhone SE 按宽度缩放时
+            // 每个设计单位分到的高度;现有 iPhone 都比它瘦长,照旧按宽度取值。
+            // iPhone Duo 外屏(约 466×678)和内屏分屏后的半幅窗口宽而矮,只按宽度
+            // 放大会把控件和歌词顶出底边。
+            scale = min(max(min(size.width / 393, size.height / 699), 0.82), 1.35)
         }
     }
 
