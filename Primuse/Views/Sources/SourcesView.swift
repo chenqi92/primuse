@@ -2126,34 +2126,41 @@ struct SourcesContentView: View {
                 source: source,
                 connector: sourceManager.connector(for: source),
                 selectedDirectories: selectedDirectories,
-                onConfirm: onConfirm
+                onConfirm: onConfirm,
+                onEditAddress: onEditAddress
             )
         case .webdav:
             WebDAVBrowserView(
                 source: source,
                 connector: sourceManager.connector(for: source),
                 selectedDirectories: selectedDirectories,
-                onConfirm: onConfirm
+                onConfirm: onConfirm,
+                onEditAddress: onEditAddress
             )
         case .ftp:
             FTPBrowserView(
                 source: source,
                 connector: sourceManager.connector(for: source),
-                selectedDirectories: selectedDirectories
+                selectedDirectories: selectedDirectories,
+                onEditAddress: onEditAddress
             )
         case .sftp:
             SFTPBrowserView(
                 source: source,
                 connector: sourceManager.connector(for: source),
-                selectedDirectories: selectedDirectories
+                selectedDirectories: selectedDirectories,
+                onEditAddress: onEditAddress
             )
         case .nfs:
             NFSBrowserView(
                 source: source,
                 connector: sourceManager.connector(for: source),
-                selectedDirectories: selectedDirectories
+                selectedDirectories: selectedDirectories,
+                onEditAddress: onEditAddress
             )
         case .upnp:
+            // UPnP 的源是发现出来的设备, 没有一条可以改的地址, 所以不给
+            // 「修改地址」的出口。
             UPnPBrowserView(source: source, selectedDirectories: selectedDirectories)
         case .qnap, .ugreen, .fnos, .s3:
             // Connector-driven sources: extraConfig holds the scanned-directory
@@ -2163,7 +2170,8 @@ struct SourcesContentView: View {
             ConnectorDirectoryBrowserView(
                 source: source,
                 connector: sourceManager.connector(for: source),
-                selectedDirectories: selectedDirectories
+                selectedDirectories: selectedDirectories,
+                onEditAddress: onEditAddress
             )
         case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .drime, .pan115, .pan123,
              .guangya:

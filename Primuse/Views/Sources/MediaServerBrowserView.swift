@@ -6,22 +6,26 @@ struct MediaServerBrowserView: View {
     @Binding var selectedDirectories: [String]
 
     private let connector: any MusicSourceConnector
+    private let onEditAddress: (() -> Void)?
 
     init(
         source: MusicSource,
         connector: any MusicSourceConnector,
-        selectedDirectories: Binding<[String]>
+        selectedDirectories: Binding<[String]>,
+        onEditAddress: (() -> Void)? = nil
     ) {
         self.source = source
         self._selectedDirectories = selectedDirectories
         self.connector = connector
+        self.onEditAddress = onEditAddress
     }
 
     var body: some View {
         MediaServerLibraryBrowserView(
             source: source,
             connector: connector,
-            selectedDirectories: $selectedDirectories
+            selectedDirectories: $selectedDirectories,
+            onEditAddress: onEditAddress
         )
     }
 }
@@ -30,12 +34,14 @@ private struct MediaServerLibraryBrowserView: View {
     let source: MusicSource
     let connector: any MusicSourceConnector
     @Binding var selectedDirectories: [String]
+    var onEditAddress: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var libraries: [RemoteFileItem] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var hasLoadedLibraries = false
+    @State private var failureReport = SourceConnectionFailureReport()
 
     var body: some View {
         NavigationStack {
@@ -54,14 +60,19 @@ private struct MediaServerLibraryBrowserView: View {
                         Image(systemName: "exclamationmark.triangle")
                             .font(.title)
                             .foregroundStyle(.orange)
-                        Text(errorMessage)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
+                        SourceConnectionFailureDetails(
+                            report: failureReport,
+                            errorText: errorMessage,
+                            emphasis: .inline
+                        )
                         Button("retry") {
                             loadLibraries()
                         }
                         .buttonStyle(.bordered)
+                        SourceConnectionEditAddressButton(
+                            report: failureReport,
+                            onEditAddress: onEditAddress
+                        )
                     }
                     .padding(.horizontal, 40)
                     Spacer()
@@ -163,6 +174,7 @@ private struct MediaServerLibraryBrowserView: View {
     private func loadLibraries() {
         isLoading = true
         errorMessage = nil
+        failureReport = SourceConnectionFailureReport()
 
         Task {
             do {
@@ -174,14 +186,24 @@ private struct MediaServerLibraryBrowserView: View {
                     do {
                         libraries = try await loadLibrariesWithAuthorizationGrace()
                     } catch {
-                        errorMessage = error.localizedDescription
+                        await presentFailure(error)
                     }
                 } else {
-                    errorMessage = error.localizedDescription
+                    await presentFailure(error)
                 }
                 isLoading = false
             }
         }
+    }
+
+    /// 先把「这次连的是哪个地址」问出来再落错误文本,免得失败页先闪一下只有
+    /// 错误、随后才补上地址那一行。
+    private func presentFailure(_ error: Error) async {
+        failureReport = await SourceConnectionFailureReport.resolve(
+            for: source,
+            suggestsAddressEdit: SourceConnectionFailureReport.errorSuggestsAddressEdit(error)
+        )
+        errorMessage = error.localizedDescription
     }
 
     private func loadLibrariesWithAuthorizationGrace() async throws -> [RemoteFileItem] {

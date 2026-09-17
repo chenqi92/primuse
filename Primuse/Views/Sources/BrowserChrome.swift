@@ -508,6 +508,11 @@ struct MacDirTreeBrowser: View {
     var sourceType: MusicSourceType? = nil
     var selectableRootPath: String? = nil
     var onConfirm: ((Bool) -> Void)? = nil
+    /// 失败态要说明「这次连的是哪个地址」时才给。没有服务器地址这个概念的源
+    /// (云盘、本机)不传,失败态就还是只有一句错误。
+    var failureSource: MusicSource? = nil
+    /// 失败态「修改地址」的出口,由宿主负责关 sheet 再开编辑表单。
+    var onEditAddress: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var rows: [MacDirTreeRow] = []
@@ -518,6 +523,7 @@ struct MacDirTreeBrowser: View {
     @State private var rootLoading = false
     @State private var errorMessage: String?
     @State private var rootConnectionValidated = false
+    @State private var failureReport = SourceConnectionFailureReport()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -755,15 +761,49 @@ struct MacDirTreeBrowser: View {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 30))
                 .foregroundStyle(PMColor.warn)
+            // 这次连的是哪个地址 / 针对性提示,都按这一屏的设计语言写,
+            // 取值来自与 iOS 同一份 SourceConnectionFailureReport。
+            if let address = failureReport.address {
+                Text(verbatim: String(
+                    format: String(localized: "connection_failed_address %@"),
+                    address
+                ))
+                .font(.system(size: 12))
+                .foregroundStyle(PMColor.textMuted)
+                .multilineTextAlignment(.center)
+                .textSelection(.enabled)
+            }
             Text(verbatim: message)
                 .font(.system(size: 12))
                 .foregroundStyle(PMColor.textMuted)
                 .multilineTextAlignment(.center)
-            Button("retry") { Task { await loadRoot() } }
-                .buttonStyle(.bordered)
+            if let hint = failureReport.hint {
+                Label(hint, systemImage: "lightbulb")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(PMColor.textFaint)
+                    .multilineTextAlignment(.leading)
+            }
+            HStack(spacing: 10) {
+                Button("retry") { Task { await loadRoot() } }
+                    .buttonStyle(.bordered)
+                SourceConnectionEditAddressButton(
+                    report: failureReport,
+                    onEditAddress: onEditAddress
+                )
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(40)
+    }
+
+    /// 失败态那两行说明的取值。没传 `failureSource` 的调用点拿到空报告,
+    /// 显示结果与以前一模一样。
+    private func resolvedFailureReport(for error: Error) async -> SourceConnectionFailureReport {
+        guard let failureSource else { return SourceConnectionFailureReport() }
+        return await SourceConnectionFailureReport.resolve(
+            for: failureSource,
+            suggestsAddressEdit: SourceConnectionFailureReport.errorSuggestsAddressEdit(error)
+        )
     }
 
     // MARK: 计算属性
@@ -790,6 +830,7 @@ struct MacDirTreeBrowser: View {
     private func loadRoot() async {
         rootLoading = true
         errorMessage = nil
+        failureReport = SourceConnectionFailureReport()
         rootConnectionValidated = false
         do {
             let items = try await listing(rootPath)
@@ -799,6 +840,7 @@ struct MacDirTreeBrowser: View {
                 focusedItems = items
             }
         } catch {
+            failureReport = await resolvedFailureReport(for: error)
             errorMessage = error.localizedDescription
         }
         rootLoading = false
@@ -849,6 +891,7 @@ struct MacDirTreeBrowser: View {
             rows[i].isLoading = false
         } catch {
             if let i = rows.firstIndex(where: { $0.id == row.id }) { rows[i].isLoading = false }
+            failureReport = await resolvedFailureReport(for: error)
             errorMessage = error.localizedDescription
         }
     }

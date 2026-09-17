@@ -536,12 +536,10 @@ struct ConnectionFlowView: View {
 
                 // 地址填错了光重试没用。给一条回编辑表单的路,省得关掉整个流程
                 // 再去列表里找这个源。
-                if let onEditAddress, failureCause == .address {
-                    Button { onEditAddress() } label: {
-                        Label("connection_failed_edit_address", systemImage: "pencil")
-                    }
-                    .buttonStyle(.bordered)
-                }
+                SourceConnectionEditAddressButton(
+                    report: failureReport,
+                    onEditAddress: onEditAddress
+                )
             }
             Spacer()
         }
@@ -549,30 +547,9 @@ struct ConnectionFlowView: View {
 
     /// 失败页以前只有一句"连接失败"加原始错误 —— 连试的是哪台机器、哪个端口都
     /// 不说。这里补上这次真正用过的完整地址,再按地址本身的形态给一句针对性提示。
-    @ViewBuilder
     private var failureDetails: some View {
-        VStack(spacing: 10) {
-            if let address = attemptedAddressDescription {
-                Text(String(format: String(localized: "connection_failed_address %@"), address))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .textSelection(.enabled)
-            }
-            if errorMessage.isEmpty == false {
-                Text(errorMessage)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-            if let hint = attemptedAddressHint {
-                Label(hint, systemImage: "lightbulb")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.leading)
-            }
-        }
-        .padding(.horizontal, 40)
+        SourceConnectionFailureDetails(report: failureReport, errorText: errorMessage)
+            .padding(.horizontal, 40)
     }
 
     /// 这次实际连接的那个端点,已经是候选选择之后的结果。不含任何凭据。
@@ -583,42 +560,14 @@ struct ConnectionFlowView: View {
             || attemptedConnectionSource.effectiveSynologyConnectionMode == .quickConnect
     }
 
-    private var attemptedAddressDescription: String? {
-        let active = attemptedConnectionSource
-        guard let rawHost = active.host?.trimmingCharacters(in: .whitespacesAndNewlines),
-              rawHost.isEmpty == false else {
-            return nil
-        }
-        // QuickConnect / FN Connect 的"地址"就是那个标识本身。
-        if attemptedUsesVendorRemote { return rawHost }
-        // 反代前缀的群晖把整个地址塞进了 host 字段,原样显示就是最准确的。
-        if rawHost.contains("://") { return rawHost }
-        let endpoint = SourceConnectionEndpoint(
-            host: rawHost,
-            port: active.port ?? source.type.defaultPort(useSsl: active.useSsl),
-            useSsl: active.useSsl,
-            pathPrefix: source.type.supportsEndpointSpecificPath ? active.basePath : nil
+    /// 候选已经由这个流程自己选好了,所以直接把结果交给共用的取值逻辑,
+    /// 不必再去问路由记忆。
+    private var failureReport: SourceConnectionFailureReport {
+        SourceConnectionFailureReport.make(
+            forAttempted: attemptedConnectionSource,
+            usesVendorRemoteAccess: attemptedUsesVendorRemote,
+            suggestsAddressEdit: failureCause == .address
         )
-        return SourceAddressInputPolicy.renderedAddress(for: endpoint, sourceType: source.type)
-    }
-
-    private var attemptedAddressHint: String? {
-        let active = attemptedConnectionSource
-        guard let rawHost = active.host?.trimmingCharacters(in: .whitespacesAndNewlines),
-              rawHost.isEmpty == false else {
-            return nil
-        }
-        let host = rawHost.contains("://")
-            ? (URL(string: rawHost)?.host ?? rawHost)
-            : rawHost
-        let hint = SourceAddressFormPolicy.failureHint(
-            host: host,
-            port: active.port ?? source.type.defaultPort(useSsl: active.useSsl),
-            useSsl: active.useSsl,
-            sourceType: source.type,
-            usesVendorRemoteAccess: attemptedUsesVendorRemote
-        )
-        return SourceConnectionFailureHintText.text(for: hint, sourceType: source.type)
     }
 
     // MARK: - Logic

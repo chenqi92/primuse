@@ -7,15 +7,18 @@ struct NFSBrowserView: View {
 
     private let connector: any MusicSourceConnector
     private let initialPath: String
+    private let onEditAddress: (() -> Void)?
 
     init(
         source: MusicSource,
         connector: any MusicSourceConnector,
-        selectedDirectories: Binding<[String]>
+        selectedDirectories: Binding<[String]>,
+        onEditAddress: (() -> Void)? = nil
     ) {
         self.source = source
         self._selectedDirectories = selectedDirectories
         self.connector = connector
+        self.onEditAddress = onEditAddress
 
         if let exportPath = source.exportPath?.trimmingCharacters(in: .whitespacesAndNewlines),
            exportPath.isEmpty == false {
@@ -33,7 +36,8 @@ struct NFSBrowserView: View {
             source: source,
             connector: connector,
             initialPath: initialPath,
-            selectedDirectories: $selectedDirectories
+            selectedDirectories: $selectedDirectories,
+            onEditAddress: onEditAddress
         )
     }
 }
@@ -43,6 +47,7 @@ private struct NFSDirectoryBrowserView: View {
     let connector: any MusicSourceConnector
     let initialPath: String
     @Binding var selectedDirectories: [String]
+    let onEditAddress: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var currentPath: String
@@ -51,17 +56,20 @@ private struct NFSDirectoryBrowserView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var hasLoadedRoot = false
+    @State private var failureReport = SourceConnectionFailureReport()
 
     init(
         source: MusicSource,
         connector: any MusicSourceConnector,
         initialPath: String,
-        selectedDirectories: Binding<[String]>
+        selectedDirectories: Binding<[String]>,
+        onEditAddress: (() -> Void)?
     ) {
         self.source = source
         self.connector = connector
         self.initialPath = initialPath
         self._selectedDirectories = selectedDirectories
+        self.onEditAddress = onEditAddress
         self._currentPath = State(initialValue: initialPath)
         self._pathStack = State(initialValue: [initialPath])
     }
@@ -82,7 +90,9 @@ private struct NFSDirectoryBrowserView: View {
                 return try await connector.listFiles(at: path)
             },
             rootPath: initialPath,
-            selectableRootPath: initialPath == "/" ? nil : initialPath
+            selectableRootPath: initialPath == "/" ? nil : initialPath,
+            failureSource: source,
+            onEditAddress: onEditAddress
         )
         #else
         iosBody
@@ -123,12 +133,17 @@ private struct NFSDirectoryBrowserView: View {
                         Image(systemName: "exclamationmark.triangle")
                             .font(.title)
                             .foregroundStyle(.orange)
-                        Text(errorMessage)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
+                        SourceConnectionFailureDetails(
+                            report: failureReport,
+                            errorText: errorMessage,
+                            emphasis: .inline
+                        )
                         Button("retry") { loadDirectory() }
                             .buttonStyle(.bordered)
+                        SourceConnectionEditAddressButton(
+                            report: failureReport,
+                            onEditAddress: onEditAddress
+                        )
                     }
                     .padding(.horizontal, 40)
                     Spacer()
@@ -235,6 +250,7 @@ private struct NFSDirectoryBrowserView: View {
     private func loadDirectory() {
         isLoading = true
         errorMessage = nil
+        failureReport = SourceConnectionFailureReport()
 
         let requestPath = currentPath
         Task {
@@ -245,6 +261,13 @@ private struct NFSDirectoryBrowserView: View {
                 isLoading = false
             } catch {
                 guard requestPath == currentPath else { return }
+                // 先把「这次连的是哪个地址」问出来再落错误文本,免得失败页
+                // 先闪一下只有错误、随后才补上地址那一行。
+                failureReport = await SourceConnectionFailureReport.resolve(
+                    for: source,
+                    suggestsAddressEdit: SourceConnectionFailureReport
+                        .errorSuggestsAddressEdit(error)
+                )
                 errorMessage = error.localizedDescription
                 isLoading = false
             }

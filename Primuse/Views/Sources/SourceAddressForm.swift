@@ -350,6 +350,238 @@ enum SourceConnectionFailureHintText {
     }
 }
 
+// MARK: - 连接失败时的地址说明
+
+/// 一次连接失败该说清楚的两件事:这次连的到底是哪个地址,以及按地址形态给的
+/// 那一句针对性提示。群晖的连接页与各个目录浏览器共用这一份取值 —— 同一个
+/// 概念不该在两处慢慢说成两种话。
+///
+/// 地址只由协议 / 主机 / 端口 / 路径拼出来,**不含任何凭据**。
+struct SourceConnectionFailureReport: Equatable, Sendable {
+    /// 这次实际用过的完整地址。没有「服务器地址」这个概念的源(云盘、本机、
+    /// UPnP 这种发现出来的设备)为 nil。
+    var address: String?
+    /// 针对性提示。判断不出来就没有。
+    var hint: String?
+    /// 这次失败值不值得去改地址。服务器已经应答并拒绝了(密码错、目录不存在)
+    /// 时改地址解决不了问题,按钮就不该出现。
+    var suggestsAddressEdit = true
+
+    var isEmpty: Bool { address == nil && hint == nil }
+
+    /// 从「这次实际用来连接的那个源」直接取值:候选路由必须已经应用过 ——
+    /// 调用方比这里更清楚自己走的是哪一条。
+    static func make(
+        forAttempted source: MusicSource,
+        usesVendorRemoteAccess: Bool,
+        suggestsAddressEdit: Bool = true
+    ) -> SourceConnectionFailureReport {
+        SourceConnectionFailureReport(
+            address: address(for: source, usesVendorRemoteAccess: usesVendorRemoteAccess),
+            hint: hint(for: source, usesVendorRemoteAccess: usesVendorRemoteAccess),
+            suggestsAddressEdit: suggestsAddressEdit
+        )
+    }
+
+    /// 目录浏览器用的入口。浏览器只拿得到一个 connector,不知道它最后走的是哪条
+    /// 路由,所以这里自己去问一遍路由记忆,把那条候选投影到源上再取值。
+    ///
+    /// 连接失败会把活动路由作废,所以多数情况下问到的是 nil —— 那就退回首选
+    /// 候选,它正是下一次重试会用的那一条。
+    ///
+    /// 错误在调用方那边就分好类:`any Error` 不是 Sendable,不该跨过这道
+    /// await 的隔离边界。
+    static func resolve(
+        for source: MusicSource,
+        suggestsAddressEdit suggestsEdit: Bool
+    ) async -> SourceConnectionFailureReport {
+        guard source.type.requiresHost else { return SourceConnectionFailureReport() }
+
+        guard source.effectiveConnectionConfiguration != nil else {
+            return make(
+                forAttempted: source,
+                usesVendorRemoteAccess: usesVendorRemoteAccess(source, candidateKind: nil),
+                suggestsAddressEdit: suggestsEdit
+            )
+        }
+
+        let runtime = SourceConnectionRuntime.shared
+        let ordered = await runtime.orderedCandidates(for: source)
+        let activeKind = await runtime.activeKind(for: source.id)
+        let candidate = ordered.first { $0.kind == activeKind } ?? ordered.first
+        let attempted = candidate.map(source.applyingConnectionCandidate) ?? source
+        return make(
+            forAttempted: attempted,
+            usesVendorRemoteAccess: usesVendorRemoteAccess(
+                attempted,
+                candidateKind: candidate?.kind
+            ),
+            suggestsAddressEdit: suggestsEdit
+        )
+    }
+
+    /// 这次失败值不值得去改地址。目录浏览器不像群晖连接页那样自己分过类,所以
+    /// 只按它们本来就会抛出的那几种错误来判断,**不另立一套错误分类**。
+    /// 认不出来的一律给按钮:少一个出口比多一个按钮更糟。
+    static func errorSuggestsAddressEdit(_ error: Error) -> Bool {
+        // 用户拒了明文连接 —— 换成 https 的地址就是正当出路。
+        if error is TrustedHTTPTransportError { return true }
+        // 某条路由已经连上服务并被业务拒绝了。
+        if error is SourceConnectionTerminalError { return false }
+        if let sourceError = error as? SourceError {
+            switch sourceError {
+            case .connectionFailed, .timeout:
+                return true
+            case .authenticationFailed, .pathNotFound, .fileNotFound, .credentialUnavailable:
+                return false
+            }
+        }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .userAuthenticationRequired, .noPermissionsToReadFile, .badServerResponse:
+                return false
+            default:
+                return true
+            }
+        }
+        return true
+    }
+
+    // MARK: - 私有
+
+    private static func address(
+        for source: MusicSource,
+        usesVendorRemoteAccess: Bool
+    ) -> String? {
+        guard let rawHost = source.host?.trimmingCharacters(in: .whitespacesAndNewlines),
+              rawHost.isEmpty == false else {
+            return nil
+        }
+        // QuickConnect / FN Connect 的"地址"就是那个标识本身。
+        if usesVendorRemoteAccess { return rawHost }
+        // 反代前缀的源把整个地址塞进了 host 字段,原样显示就是最准确的。
+        if rawHost.contains("://") { return rawHost }
+        let endpoint = SourceConnectionEndpoint(
+            host: rawHost,
+            port: source.port ?? source.type.defaultPort(useSsl: source.useSsl),
+            useSsl: source.useSsl,
+            pathPrefix: source.type.supportsEndpointSpecificPath ? source.basePath : nil
+        )
+        let rendered = SourceAddressInputPolicy.renderedAddress(
+            for: endpoint,
+            sourceType: source.type
+        )
+        guard rendered.isEmpty == false else { return nil }
+        guard let share = shareComponent(of: source) else { return rendered }
+        return rendered + share
+    }
+
+    /// 文件共享协议里只说到哪台机器还差一半:共享名 / 导出路径也是地址的一部分,
+    /// 而它们不在端点里,`renderedAddress` 管不着。
+    private static func shareComponent(of source: MusicSource) -> String? {
+        let raw: String?
+        switch source.type {
+        case .smb: raw = source.shareName
+        case .nfs: raw = source.exportPath
+        default: return nil
+        }
+        guard let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              value.isEmpty == false else {
+            return nil
+        }
+        return value.hasPrefix("/") ? value : "/\(value)"
+    }
+
+    private static func hint(
+        for source: MusicSource,
+        usesVendorRemoteAccess: Bool
+    ) -> String? {
+        guard let rawHost = source.host?.trimmingCharacters(in: .whitespacesAndNewlines),
+              rawHost.isEmpty == false else {
+            return nil
+        }
+        let host = rawHost.contains("://")
+            ? (URL(string: rawHost)?.host ?? rawHost)
+            : rawHost
+        let hint = SourceAddressFormPolicy.failureHint(
+            host: host,
+            port: source.port ?? source.type.defaultPort(useSsl: source.useSsl),
+            useSsl: source.useSsl,
+            sourceType: source.type,
+            usesVendorRemoteAccess: usesVendorRemoteAccess
+        )
+        return SourceConnectionFailureHintText.text(for: hint, sourceType: source.type)
+    }
+
+    private static func usesVendorRemoteAccess(
+        _ source: MusicSource,
+        candidateKind: SourceConnectionCandidateKind?
+    ) -> Bool {
+        if candidateKind == .vendorRemote { return true }
+        switch source.type {
+        case .synology: return source.effectiveSynologyConnectionMode == .quickConnect
+        case .fnMusic: return source.effectiveFnMusicConnectionMode == .fnConnect
+        default: return false
+        }
+    }
+}
+
+/// 失败态那几行说明的排版:地址在错误上面,提示在错误下面。群晖连接页与各个
+/// 目录浏览器用的是同一棵子树,免得两边的顺序和措辞各走各的。
+struct SourceConnectionFailureDetails: View {
+    /// 字号跟着承载它的那一屏走:群晖连接页是整屏的失败态,目录浏览器里是
+    /// 列表中间的一小块。
+    enum Emphasis: Equatable { case page, inline }
+
+    let report: SourceConnectionFailureReport
+    let errorText: String
+    var emphasis: Emphasis = .page
+
+    var body: some View {
+        VStack(spacing: emphasis == .page ? 10 : 8) {
+            if let address = report.address {
+                Text(String(format: String(localized: "connection_failed_address %@"), address))
+                    .font(bodyFont)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .textSelection(.enabled)
+            }
+            if errorText.isEmpty == false {
+                Text(verbatim: errorText)
+                    .font(bodyFont)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            if let hint = report.hint {
+                Label(hint, systemImage: "lightbulb")
+                    .font(hintFont)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+            }
+        }
+    }
+
+    private var bodyFont: Font { emphasis == .page ? .subheadline : .caption }
+    private var hintFont: Font { emphasis == .page ? .footnote : .caption2 }
+}
+
+/// 失败态里的「修改地址」。宿主没有可回去的编辑表单(新建源的事务里就没有),
+/// 或者这次失败跟地址无关时,按钮不出现。
+struct SourceConnectionEditAddressButton: View {
+    let report: SourceConnectionFailureReport
+    var onEditAddress: (() -> Void)?
+
+    @ViewBuilder
+    var body: some View {
+        if let onEditAddress, report.suggestsAddressEdit {
+            Button { onEditAddress() } label: {
+                Label("connection_failed_edit_address", systemImage: "pencil")
+            }
+            .buttonStyle(.bordered)
+        }
+    }
+}
+
 // MARK: - 表单行视图
 
 /// 一行地址在 iOS 表单里的样子:地址框 + 解读行 + 折叠起来的高级选项。
