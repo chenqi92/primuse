@@ -8,7 +8,9 @@ import AppKit
 
 /// Writes sidecar files (cover art, lyrics) alongside source audio files on NAS/remote storage.
 /// - Cover: `<basename>-cover.jpg` next to the audio file
-/// - Lyrics: `<basename>.lrc` by default; an existing `.ttml` remains TTML
+/// - Lyrics: `<basename>.lrc` by default; an existing `.ttml` remains TTML.
+///   A read-only document such as `<basename>.vtt` or `<basename>.lys` is
+///   never replaced — the save creates `<basename>.lrc` beside it.
 actor SidecarWriteService {
     static let shared = SidecarWriteService()
     private init() {}
@@ -117,7 +119,7 @@ actor SidecarWriteService {
         }
 
         // 2. Write the lyrics sidecar next to the audio file. New documents
-        // default to LRC; an existing supported sidecar keeps its extension.
+        // default to LRC; an existing writable sidecar keeps its extension.
         if !result.sourceUnavailable, let lyricsLines, !lyricsLines.isEmpty {
             let sidecarContent = lyricsContent?.trimmingCharacters(in: .newlines)
                 ?? LyricsContentParser.serialize(lyricsLines)
@@ -218,14 +220,20 @@ actor SidecarWriteService {
         return result
     }
 
+    /// The single funnel for every lyric mutation. Preflight, write and remove
+    /// all go through it, so they agree on the target — writeback compares the
+    /// preflight result for equality before it acts.
     private func lyricsTarget(
         for song: Song,
         using connector: any MusicSourceConnector
     ) async throws -> LyricsSidecarTarget {
+        let target: LyricsSidecarTarget
         if let resolver = connector as? any LyricsSidecarTargetResolving {
-            return try await resolver.lyricsSidecarTarget(for: song)
+            target = try await resolver.lyricsSidecarTarget(for: song)
+        } else {
+            target = try await LyricsSidecarTargetPolicy.resolve(for: song, using: connector)
         }
-        return try await LyricsSidecarTargetPolicy.resolve(for: song, using: connector)
+        return try LyricsSidecarTargetPolicy.writeTarget(for: target)
     }
 
     private func verifyLyricsSidecarWrite(

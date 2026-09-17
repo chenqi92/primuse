@@ -321,13 +321,29 @@ actor NFSSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter,
             exportPath: source.exportPath,
             relativePath: directory.isEmpty ? "/" : directory
         )
+        // A selection path is an encoded address, so the `.lrc` that a save
+        // creates beside a read-only document cannot be derived from
+        // `targetPath` by swapping its extension.
+        let writableSiblingPath: String?
+        if LyricsSidecarSelectionPolicy.isWritableDocument(fileName: fileName) {
+            writableSiblingPath = nil
+        } else {
+            writableSiblingPath = NFSSelectionPathCodec.makeSelectionPath(
+                exportPath: source.exportPath,
+                relativePath: ((directory.isEmpty ? "/" : directory) as NSString)
+                    .appendingPathComponent(
+                        LyricsSidecarSelectionPolicy.writableFileName(replacing: fileName)
+                    )
+            )
+        }
         return LyricsSidecarTarget(
             targetPath: targetPath,
             fileName: fileName,
             containerPath: containerPath,
             exists: existing != nil,
             existingPath: existing?.path,
-            existingSize: existing?.size
+            existingSize: existing?.size,
+            writableSiblingPath: writableSiblingPath
         )
     }
 

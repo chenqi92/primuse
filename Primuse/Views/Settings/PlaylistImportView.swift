@@ -1829,7 +1829,9 @@ private enum LyricsConverterFileError: LocalizedError {
 
 private struct LyricsConverterDocument: FileDocument {
     static var readableContentTypes: [UTType] {
-        [.primuseLRC, .primuseTTML, .xml, .plainText]
+        // Subtitle documents are readable input only; the converter still
+        // writes LRC, TTML or plain text.
+        [.primuseLRC, .primuseTTML, .primuseWebVTT, .primuseSubRip, .xml, .plainText]
     }
 
     static var writableContentTypes: [UTType] {
@@ -1858,6 +1860,10 @@ private struct LyricsConverterDocument: FileDocument {
 private extension UTType {
     static let primuseLRC = UTType(filenameExtension: "lrc", conformingTo: .plainText) ?? .plainText
     static let primuseTTML = UTType(filenameExtension: "ttml", conformingTo: .xml) ?? .xml
+    static let primuseWebVTT = UTType(filenameExtension: "vtt", conformingTo: .plainText)
+        ?? .plainText
+    static let primuseSubRip = UTType(filenameExtension: "srt", conformingTo: .plainText)
+        ?? .plainText
 }
 
 private extension LyricsFileFormat {

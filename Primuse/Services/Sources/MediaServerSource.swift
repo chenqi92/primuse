@@ -4058,7 +4058,9 @@ private struct AudioItem: Decodable {
                 return false
             }
             guard let codec = stream.codec?.lowercased(), !codec.isEmpty else { return true }
-            return codec == "text" || codec == "lrc" || codec == "srt" || codec == "subrip"
+            // The content arrives as TrackEvents JSON, so the server has
+            // already converted whatever the track really is.
+            return ["text", "lrc", "srt", "subrip", "vtt", "webvtt"].contains(codec)
         }
         if let preferredIndex,
            let preferred = candidates.first(where: { $0.index == preferredIndex }) {

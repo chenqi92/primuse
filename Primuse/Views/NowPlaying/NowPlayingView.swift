@@ -3396,6 +3396,13 @@ struct NowPlayingView: View {
                 let lyricsPath: String
                 if let ref = song.lyricsFileName, ref.contains("/") {
                     lyricsPath = ref
+                } else if let ref = song.lyricsFileName,
+                          PrimuseConstants.readableLyricsExtensions.contains(
+                            (ref as NSString).pathExtension.lowercased()
+                          ) {
+                    // 扫描记下的同名歌词可能是 .ttml/.lys/.vtt 等；只推 .lrc 会把
+                    // 它们全都读空。本机缓存名(.json)仍走下面的同名推断。
+                    lyricsPath = (songDir as NSString).appendingPathComponent(ref)
                 } else {
                     lyricsPath = (songDir as NSString).appendingPathComponent("\(baseName).lrc")
                 }

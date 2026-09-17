@@ -200,7 +200,10 @@ enum LyricsWriteback {
                     sourceSnapshot: sourceSnapshot
                 )
             }
-            if LyricsContentParser.isTTML(normalizedSource) {
+            // 字幕文档和 TTML 一样不能直接进编辑器：源码是 cue 标记，
+            // 必须先经共享模型转成 LRC/ELRC 文本。
+            if LyricsContentParser.isTTML(normalizedSource)
+                || LyricsContentParser.isSubtitleDocument(normalizedSource) {
                 let sourceLines = LyricsContentParser.parse(normalizedSource)
                 guard !sourceLines.isEmpty else {
                     if let cached {
@@ -1125,6 +1128,11 @@ enum LyricsWriteback {
         guard case .sidecar(let target) = mode,
               (target.fileName as NSString).pathExtension
                 .caseInsensitiveCompare("ttml") == .orderedSame else {
+            // 整份 .vtt/.srt 粘贴进来能通过校验，但落盘的必须是 LRC 文本：
+            // .lrc 文件和媒体服务器的歌词字段里都不该出现 cue 标记。
+            if LyricsContentParser.isSubtitleDocument(editableContent) {
+                return LyricsContentParser.serialize(lines)
+            }
             return editableContent
         }
         return LyricsContentParser.serializeTTML(lines)

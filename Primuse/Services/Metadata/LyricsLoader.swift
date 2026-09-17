@@ -123,10 +123,13 @@ enum LyricsLoader {
     static func loadEditableText(for song: Song, sourceManager: SourceManager) async -> String {
         if let sourceText = await loadSourceText(for: song, sourceManager: sourceManager) {
             let normalized = normalizedEditableText(sourceText)
-            if LyricsContentParser.isTTML(normalized) {
+            if LyricsContentParser.isTTML(normalized)
+                || LyricsContentParser.isSubtitleDocument(normalized) {
                 // The editor is intentionally LRC/ELRC-oriented. Converting
-                // TTML to the shared model keeps XML markup out of lyric rows;
-                // LyricsWriteback serializes it back to TTML when appropriate.
+                // TTML and subtitle documents to the shared model keeps their
+                // markup out of lyric rows; LyricsWriteback serializes it back
+                // to TTML when appropriate, and a save of a read-only subtitle
+                // document lands in a new `.lrc` beside it.
                 return LyricsContentParser.serialize(LyricsContentParser.parse(normalized))
             }
             return normalized

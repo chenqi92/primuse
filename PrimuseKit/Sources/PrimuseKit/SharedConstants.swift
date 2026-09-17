@@ -1513,12 +1513,14 @@ public enum PrimuseConstants {
     /// Extensions Primuse both reads and writes. Sidecar writeback serializes
     /// LRC or TTML, so only these may be chosen as a write target.
     public static let supportedLyricsExtensions = ["lrc", "ttml"]
-    /// Extensions Primuse can read. The word-timed formats are parsed by
-    /// content, so they are discovered and cleaned up next to a song like any
-    /// other sidecar, but they are never picked as a writeback target — that
-    /// would put LRC text inside a `.lys` or `.qrc` file.
+    /// Extensions Primuse can read, in the order they win when a song has more
+    /// than one. The word-timed and subtitle formats are parsed by content, so
+    /// they are discovered and cleaned up next to a song like any other
+    /// sidecar. `LyricsSidecarSelectionPolicy` keeps them out of writeback:
+    /// saving a document would otherwise put LRC text inside a `.qrc` or a
+    /// `.vtt` the user brought along.
     public static let readableLyricsExtensions = supportedLyricsExtensions
-        + ["elrc", "lys", "yrc", "qrc"]
+        + ["elrc", "lys", "yrc", "qrc", "vtt", "srt"]
     public static let supportedMusicVideoExtensions = ["mp4", "m4v", "mov"]
     public static let supportedStreamDescriptorExtensions: Set<String> = ["strm"]
     public static let folderCoverNames = ["cover", "folder", "album", "front", "artwork"]

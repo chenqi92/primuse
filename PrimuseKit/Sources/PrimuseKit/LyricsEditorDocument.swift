@@ -387,7 +387,9 @@ public struct LyricsEditorDocument: Hashable, Sendable {
     /// 编辑器；这里仍作防御性检查，避免其它调用方绕过 UI 丢数据。
     public func replacingOriginalSource(with text: String) -> LyricsEditorDocument {
         guard permitsSourceTextEditing else { return self }
-        if LyricsContentParser.isTTML(text) {
+        if LyricsContentParser.isTTML(text) || LyricsContentParser.isSubtitleDocument(text) {
+            // 逐行解析器只认 LRC/ELRC 的行头。TTML 和字幕文档要先经共享模型
+            // 转成模型行，否则整份文档会变成一堆未打轴的标记文本。
             let parsed = LyricsContentParser.parse(text, options: .literal)
             guard !parsed.isEmpty else { return self }
             return LyricsEditorDocument(lyricLines: parsed)

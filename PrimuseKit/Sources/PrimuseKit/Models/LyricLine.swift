@@ -894,6 +894,11 @@ public enum LyricsFormat: String, Codable, Sendable, CaseIterable {
             .contains(where: \.containsWordLevelContent) {
             return .wordLevel
         }
+        if SubtitleLyricsParser.detect(content) != nil {
+            let subtitleLines = SubtitleLyricsParser.parse(content)
+            if subtitleLines.contains(where: \.containsWordLevelContent) { return .wordLevel }
+            if !subtitleLines.isEmpty { return .lineLevel }
+        }
         if content.range(of: #"<\d+:\d+(?:[.:]\d+)?>"#, options: .regularExpression) != nil {
             return .wordLevel
         }
@@ -1062,6 +1067,14 @@ public enum LyricsContentParser {
             let wordTimedLines = WordTimedLyricsParser.parse(content, as: format)
             if !wordTimedLines.isEmpty { return wordTimedLines }
         }
+        // Subtitle documents (.vtt / .srt) must be recognized before the LRC
+        // path: their inline `<mm:ss.ttt>` markers are shaped exactly like
+        // ELRC word markers, so the LRC reader would keep the cue timing lines
+        // as lyric text.
+        if SubtitleLyricsParser.detect(content) != nil {
+            let subtitleLines = SubtitleLyricsParser.parse(content, options: options)
+            if !subtitleLines.isEmpty { return subtitleLines }
+        }
 
         var lines: [LyricLine] = []
         var metadataLines: [String] = []
@@ -1151,6 +1164,13 @@ public enum LyricsContentParser {
         TTMLLyricsParser.looksLikeTTML(content)
     }
 
+    /// Whether the document is a subtitle file read as lyrics. Like TTML it
+    /// must travel through the shared model before it reaches a surface that
+    /// expects LRC text — the editor never shows cue markup.
+    public static func isSubtitleDocument(_ content: String) -> Bool {
+        SubtitleLyricsParser.detect(content) != nil
+    }
+
     fileprivate static func usesSquareWordTimestamps(_ raw: String) -> Bool {
         let marks = raw.matches(of: lineHeadPattern)
         guard let first = marks.first,
@@ -1210,6 +1230,11 @@ public enum LyricsContentParser {
             // its own timing markers as text.
             let wordTimedLines = WordTimedLyricsParser.parse(text)
             if !wordTimedLines.isEmpty { return wordTimedLines }
+        }
+        if SubtitleLyricsParser.detect(text) != nil {
+            // Same for a subtitle document: its cue timing lines are not lyrics.
+            let subtitleLines = SubtitleLyricsParser.parse(text, options: options)
+            if !subtitleLines.isEmpty { return subtitleLines }
         }
         let synchronized = parse(text, options: options)
         if !synchronized.isEmpty { return synchronized }
@@ -1309,6 +1334,19 @@ public enum LyricsContentParser {
                     : (lines.contains(where: \.isSynchronized) ? .lineLevel : .plain),
                 lines: lines,
                 issues: lines.isEmpty
+                    ? [.init(lineNumber: 1, kind: .invalidTimestamp)]
+                    : []
+            )
+        }
+
+        if SubtitleLyricsParser.detect(normalized) != nil {
+            // Cue markup is not malformed LRC. Validating it line by line would
+            // report every payload row as a broken word timestamp.
+            return LyricsEditableValidation(
+                normalizedContent: normalized,
+                format: format,
+                lines: parsedLines,
+                issues: parsedLines.isEmpty
                     ? [.init(lineNumber: 1, kind: .invalidTimestamp)]
                     : []
             )
@@ -1439,6 +1477,14 @@ public enum LyricsContentParser {
         // were dropped during a remote rewrite.
         if TTMLLyricsParser.looksLikeTTML(left)
             || TTMLLyricsParser.looksLikeTTML(right) {
+            return false
+        }
+
+        // A subtitle document is read-only, so it is never the text Primuse
+        // wrote. Comparing it through the parser could bless a write that
+        // silently dropped cue settings, voices or noise rows.
+        if SubtitleLyricsParser.detect(left) != nil
+            || SubtitleLyricsParser.detect(right) != nil {
             return false
         }
 

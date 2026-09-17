@@ -906,6 +906,10 @@ struct LyricsSidecarTarget: Sendable, Equatable {
     /// uploaded item's own opaque ID.
     let existingPath: String?
     let existingSize: Int64?
+    /// Address of `<base>.lrc` beside a read-only document. Only a provider
+    /// whose `targetPath` is an encoded address supplies it; a plain path or
+    /// an ID-plus-suffix address is rewritten textually instead.
+    let writableSiblingPath: String?
 
     init(
         targetPath: String,
@@ -913,7 +917,8 @@ struct LyricsSidecarTarget: Sendable, Equatable {
         containerPath: String? = nil,
         exists: Bool,
         existingPath: String? = nil,
-        existingSize: Int64? = nil
+        existingSize: Int64? = nil,
+        writableSiblingPath: String? = nil
     ) {
         self.targetPath = targetPath
         self.fileName = fileName
@@ -924,6 +929,7 @@ struct LyricsSidecarTarget: Sendable, Equatable {
         self.exists = exists
         self.existingPath = exists ? existingPath : nil
         self.existingSize = exists ? existingSize : nil
+        self.writableSiblingPath = writableSiblingPath
     }
 }
 
@@ -961,23 +967,65 @@ enum LyricsSidecarTargetPolicy {
         )
     }
 
+    /// The song's current lyric document. This is the read view: a read-only
+    /// format such as `.vtt` is returned here so the editor and the loader see
+    /// what the user actually has, and `writeTarget(for:)` keeps it out of the
+    /// write path.
     static func uniqueExistingItem(
         baseName: String,
         in items: [RemoteFileItem]
     ) throws -> RemoteFileItem? {
         var uniqueByPath: [String: RemoteFileItem] = [:]
         for item in items where !item.isDirectory {
-            let itemName = item.name as NSString
-            guard itemName.deletingPathExtension.caseInsensitiveCompare(baseName) == .orderedSame,
-                  PrimuseConstants.readableLyricsExtensions.contains(
-                    itemName.pathExtension.lowercased()
-                  ) else { continue }
             uniqueByPath[item.path] = item
         }
-        guard uniqueByPath.count <= 1 else {
+        // A provider may list the same object twice; sorting keeps the choice
+        // reproducible when two candidates are otherwise equal.
+        let candidates = uniqueByPath.values.sorted { $0.path < $1.path }
+        switch LyricsSidecarSelectionPolicy.currentDocument(
+            baseName: baseName,
+            names: candidates.map(\.name)
+        ) {
+        case .none:
+            return nil
+        case .item(let index):
+            return candidates[index]
+        case .conflict:
             throw EmbeddedMetadataWritebackSourceError.conflict
         }
-        return uniqueByPath.values.first
+    }
+
+    /// The write view of the same document. Sidecar writeback serializes LRC
+    /// or TTML, so a read-only document is never the file that gets replaced:
+    /// the save creates `<base>.lrc` next to it and leaves it untouched.
+    static func writeTarget(for target: LyricsSidecarTarget) throws -> LyricsSidecarTarget {
+        guard !LyricsSidecarSelectionPolicy.isWritableDocument(fileName: target.fileName) else {
+            return target
+        }
+        let replacement: (targetPath: String, fileName: String)
+        if let siblingPath = target.writableSiblingPath {
+            replacement = (
+                siblingPath,
+                LyricsSidecarSelectionPolicy.writableFileName(replacing: target.fileName)
+            )
+        } else if let rewritten = LyricsSidecarSelectionPolicy.writableReplacement(
+            targetPath: target.targetPath,
+            fileName: target.fileName
+        ) {
+            replacement = rewritten
+        } else {
+            // Without an address the rewrite can be proved on, refusing is the
+            // only answer that cannot destroy the source document.
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        return LyricsSidecarTarget(
+            targetPath: replacement.targetPath,
+            fileName: replacement.fileName,
+            containerPath: target.containerPath,
+            exists: false,
+            existingPath: nil,
+            existingSize: nil
+        )
     }
 
     private static func preferredTargetPath(for song: Song) -> String {
@@ -993,9 +1041,11 @@ enum LyricsSidecarTargetPolicy {
             let referenceName = (resolvedReference as NSString).lastPathComponent
             let referenceBase = (referenceName as NSString).deletingPathExtension
             let referenceExtension = (referenceName as NSString).pathExtension.lowercased()
+            // A remembered reference only decides where a *new* document goes,
+            // so a read-only extension must not be carried over here either.
             if referenceDirectory == songDirectory,
                referenceBase.caseInsensitiveCompare(songBase) == .orderedSame,
-               PrimuseConstants.readableLyricsExtensions.contains(referenceExtension) {
+               PrimuseConstants.supportedLyricsExtensions.contains(referenceExtension) {
                 return resolvedReference
             }
         }
