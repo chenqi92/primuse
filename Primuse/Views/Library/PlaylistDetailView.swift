@@ -32,6 +32,8 @@ struct PlaylistDetailView: View {
     @State private var trackedScrapeRunID: UUID?
     @State private var isViewVisible = false
     @State private var selection = SongSelectionModel()
+    /// 空串 = 歌单顺序。存 raw value 是为了让"歌单顺序"也能占一个合法取值。
+    @AppStorage("playlistDetailSortOrder") private var displaySortRawValue = ""
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
 
     /// 镜像歌单 (Apple Music 资料库 / 服务端曲库) 里的条目不给移除入口 —— 我们
@@ -44,8 +46,92 @@ struct PlaylistDetailView: View {
         library.playlist(id: playlist.id)
     }
 
-    private var songs: [Song] {
+    /// 歌单里存着的顺序 —— 手动重排改的是它,不跟随下面的显示排序。
+    private var storedSongs: [Song] {
         library.songs(forPlaylist: playlist.id)
+    }
+
+    /// 界面上看到的顺序。默认就是歌单顺序(不额外排,零开销);选了排序维度之后,
+    /// 播放全部 / 加入队列 / 离线下载 / 导出也一并按看到的顺序走 —— 用户按的是
+    /// 眼前这一列,不是歌单里存的那一列。
+    private var songs: [Song] {
+        guard let order = displaySortOrder else { return storedSongs }
+        let values: SongListSortValues = order.criterion == .playCount
+            ? SongListSortValues(playCountsBySongID: playCountsBySongID)
+            : .empty
+        return SongListSnapshot.sortedSongs(storedSongs, order: order, sortValues: values)
+    }
+
+    /// 按播放次数排序和 macOS 的曲目表都要读它,所以放在平台分支之外。
+    private var playCountsBySongID: [String: Int] {
+        var dict: [String: Int] = [:]
+        for e in PlayHistoryStore.shared.entries {
+            dict[e.songID, default: 0] += 1
+        }
+        return dict
+    }
+
+    /// nil = 保持歌单自己的顺序。
+    private var displaySortOrder: LibrarySongSortOrder? {
+        LibrarySongSortOrder(rawValue: displaySortRawValue)
+    }
+
+    /// 歌单菜单里放的排序维度。码率、位深、格式这些技术参数留给曲库列表 ——
+    /// 在歌单里找歌靠的是名字、艺术家、专辑、什么时候加进来的、多长、哪年、听过几遍。
+    private static let sortCriteria: [LibrarySongSortCriterion] = [
+        .title, .artist, .album, .dateAdded, .duration, .year, .playCount,
+    ]
+
+    /// 再点一次当前维度就调头,和曲库列表的排序菜单是同一套手势。
+    @ViewBuilder
+    private var sortMenuOptions: some View {
+        Button {
+            displaySortRawValue = ""
+        } label: {
+            if displaySortOrder == nil {
+                Label("playlist_order_title", systemImage: "checkmark")
+            } else {
+                Text("playlist_order_title")
+            }
+        }
+        Divider()
+        ForEach(Self.sortCriteria, id: \.self) { criterion in
+            Button {
+                selectSort(criterion)
+            } label: {
+                if let order = displaySortOrder, order.criterion == criterion {
+                    Label(criterion.label, systemImage: order.isAscending ? "arrow.up" : "arrow.down")
+                } else {
+                    Text(verbatim: criterion.label)
+                }
+            }
+            .accessibilityValue(Text(verbatim: sortDirectionLabel(for: criterion)))
+        }
+    }
+
+    /// 选中的那一项才把升/降序念出来。走 `String(localized:)` 是因为三元里的
+    /// 两个字面量要先定成 `String.LocalizationValue`,直接塞给 `Text` 会被解析成
+    /// 不查表的那个重载,读出来就是键名本身。
+    private func sortDirectionLabel(for criterion: LibrarySongSortCriterion) -> String {
+        guard let order = displaySortOrder, order.criterion == criterion else { return "" }
+        return String(localized: order.isAscending
+                      ? "smart_sort_ascending" : "smart_sort_descending")
+    }
+
+    private func selectSort(_ criterion: LibrarySongSortCriterion) {
+        if let order = displaySortOrder {
+            displaySortRawValue = order.selecting(criterion).rawValue
+        } else {
+            displaySortRawValue = LibrarySongSortOrder.defaultOrder(for: criterion).rawValue
+        }
+    }
+
+    /// 工具条按钮上显示当前排的是哪一项。
+    private var sortMenuTitle: String {
+        guard let order = displaySortOrder else {
+            return String(localized: "playlist_order_title")
+        }
+        return order.criterion.label
     }
 
     private var playlistServerMediaShareTarget: ServerMediaShareTarget? {
@@ -291,6 +377,16 @@ struct PlaylistDetailView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    sortMenuOptions
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down.circle")
+                }
+                .disabled(songs.count < 2)
+                .accessibilityLabel(Text("sort_by"))
+                .accessibilityIdentifier("playlistDetail.sort")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
                     Button {
                         showArtworkEditor = true
                     } label: {
@@ -313,6 +409,9 @@ struct PlaylistDetailView: View {
                     // 重排白做; 普通用户歌单 + 智能歌单的衍生不在这里。
                     if allowsPlaylistRemoval {
                         Button {
+                            // 排序菜单改的是显示顺序,重排面板拖的是歌单真正的顺序。
+                            // 先切回歌单顺序,用户拖的就是他刚才看到的那一列。
+                            displaySortRawValue = ""
                             showReorderSheet = true
                         } label: {
                             Label("playlist_reorder", systemImage: "arrow.up.arrow.down")
@@ -377,7 +476,7 @@ struct PlaylistDetailView: View {
             ShareSheet(items: [item.url])
         }
         .sheet(isPresented: $showReorderSheet) {
-            PlaylistReorderSheet(playlist: playlist, songs: songs) { newOrder in
+            PlaylistReorderSheet(playlist: playlist, songs: storedSongs) { newOrder in
                 library.replacePlaylistSongs(
                     playlistID: playlist.id,
                     songIDs: newOrder.map(\.id)
@@ -596,7 +695,7 @@ struct PlaylistDetailView: View {
         }
         .background(PMColor.bg.ignoresSafeArea())
         .sheet(isPresented: $showReorderSheet) {
-            PlaylistReorderSheet(playlist: playlist, songs: songs) { newOrder in
+            PlaylistReorderSheet(playlist: playlist, songs: storedSongs) { newOrder in
                 library.replacePlaylistSongs(
                     playlistID: playlist.id,
                     songIDs: newOrder.map(\.id)
@@ -665,6 +764,20 @@ struct PlaylistDetailView: View {
                 .textCase(.uppercase)
                 .foregroundStyle(PMColor.textFaint)
             Spacer()
+            Menu {
+                sortMenuOptions
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.up.arrow.down")
+                    Text(verbatim: sortMenuTitle)
+                }
+                .font(.system(size: 11.5, weight: .medium))
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .disabled(songs.count < 2)
+            .accessibilityLabel(Text("sort_by"))
+            .accessibilityIdentifier("playlistDetail.sort")
         }
         .padding(.top, -2)
     }
@@ -681,7 +794,10 @@ struct PlaylistDetailView: View {
         })
         if allowsPlaylistRemoval {
             middle.append(.init(icon: "arrow.up.arrow.down", title: String(localized: "playlist_reorder"),
-                                enabled: songs.count >= 2) { showReorderSheet = true })
+                                enabled: songs.count >= 2) {
+                displaySortRawValue = ""
+                showReorderSheet = true
+            })
         }
         middle.append(.init(icon: "arrow.down.circle", title: String(localized: "offline_download"),
                             enabled: !playable.isEmpty) {
@@ -786,14 +902,6 @@ struct PlaylistDetailView: View {
             }
             .padding(.vertical, 4)
         }
-    }
-
-    private var playCountsBySongID: [String: Int] {
-        var dict: [String: Int] = [:]
-        for e in PlayHistoryStore.shared.entries {
-            dict[e.songID, default: 0] += 1
-        }
-        return dict
     }
 
     private func macSongRow(_ song: Song, index: Int, playCount: Int) -> some View {

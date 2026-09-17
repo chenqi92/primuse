@@ -1028,3 +1028,23 @@ public enum SongListSnapshotBuilder {
         }
     }
 }
+
+public extension SongListSnapshot {
+    /// 只排序、不建快照。歌单、专辑这类几百到几千首的小列表用不上快照里的
+    /// 分区统计和索引条,但排序规则必须和曲库列表一模一样(本地化比较、空值
+    /// 归位、按 id 的稳定兜底),所以这里直接借用同一套比较器。
+    static func sortedSongs(
+        _ songs: [Song],
+        order: LibrarySongSortOrder,
+        sortValues: SongListSortValues = .empty
+    ) -> [Song] {
+        guard songs.count > 1 else { return songs }
+        guard let indices = try? sortedIndices(
+            songs: songs,
+            order: order,
+            sortValues: sortValues,
+            checkCancellation: {}
+        ) else { return songs }
+        return indices.map { songs[$0] }
+    }
+}

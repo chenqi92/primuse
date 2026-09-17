@@ -5422,7 +5422,8 @@ private struct SongListToolbarPrincipal: View {
     }
 }
 
-private extension LibrarySongSortCriterion {
+// 歌单详情页也要按同一套维度名给排序菜单打标签,所以这里不再是 private。
+extension LibrarySongSortCriterion {
     var label: String {
         switch self {
         case .title: return String(localized: "sort_title")
