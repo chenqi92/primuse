@@ -4004,7 +4004,7 @@ final class AudioPlayerService {
              updatePlaybackState()
              return
          case .started:
-             lastPlaybackError = nil
+             lastPlaybackError = am.lastPlaybackError
              isLoading = false
              isPlaying = am.isAppleMusicPlaying
          }

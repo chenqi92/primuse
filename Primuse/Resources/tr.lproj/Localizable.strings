@@ -963,7 +963,7 @@
 "immersive_demo_lyric_12" = "Bas düştüğünde yıldız ışığının bile ağırlığı vardır";
 "Share playlists, smart playlists, and family music sources" = "Çalma listelerini, akıllı çalma listelerini ve aile müziği kaynaklarını paylaşın";
 "Done" = "Bitti";
-"playback_error_apple_music_generic" = "Apple Music bu şarkıyı çalamadı. Müzik uygulamasında çalınabildiğini kontrol edip tekrar deneyin.";
+"playback_error_apple_music_generic" = "Apple Music şu anda çalmayı başlatamıyor. Kısa bir süre sonra tekrar deneyin. Sorun devam ederse şarkının Müzik uygulamasında çalınabildiğini kontrol edin.";
 "ai_primuse_relay_fallback_provider_format" = "Yerleşik hizmet kullanılamıyor. “%@”ye geri dönüş doğrulandı.";
 "radio_connected_for" = "Şunun için bağlanıldı:";
 "lyrics_source_reload_unchanged" = "Kaynak şarkı sözleri zaten önbelleğe alınan şarkı sözleriyle eşleşiyor.";

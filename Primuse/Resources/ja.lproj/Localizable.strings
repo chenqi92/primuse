@@ -856,7 +856,7 @@
 "playback_error_source_disabled" = "この音楽ソースは無効です";
 "playback_error_decode" = "この曲を再生できません";
 "playback_error_format" = "サポートされていないオーディオフォーマット";
-"playback_error_apple_music_generic" = "Apple Music でこの曲を再生できませんでした。ミュージックアプリで再生できることを確認してから、もう一度お試しください。";
+"playback_error_apple_music_generic" = "Apple Music で現在再生を開始できません。しばらくしてからもう一度お試しください。問題が続く場合は、ミュージックアプリで曲を再生できるか確認してください。";
 "gapless_not_available" = "ギャップレス再生は再生キューの曲で利用できます。クロスフェードをオンにするとオフになります。";
 "clear_metadata" = "カバーアートと歌詞を消去";
 "clear_metadata_confirm" = "キャッシュされたすべてのカバーアートと歌詞を削除します。必要なときに音楽ソースから再取得されます。";

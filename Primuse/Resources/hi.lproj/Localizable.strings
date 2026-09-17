@@ -2149,7 +2149,7 @@
 "play_similar_radio" = "समान रेडियो चलाएं";
 "playable_songs_count_format" = "%d बजाने योग्य गाने";
 "playback" = "प्लेबैक";
-"playback_error_apple_music_generic" = "Apple Music यह गीत नहीं चला सका। जाँचें कि वह संगीत ऐप में चल रहा है, फिर दोबारा कोशिश करें।";
+"playback_error_apple_music_generic" = "Apple Music अभी प्लेबैक शुरू नहीं कर सकता। थोड़ी देर बाद फिर कोशिश करें। यदि समस्या बनी रहती है, तो जाँचें कि गीत संगीत ऐप में चल रहा है या नहीं।";
 "playback_error_connection" = "स्रोत से कनेक्ट नहीं हो सकता";
 "playback_error_decode" = "यह ट्रैक नहीं चलाया जा सकता";
 "playback_error_format" = "असमर्थित ऑडियो प्रारूप";

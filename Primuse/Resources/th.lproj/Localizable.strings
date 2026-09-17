@@ -2149,7 +2149,7 @@
 "play_similar_radio" = "เล่นวิทยุที่คล้ายกัน";
 "playable_songs_count_format" = "%d เพลงที่เล่นได้";
 "playback" = "การเล่น";
-"playback_error_apple_music_generic" = "Apple Music ไม่สามารถเล่นเพลงนี้ได้ โปรดตรวจสอบว่าเล่นได้ในแอปเพลง แล้วลองอีกครั้ง";
+"playback_error_apple_music_generic" = "Apple Music ไม่สามารถเริ่มเล่นได้ในขณะนี้ โปรดลองอีกครั้งในอีกสักครู่ หากยังพบปัญหา โปรดตรวจสอบว่าเพลงนี้เล่นได้ในแอปเพลง";
 "playback_error_connection" = "ไม่สามารถเชื่อมต่อกับแหล่งสัญญาณได้";
 "playback_error_decode" = "ไม่สามารถเล่นแทร็กนี้ได้";
 "playback_error_format" = "รูปแบบเสียงที่ไม่รองรับ";

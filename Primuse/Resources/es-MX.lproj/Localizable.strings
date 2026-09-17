@@ -2149,7 +2149,7 @@
 "play_similar_radio" = "Reproducir radio similar";
 "playable_songs_count_format" = "Canciones reproducibles de %d";
 "playback" = "Reproducción";
-"playback_error_apple_music_generic" = "Apple Music no pudo reproducir esta canción. Comprueba que se reproduzca en la app Música e inténtalo de nuevo.";
+"playback_error_apple_music_generic" = "Apple Music no puede iniciar la reproducción en este momento. Inténtalo de nuevo en unos instantes. Si el problema persiste, comprueba que la canción se reproduzca en la app Música.";
 "playback_error_connection" = "No se puede conectar a la fuente";
 "playback_error_decode" = "No se puede reproducir esta pista";
 "playback_error_format" = "Formato de audio no compatible";

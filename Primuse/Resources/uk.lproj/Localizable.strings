@@ -963,7 +963,7 @@
 "immersive_demo_lyric_12" = "Коли падає бас, навіть світло зірок має вагу";
 "Share playlists, smart playlists, and family music sources" = "Діліться списками відтворення, розумними списками відтворення та джерелами сімейної музики";
 "Done" = "Готово";
-"playback_error_apple_music_generic" = "Apple Music не вдалося відтворити цю пісню. Перевірте її відтворення в програмі «Музика» та спробуйте ще раз.";
+"playback_error_apple_music_generic" = "Зараз Apple Music не може почати відтворення. Спробуйте ще раз трохи згодом. Якщо проблема не зникне, перевірте, чи відтворюється пісня в програмі «Музика».";
 "ai_primuse_relay_fallback_provider_format" = "Вбудована служба недоступна. Перевірений резервний варіант до “%@”.";
 "radio_connected_for" = "Підключено для";
 "lyrics_source_reload_unchanged" = "Вихідний текст вже збігається з кешованим.";

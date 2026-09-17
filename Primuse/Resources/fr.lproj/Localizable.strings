@@ -855,7 +855,7 @@
 "playback_error_source_disabled" = "Cette source musicale est désactivée";
 "playback_error_decode" = "Lecture de ce morceau impossible";
 "playback_error_format" = "Format audio non pris en charge";
-"playback_error_apple_music_generic" = "Apple Music n’a pas pu lire ce morceau. Vérifiez qu’il peut être lu dans l’app Musique, puis réessayez.";
+"playback_error_apple_music_generic" = "Apple Music ne peut pas lancer la lecture pour le moment. Réessayez dans un instant. Si le problème persiste, vérifiez que le morceau peut être lu dans l’app Musique.";
 "gapless_not_available" = "La lecture sans blanc est disponible pour les morceaux en file d'attente. Le fondu enchaîné la désactive.";
 "clear_metadata" = "Effacer les pochettes et les paroles";
 "clear_metadata_confirm" = "Cette action supprimera toutes les pochettes et paroles mises en cache. Elles seront récupérées à nouveau depuis vos sources musicales si nécessaire.";

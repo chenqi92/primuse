@@ -666,7 +666,7 @@
 "playback_error_source_disabled" = "This music source is disabled";
 "playback_error_decode" = "Cannot play this track";
 "playback_error_format" = "Unsupported audio format";
-"playback_error_apple_music_generic" = "Apple Music could not play this song. Check that it plays in the Music app, then try again.";
+"playback_error_apple_music_generic" = "Apple Music couldn't start playback right now. Try again shortly. If the problem persists, check that the song plays in the Music app.";
 
 // MARK: - Gapless
 "gapless_not_available" = "Gapless playback is available for queued tracks. Crossfade turns it off.";

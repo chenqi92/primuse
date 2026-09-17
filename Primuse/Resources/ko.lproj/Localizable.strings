@@ -855,7 +855,7 @@
 "playback_error_source_disabled" = "이 음악 소스는 비활성화되어 있습니다";
 "playback_error_decode" = "이 곡을 재생할 수 없습니다";
 "playback_error_format" = "지원되지 않는 오디오 포맷";
-"playback_error_apple_music_generic" = "Apple Music에서 이 곡을 재생할 수 없습니다. 음악 앱에서 재생되는지 확인한 후 다시 시도하세요.";
+"playback_error_apple_music_generic" = "지금은 Apple Music에서 재생을 시작할 수 없습니다. 잠시 후 다시 시도하세요. 문제가 계속되면 음악 앱에서 해당 곡이 재생되는지 확인하세요.";
 "gapless_not_available" = "끊김 없는 재생은 대기열의 곡에 사용할 수 있습니다. 크로스페이드를 켜면 꺼집니다.";
 "clear_metadata" = "커버 아트 및 가사 지우기";
 "clear_metadata_confirm" = "캐시된 모든 커버 아트와 가사를 삭제합니다. 필요할 때 음악 소스에서 다시 가져옵니다.";

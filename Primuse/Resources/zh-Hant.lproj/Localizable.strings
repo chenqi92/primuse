@@ -630,7 +630,7 @@
 "playback_error_source_disabled" = "該音樂來源已停用";
 "playback_error_decode" = "無法播放此曲目";
 "playback_error_format" = "不支援的音訊格式";
-"playback_error_apple_music_generic" = "Apple Music 無法播放此歌曲。請先在「音樂」App 中確認該歌曲可以播放，再試一次。";
+"playback_error_apple_music_generic" = "Apple Music 暫時無法播放，請稍後再試。若問題持續，請在「音樂」App 中確認該歌曲可以播放。";
 "gapless_not_available" = "無縫播放已可用於佇列曲目；開啟淡入淡出會自動將其關閉。";
 "clear_metadata" = "清除封面與歌詞";
 "clear_metadata_confirm" = "將刪除所有已快取的封面和歌詞。需要時會從音樂來源重新取得。";

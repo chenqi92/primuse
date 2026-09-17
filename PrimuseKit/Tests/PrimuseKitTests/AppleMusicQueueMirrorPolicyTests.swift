@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import PrimuseKit
 
@@ -241,15 +242,19 @@ struct AppleMusicSystemQueuePolicyTests {
 
 @Suite("Apple Music queue recovery policy")
 struct AppleMusicQueueRecoveryPolicyTests {
-    @Test("System-player failures retry only multi-item queues")
-    func retriesOnlyMultiItemSystemQueues() {
+    @Test("System-player failures retry selected songs even in single-item queues")
+    func retriesNonemptySystemQueues() {
         #expect(AppleMusicQueueRecoveryPolicy.shouldRetryWithStartingItemOnly(
             errorDomain: AppleMusicQueueRecoveryPolicy.musicPlayerErrorDomain,
             queueItemCount: 61
         ))
-        #expect(!AppleMusicQueueRecoveryPolicy.shouldRetryWithStartingItemOnly(
+        #expect(AppleMusicQueueRecoveryPolicy.shouldRetryWithStartingItemOnly(
             errorDomain: AppleMusicQueueRecoveryPolicy.musicPlayerErrorDomain,
             queueItemCount: 1
+        ))
+        #expect(!AppleMusicQueueRecoveryPolicy.shouldRetryWithStartingItemOnly(
+            errorDomain: AppleMusicQueueRecoveryPolicy.musicPlayerErrorDomain,
+            queueItemCount: 0
         ))
         #expect(!AppleMusicQueueRecoveryPolicy.shouldRetryWithStartingItemOnly(
             errorDomain: "NSURLErrorDomain",
@@ -269,11 +274,132 @@ struct AppleMusicQueueRecoveryPolicyTests {
             errorCode: 2,
             failedWhilePlaying: false
         ))
-        #expect(!AppleMusicQueueRecoveryPolicy.shouldTreatAsStarted(
-            errorDomain: AppleMusicQueueRecoveryPolicy.musicPlayerErrorDomain,
-            errorCode: 6,
-            failedWhilePlaying: true
-        ))
+        for code in [1, 6] {
+            for failedWhilePlaying in [false, true] {
+                #expect(!AppleMusicQueueRecoveryPolicy.shouldTreatAsStarted(
+                    errorDomain: AppleMusicQueueRecoveryPolicy.musicPlayerErrorDomain,
+                    errorCode: code,
+                    failedWhilePlaying: failedWhilePlaying
+                ))
+            }
+        }
+    }
+}
+
+@Suite("Apple Music resume recovery")
+@MainActor
+struct AppleMusicResumeRecoveryTests {
+    private let playerError = NSError(
+        domain: AppleMusicQueueRecoveryPolicy.musicPlayerErrorDomain,
+        code: 1
+    )
+
+    @Test("A transient failure prepares once and restores position before playing")
+    func resumesAfterTransientFailure() async throws {
+        var commands: [String] = []
+        var playCount = 0
+        try await AppleMusicQueueRecoveryPolicy.resumePlayback(
+            hasCurrentEntry: true,
+            canContinue: { true },
+            isPlaying: { false },
+            play: {
+                commands.append("play")
+                playCount += 1
+                if playCount == 1 { throw playerError }
+            },
+            prepare: { commands.append("prepare") },
+            restorePosition: { commands.append("restore") },
+            onRetry: { _ in commands.append("retry") },
+            waitBeforeRetry: { commands.append("wait") }
+        )
+        #expect(commands == ["play", "retry", "wait", "prepare", "restore", "play"])
+    }
+
+    @Test("Persistent failures stop after one retry")
+    func limitsRetries() async {
+        var playCount = 0
+        do {
+            try await AppleMusicQueueRecoveryPolicy.resumePlayback(
+                hasCurrentEntry: true,
+                canContinue: { true },
+                isPlaying: { false },
+                play: { playCount += 1; throw playerError },
+                prepare: {},
+                restorePosition: {},
+                onRetry: { _ in },
+                waitBeforeRetry: {}
+            )
+            Issue.record("Expected the retry failure")
+        } catch {
+            #expect((error as NSError).domain == playerError.domain)
+        }
+        #expect(playCount == 2)
+    }
+
+    @Test("An invalidated entry never restores position or plays again", arguments: [false, true])
+    func cancelsAfterSuspension(duringPrepare: Bool) async {
+        var current = true
+        var playCount = 0
+        var prepareCount = 0
+        var restored = false
+        do {
+            try await AppleMusicQueueRecoveryPolicy.resumePlayback(
+                hasCurrentEntry: true,
+                canContinue: { current },
+                isPlaying: { false },
+                play: { playCount += 1; throw playerError },
+                prepare: { prepareCount += 1; current = false },
+                restorePosition: { restored = true },
+                onRetry: { _ in },
+                waitBeforeRetry: { if !duringPrepare { current = false } }
+            )
+            Issue.record("Expected cancellation after the request or entry changed")
+        } catch {
+            #expect(error is CancellationError)
+        }
+        #expect(playCount == 1)
+        #expect(prepareCount == (duringPrepare ? 1 : 0))
+        #expect(!restored)
+    }
+
+    @Test("Playback that recovers during the wait is left untouched")
+    func preservesRecoveredPlayback() async throws {
+        var playing = false
+        var commands: [String] = []
+        try await AppleMusicQueueRecoveryPolicy.resumePlayback(
+            hasCurrentEntry: true,
+            canContinue: { true },
+            isPlaying: { playing },
+            play: { commands.append("play"); throw playerError },
+            prepare: { commands.append("prepare") },
+            restorePosition: { commands.append("restore") },
+            onRetry: { _ in },
+            waitBeforeRetry: { playing = true }
+        )
+        #expect(commands == ["play"])
+    }
+
+    @Test("Missing entries and non-player errors do not retry", arguments: [false, true])
+    func doesNotRetryUnrecoverableRequest(hasCurrentEntry: Bool) async {
+        let failure = hasCurrentEntry ? NSError(domain: NSURLErrorDomain, code: -1009) : playerError
+        var commands: [String] = []
+        do {
+            try await AppleMusicQueueRecoveryPolicy.resumePlayback(
+                hasCurrentEntry: hasCurrentEntry,
+                canContinue: { true },
+                isPlaying: { false },
+                play: { commands.append("play"); throw failure },
+                prepare: { commands.append("prepare") },
+                restorePosition: { commands.append("restore") },
+                onRetry: { _ in commands.append("retry") },
+                waitBeforeRetry: { commands.append("wait") }
+            )
+            Issue.record("Expected the original error")
+        } catch {
+            #expect((error as NSError).domain == failure.domain)
+            #expect((error as NSError).code == failure.code)
+        }
+        #expect(commands == ["play"])
     }
 }
 

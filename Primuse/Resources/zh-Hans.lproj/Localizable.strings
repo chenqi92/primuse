@@ -666,7 +666,7 @@
 "playback_error_source_disabled" = "该音乐源已停用";
 "playback_error_decode" = "无法播放此曲目";
 "playback_error_format" = "不支持的音频格式";
-"playback_error_apple_music_generic" = "Apple Music 无法播放此歌曲。请先在“音乐”App 中确认该歌曲可以播放，再重试。";
+"playback_error_apple_music_generic" = "Apple Music 暂时无法播放，请稍后重试。若问题持续，请在“音乐”App 中确认该歌曲可以播放。";
 
 // MARK: - Gapless
 "gapless_not_available" = "无缝播放已可用于队列曲目；开启淡入淡出会自动关闭它。";

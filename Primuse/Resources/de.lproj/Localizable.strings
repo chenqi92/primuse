@@ -855,7 +855,7 @@
 "playback_error_source_disabled" = "Diese Musikquelle ist deaktiviert";
 "playback_error_decode" = "Dieser Titel kann nicht wiedergegeben werden";
 "playback_error_format" = "Nicht unterstütztes Audioformat";
-"playback_error_apple_music_generic" = "Apple Music konnte diesen Titel nicht abspielen. Prüfe, ob er in der Musik-App abgespielt werden kann, und versuche es erneut.";
+"playback_error_apple_music_generic" = "Apple Music kann die Wiedergabe gerade nicht starten. Versuche es in Kürze erneut. Falls das Problem weiterhin besteht, prüfe, ob der Titel in der Musik-App abgespielt werden kann.";
 "gapless_not_available" = "Nahtlose Wiedergabe ist für Titel in der Warteschlange verfügbar. Überblenden deaktiviert sie.";
 "clear_metadata" = "Cover und Liedtexte löschen";
 "clear_metadata_confirm" = "Dadurch werden alle zwischengespeicherten Cover und Liedtexte gelöscht. Sie werden bei Bedarf erneut aus deinen Musikquellen abgerufen.";

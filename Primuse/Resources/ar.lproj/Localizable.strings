@@ -2149,7 +2149,7 @@
 "play_similar_radio" = "تشغيل راديو مشابه";
 "playable_songs_count_format" = "%d أغاني قابلة للتشغيل";
 "playback" = "التشغيل";
-"playback_error_apple_music_generic" = "تعذر على Apple Music تشغيل هذه الأغنية. تأكد من إمكانية تشغيلها في تطبيق الموسيقى، ثم حاول مجددًا.";
+"playback_error_apple_music_generic" = "لا يستطيع Apple Music بدء التشغيل الآن. حاول مجددًا بعد قليل. إذا استمرت المشكلة، فتأكد من إمكانية تشغيل الأغنية في تطبيق الموسيقى.";
 "playback_error_connection" = "لا يمكن الاتصال بالمصدر";
 "playback_error_decode" = "لا يمكن تشغيل هذا المسار";
 "playback_error_format" = "تنسيق الصوت غير مدعوم";

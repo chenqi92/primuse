@@ -355,6 +355,12 @@ final class AppleMusicService {
         commandGeneration: UInt64,
         requestID: UUID
     ) async throws {
+        guard isPlaybackRequestPending(requestID),
+              playbackCommandGeneration == commandGeneration,
+              !wasPausedByUser,
+              !Task.isCancelled else {
+            throw CancellationError()
+        }
         let index = startingIndex ?? songs.firstIndex(where: { $0.id == starting.id }) ?? 0
         let entries = songs.map { MusicPlayer.Queue.Entry($0) }
         managedQueueEntryIDs = queueEntryIDs.map {
@@ -392,10 +398,8 @@ final class AppleMusicService {
         }
     }
 
-    /// Starts the exact Primuse queue first, then retries only the selected song
-    /// when MusicKit rejects a multi-item system queue. This preserves normal
-    /// next/previous behavior whenever the queue is valid without letting one
-    /// stale library entry make the selected playable song silent.
+    /// Keep the normal queue when possible. A delayed single-item retry gives
+    /// the system player time to recover and isolates unresolved queue entries.
     private func startPreparedQueueWithSingleItemFallback(
         songs: [MusicKit.Song],
         startingAt starting: MusicKit.Song,
@@ -441,15 +445,23 @@ final class AppleMusicService {
 
             plog(
                 "Apple Music \(failure.stage) failed for \(songs.count)-item queue "
-                    + "(domain=\(nsError.domain), code=\(nsError.code)); retrying selected item only"
+                    + "(domain=\(nsError.domain), code=\(nsError.code)); retrying selected item after delay"
             )
             ApplicationMusicPlayer.shared.stop()
-            recoveredWithSingleItem = true
+            try await Task.sleep(for: AppleMusicQueueRecoveryPolicy.retryDelay)
+            guard isPlaybackRequestPending(requestID),
+                  playbackCommandGeneration == commandGeneration,
+                  !wasPausedByUser,
+                  !Task.isCancelled else {
+                throw CancellationError()
+            }
+            recoveredWithSingleItem = songs.count > 1
+            let selectedIndex = startingIndex ?? songs.firstIndex(where: { $0.id == starting.id }) ?? 0
             do {
                 try await startPreparedQueue(
                     songs: [starting],
                     startingAt: starting,
-                    queueEntryIDs: queueEntryIDs.map { [$0[startingIndex ?? 0]] },
+                    queueEntryIDs: queueEntryIDs.map { [$0[selectedIndex]] },
                     commandGeneration: commandGeneration,
                     requestID: requestID
                 )
@@ -755,25 +767,55 @@ final class AppleMusicService {
             isAppleMusicPlaying = true
             wasPausedByUser = false
             isPlaybackInterrupted = false
+            lastPlaybackError = nil
             return true
         }
         wasPausedByUser = false
         isPlaybackInterrupted = false
+        lastPlaybackError = nil
+        let resumeEntryID = ApplicationMusicPlayer.shared.queue.currentEntry?.id
+        let resumeTime = ApplicationMusicPlayer.shared.playbackTime
         Task { @MainActor [weak self] in
             guard let self,
                   self.isPlaybackRequestActive(requestID),
                   self.playbackCommandGeneration == commandGeneration,
                   !self.wasPausedByUser else { return }
-            // Task 内重新取 shared 引用, 避免 Swift 6 报 non-Sendable 跨边界。
-            do { try await ApplicationMusicPlayer.shared.play() } catch {
+            do {
+                try await AppleMusicQueueRecoveryPolicy.resumePlayback(
+                    hasCurrentEntry: resumeEntryID != nil,
+                    canContinue: {
+                        self.isPlaybackRequestActive(requestID)
+                            && self.playbackCommandGeneration == commandGeneration
+                            && !self.wasPausedByUser
+                            && ApplicationMusicPlayer.shared.queue.currentEntry?.id == resumeEntryID
+                    },
+                    isPlaying: { ApplicationMusicPlayer.shared.state.playbackStatus == .playing },
+                    play: { try await ApplicationMusicPlayer.shared.play() },
+                    prepare: { try await ApplicationMusicPlayer.shared.prepareToPlay() },
+                    restorePosition: {
+                        if resumeTime.isFinite, resumeTime >= 0 {
+                            ApplicationMusicPlayer.shared.playbackTime = resumeTime
+                        }
+                    },
+                    onRetry: { error in
+                        let nsError = error as NSError
+                        plog("Apple Music resume failed (domain=\(nsError.domain), code=\(nsError.code)); retrying prepare after delay")
+                    }
+                )
+            } catch is CancellationError {
+                self.quiesceStalePlaybackIfNeeded(requestID: requestID)
+                return
+            } catch {
                 guard self.isPlaybackRequestActive(requestID),
                       self.playbackCommandGeneration == commandGeneration,
                       !self.wasPausedByUser,
-                      !Task.isCancelled else {
+                      !Task.isCancelled,
+                      ApplicationMusicPlayer.shared.queue.currentEntry?.id == resumeEntryID else {
                     self.quiesceStalePlaybackIfNeeded(requestID: requestID)
                     return
                 }
-                plog("⚠️Apple Music resume failed: \(error.localizedDescription)")
+                self.logQueueStartFailure(error, context: "resume")
+                self.lastPlaybackError = self.userFacingPlaybackError(error)
             }
             guard self.isPlaybackRequestActive(requestID),
                   self.playbackCommandGeneration == commandGeneration,
@@ -956,6 +998,9 @@ final class AppleMusicService {
          }
          if isAppleMusicPlaying != nowPlaying {
              isAppleMusicPlaying = nowPlaying
+         }
+         if nowPlaying, lastPlaybackError != nil {
+             lastPlaybackError = nil
          }
          // player 已 stop (用户点停止 / queue 自然播完) 时, 不再从残留 queue 回填
          // nowPlayingSong ── 否则 stopAppleMusic() 清掉的值会被复活, mini player
