@@ -162,6 +162,26 @@ private struct HomeLibraryRevisionObserver: View {
     }
 }
 
+/// 首页排版拖动时显示的提示胶囊。
+///
+/// 预览在自己的视图图里渲染,这里只用文字和字形,不读任何环境对象。
+private struct HomeSectionDragPreview: View {
+    let title: LocalizedStringKey
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "line.3.horizontal")
+                .font(.footnote.weight(.semibold))
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.regularMaterial, in: Capsule())
+    }
+}
+
 private struct HomeFaceFlipModifier: ViewModifier {
     let angle: Double
     let opacity: Double
@@ -823,7 +843,12 @@ struct HomeView: View {
             }
             .opacity(isSectionVisible(section) ? 1 : 0.55)
             .padding(.horizontal, 12)
-            .draggable(section.rawValue)
+            // 拖动会把内容搬进独立的预览宿主,那里拿不到本页注入的环境对象,
+            // 区块里读 MusicLibrary / HomeDiscoveryModel 之类的子视图会当场闪退。
+            // 给一个只有区块名字的轻量预览,整块内容就不会在那个宿主里重新渲染。
+            .draggable(section.rawValue) {
+                HomeSectionDragPreview(title: section.title)
+            }
             .dropDestination(for: String.self) { items, _ in
                 guard let raw = items.first, let moved = HomeSectionKind(rawValue: raw) else { return false }
                 withAnimation(.snappy) { moveSection(moved, onto: section) }
