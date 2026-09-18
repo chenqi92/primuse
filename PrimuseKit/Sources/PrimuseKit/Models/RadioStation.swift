@@ -127,6 +127,15 @@ public struct RadioStation: Codable, Identifiable, Hashable, Sendable {
     /// 用户贴在这个电台上的标签。可选而不是空数组 —— 旧快照里没有这个键，
     /// 合成的 `Codable` 要靠可选类型才解得出来。
     public var tagNames: [String]?
+    /// 这个电台来自哪份清单订阅(见 `RadioSubscription`)。下面三个字段都是可选的，
+    /// 旧快照和旧版本写出的 CloudKit 记录里没有这些键，照样解得出来。
+    public var subscriptionID: String?
+    /// 它在清单里的身份：归一化流地址的判重键(`RadioImportParser.streamIdentityKey`)。
+    /// 刷新时靠 (subscriptionID, subscriptionEntryKey) 把清单条目和电台对上。
+    public var subscriptionEntryKey: String?
+    /// 「用户不要清单里的这一条」。只和 `isDeleted == true` 一起出现 ——
+    /// 这样的墓碑要一直留着并同步出去，清单再刷新也不会把它加回来。
+    public var isSubscriptionExclusion: Bool?
 
     public init(
         id: String = UUID().uuidString,
@@ -150,7 +159,10 @@ public struct RadioStation: Codable, Identifiable, Hashable, Sendable {
         remoteLogoURL: String? = nil,
         remoteLogoSource: RadioLogoSource? = nil,
         folderName: String? = nil,
-        tagNames: [String]? = nil
+        tagNames: [String]? = nil,
+        subscriptionID: String? = nil,
+        subscriptionEntryKey: String? = nil,
+        isSubscriptionExclusion: Bool? = nil
     ) {
         self.id = id
         self.name = name
@@ -174,6 +186,9 @@ public struct RadioStation: Codable, Identifiable, Hashable, Sendable {
         self.remoteLogoSource = remoteLogoSource
         self.folderName = folderName
         self.tagNames = tagNames
+        self.subscriptionID = subscriptionID
+        self.subscriptionEntryKey = subscriptionEntryKey
+        self.isSubscriptionExclusion = isSubscriptionExclusion
     }
 
     /// 归一化之后的标签。界面和筛选一律走这里，免得各处自己判空、自己去重。
@@ -188,6 +203,19 @@ public struct RadioStation: Codable, Identifiable, Hashable, Sendable {
 
     public var isServerMirror: Bool {
         sourceID?.isEmpty == false && serverStationID?.isEmpty == false
+    }
+
+    /// 挂在某份清单订阅上。只看字段，不看是否已删除 —— 排除标记和刷新留下的
+    /// 墓碑同样「属于」那份订阅，调用方需要时自己再判 `isDeleted`。
+    public var isSubscribed: Bool {
+        subscriptionID?.isEmpty == false
+            && subscriptionEntryKey?.isEmpty == false
+            && !isServerMirror
+    }
+
+    /// 用户删掉的订阅电台：永久墓碑，清单再刷新也不复活。
+    public var isSubscriptionExclusionMarker: Bool {
+        isDeleted && isSubscriptionExclusion == true
     }
 
     public var requiresSourceStreamResolution: Bool {
@@ -276,12 +304,27 @@ public struct RadioStationArtworkRemoteRequest: Hashable, Sendable {
     }
 
     private static func stableHash(_ value: String) -> UInt64 {
+        StableFNV1a64.hash(value)
+    }
+}
+
+/// FNV-1a 64 位。常量和字节顺序都是固定的，同一个字符串在任何进程、任何平台上
+/// 都算出同一个值 —— 所以能拿来派生跨设备一致的 id、缓存键和配色。
+/// 它是选择用的哈希，不是安全原语。
+public enum StableFNV1a64 {
+    public static func hash(_ value: String) -> UInt64 {
         var hash: UInt64 = 14_695_981_039_346_656_037
         for byte in value.utf8 {
             hash ^= UInt64(byte)
             hash = hash &* 1_099_511_628_211
         }
         return hash
+    }
+
+    /// 定长 16 位小写十六进制。补零是为了让 id 长度固定，看日志时好对齐。
+    public static func hexDigest(_ value: String) -> String {
+        let digits = String(hash(value), radix: 16)
+        return String(repeating: "0", count: max(0, 16 - digits.count)) + digits
     }
 }
 

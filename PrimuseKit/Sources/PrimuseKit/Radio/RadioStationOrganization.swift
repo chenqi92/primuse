@@ -333,11 +333,7 @@ public enum RadioStationOrganization {
     /// 同一个颜色，而用户不必为此做任何选择。
     public static func paletteIndex(forTag name: String, paletteSize: Int) -> Int {
         guard paletteSize > 0 else { return 0 }
-        var hash: UInt64 = 14_695_981_039_346_656_037
-        for byte in comparisonKey(name).utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* 1_099_511_628_211
-        }
+        let hash = StableFNV1a64.hash(comparisonKey(name))
         return Int(hash % UInt64(paletteSize))
     }
 }

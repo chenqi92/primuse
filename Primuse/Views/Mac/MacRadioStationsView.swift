@@ -21,6 +21,7 @@ struct MacRadioStationsView: View {
     @State private var namePromptText = ""
     @State private var folderToDelete: String?
     @State private var tagToDelete: String?
+    @State private var showSubscriptions = false
     @AppStorage(RadioStationLayoutMode.storageKey)
     private var layoutModeRaw = RadioStationLayoutMode.list.rawValue
 
@@ -81,10 +82,16 @@ struct MacRadioStationsView: View {
             MacRadioStationEditorView(station: nil)
         }
         .sheet(item: $editingStation) { station in
-            MacRadioStationEditorView(station: station)
+            // 「转为我自己的电台」之后直接接着编辑新建的那个电台。
+            MacRadioStationEditorView(station: station) { own in
+                editingStation = own
+            }
         }
         .sheet(isPresented: $showBatchAdd) {
             MacRadioBatchAddView()
+        }
+        .sheet(isPresented: $showSubscriptions) {
+            RadioSubscriptionsView()
         }
         .confirmationDialog(
             Text("radio_manage_delete_confirm_title"),
@@ -102,8 +109,15 @@ struct MacRadioStationsView: View {
                 Text("delete")
             }
             Button(role: .cancel) { stationToDelete = nil } label: { Text("cancel") }
-        } message: { _ in
-            Text("radio_manage_delete_confirm_message")
+        } message: { station in
+            if station.isSubscribed {
+                Text(
+                    String(localized: "radio_manage_delete_confirm_message")
+                        + "\n" + String(localized: "radio_subscription_delete_note")
+                )
+            } else {
+                Text("radio_manage_delete_confirm_message")
+            }
         }
         .alert("insecure_http_warning_title", isPresented: Binding(
             get: { pendingInsecureStation != nil },
@@ -219,6 +233,9 @@ struct MacRadioStationsView: View {
                     Button("radio_batch_add_title", systemImage: "square.and.arrow.down") {
                         showBatchAdd = true
                     }
+                    Button("radio_subscriptions_title", systemImage: "arrow.triangle.2.circlepath") {
+                        showSubscriptions = true
+                    }
                     Divider()
                     Button("radio_folder_new", systemImage: "folder.badge.plus") {
                         beginPrompt(.createFolder(assigning: []))
@@ -237,9 +254,14 @@ struct MacRadioStationsView: View {
                 .fixedSize()
             }
 
-            Text(summaryText)
-                .font(.system(size: 13))
-                .foregroundStyle(PMColor.textMuted)
+            HStack(spacing: PMSpace.m) {
+                Text(summaryText)
+                    .font(.system(size: 13))
+                    .foregroundStyle(PMColor.textMuted)
+                // 有订阅时露一行紧凑状态，点进订阅管理。
+                RadioSubscriptionStatusRow { showSubscriptions = true }
+                    .fixedSize()
+            }
         }
         .padding(.horizontal, 36)
         .padding(.top, 28)
@@ -796,6 +818,14 @@ private struct MacRadioStationCard<Actions: View>: View {
                             .foregroundStyle(PMColor.textMuted)
                     }
 
+                    if station.isSubscribed {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 10))
+                            .foregroundStyle(PMColor.textMuted)
+                            .help(RadioSubscriptionText.stationSource(station)
+                                ?? String(localized: "radio_subscription_station_badge"))
+                    }
+
                     if isPlaying {
                         HStack(spacing: 4) {
                             Circle().fill(PMColor.bad).frame(width: 5, height: 5)
@@ -820,7 +850,8 @@ private struct MacRadioStationCard<Actions: View>: View {
 
                 RadioStationOrganizeLabels(station: station)
 
-                Text(station.displayEndpoint)
+                // 订阅电台在本机认识那份订阅时，这一行换成订阅名。
+                Text(RadioSubscriptionText.stationSource(station) ?? station.displayEndpoint)
                     .font(PMFont.monoXS)
                     .foregroundStyle(PMColor.textFaint)
                     .lineLimit(1)
@@ -939,6 +970,11 @@ private struct MacRadioStationCoverTile<Actions: View>: View {
                     }
                     if station.isServerMirror {
                         Image(systemName: "server.rack")
+                            .font(.system(size: 8))
+                            .foregroundStyle(PMColor.textFaint)
+                    }
+                    if station.isSubscribed {
+                        Image(systemName: "arrow.triangle.2.circlepath")
                             .font(.system(size: 8))
                             .foregroundStyle(PMColor.textFaint)
                     }

@@ -1063,7 +1063,9 @@ final class CloudKitSyncService {
         var deleted: [String] = []
         for id in Set(ids) {
             guard let station = radioStationsStore.allStations.first(where: { $0.id == id }) else { continue }
-            if station.isDeleted {
+            // 订阅的排除标记虽然是墓碑，却要作为一条普通记录保存出去 —— 它得在
+            // 每台设备上一直挡着清单里那一条，删掉记录就等于撤销了用户的删除。
+            if station.isDeleted && !station.isSubscriptionExclusionMarker {
                 deleted.append(id)
             } else {
                 active.append(id)
@@ -1109,6 +1111,11 @@ final class CloudKitSyncService {
 
     func radioStationDeleted(id: String) {
         guard CloudSyncChannel.isEnabled(.sources) else { return }
+        // 排除标记走保存，不走删除(见 `enqueueRadioStationRecords`)。
+        if radioStationsStore.allStations.first(where: { $0.id == id })?
+            .isSubscriptionExclusionMarker == true {
+            return
+        }
         enqueueDeletes(recordType: RecordType.radioStation, ids: [id])
     }
 
@@ -2181,8 +2188,14 @@ final class CloudKitSyncService {
     // MARK: - Internet radio mapping
 
     private func populateRadioStationRecord(_ record: CKRecord, stationID: String) -> Bool {
+        // 普通墓碑不上传(它们走 CloudKit 删除)；订阅的排除标记例外，
+        // 它以 `isDeleted = true` 的完整记录保存。
+        //
+        // 兼容旧版本：旧版本不认识订阅字段，但认识 `isDeleted`。它收到排除标记时，
+        // `upsertFromRemote` 对本地已有的那条会变成墓碑(隐藏)，对本地没有的直接
+        // 忽略 —— 正好都是想要的结果，所以这条记录可以放心地发给所有版本。
         guard var station = radioStationsStore.allStations.first(where: { $0.id == stationID }),
-              !station.isDeleted else {
+              !station.isDeleted || station.isSubscriptionExclusionMarker else {
             return false
         }
         // 最近收听时间只用于当前设备排序，不参与跨设备合并。

@@ -31,6 +31,9 @@ struct RadioStationsView: View {
     @State private var namePromptText = ""
     @State private var folderToDelete: String?
     @State private var tagToDelete: String?
+    @State private var showingSubscriptions = false
+    /// 删订阅电台前先确认一次 —— 删掉就等于告诉清单「这一条我不要了」。
+    @State private var subscribedStationToDelete: RadioStation?
     @AppStorage(RadioStationLayoutMode.storageKey)
     private var layoutModeRaw = RadioStationLayoutMode.list.rawValue
 
@@ -94,6 +97,7 @@ struct RadioStationsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            subscriptionBar
             organizeBar
             content
         }
@@ -112,7 +116,13 @@ struct RadioStationsView: View {
             RadioBatchAddView()
         }
         .sheet(item: $editingStation) { station in
-            RadioStationEditorView(station: station)
+            // 「转为我自己的电台」之后直接接着编辑新建的那个电台。
+            RadioStationEditorView(station: station) { own in
+                editingStation = own
+            }
+        }
+        .sheet(isPresented: $showingSubscriptions) {
+            RadioSubscriptionsView()
         }
         .fileExporter(
             isPresented: $showExporter,
@@ -136,7 +146,31 @@ struct RadioStationsView: View {
             }
             Button("cancel", role: .cancel) {}
         } message: {
-            Text("radio_manage_delete_confirm_message")
+            if selectedStations.contains(where: { $0.isSubscribed }) {
+                Text(
+                    String(localized: "radio_manage_delete_confirm_message")
+                        + "\n" + String(localized: "radio_subscription_delete_note")
+                )
+            } else {
+                Text("radio_manage_delete_confirm_message")
+            }
+        }
+        .confirmationDialog(
+            String(localized: "radio_manage_delete_confirm_title"),
+            isPresented: Binding(
+                get: { subscribedStationToDelete != nil },
+                set: { if !$0 { subscribedStationToDelete = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: subscribedStationToDelete
+        ) { station in
+            Button("delete", role: .destructive) {
+                store.remove(id: station.id)
+                subscribedStationToDelete = nil
+            }
+            Button("cancel", role: .cancel) { subscribedStationToDelete = nil }
+        } message: { _ in
+            Text("radio_subscription_delete_note")
         }
         .alert("insecure_http_warning_title", isPresented: Binding(
             get: { pendingInsecureStation != nil },
@@ -231,6 +265,21 @@ struct RadioStationsView: View {
             manageList
         } else {
             stationGrid
+        }
+    }
+
+    // MARK: - 清单订阅状态
+
+    /// 有订阅时在筛选条上方露一行紧凑状态，点进订阅管理。
+    @ViewBuilder
+    private var subscriptionBar: some View {
+        if !RadioSubscriptionsStore.shared.subscriptions.isEmpty {
+            HStack(spacing: 0) {
+                RadioSubscriptionStatusRow { showingSubscriptions = true }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
         }
     }
 
@@ -465,6 +514,9 @@ struct RadioStationsView: View {
                     Button("radio_add", systemImage: "plus") {
                         showingNewStation = true
                     }
+                    Button("radio_subscriptions_title", systemImage: "arrow.triangle.2.circlepath") {
+                        showingSubscriptions = true
+                    }
                     Divider()
                     Button("radio_folder_new", systemImage: "folder.badge.plus") {
                         beginPrompt(.createFolder(assigning: []))
@@ -672,7 +724,11 @@ struct RadioStationsView: View {
         if !station.isServerMirror {
             Divider()
             Button("delete", systemImage: "trash", role: .destructive) {
-                store.remove(id: station.id)
+                if station.isSubscribed {
+                    subscribedStationToDelete = station
+                } else {
+                    store.remove(id: station.id)
+                }
             }
         }
     }
@@ -902,6 +958,12 @@ private struct RadioStationCard<Actions: View>: View {
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
+                            if station.isSubscribed {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .accessibilityLabel(Text("radio_subscription_station_badge"))
+                            }
                             Spacer(minLength: 4)
                             Text(verbatim: "#\(priority)")
                                 .font(.caption2.monospacedDigit())
@@ -927,7 +989,8 @@ private struct RadioStationCard<Actions: View>: View {
 
                         RadioStationOrganizeLabels(station: station)
 
-                        Text(station.displayEndpoint)
+                        // 订阅电台在本机认识那份订阅时，这一行换成订阅名。
+                        Text(RadioSubscriptionText.stationSource(station) ?? station.displayEndpoint)
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
@@ -1026,6 +1089,11 @@ private struct RadioStationCoverTile<Actions: View>: View {
                         }
                         if station.isServerMirror {
                             Image(systemName: "server.rack")
+                                .font(.system(size: 8))
+                                .foregroundStyle(.tertiary)
+                        }
+                        if station.isSubscribed {
+                            Image(systemName: "arrow.triangle.2.circlepath")
                                 .font(.system(size: 8))
                                 .foregroundStyle(.tertiary)
                         }
@@ -1348,6 +1416,8 @@ struct RadioStationEditorView: View {
     @Environment(AudioPlayerService.self) private var player
 
     let station: RadioStation?
+    /// 「转为我自己的电台」之后交给调用方接着编辑新电台；不给就直接关掉编辑页。
+    private let onDetach: ((RadioStation) -> Void)?
     @State private var name: String
     @State private var urlString: String
     @State private var logoData: Data?
@@ -1359,8 +1429,9 @@ struct RadioStationEditorView: View {
     @State private var insecureHTTPHost: String?
     @State private var pendingTestAfterTrust = false
 
-    init(station: RadioStation?) {
+    init(station: RadioStation?, onDetach: ((RadioStation) -> Void)? = nil) {
         self.station = station
+        self.onDetach = onDetach
         _name = State(initialValue: station?.name ?? "")
         _urlString = State(initialValue: station?.streamURL ?? "")
         _logoData = State(initialValue: station?.logoData)
@@ -1383,16 +1454,37 @@ struct RadioStationEditorView: View {
             && !isSaving
     }
 
+    /// 订阅电台的名称和地址归清单所有，编辑页里只读。
+    private var isSubscribed: Bool { station?.isSubscribed == true }
+
     var body: some View {
         NavigationStack {
             Form {
-                Section("radio_details") {
+                Section {
                     TextField("radio_name", text: $name)
+                        .disabled(isSubscribed)
                     TextField("radio_stream_url", text: $urlString)
                         #if os(iOS)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
                         #endif
+                        .disabled(isSubscribed)
+                } header: {
+                    Text("radio_details")
+                } footer: {
+                    if let station, station.isSubscribed {
+                        Text(RadioSubscriptionText.editorNote(for: station))
+                    }
+                }
+
+                if isSubscribed {
+                    Section {
+                        Button("radio_subscription_detach", systemImage: "person.crop.circle.badge.checkmark") {
+                            detach()
+                        }
+                    } footer: {
+                        Text("radio_subscription_detach_footer")
+                    }
                 }
 
                 Section {
@@ -1496,6 +1588,17 @@ struct RadioStationEditorView: View {
         #if os(macOS)
         .frame(minWidth: 520, minHeight: 470)
         #endif
+    }
+
+    private func detach() {
+        guard let station,
+              let ownID = store.detachFromSubscription(id: station.id),
+              let own = store.station(id: ownID) else { return }
+        if let onDetach {
+            onDetach(own)
+        } else {
+            dismiss()
+        }
     }
 
     private func beginTest() {

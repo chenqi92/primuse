@@ -131,7 +131,7 @@ public enum RadioImportParser {
         // 取第一个作为"跟谁重了"的展示对象即可。
         var seen: [String: String] = [:]
         for station in existing {
-            guard let key = duplicateKey(station.streamURL) else { continue }
+            guard let key = streamIdentityKey(station.streamURL) else { continue }
             if seen[key] == nil { seen[key] = station.name }
         }
 
@@ -158,7 +158,7 @@ public enum RadioImportParser {
                 .flatMap { $0.isEmpty ? nil : $0 }
                 ?? suggestedName(for: normalizedURL)
 
-            guard let key = duplicateKey(normalizedURL) else {
+            guard let key = streamIdentityKey(normalizedURL) else {
                 return RadioImportCandidate(
                     name: name,
                     urlString: normalizedURL,
@@ -224,7 +224,11 @@ public enum RadioImportParser {
 
     /// scheme 和末尾斜杠不参与判重 ── 同一个流的 http / https 两种写法算重复，
     /// 否则用户粘一份 http 一份 https 会得到两个播一样内容的电台。
-    private static func duplicateKey(_ urlString: String) -> String? {
+    ///
+    /// 批量添加和清单订阅共用这一份：订阅电台在清单里的身份
+    /// (`RadioStation.subscriptionEntryKey`)、订阅本身的 id 都从它派生，
+    /// 两边规则一旦分叉，同一个流就会在两条路径上被当成两个电台。
+    public static func streamIdentityKey(_ urlString: String) -> String? {
         guard let url = URL(string: urlString), let host = url.host?.lowercased() else { return nil }
         var path = url.path
         while path.count > 1, path.hasSuffix("/") { path.removeLast() }

@@ -146,6 +146,7 @@
 		1A1C7C4F1F0C1B7F7809335A /* StreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4430B0204E343AF011F490F1 /* StreamResolver.swift */; };
 		1A9F9D73E72B9688620EF8C2 /* LRCLIBScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AE8A78DAC80BEED65803A6B /* LRCLIBScraper.swift */; };
 		1AB7C4D50C43A24D7A9E3F53 /* FileFormatRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 111D15C431BBFAC41E4D37B1 /* FileFormatRouter.swift */; };
+		1AD1E41DD40A949C556C4F27 /* RadioSubscriptionsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A256B67AAFDAA07699C2E6F /* RadioSubscriptionsStore.swift */; };
 		1B0A3CACE7B4634D20DA6C89 /* Bundle+AppVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CD88BFBBCA5054A7248399F /* Bundle+AppVersion.swift */; };
 		1B1495FAE0F8456866676C61 /* ServerPlaylistMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B60495B4617035491BA0CFA /* ServerPlaylistMirror.swift */; };
 		1B4ED35B9C20D4E306269836 /* RadioFLACDecoderBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = 9EB66896DBE96AD0C44855A9 /* RadioFLACDecoderBridge.m */; };
@@ -181,6 +182,7 @@
 		2118DA6C12780C42F8283394 /* TVServerFeedbackServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C553EBCD2834E0A7DFEC2BB8 /* TVServerFeedbackServiceTests.swift */; };
 		212511EFE29CDB7FBFCA233B /* PhoneRelayServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 299BA8CA4513E33F5CF2BC7C /* PhoneRelayServer.swift */; };
 		21E496A1A424DA68570A7928 /* PrimuseKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B1E36F2FECF46E724081F983 /* PrimuseKit.framework */; };
+		2223ECC785D827AC402D0333 /* RadioSubscriptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC7AA173E8F94D6FE23BDD4F /* RadioSubscriptionsView.swift */; };
 		223571A3D35282EEE8DC3CD8 /* AIRemoteProviderConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33F16C8FA296E2937F01489 /* AIRemoteProviderConfiguration.swift */; };
 		2258673CDC1F146D06F403A0 /* SynologySource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E60AA3C090087F657145292 /* SynologySource.swift */; };
 		2265889CD329AF4A8AC93100 /* BrowserChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 768665CEDF081091A5DFAED7 /* BrowserChrome.swift */; };
@@ -270,6 +272,7 @@
 		362823C0E5638E246A8B36A5 /* DeviceMusicPlaybackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25B5C092730E2E3E9802487D /* DeviceMusicPlaybackTests.swift */; };
 		3655A1C13669D27CC9F07AF2 /* NFSKit in Frameworks */ = {isa = PBXBuildFile; productRef = 6B0EB701D9FE5D2A90E43FD9 /* NFSKit */; };
 		368E26EC04F4020621DB944F /* ScraperConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 983B4BD41961986660A6E775 /* ScraperConfig.swift */; };
+		36AFD42B2179D4A11CC98A1F /* RadioSubscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AE38CCE64AB21C8A279A586 /* RadioSubscriptionService.swift */; };
 		36B657A083885102B9EEC43F /* LyricsLiveActivityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9CC779608BF4A84958AE7BA /* LyricsLiveActivityService.swift */; };
 		36E0CFC3794360116070FDE6 /* NativeAudioDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B638BB94F0E6542668978B3 /* NativeAudioDecoder.swift */; };
 		36FF6841F29DE1D8C53529B5 /* DesktopLyricsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54D5EDD9A322FF83F0612BEF /* DesktopLyricsView.swift */; };
@@ -286,6 +289,9 @@
 		38B71AA0941D7B974C337680 /* ScraperConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BF1A706ED97024BCCCCD9F8 /* ScraperConfigStore.swift */; };
 		38E0E189263F5CC02A9DD486 /* AddSourceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7BBFA50461FE980684501FA /* AddSourceView.swift */; };
 		391ACCAE3259D52088819685 /* SynologyAudioStationAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2F06C85E321D1D3926CA4E /* SynologyAudioStationAPI.swift */; };
+		604AAF47DAAFC541DA6AC7D4 /* RadioSubscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AE38CCE64AB21C8A279A586 /* RadioSubscriptionService.swift */; };
+		A27AC8ECA4D3FD9466AB52F8 /* RadioSubscriptionsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A256B67AAFDAA07699C2E6F /* RadioSubscriptionsStore.swift */; };
+		ACD9CF156B3DD90494393419 /* RadioSubscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7997DF5865683E1072390CF /* RadioSubscription.swift */; };
 		DD2A67E1029D1A8D48C4442D /* SourceAddressForm.swift in Sources */ = {isa = PBXBuildFile; fileRef = 775B198C9EA7BE68BEE8EEA3 /* SourceAddressForm.swift */; };
 		38F1CB896290BA69CF5682C3 /* TimeInterval+Format.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02C67038ECF67BC44982A1C8 /* TimeInterval+Format.swift */; };
 		392380F2B15058BABF04130F /* LocalImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03F527F89BB056AD3BB3E532 /* LocalImportService.swift */; };
@@ -1183,6 +1189,7 @@
 		E2810AAD4DBE00E55CB6203B /* PlayHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCE1922E4E88CC38539151C4 /* PlayHistoryStore.swift */; };
 		E2915EA85132DB3DAB79C7D8 /* MusicScraperFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6255A91A1DE2B2C344A5491 /* MusicScraperFactory.swift */; };
 		E2AAEF7990A1A92CD2935EB2 /* UgreenAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = CACF669ECDE8745A546EE459 /* UgreenAPI.swift */; };
+		E2C7B530F96DA9F9E7D51681 /* RadioSubscriptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC7AA173E8F94D6FE23BDD4F /* RadioSubscriptionsView.swift */; };
 		E3827C74776512E06FC6DFEF /* PlaybackSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80BF155F8BD6EBFBBAA9B83A /* PlaybackSettingsStore.swift */; };
 		E3900CCC1A7A9AEC7FAB20FE /* PMTitleBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC94F5ED881A05601F6B7D65 /* PMTitleBar.swift */; };
 		E43A039C4C8FB967DEC92C20 /* ServerListeningStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27678E1E349C28A0B8CFA6BE /* ServerListeningStats.swift */; };
@@ -1547,10 +1554,14 @@
 		0849A8F36C03A6B9E0D99387 /* PrivateOverlayHostPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivateOverlayHostPolicy.swift; sourceTree = "<group>"; };
 		1A2F06C85E321D1D3926CA4E /* SynologyAudioStationAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyAudioStationAPI.swift; sourceTree = "<group>"; };
 		31C0CD83D48A0593F5912180 /* SynologyAudioStationClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyAudioStationClient.swift; sourceTree = "<group>"; };
+		6A256B67AAFDAA07699C2E6F /* RadioSubscriptionsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioSubscriptionsStore.swift; sourceTree = "<group>"; };
+		6AE38CCE64AB21C8A279A586 /* RadioSubscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioSubscriptionService.swift; sourceTree = "<group>"; };
 		99D0FD719B67752D96057615 /* ProxyPrefixedBasePathPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyPrefixedBasePathPolicy.swift; sourceTree = "<group>"; };
+		A7997DF5865683E1072390CF /* RadioSubscription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioSubscription.swift; sourceTree = "<group>"; };
 		D985218C6C887E4DA40AF2D2 /* SourceAddressInputPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceAddressInputPolicy.swift; sourceTree = "<group>"; };
 		94CB377FB39449D0664E7EC7 /* SourceAddressFormPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceAddressFormPolicy.swift; sourceTree = "<group>"; };
 		6AFE245AAF67EBBFCEC27A42 /* SourceConnectionCandidatePlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceConnectionCandidatePlanner.swift; sourceTree = "<group>"; };
+		DC7AA173E8F94D6FE23BDD4F /* RadioSubscriptionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioSubscriptionsView.swift; sourceTree = "<group>"; };
 		EEECB0FE54439212E03E560D /* SourceEndpointProbeSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceEndpointProbeSession.swift; sourceTree = "<group>"; };
 		7972C2A34A5D5238B4B18888 /* SourceEndpointResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceEndpointResolver.swift; sourceTree = "<group>"; };
 		FAE5359A924CB3DC30F82570 /* SourceServiceFingerprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceServiceFingerprint.swift; sourceTree = "<group>"; };
@@ -3534,6 +3545,7 @@
 				3C3121FC0DB2F2843B4D7718 /* RadioPlaylistText.swift */,
 				3E4119E96B1A605CAFA5FE0B /* RadioStationOrganization.swift */,
 				9606AA541D05C5311136A0BC /* RadioStreamTitleParser.swift */,
+				A7997DF5865683E1072390CF /* RadioSubscription.swift */,
 			);
 			path = Radio;
 			sourceTree = "<group>";
@@ -3821,6 +3833,8 @@
 				D0CEA54045A41F43EDFF9449 /* RadioPlaybackController.swift */,
 				69CD8CB3BFFBE2915C634E3E /* RadioPlaylistDownloader.swift */,
 				744DE8325645146B084C1FE7 /* RadioStationsStore.swift */,
+				6AE38CCE64AB21C8A279A586 /* RadioSubscriptionService.swift */,
+				6A256B67AAFDAA07699C2E6F /* RadioSubscriptionsStore.swift */,
 			);
 			path = Radio;
 			sourceTree = "<group>";
@@ -3990,6 +4004,7 @@
 				9CC6F2F1E70E26868240EDF8 /* RadioCandidateLogoView.swift */,
 				B1794D5D2597F2E94F2EC8DD /* RadioStationOrganizeUI.swift */,
 				619F72A778551BB017F0840A /* RadioStationsView.swift */,
+				DC7AA173E8F94D6FE23BDD4F /* RadioSubscriptionsView.swift */,
 			);
 			path = Radio;
 			sourceTree = "<group>";
@@ -4837,6 +4852,7 @@
 				9B6DC920BBF4FE1D1E19F53F /* RadioHomepageIconParser.swift in Sources */,
 				CA084B87BA0FE515AA8B3BEE /* RadioICYMetadata.swift in Sources */,
 				9B662A4BB4576404119793DC /* RadioImportParser.swift in Sources */,
+				ACD9CF156B3DD90494393419 /* RadioSubscription.swift in Sources */,
 				6EC9F7E5AB947C4F5DCFAEAD /* RadioLiveMetadata.swift in Sources */,
 				0EA465C8DC3980650EBD682F /* RadioLogoDiscoveryPolicy.swift in Sources */,
 				6E4EDD3796879951FDF3A5EF /* RadioLogoURLPolicy.swift in Sources */,
@@ -5201,6 +5217,7 @@
 				BF4CCB9CC1C7D0BBCFB0D8F7 /* QnapSource.swift in Sources */,
 				5AD01C4504371E9EE47EE591 /* QueueView.swift in Sources */,
 				C60CBE0D26F59A84CCB5931F /* RadioBatchAddView.swift in Sources */,
+				2223ECC785D827AC402D0333 /* RadioSubscriptionsView.swift in Sources */,
 				F41811AEA0646B4F680416AA /* RadioCandidateLogoView.swift in Sources */,
 				B55B2E0B01F069C0238B0FF7 /* RadioDirectoryClient.swift in Sources */,
 				9618F8E76B4E5775F085DDD8 /* RadioFLACAudioDecoder.swift in Sources */,
@@ -5210,6 +5227,8 @@
 				0806B84EE561C9C6EBFC670B /* RadioLogoDiscoveryService.swift in Sources */,
 				67D5C1D87076883F4E045195 /* RadioPlaybackController.swift in Sources */,
 				F64E2EB8C928B04D298C60F9 /* RadioPlaylistDownloader.swift in Sources */,
+				36AFD42B2179D4A11CC98A1F /* RadioSubscriptionService.swift in Sources */,
+				A27AC8ECA4D3FD9466AB52F8 /* RadioSubscriptionsStore.swift in Sources */,
 				379E7CA829B30954B6845650 /* RadioStationOrganizeUI.swift in Sources */,
 				80B755D0057BE28B15832A77 /* RadioStationsStore.swift in Sources */,
 				A762BCAE5EAB1D547ADDDD22 /* RadioStationsView.swift in Sources */,
@@ -5716,6 +5735,7 @@
 				BF05CF74685D4E54935B6C18 /* QnapSource.swift in Sources */,
 				9B2A49C180BA29D56A74D9CD /* QueueView.swift in Sources */,
 				A645E6AE800CAA447E72B3B7 /* RadioBatchAddView.swift in Sources */,
+				E2C7B530F96DA9F9E7D51681 /* RadioSubscriptionsView.swift in Sources */,
 				F918EE6E00C1951EE8A63B1D /* RadioCandidateLogoView.swift in Sources */,
 				5FA7E93E1A11D32470CC8623 /* RadioDirectoryClient.swift in Sources */,
 				BD43C09F5EE8E43023150698 /* RadioFLACAudioDecoder.swift in Sources */,
@@ -5725,6 +5745,8 @@
 				C9D1256DDC94D0BC92D2EA6F /* RadioLogoDiscoveryService.swift in Sources */,
 				EC2085644D328AC65FF4FFD4 /* RadioPlaybackController.swift in Sources */,
 				D9B3F5958644F3CA3F543F28 /* RadioPlaylistDownloader.swift in Sources */,
+				604AAF47DAAFC541DA6AC7D4 /* RadioSubscriptionService.swift in Sources */,
+				1AD1E41DD40A949C556C4F27 /* RadioSubscriptionsStore.swift in Sources */,
 				5E5A66A900BA76DF01BAA67E /* RadioStationOrganizeUI.swift in Sources */,
 				FE58D4CAAB4142904F5E4D21 /* RadioStationsStore.swift in Sources */,
 				58F7430F387DEC35AF090DD2 /* RadioStationsView.swift in Sources */,

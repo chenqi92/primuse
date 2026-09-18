@@ -84,6 +84,14 @@ final class RadioStationsStore {
             if stamped.sortOrder == nil {
                 stamped.sortOrder = allStations[index].sortOrder
             }
+            // 编辑器是整条重建电台再 upsert 的，订阅字段不在它手里。订阅电台
+            // 只接受用户拥有的字段，名称、地址和订阅身份沿用现值。
+            if allStations[index].isSubscribed, !allStations[index].isDeleted {
+                stamped = RadioSubscriptionFieldOwnership.applyingUserEdits(
+                    stamped,
+                    to: allStations[index]
+                )
+            }
             allStations[index] = stamped
         } else {
             if stamped.sortOrder == nil,
@@ -100,8 +108,13 @@ final class RadioStationsStore {
     func update(_ id: String, mutate: (inout RadioStation) -> Void) {
         guard let index = allStations.firstIndex(where: { $0.id == id }) else { return }
         guard !allStations[index].isServerMirror else { return }
+        // 排除标记是用户「不要这一条」的记录，任何编辑都不该让它复活。
+        guard !allStations[index].isSubscriptionExclusionMarker else { return }
         var updated = allStations[index]
         mutate(&updated)
+        if allStations[index].isSubscribed, !allStations[index].isDeleted {
+            updated = RadioSubscriptionFieldOwnership.applyingUserEdits(updated, to: allStations[index])
+        }
         guard RadioStationValidation.isValid(name: updated.name, urlString: updated.streamURL),
               let normalizedURL = RadioStationValidation.normalizedURLString(updated.streamURL),
               updated.logoData.map({ $0.count <= RadioStationValidation.maximumLogoBytes }) ?? true else {
@@ -388,6 +401,21 @@ final class RadioStationsStore {
     func remove(id: String) {
         guard let index = allStations.firstIndex(where: { $0.id == id }) else { return }
         guard !allStations[index].isServerMirror else { return }
+        if allStations[index].isSubscribed {
+            // 订阅电台删掉之后要一直挡着清单里那一条，所以变成排除标记，
+            // 作为一条普通的保存同步出去。这里**不能**发
+            // `primuseRadioStationDidDelete`：CloudKitSyncService 收到它会把这条
+            // 记录从 CloudKit 删掉，别的设备上的排除就丢了，下次刷新又加回来。
+            guard !allStations[index].isDeleted else { return }
+            allStations[index] = RadioSubscriptionMergePolicy.excluding(allStations[index])
+            persist()
+            notifyChanged(ids: [id])
+            #if !os(tvOS)
+            // 台标发现的退避记录照样清掉，免得状态文件随「加了又删」无限长大。
+            RadioLogoDiscoveryService.shared.forget(stationIDs: [id])
+            #endif
+            return
+        }
         allStations[index].isDeleted = true
         allStations[index].deletedAt = Date()
         allStations[index].modifiedAt = Date()
@@ -426,7 +454,9 @@ final class RadioStationsStore {
             merged.lastPlayedAt = allStations[index].lastPlayedAt
             allStations[index] = merged
         } else {
-            guard !normalized.isDeleted else { return }
+            // 本地没有这条时，普通墓碑照旧不收；订阅的排除标记要收下 —— 它得一直
+            // 挡着清单里那一条，否则本机下次刷新会把用户删掉的台加回来。
+            guard !normalized.isDeleted || normalized.isSubscriptionExclusionMarker else { return }
             allStations.append(normalized)
         }
         persist()
@@ -447,6 +477,104 @@ final class RadioStationsStore {
         for station in incoming {
             upsertFromRemote(station)
         }
+    }
+
+    // MARK: - 清单订阅
+    //
+    // 这几个方法只是数据操作，三个 target 都能编；刷新与界面只在 iOS / macOS 上有。
+
+    /// 这份订阅里还活着的电台，按优先级顺序。
+    func stations(inSubscription subscriptionID: String) -> [RadioStation] {
+        stations.filter { $0.isSubscribed && $0.subscriptionID == subscriptionID }
+    }
+
+    /// 写回一轮订阅合并(或取消订阅)的结果：每个值都是那个电台的最终状态。
+    /// 整批只落一次盘、只发一次通知 —— 与 `reconcileServerStations` 同理，
+    /// 一份几百条的清单不该触发几百次写盘和同步入队。
+    func applySubscriptionChanges(_ changes: [RadioStation]) {
+        guard !changes.isEmpty else { return }
+        var indexByID: [String: Int] = [:]
+        for (index, station) in allStations.enumerated() where indexByID[station.id] == nil {
+            indexByID[station.id] = index
+        }
+        var changedIDs: [String] = []
+        var appeared: [RadioStation] = []
+        var removedIDs: [String] = []
+        var staleRemoteLogoIDs: [String] = []
+
+        for change in changes {
+            guard !change.isServerMirror else { continue }
+            if !change.isDeleted {
+                guard RadioStationValidation.isValid(name: change.name, urlString: change.streamURL),
+                      change.logoData.map({ $0.count <= RadioStationValidation.maximumLogoBytes }) ?? true else {
+                    continue
+                }
+            }
+            if let index = indexByID[change.id] {
+                let previous = allStations[index]
+                // 台标地址换了，缓存里那张旧图得作废 —— 缓存按电台 id 寻址，
+                // 不作废的话界面会继续显示旧台标。
+                if previous.remoteLogoURL != change.remoteLogoURL {
+                    staleRemoteLogoIDs.append(change.id)
+                }
+                if previous.isDeleted, !change.isDeleted { appeared.append(change) }
+                if !previous.isDeleted, change.isDeleted { removedIDs.append(change.id) }
+                allStations[index] = change
+            } else {
+                indexByID[change.id] = allStations.count
+                allStations.append(change)
+                if !change.isDeleted { appeared.append(change) }
+            }
+            changedIDs.append(change.id)
+        }
+        guard !changedIDs.isEmpty else { return }
+
+        persist()
+        materializeLogos(for: appeared)
+        if !staleRemoteLogoIDs.isEmpty {
+            Task {
+                for id in staleRemoteLogoIDs {
+                    await MetadataAssetStore.shared.invalidateCoverCache(
+                        forSongID: RadioStationArtworkResolutionPolicy.remoteLogoCacheSongID(for: id)
+                    )
+                }
+            }
+        }
+        #if !os(tvOS)
+        RadioLogoDiscoveryService.shared.forget(stationIDs: removedIDs)
+        #endif
+        notifyChanged(ids: changedIDs)
+    }
+
+    /// 「转为我自己的电台」：原电台变排除标记，另建一个用户自己的电台。
+    /// 返回新电台的 id；这个电台不是订阅电台时返回 nil。
+    @discardableResult
+    func detachFromSubscription(id: String) -> String? {
+        guard let index = allStations.firstIndex(where: { $0.id == id }),
+              allStations[index].isSubscribed,
+              !allStations[index].isDeleted else { return nil }
+        let result = RadioSubscriptionMergePolicy.detaching(
+            allStations[index],
+            newID: UUID().uuidString
+        )
+        allStations[index] = result.exclusion
+        allStations.append(result.own)
+        persist()
+        materializeLogos(for: [result.own])
+        #if !os(tvOS)
+        RadioLogoDiscoveryService.shared.forget(stationIDs: [id])
+        #endif
+        notifyChanged(ids: [result.exclusion.id, result.own.id])
+        return result.own.id
+    }
+
+    /// 取消订阅：`keepStations` 为真时电台变成用户自己的，否则连同电台一起移除。
+    func unsubscribe(subscriptionID: String, keepStations: Bool) {
+        applySubscriptionChanges(RadioSubscriptionMergePolicy.unsubscribing(
+            subscriptionID: subscriptionID,
+            keepStations: keepStations,
+            stations: allStations
+        ))
     }
 
     #if !os(tvOS)
