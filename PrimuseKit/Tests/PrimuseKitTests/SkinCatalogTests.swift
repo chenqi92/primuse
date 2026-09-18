@@ -240,6 +240,26 @@ struct SkinCatalogTests {
         #expect(SkinCatalog.classic.pageBackground == .system)
     }
 
+    /// 光脊这一步只有配色:锁定深色、待解锁、不认领任何配套。最后一条是硬约束 ——
+    /// 待解锁的皮肤一旦认领基础全屏效果或海报,没解锁的人就再也看不到那一款。
+    @Test("光脊是一套完整、读得清、不认领配套的深色配色")
+    func nocturneIsADarkPaletteOnly() {
+        let skin = SkinCatalog.nocturne
+        #expect(SkinValidationPolicy.catalogIssues([SkinCatalog.classic, skin]).isEmpty)
+        let findings = SkinContrastPolicy.findings(in: skin)
+        #expect(findings.isEmpty, "\(findings)")
+        #expect(skin.access == .unlockable(unlockID: "skin.nocturne"))
+        #expect(skin.appearance == .forcesDark)
+        #expect(skin.pageBackground == .canvas)
+        #expect(skin.companions == SkinCompanions.none)
+        #expect(skin.companions.isEmpty)
+        // 强调色仍跟着主题色设置走,「跟随封面取色」这条链路不断。
+        #expect(skin.colors[.accent] == .system(.tint))
+        // 打磨中的样式只在开发构建里出现。
+        #expect(SkinCatalog.skin(id: "nocturne") == nil)
+        #expect(SkinCatalog.skin(id: "nocturne", includingLab: true) != nil)
+    }
+
     @Test("极简的强调色跟随主题色设置,不切断封面取色")
     func minimalKeepsTheUserAccent() {
         #expect(SkinCatalog.minimal.colors[.accent] == .system(.tint))

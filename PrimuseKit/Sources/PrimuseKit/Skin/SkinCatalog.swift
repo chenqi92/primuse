@@ -13,7 +13,7 @@ public enum SkinCatalog {
 
     /// 还在打磨、只在开发构建里列出来的样式。用来在真机上核对「只换数据」
     /// 「待解锁」这些路径,不随正式版本出现。
-    public static var lab: [SkinDefinition] { [midnight] }
+    public static var lab: [SkinDefinition] { [midnight, nocturne] }
 
     public static func skin(id: String, includingLab: Bool = false) -> SkinDefinition? {
         (includingLab ? all + lab : all).first { $0.id == id }

@@ -665,6 +665,8 @@
 "skin.classic.description"   = "แถบแท็บ ตามลักษณะที่ปรากฏของระบบ";
 "skin.midnight.name"         = "เที่ยงคืน";
 "skin.midnight.description"  = "มืดเสมอ พร้อมสีน้ำเงินเย็นเป็นสีเน้น";
+"skin.nocturne.name"         = "น็อคเทิร์น";
+"skin.nocturne.description"  = "ชุดสีเข้ม พื้นสีเกือบดำ สันแสงสีม่วง และจุดเน้นสีพีช";
 "skin.minimal.name"          = "มินิมอล";
 "skin.minimal.description"   = "กำแพงปก เครื่องเล่นแบบลอย และการนำทางที่เริ่มจากการค้นหา";
 "src.subtitle.plex" = "Plex เซิร์ฟเวอร์สื่อ";

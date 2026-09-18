@@ -665,6 +665,8 @@
 "skin.classic.description"   = "टैब बार, सिस्टम के स्वरूप का पालन करती है";
 "skin.midnight.name"         = "मिडनाइट";
 "skin.midnight.description"  = "हमेशा डार्क, ठंडे नीले उच्चारण के साथ";
+"skin.nocturne.name"         = "नॉक्टर्न";
+"skin.nocturne.description"  = "गहरा रंग-संयोजन: लगभग काली पृष्ठभूमि, बैंजनी रोशनी की एक धारी और आड़ू रंग का उभार";
 "skin.minimal.name"          = "न्यूनतम";
 "skin.minimal.description"   = "कवर वॉल, फ़्लोटिंग प्लेयर, खोज-केंद्रित नेविगेशन";
 "src.subtitle.plex" = "Plex मीडिया सर्वर";

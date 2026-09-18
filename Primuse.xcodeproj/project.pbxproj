@@ -1028,6 +1028,7 @@
 		25A307393131059AC07D1030 /* SkinContrastPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD7018F092A9AFFEEF9D967A /* SkinContrastPolicy.swift */; };
 		1C2C484C6E33C1FE7CDE40F7 /* SkinMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 767BF1154B787577A4670627 /* SkinMotion.swift */; };
 		792764487E54FECFC4B12B61 /* SkinCatalog+Lab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F4845BD16C682823830A173 /* SkinCatalog+Lab.swift */; };
+		BE5E7413FCA973DFA6AA6809 /* SkinCatalog+Nocturne.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2055774579BA951BB6ECE2B8 /* SkinCatalog+Nocturne.swift */; };
 		562F6AADEE84A35F00CF1E0A /* SkinCatalog+Minimal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DF9B2ECF9C4F5A2878EF0FB /* SkinCatalog+Minimal.swift */; };
 		12477BDCB4B55E127A14E259 /* SkinDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07827F8550752BC23D9BFA23 /* SkinDefinition.swift */; };
 		4B6391AC86517C5F813C18B1 /* SkinTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5C9C74AEE148670CA1441AD /* SkinTokens.swift */; };
@@ -1638,6 +1639,7 @@
 		CD7018F092A9AFFEEF9D967A /* SkinContrastPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinContrastPolicy.swift; sourceTree = "<group>"; };
 		767BF1154B787577A4670627 /* SkinMotion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinMotion.swift; sourceTree = "<group>"; };
 		3F4845BD16C682823830A173 /* SkinCatalog+Lab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SkinCatalog+Lab.swift"; sourceTree = "<group>"; };
+		2055774579BA951BB6ECE2B8 /* SkinCatalog+Nocturne.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SkinCatalog+Nocturne.swift"; sourceTree = "<group>"; };
 		7DF9B2ECF9C4F5A2878EF0FB /* SkinCatalog+Minimal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SkinCatalog+Minimal.swift"; sourceTree = "<group>"; };
 		07827F8550752BC23D9BFA23 /* SkinDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinDefinition.swift; sourceTree = "<group>"; };
 		F5C9C74AEE148670CA1441AD /* SkinTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinTokens.swift; sourceTree = "<group>"; };
@@ -2655,6 +2657,7 @@
 				CD7018F092A9AFFEEF9D967A /* SkinContrastPolicy.swift */,
 				767BF1154B787577A4670627 /* SkinMotion.swift */,
 				3F4845BD16C682823830A173 /* SkinCatalog+Lab.swift */,
+				2055774579BA951BB6ECE2B8 /* SkinCatalog+Nocturne.swift */,
 				7DF9B2ECF9C4F5A2878EF0FB /* SkinCatalog+Minimal.swift */,
 				07827F8550752BC23D9BFA23 /* SkinDefinition.swift */,
 				F5C9C74AEE148670CA1441AD /* SkinTokens.swift */,
@@ -4936,6 +4939,7 @@
 				25A307393131059AC07D1030 /* SkinContrastPolicy.swift in Sources */,
 				1C2C484C6E33C1FE7CDE40F7 /* SkinMotion.swift in Sources */,
 				792764487E54FECFC4B12B61 /* SkinCatalog+Lab.swift in Sources */,
+				BE5E7413FCA973DFA6AA6809 /* SkinCatalog+Nocturne.swift in Sources */,
 				562F6AADEE84A35F00CF1E0A /* SkinCatalog+Minimal.swift in Sources */,
 				12477BDCB4B55E127A14E259 /* SkinDefinition.swift in Sources */,
 				4B6391AC86517C5F813C18B1 /* SkinTokens.swift in Sources */,

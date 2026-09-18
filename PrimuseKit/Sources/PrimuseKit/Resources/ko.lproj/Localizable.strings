@@ -29,6 +29,8 @@
 "skin.classic.description"   = "탭 막대, 시스템 화면 표시를 따릅니다";
 "skin.midnight.name"         = "미드나이트";
 "skin.midnight.description"  = "항상 다크, 쿨 블루 강조색";
+"skin.nocturne.name"         = "녹턴";
+"skin.nocturne.description"  = "어두운 색 구성. 거의 검은 바탕에 보라색 빛줄기, 포인트는 피치";
 "skin.minimal.name"          = "미니멀";
 "skin.minimal.description"   = "커버 월, 플로팅 플레이어, 검색 중심 내비게이션";
 

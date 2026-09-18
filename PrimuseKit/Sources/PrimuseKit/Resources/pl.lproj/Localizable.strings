@@ -665,6 +665,8 @@
 "skin.classic.description"   = "Pasek kart, zgodna z wyglądem systemu";
 "skin.midnight.name"         = "Północ";
 "skin.midnight.description"  = "Zawsze ciemna, z chłodnym niebieskim akcentem";
+"skin.nocturne.name"         = "Nokturn";
+"skin.nocturne.description"  = "Ciemna paleta: niemal czarne tło, fioletowa grań światła, brzoskwiniowy akcent";
 "skin.minimal.name"          = "Minimalna";
 "skin.minimal.description"   = "Ściana okładek, pływający odtwarzacz, nawigacja przez wyszukiwanie";
 "src.subtitle.plex" = "Serwer multimediów Plex";

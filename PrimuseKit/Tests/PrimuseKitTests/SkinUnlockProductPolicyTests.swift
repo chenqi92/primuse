@@ -24,9 +24,18 @@ struct SkinUnlockProductPolicyTests {
     @Test("有需要解锁的样式时,查它自己的产品和全部解锁那一项")
     func unlockableCatalogQueriesItsProducts() {
         let productIDs = SkinUnlockProductPolicy.productIDs(for: catalog)
-        #expect(productIDs == ["com.welape.yuanyin.skin.midnight", "com.welape.yuanyin.skin.all"])
+        #expect(
+            productIDs == [
+                "com.welape.yuanyin.skin.midnight",
+                "com.welape.yuanyin.skin.nocturne",
+                "com.welape.yuanyin.skin.all",
+            ]
+        )
         #expect(Set(productIDs).count == productIDs.count)
-        #expect(SkinUnlockProductPolicy.productIDs(for: catalog, allAccessProductID: nil) == ["com.welape.yuanyin.skin.midnight"])
+        #expect(
+            SkinUnlockProductPolicy.productIDs(for: catalog, allAccessProductID: nil)
+                == ["com.welape.yuanyin.skin.midnight", "com.welape.yuanyin.skin.nocturne"]
+        )
     }
 
     @Test("拥有的产品换算成已解锁的项,不认识的产品被忽略")
@@ -42,7 +51,7 @@ struct SkinUnlockProductPolicyTests {
             SkinUnlockProductPolicy.unlockedIDs(
                 ownedProductIDs: ["com.welape.yuanyin.skin.all"],
                 catalog: catalog
-            ) == ["skin.midnight"]
+            ) == ["skin.midnight", "skin.nocturne"]
         )
     }
 

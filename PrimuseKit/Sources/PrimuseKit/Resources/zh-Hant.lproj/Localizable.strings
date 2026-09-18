@@ -26,6 +26,8 @@
 "skin.classic.description"   = "標籤列導覽,跟隨系統外觀";
 "skin.midnight.name"         = "午夜";
 "skin.midnight.description"  = "恆定深色,冷藍強調";
+"skin.nocturne.name"         = "光脊";
+"skin.nocturne.description"  = "一套深色配色:近黑底色、一道紫色光脊、桃橙點睛";
 "skin.minimal.name"          = "極簡";
 "skin.minimal.description"   = "封面牆、懸浮播放列、搜尋優先的導覽";
 
