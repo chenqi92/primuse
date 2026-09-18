@@ -16,6 +16,9 @@ public struct LyricPosterTypeMetrics: Hashable, Sendable {
     public let estimatedHeight: Double
     /// Set when translations had to be dropped to fit the passage.
     public let hidesTranslation: Bool
+    /// 用户评语的字号。它不参与字号搜索(搜索前就要知道它占多高)，
+    /// 所以直接按画布宽度定。
+    public let noteFontSize: Double
     /// The passage does not fit even at the smallest type size and tightest
     /// leading. The poster will be exported clipped, so the UI has to tell the
     /// user to pick a taller canvas or fewer lines rather than quietly
@@ -31,6 +34,7 @@ public struct LyricPosterTypeMetrics: Hashable, Sendable {
         textWidth: Double,
         estimatedHeight: Double,
         hidesTranslation: Bool,
+        noteFontSize: Double = 0,
         overflows: Bool = false
     ) {
         self.lyricFontSize = lyricFontSize
@@ -41,6 +45,7 @@ public struct LyricPosterTypeMetrics: Hashable, Sendable {
         self.textWidth = textWidth
         self.estimatedHeight = estimatedHeight
         self.hidesTranslation = hidesTranslation
+        self.noteFontSize = noteFontSize
         self.overflows = overflows
     }
 }
@@ -75,7 +80,15 @@ public enum LyricPosterLayoutPolicy {
     ) -> LyricPosterTypeMetrics {
         let width = canvas.pixelWidth
         let textWidth = width * textWidthRatio
-        let availableHeight = canvas.pixelHeight * lyricHeightRatio
+        // 评语先占走它那一块: 它的字号是定死的(不参与下面的搜索)，所以能
+        // 在排歌词之前就扣掉，歌词只在剩下的地方里找字号。
+        let noteFontSize = width * LyricPosterNotePolicy.fontSizeRatio
+        let noteHeight = LyricPosterNotePolicy.estimatedHeight(
+            of: content.note,
+            canvasWidth: width,
+            textWidth: textWidth
+        )
+        let availableHeight = max(canvas.pixelHeight * lyricHeightRatio - noteHeight, width * 0.04)
         let maximumSize = width * 0.085
         // 下限定得低一点是有意的: 八句长歌词配方形画幅时, 25pt 单行排版
         // 比 32pt 每句折成两行更省高度, 也更好读。
@@ -103,6 +116,7 @@ public enum LyricPosterLayoutPolicy {
                 textWidth: textWidth,
                 estimatedHeight: height,
                 hidesTranslation: includesTranslation ? false : content.hasCompanionText,
+                noteFontSize: noteFontSize,
                 overflows: overflows
             )
         }

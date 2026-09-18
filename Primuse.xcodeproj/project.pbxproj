@@ -652,6 +652,12 @@
 		7BEC3B93F5BCE27C4BC3684E /* TVServerFeedbackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2474EEEF51EE0A4D71B215E4 /* TVServerFeedbackService.swift */; };
 		7BEE5E7E46EDB36D5E7C34C2 /* EqualizerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 181EE28124D9CD151E0338E1 /* EqualizerView.swift */; };
 		7C0B65471707BFC83D3E6BF1 /* LyricPosterStylesCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00E69E0BF7E1A295D100DCA7 /* LyricPosterStylesCore.swift */; };
+		B04F8157848AF09CB60D7B75 /* LyricPosterNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7835BE0D6A97601BDB90348 /* LyricPosterNote.swift */; };
+		50B02F5F14C9F8AE98702427 /* LyricPosterFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CB2CE0AE54CC276861589EF /* LyricPosterFilter.swift */; };
+		66856D192B081E874993365B /* LyricPosterMotionEffect.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3E97ACBC9859C3A071D97DA /* LyricPosterMotionEffect.swift */; };
+		6F122A8DB2864AF49D6A8259 /* LyricPosterWizard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5468B667D4B53B9AB4E9D10 /* LyricPosterWizard.swift */; };
+		160C29251BECA02863B1ED8B /* LyricPosterStylesConcept.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8322DAB89374538829937B0 /* LyricPosterStylesConcept.swift */; };
+		357B6C1A20C32D4FD2399E6C /* LyricPosterStylesConcept.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8322DAB89374538829937B0 /* LyricPosterStylesConcept.swift */; };
 		7C40148B1413D9AC91D84E13 /* RadioFLACAudioDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BDA4BF8B2BC7C8290D21F46 /* RadioFLACAudioDecoder.swift */; };
 		7C4430806A39B820568C5D47 /* TVSourceFormView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D730FADBA5E272600C03083C /* TVSourceFormView.swift */; };
 		7CC510CFB7AE45C4AF720D0E /* ID3SynchronizedLyricsParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25F35F3F45A8184ACB596613 /* ID3SynchronizedLyricsParser.swift */; };
@@ -1907,6 +1913,11 @@
 		60D668FE9811EE6FEF380039 /* ScraperTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperTypes.swift; sourceTree = "<group>"; };
 		6151010BC99949DAD8CEF23B /* pt-BR */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "pt-BR"; path = "pt-BR.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		6165DCB0F15976CF31CD3492 /* LyricPosterSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricPosterSelection.swift; sourceTree = "<group>"; };
+		E7835BE0D6A97601BDB90348 /* LyricPosterNote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricPosterNote.swift; sourceTree = "<group>"; };
+		5CB2CE0AE54CC276861589EF /* LyricPosterFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricPosterFilter.swift; sourceTree = "<group>"; };
+		F3E97ACBC9859C3A071D97DA /* LyricPosterMotionEffect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricPosterMotionEffect.swift; sourceTree = "<group>"; };
+		A5468B667D4B53B9AB4E9D10 /* LyricPosterWizard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricPosterWizard.swift; sourceTree = "<group>"; };
+		C8322DAB89374538829937B0 /* LyricPosterStylesConcept.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricPosterStylesConcept.swift; sourceTree = "<group>"; };
 		6183B42E15B9A253E26912B5 /* uk */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = uk; path = uk.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		619ED42D72C2CF96721550D0 /* WiFiTransferLibraryPreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiTransferLibraryPreparation.swift; sourceTree = "<group>"; };
 		619F72A778551BB017F0840A /* RadioStationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioStationsView.swift; sourceTree = "<group>"; };
@@ -2945,6 +2956,10 @@
 				48470EC1F67DE11E5508AB64 /* LyricPosterLayoutPolicy.swift */,
 				38C54FE3137CA28918AF216B /* LyricPosterMotionPolicy.swift */,
 				6165DCB0F15976CF31CD3492 /* LyricPosterSelection.swift */,
+				E7835BE0D6A97601BDB90348 /* LyricPosterNote.swift */,
+				5CB2CE0AE54CC276861589EF /* LyricPosterFilter.swift */,
+				F3E97ACBC9859C3A071D97DA /* LyricPosterMotionEffect.swift */,
+				A5468B667D4B53B9AB4E9D10 /* LyricPosterWizard.swift */,
 				591A2A1DA52F0C952F55D046 /* LyricPosterStyleCatalog.swift */,
 				FDB241B3B766B215DDC46009 /* LyricRowFrameBatchPolicy.swift */,
 				BD56094A6AC4671F1DE203DC /* LyricsActivityAttributes.swift */,
@@ -3497,6 +3512,7 @@
 				E7242983C34056BD33B5942C /* LyricPosterShareSheet.swift */,
 				B03A62E0E020B107BF69C26A /* LyricPosterStyleRenderer.swift */,
 				00E69E0BF7E1A295D100DCA7 /* LyricPosterStylesCore.swift */,
+				C8322DAB89374538829937B0 /* LyricPosterStylesConcept.swift */,
 				3580BF193EB448F74A8F31F0 /* LyricPosterStylesShowcase.swift */,
 			);
 			path = LyricPoster;
@@ -4637,6 +4653,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B04F8157848AF09CB60D7B75 /* LyricPosterNote.swift in Sources */,
+				50B02F5F14C9F8AE98702427 /* LyricPosterFilter.swift in Sources */,
+				66856D192B081E874993365B /* LyricPosterMotionEffect.swift in Sources */,
+				6F122A8DB2864AF49D6A8259 /* LyricPosterWizard.swift in Sources */,
 				6F139A773725A49F443C3494 /* AIAvailabilityPolicy.swift in Sources */,
 				A7815B97AB23C3B0112CF13D /* AIIntelligenceModels.swift in Sources */,
 				223571A3D35282EEE8DC3CD8 /* AIRemoteProviderConfiguration.swift in Sources */,
@@ -4919,6 +4939,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				357B6C1A20C32D4FD2399E6C /* LyricPosterStylesConcept.swift in Sources */,
 				5E5CD445E8005257DD9A9D76 /* AICredentialStore.swift in Sources */,
 				FD44254364FA0DB15420FBA1 /* AIPlaylistEditorView.swift in Sources */,
 				B418E40C20D78B4D573CFB4D /* AIRecommendationLibraryView.swift in Sources */,
@@ -5433,6 +5454,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				160C29251BECA02863B1ED8B /* LyricPosterStylesConcept.swift in Sources */,
 				370A83F06945E4CAAD111042 /* AICredentialStore.swift in Sources */,
 				BEDC249FC1AF38BC9516765B /* AIPlaylistEditorView.swift in Sources */,
 				FB0911208AD3966703462CC2 /* AIRecommendationLibraryView.swift in Sources */,

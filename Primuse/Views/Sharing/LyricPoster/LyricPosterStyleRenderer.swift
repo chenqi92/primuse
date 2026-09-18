@@ -74,6 +74,8 @@ struct LyricPosterRenderContext {
     /// 歌词的书写方向。风格一律用 leading/trailing 对齐, 因此改这一个值
     /// 就能让阿拉伯语、希伯来语歌词整体翻到右边。
     let layoutDirection: LayoutDirection
+    /// 实况照片里画面怎么动。静态海报忽略它。
+    let motionEffect: LyricPosterMotionEffectID
     let appName: String
 
     var size: CGSize {
@@ -156,6 +158,39 @@ struct LyricPosterRenderContext {
     func scaled(_ value: Double) -> CGFloat {
         CGFloat(value * canvas.pixelWidth / 1080)
     }
+
+    // MARK: 动效
+
+    /// 动效只在动态海报里生效: 静态图是一帧, "动"没有意义。
+    private var activeEffect: LyricPosterMotionEffectID {
+        isMotion ? motionEffect : LyricPosterMotionEffectID.none
+    }
+
+    /// 歌词整体浮动时, 某一行在这一帧的纵向位移。
+    func lyricFloat(ofLineAt index: Int) -> CGFloat {
+        guard activeEffect == .floatingLyrics else { return 0 }
+        let offset = LyricPosterMotionPhysics.floatOffset(lineIndex: index, at: time)
+        return scaled(9) * CGFloat(offset)
+    }
+
+    /// 封面推近。风格把它乘进自己的封面缩放里。
+    var artworkMotionScale: CGFloat {
+        guard activeEffect == .artworkZoom else { return 1 }
+        return CGFloat(
+            LyricPosterMotionPhysics.artworkZoom(at: time, duration: motion.duration)
+        )
+    }
+
+    /// 这一帧唱到第几句。静态海报没有"当前", 取最后一句 —— 那是整段
+    /// 读完之后眼睛停住的地方。
+    var activeLineIndex: Int? {
+        guard !content.lines.isEmpty else { return nil }
+        guard isMotion else { return content.lines.count - 1 }
+        return motion.activeIndex(at: time)
+    }
+
+    var showsParticles: Bool { activeEffect == .particles }
+    var showsWaveform: Bool { activeEffect == .waveform }
 }
 
 // MARK: - 风格适配器
@@ -246,6 +281,9 @@ final class LyricPosterStyleRegistry {
     }
 
     private func registerBuiltInStyles() {
+        register(RetroLetterPosterStyle())
+        register(SpotlightPosterStyle())
+        register(MotionCardPosterStyle())
         register(AuroraGlassPosterStyle())
         register(GradientQuotePosterStyle())
         register(MagazinePosterStyle())
@@ -274,6 +312,12 @@ struct LyricPosterPassageView: View {
     var fontDesign: Font.Design = .rounded
     var fontWeight: Font.Weight = .bold
     var shadow: Color? = nil
+    /// 当前唱到那句的颜色。不给就与其它已唱的句子同色。
+    var highlightStyle: AnyShapeStyle? = nil
+    /// 自己另找地方画评语的风格把它关掉。
+    var showsNote: Bool = true
+    /// 评语的颜色, 不给就跟译文同色。
+    var noteStyle: AnyShapeStyle? = nil
 
     var body: some View {
         VStack(alignment: alignment, spacing: metrics.lyricLineSpacing) {
@@ -286,7 +330,7 @@ struct LyricPosterPassageView: View {
                             weight: fontWeight,
                             design: fontDesign
                         ))
-                        .foregroundStyle(reveal > 0 ? primaryStyle : pendingStyle)
+                        .foregroundStyle(lineStyle(index: index, reveal: reveal))
                         .multilineTextAlignment(textAlignment)
                         .fixedSize(horizontal: false, vertical: true)
 
@@ -310,7 +354,7 @@ struct LyricPosterPassageView: View {
                 // 逐行浮入: 没到的行压暗下沉, 唱到时升起。静态海报 reveal 恒为
                 // 1, 这三个修饰符全部取到中性值。
                 .opacity(0.18 + 0.82 * revealEase(reveal))
-                .offset(y: pendingOffset(reveal, context: context))
+                .offset(y: pendingOffset(reveal, context: context) + context.lyricFloat(ofLineAt: index))
                 .blur(radius: pendingBlur(reveal, context: context))
                 .shadow(
                     color: shadow ?? .clear,
@@ -319,8 +363,26 @@ struct LyricPosterPassageView: View {
                     y: context.scaled(6)
                 )
             }
+
+            if showsNote {
+                LyricPosterNoteView(
+                    context: context,
+                    metrics: metrics,
+                    textStyle: noteStyle ?? translationStyle,
+                    alignment: alignment,
+                    textAlignment: textAlignment
+                )
+            }
         }
         .frame(width: metrics.textWidth, alignment: frameAlignment)
+    }
+
+    private func lineStyle(index: Int, reveal: Double) -> AnyShapeStyle {
+        guard reveal > 0 else { return pendingStyle }
+        if let highlightStyle, context.activeLineIndex == index {
+            return highlightStyle
+        }
+        return primaryStyle
     }
 
     private var frameAlignment: Alignment {
@@ -469,5 +531,132 @@ struct SeededRandomGenerator: RandomNumberGenerator {
         state ^= state >> 7
         state ^= state << 17
         return state
+    }
+}
+
+// MARK: - 用户写的那段话
+
+/// 海报上属于用户自己的一段话。字体用衬线 —— 圆体在这里太像 UI 控件，
+/// 衬线更接近写在明信片背面的手迹。
+struct LyricPosterNoteView: View {
+    let context: LyricPosterRenderContext
+    let metrics: LyricPosterTypeMetrics
+    var textStyle: AnyShapeStyle
+    var alignment: HorizontalAlignment = .leading
+    var textAlignment: TextAlignment = .leading
+
+    var body: some View {
+        if let note = context.content.note, !note.isEmpty {
+            VStack(alignment: alignment, spacing: metrics.noteFontSize * 0.42) {
+                Text(note.text)
+                    .font(.system(size: metrics.noteFontSize, weight: .regular, design: .serif))
+                    .italic()
+                    .multilineTextAlignment(textAlignment)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let signature = note.signature, !signature.isEmpty {
+                    Text(verbatim: "—— \(signature)")
+                        .font(.system(size: metrics.noteFontSize * 0.88, weight: .regular, design: .serif))
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+            }
+            .foregroundStyle(textStyle)
+            .frame(width: metrics.textWidth, alignment: frameAlignment)
+            .padding(.top, metrics.noteFontSize * 1.0)
+        }
+    }
+
+    private var frameAlignment: Alignment {
+        switch alignment {
+        case .center: return .center
+        case .trailing: return .trailing
+        default: return .leading
+        }
+    }
+}
+
+// MARK: - 动效装饰
+
+/// 按当前动效叠在画面上的那层东西。风格只需要加一行，粒子与声波都在这里。
+struct LyricPosterMotionDecorations: View {
+    let context: LyricPosterRenderContext
+    var tint: Color = .white
+
+    var body: some View {
+        ZStack {
+            if context.showsParticles {
+                LyricPosterParticleLayer(context: context, tint: tint)
+            }
+            if context.showsWaveform {
+                VStack {
+                    Spacer(minLength: 0)
+                    LyricPosterWaveformView(context: context, tint: tint)
+                        .frame(width: context.size.width * 0.62, height: context.scaled(72))
+                        .padding(.bottom, context.scaled(56))
+                }
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+/// 自下而上飘的光点。位置全部由时间算出，所以导出的每一帧都能重现。
+struct LyricPosterParticleLayer: View {
+    let context: LyricPosterRenderContext
+    var tint: Color = .white
+    var count: Int = 34
+
+    var body: some View {
+        Canvas { canvasContext, size in
+            let width = Double(size.width)
+            let height = Double(size.height)
+            let base = Double(context.scaled(9))
+            for index in 0..<count {
+                let particle = LyricPosterMotionPhysics.particle(
+                    index: index,
+                    at: context.time,
+                    duration: context.motion.duration
+                )
+                let diameter = base * particle.size
+                let rect = CGRect(
+                    x: CGFloat(particle.x * width - diameter / 2),
+                    y: CGFloat(particle.y * height - diameter / 2),
+                    width: CGFloat(diameter),
+                    height: CGFloat(diameter)
+                )
+                canvasContext.fill(
+                    Path(ellipseIn: rect),
+                    with: .color(tint.opacity(particle.opacity * 0.65))
+                )
+            }
+        }
+        .blendMode(.plusLighter)
+    }
+}
+
+/// 一排声波柱。静态海报里它是个装饰（时间固定，形状也就固定），
+/// 选了声波动效之后才会跟着时间起伏。
+struct LyricPosterWaveformView: View {
+    let context: LyricPosterRenderContext
+    var tint: Color = .white
+    var barCount: Int = 28
+
+    var body: some View {
+        GeometryReader { geo in
+            let spacing = geo.size.width / CGFloat(barCount * 2)
+            HStack(alignment: .center, spacing: spacing) {
+                ForEach(0..<barCount, id: \.self) { index in
+                    let level = LyricPosterMotionPhysics.waveformBar(
+                        index: index,
+                        count: barCount,
+                        at: context.showsWaveform ? context.time : 0
+                    )
+                    Capsule()
+                        .fill(tint.opacity(0.35 + 0.45 * level))
+                        .frame(height: max(geo.size.height * CGFloat(level), spacing))
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
     }
 }

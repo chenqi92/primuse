@@ -4060,3 +4060,37 @@
 "connection_failed_hint_private_address" = "Das ist eine Adresse im lokalen Netzwerk – sie funktioniert nur im selben Netzwerk.";
 "connection_failed_hint_vendor_relay" = "Das läuft über das Relay des Herstellers – prüfen Sie, ob das Gerät online und der Fernzugriff aktiviert ist.";
 "connection_failed_edit_address" = "Adresse ändern";
+
+/* Lyric poster: sections, note, filters, motion */
+"lyric_poster_section_style" = "Stil";
+"lyric_poster_section_filter" = "Filter";
+"lyric_poster_section_effect" = "Bewegung";
+"lyric_poster_section_text" = "Text";
+"lyric_poster_note" = "Deine Notiz";
+"lyric_poster_note_placeholder" = "Was bedeutet dieses Lied dir gerade?";
+"lyric_poster_note_signature" = "Signatur";
+"lyric_poster_output_still" = "Standbild";
+"lyric_poster_output_live" = "Live Photo";
+"lyric_poster_still_footer" = "Ein einzelnes PNG in hoher Qualität, überall teilbar";
+"lyric_poster_wizard_start" = "Schritt für Schritt";
+"lyric_poster_wizard_next" = "Weiter";
+"lyric_poster_wizard_back" = "Zurück";
+"lyric_poster_wizard_skip" = "Überspringen";
+"lyric_poster_step_lines" = "Zeilen wählen";
+"lyric_poster_step_note" = "Notiz schreiben";
+"lyric_poster_step_style" = "Stil wählen";
+"lyric_poster_step_export" = "Teilen";
+"lyric_poster_style_retro_letter" = "Brief";
+"lyric_poster_style_spotlight" = "Spotlight";
+"lyric_poster_style_motion_card" = "Songtextkarte";
+"lyric_poster_filter_original" = "Original";
+"lyric_poster_filter_film" = "Film";
+"lyric_poster_filter_faded" = "Verblasst";
+"lyric_poster_filter_sepia" = "Sepia";
+"lyric_poster_filter_mono" = "Schwarzweiß";
+"lyric_poster_filter_instant" = "Sofortbild";
+"lyric_poster_effect_none" = "Ohne";
+"lyric_poster_effect_floating" = "Schweben";
+"lyric_poster_effect_zoom" = "Langsamer Zoom";
+"lyric_poster_effect_particles" = "Partikel";
+"lyric_poster_effect_waveform" = "Wellenform";

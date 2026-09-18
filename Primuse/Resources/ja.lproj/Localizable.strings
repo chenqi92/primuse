@@ -4061,3 +4061,37 @@
 "connection_failed_hint_private_address" = "これは宅内ネットワークのアドレスです。同じネットワークにいるときだけつながります。";
 "connection_failed_hint_vendor_relay" = "これはメーカーの中継を経由します。機器がオンラインで、リモートアクセスが有効か確認してください。";
 "connection_failed_edit_address" = "アドレスを変更";
+
+/* Lyric poster: sections, note, filters, motion */
+"lyric_poster_section_style" = "スタイル";
+"lyric_poster_section_filter" = "フィルタ";
+"lyric_poster_section_effect" = "動き";
+"lyric_poster_section_text" = "テキスト";
+"lyric_poster_note" = "あなたのひとこと";
+"lyric_poster_note_placeholder" = "いまこの曲をどう感じていますか";
+"lyric_poster_note_signature" = "署名";
+"lyric_poster_output_still" = "静止画";
+"lyric_poster_output_live" = "Live Photos";
+"lyric_poster_still_footer" = "高画質の PNG を 1 枚。どのアプリにも送れます";
+"lyric_poster_wizard_start" = "ステップで作る";
+"lyric_poster_wizard_next" = "次へ";
+"lyric_poster_wizard_back" = "戻る";
+"lyric_poster_wizard_skip" = "スキップ";
+"lyric_poster_step_lines" = "歌詞を選ぶ";
+"lyric_poster_step_note" = "ひとこと書く";
+"lyric_poster_step_style" = "スタイルを選ぶ";
+"lyric_poster_step_export" = "共有する";
+"lyric_poster_style_retro_letter" = "便箋";
+"lyric_poster_style_spotlight" = "スポットライト";
+"lyric_poster_style_motion_card" = "歌詞カード";
+"lyric_poster_filter_original" = "オリジナル";
+"lyric_poster_filter_film" = "フィルム";
+"lyric_poster_filter_faded" = "色あせ";
+"lyric_poster_filter_sepia" = "セピア";
+"lyric_poster_filter_mono" = "モノクロ";
+"lyric_poster_filter_instant" = "インスタント";
+"lyric_poster_effect_none" = "なし";
+"lyric_poster_effect_floating" = "ふわり";
+"lyric_poster_effect_zoom" = "ズーム";
+"lyric_poster_effect_particles" = "パーティクル";
+"lyric_poster_effect_waveform" = "波形";

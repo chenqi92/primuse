@@ -208,13 +208,13 @@ struct NeonNightPosterStyle: LyricPosterStyleRendering {
                 lineWidth: context.scaled(2)
             )
         }
-        .mask(
+        .mask {
             LinearGradient(
                 colors: [.clear, .white, .white.opacity(0.15)],
                 startPoint: .top,
                 endPoint: .bottom
             )
-        )
+        }
     }
 }
 

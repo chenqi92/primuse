@@ -3966,3 +3966,37 @@
 "connection_failed_hint_private_address" = "Bu bir yerel ağ adresi — yalnızca aynı ağdayken çalışır.";
 "connection_failed_hint_vendor_relay" = "Bu, üreticinin aktarıcısı üzerinden gidiyor — cihazın çevrimiçi ve uzaktan erişimin açık olduğundan emin olun.";
 "connection_failed_edit_address" = "Adresi Değiştir";
+
+/* Lyric poster: sections, note, filters, motion */
+"lyric_poster_section_style" = "Stil";
+"lyric_poster_section_filter" = "Filtre";
+"lyric_poster_section_effect" = "Hareket";
+"lyric_poster_section_text" = "Metin";
+"lyric_poster_note" = "Notunuz";
+"lyric_poster_note_placeholder" = "Bu şarkı şu an sizin için ne ifade ediyor?";
+"lyric_poster_note_signature" = "İmza";
+"lyric_poster_output_still" = "Sabit";
+"lyric_poster_output_live" = "Live Photo";
+"lyric_poster_still_footer" = "Her uygulamaya uygun, yüksek kaliteli tek bir PNG";
+"lyric_poster_wizard_start" = "Adım adım";
+"lyric_poster_wizard_next" = "İleri";
+"lyric_poster_wizard_back" = "Geri";
+"lyric_poster_wizard_skip" = "Atla";
+"lyric_poster_step_lines" = "Satırları seç";
+"lyric_poster_step_note" = "Bir not yaz";
+"lyric_poster_step_style" = "Bir stil seç";
+"lyric_poster_step_export" = "Paylaş";
+"lyric_poster_style_retro_letter" = "Mektup";
+"lyric_poster_style_spotlight" = "Spot Işığı";
+"lyric_poster_style_motion_card" = "Şarkı Kartı";
+"lyric_poster_filter_original" = "Orijinal";
+"lyric_poster_filter_film" = "Film";
+"lyric_poster_filter_faded" = "Solgun";
+"lyric_poster_filter_sepia" = "Sepya";
+"lyric_poster_filter_mono" = "Siyah beyaz";
+"lyric_poster_filter_instant" = "Anında";
+"lyric_poster_effect_none" = "Yok";
+"lyric_poster_effect_floating" = "Süzülme";
+"lyric_poster_effect_zoom" = "Yavaş yakınlaşma";
+"lyric_poster_effect_particles" = "Parçacıklar";
+"lyric_poster_effect_waveform" = "Dalga";

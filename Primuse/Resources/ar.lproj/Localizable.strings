@@ -3966,3 +3966,37 @@
 "connection_failed_hint_private_address" = "هذا عنوان داخل الشبكة المحلية، ولا يعمل إلا وأنت على الشبكة نفسها.";
 "connection_failed_hint_vendor_relay" = "يمر هذا عبر مُرحّل الشركة المصنّعة، فتأكد أن الجهاز متصل وأن الوصول عن بُعد مفعّل.";
 "connection_failed_edit_address" = "تغيير العنوان";
+
+/* Lyric poster: sections, note, filters, motion */
+"lyric_poster_section_style" = "النمط";
+"lyric_poster_section_filter" = "مرشّح";
+"lyric_poster_section_effect" = "الحركة";
+"lyric_poster_section_text" = "النص";
+"lyric_poster_note" = "تعليقك";
+"lyric_poster_note_placeholder" = "ماذا تعني لك هذه الأغنية الآن؟";
+"lyric_poster_note_signature" = "التوقيع";
+"lyric_poster_output_still" = "صورة ثابتة";
+"lyric_poster_output_live" = "صورة حية";
+"lyric_poster_still_footer" = "صورة PNG واحدة عالية الجودة تصلح لأي تطبيق";
+"lyric_poster_wizard_start" = "خطوة بخطوة";
+"lyric_poster_wizard_next" = "التالي";
+"lyric_poster_wizard_back" = "رجوع";
+"lyric_poster_wizard_skip" = "تخطٍّ";
+"lyric_poster_step_lines" = "اختيار الأسطر";
+"lyric_poster_step_note" = "اكتب تعليقاً";
+"lyric_poster_step_style" = "اختر النمط";
+"lyric_poster_step_export" = "المشاركة";
+"lyric_poster_style_retro_letter" = "رسالة";
+"lyric_poster_style_spotlight" = "بقعة ضوء";
+"lyric_poster_style_motion_card" = "بطاقة كلمات";
+"lyric_poster_filter_original" = "الأصل";
+"lyric_poster_filter_film" = "فيلم";
+"lyric_poster_filter_faded" = "باهت";
+"lyric_poster_filter_sepia" = "بني داكن";
+"lyric_poster_filter_mono" = "أبيض وأسود";
+"lyric_poster_filter_instant" = "فوري";
+"lyric_poster_effect_none" = "بدون";
+"lyric_poster_effect_floating" = "تعويم";
+"lyric_poster_effect_zoom" = "تقريب بطيء";
+"lyric_poster_effect_particles" = "جسيمات";
+"lyric_poster_effect_waveform" = "موجة صوتية";

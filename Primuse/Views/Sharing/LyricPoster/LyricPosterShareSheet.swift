@@ -22,6 +22,10 @@ struct LyricPosterShareSheet: View {
     private var storedIncludesTranslation = LyricPosterPreferences.includesTranslationByDefault
     @AppStorage(LyricPosterPreferences.showsCreditKey)
     private var storedShowsCredit = LyricPosterPreferences.showsCreditByDefault
+    @AppStorage(LyricPosterPreferences.filterKey) private var storedFilter = ""
+    @AppStorage(LyricPosterPreferences.motionEffectKey) private var storedMotionEffect = ""
+    @AppStorage(LyricPosterPreferences.signatureKey) private var storedSignature = ""
+    @AppStorage(LyricPosterPreferences.hasFinishedIntroKey) private var hasFinishedIntro = false
 
     @State private var isPickingLines = false
     @State private var shareItem: LyricPosterShareItem?
@@ -31,6 +35,9 @@ struct LyricPosterShareSheet: View {
     @State private var isShareChoicePresented = false
     /// 预览动画的起点。切风格 / 换选句时重置, 让动效从头演一遍。
     @State private var previewEpoch = Date()
+    @State private var section: EditorSection = .style
+    /// 非 nil 表示正走在引导流程里。
+    @State private var wizardStep: LyricPosterWizardStep?
 
     /// 内容两侧留白, 预览宽度要扣掉。
     private static let contentMargin: CGFloat = 20
@@ -48,58 +55,104 @@ struct LyricPosterShareSheet: View {
             // 提议是 nil, 在里面用 GeometryReader + aspectRatio 反推高度会拿到
             // 10pt 的理想尺寸, 预览框直接塌掉。
             GeometryReader { outer in
-                ScrollView {
-                    VStack(spacing: 24) {
-                        preview(availableWidth: outer.size.width - Self.contentMargin * 2)
-                        styleRow
-                        canvasRow
-                        options
-                    }
-                    .padding(.horizontal, Self.contentMargin)
-                    .padding(.top, 12)
-                    .padding(.bottom, 24)
-                }
-                .navigationTitle(Text("lyric_poster_title"))
-                #if os(iOS)
-                .navigationBarTitleDisplayMode(.inline)
-                #endif
-                .toolbar { toolbarContent }
-                .lyricPosterBottomBar { actionBar }
-                .sheet(isPresented: $isPickingLines) {
-                    LyricPosterLinePicker(composer: composer)
-                }
-                .sheet(item: $shareItem) { item in
-                    LyricPosterActivityView(item: item)
-                }
-                .alert(
-                    Text("lyric_poster_error_title"),
-                    isPresented: Binding(
-                        get: { errorMessage != nil },
-                        set: { if !$0 { errorMessage = nil } }
+                // 整个界面拆成三段：内容、外壳、状态联动。全串在一条表达式上
+                // 时，Swift 的类型检查会直接超时 —— 那在 Xcode 里就是一条
+                // "unable to type-check this expression in reasonable time"。
+                observing(
+                    decorated(
+                        content(availableWidth: outer.size.width - Self.contentMargin * 2)
                     )
-                ) {
-                    Button(String(localized: "ok"), role: .cancel) { errorMessage = nil }
-                } message: {
-                    Text(errorMessage ?? "")
-                }
-                .task {
-                    await composer.loadArtwork(sourceManager: sourceManager)
-                }
-                .onChange(of: composer.styleID) { _, newValue in
-                    storedStyle = newValue.rawValue
-                    previewEpoch = Date()
-                }
-                .onChange(of: composer.canvas) { _, newValue in
-                    storedCanvas = newValue.rawValue
-                }
-                .onChange(of: composer.selection) { _, _ in
-                    previewEpoch = Date()
-                }
-                .onDisappear {
-                    exportTask?.cancel()
-                }
+                )
             }
         }
+    }
+
+    private func content(availableWidth: CGFloat) -> some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                preview(availableWidth: availableWidth)
+                if let wizardStep {
+                    wizardBody(step: wizardStep)
+                } else {
+                    editor
+                }
+            }
+            .padding(.horizontal, Self.contentMargin)
+            .padding(.top, 12)
+            .padding(.bottom, 24)
+        }
+    }
+
+    /// 标题、工具栏、底部条与各种弹出物。
+    private func decorated(_ content: some View) -> some View {
+        content
+            .navigationTitle(Text("lyric_poster_title"))
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar { toolbarContent }
+            .lyricPosterBottomBar {
+                if wizardStep == nil {
+                    actionBar
+                } else {
+                    wizardFooter
+                }
+            }
+            .sheet(isPresented: $isPickingLines) {
+                LyricPosterLinePicker(composer: composer)
+            }
+            .sheet(item: $shareItem) { item in
+                LyricPosterActivityView(item: item)
+            }
+            .alert(
+                Text("lyric_poster_error_title"),
+                isPresented: errorAlertBinding
+            ) {
+                Button(String(localized: "ok"), role: .cancel) { errorMessage = nil }
+            } message: {
+                Text(errorMessage ?? "")
+            }
+    }
+
+    /// 载入、偏好回写与缩略图刷新。
+    private func observing(_ content: some View) -> some View {
+        content
+            .task {
+                if !hasFinishedIntro, wizardStep == nil {
+                    wizardStep = .lines
+                }
+                composer.refreshThumbnails(inheritedLayoutDirection: layoutDirection)
+                await composer.loadArtwork(sourceManager: sourceManager)
+                composer.refreshThumbnails(inheritedLayoutDirection: layoutDirection)
+                composer.refreshFilterThumbnails()
+            }
+            .onChange(of: composer.canvas) { _, newValue in
+                storedCanvas = newValue.rawValue
+                composer.refreshThumbnails(inheritedLayoutDirection: layoutDirection)
+            }
+            .onChange(of: composer.filterID) { _, newValue in
+                storedFilter = newValue.rawValue
+                composer.refreshThumbnails(inheritedLayoutDirection: layoutDirection)
+                composer.refreshFilterThumbnails()
+            }
+            .onChange(of: composer.selection) { _, _ in
+                previewEpoch = Date()
+                composer.refreshThumbnails(inheritedLayoutDirection: layoutDirection)
+            }
+            .onChange(of: composer.styleID) { _, newValue in
+                storedStyle = newValue.rawValue
+                previewEpoch = Date()
+            }
+            .onDisappear {
+                exportTask?.cancel()
+            }
+    }
+
+    private var errorAlertBinding: Binding<Bool> {
+        Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )
     }
 
     // MARK: - 预览
@@ -182,7 +235,9 @@ struct LyricPosterShareSheet: View {
                 // 预览循环播放: 一次演完停半秒再来, 跟相册里长按实况的观感一致。
                 let elapsed = timeline.date.timeIntervalSince(previewEpoch)
                 let cycle = plan.duration + 0.6
-                let time = cycle > 0 ? elapsed.truncatingRemainder(dividingBy: cycle) : 0
+                let time: TimeInterval = cycle > 0
+                    ? elapsed.truncatingRemainder(dividingBy: cycle)
+                    : 0
                 composer.preview(
                     at: min(time, plan.duration),
                     isMotion: true,
@@ -220,58 +275,89 @@ struct LyricPosterShareSheet: View {
         #endif
     }
 
-    // MARK: - 风格 / 画幅
+    // MARK: - 编辑分区
 
-    private var styleRow: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("lyric_poster_style")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
+    /// 设计稿里是右侧那条竖排工具。一屏里放得下的排法是横向分段 + 下面
+    /// 换一块面板：改什么都能立刻在上方的预览里看到，不用来回翻页。
+    enum EditorSection: String, CaseIterable, Identifiable {
+        case style
+        case filter
+        case effect
+        case text
 
+        var id: String { rawValue }
+
+        var titleKey: LocalizedStringKey {
+            switch self {
+            case .style: return "lyric_poster_section_style"
+            case .filter: return "lyric_poster_section_filter"
+            case .effect: return "lyric_poster_section_effect"
+            case .text: return "lyric_poster_section_text"
+            }
+        }
+    }
+
+    private var availableSections: [EditorSection] {
+        EditorSection.allCases.filter { section in
+            switch section {
+            // 滤镜作用在封面上，没有封面就没有可调的东西。
+            case .filter: return composer.hasArtwork
+            case .effect: return isMotionCapable
+            default: return true
+            }
+        }
+    }
+
+    private var isMotionCapable: Bool {
+        #if os(iOS)
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    private var editor: some View {
+        VStack(spacing: 16) {
+            Picker("", selection: $section) {
+                ForEach(availableSections) { item in
+                    Text(item.titleKey).tag(item)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            Group {
+                switch section {
+                case .style: stylePanel
+                case .filter: filterPanel
+                case .effect: effectPanel
+                case .text: textPanel
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .onChange(of: availableSections) { _, sections in
+            if !sections.contains(section), let first = sections.first {
+                section = first
+            }
+        }
+    }
+
+    // MARK: 风格
+
+    private var stylePanel: some View {
+        VStack(alignment: .leading, spacing: 14) {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
+                HStack(spacing: 12) {
                     ForEach(composer.availableDescriptors) { descriptor in
-                        styleChip(descriptor)
+                        styleCard(descriptor)
                     }
                 }
                 .padding(.horizontal, 2)
+                .padding(.vertical, 4)
             }
-        }
-    }
 
-    private func styleChip(_ descriptor: LyricPosterStyleDescriptor) -> some View {
-        let isSelected = descriptor.id == composer.styleID
-        return Button {
-            composer.select(style: descriptor)
-        } label: {
-            VStack(spacing: 6) {
-                Image(systemName: descriptor.symbolName)
-                    .font(.title3)
-                Text(LocalizedStringKey(descriptor.nameKey))
-                    .font(.caption2.weight(.medium))
-                    .lineLimit(1)
-            }
-            .frame(width: 78, height: 66)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.10))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor : .clear, lineWidth: 2)
-            )
-            .foregroundStyle(isSelected ? Color.accentColor : .primary)
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-    }
-
-    private var canvasRow: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("lyric_poster_canvas")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-
+            sectionLabel("lyric_poster_canvas")
             Picker("lyric_poster_canvas", selection: canvasBinding) {
                 ForEach(composer.supportedCanvases, id: \.self) { canvas in
                     Text(canvasTitle(canvas)).tag(canvas)
@@ -280,6 +366,264 @@ struct LyricPosterShareSheet: View {
             .pickerStyle(.segmented)
             .labelsHidden()
         }
+    }
+
+    /// 每种风格现场渲一张小图当按钮 —— 只放图标和名字的话，用户要靠猜
+    /// 才知道"杂志"和"信笺"差在哪。
+    private func styleCard(_ descriptor: LyricPosterStyleDescriptor) -> some View {
+        let isSelected = descriptor.id == composer.styleID
+        return Button {
+            composer.select(style: descriptor)
+        } label: {
+            VStack(spacing: 6) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.secondary.opacity(0.12))
+
+                    if let image = composer.thumbnail(for: descriptor.id) {
+                        Image(platformImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else {
+                        Image(systemName: descriptor.symbolName)
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(width: 88, height: 110)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2.5)
+                )
+
+                Text(LocalizedStringKey(descriptor.nameKey))
+                    .font(.caption2.weight(isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                    .lineLimit(1)
+            }
+            .frame(width: 88)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(LocalizedStringKey(descriptor.nameKey)))
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    // MARK: 滤镜
+
+    private var filterPanel: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(composer.availableFilters) { spec in
+                    filterCard(spec)
+                }
+            }
+            .padding(.horizontal, 2)
+            .padding(.vertical, 4)
+        }
+    }
+
+    private func filterCard(_ spec: LyricPosterFilterSpec) -> some View {
+        let isSelected = spec.id == composer.filterID
+        return Button {
+            composer.filterID = spec.id
+        } label: {
+            VStack(spacing: 6) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.secondary.opacity(0.12))
+                    if let image = composer.filterThumbnail(for: spec.id) {
+                        Image(platformImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    }
+                }
+                .frame(width: 66, height: 66)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2.5)
+                )
+
+                Text(LocalizedStringKey(spec.nameKey))
+                    .font(.caption2.weight(isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                    .lineLimit(1)
+            }
+            .frame(width: 70)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    // MARK: 动效
+
+    private var effectPanel: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Picker("", selection: motionBinding) {
+                Text("lyric_poster_output_still").tag(false)
+                Text("lyric_poster_output_live").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            Text(composer.prefersMotion ? "lyric_poster_motion_footer" : "lyric_poster_still_footer")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if composer.prefersMotion {
+                sectionLabel("lyric_poster_section_effect")
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(composer.availableMotionEffects) { spec in
+                            effectCard(spec)
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+    }
+
+    /// 动效用图标而不是缩略图：一张静止的小图看不出"在动"，画一个会
+    /// 骗人。
+    private func effectCard(_ spec: LyricPosterMotionEffectSpec) -> some View {
+        let isSelected = spec.id == composer.motionEffectID
+        return Button {
+            composer.motionEffectID = spec.id
+            storedMotionEffect = spec.id.rawValue
+            previewEpoch = Date()
+        } label: {
+            VStack(spacing: 6) {
+                Image(systemName: spec.symbolName)
+                    .font(.title3)
+                    .frame(width: 66, height: 52)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(isSelected ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.12))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                    )
+
+                Text(LocalizedStringKey(spec.nameKey))
+                    .font(.caption2.weight(isSelected ? .semibold : .regular))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+            .frame(width: 70)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    private var motionBinding: Binding<Bool> {
+        Binding(
+            get: { composer.prefersMotion },
+            set: {
+                composer.setPrefersMotion($0)
+                storedPrefersMotion = $0
+                previewEpoch = Date()
+            }
+        )
+    }
+
+    // MARK: 文字
+
+    private var textPanel: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                sectionLabel("lyric_poster_note")
+
+                ZStack(alignment: .topLeading) {
+                    if composer.noteText.isEmpty {
+                        Text("lyric_poster_note_placeholder")
+                            .font(.callout)
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 12)
+                            .allowsHitTesting(false)
+                    }
+                    TextEditor(text: noteBinding)
+                        .font(.callout)
+                        .scrollContentBackground(.hidden)
+                        .frame(height: 92)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.secondary.opacity(0.10))
+                )
+
+                HStack {
+                    TextField("lyric_poster_note_signature", text: signatureBinding)
+                        .font(.caption)
+                        .textFieldStyle(.plain)
+                    Spacer(minLength: 12)
+                    Text(verbatim: "\(composer.noteText.count)/\(LyricPosterNotePolicy.maximumLength)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(composer.noteRemaining < 0 ? Color.red : .secondary)
+                }
+            }
+
+            Divider()
+
+            if composer.hasTranslation {
+                Toggle(isOn: Binding(
+                    get: { composer.includesTranslation },
+                    set: {
+                        composer.includesTranslation = $0
+                        storedIncludesTranslation = $0
+                    }
+                )) {
+                    Text("lyric_poster_show_translation")
+                }
+            }
+
+            Toggle(isOn: Binding(
+                get: { composer.showsCredit },
+                set: {
+                    composer.showsCredit = $0
+                    storedShowsCredit = $0
+                }
+            )) {
+                Text("lyric_poster_show_credit")
+            }
+
+            Button {
+                isPickingLines = true
+            } label: {
+                Label(String(localized: "lyric_poster_select_lines"), systemImage: "text.quote")
+            }
+        }
+    }
+
+    private var noteBinding: Binding<String> {
+        Binding(
+            get: { composer.noteText },
+            set: { composer.noteText = String($0.prefix(LyricPosterNotePolicy.maximumLength)) }
+        )
+    }
+
+    private var signatureBinding: Binding<String> {
+        Binding(
+            get: { composer.noteSignature },
+            set: {
+                let trimmed = String($0.prefix(LyricPosterNotePolicy.maximumSignatureLength))
+                composer.noteSignature = trimmed
+                storedSignature = trimmed
+            }
+        )
+    }
+
+    private func sectionLabel(_ key: LocalizedStringKey) -> some View {
+        Text(key)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
     }
 
     private var canvasBinding: Binding<LyricPosterCanvas> {
@@ -297,62 +641,118 @@ struct LyricPosterShareSheet: View {
         }
     }
 
-    // MARK: - 选项
+    // MARK: - 引导流程
 
-    private var options: some View {
-        VStack(spacing: 0) {
-            #if os(iOS)
-            Toggle(isOn: Binding(
-                get: { composer.prefersMotion },
-                set: {
-                    composer.setPrefersMotion($0)
-                    storedPrefersMotion = $0
-                    previewEpoch = Date()
+    /// 每一步都把预览留在上方：改的是哪一块，看着它变就知道了。
+    @ViewBuilder
+    private func wizardBody(step: LyricPosterWizardStep) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: step.symbolName)
+                    Text(LocalizedStringKey(step.titleKey))
+                        .font(.headline)
+                    Spacer(minLength: 0)
+                    Text(
+                        verbatim: "\(LyricPosterWizardPolicy.index(of: step) + 1)/\(LyricPosterWizardPolicy.steps.count)"
+                    )
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
                 }
-            )) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("lyric_poster_motion")
-                    Text("lyric_poster_motion_footer")
+                ProgressView(value: LyricPosterWizardPolicy.progress(at: step))
+                    .progressViewStyle(.linear)
+            }
+
+            switch step {
+            case .lines:
+                VStack(alignment: .leading, spacing: 10) {
+                    LyricPosterLineRows(composer: composer)
+                    Text(
+                        String(
+                            format: String(localized: "lyric_poster_limit_footer"),
+                            LyricPosterSelectionPolicy.maximumLines
+                        )
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            case .note:
+                textPanel
+            case .style:
+                stylePanel
+            case .export:
+                if isMotionCapable {
+                    effectPanel
+                } else {
+                    Text("lyric_poster_still_footer")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
-            .padding(.vertical, 10)
-
-            Divider()
-            #endif
-
-            if composer.hasTranslation {
-                Toggle(isOn: Binding(
-                    get: { composer.includesTranslation },
-                    set: {
-                        composer.includesTranslation = $0
-                        storedIncludesTranslation = $0
-                    }
-                )) {
-                    Text("lyric_poster_show_translation")
-                }
-                .padding(.vertical, 10)
-
-                Divider()
-            }
-
-            Toggle(isOn: Binding(
-                get: { composer.showsCredit },
-                set: {
-                    composer.showsCredit = $0
-                    storedShowsCredit = $0
-                }
-            )) {
-                Text("lyric_poster_show_credit")
-            }
-            .padding(.vertical, 10)
         }
-        .padding(.horizontal, 16)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.secondary.opacity(0.08))
+    }
+
+    private var wizardFooter: some View {
+        HStack(spacing: 12) {
+            if let step = wizardStep, let previous = LyricPosterWizardPolicy.previous(before: step) {
+                Button {
+                    withAnimation { wizardStep = previous }
+                } label: {
+                    Label(String(localized: "lyric_poster_wizard_back"), systemImage: "chevron.left")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+            } else {
+                Button(String(localized: "lyric_poster_wizard_skip")) {
+                    finishWizard()
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .frame(maxWidth: .infinity)
+            }
+
+            Button {
+                advanceWizard()
+            } label: {
+                Text(
+                    wizardStep.map { LyricPosterWizardPolicy.isLast($0) } ?? false
+                        ? String(localized: "done")
+                        : String(localized: "lyric_poster_wizard_next")
+                )
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .disabled(!canAdvanceWizard)
+        }
+        .controlSize(.large)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+    }
+
+    private var canAdvanceWizard: Bool {
+        guard let wizardStep else { return true }
+        return LyricPosterWizardPolicy.canAdvance(
+            from: wizardStep,
+            selectionCount: composer.selection.count
         )
+    }
+
+    private func advanceWizard() {
+        guard let step = wizardStep else { return }
+        if let next = LyricPosterWizardPolicy.next(after: step) {
+            withAnimation { wizardStep = next }
+        } else {
+            finishWizard()
+        }
+    }
+
+    /// 走完或跳过都落到同一处：引导只是换一种进场方式，状态是同一份，
+    /// 退出引导直接接着用单页继续调。
+    private func finishWizard() {
+        hasFinishedIntro = true
+        withAnimation { wizardStep = nil }
     }
 
     // MARK: - 工具栏与操作条
@@ -366,10 +766,16 @@ struct LyricPosterShareSheet: View {
             }
         }
         ToolbarItem(placement: .primaryAction) {
-            Button {
-                isPickingLines = true
-            } label: {
-                Label(String(localized: "lyric_poster_select_lines"), systemImage: "text.line.first.and.arrowtriangle.forward")
+            if wizardStep == nil {
+                Button {
+                    wizardStep = .lines
+                } label: {
+                    Label(String(localized: "lyric_poster_wizard_start"), systemImage: "list.number")
+                }
+            } else {
+                Button(String(localized: "lyric_poster_wizard_skip")) {
+                    finishWizard()
+                }
             }
         }
     }
@@ -543,6 +949,44 @@ struct LyricPosterShareSheet: View {
 // MARK: - 选句
 
 /// 选哪几句。只允许连续的一段 —— 策略层保证, 这里只负责表达。
+/// 歌词行。弹出的选句页与引导流程的第一步共用这一份，两处的规则才不会
+/// 各写一遍。
+struct LyricPosterLineRows: View {
+    @Bindable var composer: LyricPosterComposer
+
+    var body: some View {
+        ForEach(composer.lines) { line in
+            row(line)
+        }
+    }
+
+    private func row(_ line: LyricPosterLine) -> some View {
+        let isSelected = composer.isSelected(line.id)
+        return Button {
+            composer.toggle(line.id)
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(line.text)
+                        .foregroundStyle(.primary)
+                    ForEach([line.romanization, line.translation].compactMap { $0 }
+                        .filter { !$0.isEmpty }, id: \.self) { companion in
+                        Text(companion)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        // 够不着的行留在列表里但压暗: 用户能看懂"只能往两头接", 比直接隐藏好。
+        .opacity(isSelected || composer.canExtend(to: line.id) ? 1 : 0.4)
+    }
+}
+
 private struct LyricPosterLinePicker: View {
     @Bindable var composer: LyricPosterComposer
     @Environment(\.dismiss) private var dismiss
@@ -551,9 +995,7 @@ private struct LyricPosterLinePicker: View {
         NavigationStack {
             List {
                 Section {
-                    ForEach(composer.lines) { line in
-                        row(line)
-                    }
+                    LyricPosterLineRows(composer: composer)
                 } footer: {
                     Text(
                         String(
@@ -582,32 +1024,6 @@ private struct LyricPosterLinePicker: View {
                 Button(String(localized: "ok"), role: .cancel) { composer.rejection = nil }
             }
         }
-    }
-
-    private func row(_ line: LyricPosterLine) -> some View {
-        let isSelected = composer.isSelected(line.id)
-        return Button {
-            composer.toggle(line.id)
-        } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isSelected ? Color.accentColor : .secondary)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(line.text)
-                        .foregroundStyle(.primary)
-                    ForEach([line.romanization, line.translation].compactMap { $0 }
-                        .filter { !$0.isEmpty }, id: \.self) { companion in
-                        Text(companion)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        // 够不着的行留在列表里但压暗: 用户能看懂"只能往两头接", 比直接隐藏好。
-        .opacity(isSelected || composer.canExtend(to: line.id) ? 1 : 0.4)
     }
 
     private var rejectionMessage: LocalizedStringKey {

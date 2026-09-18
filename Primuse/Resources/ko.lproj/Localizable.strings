@@ -4060,3 +4060,37 @@
 "connection_failed_hint_private_address" = "이 주소는 내부 네트워크 주소라서 같은 네트워크에 있을 때만 연결됩니다.";
 "connection_failed_hint_vendor_relay" = "제조사 중계를 거칩니다. 기기가 온라인인지, 원격 접속이 켜져 있는지 확인하세요.";
 "connection_failed_edit_address" = "주소 변경";
+
+/* Lyric poster: sections, note, filters, motion */
+"lyric_poster_section_style" = "스타일";
+"lyric_poster_section_filter" = "필터";
+"lyric_poster_section_effect" = "모션";
+"lyric_poster_section_text" = "텍스트";
+"lyric_poster_note" = "내 한마디";
+"lyric_poster_note_placeholder" = "지금 이 곡이 어떤 의미인가요";
+"lyric_poster_note_signature" = "서명";
+"lyric_poster_output_still" = "정지 사진";
+"lyric_poster_output_live" = "라이브 포토";
+"lyric_poster_still_footer" = "고화질 PNG 한 장. 어떤 앱에도 보낼 수 있습니다";
+"lyric_poster_wizard_start" = "단계별로 만들기";
+"lyric_poster_wizard_next" = "다음";
+"lyric_poster_wizard_back" = "이전";
+"lyric_poster_wizard_skip" = "건너뛰기";
+"lyric_poster_step_lines" = "가사 선택";
+"lyric_poster_step_note" = "한마디 쓰기";
+"lyric_poster_step_style" = "스타일 선택";
+"lyric_poster_step_export" = "공유하기";
+"lyric_poster_style_retro_letter" = "편지";
+"lyric_poster_style_spotlight" = "스포트라이트";
+"lyric_poster_style_motion_card" = "가사 카드";
+"lyric_poster_filter_original" = "원본";
+"lyric_poster_filter_film" = "필름";
+"lyric_poster_filter_faded" = "빛바랜";
+"lyric_poster_filter_sepia" = "세피아";
+"lyric_poster_filter_mono" = "흑백";
+"lyric_poster_filter_instant" = "인스턴트";
+"lyric_poster_effect_none" = "없음";
+"lyric_poster_effect_floating" = "떠오름";
+"lyric_poster_effect_zoom" = "천천히 확대";
+"lyric_poster_effect_particles" = "입자";
+"lyric_poster_effect_waveform" = "파형";

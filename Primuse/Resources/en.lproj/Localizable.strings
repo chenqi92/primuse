@@ -3838,3 +3838,37 @@
 "connection_failed_hint_private_address" = "This is a local network address — it only works while you are on the same network.";
 "connection_failed_hint_vendor_relay" = "This goes through the vendor’s relay — check that the device is online and remote access is turned on.";
 "connection_failed_edit_address" = "Change Address";
+
+/* Lyric poster: sections, note, filters, motion */
+"lyric_poster_section_style" = "Style";
+"lyric_poster_section_filter" = "Filter";
+"lyric_poster_section_effect" = "Motion";
+"lyric_poster_section_text" = "Text";
+"lyric_poster_note" = "Your note";
+"lyric_poster_note_placeholder" = "What does this song mean to you right now?";
+"lyric_poster_note_signature" = "Signed";
+"lyric_poster_output_still" = "Still";
+"lyric_poster_output_live" = "Live Photo";
+"lyric_poster_still_footer" = "A single high-quality PNG, ready for any app";
+"lyric_poster_wizard_start" = "Guide me";
+"lyric_poster_wizard_next" = "Next";
+"lyric_poster_wizard_back" = "Back";
+"lyric_poster_wizard_skip" = "Skip";
+"lyric_poster_step_lines" = "Choose lines";
+"lyric_poster_step_note" = "Write a note";
+"lyric_poster_step_style" = "Pick a look";
+"lyric_poster_step_export" = "Share it";
+"lyric_poster_style_retro_letter" = "Letter";
+"lyric_poster_style_spotlight" = "Spotlight";
+"lyric_poster_style_motion_card" = "Lyric card";
+"lyric_poster_filter_original" = "Original";
+"lyric_poster_filter_film" = "Film";
+"lyric_poster_filter_faded" = "Faded";
+"lyric_poster_filter_sepia" = "Sepia";
+"lyric_poster_filter_mono" = "Mono";
+"lyric_poster_filter_instant" = "Instant";
+"lyric_poster_effect_none" = "None";
+"lyric_poster_effect_floating" = "Floating";
+"lyric_poster_effect_zoom" = "Slow zoom";
+"lyric_poster_effect_particles" = "Particles";
+"lyric_poster_effect_waveform" = "Waveform";

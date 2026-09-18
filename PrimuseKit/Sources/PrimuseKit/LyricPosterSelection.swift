@@ -45,19 +45,23 @@ public struct LyricPosterContent: Hashable, Sendable {
     public let albumTitle: String?
     public let year: Int?
     public let lines: [LyricPosterLine]
+    /// 用户自己写的一段话。歌词是别人的，这段是他的。
+    public let note: LyricPosterNote?
 
     public init(
         songTitle: String,
         artistName: String? = nil,
         albumTitle: String? = nil,
         year: Int? = nil,
-        lines: [LyricPosterLine]
+        lines: [LyricPosterLine],
+        note: LyricPosterNote? = nil
     ) {
         self.songTitle = songTitle
         self.artistName = artistName
         self.albumTitle = albumTitle
         self.year = year
         self.lines = lines
+        self.note = note
     }
 
     public var isEmpty: Bool { lines.isEmpty }
@@ -264,7 +268,8 @@ public enum LyricPosterSelectionPolicy {
         albumTitle: String?,
         year: Int?,
         lines: [LyricPosterLine],
-        selection: [String]
+        selection: [String],
+        note: LyricPosterNote? = nil
     ) -> LyricPosterContent {
         let selected: [LyricPosterLine]
         if let range = selectedRange(in: lines, selection: selection) {
@@ -277,7 +282,8 @@ public enum LyricPosterSelectionPolicy {
             artistName: artistName?.isEmpty == false ? artistName : nil,
             albumTitle: albumTitle?.isEmpty == false ? albumTitle : nil,
             year: year,
-            lines: selected
+            lines: selected,
+            note: note
         )
     }
 

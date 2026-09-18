@@ -4060,3 +4060,37 @@
 "connection_failed_hint_private_address" = "C’est une adresse du réseau local : elle ne fonctionne que sur ce même réseau.";
 "connection_failed_hint_vendor_relay" = "Cela passe par le relais du fabricant : vérifiez que l’appareil est en ligne et que l’accès distant est activé.";
 "connection_failed_edit_address" = "Modifier l’adresse";
+
+/* Lyric poster: sections, note, filters, motion */
+"lyric_poster_section_style" = "Style";
+"lyric_poster_section_filter" = "Filtre";
+"lyric_poster_section_effect" = "Animation";
+"lyric_poster_section_text" = "Texte";
+"lyric_poster_note" = "Votre mot";
+"lyric_poster_note_placeholder" = "Que représente cette chanson pour vous en ce moment ?";
+"lyric_poster_note_signature" = "Signature";
+"lyric_poster_output_still" = "Image fixe";
+"lyric_poster_output_live" = "Photo Live";
+"lyric_poster_still_footer" = "Un PNG de haute qualité, partageable partout";
+"lyric_poster_wizard_start" = "Guide pas à pas";
+"lyric_poster_wizard_next" = "Suivant";
+"lyric_poster_wizard_back" = "Retour";
+"lyric_poster_wizard_skip" = "Passer";
+"lyric_poster_step_lines" = "Choisir les lignes";
+"lyric_poster_step_note" = "Écrire un mot";
+"lyric_poster_step_style" = "Choisir le style";
+"lyric_poster_step_export" = "Partager";
+"lyric_poster_style_retro_letter" = "Lettre";
+"lyric_poster_style_spotlight" = "Projecteur";
+"lyric_poster_style_motion_card" = "Carte paroles";
+"lyric_poster_filter_original" = "Original";
+"lyric_poster_filter_film" = "Argentique";
+"lyric_poster_filter_faded" = "Délavé";
+"lyric_poster_filter_sepia" = "Sépia";
+"lyric_poster_filter_mono" = "Noir et blanc";
+"lyric_poster_filter_instant" = "Instantané";
+"lyric_poster_effect_none" = "Aucune";
+"lyric_poster_effect_floating" = "Flottement";
+"lyric_poster_effect_zoom" = "Zoom lent";
+"lyric_poster_effect_particles" = "Particules";
+"lyric_poster_effect_waveform" = "Onde sonore";

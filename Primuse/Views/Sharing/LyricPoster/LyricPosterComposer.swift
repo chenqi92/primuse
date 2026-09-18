@@ -11,6 +11,11 @@ enum LyricPosterPreferences {
     static let includesTranslationByDefault = true
     static let showsCreditKey = "primuse.lyricPoster.showsCredit"
     static let showsCreditByDefault = true
+    static let filterKey = "primuse.lyricPoster.filter"
+    static let motionEffectKey = "primuse.lyricPoster.motionEffect"
+    static let signatureKey = "primuse.lyricPoster.signature"
+    /// 引导流程只在第一次自动出现。
+    static let hasFinishedIntroKey = "primuse.lyricPoster.hasFinishedIntro"
 }
 
 /// 分享面板的状态机: 持有一份歌词快照, 负责取封面、算配色、渲染和导出。
@@ -41,15 +46,38 @@ final class LyricPosterComposer: Identifiable {
     // MARK: 外观
 
     var styleID: LyricPosterStyleID
-    var canvas: LyricPosterCanvas
+    var canvas: LyricPosterCanvas {
+        didSet {
+            guard canvas != oldValue else { return }
+            invalidateThumbnails()
+        }
+    }
     var prefersMotion: Bool
     var includesTranslation: Bool
     var showsCredit: Bool
+    /// 用户写的那段话与落款。空着就不在海报上留位置。
+    var noteText: String = ""
+    var noteSignature: String = ""
+    var filterID: LyricPosterFilterID {
+        didSet {
+            guard filterID != oldValue else { return }
+            applyFilter()
+        }
+    }
+    var motionEffectID: LyricPosterMotionEffectID
 
     // MARK: 资源
 
+    /// 源封面。滤镜永远从它出发, 换滤镜才不会一层层叠加下去。
+    private(set) var originalArtwork: PlatformImage?
     private(set) var artwork: PlatformImage?
     private(set) var blurredArtwork: PlatformImage?
+    /// 风格选择器上的小图, 按 风格 + 画幅 + 内容 缓存。
+    private(set) var thumbnails: [String: PlatformImage] = [:]
+    private var thumbnailTask: Task<Void, Never>?
+    /// 滤镜选择器上的封面小图。
+    private(set) var filterThumbnails: [LyricPosterFilterID: PlatformImage] = [:]
+    private var filterThumbnailTask: Task<Void, Never>?
     private(set) var palette: LyricPosterPalette = .fallback
     private(set) var isLoadingArtwork = false
 
@@ -81,7 +109,10 @@ final class LyricPosterComposer: Identifiable {
         canvas: LyricPosterCanvas?,
         prefersMotion: Bool,
         includesTranslation: Bool,
-        showsCredit: Bool
+        showsCredit: Bool,
+        filterID: LyricPosterFilterID?,
+        motionEffectID: LyricPosterMotionEffectID?,
+        noteSignature: String
     ) {
         self.songTitle = songTitle
         self.artistName = artistName
@@ -94,6 +125,13 @@ final class LyricPosterComposer: Identifiable {
         self.prefersMotion = prefersMotion
         self.includesTranslation = includesTranslation
         self.showsCredit = showsCredit
+        self.noteSignature = noteSignature
+        self.filterID = LyricPosterFilterCatalog.resolved(preferred: filterID).id
+        // 封面还没到, 先按"没有封面"解析动效; 封面到了再放宽一次。
+        self.motionEffectID = LyricPosterMotionEffectCatalog.resolved(
+            preferred: motionEffectID,
+            hasArtwork: artworkRequest != nil
+        ).id
 
         // 封面还没加载完, 先按"无封面"解析风格; 封面到了再放宽一次。
         let resolved = LyricPosterStyleRegistry.shared.resolvedDescriptor(
@@ -114,8 +152,26 @@ final class LyricPosterComposer: Identifiable {
             albumTitle: albumTitle,
             year: year,
             lines: lines,
-            selection: selection
+            selection: selection,
+            note: note
         )
+    }
+
+    /// 规范化之后的评语。全是空白就当没写。
+    var note: LyricPosterNote? {
+        LyricPosterNotePolicy.note(text: noteText, signature: noteSignature)
+    }
+
+    var noteRemaining: Int {
+        LyricPosterNotePolicy.remaining(for: noteText)
+    }
+
+    var availableFilters: [LyricPosterFilterSpec] {
+        LyricPosterFilterCatalog.all
+    }
+
+    var availableMotionEffects: [LyricPosterMotionEffectSpec] {
+        LyricPosterMotionEffectCatalog.available(hasArtwork: hasArtwork)
     }
 
     var hasSelection: Bool { !selection.isEmpty }
@@ -165,6 +221,7 @@ final class LyricPosterComposer: Identifiable {
         let result = LyricPosterSelectionPolicy.toggling(id, in: lines, selection: selection)
         selection = result.selection
         rejection = result.rejection
+        invalidateThumbnails()
     }
 
     func canExtend(to id: String) -> Bool {
@@ -206,11 +263,14 @@ final class LyricPosterComposer: Identifiable {
             return
         }
 
-        artwork = image
-        palette = LyricPosterPalette.make(from: image)
-        // 模糊一次就够, 之后每一帧都复用 —— 动态海报有一百多帧, 每帧糊一次
-        // 封面是白白多花几秒。
-        blurredArtwork = LyricPosterRenderer.blurredArtwork(from: image)
+        originalArtwork = image
+        applyFilter()
+
+        // 封面到位后, 需要封面的动效才成为可选项。
+        motionEffectID = LyricPosterMotionEffectCatalog.resolved(
+            preferred: motionEffectID,
+            hasArtwork: true
+        ).id
 
         // 封面到位后, 依赖封面的风格才成为可选项; 用户存过的偏好这时可以兑现。
         if let restored = LyricPosterStyleRegistry.shared.resolvedDescriptor(
@@ -223,10 +283,137 @@ final class LyricPosterComposer: Identifiable {
         }
     }
 
+    /// 把当前滤镜作用到源封面上, 并顺带重新取色 —— 黑白滤镜之后配色也
+    /// 该跟着褪成灰的, 否则封面灰了、版面还是原来的彩色。
+    private func applyFilter() {
+        guard let source = originalArtwork else { return }
+        let spec = LyricPosterFilterCatalog.spec(for: filterID)
+        let processed = spec.isIdentity
+            ? source
+            : (LyricPosterRenderer.filtered(source, spec: spec) ?? source)
+        artwork = processed
+        palette = LyricPosterPalette.make(from: processed)
+        filterThumbnails.removeAll()
+        // 模糊一次就够, 之后每一帧都复用 —— 动态海报有一百多帧, 每帧糊一次
+        // 封面是白白多花几秒。
+        blurredArtwork = LyricPosterRenderer.blurredArtwork(from: processed)
+        invalidateThumbnails()
+    }
+
     /// 换风格时把画幅收敛到该风格支持的范围。
     func select(style: LyricPosterStyleDescriptor) {
         styleID = style.id
         canvas = style.canvas(preferring: canvas)
+    }
+
+    // MARK: - 滤镜缩略图
+
+    func filterThumbnail(for id: LyricPosterFilterID) -> PlatformImage? {
+        filterThumbnails[id]
+    }
+
+    /// 每张滤镜配一张封面小样。先把封面缩到 160 再逐个上滤镜, 六张一起
+    /// 也就几十毫秒。
+    func refreshFilterThumbnails() {
+        filterThumbnailTask?.cancel()
+        guard let source = originalArtwork else {
+            filterThumbnails.removeAll()
+            return
+        }
+        let base = LyricPosterRenderer.downscaled(source, maxPixel: 160) ?? source
+        filterThumbnailTask = Task { @MainActor [weak self] in
+            for spec in LyricPosterFilterCatalog.all {
+                guard let self, !Task.isCancelled else { return }
+                guard self.filterThumbnails[spec.id] == nil else { continue }
+                let image = spec.isIdentity
+                    ? base
+                    : (LyricPosterRenderer.filtered(base, spec: spec) ?? base)
+                self.filterThumbnails[spec.id] = image
+                await Task.yield()
+            }
+        }
+    }
+
+    // MARK: - 风格缩略图
+
+    /// 缩略图渲染的倍率。海报本身是 1080 宽, 缩到这个倍率刚好够选择器
+    /// 里看清版式, 又不至于渲十几张大图。
+    private static let thumbnailScale: CGFloat = 0.22
+
+    private func thumbnailKey(_ id: LyricPosterStyleID) -> String {
+        [id.rawValue, canvas.rawValue, filterID.rawValue, selection.first ?? ""]
+            .joined(separator: "|")
+    }
+
+    func thumbnail(for id: LyricPosterStyleID) -> PlatformImage? {
+        thumbnails[thumbnailKey(id)]
+    }
+
+    func invalidateThumbnails() {
+        thumbnailTask?.cancel()
+        thumbnailTask = nil
+        thumbnails.removeAll()
+    }
+
+    /// 逐张渲染风格缩略图。一张一张来并在每张之后让出主线程, 选择器能
+    /// 边出图边用, 不会整段卡住。
+    func refreshThumbnails(inheritedLayoutDirection: LayoutDirection) {
+        thumbnailTask?.cancel()
+        let targets = availableDescriptors
+        thumbnailTask = Task { @MainActor [weak self] in
+            for descriptor in targets {
+                guard let self, !Task.isCancelled else { return }
+                let key = self.thumbnailKey(descriptor.id)
+                guard self.thumbnails[key] == nil else { continue }
+                guard let renderer = LyricPosterStyleRegistry.shared.renderer(for: descriptor.id) else {
+                    continue
+                }
+                let context = self.thumbnailContext(
+                    for: descriptor,
+                    inheritedLayoutDirection: inheritedLayoutDirection
+                )
+                if let image = LyricPosterRenderer.renderImage(
+                    style: renderer,
+                    context: context,
+                    scale: Self.thumbnailScale
+                ) {
+                    self.thumbnails[key] = image
+                }
+                await Task.yield()
+            }
+        }
+    }
+
+    /// 缩略图只取前两句、不带评语: 它要回答的是"这个风格长什么样",
+    /// 不是"我的海报现在什么样"。
+    private func thumbnailContext(
+        for descriptor: LyricPosterStyleDescriptor,
+        inheritedLayoutDirection: LayoutDirection
+    ) -> LyricPosterRenderContext {
+        let full = content
+        let preview = LyricPosterContent(
+            songTitle: full.songTitle,
+            artistName: full.artistName,
+            albumTitle: full.albumTitle,
+            year: full.year,
+            lines: Array(full.lines.prefix(2))
+        )
+        let plan = LyricPosterMotionPolicy.plan(for: preview, frameRate: Self.exportFrameRate)
+        return LyricPosterRenderContext(
+            content: preview,
+            canvas: descriptor.canvas(preferring: canvas),
+            palette: palette,
+            artwork: artwork,
+            blurredArtwork: blurredArtwork,
+            motion: plan,
+            time: plan.duration,
+            isMotion: false,
+            includesTranslation: false,
+            showsCredit: showsCredit,
+            layoutDirection: resolvedLayoutDirection(inheritedLayoutDirection),
+            motionEffect: LyricPosterMotionEffectID.none,
+            appName: Self.appName
+        )
     }
 
     /// 切换动静时, 当前风格可能不支持动态。
@@ -265,6 +452,7 @@ final class LyricPosterComposer: Identifiable {
             includesTranslation: includesTranslation,
             showsCredit: showsCredit,
             layoutDirection: resolvedLayoutDirection(inheritedLayoutDirection),
+            motionEffect: motionEffectID,
             appName: Self.appName
         )
     }
@@ -422,7 +610,10 @@ extension LyricPosterComposer {
         canvas: LyricPosterCanvas?,
         prefersMotion: Bool,
         includesTranslation: Bool,
-        showsCredit: Bool
+        showsCredit: Bool,
+        filterID: LyricPosterFilterID?,
+        motionEffectID: LyricPosterMotionEffectID?,
+        noteSignature: String
     ) -> LyricPosterComposer {
         let lines = LyricPosterSelectionPolicy.selectableLines(
             from: lyrics,
@@ -457,7 +648,10 @@ extension LyricPosterComposer {
             canvas: canvas,
             prefersMotion: prefersMotion,
             includesTranslation: includesTranslation,
-            showsCredit: showsCredit
+            showsCredit: showsCredit,
+            filterID: filterID,
+            motionEffectID: motionEffectID,
+            noteSignature: noteSignature
         )
     }
 }

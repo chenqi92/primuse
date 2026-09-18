@@ -607,6 +607,10 @@ struct NowPlayingView: View {
     private var lyricPosterIncludesTranslation = LyricPosterPreferences.includesTranslationByDefault
     @AppStorage(LyricPosterPreferences.showsCreditKey)
     private var lyricPosterShowsCredit = LyricPosterPreferences.showsCreditByDefault
+    @AppStorage(LyricPosterPreferences.filterKey) private var lyricPosterFilterRawValue = ""
+    @AppStorage(LyricPosterPreferences.motionEffectKey)
+    private var lyricPosterMotionEffectRawValue = ""
+    @AppStorage(LyricPosterPreferences.signatureKey) private var lyricPosterSignature = ""
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
 
@@ -846,7 +850,14 @@ struct NowPlayingView: View {
             canvas: LyricPosterCanvas(rawValue: lyricPosterCanvasRawValue),
             prefersMotion: lyricPosterPrefersMotion,
             includesTranslation: lyricPosterIncludesTranslation,
-            showsCredit: lyricPosterShowsCredit
+            showsCredit: lyricPosterShowsCredit,
+            filterID: lyricPosterFilterRawValue.isEmpty
+                ? nil
+                : LyricPosterFilterID(lyricPosterFilterRawValue),
+            motionEffectID: lyricPosterMotionEffectRawValue.isEmpty
+                ? nil
+                : LyricPosterMotionEffectID(lyricPosterMotionEffectRawValue),
+            noteSignature: lyricPosterSignature
         )
         // 整首都是空行时没有可分享的内容, 静默返回好过弹一张空海报。
         guard !composer.lines.isEmpty else { return }

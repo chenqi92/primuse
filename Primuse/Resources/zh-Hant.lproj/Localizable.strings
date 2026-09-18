@@ -4037,3 +4037,37 @@
 "connection_failed_hint_private_address" = "這是一個內網位址，只有連著同一個網路才通。";
 "connection_failed_hint_vendor_relay" = "這條走的是廠商中轉，先確認裝置在線、遠端存取已經打開。";
 "connection_failed_edit_address" = "修改位址";
+
+/* Lyric poster: sections, note, filters, motion */
+"lyric_poster_section_style" = "風格";
+"lyric_poster_section_filter" = "濾鏡";
+"lyric_poster_section_effect" = "動態效果";
+"lyric_poster_section_text" = "文字";
+"lyric_poster_note" = "我的評語";
+"lyric_poster_note_placeholder" = "此刻這首歌對你意味著什麼";
+"lyric_poster_note_signature" = "落款";
+"lyric_poster_output_still" = "靜態圖";
+"lyric_poster_output_live" = "實況照片";
+"lyric_poster_still_footer" = "一張高品質 PNG，發到哪都能用";
+"lyric_poster_wizard_start" = "分步製作";
+"lyric_poster_wizard_next" = "下一步";
+"lyric_poster_wizard_back" = "上一步";
+"lyric_poster_wizard_skip" = "跳過";
+"lyric_poster_step_lines" = "選取歌詞";
+"lyric_poster_step_note" = "寫下此刻想法";
+"lyric_poster_step_style" = "選擇風格";
+"lyric_poster_step_export" = "匯出分享";
+"lyric_poster_style_retro_letter" = "信箋";
+"lyric_poster_style_spotlight" = "聚光";
+"lyric_poster_style_motion_card" = "歌詞卡";
+"lyric_poster_filter_original" = "原圖";
+"lyric_poster_filter_film" = "底片";
+"lyric_poster_filter_faded" = "舊時光";
+"lyric_poster_filter_sepia" = "暖褐";
+"lyric_poster_filter_mono" = "黑白";
+"lyric_poster_filter_instant" = "拍立得";
+"lyric_poster_effect_none" = "無";
+"lyric_poster_effect_floating" = "浮動歌詞";
+"lyric_poster_effect_zoom" = "專輯縮放";
+"lyric_poster_effect_particles" = "粒子飄散";
+"lyric_poster_effect_waveform" = "聲波律動";

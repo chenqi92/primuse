@@ -3966,3 +3966,37 @@
 "connection_failed_hint_private_address" = "To adres w sieci lokalnej — działa tylko, gdy jesteś w tej samej sieci.";
 "connection_failed_hint_vendor_relay" = "To idzie przez przekaźnik producenta — sprawdź, czy urządzenie jest online i dostęp zdalny jest włączony.";
 "connection_failed_edit_address" = "Zmień adres";
+
+/* Lyric poster: sections, note, filters, motion */
+"lyric_poster_section_style" = "Styl";
+"lyric_poster_section_filter" = "Filtr";
+"lyric_poster_section_effect" = "Ruch";
+"lyric_poster_section_text" = "Tekst";
+"lyric_poster_note" = "Twoja notatka";
+"lyric_poster_note_placeholder" = "Co ta piosenka znaczy dla ciebie teraz?";
+"lyric_poster_note_signature" = "Podpis";
+"lyric_poster_output_still" = "Zdjęcie";
+"lyric_poster_output_live" = "Live Photo";
+"lyric_poster_still_footer" = "Jeden plik PNG w wysokiej jakości, gotowy do każdej aplikacji";
+"lyric_poster_wizard_start" = "Krok po kroku";
+"lyric_poster_wizard_next" = "Dalej";
+"lyric_poster_wizard_back" = "Wstecz";
+"lyric_poster_wizard_skip" = "Pomiń";
+"lyric_poster_step_lines" = "Wybierz wersy";
+"lyric_poster_step_note" = "Napisz notatkę";
+"lyric_poster_step_style" = "Wybierz styl";
+"lyric_poster_step_export" = "Udostępnij";
+"lyric_poster_style_retro_letter" = "List";
+"lyric_poster_style_spotlight" = "Reflektor";
+"lyric_poster_style_motion_card" = "Karta";
+"lyric_poster_filter_original" = "Oryginał";
+"lyric_poster_filter_film" = "Film";
+"lyric_poster_filter_faded" = "Wyblakły";
+"lyric_poster_filter_sepia" = "Sepia";
+"lyric_poster_filter_mono" = "Czarno-biały";
+"lyric_poster_filter_instant" = "Natychmiastowy";
+"lyric_poster_effect_none" = "Brak";
+"lyric_poster_effect_floating" = "Unoszenie";
+"lyric_poster_effect_zoom" = "Powolny zoom";
+"lyric_poster_effect_particles" = "Cząsteczki";
+"lyric_poster_effect_waveform" = "Fala";

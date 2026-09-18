@@ -3966,3 +3966,37 @@
 "connection_failed_hint_private_address" = "Это адрес локальной сети — он работает только в той же сети.";
 "connection_failed_hint_vendor_relay" = "Подключение идёт через ретранслятор производителя — проверьте, что устройство в сети и удалённый доступ включён.";
 "connection_failed_edit_address" = "Изменить адрес";
+
+/* Lyric poster: sections, note, filters, motion */
+"lyric_poster_section_style" = "Стиль";
+"lyric_poster_section_filter" = "Фильтр";
+"lyric_poster_section_effect" = "Движение";
+"lyric_poster_section_text" = "Текст";
+"lyric_poster_note" = "Ваша заметка";
+"lyric_poster_note_placeholder" = "Что для вас значит эта песня сейчас?";
+"lyric_poster_note_signature" = "Подпись";
+"lyric_poster_output_still" = "Фото";
+"lyric_poster_output_live" = "Live Photo";
+"lyric_poster_still_footer" = "Одно изображение PNG высокого качества для любого приложения";
+"lyric_poster_wizard_start" = "Пошагово";
+"lyric_poster_wizard_next" = "Далее";
+"lyric_poster_wizard_back" = "Назад";
+"lyric_poster_wizard_skip" = "Пропустить";
+"lyric_poster_step_lines" = "Выбрать строки";
+"lyric_poster_step_note" = "Написать заметку";
+"lyric_poster_step_style" = "Выбрать стиль";
+"lyric_poster_step_export" = "Поделиться";
+"lyric_poster_style_retro_letter" = "Письмо";
+"lyric_poster_style_spotlight" = "Прожектор";
+"lyric_poster_style_motion_card" = "Карточка";
+"lyric_poster_filter_original" = "Оригинал";
+"lyric_poster_filter_film" = "Плёнка";
+"lyric_poster_filter_faded" = "Выцветший";
+"lyric_poster_filter_sepia" = "Сепия";
+"lyric_poster_filter_mono" = "Ч/б";
+"lyric_poster_filter_instant" = "Моментальный";
+"lyric_poster_effect_none" = "Без анимации";
+"lyric_poster_effect_floating" = "Парение";
+"lyric_poster_effect_zoom" = "Наплыв";
+"lyric_poster_effect_particles" = "Частицы";
+"lyric_poster_effect_waveform" = "Волна";
