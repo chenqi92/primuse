@@ -187,7 +187,7 @@ public enum SourceAddressInputPolicy {
         if treatDotlessTokenAsHostname, isDotlessToken(value) { return nil }
 
         switch sourceType {
-        case .synology:
+        case .synology, .synologyAudioStation:
             guard let id = SynologyQuickConnectResolver.quickConnectID(from: value)
                 ?? schemelessQuickConnectID(in: value) else { return nil }
             return (.synologyQuickConnect, id)

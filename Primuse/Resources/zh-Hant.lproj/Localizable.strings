@@ -4129,3 +4129,16 @@
 "lyric_poster_effect_zoom" = "專輯縮放";
 "lyric_poster_effect_particles" = "粒子飄散";
 "lyric_poster_effect_waveform" = "聲波律動";
+
+/* Synology Audio Station */
+"audio_station_sign_in" = "重新登入";
+"audio_station_error_no_permission" = "此帳號沒有 Audio Station 權限。請在 DSM「控制台 › 應用程式權限」中為它啟用 Audio Station。";
+"audio_station_error_unavailable" = "這台 NAS 沒有安裝或沒有啟用 Audio Station。";
+"audio_station_error_unsupported_version" = "這台 NAS 上的 Audio Station 版本不受支援，請在 DSM 套件中心更新。";
+"audio_station_error_operation_not_permitted" = "此帳號在 Audio Station 中沒有執行此操作的權限。";
+"audio_station_error_session_expired" = "Audio Station 登入已失效，請重試。";
+"audio_station_error_server_busy" = "Audio Station 暫時忙碌，請稍後再試。";
+"audio_station_error_missing_credential" = "請填寫 Audio Station 使用的 DSM 帳號和密碼。";
+"audio_station_error_api_not_found_format" = "Audio Station 缺少所需的介面（錯誤碼 %d）。";
+"audio_station_error_server_format" = "Audio Station 傳回錯誤（錯誤碼 %d）。";
+"audio_station_error_two_factor_required" = "此帳號已啟用兩步驟驗證，請重新登入這個 Audio Station 音樂來源並輸入驗證碼。";

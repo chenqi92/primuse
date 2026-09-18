@@ -4058,3 +4058,16 @@
 "lyric_poster_effect_zoom" = "تقريب بطيء";
 "lyric_poster_effect_particles" = "جسيمات";
 "lyric_poster_effect_waveform" = "موجة صوتية";
+
+/* Synology Audio Station */
+"audio_station_sign_in" = "تسجيل الدخول مرة أخرى";
+"audio_station_error_no_permission" = "لا يمكن لهذا الحساب استخدام Audio Station. في DSM، افتح لوحة التحكم › امتيازات التطبيقات واسمح لهذا الحساب باستخدام Audio Station.";
+"audio_station_error_unavailable" = "لم يتم تثبيت Audio Station على هذا الـ NAS أو أنه لا يعمل.";
+"audio_station_error_unsupported_version" = "إصدار Audio Station هذا غير مدعوم. حدّث الحزمة من مركز الحزم في DSM.";
+"audio_station_error_operation_not_permitted" = "ليس لدى هذا الحساب إذن بتنفيذ هذا الإجراء في Audio Station.";
+"audio_station_error_session_expired" = "انتهت صلاحية جلسة Audio Station. حاول مرة أخرى.";
+"audio_station_error_server_busy" = "Audio Station مشغول حاليًا. حاول مرة أخرى لاحقًا.";
+"audio_station_error_missing_credential" = "أدخل اسم حساب DSM وكلمة المرور المستخدمين في Audio Station.";
+"audio_station_error_api_not_found_format" = "لا يوفّر Audio Station واجهة مطلوبة (الخطأ %d).";
+"audio_station_error_server_format" = "أعاد Audio Station خطأً (الرمز %d).";
+"audio_station_error_two_factor_required" = "يستخدم هذا الحساب التحقق بخطوتين. سجّل الدخول إلى مصدر Audio Station هذا مرة أخرى وأدخل رمز التحقق.";

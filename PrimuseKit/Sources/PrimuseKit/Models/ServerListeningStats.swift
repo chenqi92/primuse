@@ -21,7 +21,7 @@ public extension MusicSourceType {
             return .eventHistoryWithAggregateFallback
         case .synology, .qnap, .ugreen, .fnos,
              .webdav, .smb, .ftp, .sftp, .nfs, .upnp, .s3,
-             .fnMusic, .daoliyu, .songloft,
+             .fnMusic, .daoliyu, .songloft, .synologyAudioStation,
              .baiduPan, .aliyunDrive, .googleDrive, .oneDrive,
              .dropbox, .drime, .pan115, .pan123, .guangya,
              .appleMusic, .local, .appleMusicLibrary:

@@ -4245,3 +4245,16 @@
 "lyric_poster_effect_zoom" = "专辑缩放";
 "lyric_poster_effect_particles" = "粒子飘散";
 "lyric_poster_effect_waveform" = "声波律动";
+
+/* Synology Audio Station */
+"audio_station_sign_in" = "重新登录";
+"audio_station_error_no_permission" = "这个账号没有 Audio Station 权限。请在 DSM「控制面板 › 应用程序权限」里为它开启 Audio Station。";
+"audio_station_error_unavailable" = "这台 NAS 没有安装或没有启用 Audio Station。";
+"audio_station_error_unsupported_version" = "这台 NAS 上的 Audio Station 版本不受支持，请在 DSM 套件中心更新。";
+"audio_station_error_operation_not_permitted" = "这个账号在 Audio Station 里没有执行此操作的权限。";
+"audio_station_error_session_expired" = "Audio Station 登录已失效，请重试。";
+"audio_station_error_server_busy" = "Audio Station 暂时繁忙，请稍后再试。";
+"audio_station_error_missing_credential" = "请填写 Audio Station 使用的 DSM 账号和密码。";
+"audio_station_error_api_not_found_format" = "Audio Station 缺少所需的接口（错误码 %d）。";
+"audio_station_error_server_format" = "Audio Station 返回错误（错误码 %d）。";
+"audio_station_error_two_factor_required" = "这个账号开启了两步验证，请重新登录这个 Audio Station 音乐源并输入验证码。";

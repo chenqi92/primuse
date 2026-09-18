@@ -111,7 +111,7 @@ final class ServerRatingSyncService {
     private func enqueue(_ review: LibraryReview, startImmediately: Bool) {
         guard let target = review.serverRatingTarget,
               let source = sourcesStore.source(id: target.sourceID),
-              source.type == .navidrome, !source.isDeleted,
+              ServerRatingWritebackPolicy.supports(source.type), !source.isDeleted,
               target.accountFingerprint == MusicSourceScopeFingerprint.make(for: source, includeSourceID: true)
         else { return }
         if let existing = entries[target], existing.version >= review.ratingVersion { return }
@@ -190,7 +190,7 @@ final class ServerRatingSyncService {
 
     private func currentSource(for entry: Entry) -> MusicSource? {
         guard let source = sourcesStore.source(id: entry.target.sourceID),
-              source.isEnabled, !source.isDeleted, source.type == .navidrome,
+              source.isEnabled, !source.isDeleted, ServerRatingWritebackPolicy.supports(source.type),
               !MusicSourceSecurityRevision.hasPendingChange(for: source.id),
               MusicSourceSecurityRevision.scopedFingerprint(for: source) == entry.securityFingerprint,
               MusicSourceScopeFingerprint.make(for: source, includeSourceID: true) == entry.target.accountFingerprint
@@ -207,9 +207,10 @@ final class ServerRatingSyncService {
     }
 
     private func hasSong(for target: ServerSongRatingTarget) -> Bool {
-        library.songs.contains { song in
+        guard let sourceType = sourcesStore.source(id: target.sourceID)?.type else { return false }
+        return library.songs.contains { song in
             song.sourceID == target.sourceID && !song.isCueTrack && !song.isStreamDescriptor
-                && ServerFavoriteWritebackPolicy.songID(fromConnectorPath: song.filePath, sourceType: .navidrome) == target.itemID
+                && ServerRatingWritebackPolicy.songID(fromConnectorPath: song.filePath, sourceType: sourceType) == target.itemID
         }
     }
 

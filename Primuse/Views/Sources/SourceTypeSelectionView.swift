@@ -649,7 +649,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
     private func addSourceAndAdvance(_ source: MusicSource) {
         do {
             let continuesToConnection = submitIntent == .continueToConnection
-                && source.type.continuesToDirectorySelectionAfterCreation
+                && source.type.continuesToConnectionAfterCreation
             let defersCommit = continuesToConnection
                 && SourceCreationPersistencePolicy
                     .defersUntilValidatedDirectorySelection(for: source.type)
@@ -1447,6 +1447,8 @@ extension MusicSourceType {
         case .fnMusic: sourceBrandColor(0xF4511E)
         case .daoliyu: sourceBrandColor(0x8E24AA)
         case .songloft: sourceBrandColor(0x7E7E1C)
+        // 与群晖直连同一色相、更深一档:两者会在「我的音乐源」里并排出现。
+        case .synologyAudioStation: sourceBrandColor(0x1A4F7A)
 
         // 网盘
         case .baiduPan: sourceBrandColor(0x2932E1)

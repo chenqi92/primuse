@@ -4058,3 +4058,16 @@
 "lyric_poster_effect_zoom" = "Наплыв";
 "lyric_poster_effect_particles" = "Частицы";
 "lyric_poster_effect_waveform" = "Волна";
+
+/* Synology Audio Station */
+"audio_station_sign_in" = "Войти снова";
+"audio_station_error_no_permission" = "Эта учётная запись не может использовать Audio Station. В DSM откройте «Панель управления › Права приложений» и разрешите Audio Station для этой учётной записи.";
+"audio_station_error_unavailable" = "Audio Station не установлен или не запущен на этом NAS.";
+"audio_station_error_unsupported_version" = "Эта версия Audio Station не поддерживается. Обновите пакет в Центре пакетов DSM.";
+"audio_station_error_operation_not_permitted" = "У этой учётной записи нет прав на это действие в Audio Station.";
+"audio_station_error_session_expired" = "Сеанс Audio Station истёк. Повторите попытку.";
+"audio_station_error_server_busy" = "Audio Station сейчас занят. Повторите попытку позже.";
+"audio_station_error_missing_credential" = "Введите имя учётной записи DSM и пароль для Audio Station.";
+"audio_station_error_api_not_found_format" = "В Audio Station нет нужного интерфейса (ошибка %d).";
+"audio_station_error_server_format" = "Audio Station вернул ошибку (код %d).";
+"audio_station_error_two_factor_required" = "Для этой учётной записи включена двухэтапная проверка. Войдите в этот источник Audio Station снова и введите код подтверждения.";

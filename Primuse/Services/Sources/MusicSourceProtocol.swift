@@ -906,14 +906,14 @@ struct LyricsSidecarTarget: Sendable, Equatable {
     /// uploaded item's own opaque ID.
     let existingPath: String?
     let existingSize: Int64?
-    /// Address of `<base>.lrc` beside a read-only document. Only a provider
+    /// Address of the `<base>.ttml`/`.lrc` beside a read-only document. Only a provider
     /// whose `targetPath` is an encoded address supplies it; a plain path or
     /// an ID-plus-suffix address is rewritten textually instead.
     let writableSiblingPath: String?
     /// The song's own base name. A language-tagged document such as
-    /// `song.en.vtt` is saved as `song.lrc`, and the base cannot be guessed
+    /// `song.en.vtt` is saved as `song.ttml`, and the base cannot be guessed
     /// from the document's name: a song genuinely called `A.en` would lose its
-    /// sidecar to `A.lrc`.
+    /// sidecar to `A.ttml`.
     let songBaseName: String?
     /// Address of the track that translates an `-orig` subtitle document. It
     /// rides along with the read view because this is the only place that has
@@ -1046,9 +1046,9 @@ enum LyricsSidecarTargetPolicy {
 
     /// The write view of the same document. Sidecar writeback serializes LRC
     /// or TTML, so a read-only document is never the file that gets replaced:
-    /// the save creates `<base>.lrc` next to it and leaves it untouched. The
-    /// translated companion is not part of a save either, so the write view
-    /// does not carry it.
+    /// the save creates `<base>.ttml` (or `.lrc` beside an `.elrc`) next to
+    /// it and leaves it untouched. The translated companion is not part of a
+    /// save either, so the write view does not carry it.
     static func writeTarget(for target: LyricsSidecarTarget) throws -> LyricsSidecarTarget {
         guard !LyricsSidecarSelectionPolicy.isWritableDocument(fileName: target.fileName) else {
             return target

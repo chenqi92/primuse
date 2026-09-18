@@ -155,7 +155,7 @@ struct SourceConnectionRouteStrip: View {
         case .publicAddress:
             "source_connection_public_direct"
         case .vendorRemote:
-            source.type == .synology
+            source.type.usesSynologyConnectionMode
                 ? "synology_connection_quickconnect"
                 : "fnmusic_connection_fnconnect"
         }
@@ -797,6 +797,17 @@ struct SourcesContentView: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.red)
                         Spacer(minLength: 8)
+                        if source.type == .synologyAudioStation {
+                            // 设备令牌失效后后台登录会卡在两步验证上,只有这里能再输一次验证码。
+                            Button {
+                                connectingSource = source
+                            } label: {
+                                Label("audio_station_sign_in", systemImage: "person.badge.key")
+                                    .font(.caption2.weight(.semibold))
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Color.accentColor)
+                        }
                         Button {
                             diagnosingSource = source
                         } label: {
@@ -1015,6 +1026,11 @@ struct SourcesContentView: View {
             // 但它跟其它音乐源一样可以移除:移除即取消授权同步并清掉同步产物。
             if source.id != AppleMusicLibraryService.systemSourceID {
                 Button { editingSource = source } label: { Label("edit", systemImage: "pencil") }
+                if source.type == .synologyAudioStation {
+                    Button { connectingSource = source } label: {
+                        Label("audio_station_sign_in", systemImage: "person.badge.key")
+                    }
+                }
                 Button { diagnosingSource = source } label: { Label("source_diagnostics", systemImage: "stethoscope") }
                 if source.type.scansEntireLibrary || !dirs.isEmpty {
                     Button {
@@ -1801,7 +1817,7 @@ struct SourcesContentView: View {
         for routedSource in routedSources {
             let usesHTTP: Bool
             switch routedSource.type {
-            case .synology:
+            case .synology, .synologyAudioStation:
                 usesHTTP = routedSource.effectiveSynologyConnectionMode == .address
             case .qnap, .ugreen, .fnos, .webdav, .s3,
                  .jellyfin, .emby, .plex,
@@ -2074,7 +2090,7 @@ struct SourcesContentView: View {
                 systemImage: "folder.badge.plus",
                 description: Text("local_import_section_footer")
             )
-        case .synology:
+        case .synology, .synologyAudioStation:
             ConnectionFlowView(
                 source: source,
                 selectedDirectories: selectedDirectories,
@@ -2119,7 +2135,14 @@ struct SourcesContentView: View {
                         return false
                     }
                 },
-                onEditAddress: onEditAddress
+                onEditAddress: onEditAddress,
+                onAudioStationReady: {
+                    // 先让连接器按刚存下的设备令牌重建,再扫描整库。
+                    Task { @MainActor in
+                        await sourceManager.refreshConnector(for: source.id)
+                        startSourceScan(currentSource(for: source))
+                    }
+                }
             )
         case .smb:
             SMBBrowserView(

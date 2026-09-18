@@ -4058,3 +4058,16 @@
 "lyric_poster_effect_zoom" = "ซูมช้า";
 "lyric_poster_effect_particles" = "อนุภาค";
 "lyric_poster_effect_waveform" = "คลื่นเสียง";
+
+/* Synology Audio Station */
+"audio_station_sign_in" = "ลงชื่อเข้าใช้อีกครั้ง";
+"audio_station_error_no_permission" = "บัญชีนี้ใช้ Audio Station ไม่ได้ ใน DSM ให้เปิด แผงควบคุม › สิทธิ์แอปพลิเคชัน แล้วอนุญาต Audio Station ให้บัญชีนี้";
+"audio_station_error_unavailable" = "NAS นี้ไม่ได้ติดตั้งหรือไม่ได้เปิดใช้ Audio Station";
+"audio_station_error_unsupported_version" = "ไม่รองรับ Audio Station เวอร์ชันนี้ โปรดอัปเดตแพ็กเกจในศูนย์แพ็กเกจของ DSM";
+"audio_station_error_operation_not_permitted" = "บัญชีนี้ไม่มีสิทธิ์ทำการนี้ใน Audio Station";
+"audio_station_error_session_expired" = "เซสชัน Audio Station หมดอายุแล้ว โปรดลองอีกครั้ง";
+"audio_station_error_server_busy" = "Audio Station ไม่ว่างในขณะนี้ โปรดลองอีกครั้งภายหลัง";
+"audio_station_error_missing_credential" = "ป้อนชื่อบัญชี DSM และรหัสผ่านที่ใช้กับ Audio Station";
+"audio_station_error_api_not_found_format" = "Audio Station ไม่มีอินเทอร์เฟซที่จำเป็น (ข้อผิดพลาด %d)";
+"audio_station_error_server_format" = "Audio Station ส่งข้อผิดพลาดกลับมา (รหัส %d)";
+"audio_station_error_two_factor_required" = "บัญชีนี้ใช้การยืนยันแบบสองขั้นตอน โปรดลงชื่อเข้าใช้แหล่ง Audio Station นี้อีกครั้งแล้วป้อนรหัสยืนยัน";

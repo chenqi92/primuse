@@ -519,7 +519,7 @@ struct SourceConnectionFailureReport: Equatable, Sendable {
     ) -> Bool {
         if candidateKind == .vendorRemote { return true }
         switch source.type {
-        case .synology: return source.effectiveSynologyConnectionMode == .quickConnect
+        case .synology, .synologyAudioStation: return source.effectiveSynologyConnectionMode == .quickConnect
         case .fnMusic: return source.effectiveFnMusicConnectionMode == .fnConnect
         default: return false
         }

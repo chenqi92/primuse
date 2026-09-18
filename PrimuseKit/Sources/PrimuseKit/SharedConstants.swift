@@ -718,7 +718,7 @@ public enum RangeStreamingPrefetchPolicy {
         switch sourceType {
         case .oneDrive, .ftp:
             return 0
-        case .webdav, .synology:
+        case .webdav, .synology, .synologyAudioStation:
             return min(1, max(0, defaultValue))
         default:
             return max(0, defaultValue)
@@ -732,7 +732,7 @@ public enum RangeStreamingPrefetchPolicy {
         for sourceType: MusicSourceType
     ) -> Bool {
         switch sourceType {
-        case .webdav, .synology, .jellyfin, .emby, .plex:
+        case .webdav, .synology, .synologyAudioStation, .jellyfin, .emby, .plex:
             return true
         default:
             return false
@@ -775,7 +775,8 @@ public enum RangeStreamingPrefetchPolicy {
     /// trailing-fill threshold.
     public static func allowsAutomaticTrailingFill(for sourceType: MusicSourceType) -> Bool {
         switch sourceType {
-        case .oneDrive, .ftp, .webdav, .synology:
+        // Audio Station 与群晖直连落在同一台 DSM 的 CGI 上,保持同样的按需读取。
+        case .oneDrive, .ftp, .webdav, .synology, .synologyAudioStation:
             return false
         default:
             return true
@@ -1633,6 +1634,33 @@ public enum ServerFavoriteWritebackPolicy {
         let itemID = (fileName as NSString).deletingPathExtension
         guard !itemID.isEmpty, itemID != ".", itemID != ".." else { return nil }
         return itemID
+    }
+}
+
+/// Which sources accept a song rating written back from Primuse, and how the
+/// server song id is recovered from `Song.filePath`. Like favorites, a rating
+/// mutation must never be sent to an id that is not a catalogue song.
+public enum ServerRatingWritebackPolicy {
+    public static func supports(_ sourceType: MusicSourceType) -> Bool {
+        sourceType == .navidrome || sourceType == .synologyAudioStation
+    }
+
+    public static func songID(
+        fromConnectorPath filePath: String,
+        sourceType: MusicSourceType
+    ) -> String? {
+        switch sourceType {
+        case .navidrome:
+            return ServerFavoriteWritebackPolicy.songID(
+                fromConnectorPath: filePath,
+                sourceType: sourceType
+            )
+        case .synologyAudioStation:
+            // 只认连接器写出的 `/songs/<目录曲目 id>.<扩展名>`。
+            return SynologyAudioStationAPI.songID(fromTrackPath: filePath)
+        default:
+            return nil
+        }
     }
 }
 

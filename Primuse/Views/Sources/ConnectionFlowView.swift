@@ -15,6 +15,9 @@ struct ConnectionFlowView: View {
     /// sheet、再打开该源的编辑表单全由宿主负责。宿主没有可回去的表单时传 nil,
     /// 按钮就不出现。
     var onEditAddress: (() -> Void)?
+    /// Audio Station 登录并确认权限之后调用:它没有目录可选,宿主在这里开始整库扫描,
+    /// 这个视图随后自行关闭。
+    var onAudioStationReady: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
     @State private var step: FlowStep = .connecting
@@ -516,7 +519,7 @@ struct ConnectionFlowView: View {
         step = .connecting
         connectionTask?.cancel()
         connectionTask = Task { @MainActor in
-            await connectSynology(otpCode: nil, overridePassword: pwd)
+            await connectCurrentSource(otpCode: nil, overridePassword: pwd)
         }
     }
 
@@ -585,8 +588,33 @@ struct ConnectionFlowView: View {
         connectionTask = Task { @MainActor in
             switch source.type {
             case .synology: await connectSynology(otpCode: nil)
+            case .synologyAudioStation: await connectAudioStation(otpCode: nil)
             default: withAnimation { step = .browsing }
             }
+        }
+    }
+
+    /// 验证码、改密码与换路由之后的重试都回到这个源自己的登录流程。
+    private func connectCurrentSource(
+        otpCode: String?,
+        overridePassword: String? = nil,
+        candidate: SourceConnectionCandidate? = nil,
+        attemptedKinds: Set<SourceConnectionCandidateKind> = []
+    ) async {
+        if source.type == .synologyAudioStation {
+            await connectAudioStation(
+                otpCode: otpCode,
+                overridePassword: overridePassword,
+                candidate: candidate,
+                attemptedKinds: attemptedKinds
+            )
+        } else {
+            await connectSynology(
+                otpCode: otpCode,
+                overridePassword: overridePassword,
+                candidate: candidate,
+                attemptedKinds: attemptedKinds
+            )
         }
     }
 
@@ -853,7 +881,7 @@ struct ConnectionFlowView: View {
         await SourceConnectionRuntime.shared.invalidate(sourceID: source.id)
         let ordered = source.connectionCandidates
         if let next = ordered.first(where: { attempted.contains($0.kind) == false }) {
-            await connectSynology(
+            await connectCurrentSource(
                 otpCode: otpCode,
                 overridePassword: overridePassword,
                 candidate: next,
@@ -875,8 +903,214 @@ struct ConnectionFlowView: View {
         let candidate = pendingPasswordCandidate
         connectionTask?.cancel()
         connectionTask = Task { @MainActor in
-            await connectSynology(otpCode: otpCode, overridePassword: candidate)
+            await connectCurrentSource(otpCode: otpCode, overridePassword: candidate)
         }
+    }
+
+    // MARK: - Audio Station
+
+    /// Audio Station 版的登录:两步验证、受信设备、改密码、证书与明文信任、换路由
+    /// 都和群晖直连共用这一套界面。登录后确认账号有 Audio Station 权限,不进
+    /// 目录浏览 —— 交给宿主去扫描整库。
+    private func connectAudioStation(
+        otpCode: String?,
+        overridePassword: String? = nil,
+        candidate explicitCandidate: SourceConnectionCandidate? = nil,
+        attemptedKinds: Set<SourceConnectionCandidateKind> = []
+    ) async {
+        guard !Task.isCancelled else { return }
+        let candidate: SourceConnectionCandidate?
+        if let explicitCandidate {
+            candidate = explicitCandidate
+        } else if source.connectionConfiguration != nil {
+            let ordered = await SourceConnectionRuntime.shared.orderedCandidates(for: source)
+            if (otpCode != nil || overridePassword != nil),
+               let activeSynologyCandidateKind,
+               let active = ordered.first(where: { $0.kind == activeSynologyCandidateKind }) {
+                candidate = active
+            } else {
+                candidate = ordered.first(where: { attemptedKinds.contains($0.kind) == false })
+            }
+        } else {
+            candidate = nil
+        }
+
+        if source.connectionConfiguration != nil, candidate == nil {
+            pendingPasswordCandidate = nil
+            errorMessage = String(localized: "source_connection_no_route")
+            failureCause = .address
+            withAnimation { step = .failed }
+            return
+        }
+
+        let connectionSource = candidate.map(source.applyingConnectionCandidate) ?? source
+        activeSynologySource = connectionSource
+        activeSynologyCandidateKind = candidate?.kind
+
+        let password: String
+        if let overridePassword {
+            password = overridePassword
+        } else {
+            switch KeychainService.passwordLookup(for: source.id) {
+            case .found(let savedPassword):
+                password = savedPassword
+            case .notFound:
+                errorMessage = String(localized: "password_required_title")
+                withAnimation { step = .password }
+                return
+            case .temporarilyUnavailable(let status):
+                plog("⏳ Audio Station connection deferred: credential temporarily unavailable status=\(status)")
+                errorMessage = String(localized: "credential_temporarily_unavailable")
+                failureCause = .other
+                withAnimation { step = .failed }
+                return
+            case .failed(let status):
+                plog("⛔ Audio Station connection stopped: credential read failed status=\(status)")
+                errorMessage = String(localized: "credential_read_failed")
+                failureCause = .other
+                withAnimation { step = .failed }
+                return
+            }
+        }
+
+        // 连接器自己的传输:证书交给 SmartSSLDelegate 当场询问,公网明文交给
+        // TrustedHTTPTransport 询问,拒绝时以错误回来。
+        let connector = SynologyAudioStationSource(
+            source: connectionSource,
+            password: password,
+            deviceName: rememberDevice ? AppConstants.trustedDeviceName : nil
+        )
+        let deviceID: String?
+        do {
+            deviceID = try await connector.signIn(otp: otpCode)
+        } catch {
+            await connector.disconnect()
+            guard !Task.isCancelled else { return }
+            await handleAudioStationFailure(
+                error,
+                candidate: candidate,
+                attemptedKinds: attemptedKinds,
+                otpCode: otpCode,
+                overridePassword: overridePassword
+            )
+            return
+        }
+        await connector.disconnect()
+        guard !Task.isCancelled else { return }
+
+        if let validatedPassword = NetworkCredentialPolicy.validatedReplacement(
+            candidate: overridePassword,
+            loginSucceeded: true,
+            browserReady: true
+        ) {
+            guard onPasswordWillChange?() != false else {
+                pendingPasswordCandidate = nil
+                errorMessage = String(localized: "synology_password_update_save_failed")
+                withAnimation { step = .password }
+                return
+            }
+            guard KeychainService.setPassword(validatedPassword, for: source.id) else {
+                onPasswordSaveUncertain?()
+                plog("⚠️ Audio Station credential replacement could not be conclusively persisted; prepared scope remains blocked source=\(source.id.prefix(8))…")
+                pendingPasswordCandidate = nil
+                errorMessage = String(localized: "synology_password_update_save_failed")
+                withAnimation { step = .password }
+                return
+            }
+            guard await onPasswordSaved?() != false else {
+                pendingPasswordCandidate = nil
+                errorMessage = String(localized: "synology_password_update_save_failed")
+                withAnimation { step = .password }
+                return
+            }
+            plog("✅ Audio Station credential replacement persisted after sign-in validation source=\(source.id.prefix(8))…")
+            pendingPasswordCandidate = nil
+            passwordInput = ""
+        }
+
+        onDeviceTrustSaved?(rememberDevice, deviceID)
+        if let candidate {
+            await SourceConnectionRuntime.shared.record(candidate.kind, for: source.id)
+        }
+        SourceAuthAlert.clear(sourceID: source.id)
+        onAudioStationReady?()
+        dismiss()
+    }
+
+    private func handleAudioStationFailure(
+        _ error: Error,
+        candidate: SourceConnectionCandidate?,
+        attemptedKinds: Set<SourceConnectionCandidateKind>,
+        otpCode: String?,
+        overridePassword: String?
+    ) async {
+        if let domain = SSLTrustStore.sslErrorDomain(from: error) {
+            let trusted = await promptSSLTrust(domain: domain)
+            guard !Task.isCancelled else { return }
+            if trusted {
+                await connectAudioStation(
+                    otpCode: otpCode,
+                    overridePassword: overridePassword,
+                    candidate: candidate,
+                    attemptedKinds: attemptedKinds
+                )
+                return
+            }
+        }
+
+        if let failure = error as? SynologyAudioStationError {
+            switch failure {
+            case .twoFactorRequired, .invalidOneTimePassword:
+                if let candidate {
+                    await SourceConnectionRuntime.shared.record(candidate.kind, for: source.id)
+                }
+                // 第一次撞上两步验证不算出错;输过验证码仍被拒才提示。
+                if otpCode != nil {
+                    errorMessage = failure.localizedDescription
+                    self.otpCode = ""
+                } else {
+                    // 扫描与播放都由后台连接器重新登录,拿不到受信设备令牌就会
+                    // 每次卡在验证码上。默认勾上「记住此设备」,用户仍可取消。
+                    rememberDevice = true
+                }
+                withAnimation { step = .otp }
+                return
+            case .invalidCredentials, .missingCredential:
+                // 只有账号密码能靠重新输入解决。
+                pendingPasswordCandidate = nil
+                errorMessage = failure.localizedDescription
+                withAnimation { step = .password }
+                return
+            case .invalidURL, .invalidResponse, .badServerResponse:
+                // 对面不是一台能用的 DSM(端口、前缀或反代不对),换下一条路由再说。
+                break
+            default:
+                // DSM 已经应答并给了原因(没有权限、账号停用、没装 Audio Station…),
+                // 地址是对的,换路由也没用。
+                pendingPasswordCandidate = nil
+                errorMessage = failure.localizedDescription
+                failureCause = .other
+                withAnimation { step = .failed }
+                return
+            }
+        }
+
+        if error is TrustedHTTPTransportError {
+            // 用户拒绝了明文连接: 换成 https 的地址就是正当出路。
+            pendingPasswordCandidate = nil
+            errorMessage = error.localizedDescription
+            failureCause = .address
+            withAnimation { step = .failed }
+            return
+        }
+
+        await handleSynologyRouteFailure(
+            error,
+            candidate: candidate,
+            attemptedKinds: attemptedKinds,
+            otpCode: otpCode,
+            overridePassword: overridePassword
+        )
     }
 }
 

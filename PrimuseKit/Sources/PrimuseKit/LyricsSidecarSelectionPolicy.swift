@@ -207,9 +207,9 @@ public enum LyricsSidecarSelectionPolicy {
         }
         guard let best else {
             // Nothing carries the song's exact name, so the language suffix is
-            // consulted last — never before it, because `song.lrc` is still
-            // what the user edited and `song.en.vtt` only what came with the
-            // download.
+            // consulted last — never before it, because an exact-name
+            // `song.ttml` or `song.lrc` is what the user edited and
+            // `song.en.vtt` only what came with the download.
             return languageTaggedDocument(
                 baseName: baseName,
                 names: names,
@@ -220,9 +220,10 @@ public enum LyricsSidecarSelectionPolicy {
     }
 
     /// The writable document that replaces a read-only one. A save creates
-    /// `<base>.lrc` next to the source document instead of overwriting it.
-    /// Returns nil when `targetPath` does not actually end in the document's
-    /// extension, because the caller then has no address it may safely rewrite.
+    /// `<base>.ttml` or `<base>.lrc` next to the source document instead of
+    /// overwriting it. Returns nil when `targetPath` does not actually end in
+    /// the document's extension, because the caller then has no address it may
+    /// safely rewrite.
     public static func writableReplacement(
         targetPath: String,
         fileName: String,
@@ -230,7 +231,7 @@ public enum LyricsSidecarSelectionPolicy {
     ) -> (targetPath: String, fileName: String)? {
         let replacementName = writableFileName(replacing: fileName, baseName: baseName)
         // A language-tagged document drops its tag, so the whole name has to
-        // go: `song.en.vtt` becomes `song.lrc`, never `song.en.lrc`.
+        // go: `song.en.vtt` becomes `song.ttml`, never `song.en.ttml`.
         if baseName != nil,
            !fileName.isEmpty,
            targetPath.count >= fileName.count,
@@ -248,7 +249,8 @@ public enum LyricsSidecarSelectionPolicy {
             return nil
         }
         return (
-            targetPath: String(targetPath.dropLast(suffix.count)) + ".lrc",
+            targetPath: String(targetPath.dropLast(suffix.count))
+                + "." + writableExtension(replacing: fileName),
             fileName: replacementName
         )
     }
@@ -261,8 +263,18 @@ public enum LyricsSidecarSelectionPolicy {
         replacing fileName: String,
         baseName: String? = nil
     ) -> String {
-        if let baseName, !baseName.isEmpty { return baseName + ".lrc" }
-        return (fileName as NSString).deletingPathExtension + ".lrc"
+        let stem = (baseName?.isEmpty == false ? baseName : nil)
+            ?? (fileName as NSString).deletingPathExtension
+        return stem + "." + writableExtension(replacing: fileName)
+    }
+
+    /// The format a save uses beside a read-only document. Subtitle cues carry
+    /// a window per line and the word-timed formats carry explicit word ends;
+    /// LRC holds neither, and a save that had to go through LRC would be kept
+    /// in Primuse's local store instead of reaching the source. TTML keeps all
+    /// of it. Enhanced LRC is LRC already, so it stays with `.lrc`.
+    public static func writableExtension(replacing fileName: String) -> String {
+        fileExtension(of: fileName) == "elrc" ? "lrc" : "ttml"
     }
 
     private static func fileExtension(of fileName: String) -> String {

@@ -2086,7 +2086,8 @@ struct SongListView: View {
         case .appleMusic, .appleMusicLibrary: return Color(red: 0.64, green: 0.48, blue: 0.96)
         case .synology, .qnap, .ugreen, .fnos: return Color(red: 0.31, green: 0.68, blue: 0.95)
         case .webdav, .smb, .ftp, .sftp, .nfs, .upnp, .s3: return Color(red: 0.45, green: 0.82, blue: 0.56)
-        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .songloft:
+        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .songloft,
+             .synologyAudioStation:
             return Color(red: 0.98, green: 0.66, blue: 0.28)
         case .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .drime, .pan115, .pan123,
              .guangya: return Color(red: 0.42, green: 0.68, blue: 0.96)

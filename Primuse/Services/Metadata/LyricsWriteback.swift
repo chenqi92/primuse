@@ -44,7 +44,8 @@ enum LyricsWriteback {
     enum Mode: Equatable, Sendable {
         /// 还在探测。
         case checking
-        /// 写同目录的歌词 sidecar 文件（新文件默认 LRC，已有 TTML 保持 TTML）。
+        /// 写同目录的歌词 sidecar 文件（新文件默认 LRC，已有 TTML 保持 TTML；
+        /// 旁边是 .vtt/.lys 这类只读文档时另存 TTML，不改写它）。
         case sidecar(SidecarWriteService.LyricsPreflightResult)
         /// 走媒体服务器的写回接口(Jellyfin 等)。
         case mediaServer

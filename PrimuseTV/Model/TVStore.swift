@@ -1139,7 +1139,8 @@ final class TVStore {
                          availabilityNote: s.type.isAwaitingPublicAPI ? s.type.subtitle : nil,
                          playability: playability(for: s),
                          canEnterCredential: !s.type.isAwaitingPublicAPI && Self.manualCredentialTypes.contains(s.type),
-                         supports2FA: !s.type.isAwaitingPublicAPI && s.type.supports2FA,
+                         supports2FA: !s.type.isAwaitingPublicAPI && s.type.supports2FA
+                            && StreamResolverRegistry.tvSupportedTypes.contains(s.type),
                          canScan: canScan,
                          initialScanState: TVSourceInitialScanPolicy.state(
                             canScan: canScan,
@@ -2218,7 +2219,10 @@ final class TVStore {
     private func refreshVisibility() {
         let known = Set(sourcesStore.allSources.map(\.id))
         let orphaned = Set(library.songs.map(\.sourceID)).subtracting(known)
-        let hidden = Set(sourcesStore.allSources.filter { $0.isDeleted || !$0.isEnabled }.map(\.id))
+        // 电视端还解析不了的类型(如尚未接入的群晖 Audio Station),它的歌同样不显示。
+        let hidden = Set(sourcesStore.allSources.filter {
+            $0.isDeleted || !$0.isEnabled || !StreamResolverRegistry.tvSupportedTypes.contains($0.type)
+        }.map(\.id))
             .union(locallyRemovedSourceIDs).union(orphaned)
         library.updateDisabledSourceIDs(hidden)
         rebuildLookupCaches()

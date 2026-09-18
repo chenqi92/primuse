@@ -4152,3 +4152,16 @@
 "lyric_poster_effect_zoom" = "Zoom lent";
 "lyric_poster_effect_particles" = "Particules";
 "lyric_poster_effect_waveform" = "Onde sonore";
+
+/* Synology Audio Station */
+"audio_station_sign_in" = "Se reconnecter";
+"audio_station_error_no_permission" = "Ce compte ne peut pas utiliser Audio Station. Dans DSM, ouvrez Panneau de configuration › Privilèges d’application et autorisez Audio Station pour ce compte.";
+"audio_station_error_unavailable" = "Audio Station n’est pas installé ou ne fonctionne pas sur ce NAS.";
+"audio_station_error_unsupported_version" = "Cette version d’Audio Station n’est pas prise en charge. Mettez le paquet à jour dans le Centre de paquets de DSM.";
+"audio_station_error_operation_not_permitted" = "Ce compte n’a pas l’autorisation d’effectuer cette action dans Audio Station.";
+"audio_station_error_session_expired" = "La session Audio Station a expiré. Réessayez.";
+"audio_station_error_server_busy" = "Audio Station est occupé pour le moment. Réessayez plus tard.";
+"audio_station_error_missing_credential" = "Saisissez le nom de compte DSM et le mot de passe utilisés pour Audio Station.";
+"audio_station_error_api_not_found_format" = "Audio Station ne fournit pas une interface nécessaire (erreur %d).";
+"audio_station_error_server_format" = "Audio Station a renvoyé une erreur (code %d).";
+"audio_station_error_two_factor_required" = "Ce compte utilise l’authentification à deux facteurs. Reconnectez-vous à cette source Audio Station et saisissez un code de vérification.";

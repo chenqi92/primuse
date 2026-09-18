@@ -67,6 +67,10 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     /// 避免将目前只提供 ping 的兼容路由误当成完整 Subsonic 实现。
     case daoliyu
     case songloft
+    /// 群晖 Audio Station(DSM 的音乐套件)。与 `.synology`(经 File Station
+    /// 浏览文件夹)是两种源:这里连的是音乐服务本身,整库元数据、歌单与评分都
+    /// 来自服务端。rawValue 会写进同步记录,发布后不能改名。
+    case synologyAudioStation
 
     // Cloud Drives
     case baiduPan
@@ -113,6 +117,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .fnMusic:
             return String(localized: "src.displayName.fnMusic", bundle: Bundle.primuseKit)
         case .songloft: return "Songloft"
+        case .synologyAudioStation: return "Synology Audio Station"
         case .daoliyu:
             return String(localized: "src.displayName.daoliyu", bundle: Bundle.primuseKit)
         case .webdav: return "WebDAV"
@@ -159,6 +164,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .fnos: return "xserve"
         case .fnMusic: return "music.note.list"
         case .songloft: return "music.note.house"
+        case .synologyAudioStation: return "music.note.house"
         case .daoliyu: return "music.note.house"
         case .webdav: return "globe"
         case .smb: return "network"
@@ -240,6 +246,13 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     /// 整库扫描, 但走 iTunesLibrary 而非 connector "/" 流程, 故不在此列。
     public var isServerLibrary: Bool {
         isMediaServer || isSubsonicFamily || self == .fnMusic || self == .daoliyu || self == .songloft
+            || self == .synologyAudioStation
+    }
+
+    /// 连接入口沿用群晖的「QuickConnect / 直连地址」两种模式(`synologyConnectionMode`)。
+    /// File Station 与 Audio Station 在同一台 DSM 上,地址、端口与 QuickConnect ID 一致。
+    public var usesSynologyConnectionMode: Bool {
+        self == .synology || self == .synologyAudioStation
     }
 
     /// Whether this source exposes a server/file-system operation that really
@@ -248,7 +261,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     public var supportsFileDeletion: Bool {
         switch self {
         case .upnp, .subsonic, .navidrome, .airsonic, .gonic, .fnos, .fnMusic, .daoliyu, .songloft,
-             .guangya, .appleMusic, .appleMusicLibrary:
+             .synologyAudioStation, .guangya, .appleMusic, .appleMusicLibrary:
             return false
         default:
             return true
@@ -274,10 +287,18 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     /// directly instead of a "connect & pick directories" flow.
     public var scansEntireLibrary: Bool {
         switch self {
-        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .songloft: return true   // server-side library
+        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .songloft,
+             .synologyAudioStation: return true   // server-side library
         case .local, .appleMusicLibrary: return true // already scoped by basePath / library
         default: return false
         }
+    }
+
+    /// 新建后要不要接着进连接页。选目录的类型之外,Audio Station 也要:
+    /// 两步验证只能在那一页输入验证码,顺带申请受信设备令牌;它不选目录,
+    /// 登录确认后直接扫描整库。
+    public var continuesToConnectionAfterCreation: Bool {
+        continuesToDirectorySelectionAfterCreation || self == .synologyAudioStation
     }
 
     /// Sources that can hand off from creation to the existing connection and
@@ -299,7 +320,8 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         switch self {
         case .synology, .qnap, .ugreen, .fnos: return .nas
         case .webdav, .smb, .ftp, .sftp, .nfs, .upnp, .s3: return .protocol
-        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .songloft:
+        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .songloft,
+             .synologyAudioStation:
             return .mediaServer
         case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .drime, .pan115, .pan123,
              .guangya: return .cloudDrive
@@ -316,6 +338,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .fnos: return 5666
         case .fnMusic: return 5666
         case .songloft: return 58091
+        case .synologyAudioStation: return 5001
         case .daoliyu: return 4000
         case .webdav: return 443
         case .smb: return 445
@@ -361,7 +384,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
             return useSsl ? 443 : 80
         case .jellyfin, .emby:
             return useSsl ? 8920 : 8096
-        case .synology:
+        case .synology, .synologyAudioStation:
             return useSsl ? 5001 : 5000
         case .qnap:
             return useSsl ? 443 : 8080
@@ -376,8 +399,8 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
 
     public var defaultSSL: Bool {
         switch self {
-        case .synology, .webdav, .s3, .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox,
-             .drime, .pan115, .pan123, .guangya: return true
+        case .synology, .synologyAudioStation, .webdav, .s3, .baiduPan, .aliyunDrive, .googleDrive,
+             .oneDrive, .dropbox, .drime, .pan115, .pan123, .guangya: return true
         default: return false
         }
     }
@@ -398,7 +421,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         switch self {
         case .synology, .qnap, .ugreen, .webdav, .smb, .ftp, .sftp, .nfs, .s3,
              .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic,
-             .fnMusic, .daoliyu, .songloft:
+             .fnMusic, .daoliyu, .songloft, .synologyAudioStation:
             return true
         default:
             return false
@@ -412,7 +435,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         switch self {
         case .synology, .qnap, .ugreen, .webdav, .jellyfin, .emby, .plex,
              .subsonic, .navidrome, .airsonic, .gonic,
-             .fnMusic, .daoliyu, .songloft:
+             .fnMusic, .daoliyu, .songloft, .synologyAudioStation:
             return true
         default:
             return false
@@ -428,7 +451,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     }
 
     public var supportsVendorRemoteAccess: Bool {
-        self == .synology || self == .fnMusic
+        usesSynologyConnectionMode || self == .fnMusic
     }
 
     /// Whether the address a user types is reached over HTTP(S). These are the
@@ -440,7 +463,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .synology, .qnap, .ugreen, .fnos, .webdav, .s3,
              .jellyfin, .emby, .plex,
              .subsonic, .navidrome, .airsonic, .gonic,
-             .fnMusic, .daoliyu, .songloft:
+             .fnMusic, .daoliyu, .songloft, .synologyAudioStation:
             return true
         default:
             return false
@@ -474,6 +497,9 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
             || self == .fnMusic
             || self == .daoliyu
             || self == .songloft
+            // `method=stream` 回原文件字节。服务端若不认 Range(回 200),连接器
+            // 改走整曲下载再切片,播放与离线都不会拿到错位的字节。
+            || self == .synologyAudioStation
             || self == .s3
             || self == .smb
             || self == .sftp
@@ -516,7 +542,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
 
     public var supports2FA: Bool {
         switch self {
-        case .synology, .qnap, .ugreen, .fnos: return true
+        case .synology, .qnap, .ugreen, .fnos, .synologyAudioStation: return true
         default: return false
         }
     }
@@ -524,6 +550,8 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     public var subtitle: String {
         switch self {
         case .synology: return "DSM 6/7, OTP"
+        case .synologyAudioStation:
+            return String(localized: "src.subtitle.synologyAudioStation", bundle: Bundle.primuseKit)
         case .qnap: return "QTS/QuTS"
         case .ugreen, .fnos:
             return String(localized: "src.subtitle.awaitingPublicAPI", bundle: Bundle.primuseKit)
@@ -1667,7 +1695,7 @@ public extension MusicSource {
             return SourceConnectionConfiguration()
         }
 
-        if type == .synology, effectiveSynologyConnectionMode == .quickConnect {
+        if type.usesSynologyConnectionMode, effectiveSynologyConnectionMode == .quickConnect {
             return SourceConnectionConfiguration(
                 remoteAccessMode: .vendor,
                 vendorIdentifier: trimmedHost
@@ -1750,15 +1778,17 @@ public extension MusicSource {
             if type.supportsEndpointSpecificPath {
                 projected.basePath = endpoint.pathPrefix
             }
-            if type == .synology { projected.synologyConnectionMode = .address }
+            if type.usesSynologyConnectionMode { projected.synologyConnectionMode = .address }
             if type == .fnMusic { projected.fnMusicConnectionMode = .address }
         case .vendorRemote:
             guard let identifier = candidate.vendorIdentifier else { return projected }
             projected.host = identifier
             projected.port = type.defaultPort(useSsl: true)
             projected.useSsl = true
-            if type == .synology {
+            if type.usesSynologyConnectionMode {
                 projected.synologyConnectionMode = .quickConnect
+                // QuickConnect 解析出的就是 DSM 根地址,反代前缀只属于直连端点。
+                if type == .synologyAudioStation { projected.basePath = nil }
             } else if type == .fnMusic {
                 projected.fnMusicConnectionMode = .fnConnect
                 projected.basePath = nil
@@ -1835,7 +1865,7 @@ public extension MusicSource {
                 return "\(PMString("source_connection_public_direct")) \(endpoint.displayDescription)"
             case .vendorRemote:
                 guard let identifier = candidate.vendorIdentifier else { return nil }
-                let label = type == .synology
+                let label = type.usesSynologyConnectionMode
                     ? PMString("synology_connection_quickconnect")
                     : PMString("fnmusic_connection_fnconnect")
                 return "\(label) \(identifier)"

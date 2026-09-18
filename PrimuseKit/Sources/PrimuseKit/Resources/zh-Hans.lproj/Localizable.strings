@@ -867,3 +867,6 @@
 "source_address_probe_not_attempted" = "没有再试";
 "source_address_probe_unconfirmed %@" = "地址有回应，但没能确认后面是 %@";
 "source_address_port_auto %@" = "留空由 Primuse 自己试出来，默认 %@。";
+
+/* Synology Audio Station */
+"src.subtitle.synologyAudioStation" = "DSM 音乐套件 · 曲库、歌单、评分";

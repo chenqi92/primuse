@@ -25,6 +25,7 @@ enum TVSourceEditPolicy {
     static func canEdit(_ source: MusicSource) -> Bool {
         source.type.requiresHost
             && !source.type.isAwaitingPublicAPI
+            && StreamResolverRegistry.tvSupportedTypes.contains(source.type)
             && source.type != .s3
             && source.authType != .oauth
             && source.authType != .cookie

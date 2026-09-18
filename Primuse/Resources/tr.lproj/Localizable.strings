@@ -4058,3 +4058,16 @@
 "lyric_poster_effect_zoom" = "Yavaş yakınlaşma";
 "lyric_poster_effect_particles" = "Parçacıklar";
 "lyric_poster_effect_waveform" = "Dalga";
+
+/* Synology Audio Station */
+"audio_station_sign_in" = "Yeniden Oturum Aç";
+"audio_station_error_no_permission" = "Bu hesap Audio Station'ı kullanamıyor. DSM'de Denetim Masası › Uygulama Ayrıcalıkları'nı açın ve bu hesap için Audio Station'a izin verin.";
+"audio_station_error_unavailable" = "Bu NAS'ta Audio Station yüklü değil veya çalışmıyor.";
+"audio_station_error_unsupported_version" = "Bu Audio Station sürümü desteklenmiyor. Paketi DSM Paket Merkezi'nden güncelleyin.";
+"audio_station_error_operation_not_permitted" = "Bu hesabın Audio Station'da bu işlemi yapma izni yok.";
+"audio_station_error_session_expired" = "Audio Station oturumunun süresi doldu. Tekrar deneyin.";
+"audio_station_error_server_busy" = "Audio Station şu anda meşgul. Daha sonra tekrar deneyin.";
+"audio_station_error_missing_credential" = "Audio Station için kullanılan DSM hesap adını ve şifresini girin.";
+"audio_station_error_api_not_found_format" = "Audio Station gerekli bir arayüzü sağlamıyor (hata %d).";
+"audio_station_error_server_format" = "Audio Station bir hata döndürdü (kod %d).";
+"audio_station_error_two_factor_required" = "Bu hesap iki adımlı doğrulama kullanıyor. Bu Audio Station kaynağında yeniden oturum açın ve bir doğrulama kodu girin.";

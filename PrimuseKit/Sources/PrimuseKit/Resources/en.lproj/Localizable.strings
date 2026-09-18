@@ -868,3 +868,6 @@
 "source_address_probe_not_attempted" = "Not tried";
 "source_address_probe_unconfirmed %@" = "The address answered, but we could not confirm %@ is behind it";
 "source_address_port_auto %@" = "Leave this blank and Primuse works the port out; the default is %@.";
+
+/* Synology Audio Station */
+"src.subtitle.synologyAudioStation" = "DSM music package · Library, playlists, ratings";

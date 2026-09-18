@@ -84,7 +84,7 @@ struct AddSourceView: View {
     private var continuesToConnectionAfterSave: Bool {
         !isEditing
             && submitIntent == .continueToConnection
-            && sourceType.continuesToDirectorySelectionAfterCreation
+            && sourceType.continuesToConnectionAfterCreation
     }
     private var submitButtonTitle: LocalizedStringKey {
         continuesToConnectionAfterSave ? "Next" : "save"
@@ -105,7 +105,7 @@ struct AddSourceView: View {
         return value
     }
     private var remoteUsesVendor: Bool {
-        if sourceType == .synology { return synologyConnectionMode == .quickConnect }
+        if sourceType.usesSynologyConnectionMode { return synologyConnectionMode == .quickConnect }
         if sourceType == .fnMusic { return fnMusicConnectionMode == .fnConnect }
         return false
     }
@@ -1300,7 +1300,7 @@ struct AddSourceView: View {
         }
         vendorIdentifier = configuration.vendorIdentifier ?? ""
 
-        if sourceType == .synology {
+        if sourceType.usesSynologyConnectionMode {
             synologyConnectionMode = configuration.remoteAccessMode == .vendor
                 ? .quickConnect
                 : .address
@@ -1458,7 +1458,7 @@ struct AddSourceView: View {
 
         vendorIdentifier = resolvedVendorIdentifier ?? ""
         let usesVendor = resolvedVendorIdentifier != nil
-        if sourceType == .synology {
+        if sourceType.usesSynologyConnectionMode {
             synologyConnectionMode = usesVendor ? .quickConnect : .address
         }
         if sourceType == .fnMusic {
@@ -1590,7 +1590,7 @@ struct AddSourceView: View {
                 || (sourceType == .fnMusic && fnMusicConnectionMode == .fnConnect)
                 ? true
                 : useSsl),
-            synologyConnectionMode: sourceType == .synology ? synologyConnectionMode : nil,
+            synologyConnectionMode: sourceType.usesSynologyConnectionMode ? synologyConnectionMode : nil,
             fnMusicConnectionMode: sourceType == .fnMusic ? fnMusicConnectionMode : nil,
             connectionConfiguration: adaptiveConfiguration,
             username: finalUsername,
@@ -1885,7 +1885,7 @@ struct AddSourceView: View {
         let normalizedVendorIdentifier: String?
         if rawVendorIdentifier.isEmpty {
             normalizedVendorIdentifier = nil
-        } else if sourceType == .synology {
+        } else if sourceType.usesSynologyConnectionMode {
             normalizedVendorIdentifier = SynologyQuickConnectResolver.quickConnectID(
                 from: rawVendorIdentifier
             ) ?? rawVendorIdentifier

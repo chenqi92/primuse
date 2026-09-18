@@ -817,3 +817,6 @@
 "source_address_probe_not_attempted" = "ยังไม่ได้ลอง";
 "source_address_probe_unconfirmed %@" = "ที่อยู่ตอบกลับ แต่ยืนยันไม่ได้ว่าเป็น %@";
 "source_address_port_auto %@" = "เว้นว่างไว้แล้ว Primuse จะหาพอร์ตให้เอง ค่าเริ่มต้นคือ %@";
+
+/* Synology Audio Station */
+"src.subtitle.synologyAudioStation" = "แพ็กเกจเพลงของ DSM · คลังเพลง เพลย์ลิสต์ คะแนน";

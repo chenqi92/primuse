@@ -10,7 +10,8 @@ import AppKit
 /// - Cover: `<basename>-cover.jpg` next to the audio file
 /// - Lyrics: `<basename>.lrc` by default; an existing `.ttml` remains TTML.
 ///   A read-only document such as `<basename>.vtt` or `<basename>.lys` is
-///   never replaced — the save creates `<basename>.lrc` beside it.
+///   never replaced — the save creates `<basename>.ttml` beside it (`.lrc`
+///   beside an `.elrc`), and the content is serialized for that target.
 actor SidecarWriteService {
     static let shared = SidecarWriteService()
     private init() {}
@@ -121,54 +122,60 @@ actor SidecarWriteService {
         // 2. Write the lyrics sidecar next to the audio file. New documents
         // default to LRC; an existing writable sidecar keeps its extension.
         if !result.sourceUnavailable, let lyricsLines, !lyricsLines.isEmpty {
-            let sidecarContent = lyricsContent?.trimmingCharacters(in: .newlines)
-                ?? LyricsContentParser.serialize(lyricsLines)
-            if let sidecarData = sidecarContent.data(using: .utf8) {
-                guard !sidecarData.isEmpty,
+            do {
+                let target = try await lyricsTarget(for: song, using: connector)
+                // The file's format follows the target, not the caller: the
+                // scraper hands over lines, and serializing them as LRC into
+                // an existing or replacement `.ttml` would leave TTML readers
+                // with a file they cannot open.
+                let sidecarContent = Self.lyricsSidecarContent(
+                    for: target,
+                    lines: lyricsLines,
+                    editedText: lyricsContent
+                )
+                guard let sidecarData = sidecarContent.data(using: .utf8),
+                      !sidecarData.isEmpty,
                       sidecarData.count <= LyricsSidecarTargetPolicy.maximumContentByteCount else {
                     let error = EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
                     result.lyricsError = error.localizedDescription
                     result.errors.append("Lyrics: \(error.localizedDescription)")
                     return result
                 }
-                do {
-                    let target = try await lyricsTarget(for: song, using: connector)
-                    let currentPreflight = LyricsPreflightResult(
-                        targetPath: target.targetPath,
-                        fileName: target.fileName,
-                        containerPath: target.containerPath,
-                        replacesExistingFile: target.exists,
-                        existingPath: target.existingPath,
-                        existingSize: target.existingSize
-                    )
-                    guard expectedLyricsTarget == nil
-                            || expectedLyricsTarget == currentPreflight else {
-                        result.lyricsTargetChanged = true
-                        return result
-                    }
-                    let receipt = try await connector.writeLyricsSidecar(
-                        data: sidecarData,
-                        target: target,
-                        priority: .background
-                    )
-                    let verifiedContent = try verifyLyricsSidecarWrite(
-                        data: sidecarData,
-                        content: sidecarContent,
-                        target: target,
-                        receipt: receipt
-                    )
-                    result.verifiedLyricsWrite = .init(
-                        target: currentPreflight,
-                        content: verifiedContent
-                    )
-                    result.lyricsWritten = true
-                    plog("📁 Sidecar: \(target.fileName) written to \(songDir)")
-                } catch {
-                    result.lyricsError = error.localizedDescription
-                    result.errors.append("Lyrics: \(error.localizedDescription)")
-                    result.sourceUnavailable = Self.isSourceUnavailable(error)
-                    plog("⚠️ Sidecar: Failed to write lyrics: \(error)")
+                let currentPreflight = LyricsPreflightResult(
+                    targetPath: target.targetPath,
+                    fileName: target.fileName,
+                    containerPath: target.containerPath,
+                    replacesExistingFile: target.exists,
+                    existingPath: target.existingPath,
+                    existingSize: target.existingSize
+                )
+                guard expectedLyricsTarget == nil
+                        || expectedLyricsTarget == currentPreflight else {
+                    result.lyricsTargetChanged = true
+                    return result
                 }
+                let receipt = try await connector.writeLyricsSidecar(
+                    data: sidecarData,
+                    target: target,
+                    priority: .background
+                )
+                let verifiedContent = try verifyLyricsSidecarWrite(
+                    data: sidecarData,
+                    content: sidecarContent,
+                    target: target,
+                    receipt: receipt
+                )
+                result.verifiedLyricsWrite = .init(
+                    target: currentPreflight,
+                    content: verifiedContent
+                )
+                result.lyricsWritten = true
+                plog("📁 Sidecar: \(target.fileName) written to \(songDir)")
+            } catch {
+                result.lyricsError = error.localizedDescription
+                result.errors.append("Lyrics: \(error.localizedDescription)")
+                result.sourceUnavailable = Self.isSourceUnavailable(error)
+                plog("⚠️ Sidecar: Failed to write lyrics: \(error)")
             }
         }
 
@@ -218,6 +225,31 @@ actor SidecarWriteService {
             plog("⚠️ Sidecar: Failed to remove lyrics: \(error)")
         }
         return result
+    }
+
+    /// What goes into the sidecar. A TTML target takes TTML: the editor hands
+    /// over TTML text for one already, and lines from the scraper are
+    /// serialized into it. Any other target takes the editor's text verbatim
+    /// when it is LRC — it may carry headers the model does not keep — and
+    /// LRC serialized from the lines otherwise.
+    private nonisolated static func lyricsSidecarContent(
+        for target: LyricsSidecarTarget,
+        lines: [LyricLine],
+        editedText: String?
+    ) -> String {
+        let edited = editedText?.trimmingCharacters(in: .newlines)
+        let targetIsTTML = (target.fileName as NSString).pathExtension
+            .caseInsensitiveCompare("ttml") == .orderedSame
+        if targetIsTTML {
+            if let edited, LyricsContentParser.isTTML(edited) { return edited }
+            return LyricsContentParser.serializeTTML(lines)
+        }
+        if let edited, !edited.isEmpty,
+           !LyricsContentParser.isTTML(edited),
+           !LyricsContentParser.isSubtitleDocument(edited) {
+            return edited
+        }
+        return LyricsContentParser.serialize(lines)
     }
 
     /// The single funnel for every lyric mutation. Preflight, write and remove

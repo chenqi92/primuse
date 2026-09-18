@@ -235,6 +235,7 @@ import Testing
 @Test func fileDeletionCapabilityExcludesReadOnlyCatalogues() {
     let readOnly: Set<MusicSourceType> = [
         .upnp, .subsonic, .navidrome, .airsonic, .gonic, .fnos, .fnMusic, .daoliyu, .songloft,
+        .synologyAudioStation,
         // 光鸭开放平台只有读接口,没有删除 / 上传能力。
         .guangya, .appleMusic, .appleMusicLibrary,
     ]
@@ -346,6 +347,7 @@ import Testing
         .local, .appleMusicLibrary,
         .jellyfin, .emby, .plex,
         .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .songloft,
+        .synologyAudioStation,
     ]
 
     for sourceType in MusicSourceType.allCases {

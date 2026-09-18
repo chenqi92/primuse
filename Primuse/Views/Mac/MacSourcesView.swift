@@ -271,7 +271,7 @@ struct MacSourcesView: View {
             }
             Spacer(minLength: 8)
             if let first {
-                Button("connect_select_dirs") { connectingSource = first }
+                Button(attentionActionTitle(for: first)) { connectingSource = first }
                     .buttonStyle(.plain)
                     .font(.system(size: 11.5, weight: .semibold))
                     .foregroundStyle(PMColor.text)
@@ -288,6 +288,11 @@ struct MacSourcesView: View {
                 .frame(width: 3)
                 .padding(.vertical, 8)
         }
+    }
+
+    /// 需要重新登录的 Audio Station 没有目录可选,按钮说它真正做的事。
+    private func attentionActionTitle(for source: MusicSource) -> LocalizedStringKey {
+        source.type == .synologyAudioStation ? "audio_station_sign_in" : "connect_select_dirs"
     }
 
     // MARK: - Card
@@ -369,6 +374,11 @@ struct MacSourcesView: View {
             }
             Button { editingSource = source } label: {
                 Label("edit", systemImage: "pencil")
+            }
+            if source.type == .synologyAudioStation {
+                Button { connectingSource = source } label: {
+                    Label("audio_station_sign_in", systemImage: "person.badge.key")
+                }
             }
             Button { diagnosingSource = source } label: {
                 Label("source_diagnostics", systemImage: "stethoscope")
@@ -727,6 +737,10 @@ struct MacSourcesView: View {
                 .disabled(isAppleMusicSyncing || !source.isEnabled)
             } else if source.type.scansEntireLibrary {
                 scanPill(source, scanning: scanning)
+                if source.type == .synologyAudioStation {
+                    // 设备令牌失效后后台登录会卡在两步验证上,从这里再输一次验证码。
+                    pill("audio_station_sign_in", systemImage: "person.badge.key") { connectingSource = source }
+                }
                 pill("settings_title", systemImage: "slider.horizontal.3") { editingSource = source }
             } else if dirs.isEmpty {
                 pill("connect_select_dirs", systemImage: "link", tint: theme.uiAccentColor) { connectingSource = source }
@@ -925,7 +939,7 @@ struct MacSourcesView: View {
         let selectedDirectories = stagedDirectories ?? persistedDirectories
 
         switch source.type {
-        case .synology:
+        case .synology, .synologyAudioStation:
             ConnectionFlowView(
                 source: source,
                 selectedDirectories: selectedDirectories,
@@ -968,7 +982,14 @@ struct MacSourcesView: View {
                         return false
                     }
                 },
-                onEditAddress: onEditAddress
+                onEditAddress: onEditAddress,
+                onAudioStationReady: {
+                    // 先让连接器按刚存下的设备令牌重建,再扫描整库。
+                    Task { @MainActor in
+                        await sourceManager.refreshConnector(for: source.id)
+                        runScan(currentSource(for: source))
+                    }
+                }
             )
         case .smb:
             SMBBrowserView(
