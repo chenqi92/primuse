@@ -101,15 +101,21 @@ struct SendToTVSheet: View {
                     Group {
                         if sending {
                             ProgressView().tint(.white)
+                                .pmAppearFade(.control)
                         } else {
                             HStack(spacing: 8) {
                                 if let result {
                                     Image(systemName: result ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                                        .contentTransition(.symbolEffect(.replace))
+                                        // 结果是裸赋值, 换图得自己带一个事务; 只包这一个图标,
+                                        // 不让整块按钮内容跟着进动画。
+                                        .pmAnimation(.control, value: result)
                                 }
                                 Text(result == true
                                      ? "send_to_tv_sent"
                                      : (lanTarget == nil ? "send_to_tv_action" : "send_to_tv_confirm_and_send"))
                             }
+                            .pmAppearFade(.control)
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -128,6 +134,7 @@ struct SendToTVSheet: View {
                             .textSelection(.enabled)
                     }
                     .foregroundStyle(.orange)
+                    .pmFadeTransition(motion: .contentAppear)
                 }
 
                 Button("send_to_tv_add_source") { showAddSource = true }

@@ -295,6 +295,7 @@ struct SourceMetadataStatusView: View {
                 .frame(maxWidth: .infinity, minHeight: 220)
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
+                .pmAppearFade(.contentAppear)
         } else if projectedItems.isEmpty {
             ContentUnavailableView(
                 "metadata_status_empty",
@@ -304,6 +305,7 @@ struct SourceMetadataStatusView: View {
             .frame(maxWidth: .infinity, minHeight: 220)
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
+            .pmAppearFade(.contentAppear)
         } else {
             ForEach(projectedItems.prefix(visibleItemCount)) { item in
                 statusRow(item, compact: !usesTwoColumnLayout)
@@ -599,6 +601,7 @@ struct SourceMetadataStatusView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .background(isSelected ? Color.accentColor.opacity(0.10) : .clear)
+        .pmAnimation(.hover, value: isSelected)
     }
 
     private func filterGlyph(_ filter: MetadataBackfillStatusFilter, dimmed: Bool) -> some View {
@@ -676,6 +679,7 @@ struct SourceMetadataStatusView: View {
             }
             .frame(minHeight: 44)
             .contentShape(Rectangle())
+            .pmAnimation(.hover, value: isSelected)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(filter.title))

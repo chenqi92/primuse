@@ -220,6 +220,7 @@ struct WiFiTransferView: View {
                                     }
                                 }
                             }.modifier(TransferSurface(padding: 24))
+                                .pmAppearFade(.contentAppear)
                             HStack(alignment: .top, spacing: 12) {
                                 Image(systemName: "globe").font(.system(size: 23, weight: .light))
                                     .foregroundStyle(TransferAppearance.accent).frame(width: 32)
@@ -237,9 +238,11 @@ struct WiFiTransferView: View {
                                     }
                                 }
                             }.modifier(TransferSurface())
+                                .pmAppearFade(.contentAppear)
                         } else if receiver.running {
                             ProgressView(WiFiTransferText.string("waiting"))
                                 .frame(maxWidth: .infinity, minHeight: 280)
+                                .pmAppearFade(.contentAppear)
                         } else if receiver.receipts.isEmpty {
                             VStack(spacing: 16) {
                                 Image(systemName: TransferAppearance.deviceIcon(WiFiTransferText.identity.platform))
@@ -253,6 +256,7 @@ struct WiFiTransferView: View {
                                     .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
                                     .frame(maxWidth: 400)
                             }.frame(maxWidth: .infinity, minHeight: 285)
+                                .pmAppearFade(.contentAppear)
                         }
                         if receiver.receipts.count > 1 {
                             DisclosureGroup(isExpanded: $showReceiveHistory) {
@@ -287,7 +291,7 @@ struct WiFiTransferView: View {
                 }
                 .onChange(of: receiver.receipts.first?.id) { _, _ in
                     showReceiveHistory = false
-                    withAnimation { scroll.scrollTo("receiveTop", anchor: .top) }
+                    pmWithAnimation(.list) { scroll.scrollTo("receiveTop", anchor: .top) }
                 }
                 }
             }

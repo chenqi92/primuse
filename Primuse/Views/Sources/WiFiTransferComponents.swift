@@ -143,6 +143,9 @@ struct TransferReceiveReceiptView: View {
                 Image(systemName: receipt.finished ? (receipt.succeeded ? "checkmark.circle.fill" : "exclamationmark.circle") : "arrow.down.circle")
                     .font(.system(size: 28, weight: .light))
                     .foregroundStyle(receipt.finished && !receipt.succeeded ? Color.orange : TransferAppearance.accent)
+                    .contentTransition(.symbolEffect(.replace))
+                    // 收据由服务层裸赋值, 换图得自己带一个事务才会走 symbolEffect。
+                    .pmAnimation(.control, value: receipt.finished)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(WiFiTransferText.string(status))
                         .font(.system(size: TransferAppearance.bodySize + 3, weight: .semibold))
@@ -158,12 +161,14 @@ struct TransferReceiveReceiptView: View {
             if !receipt.finished {
                 ProgressView(value: receipt.progress).tint(TransferAppearance.accent)
                     .accessibilityLabel(WiFiTransferText.string("receiving"))
+                    .pmFadeTransition(motion: .contentAppear)
                 HStack {
                     Text(ByteCountFormatter.string(fromByteCount: receipt.receivedBytes, countStyle: .file)
                          + " / " + ByteCountFormatter.string(fromByteCount: receipt.byteCount, countStyle: .file))
                     Spacer()
                     Text(receipt.progress, format: .percent.precision(.fractionLength(0))).monospacedDigit()
                 }.font(.system(size: TransferAppearance.captionSize)).foregroundStyle(TransferAppearance.muted)
+                    .pmFadeTransition(motion: .contentAppear)
                 if let file = receipt.files.last(where: { !$0.finished }) {
                     Text(file.path).font(.system(size: TransferAppearance.bodySize))
                         .lineLimit(1).truncationMode(.middle)
@@ -181,8 +186,10 @@ struct TransferReceiveReceiptView: View {
                         ProgressView().controlSize(.small)
                         Text(WiFiTransferText.string("indexing")).font(.system(size: TransferAppearance.captionSize))
                     }
+                    .pmAppearFade(.control)
                 } else if indexError == nil {
                     TransferFeedback(text: WiFiTransferText.string("receiveStored"))
+                        .pmAppearFade(.control)
                 }
             }
             if !receipt.files.isEmpty {

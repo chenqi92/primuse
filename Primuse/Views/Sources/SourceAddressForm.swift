@@ -714,6 +714,7 @@ struct SourceAddressRowView: View {
                     attemptRow(attempt)
                 }
             }
+            .pmFadeTransition(motion: .contentAppear)
         }
     }
 
@@ -871,6 +872,7 @@ struct MacSourceAddressRowView: View {
                     attemptRow(attempt)
                 }
             }
+            .pmFadeTransition(motion: .contentAppear)
         }
     }
 

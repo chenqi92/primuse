@@ -122,10 +122,12 @@ private struct NFSDirectoryBrowserView: View {
                 if isLoading {
                     Spacer()
                     ProgressView()
+                        .pmAppearFade(.contentAppear)
                     Text("loading_directories")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .padding(.top, 8)
+                        .pmAppearFade(.contentAppear)
                     Spacer()
                 } else if let errorMessage {
                     Spacer()
@@ -146,16 +148,18 @@ private struct NFSDirectoryBrowserView: View {
                         )
                     }
                     .padding(.horizontal, 40)
+                    .pmAppearFade(.contentAppear)
                     Spacer()
                 } else {
                     browserContent
+                        .pmAppearFade(.contentAppear)
                 }
 
                 BrowserBottomBar(
                     selectedCount: selectedDirectories.count,
                     idleIcon: "music.note.list"
                 ) {
-                    withAnimation { selectedDirectories.removeAll() }
+                    pmWithAnimation(.list) { selectedDirectories.removeAll() }
                 }
             }
             .navigationTitle(source.name)

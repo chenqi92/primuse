@@ -566,10 +566,14 @@ private struct TransferLibraryWindow: View {
 
     private func disclosure(expanded: Bool, title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: expanded ? "chevron.down" : "chevron.right")
+            // 展开与收起本来就是同一个箭头转 90 度, 换图标会闪一下, 直接转它。
+            Image(systemName: "chevron.right")
                 .font(.system(size: 10, weight: .semibold))
+                .rotationEffect(.degrees(expanded ? 90 : 0))
                 .frame(width: TransferTreeLayout.disclosureWidth, height: TransferTreeLayout.controlHeight).contentShape(.rect)
         }.buttonStyle(.plain).accessibilityLabel(title)
+            // 挂在这一行自己的箭头上:虚拟化滚动面之上不能有声明式动画。
+            .pmAnimation(.hover, value: expanded)
     }
 
     private func songRow(_ song: Song, source: TransferLibraryTreeModel.Source) -> some View {

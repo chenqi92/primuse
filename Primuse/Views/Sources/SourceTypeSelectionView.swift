@@ -329,12 +329,15 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
                 }
                 .padding(12)
                 .pmCard(cornerRadius: 8)
+                .pmAppearFade(.contentAppear)
             } else {
                 LazyVGrid(columns: macGridColumns, alignment: .leading, spacing: 8) {
                     ForEach(discoveryService.devices) { device in
                         macDeviceTile(device)
+                            .pmFadeTransition(motion: .list)
                     }
                 }
+                .pmAppearFade(.contentAppear)
             }
         }
     }
@@ -401,8 +404,9 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .strokeBorder(pendingType == type ? theme.uiAccentColor.opacity(0.55) : PMColor.cardBorder, lineWidth: 0.5)
             }
+            .pmAnimation(.hover, value: pendingType == type)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pmPressable)
         .disabled(type.isAwaitingPublicAPI)
         .opacity(type.isAwaitingPublicAPI ? 0.62 : 1)
         .onTapGesture(count: 2) {
@@ -451,7 +455,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .pmCard(cornerRadius: 8)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pmPressable)
         .disabled(device.sourceType.isAwaitingPublicAPI)
         .opacity(device.sourceType.isAwaitingPublicAPI ? 0.62 : 1)
     }
@@ -1299,6 +1303,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
                     Text("discovering_devices").foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)
+                .pmFadeTransition(motion: .contentAppear)
             }
 
             ForEach(discoveryService.devices) { device in
@@ -1331,6 +1336,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(device.sourceType.isAwaitingPublicAPI)
+                .pmFadeTransition(motion: .list)
             }
 
             if !discoveryService.isDiscovering && !discoveryService.devices.isEmpty {
@@ -1343,6 +1349,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
                     }
                     .font(.caption).foregroundStyle(.secondary)
                 }
+                .pmFadeTransition(motion: .list)
             }
         } header: {
             HStack {

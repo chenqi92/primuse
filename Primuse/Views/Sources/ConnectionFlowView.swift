@@ -516,7 +516,7 @@ struct ConnectionFlowView: View {
         pendingPasswordCandidate = pwd
         plog("🔐 Synology credential replacement validation started source=\(source.id.prefix(8))…")
         errorMessage = ""
-        step = .connecting
+        pmWithAnimation(.pageSwitch) { step = .connecting }
         connectionTask?.cancel()
         connectionTask = Task { @MainActor in
             await connectCurrentSource(otpCode: nil, overridePassword: pwd)
@@ -576,7 +576,8 @@ struct ConnectionFlowView: View {
     // MARK: - Logic
 
     private func startConnection() {
-        step = .connecting
+        // 离开转圈态的每一步都带动画, 进来时也得带 —— 否则从失败页点重试是硬跳。
+        pmWithAnimation(.pageSwitch) { step = .connecting }
         errorMessage = ""
         otpCode = ""
         passwordInput = ""
@@ -589,7 +590,7 @@ struct ConnectionFlowView: View {
             switch source.type {
             case .synology: await connectSynology(otpCode: nil)
             case .synologyAudioStation: await connectAudioStation(otpCode: nil)
-            default: withAnimation { step = .browsing }
+            default: pmWithAnimation(.pageSwitch) { step = .browsing }
             }
         }
     }
@@ -645,7 +646,7 @@ struct ConnectionFlowView: View {
             pendingPasswordCandidate = nil
             errorMessage = String(localized: "source_connection_no_route")
             failureCause = .address
-            withAnimation { step = .failed }
+            pmWithAnimation(.pageSwitch) { step = .failed }
             return
         }
 
@@ -689,7 +690,7 @@ struct ConnectionFlowView: View {
                 )
                 // 用户拒绝了明文连接: 换成 https 的地址就是正当出路。
                 failureCause = .address
-                withAnimation { step = .failed }
+                pmWithAnimation(.pageSwitch) { step = .failed }
                 return
             }
         }
@@ -705,19 +706,19 @@ struct ConnectionFlowView: View {
                 password = savedPassword
             case .notFound:
                 errorMessage = String(localized: "password_required_title")
-                withAnimation { step = .password }
+                pmWithAnimation(.pageSwitch) { step = .password }
                 return
             case .temporarilyUnavailable(let status):
                 plog("⏳ Synology connection deferred: credential temporarily unavailable status=\(status)")
                 errorMessage = String(localized: "credential_temporarily_unavailable")
                 failureCause = .other
-                withAnimation { step = .failed }
+                pmWithAnimation(.pageSwitch) { step = .failed }
                 return
             case .failed(let status):
                 plog("⛔ Synology connection stopped: credential read failed status=\(status)")
                 errorMessage = String(localized: "credential_read_failed")
                 failureCause = .other
-                withAnimation { step = .failed }
+                pmWithAnimation(.pageSwitch) { step = .failed }
                 return
             }
         }
@@ -745,7 +746,7 @@ struct ConnectionFlowView: View {
                     guard onPasswordWillChange?() != false else {
                         pendingPasswordCandidate = nil
                         errorMessage = String(localized: "synology_password_update_save_failed")
-                        withAnimation { step = .password }
+                        pmWithAnimation(.pageSwitch) { step = .password }
                         return
                     }
                     guard KeychainService.setPassword(validatedPassword, for: source.id) else {
@@ -753,7 +754,7 @@ struct ConnectionFlowView: View {
                         plog("⚠️ Synology credential replacement could not be conclusively persisted; prepared scope remains blocked source=\(source.id.prefix(8))…")
                         pendingPasswordCandidate = nil
                         errorMessage = String(localized: "synology_password_update_save_failed")
-                        withAnimation { step = .password }
+                        pmWithAnimation(.pageSwitch) { step = .password }
                         return
                     }
 
@@ -763,7 +764,7 @@ struct ConnectionFlowView: View {
                     guard await onPasswordSaved?() != false else {
                         pendingPasswordCandidate = nil
                         errorMessage = String(localized: "synology_password_update_save_failed")
-                        withAnimation { step = .password }
+                        pmWithAnimation(.pageSwitch) { step = .password }
                         return
                     }
                     plog("✅ Synology credential replacement persisted after login and browse validation source=\(source.id.prefix(8))…")
@@ -777,7 +778,7 @@ struct ConnectionFlowView: View {
                 if let candidate {
                     await SourceConnectionRuntime.shared.record(candidate.kind, for: source.id)
                 }
-                withAnimation { step = .browsing }
+                pmWithAnimation(.pageSwitch) { step = .browsing }
             } catch {
                 guard !Task.isCancelled else { return }
                 if let domain = SSLTrustStore.sslErrorDomain(from: error) {
@@ -810,7 +811,7 @@ struct ConnectionFlowView: View {
                 errorMessage = msg
                 self.otpCode = "" // clear for retry
             }
-            withAnimation { step = .otp }
+            pmWithAnimation(.pageSwitch) { step = .otp }
         } else {
             // Check if login error is SSL-related and prompt trust
             if let error = result.underlyingError,
@@ -834,7 +835,7 @@ struct ConnectionFlowView: View {
                 await MainActor.run {
                     pendingPasswordCandidate = nil
                     errorMessage = result.errorMessage ?? String(localized: "password_wrong_hint")
-                    withAnimation { step = .password }
+                    pmWithAnimation(.pageSwitch) { step = .password }
                 }
                 return
             }
@@ -856,7 +857,7 @@ struct ConnectionFlowView: View {
             errorMessage = result.errorMessage ?? String(localized: "unknown_error")
             // DSM 已经应答并给了错误码 —— 地址是对的, 问题在账号那边。
             failureCause = .other
-            withAnimation { step = .failed }
+            pmWithAnimation(.pageSwitch) { step = .failed }
         }
     }
 
@@ -872,7 +873,7 @@ struct ConnectionFlowView: View {
             pendingPasswordCandidate = nil
             errorMessage = error.localizedDescription
             failureCause = .address
-            withAnimation { step = .failed }
+            pmWithAnimation(.pageSwitch) { step = .failed }
             return
         }
 
@@ -894,12 +895,12 @@ struct ConnectionFlowView: View {
         errorMessage = error.localizedDescription
         // 所有候选路由都试过了还是连不上, 地址本身最可疑。
         failureCause = .address
-        withAnimation { step = .failed }
+        pmWithAnimation(.pageSwitch) { step = .failed }
     }
 
     private func verifyOTP() {
         errorMessage = ""
-        step = .connecting
+        pmWithAnimation(.pageSwitch) { step = .connecting }
         let candidate = pendingPasswordCandidate
         connectionTask?.cancel()
         connectionTask = Task { @MainActor in
@@ -939,7 +940,7 @@ struct ConnectionFlowView: View {
             pendingPasswordCandidate = nil
             errorMessage = String(localized: "source_connection_no_route")
             failureCause = .address
-            withAnimation { step = .failed }
+            pmWithAnimation(.pageSwitch) { step = .failed }
             return
         }
 
@@ -956,19 +957,19 @@ struct ConnectionFlowView: View {
                 password = savedPassword
             case .notFound:
                 errorMessage = String(localized: "password_required_title")
-                withAnimation { step = .password }
+                pmWithAnimation(.pageSwitch) { step = .password }
                 return
             case .temporarilyUnavailable(let status):
                 plog("⏳ Audio Station connection deferred: credential temporarily unavailable status=\(status)")
                 errorMessage = String(localized: "credential_temporarily_unavailable")
                 failureCause = .other
-                withAnimation { step = .failed }
+                pmWithAnimation(.pageSwitch) { step = .failed }
                 return
             case .failed(let status):
                 plog("⛔ Audio Station connection stopped: credential read failed status=\(status)")
                 errorMessage = String(localized: "credential_read_failed")
                 failureCause = .other
-                withAnimation { step = .failed }
+                pmWithAnimation(.pageSwitch) { step = .failed }
                 return
             }
         }
@@ -1006,7 +1007,7 @@ struct ConnectionFlowView: View {
             guard onPasswordWillChange?() != false else {
                 pendingPasswordCandidate = nil
                 errorMessage = String(localized: "synology_password_update_save_failed")
-                withAnimation { step = .password }
+                pmWithAnimation(.pageSwitch) { step = .password }
                 return
             }
             guard KeychainService.setPassword(validatedPassword, for: source.id) else {
@@ -1014,13 +1015,13 @@ struct ConnectionFlowView: View {
                 plog("⚠️ Audio Station credential replacement could not be conclusively persisted; prepared scope remains blocked source=\(source.id.prefix(8))…")
                 pendingPasswordCandidate = nil
                 errorMessage = String(localized: "synology_password_update_save_failed")
-                withAnimation { step = .password }
+                pmWithAnimation(.pageSwitch) { step = .password }
                 return
             }
             guard await onPasswordSaved?() != false else {
                 pendingPasswordCandidate = nil
                 errorMessage = String(localized: "synology_password_update_save_failed")
-                withAnimation { step = .password }
+                pmWithAnimation(.pageSwitch) { step = .password }
                 return
             }
             plog("✅ Audio Station credential replacement persisted after sign-in validation source=\(source.id.prefix(8))…")
@@ -1073,13 +1074,13 @@ struct ConnectionFlowView: View {
                     // 每次卡在验证码上。默认勾上「记住此设备」,用户仍可取消。
                     rememberDevice = true
                 }
-                withAnimation { step = .otp }
+                pmWithAnimation(.pageSwitch) { step = .otp }
                 return
             case .invalidCredentials, .missingCredential:
                 // 只有账号密码能靠重新输入解决。
                 pendingPasswordCandidate = nil
                 errorMessage = failure.localizedDescription
-                withAnimation { step = .password }
+                pmWithAnimation(.pageSwitch) { step = .password }
                 return
             case .invalidURL, .invalidResponse, .badServerResponse:
                 // 对面不是一台能用的 DSM(端口、前缀或反代不对),换下一条路由再说。
@@ -1090,7 +1091,7 @@ struct ConnectionFlowView: View {
                 pendingPasswordCandidate = nil
                 errorMessage = failure.localizedDescription
                 failureCause = .other
-                withAnimation { step = .failed }
+                pmWithAnimation(.pageSwitch) { step = .failed }
                 return
             }
         }
@@ -1100,7 +1101,7 @@ struct ConnectionFlowView: View {
             pendingPasswordCandidate = nil
             errorMessage = error.localizedDescription
             failureCause = .address
-            withAnimation { step = .failed }
+            pmWithAnimation(.pageSwitch) { step = .failed }
             return
         }
 
@@ -1136,7 +1137,7 @@ struct OTPDigitBox: View {
                     )
             }
             .shadow(color: isCurrent ? PMColor.brand.opacity(0.20) : .clear, radius: 5)
-            .animation(.easeOut(duration: 0.16), value: isCurrent)
+            .pmAnimation(.hover, value: isCurrent)
         #else
         Text(digit)
             .font(.title2).fontWeight(.bold)
@@ -1199,7 +1200,7 @@ struct RealDirectoryBrowserView: View {
                         Text("\(selectedDirectories.count) \(String(localized: "directories_selected"))")
                             .font(.subheadline).fontWeight(.medium)
                         Button {
-                            withAnimation { selectedDirectories.removeAll() }
+                            pmWithAnimation(.list) { selectedDirectories.removeAll() }
                         } label: {
                             Label("clear_all", systemImage: "xmark.circle")
                                 .labelStyle(.iconOnly)
@@ -1238,7 +1239,7 @@ struct RealDirectoryBrowserView: View {
                 .padding(.horizontal, 14).padding(.vertical, 6)
             }
             .onChange(of: pathStack.count) { _, _ in
-                withAnimation { proxy.scrollTo(pathStack.count - 1, anchor: .trailing) }
+                pmWithAnimation(.list) { proxy.scrollTo(pathStack.count - 1, anchor: .trailing) }
             }
         }
         .background(.bar)
@@ -1300,7 +1301,7 @@ struct RealDirectoryBrowserView: View {
                         .foregroundStyle(Color.accentColor)
                     Spacer()
                     Button(role: .destructive) {
-                        withAnimation { selectedDirectories.removeAll() }
+                        pmWithAnimation(.list) { selectedDirectories.removeAll() }
                     } label: {
                         Label("clear_all", systemImage: "xmark.circle")
                             .font(.caption).fontWeight(.medium)
@@ -1426,6 +1427,14 @@ struct DirectoryCheckRow: View {
         .onTapGesture { toggle() }
         .onHover { isHovering = $0 }
         .listRowBackground(rowBackground)
+        .pmAnimation(.hover, value: rowHighlight)
+    }
+
+    /// 选中与悬停共用同一块底色, 用一个小的可比较值代表它当前停在哪一档,
+    /// 免得把两个 Bool 凑成不可比较的元组。
+    private var rowHighlight: Int {
+        if isSelected { return 2 }
+        return isHovering ? 1 : 0
     }
 
     @ViewBuilder
@@ -1478,7 +1487,7 @@ struct DirectoryCheckRow: View {
             }
         }
         .listRowBackground(isSelected ? Color.accentColor.opacity(0.08) : Color.clear)
-        .animation(.easeInOut(duration: 0.15), value: isSelected)
+        .pmAnimation(.hover, value: isSelected)
     }
     #endif
 
