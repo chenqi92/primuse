@@ -38,18 +38,26 @@ struct RadioStationsView: View {
     @State private var subscribedStationToDelete: RadioStation?
     @AppStorage(RadioStationLayoutMode.storageKey)
     private var layoutModeRaw = RadioStationLayoutMode.list.rawValue
+    @Environment(\.pmHeightClass) private var heightClass
 
     private var layoutMode: RadioStationLayoutMode {
         RadioStationLayoutMode(rawValue: layoutModeRaw) ?? .list
     }
 
     /// 列表版一行一个宽卡片；封面版是方格台标墙，一屏能放下三四倍的台。
+    /// 列表版在手机横屏下本来就会排成两列、不必再收；封面版的格子跟着高度收一档。
     private var columns: [GridItem] {
         switch layoutMode {
         case .list:
             return [GridItem(.adaptive(minimum: 320, maximum: 460), spacing: 16)]
         case .cover:
-            return [GridItem(.adaptive(minimum: 108, maximum: 170), spacing: 14)]
+            return [GridItem(
+                .adaptive(
+                    minimum: heightClass.value(108, compact: 92),
+                    maximum: heightClass.value(170, compact: 132)
+                ),
+                spacing: 14
+            )]
         }
     }
 

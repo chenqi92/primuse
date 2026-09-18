@@ -15,9 +15,13 @@ struct AlbumGridView: View {
         }
     }
     #if !os(macOS)
-    private let columns = [
-        GridItem(.adaptive(minimum: 150), spacing: 16)
-    ]
+    @Environment(\.pmHeightClass) private var heightClass
+
+    /// 手机横屏只剩两百多点高, 150 的下限会排成四列大卡片、一屏只看得到一行多。
+    /// 下限降到 100 就能排到六列, 首屏露出一行半以上。
+    private var columns: [GridItem] {
+        [GridItem(.adaptive(minimum: heightClass.value(150, compact: 100)), spacing: 16)]
+    }
     #endif
 
     var body: some View {
@@ -41,7 +45,7 @@ struct AlbumGridView: View {
                 if filteredAlbums.isEmpty {
                     ContentUnavailableView.search(text: albumFilter)
                 }
-                LazyVGrid(columns: columns, spacing: 20) {
+                LazyVGrid(columns: columns, spacing: heightClass.value(20, compact: 14)) {
                     ForEach(filteredAlbums) { album in
                         NavigationLink(value: album) {
                             AlbumCardView(album: album)

@@ -848,6 +848,7 @@
 		A01C763CCAD36B4CAA4AD13B /* FnMusicAPIProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22F902B402DE1BC8F053FF24 /* FnMusicAPIProtocol.swift */; };
 		A03AFF7FC66D108ED4DAF0D6 /* MediaServerSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D799C291E3FDAA06B4A33EBA /* MediaServerSource.swift */; };
 		A04BFD2AC3A1546B7774DA14 /* BottomChromeClearancePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E40DCC65C7DA2143109929B /* BottomChromeClearancePolicy.swift */; };
+		EBF7F643D84EDFE34A3A8817 /* SongRowColumnsPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16FB1CFEB821043786D10DF /* SongRowColumnsPolicy.swift */; };
 		5F15FA57D208A2AA375E61CC /* MinimalNavigationCollapsePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EC045BC0D7151F6EDC47032 /* MinimalNavigationCollapsePolicy.swift */; };
 		A0E105A9B16AC67FE9764BF2 /* CarPlayContentPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7796B8917487FB64D4FA58B8 /* CarPlayContentPicker.swift */; };
 		A145E09220ABEC39967A4B66 /* Pan123Source.swift in Sources */ = {isa = PBXBuildFile; fileRef = 309F9BB53ECA9FA54F805457 /* Pan123Source.swift */; };
@@ -2201,6 +2202,7 @@
 		9DC27FF8753FD114DC3BDF7F /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/Localizable.strings; sourceTree = "<group>"; };
 		9DEE649BA34C3BBC7CB67587 /* LogBacklogPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogBacklogPolicy.swift; sourceTree = "<group>"; };
 		9E40DCC65C7DA2143109929B /* BottomChromeClearancePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottomChromeClearancePolicy.swift; sourceTree = "<group>"; };
+		C16FB1CFEB821043786D10DF /* SongRowColumnsPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongRowColumnsPolicy.swift; sourceTree = "<group>"; };
 		7EC045BC0D7151F6EDC47032 /* MinimalNavigationCollapsePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MinimalNavigationCollapsePolicy.swift; sourceTree = "<group>"; };
 		9E4DEB871B6A33BFDF98131D /* ArtworkFetchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkFetchService.swift; sourceTree = "<group>"; };
 		9EB66896DBE96AD0C44855A9 /* RadioFLACDecoderBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = RadioFLACDecoderBridge.m; sourceTree = "<group>"; };
@@ -2964,6 +2966,7 @@
 				4A1DAB69FAAD3766B5A5F7E2 /* AudioDecodeBlockingLanePolicy.swift */,
 				448C0693B4F051488B4E0CD1 /* AudioDurationPolicy.swift */,
 				9E40DCC65C7DA2143109929B /* BottomChromeClearancePolicy.swift */,
+				C16FB1CFEB821043786D10DF /* SongRowColumnsPolicy.swift */,
 				57AEB5228DD8790FB07D8877 /* BoundedAsyncChannel.swift */,
 				CDECF488946A4107E730C51A /* CarPlayArtworkCacheKey.swift */,
 				52C3403EC845D6ACC43FC90C /* CarPlayLayoutBlock.swift */,
@@ -4754,6 +4757,7 @@
 				9129126C040F02F724CC2762 /* BaiduFileManagerBatchResponse.swift in Sources */,
 				1F47DB3FE4EE61F5E3D5C8B9 /* BaiduPanStreamResolver.swift in Sources */,
 				A04BFD2AC3A1546B7774DA14 /* BottomChromeClearancePolicy.swift in Sources */,
+				EBF7F643D84EDFE34A3A8817 /* SongRowColumnsPolicy.swift in Sources */,
 				71C60F0F8ACFF948E692212D /* BoundedAsyncChannel.swift in Sources */,
 				5978B69CCBB88DF15F5AAA4D /* BrandTintStore.swift in Sources */,
 				67D45D818469B9D73A8AB157 /* BundleToken.swift in Sources */,

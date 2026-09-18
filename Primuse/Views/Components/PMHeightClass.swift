@@ -22,6 +22,11 @@ struct PMHeightClass: Equatable, Sendable {
 
 extension EnvironmentValues {
     var pmHeightClass: PMHeightClass {
+        #if os(iOS)
         PMHeightClass(isCompact: verticalSizeClass == .compact)
+        #else
+        // Mac 的窗口没有紧凑高度这一档，也不必依赖那边有没有纵向尺寸等级。
+        PMHeightClass(isCompact: false)
+        #endif
     }
 }

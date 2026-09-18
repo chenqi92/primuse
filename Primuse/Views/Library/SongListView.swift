@@ -4021,6 +4021,10 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
             }
             .scrollPosition($scrollPosition)
             .background(songListBackground)
+            // 量的是行所在的这个滚动容器, 不是整屏。字母索引是盖在容器右缘的
+            // overlay, 行靠 trailingPadding 给它让位 (16 → 42), 对齐列排在
+            // 让位之内, 不会和索引条打架。
+            .songRowColumnsContainer()
 
             if showsSectionIndex {
                 IOSSongAlphabetIndex(entries: sectionIndexEntries) { entry in
@@ -4328,6 +4332,7 @@ private struct IOSSongListFilteredContainer: View, @MainActor Equatable {
             }
         }
         .background(songListBackground)
+        .songRowColumnsContainer()
     }
 
     private var songListBackground: Color {

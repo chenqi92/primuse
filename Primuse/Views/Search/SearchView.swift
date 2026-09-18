@@ -204,32 +204,42 @@ struct SearchScopeSwitchButton: View {
 struct SearchScopeCard: View {
     let scope: LibrarySearchScope
 
+    /// 这张卡排在结果区外面、不参与滚动。手机横屏时结果区本来就只剩两百多点,
+    /// 再顶掉一百多点就只看得到一行半歌, 所以紧凑高度下压成一条: 图标 + 范围名。
+    @Environment(\.pmHeightClass) private var heightClass
+
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        let iconSide = heightClass.value(44, compact: 28)
+        let iconCorner = heightClass.value(12, compact: 8)
+        let cardCorner = heightClass.value(18, compact: 12)
+        let rowAlignment: VerticalAlignment = heightClass.pick(.top, compact: .center)
+        HStack(alignment: rowAlignment, spacing: 12) {
             Image(systemName: scope.kind.systemImage)
-                .font(.system(size: 20, weight: .semibold))
+                .font(.system(size: heightClass.value(20, compact: 13), weight: .semibold))
                 .foregroundStyle(scope.kind.color)
-                .frame(width: 44, height: 44)
-                .background(scope.kind.color.opacity(0.14), in: RoundedRectangle(cornerRadius: 12))
+                .frame(width: iconSide, height: iconSide)
+                .background(scope.kind.color.opacity(0.14), in: RoundedRectangle(cornerRadius: iconCorner))
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 5) {
-                Text(String(format: String(localized: "search_scope_title_format"), scope.kind.title))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if !heightClass.isCompact {
+                    Text(String(format: String(localized: "search_scope_title_format"), scope.kind.title))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Text(verbatim: scope.title)
                     .font(.headline)
-                    .lineLimit(2)
+                    .lineLimit(heightClass.pick(2, compact: 1))
                     .fixedSize(horizontal: false, vertical: true)
-                if let detail = scope.detail, !detail.isEmpty {
+                if let detail = scope.detail, !detail.isEmpty, !heightClass.isCompact {
                     Text(verbatim: detail)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if scope.includesSubfolders {
+                if scope.includesSubfolders, !heightClass.isCompact {
                     Label("search_scope_includes_subfolders", systemImage: "folder.badge.plus")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -238,10 +248,10 @@ struct SearchScopeCard: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(14)
-        .background(scope.kind.color.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
+        .padding(heightClass.value(14, compact: 8))
+        .background(scope.kind.color.opacity(0.08), in: RoundedRectangle(cornerRadius: cardCorner))
         .overlay {
-            RoundedRectangle(cornerRadius: 18)
+            RoundedRectangle(cornerRadius: cardCorner)
                 .strokeBorder(scope.kind.color.opacity(0.24), lineWidth: 1)
         }
         .accessibilityElement(children: .combine)
@@ -297,9 +307,13 @@ private enum SearchCatalogDestination: Hashable {
 private struct SearchAlbumResultsView: View {
     let albums: [PrimuseKit.Album]
 
+    @Environment(\.pmHeightClass) private var heightClass
+
     var body: some View {
+        // 和资料库的专辑网格用同一套断点, 手机横屏下一起收到 100。
+        let columns = [GridItem(.adaptive(minimum: heightClass.value(150, compact: 100)), spacing: 16)]
         ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 16)], spacing: 22) {
+            LazyVGrid(columns: columns, spacing: heightClass.value(22, compact: 14)) {
                 ForEach(albums) { album in
                     NavigationLink(value: album) {
                         AlbumCardView(album: album)
@@ -397,6 +411,8 @@ struct SearchView: View {
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
     #endif
+    /// 手机横屏时结果区只剩两百多点, 范围卡片与专辑架都要收一档。
+    @Environment(\.pmHeightClass) private var heightClass
     @Binding var searchText: String
     @Binding private var scope: LibrarySearchScope?
     private let contextualScope: LibrarySearchScope?
@@ -612,7 +628,7 @@ struct SearchView: View {
             if let scope {
                 SearchScopeCard(scope: scope)
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
+                    .padding(.vertical, heightClass.value(10, compact: 4))
             }
             #endif
             iosSearchResults
@@ -1719,16 +1735,19 @@ struct SearchView: View {
             if !matchingAlbums.isEmpty {
                 Section {
                     ScrollView(.horizontal, showsIndicators: false) {
+                        // 卡宽决定整条专辑架的高度(封面是正方形), 紧凑高度下收一档,
+                        // 免得这一条就把结果区吃掉大半。
+                        let albumCardWidth = heightClass.value(142, compact: 104)
                         LazyHStack(alignment: .top, spacing: 14) {
                             ForEach(matchingAlbums.prefix(8)) { album in
                                 NavigationLink(value: album) {
-                                    AlbumCardView(album: album).frame(width: 142)
+                                    AlbumCardView(album: album).frame(width: albumCardWidth)
                                 }
                                 .buttonStyle(.plain)
                                 .mediaZoomSource(.album, id: album.id)
                             }
                         }
-                        .padding(.vertical, 8)
+                        .padding(.vertical, heightClass.value(8, compact: 4))
                     }
                     .listRowSeparator(.hidden)
                 } header: {
@@ -1782,6 +1801,8 @@ struct SearchView: View {
             }
         }
         .listStyle(.plain)
+        // 结果表够宽时, 歌曲行把专辑与时长排成对齐列。
+        .songRowColumnsContainer()
     }
 
     @ViewBuilder

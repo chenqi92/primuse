@@ -7,6 +7,8 @@ struct QueueView: View {
     // 拖拽预览宿主要用: 行里的 CachedArtworkView 同时读 MusicLibrary 与
     // SourceManager, 两个都得显式带过去。见 queueRow 里的说明。
     @Environment(SourceManager.self) private var sourceManager
+    /// 队列以半屏 sheet 呈现, 手机横屏下可视高度只够两行出头, 行距与底部留白收一档。
+    @Environment(\.pmHeightClass) private var heightClass
     @State private var dropTarget: QueueReorderOccurrenceID?
 
     var body: some View {
@@ -59,7 +61,7 @@ struct QueueView: View {
                 // LazyVStack creates only the visible lightweight rows and
                 // keeps long queues responsive while preserving one continuous
                 // scroll surface.
-                LazyVStack(alignment: .leading, spacing: 18) {
+                LazyVStack(alignment: .leading, spacing: heightClass.value(18, compact: 10)) {
                     let currentIndex = min(max(player.currentIndex, 0), entries.count - 1)
                     let currentEntry = entries[currentIndex]
                     queueSection(title: "now_playing") {
@@ -97,8 +99,8 @@ struct QueueView: View {
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .padding(.bottom, 28)
+                .padding(.vertical, heightClass.value(12, compact: 8))
+                .padding(.bottom, heightClass.value(28, compact: 12))
             }
             // 空态与列表只让新的那块淡入: 两者不重叠, 交叉过渡期间会前后叠排。
             // 行级增删仍然走各自的动画。
