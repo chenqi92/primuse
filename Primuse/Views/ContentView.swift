@@ -845,7 +845,9 @@ struct ContentView: View {
                     MinimalNowPlayingAccessory(onTap: presentNowPlaying)
                 }
             }
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+            // miniPlayerVisible 是派生量, 翻转由播放状态决定, 调用点包不住动画
+            // 事务, 曲线只能附在过渡本身上。
+            .pmSlideTransition(edge: .bottom, motion: .panel)
         }
     }
 
@@ -953,6 +955,7 @@ struct ContentView: View {
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     if miniPlayerVisible {
                         PadNowPlayingAccessory(onTap: presentNowPlaying)
+                            .pmSlideTransition(edge: .bottom, motion: .panel)
                     }
                 }
         }
@@ -1081,7 +1084,7 @@ struct ContentView: View {
                 } else {
                     LegacyNowPlayingAccessory(onTap: presentNowPlaying)
                         .padding(.bottom, legacyTabBarClearance)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .pmSlideTransition(edge: .bottom, motion: .panel)
                         .zIndex(1)
                 }
             }
