@@ -5878,8 +5878,7 @@ final class MusicLibrary {
     }
 
     func songs(forAlbum albumID: String) -> [Song] {
-        visibleSongs.filter { $0.albumID == albumID }
-            .sorted { ($0.trackNumber ?? 0) < ($1.trackNumber ?? 0) }
+        AlbumTrackOrder.sorted(visibleSongs.filter { $0.albumID == albumID })
     }
 
     func preferredArtworkSong(forAlbumID albumID: String) -> Song? {

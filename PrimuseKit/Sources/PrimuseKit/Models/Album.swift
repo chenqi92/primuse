@@ -42,6 +42,36 @@ extension Album: FetchableRecord, PersistableRecord {
     public static var databaseTableName: String { "albums" }
 }
 
+/// Album presentation and playback must consume the same track order.
+public enum AlbumTrackOrder {
+    /// A missing or non-positive disc tag denotes the first disc.
+    public static func discNumber(for song: Song) -> Int {
+        max(1, song.discNumber ?? 1)
+    }
+
+    public static func sorted(_ songs: [Song]) -> [Song] {
+        songs.sorted { lhs, rhs in
+            let leftDisc = discNumber(for: lhs)
+            let rightDisc = discNumber(for: rhs)
+            if leftDisc != rightDisc { return leftDisc < rightDisc }
+
+            let leftTrack = positiveTrackNumber(lhs) ?? Int.max
+            let rightTrack = positiveTrackNumber(rhs) ?? Int.max
+            if leftTrack != rightTrack { return leftTrack < rightTrack }
+
+            // Duplicate or absent track tags must not inherit scan order.
+            let titleOrder = lhs.title.localizedStandardCompare(rhs.title)
+            if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
+            return lhs.id < rhs.id
+        }
+    }
+
+    private static func positiveTrackNumber(_ song: Song) -> Int? {
+        guard let number = song.trackNumber, number > 0 else { return nil }
+        return number
+    }
+}
+
 public enum RecentlyAddedAlbumPolicy {
     public static func sorted(
         albums: [Album], songs: [Song], limit: Int? = nil

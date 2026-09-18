@@ -71,11 +71,20 @@ struct AlbumDetailView: View {
 
     /// 全选和"按看到的顺序入队"都要用列表实际渲染的顺序。
     private var orderedSongIDs: [String] {
-        #if os(macOS)
-        albumTracks.map(\.id)
-        #else
         songs.map(\.id)
-        #endif
+    }
+
+    private struct DiscSection: Identifiable {
+        let number: Int
+        let songs: [Song]
+        var id: Int { number }
+        var title: String { "\(String(localized: "disc_label")) \(number)" }
+    }
+
+    private var discSections: [DiscSection] {
+        // Group the canonical library order without reordering tracks in the UI.
+        let grouped = Dictionary(grouping: songs, by: AlbumTrackOrder.discNumber(for:))
+        return grouped.keys.sorted().map { DiscSection(number: $0, songs: grouped[$0] ?? []) }
     }
 
     private var albumServerMediaShareTarget: ServerMediaShareTarget? {
@@ -91,33 +100,48 @@ struct AlbumDetailView: View {
 
     #if os(iOS)
     private var iosBody: some View {
-        ScrollView {
+        let discs = discSections
+        let showsDiscHeaders = discs.contains { $0.number > 1 }
+        return ScrollView {
             VStack(spacing: 20) {
                 iosSummaryCard
 
                 LazyVStack(spacing: 0) {
-                    ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
-                        SongRowView(
-                            song: song,
-                            isPlaying: player.currentSong?.id == song.id,
-                            showAlbum: false,
-                            selection: selection,
-                            context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
-                        )
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            playSong(song)
+                    ForEach(discs) { disc in
+                        if showsDiscHeaders {
+                            Text(verbatim: disc.title)
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 12)
+                                .padding(.top, 20)
+                                .padding(.bottom, 8)
+                                .accessibilityAddTraits(.isHeader)
                         }
-                        .songSelectable(
-                            songID: song.id,
-                            selection: selection,
-                            orderedIDs: { orderedSongIDs }
-                        )
 
-                        if index < songs.count - 1 {
-                            Divider().padding(.leading, 66)
+                        ForEach(Array(disc.songs.enumerated()), id: \.element.id) { index, song in
+                            SongRowView(
+                                song: song,
+                                isPlaying: player.currentSong?.id == song.id,
+                                showAlbum: false,
+                                selection: selection,
+                                context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
+                            )
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                playSong(song)
+                            }
+                            .songSelectable(
+                                songID: song.id,
+                                selection: selection,
+                                orderedIDs: { orderedSongIDs }
+                            )
+
+                            if index < disc.songs.count - 1 {
+                                Divider().padding(.leading, 66)
+                            }
                         }
                     }
                 }
@@ -423,7 +447,9 @@ struct AlbumDetailView: View {
     }
 
     private var macTrackTable: some View {
-        VStack(spacing: 0) {
+        let discs = discSections
+        let showsDiscHeaders = discs.contains { $0.number > 1 }
+        return VStack(spacing: 0) {
             HStack(spacing: PMSpace.s10) {
                 Text("#").frame(width: 28, alignment: .center)
                 Color.clear.frame(width: 36)
@@ -441,31 +467,47 @@ struct AlbumDetailView: View {
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
 
             LazyVStack(spacing: 1) {
-                ForEach(Array(albumTracks.enumerated()), id: \.element.id) { index, song in
-                    macTrackRow(song, index: index)
-                        .songSelectable(
-                            songID: song.id,
-                            selection: selection,
-                            orderedIDs: { orderedSongIDs },
-                            defaultAction: { playSong(song) }
-                        )
+                ForEach(discs) { disc in
+                    if showsDiscHeaders {
+                        macDiscHeader(disc, isFirst: disc.id == discs.first?.id)
+                    }
+
+                    ForEach(Array(disc.songs.enumerated()), id: \.element.id) { index, song in
+                        macTrackRow(song, index: index)
+                            .songSelectable(
+                                songID: song.id,
+                                selection: selection,
+                                orderedIDs: { orderedSongIDs },
+                                defaultAction: { playSong(song) }
+                            )
+                    }
                 }
             }
             .padding(.vertical, 4)
         }
     }
 
-    private var albumTracks: [Song] {
-        songs.sorted {
-            let left = $0.trackNumber ?? Int.max
-            let right = $1.trackNumber ?? Int.max
-            if left != right { return left < right }
-            return $0.title.localizedStandardCompare($1.title) == .orderedAscending
+    private func macDiscHeader(_ disc: DiscSection, isFirst: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if !isFirst {
+                Rectangle().fill(PMColor.divider).frame(height: 0.5)
+                    .padding(.top, PMSpace.m)
+            }
+            Text(verbatim: disc.title)
+                .font(.system(size: 11, weight: .semibold))
+                .textCase(.uppercase)
+                .foregroundStyle(PMColor.textMuted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, PMSpace.s8)
+                .padding(.top, PMSpace.m)
+                .padding(.bottom, PMSpace.s8)
+                .accessibilityAddTraits(.isHeader)
         }
     }
 
     private func macTrackRow(_ song: Song, index: Int) -> some View {
         let isCurrent = player.currentSong?.id == song.id
+        let trackNumber = song.trackNumber.flatMap { $0 > 0 ? $0 : nil } ?? index + 1
         return Button { playSong(song) } label: {
             HStack(spacing: PMSpace.s10) {
                 ZStack {
@@ -475,7 +517,7 @@ struct AlbumDetailView: View {
                             .foregroundStyle(PMColor.brand)
                             .pmFadeTransition()
                     } else {
-                        Text("\(song.trackNumber ?? index + 1)")
+                        Text("\(trackNumber)")
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(PMColor.textFaint)
                             .pmFadeTransition()
