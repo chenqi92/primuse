@@ -36,6 +36,7 @@ struct PersistedHomeAlbumTile: Codable, Sendable {
 
 private struct RecentlyAddedAlbumsView: View {
     @Environment(MusicLibrary.self) private var library
+    @Environment(\.pmHeightClass) private var heightClass
     @State private var albums: [Album] = []
     @State private var isPrepared = false
     @State private var query = ""
@@ -59,7 +60,15 @@ private struct RecentlyAddedAlbumsView: View {
             } else if filteredAlbums.isEmpty {
                 ContentUnavailableView.search(text: query)
             } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 16, alignment: .top)], spacing: 20) {
+                // 手机横屏与资料库的专辑网格用同一档列宽，一屏能看到一行半以上。
+                LazyVGrid(
+                    columns: [GridItem(
+                        .adaptive(minimum: heightClass.value(150, compact: 100)),
+                        spacing: 16,
+                        alignment: .top
+                    )],
+                    spacing: heightClass.value(20, compact: 14)
+                ) {
                     ForEach(filteredAlbums) { album in
                         NavigationLink {
                             AlbumDetailView(album: album)
