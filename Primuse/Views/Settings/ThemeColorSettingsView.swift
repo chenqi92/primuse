@@ -280,7 +280,7 @@ struct ThemeColorSections: View {
 
             Spacer()
         }
-        .animation(.easeInOut(duration: 0.35), value: themeService.colorID)
+        .pmAnimation(.ambient, value: themeService.colorID)
     }
 
     private func modeRow(
@@ -336,6 +336,7 @@ struct ThemeColorSections: View {
                                 .font(.subheadline.weight(.bold))
                                 .foregroundStyle(.white)
                                 .shadow(color: .black.opacity(0.35), radius: 1.5)
+                                .pmFadeTransition()
                         }
                     }
                     .overlay {
@@ -355,6 +356,8 @@ struct ThemeColorSections: View {
             }
         }
         .buttonStyle(.plain)
+        // 挂在单个色块上：勾与描边只跟这一块的选中态走, 换色时两块各自动各自的。
+        .pmAnimation(.selection, value: isSelected)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 

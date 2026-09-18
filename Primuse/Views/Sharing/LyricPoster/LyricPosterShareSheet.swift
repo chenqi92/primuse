@@ -405,6 +405,7 @@ struct LyricPosterShareSheet: View {
             .frame(width: 88)
         }
         .buttonStyle(.plain)
+        .pmAnimation(.hover, value: isSelected)
         .accessibilityLabel(Text(LocalizedStringKey(descriptor.nameKey)))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
@@ -453,6 +454,7 @@ struct LyricPosterShareSheet: View {
             .frame(width: 70)
         }
         .buttonStyle(.plain)
+        .pmAnimation(.hover, value: isSelected)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
@@ -517,6 +519,7 @@ struct LyricPosterShareSheet: View {
             .frame(width: 70)
         }
         .buttonStyle(.plain)
+        .pmAnimation(.hover, value: isSelected)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
@@ -696,7 +699,7 @@ struct LyricPosterShareSheet: View {
         HStack(spacing: 12) {
             if let step = wizardStep, let previous = LyricPosterWizardPolicy.previous(before: step) {
                 Button {
-                    withAnimation { wizardStep = previous }
+                    pmWithAnimation(.pageSwitch) { wizardStep = previous }
                 } label: {
                     Label(String(localized: "lyric_poster_wizard_back"), systemImage: "chevron.left")
                         .frame(maxWidth: .infinity)
@@ -742,7 +745,7 @@ struct LyricPosterShareSheet: View {
     private func advanceWizard() {
         guard let step = wizardStep else { return }
         if let next = LyricPosterWizardPolicy.next(after: step) {
-            withAnimation { wizardStep = next }
+            pmWithAnimation(.pageSwitch) { wizardStep = next }
         } else {
             finishWizard()
         }
@@ -752,7 +755,7 @@ struct LyricPosterShareSheet: View {
     /// 退出引导直接接着用单页继续调。
     private func finishWizard() {
         hasFinishedIntro = true
-        withAnimation { wizardStep = nil }
+        pmWithAnimation(.pageSwitch) { wizardStep = nil }
     }
 
     // MARK: - 工具栏与操作条
@@ -782,16 +785,20 @@ struct LyricPosterShareSheet: View {
 
     private var actionBar: some View {
         VStack(spacing: 10) {
+            // 成对分支: 进度条直接消失、完成提示淡入。两者同时留在这个 VStack
+            // 里会把下面的按钮条顶下去再弹回。
             if composer.isExporting {
                 ProgressView(value: composer.exportProgress) {
                     Text("lyric_poster_exporting")
                         .font(.caption)
                 }
                 .progressViewStyle(.linear)
+                .pmAppearFade(.control)
             } else if let statusMessage {
                 Label(statusMessage, systemImage: "checkmark.circle.fill")
                     .font(.caption)
                     .foregroundStyle(.green)
+                    .pmAppearFade(.control)
             }
 
             HStack(spacing: 12) {

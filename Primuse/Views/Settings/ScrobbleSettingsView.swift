@@ -117,20 +117,25 @@ struct ScrobbleSettingsView: View {
     private var iosBody: some View {
         Form {
             Section {
-                Toggle("scrobble_enabled", isOn: $settings.isEnabled)
+                Toggle("scrobble_enabled", isOn: $settings.isEnabled.pmAnimated())
                 .settingsAnchor("scrobble.enabled")
                 if settings.isEnabled {
                     Toggle("scrobble_send_now_playing", isOn: $settings.sendNowPlaying)
                     .settingsAnchor("scrobble.nowPlaying")
+                    .pmFadeTransition()
                 }
             } footer: {
                 Text("scrobble_overall_footer")
             }
 
+            // Section 里有 ForEach, 位移会在 Form 里引发多轮重布局, 只用透明度。
             if settings.isEnabled {
                 listenBrainzSection
+                    .pmFadeTransition()
                 lastFmSection
+                    .pmFadeTransition()
                 queueSection
+                    .pmFadeTransition()
             }
         }
         .navigationTitle("scrobble_title")
@@ -154,14 +159,22 @@ struct ScrobbleSettingsView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     macMasterCard
 
+                    // 成对分支：旧的一侧直接消失、新的一侧淡入。交叉淡入会让两侧
+                    // 同时留在这个 VStack 里上下叠排, 把下面的内容顶开再弹回。
                     if settings.isEnabled {
                         macLastFmCard
+                            .pmAppearFade(.contentAppear)
                         macListenBrainzCard
+                            .pmAppearFade(.contentAppear)
                         macRulesCard
+                            .pmAppearFade(.contentAppear)
                         macQueueCard
+                            .pmAppearFade(.contentAppear)
                         macRecentReportsCard
+                            .pmAppearFade(.contentAppear)
                     } else {
                         macDisabledState
+                            .pmAppearFade(.contentAppear)
                     }
                 }
                 .padding(18)
@@ -248,11 +261,15 @@ struct ScrobbleSettingsView: View {
             macRow(icon: "dot.radiowaves.left.and.right", title: String(localized: "scrobble_enabled"), subtitle: String(localized: "scrobble_mac_enabled_subtitle")) {
                 macSwitch(isOn: $settings.isEnabled)
             }
+            // 单独的 if：开关带出来的子行, 过渡自带曲线（开关这边不包事务,
+            // 免得把下面那组成对的卡片也拖进交叉淡入）。
             if settings.isEnabled {
                 Divider().overlay(PMColor.divider).padding(.leading, 44)
+                    .pmFadeTransition(motion: .list)
                 macRow(icon: "waveform.badge.magnifyingglass", title: String(localized: "scrobble_send_now_playing"), subtitle: String(localized: "scrobble_mac_now_playing_subtitle")) {
                     macSwitch(isOn: $settings.sendNowPlaying)
                 }
+                .pmFadeTransition(motion: .list)
             }
         }
         .background(PMColor.bgElev, in: .rect(cornerRadius: 12))
@@ -331,6 +348,8 @@ struct ScrobbleSettingsView: View {
             )
 
             if settings.enabledProviders.contains(.lastFm) {
+                // 三态：旧的一态直接消失、新的一态淡入。交叉淡入会让两态同时
+                // 留在容器布局里, 把后面的内容顶开再弹回。
                 if lastFmConnected {
                     HStack(spacing: 8) {
                         Label(lastFmUsername.isEmpty ? String(localized: "scrobble_lastfm_connected") : String(format: String(localized: "scrobble_lastfm_connected_as_format"), lastFmUsername),
@@ -342,6 +361,7 @@ struct ScrobbleSettingsView: View {
                             showLastFmSignOutConfirm = true
                         }
                     }
+                    .pmAppearFade(.control)
                 } else if let token = lastFmPendingToken {
                     HStack(spacing: 8) {
                         Text("scrobble_mac_waiting_browser_auth")
@@ -356,6 +376,7 @@ struct ScrobbleSettingsView: View {
                         }
                         .disabled(isLoggingInLastFm)
                     }
+                    .pmAppearFade(.control)
                 } else {
                     HStack(spacing: 8) {
                         macTinyButton(isLoggingInLastFm ? String(localized: "scrobble_mac_connecting") : String(localized: "scrobble_lastfm_connect"), icon: "person.badge.shield.checkmark", tint: PMColor.bad) {
@@ -364,7 +385,7 @@ struct ScrobbleSettingsView: View {
                             // 改成点了就展开「高级密钥」引导填写, 并给一句说明。
                             if LastFmCredentialsStore.effectiveAPIKey().isEmpty
                                 || LastFmCredentialsStore.effectiveAPISecret().isEmpty {
-                                withAnimation { showLastFmAdvanced = true }
+                                pmWithAnimation(.panel) { showLastFmAdvanced = true }
                                 lastFmError = String(localized: "scrobble_lastfm_err_missing_creds")
                             } else {
                                 Task { await beginLastFmAuthorization() }
@@ -380,6 +401,7 @@ struct ScrobbleSettingsView: View {
                                 .foregroundStyle(PMColor.textMuted)
                         }
                     }
+                    .pmAppearFade(.control)
 
                     DisclosureGroup(isExpanded: $showLastFmAdvanced) {
                         VStack(alignment: .leading, spacing: 8) {
@@ -402,6 +424,7 @@ struct ScrobbleSettingsView: View {
                             .foregroundStyle(PMColor.textMuted)
                     }
                     .settingsAnchor("scrobble.lastFMAdvanced")
+                    .pmAppearFade(.control)
                 }
             }
         }
@@ -693,6 +716,8 @@ struct ScrobbleSettingsView: View {
             .settingsAnchor("scrobble.lastFM")
 
             if settings.enabledProviders.contains(.lastFm) {
+                // 三态：旧的一态直接消失、新的一态淡入。交叉淡入会让两态同时
+                // 留在容器布局里, 把后面的内容顶开再弹回。
                 if lastFmConnected {
                     // 已登录: 显示用户名 + 登出
                     HStack {
@@ -703,11 +728,13 @@ struct ScrobbleSettingsView: View {
                             .font(.subheadline)
                         Spacer()
                     }
+                    .pmAppearFade(.control)
                     Button(role: .destructive) {
                         showLastFmSignOutConfirm = true
                     } label: {
                         Label("scrobble_lastfm_signout", systemImage: "rectangle.portrait.and.arrow.right")
                     }
+                    .pmAppearFade(.control)
                 } else if let token = lastFmPendingToken {
                     // Step 2: 已经打开过授权页, 等用户回来后检查授权状态。
                     HStack {
@@ -715,12 +742,14 @@ struct ScrobbleSettingsView: View {
                         Text("scrobble_lastfm_pending_hint").font(.subheadline)
                         Spacer()
                     }
+                    .pmAppearFade(.control)
                     Button {
                         reopenLastFmAuthorization(token: token)
                     } label: {
                         Label("scrobble_lastfm_reopen_authorization", systemImage: "safari")
                     }
                     .disabled(isLoggingInLastFm)
+                    .pmAppearFade(.control)
                     Button {
                         Task { await confirmLastFmAuthorization(showError: true) }
                     } label: {
@@ -734,11 +763,13 @@ struct ScrobbleSettingsView: View {
                         }
                     }
                     .disabled(isLoggingInLastFm)
+                    .pmAppearFade(.control)
                     Button("scrobble_lastfm_cancel_pending", role: .destructive) {
                         lastFmPendingToken = nil
                         LastFmCredentialsStore.savePendingAuthToken(nil)
                     }
                     .disabled(isLoggingInLastFm)
+                    .pmAppearFade(.control)
                 } else {
                     // Step 1: 拿 token + 在 App 内打开 Last.fm 授权页。Last.fm
                     // 会在同一网页内处理登录, 授权后用户点 Done 回到 App。
@@ -757,6 +788,7 @@ struct ScrobbleSettingsView: View {
                     .disabled(isLoggingInLastFm
                               || (LastFmCredentialsStore.effectiveAPIKey().isEmpty)
                               || (LastFmCredentialsStore.effectiveAPISecret().isEmpty))
+                    .pmAppearFade(.control)
 
                     DisclosureGroup(isExpanded: $showLastFmAdvanced) {
                         VStack(alignment: .leading, spacing: 8) {
@@ -783,6 +815,7 @@ struct ScrobbleSettingsView: View {
                         Label("scrobble_lastfm_advanced_title", systemImage: "key")
                             .font(.subheadline)
                     }
+                    .pmAppearFade(.control)
                 }
             }
         } header: {

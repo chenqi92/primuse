@@ -1192,7 +1192,7 @@ struct MetadataScrapingView: View {
                     Text("scraper_sources")
                     Spacer()
                     Button(isReordering ? String(localized: "done") : String(localized: "reorder")) {
-                        withAnimation { isReordering.toggle() }
+                        pmWithAnimation(.list) { isReordering.toggle() }
                     }
                     .font(.caption)
                     .textCase(nil)
@@ -1251,16 +1251,19 @@ struct MetadataScrapingView: View {
                         }
                         .buttonStyle(.borderless)
                     }
+                    .pmAppearFade(.control)
                 } else {
                     Button("scrape_missing_metadata") {
                         scraperService.scrapeMissingMetadata(in: library)
                     }
                     .settingsAnchor("scraping.fillMissing")
+                    .pmAppearFade(.control)
 
                     Button("rescrape_library") {
                         scraperService.rescrapeLibrary(in: library)
                     }
                     .settingsAnchor("scraping.rescrape")
+                    .pmAppearFade(.control)
                 }
             } header: {
                 Text("scrape_actions")
@@ -1348,12 +1351,16 @@ struct MetadataScrapingView: View {
                     } footer: {
                         Text("scraper_import_auto_footer")
                     }
+                    // 输入区与预览区互斥, 当成对分支处理: 旧的一侧直接消失、
+                    // 新的一侧淡入, 不让两段同时排在 Form 里。
+                    .pmAppearFade(.pageSwitch)
                 }
 
                 if let error = importError {
                     Section {
                         Text(error).foregroundStyle(.red).font(.caption)
                     }
+                    .pmFadeTransition(motion: .control)
                 }
 
                 if let importPreview {
@@ -1362,7 +1369,9 @@ struct MetadataScrapingView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    .pmAppearFade(.pageSwitch)
                     ScraperImportSummaryView(summary: importPreview)
+                        .pmAppearFade(.pageSwitch)
                 }
             }
             .navigationTitle("import_scraper_source")
@@ -1676,7 +1685,7 @@ struct PlaybackSettingsView: View {
             }
 
             Section {
-                Toggle("crossfade", isOn: $settings.crossfadeEnabled)
+                Toggle("crossfade", isOn: $settings.crossfadeEnabled.pmAnimated())
                 .settingsAnchor("playback.crossfade")
                     .onChange(of: settings.crossfadeEnabled) { _, enabled in
                         if enabled { settings.gaplessEnabled = false }
@@ -1689,6 +1698,7 @@ struct PlaybackSettingsView: View {
                             Text(mode.displayName).tag(mode)
                         }
                     }
+                    .pmFadeTransition()
 
                     VStack(alignment: .leading) {
                         Text(settings.crossfadeMode == .smart
@@ -1707,6 +1717,7 @@ struct PlaybackSettingsView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
+                    .pmFadeTransition()
                 }
             }
             .disabled(settings.outputMode == .highFidelity)
@@ -1722,7 +1733,7 @@ struct PlaybackSettingsView: View {
             .disabled(settings.outputMode == .highFidelity)
 
             Section {
-                Toggle("replay_gain", isOn: $settings.replayGainEnabled)
+                Toggle("replay_gain", isOn: $settings.replayGainEnabled.pmAnimated())
                 .settingsAnchor("playback.replayGain")
                     .accessibilityHint(Text("replay_gain_desc"))
 
@@ -1732,18 +1743,20 @@ struct PlaybackSettingsView: View {
                             Text(mode.displayName).tag(mode)
                         }
                     }
+                    .pmFadeTransition()
                 }
             }
             .disabled(settings.outputMode == .highFidelity)
 
             Section {
-                Toggle("spatial_audio", isOn: $settings.spatialAudioEnabled)
+                Toggle("spatial_audio", isOn: $settings.spatialAudioEnabled.pmAnimated())
                 .settingsAnchor("playback.spatialAudio")
                     .accessibilityHint(Text("spatial_audio_desc"))
 
                 if settings.spatialAudioEnabled {
                     Toggle("spatial_head_tracking", isOn: $settings.spatialHeadTrackingEnabled)
                         .accessibilityHint(Text("spatial_head_tracking_desc"))
+                        .pmFadeTransition()
                 }
             }
             .disabled(settings.outputMode == .highFidelity)
@@ -1847,14 +1860,18 @@ private struct AppleTVPushRow: View {
             HStack {
                 Label("settings_push_to_tv", systemImage: "appletv.fill")
                 Spacer()
+                // 三态成对切换（结果 4 秒后自动回空闲）: 只淡入新的一态,
+                // 交叉淡入会让转圈和结果同时占住这一行的右侧。
                 if pushing {
                     ProgressView()
+                        .pmAppearFade(.control)
                 } else if let result {
                     Label(result ? "settings_push_to_tv_done" : "settings_push_to_tv_failed",
                           systemImage: result ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                         .labelStyle(.titleAndIcon)
                         .font(.subheadline)
                         .foregroundStyle(result ? .green : .orange)
+                        .pmAppearFade(.control)
                 }
             }
             .settingsAnchor("appleTV.push")
@@ -1909,6 +1926,8 @@ struct RelaySettingsView: View {
                     }
 
                 if enabled {
+                    // 端点是 .task 异步轮询出来的。成对分支只淡入新的一条,
+                    // 两条同时排在这个 Section 里会多出一行再收回去。
                     if let endpoint {
                         HStack {
                             Image(systemName: "dot.radiowaves.left.and.right")
@@ -1917,6 +1936,7 @@ struct RelaySettingsView: View {
                                 .font(.subheadline.monospacedDigit())
                                 .textSelection(.enabled)
                         }
+                        .pmAppearFade(.control)
                     } else {
                         HStack {
                             Image(systemName: "wifi.exclamationmark")
@@ -1925,6 +1945,7 @@ struct RelaySettingsView: View {
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
+                        .pmAppearFade(.control)
                     }
                 }
             } footer: {
@@ -2252,10 +2273,10 @@ struct StorageManagementView: View {
         } else {
             msg = String(format: String(localized: "cache_clear_done_format"), freedStr)
         }
-        withAnimation { cacheActionToast = msg }
+        pmWithAnimation(.list) { cacheActionToast = msg }
         Task {
             try? await Task.sleep(for: .seconds(3))
-            withAnimation { cacheActionToast = nil }
+            pmWithAnimation(.list) { cacheActionToast = nil }
         }
     }
 
@@ -2269,11 +2290,15 @@ struct StorageManagementView: View {
         HStack {
             Label(title, systemImage: icon)
             Spacer()
+            // 成对分支只淡入新的一侧: 转圈和容量文本同时留在这个 HStack 里
+            // 会把右边的删除按钮挤走再弹回。
             if isClearing {
                 ProgressView()
+                    .pmAppearFade(.control)
             } else {
                 Text(size)
                     .foregroundStyle(.secondary)
+                    .pmAppearFade(.control)
             }
             Button(role: .destructive) { onClear() } label: {
                 Image(systemName: "trash")
@@ -2353,8 +2378,10 @@ struct StorageManagementView: View {
                     } label: {
                         if isClearingPartials {
                             ProgressView().controlSize(.mini)
+                                .pmAppearFade(.control)
                         } else {
                             Image(systemName: "trash").font(.caption2)
+                                .pmAppearFade(.control)
                         }
                     }
                     .buttonStyle(.bordered)
@@ -2381,8 +2408,10 @@ struct StorageManagementView: View {
                     } label: {
                         if isClearingOrphans {
                             ProgressView().controlSize(.mini)
+                                .pmAppearFade(.control)
                         } else {
                             Image(systemName: "trash").font(.caption2)
+                                .pmAppearFade(.control)
                         }
                     }
                     .buttonStyle(.bordered)
@@ -2650,6 +2679,8 @@ struct FamilySharingSettingsView: View {
         Form {
             // 状态 + 主动作 ── 启用状态和"邀请家人"放一起逻辑紧凑
             Section {
+                // 启用/解散都是异步完成后才回写 familyEnabled。成对分支只淡入
+                // 新的一侧, 免得两组行同时排在这个 Section 里。
                 if familyEnabled {
                     HStack {
                         Image(systemName: "checkmark.seal.fill")
@@ -2657,12 +2688,14 @@ struct FamilySharingSettingsView: View {
                         Text("family_sharing_active")
                             .font(.subheadline)
                     }
+                    .pmAppearFade(.control)
                     Button {
                         Task { await openExistingShare() }
                     } label: {
                         Label("family_sharing_manage", systemImage: "person.crop.circle.badge.checkmark")
                     }
                     .disabled(isBusy)
+                    .pmAppearFade(.control)
                 } else {
                     Button {
                         Task { await enable() }
@@ -2670,12 +2703,14 @@ struct FamilySharingSettingsView: View {
                         Label("family_sharing_create", systemImage: "person.2.badge.plus")
                     }
                     .disabled(isBusy)
+                    .pmAppearFade(.control)
                 }
 
                 if let errorMessage {
                     Text(errorMessage)
                         .font(.caption)
                         .foregroundStyle(.red)
+                        .pmFadeTransition(motion: .control)
                 }
             } footer: {
                 if !familyEnabled {
@@ -2698,6 +2733,7 @@ struct FamilySharingSettingsView: View {
                 } footer: {
                     Text("family_sharing_footer").font(.footnote)
                 }
+                .pmFadeTransition(motion: .control)
             }
 
             Section {

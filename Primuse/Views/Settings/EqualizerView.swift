@@ -32,6 +32,8 @@ struct EqualizerView: View {
                 }
                 .opacity(eq.isEnabled ? 1 : 0.4)
                 .disabled(!eq.isEnabled)
+                // 只跟总开关走；拖动频段时 isEnabled 不变,滑块仍是逐帧跟手的。
+                .pmAnimation(.control, value: eq.isEnabled)
                 .padding(.vertical, 6)
 
                 HStack {
@@ -78,6 +80,8 @@ struct EqualizerView: View {
             .padding(.horizontal, 12)
             .opacity(eq.isEnabled ? 1 : 0.4)
             .disabled(!eq.isEnabled)
+            // 只跟总开关走；拖动频段时 isEnabled 不变,滑块仍是逐帧跟手的。
+            .pmAnimation(.control, value: eq.isEnabled)
 
             Button("eq_reset") { eq.reset() }
                 .settingsAnchor("equalizer.reset")

@@ -21,7 +21,7 @@ struct CloudSyncSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Toggle("icloud_sync_enabled", isOn: $enabled)
+                Toggle("icloud_sync_enabled", isOn: $enabled.pmAnimated())
                 .settingsAnchor("cloud.enabled")
                     .onChange(of: enabled) { _, newValue in
                         Task {
@@ -92,6 +92,7 @@ struct CloudSyncSettingsView: View {
                     .disabled(isSyncingNow || !sync.isAvailableInCurrentBuild)
                 }
                 .settingsAnchor("cloud.status")
+                .pmFadeTransition()
             }
 
             Section {
@@ -139,34 +140,45 @@ struct CloudSyncSettingsView: View {
         }
     }
 
+    /// 各态换成新一态时直接淡入新的那条，不做交叉淡入 —— 两条文案同时留在
+    /// 这一行的 HStack 里会把右边的内容顶开再弹回。
     @ViewBuilder
     private var statusLabel: some View {
         switch sync.status {
         case .disabled:
             Text("status_disabled")
+                .pmAppearFade(.control)
         case .unavailableInBuild:
             Text("status_icloud_unavailable_in_build")
                 .foregroundStyle(.orange)
+                .pmAppearFade(.control)
         case .idle:
             Text("status_idle")
+                .pmAppearFade(.control)
         case .syncing:
             Text("status_syncing")
+                .pmAppearFade(.control)
         case .upToDate:
             Text("status_up_to_date")
+                .pmAppearFade(.control)
         case .error(let message):
             Text(message)
                 .foregroundStyle(.red)
                 .lineLimit(2)
+                .pmAppearFade(.control)
         case .accountUnavailable(let reason):
             Text(reason.localizedKey)
                 .foregroundStyle(.orange)
                 .lineLimit(2)
+                .pmAppearFade(.control)
         case .quotaExceeded:
             Text("status_quota_exceeded")
                 .foregroundStyle(.red)
+                .pmAppearFade(.control)
         case .networkUnavailable:
             Text("status_network_unavailable")
                 .foregroundStyle(.orange)
+                .pmAppearFade(.control)
         }
     }
 }
