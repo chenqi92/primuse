@@ -6,6 +6,52 @@ import UIKit
 @testable import Primuse
 
 @MainActor
+final class MusicLibraryAlbumTrackOrderTests: XCTestCase {
+    func testAlbumQueryKeepsDiscsTogetherAndExcludesOtherAlbums() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseAlbumOrderTests-\(UUID().uuidString)", isDirectory: true)
+        let defaultsName = "PrimuseAlbumOrderTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+            defaults.removePersistentDomain(forName: defaultsName)
+        }
+        let library = MusicLibrary(
+            storageDirectory: directory,
+            deferredMaintenanceAllowed: { false },
+            searchIndexDefaults: defaults,
+            lyricsSearchIndexRefresh: { _, _, _ in }
+        )
+        let songs = [
+            makeSong("2-1", disc: 2, track: 1),
+            makeSong("1-2", disc: 1, track: 2),
+            makeSong("2-2", disc: 2, track: 2),
+            makeSong("1-1", disc: nil, track: 1),
+            makeSong("other", disc: 1, track: 1, album: "Other album"),
+        ]
+        library.addSongs(songs, affectedSourceIDs: ["album-order-source"])
+        for _ in 0..<200 where library.visibleSongs.count != songs.count {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(library.visibleSongs.count, songs.count)
+        let albumID = try XCTUnwrap(library.song(id: "1-1")?.albumID)
+
+        // This query supplies the iOS/Mac album view and the tvOS album queue.
+        XCTAssertEqual(library.songs(forAlbum: albumID).map(\.id), ["1-1", "1-2", "2-1", "2-2"])
+        XCTAssertTrue(library.songs(forAlbum: "missing-album").isEmpty)
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("The isolated album library should persist")
+        }
+    }
+
+    private func makeSong(_ id: String, disc: Int?, track: Int, album: String = "Two discs") -> Song {
+        Song(id: id, title: id, albumTitle: album, artistName: "Artist",
+             albumArtistName: "Artist", trackNumber: track, discNumber: disc,
+             fileFormat: .flac, filePath: "/\(id).flac", sourceID: "album-order-source")
+    }
+}
+
+@MainActor
 final class LibraryReviewTests: XCTestCase {
     func testReviewNormalizationPersistenceAndDeletionTombstone() async throws {
         let directory = FileManager.default.temporaryDirectory
