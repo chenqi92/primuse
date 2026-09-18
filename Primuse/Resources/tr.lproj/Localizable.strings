@@ -3490,7 +3490,7 @@
 "smart_mac_songs_unit" = "şarkılar";
 "search_songs_prompt" = "Şarkıları ara";
 "home_playable" = "Oynanabilir oran";
-"onboarding_sources_nas" = "Synology NAS ve SMB / NFS paylaşımları, ayrıca Audio Station ve Feiniu Music gibi NAS müzik hizmetleri";
+"onboarding_sources_nas" = "Synology ve QNAP NAS, SMB / NFS paylaşımları, ayrıca Audio Station ve Feiniu Music gibi NAS müzik hizmetleri";
 "fullscreen_effect_settings_title" = "Tam ekran efektleri";
 "song_details_unavailable_message" = "Etiketler okundu ancak süre çıkarılamadı. Dosya bozuk veya desteklenmeyen bir biçimde olabilir.";
 "add_insecure_http_domain_message" = "Yalnızca nas.example.com gibi ana bilgisayarı veya genel IP adresini girin. Bir şema, bağlantı noktası veya yol eklemeyin. Bu ana bilgisayara giden HTTP trafiği şifrelenmeyecek.";

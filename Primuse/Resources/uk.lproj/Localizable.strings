@@ -3490,7 +3490,7 @@
 "smart_mac_songs_unit" = "пісні";
 "search_songs_prompt" = "Пошук пісень";
 "home_playable" = "Ігровий коефіцієнт";
-"onboarding_sources_nas" = "NAS Synology і спільні папки SMB / NFS, а також музичні сервіси NAS, як-от Audio Station і Feiniu Music";
+"onboarding_sources_nas" = "NAS Synology і QNAP, спільні папки SMB / NFS, а також музичні сервіси NAS, як-от Audio Station і Feiniu Music";
 "fullscreen_effect_settings_title" = "Повноекранні ефекти";
 "song_details_unavailable_message" = "Теги було прочитано, але не вдалося витягнути тривалість. Файл може бути пошкоджений або має непідтримуваний формат.";
 "add_insecure_http_domain_message" = "Введіть лише хост, наприклад nas.example.com або публічну адресу IP. Не включайте схему, порт або шлях. Трафік HTTP до цього хосту не буде зашифровано.";

@@ -2109,7 +2109,7 @@
 "onboarding_sources_cloud" = "123 ผาน ไป่ตู้ปัน ไดรฟ์อาลีหยุน และอื่นๆ";
 "onboarding_sources_dlna" = "UPnP / DLNA เซิร์ฟเวอร์สื่อบนเครือข่ายของคุณ";
 "onboarding_sources_footer" = "คุณสามารถเพิ่มได้มากเท่าที่คุณต้องการเมื่อใดก็ได้";
-"onboarding_sources_nas" = "Synology NAS และการแชร์ SMB / NFS รวมถึงบริการเพลงบน NAS อย่าง Audio Station และ Feiniu Music";
+"onboarding_sources_nas" = "NAS ของ Synology และ QNAP, การแชร์ SMB / NFS รวมถึงบริการเพลงบน NAS อย่าง Audio Station และ Feiniu Music";
 "onboarding_sources_network" = "Navidrome, Jellyfin, Emby, WebDAV, SFTP, UPnP / DLNA และอื่นๆ";
 "onboarding_sources_title" = "รวมเพลงของคุณเข้าด้วยกัน";
 "onboarding_sources_webdav" = "WebDAV, FTP, SFTP — มีการป้องกันด้วยรหัสผ่านด้วย";

@@ -75,7 +75,7 @@
 "onboarding_welcome_title" = "Votre musique, vos serveurs";
 "onboarding_welcome_subtitle" = "Primuse lit la musique depuis votre NAS, vos services cloud et votre réseau domestique, sans envoyer aucun fichier à qui que ce soit.";
 "onboarding_sources_title" = "Réunissez toute votre musique";
-"onboarding_sources_nas" = "NAS Synology et partages SMB / NFS, ainsi que les services musicaux NAS comme Audio Station et Feiniu Music";
+"onboarding_sources_nas" = "NAS Synology et QNAP, partages SMB / NFS, ainsi que les services musicaux NAS comme Audio Station et Feiniu Music";
 "onboarding_sources_cloud" = "123 Pan, Baidu Pan, Aliyun Drive et plus";
 "onboarding_sources_apple_music" = "Connectez Apple Music en option et parcourez-le avec votre bibliothèque";
 "onboarding_sources_network" = "Navidrome, Jellyfin, Emby, WebDAV, SFTP, UPnP / DLNA et plus";

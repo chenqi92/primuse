@@ -2109,7 +2109,7 @@
 "onboarding_sources_cloud" = "123 بان، بايدو بان، أليون درايف، والمزيد";
 "onboarding_sources_dlna" = "UPnP / DLNA خوادم الوسائط على شبكتك";
 "onboarding_sources_footer" = "يمكنك إضافة العدد الذي تريده في أي وقت.";
-"onboarding_sources_nas" = "Synology NAS ومشاركات SMB / NFS، بالإضافة إلى خدمات الموسيقى على NAS مثل Audio Station وFeiniu Music";
+"onboarding_sources_nas" = "أجهزة NAS من Synology وQNAP ومشاركات SMB / NFS، بالإضافة إلى خدمات الموسيقى على NAS مثل Audio Station وFeiniu Music";
 "onboarding_sources_network" = "Navidrome, Jellyfin, Emby, WebDAV, SFTP, UPnP / DLNA, والمزيد";
 "onboarding_sources_title" = "اجمع موسيقاك معًا";
 "onboarding_sources_webdav" = "WebDAV، FTP، SFTP — حتى محمية بكلمة مرور";

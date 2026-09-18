@@ -1263,7 +1263,7 @@
 "onboarding_welcome_title" = "你的音乐，存在你的服务器";
 "onboarding_welcome_subtitle" = "Primuse 从你自己的 NAS、云盘和家里的网络播放音乐 —— 不上传任何文件到任何人。";
 "onboarding_sources_title" = "把音乐聚合到一处";
-"onboarding_sources_nas" = "群晖 NAS、SMB / NFS 共享，以及 Audio Station、飞牛音乐等 NAS 音乐服务";
+"onboarding_sources_nas" = "群晖、威联通 NAS 与 SMB / NFS 共享，以及 Audio Station、飞牛音乐等 NAS 音乐服务";
 "onboarding_sources_cloud" = "123 云盘、百度网盘、阿里云盘等云端音乐";
 "onboarding_sources_apple_music" = "可选连接 Apple Music，一并浏览订阅资料库";
 "onboarding_sources_network" = "Navidrome、Jellyfin、Emby、WebDAV、SFTP、UPnP / DLNA 等服务";

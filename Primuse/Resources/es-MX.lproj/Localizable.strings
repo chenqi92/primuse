@@ -2109,7 +2109,7 @@
 "onboarding_sources_cloud" = "123 Pan, Baidu Pan, Aliyun Drive y más";
 "onboarding_sources_dlna" = "Servidores de medios UPnP / DLNA en su red";
 "onboarding_sources_footer" = "Puedes agregar tantos como quieras, en cualquier momento.";
-"onboarding_sources_nas" = "NAS Synology y recursos compartidos SMB / NFS, además de servicios de música para NAS como Audio Station y Feiniu Music";
+"onboarding_sources_nas" = "NAS Synology y QNAP, recursos compartidos SMB / NFS, además de servicios de música para NAS como Audio Station y Feiniu Music";
 "onboarding_sources_network" = "Navidrome, Jellyfin, Emby, WebDAV, SFTP, UPnP / DLNA y más";
 "onboarding_sources_title" = "Reúne tu música";
 "onboarding_sources_webdav" = "WebDAV, FTP, SFTP — incluso protegidos con contraseña";

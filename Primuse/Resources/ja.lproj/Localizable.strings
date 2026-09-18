@@ -76,7 +76,7 @@
 "onboarding_welcome_title" = "あなたの音楽、あなたのサーバー";
 "onboarding_welcome_subtitle" = "Primuse はあなた自身の NAS、クラウドドライブ、ホームネットワークから音楽を再生します。ファイルをアップロードする必要はありません。";
 "onboarding_sources_title" = "音楽をひとつに";
-"onboarding_sources_nas" = "Synology NAS、SMB / NFS 共有、Audio Station や Feiniu Music などの NAS 音楽サービス";
+"onboarding_sources_nas" = "Synology・QNAP の NAS、SMB / NFS 共有、Audio Station や Feiniu Music などの NAS 音楽サービス";
 "onboarding_sources_cloud" = "123 Pan、Baidu Pan、Aliyun Drive など";
 "onboarding_sources_apple_music" = "Apple Music を任意で接続し、ライブラリと一緒に表示";
 "onboarding_sources_network" = "Navidrome、Jellyfin、Emby、WebDAV、SFTP、UPnP / DLNA など";

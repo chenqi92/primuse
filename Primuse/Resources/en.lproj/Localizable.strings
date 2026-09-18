@@ -1262,7 +1262,7 @@
 "onboarding_welcome_title" = "Your music, your servers";
 "onboarding_welcome_subtitle" = "Primuse plays from your NAS, cloud drives, and home network — without uploading a single file to anyone.";
 "onboarding_sources_title" = "Bring your music together";
-"onboarding_sources_nas" = "Synology NAS and SMB / NFS shares, plus NAS music services like Audio Station and Feiniu Music";
+"onboarding_sources_nas" = "Synology and QNAP NAS, SMB / NFS shares, plus NAS music services like Audio Station and Feiniu Music";
 "onboarding_sources_cloud" = "123 Pan, Baidu Pan, Aliyun Drive, and more";
 "onboarding_sources_apple_music" = "Optionally connect Apple Music and browse it alongside your library";
 "onboarding_sources_network" = "Navidrome, Jellyfin, Emby, WebDAV, SFTP, UPnP / DLNA, and more";

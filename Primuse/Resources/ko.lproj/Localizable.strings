@@ -75,7 +75,7 @@
 "onboarding_welcome_title" = "당신의 음악, 당신의 서버";
 "onboarding_welcome_subtitle" = "Primuse는 당신의 NAS, 클라우드 드라이브, 홈 네트워크에서 음악을 재생합니다. 파일을 어디에도 업로드하지 않습니다.";
 "onboarding_sources_title" = "음악을 한곳에";
-"onboarding_sources_nas" = "Synology NAS, SMB / NFS 공유, 그리고 Audio Station, Feiniu Music 같은 NAS 음악 서비스";
+"onboarding_sources_nas" = "Synology·QNAP NAS, SMB / NFS 공유, 그리고 Audio Station, Feiniu Music 같은 NAS 음악 서비스";
 "onboarding_sources_cloud" = "123 Pan, Baidu Pan, Aliyun Drive 등";
 "onboarding_sources_apple_music" = "Apple Music을 선택적으로 연결해 라이브러리와 함께 탐색";
 "onboarding_sources_network" = "Navidrome, Jellyfin, Emby, WebDAV, SFTP, UPnP / DLNA 등";
