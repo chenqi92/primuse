@@ -468,8 +468,8 @@ struct PMRoundBtn: View {
         .buttonStyle(.plain)
         .onHover { hover = $0 }
         .help(helpText)
-        .animation(.easeOut(duration: 0.12), value: hover)
-        .animation(.easeOut(duration: 0.12), value: isActive)
+        .pmAnimation(.hover, value: hover)
+        .pmAnimation(.hover, value: isActive)
     }
 
     private var helpText: Text {
@@ -527,8 +527,8 @@ struct PMRowHoverBackground: ViewModifier {
                           : (hover ? PMColor.rowHover : .clear))
             }
             .onHover { hover = $0 }
-            .animation(.easeOut(duration: 0.12), value: hover)
-            .animation(.easeOut(duration: 0.12), value: selected)
+            .pmAnimation(.hover, value: hover)
+            .pmAnimation(.hover, value: selected)
             .contentShape(Rectangle())
     }
 }
@@ -1026,15 +1026,17 @@ private enum PMWindowZoomController {
         }
 
         let visibleFrame = screen.visibleFrame
+        // 开了「减少动态效果」就直接就位, 不做窗口缩放动画。
+        let animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         if approximatelyEqual(window.frame, visibleFrame) {
             let regularFrame = regularFrames.object(forKey: window)?.rectValue
                 ?? defaultRegularFrame(for: window, in: visibleFrame)
             regularFrames.setObject(NSValue(rect: regularFrame), forKey: window)
             window.setFrame(window.constrainFrameRect(regularFrame, to: screen),
-                            display: true, animate: true)
+                            display: true, animate: animates)
         } else {
             regularFrames.setObject(NSValue(rect: window.frame), forKey: window)
-            window.setFrame(visibleFrame, display: true, animate: true)
+            window.setFrame(visibleFrame, display: true, animate: animates)
         }
     }
 

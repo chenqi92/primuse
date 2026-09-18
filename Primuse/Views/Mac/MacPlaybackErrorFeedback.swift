@@ -39,6 +39,8 @@ private struct MacPlaybackErrorFeedbackModifier: ViewModifier {
                 .shadow(color: .black.opacity(0.15), radius: 10, y: 3)
                 .padding(.horizontal, 16)
                 .padding(.top, topInset)
+                // 错误由服务层裸赋值触发, 调用点包不了动画事务, 所以把曲线附在过渡上。
+                .pmSlideTransition(edge: .top, motion: .list)
             }
         }
     }

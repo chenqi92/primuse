@@ -171,12 +171,15 @@ struct MacContentView: View {
                         onShowSongInLibrary: showSongInLibrary,
                         onOpenLibrarySongs: { selectRoute(.section(.songs)) }
                     )
+                        // 淡入要挂在 `.id` 之前: `.id` 只重置它下面那棵子树, 修饰符
+                        // 写在后面的话 @State 留在 id 之上, 换页时不会重新淡。
+                        .pmAppearFade()
                         .id(detailNavigationID)
                         .background(PMColor.bg.ignoresSafeArea())
 
                     if nowPlayingPresented {
                         MacNowPlayingView(onClose: {
-                            withAnimation(.easeInOut(duration: 0.25)) {
+                            pmWithAnimation(.panel) {
                                 nowPlayingPresented = false
                             }
                         }, isScrapingCurrentSong: isScrapingCurrentSongLyrics,
@@ -184,7 +187,7 @@ struct MacContentView: View {
                            onScrapeCurrentSong: startCurrentSongLyricsScrape,
                            onTranscribeAudio: openCurrentSongAudioTranscriptionEditor,
                            onToggleQueue: {
-                               withAnimation(.easeInOut(duration: 0.25)) {
+                               pmWithAnimation(.panel) {
                                    queuePresented.toggle()
                                }
                            })
@@ -196,7 +199,7 @@ struct MacContentView: View {
 
                 if queuePresented {
                     MacQueuePanel(onClose: {
-                        withAnimation(.easeInOut(duration: 0.25)) {
+                        pmWithAnimation(.panel) {
                             queuePresented = false
                         }
                     })
@@ -226,12 +229,12 @@ struct MacContentView: View {
                         isExpanded: nowPlayingPresented,
                         isQueueShown: queuePresented,
                         onToggleNowPlaying: {
-                            withAnimation(.easeInOut(duration: 0.25)) {
+                            pmWithAnimation(.panel) {
                                 nowPlayingPresented.toggle()
                             }
                         },
                         onToggleQueue: {
-                            withAnimation(.easeInOut(duration: 0.25)) {
+                            pmWithAnimation(.panel) {
                                 queuePresented.toggle()
                             }
                         },
@@ -334,7 +337,7 @@ struct MacContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .primuseRequestExpandNowPlaying)) { note in
             let animated = note.userInfo?[PrimuseNowPlayingExpansion.animatedKey] as? Bool ?? true
             if animated {
-                withAnimation(.easeInOut(duration: 0.25)) {
+                pmWithAnimation(.panel) {
                     nowPlayingPresented = true
                     queuePresented = false
                 }
@@ -375,14 +378,14 @@ struct MacContentView: View {
             guard let window = note.object as? NSWindow, window === hostWindow else { return }
             isWindowFullScreen = true
             savedSidebarCollapsed = sidebarCollapsed
-            withAnimation(.easeInOut(duration: 0.25)) {
+            pmWithAnimation(.panel) {
                 sidebarCollapsed = true
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { note in
             guard let window = note.object as? NSWindow, window === hostWindow else { return }
             isWindowFullScreen = false
-            withAnimation(.easeInOut(duration: 0.25)) {
+            pmWithAnimation(.panel) {
                 sidebarCollapsed = savedSidebarCollapsed
             }
         }

@@ -40,7 +40,7 @@ struct MenuBarPlayerView: View {
                         title: "lock_desktop_lyrics",
                         shortcut: "⌘⇧L",
                         active: desktopLyricsLocked) {
-                    desktopLyricsLocked.toggle()
+                    pmWithAnimation(.control) { desktopLyricsLocked.toggle() }
                 }
             }
 
@@ -90,11 +90,15 @@ struct MenuBarPlayerView: View {
         HStack(alignment: .top, spacing: 10) {
             artwork.frame(width: 64, height: 64)
 
+            // 换歌只让文字淡一下。动画分别挂在每行上而不是这个 VStack 上 ——
+            // 专辑行是 if let 插入的, 它一进一出会改 NSPopover 的高度, 而 SwiftUI
+            // 的过渡跟 popover 自己的尺寸动画不同步, 会出现「字先变、框后变」。
             VStack(alignment: .leading, spacing: 2) {
                 Text(player.currentSong?.title ?? "—")
                     .font(.system(size: 13.5, weight: .semibold))
                     .foregroundStyle(PMColor.text)
                     .lineLimit(1)
+                    .pmAnimation(.trackChange, value: player.currentSong?.id)
                 Text(
                     player.currentSong.flatMap { library.artistDisplayName(for: $0) }
                         ?? ""
@@ -102,13 +106,16 @@ struct MenuBarPlayerView: View {
                     .font(.system(size: 11.5))
                     .foregroundStyle(PMColor.textMuted)
                     .lineLimit(1)
+                    .pmAnimation(.trackChange, value: player.currentSong?.id)
                 if let album = player.currentSong?.albumTitle, !album.isEmpty {
                     Text(album)
                         .font(.system(size: 10.5))
                         .foregroundStyle(PMColor.textFaint)
                         .lineLimit(1)
+                        .pmAnimation(.trackChange, value: player.currentSong?.id)
                 }
             }
+            .contentTransition(.opacity)
             Spacer(minLength: 0)
         }
     }
@@ -124,6 +131,7 @@ struct MenuBarPlayerView: View {
                     sourceID: song.sourceID, filePath: song.filePath,
                     fileFormat: song.fileFormat
                 )
+                .artworkCrossfade()
             } else {
                 CoverArtView(data: nil, size: 64, cornerRadius: 8)
             }
@@ -158,8 +166,11 @@ struct MenuBarPlayerView: View {
             Button { player.togglePlayPause() } label: {
                 ZStack {
                     Circle().fill(PMColor.brand).frame(width: 42, height: 42)
+                    // 两支都落在同一个 42pt 圆心上, 不改父容器布局, 所以这对分支
+                    // 可以做交叉淡入(与底栏播放键同一写法)。
                     if player.isLoading && !player.isLiveRadio {
                         ProgressView().controlSize(.small).tint(.white)
+                            .pmFadeTransition(motion: .control)
                     } else {
                         Image(systemName: player.isLiveRadio && (player.isPlaying || player.isLoading)
                             ? "stop.fill"
@@ -168,6 +179,7 @@ struct MenuBarPlayerView: View {
                             .foregroundStyle(.white)
                             .contentTransition(.symbolEffect(.replace))
                             .offset(x: player.isPlaying ? 0 : 1)
+                            .pmFadeTransition(motion: .control)
                     }
                 }
                 .contentShape(Circle())
@@ -229,6 +241,7 @@ struct MenuBarPlayerView: View {
                     .font(.system(size: 12.5, weight: .medium))
                     .foregroundStyle(active ? accent : PMColor.textMuted)
                     .frame(width: 14)
+                    .contentTransition(.symbolEffect(.replace))
                 Text(title)
                     .font(.system(size: 12.5, weight: active ? .medium : .regular))
                     .foregroundStyle(PMColor.text)

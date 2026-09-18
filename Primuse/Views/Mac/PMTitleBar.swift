@@ -64,7 +64,7 @@ struct PMTitleBar: View {
                 iconSize: 13, style: .glass,
                 help: "sidebar_toggle"
             ) {
-                withAnimation(.easeInOut(duration: 0.22)) { sidebarCollapsed.toggle() }
+                pmWithAnimation(.panel) { sidebarCollapsed.toggle() }
             }
             PMRoundBtn(icon: "hifispeaker.2.fill", iconSize: 12, style: .glass,
                        help: "audio_output") {

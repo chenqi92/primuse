@@ -189,7 +189,7 @@ struct MacQueuePanel: View {
 
                 if let reorderID, allowsRemoval {
                     Button {
-                        withAnimation(.snappy(duration: 0.2)) {
+                        pmWithAnimation(.list) {
                             _ = player.removeUpcomingQueueEntry(reorderID)
                         }
                     } label: {
@@ -222,7 +222,7 @@ struct MacQueuePanel: View {
             radius: isDropTarget ? 7 : 0,
             y: isDropTarget ? 2 : 0
         )
-        .animation(.snappy(duration: 0.18), value: isDropTarget)
+        .pmAnimation(.list, value: isDropTarget)
         .opacity(dimmed ? 0.52 : 1)
         .contentShape(Rectangle())
         .onTapGesture { playEntry(entry) }
@@ -265,7 +265,7 @@ struct MacQueuePanel: View {
             if allowsRemoval {
                 accessibleRow
                     .accessibilityAction(named: Text("remove_from_queue")) {
-                        withAnimation(.snappy(duration: 0.2)) {
+                        pmWithAnimation(.list) {
                             _ = player.removeUpcomingQueueEntry(reorderID)
                         }
                     }
@@ -369,6 +369,7 @@ private struct PMRoundBtnIcon: View {
             .background(hover ? PMColor.glassBtnHover : PMColor.glassBtn, in: .circle)
             .contentShape(Circle())
             .onHover { hover = $0 }
+            .pmAnimation(.hover, value: hover)
     }
 }
 #endif

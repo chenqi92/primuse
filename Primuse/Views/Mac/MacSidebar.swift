@@ -39,6 +39,7 @@ struct MacSidebar: View {
                 librarySection
                 if showsPlaylistsSection {
                     playlistsSection
+                        .pmFadeTransition()
                 }
                 sourcesSection
                 toolsSection
@@ -47,6 +48,9 @@ struct MacSidebar: View {
             }
             .padding(.top, 8)
             .padding(.bottom, 16)
+            // 只盯「歌单分区可见性」这一个开关 —— 它一变整列都要重新排, 所以
+            // 动画挂在这层; 其余分区各自用自己的 id 列表(见下)。
+            .pmAnimation(.list, value: showsPlaylistsSection)
         }
         .frame(maxHeight: .infinity)
         .background(sidebarBackground.ignoresSafeArea())
@@ -187,10 +191,19 @@ struct MacSidebar: View {
                     .foregroundStyle(PMColor.textFaint)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
+                    .pmFadeTransition()
             }
         }
         .padding(.horizontal, 6)
         .padding(.bottom, 8)
+        .pmAnimation(.list, value: playlistRowIDs)
+    }
+
+    /// 侧栏歌单区当前列出来的那几行。歌单量级几十到几百, 而这里只取前几条,
+    /// 用 id 数组当动画的触发值足够小。
+    private var playlistRowIDs: [String] {
+        sidebarSmartPlaylists.prefix(sidebarPlaylistLimit).map(\.id)
+            + sidebarPlaylists.prefix(sidebarPlaylistLimit).map(\.id)
     }
 
     private var newPlaylistMenu: some View {
@@ -274,10 +287,17 @@ struct MacSidebar: View {
                     .foregroundStyle(PMColor.textFaint)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
+                    .pmFadeTransition()
             }
         }
         .padding(.horizontal, 6)
         .padding(.bottom, 8)
+        .pmAnimation(.list, value: sourceRowIDs)
+    }
+
+    /// 侧栏音乐源区当前列出来的那几行(最多 6 条)。
+    private var sourceRowIDs: [String] {
+        sourcesStore.sources.prefix(6).map(\.id)
     }
 
     // MARK: - Tools section

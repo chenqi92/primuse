@@ -63,8 +63,9 @@ struct MacLibraryHeader: View {
                         .frame(height: 32)
                         .background(PMColor.brand, in: .rect(cornerRadius: 8))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pmPressable)
                     .shadow(color: PMColor.brand.opacity(0.35), radius: 6, y: 2)
+                    .pmHoverLift()
 
                     Button(action: onShuffle) {
                         HStack(spacing: 7) {
@@ -79,7 +80,8 @@ struct MacLibraryHeader: View {
                         .background(Color.white.opacity(0.16), in: .rect(cornerRadius: 8))
                         .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.22), lineWidth: 0.5) }
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pmPressable)
+                    .pmHoverLift()
 
                     if showsMoreButton {
                         Button {
@@ -96,7 +98,7 @@ struct MacLibraryHeader: View {
                                 .background(Color.white.opacity(0.16), in: .rect(cornerRadius: 8))
                                 .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.22), lineWidth: 0.5) }
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.pmPressable)
                         .popover(isPresented: $showMoreMenu, arrowEdge: .bottom) {
                             Group {
                                 if let moreMenu {
@@ -107,6 +109,7 @@ struct MacLibraryHeader: View {
                             }
                             .focusEffectDisabled()
                         }
+                        .pmHoverLift()
                     }
                 }
                 .padding(.top, 8)
@@ -210,9 +213,10 @@ struct MacNavigationBackButton: View {
                         .strokeBorder(borderColor, lineWidth: 0.5)
                 }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pmPressable)
         .help(Text("back_to_options"))
         .accessibilityIdentifier(accessibilityIdentifier)
+        .pmHoverLift()
     }
 
     private var foregroundColor: Color {

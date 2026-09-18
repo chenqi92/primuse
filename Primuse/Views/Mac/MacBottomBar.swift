@@ -90,6 +90,8 @@ struct MacBottomBar: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
+            .contentTransition(.opacity)
+            .pmAnimation(.trackChange, value: player.currentSong?.id)
 
             Spacer(minLength: 4)
 
@@ -106,7 +108,7 @@ struct MacBottomBar: View {
                 }
                 .buttonStyle(.plain)
                 .help(Text(liked ? "a11y_unlike" : "a11y_like"))
-                .animation(.easeOut(duration: 0.12), value: liked)
+                .pmAnimation(.hover, value: liked)
             }
         }
     }
@@ -124,6 +126,7 @@ struct MacBottomBar: View {
                     filePath: song.filePath,
                     fileFormat: song.fileFormat
                 )
+                .artworkCrossfade()
             } else {
                 CoverArtView(data: nil, size: 48, cornerRadius: 5)
             }
@@ -150,25 +153,30 @@ struct MacBottomBar: View {
                                  isToggle: true, help: "shuffle") {
                         player.shuffleEnabled.toggle()
                     }
+                    .pmFadeTransition()
                 }
                 if !player.isLiveRadio || player.canSwitchRadioStation {
                     transportBtn("backward.fill", size: 13, help: player.isLiveRadio ? "radio_previous_station" : "previous_song") {
                         Task { await player.previous() }
                     }
+                    .pmFadeTransition()
                 }
                 Button { player.togglePlayPause() } label: {
                     ZStack {
                         Circle().fill(PMColor.brand).frame(width: 36, height: 36)
                         if player.isLoading && !player.isLiveRadio {
                             ProgressView().controlSize(.small).tint(.white)
+                                .pmFadeTransition(motion: .control)
                         } else {
-                            Image(systemName: player.isLiveRadio && (player.isPlaying || player.isLoading)
-                                ? "stop.fill"
-                                : (player.isPlaying ? "pause.fill" : "play.fill"))
+                            Image(systemName: playPauseSymbolName)
                                 .font(.system(size: 14, weight: .bold))
                                 .foregroundStyle(.white)
                                 .contentTransition(.symbolEffect(.replace))
+                                // play.fill 的视觉重心偏左, 补 1pt。跟符号互换放进
+                                // 同一个事务, 否则符号在淡、位移在跳。
                                 .offset(x: player.isPlaying ? 0 : 1)
+                                .pmAnimation(.control, value: playPauseSymbolName)
+                                .pmFadeTransition(motion: .control)
                         }
                     }
                     .contentShape(Circle())
@@ -183,14 +191,18 @@ struct MacBottomBar: View {
                     transportBtn("forward.fill", size: 13, help: player.isLiveRadio ? "radio_next_station" : "next_song") {
                         Task { await player.next() }
                     }
+                    .pmFadeTransition()
                 }
                 if !player.isLiveRadio {
                     transportBtn(repeatIconName, size: 13, active: player.repeatMode != .off,
                                  isToggle: true, help: "repeat") {
                         cycleRepeat()
                     }
+                    .pmFadeTransition()
                 }
             }
+            // 电台态没有随机/循环/上下曲, 整组按钮要进出。只盯这一个布尔。
+            .pmAnimation(.panel, value: player.isLiveRadio)
 
             scrubberRow
         }
@@ -198,6 +210,12 @@ struct MacBottomBar: View {
 
     private var scrubberRow: some View {
         MacBottomBarProgress()
+    }
+
+    /// 播放键的图标名。抽成属性是为了让符号互换和 1pt 光学补偿共用同一个触发值。
+    private var playPauseSymbolName: String {
+        if player.isLiveRadio && (player.isPlaying || player.isLoading) { return "stop.fill" }
+        return player.isPlaying ? "pause.fill" : "play.fill"
     }
 
     private var repeatIconName: String {
@@ -349,8 +367,11 @@ struct MacBottomBar: View {
             if showsPlayerVolumeBar {
                 PMPlaybackVolumeSlider()
                 .frame(width: 72)
+                .pmFadeTransition()
             }
         }
+        // PMPlaybackVolumeSlider 内部禁掉了动画事务, 出入动画只能挂在它的父容器上。
+        .pmAnimation(.panel, value: showsPlayerVolumeBar)
     }
 
 }
@@ -381,6 +402,7 @@ private struct MacBottomBarProgress: View {
 
             if isActive {
                 MacRadioLevelBars()
+                    .pmFadeTransition(motion: .control)
             }
 
             if let detail = streamDetail {
@@ -492,7 +514,7 @@ private struct Scrubber: View {
             }
             .frame(height: geo.size.height, alignment: .center)
             .contentShape(Rectangle())
-            .onHover { h in withAnimation(.easeInOut(duration: 0.12)) { hover = h } }
+            .onHover { h in pmWithAnimation(.hover) { hover = h } }
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { g in
@@ -562,7 +584,7 @@ private struct PMRoundBtnIcon: View {
             .background(hover ? (mode == .glass ? PMColor.glassBtnHover : PMColor.matBtnHover) : .clear, in: .circle)
             .help(Text(help))
             .onHover { hover = $0 }
-            .animation(.easeOut(duration: 0.12), value: hover)
+            .pmAnimation(.hover, value: hover)
     }
 }
 
