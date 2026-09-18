@@ -11,6 +11,8 @@ struct PMVolumeSlider: NSViewRepresentable {
     var range: ClosedRange<Double> = 0...1
     var controlSize: NSControl.ControlSize = .mini
     var isEnabled = true
+    /// 已填充那一段的颜色。nil 时 AppKit 用系统强调色，和 app 自己的主题色对不上。
+    var fillColor: Color?
     var accessibilityLabel: String = String(localized: "volume")
     var accessibilityHelp: String?
     var onEditingChanged: (Bool) -> Void = { _ in }
@@ -52,6 +54,8 @@ struct PMVolumeSlider: NSViewRepresentable {
         if slider.maxValue != range.upperBound { slider.maxValue = range.upperBound }
         if slider.controlSize != controlSize { slider.controlSize = controlSize }
         if slider.isEnabled != isEnabled { slider.isEnabled = isEnabled }
+        let trackFillColor = fillColor.map { NSColor($0) }
+        if slider.trackFillColor != trackFillColor { slider.trackFillColor = trackFillColor }
         slider.setAccessibilityLabel(accessibilityLabel)
         slider.setAccessibilityHelp(accessibilityHelp)
         (slider as? PMWindowSafeSlider)?.onEditingChanged = onEditingChanged

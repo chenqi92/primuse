@@ -1157,7 +1157,7 @@ struct MacNowPlayingView: View {
                 .foregroundStyle(playerPrimaryColor.opacity(0.82))
                 .frame(width: 18)
 
-            PMPlaybackVolumeSlider()
+            PMPlaybackVolumeSlider(tint: theme.accentColor)
             .frame(width: 118)
 
             PMVolumePercentage()

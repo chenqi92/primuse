@@ -80,9 +80,17 @@ struct PMVolumePercentage: View {
 }
 
 struct PMPlaybackVolumeSlider: View {
+    /// 跟同一处进度条的填充色一致；nil 时用主题品牌色。
+    var tint: Color?
+
     @Environment(AudioPlayerService.self) private var player
     @Environment(AudioEngine.self) private var engine
     @State private var isEditing = false
+
+    // 有 private 属性时合成的逐成员初始化器只在本文件可见。
+    init(tint: Color? = nil) {
+        self.tint = tint
+    }
 
     var body: some View {
         let state = PMVolumeControlState(player: player, engine: engine)
@@ -93,6 +101,7 @@ struct PMPlaybackVolumeSlider: View {
                 set: { write($0, target: state.target) }
             ),
             isEnabled: state.target.isAdjustable,
+            fillColor: tint ?? PMColor.brand,
             accessibilityHelp: state.accessibilityHelp,
             onEditingChanged: { editing in
                 isEditing = editing
