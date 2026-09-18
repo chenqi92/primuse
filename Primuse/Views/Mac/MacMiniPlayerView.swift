@@ -26,6 +26,8 @@ struct MacMiniPlayerView: View {
     @State private var lyrics: [LyricLine] = []
     @State private var currentIndex: Int = -1
     @State private var lyricsLoadRevision: UInt = 0
+    /// 最近一次真正跑完的歌词加载对应的世代。跟当前世代不一致就说明还在加载。
+    @State private var settledLyricsIdentity: LyricsLoadTaskIdentity?
     @State private var pendingLyricsOverride: PendingLyricsOverride?
     @State private var lastManualLyricsScroll = Date.distantPast
     @State private var lyricsAutoFollowTask: Task<Void, Never>?
@@ -91,11 +93,15 @@ struct MacMiniPlayerView: View {
         .pmWindowDragRegion()
         .macPlaybackErrorFeedback(topInset: 44)
         .task(id: lyricsLoadTaskIdentity) {
+            let identity = lyricsLoadTaskIdentity
             if player.isLiveRadio {
                 lyrics = []
             } else {
                 await refreshLyrics()
             }
+            // 被换歌顶掉的旧任务恢复执行时不能写回旧世代。
+            guard lyricsLoadTaskIdentity == identity else { return }
+            settledLyricsIdentity = identity
         }
         .background {
             MacMiniPlayerTimeObserver { updateIndex(time: $0) }
@@ -197,6 +203,7 @@ struct MacMiniPlayerView: View {
                     sourceID: song.sourceID, filePath: song.filePath,
                     fileFormat: song.fileFormat
                 )
+                .artworkCrossfade()
             } else {
                 CoverArtView(data: nil, size: coverSize, cornerRadius: cornerRadius)
             }
@@ -233,6 +240,8 @@ struct MacMiniPlayerView: View {
                 .truncationMode(.tail)
         }
         .frame(maxWidth: .infinity)
+        .contentTransition(.opacity)
+        .pmAnimation(.trackChange, value: player.currentSong?.id)
     }
 
     // MARK: - Top toolbar
@@ -405,6 +414,7 @@ struct MacMiniPlayerView: View {
             .foregroundStyle(tint)
             .frame(width: 28, height: 28)
             .contentShape(Circle())
+            .contentTransition(.symbolEffect(.replace))
     }
 
     // MARK: - Scrubber
@@ -547,7 +557,7 @@ struct MacMiniPlayerView: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .padding(.top, 6)
-                        ForEach(Array(upNext), id: \.self) { idx in
+                        ForEach(upNext, id: \.self) { idx in
                             queueRow(index: idx)
                         }
                     }
@@ -557,7 +567,7 @@ struct MacMiniPlayerView: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .padding(.top, 12)
-                        ForEach(Array(played), id: \.self) { idx in
+                        ForEach(played, id: \.self) { idx in
                             queueRow(index: idx).opacity(0.55)
                         }
                     }
@@ -625,13 +635,15 @@ struct MacMiniPlayerView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(alignment: .center, spacing: 14) {
                     if lyrics.isEmpty {
-                        if player.currentSong == nil {
+                        if player.currentSong == nil || isLoadingLyrics {
                             Color.clear.frame(height: 1)
                         } else {
                             Text("no_lyrics")
                                 .font(.callout).foregroundStyle(.tertiary)
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .padding(.top, 20)
+                                // 父容器是 LazyVStack, 成对分支不做交叉淡入。
+                                .pmAppearFade(.contentAppear)
                         }
                     } else {
                         Spacer().frame(height: 30)
@@ -703,6 +715,11 @@ struct MacMiniPlayerView: View {
             songID: player.currentSong?.id,
             revision: lyricsLoadRevision
         )
+    }
+
+    /// 歌词还在加载。换歌时 `reloadLyrics` 先清空歌词, 这段空窗期不露空态。
+    private var isLoadingLyrics: Bool {
+        settledLyricsIdentity != lyricsLoadTaskIdentity
     }
 
     private func scheduleLyricsAutoFollow(proxy: ScrollViewProxy) {

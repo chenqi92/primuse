@@ -46,16 +46,20 @@ struct HomeListeningRankingSection: View {
                 ProgressView()
                     .frame(maxWidth: .infinity, minHeight: 170)
                     .background(rowSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    // 骨架、榜单、空态共处一个 VStack,交叉淡入会让两块同时占位
+                    // 把下面的说明文字顶开,所以走「旧的直接走、新的淡进来」。
+                    .pmAppearFade(.contentAppear)
             } else if !ranks.isEmpty {
                 VStack(spacing: 6) {
                     ForEach(Array(visibleRanks.enumerated()), id: \.element.id) { position, rank in
                         rankRow(rank, position: position)
                     }
                 }
+                .pmAppearFade(.contentAppear)
 
                 if ranks.count > 5, expandedRankLimit > 5 {
                     Button {
-                        withAnimation(.snappy) {
+                        pmWithAnimation(.list) {
                             showsExpandedRanking.toggle()
                         }
                     } label: {
@@ -74,6 +78,7 @@ struct HomeListeningRankingSection: View {
                     .buttonStyle(.bordered)
                     .buttonBorderShape(.capsule)
                     .accessibilityIdentifier("home.rankingExpand")
+                    .pmAppearFade(.contentAppear)
                 }
             } else {
                 VStack(spacing: 8) {
@@ -84,6 +89,7 @@ struct HomeListeningRankingSection: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: 150)
                 .background(rowSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .pmAppearFade(.contentAppear)
             }
 
             Text(HomeDiscoveryText.string(category == .folders ? "folder_ranking_scope" : "ranking_scope"))

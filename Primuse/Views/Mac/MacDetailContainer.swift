@@ -24,17 +24,22 @@ struct MacDetailContainer: View {
                 .transaction { transaction in
                     transaction.animation = nil
                 }
+                // push/pop 本身仍然是无动画的(见 pushAlbum/pushArtist), 详情页
+                // 自己淡入一下, 免得点进去像换了张截图。
                 .navigationDestination(for: Album.self) { album in
                     AlbumDetailView(album: album, onMacInlineBack: popDetail)
                         .navigationBarBackButtonHidden(true)
+                        .pmAppearFade()
                 }
                 .navigationDestination(for: Artist.self) { artist in
                     ArtistDetailView(artist: artist, onMacInlineBack: popDetail)
                         .navigationBarBackButtonHidden(true)
+                        .pmAppearFade()
                 }
                 .navigationDestination(for: Playlist.self) { playlist in
                     PlaylistDetailView(playlist: playlist, onMacInlineBack: popDetail)
                         .navigationBarBackButtonHidden(true)
+                        .pmAppearFade()
                 }
                 .navigationDestination(for: SmartPlaylist.self) { smart in
                     SmartPlaylistDetailView(
@@ -42,6 +47,7 @@ struct MacDetailContainer: View {
                         onMacInlineBack: popDetail
                     )
                     .navigationBarBackButtonHidden(true)
+                    .pmAppearFade()
                 }
                 // 隐藏 NavigationStack 顶部的原生 toolbar 区域 — 我们用 PMTitleBar
                 // 自定义了全局 titlebar, 子视图里的 .toolbar/.searchable 不应再

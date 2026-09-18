@@ -130,7 +130,7 @@ The Apple TV client can browse the full library, connect to multiple source type
 |----------|---------------------|
 | NAS | Synology DSM, QNAP |
 | File protocols | SMB/CIFS, WebDAV, FTP, SFTP, NFS, S3, UPnP/DLNA |
-| Music servers | Subsonic, Navidrome, Airsonic, Gonic, Feiniu Music, DaoLiYu |
+| Music servers | Subsonic, Navidrome, Airsonic, Gonic, Feiniu Music, DaoLiYu, Synology Audio Station |
 | Media servers | Jellyfin, Emby, Plex |
 | Cloud drives | 123 Cloud Drive, 115, Baidu Netdisk, Aliyun Drive, Google Drive, OneDrive, Dropbox |
 | Apple and local | iPhone/iPad file import, local folders on Mac, Apple Music library and catalog |

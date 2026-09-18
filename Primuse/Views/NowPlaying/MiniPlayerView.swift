@@ -60,6 +60,7 @@ struct MiniPlayerSwipeContent: View {
                     fileFormat: player.currentSong?.fileFormat,
                     revisionToken: player.coverRevision
                 )
+                .artworkCrossfade()
                 .padding(.trailing, artworkTrailingSpacing)
 
                 VStack(alignment: .leading, spacing: 1) {
@@ -68,6 +69,7 @@ struct MiniPlayerSwipeContent: View {
                         .fontWeight(.semibold)
                         .lineLimit(1)
                         .foregroundStyle(.skin(.textPrimary))
+                        .contentTransition(.opacity)
 
                     if showsSubtitle,
                        let song = player.currentSong,
@@ -77,9 +79,11 @@ struct MiniPlayerSwipeContent: View {
                             .font(.caption2)
                             .lineLimit(1)
                             .foregroundStyle(.skin(.textSecondary))
+                            .contentTransition(.opacity)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .pmAnimation(.trackChange, value: player.currentSong?.id)
             }
             .offset(x: feedbackOffset)
 
@@ -213,12 +217,15 @@ struct MiniPlayerTransportControls: View {
                         .opacity(0)
                     if player.isLoading && !player.isLiveRadio {
                         ProgressView().controlSize(.small)
+                            .pmFadeTransition(motion: .control)
                     } else {
                         Image(systemName: player.isLiveRadio && (player.isPlaybackActive || player.isLoading)
                             ? "stop.fill"
                             : (player.isPlaybackActive ? "pause.fill" : "play.fill"))
                             .font(iconFont)
                             .contentTransition(.symbolEffect(.replace))
+                            // ProgressView 与 Image 之间 symbolEffect 不生效, 这一跳只能走透明度。
+                            .pmFadeTransition(motion: .control)
                     }
                 }
                 .frame(width: 44, height: 44)

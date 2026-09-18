@@ -126,7 +126,7 @@ enum TVSourceLocalLibraryPolicy {
         .smb, .synology, .qnap, .ugreen, .webdav, .ftp, .sftp, .nfs, .s3, .upnp,
         .jellyfin, .emby, .plex,
         .subsonic, .navidrome, .airsonic, .gonic,
-        .fnMusic, .daoliyu, .songloft,
+        .fnMusic, .daoliyu, .songloft, .synologyAudioStation,
         .oneDrive, .dropbox, .aliyunDrive, .googleDrive,
         .baiduPan, .pan115, .pan123, .drime, .guangya,
     ]
@@ -1139,7 +1139,8 @@ final class TVStore {
                          availabilityNote: s.type.isAwaitingPublicAPI ? s.type.subtitle : nil,
                          playability: playability(for: s),
                          canEnterCredential: !s.type.isAwaitingPublicAPI && Self.manualCredentialTypes.contains(s.type),
-                         supports2FA: !s.type.isAwaitingPublicAPI && s.type.supports2FA,
+                         supports2FA: !s.type.isAwaitingPublicAPI && s.type.supports2FA
+                            && StreamResolverRegistry.tvSupportedTypes.contains(s.type),
                          canScan: canScan,
                          initialScanState: TVSourceInitialScanPolicy.state(
                             canScan: canScan,
@@ -1193,7 +1194,7 @@ final class TVStore {
     /// 云盘(OAuth)、relay 类(凭据在 iPhone 侧)、原生库源不在此列。
     private static let manualCredentialTypes: Set<MusicSourceType> = [
         .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .songloft,
-        .synology, .qnap, .ugreen,
+        .synology, .synologyAudioStation, .qnap, .ugreen,
         .jellyfin, .emby, .plex,
     ]
 
@@ -1248,7 +1249,7 @@ final class TVStore {
             return credential.refreshToken?.isEmpty == false
                 && credential.clientID?.isEmpty == false
         }
-        if s.type == .fnMusic || s.type == .daoliyu || s.type == .songloft {
+        if s.type == .fnMusic || s.type == .daoliyu || s.type == .songloft || s.type == .synologyAudioStation {
             let credential = TVCredentialStore.credential(for: s, bundle: credentialBundle)
             return credential.username?.isEmpty == false && credential.password?.isEmpty == false
         }
@@ -2218,7 +2219,10 @@ final class TVStore {
     private func refreshVisibility() {
         let known = Set(sourcesStore.allSources.map(\.id))
         let orphaned = Set(library.songs.map(\.sourceID)).subtracting(known)
-        let hidden = Set(sourcesStore.allSources.filter { $0.isDeleted || !$0.isEnabled }.map(\.id))
+        // 电视端还解析不了的类型(如 Mac 本机资料库),它的歌同样不显示。
+        let hidden = Set(sourcesStore.allSources.filter {
+            $0.isDeleted || !$0.isEnabled || !StreamResolverRegistry.tvSupportedTypes.contains($0.type)
+        }.map(\.id))
             .union(locallyRemovedSourceIDs).union(orphaned)
         library.updateDisabledSourceIDs(hidden)
         rebuildLookupCaches()
@@ -2343,7 +2347,7 @@ final class TVStore {
         .webdav, .ftp, .sftp, .nfs, .s3, .upnp,
         .jellyfin, .emby, .plex,
         .subsonic, .navidrome, .airsonic, .gonic,
-        .fnMusic, .daoliyu, .songloft,
+        .fnMusic, .daoliyu, .songloft, .synologyAudioStation,
         .aliyunDrive, .baiduPan, .oneDrive, .dropbox,
         .googleDrive, .pan115, .pan123, .drime, .guangya,
     ]
@@ -2811,7 +2815,8 @@ final class TVStore {
             await library.waitForPendingIndex()
             guard isCurrentScan(source: source, generation: generation) else { throw CancellationError() }
             let count = library.songs.lazy.filter { $0.sourceID == source.id }.count
-            if source.type != .fnMusic && source.type != .daoliyu && source.type != .songloft {
+            if source.type != .fnMusic && source.type != .daoliyu && source.type != .songloft
+                && source.type != .synologyAudioStation {
                 try sourcesStore.updateDurably(source.id) {
                     $0.songCount = count
                     $0.lastScannedAt = Date()
@@ -2825,7 +2830,8 @@ final class TVStore {
             }
             if let pruningRecovery { library.finishScanPruning(pruningRecovery) }
             pruningRecovery = nil
-            if source.type != .fnMusic && source.type != .daoliyu && source.type != .songloft {
+            if source.type != .fnMusic && source.type != .daoliyu && source.type != .songloft
+                && source.type != .synologyAudioStation {
                 library.updateAutomaticArtistArtworkCatalog(
                     SourceArtistArtworkCatalog(sourceID: source.id, index: result.resumeState.index)
                 )
@@ -3858,7 +3864,8 @@ final class TVStore {
             let digest = SHA256.hash(data: Data("\(raw.sourceID):\(raw.filePath)".utf8))
                 .map { String(format: "%02x", $0) }.joined()
             let type = sourcesStore.source(id: raw.sourceID)?.type
-            guard raw.id == digest || type == .fnMusic || type == .daoliyu || type == .songloft else { continue }
+            guard raw.id == digest || type == .fnMusic || type == .daoliyu || type == .songloft
+                    || type == .synologyAudioStation else { continue }
             let canonical = TVScanPipelinePolicy.canonicalSongID(raw.id)
             guard canonical != raw.id else { continue }
             replacements[raw.id] = canonical

@@ -100,6 +100,7 @@ struct RecentlyDeletedView: View {
                     descriptionKey: "recently_deleted_empty_desc",
                     systemImage: "trash"
                 )
+                .pmFadeTransition()
             }
         }
     }
@@ -118,6 +119,7 @@ struct RecentlyDeletedView: View {
                 Text("hidden_source_playlists_desc")
             }
             .settingsAnchor("deleted.hiddenPlaylists")
+            .pmFadeTransition()
         }
     }
 
@@ -133,14 +135,19 @@ struct RecentlyDeletedView: View {
                         title: playlist.name,
                         deletedAt: playlist.deletedAt,
                         systemImage: "music.note.list",
-                        restore: { library.restorePlaylist(id: playlist.id) },
-                        purge: { library.permanentlyDeletePlaylist(id: playlist.id) }
+                        restore: {
+                            pmWithAnimation(.list) { library.restorePlaylist(id: playlist.id) }
+                        },
+                        purge: {
+                            pmWithAnimation(.list) { library.permanentlyDeletePlaylist(id: playlist.id) }
+                        }
                     )
                 }
             } header: {
                 Text("recently_deleted_playlists")
             }
             .settingsAnchor("deleted.playlists")
+            .pmFadeTransition()
         }
     }
 
@@ -154,14 +161,19 @@ struct RecentlyDeletedView: View {
                         title: playlist.name,
                         deletedAt: playlist.deletedAt,
                         systemImage: "sparkles",
-                        restore: { library.restoreSmartPlaylist(id: playlist.id) },
-                        purge: { library.permanentlyDeleteSmartPlaylist(id: playlist.id) }
+                        restore: {
+                            pmWithAnimation(.list) { library.restoreSmartPlaylist(id: playlist.id) }
+                        },
+                        purge: {
+                            pmWithAnimation(.list) { library.permanentlyDeleteSmartPlaylist(id: playlist.id) }
+                        }
                     )
                 }
             } header: {
                 Text("recently_deleted_smart_playlists")
             }
             .settingsAnchor("deleted.smartPlaylists")
+            .pmFadeTransition()
         }
     }
 
@@ -197,6 +209,7 @@ struct RecentlyDeletedView: View {
                 Text("local_removals_footer")
             }
             .settingsAnchor("deleted.localRemovals")
+            .pmFadeTransition()
         }
     }
 
@@ -215,7 +228,10 @@ struct RecentlyDeletedView: View {
                             ? "\(String(localized: "status_unavailable")) · \(String(localized: "retry"))"
                             : nil,
                         isBusy: isDeleting,
-                        restore: { sourcesStore.restore(id: source.id) },
+                        restore: {
+                            pmWithAnimation(.list) { sourcesStore.restore(id: source.id) }
+                        },
+                        // 彻底删除是异步的, 行的消失发生在 await 之后, 包在这里没有意义。
                         purge: {
                             Task { await sourcesStore.permanentlyDelete(id: source.id) }
                         }
@@ -225,6 +241,7 @@ struct RecentlyDeletedView: View {
                 Text("recently_deleted_sources")
             }
             .settingsAnchor("deleted.sources")
+            .pmFadeTransition()
         }
     }
 
@@ -241,11 +258,11 @@ struct RecentlyDeletedView: View {
                         systemImage: "wand.and.stars",
                         restore: {
                             ScraperConfigStore.shared.restore(id: config.id)
-                            configsTick += 1
+                            pmWithAnimation(.list) { configsTick += 1 }
                         },
                         purge: {
                             ScraperConfigStore.shared.permanentlyDelete(id: config.id)
-                            configsTick += 1
+                            pmWithAnimation(.list) { configsTick += 1 }
                         }
                     )
                 }
@@ -253,6 +270,7 @@ struct RecentlyDeletedView: View {
                 Text("recently_deleted_scraper_configs")
             }
             .settingsAnchor("deleted.scraperConfigs")
+            .pmFadeTransition()
         }
     }
 
@@ -374,12 +392,15 @@ struct RecentlyDeletedView: View {
         isClearingAll = true
         defer { isClearingAll = false }
 
-        library.permanentlyDeletePlaylists(ids: plan.playlistIDs)
-        library.permanentlyDeleteSmartPlaylists(ids: plan.smartPlaylistIDs)
+        pmWithAnimation(.list) {
+            library.permanentlyDeletePlaylists(ids: plan.playlistIDs)
+            library.permanentlyDeleteSmartPlaylists(ids: plan.smartPlaylistIDs)
+        }
         let deletedConfigIDs = ScraperConfigStore.shared.permanentlyDelete(
             ids: plan.scraperConfigurationIDs
         )
-        configsTick &+= 1
+        // 刮削配置那一段的消失由 configsTick 触发, 动画得挂在这一步上。
+        pmWithAnimation(.list) { configsTick &+= 1 }
         let sourceResults = await sourcesStore.permanentlyDelete(ids: plan.sourceIDs)
 
         let failedSourceCount = sourceResults.values.filter {

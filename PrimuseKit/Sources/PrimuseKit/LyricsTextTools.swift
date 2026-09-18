@@ -292,7 +292,7 @@ public enum LyricsAuthoritativeSourcePolicy {
     public static func supportsServerDocument(_ sourceType: MusicSourceType?) -> Bool {
         switch sourceType {
         case .jellyfin, .emby, .subsonic, .navidrome, .airsonic, .gonic,
-             .fnMusic, .daoliyu, .songloft:
+             .fnMusic, .daoliyu, .songloft, .synologyAudioStation:
             true
         default:
             false

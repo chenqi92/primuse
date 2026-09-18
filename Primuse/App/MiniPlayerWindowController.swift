@@ -50,6 +50,8 @@ final class MiniPlayerWindowController: NSWindowController, NSWindowDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
+        // 显示/隐藏交给系统做淡入淡出, 它自己会照顾「减少动态效果」。
+        panel.animationBehavior = .utilityWindow
         panel.minSize = NSSize(width: Self.fixedWidth, height: Self.collapsedHeight)
         panel.maxSize = NSSize(width: Self.fixedWidth, height: Self.expandedHeight)
 

@@ -583,7 +583,7 @@ struct CloudDriveConnectionView: View {
             HStack(spacing: 16) {
                 Button {
                     if source.type == .drime {
-                        withAnimation { step = .needsSetup }
+                        pmWithAnimation(.pageSwitch) { step = .needsSetup }
                     } else {
                         startOAuth()
                     }
@@ -606,7 +606,8 @@ struct CloudDriveConnectionView: View {
     // MARK: - Logic
 
     private func checkStatus() {
-        step = .checking
+        // 离开转圈态的每一步都带动画, 进来时也得带 —— 否则一点「重新检查」就硬跳。
+        pmWithAnimation(.pageSwitch) { step = .checking }
         errorMessage = ""
         browsingContext = nil
 
@@ -616,13 +617,14 @@ struct CloudDriveConnectionView: View {
             if requestReauthorization {
                 do {
                     if source.type == .drime {
-                        step = .needsSetup
+                        pmWithAnimation(.pageSwitch) { step = .needsSetup }
                     } else {
-                        step = try await resolvedCredentials(using: tokenManager) == nil ? .needsSetup : .readyToAuth
+                        let hasCredentials = try await resolvedCredentials(using: tokenManager) != nil
+                        pmWithAnimation(.pageSwitch) { step = hasCredentials ? .readyToAuth : .needsSetup }
                     }
                 } catch {
                     errorMessage = error.localizedDescription
-                    step = .failed
+                    pmWithAnimation(.pageSwitch) { step = .failed }
                 }
                 return
             }
@@ -637,16 +639,16 @@ struct CloudDriveConnectionView: View {
                         try await prepareDirectoryBrowser()
                     } catch {
                         errorMessage = error.localizedDescription
-                        withAnimation { step = .failed }
+                        pmWithAnimation(.pageSwitch) { step = .failed }
                     }
                 case .notFound:
-                    withAnimation { step = .needsSetup }
+                    pmWithAnimation(.pageSwitch) { step = .needsSetup }
                 case .temporarilyUnavailable:
                     errorMessage = String(localized: "credential_temporarily_unavailable")
-                    withAnimation { step = .failed }
+                    pmWithAnimation(.pageSwitch) { step = .failed }
                 case .failed:
                     errorMessage = String(localized: "credential_read_failed")
-                    withAnimation { step = .failed }
+                    pmWithAnimation(.pageSwitch) { step = .failed }
                 }
                 return
             }
@@ -658,16 +660,16 @@ struct CloudDriveConnectionView: View {
                     try await prepareDirectoryBrowser()
                 } catch {
                     errorMessage = error.localizedDescription
-                    withAnimation { step = .failed }
+                    pmWithAnimation(.pageSwitch) { step = .failed }
                 }
                 return
             case .temporarilyUnavailable:
                 errorMessage = String(localized: "credential_temporarily_unavailable")
-                withAnimation { step = .failed }
+                pmWithAnimation(.pageSwitch) { step = .failed }
                 return
             case .failed:
                 errorMessage = String(localized: "credential_read_failed")
-                withAnimation { step = .failed }
+                pmWithAnimation(.pageSwitch) { step = .failed }
                 return
             case .found, .notFound:
                 break
@@ -681,17 +683,17 @@ struct CloudDriveConnectionView: View {
                     // the user explicitly starts authorization; otherwise opening
                     // this screen can show a misleading save failure before any
                     // save action has occurred.
-                    withAnimation { step = .readyToAuth }
+                    pmWithAnimation(.pageSwitch) { step = .readyToAuth }
                 } else {
                     // No credentials at all — need manual setup
-                    withAnimation { step = .needsSetup }
+                    pmWithAnimation(.pageSwitch) { step = .needsSetup }
                 }
             } catch let error as CloudDriveError {
                 errorMessage = credentialMessage(for: error)
-                withAnimation { step = .failed }
+                pmWithAnimation(.pageSwitch) { step = .failed }
             } catch {
                 errorMessage = error.localizedDescription
-                withAnimation { step = .failed }
+                pmWithAnimation(.pageSwitch) { step = .failed }
             }
         }
     }
@@ -699,7 +701,7 @@ struct CloudDriveConnectionView: View {
     private func connectDrime() {
         let token = directAccessToken.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty else { return }
-        step = .checking
+        pmWithAnimation(.pageSwitch) { step = .checking }
         errorMessage = ""
 
         Task {
@@ -708,13 +710,13 @@ struct CloudDriveConnectionView: View {
                 try sourceManager.credentialsWillChange(for: source.id)
             } catch {
                 errorMessage = String(localized: "credential_save_failed_message")
-                withAnimation { step = .failed }
+                pmWithAnimation(.pageSwitch) { step = .failed }
                 return
             }
             guard await tokenManager.saveTokens(.init(accessToken: token)) else {
                 sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
                 errorMessage = String(localized: "credential_save_failed_message")
-                withAnimation { step = .failed }
+                pmWithAnimation(.pageSwitch) { step = .failed }
                 return
             }
             do {
@@ -737,10 +739,10 @@ struct CloudDriveConnectionView: View {
                 try await prepareDirectoryBrowser()
             } catch let error as CloudDriveError {
                 errorMessage = credentialMessage(for: error)
-                withAnimation { step = .failed }
+                pmWithAnimation(.pageSwitch) { step = .failed }
             } catch {
                 errorMessage = error.localizedDescription
-                withAnimation { step = .failed }
+                pmWithAnimation(.pageSwitch) { step = .failed }
             }
         }
     }
@@ -787,7 +789,7 @@ struct CloudDriveConnectionView: View {
     private func startOAuth(loginIntent: CloudOAuthLoginIntent = .standard) {
         guard !isAuthorizing else { return }
         isAuthorizing = true
-        step = .authorizing
+        pmWithAnimation(.pageSwitch) { step = .authorizing }
         errorMessage = ""
 
         Task {
@@ -796,7 +798,7 @@ struct CloudDriveConnectionView: View {
             do {
                 guard let creds = try await resolvedCredentials(using: tokenManager) else {
                     errorMessage = String(localized: "cloud_err_no_client_id")
-                    withAnimation { step = .needsSetup }
+                    pmWithAnimation(.pageSwitch) { step = .needsSetup }
                     return
                 }
                 let config = oauthConfig(for: source.type, clientId: creds.clientId, clientSecret: creds.clientSecret)
@@ -858,17 +860,17 @@ struct CloudDriveConnectionView: View {
                 try await prepareDirectoryBrowser()
             } catch let error as OAuthError {
                 if case .userCancelled = error {
-                    withAnimation { step = .readyToAuth }
+                    pmWithAnimation(.pageSwitch) { step = .readyToAuth }
                 } else {
                     errorMessage = error.localizedDescription
-                    withAnimation { step = .failed }
+                    pmWithAnimation(.pageSwitch) { step = .failed }
                 }
             } catch let error as CloudDriveError {
                 errorMessage = credentialMessage(for: error)
-                withAnimation { step = .failed }
+                pmWithAnimation(.pageSwitch) { step = .failed }
             } catch {
                 errorMessage = error.localizedDescription
-                withAnimation { step = .failed }
+                pmWithAnimation(.pageSwitch) { step = .failed }
             }
         }
     }
@@ -896,7 +898,7 @@ struct CloudDriveConnectionView: View {
             source: resolved.source,
             connector: resolved.connector
         )
-        withAnimation { step = .browsing }
+        pmWithAnimation(.pageSwitch) { step = .browsing }
     }
 
     /// Resolve `accountIdentifier()` from the freshly-OAuth-ed connector

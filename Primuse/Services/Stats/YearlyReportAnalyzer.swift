@@ -41,7 +41,7 @@ enum YearlyReportAnalyzer {
         case .local: return type.iconName
         case .synology, .qnap, .ugreen, .fnos: return "externaldrive.fill"
         case .fnMusic: return "music.note.list"
-        case .daoliyu, .songloft: return "music.note.house"
+        case .daoliyu, .songloft, .synologyAudioStation: return "music.note.house"
         case .smb, .webdav, .ftp, .sftp, .nfs, .upnp: return "network"
         case .baiduPan, .aliyunDrive, .oneDrive, .dropbox, .googleDrive, .drime, .pan115, .pan123,
              .guangya, .s3: return "icloud.fill"

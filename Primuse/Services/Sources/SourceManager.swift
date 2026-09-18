@@ -220,6 +220,21 @@ enum AutomaticOfflineFailureClassifier {
             default: return .sourceUnavailable
             }
         }
+        if let error = error as? SynologyAudioStationError {
+            switch error {
+            case .missingCredential, .invalidCredentials, .twoFactorRequired, .invalidOneTimePassword,
+                 .accountDisabled, .passwordExpired, .ipBlocked:
+                return .authentication
+            case .noAudioStationPermission, .operationNotPermitted, .badServerResponse(403):
+                return .sourceAccessDenied
+            case .serverBusy, .badServerResponse(429):
+                return .rateLimited
+            case .sessionExpired, .rangeNotSupported, .transcodeRequired:
+                return .transient
+            default:
+                return .sourceUnavailable
+            }
+        }
         if let sourceError = error as? SourceError {
             switch sourceError {
             case .authenticationFailed, .credentialUnavailable:
@@ -2205,6 +2220,70 @@ private struct RoutedSongloftConnector: RoutedConnectorProxy, RefreshingMetadata
 
 }
 
+/// 群晖 Audio Station 的多路由包装。能力发现都走 `as?`,这里漏转发一个协议,
+/// 那项功能就会在「内网 + QuickConnect」这种配置下静默失效 —— 与
+/// `SynologyAudioStationSource` 遵循的协议逐一对应。
+private struct RoutedSynologyAudioStationConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
+    ServerLyricsConnector, ServerPlaylistConnector, ServerRatingConnector {
+    let sourceID: String
+    let routing: SourceConnectionRouter
+    let routedSupportsSidecarWriting: Bool
+    let routedPreferredDeleteBatchSize: Int
+
+    func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
+        let routed = try await routing.withReadAndRoute { connector in
+            guard let scanner = connector as? any SongScanningConnector else {
+                throw SourceError.connectionFailed("Song scanner unavailable")
+            }
+            return try await scanner.scanSongs(from: path)
+        }
+        return observingDeferredReadErrors(in: routed.value, routeIndex: routed.routeIndex)
+    }
+
+    func fetchServerLyrics(for path: String) async -> String? {
+        try? await routing.withRead { connector in
+            guard let provider = connector as? any ServerLyricsConnector else { return nil }
+            return await provider.fetchServerLyrics(for: path)
+        }
+    }
+
+    func readServerLyrics(for path: String) async -> ServerLyricsReadResult {
+        (try? await routing.withRead { connector in
+            guard let provider = connector as? any ServerLyricsConnector else {
+                return .unavailable
+            }
+            return await provider.readServerLyrics(for: path)
+        }) ?? .unavailable
+    }
+
+    func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerPlaylistConnector else {
+                throw SourceError.connectionFailed("Server playlist connector unavailable")
+            }
+            return try await provider.fetchServerPlaylists()
+        }
+    }
+
+    func fetchServerRating(itemID: String) async throws -> Int? {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerRatingConnector else {
+                throw SourceError.connectionFailed("Server rating connector unavailable")
+            }
+            return try await provider.fetchServerRating(itemID: itemID)
+        }
+    }
+
+    func setServerRating(itemID: String, rating: Int?) async throws -> Int? {
+        try await routing.withMutation { connector in
+            guard let provider = connector as? any ServerRatingConnector else {
+                throw SourceError.connectionFailed("Server rating connector unavailable")
+            }
+            return try await provider.setServerRating(itemID: itemID, rating: rating)
+        }
+    }
+}
+
 private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     MediaServerWritebackConnector, ServerLyricsConnector, ServerPlaylistConnector,
     ServerFavoriteConnector, IncrementalSongCatalogConnector,
@@ -2892,6 +2971,13 @@ final class SourceManager {
                 routedSupportsSidecarWriting: supportsSidecarWriting,
                 routedPreferredDeleteBatchSize: preferredDeleteBatchSize
             )
+        case .synologyAudioStation:
+            connector = RoutedSynologyAudioStationConnector(
+                sourceID: source.id,
+                routing: routing,
+                routedSupportsSidecarWriting: supportsSidecarWriting,
+                routedPreferredDeleteBatchSize: preferredDeleteBatchSize
+            )
         default:
             connector = RoutedMusicSourceConnector(
                 sourceID: source.id,
@@ -3094,6 +3180,14 @@ final class SourceManager {
                     alternateTLSValidationHostname: source.alternateTLSValidationHostname
                 )
             }
+        case .synologyAudioStation:
+            connector = credentialProtectedConnector(for: source) { password in
+                SynologyAudioStationSource(
+                    source: source,
+                    password: password,
+                    deviceName: source.rememberDevice ? AppConstants.trustedDeviceName : nil
+                )
+            }
         case .baiduPan:
             connector = BaiduPanSource(sourceID: source.id)
         case .aliyunDrive:
@@ -3147,8 +3241,13 @@ final class SourceManager {
         }
 
         let connector = connector(for: source)
-        let connectionTimeout: TimeInterval = source.type == .fnMusic
-            ? FnMusicSource.connectionTimeout + 5 : 15
+        let connectionTimeout: TimeInterval
+        switch source.type {
+        case .fnMusic: connectionTimeout = FnMusicSource.connectionTimeout + 5
+        // 连接这一步含登录与权限确认;走 QuickConnect 时还要先解析中转。
+        case .synologyAudioStation: connectionTimeout = SynologyAudioStationSource.connectionTimeout + 5
+        default: connectionTimeout = 15
+        }
         do {
             try await Self.withTimeout(seconds: connectionTimeout) {
                 try await connector.connect()
@@ -3605,6 +3704,25 @@ final class SourceManager {
                 return serverAdvice(message: "HTTP \(code) \(message)")
             case .invalidResponse:
                 return serverAdvice(message: String(localized: "source_diag_advice_invalid_response"))
+            }
+        }
+
+        if let audioStationError = error as? SynologyAudioStationError {
+            switch audioStationError {
+            case .invalidCredentials, .missingCredential:
+                return authAdvice()
+            case .twoFactorRequired, .invalidOneTimePassword, .accountDisabled, .ipBlocked,
+                 .passwordExpired, .noAudioStationPermission, .operationNotPermitted:
+                // 这些都要用户去 DSM 或「重新登录」处理,原样说出 DSM 给的原因。
+                return SourceDiagnosticAdvice(
+                    title: String(localized: "source_diag_auth_title"),
+                    message: audioStationError.localizedDescription,
+                    suggestion: ""
+                )
+            case .serverBusy:
+                return Self.advice(for: CloudDriveError.rateLimited, source: source)
+            default:
+                return serverAdvice(message: audioStationError.localizedDescription)
             }
         }
 
@@ -11075,7 +11193,7 @@ final class SourceManager {
         target: ServerSongRatingTarget, source: MusicSource, scope: String
     ) async throws -> any ServerRatingConnector {
         try Task.checkCancellation()
-        guard source.type == .navidrome, source.id == target.sourceID,
+        guard ServerRatingWritebackPolicy.supports(source.type), source.id == target.sourceID,
               MusicSourceScopeFingerprint.make(for: source, includeSourceID: true) == target.accountFingerprint,
               await sourceScopeIsCurrent(sourceID: source.id, expectedScope: scope),
               let provider = connector(for: source) as? any ServerRatingConnector else {

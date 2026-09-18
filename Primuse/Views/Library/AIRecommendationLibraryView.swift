@@ -464,10 +464,13 @@ struct AIRecommendationLibraryView: View {
             switch recommendationPresentationState {
             case .loading:
                 recommendationLoadingGrid
+                    .pmAppearFade(.contentAppear)
             case .content:
                 recommendationResultsGrid
+                    .pmAppearFade(.contentAppear)
             case .empty:
                 recommendationResolvedEmptyState
+                    .pmAppearFade(.contentAppear)
             }
 
             if canLoadMore || isLoadingMore || loadMoreFailed {

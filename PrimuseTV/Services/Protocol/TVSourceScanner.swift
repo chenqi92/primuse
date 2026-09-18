@@ -168,6 +168,26 @@ actor TVSongloftLister: TVDirectoryLister {
     }
 }
 
+/// 群晖 Audio Station 同样是整库源,没有文件夹可选。根目录浏览只做真实登录,并确认
+/// 这个账号有 Audio Station 权限;要验证码时抛 `needs2FA`,扫描页据此直接弹输入页。
+actor TVSynologyAudioStationLister: TVDirectoryLister {
+    private let client: SynologyAudioStationClient
+
+    init(client: SynologyAudioStationClient) {
+        self.client = client
+    }
+
+    func list(_ path: String) async throws -> [TVDirEntry] {
+        guard path == "/" else { return [] }
+        do {
+            _ = try await client.info()
+        } catch {
+            throw SynologyAudioStationStreamResolver.streamError(from: error)
+        }
+        return []
+    }
+}
+
 // MARK: - 群晖 FileStation 目录列举
 //
 // 直接复用 iOS / macOS 那份 `SynologyAPI`(纯 Foundation + PrimuseKit,tvOS 能编),
@@ -1154,7 +1174,7 @@ final class TVSourceScanner {
     private static let maximumScanDepth = 64
     /// 整库型来源:没有目录树,扫描 = 把服务端曲库整体拉下来。
     static let serverCatalogTypes: Set<MusicSourceType> = [
-        .fnMusic, .daoliyu, .songloft,
+        .fnMusic, .daoliyu, .songloft, .synologyAudioStation,
         .jellyfin, .emby, .plex,
         .subsonic, .navidrome, .airsonic, .gonic,
     ]
@@ -1268,6 +1288,10 @@ final class TVSourceScanner {
             return TVDaoLiYuLister(client: DaoLiYuServiceClient(source: source, credential: credential))
         case .songloft:
             return TVSongloftLister(client: SongloftServiceClient(source: source, credential: credential))
+        case .synologyAudioStation:
+            return TVSynologyAudioStationLister(
+                client: SynologyAudioStationClient(source: source, credential: credential)
+            )
         default: return nil
         }
     }
@@ -1416,6 +1440,14 @@ final class TVSourceScanner {
             } else if source.type == .songloft {
                 _ = try await withRoutedSource(source) { routedSource in
                     try await self.scanSongloft(source: routedSource, credential: credential, onSong: accept)
+                }
+            } else if source.type == .synologyAudioStation {
+                _ = try await withRoutedSource(source) { routedSource in
+                    try await self.scanSynologyAudioStation(
+                        source: routedSource,
+                        credential: credential,
+                        onSong: accept
+                    )
                 }
             } else if source.type == .jellyfin || source.type == .emby || source.type == .plex {
                 _ = try await withRoutedSource(source) { routedSource in
@@ -2332,6 +2364,36 @@ final class TVSourceScanner {
             guard let song = track.makeSong(sourceID: source.id) else { throw SongloftServiceError.invalidResponse }
             songs.append(song)
             try await onSong(song)
+        }
+        return songs
+    }
+
+    /// 群晖 Audio Station:客户端逐页校验总数与重复 id,任何一页对不上都以错误结束,
+    /// 这一轮就不算完整,不会拿来删歌。映射与 iPhone 端连接器同一份
+    /// (`makeSong` + `ConnectorScannedSong` 的标题清理),两端扫出来的是同一首歌。
+    private func scanSynologyAudioStation(
+        source: MusicSource,
+        credential: SourceCredential?,
+        onSong: (Song) async throws -> Void
+    ) async throws -> [Song] {
+        let client = SynologyAudioStationClient(source: source, credential: credential)
+        let catalog = await client.songs()
+        var songs: [Song] = []
+        do {
+            for try await track in catalog {
+                try Task.checkCancellation()
+                // 认不出格式的条目没法播放,跳过而不是让整轮扫描失败(与 iPhone 端一致)。
+                guard let song = track.makeSong(sourceID: source.id) else { continue }
+                let scanned = ConnectorScannedSong(
+                    song: song,
+                    displayName: song.title,
+                    titleMetadataInspected: track.hasUsableTitle
+                )
+                songs.append(scanned.song)
+                try await onSong(scanned.song)
+            }
+        } catch {
+            throw SynologyAudioStationStreamResolver.streamError(from: error)
         }
         return songs
     }

@@ -40,6 +40,10 @@ struct MacNowPlayingView: View {
     @State private var currentIndex: Int = -1
     @State private var activeBackgroundLineIDs: Set<String> = []
     @State private var lyricsLoadRevision: UInt = 0
+    /// 最近一次真正跑完的歌词加载对应的世代。跟当前世代不一致就说明还在加载。
+    /// 用世代号而不是手工置一个 Bool: `reloadLyrics` 有多条退出路径, 漏掉任何
+    /// 一条都会把歌词区永久钉在加载态。
+    @State private var settledLyricsIdentity: LyricsLoadTaskIdentity?
     @State private var pendingLyricsOverride: PendingLyricsOverride?
     @State private var lastManualLyricsScroll = Date.distantPast
     @State private var lyricsAutoFollowTask: Task<Void, Never>?
@@ -177,7 +181,7 @@ struct MacNowPlayingView: View {
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        withAnimation(.easeOut(duration: 0.16)) {
+                        pmWithAnimation(.control) {
                             showsNativeFullscreenEffectPicker = false
                         }
                     }
@@ -210,11 +214,16 @@ struct MacNowPlayingView: View {
             }
         }
         .task(id: lyricsLoadTaskIdentity) {
+            let identity = lyricsLoadTaskIdentity
             if player.isLiveRadio {
                 installLyrics([])
             } else {
                 await refreshLyrics()
             }
+            // 被换歌顶掉的旧任务恢复执行时不能写回旧世代 —— 那会让新一轮加载
+            // 被误判成已完成, 空态又闪出来。
+            guard lyricsLoadTaskIdentity == identity else { return }
+            settledLyricsIdentity = identity
         }
         .background {
             if !isImmersiveStageActive {
@@ -353,8 +362,10 @@ struct MacNowPlayingView: View {
                         .frame(height: 46)
                         .foregroundStyle(theme.onAccent)
                         .background(theme.accentColor, in: Capsule())
+                        .contentTransition(.symbolEffect(.replace))
                     }
                     .buttonStyle(.plain)
+                    .pmAnimation(.control, value: player.isPlaying || player.isLoading)
 
                     Button { Task { await player.next() } } label: {
                         Image(systemName: "forward.fill")
@@ -542,6 +553,7 @@ struct MacNowPlayingView: View {
                             && scenePhase == .active
                             && controlActiveState != .inactive
                     )
+                    .artworkCrossfade()
                     .aspectRatio(1, contentMode: .fit)
                     .frame(width: coverSize, height: coverSize)
                 } else {
@@ -591,9 +603,12 @@ struct MacNowPlayingView: View {
                         .foregroundStyle(playerFaintColor)
                         .lineLimit(1)
                         .padding(.top, 6)
+                        .pmFadeTransition()
                 }
             }
             .frame(width: coverSize, alignment: frameAlignment)
+            .contentTransition(.opacity)
+            .pmAnimation(.trackChange, value: player.currentSong?.id)
 
             if let song = player.currentSong {
                 LibraryReviewSection(
@@ -622,7 +637,7 @@ struct MacNowPlayingView: View {
                     Spacer(minLength: isWindowFullScreen ? 120 : 80)
                         .frame(height: isWindowFullScreen ? 120 : 80)
                     if lyrics.isEmpty {
-                        if player.currentSong == nil {
+                        if player.currentSong == nil || isLoadingLyrics {
                             Color.clear.frame(height: 1)
                         } else {
                             VStack(spacing: 12) {
@@ -650,7 +665,7 @@ struct MacNowPlayingView: View {
                                     .background(playerGlassFill, in: Capsule())
                                     .overlay { Capsule().strokeBorder(playerGlassBorder, lineWidth: 0.5) }
                                     .foregroundStyle(playerPrimaryColor)
-                                    .animation(.smooth(duration: 0.2, extraBounce: 0), value: isScrapingCurrentSong)
+                                    .pmAnimation(.control, value: isScrapingCurrentSong)
                                 }
                                 .buttonStyle(.plain)
                                 .disabled(isScrapingCurrentSong)
@@ -679,6 +694,10 @@ struct MacNowPlayingView: View {
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .center)
+                            // 成对分支不能做交叉淡入: 这里的父容器是 LazyVStack,
+                            // 过渡期间离场的那支还占着布局, 会把空态顶下去再弹回。
+                            // 用 pmAppearFade —— 旧分支瞬间消失, 空态自己淡进来。
+                            .pmAppearFade(.contentAppear)
                         }
                     } else {
                         ForEach(Array(lyrics.enumerated()), id: \.element.id) { i, line in
@@ -769,6 +788,12 @@ struct MacNowPlayingView: View {
             songID: player.currentSong?.id,
             revision: lyricsLoadRevision
         )
+    }
+
+    /// 歌词还在加载。换歌时 `reloadLyrics` 会先清空歌词, 这段空窗期不该露出
+    /// 「无歌词 + 刮词按钮」, 否则每首歌都要硬闪一下空态再切回歌词。
+    private var isLoadingLyrics: Bool {
+        settledLyricsIdentity != lyricsLoadTaskIdentity
     }
 
     private func scheduleLyricsAutoFollow(proxy: ScrollViewProxy) {
@@ -972,7 +997,7 @@ struct MacNowPlayingView: View {
 
     private var nativeFullscreenEffectMenu: some View {
         Button {
-            withAnimation(.easeOut(duration: 0.18)) {
+            pmWithAnimation(.control) {
                 showsNativeFullscreenEffectPicker.toggle()
             }
         } label: {

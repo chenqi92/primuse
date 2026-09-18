@@ -33,6 +33,8 @@ struct QueueView: View {
             } label: {
                 Image(systemName: "shuffle")
                     .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
+                    // 导航栏条目里只用系统修饰符, 不碰任何会读环境的封装。
+                    .symbolEffect(.bounce, value: isOn)
             }
             .disabled(player.queueCount < 2)
             .accessibilityLabel(Text("a11y_shuffle"))
@@ -49,6 +51,7 @@ struct QueueView: View {
                 descriptionKey: "queue_empty_desc",
                 systemImage: "music.note.list"
             )
+            .pmAppearFade(.contentAppear)
         } else {
             ScrollView {
                 // Match the large song list's virtualization strategy. List's
@@ -97,6 +100,9 @@ struct QueueView: View {
                 .padding(.vertical, 12)
                 .padding(.bottom, 28)
             }
+            // 空态与列表只让新的那块淡入: 两者不重叠, 交叉过渡期间会前后叠排。
+            // 行级增删仍然走各自的动画。
+            .pmAppearFade(.contentAppear)
         }
     }
 
@@ -152,6 +158,9 @@ struct QueueView: View {
                     Image(systemName: player.isLoading ? "ellipsis" : "waveform")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.white)
+                        .contentTransition(.symbolEffect(.replace))
+                        // 换图要有事务驱动才动得起来, 只挂在当前曲这一行上。
+                        .pmAnimation(.control, value: player.isLoading)
                 }
             }
 
@@ -179,7 +188,7 @@ struct QueueView: View {
 
                 if let reorderID, allowsRemoval {
                     Button {
-                        withAnimation(.snappy(duration: 0.22)) {
+                        pmWithAnimation(.list) {
                             _ = player.removeUpcomingQueueEntry(reorderID)
                         }
                     } label: {
@@ -214,7 +223,7 @@ struct QueueView: View {
             radius: isDropTarget ? 8 : 0,
             y: isDropTarget ? 3 : 0
         )
-        .animation(.snappy(duration: 0.2), value: isDropTarget)
+        .pmAnimation(.list, value: isDropTarget)
         .opacity(dimmed ? 0.58 : 1)
         .contentShape(Rectangle())
         .onTapGesture { playEntry(entry) }
@@ -238,7 +247,9 @@ struct QueueView: View {
                           let dragged = QueueReorderOccurrenceID(dragPayload: payload) else {
                         return false
                     }
-                    return player.moveUpcomingQueueEntry(dragged, over: reorderID)
+                    return pmWithAnimation(.list) {
+                        player.moveUpcomingQueueEntry(dragged, over: reorderID)
+                    }
                 } isTargeted: { isTargeted in
                     if isTargeted {
                         dropTarget = reorderID
@@ -258,7 +269,7 @@ struct QueueView: View {
             if allowsRemoval {
                 accessibleRow
                     .accessibilityAction(named: Text("remove_from_queue")) {
-                        withAnimation(.snappy(duration: 0.22)) {
+                        pmWithAnimation(.list) {
                             _ = player.removeUpcomingQueueEntry(reorderID)
                         }
                     }
@@ -303,6 +314,8 @@ struct QueueView: View {
         @unknown default:
             return
         }
-        player.moveUpcomingQueueEntry(entryID, over: sameRound[targetIndex])
+        pmWithAnimation(.list) {
+            _ = player.moveUpcomingQueueEntry(entryID, over: sameRound[targetIndex])
+        }
     }
 }

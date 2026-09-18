@@ -171,6 +171,10 @@ struct MacSettingsView: View {
 
     private var tab: MacSettingsTab { navigation.tab }
 
+    private var windowTitle: String {
+        showingSearchResults ? SettingsStrings.text("Search settings") : tab.title
+    }
+
     private func selectTab(_ newTab: MacSettingsTab) {
         navigation.select(tab: newTab)
         SettingsSearchHistory.shared.record(newTab.page.id)
@@ -214,11 +218,13 @@ struct MacSettingsView: View {
         HStack(spacing: 0) {
             PMStandardWindowButtonArea()
 
-            Text(verbatim: showingSearchResults ? SettingsStrings.text("Search settings") : tab.title)
+            Text(verbatim: windowTitle)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(PMColor.text)
                 .lineLimit(1)
+                .contentTransition(.opacity)
                 .frame(maxWidth: .infinity, alignment: .center)
+                .pmAnimation(.pageSwitch, value: windowTitle)
 
             // 跟左侧三色窗口按钮等宽的占位, 让标题在窗口里居中。
             Color.clear.frame(width: 52, height: 1)
@@ -306,7 +312,10 @@ struct MacSettingsView: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(selected ? PMColor.brand : .clear, in: .rect(cornerRadius: 6))
+            // 选中时上面那层不透明的品牌色会盖住悬停底色, 所以 hover 底垫在它下面。
+            .pmRowBackground(cornerRadius: 6)
             .contentShape(Rectangle())
+            .pmAnimation(.hover, value: selected)
         }
         .buttonStyle(.plain)
     }
@@ -318,6 +327,7 @@ struct MacSettingsView: View {
                 let results = SettingsCatalog.search(sidebarFilter, showsIntelligence: intelligence.shouldExposeRemoteConfiguration)
                 if results.isEmpty {
                     ContentUnavailableView.search(text: sidebarFilter)
+                        .pmAppearFade()
                 } else {
                     List(results) { item in
                         Button {
@@ -331,6 +341,7 @@ struct MacSettingsView: View {
                         .listRowBackground(Color.clear)
                     }
                     .scrollContentBackground(.hidden)
+                    .pmAppearFade()
                 }
             } else {
                 if !sidebarFilter.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -351,6 +362,9 @@ struct MacSettingsView: View {
                         MacSettingsScroll(title: tab.title) { settingsContent }
                     }
                 }
+                // pmAppearFade 要写在 .id 之前, 让它的 @State 跟着 revision 一起重置,
+                // 否则整块重建后不会再淡入。
+                .pmAppearFade()
                 .id(navigation.revision)
             }
         }
@@ -934,6 +948,7 @@ private struct MacSTIntelligenceView: View {
                     }
                 }
             }
+            .pmFadeTransition()
 
             MacSTSection(String(localized: "ai_models_section")) {
                 MacSTGroup {
@@ -979,6 +994,7 @@ private struct MacSTIntelligenceView: View {
                     }
                 }
             }
+            .pmFadeTransition()
             }
 
             MacSTSection(
@@ -999,6 +1015,7 @@ private struct MacSTIntelligenceView: View {
                                 )
                             )
                         }
+                        .pmSlideTransition(edge: .top)
                     }
                     MacSTRow(String(localized: "ai_remote_consent")) {
                         MacSTToggle(isOn: editor.consentBinding)
@@ -1057,7 +1074,7 @@ private struct MacSTIntelligenceView: View {
             isPresented: $showsRemoveProviderConfirmation
         ) {
             Button(String(localized: "ai_remove_provider"), role: .destructive) {
-                editor.removeSelectedProvider()
+                pmWithAnimation(.list) { editor.removeSelectedProvider() }
             }
             Button(String(localized: "cancel"), role: .cancel) {}
         }
@@ -1101,6 +1118,8 @@ private struct MacSTIntelligenceView: View {
                         Image(systemName: primuseRelayConnectionIcon)
                             .foregroundStyle(primuseRelayConnectionColor)
                     }
+                    // 连通性结果由测试回调裸赋值, 调用点包不住事务, 曲线附在过渡上。
+                    .pmSlideTransition(edge: .top, motion: .list)
                 }
                 if !PrimuseAIRelayClient.isSupportedOnCurrentDevice {
                     MacSTRow(
@@ -1131,7 +1150,7 @@ private struct MacSTIntelligenceView: View {
                         systemImage: showsProviderDetails ? "chevron.up" : "slider.horizontal.3",
                         prominent: !showsProviderDetails
                     ) {
-                        withAnimation(.easeInOut(duration: 0.2)) {
+                        pmWithAnimation(.pageSwitch) {
                             showsProviderDetails.toggle()
                         }
                     }
@@ -1165,7 +1184,7 @@ private struct MacSTIntelligenceView: View {
                                               ? "ai_provider_editing" : "ai_edit_provider")
                             ) {
                                 editor.selectProvider(provider.id)
-                                showsProviderDetails = true
+                                pmWithAnimation(.pageSwitch) { showsProviderDetails = true }
                             }
                             Menu {
                                 if provider.id != editor.draftProviderSet.primaryProviderID {
@@ -1174,11 +1193,15 @@ private struct MacSTIntelligenceView: View {
                                     }
                                 }
                                 Button(String(localized: "ai_move_up")) {
-                                    editor.moveProvider(provider.id, offset: -1)
+                                    pmWithAnimation(.list) {
+                                        editor.moveProvider(provider.id, offset: -1)
+                                    }
                                 }
                                 .disabled(index == 0)
                                 Button(String(localized: "ai_move_down")) {
-                                    editor.moveProvider(provider.id, offset: 1)
+                                    pmWithAnimation(.list) {
+                                        editor.moveProvider(provider.id, offset: 1)
+                                    }
                                 }
                                 .disabled(index == editor.draftProviderSet.providers.count - 1)
                                 if editor.draftProviderSet.providers.count > 1 {
@@ -1213,7 +1236,7 @@ private struct MacSTIntelligenceView: View {
                             systemImage: "plus",
                             prominent: true
                         ) {
-                            editor.addProvider()
+                            pmWithAnimation(.list) { editor.addProvider() }
                         }
                     }
                 }
@@ -1548,7 +1571,7 @@ private struct MacSTPlaybackView: View {
                 .settingsAnchor("playback.spatialAudio")
                 .disabled(s.outputMode == .highFidelity)
                 MacSTRow(String(localized: "replay_gain")) {
-                    MacSTToggle(isOn: $s.replayGainEnabled)
+                    MacSTToggle(isOn: $s.replayGainEnabled.pmAnimated())
                         .accessibilityHint(Text(verbatim: Lz("Automatic Volume Balancing")))
                 }
                 .settingsAnchor("playback.replayGain")
@@ -1561,6 +1584,7 @@ private struct MacSTPlaybackView: View {
                             width: 160
                         )
                     }
+                    .pmSlideTransition(edge: .top)
                 }
                 MacSTRow(
                     String(localized: "streaming_quality_wifi"),
@@ -1592,7 +1616,7 @@ private struct MacSTPlaybackView: View {
                 }
                 .settingsAnchor("playback.gapless")
                 MacSTRow(String(localized: "crossfade")) {
-                    MacSTToggle(isOn: $s.crossfadeEnabled)
+                    MacSTToggle(isOn: $s.crossfadeEnabled.pmAnimated())
                         .accessibilityHint(Text(verbatim: Lz("Mutually exclusive with Gapless")))
                 }
                 .settingsAnchor("playback.crossfade")
@@ -1607,6 +1631,7 @@ private struct MacSTPlaybackView: View {
                             width: 160
                         )
                     }
+                    .pmSlideTransition(edge: .top)
                     MacSTRow(
                         s.crossfadeMode == .smart
                             ? Lz("Maximum Crossfade Duration")
@@ -1619,6 +1644,7 @@ private struct MacSTPlaybackView: View {
                             formatter: { "\(Int($0))s" }
                         )
                     }
+                    .pmSlideTransition(edge: .top)
                 }
                 MacSTRow(Lz("Skip leading silence")) {
                     MacSTToggle(isOn: $s.skipLeadingSilenceEnabled)
@@ -1635,7 +1661,7 @@ private struct MacSTPlaybackView: View {
         MacSTSection(Lz("Cache")) {
             MacSTGroup {
                 MacSTRow(Lz("Enable Audio Cache"), divider: false) {
-                    MacSTToggle(isOn: $s.audioCacheEnabled)
+                    MacSTToggle(isOn: $s.audioCacheEnabled.pmAnimated())
                 }
                 if s.audioCacheEnabled {
                     MacSTRow(String(localized: "audio_cache_limit")) {
@@ -1654,6 +1680,7 @@ private struct MacSTPlaybackView: View {
                             }
                         }
                     }
+                    .pmSlideTransition(edge: .top)
                     MacSTRow(Lz("Prewarm queue head")) {
                         MacSTSlider(
                             value: Binding(
@@ -1665,6 +1692,7 @@ private struct MacSTPlaybackView: View {
                         )
                     }
                     .settingsAnchor("playback.prewarmQueue")
+                    .pmSlideTransition(edge: .top)
                 }
             }
         }
@@ -2012,7 +2040,7 @@ private struct MacSTEqualizerView: View {
                             get: { eq.currentPreset.id },
                             set: { id in
                                 if let preset = presets.first(where: { $0.id == id }) {
-                                    eq.applyPreset(preset)
+                                    pmWithAnimation(.selection) { eq.applyPreset(preset) }
                                 }
                             }
                         ),
@@ -2029,14 +2057,16 @@ private struct MacSTEqualizerView: View {
                     ) {
                         ForEach(presets) { preset in
                             Button {
-                                eq.applyPreset(preset)
+                                pmWithAnimation(.selection) { eq.applyPreset(preset) }
                             } label: {
                                 MacSTChip(text: preset.localizedName,
                                           selected: preset.id == eq.currentPreset.id)
                             }
                             .buttonStyle(.plain)
                         }
-                        MacSTButton(title: Lz("Reset")) { eq.reset() }
+                        MacSTButton(title: Lz("Reset")) {
+                            pmWithAnimation(.selection) { eq.reset() }
+                        }
                     }
                 }
                 .settingsAnchor("equalizer.reset")
@@ -2183,7 +2213,7 @@ private struct MacSTEffectsView: View {
         MacSTSection(Lz("Reverb")) {
             MacSTGroup {
                 MacSTRow(Lz("Toggle"), divider: false) {
-                    MacSTToggle(isOn: $fx.reverbEnabled)
+                    MacSTToggle(isOn: $fx.reverbEnabled.pmAnimated())
                 }
                 .settingsAnchor("effects.reverb")
                 if fx.reverbEnabled {
@@ -2195,6 +2225,7 @@ private struct MacSTEffectsView: View {
                         )
                     }
                     .settingsAnchor("effects.reverbPreset")
+                    .pmSlideTransition(edge: .top)
                     MacSTRow("\(String(localized: "reverb_mix")) (%)", hint: Lz("0 = dry, 100 = wet")) {
                         MacSTSlider(
                             value: Binding(
@@ -2205,6 +2236,7 @@ private struct MacSTEffectsView: View {
                         )
                     }
                     .settingsAnchor("effects.reverbMix")
+                    .pmSlideTransition(edge: .top)
                     MacSTRow(Lz("Room Size"), hint: Lz("Small room → large hall")) {
                         MacSTSlider(
                             value: Binding(
@@ -2216,16 +2248,18 @@ private struct MacSTEffectsView: View {
                         )
                     }
                     .settingsAnchor("effects.reverbRoomSize")
+                    .pmSlideTransition(edge: .top)
                 }
             }
         }
         .disabled(!fx.effectChainEnabled)
         .opacity(fx.effectChainEnabled ? 1 : 0.56)
+        .pmAnimation(.control, value: fx.effectChainEnabled)
 
         MacSTSection(Lz("Compressor / Limiter")) {
             MacSTGroup {
                 MacSTRow(Lz("Toggle"), divider: false) {
-                    MacSTToggle(isOn: $fx.compressorEnabled)
+                    MacSTToggle(isOn: $fx.compressorEnabled.pmAnimated())
                 }
                 .settingsAnchor("effects.compressor")
                 if fx.compressorEnabled {
@@ -2245,6 +2279,7 @@ private struct MacSTEffectsView: View {
                         )
                     }
                     .settingsAnchor("effects.compressorPreset")
+                    .pmSlideTransition(edge: .top)
                     MacSTRow("\(String(localized: "compressor_threshold")) (dB)") {
                         MacSTSlider(
                             value: Binding(
@@ -2256,6 +2291,7 @@ private struct MacSTEffectsView: View {
                         )
                     }
                     .settingsAnchor("effects.compressorThreshold")
+                    .pmSlideTransition(edge: .top)
                     MacSTRow("\(String(localized: "compressor_headroom")) (dB)") {
                         MacSTSlider(
                             value: Binding(
@@ -2266,6 +2302,7 @@ private struct MacSTEffectsView: View {
                         )
                     }
                     .settingsAnchor("effects.compressorHeadroom")
+                    .pmSlideTransition(edge: .top)
                     MacSTRow("\(String(localized: "compressor_attack")) (s)") {
                         MacSTSlider(
                             value: Binding(
@@ -2277,6 +2314,7 @@ private struct MacSTEffectsView: View {
                         )
                     }
                     .settingsAnchor("effects.compressorAttack")
+                    .pmSlideTransition(edge: .top)
                     MacSTRow("\(String(localized: "compressor_release")) (s)") {
                         MacSTSlider(
                             value: Binding(
@@ -2288,6 +2326,7 @@ private struct MacSTEffectsView: View {
                         )
                     }
                     .settingsAnchor("effects.compressorRelease")
+                    .pmSlideTransition(edge: .top)
                     MacSTRow("\(String(localized: "compressor_gain")) (dB)") {
                         MacSTSlider(
                             value: Binding(
@@ -2298,11 +2337,13 @@ private struct MacSTEffectsView: View {
                         )
                     }
                     .settingsAnchor("effects.compressorGain")
+                    .pmSlideTransition(edge: .top)
                 }
             }
         }
         .disabled(!fx.effectChainEnabled)
         .opacity(fx.effectChainEnabled ? 1 : 0.56)
+        .pmAnimation(.control, value: fx.effectChainEnabled)
     }
 }
 
@@ -5179,9 +5220,11 @@ private struct MacSTThemeView: View {
                     String(localized: "library_sections_settings_label")
                 ) {
                     MacSTButton(title: String(localized: "library_sections_restore_default_order")) {
-                        librarySectionOrderRawValue = LibraryDisplayConfiguration.encodeSectionOrder(
-                            LibraryDisplayConfiguration.defaultSectionOrder
-                        )
+                        pmWithAnimation(.list) {
+                            librarySectionOrderRawValue = LibraryDisplayConfiguration.encodeSectionOrder(
+                                LibraryDisplayConfiguration.defaultSectionOrder
+                            )
+                        }
                     }
                     .accessibilityHint(Text("library_sections_settings_footer"))
                 }
@@ -5331,7 +5374,9 @@ private struct MacSTThemeView: View {
         var updated = librarySectionOrder
         let section = updated.remove(at: index)
         updated.insert(section, at: destination)
-        librarySectionOrderRawValue = LibraryDisplayConfiguration.encodeSectionOrder(updated)
+        pmWithAnimation(.list) {
+            librarySectionOrderRawValue = LibraryDisplayConfiguration.encodeSectionOrder(updated)
+        }
     }
 
     private func removeRecommendationPreset(_ preset: AIRecommendationIntentPreset) {
@@ -5513,7 +5558,8 @@ private struct MacFullscreenEffectPreviewCard: View {
                     )
             }
             .scaleEffect(hovering ? 1.012 : 1)
-            .animation(.easeOut(duration: 0.16), value: hovering)
+            .pmAnimation(.hover, value: hovering)
+            .pmAnimation(.hover, value: selected)
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
@@ -5544,6 +5590,7 @@ private struct MacThemeChoiceCard: View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .strokeBorder(selected ? PMColor.brand : PMColor.dividerStrong, lineWidth: selected ? 1.5 : 0.5)
             }
+            .pmAnimation(.hover, value: selected)
         }
         .buttonStyle(.plain)
     }
@@ -5601,6 +5648,7 @@ private struct MacBrandSwatchRow: View {
                 .padding(.vertical, 10)
                 .background(hover ? PMColor.rowHover : .clear)
                 .contentShape(Rectangle())
+                .pmAnimation(.hover, value: hover)
             }
             .buttonStyle(.plain)
             .onHover { hover = $0 }
@@ -5634,6 +5682,7 @@ private struct MacAppIconCell: View {
                     .lineLimit(1)
             }
             .contentShape(Rectangle())
+            .pmAnimation(.hover, value: selected)
         }
         .buttonStyle(.plain)
     }
@@ -5675,6 +5724,7 @@ private struct MacMaterialCard: View {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(selected ? PMColor.brand : PMColor.cardBorder, lineWidth: selected ? 1.5 : 0.5)
             }
+            .pmAnimation(.hover, value: selected)
         }
         .buttonStyle(.plain)
     }
@@ -5763,8 +5813,12 @@ private struct MacSTDeletedView: View {
                                 sub: deletedAtText(p.deletedAt),
                                 icon: "music.note.list",
                                 divider: index != 0,
-                                restore: { library.restorePlaylist(id: p.id) },
-                                purge:   { library.permanentlyDeletePlaylist(id: p.id) }
+                                restore: { pmWithAnimation(.list) { library.restorePlaylist(id: p.id) } },
+                                purge: {
+                                    pmWithAnimation(.list) {
+                                        library.permanentlyDeletePlaylist(id: p.id)
+                                    }
+                                }
                             )
                         }
                     }
@@ -5782,8 +5836,16 @@ private struct MacSTDeletedView: View {
                                 sub: deletedAtText(p.deletedAt),
                                 icon: "sparkles",
                                 divider: index != 0,
-                                restore: { library.restoreSmartPlaylist(id: p.id) },
-                                purge: { library.permanentlyDeleteSmartPlaylist(id: p.id) }
+                                restore: {
+                                    pmWithAnimation(.list) {
+                                        library.restoreSmartPlaylist(id: p.id)
+                                    }
+                                },
+                                purge: {
+                                    pmWithAnimation(.list) {
+                                        library.permanentlyDeleteSmartPlaylist(id: p.id)
+                                    }
+                                }
                             )
                         }
                     }
@@ -5802,7 +5864,11 @@ private struct MacSTDeletedView: View {
                                 sub: String(localized: "restore_hidden_playlist"),
                                 icon: "eye.slash",
                                 divider: index != 0,
-                                restore: { library.restoreHiddenMirrorPlaylist(suppression) },
+                                restore: {
+                                    pmWithAnimation(.list) {
+                                        library.restoreHiddenMirrorPlaylist(suppression)
+                                    }
+                                },
                                 purge: nil
                             )
                         }
@@ -5829,7 +5895,11 @@ private struct MacSTDeletedView: View {
                                 ),
                                 icon: "arrow.uturn.backward.circle",
                                 divider: index != 0,
-                                restore: { restoreLocalRemovals(forSourceID: source.id) },
+                                restore: {
+                                    pmWithAnimation(.list) {
+                                        restoreLocalRemovals(forSourceID: source.id)
+                                    }
+                                },
                                 purge: nil
                             )
                         }
@@ -5853,7 +5923,7 @@ private struct MacSTDeletedView: View {
                                 icon: s.type.iconName,
                                 divider: index != 0,
                                 isBusy: isDeleting,
-                                restore: { sourcesStore.restore(id: s.id) },
+                                restore: { pmWithAnimation(.list) { sourcesStore.restore(id: s.id) } },
                                 purge: {
                                     Task { await sourcesStore.permanentlyDelete(id: s.id) }
                                 }
@@ -5876,12 +5946,16 @@ private struct MacSTDeletedView: View {
                                 icon: "wand.and.stars",
                                 divider: index != 0,
                                 restore: {
-                                    ScraperConfigStore.shared.restore(id: c.id)
-                                    configsTick &+= 1
+                                    pmWithAnimation(.list) {
+                                        ScraperConfigStore.shared.restore(id: c.id)
+                                        configsTick &+= 1
+                                    }
                                 },
                                 purge: {
-                                    ScraperConfigStore.shared.permanentlyDelete(id: c.id)
-                                    configsTick &+= 1
+                                    pmWithAnimation(.list) {
+                                        ScraperConfigStore.shared.permanentlyDelete(id: c.id)
+                                        configsTick &+= 1
+                                    }
                                 }
                             )
                         }
@@ -6089,8 +6163,10 @@ private struct MacSTSSLView: View {
                 } else {
                     ForEach(Array(certificates.enumerated()), id: \.element.id) { index, info in
                         MacSSLRow(info: info, divider: index != 0) {
-                            SSLTrustStore.shared.untrust(domain: info.domain)
-                            refreshTick &+= 1
+                            pmWithAnimation(.list) {
+                                SSLTrustStore.shared.untrust(domain: info.domain)
+                                refreshTick &+= 1
+                            }
                         }
                     }
                     MacSTRow(Lz("Add Domain"), hint: "host.example.com", divider: true) {

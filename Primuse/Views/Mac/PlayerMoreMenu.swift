@@ -382,6 +382,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 Image(systemName: symbol)
                     .frame(width: 18)
                     .foregroundStyle(role == .destructive ? PMColor.bad : PMColor.textMuted)
+                    .contentTransition(.symbolEffect(.replace))
                 Text(title)
                     .font(.callout)
                     .foregroundStyle(role == .destructive ? PMColor.bad : PMColor.text)
@@ -406,6 +407,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 Image(systemName: symbol)
                     .frame(width: 18)
                     .foregroundStyle(role == .destructive ? PMColor.bad : PMColor.textMuted)
+                    .contentTransition(.symbolEffect(.replace))
                 Text(verbatim: titleText)
                     .font(.callout)
                     .foregroundStyle(role == .destructive ? PMColor.bad : PMColor.text)
@@ -784,6 +786,9 @@ private struct MacSleepTimerPopover: View {
                 }
         }
         .buttonStyle(.plain)
+        // 带 value: —— 这个面板每秒会被倒计时刷新一次, 不带触发值的 .animation
+        // 会每秒开一次事务。
+        .pmAnimation(.hover, value: selected)
     }
 
     private var footer: some View {

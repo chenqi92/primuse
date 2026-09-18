@@ -46,7 +46,7 @@ struct AlbumGridView: View {
                         NavigationLink(value: album) {
                             AlbumCardView(album: album)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.pmPressable)
                         .mediaZoomSource(.album, id: album.id)
                     }
                 }
@@ -115,9 +115,13 @@ struct AlbumGridView: View {
                 album: selectedAlbum,
                 onMacInlineBack: closeAlbum
             )
+            // 淡入挂在 .id 里面: 换一张专辑时身份跟着重建, 修饰符的状态才会跟着重置。
+            .pmAppearFade()
             .id(selectedAlbum.id)
+            .pmFadeTransition()
         } else {
             macAlbumOverview
+                .pmFadeTransition()
         }
     }
 
@@ -152,9 +156,11 @@ struct AlbumGridView: View {
                                 .aspectRatio(0.74, contentMode: .fit)
                             }
                             .buttonStyle(.plain)
+                            .pmHoverLift()
                         }
                     }
                     .padding(.horizontal, PMSpace.xxxl)
+                    .pmAppearFade()
                 } else {
                     LazyVStack(spacing: 1) {
                         ForEach(albums) { album in
@@ -167,6 +173,7 @@ struct AlbumGridView: View {
                         }
                     }
                     .padding(.horizontal, PMSpace.xxxl)
+                    .pmAppearFade()
                 }
             }
             .padding(.top, 24)
@@ -176,13 +183,13 @@ struct AlbumGridView: View {
     }
 
     private func openAlbum(_ album: Album) {
-        withAnimation(.snappy(duration: 0.22)) {
+        pmWithAnimation(.list) {
             selectedAlbumID = album.id
         }
     }
 
     private func closeAlbum() {
-        withAnimation(.snappy(duration: 0.22)) {
+        pmWithAnimation(.list) {
             selectedAlbumID = nil
         }
     }
@@ -251,6 +258,7 @@ struct AlbumGridView: View {
                         .foregroundStyle(albumViewMode == mode ? PMColor.text : PMColor.textMuted)
                         .frame(width: 26, height: 22)
                         .background(albumViewMode == mode ? PMColor.bgElev : .clear, in: .rect(cornerRadius: 5))
+                        .pmAnimation(.hover, value: albumViewMode == mode)
                 }
                 .buttonStyle(.plain)
                 .help(Text(mode == .grid ? "grid_view" : "list_view"))

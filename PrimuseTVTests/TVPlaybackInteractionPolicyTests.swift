@@ -235,27 +235,19 @@ final class TVLyricsLoadingPolicyTests: XCTestCase {
 
 @MainActor
 final class TVSourceLocalLibraryPolicyTests: XCTestCase {
-    func testOnlySelfScanningSourcesAreAddableOnAppleTV() {
-        XCTAssertEqual(TVStore.addableTypes, [.fnMusic, .daoliyu, .songloft, .smb])
-        for type in TVStore.addableTypes {
+    func testAddableTypesAreExactlyTheSelfScanningSet() {
+        // 能在电视上添加的类型就是电视能自己建库的那一组,两份清单不能各改各的。
+        XCTAssertEqual(Set(TVStore.addableTypes).count, TVStore.addableTypes.count)
+        XCTAssertEqual(Set(TVStore.addableTypes), TVSourceLocalLibraryPolicy.directScanTypes)
+        XCTAssertTrue(TVStore.addableTypes.contains(.synologyAudioStation))
+        for type in TVStore.addableTypes where !type.isAwaitingPublicAPI {
             XCTAssertTrue(TVStore.canBuildLibraryOnTV(type), type.rawValue)
             XCTAssertEqual(TVSourceLocalLibraryPolicy.capability(for: type), .directScan)
         }
     }
 
-    func testConfigurationOnlySourcesRequirePairedLibrary() {
-        for type in [
-            MusicSourceType.subsonic,
-            .navidrome,
-            .jellyfin,
-            .synology,
-            .webdav,
-            .ftp,
-            .sftp,
-            .nfs,
-            .oneDrive,
-            .dropbox,
-        ] {
+    func testLibraryOnlySourcesRequirePairedLibrary() {
+        for type in [MusicSourceType.local, .appleMusic, .appleMusicLibrary] {
             XCTAssertEqual(
                 TVSourceLocalLibraryPolicy.capability(for: type),
                 .pairedLibrary,
@@ -271,18 +263,20 @@ final class TVSourceLocalLibraryPolicyTests: XCTestCase {
     }
 
     func testNewSelfScanningSourceContinuesIntoScanFlow() {
-        for type in TVStore.addableTypes {
+        for type in TVStore.addableTypes where !type.isAwaitingPublicAPI {
             XCTAssertEqual(
                 TVSourceSaveContinuationPolicy.destination(isNewSource: true, type: type),
-                .scan
+                .scan,
+                type.rawValue
             )
         }
         XCTAssertEqual(
             TVSourceSaveContinuationPolicy.destination(isNewSource: false, type: .smb),
             .sources
         )
+        // 厂商接口还没开放的类型建不了库,新建后回到音乐源列表。
         XCTAssertEqual(
-            TVSourceSaveContinuationPolicy.destination(isNewSource: true, type: .jellyfin),
+            TVSourceSaveContinuationPolicy.destination(isNewSource: true, type: .ugreen),
             .sources
         )
     }

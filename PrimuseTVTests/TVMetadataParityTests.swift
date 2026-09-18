@@ -235,12 +235,18 @@ final class TVMetadataParityTests: XCTestCase {
         for type in [MusicSourceType.local, .smb, .nfs, .ftp, .webdav, .oneDrive, .dropbox] {
             XCTAssertTrue(TVPlaybackMetadataPolicy.supports(type), type.rawValue)
         }
-        for type in [MusicSourceType.subsonic, .navidrome, .jellyfin, .emby, .plex, .fnMusic, .daoliyu, .songloft] {
+        for type in [MusicSourceType.subsonic, .navidrome, .jellyfin, .emby, .plex, .fnMusic, .daoliyu, .songloft,
+                     .synologyAudioStation] {
             XCTAssertFalse(TVPlaybackMetadataPolicy.supports(type), type.rawValue)
         }
         XCTAssertEqual(TVLyricsLoadingPolicy.strategy(for: .daoliyu), .daoLiYuService)
         XCTAssertEqual(TVLyricsLoadingPolicy.strategy(for: .songloft), .songloftService)
         XCTAssertTrue(TVSourceAssetReader.supports(.songloft))
+        XCTAssertEqual(
+            TVLyricsLoadingPolicy.strategy(for: .synologyAudioStation),
+            .synologyAudioStationService
+        )
+        XCTAssertTrue(TVSourceAssetReader.supports(.synologyAudioStation))
         XCTAssertFalse(TVSourceConnectionFailoverPolicy.allowsRetry(after: SongloftServiceError.authenticationFailed))
         for type in [MusicSourceType.jellyfin, .emby, .plex] {
             XCTAssertEqual(TVLyricsLoadingPolicy.strategy(for: type), .mediaServer)

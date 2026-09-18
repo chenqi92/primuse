@@ -654,6 +654,8 @@ struct SearchView: View {
     }
 
     private var iosSearchResults: some View {
+        // 只给"不随击键翻转"的几支补淡入: 旧分支瞬间消失、新分支自己淡进来,
+        // 两棵子树不并存。搜索中占位 ⇄ 结果表每敲一键就翻一次, 保持硬切。
         Group {
             if searchText.isEmpty {
                 if library.visibleSongs.isEmpty {
@@ -662,8 +664,10 @@ struct SearchView: View {
                         descriptionKey: "search_empty_library_desc",
                         systemImage: "magnifyingglass"
                     )
+                    .pmAppearFade(.contentAppear)
                 } else {
                     recentSearchView
+                        .pmAppearFade(.contentAppear)
                 }
             } else if isSearching && renderedQuery != searchText {
                 searchingPlaceholder
@@ -677,6 +681,7 @@ struct SearchView: View {
                     searchingPlaceholder
                 } else {
                     ContentUnavailableView.search(text: searchText)
+                        .pmAppearFade(.contentAppear)
                 }
             } else {
                 searchResultsView
@@ -803,6 +808,7 @@ struct SearchView: View {
 
     @ViewBuilder
     private var macSearchContent: some View {
+        // 与 iOS 同构: 只给不随击键翻转的几支补淡入, 搜索中占位 ⇄ 结果保持硬切。
         if searchText.isEmpty {
             if library.visibleSongs.isEmpty {
                 EmptyStateView(
@@ -810,8 +816,10 @@ struct SearchView: View {
                     descriptionKey: "search_empty_library_desc",
                     systemImage: "magnifyingglass"
                 )
+                .pmAppearFade(.contentAppear)
             } else {
                 macRecentSearchView
+                    .pmAppearFade(.contentAppear)
             }
         } else if isSearching && renderedQuery != searchText {
             macSearchingPlaceholder
@@ -826,6 +834,7 @@ struct SearchView: View {
             } else {
                 ContentUnavailableView.search(text: searchText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .pmAppearFade(.contentAppear)
             }
         } else {
             macSearchResultsView
@@ -1050,6 +1059,7 @@ struct SearchView: View {
                             }
                         }
                         .buttonStyle(.plain)
+                        .pmHoverLift()
                     }
                 }
             }
@@ -1095,6 +1105,7 @@ struct SearchView: View {
                         AsyncImage(url: song.artwork?.url(width: 64, height: 64)) { phase in
                             if let image = phase.image {
                                 image.resizable().aspectRatio(contentMode: .fill)
+                                    .pmFadeTransition(motion: .contentAppear)
                             } else {
                                 RoundedRectangle(cornerRadius: 5).fill(PMColor.rowHover)
                             }
@@ -1269,6 +1280,9 @@ struct SearchView: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    // hover 记在修饰符里, 卡片 body 不会重算 —— matchingArtists
+                    // 是没有缓存的整库计算属性, 划过时绝不能触发重新求值。
+                    .pmHoverLift()
                 }
             }
         }
@@ -1500,6 +1514,8 @@ struct SearchView: View {
             .overlay {
                 Capsule().strokeBorder(active ? .clear : PMColor.cardBorder, lineWidth: 0.5)
             }
+            // 只盯选中态: 芯片文案里嵌着实时计数, 结果流入时不能跟着动。
+            .pmAnimation(.hover, value: active)
     }
 
     private func macFilterChip(
@@ -1589,6 +1605,7 @@ struct SearchView: View {
 
     @ViewBuilder
     private var semanticFeedbackRow: some View {
+        // 状态由异步搜索裸赋值推动: 各态自己淡进来, 不做交叉淡入。
         switch semanticSearchFeedback {
         case .idle:
             EmptyView()
@@ -1599,6 +1616,7 @@ struct SearchView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            .pmAppearFade(.control)
         case .success(let provider, let resultCount, let fallbackDepth):
             Label(
                 String(
@@ -1612,6 +1630,7 @@ struct SearchView: View {
             )
             .font(.caption)
             .foregroundStyle(.green)
+            .pmAppearFade(.control)
         case .noMatches(let provider, let fallbackDepth):
             Label(
                 String(
@@ -1624,10 +1643,12 @@ struct SearchView: View {
             )
             .font(.caption)
             .foregroundStyle(.secondary)
+            .pmAppearFade(.control)
         case .failed:
             Label("search_ai_failed", systemImage: "exclamationmark.triangle.fill")
                 .font(.caption)
                 .foregroundStyle(.orange)
+                .pmAppearFade(.control)
         }
     }
 
@@ -1735,6 +1756,7 @@ struct SearchView: View {
                                 }
                             }
                         }
+                        .mediaZoomSource(.artist, id: artist.id)
                     }
                     if matchingArtists.count > 3 {
                         #if os(iOS)
@@ -1937,6 +1959,7 @@ struct SearchView: View {
                 AsyncImage(url: song.artwork?.url(width: 88, height: 88)) { phase in
                     if let img = phase.image {
                         img.resizable().aspectRatio(contentMode: .fill)
+                            .pmFadeTransition(motion: .contentAppear)
                     } else {
                         Color.secondary.opacity(0.15)
                     }

@@ -1034,19 +1034,40 @@ enum LocalImportService {
             }
         }
 
-        var lyricsSource = SidecarMetadataLoader.findLyrics(for: srcURL)
-        if lyricsSource == nil {
+        if let lrc = SidecarMetadataLoader.findLyrics(for: srcURL) {
+            // 同名歌词统一改名成目标音频的 base, 之后按同名就能读回。
+            importSidecar(lrc, destinationName: "\(destBase).\(lrc.pathExtension)")
+        } else {
             // 带语言后缀的字幕要看整个目录, 缓存按目录建: 枚举器是一个目录一个
             // 目录往下走的, 所以一份清单能服务同目录里的每一个导入项。
-            lyricsSource = SidecarMetadataLoader.findLanguageTaggedLyrics(
+            let taggedIndex = taggedSidecars.index(for: srcURL.deletingLastPathComponent())
+            if let tagged = SidecarMetadataLoader.findLanguageTaggedLyrics(
                 for: srcURL,
-                index: taggedSidecars.index(for: srcURL.deletingLastPathComponent())
-            )
-        }
-        // 统一改名成目标音频的 base, 语言后缀正好在这一步被丢掉 ——
-        // `song.en.vtt` 落进沙箱就是 `<base>.vtt`, 之后按同名就能读回。
-        if let lrc = lyricsSource {
-            importSidecar(lrc, destinationName: "\(destBase).\(lrc.pathExtension)")
+                index: taggedIndex
+            ), let components = LyricsSidecarSelectionPolicy.languageTaggedComponents(
+                ofSidecarNamed: tagged.lastPathComponent
+            ) {
+                // 语言后缀要跟着进沙箱: 丢掉它就分不出原声轨和机翻轨, 译文也
+                // 无从知道自己是哪种语言。
+                importSidecar(
+                    tagged,
+                    destinationName: "\(destBase).\(components.tag).\(tagged.pathExtension)"
+                )
+                if let companionName = taggedIndex.translationTrack(
+                    forPrimary: tagged.lastPathComponent,
+                    baseName: components.baseName
+                ), let companion = LyricsSidecarSelectionPolicy.languageTaggedComponents(
+                    ofSidecarNamed: companionName
+                ) {
+                    let companionURL = srcURL.deletingLastPathComponent()
+                        .appendingPathComponent(companionName)
+                    importSidecar(
+                        companionURL,
+                        destinationName:
+                            "\(destBase).\(companion.tag).\(companionURL.pathExtension)"
+                    )
+                }
+            }
         }
         if let cover = SidecarMetadataLoader.findCoverArt(for: srcURL) {
             importSidecar(cover, destinationName: "\(destBase)-cover.\(cover.pathExtension)")

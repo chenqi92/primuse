@@ -594,6 +594,7 @@ struct ArtistDetailView: View {
                         macAlbumTile(album, showsPlayCount: showsPlayCount)
                     }
                     .buttonStyle(.plain)
+                    .pmHoverLift()
                 }
             }
         }
@@ -652,6 +653,8 @@ struct ArtistDetailView: View {
             .padding(.vertical, 8)
             .pmRowBackground(selected: isCurrent)
             .contentShape(Rectangle())
+            // 行底色自带 0.12 的高亮动画, 字色不跟上就会分两段到达。
+            .pmAnimation(.hover, value: isCurrent)
         }
         .buttonStyle(.plain)
         .contextMenu {

@@ -829,3 +829,6 @@
 "source_address_probe_not_attempted" = "لم تتم المحاولة";
 "source_address_probe_unconfirmed %@" = "استجاب العنوان، لكن تعذّر تأكيد أنه %@";
 "source_address_port_auto %@" = "اتركه فارغًا ليحدد Primuse المنفذ، والقيمة الافتراضية هي %@.";
+
+/* Synology Audio Station */
+"src.subtitle.synologyAudioStation" = "حزمة الموسيقى في DSM · المكتبة وقوائم التشغيل والتقييمات";

@@ -118,6 +118,19 @@ public enum SourceServiceFingerprint {
                     URLQueryItem(name: "query", value: "SYNO.API.Auth")
                 ]
             )
+        case .synologyAudioStation:
+            // 同一个免登录的接口发现,但只问 Audio Station 自己的接口:套件没装
+            // 或没启用时 DSM 不报它,这样端口能定下来,又不会把「DSM 在但没有
+            // Audio Station」误判成确认。
+            return ProbeRequest(
+                path: "/webapi/query.cgi",
+                queryItems: [
+                    URLQueryItem(name: "api", value: "SYNO.API.Info"),
+                    URLQueryItem(name: "version", value: "1"),
+                    URLQueryItem(name: "method", value: "query"),
+                    URLQueryItem(name: "query", value: "SYNO.AudioStation.Info")
+                ]
+            )
         case .webdav:
             // OPTIONS 打在路径前缀上,因为 DAV 头是挂在那个集合上的,
             // 站点根目录未必开了 DAV。
@@ -159,6 +172,8 @@ public enum SourceServiceFingerprint {
             if body.contains("subsonic-response") { return .confirmed }
         case .synology:
             if response.statusCode == 200, body.contains("SYNO.API.Auth") { return .confirmed }
+        case .synologyAudioStation:
+            if response.statusCode == 200, body.contains("SYNO.AudioStation.Info") { return .confirmed }
         case .webdav:
             if response.headerValue("DAV") != nil { return .confirmed }
         default:

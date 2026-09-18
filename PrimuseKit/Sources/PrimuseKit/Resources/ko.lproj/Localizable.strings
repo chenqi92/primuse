@@ -882,3 +882,6 @@
 "source_address_probe_not_attempted" = "시도하지 않음";
 "source_address_probe_unconfirmed %@" = "응답은 있었지만 %@ 인지는 확인하지 못했습니다";
 "source_address_port_auto %@" = "비워 두면 Primuse가 포트를 알아냅니다(기본값 %@).";
+
+/* Synology Audio Station */
+"src.subtitle.synologyAudioStation" = "DSM 음악 패키지 · 보관함, 재생목록, 별점";

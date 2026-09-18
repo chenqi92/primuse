@@ -238,6 +238,10 @@ enum CloudKVSKey {
     static let aiRecommendationHiddenPresets =
         AIRecommendationIntentPresetVisibilityPolicy.storageKey
     static let aiRecommendationSelectedIntent = AIRecommendationIntentSelectionPolicy.storageKey
+    /// 电台清单订阅的定义(不含刷新状态)。有意不放进「设置」通道的补推列表：
+    /// 补推会以本机的列表为准整份覆盖，一台没有订阅的设备打开同步开关时
+    /// 会把别的设备的订阅清空。订阅每次变化时自己推送。
+    static let radioSubscriptions = "primuse_radio_subscriptions_v1"
     // Certificate trust and public cleartext-HTTP permissions are intentionally
     // NOT synced: both are per-device security decisions. SSLTrustStore keeps
     // them in local UserDefaults only.

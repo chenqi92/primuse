@@ -225,7 +225,7 @@ struct UpdateBannerSheet: View {
 
                 if releaseNotesNeedExpansion(notes) {
                     Button {
-                        withAnimation(.easeInOut(duration: 0.22)) {
+                        pmWithAnimation(.list) {
                             isNotesExpanded.toggle()
                         }
                     } label: {

@@ -58,6 +58,8 @@ struct AppIconPickerGrid: View {
             }
         }
         .buttonStyle(.plain)
+        // 挂在单个格子上：选中描边与文字颜色只跟这一格的选中态走。
+        .pmAnimation(.selection, value: isSelected)
         .disabled(!service.supportsAlternateIcons)
         .iconAppearanceAccessibilityHint(option.supportsAppearance)
     }

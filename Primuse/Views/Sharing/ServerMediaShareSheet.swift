@@ -510,6 +510,8 @@ struct ServerMediaShareSheet: View {
 
     @ViewBuilder
     private var capabilityContent: some View {
+        // 五态是成对切换: 旧的一态直接消失、新的一态淡入。交叉淡入会让两态
+        // 的 Section 同时排在 Form 里, 把下面的内容顶开再弹回。
         switch capabilityState {
         case .checking:
             Section {
@@ -519,12 +521,16 @@ struct ServerMediaShareSheet: View {
                 }
                 .accessibilityElement(children: .combine)
             }
+            .pmAppearFade(.control)
         case .available(let features):
             if let createdShare {
                 createdShareSection(createdShare)
+                    .pmAppearFade(.control)
             } else {
                 optionsSection(features)
+                    .pmAppearFade(.control)
                 createSection
+                    .pmAppearFade(.control)
             }
         case .unsupported:
             unavailableSection(
@@ -532,12 +538,14 @@ struct ServerMediaShareSheet: View {
                 messageKey: "server_share_unsupported_message",
                 systemImage: "link.badge.slash"
             )
+            .pmAppearFade(.control)
         case .permissionDenied:
             unavailableSection(
                 titleKey: "server_share_permission_title",
                 messageKey: "server_share_permission_message",
                 systemImage: "person.crop.circle.badge.exclamationmark"
             )
+            .pmAppearFade(.control)
         case .failed(let message):
             Section {
                 Label {
@@ -552,6 +560,7 @@ struct ServerMediaShareSheet: View {
                     probeTask = Task { await probeCapability() }
                 }
             }
+            .pmAppearFade(.control)
         }
     }
 
@@ -2467,13 +2476,17 @@ struct MediaRelayImportSheet: View {
 
     @ViewBuilder
     private var phaseView: some View {
+        // 只淡入新阶段, 不做交叉淡入（两段会同时占住这个 Section）。也不给
+        // 整段挂 .animation(value: phase) —— .copying 的进度是持续刷新的。
         switch phase {
         case .ready:
             if ticketConsumed {
                 Label("relay_import_ticket_consumed", systemImage: "arrow.uturn.backward.circle")
                     .foregroundStyle(.secondary)
+                    .pmAppearFade(.control)
             } else {
                 Label("relay_import_ready", systemImage: "music.note")
+                    .pmAppearFade(.control)
             }
         case .downloading:
             VStack(alignment: .leading, spacing: 8) {
@@ -2488,6 +2501,7 @@ struct MediaRelayImportSheet: View {
                     .foregroundStyle(.secondary)
                 }
             }
+            .pmAppearFade(.control)
         case .copying(let progress):
             VStack(alignment: .leading, spacing: 8) {
                 if let progress {
@@ -2497,14 +2511,17 @@ struct MediaRelayImportSheet: View {
                 }
                 Text("relay_import_copying")
             }
+            .pmAppearFade(.control)
         case .scanning:
             HStack(spacing: 12) {
                 ProgressView()
                 Text("relay_import_scanning")
             }
+            .pmAppearFade(.control)
         case .finished:
             Label("relay_import_finished", systemImage: "checkmark.circle.fill")
                 .foregroundStyle(.green)
+                .pmAppearFade(.control)
         }
     }
 

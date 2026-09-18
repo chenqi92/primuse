@@ -32,6 +32,12 @@ public extension LyricPosterStyleID {
     static let polaroid = LyricPosterStyleID("polaroid")
     /// Cassette J-card with monospaced tracklist chrome.
     static let cassette = LyricPosterStyleID("cassette")
+    /// 牛皮纸信笺: 胶带、邮戳、手写落款, 照片像贴上去的。
+    static let retroLetter = LyricPosterStyleID("retro_letter")
+    /// 深色聚光: 大字歌词, 被唱到的那句用主色点亮。
+    static let spotlight = LyricPosterStyleID("spotlight")
+    /// 动态歌词卡: 封面配半张唱片, 底部声波, 为实况照片而生。
+    static let motionCard = LyricPosterStyleID("motion_card")
     /// Deep navy sheet with a cover tile and a glow in the song's colour.
     /// Arrives with the Minimal interface skin.
     static let deepSea = LyricPosterStyleID("deep_sea")
@@ -113,7 +119,34 @@ public struct LyricPosterStyleDescriptor: Hashable, Sendable, Identifiable {
 /// actually use. Rendering lives in the app layer; this stays Foundation-only
 /// so the ordering and fallback rules are testable.
 public enum LyricPosterStyleCatalog {
+    /// 新风格排在最前面用的是负数序号: 已有条目的序号一个都不用改,
+    /// 同时在做界面皮肤的分支也就不会和这里撞在同一行上。
     public static let builtInDescriptors: [LyricPosterStyleDescriptor] = [
+        LyricPosterStyleDescriptor(
+            id: .retroLetter,
+            nameKey: "lyric_poster_style_retro_letter",
+            symbolName: "envelope",
+            preferredCanvas: .portrait,
+            requiresArtwork: true,
+            prefersDarkChrome: false,
+            order: -3
+        ),
+        LyricPosterStyleDescriptor(
+            id: .spotlight,
+            nameKey: "lyric_poster_style_spotlight",
+            symbolName: "sun.max",
+            preferredCanvas: .story,
+            requiresArtwork: false,
+            order: -2
+        ),
+        LyricPosterStyleDescriptor(
+            id: .motionCard,
+            nameKey: "lyric_poster_style_motion_card",
+            symbolName: "opticaldisc.fill",
+            preferredCanvas: .portrait,
+            requiresArtwork: true,
+            order: -1
+        ),
         LyricPosterStyleDescriptor(
             id: .auroraGlass,
             nameKey: "lyric_poster_style_aurora_glass",

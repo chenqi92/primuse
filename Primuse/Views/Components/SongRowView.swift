@@ -376,6 +376,7 @@ struct SongRowView: View {
                     Color.black.opacity(0.35)
                         .clipShape(RoundedRectangle(cornerRadius: skin.rawMetric(.radiusArtwork)))
                         .frame(width: 44, height: 44)
+                        .pmFadeTransition()
                     // While the player is still loading the active track,
                     // show a spinner instead of the playing-waveform so the
                     // user can tell "tap registered, audio is on the way"
@@ -384,11 +385,13 @@ struct SongRowView: View {
                         ProgressView()
                             .controlSize(.small)
                             .tint(.white)
+                            .pmFadeTransition()
                     } else {
                         Image(systemName: "waveform")
                             .font(.caption)
                             .symbolEffect(.variableColor.iterative)
                             .foregroundStyle(.white)
+                            .pmFadeTransition()
                     }
                 }
             }
@@ -555,6 +558,9 @@ struct SongRowView: View {
             }
             #endif
         }
+        // 只挂在这一行自己身上：封面黑罩、波形与标题变色是同一次换歌带来的，
+        // 外层 ForEach / LazyVStack 上绝不能挂。
+        .pmAnimation(.control, value: isPlaying)
         .songRowSwipeActions(
             songID: song.id,
             isEnabled: queueSwipeActionsEnabled
@@ -995,6 +1001,8 @@ private struct SongRowSwipeModifier: ViewModifier {
                 Image(systemName: actionSystemImage(action))
                     .font(.callout.weight(.semibold))
                     .scaleEffect(isFullSwipeArmed ? 1.14 : 1)
+                    // 武装态是手势里的一次离散翻转，不是逐帧跟手的位移，可以动画。
+                    .pmAnimation(.press, value: isFullSwipeArmed)
                 Text(verbatim: actionTitle(action))
                     .font(.caption2.weight(.semibold))
                     .lineLimit(1)
@@ -1286,30 +1294,46 @@ private extension View {
 struct OfflineAudioStatusBadge: View {
     let snapshot: OfflineAudioCacheSnapshot
 
+    @ViewBuilder
     var body: some View {
-        switch snapshot.state {
-        case .downloading:
-            ProgressView(value: snapshot.progress)
-                .controlSize(.mini)
-                .frame(width: 20, height: 20)
-                .accessibilityLabel("offline_downloading")
-        case .pinned:
-            Image(systemName: "checkmark.circle.fill")
-                .font(.callout)
-                .foregroundStyle(.green)
-                .accessibilityLabel("offline_available")
-        case .cached:
-            Image(systemName: "checkmark.circle")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .accessibilityLabel("offline_cached")
-        case .failed:
-            Image(systemName: "exclamationmark.circle")
-                .font(.callout)
-                .foregroundStyle(.orange)
-                .accessibilityLabel("offline_download_failed")
-        case .notCached:
+        if snapshot.state == .notCached {
+            // 绝大多数歌都停在这一态。保持不产生布局元素，行里就不会多出一段间距。
             EmptyView()
+        } else {
+            // 宿主是行里的 HStack，四个可见态必须在自己的 ZStack 里同框互换，
+            // 否则过渡期间两态并排，会把后面的内容顶开再弹回。
+            ZStack {
+                switch snapshot.state {
+                case .downloading:
+                    ProgressView(value: snapshot.progress)
+                        .controlSize(.mini)
+                        .frame(width: 20, height: 20)
+                        .accessibilityLabel("offline_downloading")
+                        .pmFadeTransition()
+                case .pinned:
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.callout)
+                        .foregroundStyle(.green)
+                        .accessibilityLabel("offline_available")
+                        .pmFadeTransition()
+                case .cached:
+                    Image(systemName: "checkmark.circle")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("offline_cached")
+                        .pmFadeTransition()
+                case .failed:
+                    Image(systemName: "exclamationmark.circle")
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                        .accessibilityLabel("offline_download_failed")
+                        .pmFadeTransition()
+                case .notCached:
+                    EmptyView()
+                }
+            }
+            // 只认状态，不认进度：下载中的进度每来一次回调都动一下就成了新的抖动源。
+            .pmAnimation(.control, value: snapshot.state)
         }
     }
 }

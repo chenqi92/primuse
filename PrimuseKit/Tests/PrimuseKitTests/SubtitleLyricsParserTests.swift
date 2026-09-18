@@ -34,6 +34,34 @@ struct SubtitleLyricsParserTests {
         "[Music]",
     ].joined(separator: "\n")
 
+    /// The machine-translated companion of that same video: same cue
+    /// structure, same fillers, and no word timing anywhere.
+    private let translatedRollingCaptions = [
+        "WEBVTT",
+        "Kind: captions",
+        "Language: zh-Hans",
+        "",
+        "00:00:00.480 --> 00:00:02.869 align:start position:0%",
+        " ",
+        "永远不会放弃你",
+        "",
+        "00:00:02.869 --> 00:00:02.879 align:start position:0%",
+        "永远不会放弃你",
+        " ",
+        "",
+        "00:00:02.879 --> 00:00:05.030 align:start position:0%",
+        "永远不会放弃你",
+        "永远不会让你失望",
+        "",
+        "00:00:05.030 --> 00:00:05.040 align:start position:0%",
+        "永远不会让你失望",
+        " ",
+        "",
+        "00:00:05.040 --> 00:00:07.500 align:start position:0%",
+        "永远不会让你失望",
+        "永远不会到处乱跑",
+    ].joined(separator: "\n")
+
     @Test("A byte-order mark and CRLF line endings do not hide the header")
     func readsWebVTTHeader() throws {
         let document = "\u{FEFF}WEBVTT\r\n\r\n00:00:01.000 --> 00:00:02.500\r\nHello\r\n"
@@ -292,6 +320,27 @@ struct SubtitleLyricsParserTests {
         let expectedSecondStarts: [TimeInterval] = [2.879, 3.2, 3.52, 3.84, 4.16]
         #expect(firstStarts == expectedFirstStarts)
         #expect(secondStarts == expectedSecondStarts)
+    }
+
+    @Test("A translated caption track rolls the same way without word timing")
+    func collapsesRollingCaptionsWithoutWordTiming() throws {
+        // Word timing is the original track's alone; the repeated line inside
+        // a sub-frame cue is what says the document rolls.
+        let lines = SubtitleLyricsParser.parse(translatedRollingCaptions)
+        #expect(lines.count == 3)
+
+        let texts = lines.map(\.text)
+        let expectedTexts = ["永远不会放弃你", "永远不会让你失望", "永远不会到处乱跑"]
+        #expect(texts == expectedTexts)
+
+        let starts = lines.map(\.timestamp)
+        let expectedStarts: [TimeInterval] = [0.48, 2.879, 5.04]
+        #expect(starts == expectedStarts)
+
+        let wordLevelCount = lines.filter(\.isWordLevel).count
+        #expect(wordLevelCount == 0)
+        let translationCount = lines.compactMap(\.manualTranslation).count
+        #expect(translationCount == 0)
     }
 
     @Test("A whitespace-only payload line does not end the cue")

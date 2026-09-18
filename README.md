@@ -130,7 +130,7 @@ Apple TV 客户端可以浏览整座曲库、直接连接多种音乐源，并�
 |------|----------|
 | NAS | Synology DSM、QNAP |
 | 文件协议 | SMB/CIFS、WebDAV、FTP、SFTP、NFS、S3、UPnP/DLNA |
-| 音乐服务器 | Subsonic、Navidrome、Airsonic、Gonic、飞牛音乐、道理鱼 |
+| 音乐服务器 | Subsonic、Navidrome、Airsonic、Gonic、飞牛音乐、道理鱼、群晖 Audio Station |
 | 媒体服务器 | Jellyfin、Emby、Plex |
 | 云盘 | 123 云盘、115、百度网盘、阿里云盘、Google Drive、OneDrive、Dropbox |
 | Apple 与本地 | iPhone/iPad 文件导入、Mac 本地文件夹、Apple Music 资料库与目录 |

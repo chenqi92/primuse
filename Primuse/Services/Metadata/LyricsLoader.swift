@@ -357,8 +357,18 @@ enum LyricsLoader {
             guard let lyricsContent = String(data: lyricsData, encoding: .utf8) else {
                 return []
             }
-            let parsed = LyricsParser.parse(lyricsContent)
+            var parsed = LyricsParser.parse(lyricsContent)
             if !parsed.isEmpty {
+                if let translation = lyricsFile.translation {
+                    // The `-orig` track stays the sung line; its companion
+                    // becomes the translation under each of those lines.
+                    parsed = await mergingTranslationTrack(
+                        into: parsed,
+                        track: translation,
+                        connector: connector
+                    )
+                    guard !Task.isCancelled else { return [] }
+                }
                 let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
                     parsed,
                     forSongID: song.id,
@@ -426,25 +436,29 @@ enum LyricsLoader {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// A subtitle track that translates the document being loaded.
+    typealias TranslationTrack = (path: String, fileName: String, size: Int64)
+
     private struct AuthoritativeLyricsFile: Sendable {
         let path: String
         let size: Int64
+        let translation: TranslationTrack?
     }
 
     private static func authoritativeLyricsFile(
         for song: Song,
         connector: any MusicSourceConnector
     ) async throws -> AuthoritativeLyricsFile? {
-        let target: LyricsSidecarTarget
-        if let resolver = connector as? any LyricsSidecarTargetResolving {
-            target = try await resolver.lyricsSidecarTarget(for: song)
-        } else {
-            target = try await LyricsSidecarTargetPolicy.resolve(for: song, using: connector)
-        }
+        let target = try await lyricsSidecarTarget(for: song, connector: connector)
         guard target.exists, let existingPath = target.existingPath else { return nil }
+        let translation = translationTrack(in: target)
         let maximumSize = Int64(LyricsSidecarTargetPolicy.maximumContentByteCount)
         if let size = target.existingSize, size > 0, size <= maximumSize {
-            return AuthoritativeLyricsFile(path: existingPath, size: size)
+            return AuthoritativeLyricsFile(
+                path: existingPath,
+                size: size,
+                translation: translation
+            )
         }
         let matches = try await connector.listFiles(at: target.containerPath).filter {
             !$0.isDirectory
@@ -457,6 +471,78 @@ enum LyricsLoader {
               item.size <= maximumSize else {
             throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
         }
-        return AuthoritativeLyricsFile(path: item.path, size: item.size)
+        return AuthoritativeLyricsFile(
+            path: item.path,
+            size: item.size,
+            translation: translation
+        )
+    }
+
+    private static func lyricsSidecarTarget(
+        for song: Song,
+        connector: any MusicSourceConnector
+    ) async throws -> LyricsSidecarTarget {
+        if let resolver = connector as? any LyricsSidecarTargetResolving {
+            return try await resolver.lyricsSidecarTarget(for: song)
+        }
+        return try await LyricsSidecarTargetPolicy.resolve(for: song, using: connector)
+    }
+
+    private static func translationTrack(in target: LyricsSidecarTarget) -> TranslationTrack? {
+        guard let path = target.translationPath,
+              let fileName = target.translationFileName,
+              let size = target.translationSize else { return nil }
+        return (path, fileName, size)
+    }
+
+    /// The companion track of the song's current document, for a caller that
+    /// fetched that document by name and has no listing of its own. Resolving
+    /// it costs a directory listing, so the caller decides first — by the
+    /// document's own name — whether one can exist at all.
+    static func translationTrack(
+        for song: Song,
+        connector: any MusicSourceConnector
+    ) async -> TranslationTrack? {
+        guard let target = try? await lyricsSidecarTarget(for: song, connector: connector),
+              target.exists else { return nil }
+        return translationTrack(in: target)
+    }
+
+    /// Attaches a translation track to the lines that were just parsed.
+    /// A companion that is too large, unreachable or not the same timeline is
+    /// simply not attached: the original track is the song's document either
+    /// way.
+    static func mergingTranslationTrack(
+        into primary: [LyricLine],
+        track: TranslationTrack,
+        connector: any MusicSourceConnector
+    ) async -> [LyricLine] {
+        guard track.size > 0,
+              track.size <= Int64(LyricsSidecarTargetPolicy.maximumContentByteCount) else {
+            return primary
+        }
+        let data: Data
+        do {
+            data = try await connector.fetchRange(
+                path: track.path,
+                offset: 0,
+                length: track.size,
+                priority: .background
+            )
+        } catch {
+            return primary
+        }
+        guard data.count == Int(track.size),
+              let content = String(data: data, encoding: .utf8) else { return primary }
+        let translation = LyricsParser.parse(content)
+        guard !translation.isEmpty else { return primary }
+        let languageCode = LyricsSidecarSelectionPolicy
+            .languageTaggedComponents(ofSidecarNamed: track.fileName)
+            .flatMap { LyricsSidecarSelectionPolicy.translationLanguageCode(forTag: $0.tag) }
+        return LyricsTranslationTrackPolicy.merging(
+            primary: primary,
+            translation: translation,
+            languageCode: languageCode
+        ) ?? primary
     }
 }

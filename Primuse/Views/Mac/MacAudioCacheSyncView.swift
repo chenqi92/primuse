@@ -622,8 +622,10 @@ private struct AudioCacheSyncConnectionControls: View {
                     Text(verbatim: text(cacheSync.receiverState.labelKey))
                 } icon: {
                     Image(systemName: cacheSync.receiverState == .ready ? "checkmark.circle.fill" : "exclamationmark.circle")
+                        .contentTransition(.symbolEffect(.replace))
                 }
                 .foregroundStyle(cacheSync.receiverState == .ready ? Color.green : Color.orange)
+                .pmAnimation(.control, value: cacheSync.receiverState == .ready)
 
                 if cacheSync.incomingTransferCount > 0 {
                     HStack {

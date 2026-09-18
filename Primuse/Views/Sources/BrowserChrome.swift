@@ -178,7 +178,7 @@ struct DirectoryBreadcrumb: View {
                 #endif
             }
             .onChange(of: segments.count) { _, _ in
-                withAnimation { proxy.scrollTo(segments.count - 1, anchor: .trailing) }
+                pmWithAnimation(.list) { proxy.scrollTo(segments.count - 1, anchor: .trailing) }
             }
         }
         #if os(macOS)
@@ -598,7 +598,7 @@ struct MacDirTreeBrowser: View {
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(PMColor.textMuted)
                 Button {
-                    withAnimation { selectedDirectories.removeAll() }
+                    pmWithAnimation(.list) { selectedDirectories.removeAll() }
                 } label: {
                     Text("clear")
                         .font(.system(size: 11, weight: .medium))
@@ -642,8 +642,10 @@ struct MacDirTreeBrowser: View {
         ScrollView(.vertical, showsIndicators: true) {
             if rootLoading {
                 status(icon: nil, text: String(localized: "loading_directories"))
+                    .pmAppearFade(.contentAppear)
             } else if rows.isEmpty, selectableRootPath == nil {
                 status(icon: "folder", text: String(localized: "no_subdirectories"))
+                    .pmAppearFade(.contentAppear)
             } else {
                 LazyVStack(alignment: .leading, spacing: 1) {
                     if let selectableRootPath {
@@ -655,6 +657,9 @@ struct MacDirTreeBrowser: View {
                 }
                 .padding(.horizontal, 6)
                 .padding(.vertical, 8)
+                // 只在「整份内容替换」这一层淡入, 目录行自己的增删不挂动画 ——
+                // 连点面包屑时逐行 diff 的动画会排队。
+                .pmAppearFade(.contentAppear)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -818,7 +823,7 @@ struct MacDirTreeBrowser: View {
     // MARK: 加载 / 展开 / 选择
 
     private func toggleChecked(_ path: String) {
-        withAnimation(.easeInOut(duration: 0.15)) {
+        pmWithAnimation(.list) {
             if let idx = selectedDirectories.firstIndex(of: path) {
                 selectedDirectories.remove(at: idx)
             } else {

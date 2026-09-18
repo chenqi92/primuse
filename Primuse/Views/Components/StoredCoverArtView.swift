@@ -372,8 +372,12 @@ struct PlaylistArtworkView: View {
                 frameworkFallback = nil
             }
             guard !Task.isCancelled, loadRevisionIdentity == identity else { return }
-            resource = resolved?.value
-            frameworkFallbackResource = frameworkFallback
+            // 只有真正解析完的这一次才淡入；上面换方案时的清空保持瞬间生效，
+            // 否则占位会先淡出再淡入，闪两下。
+            withAnimation(PMMotion.contentAppear.animation) {
+                resource = resolved?.value
+                frameworkFallbackResource = frameworkFallback
+            }
             resolvedPlanSignature = currentPlan.signature
         }
         .task(id: "\(uploadedContentID ?? "")#\(library.artworkOverrideRevision)#\(reloadRevision)") {
@@ -458,9 +462,11 @@ struct PlaylistArtworkView: View {
         ZStack {
             if let frameworkFallbackResource {
                 artwork(frameworkFallbackResource)
+                    .pmFadeTransition()
             }
             if let resource {
                 artwork(resource)
+                    .pmFadeTransition()
             }
         }
     }

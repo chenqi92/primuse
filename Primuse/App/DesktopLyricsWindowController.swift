@@ -130,6 +130,10 @@ final class DesktopLyricsWindowController {
             width: target.width,
             height: target.height
         )
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            panel.setFrame(newFrame, display: true)
+            return
+        }
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.28
             ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)

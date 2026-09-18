@@ -560,11 +560,15 @@ struct WiFiTransferSendView: View {
     private var progressSummary: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack {
-                if sender.busy { ProgressView().controlSize(.small) }
+                if sender.busy {
+                    ProgressView().controlSize(.small)
+                        .pmFadeTransition(motion: .contentAppear)
+                }
                 Text(WiFiTransferText.string(sender.status))
                 Spacer()
                 if !sender.busy && sender.completed + sender.failed.count > 0 && sender.status != "libraryPrepared" {
                     Text("\(sender.completed) / \(sender.completed + sender.failed.count)").monospacedDigit()
+                        .pmFadeTransition(motion: .contentAppear)
                 }
             }.font(.system(size: TransferAppearance.bodySize, weight: .medium))
             #if os(iOS)
@@ -576,7 +580,9 @@ struct WiFiTransferSendView: View {
             if sender.busy && !sender.currentFile.isEmpty {
                 Text(sender.currentFile).font(.system(size: TransferAppearance.captionSize))
                     .foregroundStyle(TransferAppearance.muted).lineLimit(1).truncationMode(.middle)
+                    .pmFadeTransition(motion: .contentAppear)
                 ProgressView(value: sender.progress).tint(TransferAppearance.accent)
+                    .pmFadeTransition(motion: .contentAppear)
                 if sender.status == "libraryPreparing" {
                     Text(sender.preparationDetail).font(.caption).foregroundStyle(.secondary).monospacedDigit()
                 }
@@ -589,6 +595,7 @@ struct WiFiTransferSendView: View {
                     sender.send(address: address, code: code, expectedPeerID: expectedPeerID,
                                 library: library, sources: sources, sourceManager: sourceManager, retry: true)
                 }.buttonStyle(TransferButtonStyle(compact: true)).disabled(code.count != 6 || address.isEmpty)
+                    .pmFadeTransition(motion: .contentAppear)
             }
         }.modifier(TransferSurface(padding: 14))
     }
@@ -607,6 +614,7 @@ struct WiFiTransferSendView: View {
             if sender.busy {
                 Button(WiFiTransferText.string("cancel")) { sender.cancel() }
                     .buttonStyle(TransferButtonStyle())
+                    .pmAppearFade(.contentAppear)
             } else {
                 Button {
                     sender.send(address: address, code: code, expectedPeerID: expectedPeerID,
@@ -616,6 +624,7 @@ struct WiFiTransferSendView: View {
                 }.buttonStyle(TransferButtonStyle(prominent: true))
                     .disabled(!canSend).accessibilityIdentifier("transfer.send")
                     .keyboardShortcut(.defaultAction)
+                    .pmAppearFade(.contentAppear)
             }
         }
         .padding(.horizontal, 20).padding(.vertical, 10)

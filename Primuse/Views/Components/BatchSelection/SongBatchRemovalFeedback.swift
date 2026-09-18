@@ -51,8 +51,8 @@ private struct SongBatchRemovalFeedbackModifier: ViewModifier {
                 }
                 // 抬过 mini player / 底部栏，否则提示正好被压在下面看不见。
                 .padding(.bottom, 96)
-                .animation(.snappy(duration: 0.25), value: removal.progress)
-                .animation(.snappy(duration: 0.25), value: toastMessage)
+                .pmAnimation(.list, value: removal.progress)
+                .pmAnimation(.list, value: toastMessage)
                 .allowsHitTesting(false)
             }
             .onChange(of: removal.completionRevision) { _, _ in
@@ -93,7 +93,7 @@ private struct SongBatchRemovalFeedbackModifier: ViewModifier {
         .background(.regularMaterial, in: .capsule)
         .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 0.5))
         .shadow(color: .black.opacity(0.16), radius: 10, y: 3)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .pmSlideTransition(edge: .bottom)
     }
 
     private func presentOutcome() {

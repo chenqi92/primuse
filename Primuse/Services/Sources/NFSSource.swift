@@ -310,6 +310,11 @@ actor NFSSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter,
             baseName: baseName,
             in: existingItems
         )
+        let companion = LyricsSidecarTargetPolicy.translationTrackItem(
+            forPrimary: existing,
+            baseName: baseName,
+            in: existingItems
+        )
         let fileName = existing?.name ?? "\(baseName).lrc"
         let relativePath = ((directory.isEmpty ? "/" : directory) as NSString)
             .appendingPathComponent(fileName)
@@ -347,7 +352,10 @@ actor NFSSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter,
             existingPath: existing?.path,
             existingSize: existing?.size,
             writableSiblingPath: writableSiblingPath,
-            songBaseName: baseName
+            songBaseName: baseName,
+            translationPath: companion?.path,
+            translationFileName: companion?.name,
+            translationSize: companion?.size
         )
     }
 

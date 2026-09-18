@@ -145,6 +145,7 @@ struct SourceConnectionRouteStrip: View {
                     lineWidth: 0.8
                 )
         }
+        .pmAnimation(.hover, value: presentation)
         .accessibilityElement(children: .combine)
     }
 
@@ -155,7 +156,7 @@ struct SourceConnectionRouteStrip: View {
         case .publicAddress:
             "source_connection_public_direct"
         case .vendorRemote:
-            source.type == .synology
+            source.type.usesSynologyConnectionMode
                 ? "synology_connection_quickconnect"
                 : "fnmusic_connection_fnconnect"
         }
@@ -412,8 +413,11 @@ struct SourcesContentView: View {
 
     var body: some View {
         Group {
-            if sources.isEmpty { emptyView }
-            else { sourceList }
+            if sources.isEmpty {
+                emptyView.pmAppearFade(.contentAppear)
+            } else {
+                sourceList.pmAppearFade(.contentAppear)
+            }
         }
             .navigationTitle("sources_title")
             .toolbarTitleDisplayMode(.inlineLarge)
@@ -643,6 +647,10 @@ struct SourcesContentView: View {
     }
 
     private var sourceList: some View {
+        // CloudDirectoryNameStore 不是可观察对象, 目录名变化只能靠这个令牌把 body 拉回来重算。
+        // 卡片是本视图的私有方法, 父 body 一重算目录名就跟着重取, 所以令牌在这里读到即可,
+        // 不必再拼进每张卡片的 .id ── 那样任意一个源改名都会销毁重建所有源卡片。
+        _ = cloudDirectoryNameRefreshID
         let activeSourceCacheIDs = sourceManager.activeOfflineSourceCacheSourceIDs
         return List {
             ForEach(groupedSources, id: \.0) { category, items in
@@ -797,6 +805,17 @@ struct SourcesContentView: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.red)
                         Spacer(minLength: 8)
+                        if source.type == .synologyAudioStation {
+                            // 设备令牌失效后后台登录会卡在两步验证上,只有这里能再输一次验证码。
+                            Button {
+                                connectingSource = source
+                            } label: {
+                                Label("audio_station_sign_in", systemImage: "person.badge.key")
+                                    .font(.caption2.weight(.semibold))
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Color.accentColor)
+                        }
                         Button {
                             diagnosingSource = source
                         } label: {
@@ -819,6 +838,7 @@ struct SourcesContentView: View {
                     RoundedRectangle(cornerRadius: 10)
                         .strokeBorder(Color.red.opacity(0.14), lineWidth: 0.8)
                 }
+                .pmFadeTransition(motion: .list)
             }
 
             if let reconciliationMessage = scanning?.reconciliationMessage,
@@ -834,6 +854,7 @@ struct SourcesContentView: View {
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.orange.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+                .pmFadeTransition(motion: .list)
             }
 
             if let scan = scanning, scan.isScanning || scan.canResume {
@@ -995,7 +1016,7 @@ struct SourcesContentView: View {
             }
         }
         .padding(.vertical, 4)
-        .id("\(source.id)-\(cloudDirectoryNameRefreshID.uuidString)")
+        .id(source.id)
         .opacity(source.isEnabled ? 1.0 : 0.55)
         .contextMenu {
             if !sourceSongs.isEmpty {
@@ -1015,6 +1036,11 @@ struct SourcesContentView: View {
             // 但它跟其它音乐源一样可以移除:移除即取消授权同步并清掉同步产物。
             if source.id != AppleMusicLibraryService.systemSourceID {
                 Button { editingSource = source } label: { Label("edit", systemImage: "pencil") }
+                if source.type == .synologyAudioStation {
+                    Button { connectingSource = source } label: {
+                        Label("audio_station_sign_in", systemImage: "person.badge.key")
+                    }
+                }
                 Button { diagnosingSource = source } label: { Label("source_diagnostics", systemImage: "stethoscope") }
                 if source.type.scansEntireLibrary || !dirs.isEmpty {
                     Button {
@@ -1801,7 +1827,7 @@ struct SourcesContentView: View {
         for routedSource in routedSources {
             let usesHTTP: Bool
             switch routedSource.type {
-            case .synology:
+            case .synology, .synologyAudioStation:
                 usesHTTP = routedSource.effectiveSynologyConnectionMode == .address
             case .qnap, .ugreen, .fnos, .webdav, .s3,
                  .jellyfin, .emby, .plex,
@@ -2074,7 +2100,7 @@ struct SourcesContentView: View {
                 systemImage: "folder.badge.plus",
                 description: Text("local_import_section_footer")
             )
-        case .synology:
+        case .synology, .synologyAudioStation:
             ConnectionFlowView(
                 source: source,
                 selectedDirectories: selectedDirectories,
@@ -2119,7 +2145,14 @@ struct SourcesContentView: View {
                         return false
                     }
                 },
-                onEditAddress: onEditAddress
+                onEditAddress: onEditAddress,
+                onAudioStationReady: {
+                    // 先让连接器按刚存下的设备令牌重建,再扫描整库。
+                    Task { @MainActor in
+                        await sourceManager.refreshConnector(for: source.id)
+                        startSourceScan(currentSource(for: source))
+                    }
+                }
             )
         case .smb:
             SMBBrowserView(
@@ -2285,7 +2318,7 @@ struct SourcesContentView: View {
     private func scheduleDelete(_ source: MusicSource) {
         // 同源若已有未落地删除, 先落地旧的再开新窗口。
         if pendingDeleteTasks[source.id] != nil { commitPendingDelete(source.id) }
-        withAnimation {
+        pmWithAnimation(.list) {
             optimisticallyHiddenIDs.insert(source.id)
             undoToast = UndoDeleteToast(id: source.id, name: source.name)
         }
@@ -2303,7 +2336,7 @@ struct SourcesContentView: View {
         pendingDeleteTasks[id]?.cancel()
         pendingDeleteTasks[id] = nil
         if let source = sourceStore.source(id: id) { deleteSource(source) }
-        withAnimation {
+        pmWithAnimation(.list) {
             optimisticallyHiddenIDs.remove(id)
             if undoToast?.id == id { undoToast = nil }
         }
@@ -2313,7 +2346,7 @@ struct SourcesContentView: View {
     private func undoDelete(_ id: String) {
         pendingDeleteTasks[id]?.cancel()
         pendingDeleteTasks[id] = nil
-        withAnimation {
+        pmWithAnimation(.list) {
             optimisticallyHiddenIDs.remove(id)
             undoToast = nil
         }

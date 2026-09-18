@@ -67,11 +67,11 @@ private struct SongBatchActionBarPresentation<Bar: View>: View {
         Group {
             if selection.isActive {
                 bar()
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .pmSlideTransition(edge: .top)
                     .allowsHitTesting(true)
             }
         }
-        .animation(.snappy(duration: 0.22), value: selection.isActive)
+        .pmAnimation(.list, value: selection.isActive)
     }
 }
 #endif
@@ -111,8 +111,15 @@ private struct IOSBatchActionToolbarContent<MoreActions: View>: View {
         self.moreActions = moreActions
     }
 
-    @ViewBuilder
     var body: some View {
+        content
+            // 与 macOS 分支同一档；这是系统底栏里的内容，只做淡入淡出，位移交给
+            // 系统自己的底栏动画，免得两条时间线打架。
+            .pmAnimation(.list, value: selection.isActive)
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if selection.isActive {
             HStack(spacing: 0) {
                 Button(action: onAddToPlaylist) {
@@ -153,6 +160,7 @@ private struct IOSBatchActionToolbarContent<MoreActions: View>: View {
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, minHeight: 44)
+            .pmFadeTransition()
         }
     }
 

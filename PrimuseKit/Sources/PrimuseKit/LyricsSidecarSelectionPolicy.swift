@@ -60,18 +60,107 @@ public enum LyricsSidecarSelectionPolicy {
         var bestIndex: Int?
         for (index, tag) in tags.enumerated() {
             let normalized = normalizedLanguageTag(tag)
-            var preferredRank = Int.max
-            var strength = Int.max
-            for (position, candidate) in preferred.enumerated() {
-                guard let match = matchStrength(of: normalized, against: candidate) else { continue }
-                preferredRank = position
-                strength = match
-                break
-            }
+            let match = preferredMatch(ofNormalized: normalized, in: preferred)
             // An `-orig` track is the language actually sung; its siblings are
             // machine translations, and Primuse puts its own translation layer
             // on top of the original rather than reading a translated one.
-            let key = (marksOriginalTrack(tag) ? 0 : 1, preferredRank, strength, normalized)
+            let key = (
+                marksOriginalTrack(tag) ? 0 : 1,
+                match?.rank ?? Int.max,
+                match?.strength ?? Int.max,
+                normalized
+            )
+            if let bestKey, !(key < bestKey) { continue }
+            bestKey = key
+            bestIndex = index
+        }
+        return bestIndex
+    }
+
+    /// The machine-translated companion of an `-orig` track, as an index into
+    /// `names`. yt-dlp writes the sung language plus one track per requested
+    /// language off the same cue list, so the translated track belongs under
+    /// the original's lines rather than beside it as a second document.
+    public static func translationTrack(
+        forPrimary primaryName: String,
+        baseName: String,
+        names: [String],
+        preferredLanguages: [String] = Locale.preferredLanguages
+    ) -> Int? {
+        guard let primary = languageTaggedComponents(ofSidecarNamed: primaryName),
+              primary.baseName.caseInsensitiveCompare(baseName) == .orderedSame,
+              marksOriginalTrack(primary.tag) else { return nil }
+
+        var audioStems: Set<String> = []
+        var candidates: [(index: Int, tag: String, stem: String)] = []
+        for (index, name) in names.enumerated() {
+            let fileExtension = fileExtension(of: name)
+            if PrimuseConstants.supportedAudioExtensions.contains(fileExtension)
+                || PrimuseConstants.supportedStreamDescriptorExtensions.contains(fileExtension) {
+                audioStems.insert((name as NSString).deletingPathExtension.lowercased())
+                continue
+            }
+            guard name.caseInsensitiveCompare(primaryName) != .orderedSame,
+                  let components = languageTaggedComponents(ofSidecarNamed: name),
+                  components.baseName.caseInsensitiveCompare(baseName) == .orderedSame else {
+                continue
+            }
+            candidates.append((
+                index: index,
+                tag: components.tag,
+                stem: (name as NSString).deletingPathExtension.lowercased()
+            ))
+        }
+        // Same guard as the main document: `Track.it.vtt` beside
+        // `Track.it.flac` is that song's own sidecar, not a translation.
+        let usable = candidates.filter { !audioStems.contains($0.stem) }
+        guard let choice = translationTrackIndex(
+            originalTag: primary.tag,
+            tags: usable.map(\.tag),
+            preferredLanguages: preferredLanguages
+        ) else { return nil }
+        return usable[choice].index
+    }
+
+    /// The tag in the spelling `LyricManualTranslation.languageCode` is
+    /// compared in: `LyricTranslationGroupingPolicy.languageIdentity` reads
+    /// the script off it, so `zh-CN` has to arrive as `zh-Hans` and not as a
+    /// region.
+    public static func translationLanguageCode(forTag tag: String) -> String? {
+        LyricLanguageCodePolicy.canonicalIdentifier(normalizedLanguageTag(tag))
+    }
+
+    /// Whether a language tag names the track that was actually sung.
+    public static func marksOriginalTrack(_ tag: String) -> Bool {
+        tag.lowercased()
+            .replacingOccurrences(of: "_", with: "-")
+            .hasSuffix(originalTrackSuffix)
+    }
+
+    /// Shared by the file-name and the per-directory entry point: ranks the
+    /// tracks that could translate `originalTag` and returns the winner as an
+    /// index into `tags`.
+    static func translationTrackIndex(
+        originalTag: String,
+        tags: [String],
+        preferredLanguages: [String]
+    ) -> Int? {
+        let original = primarySubtag(of: normalizedLanguageTag(originalTag))
+        let preferred = preferredLanguages.map(normalizedLanguageTag)
+        var bestKey: (Int, Int, String)?
+        var bestIndex: Int?
+        for (index, tag) in tags.enumerated() {
+            let normalized = normalizedLanguageTag(tag)
+            // `en-orig` next to `en-GB` is the same words twice; a translation
+            // has to be in another language to be one at all.
+            guard primarySubtag(of: normalized) != original,
+                  // A translation nobody in this household reads is worth
+                  // nothing, so the lexicographic fallback that always picks
+                  // *some* main document deliberately has no counterpart here.
+                  let match = preferredMatch(ofNormalized: normalized, in: preferred) else {
+                continue
+            }
+            let key = (match.rank, match.strength, normalized)
             if let bestKey, !(key < bestKey) { continue }
             bestKey = key
             bestIndex = index
@@ -118,9 +207,9 @@ public enum LyricsSidecarSelectionPolicy {
         }
         guard let best else {
             // Nothing carries the song's exact name, so the language suffix is
-            // consulted last — never before it, because `song.lrc` is still
-            // what the user edited and `song.en.vtt` only what came with the
-            // download.
+            // consulted last — never before it, because an exact-name
+            // `song.ttml` or `song.lrc` is what the user edited and
+            // `song.en.vtt` only what came with the download.
             return languageTaggedDocument(
                 baseName: baseName,
                 names: names,
@@ -131,9 +220,10 @@ public enum LyricsSidecarSelectionPolicy {
     }
 
     /// The writable document that replaces a read-only one. A save creates
-    /// `<base>.lrc` next to the source document instead of overwriting it.
-    /// Returns nil when `targetPath` does not actually end in the document's
-    /// extension, because the caller then has no address it may safely rewrite.
+    /// `<base>.ttml` or `<base>.lrc` next to the source document instead of
+    /// overwriting it. Returns nil when `targetPath` does not actually end in
+    /// the document's extension, because the caller then has no address it may
+    /// safely rewrite.
     public static func writableReplacement(
         targetPath: String,
         fileName: String,
@@ -141,7 +231,7 @@ public enum LyricsSidecarSelectionPolicy {
     ) -> (targetPath: String, fileName: String)? {
         let replacementName = writableFileName(replacing: fileName, baseName: baseName)
         // A language-tagged document drops its tag, so the whole name has to
-        // go: `song.en.vtt` becomes `song.lrc`, never `song.en.lrc`.
+        // go: `song.en.vtt` becomes `song.ttml`, never `song.en.ttml`.
         if baseName != nil,
            !fileName.isEmpty,
            targetPath.count >= fileName.count,
@@ -159,7 +249,8 @@ public enum LyricsSidecarSelectionPolicy {
             return nil
         }
         return (
-            targetPath: String(targetPath.dropLast(suffix.count)) + ".lrc",
+            targetPath: String(targetPath.dropLast(suffix.count))
+                + "." + writableExtension(replacing: fileName),
             fileName: replacementName
         )
     }
@@ -172,8 +263,18 @@ public enum LyricsSidecarSelectionPolicy {
         replacing fileName: String,
         baseName: String? = nil
     ) -> String {
-        if let baseName, !baseName.isEmpty { return baseName + ".lrc" }
-        return (fileName as NSString).deletingPathExtension + ".lrc"
+        let stem = (baseName?.isEmpty == false ? baseName : nil)
+            ?? (fileName as NSString).deletingPathExtension
+        return stem + "." + writableExtension(replacing: fileName)
+    }
+
+    /// The format a save uses beside a read-only document. Subtitle cues carry
+    /// a window per line and the word-timed formats carry explicit word ends;
+    /// LRC holds neither, and a save that had to go through LRC would be kept
+    /// in Primuse's local store instead of reaching the source. TTML keeps all
+    /// of it. Enhanced LRC is LRC already, so it stays with `.lrc`.
+    public static func writableExtension(replacing fileName: String) -> String {
+        fileExtension(of: fileName) == "elrc" ? "lrc" : "ttml"
     }
 
     private static func fileExtension(of fileName: String) -> String {
@@ -262,10 +363,16 @@ public enum LyricsSidecarSelectionPolicy {
             || communityLanguageSubtags.contains(primary)
     }
 
-    private static func marksOriginalTrack(_ tag: String) -> Bool {
-        tag.lowercased()
-            .replacingOccurrences(of: "_", with: "-")
-            .hasSuffix(originalTrackSuffix)
+    /// The first preferred language this tag answers to, if any.
+    private static func preferredMatch(
+        ofNormalized normalized: String,
+        in preferred: [String]
+    ) -> (rank: Int, strength: Int)? {
+        for (position, candidate) in preferred.enumerated() {
+            guard let match = matchStrength(of: normalized, against: candidate) else { continue }
+            return (position, match)
+        }
+        return nil
     }
 
     private static func normalizedLanguageTag(_ tag: String) -> String {
@@ -353,5 +460,97 @@ public struct LanguageTaggedLyricsIndex: Sendable {
             preferredLanguages: preferredLanguages
         ) else { return nil }
         return usable[choice].name
+    }
+
+    /// The file name, in its listed spelling, of the track that translates
+    /// `primaryName`.
+    public func translationTrack(forPrimary primaryName: String, baseName: String) -> String? {
+        guard let primary = LyricsSidecarSelectionPolicy
+                .languageTaggedComponents(ofSidecarNamed: primaryName),
+              primary.baseName.caseInsensitiveCompare(baseName) == .orderedSame,
+              LyricsSidecarSelectionPolicy.marksOriginalTrack(primary.tag),
+              let candidates = candidatesByBaseName[baseName.lowercased()] else { return nil }
+        let usable = candidates.filter {
+            !audioStems.contains($0.stem)
+                && $0.name.caseInsensitiveCompare(primaryName) != .orderedSame
+        }
+        guard let choice = LyricsSidecarSelectionPolicy.translationTrackIndex(
+            originalTag: primary.tag,
+            tags: usable.map(\.tag),
+            preferredLanguages: preferredLanguages
+        ) else { return nil }
+        return usable[choice].name
+    }
+}
+
+/// Folds a subtitle translation track into the original track it was made
+/// from. The two documents come out of one tool run over one cue list, so the
+/// translation is not a second lyric document but the line underneath each
+/// original line — the same presentation a bilingual LRC gets.
+///
+/// This lives beside the selection policy because the two answer one
+/// question between them: which of a song's subtitle files is its document,
+/// and what the rest of that family is for.
+public enum LyricsTranslationTrackPolicy {
+    /// The cue times are written by the same tool from the same timeline, so
+    /// this only has to absorb the millisecond rounding of two containers.
+    private static let timestampTolerance: TimeInterval = 0.05
+
+    /// Below this share of translated lines the two documents are not the
+    /// same timeline at all — human-authored subtitles for the same song sit
+    /// on their own cue boundaries and would leave a handful of lines
+    /// translated at random.
+    private static let minimumCoverage = 0.6
+
+    public static func merging(
+        primary: [LyricLine],
+        translation: [LyricLine],
+        languageCode: String?
+    ) -> [LyricLine]? {
+        guard !primary.isEmpty,
+              !translation.isEmpty,
+              primary.allSatisfy(\.isSynchronized),
+              translation.allSatisfy(\.isSynchronized) else { return nil }
+
+        let merged = LyricManualTranslationPolicy.merging(
+            originalLines: primary,
+            translatedLines: translation,
+            translationLanguageCode: languageCode,
+            // `.embeddedField` is the provenance of a translation the source
+            // document itself carried, which is exactly what this is: it
+            // survives a re-read of the source the way an embedded
+            // `TRANSLATEDLYRICS` field does, and a save that can serialize it
+            // turns it into bilingual LRC. A new case would have neither, and
+            // an older build could not decode a cached or synced document
+            // that carried it.
+            source: .embeddedField,
+            makePreferred: true,
+            timestampTolerance: timestampTolerance
+        )
+        guard merged.count == primary.count else { return nil }
+
+        var result = merged
+        var contentLineCount = 0
+        var translatedLineCount = 0
+        for index in primary.indices {
+            let original = primary[index]
+            // A cue that already carried its own second line is the document's
+            // own translation. A machine-translated companion must not push it
+            // aside, and a document translated throughout therefore never
+            // reaches the coverage gate below.
+            if original.manualTranslation != nil { result[index] = original }
+            guard !original.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                continue
+            }
+            contentLineCount += 1
+            if original.manualTranslation == nil, result[index].manualTranslation != nil {
+                translatedLineCount += 1
+            }
+        }
+        guard contentLineCount > 0,
+              Double(translatedLineCount) >= Double(contentLineCount) * minimumCoverage else {
+            return nil
+        }
+        return result
     }
 }

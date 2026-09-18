@@ -88,6 +88,7 @@ private struct SongSelectableModifier: ViewModifier {
                 HStack(alignment: .center, spacing: isActive ? 12 : 0) {
                     if isActive {
                         SongSelectionLeadingSlot(isSelected: isSelected)
+                            .pmSlideTransition(edge: .leading)
                     }
                     content
                 }
@@ -98,10 +99,14 @@ private struct SongSelectableModifier: ViewModifier {
                             .background(Circle().fill(.background).padding(2))
                             .padding(10)
                             .allowsHitTesting(false)
+                            .pmFadeTransition()
                     }
                 }
             }
         }
+        // 每行自己动：勾选列长出来、行右移 12pt 都在这一行内部。选择态的开关在
+        // SongSelectionModel 里裸赋值，动画只能挂在这里，不能包进 model。
+        .pmAnimation(.list, value: isActive)
         .overlay {
             if isActive, defaultAction == nil {
                 Color.clear

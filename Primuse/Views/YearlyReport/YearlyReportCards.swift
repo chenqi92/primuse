@@ -1,6 +1,100 @@
 import SwiftUI
 import PrimuseKit
 
+// MARK: - 入场动效
+//
+// 分享图是 ImageRenderer 拍的静态快照, 那条路径上 onAppear 不会跑。所以入场
+// 动效默认关着 —— 默认开着的话导出的图会停在动画起点(空白内容、长度为 0 的
+// 进度条)。只有真正显示在翻页器里的那张卡才把它打开。
+
+private struct YearlyCardRevealEnabledKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// 这张卡是显示给用户看的(而不是被静态渲染成分享图)。
+    var yearlyCardRevealsContent: Bool {
+        get { self[YearlyCardRevealEnabledKey.self] }
+        set { self[YearlyCardRevealEnabledKey.self] = newValue }
+    }
+}
+
+/// 卡片内容入场: 淡入并轻轻上移。翻页器会把每张卡整块重建, 这里只认「这个
+/// 实例第一次出现」, 重复触发的 onAppear 不会把内容打回起点。
+private struct YearlyCardRevealModifier: ViewModifier {
+    let delay: Double
+
+    @Environment(\.yearlyCardRevealsContent) private var reveals
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var revealed = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(shown ? 1 : 0)
+            .offset(y: riseOffset)
+            .onAppear {
+                guard reveals, !revealed else { return }
+                withAnimation(PMMotion.contentAppear.animation.delay(delay)) {
+                    revealed = true
+                }
+            }
+    }
+
+    private var shown: Bool { revealed || !reveals }
+
+    /// 上移是「减少动态效果」要挡掉的那部分, 淡入照常。
+    private var riseOffset: CGFloat {
+        guard !shown, !reduceMotion else { return 0 }
+        return Self.rise
+    }
+
+    private static let rise: CGFloat = 14
+}
+
+/// 进度条从 0 长到目标值。用缩放而不是改 frame —— 目标长度是 GeometryReader
+/// 或数据算出来的, 缩放不必把动画状态塞进那串计算里。
+private struct YearlyBarGrowthModifier: ViewModifier {
+    let axis: Axis
+
+    @Environment(\.yearlyCardRevealsContent) private var reveals
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var grown = false
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(scale, anchor: anchor)
+            .onAppear {
+                guard grows, !grown else { return }
+                withAnimation(PMMotion.ambient.animation.delay(Self.delay)) {
+                    grown = true
+                }
+            }
+    }
+
+    /// 长度变化是位移类效果, 开了「减少动态效果」就直接画成最终长度。
+    private var grows: Bool { reveals && !reduceMotion }
+
+    private var anchor: UnitPoint { axis == .horizontal ? .leading : .bottom }
+
+    private var scale: CGSize {
+        guard grows, !grown else { return CGSize(width: 1, height: 1) }
+        if axis == .horizontal { return CGSize(width: 0, height: 1) }
+        return CGSize(width: 1, height: 0)
+    }
+
+    private static let delay: Double = 0.12
+}
+
+extension View {
+    fileprivate func yearlyCardReveal(delay: Double = 0) -> some View {
+        modifier(YearlyCardRevealModifier(delay: delay))
+    }
+
+    fileprivate func yearlyBarGrowth(_ axis: Axis) -> some View {
+        modifier(YearlyBarGrowthModifier(axis: axis))
+    }
+}
+
 // MARK: - Reusable: 占位插图视图
 //
 // 美术阶段插图未到位时, 用渐变方块 + SF Symbol + 文字兜底, 让 UI 不空白。
@@ -69,6 +163,8 @@ private struct CardTitle: View {
     }
 }
 
+/// 十三张卡都用它当副标题, 卡片的入场就挂在这里 —— 装饰图跟着翻页本身的
+/// 过渡进来, 文字随后落位, 一张卡就有了先后。
 private struct CardSubtitle: View {
     let text: String
     var body: some View {
@@ -76,25 +172,49 @@ private struct CardSubtitle: View {
             .font(.system(.body, design: .rounded))
             .foregroundStyle(.white.opacity(0.85))
             .multilineTextAlignment(.center)
+            .yearlyCardReveal(delay: Self.revealDelay)
     }
+
+    private static let revealDelay: Double = 0.08
 }
 
 private struct BigNumber: View {
     let value: String
     let unit: String?
+
+    @Environment(\.yearlyCardRevealsContent) private var reveals
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var counted = false
+
+    /// 整数才数得上来; 已经格式化过的字符串原样显示。
+    private var countsUp: Bool { reveals && !reduceMotion && Int(value) != nil }
+
+    private var displayedValue: String {
+        countsUp && !counted ? "0" : value
+    }
+
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Text(value)
+            Text(displayedValue)
                 .font(.system(size: 80, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
                 .monospacedDigit()
+                .contentTransition(.numericText())
             if let unit {
                 Text(unit)
                     .font(.system(.title3, design: .rounded).weight(.medium))
                     .foregroundStyle(.white.opacity(0.85))
             }
         }
+        .onAppear {
+            guard countsUp, !counted else { return }
+            withAnimation(PMMotion.ambient.animation.delay(Self.countDelay)) {
+                counted = true
+            }
+        }
     }
+
+    private static let countDelay: Double = 0.1
 }
 
 // MARK: - Card 1: 封面
@@ -141,6 +261,8 @@ struct HeroCard: View {
                 .padding(.bottom, 100)
         }
         .padding(.horizontal, 32)
+        // 封面卡没有副标题, 而它是整份报告的开场, 入场挂在整张卡上。
+        .yearlyCardReveal()
     }
 }
 
@@ -570,6 +692,7 @@ struct TimeOfDayCard: View {
                     Capsule()
                         .fill(hour == data.peakHour ? Color.white : Color.white.opacity(0.4))
                         .frame(width: 8, height: Swift.max(4, ratio * 100))
+                        .yearlyBarGrowth(.vertical)
                 }
             }
             .padding(.horizontal, 16)
@@ -710,6 +833,7 @@ struct ExplorationCard: View {
                         Capsule()
                             .fill(.white.opacity(0.86))
                             .frame(width: geo.size.width * CGFloat(min(max(data.explorationTopArtistShare, 0), 1)))
+                            .yearlyBarGrowth(.horizontal)
                     }
                 }
                 .frame(height: 10)

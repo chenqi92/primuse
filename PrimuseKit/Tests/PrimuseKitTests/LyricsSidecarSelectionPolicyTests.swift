@@ -65,29 +65,29 @@ struct LyricsSidecarSelectionPolicyTests {
         #expect(!LyricsSidecarSelectionPolicy.isWritableDocument(fileName: "song"))
     }
 
-    @Test("A read-only document is replaced by an LRC next to it")
+    @Test("A read-only document is replaced by a TTML next to it")
     func replacesReadOnlyDocument() throws {
         let plain = try #require(LyricsSidecarSelectionPolicy.writableReplacement(
             targetPath: "/music/album/song.vtt",
             fileName: "song.vtt"
         ))
-        #expect(plain.targetPath == "/music/album/song.lrc")
-        #expect(plain.fileName == "song.lrc")
+        #expect(plain.targetPath == "/music/album/song.ttml")
+        #expect(plain.fileName == "song.ttml")
 
         // ID-backed drives address a sidecar as the source item plus a suffix.
         let identifier = try #require(LyricsSidecarSelectionPolicy.writableReplacement(
             targetPath: "file-id-123.srt",
             fileName: "song.srt"
         ))
-        #expect(identifier.targetPath == "file-id-123.lrc")
-        #expect(identifier.fileName == "song.lrc")
+        #expect(identifier.targetPath == "file-id-123.ttml")
+        #expect(identifier.fileName == "song.ttml")
 
         let uppercase = try #require(LyricsSidecarSelectionPolicy.writableReplacement(
             targetPath: "/music/song.VTT",
             fileName: "song.VTT"
         ))
-        #expect(uppercase.targetPath == "/music/song.lrc")
-        #expect(uppercase.fileName == "song.lrc")
+        #expect(uppercase.targetPath == "/music/song.ttml")
+        #expect(uppercase.fileName == "song.ttml")
     }
 
     @Test("An address that does not end in the extension has no replacement")
@@ -106,8 +106,36 @@ struct LyricsSidecarSelectionPolicyTests {
     func namesWritableSibling() {
         // NFS selection paths are base64, so the connector builds the sibling
         // address itself and only needs the file name from the policy.
-        #expect(LyricsSidecarSelectionPolicy.writableFileName(replacing: "Song.vtt") == "Song.lrc")
-        #expect(LyricsSidecarSelectionPolicy.writableFileName(replacing: "01. Intro.v2.SRT") == "01. Intro.v2.lrc")
+        #expect(LyricsSidecarSelectionPolicy.writableFileName(replacing: "Song.vtt") == "Song.ttml")
+        #expect(LyricsSidecarSelectionPolicy.writableFileName(replacing: "01. Intro.v2.SRT") == "01. Intro.v2.ttml")
+    }
+
+    @Test("The replacement keeps what the read-only document carries")
+    func choosesReplacementFormatByStructure() throws {
+        // Subtitle windows and explicit word ends only survive in TTML; an
+        // Enhanced LRC is LRC already.
+        for name in ["song.vtt", "song.SRT", "song.lys", "song.yrc", "song.qrc"] {
+            #expect(LyricsSidecarSelectionPolicy.writableExtension(replacing: name) == "ttml")
+        }
+        #expect(LyricsSidecarSelectionPolicy.writableExtension(replacing: "song.elrc") == "lrc")
+        let enhanced = try #require(LyricsSidecarSelectionPolicy.writableReplacement(
+            targetPath: "/music/song.elrc",
+            fileName: "song.elrc",
+            baseName: "song"
+        ))
+        #expect(enhanced.targetPath == "/music/song.lrc")
+        #expect(enhanced.fileName == "song.lrc")
+        let wordTimed = try #require(LyricsSidecarSelectionPolicy.writableReplacement(
+            targetPath: "file-id-9.lys",
+            fileName: "song.lys",
+            baseName: "song"
+        ))
+        #expect(wordTimed.targetPath == "file-id-9.ttml")
+        #expect(wordTimed.fileName == "song.ttml")
+        // The replacement outranks the read-only original on the next read.
+        let names = ["song.vtt", "song.ttml"]
+        #expect(LyricsSidecarSelectionPolicy.currentDocument(baseName: "song", names: names)
+            == .item(1))
     }
 
     // MARK: - Language-tagged subtitles
@@ -278,15 +306,15 @@ struct LyricsSidecarSelectionPolicyTests {
 
     @Test("A save beside a tagged subtitle drops the tag")
     func replacesTaggedDocumentWithoutItsTag() throws {
-        // `song.en.lrc` would be invisible to every later read, so the edit
-        // has to land on `song.lrc`.
+        // `song.en.ttml` would be invisible to every later read, so the edit
+        // has to land on `song.ttml`.
         let plain = try #require(LyricsSidecarSelectionPolicy.writableReplacement(
             targetPath: "/music/album/Song.en.vtt",
             fileName: "Song.en.vtt",
             baseName: "Song"
         ))
-        #expect(plain.targetPath == "/music/album/Song.lrc")
-        #expect(plain.fileName == "Song.lrc")
+        #expect(plain.targetPath == "/music/album/Song.ttml")
+        #expect(plain.fileName == "Song.ttml")
 
         // ID-backed drives address the sidecar as the source item plus a
         // suffix, so only the suffix can be rewritten there.
@@ -295,16 +323,16 @@ struct LyricsSidecarSelectionPolicyTests {
             fileName: "Song.en.vtt",
             baseName: "Song"
         ))
-        #expect(identifier.targetPath == "abc123.lrc")
-        #expect(identifier.fileName == "Song.lrc")
+        #expect(identifier.targetPath == "abc123.ttml")
+        #expect(identifier.fileName == "Song.ttml")
 
         let uppercase = try #require(LyricsSidecarSelectionPolicy.writableReplacement(
             targetPath: "/music/Song.EN.VTT",
             fileName: "Song.EN.VTT",
             baseName: "Song"
         ))
-        #expect(uppercase.targetPath == "/music/Song.lrc")
-        #expect(uppercase.fileName == "Song.lrc")
+        #expect(uppercase.targetPath == "/music/Song.ttml")
+        #expect(uppercase.fileName == "Song.ttml")
 
         #expect(LyricsSidecarSelectionPolicy.writableReplacement(
             targetPath: "nfs::ZXhwb3J0::U29uZy5lbi52dHQ",
@@ -316,18 +344,18 @@ struct LyricsSidecarSelectionPolicyTests {
     @Test("A song whose name ends in a language keeps its own base")
     func keepsBaseNameThatLooksLikeATag() throws {
         // `A.en.flac` really is called `A.en`; guessing would rename its
-        // sidecar to `A.lrc` and lose it.
+        // sidecar to `A.ttml` and lose it.
         let replacement = try #require(LyricsSidecarSelectionPolicy.writableReplacement(
             targetPath: "/music/A.en.vtt",
             fileName: "A.en.vtt",
             baseName: "A.en"
         ))
-        #expect(replacement.targetPath == "/music/A.en.lrc")
-        #expect(replacement.fileName == "A.en.lrc")
+        #expect(replacement.targetPath == "/music/A.en.ttml")
+        #expect(replacement.fileName == "A.en.ttml")
         #expect(LyricsSidecarSelectionPolicy.writableFileName(
             replacing: "A.en.vtt",
             baseName: "A.en"
-        ) == "A.en.lrc")
+        ) == "A.en.ttml")
     }
 
     @Test("Without a base name the replacement is unchanged")
@@ -336,10 +364,10 @@ struct LyricsSidecarSelectionPolicyTests {
             targetPath: "/music/Song.en.vtt",
             fileName: "Song.en.vtt"
         ))
-        #expect(legacy.targetPath == "/music/Song.en.lrc")
-        #expect(legacy.fileName == "Song.en.lrc")
+        #expect(legacy.targetPath == "/music/Song.en.ttml")
+        #expect(legacy.fileName == "Song.en.ttml")
         #expect(LyricsSidecarSelectionPolicy.writableFileName(replacing: "Song.en.vtt")
-            == "Song.en.lrc")
+            == "Song.en.ttml")
     }
 
     @Test("A directory indexes its tagged subtitles once")
@@ -357,5 +385,100 @@ struct LyricsSidecarSelectionPolicyTests {
             preferredLanguages: ["it"]
         )
         #expect(guarded.bestMatch(baseName: "Track") == nil)
+    }
+
+    @Test("The original track's companion is the one the listener can read")
+    func choosesTranslationTrackByPreferredLanguage() {
+        let names = ["Song.mp3", "Song.en-orig.vtt", "Song.zh-Hans.vtt", "Song.fr.vtt"]
+        #expect(LyricsSidecarSelectionPolicy.translationTrack(
+            forPrimary: "Song.en-orig.vtt",
+            baseName: "Song",
+            names: names,
+            preferredLanguages: ["zh-Hans", "fr"]
+        ) == 2)
+        #expect(LyricsSidecarSelectionPolicy.translationTrack(
+            forPrimary: "Song.en-orig.vtt",
+            baseName: "Song",
+            names: names,
+            preferredLanguages: ["fr"]
+        ) == 3)
+    }
+
+    @Test("A track in the sung language is not a translation")
+    func skipsTranslationTrackInTheOriginalLanguage() {
+        // `en-GB` is the same words the `-orig` track already carries.
+        #expect(LyricsSidecarSelectionPolicy.translationTrack(
+            forPrimary: "Song.en-orig.vtt",
+            baseName: "Song",
+            names: ["Song.en-orig.vtt", "Song.en-GB.vtt", "Song.zh-Hans.vtt"],
+            preferredLanguages: ["en-GB", "zh-Hans"]
+        ) == 2)
+    }
+
+    @Test("A translation nobody reads is no translation at all")
+    func refusesTranslationTrackWithoutPreferredLanguage() {
+        // The main document falls back to the first tag by name; a companion
+        // must not, or a Japanese listener would get Danish under every line.
+        #expect(LyricsSidecarSelectionPolicy.translationTrack(
+            forPrimary: "Song.en-orig.vtt",
+            baseName: "Song",
+            names: ["Song.en-orig.vtt", "Song.da.vtt", "Song.pt.vtt"],
+            preferredLanguages: ["ja"]
+        ) == nil)
+    }
+
+    @Test("Only an original track carries a companion")
+    func refusesTranslationTrackForAnOrdinaryDocument() {
+        // Two ordinary language tracks are alternatives, not a pair.
+        #expect(LyricsSidecarSelectionPolicy.translationTrack(
+            forPrimary: "Song.en.vtt",
+            baseName: "Song",
+            names: ["Song.en.vtt", "Song.zh-Hans.vtt"],
+            preferredLanguages: ["zh-Hans"]
+        ) == nil)
+        // An exact-name document is the user's own file; nothing beside it is
+        // a machine translation of it.
+        #expect(LyricsSidecarSelectionPolicy.translationTrack(
+            forPrimary: "Song.lrc",
+            baseName: "Song",
+            names: ["Song.lrc", "Song.zh-Hans.vtt"],
+            preferredLanguages: ["zh-Hans"]
+        ) == nil)
+    }
+
+    @Test("Another song's sidecar is never a companion")
+    func guardsTranslationTrackAgainstAnotherSongsSidecar() {
+        // `Track.it.vtt` is the exact-name sidecar of `Track.it.flac`.
+        #expect(LyricsSidecarSelectionPolicy.translationTrack(
+            forPrimary: "Track.en-orig.vtt",
+            baseName: "Track",
+            names: ["Track.flac", "Track.it.flac", "Track.it.vtt", "Track.en-orig.vtt"],
+            preferredLanguages: ["it"]
+        ) == nil)
+    }
+
+    @Test("A companion's tag is spelled the way translations are compared")
+    func normalizesTranslationLanguageCode() {
+        #expect(LyricsSidecarSelectionPolicy.translationLanguageCode(forTag: "zh-CN") == "zh-Hans")
+        #expect(LyricsSidecarSelectionPolicy.translationLanguageCode(forTag: "chs") == "zh-Hans")
+        #expect(LyricsSidecarSelectionPolicy.translationLanguageCode(forTag: "en-orig") == "en")
+        #expect(LyricsSidecarSelectionPolicy.translationLanguageCode(forTag: "jpn") == "ja")
+    }
+
+    @Test("A directory hands out the companion it already indexed")
+    func indexesTranslationTrack() {
+        let index = LanguageTaggedLyricsIndex(
+            fileNames: ["Song.mp3", "Song.en-orig.vtt", "Song.zh-Hans.vtt", "Song.fr.vtt"],
+            preferredLanguages: ["fr"]
+        )
+        #expect(index.translationTrack(forPrimary: "Song.en-orig.vtt", baseName: "Song")
+            == "Song.fr.vtt")
+        #expect(index.translationTrack(forPrimary: "Song.zh-Hans.vtt", baseName: "Song") == nil)
+
+        let alone = LanguageTaggedLyricsIndex(
+            fileNames: ["Song.mp3", "Song.en-orig.vtt"],
+            preferredLanguages: ["fr"]
+        )
+        #expect(alone.translationTrack(forPrimary: "Song.en-orig.vtt", baseName: "Song") == nil)
     }
 }

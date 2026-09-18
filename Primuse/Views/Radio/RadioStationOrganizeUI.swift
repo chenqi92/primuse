@@ -121,6 +121,7 @@ struct RadioFilterChip: View {
             .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
+        .pmAnimation(.hover, value: isSelected)
     }
 }
 

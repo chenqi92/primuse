@@ -102,12 +102,12 @@ struct MacTrustedDomainsView: View {
         SSLTrustStore.shared.trust(domain: domain)
         newDomain = ""
         showAddSheet = false
-        refreshTick &+= 1
+        pmWithAnimation(.list) { refreshTick &+= 1 }
     }
 
     private func untrust(_ domain: String) {
         SSLTrustStore.shared.untrust(domain: domain)
-        refreshTick &+= 1
+        pmWithAnimation(.list) { refreshTick &+= 1 }
     }
 }
 #endif

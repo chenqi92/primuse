@@ -13,6 +13,8 @@ struct MacRadioStationEditorView: View {
     @Environment(AudioPlayerService.self) private var player
 
     let station: RadioStation?
+    /// 「转为我自己的电台」之后交给调用方接着编辑新电台；不给就直接关掉弹框。
+    private let onDetach: ((RadioStation) -> Void)?
 
     @State private var name: String
     @State private var urlString: String
@@ -29,8 +31,9 @@ struct MacRadioStationEditorView: View {
         case failure(String)
     }
 
-    init(station: RadioStation?) {
+    init(station: RadioStation?, onDetach: ((RadioStation) -> Void)? = nil) {
         self.station = station
+        self.onDetach = onDetach
         _name = State(initialValue: station?.name ?? "")
         _urlString = State(initialValue: station?.streamURL ?? "")
         _logoData = State(initialValue: station?.logoData)
@@ -53,6 +56,9 @@ struct MacRadioStationEditorView: View {
             && !isSaving
     }
 
+    /// 订阅电台的名称和地址归清单所有，这里只读。
+    private var isSubscribed: Bool { station?.isSubscribed == true }
+
     var body: some View {
         VStack(spacing: 0) {
             titleBar
@@ -62,12 +68,16 @@ struct MacRadioStationEditorView: View {
                 VStack(alignment: .leading, spacing: PMSpace.m14) {
                     logoRow
                     logoURLRow
-                    fieldRow(label: String(localized: "radio_name"), text: $name)
+                    fieldRow(label: String(localized: "radio_name"), text: $name, isReadOnly: isSubscribed)
                     fieldRow(
                         label: String(localized: "radio_stream_url"),
                         text: $urlString,
-                        monospaced: true
+                        monospaced: true,
+                        isReadOnly: isSubscribed
                     )
+                    if let station, station.isSubscribed {
+                        subscriptionRow(for: station)
+                    }
                     testRow
                 }
                 .padding(.horizontal, PMSpace.l24)
@@ -138,10 +148,12 @@ struct MacRadioStationEditorView: View {
                 Group {
                     if isSaving {
                         ProgressView().controlSize(.small)
+                            .pmAppearFade(.control)
                     } else {
                         Text("save")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(.white)
+                            .pmAppearFade(.control)
                     }
                 }
                 .frame(height: 26)
@@ -251,7 +263,8 @@ struct MacRadioStationEditorView: View {
     private func fieldRow(
         label: String,
         text: Binding<String>,
-        monospaced: Bool = false
+        monospaced: Bool = false,
+        isReadOnly: Bool = false
     ) -> some View {
         HStack(alignment: .center, spacing: PMSpace.s10) {
             Text(label)
@@ -262,7 +275,7 @@ struct MacRadioStationEditorView: View {
             TextField(label, text: text, prompt: Text(verbatim: "—"))
                 .textFieldStyle(.plain)
                 .font(monospaced ? PMFont.mono : PMFont.bodyS)
-                .foregroundStyle(PMColor.text)
+                .foregroundStyle(isReadOnly ? PMColor.textMuted : PMColor.text)
                 .padding(.horizontal, PMSpace.s10)
                 .frame(height: 28)
                 .background(PMColor.bgElev, in: .rect(cornerRadius: PMRadius.s))
@@ -270,6 +283,41 @@ struct MacRadioStationEditorView: View {
                     RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
                         .strokeBorder(PMColor.dividerStrong, lineWidth: 0.5)
                 }
+                .disabled(isReadOnly)
+        }
+    }
+
+    /// 订阅电台的说明和「转为我自己的电台」。
+    private func subscriptionRow(for station: RadioStation) -> some View {
+        HStack(alignment: .top, spacing: PMSpace.s10) {
+            Text(verbatim: "")
+                .frame(width: 96)
+
+            VStack(alignment: .leading, spacing: PMSpace.s) {
+                Label(RadioSubscriptionText.editorNote(for: station), systemImage: "arrow.triangle.2.circlepath")
+                    .font(PMFont.caption)
+                    .foregroundStyle(PMColor.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button {
+                    detach()
+                } label: {
+                    Text("radio_subscription_detach")
+                        .font(PMFont.bodyM)
+                        .foregroundStyle(PMColor.text)
+                        .frame(height: 24)
+                        .padding(.horizontal, 12)
+                        .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
+                                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                        }
+                }
+                .buttonStyle(.plain)
+                .help(String(localized: "radio_subscription_detach_footer"))
+            }
+
+            Spacer(minLength: 0)
         }
     }
 
@@ -285,9 +333,11 @@ struct MacRadioStationEditorView: View {
                     HStack(spacing: 6) {
                         if isTesting {
                             ProgressView().controlSize(.small)
+                                .pmAppearFade(.control)
                         } else {
                             Image(systemName: "waveform")
                                 .font(.system(size: 11, weight: .semibold))
+                                .pmAppearFade(.control)
                         }
                         Text("radio_test_playback")
                             .font(PMFont.bodyM)
@@ -344,6 +394,17 @@ struct MacRadioStationEditorView: View {
               let url = panel.url,
               let raw = try? Data(contentsOf: url) else { return }
         logoData = MacRadioLogoProcessor.process(raw) ?? raw
+    }
+
+    private func detach() {
+        guard let station,
+              let ownID = store.detachFromSubscription(id: station.id),
+              let own = store.station(id: ownID) else { return }
+        if let onDetach {
+            onDetach(own)
+        } else {
+            dismiss()
+        }
     }
 
     private func beginTest() {

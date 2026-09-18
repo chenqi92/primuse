@@ -968,10 +968,10 @@ struct DuplicateSongsView: View {
     }
 
     private func flashAction(_ msg: String) {
-        withAnimation { lastActionMessage = msg }
+        pmWithAnimation(.list) { lastActionMessage = msg }
         Task {
             try? await Task.sleep(for: .seconds(2))
-            withAnimation { lastActionMessage = nil }
+            pmWithAnimation(.list) { lastActionMessage = nil }
         }
     }
 

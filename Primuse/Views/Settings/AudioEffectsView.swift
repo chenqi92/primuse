@@ -10,7 +10,7 @@ struct AudioEffectsView: View {
             // MARK: - Reverb Section
 
             Section {
-                Toggle("reverb_enabled", isOn: $fx.reverbEnabled)
+                Toggle("reverb_enabled", isOn: $fx.reverbEnabled.pmAnimated())
                 .settingsAnchor("effects.reverb")
                     .accessibilityHint(Text("reverb_desc"))
 
@@ -42,6 +42,7 @@ struct AudioEffectsView: View {
                         }
                     }
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    .pmFadeTransition()
 
                     // Wet/Dry mix
                     VStack(alignment: .leading) {
@@ -53,6 +54,7 @@ struct AudioEffectsView: View {
                             .foregroundStyle(.secondary)
                     }
                     .settingsAnchor("effects.reverbMix")
+                    .pmFadeTransition()
                 }
             } header: {
                 Text("reverb")
@@ -62,7 +64,7 @@ struct AudioEffectsView: View {
             // MARK: - Compressor / Limiter Section
 
             Section {
-                Toggle("compressor_enabled", isOn: $fx.compressorEnabled)
+                Toggle("compressor_enabled", isOn: $fx.compressorEnabled.pmAnimated())
                 .settingsAnchor("effects.compressor")
                     .accessibilityHint(Text("compressor_desc"))
 
@@ -94,6 +96,7 @@ struct AudioEffectsView: View {
                         }
                     }
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    .pmFadeTransition()
 
                     // Threshold
                     VStack(alignment: .leading) {
@@ -109,6 +112,7 @@ struct AudioEffectsView: View {
                         .settingsAnchor("effects.compressorThreshold")
                         Slider(value: $fx.compressorThreshold, in: -40...0, step: 1)
                     }
+                    .pmFadeTransition()
 
                     // Head Room
                     VStack(alignment: .leading) {
@@ -124,6 +128,7 @@ struct AudioEffectsView: View {
                         .settingsAnchor("effects.compressorHeadroom")
                         Slider(value: $fx.compressorHeadRoom, in: 0.1...40, step: 0.5)
                     }
+                    .pmFadeTransition()
 
                     // Attack Time
                     VStack(alignment: .leading) {
@@ -139,6 +144,7 @@ struct AudioEffectsView: View {
                         .settingsAnchor("effects.compressorAttack")
                         Slider(value: $fx.compressorAttackTime, in: 0.0001...0.2, step: 0.001)
                     }
+                    .pmFadeTransition()
 
                     // Release Time
                     VStack(alignment: .leading) {
@@ -154,6 +160,7 @@ struct AudioEffectsView: View {
                         .settingsAnchor("effects.compressorRelease")
                         Slider(value: $fx.compressorReleaseTime, in: 0.01...3, step: 0.01)
                     }
+                    .pmFadeTransition()
 
                     // Master Gain
                     VStack(alignment: .leading) {
@@ -169,6 +176,7 @@ struct AudioEffectsView: View {
                         .settingsAnchor("effects.compressorGain")
                         Slider(value: $fx.compressorMasterGain, in: -40...40, step: 1)
                     }
+                    .pmFadeTransition()
                 }
             } header: {
                 Text("compressor_limiter")

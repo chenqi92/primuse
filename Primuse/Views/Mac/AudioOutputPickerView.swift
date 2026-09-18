@@ -145,6 +145,9 @@ struct AudioOutputPickerView: View {
                     Image(systemName: "checkmark")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(PMColor.brand)
+                        // 只淡入淡出, 不缩放 —— 缩放会把行高一起撑动。
+                        // 选择是在这里裸赋值的, 所以曲线附在过渡上, 跟行底色同一档。
+                        .pmFadeTransition(motion: .hover)
                 }
             }
             .padding(.horizontal, 14)

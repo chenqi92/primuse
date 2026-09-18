@@ -60,10 +60,62 @@ struct MacRadioBatchAddView: View {
     @State private var playlistURLString = ""
     @State private var isFetchingPlaylist = false
     @State private var insecurePlaylistHost: String?
+    /// 当前结果表是从哪个清单地址取回的。只有「清单链接」这条路有它 ——
+    /// 粘贴、文件和在线目录没有可以回头再取的地址，也就没法订阅。
+    @State private var fetchedPlaylistURL: String?
+    @State private var subscribesToList = false
+    @State private var showingManagedSubscription = false
+
+    /// `startsWithPlaylistLink` 为真时直接停在「清单链接」—— 订阅管理页的
+    /// 「添加订阅」从这里进来。
+    init(startsWithPlaylistLink: Bool = false) {
+        _entry = State(initialValue: startsWithPlaylistLink ? .url : .paste)
+    }
 
     private var playableCount: Int { candidates.filter(\.isPlayable).count }
     private var duplicateCount: Int { candidates.filter { $0.status == .duplicate }.count }
     private var invalidCount: Int { candidates.filter { $0.status == .invalid }.count }
+
+    // MARK: - 订阅状态
+
+    private var subscriptionListURL: String? {
+        entry == .url ? fetchedPlaylistURL : nil
+    }
+
+    /// 这个地址已经订阅过了。
+    private var existingSubscription: RadioSubscription? {
+        subscriptionListURL
+            .flatMap(RadioSubscriptionIdentity.subscriptionID(listURL:))
+            .flatMap { RadioSubscriptionsStore.shared.subscription(id: $0) }
+    }
+
+    /// 清单里唯一有效条目的数量，订阅上限按它算。
+    private var uniqueValidEntryCount: Int {
+        Set(candidates.compactMap { candidate in
+            candidate.status == .invalid ? nil : RadioImportParser.streamIdentityKey(candidate.urlString)
+        }).count
+    }
+
+    private var showsSubscriptionCard: Bool {
+        subscriptionListURL != nil && uniqueValidEntryCount > 0
+    }
+
+    /// 这一次是「订阅并添加」而不是一次性导入。
+    private var isSubscribing: Bool {
+        subscribesToList
+            && showsSubscriptionCard
+            && existingSubscription == nil
+            && uniqueValidEntryCount <= RadioSubscriptionMergePolicy.maximumEntries
+    }
+
+    /// 订阅时「重复」的条目不可勾选：它们要么已在电台库，要么是清单里的重复行。
+    private func isSelectable(_ candidate: RadioImportCandidate) -> Bool {
+        switch candidate.status {
+        case .invalid: return false
+        case .duplicate: return !isSubscribing
+        case .playable: return true
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -84,6 +136,9 @@ struct MacRadioBatchAddView: View {
                     }
 
                     if !candidates.isEmpty {
+                        if showsSubscriptionCard {
+                            subscriptionCard
+                        }
                         resultHeader
                         candidateList
                     }
@@ -108,6 +163,17 @@ struct MacRadioBatchAddView: View {
             Button("ok", role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
+        }
+        .sheet(isPresented: $showingManagedSubscription) {
+            if let id = existingSubscription?.id {
+                RadioSubscriptionDetailSheet(subscriptionID: id)
+            }
+        }
+        .onChange(of: subscribesToList) { _, isOn in
+            // 打开订阅时把不可勾选的「重复」条目从已选里拿掉。
+            guard isOn else { return }
+            let selectable = Set(candidates.filter(isSelectable).map(\.id))
+            selection.formIntersection(selectable)
         }
     }
 
@@ -146,32 +212,54 @@ struct MacRadioBatchAddView: View {
             .disabled(isAdding)
 
             Button {
-                Task { await addSelected() }
+                Task {
+                    if isSubscribing {
+                        await subscribeSelected()
+                    } else {
+                        await addSelected()
+                    }
+                }
             } label: {
                 Group {
                     if isAdding {
                         ProgressView().controlSize(.small)
+                            .pmAppearFade(.control)
                     } else {
-                        Text(selection.isEmpty
-                             ? String(localized: "radio_batch_add_none")
-                             : String(format: String(localized: "radio_batch_add_count %lld"), selection.count))
+                        Text(addButtonTitle)
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(.white)
+                            .pmAppearFade(.control)
                     }
                 }
                 .frame(height: 26)
                 .padding(.horizontal, 16)
                 .background(
-                    selection.isEmpty ? PMColor.textFaint.opacity(0.45) : PMColor.brand,
+                    canAdd ? PMColor.brand : PMColor.textFaint.opacity(0.45),
                     in: .rect(cornerRadius: PMRadius.s)
                 )
             }
             .buttonStyle(.plain)
             .keyboardShortcut(.defaultAction)
-            .disabled(selection.isEmpty || isAdding)
+            .disabled(!canAdd || isAdding)
         }
         .padding(.horizontal, PMSpace.l24)
         .padding(.vertical, PMSpace.m)
+    }
+
+    /// 订阅时一个都不勾也可以：以后清单新增的照样会加进来。
+    private var canAdd: Bool {
+        !selection.isEmpty || isSubscribing
+    }
+
+    private var addButtonTitle: String {
+        if isSubscribing {
+            return selection.isEmpty
+                ? String(localized: "radio_subscription_subscribe_only")
+                : String(format: String(localized: "radio_subscription_add_count %lld"), selection.count)
+        }
+        return selection.isEmpty
+            ? String(localized: "radio_batch_add_none")
+            : String(format: String(localized: "radio_batch_add_count %lld"), selection.count)
     }
 
     // MARK: - Entry picker
@@ -185,6 +273,8 @@ struct MacRadioBatchAddView: View {
                     candidates = []
                     selection = []
                     directorySearched = false
+                    fetchedPlaylistURL = nil
+                    subscribesToList = false
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: item.icon)
@@ -299,10 +389,12 @@ struct MacRadioBatchAddView: View {
                     Group {
                         if isFetchingPlaylist {
                             ProgressView().controlSize(.small)
+                                .pmAppearFade(.control)
                         } else {
                             Text("radio_batch_url_fetch")
                                 .font(PMFont.bodyM)
                                 .foregroundStyle(PMColor.text)
+                                .pmAppearFade(.control)
                         }
                     }
                     .frame(height: 28)
@@ -347,6 +439,8 @@ struct MacRadioBatchAddView: View {
             do {
                 let text = try await RadioPlaylistDownloader.fetch(address)
                 reparse(text)
+                fetchedPlaylistURL = RadioStationValidation.normalizedURLString(address)
+                subscribesToList = false
                 if candidates.isEmpty {
                     errorMessage = String(localized: "radio_batch_file_no_entries")
                 }
@@ -360,6 +454,29 @@ struct MacRadioBatchAddView: View {
             } catch {
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    private var subscriptionCard: some View {
+        RadioSubscriptionOfferCard(
+            existingSubscription: existingSubscription,
+            entryCount: uniqueValidEntryCount,
+            isOn: $subscribesToList,
+            onManage: { showingManagedSubscription = true }
+        )
+        .toggleStyle(.switch)
+        .padding(.horizontal, PMSpace.s10)
+        .padding(.vertical, PMSpace.s10)
+        .background(
+            isSubscribing ? PMColor.brand.opacity(0.10) : PMColor.card,
+            in: .rect(cornerRadius: PMRadius.m)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
+                .strokeBorder(
+                    isSubscribing ? PMColor.brand.opacity(0.45) : PMColor.cardBorder,
+                    lineWidth: 0.5
+                )
         }
     }
 
@@ -392,10 +509,12 @@ struct MacRadioBatchAddView: View {
                     Group {
                         if isSearchingDirectory {
                             ProgressView().controlSize(.small)
+                                .pmAppearFade(.control)
                         } else {
                             Image(systemName: "magnifyingglass")
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(PMColor.text)
+                                .pmAppearFade(.control)
                         }
                     }
                     .frame(width: 30, height: 28)
@@ -572,16 +691,23 @@ struct MacRadioBatchAddView: View {
     }
 
     private var candidateList: some View {
-        VStack(spacing: PMSpace.xs) {
+        // 订阅时要分清「已在电台库」和清单里自己的重复行，库里的判重键算一次就够。
+        let libraryKeys = isSubscribing
+            ? Set(store.stations.compactMap { RadioImportParser.streamIdentityKey($0.streamURL) })
+            : []
+        return VStack(spacing: PMSpace.xs) {
             ForEach(candidates) { candidate in
-                candidateRow(candidate)
+                candidateRow(candidate, libraryKeys: libraryKeys)
             }
         }
     }
 
-    private func candidateRow(_ candidate: RadioImportCandidate) -> some View {
+    private func candidateRow(_ candidate: RadioImportCandidate, libraryKeys: Set<String>) -> some View {
         let isSelected = selection.contains(candidate.id)
-        let disabled = candidate.status == .invalid
+        let disabled = !isSelectable(candidate)
+        let inLibrary = isSubscribing
+            && candidate.status == .duplicate
+            && RadioImportParser.streamIdentityKey(candidate.urlString).map { libraryKeys.contains($0) } == true
 
         return Button {
             guard !disabled else { return }
@@ -623,7 +749,9 @@ struct MacRadioBatchAddView: View {
 
                 Spacer(minLength: 4)
 
-                Text(String(localized: statusKey(candidate.status)))
+                Text(inLibrary
+                     ? String(localized: "radio_subscription_in_library")
+                     : String(localized: statusKey(candidate.status)))
                     .font(.system(size: 10.5, weight: .semibold))
                     .foregroundStyle(statusTint(candidate.status))
                     .padding(.horizontal, 7)
@@ -738,6 +866,46 @@ struct MacRadioBatchAddView: View {
             destination = .ungrouped
         default:
             break
+        }
+    }
+
+    /// 订阅并添加。首轮合并直接用已经取回的这批候选，不再下载一遍；
+    /// 用户没勾的可用条目记成排除，以后清单更新也不会加进来。
+    private func subscribeSelected() async {
+        guard !isAdding, let listURL = subscriptionListURL else { return }
+        isAdding = true
+        defer { isAdding = false }
+
+        let excludedKeys = Set(candidates.compactMap { candidate -> String? in
+            guard candidate.isPlayable, !selection.contains(candidate.id) else { return nil }
+            return RadioImportParser.streamIdentityKey(candidate.urlString)
+        })
+        guard let result = RadioSubscriptionService.shared.subscribe(
+            listURL: listURL,
+            candidates: candidates,
+            excludedEntryKeys: excludedKeys,
+            usesListGroupsAsFolders: destination == .manifestGroups
+        ) else {
+            errorMessage = String(localized: "radio_subscription_error_empty")
+            return
+        }
+        // 选了某个文件夹时，这一批新加的放进去；以后新加入的按订阅设置走。
+        if case .folder(let name) = destination, !result.addedStationIDs.isEmpty {
+            store.setFolder(name, forStationIDs: result.addedStationIDs)
+        }
+        let added = result.addedStationIDs.compactMap { store.station(id: $0) }
+        for name in Set(added.compactMap(\.folderName)) {
+            store.createFolder(name)
+        }
+
+        dismiss()
+        Task {
+            for station in added {
+                guard let url = station.url else { continue }
+                if case .failure = await player.testRadioStream(url: url) {
+                    plog("📻 subscription add: stream unreachable — \(station.name)")
+                }
+            }
         }
     }
 

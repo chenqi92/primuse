@@ -609,6 +609,10 @@ struct NowPlayingView: View {
     private var lyricPosterIncludesTranslation = LyricPosterPreferences.includesTranslationByDefault
     @AppStorage(LyricPosterPreferences.showsCreditKey)
     private var lyricPosterShowsCredit = LyricPosterPreferences.showsCreditByDefault
+    @AppStorage(LyricPosterPreferences.filterKey) private var lyricPosterFilterRawValue = ""
+    @AppStorage(LyricPosterPreferences.motionEffectKey)
+    private var lyricPosterMotionEffectRawValue = ""
+    @AppStorage(LyricPosterPreferences.signatureKey) private var lyricPosterSignature = ""
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     #if os(iOS)
@@ -870,7 +874,14 @@ struct NowPlayingView: View {
             canvas: LyricPosterCanvas(rawValue: lyricPosterCanvasRawValue),
             prefersMotion: lyricPosterPrefersMotion,
             includesTranslation: lyricPosterIncludesTranslation,
-            showsCredit: lyricPosterShowsCredit
+            showsCredit: lyricPosterShowsCredit,
+            filterID: lyricPosterFilterRawValue.isEmpty
+                ? nil
+                : LyricPosterFilterID(lyricPosterFilterRawValue),
+            motionEffectID: lyricPosterMotionEffectRawValue.isEmpty
+                ? nil
+                : LyricPosterMotionEffectID(lyricPosterMotionEffectRawValue),
+            noteSignature: lyricPosterSignature
         )
         // 整首都是空行时没有可分享的内容, 静默返回好过弹一张空海报。
         guard !composer.lines.isEmpty else { return }
@@ -1506,6 +1517,7 @@ struct NowPlayingView: View {
                     .padding(.vertical, 8)
                     .background(.red.opacity(0.82), in: Capsule())
                     .padding(.top, 14)
+                    .pmSlideTransition(edge: .top, motion: .list)
             }
 
             // 台标只吃文字和控件之外剩下的高度。只按宽度取值时，iPhone Duo 外屏、
@@ -1736,11 +1748,14 @@ struct NowPlayingView: View {
                                     .opacity(0)
                                 if player.isLoading {
                                     ProgressView().tint(appearance.primary)
+                                        .pmFadeTransition(motion: .control)
                                 } else {
                                     Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                                         .font(.system(size: 52))
                                         .foregroundStyle(appearance.primary)
                                         .contentTransition(.symbolEffect(.replace))
+                                        // symbolEffect 管不到 ProgressView 这一跳, 用透明度接上。
+                                        .pmFadeTransition(motion: .control)
                                 }
                             }
                         }
@@ -1866,7 +1881,9 @@ struct NowPlayingView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 16).padding(.vertical, 8)
                     .background(.red.opacity(0.8), in: Capsule())
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    // lastPlaybackError 由服务层裸赋值, 调用点包不住动画事务,
+                    // 曲线只能附在过渡本身上。
+                    .pmSlideTransition(edge: .top, motion: .list)
             }
 
             GeometryReader { artworkGeometry in
@@ -2012,6 +2029,7 @@ struct NowPlayingView: View {
                                 fillsProposedSize: true,
                                 revisionToken: player.coverRevision
                             )
+                            .artworkCrossfade()
                             .matchedGeometryEffect(
                                 id: lyricsArtworkTransitionID,
                                 in: lyricsArtworkNamespace,
@@ -2196,7 +2214,7 @@ struct NowPlayingView: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 16).padding(.vertical, 8)
                             .background(.red.opacity(0.8), in: Capsule())
-                            .transition(.move(edge: .top).combined(with: .opacity))
+                            .pmSlideTransition(edge: .top, motion: .list)
                     }
 
                     if showLyrics {
@@ -2217,6 +2235,7 @@ struct NowPlayingView: View {
                                         fillsProposedSize: true,
                                         revisionToken: player.coverRevision
                                     )
+                                    .artworkCrossfade()
                                     .matchedGeometryEffect(
                                         id: lyricsArtworkTransitionID,
                                         in: lyricsArtworkNamespace,
@@ -2333,10 +2352,13 @@ struct NowPlayingView: View {
                                     ProgressView()
                                         .controlSize(.large)
                                         .tint(appearance.primary)
+                                        .pmFadeTransition(motion: .control)
                                 } else {
                                     Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                                         .font(.system(size: 56)).foregroundStyle(appearance.primary)
                                         .contentTransition(.symbolEffect(.replace))
+                                        // symbolEffect 管不到 ProgressView 这一跳, 用透明度接上。
+                                        .pmFadeTransition(motion: .control)
                                 }
                             }
                         }
@@ -2604,6 +2626,7 @@ struct NowPlayingView: View {
                 fillsProposedSize: true,
                 revisionToken: player.coverRevision
             )
+            .artworkCrossfade()
             // 尺寸约束放在 matchedGeometryEffect 之外: 内容只接受被匹配到的
             // frame, 切歌词时才能一边位移一边连续缩小到小图位置。
             .matchedGeometryEffect(
@@ -2989,6 +3012,8 @@ struct NowPlayingView: View {
                     .foregroundStyle(appearance.primary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
+                    .contentTransition(.opacity)
+                    .pmAnimation(.trackChange, value: player.currentSong?.id)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
 
@@ -3045,6 +3070,8 @@ struct NowPlayingView: View {
             .multilineTextAlignment(.leading)
             .lineLimit(2)
             .fixedSize(horizontal: false, vertical: true)
+            .contentTransition(.opacity)
+            .pmAnimation(.trackChange, value: player.currentSong?.id)
             .frame(maxWidth: .infinity, alignment: .leading)
 
         if (onOpenArtist != nil && !currentArtists.isEmpty) || canOpenCurrentAlbum {
@@ -3444,10 +3471,28 @@ struct NowPlayingView: View {
                     plog(String(format: "📜 loadLyrics '%@' Tier3 sidecar not utf8 (connect=%.0fms fetch=%.0fms)", songTitle, connectMs, fetchMs))
                     return
                 }
-                let parsed = LyricsParser.parse(lyricsContent)
+                var parsed = LyricsParser.parse(lyricsContent)
                 guard !parsed.isEmpty else {
                     plog(String(format: "📜 loadLyrics '%@' Tier3 sidecar empty after parse (connect=%.0fms fetch=%.0fms %dB)", songTitle, connectMs, fetchMs, lyricsData.count))
                     return
+                }
+
+                // 只有 `<歌名>.<语言>-orig.vtt` 这类原声轨才可能有译文轨。先按
+                // 文件名判断, 免得每首歌都为此多列一次目录; refresh 也要走同一条
+                // 合并, 否则每次刷新都会把译文再抹掉一遍。
+                if let tagged = LyricsSidecarSelectionPolicy.languageTaggedComponents(
+                    ofSidecarNamed: (lyricsPath as NSString).lastPathComponent
+                ), LyricsSidecarSelectionPolicy.marksOriginalTrack(tagged.tag),
+                   let track = await LyricsLoader.translationTrack(
+                       for: song,
+                       connector: connector
+                   ) {
+                    parsed = await LyricsLoader.mergingTranslationTrack(
+                        into: parsed,
+                        track: track,
+                        connector: connector
+                    )
+                    guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
                 }
 
                 // Refresh 模式: cache 与 NAS 一致就静默退出, 不写盘不 update UI
@@ -4050,9 +4095,12 @@ struct ProgressSlider: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(ThemeService.self) private var theme
 
     @State private var scrubSession: ProgressScrubSession?
+    /// 上一次落到填充条上的比例。只用来判断这次变化是不是一次普通的时钟推进。
+    @State private var previousProgress: CGFloat = 0
 
     private var safeTotal: TimeInterval { total.sanitizedDuration }
     private var activePreview: TimeInterval? {
@@ -4078,6 +4126,22 @@ struct ProgressSlider: View {
         guard theme.colorID != "default" else { return appearance.primary }
         return appearance.isLight ? theme.darkAccent : theme.accentColor
     }
+
+    /// 播放时钟 0.5 秒推进一次, 填充条不接一条同长的线性动画就会一格一格地跳。
+    /// 这是跟时钟间隔配套的特例曲线, 不属于 PMMotion 的任何一档。
+    ///
+    /// 只认"正常推进"这一种变化: 拖动中、seek、换歌、回跳都不给动画 ——
+    /// 否则换歌时填充条会从上一首的位置一路倒扫回起点。
+    private var fillAnimation: Animation? {
+        guard !reduceMotion, !isDragging else { return nil }
+        let advanced = Double(progress - previousProgress) * safeTotal
+        guard advanced > 0, advanced <= Self.maximumAnimatedAdvance else { return nil }
+        return .linear(duration: Self.clockTickInterval)
+    }
+
+    /// 与 AudioPlayerService 的 timeUpdateInterval 对齐。
+    private static let clockTickInterval: TimeInterval = 0.5
+    private static let maximumAnimatedAdvance: TimeInterval = 1
 
     private func commitAdjustment(incrementing: Bool) {
         guard let adjusted = NowPlayingInteractionPolicy.adjustedPlaybackTime(
@@ -4116,7 +4180,11 @@ struct ProgressSlider: View {
                 // Filled track
                 Capsule()
                     .fill(fillColor)
-                    .frame(width: max(0, min(width, width * progress)), height: trackHeight)
+                    .frame(width: max(0, min(width, width * progress)))
+                    // 高度留在动画修饰符外面: 轨道加粗归下面那条 isDragging 的
+                    // 曲线管, 这里只负责宽度, 免得一开始拖动就把加粗一起掐掉。
+                    .animation(fillAnimation, value: progress)
+                    .frame(height: trackHeight)
             }
             .frame(height: CGFloat(NowPlayingInteractionPolicy.minimumScrubHitTargetSize))
             .contentShape(Rectangle())
@@ -4157,6 +4225,11 @@ struct ProgressSlider: View {
         .onChange(of: activePreview) { _, preview in onPreview(preview) }
         .onChange(of: interactionID) { _, _ in
             onPreview(nil)
+        }
+        // 拖动时进度是逐帧跟手的, 不记这一笔, 免得每帧多走一次状态写入。
+        .onChange(of: progress) { _, updated in
+            guard !isDragging else { return }
+            previousProgress = updated
         }
         .onDisappear {
             scrubSession = nil
@@ -7341,6 +7414,13 @@ fileprivate struct PlaybackProgressBar: View {
         NowPlayingAppearance(colorScheme: colorScheme, contrast: colorSchemeContrast)
     }
 
+    /// 时间标签 0.5 秒跳一次, 正好是数字翻页动画还撑得住的频率上限, 所以按整秒
+    /// 驱动而不是按浮点进度。拖动时数字是跟手的, 翻页追不上, 这段期间给 nil。
+    private var animatedSecond: Int? {
+        guard previewTime == nil else { return nil }
+        return player.currentTime.sanitizedDuration.rounded(.down).finiteInt()
+    }
+
     var body: some View {
         let displayedTime = previewTime ?? player.currentTime
         Group {
@@ -7364,10 +7444,13 @@ fileprivate struct PlaybackProgressBar: View {
                         onSeek: { player.seek(to: $0) }
                     )
                     HStack {
-                        Text(displayedTime.formattedDuration); Spacer()
+                        Text(displayedTime.formattedDuration)
+                            .contentTransition(.numericText()); Spacer()
                         Text("-\(max(0, player.duration - displayedTime).formattedDuration)")
+                            .contentTransition(.numericText())
                     }
                     .font(.caption2).foregroundStyle(appearance.tertiary).monospacedDigit()
+                    .pmAnimation(.control, value: animatedSecond)
                 }
             }
         }

@@ -628,6 +628,9 @@ targets:
       # 群晖:电视端自己建库需要 FileStation 列目录,这份实现是纯 Foundation 的,
       # tvOS 直接复用,不再依赖 iPhone 扫描后同步。
       - path: Primuse/Services/Sources/SynologyAPI.swift
+      # 群晖 Audio Station:电视端直接用 PrimuseKit 的客户端与解析器,只共用这份
+      # 错误文案(文案在 App 的 Localizable 表里,电视端的资源同样打包了它)。
+      - path: Primuse/Services/Sources/SynologyAudioStationErrorText.swift
       - path: Primuse/Services/Sources/QnapAPI.swift
       - path: Primuse/Services/Sources/UgreenAPI.swift
       - path: Primuse/Services/Sources/SubsonicSource.swift

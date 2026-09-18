@@ -60,6 +60,9 @@ struct HomeFoldersSection: View {
 
             if model.index == nil {
                 ProgressView().frame(maxWidth: .infinity).padding()
+                    // 骨架与内容在同一个 VStack 里,交叉淡入会让两块同时占位、
+                    // 把下面的区块顶开,所以走「旧的直接走、新的淡进来」。
+                    .pmAppearFade(.contentAppear)
             } else {
                 let nodes = Array(
                     model.pins(from: pinsRawValue)
@@ -70,8 +73,10 @@ struct HomeFoldersSection: View {
                     Text(HomeDiscoveryText.string("no_pinned_folders"))
                         .font(.subheadline).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .pmAppearFade(.contentAppear)
                 } else {
                     folderBody(nodes)
+                        .pmAppearFade(.contentAppear)
                 }
             }
         }
@@ -134,7 +139,7 @@ private struct HomeFolderCard: View {
             }
             .frame(width: width, alignment: .leading)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pmPressable)
     }
 }
 
@@ -1118,6 +1123,7 @@ private struct MacFolderChildCard: View {
         .buttonStyle(.plain)
         .focused($focused)
         .onHover { hovered = $0 }
+        .pmAnimation(.hover, value: hovered)
         .help(title)
     }
 }
@@ -1313,6 +1319,7 @@ private struct MacFolderPinnedCard<Artwork: View>: View {
             .accessibilityLabel(String(localized: "play") + " · " + fullTitle)
         }
         .onHover { hovered = $0 }
+        .pmAnimation(.hover, value: hovered)
     }
 }
 
@@ -1372,6 +1379,7 @@ private struct MacFolderDirectoryRow: View {
         }
         .pmRowBackground()
         .onHover { hovered = $0 }
+        .pmAnimation(.hover, value: hovered)
     }
 }
 

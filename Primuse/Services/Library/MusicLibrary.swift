@@ -2781,9 +2781,9 @@ struct ServerSongRatingTarget: Codable, Hashable, Sendable {
     let accountFingerprint: String
 
     static func make(song: Song, source: MusicSource) -> Self? {
-        guard source.type == .navidrome, source.id == song.sourceID,
+        guard ServerRatingWritebackPolicy.supports(source.type), source.id == song.sourceID,
               !song.isCueTrack, !song.isStreamDescriptor,
-              let itemID = ServerFavoriteWritebackPolicy.songID(
+              let itemID = ServerRatingWritebackPolicy.songID(
                 fromConnectorPath: song.filePath, sourceType: source.type
               ) else { return nil }
         return Self(

@@ -829,3 +829,6 @@
 "source_address_probe_not_attempted" = "Denenmedi";
 "source_address_probe_unconfirmed %@" = "Adres yanıt verdi ama arkasında %@ olduğu doğrulanamadı";
 "source_address_port_auto %@" = "Boş bırakın, Primuse bağlantı noktasını kendisi bulur; varsayılan %@.";
+
+/* Synology Audio Station */
+"src.subtitle.synologyAudioStation" = "DSM müzik paketi · Arşiv, çalma listeleri, puanlar";

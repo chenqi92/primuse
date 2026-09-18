@@ -215,6 +215,7 @@ struct LibraryReviewRatingPicker: View {
                                 ? foregroundStyle
                                 : foregroundStyle.opacity(0.35)
                         )
+                        .contentTransition(.symbolEffect(.replace))
                         .frame(width: buttonSize, height: buttonSize)
                         .contentShape(Rectangle())
                 }
@@ -230,6 +231,8 @@ struct LibraryReviewRatingPicker: View {
                 .accessibilityAddTraits(value == rating ? .isSelected : [])
             }
         }
+        // 五颗星是一个很小的容器；没有事务驱动的话 contentTransition 不会生效。
+        .pmAnimation(.control, value: rating)
         .contextMenu {
             if let rating {
                 Button("library_review_clear_rating", systemImage: "star.slash") { onSelect(rating) }

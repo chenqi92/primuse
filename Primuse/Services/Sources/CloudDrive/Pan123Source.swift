@@ -312,6 +312,11 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource, LyricsSidecarTargetR
             baseName: baseName,
             in: siblings
         )
+        let companion = LyricsSidecarTargetPolicy.translationTrackItem(
+            forPrimary: existing,
+            baseName: baseName,
+            in: siblings
+        )
         let fileName = existing?.name ?? "\(baseName).lrc"
         let suffix = ".\((fileName as NSString).pathExtension.lowercased())"
         return LyricsSidecarTarget(
@@ -321,7 +326,10 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource, LyricsSidecarTargetR
             exists: existing != nil,
             existingPath: existing?.path,
             existingSize: existing?.size,
-            songBaseName: baseName
+            songBaseName: baseName,
+            translationPath: companion?.path,
+            translationFileName: companion?.name,
+            translationSize: companion?.size
         )
     }
 

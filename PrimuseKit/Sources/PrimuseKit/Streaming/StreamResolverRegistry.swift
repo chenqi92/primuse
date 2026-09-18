@@ -49,6 +49,7 @@ public actor StreamResolverRegistry {
         map[.fnMusic] = fnMusic
         map[.daoliyu] = daoLiYu
         map[.songloft] = SongloftStreamResolver()
+        map[.synologyAudioStation] = SynologyAudioStationStreamResolver()
         map[.ugreen] = ugreen
         // WebDAV / UPnP:tvOS 纯 HTTP 直连(Basic Auth / 直链),不再经中继。
         map[.webdav] = WebDavStreamResolver()
@@ -229,7 +230,7 @@ public actor StreamResolverRegistry {
 
     private static func requiresReachabilityProbe(_ type: MusicSourceType) -> Bool {
         switch type {
-        case .synology, .qnap, .ugreen, .fnMusic, .daoliyu, .songloft,
+        case .synology, .qnap, .ugreen, .fnMusic, .daoliyu, .songloft, .synologyAudioStation,
              .webdav, .s3, .jellyfin, .emby, .plex,
              .subsonic, .navidrome, .airsonic, .gonic:
             return true

@@ -829,3 +829,6 @@
 "source_address_probe_not_attempted" = "आज़माया नहीं गया";
 "source_address_probe_unconfirmed %@" = "पते ने जवाब दिया, पर यह पक्का नहीं हुआ कि पीछे %@ है";
 "source_address_port_auto %@" = "खाली छोड़ें, Primuse पोर्ट खुद पता कर लेगा; डिफ़ॉल्ट %@ है।";
+
+/* Synology Audio Station */
+"src.subtitle.synologyAudioStation" = "DSM संगीत पैकेज · लाइब्रेरी, प्लेलिस्ट, रेटिंग";

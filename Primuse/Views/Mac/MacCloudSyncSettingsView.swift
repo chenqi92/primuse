@@ -77,8 +77,10 @@ struct MacCloudSyncSettingsView: View {
                                     ProgressView().controlSize(.small)
                                     Text("sync_now")
                                 }
+                                .pmAppearFade(.control)
                             } else {
                                 Label("sync_now", systemImage: "arrow.triangle.2.circlepath")
+                                    .pmAppearFade(.control)
                             }
                         }
                         .buttonStyle(.borderedProminent)
@@ -175,33 +177,42 @@ struct MacCloudSyncSettingsView: View {
         switch sync.status {
         case .disabled:
             Text("status_disabled").foregroundStyle(.secondary)
+                .pmAppearFade(.control)
         case .unavailableInBuild:
             Text("status_icloud_unavailable_in_build").foregroundStyle(.orange)
+                .pmAppearFade(.control)
         case .idle:
             Text("status_idle").foregroundStyle(.secondary)
+                .pmAppearFade(.control)
         case .syncing:
             HStack(spacing: 6) {
                 ProgressView().controlSize(.mini)
                 Text("status_syncing").foregroundStyle(.secondary)
             }
+            .pmAppearFade(.control)
         case .upToDate:
             Label("status_up_to_date", systemImage: "checkmark.circle.fill")
                 .foregroundStyle(.green)
                 .labelStyle(.titleAndIcon)
+                .pmAppearFade(.control)
         case .error(let message):
             Text(message)
                 .foregroundStyle(.red)
                 .lineLimit(2)
+                .pmAppearFade(.control)
         case .accountUnavailable(let reason):
             Text(reason.localizedKey)
                 .foregroundStyle(.orange)
                 .lineLimit(2)
+                .pmAppearFade(.control)
         case .quotaExceeded:
             Text("status_quota_exceeded")
                 .foregroundStyle(.red)
+                .pmAppearFade(.control)
         case .networkUnavailable:
             Text("status_network_unavailable")
                 .foregroundStyle(.orange)
+                .pmAppearFade(.control)
         }
     }
 }

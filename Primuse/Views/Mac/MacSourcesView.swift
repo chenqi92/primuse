@@ -186,6 +186,8 @@ struct MacSourcesView: View {
                             mode == .fast ? theme.uiAccentColor : PMColor.matBtn,
                             in: .rect(cornerRadius: 8)
                         )
+                        .contentTransition(.symbolEffect(.replace))
+                        .pmAnimation(.control, value: mode)
                 }
                 .buttonStyle(.plain)
                 .help(MetadataReadingText.string("help"))
@@ -237,6 +239,7 @@ struct MacSourcesView: View {
                         ForEach(sources, id: \.id) { source in
                             sourceCard(source)
                                 .pmCard(cornerRadius: PMRadius.l)
+                                .pmHoverLift()
                                 .accessibilityElement(children: .contain)
                         }
                     }
@@ -271,7 +274,7 @@ struct MacSourcesView: View {
             }
             Spacer(minLength: 8)
             if let first {
-                Button("connect_select_dirs") { connectingSource = first }
+                Button(attentionActionTitle(for: first)) { connectingSource = first }
                     .buttonStyle(.plain)
                     .font(.system(size: 11.5, weight: .semibold))
                     .foregroundStyle(PMColor.text)
@@ -290,9 +293,18 @@ struct MacSourcesView: View {
         }
     }
 
+    /// 需要重新登录的 Audio Station 没有目录可选,按钮说它真正做的事。
+    private func attentionActionTitle(for source: MusicSource) -> LocalizedStringKey {
+        source.type == .synologyAudioStation ? "audio_station_sign_in" : "connect_select_dirs"
+    }
+
     // MARK: - Card
 
     private func sourceCard(_ source: MusicSource) -> some View {
+        // CloudDirectoryNameStore 不是可观察对象, 目录名变化只能靠这个令牌把 body 拉回来重算。
+        // 卡片是本视图的私有方法, 令牌在这里读到即可; 拼进 .id 会让任意一个源改名都销毁
+        // 重建全部卡片, 卡片上的任何过渡也就无从谈起。
+        _ = cloudDirectoryNameRefreshID
         let dirs = source.scannedDirectories
         let scanning = scanService.scanStates[source.id]
         let state = runtimeState(source)
@@ -358,7 +370,7 @@ struct MacSourcesView: View {
             actionsRow(source, scanning: scanning, dirs: dirs)
         }
         .padding(14)
-        .id("\(source.id)-\(cloudDirectoryNameRefreshID.uuidString)")
+        .id(source.id)
         .opacity(source.isEnabled ? 1.0 : 0.6)
         .contextMenu {
             Button {
@@ -369,6 +381,11 @@ struct MacSourcesView: View {
             }
             Button { editingSource = source } label: {
                 Label("edit", systemImage: "pencil")
+            }
+            if source.type == .synologyAudioStation {
+                Button { connectingSource = source } label: {
+                    Label("audio_station_sign_in", systemImage: "person.badge.key")
+                }
             }
             Button { diagnosingSource = source } label: {
                 Label("source_diagnostics", systemImage: "stethoscope")
@@ -486,6 +503,7 @@ struct MacSourcesView: View {
                 RoundedRectangle(cornerRadius: 9)
                     .strokeBorder(PMColor.bad.opacity(0.16), lineWidth: 0.8)
             }
+            .pmAppearFade(.contentAppear)
         } else if let reconciliationMessage = scanning?.reconciliationMessage,
                   !reconciliationMessage.isEmpty {
             Label {
@@ -499,15 +517,19 @@ struct MacSourcesView: View {
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.orange.opacity(0.06), in: .rect(cornerRadius: 9))
+            .pmAppearFade(.contentAppear)
         } else if let scan = scanning, scan.isScanning || scan.canResume {
             scanBox(scan)
+                .pmAppearFade(.contentAppear)
         } else if source.type == .appleMusic {
             // Apple Music 没有连接器扫描, 卡片正文直接显示订阅资料库的同步状态。
             appleMusicSyncStatus(songCount: displayedSongCount)
+                .pmAppearFade(.contentAppear)
         } else {
             let metadataSummary = backfill.sourceStatusSummary(forSource: source.id)
             if metadataSummary.affectedCount > 0 {
                 macMetadataStatusButton(source, summary: metadataSummary)
+                    .pmAppearFade(.contentAppear)
             } else {
                 HStack(spacing: 6) {
                     if displayedSongCount > 0 {
@@ -522,6 +544,7 @@ struct MacSourcesView: View {
                 }
                 .font(.system(size: 12))
                 .foregroundStyle(PMColor.textMuted)
+                .pmAppearFade(.contentAppear)
             }
         }
     }
@@ -727,6 +750,10 @@ struct MacSourcesView: View {
                 .disabled(isAppleMusicSyncing || !source.isEnabled)
             } else if source.type.scansEntireLibrary {
                 scanPill(source, scanning: scanning)
+                if source.type == .synologyAudioStation {
+                    // 设备令牌失效后后台登录会卡在两步验证上,从这里再输一次验证码。
+                    pill("audio_station_sign_in", systemImage: "person.badge.key") { connectingSource = source }
+                }
                 pill("settings_title", systemImage: "slider.horizontal.3") { editingSource = source }
             } else if dirs.isEmpty {
                 pill("connect_select_dirs", systemImage: "link", tint: theme.uiAccentColor) { connectingSource = source }
@@ -925,7 +952,7 @@ struct MacSourcesView: View {
         let selectedDirectories = stagedDirectories ?? persistedDirectories
 
         switch source.type {
-        case .synology:
+        case .synology, .synologyAudioStation:
             ConnectionFlowView(
                 source: source,
                 selectedDirectories: selectedDirectories,
@@ -968,7 +995,14 @@ struct MacSourcesView: View {
                         return false
                     }
                 },
-                onEditAddress: onEditAddress
+                onEditAddress: onEditAddress,
+                onAudioStationReady: {
+                    // 先让连接器按刚存下的设备令牌重建,再扫描整库。
+                    Task { @MainActor in
+                        await sourceManager.refreshConnector(for: source.id)
+                        runScan(currentSource(for: source))
+                    }
+                }
             )
         case .smb:
             SMBBrowserView(

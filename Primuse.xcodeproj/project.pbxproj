@@ -149,6 +149,7 @@
 		1A1C7C4F1F0C1B7F7809335A /* StreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4430B0204E343AF011F490F1 /* StreamResolver.swift */; };
 		1A9F9D73E72B9688620EF8C2 /* LRCLIBScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AE8A78DAC80BEED65803A6B /* LRCLIBScraper.swift */; };
 		1AB7C4D50C43A24D7A9E3F53 /* FileFormatRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 111D15C431BBFAC41E4D37B1 /* FileFormatRouter.swift */; };
+		1AD1E41DD40A949C556C4F27 /* RadioSubscriptionsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A256B67AAFDAA07699C2E6F /* RadioSubscriptionsStore.swift */; };
 		1B0A3CACE7B4634D20DA6C89 /* Bundle+AppVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CD88BFBBCA5054A7248399F /* Bundle+AppVersion.swift */; };
 		1B1495FAE0F8456866676C61 /* ServerPlaylistMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B60495B4617035491BA0CFA /* ServerPlaylistMirror.swift */; };
 		1B4ED35B9C20D4E306269836 /* RadioFLACDecoderBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = 9EB66896DBE96AD0C44855A9 /* RadioFLACDecoderBridge.m */; };
@@ -184,8 +185,11 @@
 		2118DA6C12780C42F8283394 /* TVServerFeedbackServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C553EBCD2834E0A7DFEC2BB8 /* TVServerFeedbackServiceTests.swift */; };
 		212511EFE29CDB7FBFCA233B /* PhoneRelayServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 299BA8CA4513E33F5CF2BC7C /* PhoneRelayServer.swift */; };
 		21E496A1A424DA68570A7928 /* PrimuseKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B1E36F2FECF46E724081F983 /* PrimuseKit.framework */; };
+		2223ECC785D827AC402D0333 /* RadioSubscriptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC7AA173E8F94D6FE23BDD4F /* RadioSubscriptionsView.swift */; };
 		223571A3D35282EEE8DC3CD8 /* AIRemoteProviderConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33F16C8FA296E2937F01489 /* AIRemoteProviderConfiguration.swift */; };
 		2258673CDC1F146D06F403A0 /* SynologySource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E60AA3C090087F657145292 /* SynologySource.swift */; };
+		A98A49EBBEEC50F5FFAADCCB /* SynologyAudioStationSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55A4CB22C1E454C159F938E6 /* SynologyAudioStationSource.swift */; };
+		035BC12946B6A710316169DE /* SynologyAudioStationErrorText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FC2441169FECC4B13BCFE44 /* SynologyAudioStationErrorText.swift */; };
 		2265889CD329AF4A8AC93100 /* BrowserChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 768665CEDF081091A5DFAED7 /* BrowserChrome.swift */; };
 		2280828CE83CE3AB3042CB6E /* AppDistributionChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D041D8BEB3E75D3D4A605E4 /* AppDistributionChannel.swift */; };
 		2291C140AC660C29045C3F5C /* libavutil.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 97F67F7EA254BBF6D2BA74A0 /* libavutil.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -273,6 +277,7 @@
 		362823C0E5638E246A8B36A5 /* DeviceMusicPlaybackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25B5C092730E2E3E9802487D /* DeviceMusicPlaybackTests.swift */; };
 		3655A1C13669D27CC9F07AF2 /* NFSKit in Frameworks */ = {isa = PBXBuildFile; productRef = 6B0EB701D9FE5D2A90E43FD9 /* NFSKit */; };
 		368E26EC04F4020621DB944F /* ScraperConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 983B4BD41961986660A6E775 /* ScraperConfig.swift */; };
+		36AFD42B2179D4A11CC98A1F /* RadioSubscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AE38CCE64AB21C8A279A586 /* RadioSubscriptionService.swift */; };
 		36B657A083885102B9EEC43F /* LyricsLiveActivityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9CC779608BF4A84958AE7BA /* LyricsLiveActivityService.swift */; };
 		36E0CFC3794360116070FDE6 /* NativeAudioDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B638BB94F0E6542668978B3 /* NativeAudioDecoder.swift */; };
 		36FF6841F29DE1D8C53529B5 /* DesktopLyricsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54D5EDD9A322FF83F0612BEF /* DesktopLyricsView.swift */; };
@@ -288,6 +293,10 @@
 		38A135AAC750CAF0DE89773E /* CueSheetParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0039D9169F515627C5A4C159 /* CueSheetParser.swift */; };
 		38B71AA0941D7B974C337680 /* ScraperConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BF1A706ED97024BCCCCD9F8 /* ScraperConfigStore.swift */; };
 		38E0E189263F5CC02A9DD486 /* AddSourceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7BBFA50461FE980684501FA /* AddSourceView.swift */; };
+		391ACCAE3259D52088819685 /* SynologyAudioStationAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2F06C85E321D1D3926CA4E /* SynologyAudioStationAPI.swift */; };
+		604AAF47DAAFC541DA6AC7D4 /* RadioSubscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AE38CCE64AB21C8A279A586 /* RadioSubscriptionService.swift */; };
+		A27AC8ECA4D3FD9466AB52F8 /* RadioSubscriptionsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A256B67AAFDAA07699C2E6F /* RadioSubscriptionsStore.swift */; };
+		ACD9CF156B3DD90494393419 /* RadioSubscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7997DF5865683E1072390CF /* RadioSubscription.swift */; };
 		DD2A67E1029D1A8D48C4442D /* SourceAddressForm.swift in Sources */ = {isa = PBXBuildFile; fileRef = 775B198C9EA7BE68BEE8EEA3 /* SourceAddressForm.swift */; };
 		38F1CB896290BA69CF5682C3 /* TimeInterval+Format.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02C67038ECF67BC44982A1C8 /* TimeInterval+Format.swift */; };
 		392380F2B15058BABF04130F /* LocalImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03F527F89BB056AD3BB3E532 /* LocalImportService.swift */; };
@@ -373,6 +382,7 @@
 		476ABB1A64AC9D81950EA6CD /* OpenAICompatibleProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 182840B263E637C233CBB7DE /* OpenAICompatibleProvider.swift */; };
 		47739E0B4A1BF80DBFEAEACB /* HomeSectionsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F9BAE1D915901E05BF85719 /* HomeSectionsSettingsView.swift */; };
 		47D2853E3C737B32D25E9E6E /* libswresample.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 8F8034D1C470B837DB46D3E0 /* libswresample.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		4809F325C132563CE11FCE4C /* PMMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 498704BA66FC0B14390F0F5B /* PMMotion.swift */; };
 		480E140B24CE0B9EEF4CF606 /* CarPlayEditorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63EBB09B5F6B03143A59F27A /* CarPlayEditorModel.swift */; };
 		482624D7B354423C31CEB08D /* ExternalDisplaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D3CF7E2A5E7D4B7274BDB17 /* ExternalDisplaySceneDelegate.swift */; };
 		4853B2CCCC5CFD4819C3EDB3 /* ServerMediaShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 228E9AF235163595E752F32C /* ServerMediaShareSheet.swift */; };
@@ -661,6 +671,12 @@
 		7BEC3B93F5BCE27C4BC3684E /* TVServerFeedbackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2474EEEF51EE0A4D71B215E4 /* TVServerFeedbackService.swift */; };
 		7BEE5E7E46EDB36D5E7C34C2 /* EqualizerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 181EE28124D9CD151E0338E1 /* EqualizerView.swift */; };
 		7C0B65471707BFC83D3E6BF1 /* LyricPosterStylesCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00E69E0BF7E1A295D100DCA7 /* LyricPosterStylesCore.swift */; };
+		B04F8157848AF09CB60D7B75 /* LyricPosterNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7835BE0D6A97601BDB90348 /* LyricPosterNote.swift */; };
+		50B02F5F14C9F8AE98702427 /* LyricPosterFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CB2CE0AE54CC276861589EF /* LyricPosterFilter.swift */; };
+		66856D192B081E874993365B /* LyricPosterMotionEffect.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3E97ACBC9859C3A071D97DA /* LyricPosterMotionEffect.swift */; };
+		6F122A8DB2864AF49D6A8259 /* LyricPosterWizard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5468B667D4B53B9AB4E9D10 /* LyricPosterWizard.swift */; };
+		160C29251BECA02863B1ED8B /* LyricPosterStylesConcept.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8322DAB89374538829937B0 /* LyricPosterStylesConcept.swift */; };
+		357B6C1A20C32D4FD2399E6C /* LyricPosterStylesConcept.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8322DAB89374538829937B0 /* LyricPosterStylesConcept.swift */; };
 		7C40148B1413D9AC91D84E13 /* RadioFLACAudioDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BDA4BF8B2BC7C8290D21F46 /* RadioFLACAudioDecoder.swift */; };
 		7C4430806A39B820568C5D47 /* TVSourceFormView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D730FADBA5E272600C03083C /* TVSourceFormView.swift */; };
 		7CC510CFB7AE45C4AF720D0E /* ID3SynchronizedLyricsParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25F35F3F45A8184ACB596613 /* ID3SynchronizedLyricsParser.swift */; };
@@ -713,6 +729,7 @@
 		86E8C6BB304347462D250493 /* TVRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A838C1C1D523CAD6E766726A /* TVRoot.swift */; };
 		8718280BE3CBE139794FD303 /* MetadataAssetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A24F02124D01EC09135B0F9 /* MetadataAssetStore.swift */; };
 		874EC1D5086E07ED87F0385B /* FullscreenPlayerEffectSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 674C441197AFC8EDFF6E7E4B /* FullscreenPlayerEffectSettings.swift */; };
+		876DE61C76A93F13180836EF /* PMMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 498704BA66FC0B14390F0F5B /* PMMotion.swift */; };
 		878478B3EF597FD950C48064 /* MiniPlayerWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F8BE745FB20EDEA78E90EEF /* MiniPlayerWindowController.swift */; };
 		8792892E9BCDADAF76BE3E87 /* LastFmAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9428B24AB2EAE7BA15C6C5CA /* LastFmAuthService.swift */; };
 		87C586EFCBC16CA86942B09F /* WiFiTransfer.strings in Resources */ = {isa = PBXBuildFile; fileRef = A4124C42E899AF4EF9EEE92D /* WiFiTransfer.strings */; };
@@ -808,6 +825,8 @@
 		99329A4BD91655CBDF214737 /* MetadataReadThroughputSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AB286EEA94A980ADF0391BD /* MetadataReadThroughputSampler.swift */; };
 		99577D17289CE95A12530D1E /* YearlyReportAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E155726354BEF06B6BCABFB7 /* YearlyReportAnalyzer.swift */; };
 		996C1B4150BF531114D218FD /* SynologySource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E60AA3C090087F657145292 /* SynologySource.swift */; };
+		1FE561A48067E23A9B1229C1 /* SynologyAudioStationSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55A4CB22C1E454C159F938E6 /* SynologyAudioStationSource.swift */; };
+		532931209DF51CF01570AB6D /* SynologyAudioStationErrorText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FC2441169FECC4B13BCFE44 /* SynologyAudioStationErrorText.swift */; };
 		9979267D96DDD94E79B457EA /* TCPRangeFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77301F04EF850775B481E2D1 /* TCPRangeFetcher.swift */; };
 		9984CAE5516CAB1C881066C7 /* CarPlaySettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F79D31F8D7A9471678BFE366 /* CarPlaySettingsStore.swift */; };
 		9A3F56CC8755B94C17F2DC6F /* PCMBufferCoalescingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6690519CB698DAF2FD06E4A /* PCMBufferCoalescingPolicy.swift */; };
@@ -1052,6 +1071,7 @@
 		C3901452DB852A06AC8F4108 /* MusicSourceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 899FC409D467BC67F47C75C2 /* MusicSourceProtocol.swift */; };
 		C4119D1637677F5C77875054 /* TextEncodingRepair.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF6A7403C95DD899FB4F4312 /* TextEncodingRepair.swift */; };
 		C421888EDDB0B7C4E667FD31 /* SynologyAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 552EC251CB491F214F263601 /* SynologyAPI.swift */; };
+		BB02545797A6C8B9FCE9D43A /* SynologyAudioStationErrorText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FC2441169FECC4B13BCFE44 /* SynologyAudioStationErrorText.swift */; };
 		C42A9468A3DA7E9C74416019 /* libavcodec.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E1A603AA0134C1792449BF47 /* libavcodec.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		C434514F68C5E59EEC0EF1D6 /* EqualizerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EA999555F455617E1DF9281 /* EqualizerService.swift */; };
 		C4568C96218F66C7E3141581 /* MacSourcesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 086F7E4EDFB6719527A8AECF /* MacSourcesView.swift */; };
@@ -1199,9 +1219,12 @@
 		E1EA3F7A3D5C3F95F1FF92B0 /* SidecarWriteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0CD6571B6CA1E276A954F2F /* SidecarWriteService.swift */; };
 		E1F03B0F5F84CD3EC3339D8D /* KaraokeLineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AC7465EC4D7BFF7A5D825BF /* KaraokeLineView.swift */; };
 		E20CD86639EC304A4521720F /* AppIconSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F52CBE601DF2ED6B33A3FD92 /* AppIconSettingsView.swift */; };
+		E21DB80CE4B946445CF49138 /* SynologyAudioStationClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31C0CD83D48A0593F5912180 /* SynologyAudioStationClient.swift */; };
+		6C7A2BC990B3664B0F394D66 /* SynologyAudioStationStreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 808FD0CC7DDEB95178C68ECF /* SynologyAudioStationStreamResolver.swift */; };
 		E2810AAD4DBE00E55CB6203B /* PlayHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCE1922E4E88CC38539151C4 /* PlayHistoryStore.swift */; };
 		E2915EA85132DB3DAB79C7D8 /* MusicScraperFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6255A91A1DE2B2C344A5491 /* MusicScraperFactory.swift */; };
 		E2AAEF7990A1A92CD2935EB2 /* UgreenAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = CACF669ECDE8745A546EE459 /* UgreenAPI.swift */; };
+		E2C7B530F96DA9F9E7D51681 /* RadioSubscriptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC7AA173E8F94D6FE23BDD4F /* RadioSubscriptionsView.swift */; };
 		E3827C74776512E06FC6DFEF /* PlaybackSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80BF155F8BD6EBFBBAA9B83A /* PlaybackSettingsStore.swift */; };
 		E3900CCC1A7A9AEC7FAB20FE /* PMTitleBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC94F5ED881A05601F6B7D65 /* PMTitleBar.swift */; };
 		E43A039C4C8FB967DEC92C20 /* ServerListeningStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27678E1E349C28A0B8CFA6BE /* ServerListeningStats.swift */; };
@@ -1565,10 +1588,17 @@
 		07AA00C9862F805BCB17DCDC /* AudioCachePathResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCachePathResolver.swift; sourceTree = "<group>"; };
 		07ED3C52285096B184672237 /* SmartPlaylistDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartPlaylistDetailView.swift; sourceTree = "<group>"; };
 		0849A8F36C03A6B9E0D99387 /* PrivateOverlayHostPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivateOverlayHostPolicy.swift; sourceTree = "<group>"; };
+		1A2F06C85E321D1D3926CA4E /* SynologyAudioStationAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyAudioStationAPI.swift; sourceTree = "<group>"; };
+		31C0CD83D48A0593F5912180 /* SynologyAudioStationClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyAudioStationClient.swift; sourceTree = "<group>"; };
+		808FD0CC7DDEB95178C68ECF /* SynologyAudioStationStreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyAudioStationStreamResolver.swift; sourceTree = "<group>"; };
+		6A256B67AAFDAA07699C2E6F /* RadioSubscriptionsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioSubscriptionsStore.swift; sourceTree = "<group>"; };
+		6AE38CCE64AB21C8A279A586 /* RadioSubscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioSubscriptionService.swift; sourceTree = "<group>"; };
 		99D0FD719B67752D96057615 /* ProxyPrefixedBasePathPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyPrefixedBasePathPolicy.swift; sourceTree = "<group>"; };
+		A7997DF5865683E1072390CF /* RadioSubscription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioSubscription.swift; sourceTree = "<group>"; };
 		D985218C6C887E4DA40AF2D2 /* SourceAddressInputPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceAddressInputPolicy.swift; sourceTree = "<group>"; };
 		94CB377FB39449D0664E7EC7 /* SourceAddressFormPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceAddressFormPolicy.swift; sourceTree = "<group>"; };
 		6AFE245AAF67EBBFCEC27A42 /* SourceConnectionCandidatePlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceConnectionCandidatePlanner.swift; sourceTree = "<group>"; };
+		DC7AA173E8F94D6FE23BDD4F /* RadioSubscriptionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioSubscriptionsView.swift; sourceTree = "<group>"; };
 		EEECB0FE54439212E03E560D /* SourceEndpointProbeSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceEndpointProbeSession.swift; sourceTree = "<group>"; };
 		7972C2A34A5D5238B4B18888 /* SourceEndpointResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceEndpointResolver.swift; sourceTree = "<group>"; };
 		FAE5359A924CB3DC30F82570 /* SourceServiceFingerprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceServiceFingerprint.swift; sourceTree = "<group>"; };
@@ -1611,6 +1641,8 @@
 		0DAE8DE2AA494E9A92D7A2F4 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/HomeDiscovery.strings; sourceTree = "<group>"; };
 		0E0E5D6E03C437F8A3D75067 /* AudioCacheManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCacheManager.swift; sourceTree = "<group>"; };
 		0E60AA3C090087F657145292 /* SynologySource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologySource.swift; sourceTree = "<group>"; };
+		55A4CB22C1E454C159F938E6 /* SynologyAudioStationSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyAudioStationSource.swift; sourceTree = "<group>"; };
+		4FC2441169FECC4B13BCFE44 /* SynologyAudioStationErrorText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyAudioStationErrorText.swift; sourceTree = "<group>"; };
 		0EA999555F455617E1DF9281 /* EqualizerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EqualizerService.swift; sourceTree = "<group>"; };
 		0EB9BD8B836299C30B3A1296 /* OpenAICompatibleProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAICompatibleProviderTests.swift; sourceTree = "<group>"; };
 		0F410BC196789520834DE698 /* es-MX */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "es-MX"; path = "es-MX.lproj/Localizable.strings"; sourceTree = "<group>"; };
@@ -1859,6 +1891,7 @@
 		48470EC1F67DE11E5508AB64 /* LyricPosterLayoutPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricPosterLayoutPolicy.swift; sourceTree = "<group>"; };
 		491A850F03AC46FECF60ADFD /* NetworkDiscoveryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkDiscoveryService.swift; sourceTree = "<group>"; };
 		49599E6563DECC420DE66CF4 /* DaoLiYuAPIProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaoLiYuAPIProtocol.swift; sourceTree = "<group>"; };
+		498704BA66FC0B14390F0F5B /* PMMotion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PMMotion.swift; sourceTree = "<group>"; };
 		49B4FE6BD37CDF7D186CF09F /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/SettingsSearch.strings"; sourceTree = "<group>"; };
 		49BA1BD7B45060D531430999 /* ar */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ar; path = ar.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		4A1DAB69FAAD3766B5A5F7E2 /* AudioDecodeBlockingLanePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioDecodeBlockingLanePolicy.swift; sourceTree = "<group>"; };
@@ -1949,6 +1982,11 @@
 		60D668FE9811EE6FEF380039 /* ScraperTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperTypes.swift; sourceTree = "<group>"; };
 		6151010BC99949DAD8CEF23B /* pt-BR */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "pt-BR"; path = "pt-BR.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		6165DCB0F15976CF31CD3492 /* LyricPosterSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricPosterSelection.swift; sourceTree = "<group>"; };
+		E7835BE0D6A97601BDB90348 /* LyricPosterNote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricPosterNote.swift; sourceTree = "<group>"; };
+		5CB2CE0AE54CC276861589EF /* LyricPosterFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricPosterFilter.swift; sourceTree = "<group>"; };
+		F3E97ACBC9859C3A071D97DA /* LyricPosterMotionEffect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricPosterMotionEffect.swift; sourceTree = "<group>"; };
+		A5468B667D4B53B9AB4E9D10 /* LyricPosterWizard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricPosterWizard.swift; sourceTree = "<group>"; };
+		C8322DAB89374538829937B0 /* LyricPosterStylesConcept.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricPosterStylesConcept.swift; sourceTree = "<group>"; };
 		6183B42E15B9A253E26912B5 /* uk */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = uk; path = uk.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		619ED42D72C2CF96721550D0 /* WiFiTransferLibraryPreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiTransferLibraryPreparation.swift; sourceTree = "<group>"; };
 		619F72A778551BB017F0840A /* RadioStationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioStationsView.swift; sourceTree = "<group>"; };
@@ -2873,6 +2911,8 @@
 				552EC251CB491F214F263601 /* SynologyAPI.swift */,
 				7A221B7D8D5901440E56C3F6 /* SynologyScanner.swift */,
 				0E60AA3C090087F657145292 /* SynologySource.swift */,
+				55A4CB22C1E454C159F938E6 /* SynologyAudioStationSource.swift */,
+				4FC2441169FECC4B13BCFE44 /* SynologyAudioStationErrorText.swift */,
 				ABB95B932C07091233475361 /* TrustedHTTPTransport.swift */,
 				CACF669ECDE8745A546EE459 /* UgreenAPI.swift */,
 				404526370F939D7D68BB9F6E /* UgreenSource.swift */,
@@ -3029,6 +3069,10 @@
 				48470EC1F67DE11E5508AB64 /* LyricPosterLayoutPolicy.swift */,
 				38C54FE3137CA28918AF216B /* LyricPosterMotionPolicy.swift */,
 				6165DCB0F15976CF31CD3492 /* LyricPosterSelection.swift */,
+				E7835BE0D6A97601BDB90348 /* LyricPosterNote.swift */,
+				5CB2CE0AE54CC276861589EF /* LyricPosterFilter.swift */,
+				F3E97ACBC9859C3A071D97DA /* LyricPosterMotionEffect.swift */,
+				A5468B667D4B53B9AB4E9D10 /* LyricPosterWizard.swift */,
 				591A2A1DA52F0C952F55D046 /* LyricPosterStyleCatalog.swift */,
 				FDB241B3B766B215DDC46009 /* LyricRowFrameBatchPolicy.swift */,
 				BD56094A6AC4671F1DE203DC /* LyricsActivityAttributes.swift */,
@@ -3584,6 +3628,7 @@
 				E7242983C34056BD33B5942C /* LyricPosterShareSheet.swift */,
 				B03A62E0E020B107BF69C26A /* LyricPosterStyleRenderer.swift */,
 				00E69E0BF7E1A295D100DCA7 /* LyricPosterStylesCore.swift */,
+				C8322DAB89374538829937B0 /* LyricPosterStylesConcept.swift */,
 				3580BF193EB448F74A8F31F0 /* LyricPosterStylesShowcase.swift */,
 				549268CA8038400A900BEA38 /* LyricPosterStylesSkinCompanions.swift */,
 			);
@@ -3602,6 +3647,7 @@
 				3C3121FC0DB2F2843B4D7718 /* RadioPlaylistText.swift */,
 				3E4119E96B1A605CAFA5FE0B /* RadioStationOrganization.swift */,
 				9606AA541D05C5311136A0BC /* RadioStreamTitleParser.swift */,
+				A7997DF5865683E1072390CF /* RadioSubscription.swift */,
 			);
 			path = Radio;
 			sourceTree = "<group>";
@@ -3837,6 +3883,7 @@
 				C7B6EE3BA7595C043A4CDB60 /* FloatingInputPanelClearance.swift */,
 				3305EA479E0347F99584ABAE /* MediaDetailActionBar.swift */,
 				656DE32C9134161A97AD208F /* CollectionCoverWallHeader.swift */,
+				498704BA66FC0B14390F0F5B /* PMMotion.swift */,
 				C7F149AF186A1E8E9004E602 /* PlaybackToggleHighlight.swift */,
 				23CA6DF05BAC0E0F38218C88 /* RevealableSecureField.swift */,
 				9492D5CC5D1370DFED401085 /* ScraperSourceGate.swift */,
@@ -3891,6 +3938,8 @@
 				D0CEA54045A41F43EDFF9449 /* RadioPlaybackController.swift */,
 				69CD8CB3BFFBE2915C634E3E /* RadioPlaylistDownloader.swift */,
 				744DE8325645146B084C1FE7 /* RadioStationsStore.swift */,
+				6AE38CCE64AB21C8A279A586 /* RadioSubscriptionService.swift */,
+				6A256B67AAFDAA07699C2E6F /* RadioSubscriptionsStore.swift */,
 			);
 			path = Radio;
 			sourceTree = "<group>";
@@ -4061,6 +4110,7 @@
 				9CC6F2F1E70E26868240EDF8 /* RadioCandidateLogoView.swift */,
 				B1794D5D2597F2E94F2EC8DD /* RadioStationOrganizeUI.swift */,
 				619F72A778551BB017F0840A /* RadioStationsView.swift */,
+				DC7AA173E8F94D6FE23BDD4F /* RadioSubscriptionsView.swift */,
 			);
 			path = Radio;
 			sourceTree = "<group>";
@@ -4140,6 +4190,9 @@
 				A808E934F62A6E8AB8548E11 /* STRMDescriptor.swift */,
 				18580B6FCDDC9D293B7820BF /* SubsonicStreamResolver.swift */,
 				00315BE49B8ED4049B2713AB /* SyncedCredentialAvailability.swift */,
+				1A2F06C85E321D1D3926CA4E /* SynologyAudioStationAPI.swift */,
+				31C0CD83D48A0593F5912180 /* SynologyAudioStationClient.swift */,
+				808FD0CC7DDEB95178C68ECF /* SynologyAudioStationStreamResolver.swift */,
 				09CE2F3FC6DBC83E5C139F8D /* SynologyQuickConnectResolver.swift */,
 				3C221E974A2E6E831F7EAF27 /* SynologyStreamResolver.swift */,
 				E1F7BC83F45C23C5FEECE7C3 /* TianyiCloudAPIProtocol.swift */,
@@ -4730,6 +4783,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B04F8157848AF09CB60D7B75 /* LyricPosterNote.swift in Sources */,
+				50B02F5F14C9F8AE98702427 /* LyricPosterFilter.swift in Sources */,
+				66856D192B081E874993365B /* LyricPosterMotionEffect.swift in Sources */,
+				6F122A8DB2864AF49D6A8259 /* LyricPosterWizard.swift in Sources */,
 				6F139A773725A49F443C3494 /* AIAvailabilityPolicy.swift in Sources */,
 				A7815B97AB23C3B0112CF13D /* AIIntelligenceModels.swift in Sources */,
 				223571A3D35282EEE8DC3CD8 /* AIRemoteProviderConfiguration.swift in Sources */,
@@ -4904,6 +4961,7 @@
 				9B6DC920BBF4FE1D1E19F53F /* RadioHomepageIconParser.swift in Sources */,
 				CA084B87BA0FE515AA8B3BEE /* RadioICYMetadata.swift in Sources */,
 				9B662A4BB4576404119793DC /* RadioImportParser.swift in Sources */,
+				ACD9CF156B3DD90494393419 /* RadioSubscription.swift in Sources */,
 				6EC9F7E5AB947C4F5DCFAEAD /* RadioLiveMetadata.swift in Sources */,
 				0EA465C8DC3980650EBD682F /* RadioLogoDiscoveryPolicy.swift in Sources */,
 				6E4EDD3796879951FDF3A5EF /* RadioLogoURLPolicy.swift in Sources */,
@@ -4977,6 +5035,9 @@
 				B92C0208877DCAFFFE4ABC19 /* SubsonicStreamResolver.swift in Sources */,
 				A1C66D0E2DEB3024DEB9930A /* SubtitleLyricsParser.swift in Sources */,
 				B88D64F74EB70F4438DCCCBC /* SyncedCredentialAvailability.swift in Sources */,
+				391ACCAE3259D52088819685 /* SynologyAudioStationAPI.swift in Sources */,
+				E21DB80CE4B946445CF49138 /* SynologyAudioStationClient.swift in Sources */,
+				6C7A2BC990B3664B0F394D66 /* SynologyAudioStationStreamResolver.swift in Sources */,
 				D4BA7D2927A0037D9895C527 /* SynologyQuickConnectResolver.swift in Sources */,
 				548B2F51A1FD55FC79DE5C9B /* SynologyStreamResolver.swift in Sources */,
 				856C70EA0F1E8E9D577A8A5F /* TVPlaybackPipelinePolicy.swift in Sources */,
@@ -5023,6 +5084,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				357B6C1A20C32D4FD2399E6C /* LyricPosterStylesConcept.swift in Sources */,
 				5E5CD445E8005257DD9A9D76 /* AICredentialStore.swift in Sources */,
 				FD44254364FA0DB15420FBA1 /* AIPlaylistEditorView.swift in Sources */,
 				B418E40C20D78B4D573CFB4D /* AIRecommendationLibraryView.swift in Sources */,
@@ -5254,6 +5316,7 @@
 				49A5B455D71D7C8E0FE0E628 /* OnboardingView.swift in Sources */,
 				3F8513D64E7EAB2667895EEC /* OneDriveSource.swift in Sources */,
 				476ABB1A64AC9D81950EA6CD /* OpenAICompatibleProvider.swift in Sources */,
+				876DE61C76A93F13180836EF /* PMMotion.swift in Sources */,
 				3043FF24779407E29FC86609 /* PMPlaybackVolumeControl.swift in Sources */,
 				33291B00F794529D46E2B888 /* PMTitleBar.swift in Sources */,
 				BEB291FBADAB1813D2379B09 /* PMVolumeSlider.swift in Sources */,
@@ -5281,6 +5344,7 @@
 				BF4CCB9CC1C7D0BBCFB0D8F7 /* QnapSource.swift in Sources */,
 				5AD01C4504371E9EE47EE591 /* QueueView.swift in Sources */,
 				C60CBE0D26F59A84CCB5931F /* RadioBatchAddView.swift in Sources */,
+				2223ECC785D827AC402D0333 /* RadioSubscriptionsView.swift in Sources */,
 				F41811AEA0646B4F680416AA /* RadioCandidateLogoView.swift in Sources */,
 				B55B2E0B01F069C0238B0FF7 /* RadioDirectoryClient.swift in Sources */,
 				9618F8E76B4E5775F085DDD8 /* RadioFLACAudioDecoder.swift in Sources */,
@@ -5290,6 +5354,8 @@
 				0806B84EE561C9C6EBFC670B /* RadioLogoDiscoveryService.swift in Sources */,
 				67D5C1D87076883F4E045195 /* RadioPlaybackController.swift in Sources */,
 				F64E2EB8C928B04D298C60F9 /* RadioPlaylistDownloader.swift in Sources */,
+				36AFD42B2179D4A11CC98A1F /* RadioSubscriptionService.swift in Sources */,
+				A27AC8ECA4D3FD9466AB52F8 /* RadioSubscriptionsStore.swift in Sources */,
 				379E7CA829B30954B6845650 /* RadioStationOrganizeUI.swift in Sources */,
 				80B755D0057BE28B15832A77 /* RadioStationsStore.swift in Sources */,
 				A762BCAE5EAB1D547ADDDD22 /* RadioStationsView.swift in Sources */,
@@ -5361,6 +5427,8 @@
 				D63EE924A334339A844F4FDC /* SynologyAPI.swift in Sources */,
 				A46EDBA046E094FC1E93056F /* SynologyScanner.swift in Sources */,
 				2258673CDC1F146D06F403A0 /* SynologySource.swift in Sources */,
+				A98A49EBBEEC50F5FFAADCCB /* SynologyAudioStationSource.swift in Sources */,
+				035BC12946B6A710316169DE /* SynologyAudioStationErrorText.swift in Sources */,
 				9979267D96DDD94E79B457EA /* TCPRangeFetcher.swift in Sources */,
 				81373227466DA7A6E21BCEFC /* TagEditorView.swift in Sources */,
 				BCA65D2BEB75DA24E6EDAEE3 /* TagMetadataWritebackCoordinator.swift in Sources */,
@@ -5485,6 +5553,7 @@
 				EF42DC10EBE3F86E7C361E81 /* SourcesStore.swift in Sources */,
 				393391520F10BA2BC55108E5 /* SubsonicSource.swift in Sources */,
 				C421888EDDB0B7C4E667FD31 /* SynologyAPI.swift in Sources */,
+				BB02545797A6C8B9FCE9D43A /* SynologyAudioStationErrorText.swift in Sources */,
 				456E6BCC383120DC38E4EF71 /* TCPRangeFetcher.swift in Sources */,
 				AA1A704899024591BC1F670F /* TVAISettingsView.swift in Sources */,
 				847BFE049DCE364701DFA760 /* TVAppleMusicCards.swift in Sources */,
@@ -5545,6 +5614,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				160C29251BECA02863B1ED8B /* LyricPosterStylesConcept.swift in Sources */,
 				370A83F06945E4CAAD111042 /* AICredentialStore.swift in Sources */,
 				BEDC249FC1AF38BC9516765B /* AIPlaylistEditorView.swift in Sources */,
 				FB0911208AD3966703462CC2 /* AIRecommendationLibraryView.swift in Sources */,
@@ -5776,6 +5846,7 @@
 				F45510F7EDAE425A749A03CF /* OnboardingView.swift in Sources */,
 				235C8FC6F296376EB5E6A8F1 /* OneDriveSource.swift in Sources */,
 				F807B1B51DE6DBC9D5B92CC6 /* OpenAICompatibleProvider.swift in Sources */,
+				4809F325C132563CE11FCE4C /* PMMotion.swift in Sources */,
 				E69C14A8F61B6822F6426908 /* PMPlaybackVolumeControl.swift in Sources */,
 				E3900CCC1A7A9AEC7FAB20FE /* PMTitleBar.swift in Sources */,
 				B4EBAC636CB88193ED9429FC /* PMVolumeSlider.swift in Sources */,
@@ -5803,6 +5874,7 @@
 				BF05CF74685D4E54935B6C18 /* QnapSource.swift in Sources */,
 				9B2A49C180BA29D56A74D9CD /* QueueView.swift in Sources */,
 				A645E6AE800CAA447E72B3B7 /* RadioBatchAddView.swift in Sources */,
+				E2C7B530F96DA9F9E7D51681 /* RadioSubscriptionsView.swift in Sources */,
 				F918EE6E00C1951EE8A63B1D /* RadioCandidateLogoView.swift in Sources */,
 				5FA7E93E1A11D32470CC8623 /* RadioDirectoryClient.swift in Sources */,
 				BD43C09F5EE8E43023150698 /* RadioFLACAudioDecoder.swift in Sources */,
@@ -5812,6 +5884,8 @@
 				C9D1256DDC94D0BC92D2EA6F /* RadioLogoDiscoveryService.swift in Sources */,
 				EC2085644D328AC65FF4FFD4 /* RadioPlaybackController.swift in Sources */,
 				D9B3F5958644F3CA3F543F28 /* RadioPlaylistDownloader.swift in Sources */,
+				604AAF47DAAFC541DA6AC7D4 /* RadioSubscriptionService.swift in Sources */,
+				1AD1E41DD40A949C556C4F27 /* RadioSubscriptionsStore.swift in Sources */,
 				5E5A66A900BA76DF01BAA67E /* RadioStationOrganizeUI.swift in Sources */,
 				FE58D4CAAB4142904F5E4D21 /* RadioStationsStore.swift in Sources */,
 				58F7430F387DEC35AF090DD2 /* RadioStationsView.swift in Sources */,
@@ -5883,6 +5957,8 @@
 				48AD291EAE5EB38148B61BDA /* SynologyAPI.swift in Sources */,
 				BF1658CCB669A554E8DF831D /* SynologyScanner.swift in Sources */,
 				996C1B4150BF531114D218FD /* SynologySource.swift in Sources */,
+				1FE561A48067E23A9B1229C1 /* SynologyAudioStationSource.swift in Sources */,
+				532931209DF51CF01570AB6D /* SynologyAudioStationErrorText.swift in Sources */,
 				CD4B2426744C5766BA0882BC /* TCPRangeFetcher.swift in Sources */,
 				C704ABB3376C76160612D0D6 /* TagEditorView.swift in Sources */,
 				88BE104CE252B99F177AE820 /* TagMetadataWritebackCoordinator.swift in Sources */,

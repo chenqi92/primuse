@@ -1143,6 +1143,10 @@ final class AppServices {
         )
         alwaysDownload.start()
         serverCatalogAutoRefresh.startColdLaunchRefresh()
+        #if os(iOS) || os(macOS)
+        // 电台清单订阅：等启动忙完再查哪些到期了，别和首屏抢网络。
+        RadioSubscriptionService.shared.startAfterLaunch()
+        #endif
         schedulePendingSourceCloudCleanupPropagation(delay: .seconds(1))
         didFinishDeferredStartup = true
         #if os(macOS)
@@ -1456,6 +1460,10 @@ final class AppServices {
                     self?.serverCatalogAutoRefresh.setApplicationActive(true)
                     self?.alwaysDownload.setApplicationActive(true)
                     self?.serverRatingSync.resume()
+                    #if os(iOS) || os(macOS)
+                    // 每次回到前台查一次到期的清单订阅(启动后的等待结束前不算数)。
+                    RadioSubscriptionService.shared.refreshDueSubscriptions()
+                    #endif
                 }
             }
         )
@@ -1464,6 +1472,9 @@ final class AppServices {
                 Task { @MainActor [weak self] in
                     self?.serverCatalogAutoRefresh.setApplicationActive(false)
                     self?.alwaysDownload.setApplicationActive(false)
+                    #if os(iOS)
+                    RadioSubscriptionService.shared.suspendForBackground()
+                    #endif
                 }
             }
         )

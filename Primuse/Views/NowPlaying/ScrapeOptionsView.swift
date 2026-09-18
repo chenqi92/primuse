@@ -241,10 +241,12 @@ struct ScrapeOptionsView: View {
         #else
         NavigationStack {
             Group {
+                // 整页替换只让新的一步淡入: 交叉过渡会让两份 Form 同时在场,
+                // 互相顶开布局, 比硬切更难看。赋值点因此也不包动画事务。
                 switch mode {
-                case .options: optionsView
-                case .preview: previewView
-                case .manual: manualSearchView
+                case .options: optionsView.pmAppearFade(.pageSwitch)
+                case .preview: previewView.pmAppearFade(.pageSwitch)
+                case .manual: manualSearchView.pmAppearFade(.pageSwitch)
                 }
             }
             .navigationTitle("scrape_song")

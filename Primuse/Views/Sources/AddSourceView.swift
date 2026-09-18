@@ -84,7 +84,7 @@ struct AddSourceView: View {
     private var continuesToConnectionAfterSave: Bool {
         !isEditing
             && submitIntent == .continueToConnection
-            && sourceType.continuesToDirectorySelectionAfterCreation
+            && sourceType.continuesToConnectionAfterCreation
     }
     private var submitButtonTitle: LocalizedStringKey {
         continuesToConnectionAfterSave ? "Next" : "save"
@@ -105,7 +105,7 @@ struct AddSourceView: View {
         return value
     }
     private var remoteUsesVendor: Bool {
-        if sourceType == .synology { return synologyConnectionMode == .quickConnect }
+        if sourceType.usesSynologyConnectionMode { return synologyConnectionMode == .quickConnect }
         if sourceType == .fnMusic { return fnMusicConnectionMode == .fnConnect }
         return false
     }
@@ -386,6 +386,7 @@ struct AddSourceView: View {
                     .padding(.horizontal, 14)
                     .frame(height: 28)
                     .background((canSave ? theme.uiAccentColor : PMColor.textFaint), in: .rect(cornerRadius: 6))
+                    .pmAnimation(.hover, value: canSave)
             }
             .padding(.horizontal, 24)
             .frame(height: 64)
@@ -727,16 +728,20 @@ struct AddSourceView: View {
     private var macAddressProgress: some View {
         if addressProbe.isProbing {
             ProgressView().controlSize(.small)
+                .pmAppearFade(.contentAppear)
             Text("source_address_probing")
                 .font(.system(size: 11.5))
                 .foregroundStyle(PMColor.textFaint)
+                .pmAppearFade(.contentAppear)
             Button("cancel") { cancelAddressProbe() }
                 .buttonStyle(.link)
                 .font(.system(size: 11.5))
+                .pmAppearFade(.contentAppear)
         } else if addressProbe.phase == .unresolved {
             Button("source_address_probe_save_anyway") { saveWithoutProbing() }
                 .buttonStyle(.link)
                 .font(.system(size: 11.5))
+                .pmAppearFade(.contentAppear)
         }
     }
 
@@ -1052,14 +1057,17 @@ struct AddSourceView: View {
                 Button("cancel") { cancelAddressProbe() }
                     .buttonStyle(.borderless)
             }
+            .pmFadeTransition(motion: .contentAppear)
         }
         if addressProbe.phase == .unresolved {
             Button("source_address_probe_save_anyway") { saveWithoutProbing() }
+                .pmFadeTransition(motion: .contentAppear)
         }
         if let note = unconfirmedServiceNote {
             Text(note)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .pmFadeTransition(motion: .contentAppear)
         }
     }
 
@@ -1300,7 +1308,7 @@ struct AddSourceView: View {
         }
         vendorIdentifier = configuration.vendorIdentifier ?? ""
 
-        if sourceType == .synology {
+        if sourceType.usesSynologyConnectionMode {
             synologyConnectionMode = configuration.remoteAccessMode == .vendor
                 ? .quickConnect
                 : .address
@@ -1458,7 +1466,7 @@ struct AddSourceView: View {
 
         vendorIdentifier = resolvedVendorIdentifier ?? ""
         let usesVendor = resolvedVendorIdentifier != nil
-        if sourceType == .synology {
+        if sourceType.usesSynologyConnectionMode {
             synologyConnectionMode = usesVendor ? .quickConnect : .address
         }
         if sourceType == .fnMusic {
@@ -1590,7 +1598,7 @@ struct AddSourceView: View {
                 || (sourceType == .fnMusic && fnMusicConnectionMode == .fnConnect)
                 ? true
                 : useSsl),
-            synologyConnectionMode: sourceType == .synology ? synologyConnectionMode : nil,
+            synologyConnectionMode: sourceType.usesSynologyConnectionMode ? synologyConnectionMode : nil,
             fnMusicConnectionMode: sourceType == .fnMusic ? fnMusicConnectionMode : nil,
             connectionConfiguration: adaptiveConfiguration,
             username: finalUsername,
@@ -1885,7 +1893,7 @@ struct AddSourceView: View {
         let normalizedVendorIdentifier: String?
         if rawVendorIdentifier.isEmpty {
             normalizedVendorIdentifier = nil
-        } else if sourceType == .synology {
+        } else if sourceType.usesSynologyConnectionMode {
             normalizedVendorIdentifier = SynologyQuickConnectResolver.quickConnectID(
                 from: rawVendorIdentifier
             ) ?? rawVendorIdentifier
