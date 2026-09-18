@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps
+from PIL import Image, ImageDraw
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,11 +58,7 @@ EXACT_ICONS = [
     ),
 ]
 
-BRUSH_ICONS = [
-    ("11-color-brush-source.png", "11-color-brush", "AppIcon11", "AppIcon11Preview"),
-]
-
-CATALOG_ORDER = ["AppIcon", "AppIcon12", "AppIcon9", "AppIcon11", "AppIcon6", "AppIcon13"]
+CATALOG_ORDER = ["AppIcon", "AppIcon12", "AppIcon9", "AppIcon6", "AppIcon13"]
 
 
 def save_direct_ios_assets(
@@ -89,39 +85,6 @@ def save_direct_ios_assets(
     any_icon.save(preview / f"{preview_name}.png", optimize=True)
     dark_icon.save(preview / f"{preview_name}-dark.png", optimize=True)
     return any_icon, dark_icon
-
-
-def make_brush_variants(source: Path) -> dict[str, Image.Image]:
-    """Preserve the selected brush artwork on pure Light/Dark backgrounds."""
-    source_image = Image.open(source).convert("RGB").resize((1024, 1024), Image.Resampling.LANCZOS)
-
-    # The selected artwork was rendered on pure black. Flood-fill only the
-    # connected black backdrop so the dark brush texture inside the mark is
-    # retained when compositing the Light appearance.
-    marker = (0, 255, 0)
-    flood = source_image.copy()
-    ImageDraw.floodfill(flood, (0, 0), marker, thresh=24)
-    ImageDraw.floodfill(flood, (600, 410), marker, thresh=24)
-    alpha = Image.new("L", source_image.size, 255)
-    alpha.putdata([0 if pixel == marker else 255 for pixel in flood.get_flattened_data()])
-    alpha = alpha.filter(ImageFilter.GaussianBlur(0.6))
-
-    foreground = source_image.convert("RGBA")
-    foreground.putalpha(alpha)
-    light = Image.new("RGBA", source_image.size, (255, 255, 255, 255))
-    light.alpha_composite(foreground)
-    dark = Image.new("RGBA", source_image.size, (0, 0, 0, 255))
-    dark.alpha_composite(foreground)
-
-    dark_rgb = dark.convert("RGB")
-    tinted = ImageOps.grayscale(dark_rgb)
-    tinted = ImageEnhance.Contrast(tinted).enhance(1.12).convert("RGB")
-
-    return {
-        "light": light.convert("RGB"),
-        "dark": dark_rgb,
-        "tinted": tinted,
-    }
 
 
 def rounded_mac_master(source: Image.Image) -> Image.Image:
@@ -204,21 +167,6 @@ def main() -> None:
             Image.open(RAW_DIR / light_name),
             Image.open(RAW_DIR / dark_name),
             Image.open(RAW_DIR / tinted_name),
-            master_stem,
-            icon_name,
-            preview_name,
-        )
-        rendered_icons[icon_name] = (light_icon, dark_icon)
-
-    for raw_filename, master_stem, icon_name, preview_name in BRUSH_ICONS:
-        variants = make_brush_variants(RAW_DIR / raw_filename)
-        variants["light"].save(RAW_DIR / f"{master_stem}.png", optimize=True)
-        variants["dark"].save(RAW_DIR / f"{master_stem}-dark.png", optimize=True)
-        variants["tinted"].save(RAW_DIR / f"{master_stem}-tinted.png", optimize=True)
-        light_icon, dark_icon = save_direct_ios_assets(
-            variants["light"],
-            variants["dark"],
-            variants["tinted"],
             master_stem,
             icon_name,
             preview_name,
