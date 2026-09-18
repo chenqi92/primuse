@@ -25,6 +25,7 @@ struct OnboardingView: View {
     @State private var pageIndex = 0
     @State private var presentAddSource = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.pmHeightClass) private var heightClass
 
     private var pageCount: Int {
         #if os(macOS)
@@ -85,8 +86,14 @@ struct OnboardingView: View {
             )
             .ignoresSafeArea()
 
-            VStack {
-                Spacer()
+            // 紧凑高度（手机横屏）下纵向只剩三百多点：这里的各项留白都收一档，
+            // 把省下来的高度全留给分页区。
+            VStack(spacing: heightClass.isCompact ? 0 : nil) {
+                // 竖屏靠它把内容压向下半屏；横屏下这一格会跟分页区平分高度，
+                // 白吃掉一半，页面上下各被裁掉一截。
+                if !heightClass.isCompact {
+                    Spacer()
+                }
 
                 TabView(selection: $pageIndex) {
                     sourcesPage.tag(0)
@@ -107,8 +114,9 @@ struct OnboardingView: View {
                     .padding(.bottom, 8)
 
                 bottomButtons
+                    .frame(maxWidth: heightClass.value(.infinity, compact: 480))
                     .padding(.horizontal, 32)
-                    .padding(.bottom, 36)
+                    .padding(.bottom, heightClass.value(36, compact: 16))
             }
         }
         #endif
@@ -414,11 +422,8 @@ struct OnboardingView: View {
     #endif
 
     private var sourcesPage: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "externaldrive.fill.badge.icloud")
-                .font(.system(size: 80, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.top, 12)
+        VStack(spacing: heightClass.value(24, compact: 16)) {
+            onboardingHeroIcon("externaldrive.fill.badge.icloud")
 
             Text(String(localized: "onboarding_sources_title"))
                 .font(.system(size: 28, weight: .bold))
@@ -439,14 +444,12 @@ struct OnboardingView: View {
                 .foregroundStyle(.white.opacity(0.65))
                 .padding(.horizontal, 24)
         }
+        .onboardingCompactScroll()
     }
 
     private var metadataPage: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "wand.and.stars")
-                .font(.system(size: 80, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.top, 12)
+        VStack(spacing: heightClass.value(24, compact: 16)) {
+            onboardingHeroIcon("wand.and.stars")
 
             Text(String(localized: "onboarding_metadata_title"))
                 .font(.system(size: 28, weight: .bold))
@@ -466,14 +469,12 @@ struct OnboardingView: View {
                 .foregroundStyle(.white.opacity(0.65))
                 .padding(.horizontal, 24)
         }
+        .onboardingCompactScroll()
     }
 
     private var experiencePage: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "play.rectangle.on.rectangle.fill")
-                .font(.system(size: 80, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.top, 12)
+        VStack(spacing: heightClass.value(24, compact: 16)) {
+            onboardingHeroIcon("play.rectangle.on.rectangle.fill")
 
             Text(String(localized: "onboarding_experience_title"))
                 .font(.system(size: 28, weight: .bold))
@@ -493,14 +494,12 @@ struct OnboardingView: View {
                 .foregroundStyle(.white.opacity(0.65))
                 .padding(.horizontal, 24)
         }
+        .onboardingCompactScroll()
     }
 
     private var personalizationPage: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "paintpalette.fill")
-                .font(.system(size: 80, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.top, 12)
+        VStack(spacing: heightClass.value(24, compact: 16)) {
+            onboardingHeroIcon("paintpalette.fill")
 
             Text(String(localized: "onboarding_personalization_title"))
                 .font(.system(size: 28, weight: .bold))
@@ -520,6 +519,15 @@ struct OnboardingView: View {
                 .foregroundStyle(.white.opacity(0.65))
                 .padding(.horizontal, 24)
         }
+        .onboardingCompactScroll()
+    }
+
+    /// 四页共用的插画。紧凑高度下分页区只剩两百多点，80pt 的符号会把标题和清单挤出首屏。
+    private func onboardingHeroIcon(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: heightClass.value(80, compact: 44), weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.top, heightClass.value(12, compact: 2))
     }
 
     private func onboardingRow(_ icon: String, _ key: String) -> some View {
@@ -585,6 +593,35 @@ struct OnboardingView: View {
     private func finish() {
         hasSeenOnboarding = true
         dismiss()
+    }
+}
+
+/// 紧凑高度（手机横屏）下把整页放进竖向滚动里：分页区只剩两百多点，
+/// 原来的居中竖排会上下各被裁掉一截，而且滚不到。
+/// 横向留白同时收到与两页操作示意一致的 480pt，免得一行清单摊成七百多点宽。
+/// 竖屏与 iPad 走原来那一支，版式不变。
+private struct OnboardingCompactScroll: ViewModifier {
+    @Environment(\.pmHeightClass) private var heightClass
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if heightClass.isCompact {
+            ScrollView(.vertical, showsIndicators: false) {
+                content
+                    .frame(maxWidth: 480)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        } else {
+            content
+        }
+    }
+}
+
+private extension View {
+    func onboardingCompactScroll() -> some View {
+        modifier(OnboardingCompactScroll())
     }
 }
 
