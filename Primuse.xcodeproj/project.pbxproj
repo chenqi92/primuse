@@ -379,6 +379,7 @@
 		476ABB1A64AC9D81950EA6CD /* OpenAICompatibleProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 182840B263E637C233CBB7DE /* OpenAICompatibleProvider.swift */; };
 		47739E0B4A1BF80DBFEAEACB /* HomeSectionsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F9BAE1D915901E05BF85719 /* HomeSectionsSettingsView.swift */; };
 		47D2853E3C737B32D25E9E6E /* libswresample.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 8F8034D1C470B837DB46D3E0 /* libswresample.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		4809F325C132563CE11FCE4C /* PMMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 498704BA66FC0B14390F0F5B /* PMMotion.swift */; };
 		480E140B24CE0B9EEF4CF606 /* CarPlayEditorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63EBB09B5F6B03143A59F27A /* CarPlayEditorModel.swift */; };
 		482624D7B354423C31CEB08D /* ExternalDisplaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D3CF7E2A5E7D4B7274BDB17 /* ExternalDisplaySceneDelegate.swift */; };
 		4853B2CCCC5CFD4819C3EDB3 /* ServerMediaShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 228E9AF235163595E752F32C /* ServerMediaShareSheet.swift */; };
@@ -719,6 +720,7 @@
 		86E8C6BB304347462D250493 /* TVRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A838C1C1D523CAD6E766726A /* TVRoot.swift */; };
 		8718280BE3CBE139794FD303 /* MetadataAssetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A24F02124D01EC09135B0F9 /* MetadataAssetStore.swift */; };
 		874EC1D5086E07ED87F0385B /* FullscreenPlayerEffectSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 674C441197AFC8EDFF6E7E4B /* FullscreenPlayerEffectSettings.swift */; };
+		876DE61C76A93F13180836EF /* PMMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 498704BA66FC0B14390F0F5B /* PMMotion.swift */; };
 		878478B3EF597FD950C48064 /* MiniPlayerWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F8BE745FB20EDEA78E90EEF /* MiniPlayerWindowController.swift */; };
 		8792892E9BCDADAF76BE3E87 /* LastFmAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9428B24AB2EAE7BA15C6C5CA /* LastFmAuthService.swift */; };
 		87C586EFCBC16CA86942B09F /* WiFiTransfer.strings in Resources */ = {isa = PBXBuildFile; fileRef = A4124C42E899AF4EF9EEE92D /* WiFiTransfer.strings */; };
@@ -1847,6 +1849,7 @@
 		48470EC1F67DE11E5508AB64 /* LyricPosterLayoutPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricPosterLayoutPolicy.swift; sourceTree = "<group>"; };
 		491A850F03AC46FECF60ADFD /* NetworkDiscoveryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkDiscoveryService.swift; sourceTree = "<group>"; };
 		49599E6563DECC420DE66CF4 /* DaoLiYuAPIProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaoLiYuAPIProtocol.swift; sourceTree = "<group>"; };
+		498704BA66FC0B14390F0F5B /* PMMotion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PMMotion.swift; sourceTree = "<group>"; };
 		49B4FE6BD37CDF7D186CF09F /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/SettingsSearch.strings"; sourceTree = "<group>"; };
 		49BA1BD7B45060D531430999 /* ar */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ar; path = ar.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		4A1DAB69FAAD3766B5A5F7E2 /* AudioDecodeBlockingLanePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioDecodeBlockingLanePolicy.swift; sourceTree = "<group>"; };
@@ -3790,6 +3793,7 @@
 				74E7FAB98F69FB881AC0E380 /* EmptyStateView.swift */,
 				C7B6EE3BA7595C043A4CDB60 /* FloatingInputPanelClearance.swift */,
 				3305EA479E0347F99584ABAE /* MediaDetailActionBar.swift */,
+				498704BA66FC0B14390F0F5B /* PMMotion.swift */,
 				C7F149AF186A1E8E9004E602 /* PlaybackToggleHighlight.swift */,
 				23CA6DF05BAC0E0F38218C88 /* RevealableSecureField.swift */,
 				9492D5CC5D1370DFED401085 /* ScraperSourceGate.swift */,
@@ -5203,6 +5207,7 @@
 				49A5B455D71D7C8E0FE0E628 /* OnboardingView.swift in Sources */,
 				3F8513D64E7EAB2667895EEC /* OneDriveSource.swift in Sources */,
 				476ABB1A64AC9D81950EA6CD /* OpenAICompatibleProvider.swift in Sources */,
+				876DE61C76A93F13180836EF /* PMMotion.swift in Sources */,
 				3043FF24779407E29FC86609 /* PMPlaybackVolumeControl.swift in Sources */,
 				33291B00F794529D46E2B888 /* PMTitleBar.swift in Sources */,
 				BEB291FBADAB1813D2379B09 /* PMVolumeSlider.swift in Sources */,
@@ -5724,6 +5729,7 @@
 				F45510F7EDAE425A749A03CF /* OnboardingView.swift in Sources */,
 				235C8FC6F296376EB5E6A8F1 /* OneDriveSource.swift in Sources */,
 				F807B1B51DE6DBC9D5B92CC6 /* OpenAICompatibleProvider.swift in Sources */,
+				4809F325C132563CE11FCE4C /* PMMotion.swift in Sources */,
 				E69C14A8F61B6822F6426908 /* PMPlaybackVolumeControl.swift in Sources */,
 				E3900CCC1A7A9AEC7FAB20FE /* PMTitleBar.swift in Sources */,
 				B4EBAC636CB88193ED9429FC /* PMVolumeSlider.swift in Sources */,
