@@ -2,6 +2,14 @@ import AVFoundation
 import Foundation
 import PrimuseKit
 
+/// Retain the sender until the queued callback has been handled. An identifier
+/// alone can be reused after the old graph is deallocated. The engine is never
+/// read or mutated across actors here; only its identity is inspected.
+private struct AudioEngineNotificationSource: @unchecked Sendable {
+    let engine: AVAudioEngine?
+    var identifier: ObjectIdentifier? { engine.map(ObjectIdentifier.init) }
+}
+
 @MainActor
 final class AudioSessionManager {
     static let shared = AudioSessionManager()
@@ -13,7 +21,7 @@ final class AudioSessionManager {
     /// cleared instead of being revived by a later lifecycle callback.
     var onInterruptionEnded: ((Bool) -> Void)?
     /// Called when the audio engine's hardware configuration changes (route change, etc.)
-    var onConfigurationChange: ((Date) -> Void)?
+    var onConfigurationChange: ((Date, ObjectIdentifier?) -> Void)?
 
     private var isConfigured = false
 
@@ -231,9 +239,10 @@ final class AudioSessionManager {
         // 调本方法; @MainActor 方法入口的 executor 断言会 trap(iOS 26 默认 fatal)。
         // 标 nonisolated 让入口任意线程, 内部 Task 再 hop 回主线程访问 @MainActor 状态。
         let eventTime = Date()
+        let source = AudioEngineNotificationSource(engine: notification.object as? AVAudioEngine)
         Task { @MainActor [weak self] in
             plog("🔧 Audio engine configuration changed")
-            self?.onConfigurationChange?(eventTime)
+            self?.onConfigurationChange?(eventTime, source.identifier)
         }
     }
 
@@ -258,9 +267,10 @@ final class AudioSessionManager {
 
     @objc private nonisolated func handleConfigurationChange(_ notification: Notification) {
         let eventTime = Date()
+        let source = AudioEngineNotificationSource(engine: notification.object as? AVAudioEngine)
         Task { @MainActor [weak self] in
             plog("🔧 Audio engine configuration changed")
-            self?.onConfigurationChange?(eventTime)
+            self?.onConfigurationChange?(eventTime, source.identifier)
         }
     }
 
