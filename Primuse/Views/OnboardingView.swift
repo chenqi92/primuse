@@ -9,8 +9,8 @@ private struct MacOnboardingProtocolGroup: Identifiable {
 }
 #endif
 
-/// 首启引导。iOS 只展示具体能力：
-/// 「音乐源 → 元数据增强 → 播放体验 → 个性化」。
+/// 首启引导。iOS 只展示具体能力，并带两页照真实界面画的操作示意：
+/// 「音乐源 → 怎么添加音乐源 → 播放页怎么用 → 元数据增强 → 播放体验 → 个性化」。
 /// 设置页也能以 feature-guide 模式重新打开。
 /// 任何路径关闭后都把 `primuse.hasSeenOnboarding` 写 true，后续启动不再弹。
 ///
@@ -30,7 +30,7 @@ struct OnboardingView: View {
         #if os(macOS)
         3
         #else
-        4
+        6
         #endif
     }
 
@@ -90,9 +90,13 @@ struct OnboardingView: View {
 
                 TabView(selection: $pageIndex) {
                     sourcesPage.tag(0)
-                    metadataPage.tag(1)
-                    experiencePage.tag(2)
-                    personalizationPage.tag(3)
+                    #if os(iOS)
+                    OnboardingSourcesGuidePage(isActive: pageIndex == 1).tag(1)
+                    OnboardingPlayerGuidePage(isActive: pageIndex == 2).tag(2)
+                    #endif
+                    metadataPage.tag(3)
+                    experiencePage.tag(4)
+                    personalizationPage.tag(5)
                 }
                 #if os(iOS)
                 .tabViewStyle(.page(indexDisplayMode: .never))

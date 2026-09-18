@@ -2319,6 +2319,17 @@
 "onboarding_personalization_home" = "Affichez, masquez et réorganisez les sections de l’accueil";
 "onboarding_personalization_quick" = "Épinglez albums, artistes et playlists pour un accès rapide";
 "onboarding_personalization_footer" = "Vous pourrez modifier ces options à tout moment.";
+"onboarding_guide_sources_title" = "Ajouter une source en trois étapes";
+"onboarding_guide_sources_step1 %@" = "Ouvrez « %@ », touchez + en haut à droite et choisissez un type de source";
+"onboarding_guide_sources_step2" = "Saisissez seulement l’adresse du serveur : le port et le chiffrement sont confirmés automatiquement";
+"onboarding_guide_sources_step3 %@" = "Cochez les dossiers qui contiennent votre musique, puis touchez « %@ » pour lancer l’analyse";
+"onboarding_guide_sources_footer" = "Pour les stockages cloud, il suffit de vous connecter quand c’est demandé ; les serveurs multimédias comme Navidrome et Jellyfin synchronisent toute la bibliothèque après connexion, sans choisir de dossier.";
+"onboarding_guide_player_title" = "Utiliser l’écran de lecture";
+"onboarding_guide_player_subtitle" = "Touchez la barre de lecture en bas de n’importe quel écran pour ouvrir l’écran de lecture.";
+"onboarding_guide_player_lyrics" = "Paroles : défilent avec la chanson, avec surlignage mot à mot et traduction";
+"onboarding_guide_player_airplay" = "AirPlay : basculez vers des enceintes, un casque ou une Apple TV";
+"onboarding_guide_player_queue" = "File d’attente : maintenez le doigt puis faites glisser pour réordonner la suite";
+"onboarding_guide_player_more" = "Plus : diffusion vers un appareil DLNA, minuterie de mise en veille ou partage d’une affiche de paroles";
 
 // MARK: - macOS settings i18n audit
 "Auto Add to Smart Playlists" = "Ajouter automatiquement aux playlists intelligentes";

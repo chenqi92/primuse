@@ -2097,6 +2097,17 @@
 "onboarding_metadata_title" = "ทำคลังเพลงของคุณให้สมบูรณ์";
 "onboarding_next" = "ดำเนินการต่อ";
 "onboarding_personalization_footer" = "คุณสามารถเปลี่ยนตัวเลือกเหล่านี้ทั้งหมดได้ตลอดเวลา";
+"onboarding_guide_sources_title" = "เพิ่มแหล่งที่มาใน 3 ขั้นตอน";
+"onboarding_guide_sources_step1 %@" = "เปิด “%@” แตะ + ที่มุมขวาบน แล้วเลือกประเภทแหล่งที่มา";
+"onboarding_guide_sources_step2" = "ใส่แค่ที่อยู่เซิร์ฟเวอร์ ระบบจะยืนยันพอร์ตและการเข้ารหัสให้อัตโนมัติ";
+"onboarding_guide_sources_step3 %@" = "เลือกโฟลเดอร์ที่เก็บเพลง แล้วแตะ “%@” เพื่อเริ่มสแกน";
+"onboarding_guide_sources_footer" = "คลาวด์ไดรฟ์แค่ลงชื่อเข้าใช้ตามที่ระบบแจ้ง ส่วนมีเดียเซิร์ฟเวอร์อย่าง Navidrome และ Jellyfin จะซิงค์คลังเพลงทั้งหมดหลังลงชื่อเข้าใช้ โดยไม่ต้องเลือกโฟลเดอร์";
+"onboarding_guide_player_title" = "วิธีใช้หน้าเล่นเพลง";
+"onboarding_guide_player_subtitle" = "แตะแถบเล่นเพลงที่ด้านล่างของหน้าใดก็ได้เพื่อเปิดหน้าเล่นเพลง";
+"onboarding_guide_player_lyrics" = "เนื้อเพลง: เลื่อนตามเพลง พร้อมไฮไลต์ทีละคำและคำแปล";
+"onboarding_guide_player_airplay" = "AirPlay: สลับไปยังลำโพง หูฟัง หรือ Apple TV";
+"onboarding_guide_player_queue" = "คิว: แตะค้างแล้วลากเพื่อจัดลำดับเพลงถัดไป";
+"onboarding_guide_player_more" = "เพิ่มเติม: แคสต์ไปยังอุปกรณ์ DLNA ตั้งเวลาปิด หรือแชร์โปสเตอร์เนื้อเพลง";
 "onboarding_personalization_home" = "แสดง ซ่อน และจัดลำดับส่วนต่างๆ ในหน้าแรกใหม่";
 "onboarding_personalization_icon" = "เลือกไอคอนแอปของคุณในการตั้งค่า > ลักษณะที่ปรากฏ";
 "onboarding_personalization_quick" = "ปักหมุดอัลบั้ม ศิลปิน และเพลย์ลิสต์เพื่อการเข้าถึงที่รวดเร็ว";

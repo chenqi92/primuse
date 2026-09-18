@@ -2319,6 +2319,17 @@
 "onboarding_personalization_home" = "Bereiche der Startseite ein-/ausblenden und neu anordnen";
 "onboarding_personalization_quick" = "Alben, Künstler und Playlists für den Schnellzugriff anheften";
 "onboarding_personalization_footer" = "Diese Optionen kannst du jederzeit wieder ändern.";
+"onboarding_guide_sources_title" = "Quelle in drei Schritten hinzufügen";
+"onboarding_guide_sources_step1 %@" = "Öffne „%@“, tippe oben rechts auf + und wähle einen Quellentyp";
+"onboarding_guide_sources_step2" = "Gib nur die Serveradresse ein – Port und Verschlüsselung werden automatisch ermittelt";
+"onboarding_guide_sources_step3 %@" = "Wähle die Ordner mit deiner Musik aus und tippe auf „%@“, um den Scan zu starten";
+"onboarding_guide_sources_footer" = "Bei Cloud-Speichern meldest du dich einfach an, wenn du dazu aufgefordert wirst; Medienserver wie Navidrome und Jellyfin synchronisieren nach der Anmeldung die gesamte Mediathek – ganz ohne Ordnerauswahl.";
+"onboarding_guide_player_title" = "So funktioniert die Wiedergabeansicht";
+"onboarding_guide_player_subtitle" = "Tippe unten auf einer beliebigen Seite auf die Wiedergabeleiste, um die Wiedergabeansicht zu öffnen.";
+"onboarding_guide_player_lyrics" = "Songtexte: laufen mit dem Song mit, mit wortgenauer Hervorhebung und Übersetzung";
+"onboarding_guide_player_airplay" = "AirPlay: auf Lautsprecher, Kopfhörer oder Apple TV wechseln";
+"onboarding_guide_player_queue" = "Warteschlange: gedrückt halten und ziehen, um die Reihenfolge zu ändern";
+"onboarding_guide_player_more" = "Mehr: an DLNA-Geräte streamen, Sleep-Timer stellen oder ein Songtext-Poster teilen";
 
 // MARK: - macOS settings i18n audit
 "Auto Add to Smart Playlists" = "Automatisch zu intelligenten Playlists hinzufügen";

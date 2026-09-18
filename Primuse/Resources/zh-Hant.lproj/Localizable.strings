@@ -2304,6 +2304,17 @@
 "onboarding_personalization_home" = "顯示、隱藏並調整首頁模組的顯示順序";
 "onboarding_personalization_quick" = "編輯快速收藏，快速開啟專輯、藝人與播放清單";
 "onboarding_personalization_footer" = "這些選項之後都可以隨時修改。";
+"onboarding_guide_sources_title" = "三步新增音樂來源";
+"onboarding_guide_sources_step1 %@" = "打開「%@」，點右上角的 +，選擇音樂來源類型";
+"onboarding_guide_sources_step2" = "只要填伺服器位址，連接埠和加密方式會自動確認";
+"onboarding_guide_sources_step3 %@" = "勾選存放音樂的資料夾，點「%@」後自動開始掃描";
+"onboarding_guide_sources_footer" = "雲端硬碟依提示授權登入即可；Navidrome、Jellyfin 等媒體伺服器登入後會直接同步整個曲庫，不用選資料夾。";
+"onboarding_guide_player_title" = "播放頁怎麼用";
+"onboarding_guide_player_subtitle" = "在任何頁面點底部的播放列，就能打開播放頁。";
+"onboarding_guide_player_lyrics" = "歌詞：跟著播放捲動，支援逐字標示和翻譯";
+"onboarding_guide_player_airplay" = "AirPlay：切換到喇叭、耳機或 Apple TV";
+"onboarding_guide_player_queue" = "佇列：長按拖曳，調整接下來播放的順序";
+"onboarding_guide_player_more" = "更多：投放到 DLNA 裝置、定時關閉、分享歌詞海報";
 
 // MARK: - macOS settings i18n audit
 "Auto Add to Smart Playlists" = "自動加入智慧型播放清單";

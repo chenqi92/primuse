@@ -1363,6 +1363,17 @@
 "source_diag_directory_ok_format" = "Прочитано каталог успішно, знайдено видимі елементи %d.";
 "fnmusic_connection_address" = "Адреса сервера";
 "onboarding_personalization_footer" = "Ви можете будь-коли змінити всі ці параметри.";
+"onboarding_guide_sources_title" = "Додайте джерело за три кроки";
+"onboarding_guide_sources_step1 %@" = "Відкрийте «%@», торкніться + у правому верхньому куті та виберіть тип джерела";
+"onboarding_guide_sources_step2" = "Введіть лише адресу сервера — порт і шифрування визначаться автоматично";
+"onboarding_guide_sources_step3 %@" = "Позначте папки з музикою й торкніться «%@», щоб почати сканування";
+"onboarding_guide_sources_footer" = "Для хмарних дисків достатньо увійти, коли з’явиться запит; медіасервери на кшталт Navidrome і Jellyfin після входу синхронізують усю медіатеку без вибору папок.";
+"onboarding_guide_player_title" = "Як користуватися екраном відтворення";
+"onboarding_guide_player_subtitle" = "Торкніться панелі плеєра внизу будь-якого екрана, щоб відкрити його.";
+"onboarding_guide_player_lyrics" = "Тексти: прокручуються разом із піснею, з підсвічуванням слово за словом і перекладом";
+"onboarding_guide_player_airplay" = "AirPlay: перемикання на колонки, навушники або Apple TV";
+"onboarding_guide_player_queue" = "Черга: утримуйте й перетягніть, щоб змінити порядок наступних пісень";
+"onboarding_guide_player_more" = "Більше: трансляція на DLNA-пристрої, таймер сну або постер із текстом пісні";
 "app_icon" = "Значок програми";
 "audio_output_error_set_device %d" = "Не вдалося вибрати вихідний аудіопристрій (статус=%d).";
 "ai_recommendation_scene_automatic" = "Прямо зараз";

@@ -1363,6 +1363,17 @@
 "source_diag_directory_ok_format" = "Dizini başarıyla okuyun, %d görünür öğeleri buldu.";
 "fnmusic_connection_address" = "Sunucu Adresi";
 "onboarding_personalization_footer" = "Bu seçeneklerin tamamını istediğiniz zaman değiştirebilirsiniz.";
+"onboarding_guide_sources_title" = "Üç adımda kaynak ekleyin";
+"onboarding_guide_sources_step1 %@" = "“%@” bölümünü açın, sağ üstteki + düğmesine dokunun ve kaynak türünü seçin";
+"onboarding_guide_sources_step2" = "Yalnızca sunucu adresini girin; bağlantı noktası ve şifreleme otomatik olarak doğrulanır";
+"onboarding_guide_sources_step3 %@" = "Müziklerinizin bulunduğu klasörleri işaretleyin ve taramayı başlatmak için “%@” düğmesine dokunun";
+"onboarding_guide_sources_footer" = "Bulut depolama için istendiğinde oturum açmanız yeterli; Navidrome ve Jellyfin gibi medya sunucuları oturum açtıktan sonra tüm arşivi eşitler, klasör seçmeniz gerekmez.";
+"onboarding_guide_player_title" = "Oynatma ekranı nasıl kullanılır";
+"onboarding_guide_player_subtitle" = "Oynatma ekranını açmak için herhangi bir ekranın altındaki oynatıcı çubuğuna dokunun.";
+"onboarding_guide_player_lyrics" = "Şarkı sözleri: şarkıyla birlikte kayar, kelime kelime vurgulama ve çeviri desteği vardır";
+"onboarding_guide_player_airplay" = "AirPlay: hoparlörlere, kulaklığa veya Apple TV’ye geçin";
+"onboarding_guide_player_queue" = "Sıra: basılı tutup sürükleyerek sıradaki şarkıların sırasını değiştirin";
+"onboarding_guide_player_more" = "Diğer: DLNA cihazlarına yayınlayın, uyku zamanlayıcısı kurun veya şarkı sözü posteri paylaşın";
 "app_icon" = "Uygulama Simgesi";
 "audio_output_error_set_device %d" = "Ses çıkış cihazı seçilemedi (durum=%d).";
 "ai_recommendation_scene_automatic" = "Şu Anda";

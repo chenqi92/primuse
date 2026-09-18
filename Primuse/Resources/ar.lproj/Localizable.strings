@@ -2097,6 +2097,17 @@
 "onboarding_metadata_title" = "أكمل مكتبتك";
 "onboarding_next" = "متابعة";
 "onboarding_personalization_footer" = "يمكنك تغيير كل هذه الخيارات في أي وقت.";
+"onboarding_guide_sources_title" = "أضف مصدرًا في ثلاث خطوات";
+"onboarding_guide_sources_step1 %@" = "افتح «%@»، واضغط على + في أعلى الشاشة، ثم اختر نوع المصدر";
+"onboarding_guide_sources_step2" = "أدخل عنوان الخادم فقط، وسيتم تأكيد المنفذ والتشفير تلقائيًا";
+"onboarding_guide_sources_step3 %@" = "حدد المجلدات التي تحتوي على موسيقاك، ثم اضغط على «%@» لبدء الفحص";
+"onboarding_guide_sources_footer" = "في التخزين السحابي يكفي تسجيل الدخول عند الطلب؛ أما خوادم الوسائط مثل Navidrome وJellyfin فتزامن المكتبة كاملة بعد تسجيل الدخول دون اختيار مجلدات.";
+"onboarding_guide_player_title" = "كيفية استخدام شاشة التشغيل";
+"onboarding_guide_player_subtitle" = "اضغط على شريط التشغيل أسفل أي شاشة لفتح شاشة التشغيل.";
+"onboarding_guide_player_lyrics" = "الكلمات: تتحرك مع الأغنية، مع تمييز كلمة بكلمة وترجمة";
+"onboarding_guide_player_airplay" = "AirPlay: انتقل إلى السماعات أو سماعات الرأس أو Apple TV";
+"onboarding_guide_player_queue" = "قائمة الانتظار: المس مع الاستمرار ثم اسحب لإعادة ترتيب ما سيُشغَّل تاليًا";
+"onboarding_guide_player_more" = "المزيد: البث إلى أجهزة DLNA، ومؤقت الإيقاف، ومشاركة ملصق الكلمات";
 "onboarding_personalization_home" = "إظهار وإخفاء وإعادة ترتيب الأقسام في الصفحة الرئيسية";
 "onboarding_personalization_icon" = "اختر أيقونة التطبيق الخاص بك في الإعدادات > المظهر";
 "onboarding_personalization_quick" = "قم بتثبيت الألبومات والفنانين وقوائم التشغيل للوصول السريع";

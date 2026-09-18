@@ -2097,6 +2097,17 @@
 "onboarding_metadata_title" = "अपनी लाइब्रेरी पूरी करें";
 "onboarding_next" = "जारी रखें";
 "onboarding_personalization_footer" = "आप इन सभी विकल्पों को कभी भी बदल सकते हैं।";
+"onboarding_guide_sources_title" = "तीन चरणों में स्रोत जोड़ें";
+"onboarding_guide_sources_step1 %@" = "“%@” खोलें, ऊपर दाएँ कोने में + पर टैप करें और स्रोत का प्रकार चुनें";
+"onboarding_guide_sources_step2" = "बस सर्वर का पता डालें — पोर्ट और एन्क्रिप्शन की पुष्टि अपने-आप हो जाती है";
+"onboarding_guide_sources_step3 %@" = "जिन फ़ोल्डरों में आपका संगीत है उन्हें चुनें, फिर स्कैन शुरू करने के लिए “%@” पर टैप करें";
+"onboarding_guide_sources_footer" = "क्लाउड ड्राइव के लिए कहे जाने पर बस साइन इन करें; Navidrome और Jellyfin जैसे मीडिया सर्वर साइन इन के बाद पूरी लाइब्रेरी सिंक करते हैं, फ़ोल्डर चुनने की ज़रूरत नहीं।";
+"onboarding_guide_player_title" = "प्लेयर स्क्रीन का उपयोग कैसे करें";
+"onboarding_guide_player_subtitle" = "किसी भी स्क्रीन पर नीचे वाले प्लेयर बार पर टैप करके प्लेयर स्क्रीन खोलें।";
+"onboarding_guide_player_lyrics" = "बोल: गाने के साथ स्क्रॉल होते हैं, शब्द-दर-शब्द हाइलाइट और अनुवाद के साथ";
+"onboarding_guide_player_airplay" = "AirPlay: स्पीकर, हेडफ़ोन या Apple TV पर स्विच करें";
+"onboarding_guide_player_queue" = "कतार: दबाकर रखें और खींचें, ताकि आगे बजने वाले गानों का क्रम बदल सकें";
+"onboarding_guide_player_more" = "अधिक: DLNA डिवाइस पर कास्ट करें, स्लीप टाइमर लगाएँ या लिरिक्स पोस्टर साझा करें";
 "onboarding_personalization_home" = "होम पर अनुभाग दिखाएं, छुपाएं और पुन: व्यवस्थित करें";
 "onboarding_personalization_icon" = "सेटिंग्स > उपस्थिति में अपना ऐप आइकन चुनें";
 "onboarding_personalization_quick" = "त्वरित पहुंच के लिए एल्बम, कलाकार और प्लेलिस्ट पिन करें";

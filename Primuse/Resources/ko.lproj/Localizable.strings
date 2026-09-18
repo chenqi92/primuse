@@ -2319,6 +2319,17 @@
 "onboarding_personalization_home" = "홈 섹션을 표시하거나 숨기고 순서를 변경";
 "onboarding_personalization_quick" = "앨범, 아티스트 및 재생목록을 빠른 항목으로 지정";
 "onboarding_personalization_footer" = "이 옵션은 언제든지 다시 변경할 수 있습니다.";
+"onboarding_guide_sources_title" = "3단계로 소스 추가하기";
+"onboarding_guide_sources_step1 %@" = "“%@”에서 오른쪽 위의 +를 탭하고 소스 유형을 선택하세요";
+"onboarding_guide_sources_step2" = "서버 주소만 입력하면 포트와 암호화 방식은 자동으로 확인됩니다";
+"onboarding_guide_sources_step3 %@" = "음악이 들어 있는 폴더를 선택한 뒤 “%@” 버튼을 탭하면 스캔이 시작됩니다";
+"onboarding_guide_sources_footer" = "클라우드 드라이브는 안내에 따라 로그인하기만 하면 됩니다. Navidrome, Jellyfin 같은 미디어 서버는 로그인 후 전체 보관함을 동기화하므로 폴더를 고를 필요가 없습니다.";
+"onboarding_guide_player_title" = "재생 화면 사용법";
+"onboarding_guide_player_subtitle" = "어느 화면에서든 하단의 재생 막대를 탭하면 재생 화면이 열립니다.";
+"onboarding_guide_player_lyrics" = "가사: 노래에 맞춰 스크롤되며 단어별 강조와 번역을 지원합니다";
+"onboarding_guide_player_airplay" = "AirPlay: 스피커, 헤드폰 또는 Apple TV로 전환";
+"onboarding_guide_player_queue" = "대기열: 길게 누른 채 드래그해 다음 재생 순서를 바꿀 수 있습니다";
+"onboarding_guide_player_more" = "더 보기: DLNA 기기로 캐스트, 잠자기 타이머, 가사 포스터 공유";
 
 // MARK: - macOS settings i18n audit
 "Auto Add to Smart Playlists" = "스마트 재생목록에 자동 추가";

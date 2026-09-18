@@ -396,6 +396,7 @@
 		494A17ABDFC4526E896FB706 /* BrowserChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 768665CEDF081091A5DFAED7 /* BrowserChrome.swift */; };
 		4957D61D66472F3CAD612DBD /* SMBByteReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = BACEFA0644945C48C3E8A0F9 /* SMBByteReader.swift */; };
 		49A5B455D71D7C8E0FE0E628 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F652918A8A39CEF7841384ED /* OnboardingView.swift */; };
+		198E721779A00795DC7ADC3C /* OnboardingGuidePages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E8D9CFEA347B23D63CDDDD /* OnboardingGuidePages.swift */; };
 		4A3C82CAB29786A4927140E7 /* AnimatedArtworkDataView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F44E04BAF67DF37C98C9FDAF /* AnimatedArtworkDataView.swift */; };
 		4A5B4E2125342594307BFB12 /* BatchAddToPlaylistSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06924D96CB41F49216C2FF95 /* BatchAddToPlaylistSheet.swift */; };
 		4ACD5BA7D98E9557368E3ABE /* OAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C85D6EDF29DAED03773957A /* OAuthService.swift */; };
@@ -1282,6 +1283,7 @@
 		F41811AEA0646B4F680416AA /* RadioCandidateLogoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CC6F2F1E70E26868240EDF8 /* RadioCandidateLogoView.swift */; };
 		F42267DB1E4B85832BE4E52D /* ScrapeOptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11180515D910975A39CBE6C5 /* ScrapeOptionsView.swift */; };
 		F45510F7EDAE425A749A03CF /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F652918A8A39CEF7841384ED /* OnboardingView.swift */; };
+		4952AC12621DFBC264801D7D /* OnboardingGuidePages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E8D9CFEA347B23D63CDDDD /* OnboardingGuidePages.swift */; };
 		F4B6FD2C0B6D5AF88FB9CA4B /* SourceMetadataStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32E0F03194B56BD2C0A053F5 /* SourceMetadataStatusView.swift */; };
 		F541FEEE24E4E7AA015EF638 /* MusicVideoStreamingLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11600D843C3681F87A75F59B /* MusicVideoStreamingLoader.swift */; };
 		F5FAEDD96A758DD69780B968 /* SMBSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEF1C4D090D0F65114B8F0D5 /* SMBSource.swift */; };
@@ -2498,6 +2500,7 @@
 		F61F79346F04B370CFC43F13 /* WiFiTransferLibraryIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiTransferLibraryIndex.swift; sourceTree = "<group>"; };
 		F6255A91A1DE2B2C344A5491 /* MusicScraperFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicScraperFactory.swift; sourceTree = "<group>"; };
 		F63834C23F5064EED74FFB86 /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist; name = fr; path = fr.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
+		18E8D9CFEA347B23D63CDDDD /* OnboardingGuidePages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingGuidePages.swift; sourceTree = "<group>"; };
 		F652918A8A39CEF7841384ED /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		F754A142263E60B3A764A992 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		F79D31F8D7A9471678BFE366 /* CarPlaySettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlaySettingsStore.swift; sourceTree = "<group>"; };
@@ -3605,6 +3608,7 @@
 				D48435669B3FD569916FF182 /* YearlyReport */,
 				3A04A9461976D9D58E02D5BA /* ContentView.swift */,
 				DD09951914FB65D3573E5824 /* ExternalDisplayNowPlayingView.swift */,
+				18E8D9CFEA347B23D63CDDDD /* OnboardingGuidePages.swift */,
 				F652918A8A39CEF7841384ED /* OnboardingView.swift */,
 			);
 			path = Views;
@@ -5211,6 +5215,7 @@
 				BF73E59C806B448CEA0BAAE2 /* NowPlayingView.swift in Sources */,
 				96053C421D166878E3F074C4 /* OAuthService.swift in Sources */,
 				49A5B455D71D7C8E0FE0E628 /* OnboardingView.swift in Sources */,
+				198E721779A00795DC7ADC3C /* OnboardingGuidePages.swift in Sources */,
 				3F8513D64E7EAB2667895EEC /* OneDriveSource.swift in Sources */,
 				476ABB1A64AC9D81950EA6CD /* OpenAICompatibleProvider.swift in Sources */,
 				876DE61C76A93F13180836EF /* PMMotion.swift in Sources */,
@@ -5733,6 +5738,7 @@
 				15DBB04327A405ACF38C9162 /* NowPlayingView.swift in Sources */,
 				4ACD5BA7D98E9557368E3ABE /* OAuthService.swift in Sources */,
 				F45510F7EDAE425A749A03CF /* OnboardingView.swift in Sources */,
+				4952AC12621DFBC264801D7D /* OnboardingGuidePages.swift in Sources */,
 				235C8FC6F296376EB5E6A8F1 /* OneDriveSource.swift in Sources */,
 				F807B1B51DE6DBC9D5B92CC6 /* OpenAICompatibleProvider.swift in Sources */,
 				4809F325C132563CE11FCE4C /* PMMotion.swift in Sources */,

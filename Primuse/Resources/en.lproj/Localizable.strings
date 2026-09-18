@@ -2169,6 +2169,17 @@
 "onboarding_personalization_home" = "Show, hide, and reorder the sections on Home";
 "onboarding_personalization_quick" = "Pin albums, artists, and playlists for quick access";
 "onboarding_personalization_footer" = "You can change all of these options anytime.";
+"onboarding_guide_sources_title" = "Add a source in three steps";
+"onboarding_guide_sources_step1 %@" = "Open “%@”, tap + in the top-right corner, and choose a source type";
+"onboarding_guide_sources_step2" = "Just enter the server address — the port and encryption are confirmed automatically";
+"onboarding_guide_sources_step3 %@" = "Check the folders that hold your music, then tap “%@” to start scanning";
+"onboarding_guide_sources_footer" = "Cloud drives only need you to sign in when prompted; media servers like Navidrome and Jellyfin sync the whole library after sign-in, with no folders to pick.";
+"onboarding_guide_player_title" = "Getting around Now Playing";
+"onboarding_guide_player_subtitle" = "Tap the player bar at the bottom of any screen to open Now Playing.";
+"onboarding_guide_player_lyrics" = "Lyrics: scroll along with the song, with word-by-word highlighting and translations";
+"onboarding_guide_player_airplay" = "AirPlay: switch to speakers, headphones, or Apple TV";
+"onboarding_guide_player_queue" = "Queue: touch and hold, then drag to reorder what plays next";
+"onboarding_guide_player_more" = "More: cast to DLNA devices, set a sleep timer, or share a lyric poster";
 
 // MARK: - macOS appearance material
 "material_liquid_glass" = "Liquid Glass";

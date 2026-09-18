@@ -2320,6 +2320,17 @@
 "onboarding_personalization_home" = "ホームのセクションを表示・非表示・並べ替え";
 "onboarding_personalization_quick" = "アルバム、アーティスト、プレイリストをすばやく登録";
 "onboarding_personalization_footer" = "これらの設定はいつでも変更できます。";
+"onboarding_guide_sources_title" = "3 ステップでソースを追加";
+"onboarding_guide_sources_step1 %@" = "「%@」を開き、右上の + をタップしてソースの種類を選びます";
+"onboarding_guide_sources_step2" = "サーバーのアドレスを入力するだけ。ポートと暗号化は自動で確認されます";
+"onboarding_guide_sources_step3 %@" = "音楽が入ったフォルダにチェックを入れ、「%@」をタップするとスキャンが始まります";
+"onboarding_guide_sources_footer" = "クラウドドライブは案内に従ってサインインするだけ。Navidrome や Jellyfin などのメディアサーバーはサインイン後にライブラリ全体を同期するので、フォルダを選ぶ必要はありません。";
+"onboarding_guide_player_title" = "再生画面の使い方";
+"onboarding_guide_player_subtitle" = "どの画面でも、下部の再生バーをタップすると再生画面が開きます。";
+"onboarding_guide_player_lyrics" = "歌詞：曲に合わせてスクロールし、単語ごとのハイライトと翻訳に対応";
+"onboarding_guide_player_airplay" = "AirPlay：スピーカー、ヘッドフォン、Apple TV に切り替え";
+"onboarding_guide_player_queue" = "キュー：長押ししてドラッグすると、次に再生する順番を変更できます";
+"onboarding_guide_player_more" = "その他：DLNA デバイスへのキャスト、スリープタイマー、歌詞ポスターの共有";
 
 // MARK: - macOS settings i18n audit
 "Auto Add to Smart Playlists" = "スマートプレイリストに自動追加";

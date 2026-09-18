@@ -2420,6 +2420,17 @@
 "onboarding_personalization_home" = "显示、隐藏并调整首页模块的展示顺序";
 "onboarding_personalization_quick" = "编辑快捷收藏，快速访问专辑、艺术家和歌单";
 "onboarding_personalization_footer" = "这些选项以后都可以随时修改。";
+"onboarding_guide_sources_title" = "三步添加音乐源";
+"onboarding_guide_sources_step1 %@" = "打开「%@」，点右上角的 +，选择音乐源类型";
+"onboarding_guide_sources_step2" = "只填服务器地址，端口和加密方式会自动确认";
+"onboarding_guide_sources_step3 %@" = "勾选放音乐的文件夹，点「%@」后自动开始扫描";
+"onboarding_guide_sources_footer" = "云盘按提示授权登录即可；Navidrome、Jellyfin 等媒体服务器登录后直接同步整个曲库，不用选文件夹。";
+"onboarding_guide_player_title" = "播放页怎么用";
+"onboarding_guide_player_subtitle" = "在任意页面点底部的播放条，就能打开播放页。";
+"onboarding_guide_player_lyrics" = "歌词：跟着播放滚动，支持逐字高亮和翻译";
+"onboarding_guide_player_airplay" = "AirPlay：切换到音箱、耳机或 Apple TV";
+"onboarding_guide_player_queue" = "队列：长按拖动，调整接下来播放的顺序";
+"onboarding_guide_player_more" = "更多：投屏到 DLNA 设备、定时关闭、分享歌词海报";
 
 // MARK: - macOS settings i18n audit
 "Auto Add to Smart Playlists" = "自动加入智能歌单";

@@ -2097,6 +2097,17 @@
 "onboarding_metadata_title" = "Completa tu biblioteca";
 "onboarding_next" = "Continuar";
 "onboarding_personalization_footer" = "Puedes cambiar todas estas opciones en cualquier momento.";
+"onboarding_guide_sources_title" = "Agregue un origen en tres pasos";
+"onboarding_guide_sources_step1 %@" = "Abra “%@”, toque + en la esquina superior derecha y elija un tipo de origen";
+"onboarding_guide_sources_step2" = "Solo escriba la dirección del servidor; el puerto y el cifrado se confirman automáticamente";
+"onboarding_guide_sources_step3 %@" = "Marque las carpetas con su música y toque “%@” para empezar a escanear";
+"onboarding_guide_sources_footer" = "En las nubes solo tiene que iniciar sesión cuando se le pida; los servidores multimedia como Navidrome y Jellyfin sincronizan toda la biblioteca al iniciar sesión, sin elegir carpetas.";
+"onboarding_guide_player_title" = "Cómo usar la pantalla de reproducción";
+"onboarding_guide_player_subtitle" = "Toque la barra de reproducción en la parte inferior de cualquier pantalla para abrirla.";
+"onboarding_guide_player_lyrics" = "Letras: avanzan con la canción, con resaltado palabra por palabra y traducción";
+"onboarding_guide_player_airplay" = "AirPlay: cambie a bocinas, audífonos o Apple TV";
+"onboarding_guide_player_queue" = "Cola: mantenga presionado y arrastre para reordenar lo que sigue";
+"onboarding_guide_player_more" = "Más: transmitir a dispositivos DLNA, temporizador de apagado o compartir un póster de letras";
 "onboarding_personalization_home" = "Mostrar, ocultar y reordenar las secciones en Inicio";
 "onboarding_personalization_icon" = "Elija el ícono de su aplicación en Configuración > Apariencia";
 "onboarding_personalization_quick" = "Fija álbumes, artistas y listas de reproducción para un acceso rápido";
