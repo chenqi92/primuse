@@ -14,8 +14,16 @@ actor TVSourceAssetReader {
     }
     private var connectors: [String: CachedConnector] = [:]
 
+    /// 群晖 Audio Station 在电视上不经 App 连接器,直接用 Kit 的客户端;同样按源缓存,
+    /// 接口发现、QuickConnect 解析与登录会话跨封面、歌词请求复用。
+    private struct CachedAudioStationClient {
+        let identity: String
+        let client: SynologyAudioStationClient
+    }
+    private var audioStationClients: [String: CachedAudioStationClient] = [:]
+
     nonisolated static func supports(_ type: MusicSourceType) -> Bool {
-        type.isSubsonicFamily || [.jellyfin, .emby, .plex, .songloft].contains(type)
+        type.isSubsonicFamily || [.jellyfin, .emby, .plex, .songloft, .synologyAudioStation].contains(type)
     }
 
     func artworkData(reference: String, source: MusicSource, credential: SourceCredential?, maximumBytes: Int) async -> Data? {
@@ -26,8 +34,16 @@ actor TVSourceAssetReader {
         for routed in routes {
             guard !Task.isCancelled else { return nil }
             do {
-                guard let connector = connector(for: routed, credential: credential) else { return nil }
-                let data = try await connector.fetchArtworkData(for: reference, maximumBytes: maximumBytes, purpose: .thumbnail)
+                let data: Data?
+                if routed.type == .synologyAudioStation {
+                    // 只认扫描时写进 `coverArtFileName` 的引用;没有封面时是 nil,交给刮削。
+                    guard SynologyAudioStationCoverReference(rawValue: reference) != nil else { return nil }
+                    data = try await audioStationClient(for: routed, credential: credential)
+                        .artwork(reference: reference, maxBytes: maximumBytes)
+                } else {
+                    guard let connector = connector(for: routed, credential: credential) else { return nil }
+                    data = try await connector.fetchArtworkData(for: reference, maximumBytes: maximumBytes, purpose: .thumbnail)
+                }
                 try Task.checkCancellation()
                 return data
             } catch is CancellationError { return nil }
@@ -49,6 +65,18 @@ actor TVSourceAssetReader {
                     let text = try await DaoLiYuServiceClient(source: routed, credential: credential)
                         .preferredLyrics(trackPath: path)
                     result = text.flatMap { $0.isEmpty ? nil : $0 }.map(ServerLyricsReadResult.content) ?? .absent
+                } catch { continue }
+            } else if routed.type == .synologyAudioStation {
+                guard let id = SynologyAudioStationAPI.songID(fromTrackPath: path) else { return .unavailable }
+                do {
+                    let text = try await audioStationClient(for: routed, credential: credential).lyrics(id: id)
+                    result = text.map(ServerLyricsReadResult.content) ?? .absent
+                } catch let error as SynologyAudioStationError {
+                    // 套件没有歌词接口时服务端永远给不出歌词,如实说「没有」(与 iPhone 端一致)。
+                    switch error {
+                    case .apiNotFound, .unsupportedVersion: result = .absent
+                    default: continue
+                    }
                 } catch { continue }
             } else {
                 guard let connector = connector(for: routed, credential: credential) as? any ServerLyricsConnector else { return .unavailable }
@@ -100,6 +128,17 @@ actor TVSourceAssetReader {
         }
         connectors[source.id] = CachedConnector(identity: identity, connector: value)
         return value
+    }
+
+    private func audioStationClient(for source: MusicSource, credential: SourceCredential?) -> SynologyAudioStationClient {
+        let identity = Self.cacheIdentity(source: source, credential: credential)
+        if let cached = audioStationClients[source.id], cached.identity == identity { return cached.client }
+        if let stale = audioStationClients.removeValue(forKey: source.id) {
+            Task { await stale.client.invalidateSession() }
+        }
+        let client = SynologyAudioStationClient(source: source, credential: credential)
+        audioStationClients[source.id] = CachedAudioStationClient(identity: identity, client: client)
+        return client
     }
 }
 

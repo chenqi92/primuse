@@ -140,6 +140,7 @@ struct TVSourceTypePicker: View {
         case .sftp: return "SFTP"
         case .nfs: return "NFS"
         case .synology: return "Synology"
+        case .synologyAudioStation: return "Audio Station"
         case .qnap: return "QNAP"
         case .fnos: return "fnOS"
         case .fnMusic, .daoliyu, .songloft, .ugreen: return t.displayName
@@ -169,7 +170,7 @@ struct TVSourceTypePicker: View {
         case .fnMusic: return PMString("ext.tv.sources.hint.fnMusic")
         case .daoliyu: return PMString("ext.tv.sources.hint.daoliyu")
         case .songloft: return "Songloft REST API"
-        case .synology, .qnap, .fnos, .ugreen:
+        case .synology, .synologyAudioStation, .qnap, .fnos, .ugreen:
             return PMString("ext.tv.sources.hint.nasSuite")
         case .upnp: return PMString("ext.tv.sources.hint.upnp")
         case .drime: return PMString("ext.tv.sources.hint.cloudToken")
@@ -272,7 +273,7 @@ struct TVSourceFormView: View {
         return value
     }
     private var remoteUsesVendor: Bool {
-        if type == .synology { return synologyConnectionMode == .quickConnect }
+        if type.usesSynologyConnectionMode { return synologyConnectionMode == .quickConnect }
         if type == .fnMusic { return fnMusicConnectionMode == .fnConnect }
         return false
     }
@@ -312,7 +313,7 @@ struct TVSourceFormView: View {
             return true
         }
         let legacyConnectionIsValid = !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && ((type == .synology && synologyConnectionMode == .quickConnect)
+            && ((type.usesSynologyConnectionMode && synologyConnectionMode == .quickConnect)
                 ? SynologyQuickConnectResolver.isValidQuickConnectID(host)
                 : ((type == .fnMusic && fnMusicConnectionMode == .fnConnect)
                     ? FnConnectResolver.isValidFNID(host)
@@ -364,7 +365,7 @@ struct TVSourceFormView: View {
     }
     private var connectionAddressLabel: String {
         if type == .nfs { return PMString("ext.tv.sources.form.serverAddress") }
-        if type == .synology {
+        if type.usesSynologyConnectionMode {
             switch synologyConnectionMode {
             case .quickConnect: return PMString("synology_quickconnect_id")
             case .address: return PMString("synology_address")
@@ -427,10 +428,10 @@ struct TVSourceFormView: View {
         }
         .onChange(of: synologyConnectionMode) { _, newValue in
             guard !supportsAdaptiveConnections,
-                  type == .synology,
+                  type.usesSynologyConnectionMode,
                   newValue == .quickConnect else { return }
             useSsl = true
-            portText = String(MusicSourceType.synology.defaultPort(useSsl: true))
+            portText = String(type.defaultPort(useSsl: true))
         }
         .onChange(of: fnMusicConnectionMode) { _, newValue in
             guard !supportsAdaptiveConnections,
@@ -494,7 +495,7 @@ struct TVSourceFormView: View {
                 if supportsAdaptiveConnections {
                     adaptiveConnectionFields
                 } else {
-                    if type == .synology {
+                    if type.usesSynologyConnectionMode {
                         Picker(PMString("synology_connection_method"), selection: $synologyConnectionMode) {
                             Text(PMString("synology_connection_quickconnect"))
                                 .tag(SynologyConnectionMode.quickConnect)
@@ -515,7 +516,7 @@ struct TVSourceFormView: View {
                         .frame(maxWidth: 720)
                     }
                     TVFormField(label: connectionAddressLabel, text: $host, mono: true)
-                    if type == .synology, synologyConnectionMode == .quickConnect {
+                    if type.usesSynologyConnectionMode, synologyConnectionMode == .quickConnect {
                         connectionHint("synology_quickconnect_hint")
                     } else if type == .fnMusic, fnMusicConnectionMode == .fnConnect {
                         connectionHint("fnmusic_fnconnect_hint")
@@ -523,7 +524,7 @@ struct TVSourceFormView: View {
                         TVFormField(label: PMString("ext.tv.sources.form.port"), text: $portText, mono: true)
                     }
                     if showsSSL
-                        && !(type == .synology && synologyConnectionMode == .quickConnect)
+                        && !(type.usesSynologyConnectionMode && synologyConnectionMode == .quickConnect)
                         && !(type == .fnMusic && fnMusicConnectionMode == .fnConnect) {
                         connectionSSLToggle(isOn: $useSsl)
                     }
@@ -798,7 +799,7 @@ struct TVSourceFormView: View {
                     publicPathPrefix = endpoint.pathPrefix ?? ""
                 }
                 vendorIdentifier = configuration.vendorIdentifier ?? ""
-                if type == .synology {
+                if type.usesSynologyConnectionMode {
                     synologyConnectionMode = configuration.remoteAccessMode == .vendor
                         ? .quickConnect
                         : .address
@@ -822,7 +823,7 @@ struct TVSourceFormView: View {
                 host = e.host ?? ""
                 portText = String(e.port ?? type.defaultPort)
                 useSsl = e.useSsl
-                if type == .synology {
+                if type.usesSynologyConnectionMode {
                     synologyConnectionMode = e.effectiveSynologyConnectionMode
                 }
                 if type == .fnMusic {
@@ -854,7 +855,7 @@ struct TVSourceFormView: View {
             }
             // 这两个 mode 只是个起点:自适应连接的源最终走不走厂商中转,由
             // `applyAddressPlan` 按地址框里读出来的东西定。
-            if type == .synology {
+            if type.usesSynologyConnectionMode {
                 if let prefillHost, !prefillHost.isEmpty {
                     synologyConnectionMode = .address
                 } else {
@@ -1053,7 +1054,7 @@ struct TVSourceFormView: View {
 
         vendorIdentifier = resolvedVendorIdentifier ?? ""
         let usesVendor = resolvedVendorIdentifier != nil
-        if type == .synology {
+        if type.usesSynologyConnectionMode {
             synologyConnectionMode = usesVendor ? .quickConnect : .address
         }
         if type == .fnMusic {
@@ -1109,22 +1110,22 @@ struct TVSourceFormView: View {
         src.name = trimmedName
         if type.requiresHost && supportsAdaptiveConnections {
             src.connectionConfiguration = adaptiveConnectionConfiguration()
-            src.synologyConnectionMode = type == .synology ? synologyConnectionMode : nil
+            src.synologyConnectionMode = type.usesSynologyConnectionMode ? synologyConnectionMode : nil
             src.fnMusicConnectionMode = type == .fnMusic ? fnMusicConnectionMode : nil
             src = src.projectingPreferredConnectionForLegacy()
         } else if type.requiresHost {
-            if type == .synology, synologyConnectionMode == .quickConnect {
+            if type.usesSynologyConnectionMode, synologyConnectionMode == .quickConnect {
                 src.host = SynologyQuickConnectResolver.quickConnectID(from: trimmedHost)
             } else if type == .fnMusic, fnMusicConnectionMode == .fnConnect {
                 src.host = FnConnectResolver.fnID(from: trimmedHost)
             } else {
                 src.host = trimmedHost
             }
-            let usesResolvedConnection = (type == .synology && synologyConnectionMode == .quickConnect)
+            let usesResolvedConnection = (type.usesSynologyConnectionMode && synologyConnectionMode == .quickConnect)
                 || (type == .fnMusic && fnMusicConnectionMode == .fnConnect)
             src.port = usesResolvedConnection ? type.defaultPort(useSsl: true) : validatedPort
             src.useSsl = usesResolvedConnection ? true : (showsSSL ? useSsl : type.defaultSSL)
-            src.synologyConnectionMode = type == .synology ? synologyConnectionMode : nil
+            src.synologyConnectionMode = type.usesSynologyConnectionMode ? synologyConnectionMode : nil
             src.fnMusicConnectionMode = type == .fnMusic ? fnMusicConnectionMode : nil
         } else {
             src.host = nil
@@ -1190,7 +1191,7 @@ struct TVSourceFormView: View {
         let normalizedVendorID: String?
         if rawVendorID.isEmpty {
             normalizedVendorID = nil
-        } else if type == .synology {
+        } else if type.usesSynologyConnectionMode {
             normalizedVendorID = SynologyQuickConnectResolver.quickConnectID(from: rawVendorID)
                 ?? rawVendorID
         } else if type == .fnMusic {

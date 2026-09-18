@@ -49,6 +49,7 @@ public actor StreamResolverRegistry {
         map[.fnMusic] = fnMusic
         map[.daoliyu] = daoLiYu
         map[.songloft] = SongloftStreamResolver()
+        map[.synologyAudioStation] = SynologyAudioStationStreamResolver()
         map[.ugreen] = ugreen
         // WebDAV / UPnP:tvOS 纯 HTTP 直连(Basic Auth / 直链),不再经中继。
         map[.webdav] = WebDavStreamResolver()
@@ -97,10 +98,8 @@ public actor StreamResolverRegistry {
     /// `ApplicationMusicPlayer` 直接播放(见 `AppleMusicTVPlaybackPolicy`),
     /// 所以 `supportedTypes` 里没有它,这里却要算可播。
     /// 新增源类型时,这里与 init 一起更新。
-    /// 群晖 Audio Station 暂不在列:电视端的解析器、扫描与添加表单在第三步接入,
-    /// 在那之前同步过来的这类源不宣称可播,它的歌也不在电视曲库里出现。
     public nonisolated static let tvSupportedTypes: Set<MusicSourceType> =
-        Set(MusicSourceType.allCases).subtracting([.appleMusicLibrary, .fnos, .synologyAudioStation])
+        Set(MusicSourceType.allCases).subtracting([.appleMusicLibrary, .fnos])
 
     public func streamURL(for song: Song,
                           source: MusicSource,
@@ -231,7 +230,7 @@ public actor StreamResolverRegistry {
 
     private static func requiresReachabilityProbe(_ type: MusicSourceType) -> Bool {
         switch type {
-        case .synology, .qnap, .ugreen, .fnMusic, .daoliyu, .songloft,
+        case .synology, .qnap, .ugreen, .fnMusic, .daoliyu, .songloft, .synologyAudioStation,
              .webdav, .s3, .jellyfin, .emby, .plex,
              .subsonic, .navidrome, .airsonic, .gonic:
             return true
