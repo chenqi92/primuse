@@ -1084,6 +1084,7 @@ struct MetadataScrapingView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(ScraperSettingsStore.self) private var scraperSettings
+    @Environment(\.pmHeightClass) private var heightClass
 
     @State private var editingCookieSourceId: String?
     @State private var cookieText = ""
@@ -1346,7 +1347,9 @@ struct MetadataScrapingView: View {
                     Section {
                         TextEditor(text: $importText)
                             .font(.system(.caption, design: .monospaced))
-                            .frame(minHeight: 200)
+                            // 手机横屏的 .medium 只有一百多点，200 的输入框会把
+                            // 说明与错误提示全顶到折叠线以下。
+                            .frame(minHeight: heightClass.value(200, compact: 110))
                             .textInputAutocapitalization(.never)
                     } footer: {
                         Text("scraper_import_auto_footer")
@@ -1409,7 +1412,7 @@ struct MetadataScrapingView: View {
                 Section {
                     TextEditor(text: $editingConfigJSON)
                         .font(.system(.caption, design: .monospaced))
-                        .frame(minHeight: 300)
+                        .frame(minHeight: heightClass.value(300, compact: 140))
                 }
             }
             .navigationTitle(source.type.displayName)
