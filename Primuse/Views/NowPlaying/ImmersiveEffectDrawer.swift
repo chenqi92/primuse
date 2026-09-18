@@ -19,6 +19,9 @@ struct ImmersiveEffectDrawer: View {
     let appliesOnSettle: Bool
     let viewportSize: CGSize
     let safeAreaInsets: EdgeInsets
+    /// 点了某张卡片（哪怕它就是当前效果）。播放页用它来「选完直接进全屏」；
+    /// 全屏内不需要，留空即可。
+    let onPick: ((FullscreenPlayerEffect) -> Void)?
     let onClose: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -32,6 +35,7 @@ struct ImmersiveEffectDrawer: View {
         appliesOnSettle: Bool,
         viewportSize: CGSize,
         safeAreaInsets: EdgeInsets,
+        onPick: ((FullscreenPlayerEffect) -> Void)? = nil,
         onClose: @escaping () -> Void
     ) {
         _selection = selection
@@ -40,6 +44,7 @@ struct ImmersiveEffectDrawer: View {
         self.appliesOnSettle = appliesOnSettle
         self.viewportSize = viewportSize
         self.safeAreaInsets = safeAreaInsets
+        self.onPick = onPick
         self.onClose = onClose
         // 打开时就停在当前效果上。放在 init 里而不是 onAppear，转轮第一次布局就位，
         // 不会先显示第一张再跳一下。
@@ -339,6 +344,7 @@ struct ImmersiveEffectDrawer: View {
         )
         if applies { selection = effect }
         pmWithAnimation(.selection) { centeredID = effect.id }
+        onPick?(effect)
         if !appliesOnSettle { onClose() }
     }
 

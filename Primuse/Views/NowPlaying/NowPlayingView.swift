@@ -87,6 +87,120 @@ private struct NowPlayingAppearance {
     }
 }
 
+/// 播放页浮动圆钮的玻璃底样式。
+private enum NowPlayingChromeGlass: Equatable {
+    /// 固定深色玻璃。沉浸歌词与全屏画面背后永远是深色画面，`ImmersiveGlassActionLabel`
+    /// 就是照这个前提做的。
+    case immersive
+    /// 跟随明暗外观。普通模式的背景是取色渐变，浅色外观下底也得是浅的 ——
+    /// 深色圆底会把同样是深色的图标吃掉。
+    case adaptive
+}
+
+/// 跟随明暗外观的玻璃底。
+///
+/// 浅色外观下在材质上再叠一层白色提亮、描边用极淡的深色；深色外观下的取值与
+/// `ImmersiveGlassActionLabel` 对齐，从普通模式切到沉浸歌词时圆钮的观感不跳。
+/// 材质本身不再强制 colorScheme —— 它跟着环境走，正好等于 `appearance` 的明暗。
+private struct NowPlayingAdaptiveGlass<S: InsettableShape>: ViewModifier {
+    let shape: S
+    let appearance: NowPlayingAppearance
+    let tint: Color
+    var isSelected = false
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                shape.fill(.ultraThinMaterial)
+                shape.fill(plateTint)
+            }
+            .overlay {
+                shape.strokeBorder(strokeTint, lineWidth: strokeWidth)
+            }
+            .contentShape(shape)
+    }
+
+    private var plateTint: Color {
+        if isSelected {
+            return tint.opacity(appearance.isLight ? 0.16 : 0.18)
+        }
+        return appearance.isLight ? .white.opacity(0.42) : .black.opacity(0.16)
+    }
+
+    private var strokeTint: Color {
+        if isSelected {
+            return tint.opacity(appearance.isLight ? 0.48 : 0.62)
+        }
+        return appearance.isLight ? .black.opacity(0.07) : .white.opacity(0.20)
+    }
+
+    private var strokeWidth: CGFloat { isSelected ? 1.1 : 0.8 }
+}
+
+extension View {
+    fileprivate func nowPlayingAdaptiveGlass<S: InsettableShape>(
+        _ shape: S,
+        appearance: NowPlayingAppearance,
+        tint: Color,
+        isSelected: Bool = false
+    ) -> some View {
+        modifier(
+            NowPlayingAdaptiveGlass(
+                shape: shape,
+                appearance: appearance,
+                tint: tint,
+                isSelected: isSelected
+            )
+        )
+    }
+}
+
+/// `ImmersiveGlassActionLabel` 的自适应版本。尺寸与字重照抄，只换底。
+private struct NowPlayingGlassActionLabel: View {
+    var symbol: String
+    var appearance: NowPlayingAppearance
+    var tint: Color
+    var diameter: CGFloat = 44
+    var isSelected = false
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: diameter * 0.34, weight: .semibold))
+            .foregroundStyle(isSelected ? tint : tint.opacity(0.88))
+            .frame(width: diameter, height: diameter)
+            .nowPlayingAdaptiveGlass(
+                Circle(),
+                appearance: appearance,
+                tint: tint,
+                isSelected: isSelected
+            )
+    }
+}
+
+private struct NowPlayingGlassActionButton: View {
+    var symbol: String
+    var label: LocalizedStringKey
+    var appearance: NowPlayingAppearance
+    var tint: Color
+    var diameter: CGFloat = 44
+    var isSelected = false
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            NowPlayingGlassActionLabel(
+                symbol: symbol,
+                appearance: appearance,
+                tint: tint,
+                diameter: diameter,
+                isSelected: isSelected
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(label))
+    }
+}
+
 #if os(iOS)
 @MainActor
 private enum LyricsScreenWakeCoordinator {
@@ -419,6 +533,7 @@ struct NowPlayingView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Environment(\.layoutDirection) private var layoutDirection
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
@@ -444,6 +559,13 @@ struct NowPlayingView: View {
     @State private var immersiveControlsState = ImmersiveControlsState.inactive
     @State private var immersiveControlsAutoHideTask: Task<Void, Never>?
     @State private var showsImmersiveEffectPicker = false
+    /// 手机横屏普通模式自己的「锁」。沉浸歌词那套 `immersiveControlsState` 带自动
+    /// 隐藏计时，语义不同，不能共用。离开这个布局时会自动解锁，免得用户在别的
+    /// 布局里找不到解锁入口。
+    @State private var isCompactLandscapeLocked = false
+    /// 手机横屏右栏窄到放不下两端的随机 / 循环时置真，让「更多」菜单补上入口。
+    /// 由布局函数在 `onChange` 里写入，`body` 里不做这类赋值。
+    @State private var compactLandscapeHidesModeToggles = false
     @State private var showQueue = false
     @State private var lyrics: [LyricLine] = []
     /// 歌词页算好的译文, 供歌词海报使用。
@@ -1159,11 +1281,14 @@ struct NowPlayingView: View {
 
                     }
                     .contentShape(Rectangle())
+                    // 横屏锁上、或者效果抽屉开着的时候，整页不再响应最小化手势：
+                    // 前者是锁的语义，后者是抽屉之外的一切都只该用来收起抽屉。
                     .simultaneousGesture(
                         playerMinimizeDragGesture(
                             containerWidth: geo.size.width,
                             verticalStartMaximumY: verticalDismissStartMaximumY
-                        )
+                        ),
+                        including: suppressesPlayerMinimizeGesture ? .subviews : .all
                     )
                     .transition(.opacity)
                 }
@@ -1192,6 +1317,24 @@ struct NowPlayingView: View {
                         sceneIsActive: isVisualSceneActive
                     )
                     .zIndex(100)
+                }
+
+                // 全屏播放器自带一份抽屉，这里只服务播放页本身的两个入口。
+                if showsImmersiveEffectPicker, !isFullscreenPlayerPresented {
+                    // 抽屉之外点一下就收起 —— 全屏里这件事是舞台的点击处理做的，
+                    // 普通模式底下没有那一层。
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { showsImmersiveEffectPicker = false }
+                        .accessibilityHidden(true)
+                        .zIndex(60)
+
+                    immersiveEffectDrawer(geo: geo, safeInsets: safeInsets)
+                        .pmSlideTransition(
+                            edge: ImmersiveEffectDrawer.transitionEdge(for: geo.size),
+                            motion: .panel
+                        )
+                        .zIndex(61)
                 }
                 #endif
             }
@@ -1676,136 +1819,390 @@ struct NowPlayingView: View {
 
     // MARK: - Compact phone landscape
 
-    @ViewBuilder
+    /// 手机横屏的普通模式：顶部一排玻璃圆钮 + 左侧大封面 + 右栏信息与传输键。
+    ///
+    /// 竖屏那套控件直接压进右栏会把封面挤到只剩两百来点、字号全压到 `.headline`，
+    /// 所以这里换成独立构图。所有几何都由 `NowPlayingCompactLandscapeLayoutPolicy`
+    /// 给出，视图层不再自己散着算。
     private func compactLandscapePlayerLayout(
         geo: GeometryProxy,
         safeInsets: EdgeInsets
     ) -> some View {
-        let contentWidth = max(0, geo.size.width - safeInsets.leading - safeInsets.trailing - 32)
-        let contentHeight = max(0, geo.size.height - safeInsets.top - safeInsets.bottom - 28)
-        let artworkColumnWidth = min(max(contentWidth * 0.36, 164), 252)
-        let artworkSize = min(artworkColumnWidth, contentHeight)
+        let metrics = compactLandscapeMetrics(geo: geo, safeInsets: safeInsets)
 
-        ZStack(alignment: .top) {
-            HStack(spacing: 24) {
-                artworkOrMusicVideo(size: artworkSize, cornerRadius: 14)
-                    .scaleEffect(artworkAppearsPlaying ? 1 : 0.96)
-                    .shadow(color: .black.opacity(0.30), radius: 18, y: 8)
-                    .animation(
-                        .spring(response: 0.5, dampingFraction: 0.75),
-                        value: artworkAppearsPlaying
-                    )
-                    .onTapGesture { setStandardLyricsVisible(true) }
-                    .frame(width: artworkColumnWidth, height: contentHeight)
+        return ZStack(alignment: .topLeading) {
+            VStack(spacing: 0) {
+                // 顶部圆钮排占位：圆钮本身画在上层，锁上之后换成解锁胶囊，
+                // 下面的内容不跟着挪。
+                Color.clear
+                    .frame(height: CGFloat(metrics.chromeRowHeight + metrics.chromeBottomSpacing))
 
-                VStack(spacing: 0) {
-                    nowPlayingSongHeader(titleFont: .headline, metadataFont: .subheadline, showsQuality: true)
-
-                    PlaybackProgressBar(fillTint: themedControlAccent)
-                        .padding(.top, 4)
-
-                    HStack(spacing: 0) {
-                        ctrlBtn("shuffle", active: player.shuffleEnabled) {
-                            player.shuffleEnabled.toggle()
-                        }
-                        Spacer(minLength: 6)
-                        Button { Task { await player.previous() } } label: {
-                            Image(systemName: "backward.fill")
-                                .font(.title3)
-                                .foregroundStyle(appearance.primary)
-                        }
-                        .frame(width: 48, height: 48)
-                        .accessibilityLabel("a11y_previous_track")
-                        Spacer(minLength: 6)
-                        Button { player.togglePlayPause() } label: {
-                            ZStack {
-                                Image(systemName: "play.circle.fill")
-                                    .font(.system(size: 52))
-                                    .opacity(0)
-                                if player.isLoading {
-                                    ProgressView().tint(appearance.primary)
-                                        .pmFadeTransition(motion: .control)
-                                } else {
-                                    Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                                        .font(.system(size: 52))
-                                        .foregroundStyle(appearance.primary)
-                                        .contentTransition(.symbolEffect(.replace))
-                                        // symbolEffect 管不到 ProgressView 这一跳, 用透明度接上。
-                                        .pmFadeTransition(motion: .control)
-                                }
-                            }
-                        }
-                        .disabled(player.isLoading)
-                        .accessibilityLabel(player.isPlaying
-                            ? String(localized: "a11y_pause")
-                            : String(localized: "a11y_play"))
-                        Spacer(minLength: 6)
-                        Button { Task { await player.next() } } label: {
-                            Image(systemName: "forward.fill")
-                                .font(.title3)
-                                .foregroundStyle(appearance.primary)
-                        }
-                        .frame(width: 48, height: 48)
-                        .accessibilityLabel("a11y_next_track")
-                        Spacer(minLength: 6)
-                        ctrlBtn(
-                            player.repeatMode == .one ? "repeat.1" : "repeat",
-                            active: player.repeatMode != .off
-                        ) {
-                            switch player.repeatMode {
-                            case .off: player.repeatMode = .all
-                            case .all: player.repeatMode = .one
-                            case .one: player.repeatMode = .off
-                            }
-                        }
-                    }
-                    .frame(height: 56)
-
-                    if showsPlayerVolumeBar {
-                        playerVolumeRow
-                            .padding(.top, 3)
-                    }
-
-                    HStack(spacing: 12) {
-                        Button { toggleStandardLyrics() } label: {
-                            Image(systemName: "quote.bubble")
-                                .foregroundStyle(appearance.tertiary)
-                        }
-                        .frame(width: 40, height: 40)
-                        .accessibilityLabel(Text("a11y_open_lyrics"))
-
-                        AirPlayButton()
-                            .frame(width: 34, height: 34)
-                            .frame(width: 40, height: 40)
-
-                        Button { showQueue = true } label: {
-                            Image(systemName: "list.bullet")
-                                .foregroundStyle(appearance.tertiary)
-                        }
-                        .frame(width: 40, height: 40)
-                        .accessibilityLabel("a11y_queue")
-
-                        Spacer(minLength: 0)
-
-                        if let song = player.currentSong {
-                            Text(song.fileFormat.displayName)
-                                .font(.caption2)
-                                .foregroundStyle(appearance.faint)
-                        }
-                    }
-                    .frame(height: 40)
-                }
-                .frame(maxWidth: .infinity, maxHeight: contentHeight)
+                compactLandscapeColumns(metrics: metrics)
             }
-            .padding(.leading, safeInsets.leading + 16)
-            .padding(.trailing, safeInsets.trailing + 16)
-            .padding(.top, safeInsets.top + 22)
-            .padding(.bottom, safeInsets.bottom + 6)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .allowsHitTesting(!isCompactLandscapeLocked)
 
-            Capsule()
-                .fill(appearance.tertiary)
-                .frame(width: 48, height: 5)
-                .padding(.top, safeInsets.top + 6)
+            compactLandscapeChromeLayer
+        }
+        .padding(.leading, CGFloat(metrics.leadingInset))
+        .padding(.trailing, CGFloat(metrics.trailingInset))
+        .padding(.top, CGFloat(metrics.topInset))
+        .padding(.bottom, CGFloat(metrics.bottomInset))
+        .onChange(of: metrics.showsEdgeToggles, initial: true) { _, showsToggles in
+            compactLandscapeHidesModeToggles = !showsToggles
+        }
+        .onDisappear {
+            // 转回竖屏、进歌词、进全屏效果、播放页收起都会走到这里。
+            isCompactLandscapeLocked = false
+            compactLandscapeHidesModeToggles = false
+        }
+    }
+
+    private func compactLandscapeMetrics(
+        geo: GeometryProxy,
+        safeInsets: EdgeInsets
+    ) -> NowPlayingCompactLandscapeLayoutPolicy.Metrics {
+        NowPlayingCompactLandscapeLayoutPolicy.metrics(
+            viewportWidth: Double(geo.size.width),
+            viewportHeight: Double(geo.size.height),
+            safeAreaTop: Double(safeInsets.top),
+            safeAreaBottom: Double(safeInsets.bottom),
+            safeAreaLeading: Double(safeInsets.leading),
+            safeAreaTrailing: Double(safeInsets.trailing),
+            prefersVolumeBar: showsPlayerVolumeBar,
+            textScale: compactLandscapeTextScale
+        )
+    }
+
+    /// 动态字号等级折算成策略要的字号倍率。折算表在策略里，视图层只负责把
+    /// `DynamicTypeSize` 换成它在 `allCases` 里的下标；读不出来就按默认档。
+    private var compactLandscapeTextScale: Double {
+        let index = DynamicTypeSize.allCases.firstIndex(of: dynamicTypeSize)
+        return NowPlayingCompactLandscapeLayoutPolicy.textScale(
+            forDynamicTypeIndex: index ?? 3
+        )
+    }
+
+    /// 锁上、或者效果抽屉开着的时候，播放页整体不再接最小化拖拽。
+    private var suppressesPlayerMinimizeGesture: Bool {
+        isCompactLandscapeLocked || showsImmersiveEffectPicker
+    }
+
+    private func compactLandscapeColumns(
+        metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics
+    ) -> some View {
+        HStack(alignment: .center, spacing: CGFloat(metrics.columnSpacing)) {
+            compactLandscapeArtwork(metrics: metrics)
+            compactLandscapeDetailColumn(metrics: metrics)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func compactLandscapeArtwork(
+        metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics
+    ) -> some View {
+        let artworkSize = CGFloat(metrics.artworkSize)
+        return artworkOrMusicVideo(size: artworkSize, cornerRadius: 18)
+            .scaleEffect(artworkAppearsPlaying ? 1 : 0.96)
+            .shadow(color: .black.opacity(0.28), radius: 20, y: 10)
+            .animation(
+                .spring(response: 0.5, dampingFraction: 0.75),
+                value: artworkAppearsPlaying
+            )
+            .onTapGesture { setStandardLyricsVisible(true) }
+            .frame(width: CGFloat(metrics.artworkColumnWidth))
+    }
+
+    @ViewBuilder
+    private func compactLandscapeDetailColumn(
+        metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            compactLandscapeTitle(lineLimit: metrics.titleLineLimit)
+
+            compactLandscapeArtistRow
+                .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.titleBottomSpacing))
+
+            if metrics.showsLyricLine {
+                compactLandscapeLyricLine(metrics: metrics)
+                    .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.lyricLineTopSpacing))
+            }
+
+            PlaybackProgressBar(fillTint: themedControlAccent)
+                .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.progressTopSpacing))
+
+            compactLandscapeTransportRow(metrics: metrics)
+                .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.transportTopSpacing))
+                // 锁上时控件留在原位只是不再显示，右栏不会因为少一行而整体上移。
+                .opacity(isCompactLandscapeLocked ? 0 : 1)
+                .accessibilityHidden(isCompactLandscapeLocked)
+                .pmAnimation(.control, value: isCompactLandscapeLocked)
+
+            if metrics.showsVolumeBar {
+                playerVolumeRow
+                    .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.volumeTopSpacing))
+                    .opacity(isCompactLandscapeLocked ? 0 : 1)
+                    .accessibilityHidden(isCompactLandscapeLocked)
+                    .pmAnimation(.control, value: isCompactLandscapeLocked)
+            }
+        }
+        // 封面列是定宽的，右栏吃掉剩下的空间：策略算出来的 detailColumnWidth
+        // 正好是这个余量，这样写不会因为浮点余数差那么零点几点而被挤压。
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func compactLandscapeTitle(lineLimit: Int) -> some View {
+        Text(player.currentSong?.title ?? "")
+            .font(.largeTitle.weight(.bold))
+            .foregroundStyle(appearance.primary)
+            .lineLimit(lineLimit)
+            .minimumScaleFactor(0.7)
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .contentTransition(.opacity)
+            .pmAnimation(.trackChange, value: player.currentSong?.id)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var compactLandscapeArtistRow: some View {
+        HStack(spacing: 8) {
+            // 艺人 / 专辑沿用竖屏那套可点跳转的 Menu，横屏只是压成一行。
+            nowPlayingMetadataLinks(font: .title3, lineLimit: 1)
+
+            if let song = player.currentSong, song.audioQuality != .standard {
+                AudioQualityBadge(quality: song.audioQuality)
+                    .fixedSize()
+            }
+        }
+    }
+
+    private func compactLandscapeLyricLine(
+        metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics
+    ) -> some View {
+        CompactLandscapeLyricLine(
+            lyrics: lyrics,
+            player: player,
+            songID: player.currentSong?.id,
+            lyricsRevision: lyricsRevision,
+            isSceneActive: isVisualSceneActive,
+            tint: appearance.tertiary,
+            lineHeight: CGFloat(metrics.lyricLineHeight),
+            onTap: { setStandardLyricsVisible(true) }
+        )
+    }
+
+    @ViewBuilder
+    private func compactLandscapeTransportRow(
+        metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics
+    ) -> some View {
+        HStack(spacing: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.transportSpacing)) {
+            if metrics.showsEdgeToggles {
+                ctrlBtn("shuffle", active: player.shuffleEnabled) {
+                    player.shuffleEnabled.toggle()
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            compactLandscapeSkipButton(
+                symbol: "backward.fill",
+                label: "a11y_previous_track"
+            ) {
+                Task { await player.previous() }
+            }
+
+            compactLandscapePlayButton
+
+            compactLandscapeSkipButton(
+                symbol: "forward.fill",
+                label: "a11y_next_track"
+            ) {
+                Task { await player.next() }
+            }
+
+            Spacer(minLength: 0)
+
+            if metrics.showsEdgeToggles {
+                ctrlBtn(
+                    player.repeatMode == .one ? "repeat.1" : "repeat",
+                    active: player.repeatMode != .off
+                ) {
+                    cycleRepeatMode()
+                }
+            }
+        }
+        .frame(height: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.primaryTransportDiameter))
+    }
+
+    private func compactLandscapeSkipButton(
+        symbol: String,
+        label: LocalizedStringKey,
+        action: @escaping () -> Void
+    ) -> some View {
+        let width = CGFloat(NowPlayingCompactLandscapeLayoutPolicy.secondaryTransportWidth)
+        let height = CGFloat(NowPlayingCompactLandscapeLayoutPolicy.secondaryTransportHeight)
+        return Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(appearance.primary)
+                .frame(width: width, height: height)
+                .nowPlayingAdaptiveGlass(
+                    Capsule(),
+                    appearance: appearance,
+                    tint: appearance.primary
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(label))
+    }
+
+    private var compactLandscapePlayButton: some View {
+        let diameter = CGFloat(NowPlayingCompactLandscapeLayoutPolicy.primaryTransportDiameter)
+        // 实心圆用前景色填充，图标反过来用背景底色，深浅两种外观下都是高对比。
+        let glyphTint = appearance.backgroundBase
+        return Button { player.togglePlayPause() } label: {
+            ZStack {
+                Circle()
+                    .fill(appearance.primary)
+
+                if player.isLoading {
+                    ProgressView()
+                        .tint(glyphTint)
+                        .pmFadeTransition(motion: .control)
+                } else {
+                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 26, weight: .semibold))
+                        .foregroundStyle(glyphTint)
+                        .contentTransition(.symbolEffect(.replace))
+                        // symbolEffect 管不到 ProgressView 这一跳, 用透明度接上。
+                        .pmFadeTransition(motion: .control)
+                }
+            }
+            .frame(width: diameter, height: diameter)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(player.isLoading)
+        .accessibilityLabel(player.isPlaying
+            ? String(localized: "a11y_pause")
+            : String(localized: "a11y_play"))
+    }
+
+    @ViewBuilder
+    private var compactLandscapeChromeLayer: some View {
+        // 两支都钉在同一个 ZStack 的左上角、同框重叠，可以走过渡。
+        if isCompactLandscapeLocked {
+            compactLandscapeUnlockControl
+                .pmFadeTransition(motion: .control)
+        } else {
+            compactLandscapeChromeRow
+                .pmFadeTransition(motion: .control)
+        }
+    }
+
+    /// 这一排圆钮走自适应玻璃：普通模式的背景跟着明暗外观走，不能用沉浸那套
+    /// 钉死深色的底（浅色外观下深底会把深色图标吃掉）。
+    private var compactLandscapeChromeRow: some View {
+        let diameter = CGFloat(NowPlayingCompactLandscapeLayoutPolicy.chromeButtonDiameter)
+        return HStack(spacing: 10) {
+            NowPlayingGlassActionButton(
+                symbol: "lock",
+                label: "immersive_lock_controls",
+                appearance: appearance,
+                tint: appearance.primary,
+                diameter: diameter
+            ) {
+                isCompactLandscapeLocked = true
+            }
+
+            NowPlayingGlassActionButton(
+                symbol: "list.bullet",
+                label: "a11y_queue",
+                appearance: appearance,
+                tint: appearance.primary,
+                diameter: diameter
+            ) {
+                showQueue = true
+            }
+
+            compactLandscapeAirPlayButton
+
+            Spacer(minLength: 0)
+
+            immersiveEffectButton(glass: .adaptive)
+
+            NowPlayingGlassActionButton(
+                symbol: isCurrentLiked ? "heart.fill" : "heart",
+                label: isCurrentLiked ? "a11y_unlike" : "a11y_like",
+                appearance: appearance,
+                tint: isCurrentLiked ? .red : appearance.primary,
+                diameter: diameter,
+                isSelected: isCurrentLiked
+            ) {
+                toggleLikedCurrent()
+            }
+            .disabled(player.currentSong == nil)
+
+            makeMoreMenu(immersiveChrome: true, chromeGlass: .adaptive)
+
+            NowPlayingGlassActionButton(
+                symbol: "arrow.down.right.and.arrow.up.left",
+                label: "mini_player",
+                appearance: appearance,
+                tint: appearance.primary,
+                diameter: diameter
+            ) {
+                onMinimize?()
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: diameter)
+    }
+
+    /// AirPlay 用系统的 `AVRoutePickerView`，套进与相邻圆钮同一套玻璃圆底里，
+    /// 着色沿用它自己按明暗外观算出来的那套。
+    private var compactLandscapeAirPlayButton: some View {
+        let diameter = CGFloat(NowPlayingCompactLandscapeLayoutPolicy.chromeButtonDiameter)
+        return AirPlayButton()
+            .frame(width: 26, height: 26)
+            .frame(width: diameter, height: diameter)
+            .nowPlayingAdaptiveGlass(
+                Circle(),
+                appearance: appearance,
+                tint: appearance.primary
+            )
+    }
+
+    private var compactLandscapeUnlockControl: some View {
+        let height = CGFloat(NowPlayingCompactLandscapeLayoutPolicy.chromeButtonDiameter)
+        return HStack(spacing: 0) {
+            Button { isCompactLandscapeLocked = false } label: {
+                Label("immersive_unlock_controls", systemImage: "lock.open.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(appearance.primary)
+                    .padding(.horizontal, 16)
+                    .frame(height: height)
+                    .nowPlayingAdaptiveGlass(
+                        Capsule(),
+                        appearance: appearance,
+                        tint: appearance.primary
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("immersive_unlock_controls"))
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: height)
+    }
+
+    private func cycleRepeatMode() {
+        switch player.repeatMode {
+        case .off: player.repeatMode = .all
+        case .all: player.repeatMode = .one
+        case .one: player.repeatMode = .off
         }
     }
 
@@ -2454,7 +2851,7 @@ struct NowPlayingView: View {
 
                     Spacer()
 
-                    immersiveEffectMenu
+                    immersiveEffectButton()
 
                     ImmersiveGlassActionButton(
                         symbol: isCurrentLiked ? "heart.fill" : "heart",
@@ -2744,36 +3141,84 @@ struct NowPlayingView: View {
         makeMoreMenu(immersiveChrome: true)
     }
 
-    private var immersiveEffectMenu: some View {
+    /// 全屏效果入口。面板本身是 `body` 里的 `ImmersiveEffectDrawer`，这里只负责
+    /// 开关那个状态 —— 抽屉留在宿主的 ZStack 里，宿主才知道它开着，能继续暂停
+    /// 浮动控件的自动隐藏。
+    ///
+    /// - Parameter glass: 圆钮底的样式。沉浸歌词与全屏沿用固定深色玻璃，普通模式
+    ///   横屏传自适应的那套。
+    private func immersiveEffectButton(glass: NowPlayingChromeGlass = .immersive) -> some View {
         Button {
             immersiveControlsAutoHideTask?.cancel()
             showsImmersiveEffectPicker = true
         } label: {
+            immersiveEffectButtonLabel(glass: glass)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("fullscreen_effect_settings_title"))
+    }
+
+    @ViewBuilder
+    private func immersiveEffectButtonLabel(glass: NowPlayingChromeGlass) -> some View {
+        let isSelected = fullscreenPlayerEffect != .native
+        switch glass {
+        case .immersive:
             ImmersiveGlassActionLabel(
                 symbol: "viewfinder.rectangular",
                 tint: appearance.primary,
                 diameter: 44,
-                isSelected: fullscreenPlayerEffect != .native
+                isSelected: isSelected
+            )
+        case .adaptive:
+            NowPlayingGlassActionLabel(
+                symbol: "viewfinder.rectangular",
+                appearance: appearance,
+                tint: appearance.primary,
+                diameter: 44,
+                isSelected: isSelected
             )
         }
-        .buttonStyle(.plain)
-        .popover(isPresented: $showsImmersiveEffectPicker, arrowEdge: .top) {
-            ImmersiveEffectPickerPanel(
-                selected: fullscreenPlayerEffect,
-                palette: ImmersiveArtworkPalette(
-                    primary: presentationAccentColor,
-                    secondary: presentationSecondaryDarkAccent
-                )
-            ) { candidate in
-                showsImmersiveEffectPicker = false
-                fullscreenPlayerEffectBinding.wrappedValue = candidate
-            }
-            .presentationCompactAdaptation(.popover)
-        }
-        .accessibilityLabel(Text("fullscreen_effect_settings_title"))
     }
 
-    private func makeMoreMenu(immersiveChrome: Bool = false) -> some View {
+    /// 全屏效果抽屉。放在 `body` 最外层的 ZStack 上层：沉浸歌词与普通模式横屏
+    /// 共用同一个开关状态，抽屉只有一份；宿主自己持有它，才知道它开着并继续
+    /// 暂停浮动控件的自动隐藏。
+    #if os(iOS)
+    private func immersiveEffectDrawer(
+        geo: GeometryProxy,
+        safeInsets: EdgeInsets
+    ) -> some View {
+        ImmersiveEffectDrawer(
+            selection: fullscreenPlayerEffectBinding,
+            effects: ImmersiveEffectDrawer.fullscreenCases,
+            palette: ImmersiveArtworkPalette(
+                primary: presentationAccentColor,
+                secondary: presentationSecondaryDarkAccent
+            ),
+            // 播放页这边转轮只是浏览，点卡片才写回并自动收起。
+            appliesOnSettle: false,
+            viewportSize: geo.size,
+            safeAreaInsets: safeInsets,
+            onPick: { _ in enterFullscreenAfterPickingEffect() },
+            onClose: { showsImmersiveEffectPicker = false }
+        )
+    }
+
+    /// 从普通播放页挑了一个全屏效果就直接进全屏 —— 这个入口的图标本来就是「全屏」，
+    /// 只记下偏好却留在原地，会让人以为没点上。沉浸歌词里的切换由效果变化的监听接管
+    /// （它会先退出沉浸歌词再进全屏），这里不重复处理。
+    private func enterFullscreenAfterPickingEffect() {
+        guard !isFullscreenPlayerPresented, !isLyricsImmersive else { return }
+        withAnimation(.easeInOut(duration: 0.28)) {
+            isFullscreenPlayerPresented = true
+        }
+    }
+    #endif
+
+    private func makeMoreMenu(
+        immersiveChrome: Bool = false,
+        chromeGlass: NowPlayingChromeGlass = .immersive
+    ) -> some View {
         let snapshot = NowPlayingMoreMenuSnapshot(
             songID: player.currentSong?.id,
             hasSong: player.currentSong != nil,
@@ -2801,6 +3246,9 @@ struct NowPlayingView: View {
             canChangePlaybackRate: playbackSettings.outputMode == .effects,
             playbackRate: playbackSettings.outputMode == .highFidelity ? 1 : playbackSettings.playbackRate,
             isLyricsTranslationEnabled: LyricsTranslationSettingsStore.shared.isEnabled,
+            showsPlaybackModeActions: compactLandscapeHidesModeToggles,
+            isShuffleEnabled: player.shuffleEnabled,
+            repeatMode: player.repeatMode,
             colorScheme: colorScheme,
             colorSchemeContrast: colorSchemeContrast
         )
@@ -2816,6 +3264,7 @@ struct NowPlayingView: View {
                 }
             ),
             immersiveChrome: immersiveChrome,
+            chromeGlass: chromeGlass,
             onEnterFullScreen: { presentImmersiveLyrics() },
             onAddToPlaylist: { showAddToPlaylist = true },
             onScrape: { openScrapeForCurrentSong() },
@@ -2849,6 +3298,8 @@ struct NowPlayingView: View {
                 LyricsTranslationSettingsStore.shared.isEnabled.toggle()
             },
             onShowSleepTimer: { showSleepTimer = true },
+            onToggleShuffle: { player.shuffleEnabled.toggle() },
+            onCycleRepeatMode: { cycleRepeatMode() },
             onDelete: { showDeleteConfirm = true }
         )
         .equatable()
@@ -3035,8 +3486,10 @@ struct NowPlayingView: View {
         }
     }
 
+    /// - Parameter lineLimit: 手机横屏的右栏按固定高度排版，多出来的一行会顶开
+    ///   下面的进度条与传输键，所以那边传 1。
     @ViewBuilder
-    private func nowPlayingMetadataLinks(font: Font) -> some View {
+    private func nowPlayingMetadataLinks(font: Font, lineLimit: Int = 2) -> some View {
         let artistName = currentArtistDisplayName
         let albumTitle = player.currentSong?.albumTitle ?? ""
         let metadata = [artistName, albumTitle].filter { !$0.isEmpty }.joined(separator: " · ")
@@ -3044,7 +3497,7 @@ struct NowPlayingView: View {
             .font(font)
             .foregroundStyle(appearance.secondary)
             .multilineTextAlignment(.leading)
-            .lineLimit(2)
+            .lineLimit(lineLimit)
             .fixedSize(horizontal: false, vertical: true)
             .contentTransition(.opacity)
             .pmAnimation(.trackChange, value: player.currentSong?.id)
@@ -5056,6 +5509,11 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let canChangePlaybackRate: Bool
     let playbackRate: Float
     let isLyricsTranslationEnabled: Bool
+    /// 手机横屏右栏窄到摆不下两端的随机 / 循环时为真, 菜单里补上这两个入口,
+    /// 别的布局仍然只在传输键那一行提供它们。
+    let showsPlaybackModeActions: Bool
+    let isShuffleEnabled: Bool
+    let repeatMode: RepeatMode
     let colorScheme: ColorScheme
     let colorSchemeContrast: ColorSchemeContrast
 }
@@ -5070,6 +5528,8 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     let immersiveChrome: Bool
+    /// 只在 `immersiveChrome` 为真时起作用：圆钮底用固定深色还是跟随明暗外观。
+    let chromeGlass: NowPlayingChromeGlass
 
     let onEnterFullScreen: () -> Void
     let onAddToPlaylist: () -> Void
@@ -5087,11 +5547,14 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onShowCastPicker: () -> Void
     let onToggleLyricsTranslation: () -> Void
     let onShowSleepTimer: () -> Void
+    let onToggleShuffle: () -> Void
+    let onCycleRepeatMode: () -> Void
     let onDelete: () -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.snapshot == rhs.snapshot
             && lhs.immersiveChrome == rhs.immersiveChrome
+            && lhs.chromeGlass == rhs.chromeGlass
     }
 
     private var appearance: NowPlayingAppearance {
@@ -5099,6 +5562,16 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
             colorScheme: snapshot.colorScheme,
             contrast: snapshot.colorSchemeContrast
         )
+    }
+
+    /// 循环模式当前状态对应的图标。菜单项文案沿用 `repeat` 这一个 key,
+    /// 三种状态靠图标区分。
+    private static func repeatSymbol(for mode: RepeatMode) -> String {
+        switch mode {
+        case .off: return "repeat"
+        case .all: return "repeat.circle.fill"
+        case .one: return "repeat.1.circle.fill"
+        }
     }
 
     var body: some View {
@@ -5109,6 +5582,24 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                         Label(String(localized: "full_screen_player"), systemImage: "viewfinder.rectangular")
                     }
                     .disabled(!snapshot.hasSong)
+                }
+            }
+
+            if snapshot.showsPlaybackModeActions {
+                Section {
+                    Button(action: onToggleShuffle) {
+                        Label(
+                            String(localized: "shuffle"),
+                            systemImage: snapshot.isShuffleEnabled ? "shuffle.circle.fill" : "shuffle"
+                        )
+                    }
+
+                    Button(action: onCycleRepeatMode) {
+                        Label(
+                            String(localized: "repeat"),
+                            systemImage: Self.repeatSymbol(for: snapshot.repeatMode)
+                        )
+                    }
                 }
             }
 
@@ -5284,32 +5775,52 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                 }
             }
         } label: {
-            if immersiveChrome {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(appearance.primary.opacity(0.88))
-                    .frame(width: 44, height: 44)
-                    .background {
-                        Circle()
-                            .fill(.ultraThinMaterial)
-                            .environment(\.colorScheme, .dark)
-                        Circle().fill(.black.opacity(0.16))
-                    }
-                    .overlay {
-                        Circle().strokeBorder(.white.opacity(0.20), lineWidth: 0.8)
-                    }
-            } else {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(appearance.secondary)
-                    .frame(width: 38, height: 38)
-                    .background(appearance.primary.opacity(0.065), in: Circle())
-                    .overlay {
-                        Circle()
-                            .strokeBorder(appearance.primary.opacity(0.14), lineWidth: 0.75)
-                    }
-                    .frame(width: 44, height: 44)
-            }
+            menuLabel
+        }
+    }
+
+    @ViewBuilder
+    private var menuLabel: some View {
+        if immersiveChrome {
+            chromeMenuLabel
+        } else {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(appearance.secondary)
+                .frame(width: 38, height: 38)
+                .background(appearance.primary.opacity(0.065), in: Circle())
+                .overlay {
+                    Circle()
+                        .strokeBorder(appearance.primary.opacity(0.14), lineWidth: 0.75)
+                }
+                .frame(width: 44, height: 44)
+        }
+    }
+
+    @ViewBuilder
+    private var chromeMenuLabel: some View {
+        switch chromeGlass {
+        case .immersive:
+            Image(systemName: "ellipsis")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(appearance.primary.opacity(0.88))
+                .frame(width: 44, height: 44)
+                .background {
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                        .environment(\.colorScheme, .dark)
+                    Circle().fill(.black.opacity(0.16))
+                }
+                .overlay {
+                    Circle().strokeBorder(.white.opacity(0.20), lineWidth: 0.8)
+                }
+        case .adaptive:
+            NowPlayingGlassActionLabel(
+                symbol: "ellipsis",
+                appearance: appearance,
+                tint: appearance.primary,
+                diameter: 44
+            )
         }
     }
 }
@@ -5449,6 +5960,127 @@ private struct LyricsPausedTimeObserver: View {
                     onPausedTick()
                 }
             }
+    }
+}
+
+/// 手机横屏普通模式右栏的「当前歌词行」。
+///
+/// 当前行得跟着播放位置走, 但 `NowPlayingView.body` 是七千行规模的大 body,
+/// 不能让它跟着时间每几百毫秒重算一遍。所以照 `LyricsScrollView` 的办法把
+/// 时间读取整个关在这棵小子树里: 外面只传进不随播放进度变化的入参, 行索引
+/// 是本 view 自己的 `@State`。
+///
+/// 行判定复用 `LyricPlaybackPositionPolicy.activeLineIndex`, 与歌词页、Mac
+/// 单行歌词、外接屏用的是同一套二分, 不另写一份。
+private struct CompactLandscapeLyricLine: View {
+    let lyrics: [LyricLine]
+    let player: AudioPlayerService
+    let songID: String?
+    let lyricsRevision: UInt
+    let isSceneActive: Bool
+    let tint: Color
+    let lineHeight: CGFloat
+    let onTap: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var currentLineIndex = -1
+
+    /// 单行展示不需要逐字精度, 200ms 足够让换行看着是跟上的, 又比歌词页的
+    /// 100ms 少一半唤醒。
+    private static let pollInterval: Duration = .milliseconds(200)
+    private static let lookahead: TimeInterval = 0.25
+
+    private struct FollowIdentity: Hashable {
+        let songID: String?
+        let lyricsRevision: UInt
+        let isPlaying: Bool
+        let isSceneActive: Bool
+    }
+
+    private var hasSynchronizedLyrics: Bool {
+        lyrics.contains { $0.isSynchronized }
+    }
+
+    private var followIdentity: FollowIdentity {
+        FollowIdentity(
+            songID: songID,
+            lyricsRevision: lyricsRevision,
+            isPlaying: player.isPlaying,
+            isSceneActive: isSceneActive
+        )
+    }
+
+    private var activityPolicy: NowPlayingVisualActivityPolicy {
+        NowPlayingVisualActivityPolicy(
+            isSceneActive: isSceneActive,
+            isPlaying: player.isPlaying,
+            usesRealtimeSpectrum: false,
+            reduceMotion: reduceMotion
+        )
+    }
+
+    private var currentText: String {
+        guard lyrics.indices.contains(currentLineIndex) else { return "" }
+        return lyrics[currentLineIndex].text
+    }
+
+    var body: some View {
+        Text(verbatim: currentText)
+            .font(.callout)
+            .foregroundStyle(tint)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .contentTransition(.opacity)
+            .pmAnimation(.control, value: currentLineIndex)
+            // 没有歌词时也占同样高度, 布局不会在有无歌词之间上下跳。
+            .frame(height: lineHeight, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onTap)
+            .task(id: followIdentity) {
+                guard hasSynchronizedLyrics else {
+                    if currentLineIndex != -1 { currentLineIndex = -1 }
+                    return
+                }
+                updateCurrentLine()
+                guard activityPolicy.shouldPollLyrics else { return }
+                while !Task.isCancelled {
+                    do {
+                        try await Task.sleep(for: Self.pollInterval)
+                    } catch {
+                        return
+                    }
+                    guard !Task.isCancelled else { return }
+                    updateCurrentLine()
+                }
+            }
+            .background {
+                // 暂停时没有轮询, 拖动进度条后的新位置靠这个零尺寸观察者补上。
+                LyricsPausedTimeObserver(
+                    player: player,
+                    isEnabled: hasSynchronizedLyrics && isSceneActive
+                ) {
+                    updateCurrentLine()
+                }
+            }
+            .onChange(of: songID) { _, _ in
+                currentLineIndex = -1
+            }
+    }
+
+    private func updateCurrentLine() {
+        guard hasSynchronizedLyrics else {
+            if currentLineIndex != -1 { currentLineIndex = -1 }
+            return
+        }
+        let index = LyricPlaybackPositionPolicy.activeLineIndex(
+            in: lyrics,
+            at: player.interpolatedTime(),
+            lookahead: Self.lookahead
+        ) ?? -1
+        if index != currentLineIndex {
+            currentLineIndex = index
+        }
     }
 }
 
