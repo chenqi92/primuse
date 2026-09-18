@@ -136,10 +136,13 @@ private struct FloatingCapsulePlayButton: View {
                 FloatingCapsuleProgressRing()
                 if player.isLoading && !player.isLiveRadio {
                     ProgressView().controlSize(.small)
+                        .pmFadeTransition(motion: .control)
                 } else {
                     Image(systemName: symbolName)
                         .font(.system(size: 15, weight: .semibold))
                         .contentTransition(.symbolEffect(.replace))
+                        // ProgressView 与 Image 之间 symbolEffect 不生效, 这一跳只能走透明度。
+                        .pmFadeTransition(motion: .control)
                 }
             }
             .frame(width: 44, height: 44)
