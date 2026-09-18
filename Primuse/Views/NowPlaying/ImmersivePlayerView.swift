@@ -102,6 +102,24 @@ struct ImmersivePlayerView: View {
                         .offset(y: showsChrome ? 0 : 8)
                         .transition(.opacity.combined(with: .offset(y: 8)))
                 }
+
+                // 抽屉是这一层 ZStack 里的覆盖物而不是系统 popover: 宿主才能准确知道它
+                // 开着,继续暂停控件自动隐藏与滑动切效果。舞台不被它包住,开抽屉不会重建舞台。
+                if showsEffectPicker {
+                    ImmersiveEffectDrawer(
+                        selection: $effect,
+                        effects: ImmersiveEffectDrawer.fullscreenCases,
+                        palette: artworkPalette,
+                        appliesOnSettle: true,
+                        viewportSize: geometry.size,
+                        safeAreaInsets: geometry.safeAreaInsets,
+                        onClose: { showsEffectPicker = false }
+                    )
+                    .pmSlideTransition(
+                        edge: ImmersiveEffectDrawer.transitionEdge(for: geometry.size),
+                        motion: .panel
+                    )
+                }
             }
             .animation(.easeInOut(duration: 0.26), value: showsChrome)
             .animation(.easeInOut(duration: 0.35), value: isAmbientRest)
@@ -180,8 +198,10 @@ struct ImmersivePlayerView: View {
             if isPresented {
                 chromeTask?.cancel()
                 ambientTask?.cancel()
-                showsChrome = true
                 exitAmbientRest()
+                // 抽屉自带标题与收起按钮,浮动控件此时只会和它抢同一块位置:
+                // 竖屏的底部抽屉正好压在传输控件上,横屏的尾侧抽屉压在顶栏按钮上。
+                showsChrome = false
             } else {
                 if isSceneActive {
                     revealChrome()
@@ -256,7 +276,7 @@ struct ImmersivePlayerView: View {
                         presentationRole: .animatedHero,
                         animationRequiresPlayback: true,
                         isPlaying: player.isPlaying,
-                        isAnimationVisible: isSceneActive && !showsEffectPicker,
+                        isAnimationVisible: isSceneActive,
                         revisionToken: player.coverRevision,
                         onResolutionChange: { hasResolvedArtwork = $0 }
                     )
@@ -356,9 +376,10 @@ struct ImmersivePlayerView: View {
         }
     }
 
+    /// 开关效果抽屉。抽屉自带滑入滑出的过渡曲线,这里不再包动画事务。
     private func effectChromeMenu(metrics: ImmersiveStageMetrics) -> some View {
         Button {
-            showsEffectPicker = true
+            showsEffectPicker.toggle()
         } label: {
             ImmersiveGlassActionLabel(
                 symbol: "viewfinder.rectangular",
@@ -368,36 +389,7 @@ struct ImmersivePlayerView: View {
             )
         }
         .buttonStyle(.plain)
-        .popover(isPresented: $showsEffectPicker, arrowEdge: .top) {
-            ImmersiveEffectPickerPanel(
-                selected: effect,
-                palette: artworkPalette,
-                panelWidth: effectPickerWidth(metrics),
-                panelHeight: effectPickerHeight(metrics)
-            ) { candidate in
-                effect = candidate
-                showsEffectPicker = false
-            }
-            .presentationCompactAdaptation(.popover)
-        }
         .accessibilityLabel(Text("fullscreen_effect_settings_title"))
-    }
-
-    private func effectPickerWidth(_ metrics: ImmersiveStageMetrics) -> CGFloat {
-        let safeWidth = metrics.size.width
-            - metrics.safeArea.leading
-            - metrics.safeArea.trailing
-            - 32
-        return min(340, max(280, safeWidth))
-    }
-
-    private func effectPickerHeight(_ metrics: ImmersiveStageMetrics) -> CGFloat {
-        let reservedHeight: CGFloat = metrics.layout == .phoneLandscape ? 92 : 140
-        let safeHeight = metrics.size.height
-            - metrics.safeArea.top
-            - metrics.safeArea.bottom
-            - reservedHeight
-        return min(500, max(190, safeHeight))
     }
 
     private var queueChromeButton: some View {
@@ -1034,6 +1026,8 @@ struct ImmersivePlayerView: View {
     private func surfaceDrag(in size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 24)
             .onEnded { value in
+                // 抽屉开着时舞台只负责"点一下收起",不再响应切歌与退出。
+                guard !showsEffectPicker else { return }
                 guard !isControlZone(value.startLocation, in: size) else { return }
                 let horizontal = value.translation.width
                 let vertical = value.translation.height
@@ -1060,6 +1054,8 @@ struct ImmersivePlayerView: View {
     private var modeMagnification: some Gesture {
         MagnifyGesture(minimumScaleDelta: 0.08)
             .onEnded { value in
+                // 抽屉就是用来挑效果的,此时再让捏合跳一档只会和转轮打架。
+                guard !showsEffectPicker else { return }
                 guard abs(value.magnification - 1) >= 0.10 else { return }
                 let offset = value.magnification > 1 ? 1 : -1
                 effect = effect.advanced(by: offset)
@@ -1099,6 +1095,11 @@ struct ImmersivePlayerView: View {
     }
 
     private func handleSurfaceTap() {
+        // 点抽屉之外的舞台就是收起抽屉,不顺带切换控件显隐。
+        if showsEffectPicker {
+            showsEffectPicker = false
+            return
+        }
         if isAmbientRest {
             exitAmbientRest()
             revealChrome()
