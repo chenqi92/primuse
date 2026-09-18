@@ -237,6 +237,96 @@ struct ServerSongCatalogMergePolicyTests {
         ))
     }
 
+    /// A retag on the server keeps the file's size and creation time, so the
+    /// changed values themselves have to carry the update.
+    @Test func stableServerRowsFollowServerCatalogueEdits() {
+        var existing = song(revision: "r1")
+        existing.genre = "Pop"
+        existing.year = 2001
+        existing.trackNumber = 3
+        existing.titlePinyin = "song"
+        existing.albumPinyin = "album"
+        existing.lyricsText = "locally indexed lyrics"
+        existing.coverArtFileName = "subsonic-cover/mf-a_1"
+        var incoming = song(revision: "r1")
+        incoming.title = "Song (Remastered)"
+        incoming.albumTitle = "Album Deluxe"
+        incoming.artistName = "Artist feat. Guest"
+        incoming.genre = "Rock"
+        incoming.year = 2021
+        incoming.trackNumber = 4
+        incoming.coverArtFileName = "subsonic-cover/mf-a_2"
+
+        let merged = ServerSongCatalogMergePolicy.merged(existing: existing, incoming: incoming)
+
+        #expect(merged.title == "Song (Remastered)")
+        #expect(merged.albumTitle == "Album Deluxe")
+        #expect(merged.artistName == "Artist feat. Guest")
+        #expect(merged.genre == "Rock")
+        #expect(merged.year == 2021)
+        #expect(merged.trackNumber == 4)
+        #expect(merged.coverArtFileName == "subsonic-cover/mf-a_2")
+        #expect(merged.titlePinyin == nil)
+        #expect(merged.albumPinyin == nil)
+        #expect(merged.lyricsText == existing.lyricsText)
+        #expect(merged.albumID == existing.albumID)
+    }
+
+    @Test func stableServerRowsKeepUserEditsAndLocalArtwork() {
+        var edited = song(revision: "r1")
+        edited.title = "My title"
+        edited.year = 1999
+        edited.coverArtFileName = "subsonic-cover/mf-a_1"
+        edited.userMetadataEditedAt = Date(timeIntervalSince1970: 1_750_000_000)
+        var incoming = song(revision: "r1")
+        incoming.title = "Server title"
+        incoming.year = 2021
+        incoming.coverArtFileName = "subsonic-cover/mf-a_2"
+
+        let keptEdit = ServerSongCatalogMergePolicy.merged(existing: edited, incoming: incoming)
+        #expect(keptEdit.title == "My title")
+        #expect(keptEdit.year == 1999)
+        #expect(keptEdit.coverArtFileName == "subsonic-cover/mf-a_1")
+
+        var scraped = song(revision: "r1")
+        scraped.coverArtFileName = "0123456789abcdef0123456789abcdef.jpg"
+        let keptLocalCover = ServerSongCatalogMergePolicy.merged(existing: scraped, incoming: incoming)
+        #expect(keptLocalCover.coverArtFileName == scraped.coverArtFileName)
+        #expect(keptLocalCover.title == "Server title")
+    }
+
+    @Test func missingOrUnusableServerValuesDoNotEraseKnownOnes() {
+        var existing = song(revision: "r1")
+        existing.genre = "Pop"
+        existing.year = 2001
+        existing.discNumber = 2
+        var incoming = song(revision: "r1")
+        incoming.genre = "   "
+        incoming.year = 0
+        incoming.discNumber = nil
+        incoming.albumTitle = "Album [00:03.69]lyrics that leaked into the tag"
+
+        let merged = ServerSongCatalogMergePolicy.merged(existing: existing, incoming: incoming)
+
+        #expect(merged.genre == "Pop")
+        #expect(merged.year == 2001)
+        #expect(merged.discNumber == 2)
+        #expect(merged.albumTitle == "Album")
+    }
+
+    /// The connector names a title-less row "Unknown" and the backfill reads
+    /// the real title from the file header; later scans keep that title.
+    @Test func placeholderServerTitleDoesNotUndoTheBackfilledTitle() {
+        var backfilled = song(revision: "r1")
+        backfilled.title = "Title From The File Header"
+        var incoming = song(revision: "r1")
+        incoming.title = "Unknown"
+
+        let merged = ServerSongCatalogMergePolicy.merged(existing: backfilled, incoming: incoming)
+
+        #expect(merged.title == "Title From The File Header")
+    }
+
     private func song(revision: String) -> Song {
         Song(
             id: "song",

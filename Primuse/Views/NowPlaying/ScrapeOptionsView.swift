@@ -1707,6 +1707,19 @@ struct ScrapeOptionsView: View {
                 || appliedFinal.bitDepth != song.bitDepth
                 || appliedFinal.genre != song.genre
                 || appliedFinal.year != song.year
+            // A server library's catalogue text follows the server on every
+            // scan. Values picked here are the user's own, so stamp them like
+            // a tag edit or the next scan puts the server's back.
+            let catalogTextChanged = appliedFinal.title != song.title
+                || appliedFinal.albumTitle != song.albumTitle
+                || appliedFinal.artistName != song.artistName
+                || appliedFinal.trackNumber != song.trackNumber
+                || appliedFinal.discNumber != song.discNumber
+                || appliedFinal.genre != song.genre
+                || appliedFinal.year != song.year
+            if catalogTextChanged, await sm.isServerLibrarySource(for: song) {
+                appliedFinal.userMetadataEditedAt = Date()
+            }
             if metadataChanged {
                 lib.replaceSong(appliedFinal)
             } else {

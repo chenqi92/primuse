@@ -4695,6 +4695,11 @@ final class MusicLibrary {
                     incoming: newSong
                 )
                 newSong.dateAdded = existing.dateAdded
+                if Self.serverReplacedArtwork(from: existing, to: newSong) {
+                    // Covers read the song-ID mirror before the reference, so
+                    // it has to go before the new reference is published.
+                    MetadataAssetStore.shared.invalidateCoverCacheSync(forSongID: newSong.id)
+                }
             }
             // 扫描入库仍旧走逐首口径: 整批的目录兄弟关系由随后的整库重建
             // 通过 `albumIDCorrections` 纠正。
@@ -4917,6 +4922,23 @@ final class MusicLibrary {
                                         userInfo: ["songs": recovery.songs])
     }
     #endif
+
+    /// The server now names different artwork for this song. Navidrome 0.64
+    /// re-encoding the id of the same artwork does not count.
+    private nonisolated static func serverReplacedArtwork(from existing: Song, to updated: Song) -> Bool {
+        guard let previous = existing.coverArtFileName,
+              let current = updated.coverArtFileName,
+              previous != current,
+              ServerSongCatalogMergePolicy.isServerArtworkReference(previous),
+              ServerSongCatalogMergePolicy.isServerArtworkReference(current) else {
+            return false
+        }
+        return !SubsonicSongIdentityCarryPolicy.isCanonicalCoverArtRekey(
+            previousReference: previous,
+            currentReference: current,
+            canonicalID: { NavidromeCanonicalIDPolicy.canonicalID($0) }
+        )
+    }
 
     /// Compare fields consumed by song rows, Now Playing, and technical-info
     /// views without invoking Song's synthesized equality. The latter also
