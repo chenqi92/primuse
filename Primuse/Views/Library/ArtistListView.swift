@@ -72,8 +72,8 @@ struct ArtistListView: View {
         } else {
             Group {
                 switch layoutMode {
-                case .grid: artistGrid
-                case .list: artistList
+                case .grid: artistGrid.pmAppearFade()
+                case .list: artistList.pmAppearFade()
                 }
             }
             .overlay {
@@ -125,7 +125,7 @@ struct ArtistListView: View {
                     NavigationLink(value: artist) {
                         artistGridCell(artist)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pmPressable)
                     .mediaZoomSource(.artist, id: artist.id)
                 }
             }
@@ -172,6 +172,7 @@ struct ArtistListView: View {
                     }
                 }
             }
+            .mediaZoomSource(.artist, id: artist.id)
         }
         .listStyle(.plain)
     }
@@ -211,7 +212,10 @@ struct ArtistListView: View {
 
                 Group {
                     if let artist = selectedArtist {
+                        // 只在重建后淡入: 详情页一次 body 要过滤整库专辑,
+                        // 不能把它拉进交叉淡入的事务里。
                         ArtistDetailView(artist: artist)
+                            .pmAppearFade()
                             .id(artist.id)
                     } else {
                         ContentUnavailableView.search(text: searchText)

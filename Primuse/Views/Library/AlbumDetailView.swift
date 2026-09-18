@@ -463,10 +463,12 @@ struct AlbumDetailView: View {
                         Image(systemName: "play.fill")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(PMColor.brand)
+                            .pmFadeTransition()
                     } else {
                         Text("\(song.trackNumber ?? index + 1)")
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(PMColor.textFaint)
+                            .pmFadeTransition()
                     }
                 }
                 .frame(width: 28, alignment: .center)
@@ -503,6 +505,8 @@ struct AlbumDetailView: View {
             .padding(.vertical, 6)
             .pmRowBackground(selected: isCurrent)
             .contentShape(Rectangle())
+            // 行底色自带 0.12 的高亮动画, 序号与字色不跟上就会分两段到达。
+            .pmAnimation(.hover, value: isCurrent)
         }
         .buttonStyle(.plain)
     }

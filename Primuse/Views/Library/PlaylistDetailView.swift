@@ -276,6 +276,9 @@ struct PlaylistDetailView: View {
                 if isCurrentPlaylistScraping {
                     batchScrapeProgressCard
                         .padding(.horizontal)
+                        // 只让卡片自己淡入淡出: 下面就是整份曲目表, 不能在
+                        // 它们共同的祖先上挂动画。
+                        .pmFadeTransition(motion: .list)
                 }
 
                 // Action buttons ── 主按钮"播放全部"占大头, 旁边两个紧凑图标按钮。
@@ -326,6 +329,7 @@ struct PlaylistDetailView: View {
                 if supportsAlwaysDownload {
                     alwaysDownloadControl
                         .padding(.horizontal)
+                        .pmFadeTransition(motion: .list)
                 }
 
                 // Songs
@@ -657,10 +661,12 @@ struct PlaylistDetailView: View {
 
                     if supportsAlwaysDownload {
                         alwaysDownloadControl
+                            .pmFadeTransition(motion: .list)
                     }
 
                     if isCurrentPlaylistScraping {
                         batchScrapeProgressCard
+                            .pmFadeTransition(motion: .list)
                     }
 
                     // 设计稿: 普通歌单只有 LibraryHeader + 歌曲表。智能歌单才显示
@@ -1020,17 +1026,22 @@ struct PlaylistDetailView: View {
         let membership: SongSelectionMembership
 
         var body: some View {
+            // 过渡自带曲线, 并且只在这一格里做 —— 进出多选态时整张表的每一行
+            // 都会经过这里, 不能靠外层包一次事务来驱动。
             ZStack {
                 if isSelectionActive {
                     SongSelectionCheckmark(isSelected: membership.isSelected)
+                        .pmFadeTransition(motion: .list)
                 } else if isCurrent {
                     Image(systemName: "play.fill")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(PMColor.brand)
+                        .pmFadeTransition(motion: .list)
                 } else {
                     Text("\(index + 1)")
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(PMColor.textFaint)
+                        .pmFadeTransition(motion: .list)
                 }
             }
             .frame(maxHeight: .infinity, alignment: .center)
@@ -1144,14 +1155,14 @@ struct PlaylistDetailView: View {
             systemImage: systemImage,
             color: color
         )
-        withAnimation {
+        pmWithAnimation(.list) {
             scrapeFeedback = feedback
         }
         announceScrapeFeedback(message)
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(4))
             guard scrapeFeedback?.id == feedback.id else { return }
-            withAnimation {
+            pmWithAnimation(.list) {
                 scrapeFeedback = nil
             }
         }

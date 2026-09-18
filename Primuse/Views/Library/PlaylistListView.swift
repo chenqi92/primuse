@@ -64,6 +64,9 @@ struct PlaylistListView: View {
             if isManagingPlaylists {
                 playlistManageBar
                     .padding(.bottom, playlistManageBottomClearance)
+                    // 曲线附在过渡上: 进出管理态是裸赋值, 不能为了驱动它
+                    // 去包 withAnimation —— 那会把整块歌单列表拉进事务。
+                    .pmSlideTransition(edge: .bottom, motion: .list)
             }
         }
         .alert("delete_playlist", isPresented: $showBatchDeleteConfirm) {
@@ -149,6 +152,7 @@ struct PlaylistListView: View {
                                 NavigationLink(value: playlist) {
                                     playlistRow(playlist)
                                 }
+                                .mediaZoomSource(.playlist, id: playlist.id)
                                 // 用 swipeActions 而不是 .onDelete ── 后者无法
                                 // 按行条件禁用, 之前在 deletePlaylists 里 continue
                                 // 跳过 system 歌单时 SwiftUI 已经做了消失动画
@@ -409,9 +413,11 @@ struct PlaylistListView: View {
                                         smartPlaylistCard(smart)
                                     }
                                     .buttonStyle(.plain)
+                                    .pmHoverLift()
                                 }
                             }
                         }
+                        .pmFadeTransition(motion: .contentAppear)
                     }
 
                     if !ruleSmartPlaylists.isEmpty {
@@ -427,9 +433,11 @@ struct PlaylistListView: View {
                                         smartPlaylistCard(smart)
                                     }
                                     .buttonStyle(.plain)
+                                    .pmHoverLift()
                                 }
                             }
                         }
+                        .pmFadeTransition(motion: .contentAppear)
                     }
 
                     if !playlists.isEmpty {
@@ -472,10 +480,12 @@ struct PlaylistListView: View {
                                         .contextMenu {
                                             playlistContextMenu(for: playlist)
                                         }
+                                        .pmHoverLift()
                                     }
                                 }
                             }
                         }
+                        .pmFadeTransition(motion: .contentAppear)
                     }
                 }
             }
@@ -617,6 +627,7 @@ struct PlaylistListView: View {
                     Image(systemName: isManagingPlaylists ? "xmark" : "checkmark.circle")
                         .font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(isManagingPlaylists ? .white : PMColor.text)
+                        .contentTransition(.symbolEffect(.replace))
                         .frame(width: 32, height: 32)
                         .background(isManagingPlaylists ? PMColor.brand : PMColor.glassBtn,
                                     in: .rect(cornerRadius: 8))
@@ -625,6 +636,9 @@ struct PlaylistListView: View {
                                 .strokeBorder(isManagingPlaylists ? .clear : PMColor.cardBorder,
                                               lineWidth: 0.5)
                         }
+                        // 事务只罩住这枚按钮 —— 进出管理态会重排整块歌单网格,
+                        // 在调用点包 withAnimation 会把它们一起拖进来。
+                        .pmAnimation(.control, value: isManagingPlaylists)
                 }
                 .buttonStyle(.plain)
                 .help(Text(isManagingPlaylists ? "done" : "batch_select"))

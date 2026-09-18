@@ -155,6 +155,7 @@ struct SmartPlaylistDetailView: View {
                                 systemImage: "magnifyingglass"
                             )
                             .padding(.top, 24)
+                            .pmAppearFade(.contentAppear)
                         } else {
                             LazyVStack(spacing: 0) {
                                 ForEach(matched) { song in
@@ -171,6 +172,9 @@ struct SmartPlaylistDetailView: View {
                                     Divider().padding(.leading, 50)
                                 }
                             }
+                            // 只在"空态 ⇄ 曲目表"重建时淡入一次: 匹配结果变化不换
+                            // 分支, 不会每次刷新都重放; 表内的行一律不动。
+                            .pmAppearFade(.contentAppear)
                         }
                     }
                 }
@@ -219,8 +223,10 @@ struct SmartPlaylistDetailView: View {
                                 )
                                 .frame(maxWidth: .infinity)
                                 .padding(.top, 48)
+                                .pmAppearFade(.contentAppear)
                             } else {
                                 macSongTable(matched)
+                                    .pmAppearFade(.contentAppear)
                             }
                         }
                         .padding(.horizontal, PMSpace.xxxl)

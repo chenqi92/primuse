@@ -1983,11 +1983,13 @@ struct GenreLibraryView: View {
                 descriptionKey: "no_genres_desc",
                 systemImage: "tag"
             )
+            .pmAppearFade(.contentAppear)
         } else {
             ScrollView {
                 if filteredGenres.isEmpty {
                     ContentUnavailableView.search(text: searchText)
                         .padding(.top, 80)
+                        .pmAppearFade(.contentAppear)
                 } else {
                     LazyVGrid(
                         columns: [GridItem(.adaptive(minimum: 156), spacing: 12)],
@@ -1997,10 +1999,12 @@ struct GenreLibraryView: View {
                             NavigationLink(value: genre) {
                                 LibraryGenreCard(genre: genre)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.pmPressable)
                         }
                     }
                     .padding(16)
+                    // 只在"有结果 ↔ 没结果"这一层重建时淡入一次, 逐键过滤的网格本身不动。
+                    .pmAppearFade(.contentAppear)
                 }
             }
             .searchable(
@@ -2085,7 +2089,9 @@ struct GenreLibraryView: View {
                 Rectangle().fill(PMColor.divider).frame(width: 0.5)
 
                 if let selectedGenre {
+                    // 淡入挂在 .id 里面: 换流派时身份重建, 修饰符的状态才会跟着重置。
                     GenreDetailView(genre: selectedGenre)
+                        .pmAppearFade()
                         .id(selectedGenre.id)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
