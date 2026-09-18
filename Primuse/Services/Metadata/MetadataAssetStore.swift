@@ -802,6 +802,14 @@ actor MetadataAssetStore {
         return "\(base).json"
     }
 
+    /// The song-ID mirror is read before the song's reference, so a server
+    /// that replaced its artwork must lose the mirror before the library
+    /// publishes the new reference and mounted covers reload.
+    nonisolated func invalidateCoverCacheSync(forSongID songID: String) {
+        let fileURL = artworkDirectoryURL.appendingPathComponent(expectedCoverFileName(for: songID))
+        try? FileManager.default.removeItem(at: fileURL)
+    }
+
     nonisolated func storeCoverSync(_ data: Data, for key: String) {
         let fileName = expectedCoverFileName(for: key)
         let fileURL = artworkDirectoryURL.appendingPathComponent(fileName)

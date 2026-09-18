@@ -1390,6 +1390,13 @@ final class TVSourceScanner {
     ) async -> TVScanResult {
         let existingByID = Self.existingSongsByCanonicalID(existingSongs)
         let existingByLocation = Self.existingSongsByLocation(existingSongs)
+        // Navidrome 0.64 换掉了几乎所有歌曲 ID；按路径里的服务端 ID 接回原来那一行，
+        // 否则整库都会变成新歌，旧行随后被当成删除。
+        let songIDsByServerSongID: [String: String] = source.type.isSubsonicFamily
+            ? SubsonicSongIdentityCarryPolicy.songIDsByServerSongID(existingSongs) {
+                NavidromeCanonicalIDPolicy.canonicalID($0)
+            }
+            : [:]
         var songsByID: [String: Song] = [:]
         var songOrder: [String] = []
         var discoveredIDs: Set<String> = []
@@ -1399,6 +1406,13 @@ final class TVSourceScanner {
             try Task.checkCancellation()
             var candidate = rawSong
             candidate.id = TVScanPipelinePolicy.canonicalSongID(candidate.id)
+            if let carried = SubsonicSongIdentityCarryPolicy.carriedSongID(
+                for: candidate,
+                isExistingSongID: { existingByID[TVScanPipelinePolicy.canonicalSongID($0)] != nil },
+                songIDsByServerSongID: songIDsByServerSongID
+            ) {
+                candidate.id = TVScanPipelinePolicy.canonicalSongID(carried)
+            }
             let existing = existingByID[candidate.id]
                 ?? existingByLocation[Self.locationKey(candidate)]
             let song = rereadMetadata

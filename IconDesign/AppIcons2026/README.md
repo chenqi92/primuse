@@ -1,27 +1,30 @@
 # Primuse app icon system
 
-The production catalog contains one primary icon and five alternates:
+The production catalog contains one primary icon and six alternates:
 
-- `00-folded-note.png` — primary folded-note icon.
+- `00-splash.png` — primary icon: a milky-white dimensional splash with an engraved ring and a note in its opening, on solid blue.
+- `14-letter-p.png` — the letter P in the same milky material on solid purple, with a note in its bowl.
+- `15-folded-note.png` — the previous primary folded-note icon, retained as an alternate.
 - `12-pikaqiu.png` — user-submitted gradient music-note icon on an adaptive light, dark, or tinted background.
 - `09-classic-record.png` — historical record-and-note artwork restored as the classic icon.
-- `11-color-brush.png` — a multicolor lacquer brush that fuses the Primuse P, Jingu Bang, and music note.
 - `06-soft-note.png` — restored original soft-gradient music note.
 - `13-chris-muse.png` — Chris’s Muse, designed by Chris, with a white dimensional note on red in Light and a pink-red note on charcoal in Dark.
 
-Private Library, Lossless Audio, Record Collection, Speaker Play, and Muse Spark are intentionally no longer part of the catalog.
+Private Library, Lossless Audio, Record Collection, Speaker Play, Muse Spark, and Color Brush are intentionally no longer part of the catalog.
 
 ## Appearance system
 
-The folded note, Pikaqiu, classic record, and soft note preserve their Light, Dark, and Tinted PNGs without palette normalization. Color Brush derives pure-white Light plus grayscale Tinted artwork from its selected pure-black source.
+The folded note, Pikaqiu, classic record, and soft note preserve their Light, Dark, and Tinted PNGs without palette normalization.
+
+Splash and Letter P share one material: a white glyph with its own shading and a soft cast shadow over a single solid colour. Their Dark variants keep the identical composition with a colour-tinted glyph on charcoal, and their Tinted variants use a silver glyph on near-black.
 
 Chris’s Muse preserves the artwork from `13-chris-muse-light-original.jpg` and `13-chris-muse-dark-original.jpg`. The supplied rounded outer rim is removed so platform masking does not create a second edge; the note's dimensional highlights are retained. Its Tinted variant uses a silver-white note on charcoal. The selected original JPEGs are retained alongside the prepared PNGs in `raw/`.
 
-All iOS masters are 1024×1024 full-bleed RGB PNGs with no baked platform corner mask. macOS sizes are derived from the primary Light icon with the platform-specific inset and rounded mask. watchOS uses the primary Light artwork so the white-background default remains consistent across all three platforms.
+All iOS masters are 1024×1024 full-bleed RGB PNGs with no baked platform corner mask. macOS sizes are derived from the primary Light icon with the platform-specific inset and rounded mask. watchOS uses the primary Light artwork so the default remains consistent across all three platforms.
 
 ## tvOS
 
-tvOS uses the folded-note design in independently composed landscape/parallax assets. The square-icon generator leaves these layers unchanged.
+tvOS uses the primary Splash design in independently composed landscape/parallax assets: the glyph and its cast shadow form the transparent `Front` layer, the solid blue field is the `Back` layer. The square-icon generator leaves these layers unchanged.
 
 The asset structure remains:
 
@@ -34,4 +37,4 @@ The asset structure remains:
 
 Run `python3 scripts/generate_app_icon_assets.py` from the repository root. The script regenerates the retained iOS iconsets and previews, the macOS and watchOS primary icons, the contact sheet, and the Light/Dark comparison sheet.
 
-The source inputs live in `raw/`. `00-folded-note*.png`, `06-soft-note*.png`, and `09-classic-record*.png` preserve their exact artwork. `11-color-brush*.png` is a deterministic output refreshed by the generator.
+The source inputs live in `raw/`. `15-folded-note*.png`, `06-soft-note*.png`, and `09-classic-record*.png` preserve their exact artwork. In-app preview imagesets are written at 512×512.

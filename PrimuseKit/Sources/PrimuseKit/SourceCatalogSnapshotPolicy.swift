@@ -125,9 +125,10 @@ public enum SynologyFileRevisionPolicy {
 }
 
 /// Reconciles a full-metadata server row with device-local enrichment. A
-/// stable remote file refreshes only missing/suspicious server fields, keeping
-/// lyrics, replay gain, pinyin and sidecar caches intact. A real content
-/// replacement adopts the new row while preserving explicit user edits.
+/// stable remote file follows the server's catalogue fields — a retag on the
+/// server rarely changes size or mtime, so a changed value is itself the
+/// signal — while lyrics, replay gain and local artwork stay intact. A real
+/// content replacement adopts the new row. Explicit user edits win both ways.
 public enum ServerSongCatalogMergePolicy {
     public static func mergedSnapshot(
         existing: [Song],
@@ -153,42 +154,58 @@ public enum ServerSongCatalogMergePolicy {
             )
         }
         var refreshed = existing
-        let canRefreshCatalogText = existing.userMetadataEditedAt == nil
-        if canRefreshCatalogText && (
-            existing.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || MediaMetadataTextRepair.isSuspicious(existing.title)
-        ) {
+        // Background enrichment only fills what the server leaves empty and
+        // explicit edits are stamped, so an unstamped row's text is the
+        // server's own and may follow it.
+        let followsServerCatalog = existing.userMetadataEditedAt == nil
+        // A placeholder title ("Unknown") is what the backfill replaces from
+        // the file header; the server repeating it must not undo that.
+        if followsServerCatalog,
+           adoptsServerText(
+               existing: existing.title,
+               incoming: incoming.title,
+               isUsable: { ServerCatalogMetadataInspectionPolicy.hasUsableTitle($0) }
+           ) {
             refreshed.title = incoming.title
+            if refreshed.title != existing.title { refreshed.titlePinyin = nil }
         }
-        if canRefreshCatalogText && (
-            existing.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
-                || MediaMetadataTextRepair.isSuspicious(existing.artistName)
-        ) {
+        if followsServerCatalog,
+           adoptsServerText(existing: existing.artistName, incoming: incoming.artistName) {
             refreshed.artistName = incoming.artistName
             refreshed.sourceArtistNames = incoming.sourceArtistNames
+            if refreshed.artistName != existing.artistName { refreshed.artistPinyin = nil }
         }
-        if canRefreshCatalogText && (
-            existing.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
-                || MediaMetadataTextRepair.isSuspicious(existing.albumTitle)
-        ) {
+        if followsServerCatalog,
+           adoptsServerText(existing: existing.albumTitle, incoming: incoming.albumTitle) {
             refreshed.albumTitle = incoming.albumTitle
+            if refreshed.albumTitle != existing.albumTitle { refreshed.albumPinyin = nil }
         }
-        if canRefreshCatalogText && (
-            existing.albumArtistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                != false
-                || MediaMetadataTextRepair.isSuspicious(existing.albumArtistName)
-        ) {
+        if followsServerCatalog,
+           adoptsServerText(
+               existing: existing.albumArtistName,
+               incoming: incoming.albumArtistName
+           ) {
             refreshed.albumArtistName = incoming.albumArtistName
         }
-        if canRefreshCatalogText && (
-            existing.genre?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
-                || MediaMetadataTextRepair.isSuspicious(existing.genre)
-        ) {
+        if followsServerCatalog,
+           adoptsServerText(existing: existing.genre, incoming: incoming.genre) {
             refreshed.genre = incoming.genre
         }
-        if refreshed.trackNumber == nil { refreshed.trackNumber = incoming.trackNumber }
-        if refreshed.discNumber == nil { refreshed.discNumber = incoming.discNumber }
-        if refreshed.year == nil { refreshed.year = incoming.year }
+        refreshed.trackNumber = catalogNumber(
+            existing: existing.trackNumber,
+            incoming: incoming.trackNumber,
+            followsServer: followsServerCatalog
+        )
+        refreshed.discNumber = catalogNumber(
+            existing: existing.discNumber,
+            incoming: incoming.discNumber,
+            followsServer: followsServerCatalog
+        )
+        refreshed.year = catalogNumber(
+            existing: existing.year,
+            incoming: incoming.year,
+            followsServer: followsServerCatalog
+        )
         if refreshed.duration <= 0 { refreshed.duration = incoming.duration }
         if refreshed.fileSize <= 0 { refreshed.fileSize = incoming.fileSize }
         if refreshed.bitRate == nil { refreshed.bitRate = incoming.bitRate }
@@ -203,8 +220,48 @@ public enum ServerSongCatalogMergePolicy {
         if !incoming.filePath.isEmpty { refreshed.filePath = incoming.filePath }
         if refreshed.coverArtFileName == nil {
             refreshed.coverArtFileName = incoming.coverArtFileName
+        } else if followsServerCatalog,
+                  let reference = incoming.coverArtFileName,
+                  isServerArtworkReference(reference),
+                  isServerArtworkReference(existing.coverArtFileName) {
+            // A server reference names the server's current artwork. A local
+            // scrape or pick is a bare cache file name and stays.
+            refreshed.coverArtFileName = reference
         }
         return refreshed
+    }
+
+    /// Server references are paths or URLs; artwork cached on this device is
+    /// referenced by a bare file name.
+    public static func isServerArtworkReference(_ reference: String?) -> Bool {
+        reference?.contains("/") == true
+    }
+
+    /// Missing or garbled text is always replaced; otherwise a usable server
+    /// value that differs wins.
+    private static func adoptsServerText(
+        existing: String?,
+        incoming: String?,
+        isUsable: (String) -> Bool = { !MediaMetadataTextRepair.isSuspicious($0) }
+    ) -> Bool {
+        if existing?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+            || MediaMetadataTextRepair.isSuspicious(existing) {
+            return true
+        }
+        guard let incoming,
+              !incoming.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              isUsable(incoming) else { return false }
+        return incoming != existing
+    }
+
+    private static func catalogNumber(
+        existing: Int?,
+        incoming: Int?,
+        followsServer: Bool
+    ) -> Int? {
+        guard let existing else { return incoming }
+        guard followsServer, let incoming, incoming > 0 else { return existing }
+        return incoming
     }
 
     public static func contentChanged(existing: Song, incoming: Song) -> Bool {

@@ -1490,10 +1490,11 @@
 "icloud_sync_title" = "Sincronização iCloud";
 "icon_appearance_gray" = "Cinza";
 "icon_appearance_hint" = "O ícone segue a aparência da tela inicial. Toque e segure a tela inicial e escolha Editar → Personalizar → Automático.";
-"icon_default" = "Nota dobrada";
-"icon_theme_11" = "Pincel de cores";
+"icon_default" = "Respingo";
 "icon_theme_12" = "pikaqiu";
 "icon_theme_13" = "Chris’s Muse";
+"icon_theme_14" = "Letra P";
+"icon_theme_15" = "Nota dobrada";
 "icon_theme_6" = "Nota Suave";
 "icon_theme_9" = "Ícone Clássico";
 "image_cache" = "Cache de imagens";

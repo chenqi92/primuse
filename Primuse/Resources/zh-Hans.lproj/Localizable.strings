@@ -157,12 +157,13 @@
 "theme_color_brightness" = "明度";
 "theme_color_hex" = "色值";
 "app_icon" = "应用图标";
-"icon_default" = "折页音符";
+"icon_default" = "音浪";
 "icon_appearance_gray" = "灰色";
 "icon_appearance_hint" = "图标会跟随主屏幕外观切换。请长按主屏幕空白处，然后选择“编辑”→“自定义”→“自动”。";
-"icon_theme_11" = "流彩笔触";
 "icon_theme_12" = "皮卡丘";
 "icon_theme_13" = "Chris’s Muse";
+"icon_theme_14" = "字母 P";
+"icon_theme_15" = "折页音符";
 "icon_theme_6" = "清新音符";
 "icon_theme_9" = "经典图标";
 "queue_title" = "播放队列";

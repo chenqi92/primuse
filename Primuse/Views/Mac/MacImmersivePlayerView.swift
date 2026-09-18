@@ -632,7 +632,7 @@ struct MacImmersivePlayerView: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(chromeInk.opacity(0.70))
                 .frame(width: 18)
-            PMPlaybackVolumeSlider()
+            PMPlaybackVolumeSlider(tint: seekTint)
             .frame(width: 118)
         }
         .frame(height: 44)

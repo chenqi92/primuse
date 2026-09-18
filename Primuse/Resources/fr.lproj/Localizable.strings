@@ -383,12 +383,13 @@
 "theme_color_brightness" = "Luminosité";
 "theme_color_hex" = "Valeur";
 "app_icon" = "Icône de l'app";
-"icon_default" = "Note pliée";
+"icon_default" = "Splash";
 "icon_appearance_gray" = "Gris";
 "icon_appearance_hint" = "L’icône suit l’apparence de l’écran d’accueil. Maintenez l’écran d’accueil, puis choisissez Modifier → Personnaliser → Automatique.";
-"icon_theme_11" = "Trait coloré";
 "icon_theme_12" = "pikaqiu";
 "icon_theme_13" = "Chris’s Muse";
+"icon_theme_14" = "Lettre P";
+"icon_theme_15" = "Note pliée";
 "icon_theme_6" = "Note douce";
 "icon_theme_9" = "Icône classique";
 "queue_title" = "File de lecture";

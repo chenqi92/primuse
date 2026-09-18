@@ -320,9 +320,7 @@ enum CarPlayHomeContent {
         case .song(_, let queue): return queue.compactMap { library.unobservedVisibleSong(id: $0) }
         case .playlist(let id, _): return library.songs(forPlaylist: id)
         case .album(let id, _):
-            return library.songs(forAlbum: id).sorted {
-                ($0.discNumber ?? 0, $0.trackNumber ?? 0) < ($1.discNumber ?? 0, $1.trackNumber ?? 0)
-            }
+            return library.songs(forAlbum: id)
         case .folder(let id, _): return CarPlayFolderLibrary.shared.songs(in: id)
         case .nowPlaying: return AppServices.shared.playerService.currentSong.map { [$0] } ?? []
         case .radio, .unavailable: return []

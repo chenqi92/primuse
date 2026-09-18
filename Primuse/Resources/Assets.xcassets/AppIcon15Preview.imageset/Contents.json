@@ -1,9 +1,9 @@
 {
   "images" : [
-    { "filename" : "AppIcon11Preview.png", "idiom" : "universal", "scale" : "1x" },
+    { "filename" : "AppIcon15Preview.png", "idiom" : "universal", "scale" : "1x" },
     {
       "appearances" : [ { "appearance" : "luminosity", "value" : "dark" } ],
-      "filename" : "AppIcon11Preview-dark.png",
+      "filename" : "AppIcon15Preview-dark.png",
       "idiom" : "universal",
       "scale" : "1x"
     }

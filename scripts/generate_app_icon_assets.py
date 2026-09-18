@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps
+from PIL import Image, ImageDraw
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,12 +25,28 @@ EXACT_ICONS = [
         "13-chris-muse-tinted.png",
     ),
     (
-        "00-folded-note",
+        "00-splash",
         "AppIcon",
         "AppIconPreview",
-        "00-folded-note.png",
-        "00-folded-note-dark.png",
-        "00-folded-note-tinted.png",
+        "00-splash.png",
+        "00-splash-dark.png",
+        "00-splash-tinted.png",
+    ),
+    (
+        "14-letter-p",
+        "AppIcon14",
+        "AppIcon14Preview",
+        "14-letter-p.png",
+        "14-letter-p-dark.png",
+        "14-letter-p-tinted.png",
+    ),
+    (
+        "15-folded-note",
+        "AppIcon15",
+        "AppIcon15Preview",
+        "15-folded-note.png",
+        "15-folded-note-dark.png",
+        "15-folded-note-tinted.png",
     ),
     (
         "12-pikaqiu",
@@ -58,11 +74,10 @@ EXACT_ICONS = [
     ),
 ]
 
-BRUSH_ICONS = [
-    ("11-color-brush-source.png", "11-color-brush", "AppIcon11", "AppIcon11Preview"),
-]
+CATALOG_ORDER = ["AppIcon", "AppIcon14", "AppIcon15", "AppIcon9", "AppIcon12", "AppIcon6", "AppIcon13"]
 
-CATALOG_ORDER = ["AppIcon", "AppIcon12", "AppIcon9", "AppIcon11", "AppIcon6", "AppIcon13"]
+# In-app previews render at 60–100 pt (and 512 pt@2x for the macOS Dock icon).
+PREVIEW_SIDE = 512
 
 
 def save_direct_ios_assets(
@@ -86,42 +101,10 @@ def save_direct_ios_assets(
     tinted_icon.save(iconset / f"{icon_name}-tinted.png", optimize=True)
 
     preview = IOS_ASSETS / f"{preview_name}.imageset"
-    any_icon.save(preview / f"{preview_name}.png", optimize=True)
-    dark_icon.save(preview / f"{preview_name}-dark.png", optimize=True)
+    preview_size = (PREVIEW_SIDE, PREVIEW_SIDE)
+    any_icon.resize(preview_size, Image.Resampling.LANCZOS).save(preview / f"{preview_name}.png", optimize=True)
+    dark_icon.resize(preview_size, Image.Resampling.LANCZOS).save(preview / f"{preview_name}-dark.png", optimize=True)
     return any_icon, dark_icon
-
-
-def make_brush_variants(source: Path) -> dict[str, Image.Image]:
-    """Preserve the selected brush artwork on pure Light/Dark backgrounds."""
-    source_image = Image.open(source).convert("RGB").resize((1024, 1024), Image.Resampling.LANCZOS)
-
-    # The selected artwork was rendered on pure black. Flood-fill only the
-    # connected black backdrop so the dark brush texture inside the mark is
-    # retained when compositing the Light appearance.
-    marker = (0, 255, 0)
-    flood = source_image.copy()
-    ImageDraw.floodfill(flood, (0, 0), marker, thresh=24)
-    ImageDraw.floodfill(flood, (600, 410), marker, thresh=24)
-    alpha = Image.new("L", source_image.size, 255)
-    alpha.putdata([0 if pixel == marker else 255 for pixel in flood.get_flattened_data()])
-    alpha = alpha.filter(ImageFilter.GaussianBlur(0.6))
-
-    foreground = source_image.convert("RGBA")
-    foreground.putalpha(alpha)
-    light = Image.new("RGBA", source_image.size, (255, 255, 255, 255))
-    light.alpha_composite(foreground)
-    dark = Image.new("RGBA", source_image.size, (0, 0, 0, 255))
-    dark.alpha_composite(foreground)
-
-    dark_rgb = dark.convert("RGB")
-    tinted = ImageOps.grayscale(dark_rgb)
-    tinted = ImageEnhance.Contrast(tinted).enhance(1.12).convert("RGB")
-
-    return {
-        "light": light.convert("RGB"),
-        "dark": dark_rgb,
-        "tinted": tinted,
-    }
 
 
 def rounded_mac_master(source: Image.Image) -> Image.Image:
@@ -210,27 +193,12 @@ def main() -> None:
         )
         rendered_icons[icon_name] = (light_icon, dark_icon)
 
-    for raw_filename, master_stem, icon_name, preview_name in BRUSH_ICONS:
-        variants = make_brush_variants(RAW_DIR / raw_filename)
-        variants["light"].save(RAW_DIR / f"{master_stem}.png", optimize=True)
-        variants["dark"].save(RAW_DIR / f"{master_stem}-dark.png", optimize=True)
-        variants["tinted"].save(RAW_DIR / f"{master_stem}-tinted.png", optimize=True)
-        light_icon, dark_icon = save_direct_ios_assets(
-            variants["light"],
-            variants["dark"],
-            variants["tinted"],
-            master_stem,
-            icon_name,
-            preview_name,
-        )
-        rendered_icons[icon_name] = (light_icon, dark_icon)
-
     assert set(rendered_icons) == set(CATALOG_ORDER)
     light_icons = [rendered_icons[name][0] for name in CATALOG_ORDER]
     dark_icons = [rendered_icons[name][1] for name in CATALOG_ORDER]
     save_mac_and_watch(rendered_icons["AppIcon"][0], rendered_icons["AppIcon"][0])
-    # tvOS keeps its explicit folded-note parallax and Top Shelf compositions;
-    # this square-icon generator must not flatten or replace those layers.
+    # tvOS keeps its explicit parallax and Top Shelf compositions; this
+    # square-icon generator must not flatten or replace those layers.
     save_contact_sheet(light_icons)
     save_appearance_sheet(light_icons, dark_icons)
 

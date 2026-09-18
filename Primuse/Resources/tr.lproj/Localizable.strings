@@ -540,7 +540,6 @@
 "search_limit_per_source" = "Kaynak başına sonuçlar";
 "source_quick_sync" = "Hızlı senkronizasyon değişiklikleri…";
 "onboarding_add_first_source" = "İlk kaynağınızı ekleyin";
-"icon_theme_11" = "Renk Fırçası";
 "reorder" = "Yeniden sırala";
 "Live Radio" = "Canlı Radyo";
 "upnp_unknown_item" = "Bilinmiyor";
@@ -990,6 +989,8 @@
 "new" = "Yeni";
 "icon_theme_12" = "pikaqiu";
 "icon_theme_13" = "Chris’s Muse";
+"icon_theme_14" = "P Harfi";
+"icon_theme_15" = "Katlanmış Nota";
 "lyrics_editor_paste_redo" = "Yeniden Başla";
 "ai_recommendation_intent_description_label" = "Odak Açıklaması";
 "META-03 · Custom Source JSON" = "META-03 · Özel Kaynak JSON";
@@ -3556,7 +3557,7 @@
 "share_song_information_action" = "Şarkı Bilgilerini Paylaş";
 "source_remove_confirm_title" = "Bu Müzik Kaynağı Kaldırılsın mı?";
 "dup_keep_newest" = "En Yeniyi Tut";
-"icon_default" = "Katlanmış Not";
+"icon_default" = "Sıçrama";
 "relay_share_action" = "Özel Aktarma ile Bağlantı Oluşturun";
 "dup_mac_cleanup_action" = "Kopyaları Temizle (Son Silinenlere Taşı)";
 "save_then_scan_library_hint" = "Önce kaydedin, ardından bağlanmak ve sunucu kataloğunun tamamını taramak için kaynağa dokunun";

@@ -128,6 +128,7 @@ final class AudioEngine {
     #if os(macOS)
     /// 直通图上一次写应用级输出音量是否成功。
     private(set) var directOutputVolumeIsSupported = false
+    private let hardwareSampleRateNegotiator = HardwareSampleRateNegotiator()
     #endif
     private var engine: AVAudioEngine?
     private var playerNode: AVAudioPlayerNode?
@@ -445,9 +446,11 @@ final class AudioEngine {
     /// Requests a hardware sample rate and returns the rate actually reported
     /// by the active output. Core Audio and AVAudioSession are allowed to
     /// reject the request, so callers must compare the return value before
-    /// enabling DoP or claiming a sample-rate-matched path.
+    /// enabling DoP or claiming a sample-rate-matched path. On macOS a
+    /// successful write is asynchronous: wait for HAL confirmation first.
     @discardableResult
-    func prepareHardwareSampleRate(_ targetHz: Double) -> Double {
+    func prepareHardwareSampleRate(_ targetHz: Double) async throws -> Double {
+        try Task.checkCancellation()
         guard targetHz >= 8_000, targetHz <= 384_000 else {
             return currentHardwareSampleRate
         }
@@ -466,7 +469,7 @@ final class AudioEngine {
         }
         return session.sampleRate
         #elseif os(macOS)
-        guard let deviceID = currentOutputDeviceID ?? Self.systemDefaultOutputDeviceID() else {
+        guard let deviceID = hardwareOutputDeviceID else {
             return 0
         }
         let currentRate = Self.nominalSampleRate(deviceID: deviceID)
@@ -492,27 +495,72 @@ final class AudioEngine {
                     deviceID: deviceID
                 )
             )
-        if shouldRequestChange {
-            var rate = targetHz
-            let status = AudioObjectSetPropertyData(
-                deviceID, &address, 0, nil,
-                UInt32(MemoryLayout<Double>.size), &rate
-            )
-            if status != noErr {
-                plog("⚠️ Core Audio rejected sample rate \(targetHz) (status=\(status))")
+        guard shouldRequestChange else { return currentRate }
+        let startedAt = ContinuousClock.now
+        plog("🎧 Hardware rate request device=\(deviceID) current=\(currentRate) target=\(targetHz)")
+        let result = try await hardwareSampleRateNegotiator.prepare(
+            targetSampleRate: targetHz,
+            deviceID: deviceID,
+            readSnapshot: { [self] in
+                guard let activeDevice = hardwareOutputDeviceID,
+                      Self.deviceIsAlive(activeDevice) else { return nil }
+                let rate = Self.nominalSampleRate(deviceID: activeDevice)
+                guard rate.isFinite, rate > 0 else { return nil }
+                return .init(deviceID: activeDevice, sampleRate: rate)
+            },
+            observe: { [self] callback in
+                try Self.observeHardwareSampleRate(
+                    deviceID: deviceID,
+                    followsSystem: followsSystemOutput,
+                    callback: callback
+                )
+            },
+            requestChange: {
+                var rate = targetHz
+                let status = AudioObjectSetPropertyData(
+                    deviceID, &address, 0, nil,
+                    UInt32(MemoryLayout<Double>.size), &rate
+                )
+                if status != noErr {
+                    plog("⚠️ Core Audio rejected sample rate \(targetHz) (status=\(status))")
+                }
+                return status == noErr
             }
-        }
-        return Self.nominalSampleRate(deviceID: deviceID)
+        )
+        try Task.checkCancellation()
+        let actual = result.snapshot?.sampleRate ?? 0
+        plog("🎧 Hardware rate settled device=\(result.snapshot?.deviceID ?? 0) target=\(targetHz) actual=\(actual) result=\(result.reason.rawValue) elapsed=\(startedAt.duration(to: .now))")
+        return actual
         #else
         return currentHardwareSampleRate
         #endif
     }
 
+    func cancelHardwareSampleRatePreparation() {
+        #if os(macOS)
+        hardwareSampleRateNegotiator.cancel()
+        #endif
+    }
+
+    #if os(macOS)
+    /// Notifications queued by a graph that has already been replaced must
+    /// not stop its successor or seek the newly selected song.
+    func ownsConfigurationChange(from engineID: ObjectIdentifier?) -> Bool {
+        guard let engine, let engineID else { return false }
+        return ObjectIdentifier(engine) == engineID
+    }
+
+    private var hardwareOutputDeviceID: AudioDeviceID? {
+        if followsSystemOutput { return Self.systemDefaultOutputDeviceID() }
+        return currentOutputDeviceID ?? Self.systemDefaultOutputDeviceID()
+    }
+    #endif
+
     var currentHardwareSampleRate: Double {
         #if os(iOS)
         return AVAudioSession.sharedInstance().sampleRate
         #elseif os(macOS)
-        guard let deviceID = currentOutputDeviceID ?? Self.systemDefaultOutputDeviceID() else { return 0 }
+        guard let deviceID = hardwareOutputDeviceID else { return 0 }
         return Self.nominalSampleRate(deviceID: deviceID)
         #else
         return outputFormat?.sampleRate ?? 0
@@ -598,6 +646,18 @@ final class AudioEngine {
         return status == noErr ? ranges : nil
     }
 
+    private static func deviceIsAlive(_ deviceID: AudioDeviceID) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceIsAlive,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var alive: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        return AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &alive) == noErr
+            && alive != 0
+    }
+
     private static func isSystemManagedWirelessOutput(deviceID: AudioDeviceID) -> Bool {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyTransportType,
@@ -612,6 +672,52 @@ final class AudioEngine {
         return transport == kAudioDeviceTransportTypeAirPlay
             || transport == kAudioDeviceTransportTypeBluetooth
             || transport == kAudioDeviceTransportTypeBluetoothLE
+    }
+
+    private static func observeHardwareSampleRate(
+        deviceID: AudioDeviceID,
+        followsSystem: Bool,
+        callback: @escaping @Sendable (HardwareSampleRateNegotiator.Event) -> Void
+    ) throws -> @MainActor () -> Void {
+        let queue = DispatchQueue(label: "com.primuse.hardware-sample-rate")
+        var registrations: [(AudioObjectID, AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
+        func removeListeners() {
+            for (object, address, listener) in registrations {
+                var address = address
+                AudioObjectRemovePropertyListenerBlock(object, &address, queue, listener)
+            }
+        }
+        var properties: [(AudioObjectID, AudioObjectPropertySelector, HardwareSampleRateNegotiator.Event)] = [
+            (deviceID, kAudioDevicePropertyNominalSampleRate, .sampleRateChanged),
+            (deviceID, kAudioDevicePropertyDeviceIsAlive, .deviceChanged),
+        ]
+        if followsSystem {
+            properties.append((
+                AudioObjectID(kAudioObjectSystemObject),
+                kAudioHardwarePropertyDefaultOutputDevice,
+                .deviceChanged
+            ))
+        }
+        do {
+            for (object, selector, event) in properties {
+                var address = AudioObjectPropertyAddress(
+                    mSelector: selector,
+                    mScope: kAudioObjectPropertyScopeGlobal,
+                    mElement: kAudioObjectPropertyElementMain
+                )
+                let listener: AudioObjectPropertyListenerBlock = { _, _ in callback(event) }
+                let status = AudioObjectAddPropertyListenerBlock(object, &address, queue, listener)
+                guard status == noErr else {
+                    throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+                }
+                registrations.append((object, address, listener))
+            }
+        } catch {
+            removeListeners()
+            plog("⚠️ Cannot observe hardware rate changes; keeping the current format: \(error)")
+            throw error
+        }
+        return { removeListeners() }
     }
 
     private static func applyOutputDevice(

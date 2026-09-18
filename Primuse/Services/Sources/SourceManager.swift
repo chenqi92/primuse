@@ -7051,6 +7051,9 @@ final class SourceManager {
                 refreshDisposition: refreshDisposition
             )
             self.finishOfflineDownloadTask(taskKey: taskKey, runID: runID)
+            if case .completed = result {
+                self.cacheOfflineCompanions(for: song)
+            }
             return result
         }
         offlineDownloadTasks[taskKey] = OfflineDownloadTaskRecord(
@@ -7111,6 +7114,41 @@ final class SourceManager {
     private func finishOfflineDownloadTask(taskKey: String, runID: UUID) {
         guard offlineDownloadTasks[taskKey]?.id == runID else { return }
         offlineDownloadTasks[taskKey] = nil
+    }
+
+    /// A downloaded song should still show its artwork and lyrics without a
+    /// network. Server libraries only hand those out when a row scrolls into
+    /// view or the song plays, so fetch them into the local caches now. Only
+    /// the source's own lyrics document is read — never online scraping.
+    private func cacheOfflineCompanions(for song: Song) {
+        Task(priority: .utility) { @MainActor [weak self] in
+            guard let self else { return }
+            let sourceType = try? await self.sourcesProvider()
+                .first(where: { $0.id == song.sourceID })?.type
+            if LyricsAuthoritativeSourcePolicy.supportsServerDocument(sourceType),
+               await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) == nil {
+                _ = await LyricsLoader.refreshFromSource(
+                    for: song,
+                    sourceType: sourceType,
+                    sourceManager: self,
+                    trigger: .initial
+                )
+            }
+            if let reference = song.coverArtFileName, !reference.isEmpty,
+               await MetadataAssetStore.shared.cachedCoverData(forSongID: song.id) == nil {
+                // Resolving through the view's loader writes the same
+                // song-ID mirror a visible cover would.
+                _ = await CachedArtworkView.resolveImage(
+                    coverRef: reference,
+                    songID: song.id,
+                    size: 64,
+                    sourceID: song.sourceID,
+                    filePath: song.filePath,
+                    fileFormat: song.fileFormat,
+                    sourceManager: self
+                )
+            }
+        }
     }
 
     private func performOfflineDownload(
@@ -8536,7 +8574,12 @@ final class SourceManager {
                 previousRevision: previous.revision,
                 currentRevision: current.revision,
                 previousSize: previous.fileSize,
-                currentSize: current.fileSize
+                currentSize: current.fileSize,
+                serverRekeyedSameObject: SubsonicSongIdentityCarryPolicy.isCanonicalRekey(
+                    previousPath: previous.filePath,
+                    currentPath: current.filePath,
+                    canonicalID: { NavidromeCanonicalIDPolicy.canonicalID($0) }
+                )
             )
             let previousAudioURL = audioCacheDirectory(for: previous.sourceID)
                 .appendingPathComponent(cacheFileName(for: previous))

@@ -1063,6 +1063,7 @@ final class AudioPlayerService {
         var rebuildPlayID: UUID?
     }
     var configurationRecoveryOwnerPlayID: UUID?
+    private var outputPipelineConfiguration: (token: UUID, playID: UUID)?
     /// The AirPlay-return rebuild deliberately toggles AVAudioSession inactive
     /// and active while retaining one play generation. Both transitions may
     /// emit engine configuration notifications; absorb them only while that
@@ -1525,12 +1526,31 @@ final class AudioPlayerService {
         audioEngine.applyPlaybackRate(requestedRate)
     }
 
-    /// 如果用户启用了「输出采样率匹配」, 把 AVAudioSession 硬件 SR hint 切到
-    /// 当前歌的采样率, 避免 CoreAudio 自动重采样。仅 iOS 真机生效。
-    func applyOutputSampleRateMatching(for song: Song) {
+    /// Request the source rate before selecting the graph's actual format.
+    func applyOutputSampleRateMatching(for song: Song, expectedPlayID: UUID) async throws {
         guard (playbackSettings.matchOutputSampleRate || playbackSettings.outputMode == .highFidelity),
               let sr = song.sampleRate, sr > 0 else { return }
-        _ = audioEngine.prepareHardwareSampleRate(Double(sr))
+        try await prepareHardwareSampleRate(Double(sr), expectedPlayID: expectedPlayID)
+    }
+
+    private func prepareHardwareSampleRate(_ rate: Double, expectedPlayID: UUID) async throws {
+        try Task.checkCancellation()
+        guard playID == expectedPlayID else { throw CancellationError() }
+        _ = try await audioEngine.prepareHardwareSampleRate(rate)
+        try Task.checkCancellation()
+        guard playID == expectedPlayID else { throw CancellationError() }
+    }
+
+    private func beginOutputPipelineConfiguration(expectedPlayID: UUID) -> UUID {
+        let token = UUID()
+        outputPipelineConfiguration = (token, expectedPlayID)
+        return token
+    }
+
+    private func endOutputPipelineConfiguration(_ token: UUID) {
+        if outputPipelineConfiguration?.token == token {
+            outputPipelineConfiguration = nil
+        }
     }
 
     func shouldApplyReplayGain(_ settings: PlaybackSettings) -> Bool {
@@ -1577,6 +1597,10 @@ final class AudioPlayerService {
         expectedPlayID: UUID,
         reacquiringLocalRouteFocus: Bool = false
     ) async throws -> DSDPlaybackMode {
+        try Task.checkCancellation()
+        guard playID == expectedPlayID else { throw CancellationError() }
+        let configurationToken = beginOutputPipelineConfiguration(expectedPlayID: expectedPlayID)
+        defer { endOutputPipelineConfiguration(configurationToken) }
         let settings = playbackSettings.snapshot()
         let isLocalDSD = url.isFileURL && nativeDecoder.isDSD(url)
         try activateAudioSession(reacquiringLocalRouteFocus)
@@ -1593,10 +1617,10 @@ final class AudioPlayerService {
         if probe == .dopThenPCM {
             dopFormat = try? await nativeDecoder.dsdOutputFormatOffMain(for: url, mode: .dop)
             // 探测是否拿到格式都已经挂起过, 被顶掉的请求不能继续往下配置。
-            guard playID == expectedPlayID else { throw CancellationError() }
+            guard !Task.isCancelled, playID == expectedPlayID else { throw CancellationError() }
         }
         if let dopFormat {
-            _ = audioEngine.prepareHardwareSampleRate(dopFormat.sampleRate)
+            try await prepareHardwareSampleRate(dopFormat.sampleRate, expectedPlayID: expectedPlayID)
             if audioEngine.hardwareSupportsDirectFormat(dopFormat) {
                 try audioEngine.configure(
                     outputMode: .highFidelity,
@@ -1613,10 +1637,10 @@ final class AudioPlayerService {
         var dsdPCMFormat: AVAudioFormat?
         if probe != .none {
             dsdPCMFormat = try? await nativeDecoder.dsdOutputFormatOffMain(for: url, mode: .pcm)
-            guard playID == expectedPlayID else { throw CancellationError() }
+            guard !Task.isCancelled, playID == expectedPlayID else { throw CancellationError() }
         }
         if let pcmFormat = dsdPCMFormat {
-            _ = audioEngine.prepareHardwareSampleRate(pcmFormat.sampleRate)
+            try await prepareHardwareSampleRate(pcmFormat.sampleRate, expectedPlayID: expectedPlayID)
             directPCMFormat = safeDirectPCMFormat(
                 requestedSourceSampleRate: pcmFormat.sampleRate,
                 outputMode: settings.outputMode
@@ -1629,12 +1653,12 @@ final class AudioPlayerService {
                     url: url
                 ) ? ffmpegDecoder : nativeDecoder
                 sourceSampleRate = try? await decoder.fileInfo(for: url).sampleRate
-                guard playID == expectedPlayID else { throw CancellationError() }
+                guard !Task.isCancelled, playID == expectedPlayID else { throw CancellationError() }
             }
             if (settings.matchOutputSampleRate || settings.outputMode == .highFidelity),
                let sourceSampleRate,
                sourceSampleRate > 0 {
-                _ = audioEngine.prepareHardwareSampleRate(sourceSampleRate)
+                try await prepareHardwareSampleRate(sourceSampleRate, expectedPlayID: expectedPlayID)
             }
             directPCMFormat = safeDirectPCMFormat(
                 requestedSourceSampleRate: sourceSampleRate,
@@ -1658,19 +1682,22 @@ final class AudioPlayerService {
         expectedPlayID: UUID
     ) async -> AVAudioFormat? {
         guard wasUsingDoP else { return audioEngine.outputFormat }
+        guard !Task.isCancelled, playID == expectedPlayID else { return nil }
+        let configurationToken = beginOutputPipelineConfiguration(expectedPlayID: expectedPlayID)
+        defer { endOutputPipelineConfiguration(configurationToken) }
         audioEngine.stopPlayback()
         let decodedPCMFormat = try? await nativeDecoder.dsdOutputFormatOffMain(
             for: url,
             mode: .pcm
         )
-        guard playID == expectedPlayID else { return nil }
+        guard !Task.isCancelled, playID == expectedPlayID else { return nil }
         _ = AudioSessionManager.shared.activatePlaybackSession()
-        if let decodedPCMFormat {
-            _ = audioEngine.prepareHardwareSampleRate(decodedPCMFormat.sampleRate)
-        } else {
-            applyOutputSampleRateMatching(for: song)
-        }
         do {
+            if let decodedPCMFormat {
+                try await prepareHardwareSampleRate(decodedPCMFormat.sampleRate, expectedPlayID: expectedPlayID)
+            } else {
+                try await applyOutputSampleRateMatching(for: song, expectedPlayID: expectedPlayID)
+            }
             let directFormat = playbackSettings.outputMode == .highFidelity
                 ? safeDirectPCMFormat(
                     requestedSourceSampleRate: decodedPCMFormat?.sampleRate
@@ -1684,6 +1711,8 @@ final class AudioPlayerService {
             )
             try audioEngine.start()
             return audioEngine.outputFormat
+        } catch is CancellationError {
+            return nil
         } catch {
             plog("⚠️ Failed to rebuild PCM output after DoP error: \(error.localizedDescription)")
             return nil
@@ -1912,8 +1941,20 @@ final class AudioPlayerService {
             self.resumeAfterAuthorizedInterruption(source: "system-ended")
         }
 
-        manager.onConfigurationChange = { [weak self] configurationChangeTime in
+        manager.onConfigurationChange = { [weak self] configurationChangeTime, engineID in
             guard let self, self.currentSong != nil else { return }
+            #if os(macOS)
+            guard self.audioEngine.ownsConfigurationChange(from: engineID) else { return }
+            if let configuration = self.outputPipelineConfiguration,
+               configuration.playID == self.playID {
+                // The in-flight configuration will rebuild using the settled
+                // hardware format. A parallel seek would cancel that work and
+                // repeat the same rate request.
+                self.audioEngine.markHardwareConfigurationChanged()
+                plog("🔧 Hardware change handled by the active output configuration")
+                return
+            }
+            #endif
             let appleMusic = AppServices.shared.appleMusic
             // MusicKit, radio, casting, and AVPlayer own their route recovery.
             // Restarting the dormant local engine here would overwrite their
@@ -1938,6 +1979,7 @@ final class AudioPlayerService {
             // The graph rebuild below can itself enqueue a configuration
             // notification. Suppress only that explicitly-owned rebuild,
             // never every notification that happens to arrive while loading.
+            #if !os(macOS)
             if self.configurationRecoveryOwnerPlayID == self.playID {
                 // Consume exactly one notification emitted by our own graph
                 // rebuild. A second notification may be a real route/config
@@ -1946,6 +1988,7 @@ final class AudioPlayerService {
                 plog("🔧 Audio engine configuration change absorbed by active configuration recovery")
                 return
             }
+            #endif
             self.audioEngine.markHardwareConfigurationChanged()
             let carriedConfigurationActivity = self.hasConfigurationRecoveryActivityEvidence
             let shouldAutoResume = (
@@ -2412,6 +2455,9 @@ final class AudioPlayerService {
     }
 
     func registerPlayIntent() {
+        // Resume also lands here while the current item is still loading, so
+        // an in-flight rate negotiation must survive it. A new track retires
+        // the old negotiation through its own request and the playID guard.
         pendingRadioResolutionID = nil
         playbackSessionRestoreLifecycle.supersedeForPlaybackIntent()
         cancelAppActivationInterruptionRecovery()
@@ -2426,6 +2472,15 @@ final class AudioPlayerService {
     }
 
     func registerPauseOrStopIntent() {
+        audioEngine.cancelHardwareSampleRatePreparation()
+        #if os(macOS)
+        if let configuration = outputPipelineConfiguration,
+           configuration.playID == playID {
+            decodingTask?.cancel()
+            seekTask?.cancel()
+            isLoading = false
+        }
+        #endif
         pendingRadioResolutionID = nil
         playbackSessionRestoreLifecycle.completeForPauseOrStopIntent()
         cancelAppActivationInterruptionRecovery()
@@ -6458,6 +6513,11 @@ final class AudioPlayerService {
         // radio, casting and MV all cancel a pending interruption resume.
         let wasPendingMusicVideo = pendingMusicVideoPlayID == playID
         let wasSeekingMusicVideo = hasMusicVideoSeekActivityEvidence
+        #if os(macOS)
+        let wasConfiguringOutput = outputPipelineConfiguration.map { $0.playID == playID } ?? false
+        #else
+        let wasConfiguringOutput = false
+        #endif
         registerPauseOrStopIntent()
         if isLiveRadio {
             playID = UUID()
@@ -6515,7 +6575,8 @@ final class AudioPlayerService {
             completionMode: .preserveCachedProgress
         )
         pendingRecoveryTime = currentTime
-        needsPlaybackRecovery = hasPreparedLocalPlayback && currentSong != nil && !isAtTrackEnd
+        needsPlaybackRecovery = (hasPreparedLocalPlayback || wasConfiguringOutput)
+            && currentSong != nil && !isAtTrackEnd
         audioEngine.pauseWithFade()
         isPlaying = false
         updateNowPlayingInfo()

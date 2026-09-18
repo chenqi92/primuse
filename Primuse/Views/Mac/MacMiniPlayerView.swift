@@ -330,7 +330,7 @@ struct MacMiniPlayerView: View {
                     .foregroundStyle(PMColor.textMuted)
                     .frame(width: 14)
 
-                PMPlaybackVolumeSlider()
+                PMPlaybackVolumeSlider(tint: theme.accentColor)
                 .frame(width: 92)
             }
         }
@@ -388,7 +388,7 @@ struct MacMiniPlayerView: View {
                     .foregroundStyle(PMColor.textMuted)
                     .frame(width: 14)
 
-                PMPlaybackVolumeSlider()
+                PMPlaybackVolumeSlider(tint: theme.accentColor)
                 .frame(width: 64)
             }
 

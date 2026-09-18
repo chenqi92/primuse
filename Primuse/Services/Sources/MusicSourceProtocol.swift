@@ -182,6 +182,37 @@ struct ConnectorScannedSong: Sendable {
             )
         } ?? []
     }
+
+    private init(copying scanned: ConnectorScannedSong, songID: String) {
+        var song = scanned.song
+        let previousID = song.id
+        song.id = songID
+        self.song = song
+        self.displayName = scanned.displayName
+        self.titleMetadataInspected = scanned.titleMetadataInspected
+        // The song's own hierarchy row carries its ID; folders do not.
+        self.providerHierarchyItems = scanned.providerHierarchyItems.map { item in
+            guard !item.isDirectory, item.songIDs == [previousID] else { return item }
+            var rekeyed = item
+            rekeyed.stableKey = "hierarchy-song:\(songID)"
+            rekeyed.songIDs = [songID]
+            return rekeyed
+        }
+    }
+
+    /// Keeps the library row's song ID when the server renamed the song's id.
+    /// See `SubsonicSongIdentityCarryPolicy`.
+    func carryingSongIdentity(
+        isExistingSongID: (String) -> Bool,
+        songIDsByServerSongID: [String: String]
+    ) -> ConnectorScannedSong {
+        guard let carried = SubsonicSongIdentityCarryPolicy.carriedSongID(
+            for: song,
+            isExistingSongID: isExistingSongID,
+            songIDsByServerSongID: songIDsByServerSongID
+        ) else { return self }
+        return ConnectorScannedSong(copying: self, songID: carried)
+    }
 }
 
 struct ConnectorLibraryFolderComponent: Sendable, Equatable {

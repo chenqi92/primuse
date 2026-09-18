@@ -1825,7 +1825,7 @@ struct NowPlayingView: View {
             // 和底栏、迷你播放器共用同一套音量语义：高保真直通时交给输出设备
             // 硬件音量，其余情况走应用增益。各处各写一份曾让这里在高保真下
             // 读到恒为 1 的值，拖完立刻弹回。
-            PMPlaybackVolumeSlider()
+            PMPlaybackVolumeSlider(tint: themedControlAccent)
             #else
             VolumeSlider(value: Binding(
                 get: { Double(player.audioEngine.userVolume) },
