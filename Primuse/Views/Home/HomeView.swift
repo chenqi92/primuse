@@ -288,6 +288,7 @@ struct HomeView: View {
     @Environment(AppUpdateChecker.self) private var updateChecker
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.pmHeightClass) private var heightClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showUpdateSheet: Bool = false
     @State private var selectedHomeRadioID: String?
@@ -306,6 +307,15 @@ struct HomeView: View {
     private var homeMode: HomeMode {
         guard showRadioOnHome else { return .music }
         return HomeMode(rawValue: homeModeRawValue) ?? .music
+    }
+
+    /// 是不是该按 iPad 那档取尺寸与条目数。
+    ///
+    /// 大屏手机横屏也是常规宽度,只看宽度会把 iPad 的大卡片、成倍的条目数
+    /// 搬进一个只有四百来点高的视口 —— 同一个 App 在两台手机上长成两副样子。
+    /// 常规宽度还得配上常规高度才算 iPad。
+    private var usesPadMetrics: Bool {
+        sizeClass == .regular && !heightClass.isCompact
     }
 
     private var observedHomeContent: some View {
@@ -998,13 +1008,13 @@ struct HomeView: View {
         let isCurrent = player.currentRadioStation?.id == station.id
         let isPlaying = isCurrent && (player.isPlaying || player.isLoading)
 
-        return VStack(alignment: .leading, spacing: 14) {
+        return VStack(alignment: .leading, spacing: heightClass.value(14, compact: 10)) {
             homeFaceHeader(.radio, onDarkSurface: true)
 
             HStack(spacing: 16) {
                 RadioStationArtworkView(
                     station: station,
-                    size: sizeClass == .regular ? 126 : 106,
+                    size: usesPadMetrics ? 126 : heightClass.value(106, compact: 76),
                     cornerRadius: 20
                 )
                 .shadow(color: .black.opacity(0.2), radius: 10, y: 5)
@@ -1035,12 +1045,12 @@ struct HomeView: View {
 
                     Text(station.name)
                         .font(.title3.weight(.bold))
-                        .lineLimit(2)
+                        .lineLimit(heightClass.pick(2, compact: 1))
 
                     Text(isCurrent ? (player.radioMetadataTitle ?? station.playbackSubtitle) : station.playbackSubtitle)
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.76))
-                        .lineLimit(2)
+                        .lineLimit(heightClass.pick(2, compact: 1))
 
                     Spacer(minLength: 2)
 
@@ -1085,8 +1095,12 @@ struct HomeView: View {
             }
         }
         .foregroundStyle(.white)
-        .padding(18)
-        .frame(maxWidth: .infinity, minHeight: 142, alignment: .leading)
+        .padding(heightClass.value(18, compact: 14))
+        .frame(
+            maxWidth: .infinity,
+            minHeight: heightClass.value(142, compact: 110),
+            alignment: .leading
+        )
         .background {
             radioSpotlightBackdrop
                 .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
@@ -1231,7 +1245,7 @@ struct HomeView: View {
     }
 
     private func radioWallSection(_ stations: [RadioStation]) -> some View {
-        let layout = Self.radioWallLayout
+        let layout = heightClass.pick(Self.radioWallLayout, compact: Self.radioWallCompactHeightLayout)
         return VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("home_radio_wall_title")
@@ -1277,9 +1291,22 @@ struct HomeView: View {
 
     private static let radioWallLayout = RadioStationArtworkGridLayout()
 
+    /// 手机横屏下同样的列宽会让一排封面吃掉大半个视口。放低最小列宽让一排多放
+    /// 两张，再给列宽封顶，一屏就能看全一整排还露出下一排的开头。
+    private static let radioWallCompactHeightLayout = RadioStationArtworkGridLayout(
+        minimumItemWidth: 116,
+        maximumItemWidth: 150
+    )
+
     /// 标题始终预留两行，副标题再占一行。这样长台名可以自然换行，
-    /// 短台名也不会把下一排封面提高。
-    private static let radioWallCaptionHeight: CGFloat = 59
+    /// 短台名也不会把下一排封面提高。手机横屏留不下两行标题，收成一行。
+    private var radioWallCaptionHeight: CGFloat {
+        heightClass.value(59, compact: 42)
+    }
+
+    private var radioWallTitleLineLimit: Int {
+        heightClass.pick(2, compact: 1)
+    }
 
     private var radioWallAddCard: some View {
         Button {
@@ -1311,7 +1338,7 @@ struct HomeView: View {
                 .aspectRatio(1, contentMode: .fit)
 
                 Color.clear
-                    .frame(height: Self.radioWallCaptionHeight)
+                    .frame(height: radioWallCaptionHeight)
             }
             .contentShape(.rect)
         }
@@ -1369,7 +1396,7 @@ struct HomeView: View {
                     Text(station.name)
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.primary)
-                        .lineLimit(2, reservesSpace: true)
+                        .lineLimit(radioWallTitleLineLimit, reservesSpace: true)
                         .multilineTextAlignment(.leading)
 
                     Text(isCurrent
@@ -1381,8 +1408,8 @@ struct HomeView: View {
                 }
                 .frame(
                     maxWidth: .infinity,
-                    minHeight: Self.radioWallCaptionHeight,
-                    maxHeight: Self.radioWallCaptionHeight,
+                    minHeight: radioWallCaptionHeight,
+                    maxHeight: radioWallCaptionHeight,
                     alignment: .topLeading
                 )
             }
@@ -1673,7 +1700,7 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 24) {
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .fill(homeCardSurface)
-                    .frame(height: 154)
+                    .frame(height: heightClass.value(154, compact: 96))
                     .padding(.horizontal, 16)
 
                 VStack(alignment: .leading, spacing: 12) {
@@ -1686,7 +1713,9 @@ struct HomeView: View {
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
                                 .fill(homeCardSurface)
                                 .frame(maxWidth: .infinity)
-                                .aspectRatio(0.9, contentMode: .fit)
+                                // 横屏一张卡有两百多点宽，竖着的比例会让骨架整块
+                                // 超出视口 —— 冷启动第一眼就是溢出。
+                                .aspectRatio(heightClass.value(0.9, compact: 1.6), contentMode: .fit)
                         }
                     }
                 }
@@ -2236,7 +2265,7 @@ struct HomeView: View {
     /// Cold-start: no songs eligible for the today's pick. Keep the
     /// old library-mix CTA so the user always has something to tap.
     private var libraryMixHeroFallback: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: heightClass.value(14, compact: 10)) {
             homeFaceHeader(.music)
 
             HStack(alignment: .center, spacing: 16) {
@@ -2247,7 +2276,7 @@ struct HomeView: View {
                     Text("home_library_mix_title")
                         .font(.title3)
                         .fontWeight(.bold)
-                        .lineLimit(2)
+                        .lineLimit(heightClass.pick(2, compact: 1))
                         .minimumScaleFactor(0.85)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -2279,7 +2308,7 @@ struct HomeView: View {
                 .clipShape(Capsule())
             }
         }
-        .padding(16)
+        .padding(heroPadding)
         .background {
             Button(action: openLibrarySongs) {
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
@@ -2297,13 +2326,21 @@ struct HomeView: View {
         .padding(.horizontal, 16)
     }
 
+    /// Hero 的内边距。手机横屏整块要控制在视口的四成以内,四周先收一档。
+    private var heroPadding: CGFloat {
+        heightClass.value(16, compact: 10)
+    }
+
     /// 4 张封面错落叠放 — 用 ZStack 加旋转 + 偏移, 跟 Spotify Mix /
     /// Apple Music「For You」拼贴风格一致。封面来自最近添加 + 最近播放
     /// 的随机抽样, 每次 view 出现重洗一次。
     @ViewBuilder
     private var heroCoverCollage: some View {
-        let size: CGFloat = 50
-        let radius: CGFloat = 8
+        // 手机横屏整块 hero 要压到视口四成以内,拼贴跟着等比缩一档:
+        // 封面、错开的距离、外框三处必须一起缩,只改外框会让封面溢出去压到文字。
+        let size = heightClass.value(50, compact: 38)
+        let radius = heightClass.value(8, compact: 6)
+        let spread = heightClass.value(1, compact: 0.75)
         ZStack {
             // 4 张依次叠, 角度 + 偏移让它们看起来散开
             ForEach(Array(model.snapshot.heroCoverSongs.prefix(4).enumerated()), id: \.element.id) { index, song in
@@ -2318,7 +2355,7 @@ struct HomeView: View {
                 )
                 .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
                 .rotationEffect(.degrees(coverRotation(for: index)))
-                .offset(coverOffset(for: index))
+                .offset(coverOffset(for: index, spread: spread))
                 .zIndex(Double(4 - index))
             }
             if model.snapshot.heroCoverSongs.isEmpty {
@@ -2327,7 +2364,10 @@ struct HomeView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(width: 110, height: 80)
+        .frame(
+            width: heightClass.value(110, compact: 90),
+            height: heightClass.value(80, compact: 56)
+        )
     }
 
     private func coverRotation(for index: Int) -> Double {
@@ -2340,14 +2380,16 @@ struct HomeView: View {
         }
     }
 
-    private func coverOffset(for index: Int) -> CGSize {
+    private func coverOffset(for index: Int, spread: CGFloat) -> CGSize {
+        let base: CGSize
         switch index {
-        case 0: return CGSize(width: -28, height: 0)
-        case 1: return CGSize(width: -10, height: -4)
-        case 2: return CGSize(width: 10, height: 2)
-        case 3: return CGSize(width: 28, height: 0)
-        default: return .zero
+        case 0: base = CGSize(width: -28, height: 0)
+        case 1: base = CGSize(width: -10, height: -4)
+        case 2: base = CGSize(width: 10, height: 2)
+        case 3: base = CGSize(width: 28, height: 0)
+        default: base = .zero
         }
+        return CGSize(width: base.width * spread, height: base.height * spread)
     }
 
     nonisolated private static func makeHeroCoverSongs(
@@ -2510,7 +2552,7 @@ struct HomeView: View {
             case .carousel:
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHGrid(rows: carouselRows(.playlists, height: homeAlbumCardHeight), spacing: 14) {
-                        ForEach(tiles.prefix(sectionItemCount(.playlists, sizeClass == .regular ? 16 : 12))) { tile in
+                        ForEach(tiles.prefix(sectionItemCount(.playlists, usesPadMetrics ? 16 : 12))) { tile in
                             NavigationLink(value: tile.playlist) {
                                 playlistCard(tile)
                             }
@@ -2527,7 +2569,7 @@ struct HomeView: View {
                     columns: [GridItem(.adaptive(minimum: homeAlbumCardWidth), spacing: 16, alignment: .top)],
                     spacing: 20
                 ) {
-                    ForEach(tiles.prefix(sectionItemCount(.playlists, sizeClass == .regular ? 12 : 6))) { tile in
+                    ForEach(tiles.prefix(sectionItemCount(.playlists, usesPadMetrics ? 12 : 6))) { tile in
                         NavigationLink(value: tile.playlist) {
                             playlistCard(tile)
                         }
@@ -2538,7 +2580,7 @@ struct HomeView: View {
                 .padding(.horizontal, 20)
             case .list:
                 VStack(spacing: 0) {
-                    let displayed = Array(tiles.prefix(sectionItemCount(.playlists, sizeClass == .regular ? 5 : 4)))
+                    let displayed = Array(tiles.prefix(sectionItemCount(.playlists, usesPadMetrics ? 5 : 4)))
                     ForEach(Array(displayed.enumerated()), id: \.element.id) { index, tile in
                         NavigationLink(value: tile.playlist) {
                             playlistListRow(tile)
@@ -2640,7 +2682,7 @@ struct HomeView: View {
 
             if style == .list {
                 VStack(spacing: 8) {
-                    ForEach(displayedForYouResults.prefix(sectionItemCount(.forYou, sizeClass == .regular ? 8 : 5))) { result in
+                    ForEach(displayedForYouResults.prefix(sectionItemCount(.forYou, usesPadMetrics ? 8 : 5))) { result in
                         Button { playSong(result.song) } label: {
                             forYouListRow(result)
                         }
@@ -2682,7 +2724,7 @@ struct HomeView: View {
                                 CachedArtworkView(
                                     coverRef: song.coverArtFileName,
                                     songID: song.id,
-                                    size: sizeClass == .regular ? 136 : 124,
+                                    size: usesPadMetrics ? 136 : 124,
                                     cornerRadius: 13,
                                     sourceID: song.sourceID,
                                     filePath: song.filePath,
@@ -2692,8 +2734,8 @@ struct HomeView: View {
                             }
                             .padding(14)
                             .frame(
-                                width: sizeClass == .regular ? 372 : 316,
-                                height: sizeClass == .regular ? 176 : 164
+                                width: usesPadMetrics ? 372 : 316,
+                                height: usesPadMetrics ? 176 : 164
                             )
                             .background(recommendationCardBackground(for: song))
                         }
@@ -2800,7 +2842,7 @@ struct HomeView: View {
                 }
             case .list:
                 VStack(spacing: 8) {
-                    ForEach(songs.prefix(sectionItemCount(.continueListening, sizeClass == .regular ? 8 : 5)), id: \.id) { song in
+                    ForEach(songs.prefix(sectionItemCount(.continueListening, usesPadMetrics ? 8 : 5)), id: \.id) { song in
                         Button { playSong(song) } label: {
                             continueListeningRow(song, fillsWidth: true)
                         }
@@ -2847,7 +2889,7 @@ struct HomeView: View {
         }
         .padding(.horizontal, 6)
         .frame(
-            width: fillsWidth ? nil : (sizeClass == .regular ? 300 : 250),
+            width: fillsWidth ? nil : (usesPadMetrics ? 300 : 250),
             height: 60
         )
         .frame(maxWidth: fillsWidth ? .infinity : nil)
@@ -2876,12 +2918,17 @@ struct HomeView: View {
 
     /// 横排卡片的宽度。窄屏下比网格的一半略窄,好让第三张卡露出一角 ——
     /// 边缘不留半张卡,用户看不出这一行还能往右滑。
-    private var homeAlbumCardWidth: CGFloat { sizeClass == .regular ? 160 : 132 }
+    /// 手机横屏再收一档:一行货架加上标题就要占掉半个视口,后面的区块全落在
+    /// 折叠线以下。
+    private var homeAlbumCardWidth: CGFloat {
+        usesPadMetrics ? 160 : heightClass.value(132, compact: 108)
+    }
 
     /// 封面 + 两行说明文字。多行横排要用 LazyHGrid,而它要求行高固定。
     private var homeAlbumCardHeight: CGFloat { homeAlbumCardWidth + 42 }
 
     /// 横排的行数由用户配置,1 行时等价于原来的 LazyHStack。
+    /// 手机横屏只渲染一行 —— 存档里的行数不动,设置页仍显示用户选的值。
     private func carouselRows(
         _ section: HomeSectionKind,
         height: CGFloat,
@@ -2889,7 +2936,10 @@ struct HomeView: View {
     ) -> [GridItem] {
         Array(
             repeating: GridItem(.fixed(height), spacing: spacing, alignment: .top),
-            count: homeLayout.rowCount(for: section)
+            count: HomeSectionLayoutPolicy.renderedRowCount(
+                configured: homeLayout.rowCount(for: section),
+                isCompactHeight: heightClass.isCompact
+            )
         )
     }
 
@@ -2921,7 +2971,7 @@ struct HomeView: View {
                 // 不再吃掉整屏,后面的「继续听」还留在首屏里。
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHGrid(rows: carouselRows(.recentlyAdded, height: homeAlbumCardHeight), spacing: 14) {
-                        ForEach(albums.prefix(sectionItemCount(.recentlyAdded, sizeClass == .regular ? 16 : 12))) { tile in
+                        ForEach(albums.prefix(sectionItemCount(.recentlyAdded, usesPadMetrics ? 16 : 12))) { tile in
                             NavigationLink(value: tile.album) {
                                 AlbumCardView(album: tile.album, showsSongCount: true)
                                     .frame(width: homeAlbumCardWidth)
@@ -2934,7 +2984,7 @@ struct HomeView: View {
                 }
             case .list:
                 VStack(spacing: 0) {
-                    let displayed = Array(albums.prefix(sectionItemCount(.recentlyAdded, sizeClass == .regular ? 8 : 6)))
+                    let displayed = Array(albums.prefix(sectionItemCount(.recentlyAdded, usesPadMetrics ? 8 : 6)))
                     ForEach(Array(displayed.enumerated()), id: \.element.id) { index, tile in
                         NavigationLink(value: tile.album) {
                             albumListRow(tile.album)
@@ -2948,16 +2998,8 @@ struct HomeView: View {
                 }
                 .padding(.horizontal, 20)
             case .grid:
-                LazyVGrid(
-                    columns: sizeClass == .regular
-                        ? [GridItem(.adaptive(minimum: 150), spacing: 16, alignment: .top)]
-                        : [
-                            GridItem(.flexible(), spacing: 16, alignment: .top),
-                            GridItem(.flexible(), spacing: 16, alignment: .top),
-                        ],
-                    spacing: 20
-                ) {
-                    ForEach(albums.prefix(sectionItemCount(.recentlyAdded, sizeClass == .regular ? 12 : 6))) { tile in
+                LazyVGrid(columns: recentlyAddedGridColumns, spacing: 20) {
+                    ForEach(albums.prefix(sectionItemCount(.recentlyAdded, usesPadMetrics ? 12 : 6))) { tile in
                         NavigationLink(value: tile.album) {
                             AlbumCardView(album: tile.album, showsSongCount: true)
                         }
@@ -2968,6 +3010,24 @@ struct HomeView: View {
                 .padding(.horizontal, 20)
             }
         }
+    }
+
+    /// 「最近添加」网格的列方案。
+    ///
+    /// 手机竖屏照旧钉死两列 —— 换成按最小宽自适应的话，开了显示放大的小屏
+    /// (逻辑宽 320) 会掉成一列。手机横屏反过来:一行只有两列时每列三百多点，
+    /// 一张方形封面就占满整屏，所以按最小宽自适应铺成四五列。
+    private var recentlyAddedGridColumns: [GridItem] {
+        if usesPadMetrics {
+            return [GridItem(.adaptive(minimum: 150), spacing: 16, alignment: .top)]
+        }
+        if heightClass.isCompact {
+            return [GridItem(.adaptive(minimum: 120), spacing: 16, alignment: .top)]
+        }
+        return [
+            GridItem(.flexible(), spacing: 16, alignment: .top),
+            GridItem(.flexible(), spacing: 16, alignment: .top),
+        ]
     }
 
     private func albumListRow(_ album: Album) -> some View {
@@ -3023,7 +3083,7 @@ struct HomeView: View {
                     columns: [GridItem(.adaptive(minimum: 92), spacing: 14, alignment: .top)],
                     spacing: 16
                 ) {
-                    ForEach(displayed.prefix(sectionItemCount(.topArtists, sizeClass == .regular ? 16 : 8))) { artist in
+                    ForEach(displayed.prefix(sectionItemCount(.topArtists, usesPadMetrics ? 16 : 8))) { artist in
                         NavigationLink(value: artist) { artistBubble(artist) }
                             .buttonStyle(.pmPressable)
                             .mediaZoomSource(.artist, id: artist.id)
@@ -3033,7 +3093,7 @@ struct HomeView: View {
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHGrid(rows: carouselRows(.topArtists, height: 104), spacing: 14) {
-                        ForEach(displayed.prefix(sectionItemCount(.topArtists, sizeClass == .regular ? 16 : 8))) { artist in
+                        ForEach(displayed.prefix(sectionItemCount(.topArtists, usesPadMetrics ? 16 : 8))) { artist in
                             NavigationLink(value: artist) { artistBubble(artist) }
                                 .buttonStyle(.pmPressable)
                                 .mediaZoomSource(.artist, id: artist.id)
