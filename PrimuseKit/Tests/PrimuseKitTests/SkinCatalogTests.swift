@@ -317,6 +317,15 @@ struct SkinCatalogTests {
         #expect(motion[.chromeReveal] == .smooth(duration: 0.26, extraBounce: 0))
         #expect(motion[.pageSwitch] == .easeOut(duration: 0.18))
         #expect(motion[.sheet] == .spring(response: 0.45, dampingFraction: 0.92))
+        // 全 App 共用的六档与 App 层 `PMMotion` 里的字面量一致。
+        #expect(motion[.hover] == .easeOut(duration: 0.12))
+        #expect(motion[.control] == .easeOut(duration: 0.18))
+        #expect(motion[.list] == .snappy(duration: 0.22, extraBounce: 0))
+        #expect(motion[.panel] == .easeInOut(duration: 0.25))
+        #expect(motion[.trackChange] == .easeInOut(duration: 0.28))
+        #expect(motion[.ambient] == .easeInOut(duration: 0.5))
+        #expect(SkinMotionSpec.snappy(duration: 0.22, extraBounce: 0).isWellFormed)
+        #expect(!SkinMotionSpec.snappy(duration: 0, extraBounce: 0).isWellFormed)
     }
 
     // MARK: - 解锁与回落

@@ -127,6 +127,12 @@ extension SkinCatalog {
                 .contentAppear: .easeOut(duration: 0.28),
                 .heroReflow: .easeInOut(duration: 1.6),
                 .heroFocus: .spring(response: 0.6, dampingFraction: 0.84),
+                .hover: .easeOut(duration: 0.14),
+                .control: .easeOut(duration: 0.2),
+                .list: .snappy(duration: 0.26, extraBounce: 0.05),
+                .panel: .easeInOut(duration: 0.3),
+                .trackChange: .easeInOut(duration: 0.34),
+                .ambient: .easeInOut(duration: 0.6),
             ],
             // 与极简同一组结构实现 —— 换的只有数据。
             slots: [

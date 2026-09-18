@@ -1,3 +1,4 @@
+import PrimuseKit
 import SwiftUI
 
 #if os(macOS)
@@ -12,8 +13,8 @@ import UIKit
 /// 这边 0.15 那边 0.3，用起来像两个 app。所以这里按「这次变化在表达什么」分档，
 /// 调用处只写档位名，不写秒数。
 ///
-/// 档位取值与 2.0 皮肤动效表里的同名档一致，将来把这些档位接到皮肤表上时，
-/// 经典外观的观感不会变。
+/// 曲线由当前界面皮肤的动效表给出(`PMMotionSkin`);经典皮肤的表就是下面 `classicAnimation`
+/// 里的字面量，所以经典外观不变，别的皮肤可以整体换一套节奏。
 enum PMMotion: Sendable {
     /// 悬停高亮、选中底色这类微反馈。
     case hover
@@ -36,7 +37,30 @@ enum PMMotion: Sendable {
     /// 取色背景、氛围层这类慢速铺垫。
     case ambient
 
+    /// 当前皮肤给这一档定的曲线。
+    @MainActor
     var animation: Animation {
+        PMMotionSkin.animation(for: self)
+    }
+
+    /// 皮肤动效表里对应的位。
+    var skinToken: SkinMotionToken {
+        switch self {
+        case .hover: return .hover
+        case .press: return .press
+        case .control: return .control
+        case .pageSwitch: return .pageSwitch
+        case .contentAppear: return .contentAppear
+        case .list: return .list
+        case .panel: return .panel
+        case .selection: return .selection
+        case .trackChange: return .trackChange
+        case .ambient: return .ambient
+        }
+    }
+
+    /// 经典皮肤的取值,也是皮肤表里缺项时的兜底。与 Kit 里经典表的同名位一致,有测试钉住。
+    var classicAnimation: Animation {
         switch self {
         case .hover: return .easeOut(duration: 0.12)
         case .press: return .easeOut(duration: 0.12)
@@ -62,9 +86,25 @@ enum PMMotion: Sendable {
     }
 
     /// 开启「减少动态效果」时位移类档位直接不做动画；纯淡入淡出不构成前庭负担，照常返回。
+    @MainActor
     func resolved(reduceMotion: Bool) -> Animation? {
         if reduceMotion, involvesMovement { return nil }
         return animation
+    }
+}
+
+/// 当前皮肤的动效表。皮肤运行时在换皮肤时写入;没有皮肤运行时的平台(Mac)保持经典。
+///
+/// 做成一处全局而不是从环境读,是因为 `PMMotion` 也在按钮的 action、服务层回调这些
+/// 读不到环境的地方使用(`pmWithAnimation`),两条路径必须给出同一条曲线。
+@MainActor
+enum PMMotionSkin {
+    static var motion: [SkinMotionToken: SkinMotionSpec] = SkinCatalog.classic.motion
+
+    static func animation(for motion: PMMotion) -> Animation {
+        let token = motion.skinToken
+        let spec = Self.motion[token] ?? SkinCatalog.classic.motion[token]
+        return spec?.swiftUIAnimation ?? motion.classicAnimation
     }
 }
 
@@ -73,6 +113,7 @@ enum PMMotion: Sendable {
 /// `resolved` 把位移档位判成 nil 是为了「不要动」，但过渡这边此时已经退化成纯淡入淡出，
 /// 再不附曲线就成了硬切 —— 开了减少动态效果的人反而看到更生硬的画面。所以这种情况下
 /// 换成 `control` 的淡入淡出曲线。
+@MainActor
 private func pmTransitionAnimation(_ motion: PMMotion?, reduceMotion: Bool) -> Animation? {
     guard let motion else { return nil }
     if reduceMotion, motion.involvesMovement { return PMMotion.control.animation }

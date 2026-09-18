@@ -23,6 +23,20 @@ public enum SkinMotionToken: String, CaseIterable, Sendable, Codable {
     case heroReflow
     /// 头图聚焦到某一张封面。
     case heroFocus
+
+    // 以下六位对应 App 层 `PMMotion` 的同名档:全 App 共用的动效词汇,换皮肤时一起换。
+    /// 悬停高亮、选中底色这类微反馈。
+    case hover
+    /// 图标与加载圈互换、小浮层出入。
+    case control
+    /// 列表项增删重排、进出编辑与选择态、横幅出入。
+    case list
+    /// 面板、侧栏、抽屉的出入。
+    case panel
+    /// 换歌时封面与标题的交叉淡入。
+    case trackChange
+    /// 取色背景、氛围层这类慢速铺垫。
+    case ambient
 }
 
 /// 一条动效的取值。只描述曲线,不依赖 SwiftUI,所以能在本机断言。
@@ -30,6 +44,8 @@ public enum SkinMotionSpec: Sendable, Equatable, Codable {
     case spring(response: Double, dampingFraction: Double)
     /// SwiftUI 的 `.smooth`。
     case smooth(duration: Double, extraBounce: Double)
+    /// SwiftUI 的 `.snappy`。
+    case snappy(duration: Double, extraBounce: Double)
     case easeInOut(duration: Double)
     case easeOut(duration: Double)
     case linear(duration: Double)
@@ -40,7 +56,7 @@ public enum SkinMotionSpec: Sendable, Equatable, Codable {
         switch self {
         case .spring(let response, let dampingFraction):
             return response > 0 && response <= 5 && dampingFraction > 0 && dampingFraction <= 2
-        case .smooth(let duration, let extraBounce):
+        case .smooth(let duration, let extraBounce), .snappy(let duration, let extraBounce):
             return duration > 0 && duration <= 10 && (-1...1).contains(extraBounce)
         case .easeInOut(let duration), .easeOut(let duration), .linear(let duration):
             return duration > 0 && duration <= 10
@@ -53,7 +69,7 @@ public enum SkinMotionSpec: Sendable, Equatable, Codable {
     public var settleDuration: Double {
         switch self {
         case .spring(let response, _): return response * 1.6
-        case .smooth(let duration, _): return duration
+        case .smooth(let duration, _), .snappy(let duration, _): return duration
         case .easeInOut(let duration), .easeOut(let duration), .linear(let duration): return duration
         case .none: return 0
         }

@@ -143,6 +143,12 @@ extension SkinCatalog {
                 .contentAppear: .easeOut(duration: 0.22),
                 .heroReflow: .easeInOut(duration: 1.4),
                 .heroFocus: .spring(response: 0.55, dampingFraction: 0.9),
+                .hover: .easeOut(duration: 0.12),
+                .control: .easeOut(duration: 0.18),
+                .list: .snappy(duration: 0.22, extraBounce: 0),
+                .panel: .easeInOut(duration: 0.25),
+                .trackChange: .easeInOut(duration: 0.28),
+                .ambient: .easeInOut(duration: 0.5),
             ],
             slots: [
                 .navigationHeader: SkinSlotVariant.NavigationHeader.minimal.rawValue,

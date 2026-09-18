@@ -147,6 +147,13 @@ public enum SkinCatalog {
             .contentAppear: .easeOut(duration: 0.2),
             .heroReflow: .easeInOut(duration: 1.4),
             .heroFocus: .spring(response: 0.55, dampingFraction: 0.9),
+            // 与 App 层 `PMMotion` 的同名档一致;改这里 = 改全 App 的经典动效。
+            .hover: .easeOut(duration: 0.12),
+            .control: .easeOut(duration: 0.18),
+            .list: .snappy(duration: 0.22, extraBounce: 0),
+            .panel: .easeInOut(duration: 0.25),
+            .trackChange: .easeInOut(duration: 0.28),
+            .ambient: .easeInOut(duration: 0.5),
         ]
     )
 }

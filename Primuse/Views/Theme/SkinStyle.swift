@@ -164,20 +164,7 @@ struct SkinStyle: Equatable, Sendable {
     func animation(_ token: SkinMotionToken) -> Animation? {
         guard !reduceMotion else { return nil }
         let spec = skin.motion[token] ?? SkinCatalog.fallback.motion[token] ?? SkinMotionSpec.none
-        switch spec {
-        case .spring(let response, let dampingFraction):
-            return .spring(response: response, dampingFraction: dampingFraction)
-        case .smooth(let duration, let extraBounce):
-            return .smooth(duration: duration, extraBounce: extraBounce)
-        case .easeInOut(let duration):
-            return .easeInOut(duration: duration)
-        case .easeOut(let duration):
-            return .easeOut(duration: duration)
-        case .linear(let duration):
-            return .linear(duration: duration)
-        case .none:
-            return nil
-        }
+        return spec.swiftUIAnimation
     }
 
     // MARK: - Dynamic Type
@@ -427,6 +414,28 @@ struct SkinList<Content: View>: View {
 }
 
 // MARK: - Token 到平台类型的映射
+
+extension SkinMotionSpec {
+    /// 这条曲线在 SwiftUI 里的样子;`.none` 是 nil(不做动画)。
+    var swiftUIAnimation: Animation? {
+        switch self {
+        case .spring(let response, let dampingFraction):
+            return .spring(response: response, dampingFraction: dampingFraction)
+        case .smooth(let duration, let extraBounce):
+            return .smooth(duration: duration, extraBounce: extraBounce)
+        case .snappy(let duration, let extraBounce):
+            return .snappy(duration: duration, extraBounce: extraBounce)
+        case .easeInOut(let duration):
+            return .easeInOut(duration: duration)
+        case .easeOut(let duration):
+            return .easeOut(duration: duration)
+        case .linear(let duration):
+            return .linear(duration: duration)
+        case .none:
+            return nil
+        }
+    }
+}
 
 extension SkinColorValue {
     #if os(iOS)
