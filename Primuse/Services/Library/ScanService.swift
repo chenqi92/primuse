@@ -2184,7 +2184,11 @@ final class ScanService {
         trustedRetryCount: Int = 0
     ) async {
         let connector = connectorProvider?(source) ?? sourceManager.connector(for: source)
-        let scanner = ConnectorScanner(connector: connector, sourceID: source.id)
+        let scanner = ConnectorScanner(
+            connector: connector,
+            sourceID: source.id,
+            carriesServerSongIdentities: source.type.isSubsonicFamily
+        )
         let requiresAtomicCatalogCommit = source.type.isServerLibrary || source.type == .upnp
         // Pass songs from the live library (for this source) as the
         // existing-set, not just resumeSongs. Without this, re-scanning
@@ -3209,6 +3213,15 @@ final class ScanService {
                 uniquingKeysWith: { first, _ in first }
             )
         }.value
+        // Navidrome 0.64 re-encoded nearly every song id. Rows are carried by
+        // the server id in their path so they are not re-added as new songs.
+        let songIDsByServerSongID: [String: String] = source.type.isSubsonicFamily
+            ? await Task.detached(priority: .utility) {
+                SubsonicSongIdentityCarryPolicy.songIDsByServerSongID(existingSongs) {
+                    NavidromeCanonicalIDPolicy.canonicalID($0)
+                }
+            }.value
+            : [:]
         let pagedFenceIsValid: () -> Bool = {
             do {
                 try self.checkScanCommitFence(
@@ -3397,10 +3410,18 @@ final class ScanService {
                         )
                     }
 
-                    let inspectedSongIDs = Set(page.songs.compactMap { scannedSong in
+                    let pageSongs = songIDsByServerSongID.isEmpty
+                        ? page.songs
+                        : page.songs.map { scannedSong in
+                            scannedSong.carryingSongIdentity(
+                                isExistingSongID: { existingByID[$0] != nil },
+                                songIDsByServerSongID: songIDsByServerSongID
+                            )
+                        }
+                    let inspectedSongIDs = Set(pageSongs.compactMap { scannedSong in
                         scannedSong.titleMetadataInspected ? scannedSong.song.id : nil
                     })
-                    let stagedPageSongs = page.songs.map { scannedSong -> Song in
+                    let stagedPageSongs = pageSongs.map { scannedSong -> Song in
                         var incoming = scannedSong.song
                         if let existing = existingByID[incoming.id] {
                             incoming.dateAdded = existing.dateAdded
@@ -3411,7 +3432,7 @@ final class ScanService {
                         }
                         return incoming
                     }
-                    let hierarchyItems = page.songs.flatMap(\.providerHierarchyItems)
+                    let hierarchyItems = pageSongs.flatMap(\.providerHierarchyItems)
                     let addedOnPage = stagedPageSongs.reduce(into: 0) { count, song in
                         if existingByID[song.id] == nil { count += 1 }
                     }

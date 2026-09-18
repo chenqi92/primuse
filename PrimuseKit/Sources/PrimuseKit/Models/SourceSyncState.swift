@@ -1444,9 +1444,16 @@ public enum SourceStableCacheTransitionPolicy {
         previousRevision: String?,
         currentRevision: String?,
         previousSize: Int64,
-        currentSize: Int64
+        currentSize: Int64,
+        serverRekeyedSameObject: Bool = false
     ) -> SourceStableCacheTransitionDecision {
         guard previousPath != currentPath else { return .none }
+        // The server only re-encoded the object's id (Navidrome 0.64); the
+        // file itself was not touched. Catalogues without a content revision
+        // still have to agree on the size.
+        if serverRekeyedSameObject {
+            return previousSize > 0 && previousSize == currentSize ? .migrate : .invalidate
+        }
         guard let previousRevision = normalized(previousRevision),
               let currentRevision = normalized(currentRevision),
               previousRevision == currentRevision else {

@@ -8536,7 +8536,12 @@ final class SourceManager {
                 previousRevision: previous.revision,
                 currentRevision: current.revision,
                 previousSize: previous.fileSize,
-                currentSize: current.fileSize
+                currentSize: current.fileSize,
+                serverRekeyedSameObject: SubsonicSongIdentityCarryPolicy.isCanonicalRekey(
+                    previousPath: previous.filePath,
+                    currentPath: current.filePath,
+                    canonicalID: { NavidromeCanonicalIDPolicy.canonicalID($0) }
+                )
             )
             let previousAudioURL = audioCacheDirectory(for: previous.sourceID)
                 .appendingPathComponent(cacheFileName(for: previous))

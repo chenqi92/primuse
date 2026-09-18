@@ -25,10 +25,18 @@ actor ConnectorScanner {
     /// accumulated catalogue, which is what made a large library's scan spend
     /// its time re-merging rows it had already committed.
     private var pendingChangedSongs: [Song] = []
+    /// Subsonic rows are keyed by the server id in their path; a server that
+    /// re-encodes its ids (Navidrome 0.64) must not turn them into new songs.
+    private let carriesServerSongIdentities: Bool
 
-    init(connector: any MusicSourceConnector, sourceID: String) {
+    init(
+        connector: any MusicSourceConnector,
+        sourceID: String,
+        carriesServerSongIdentities: Bool = false
+    ) {
         self.connector = connector
         self.sourceID = sourceID
+        self.carriesServerSongIdentities = carriesServerSongIdentities
     }
 
     func syncIndexSnapshot() -> [String: SourceSyncIndexedItem] {
@@ -479,6 +487,11 @@ actor ConnectorScanner {
                     )
                     var preferredProviderHierarchies: [String: [SourceSyncIndexedItem]] = [:]
                     var lastProgressYieldAt = Date()
+                    let songIDsByServerSongID: [String: String] = carriesServerSongIdentities
+                        ? SubsonicSongIdentityCarryPolicy.songIDsByServerSongID(existingSongs) {
+                            NavidromeCanonicalIDPolicy.canonicalID($0)
+                        }
+                        : [:]
 
                     if !existingSongs.isEmpty {
                         continuation.yield(
@@ -507,8 +520,14 @@ actor ConnectorScanner {
                                     stream = try await songConnector.scanSongs(from: directory)
                                 }
 
-                                for try await scannedSong in stream {
+                                for try await streamedSong in stream {
                                     try Task.checkCancellation()
+                                    let scannedSong = songIDsByServerSongID.isEmpty
+                                        ? streamedSong
+                                        : streamedSong.carryingSongIdentity(
+                                            isExistingSongID: { existingByID[$0] != nil },
+                                            songIDsByServerSongID: songIDsByServerSongID
+                                        )
                                     encounteredSongIDs.insert(scannedSong.song.id)
                                     if !scannedSong.providerHierarchyItems.isEmpty {
                                         let existing = preferredProviderHierarchies[
@@ -1426,6 +1445,9 @@ actor ConnectorScanner {
         }
 
         var refreshed = existing
+        // The server owns the location: a carried row keeps its song ID while
+        // the id in its path follows the server.
+        if !incoming.filePath.isEmpty { refreshed.filePath = incoming.filePath }
 
         if existing.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || MediaMetadataTextRepair.isSuspicious(existing.title) {
