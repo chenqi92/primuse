@@ -989,6 +989,8 @@
 "new" = "Новинка";
 "icon_theme_12" = "pikaqiu";
 "icon_theme_13" = "Chris’s Muse";
+"icon_theme_14" = "Літера P";
+"icon_theme_15" = "Складена нота";
 "lyrics_editor_paste_redo" = "Почніть спочатку";
 "ai_recommendation_intent_description_label" = "Опис фокусу";
 "META-03 · Custom Source JSON" = "META-03 · Спеціальне джерело JSON";
@@ -3530,7 +3532,7 @@
 "share_song_information_action" = "Поділіться інформацією про пісню";
 "source_remove_confirm_title" = "Видалити це музичне джерело?";
 "dup_keep_newest" = "Зберігати найновіші";
-"icon_default" = "Складена банкнота";
+"icon_default" = "Сплеск";
 "relay_share_action" = "Створити зв’язок із приватним ретранслятором";
 "dup_mac_cleanup_action" = "Очистити дублікати (перемістити до нещодавно видалених)";
 "save_then_scan_library_hint" = "Спочатку збережіть, потім торкніться джерела, щоб підключитися та відсканувати повний каталог сервера";

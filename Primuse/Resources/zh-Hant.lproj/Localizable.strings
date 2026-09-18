@@ -148,11 +148,13 @@
 "theme_color_brightness" = "明度";
 "theme_color_hex" = "色值";
 "app_icon" = "App 圖示";
-"icon_default" = "折頁音符";
+"icon_default" = "音浪";
 "icon_appearance_gray" = "灰色";
 "icon_appearance_hint" = "圖示會跟隨主畫面外觀切換。請長按主畫面空白處，然後選擇「編輯」→「自訂」→「自動」。";
 "icon_theme_12" = "皮卡丘";
 "icon_theme_13" = "Chris’s Muse";
+"icon_theme_14" = "字母 P";
+"icon_theme_15" = "折頁音符";
 "icon_theme_6" = "清新音符";
 "icon_theme_9" = "經典圖示";
 "queue_title" = "播放佇列";

@@ -1487,9 +1487,11 @@
 "icloud_sync_title" = "iCloud ซิงค์";
 "icon_appearance_gray" = "สีเทา";
 "icon_appearance_hint" = "ไอคอนจะเป็นไปตามลักษณะที่ปรากฏของหน้าจอหลัก แตะหน้าจอหลักค้างไว้ จากนั้นเลือก แก้ไข → ปรับแต่ง → อัตโนมัติ";
-"icon_default" = "โน้ตพับ";
+"icon_default" = "สแปลช";
 "icon_theme_12" = "ปิกากิว";
 "icon_theme_13" = "Chris’s Muse";
+"icon_theme_14" = "ตัวอักษร P";
+"icon_theme_15" = "โน้ตพับ";
 "icon_theme_6" = "ซอฟท์โน้ต";
 "icon_theme_9" = "ไอคอนคลาสสิก";
 "image_cache" = "แคชรูปภาพ";

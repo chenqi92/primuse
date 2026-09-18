@@ -383,11 +383,13 @@
 "theme_color_brightness" = "Helligkeit";
 "theme_color_hex" = "Farbwert";
 "app_icon" = "App-Symbol";
-"icon_default" = "Gefaltete Note";
+"icon_default" = "Splash";
 "icon_appearance_gray" = "Grau";
 "icon_appearance_hint" = "Das Symbol folgt der Darstellung des Home-Bildschirms. Halte den Home-Bildschirm gedrückt und wähle „Bearbeiten“ → „Anpassen“ → „Automatisch“.";
 "icon_theme_12" = "pikaqiu";
 "icon_theme_13" = "Chris’s Muse";
+"icon_theme_14" = "Buchstabe P";
+"icon_theme_15" = "Gefaltete Note";
 "icon_theme_6" = "Sanfte Note";
 "icon_theme_9" = "Klassisches Symbol";
 "queue_title" = "Warteschlange";
