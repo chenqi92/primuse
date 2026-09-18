@@ -1,10 +1,12 @@
 #if os(tvOS)
 import AVFoundation
 import Foundation
+import PrimuseKit
 import SFBAudioEngine
 
-/// tvOS 上用 SFBAudioEngine 解码 + 播放【AVPlayer 解不了的格式】(APE/WavPack/DSD/OGG Vorbis/
-/// WMA 等)。SFBAudioEngine 的 `AudioPlayer` 自带这些解码器,经 AVAudioEngine 输出。
+/// tvOS 上播放【AVPlayer 解不了的格式】,统一经 SFBAudioEngine 的 `AudioPlayer`(AVAudioEngine)输出。
+/// APE/WavPack/DSD/OGG 等用 SFBAudioEngine 自带的解码器;它没有解码器的 WMA/DTS/TrueHD/ATRAC/TAK 等
+/// 由 `TVFFmpegPCMDecoder` 把 FFmpeg 解出的 PCM 交给同一个播放器,暂停、跳转、进度、频谱都走同一条路。
 /// 由 `TVAudioEngine` 在遇到非原生格式时下载到本地文件后交给本引擎(与 AVPlayer 路径并列)。
 final class TVSFBEngine: NSObject, @unchecked Sendable {
     typealias Generation = UInt64
@@ -22,7 +24,7 @@ final class TVSFBEngine: NSObject, @unchecked Sendable {
     }
 
     @discardableResult
-    func play(url: URL) throws -> Generation {
+    func play(url: URL, decoder: TVLocalDecoder) throws -> Generation {
         invalidateCurrentPlayer()
         nextGeneration &+= 1
         let generation = nextGeneration
@@ -32,7 +34,18 @@ final class TVSFBEngine: NSObject, @unchecked Sendable {
         self.player = player
         delegateProxy = proxy
         do {
-            try player.play(url)
+            switch decoder {
+            case .ffmpeg:
+                try player.play(TVFFmpegPCMDecoder(url: url))
+            case .sfbAudioEngine:
+                do {
+                    try player.play(url)
+                } catch {
+                    // 与 iOS 一致:FFmpeg 兜底扩展名标错、SFBAudioEngine 认不出的文件。
+                    guard let fallback = try? TVFFmpegPCMDecoder(url: url) else { throw error }
+                    try player.play(fallback)
+                }
+            }
             return generation
         } catch {
             player.delegate = nil

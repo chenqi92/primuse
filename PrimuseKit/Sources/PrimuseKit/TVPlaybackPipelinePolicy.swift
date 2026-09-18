@@ -53,9 +53,25 @@ public struct TVPlaybackSegment: Equatable, Sendable {
     }
 }
 
+/// The local decoder that plays a downloaded temporary file on tvOS.
+public enum TVLocalDecoder: Equatable, Sendable {
+    /// SFBAudioEngine's own decoders: APE, WavPack, DSD, Ogg, Musepack, PCM WAV.
+    case sfbAudioEngine
+    /// The FFmpeg runtime, for everything SFBAudioEngine cannot decode.
+    case ffmpeg
+
+    public init(format: AudioFormat) {
+        self = format.prefersFFmpegDecoder ? .ffmpeg : .sfbAudioEngine
+    }
+}
+
 public enum TVPlaybackDelivery: Equatable, Sendable {
     case avPlayer(fileExtension: String)
-    case decodedTemporaryFile(fileExtension: String, inspectWAVAfterDownload: Bool)
+    case decodedTemporaryFile(
+        fileExtension: String,
+        decoder: TVLocalDecoder,
+        inspectWAVAfterDownload: Bool
+    )
 }
 
 /// Keeps tvOS routing aligned with `AudioFormat` instead of maintaining a
@@ -79,13 +95,19 @@ public enum TVPlaybackFormatRoutingPolicy {
             case .pcm:
                 return .avPlayer(fileExtension: format.rawValue)
             case .dts:
+                // Keep the `.wav` name: the FFmpeg bridge only looks for a
+                // DTS carrier in files named `.wav`. Under any other name
+                // FFmpeg's WAV demuxer claims the RIFF header and plays the
+                // DTS bitstream as PCM noise.
                 return .decodedTemporaryFile(
-                    fileExtension: AudioFormat.dts.rawValue,
+                    fileExtension: format.rawValue,
+                    decoder: .ffmpeg,
                     inspectWAVAfterDownload: false
                 )
             case .unavailable:
                 return .decodedTemporaryFile(
                     fileExtension: format.rawValue,
+                    decoder: .sfbAudioEngine,
                     inspectWAVAfterDownload: true
                 )
             case nil:
@@ -95,10 +117,22 @@ public enum TVPlaybackFormatRoutingPolicy {
         if format.requiresFFmpeg {
             return .decodedTemporaryFile(
                 fileExtension: format.rawValue,
+                decoder: TVLocalDecoder(format: format),
                 inspectWAVAfterDownload: false
             )
         }
         return .avPlayer(fileExtension: format.rawValue)
+    }
+
+    /// Decoder for a `.wav` download whose payload was inspected after the
+    /// range probe could not decide.
+    public static func decoderAfterWAVInspection(
+        _ signature: AudioFileSignatureKind
+    ) -> TVLocalDecoder {
+        switch signature {
+        case .dtsInWave, .dts: .ffmpeg
+        default: .sfbAudioEngine
+        }
     }
 }
 

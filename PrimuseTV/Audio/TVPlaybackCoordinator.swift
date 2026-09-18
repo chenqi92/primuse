@@ -295,13 +295,14 @@ final class TVPlaybackCoordinator {
             wavProbeOutcome: wavProbeOutcome
         )
 
-        if case .decodedTemporaryFile(let decoderExtension, let inspectWAV) = delivery {
-            plog("🎬 TV play: decoded '\(decoderExtension)' → complete local file")
+        if case .decodedTemporaryFile(let decoderExtension, let decoder, let inspectWAV) = delivery {
+            plog("🎬 TV play: decoded '\(decoderExtension)' via \(decoder) → complete local file")
             await playNonNative(
                 song: playbackSong,
                 source: source,
                 credential: credential,
                 ext: decoderExtension,
+                decoder: decoder,
                 directStream: asset.directStream,
                 inspectWAVAfterDownload: inspectWAV,
                 requestID: requestID,
@@ -1040,6 +1041,7 @@ final class TVPlaybackCoordinator {
         source: MusicSource,
         credential: SourceCredential?,
         ext: String,
+        decoder: TVLocalDecoder,
         directStream: ResolvedStream? = nil,
         inspectWAVAfterDownload: Bool,
         requestID: UUID,
@@ -1058,7 +1060,7 @@ final class TVPlaybackCoordinator {
             }
         }
         do {
-            var tempURL = try await downloadToTemp(
+            let tempURL = try await downloadToTemp(
                 song: song,
                 source: source,
                 credential: credential,
@@ -1066,15 +1068,17 @@ final class TVPlaybackCoordinator {
                 directStream: directStream,
                 requestID: requestID
             )
-            if inspectWAVAfterDownload {
-                tempURL = try await decoderURLAfterWAVInspection(tempURL)
-            }
             downloadedTempURL = tempURL
+            var decoder = decoder
+            if inspectWAVAfterDownload {
+                decoder = try await decoderAfterWAVInspection(tempURL)
+            }
             try ensureCurrent(requestID, store: store)
             guard isCurrent(requestID, store: store) else { return }
             let displayArtistName = store.library.artistDisplayName(for: song) ?? ""
             try engine.loadDecoded(
                 fileURL: tempURL,
+                decoder: decoder,
                 title: song.title,
                 artist: displayArtistName,
                 album: song.albumTitle ?? "",
@@ -1282,21 +1286,15 @@ final class TVPlaybackCoordinator {
         }
     }
 
-    private func decoderURLAfterWAVInspection(_ fileURL: URL) async throws -> URL {
+    /// 文件保持 `.wav` 名:FFmpeg 桥接层只在 `.wav` 文件里找 DTS 载体并强制走 DTS 解复用。
+    private func decoderAfterWAVInspection(_ fileURL: URL) async throws -> TVLocalDecoder {
         let signature = try await Task.detached(priority: .userInitiated) {
             let handle = try FileHandle(forReadingFrom: fileURL)
             defer { try? handle.close() }
             let data = try handle.read(upToCount: 4 * 1_024 * 1_024) ?? Data()
             return AudioFileSignaturePolicy.inspect(data)
         }.value
-        guard signature == .dtsInWave || signature == .dts else { return fileURL }
-
-        let destination = TVDecodedTemporaryFilePolicy.makeURL(
-            in: fileURL.deletingLastPathComponent(),
-            fileExtension: AudioFormat.dts.rawValue
-        )
-        try FileManager.default.moveItem(at: fileURL, to: destination)
-        return destination
+        return TVPlaybackFormatRoutingPolicy.decoderAfterWAVInspection(signature)
     }
 
     /// 按源类型构造直连协议读取器(非 HTTP)。返回 nil 表示该类型不直连(走 resolveStream)。

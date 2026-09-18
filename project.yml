@@ -673,6 +673,8 @@ targets:
       - path: Primuse/Services/Radio/RadioLiveStreamSource.swift
       - path: Primuse/Services/Radio/RadioFLACAudioDecoder.swift
       - path: Primuse/Services/Radio/RadioFLACDecoderBridge.m
+      # FFmpeg 桥接层:与 iOS / macOS 同一份,由 PrimuseTV/Audio/TVFFmpegPCMDecoder 接进 SFBAudioEngine 播放器
+      - path: Primuse/Services/Audio/FFmpegDecoderBridge.m
       # 内网自动发现(Bonjour/NWBrowser 找 NAS),与 iOS/macOS 同一份实现
       - path: Primuse/Services/Sources/NetworkDiscoveryService.swift
       - path: Primuse/Utilities/FileLogger.swift
@@ -691,6 +693,8 @@ targets:
           - "**/HomeDiscovery.strings"
           - "**/WiFiTransfer.strings"
           - "**/InfoPlist.strings"
+          # 随包附带的 FFmpeg LGPL 许可文本,与 iOS / macOS 一致
+          - "FFmpeg-LGPL-2.1.txt"
         buildPhase: resources
     dependencies:
       - sdk: DeviceCheck.framework
@@ -720,6 +724,16 @@ targets:
       # 非 AVFoundation 原生格式(APE/WavPack/OGG/DSD 等)在 TV 本机解码。
       - package: SFBAudioEngine
         product: SFBAudioEngine
+      # SFBAudioEngine 没有解码器的 WMA/DTS/TrueHD/ATRAC/TAK 等交给 FFmpeg,
+      # 与 iOS / macOS 同一套 xcframework(scripts/build-ffmpeg-apple.sh 产出 tvOS 切片)。
+      - framework: Frameworks/FFmpeg/libavutil.xcframework
+        embed: true
+      - framework: Frameworks/FFmpeg/libswresample.xcframework
+        embed: true
+      - framework: Frameworks/FFmpeg/libavcodec.xcframework
+        embed: true
+      - framework: Frameworks/FFmpeg/libavformat.xcframework
+        embed: true
     info:
       path: PrimuseTV/Info.plist
       properties:
