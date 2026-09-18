@@ -1,12 +1,23 @@
 import SwiftUI
 
+/// 沉浸式详情页头部要消费的安全区尺寸。
+///
+/// 横屏时左右安全区不一定相等（刘海机横放、折叠屏外屏都可能只有一侧被切），
+/// 所以两侧分开给值，头部按侧各自消费，不要拿其中一个当两边用。
+/// macOS 侧只会拿到全零。
+struct ImmersiveLibraryDetailInsets: Equatable {
+    var top: CGFloat = 0
+    var leading: CGFloat = 0
+    var trailing: CGFloat = 0
+}
+
 #if os(iOS)
 struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
-    private let header: (CGFloat) -> Header
+    private let header: (ImmersiveLibraryDetailInsets) -> Header
     private let content: Content
 
     init(
-        @ViewBuilder header: @escaping (CGFloat) -> Header,
+        @ViewBuilder header: @escaping (ImmersiveLibraryDetailInsets) -> Header,
         @ViewBuilder content: () -> Content
     ) {
         self.header = header
@@ -15,15 +26,27 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
 
     var body: some View {
         GeometryReader { geometry in
+            let safeArea = geometry.safeAreaInsets
+            let insets = ImmersiveLibraryDetailInsets(
+                top: safeArea.top,
+                leading: safeArea.leading,
+                trailing: safeArea.trailing
+            )
+            // 头图要铺满整幅屏幕, 正文不能钻到灵动岛和圆角下面。所以整页在这里
+            // 连左右安全区一起出血, 正文再把左右安全区按侧加回来 —— 头部自己
+            // 拿 insets 消费, 底图就是唯一铺到边的那一层。
+            let pageWidth = geometry.size.width + safeArea.leading + safeArea.trailing
             ScrollView {
                 VStack(spacing: 0) {
-                    header(geometry.safeAreaInsets.top)
+                    header(insets)
                     content
+                        .padding(.leading, safeArea.leading)
+                        .padding(.trailing, safeArea.trailing)
                 }
                 // Horizontal artwork shelves must not determine the page width.
-                .frame(width: geometry.size.width)
+                .frame(width: pageWidth)
             }
-            .ignoresSafeArea(.container, edges: .top)
+            .ignoresSafeArea(.container, edges: [.top, .horizontal])
         }
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)

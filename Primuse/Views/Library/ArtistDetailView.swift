@@ -16,6 +16,7 @@ struct ArtistDetailView: View {
     #if os(iOS)
     @Environment(\.legacyBottomChromeOverlayActive)
     private var legacyBottomChromeOverlayActive
+    @Environment(\.pmHeightClass) private var heightClass
     #endif
 
     let artist: Artist
@@ -166,8 +167,8 @@ struct ArtistDetailView: View {
 
     #if os(iOS)
     private var iosBody: some View {
-        ImmersiveLibraryDetailScrollView { topInset in
-            iosHero(topInset: topInset)
+        ImmersiveLibraryDetailScrollView { insets in
+            iosHero(insets: insets)
         } content: {
             VStack(alignment: .leading, spacing: 30) {
                 if songs.isEmpty && releaseAlbums.isEmpty {
@@ -207,25 +208,35 @@ struct ArtistDetailView: View {
         }
     }
 
-    private func iosHero(topInset: CGFloat) -> some View {
+    /// 手机横屏只剩三百多点高, 头像、块间距、上下留白都按竖屏标定过一遍,
+    /// 紧凑高度下各降一档, 让 hero 压到 170pt 以内, 首屏才露得出热门单曲。
+    private func iosHero(insets: ImmersiveLibraryDetailInsets) -> some View {
         let identityLayout = dynamicTypeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
             : AnyLayout(HStackLayout(alignment: .center, spacing: 18))
         let actionLayout = dynamicTypeSize >= .xxLarge
             ? AnyLayout(VStackLayout(spacing: 10))
             : AnyLayout(HStackLayout(spacing: 10))
+        let avatarSide = heightClass.value(88, compact: 64)
+        let blockSpacing = heightClass.value(20, compact: 12)
+        let heroTopPadding = heightClass.value(12, compact: 8)
+        let heroBottomPadding = heightClass.value(24, compact: 14)
+        let nameFont = heightClass.pick(Font.title2, compact: .title3)
+        let nameLineLimit: Int? = heightClass.isCompact ? 2 : nil
 
-        return VStack(alignment: .leading, spacing: 20) {
+        return VStack(alignment: .leading, spacing: blockSpacing) {
             identityLayout {
-                ArtistArtworkView(artist: artist, size: 88, cornerRadius: 44)
+                ArtistArtworkView(artist: artist, size: avatarSide, cornerRadius: avatarSide / 2)
                     .overlay { Circle().stroke(.white.opacity(0.28), lineWidth: 1) }
                     .shadow(color: .black.opacity(0.24), radius: 12, y: 4)
                     .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text(verbatim: displayArtistName)
-                        .font(.title2.weight(.bold))
+                        .font(nameFont.weight(.bold))
                         .foregroundStyle(.white)
+                        .lineLimit(nameLineLimit)
+                        .minimumScaleFactor(heightClass.value(1, compact: 0.82))
                         .fixedSize(horizontal: false, vertical: true)
 
                     Text(
@@ -260,9 +271,11 @@ struct ArtistDetailView: View {
                 )
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.top, topInset + 12)
-        .padding(.bottom, 24)
+        // 底图铺满整幅屏幕, 文字与按钮按侧留在安全区内 —— 横屏两侧安全区不一定相等。
+        .padding(.leading, insets.leading + 20)
+        .padding(.trailing, insets.trailing + 20)
+        .padding(.top, insets.top + heroTopPadding)
+        .padding(.bottom, heroBottomPadding)
         .frame(maxWidth: .infinity)
         .background {
             GeometryReader { geometry in
@@ -323,6 +336,7 @@ struct ArtistDetailView: View {
                     }
                 }
             }
+            .songRowColumnsContainer()
             .background(.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)

@@ -20,9 +20,21 @@ struct SmartPlaylistDetailView: View {
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(ScraperSettingsStore.self) private var scraperSettings
+    #if os(iOS)
+    @Environment(\.pmHeightClass) private var heightClass
+    #endif
 
     @State private var showEditor = false
     @State private var showNoScraperSourceAlert = false
+
+    /// 手机横屏 (纵向紧凑) 才把头部换成矮横带。Mac 没有纵向尺寸等级, 恒为 false。
+    private var usesCompactHeaderLayout: Bool {
+        #if os(iOS)
+        heightClass.isCompact
+        #else
+        false
+        #endif
+    }
 
     private var smart: SmartPlaylist? {
         library.smartPlaylists.first(where: { $0.id == smartPlaylistID })
@@ -63,72 +75,7 @@ struct SmartPlaylistDetailView: View {
             if let smart {
                 ScrollView {
                     VStack(spacing: 20) {
-                        // Header
-                        VStack(spacing: 8) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 14)
-                                    .fill(LinearGradient(
-                                        colors: smart.effectiveKind == .ai
-                                            ? [.pink.opacity(0.78), .orange.opacity(0.72)]
-                                            : [.purple.opacity(0.7), .blue.opacity(0.7)],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    ))
-                                Image(systemName: smart.effectiveKind == .ai
-                                      ? "sparkles"
-                                      : "slider.horizontal.3")
-                                    .font(.system(size: 60))
-                                    .foregroundStyle(.white)
-                            }
-                            .frame(width: 180, height: 180)
-
-                            Text(smart.name)
-                                .font(.title2)
-                                .fontWeight(.bold)
-
-                            Text("\(matched.count) \(String(localized: "songs_count"))")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-
-                            Text(playlistSummary(smart))
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal)
-                                .lineLimit(3)
-                        }
-                        .padding(.top, 20)
-
-                        // Action buttons
-                        HStack(spacing: 12) {
-                            Button {
-                                playAll()
-                            } label: {
-                                Label("play_all", systemImage: "play.fill")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(matched.isEmpty)
-
-                            Button {
-                                playAll(shuffled: true)
-                            } label: {
-                                Label("shuffle", systemImage: "shuffle")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(matched.isEmpty)
-
-                            Button {
-                                sourceManager.downloadForOffline(songs: matched)
-                            } label: {
-                                Label("offline_download", systemImage: "arrow.down.circle")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(matched.filteredPlayable().isEmpty)
-                        }
-                        .padding(.horizontal)
+                        legacyHeader(smart, matched: matched)
 
                         LibraryReviewSection(
                             subject: .playlist(smart.id),
@@ -172,6 +119,9 @@ struct SmartPlaylistDetailView: View {
                                     Divider().padding(.leading, 50)
                                 }
                             }
+                            #if os(iOS)
+                            .songRowColumnsContainer()
+                            #endif
                             // 只在"空态 ⇄ 曲目表"重建时淡入一次: 匹配结果变化不换
                             // 分支, 不会每次刷新都重放; 表内的行一律不动。
                             .pmAppearFade(.contentAppear)
@@ -199,6 +149,105 @@ struct SmartPlaylistDetailView: View {
                     systemImage: "questionmark.circle"
                 )
             }
+        }
+    }
+
+    /// 竖屏是「居中大色块 + 名称 + 计数 + 摘要 + 操作行」的竖排; 手机横屏纵向只剩
+    /// 三百多点, 同一批视图换成「左色块 + 右信息与操作」的矮横带。
+    ///
+    /// 排布由 `AnyLayout` 决定, 视图身份不随旋转变化。竖屏取值全部照抄原常量:
+    /// 外层 8 的间距加上摘要之后那 12 的上边距, 还原成原来「摘要 → 操作行」的 20。
+    private func legacyHeader(_ smart: SmartPlaylist, matched: [Song]) -> some View {
+        let compact = usesCompactHeaderLayout
+        let coverSide: CGFloat = compact ? 116 : 180
+        let glyphSize: CGFloat = compact ? 44 : 60
+        let bandLayout = compact
+            ? AnyLayout(HStackLayout(alignment: .top, spacing: 14))
+            : AnyLayout(VStackLayout(spacing: 8))
+        let detailAlignment: HorizontalAlignment = compact ? .leading : .center
+        let detailLayout = AnyLayout(VStackLayout(alignment: detailAlignment, spacing: 8))
+        let stackedTopPadding: CGFloat = compact ? 0 : 12
+        let rowHorizontalPadding: CGFloat? = compact ? 0 : nil
+        let titleLineLimit: Int? = compact ? 2 : nil
+        let summaryLineLimit = compact ? 2 : 3
+        let summaryAlignment: TextAlignment = compact ? .leading : .center
+        let bandTopPadding: CGFloat = compact ? 10 : 20
+        let bandHorizontalPadding: CGFloat = compact ? 16 : 0
+
+        return bandLayout {
+            ZStack {
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(LinearGradient(
+                        colors: smart.effectiveKind == .ai
+                            ? [.pink.opacity(0.78), .orange.opacity(0.72)]
+                            : [.purple.opacity(0.7), .blue.opacity(0.7)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ))
+                Image(systemName: smart.effectiveKind == .ai
+                      ? "sparkles"
+                      : "slider.horizontal.3")
+                    .font(.system(size: glyphSize))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: coverSide, height: coverSide)
+
+            detailLayout {
+                VStack(alignment: detailAlignment, spacing: 8) {
+                    Text(smart.name)
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .lineLimit(titleLineLimit)
+
+                    Text("\(matched.count) \(String(localized: "songs_count"))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Text(playlistSummary(smart))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(summaryAlignment)
+                        .padding(.horizontal, rowHorizontalPadding)
+                        .lineLimit(summaryLineLimit)
+                }
+
+                legacyActionButtons(matched)
+                    .padding(.horizontal, rowHorizontalPadding)
+                    .padding(.top, stackedTopPadding)
+            }
+        }
+        .padding(.top, bandTopPadding)
+        .padding(.horizontal, bandHorizontalPadding)
+    }
+
+    private func legacyActionButtons(_ matched: [Song]) -> some View {
+        HStack(spacing: 12) {
+            Button {
+                playAll()
+            } label: {
+                Label("play_all", systemImage: "play.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(matched.isEmpty)
+
+            Button {
+                playAll(shuffled: true)
+            } label: {
+                Label("shuffle", systemImage: "shuffle")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .disabled(matched.isEmpty)
+
+            Button {
+                sourceManager.downloadForOffline(songs: matched)
+            } label: {
+                Label("offline_download", systemImage: "arrow.down.circle")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .disabled(matched.filteredPlayable().isEmpty)
         }
     }
 

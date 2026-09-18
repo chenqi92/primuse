@@ -328,11 +328,19 @@ private enum LibraryArtworkPreviewBuilder {
     }
 }
 
+/// 资料库浏览区的一段: 要么是整幅的「快速访问」货架, 要么是一串等高的分类入口。
+private struct LibraryBrowseRun: Identifiable {
+    let id: String
+    let isQuickAccess: Bool
+    let sections: [LibrarySection]
+}
+
 struct LibraryView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(RadioStationsStore.self) private var radioStationsStore
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
+    @Environment(\.pmHeightClass) private var heightClass
     #endif
     @Binding private var deepLink: LibraryDeepLink?
     private let rootSection: LibrarySection?
@@ -602,6 +610,23 @@ struct LibraryView: View {
         }
     }
 
+    /// 手机横屏 (纵向紧凑) 下分类入口排两列。Mac 没有纵向尺寸等级, 恒为 false。
+    private var usesCompactBrowseLayout: Bool {
+        #if os(iOS)
+        heightClass.isCompact
+        #else
+        false
+        #endif
+    }
+
+    /// 分类入口的列数。竖屏与 iPad 仍是一列(与原来的竖排完全一致); 手机横屏下
+    /// 行宽有 700 多点, 一列只放得下一张 72pt 高的卡片, 右边整片空着。
+    private var browseCategoryColumns: [GridItem] {
+        usesCompactBrowseLayout
+            ? [GridItem(.adaptive(minimum: 300), spacing: 0, alignment: .top)]
+            : [GridItem(.flexible())]
+    }
+
     private var browseLibrarySection: some View {
         Group {
             if !visibleLibrarySections.isEmpty {
@@ -609,22 +634,61 @@ struct LibraryView: View {
                     sectionHeader("library_browse")
 
                     LazyVStack(spacing: 10) {
-                        ForEach(visibleLibrarySections) { section in
-                            if section == .favorites {
+                        ForEach(browseRuns) { run in
+                            if run.isQuickAccess {
                                 quickAccessSection
                                     .padding(.vertical, 8)
                             } else {
-                                NavigationLink(value: section) {
-                                    libraryCategoryRow(section)
+                                LazyVGrid(columns: browseCategoryColumns, spacing: 10) {
+                                    ForEach(run.sections) { section in
+                                        NavigationLink(value: section) {
+                                            libraryCategoryRow(section)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .padding(.horizontal, 16)
+                                    }
                                 }
-                                .buttonStyle(.plain)
-                                .padding(.horizontal, 16)
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    /// 把连续的分类入口并成一段, 让它们共用一个网格。
+    ///
+    /// 「快速访问」不是等高的入口卡片, 而是一条整幅的横向货架 —— 混进两列网格
+    /// 会把它所在的那一行撑到两百多点, 旁边的入口卡片跟着被吊在半空。所以货架
+    /// 始终独占一行, 只有入口卡片进网格; 用户排的分区顺序不变。
+    private var browseRuns: [LibraryBrowseRun] {
+        var runs: [LibraryBrowseRun] = []
+        var pending: [LibrarySection] = []
+
+        func flushPending() {
+            guard let first = pending.first else { return }
+            runs.append(LibraryBrowseRun(
+                id: "categories:\(first.rawValue)",
+                isQuickAccess: false,
+                sections: pending
+            ))
+            pending.removeAll()
+        }
+
+        for section in visibleLibrarySections {
+            if section == .favorites {
+                flushPending()
+                runs.append(LibraryBrowseRun(
+                    id: "quickAccess",
+                    isQuickAccess: true,
+                    sections: []
+                ))
+            } else {
+                pending.append(section)
+            }
+        }
+        flushPending()
+        return runs
     }
 
     private func sectionHeader<Trailing: View>(
@@ -1952,6 +2016,9 @@ private enum GenreVisualStyle {
 struct GenreLibraryView: View {
     @Environment(MusicLibrary.self) private var library
     @State private var searchText = ""
+    #if os(iOS)
+    @Environment(\.pmHeightClass) private var heightClass
+    #endif
     #if os(macOS)
     @State private var selectedGenreID: String?
     #endif
@@ -1985,6 +2052,10 @@ struct GenreLibraryView: View {
             )
             .pmAppearFade(.contentAppear)
         } else {
+            // 手机横屏下卡片降一档: 竖屏 2 列 × 142 高, 横屏 4-5 列 × 112 高,
+            // 一屏能看到两行而不是一行半。
+            let cardMinimumWidth = heightClass.value(156, compact: 124)
+            let cardHeight = heightClass.value(142, compact: 112)
             ScrollView {
                 if filteredGenres.isEmpty {
                     ContentUnavailableView.search(text: searchText)
@@ -1992,12 +2063,12 @@ struct GenreLibraryView: View {
                         .pmAppearFade(.contentAppear)
                 } else {
                     LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 156), spacing: 12)],
+                        columns: [GridItem(.adaptive(minimum: cardMinimumWidth), spacing: 12)],
                         spacing: 12
                     ) {
                         ForEach(filteredGenres) { genre in
                             NavigationLink(value: genre) {
-                                LibraryGenreCard(genre: genre)
+                                LibraryGenreCard(genre: genre, height: cardHeight)
                             }
                             .buttonStyle(.pmPressable)
                         }
@@ -2137,6 +2208,8 @@ struct GenreLibraryView: View {
 
 private struct LibraryGenreCard: View {
     let genre: LibraryGenre
+    /// 卡片高度由调用处按纵向尺寸等级给, 卡片自己不读环境 —— 它也编进 Mac target。
+    var height: CGFloat = 142
 
     var body: some View {
         let palette = GenreVisualStyle.palette(for: genre.id)
@@ -2171,7 +2244,7 @@ private struct LibraryGenreCard: View {
             .padding(13)
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 142)
+        .frame(height: height)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -2233,6 +2306,7 @@ private struct GenreDetailView: View {
     #if os(iOS)
     @Environment(\.legacyBottomChromeOverlayActive)
     private var legacyBottomChromeOverlayActive
+    @Environment(\.pmHeightClass) private var heightClass
     #endif
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
@@ -2241,6 +2315,15 @@ private struct GenreDetailView: View {
 
     let genre: LibraryGenre
     @State private var selection = SongSelectionModel()
+
+    /// 手机横屏 (纵向紧凑) 才压缩 hero。Mac 没有纵向尺寸等级, 恒为 false。
+    private var usesCompactHero: Bool {
+        #if os(iOS)
+        heightClass.isCompact
+        #else
+        false
+        #endif
+    }
 
     private var songs: [Song] { library.songs(forGenre: genre.id) }
     private var playableSongs: [Song] { songs.filteredPlayable() }
@@ -2256,8 +2339,8 @@ private struct GenreDetailView: View {
     var body: some View {
         Group {
             #if os(iOS)
-            ImmersiveLibraryDetailScrollView { topInset in
-                hero(topInset: topInset)
+            ImmersiveLibraryDetailScrollView { insets in
+                hero(insets: insets)
             } content: {
                 VStack(alignment: .leading, spacing: 28) {
                     if !albums.isEmpty { albumShelf }
@@ -2274,7 +2357,7 @@ private struct GenreDetailView: View {
             #else
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
-                    hero(topInset: 0)
+                    hero(insets: ImmersiveLibraryDetailInsets())
 
                     if !albums.isEmpty { albumShelf }
                     if !songs.isEmpty { songSection }
@@ -2299,18 +2382,31 @@ private struct GenreDetailView: View {
         )
     }
 
-    private func hero(topInset: CGFloat) -> some View {
+    /// 竖屏的 `topInset + 100` 是照着状态栏 + 导航栏标定的; 手机横屏顶部安全区塌成 0,
+    /// 那 100 就白占了整块首屏。紧凑高度下顶部留白、标题字号、马赛克都降一档,
+    /// hero 压到 170pt 以内, 专辑架和第一首歌才露得出来。结构不变。
+    private func hero(insets: ImmersiveLibraryDetailInsets) -> some View {
         let palette = GenreVisualStyle.palette(for: genre.id)
-        return VStack(alignment: .leading, spacing: 16) {
+        let compact = usesCompactHero
+        let heroTopPadding: CGFloat = compact ? 28 : 100
+        let heroBottomPadding: CGFloat = compact ? 14 : 28
+        let blockSpacing: CGFloat = compact ? 10 : 16
+        let titleLineLimit = compact ? 1 : 2
+        let mosaicWidth: CGFloat = compact ? 150 : 220
+        let mosaicHeight: CGFloat = compact ? 100 : 150
+        let mosaicArtworkSize: CGFloat = compact ? 80 : 116
+
+        return VStack(alignment: .leading, spacing: blockSpacing) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(verbatim: genre.name)
                     #if os(macOS)
                     .font(.system(size: 42, weight: .bold))
                     #else
-                    .font(.largeTitle.weight(.bold))
+                    .font(compact ? Font.title.weight(.bold) : Font.largeTitle.weight(.bold))
                     #endif
                     .foregroundStyle(.white)
-                    .lineLimit(2)
+                    .lineLimit(titleLineLimit)
+                    .minimumScaleFactor(compact ? 0.82 : 1)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Text(
@@ -2343,9 +2439,11 @@ private struct GenreDetailView: View {
                 onArtwork: true
             )
         }
-        .padding(.horizontal, 20)
-        .padding(.top, topInset + 100)
-        .padding(.bottom, 28)
+        // 渐变底图铺满整幅屏幕, 文字与按钮按侧留在安全区内 —— 横屏两侧不一定相等。
+        .padding(.leading, insets.leading + 20)
+        .padding(.trailing, insets.trailing + 20)
+        .padding(.top, insets.top + heroTopPadding)
+        .padding(.bottom, heroBottomPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
             LinearGradient(
@@ -2354,10 +2452,10 @@ private struct GenreDetailView: View {
                 endPoint: .bottomTrailing
             )
             .overlay(alignment: .topTrailing) {
-                GenreArtworkMosaic(genre: genre, artworkSize: 116)
-                    .frame(width: 220, height: 150)
-                    .padding(.top, topInset + 12)
-                    .padding(.trailing, 16)
+                GenreArtworkMosaic(genre: genre, artworkSize: mosaicArtworkSize)
+                    .frame(width: mosaicWidth, height: mosaicHeight)
+                    .padding(.top, insets.top + 12)
+                    .padding(.trailing, insets.trailing + 16)
                     .opacity(0.8)
                     .accessibilityHidden(true)
             }
@@ -2422,6 +2520,9 @@ private struct GenreDetailView: View {
                     }
                 }
             }
+            #if os(iOS)
+            .songRowColumnsContainer()
+            #endif
             .background(.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)

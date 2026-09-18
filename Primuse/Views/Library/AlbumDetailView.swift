@@ -13,6 +13,7 @@ struct AlbumDetailView: View {
     #if os(iOS)
     @Environment(\.legacyBottomChromeOverlayActive)
     private var legacyBottomChromeOverlayActive
+    @Environment(\.pmHeightClass) private var heightClass
     #endif
     let album: Album
     private let onMacInlineBack: (() -> Void)?
@@ -120,6 +121,8 @@ struct AlbumDetailView: View {
                         }
                     }
                 }
+                // 专辑详情页的行都在同一张专辑里, 宽行不必再补一列专辑名。
+                .songRowColumnsContainer(showsAlbum: false)
                 .background(
                     Color(uiColor: .secondarySystemBackground),
                     in: RoundedRectangle(cornerRadius: 20, style: .continuous)
@@ -162,6 +165,8 @@ struct AlbumDetailView: View {
         }
     }
 
+    /// 手机横屏下只改常量: 封面、块间距、卡片内边距各降一档, 卡片压到 200pt 以内,
+    /// 首屏才看得到三行歌。排布仍由上面两个 `AnyLayout` 决定, 结构不变。
     private var iosSummaryCard: some View {
         let identityLayout = dynamicTypeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
@@ -169,12 +174,16 @@ struct AlbumDetailView: View {
         let actionLayout = dynamicTypeSize >= .xxLarge
             ? AnyLayout(VStackLayout(spacing: 10))
             : AnyLayout(HStackLayout(spacing: 10))
+        let coverSide = heightClass.value(124, compact: 88)
+        let blockSpacing = heightClass.value(18, compact: 12)
+        let cardPadding = heightClass.value(16, compact: 12)
+        let titleLineLimit: Int? = heightClass.isCompact ? 2 : nil
 
-        return VStack(alignment: .leading, spacing: 18) {
+        return VStack(alignment: .leading, spacing: blockSpacing) {
             identityLayout {
                 AlbumArtworkView(
                     album: album,
-                    size: 124,
+                    size: coverSide,
                     cornerRadius: 12,
                     presentationRole: .animatedHero
                 )
@@ -183,6 +192,7 @@ struct AlbumDetailView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(album.title)
                         .font(.title2.weight(.bold))
+                        .lineLimit(titleLineLimit)
                         .fixedSize(horizontal: false, vertical: true)
 
                     Text(album.artistName ?? String(localized: "unknown_artist"))
@@ -224,7 +234,7 @@ struct AlbumDetailView: View {
 
             LibraryReviewSection(subject: .album(album.id), compact: true)
         }
-        .padding(16)
+        .padding(cardPadding)
         .background(
             Color(uiColor: .secondarySystemBackground),
             in: RoundedRectangle(cornerRadius: 20, style: .continuous)
