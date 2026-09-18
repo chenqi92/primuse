@@ -495,6 +495,10 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
     @MainActor private var miniPlayer: MiniPlayerWindowController?
     @MainActor private var keyboardShortcutMonitor: Any?
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        MacTaskExceptionGuard.install()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.registerForRemoteNotifications()
         Task { @MainActor in
