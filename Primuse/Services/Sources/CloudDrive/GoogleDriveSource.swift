@@ -268,6 +268,11 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
             baseName: baseName,
             in: siblings
         )
+        let companion = LyricsSidecarTargetPolicy.translationTrackItem(
+            forPrimary: existing,
+            baseName: baseName,
+            in: siblings
+        )
         let suffix = existing.map { ".\(($0.name as NSString).pathExtension.lowercased())" }
             ?? ".lrc"
         let fileName = existing?.name ?? "\(baseName).lrc"
@@ -278,7 +283,10 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
             exists: existing != nil,
             existingPath: existing?.path,
             existingSize: existing?.size,
-            songBaseName: baseName
+            songBaseName: baseName,
+            translationPath: companion?.path,
+            translationFileName: companion?.name,
+            translationSize: companion?.size
         )
     }
 

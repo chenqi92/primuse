@@ -915,6 +915,14 @@ struct LyricsSidecarTarget: Sendable, Equatable {
     /// from the document's name: a song genuinely called `A.en` would lose its
     /// sidecar to `A.lrc`.
     let songBaseName: String?
+    /// Address of the track that translates an `-orig` subtitle document. It
+    /// rides along with the read view because this is the only place that has
+    /// the directory listing the companion has to be found in.
+    let translationPath: String?
+    /// Its listed name: on an ID-addressed provider `translationPath` is an
+    /// opaque identifier, and the language tag only exists in the name.
+    let translationFileName: String?
+    let translationSize: Int64?
 
     init(
         targetPath: String,
@@ -924,7 +932,10 @@ struct LyricsSidecarTarget: Sendable, Equatable {
         existingPath: String? = nil,
         existingSize: Int64? = nil,
         writableSiblingPath: String? = nil,
-        songBaseName: String? = nil
+        songBaseName: String? = nil,
+        translationPath: String? = nil,
+        translationFileName: String? = nil,
+        translationSize: Int64? = nil
     ) {
         self.targetPath = targetPath
         self.fileName = fileName
@@ -937,6 +948,9 @@ struct LyricsSidecarTarget: Sendable, Equatable {
         self.existingSize = exists ? existingSize : nil
         self.writableSiblingPath = writableSiblingPath
         self.songBaseName = songBaseName
+        self.translationPath = translationPath
+        self.translationFileName = translationFileName
+        self.translationSize = translationSize
     }
 }
 
@@ -963,6 +977,7 @@ enum LyricsSidecarTargetPolicy {
             .deletingPathExtension
         let items = try await connector.listFiles(at: containerPath)
         let existing = try uniqueExistingItem(baseName: songBase, in: items)
+        let companion = translationTrackItem(forPrimary: existing, baseName: songBase, in: items)
         let fileName = existing?.name ?? (preferredTargetPath as NSString).lastPathComponent
         return LyricsSidecarTarget(
             targetPath: existing?.path ?? preferredTargetPath,
@@ -971,7 +986,10 @@ enum LyricsSidecarTargetPolicy {
             exists: existing != nil,
             existingPath: existing?.path,
             existingSize: existing?.size,
-            songBaseName: songBase
+            songBaseName: songBase,
+            translationPath: companion?.path,
+            translationFileName: companion?.name,
+            translationSize: companion?.size
         )
     }
 
@@ -1003,9 +1021,34 @@ enum LyricsSidecarTargetPolicy {
         }
     }
 
+    /// The track that translates the document `uniqueExistingItem` just
+    /// picked, when the listing holds one. It changes nothing about which
+    /// document the song reads; it only travels with it so the loader can
+    /// attach it line by line.
+    static func translationTrackItem(
+        forPrimary existing: RemoteFileItem?,
+        baseName: String,
+        in items: [RemoteFileItem]
+    ) -> RemoteFileItem? {
+        guard let existing else { return nil }
+        var uniqueByPath: [String: RemoteFileItem] = [:]
+        for item in items where !item.isDirectory {
+            uniqueByPath[item.path] = item
+        }
+        let candidates = uniqueByPath.values.sorted { $0.path < $1.path }
+        guard let index = LyricsSidecarSelectionPolicy.translationTrack(
+            forPrimary: existing.name,
+            baseName: baseName,
+            names: candidates.map(\.name)
+        ) else { return nil }
+        return candidates[index]
+    }
+
     /// The write view of the same document. Sidecar writeback serializes LRC
     /// or TTML, so a read-only document is never the file that gets replaced:
-    /// the save creates `<base>.lrc` next to it and leaves it untouched.
+    /// the save creates `<base>.lrc` next to it and leaves it untouched. The
+    /// translated companion is not part of a save either, so the write view
+    /// does not carry it.
     static func writeTarget(for target: LyricsSidecarTarget) throws -> LyricsSidecarTarget {
         guard !LyricsSidecarSelectionPolicy.isWritableDocument(fileName: target.fileName) else {
             return target

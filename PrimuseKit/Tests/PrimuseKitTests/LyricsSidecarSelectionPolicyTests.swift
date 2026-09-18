@@ -358,4 +358,99 @@ struct LyricsSidecarSelectionPolicyTests {
         )
         #expect(guarded.bestMatch(baseName: "Track") == nil)
     }
+
+    @Test("The original track's companion is the one the listener can read")
+    func choosesTranslationTrackByPreferredLanguage() {
+        let names = ["Song.mp3", "Song.en-orig.vtt", "Song.zh-Hans.vtt", "Song.fr.vtt"]
+        #expect(LyricsSidecarSelectionPolicy.translationTrack(
+            forPrimary: "Song.en-orig.vtt",
+            baseName: "Song",
+            names: names,
+            preferredLanguages: ["zh-Hans", "fr"]
+        ) == 2)
+        #expect(LyricsSidecarSelectionPolicy.translationTrack(
+            forPrimary: "Song.en-orig.vtt",
+            baseName: "Song",
+            names: names,
+            preferredLanguages: ["fr"]
+        ) == 3)
+    }
+
+    @Test("A track in the sung language is not a translation")
+    func skipsTranslationTrackInTheOriginalLanguage() {
+        // `en-GB` is the same words the `-orig` track already carries.
+        #expect(LyricsSidecarSelectionPolicy.translationTrack(
+            forPrimary: "Song.en-orig.vtt",
+            baseName: "Song",
+            names: ["Song.en-orig.vtt", "Song.en-GB.vtt", "Song.zh-Hans.vtt"],
+            preferredLanguages: ["en-GB", "zh-Hans"]
+        ) == 2)
+    }
+
+    @Test("A translation nobody reads is no translation at all")
+    func refusesTranslationTrackWithoutPreferredLanguage() {
+        // The main document falls back to the first tag by name; a companion
+        // must not, or a Japanese listener would get Danish under every line.
+        #expect(LyricsSidecarSelectionPolicy.translationTrack(
+            forPrimary: "Song.en-orig.vtt",
+            baseName: "Song",
+            names: ["Song.en-orig.vtt", "Song.da.vtt", "Song.pt.vtt"],
+            preferredLanguages: ["ja"]
+        ) == nil)
+    }
+
+    @Test("Only an original track carries a companion")
+    func refusesTranslationTrackForAnOrdinaryDocument() {
+        // Two ordinary language tracks are alternatives, not a pair.
+        #expect(LyricsSidecarSelectionPolicy.translationTrack(
+            forPrimary: "Song.en.vtt",
+            baseName: "Song",
+            names: ["Song.en.vtt", "Song.zh-Hans.vtt"],
+            preferredLanguages: ["zh-Hans"]
+        ) == nil)
+        // An exact-name document is the user's own file; nothing beside it is
+        // a machine translation of it.
+        #expect(LyricsSidecarSelectionPolicy.translationTrack(
+            forPrimary: "Song.lrc",
+            baseName: "Song",
+            names: ["Song.lrc", "Song.zh-Hans.vtt"],
+            preferredLanguages: ["zh-Hans"]
+        ) == nil)
+    }
+
+    @Test("Another song's sidecar is never a companion")
+    func guardsTranslationTrackAgainstAnotherSongsSidecar() {
+        // `Track.it.vtt` is the exact-name sidecar of `Track.it.flac`.
+        #expect(LyricsSidecarSelectionPolicy.translationTrack(
+            forPrimary: "Track.en-orig.vtt",
+            baseName: "Track",
+            names: ["Track.flac", "Track.it.flac", "Track.it.vtt", "Track.en-orig.vtt"],
+            preferredLanguages: ["it"]
+        ) == nil)
+    }
+
+    @Test("A companion's tag is spelled the way translations are compared")
+    func normalizesTranslationLanguageCode() {
+        #expect(LyricsSidecarSelectionPolicy.translationLanguageCode(forTag: "zh-CN") == "zh-Hans")
+        #expect(LyricsSidecarSelectionPolicy.translationLanguageCode(forTag: "chs") == "zh-Hans")
+        #expect(LyricsSidecarSelectionPolicy.translationLanguageCode(forTag: "en-orig") == "en")
+        #expect(LyricsSidecarSelectionPolicy.translationLanguageCode(forTag: "jpn") == "ja")
+    }
+
+    @Test("A directory hands out the companion it already indexed")
+    func indexesTranslationTrack() {
+        let index = LanguageTaggedLyricsIndex(
+            fileNames: ["Song.mp3", "Song.en-orig.vtt", "Song.zh-Hans.vtt", "Song.fr.vtt"],
+            preferredLanguages: ["fr"]
+        )
+        #expect(index.translationTrack(forPrimary: "Song.en-orig.vtt", baseName: "Song")
+            == "Song.fr.vtt")
+        #expect(index.translationTrack(forPrimary: "Song.zh-Hans.vtt", baseName: "Song") == nil)
+
+        let alone = LanguageTaggedLyricsIndex(
+            fileNames: ["Song.mp3", "Song.en-orig.vtt"],
+            preferredLanguages: ["fr"]
+        )
+        #expect(alone.translationTrack(forPrimary: "Song.en-orig.vtt", baseName: "Song") == nil)
+    }
 }

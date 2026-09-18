@@ -394,6 +394,11 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
             baseName: context.baseName,
             in: siblings
         )
+        let companion = LyricsSidecarTargetPolicy.translationTrackItem(
+            forPrimary: existing,
+            baseName: context.baseName,
+            in: siblings
+        )
         let fileName = existing?.name ?? "\(context.baseName).lrc"
         let suffix = ".\((fileName as NSString).pathExtension.lowercased())"
         return LyricsSidecarTarget(
@@ -403,7 +408,10 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
             exists: existing != nil,
             existingPath: existing?.path,
             existingSize: existing?.size,
-            songBaseName: context.baseName
+            songBaseName: context.baseName,
+            translationPath: companion?.path,
+            translationFileName: companion?.name,
+            translationSize: companion?.size
         )
     }
 

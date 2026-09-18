@@ -62,7 +62,6 @@ public enum SubtitleLyricsParser {
         let voice: String?
 
         var duration: TimeInterval { max(0, (end ?? start) - start) }
-        var isWordTimed: Bool { payload.contains { !$0.marks.isEmpty } }
     }
 
     public static func detect(_ content: String) -> SubtitleLyricsFormat? {
@@ -96,9 +95,14 @@ public enum SubtitleLyricsParser {
 
         // Only YouTube-style rolling captions repeat their previous line; a
         // real lyric document with a repeated chorus must keep both rows. The
-        // giveaway is the pairing of word-timed cues with sub-frame fillers.
-        let isRollingCaptions = cues.contains(where: \.isWordTimed)
-            && cues.contains { $0.duration < fillerCueDuration }
+        // giveaway is a sub-frame cue that restates the line scrolling off
+        // screen. Word timing is not part of it: the machine-translated tracks
+        // of the same video have none and are built exactly the same way.
+        let isRollingCaptions = cues.indices.dropFirst().contains { index in
+            cues[index].duration < fillerCueDuration
+                && cues[index].payload.map(\.text).joined(separator: " ")
+                    == cues[index - 1].payload.last?.text
+        }
 
         var lines: [LyricLine] = []
         var cueIndexByLineID: [String: Int] = [:]

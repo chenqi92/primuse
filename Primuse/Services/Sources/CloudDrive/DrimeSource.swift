@@ -277,12 +277,17 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
         let token = try await accessToken()
         let context = try await sidecarContext(for: song.filePath, token: token)
         let baseName = (context.sourceName as NSString).deletingPathExtension
-        let siblings = try await fileEntries(in: context.parentID, token: token)
+        let siblings = try await fileEntries(in: context.parentID, token: token).map {
+            Self.remoteItem(from: $0, parentPath: context.parentID ?? "/")
+        }
         let existing = try LyricsSidecarTargetPolicy.uniqueExistingItem(
             baseName: baseName,
-            in: siblings.map {
-                Self.remoteItem(from: $0, parentPath: context.parentID ?? "/")
-            }
+            in: siblings
+        )
+        let companion = LyricsSidecarTargetPolicy.translationTrackItem(
+            forPrimary: existing,
+            baseName: baseName,
+            in: siblings
         )
         let fileName = existing?.name ?? "\(baseName).lrc"
         let suffix = ".\((fileName as NSString).pathExtension.lowercased())"
@@ -293,7 +298,10 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
             exists: existing != nil,
             existingPath: existing?.path,
             existingSize: existing?.size,
-            songBaseName: baseName
+            songBaseName: baseName,
+            translationPath: companion?.path,
+            translationFileName: companion?.name,
+            translationSize: companion?.size
         )
     }
 

@@ -3420,10 +3420,28 @@ struct NowPlayingView: View {
                     plog(String(format: "📜 loadLyrics '%@' Tier3 sidecar not utf8 (connect=%.0fms fetch=%.0fms)", songTitle, connectMs, fetchMs))
                     return
                 }
-                let parsed = LyricsParser.parse(lyricsContent)
+                var parsed = LyricsParser.parse(lyricsContent)
                 guard !parsed.isEmpty else {
                     plog(String(format: "📜 loadLyrics '%@' Tier3 sidecar empty after parse (connect=%.0fms fetch=%.0fms %dB)", songTitle, connectMs, fetchMs, lyricsData.count))
                     return
+                }
+
+                // 只有 `<歌名>.<语言>-orig.vtt` 这类原声轨才可能有译文轨。先按
+                // 文件名判断, 免得每首歌都为此多列一次目录; refresh 也要走同一条
+                // 合并, 否则每次刷新都会把译文再抹掉一遍。
+                if let tagged = LyricsSidecarSelectionPolicy.languageTaggedComponents(
+                    ofSidecarNamed: (lyricsPath as NSString).lastPathComponent
+                ), LyricsSidecarSelectionPolicy.marksOriginalTrack(tagged.tag),
+                   let track = await LyricsLoader.translationTrack(
+                       for: song,
+                       connector: connector
+                   ) {
+                    parsed = await LyricsLoader.mergingTranslationTrack(
+                        into: parsed,
+                        track: track,
+                        connector: connector
+                    )
+                    guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
                 }
 
                 // Refresh 模式: cache 与 NAS 一致就静默退出, 不写盘不 update UI
