@@ -22,6 +22,8 @@ struct MacRadioStationsView: View {
     @State private var folderToDelete: String?
     @State private var tagToDelete: String?
     @State private var showSubscriptions = false
+    /// 从「+」菜单进来时直接停在「添加订阅」；从状态行进来时停在订阅列表。
+    @State private var subscriptionsStartAdding = false
     @AppStorage(RadioStationLayoutMode.storageKey)
     private var layoutModeRaw = RadioStationLayoutMode.list.rawValue
 
@@ -91,7 +93,7 @@ struct MacRadioStationsView: View {
             MacRadioBatchAddView()
         }
         .sheet(isPresented: $showSubscriptions) {
-            RadioSubscriptionsView()
+            RadioSubscriptionsView(startsAdding: subscriptionsStartAdding)
         }
         .confirmationDialog(
             Text("radio_manage_delete_confirm_title"),
@@ -233,7 +235,8 @@ struct MacRadioStationsView: View {
                     Button("radio_batch_add_title", systemImage: "square.and.arrow.down") {
                         showBatchAdd = true
                     }
-                    Button("radio_subscriptions_title", systemImage: "arrow.triangle.2.circlepath") {
+                    Button("radio_subscriptions_add", systemImage: "arrow.triangle.2.circlepath") {
+                        subscriptionsStartAdding = true
                         showSubscriptions = true
                     }
                     Divider()
@@ -259,7 +262,10 @@ struct MacRadioStationsView: View {
                     .font(.system(size: 13))
                     .foregroundStyle(PMColor.textMuted)
                 // 有订阅时露一行紧凑状态，点进订阅管理。
-                RadioSubscriptionStatusRow { showSubscriptions = true }
+                RadioSubscriptionStatusRow {
+                    subscriptionsStartAdding = false
+                    showSubscriptions = true
+                }
                     .fixedSize()
             }
         }

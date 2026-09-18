@@ -187,15 +187,29 @@ struct RadioSubscriptionOfferCard: View {
 // MARK: - 订阅列表
 
 /// 清单订阅管理。iOS 与 macOS 共用这一个页面，以弹页形式出现。
+/// 「添加订阅」推进同一个导航栈，而不是再叠一层弹页。
 struct RadioSubscriptionsView: View {
+    private enum Route: Hashable {
+        case subscription(String)
+        case add
+    }
+
     @Environment(\.dismiss) private var dismiss
     @Environment(RadioStationsStore.self) private var stationsStore
-    @State private var path: [String] = []
-    @State private var showingAdd = false
+    @State private var path: [Route] = []
 
-    /// `initialSubscriptionID` 不为空时直接打开那份订阅的详情。
-    init(initialSubscriptionID: String? = nil) {
-        _path = State(initialValue: initialSubscriptionID.map { [$0] } ?? [])
+    /// `initialSubscriptionID` 不为空时直接打开那份订阅的详情；`startsAdding` 为真时
+    /// 直接进「添加订阅」，返回键回到订阅列表。
+    init(initialSubscriptionID: String? = nil, startsAdding: Bool = false) {
+        let initial: [Route]
+        if let initialSubscriptionID {
+            initial = [.subscription(initialSubscriptionID)]
+        } else if startsAdding {
+            initial = [.add]
+        } else {
+            initial = []
+        }
+        _path = State(initialValue: initial)
     }
 
     private var store: RadioSubscriptionsStore { .shared }
@@ -216,8 +230,16 @@ struct RadioSubscriptionsView: View {
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
-            .navigationDestination(for: String.self) { id in
-                RadioSubscriptionDetailView(subscriptionID: id)
+            .navigationDestination(for: Route.self) { route in
+                switch route {
+                case .subscription(let id):
+                    RadioSubscriptionDetailView(subscriptionID: id)
+                case .add:
+                    // 订阅成功或发现早就订阅过，都换成那一份的详情，返回键回到列表。
+                    RadioSubscriptionAddView { id in
+                        path = [.subscription(id)]
+                    }
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -225,27 +247,15 @@ struct RadioSubscriptionsView: View {
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
-                        showingAdd = true
+                        path.append(.add)
                     } label: {
                         Label("radio_subscriptions_add", systemImage: "plus")
                     }
                 }
             }
-            .sheet(isPresented: $showingAdd) {
-                batchAddView
-            }
         }
         #if os(macOS)
         .frame(minWidth: 560, minHeight: 560)
-        #endif
-    }
-
-    @ViewBuilder
-    private var batchAddView: some View {
-        #if os(macOS)
-        MacRadioBatchAddView(startsWithPlaylistLink: true)
-        #else
-        RadioBatchAddView(startsWithPlaylistLink: true)
         #endif
     }
 
@@ -255,7 +265,7 @@ struct RadioSubscriptionsView: View {
         } description: {
             Text("radio_subscriptions_empty_description")
         } actions: {
-            Button("radio_subscriptions_add") { showingAdd = true }
+            Button("radio_subscriptions_add") { path.append(.add) }
                 .buttonStyle(.borderedProminent)
         }
     }
@@ -264,7 +274,7 @@ struct RadioSubscriptionsView: View {
         List {
             Section {
                 ForEach(store.sortedSubscriptions) { subscription in
-                    NavigationLink(value: subscription.id) {
+                    NavigationLink(value: Route.subscription(subscription.id)) {
                         RadioSubscriptionRow(
                             subscription: subscription,
                             status: store.status(for: subscription.id),
@@ -343,6 +353,356 @@ private struct RadioSubscriptionRow: View {
             }
         }
         .padding(.vertical, 2)
+    }
+}
+
+// MARK: - 添加订阅
+
+/// 添加一份清单订阅：填地址、取回清单、看一眼里面有哪些电台，然后订阅。
+/// 下载、解析、判重和订阅都与批量添加的「清单链接」同一套，只是这里只做订阅这一件事。
+struct RadioSubscriptionAddView: View {
+    /// 订阅成功，或者发现这个地址早就订阅过时，交给列表页打开那一份的详情。
+    let onOpenSubscription: @MainActor (String) -> Void
+
+    @Environment(RadioStationsStore.self) private var stationsStore
+    @State private var urlString = ""
+    /// 当前结果表是从哪个地址取回的；地址一改就作废。
+    @State private var fetchedURL: String?
+    @State private var candidates: [RadioImportCandidate] = []
+    @State private var selection: Set<RadioImportCandidate.ID> = []
+    @State private var groupsAsFolders = false
+    @State private var isFetching = false
+    @State private var errorMessage: String?
+    @State private var insecureHost: String?
+    @FocusState private var urlFieldFocused: Bool
+
+    private var trimmedURL: String {
+        urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var existingSubscription: RadioSubscription? {
+        fetchedURL
+            .flatMap(RadioSubscriptionIdentity.subscriptionID(listURL:))
+            .flatMap { RadioSubscriptionsStore.shared.subscription(id: $0) }
+    }
+
+    /// 清单里唯一有效条目的数量，订阅上限按它算。
+    private var uniqueValidEntryCount: Int {
+        Set(candidates.compactMap { candidate in
+            candidate.status == .invalid ? nil : RadioImportParser.streamIdentityKey(candidate.urlString)
+        }).count
+    }
+
+    private var exceedsLimit: Bool {
+        uniqueValidEntryCount > RadioSubscriptionMergePolicy.maximumEntries
+    }
+
+    private var hasManifestGroups: Bool {
+        candidates.contains { $0.groupTitle != nil }
+    }
+
+    private var canSubscribe: Bool {
+        fetchedURL != nil
+            && existingSubscription == nil
+            && uniqueValidEntryCount > 0
+            && !exceedsLimit
+            && !isFetching
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                TextField(
+                    text: $urlString,
+                    prompt: Text(verbatim: "https://example.com/radio.m3u")
+                ) {
+                    Text("radio_subscription_list_url")
+                }
+                .font(.system(.callout, design: .monospaced))
+                .autocorrectionDisabled()
+                #if os(iOS)
+                .textInputAutocapitalization(.never)
+                .keyboardType(.URL)
+                .submitLabel(.go)
+                #endif
+                .focused($urlFieldFocused)
+                .onSubmit { fetch() }
+
+                Button {
+                    fetch()
+                } label: {
+                    HStack {
+                        Label("radio_batch_url_fetch", systemImage: "arrow.down.circle")
+                        Spacer()
+                        if isFetching {
+                            ProgressView()
+                                .controlSize(.small)
+                                .pmFadeTransition(motion: .control)
+                        }
+                    }
+                }
+                .disabled(isFetching || trimmedURL.isEmpty)
+            } header: {
+                Text("radio_subscription_list_url")
+            } footer: {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("radio_batch_url_hint")
+                    Text("radio_subscription_toggle_footer")
+                }
+            }
+
+            if fetchedURL != nil {
+                resultSections
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle("radio_subscriptions_add")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("radio_subscription_subscribe_only") { subscribe() }
+                    .disabled(!canSubscribe)
+            }
+        }
+        .onChange(of: urlString) { _, _ in
+            // 结果表只对应取回它的那个地址；改了地址就收起旧结果，免得订阅错。
+            guard fetchedURL != nil else { return }
+            clearResults()
+        }
+        .onAppear {
+            if urlString.isEmpty { urlFieldFocused = true }
+        }
+        .alert(
+            String(localized: "radio_batch_error_title"),
+            isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )
+        ) {
+            Button("ok", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
+        .alert("insecure_http_warning_title", isPresented: Binding(
+            get: { insecureHost != nil },
+            set: { if !$0 { insecureHost = nil } }
+        )) {
+            Button("cancel", role: .cancel) { insecureHost = nil }
+            Button("insecure_http_continue", role: .destructive) {
+                guard let host = insecureHost else { return }
+                SSLTrustStore.shared.allowInsecureHTTP(domain: host)
+                insecureHost = nil
+                fetch()
+            }
+        } message: {
+            Text(String(
+                format: String(localized: "insecure_http_warning_message %@"),
+                insecureHost ?? ""
+            ))
+        }
+    }
+
+    // MARK: 结果
+
+    @ViewBuilder
+    private var resultSections: some View {
+        if let existing = existingSubscription {
+            Section {
+                Label("radio_subscription_already_subscribed", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Text(existing.name)
+                    .foregroundStyle(.secondary)
+                Button("radio_subscription_manage") { onOpenSubscription(existing.id) }
+            }
+        } else if exceedsLimit {
+            Section {
+                Text(String(
+                    format: String(localized: "radio_subscription_too_large %lld %lld"),
+                    uniqueValidEntryCount,
+                    RadioSubscriptionMergePolicy.maximumEntries
+                ))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        } else {
+            if hasManifestGroups {
+                Section {
+                    Toggle("radio_subscription_groups_as_folders", isOn: $groupsAsFolders)
+                }
+            }
+
+            Section {
+                let libraryKeys = Set(stationsStore.stations.compactMap {
+                    RadioImportParser.streamIdentityKey($0.streamURL)
+                })
+                ForEach(candidates) { candidate in
+                    candidateRow(candidate, libraryKeys: libraryKeys)
+                }
+            } header: {
+                HStack {
+                    Text(String(
+                        format: String(localized: "radio_subscription_station_count %lld"),
+                        uniqueValidEntryCount
+                    ))
+                    Spacer()
+                    Button("radio_batch_select_playable") { selectAllPlayable() }
+                        .font(.caption.weight(.semibold))
+                        .buttonStyle(.borderless)
+                }
+                .textCase(nil)
+            } footer: {
+                Text("radio_subscription_unchecked_note")
+            }
+        }
+    }
+
+    /// 订阅只管清单里独一份、可用的条目：已在电台库或清单里重复的、无效的都不能勾。
+    private func candidateRow(_ candidate: RadioImportCandidate, libraryKeys: Set<String>) -> some View {
+        let isSelected = selection.contains(candidate.id)
+        let selectable = candidate.status == .playable
+        return Button {
+            toggle(candidate)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 18))
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.5))
+
+                RadioCandidateLogoView(urlString: candidate.logoURLString, size: 32)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(candidate.name)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Text(candidate.urlString)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    if let group = candidate.groupTitle {
+                        Label(group, systemImage: "folder")
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer(minLength: 6)
+
+                if let status = statusText(candidate, libraryKeys: libraryKeys) {
+                    Text(status)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(candidate.status == .invalid ? Color.red : Color.orange)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(
+                            (candidate.status == .invalid ? Color.red : Color.orange).opacity(0.14),
+                            in: Capsule()
+                        )
+                }
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .disabled(!selectable)
+        .opacity(selectable ? 1 : 0.55)
+    }
+
+    private func statusText(_ candidate: RadioImportCandidate, libraryKeys: Set<String>) -> String? {
+        switch candidate.status {
+        case .playable:
+            return nil
+        case .invalid:
+            return String(localized: "radio_batch_status_invalid")
+        case .duplicate:
+            let inLibrary = RadioImportParser.streamIdentityKey(candidate.urlString)
+                .map { libraryKeys.contains($0) } == true
+            return inLibrary
+                ? String(localized: "radio_subscription_in_library")
+                : String(localized: "radio_batch_status_duplicate")
+        }
+    }
+
+    // MARK: 动作
+
+    private func fetch() {
+        let address = trimmedURL
+        guard !address.isEmpty, !isFetching else { return }
+        urlFieldFocused = false
+        isFetching = true
+        Task {
+            defer { isFetching = false }
+            do {
+                let text = try await RadioPlaylistDownloader.fetch(address)
+                let parsed = RadioImportParser.parse(text, existing: stationsStore.stations)
+                guard !parsed.isEmpty else {
+                    clearResults()
+                    errorMessage = String(localized: "radio_batch_file_no_entries")
+                    return
+                }
+                candidates = parsed
+                selection = Set(parsed.filter(\.isPlayable).map(\.id))
+                // 清单自带分组时默认按它建文件夹，这是几百条的清单最省事的整理方式。
+                groupsAsFolders = parsed.contains { $0.groupTitle != nil }
+                fetchedURL = RadioStationValidation.normalizedURLString(address)
+            } catch let error as TrustedHTTPTransportError {
+                // 明文 http 的清单地址跟电台流一样，得先问过用户再连。
+                guard case .permissionRequired(let host) = error else {
+                    errorMessage = error.localizedDescription
+                    return
+                }
+                insecureHost = host
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func clearResults() {
+        fetchedURL = nil
+        candidates = []
+        selection = []
+        groupsAsFolders = false
+    }
+
+    private func toggle(_ candidate: RadioImportCandidate) {
+        guard candidate.status == .playable else { return }
+        if selection.contains(candidate.id) {
+            selection.remove(candidate.id)
+        } else {
+            selection.insert(candidate.id)
+        }
+    }
+
+    private func selectAllPlayable() {
+        selection = Set(candidates.filter(\.isPlayable).map(\.id))
+    }
+
+    /// 首轮合并直接用已经取回的这批候选，不再下载一遍；没勾的可用条目记成排除，
+    /// 以后清单更新也不会加进来。
+    private func subscribe() {
+        guard canSubscribe, let listURL = fetchedURL else { return }
+        let excludedKeys = Set(candidates.compactMap { candidate -> String? in
+            guard candidate.isPlayable, !selection.contains(candidate.id) else { return nil }
+            return RadioImportParser.streamIdentityKey(candidate.urlString)
+        })
+        guard let result = RadioSubscriptionService.shared.subscribe(
+            listURL: listURL,
+            candidates: candidates,
+            excludedEntryKeys: excludedKeys,
+            usesListGroupsAsFolders: groupsAsFolders && hasManifestGroups
+        ) else {
+            errorMessage = String(localized: "radio_subscription_error_empty")
+            return
+        }
+        let added = result.addedStationIDs.compactMap { stationsStore.station(id: $0) }
+        for name in Set(added.compactMap(\.folderName)) {
+            stationsStore.createFolder(name)
+        }
+        onOpenSubscription(result.subscriptionID)
     }
 }
 
