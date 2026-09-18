@@ -210,7 +210,7 @@ struct MacRadioStationsView: View {
 
                 if !stations.isEmpty {
                     Button {
-                        store.sortStationsByName()
+                        pmWithAnimation(.list) { store.sortStationsByName() }
                     } label: {
                         Text("radio_priority_sort_by_name")
                             .font(.system(size: 12.5, weight: .medium))
@@ -284,6 +284,7 @@ struct MacRadioStationsView: View {
                             in: .rect(cornerRadius: PMRadius.xs)
                         )
                         .contentShape(Rectangle())
+                        .pmAnimation(.hover, value: layoutMode == mode)
                 }
                 .buttonStyle(.plain)
                 .help(String(localized: mode.titleKey))
@@ -529,8 +530,8 @@ struct MacRadioStationsView: View {
                 canMoveDown: priority < total,
                 onPlay: { toggle(station) },
                 onEdit: { editingStation = station },
-                onMoveUp: { store.moveStation(id: station.id, by: -1) },
-                onMoveDown: { store.moveStation(id: station.id, by: 1) },
+                onMoveUp: { pmWithAnimation(.list) { store.moveStation(id: station.id, by: -1) } },
+                onMoveDown: { pmWithAnimation(.list) { store.moveStation(id: station.id, by: 1) } },
                 actions: { stationActions(for: station, priority: priority, total: total) }
             )
         case .cover:
@@ -560,14 +561,14 @@ struct MacRadioStationsView: View {
         organizeMenu(for: station)
 
         Button {
-            store.moveStation(id: station.id, by: -1)
+            pmWithAnimation(.list) { store.moveStation(id: station.id, by: -1) }
         } label: {
             Label("radio_priority_move_up", systemImage: "arrow.up")
         }
         .disabled(priority <= 1)
 
         Button {
-            store.moveStation(id: station.id, by: 1)
+            pmWithAnimation(.list) { store.moveStation(id: station.id, by: 1) }
         } label: {
             Label("radio_priority_move_down", systemImage: "arrow.down")
         }
@@ -901,7 +902,8 @@ private struct MacRadioStationCard<Actions: View>: View {
                 .strokeBorder(isCurrent ? PMColor.brand.opacity(0.55) : .clear, lineWidth: 1)
         }
         .onHover { hover = $0 }
-        .animation(.easeOut(duration: 0.12), value: hover)
+        .pmAnimation(.hover, value: hover)
+        .pmAnimation(.hover, value: isCurrent)
         .contextMenu {
             actions()
         }
@@ -989,7 +991,8 @@ private struct MacRadioStationCoverTile<Actions: View>: View {
         }
         .contentShape(Rectangle())
         .onHover { hover = $0 }
-        .animation(.easeOut(duration: 0.12), value: hover)
+        .pmAnimation(.hover, value: hover)
+        .pmAnimation(.hover, value: isCurrent)
         .onTapGesture { onPlay() }
         .contextMenu {
             actions()

@@ -201,6 +201,7 @@ struct MacHomeView: View {
                 switch homePresentationState {
                 case .loading:
                     homeLoadingSkeleton
+                        .pmAppearFade(.contentAppear)
                 case .content:
                     resolvedDashboardContent(hasContent: true)
                 case .empty:
@@ -215,33 +216,46 @@ struct MacHomeView: View {
 
     @ViewBuilder
     private func resolvedDashboardContent(hasContent: Bool) -> some View {
+        // 每个区块自己淡入: 骨架换内容、推荐/电台这些异步算完才出现的区块都只动透明度。
+        // 成对分支不做交叉淡入 —— 过渡期间新旧两块会同时占着这个 VStack 的位置。
         heroSection
+            .pmAppearFade(.contentAppear)
         if showRadio,
            player.isLiveRadio,
            let currentStation = player.currentRadioStation {
             radioNowPlayingStrip(currentStation)
+                .pmAppearFade(.contentAppear)
         }
 
         if hasContent {
             statsRow
+                .pmAppearFade(.contentAppear)
             if !model.snapshot.recommendationResults.isEmpty {
                 recommendationSection
+                    .pmAppearFade(.contentAppear)
             }
             pipelineSection
+                .pmAppearFade(.contentAppear)
             if showRecentlyAdded, !model.snapshot.recentlyAddedAlbums.isEmpty {
                 recentlyAddedSection
+                    .pmAppearFade(.contentAppear)
             }
             recentlyPlayedSection
+                .pmAppearFade(.contentAppear)
             if showRadio, !radioStationsStore.stations.isEmpty {
                 radioSpotlightSection
+                    .pmAppearFade(.contentAppear)
             }
             if !model.snapshot.artists.isEmpty {
                 artistsSection
+                    .pmAppearFade(.contentAppear)
             }
         } else {
             emptyState
+                .pmAppearFade(.contentAppear)
             if showRadio, !radioStationsStore.stations.isEmpty {
                 radioSpotlightSection
+                    .pmAppearFade(.contentAppear)
             }
         }
     }
@@ -882,6 +896,7 @@ struct MacHomeView: View {
             RoundedRectangle(cornerRadius: PMRadius.l14, style: .continuous)
                 .strokeBorder(isCurrent ? PMColor.brand.opacity(0.55) : .clear, lineWidth: 1)
         }
+        .pmHoverLift()
     }
 
     /// 只有真在播才亮红点 LIVE —— 无条件亮着的话，没播放时卡片也在说
@@ -1111,6 +1126,8 @@ struct MacHomeView: View {
                 .monospacedDigit()
                 .tracking(-0.5)
                 .foregroundStyle(PMColor.text)
+                .contentTransition(.numericText())
+                .pmAnimation(.control, value: value)
             Text(label)
                 .font(.system(size: 11))
                 .foregroundStyle(PMColor.textFaint)
@@ -1442,7 +1459,7 @@ struct MacHomeView: View {
             Spacer()
             if let destination {
                 Button {
-                    withAnimation(.snappy(duration: 0.22)) {
+                    pmWithAnimation(.list) {
                         activeSection = destination
                     }
                 } label: {
@@ -1593,7 +1610,7 @@ struct MacHomeView: View {
     }
 
     private func closeSection() {
-        withAnimation(.snappy(duration: 0.22)) {
+        pmWithAnimation(.list) {
             activeSection = nil
         }
     }

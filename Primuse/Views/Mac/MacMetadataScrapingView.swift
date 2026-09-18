@@ -30,7 +30,9 @@ struct MacMetadataScrapingView: View {
                     scraperRow(source: source)
                 }
                 .onMove { offsets, dest in
-                    scraperSettings.reorderSources(fromOffsets: offsets, toOffset: dest)
+                    pmWithAnimation(.list) {
+                        scraperSettings.reorderSources(fromOffsets: offsets, toOffset: dest)
+                    }
                 }
             } header: {
                 Text("scraper_sources")
@@ -68,6 +70,7 @@ struct MacMetadataScrapingView: View {
             Section {
                 if scraperService.isScraping {
                     scrapingProgress
+                        .pmAppearFade(.control)
                 } else {
                     HStack {
                         Button {
@@ -86,6 +89,7 @@ struct MacMetadataScrapingView: View {
 
                         Spacer()
                     }
+                    .pmAppearFade(.control)
                 }
             } header: {
                 Text("scrape_actions")

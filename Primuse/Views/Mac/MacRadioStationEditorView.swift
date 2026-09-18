@@ -148,10 +148,12 @@ struct MacRadioStationEditorView: View {
                 Group {
                     if isSaving {
                         ProgressView().controlSize(.small)
+                            .pmAppearFade(.control)
                     } else {
                         Text("save")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(.white)
+                            .pmAppearFade(.control)
                     }
                 }
                 .frame(height: 26)
@@ -331,9 +333,11 @@ struct MacRadioStationEditorView: View {
                     HStack(spacing: 6) {
                         if isTesting {
                             ProgressView().controlSize(.small)
+                                .pmAppearFade(.control)
                         } else {
                             Image(systemName: "waveform")
                                 .font(.system(size: 11, weight: .semibold))
+                                .pmAppearFade(.control)
                         }
                         Text("radio_test_playback")
                             .font(PMFont.bodyM)

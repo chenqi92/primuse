@@ -223,10 +223,12 @@ struct MacRadioBatchAddView: View {
                 Group {
                     if isAdding {
                         ProgressView().controlSize(.small)
+                            .pmAppearFade(.control)
                     } else {
                         Text(addButtonTitle)
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(.white)
+                            .pmAppearFade(.control)
                     }
                 }
                 .frame(height: 26)
@@ -387,10 +389,12 @@ struct MacRadioBatchAddView: View {
                     Group {
                         if isFetchingPlaylist {
                             ProgressView().controlSize(.small)
+                                .pmAppearFade(.control)
                         } else {
                             Text("radio_batch_url_fetch")
                                 .font(PMFont.bodyM)
                                 .foregroundStyle(PMColor.text)
+                                .pmAppearFade(.control)
                         }
                     }
                     .frame(height: 28)
@@ -505,10 +509,12 @@ struct MacRadioBatchAddView: View {
                     Group {
                         if isSearchingDirectory {
                             ProgressView().controlSize(.small)
+                                .pmAppearFade(.control)
                         } else {
                             Image(systemName: "magnifyingglass")
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(PMColor.text)
+                                .pmAppearFade(.control)
                         }
                     }
                     .frame(width: 30, height: 28)
