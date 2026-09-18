@@ -2085,7 +2085,7 @@
 "onboarding_mac_privacy_title" = "สัญญาความเป็นส่วนตัว";
 "onboarding_mac_skip" = "ข้ามคำนำ";
 "onboarding_mac_source_local_file" = "ไฟล์ในเครื่อง / iCloud ไดรฟ์";
-"onboarding_mac_sources_desc" = "Primuse รองรับวิธีการเชื่อมต่อ 21 วิธี · เพิ่มแหล่งข้อมูลได้มากเท่าที่คุณต้องการ - รวมเป็นคลังเพลงเดียว";
+"onboarding_mac_sources_desc" = "เชื่อมต่อ NAS, มีเดียเซิร์ฟเวอร์, คลาวด์ไดรฟ์ และโปรโตคอลไฟล์ทั่วไป · เพิ่มแหล่งข้อมูลได้มากเท่าที่คุณต้องการ - รวมเป็นคลังเพลงเดียว";
 "onboarding_mac_sources_title" = "จากทุกที่";
 "onboarding_mac_step_format" = "ขั้นตอนที่ %d / 3";
 "onboarding_mac_welcome_desc" = "เครื่องเล่นเนทิฟ macOS ที่สร้างขึ้นสำหรับ NAS / ผู้ที่ชื่นชอบเซิร์ฟเวอร์มีเดีย ให้ไฟล์ FLAC, DSD และ APE ของคุณอยู่ในคลังเพลงที่รวมเป็นหนึ่งเดียว";
@@ -2109,8 +2109,8 @@
 "onboarding_sources_cloud" = "123 ผาน ไป่ตู้ปัน ไดรฟ์อาลีหยุน และอื่นๆ";
 "onboarding_sources_dlna" = "UPnP / DLNA เซิร์ฟเวอร์สื่อบนเครือข่ายของคุณ";
 "onboarding_sources_footer" = "คุณสามารถเพิ่มได้มากเท่าที่คุณต้องการเมื่อใดก็ได้";
-"onboarding_sources_nas" = "Synology, QNAP และ SMB / NFS การแชร์ · API ไฟล์ทั่วไป Ugreen/fnOS ยังคงไม่พร้อมใช้งาน Feiniu Music เป็นแหล่งที่มาแยกต่างหาก";
-"onboarding_sources_network" = "WebDAV, SFTP, Jellyfin, UPnP / DLNA และอื่นๆ";
+"onboarding_sources_nas" = "Synology NAS และการแชร์ SMB / NFS รวมถึงบริการเพลงบน NAS อย่าง Audio Station และ Feiniu Music";
+"onboarding_sources_network" = "Navidrome, Jellyfin, Emby, WebDAV, SFTP, UPnP / DLNA และอื่นๆ";
 "onboarding_sources_title" = "รวมเพลงของคุณเข้าด้วยกัน";
 "onboarding_sources_webdav" = "WebDAV, FTP, SFTP — มีการป้องกันด้วยรหัสผ่านด้วย";
 "onboarding_welcome_subtitle" = "Primuse เล่นจาก NAS ของคุณ คลาวด์ไดรฟ์ และเครือข่ายในบ้าน — โดยไม่ต้องอัปโหลดไฟล์ให้ใครเลย";

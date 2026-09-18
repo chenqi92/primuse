@@ -75,10 +75,10 @@
 "onboarding_welcome_title" = "Votre musique, vos serveurs";
 "onboarding_welcome_subtitle" = "Primuse lit la musique depuis votre NAS, vos services cloud et votre réseau domestique, sans envoyer aucun fichier à qui que ce soit.";
 "onboarding_sources_title" = "Réunissez toute votre musique";
-"onboarding_sources_nas" = "Synology, QNAP et partages SMB / NFS · Les API de fichiers Ugreen/fnOS génériques restent indisponibles ; Feiniu Music est une source distincte";
+"onboarding_sources_nas" = "NAS Synology et partages SMB / NFS, ainsi que les services musicaux NAS comme Audio Station et Feiniu Music";
 "onboarding_sources_cloud" = "123 Pan, Baidu Pan, Aliyun Drive et plus";
 "onboarding_sources_apple_music" = "Connectez Apple Music en option et parcourez-le avec votre bibliothèque";
-"onboarding_sources_network" = "WebDAV, SFTP, Jellyfin, UPnP / DLNA et plus";
+"onboarding_sources_network" = "Navidrome, Jellyfin, Emby, WebDAV, SFTP, UPnP / DLNA et plus";
 "onboarding_sources_webdav" = "WebDAV, FTP, SFTP — même protégés par mot de passe";
 "onboarding_sources_dlna" = "Serveurs multimédias UPnP / DLNA de votre réseau";
 "onboarding_sources_footer" = "Vous pouvez en ajouter autant que vous voulez, à tout moment.";
@@ -2058,7 +2058,7 @@
 "onboarding_mac_privacy_title" = "Engagement de confidentialité";
 "onboarding_mac_privacy_desc" = "Primuse n'envoie jamais votre bibliothèque vers un service cloud. Tout l'historique de lecture, les statistiques et les réglages se synchronisent uniquement via votre iCloud. OAuth passe toujours par le navigateur système — nous n'intégrons jamais de WebView pour collecter votre mot de passe.";
 "onboarding_mac_sources_title" = "De n'importe où";
-"onboarding_mac_sources_desc" = "Primuse prend en charge 21 modes de connexion · ajoutez autant de sources que vous le souhaitez — elles fusionnent en une bibliothèque unifiée.";
+"onboarding_mac_sources_desc" = "Connectez NAS, serveurs multimédias, stockages cloud et protocoles de fichiers courants · ajoutez autant de sources que vous le souhaitez — elles fusionnent en une bibliothèque unifiée.";
 "onboarding_mac_group_local" = "Protocoles locaux";
 "onboarding_mac_group_media_server" = "Serveurs multimédias";
 "onboarding_mac_group_cloud" = "Stockage cloud";

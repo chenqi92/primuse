@@ -2085,7 +2085,7 @@
 "onboarding_mac_privacy_title" = "Promessa de privacidade";
 "onboarding_mac_skip" = "Pular introdução";
 "onboarding_mac_source_local_file" = "Arquivos Locais / Unidade iCloud";
-"onboarding_mac_sources_desc" = "Primuse suporta 21 métodos de conexão · adicione quantas fontes desejar — elas se fundem em uma biblioteca unificada.";
+"onboarding_mac_sources_desc" = "Conecte NAS, servidores de mídia, nuvens e protocolos de arquivos comuns · adicione quantas fontes desejar — elas se fundem em uma biblioteca unificada.";
 "onboarding_mac_sources_title" = "De qualquer lugar";
 "onboarding_mac_step_format" = "Etapa %d/3";
 "onboarding_mac_welcome_desc" = "Um player macOS nativo desenvolvido para entusiastas de NAS/servidor de mídia. Dê aos seus arquivos FLAC, DSD e APE um local em uma biblioteca unificada.";
@@ -2109,8 +2109,8 @@
 "onboarding_sources_cloud" = "123 Pan, Baidu Pan, Aliyun Drive e mais";
 "onboarding_sources_dlna" = "Servidores de mídia UPnP/DLNA em sua rede";
 "onboarding_sources_footer" = "Você pode adicionar quantos quiser, a qualquer momento.";
-"onboarding_sources_nas" = "Compartilhamentos Synology, QNAP e SMB/NFS · APIs genéricas de arquivos Ugreen/fnOS permanecem indisponíveis; Feiniu Music é uma fonte separada";
-"onboarding_sources_network" = "WebDAV, SFTP, Jellyfin, UPnP/DLNA e mais";
+"onboarding_sources_nas" = "NAS Synology e compartilhamentos SMB / NFS, além de serviços de música para NAS como Audio Station e Feiniu Music";
+"onboarding_sources_network" = "Navidrome, Jellyfin, Emby, WebDAV, SFTP, UPnP/DLNA e mais";
 "onboarding_sources_title" = "Reúna sua música";
 "onboarding_sources_webdav" = "WebDAV, FTP, SFTP — até mesmo protegido por senha";
 "onboarding_welcome_subtitle" = "O Primuse é reproduzido a partir do seu NAS, unidades de nuvem e rede doméstica — sem enviar um único arquivo para ninguém.";

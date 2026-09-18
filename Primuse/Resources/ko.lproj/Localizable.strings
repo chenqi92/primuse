@@ -75,10 +75,10 @@
 "onboarding_welcome_title" = "당신의 음악, 당신의 서버";
 "onboarding_welcome_subtitle" = "Primuse는 당신의 NAS, 클라우드 드라이브, 홈 네트워크에서 음악을 재생합니다. 파일을 어디에도 업로드하지 않습니다.";
 "onboarding_sources_title" = "음악을 한곳에";
-"onboarding_sources_nas" = "Synology, QNAP, SMB / NFS 공유 · 범용 Ugreen/fnOS 파일 API는 미공개이며 Feiniu Music은 별도 소스입니다";
+"onboarding_sources_nas" = "Synology NAS, SMB / NFS 공유, 그리고 Audio Station, Feiniu Music 같은 NAS 음악 서비스";
 "onboarding_sources_cloud" = "123 Pan, Baidu Pan, Aliyun Drive 등";
 "onboarding_sources_apple_music" = "Apple Music을 선택적으로 연결해 라이브러리와 함께 탐색";
-"onboarding_sources_network" = "WebDAV, SFTP, Jellyfin, UPnP / DLNA 등";
+"onboarding_sources_network" = "Navidrome, Jellyfin, Emby, WebDAV, SFTP, UPnP / DLNA 등";
 "onboarding_sources_webdav" = "WebDAV, FTP, SFTP — 비밀번호 보호 지원";
 "onboarding_sources_dlna" = "네트워크의 UPnP / DLNA 미디어 서버";
 "onboarding_sources_footer" = "언제든지 원하는 만큼 추가할 수 있습니다.";
@@ -2058,7 +2058,7 @@
 "onboarding_mac_privacy_title" = "개인정보 약속";
 "onboarding_mac_privacy_desc" = "Primuse는 보관함을 어떤 클라우드 서비스에도 업로드하지 않습니다. 재생 기록, 통계, 설정은 모두 사용자의 iCloud를 통해서만 동기화됩니다. OAuth는 항상 시스템 브라우저를 통하며, 비밀번호를 수집하기 위해 WebView를 삽입하지 않습니다.";
 "onboarding_mac_sources_title" = "어디서든";
-"onboarding_mac_sources_desc" = "Primuse는 21가지 연결 방식을 지원합니다 · 원하는 만큼 소스를 추가하면 하나의 통합 보관함으로 병합됩니다.";
+"onboarding_mac_sources_desc" = "NAS, 미디어 서버, 클라우드 드라이브, 일반 파일 프로토콜에 연결할 수 있습니다 · 원하는 만큼 소스를 추가하면 하나의 통합 보관함으로 병합됩니다.";
 "onboarding_mac_group_local" = "로컬 프로토콜";
 "onboarding_mac_group_media_server" = "미디어 서버";
 "onboarding_mac_group_cloud" = "클라우드 드라이브";

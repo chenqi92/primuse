@@ -1263,10 +1263,10 @@
 "onboarding_welcome_title" = "你的音乐，存在你的服务器";
 "onboarding_welcome_subtitle" = "Primuse 从你自己的 NAS、云盘和家里的网络播放音乐 —— 不上传任何文件到任何人。";
 "onboarding_sources_title" = "把音乐聚合到一处";
-"onboarding_sources_nas" = "群晖、威联通及 SMB / NFS 共享 · 通用绿联/fnOS 文件接口等待公开 API，飞牛音乐服务可单独添加";
+"onboarding_sources_nas" = "群晖 NAS、SMB / NFS 共享，以及 Audio Station、飞牛音乐等 NAS 音乐服务";
 "onboarding_sources_cloud" = "123 云盘、百度网盘、阿里云盘等云端音乐";
 "onboarding_sources_apple_music" = "可选连接 Apple Music，一并浏览订阅资料库";
-"onboarding_sources_network" = "WebDAV、SFTP、Jellyfin、UPnP / DLNA 等服务";
+"onboarding_sources_network" = "Navidrome、Jellyfin、Emby、WebDAV、SFTP、UPnP / DLNA 等服务";
 "onboarding_sources_webdav" = "WebDAV、FTP、SFTP，支持加密验证";
 "onboarding_sources_dlna" = "局域网内的 UPnP / DLNA 媒体服务器";
 "onboarding_sources_footer" = "随时可以再添加多个，没有数量限制。";
@@ -2154,12 +2154,12 @@
 "onboarding_mac_skip" = "跳过引导";
 "onboarding_mac_done" = "完成";
 "onboarding_mac_continue" = "继续";
-"onboarding_mac_welcome_title" = "欢迎使用 Primuse Primuse";
+"onboarding_mac_welcome_title" = "欢迎使用 Primuse";
 "onboarding_mac_welcome_desc" = "一个为 NAS / 媒体服务器烧友打造的原生 macOS 播放器。让你的 FLAC、DSD、APE 在一个统一的资料库里安家。";
 "onboarding_mac_privacy_title" = "隐私承诺";
 "onboarding_mac_privacy_desc" = "Primuse 不会上传你的资料库到任何云服务。所有播放历史、统计、设置都只通过你的 iCloud 同步。OAuth 授权一律走系统浏览器，我们绝不嵌 WebView 收集你的密码。";
 "onboarding_mac_sources_title" = "来自任何地方";
-"onboarding_mac_sources_desc" = "Primuse 支持 21 种连接方式 · 你可以加任意多个源，会合并成一个统一的资料库。";
+"onboarding_mac_sources_desc" = "NAS、媒体服务器、云盘和常用文件协议都能接入 · 你可以加任意多个源，会合并成一个统一的资料库。";
 "onboarding_mac_group_local" = "本地协议";
 "onboarding_mac_group_media_server" = "媒体服务器";
 "onboarding_mac_group_cloud" = "云盘";

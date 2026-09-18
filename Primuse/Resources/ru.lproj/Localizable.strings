@@ -1237,7 +1237,7 @@
 "source_diag_advice_rate_suggestion" = "Подождите несколько минут, затем повторите попытку и избегайте повторных попыток сканирования или воспроизведения в течение короткого периода времени.";
 "sort_artist" = "Исполнитель";
 "home_pipeline_listen" = "Слушай";
-"onboarding_mac_sources_desc" = "Primuse поддерживает 21 способ подключения · добавляйте сколько угодно источников — они объединяются в одну единую медиатеку.";
+"onboarding_mac_sources_desc" = "Подключайте NAS, медиасерверы, облачные диски и распространённые файловые протоколы · добавляйте сколько угодно источников — они объединяются в одну единую медиатеку.";
 "yearly_month_4" = "апрель";
 "ai_privacy_section" = "Конфиденциальность и сеть";
 "SMB / CIFS connection" = "SMB / соединение CIFS";
@@ -2472,7 +2472,7 @@
 "host_address" = "Адрес хоста";
 "relay_import_finished" = "Импортировано, и началось сканирование медиатеки.";
 "similar_empty" = "В вашей медиатеке нет похожих треков.";
-"onboarding_sources_network" = "WebDAV, SFTP, Jellyfin, UPnP / DLNA и другие.";
+"onboarding_sources_network" = "Navidrome, Jellyfin, Emby, WebDAV, SFTP, UPnP / DLNA и другие.";
 "scrape_window_title_format" = "Поиск метаданных · %@";
 "Input recognized" = "Ввод распознан";
 "Audio Output" = "Аудиовыход";
@@ -3490,7 +3490,7 @@
 "smart_mac_songs_unit" = "песни";
 "search_songs_prompt" = "Поиск песен";
 "home_playable" = "Играбельное соотношение";
-"onboarding_sources_nas" = "Общие ресурсы Synology, QNAP и SMB / NFS · Общие файловые API Ugreen/fnOS остаются недоступными; Feiniu Music — отдельный источник.";
+"onboarding_sources_nas" = "NAS Synology и общие папки SMB / NFS, а также музыкальные сервисы NAS, например Audio Station и Feiniu Music";
 "fullscreen_effect_settings_title" = "Полноэкранные эффекты";
 "song_details_unavailable_message" = "Теги были прочитаны, но длительность извлечь не удалось. Возможно, файл поврежден или имеет неподдерживаемый формат.";
 "add_insecure_http_domain_message" = "Введите только хост, например nas.example.com или общедоступный адрес IP. Не указывайте схему, порт или путь. Трафик HTTP на этот хост не будет шифроваться.";

@@ -1262,10 +1262,10 @@
 "onboarding_welcome_title" = "Your music, your servers";
 "onboarding_welcome_subtitle" = "Primuse plays from your NAS, cloud drives, and home network — without uploading a single file to anyone.";
 "onboarding_sources_title" = "Bring your music together";
-"onboarding_sources_nas" = "Synology, QNAP, and SMB / NFS shares · Generic Ugreen/fnOS file APIs remain unavailable; Feiniu Music is a separate source";
+"onboarding_sources_nas" = "Synology NAS and SMB / NFS shares, plus NAS music services like Audio Station and Feiniu Music";
 "onboarding_sources_cloud" = "123 Pan, Baidu Pan, Aliyun Drive, and more";
 "onboarding_sources_apple_music" = "Optionally connect Apple Music and browse it alongside your library";
-"onboarding_sources_network" = "WebDAV, SFTP, Jellyfin, UPnP / DLNA, and more";
+"onboarding_sources_network" = "Navidrome, Jellyfin, Emby, WebDAV, SFTP, UPnP / DLNA, and more";
 "onboarding_sources_webdav" = "WebDAV, FTP, SFTP — even password-protected";
 "onboarding_sources_dlna" = "UPnP / DLNA media servers on your network";
 "onboarding_sources_footer" = "You can add as many as you like, anytime.";
@@ -1905,7 +1905,7 @@
 "onboarding_mac_privacy_title" = "Privacy promise";
 "onboarding_mac_privacy_desc" = "Primuse never uploads your library to any cloud service. All playback history, stats, and settings sync only through your iCloud. OAuth always goes through the system browser — we never embed a WebView to collect your password.";
 "onboarding_mac_sources_title" = "From anywhere";
-"onboarding_mac_sources_desc" = "Primuse supports 21 connection methods · add as many sources as you like — they merge into one unified library.";
+"onboarding_mac_sources_desc" = "Connect NAS, media servers, cloud drives, and common file protocols · add as many sources as you like — they merge into one unified library.";
 "onboarding_mac_group_local" = "Local protocols";
 "onboarding_mac_group_media_server" = "Media servers";
 "onboarding_mac_group_cloud" = "Cloud drives";

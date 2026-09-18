@@ -1237,7 +1237,7 @@
 "source_diag_advice_rate_suggestion" = "Зачекайте кілька хвилин, потім повторіть спробу та уникайте повторних спроб сканування або відтворення протягом короткого періоду часу.";
 "sort_artist" = "Виконавець";
 "home_pipeline_listen" = "Слухай";
-"onboarding_mac_sources_desc" = "Primuse підтримує 21 метод підключення · додайте скільки завгодно джерел — вони об’єднаються в одну єдину медіатеку.";
+"onboarding_mac_sources_desc" = "Підключайте NAS, медіасервери, хмарні диски та поширені файлові протоколи · додайте скільки завгодно джерел — вони об’єднаються в одну єдину медіатеку.";
 "yearly_month_4" = "квітень";
 "ai_privacy_section" = "Конфіденційність і мережа";
 "SMB / CIFS connection" = "З'єднання SMB / CIFS";
@@ -2472,7 +2472,7 @@
 "host_address" = "Адреса хоста";
 "relay_import_finished" = "Імпортовано та розпочато сканування медіатеки.";
 "similar_empty" = "У вашій бібліотеці немає схожих треків";
-"onboarding_sources_network" = "WebDAV, SFTP, Jellyfin, UPnP / DLNA тощо";
+"onboarding_sources_network" = "Navidrome, Jellyfin, Emby, WebDAV, SFTP, UPnP / DLNA тощо";
 "scrape_window_title_format" = "Пошук метаданих · %@";
 "Input recognized" = "Введення розпізнано";
 "Audio Output" = "Аудіовихід";
@@ -3490,7 +3490,7 @@
 "smart_mac_songs_unit" = "пісні";
 "search_songs_prompt" = "Пошук пісень";
 "home_playable" = "Ігровий коефіцієнт";
-"onboarding_sources_nas" = "Synology, QNAP і SMB / NFS спільний доступ · Загальні файли API Ugreen/fnOS залишаються недоступними; Feiniu Music є окремим джерелом";
+"onboarding_sources_nas" = "NAS Synology і спільні папки SMB / NFS, а також музичні сервіси NAS, як-от Audio Station і Feiniu Music";
 "fullscreen_effect_settings_title" = "Повноекранні ефекти";
 "song_details_unavailable_message" = "Теги було прочитано, але не вдалося витягнути тривалість. Файл може бути пошкоджений або має непідтримуваний формат.";
 "add_insecure_http_domain_message" = "Введіть лише хост, наприклад nas.example.com або публічну адресу IP. Не включайте схему, порт або шлях. Трафік HTTP до цього хосту не буде зашифровано.";
