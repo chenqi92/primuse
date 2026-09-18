@@ -2455,7 +2455,9 @@ final class AudioPlayerService {
     }
 
     func registerPlayIntent() {
-        audioEngine.cancelHardwareSampleRatePreparation()
+        // Resume also lands here while the current item is still loading, so
+        // an in-flight rate negotiation must survive it. A new track retires
+        // the old negotiation through its own request and the playID guard.
         pendingRadioResolutionID = nil
         playbackSessionRestoreLifecycle.supersedeForPlaybackIntent()
         cancelAppActivationInterruptionRecovery()
