@@ -101,6 +101,9 @@ struct EmptyStateView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 32)
+        // 空态几乎都是「加载完发现没东西」才出现的，组件内部淡一下，全 App 的空态
+        // 就都不再是硬切。只动透明度，不影响调用方的布局。
+        .pmAppearFade(.contentAppear)
     }
 
     private var illustration: some View {

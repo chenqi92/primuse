@@ -61,6 +61,9 @@ struct CachedArtworkView: View {
     /// 调用方传 player.coverRevision, 任意 bump 都会让本 view 重 loadImage。
     var revisionToken: Int = 0
     var onResolutionChange: (Bool) -> Void = { _ in }
+    /// 常驻的「当前歌曲封面」位专用，见 `artworkCrossfade(_:)`。列表、网格里的封面
+    /// 不要开：缓存命中的图必须瞬间显示。
+    private var crossfadesArtwork = false
 
     @Environment(SourceManager.self) private var sourceManager
     @Environment(MusicLibrary.self) private var library
@@ -90,6 +93,12 @@ struct CachedArtworkView: View {
     #endif
     @State private var loadedIdentity: String?
     @State private var displayedArtworkIdentity: String?
+    /// 开了交叉淡入时，换歌后仍挂在屏幕上的上一首封面。只有 `crossfadesArtwork`
+    /// 为真时才会被置位，所以读到它为真就等于「这是常驻位、且欠一次替换」。
+    @State private var holdsPreviousArtwork = false
+    /// 换歌那一次替换要换视图身份 —— 同一个 `Image` 换内容 SwiftUI 不做过渡，
+    /// 只有新旧两个视图并存才能真正交叉淡入。没开交叉淡入时它恒为 0。
+    @State private var artworkGeneration = 0
     @State private var cacheInvalidationRevision = 0
     @State private var animationPolicyRevision = 0
     @State private var animationCacheMaintenanceGeneration = 0
@@ -374,10 +383,19 @@ struct CachedArtworkView: View {
         }
     }
 
+    /// 占位与封面在淡入期间会同时存在，必须有一个明确的同框容器 —— 宿主多半是
+    /// 歌曲行里的 HStack，靠外面的 frame / aspectRatio 兜不住并存的两个分支。
+    /// 单子视图时 ZStack 的尺寸与位置就等于那个子视图，稳态布局与原来一致。
+    private var coverContent: some View {
+        ZStack {
+            coverLayer
+        }
+    }
+
     /// body 拆出来 ── 直接写 if/else 链 SwiftUI ResultBuilder 类型推断超时,
     /// 抽成独立 ViewBuilder 编译能过。
     @ViewBuilder
-    private var coverContent: some View {
+    private var coverLayer: some View {
         if let artwork = appleMusicArtwork {
             // Apple Music user library 的 song.artwork.url 返回 musicKit://
             // 自定义 scheme, URLSession 拉不到, 必须走 MusicKit 自家的
@@ -406,30 +424,40 @@ struct CachedArtworkView: View {
                 appleMusicArtworkView(artwork)
             }
         } else if let image {
-            if let animatedArtworkData, let animatedArtworkDescriptor {
-                AnimatedArtworkDataView(
-                    data: animatedArtworkData,
-                    descriptor: animatedArtworkDescriptor,
-                    cacheKey: animatedArtworkContentKey ?? animationCacheKey,
-                    presentationRole: presentationRole,
-                    isVisible: isAnimationVisible,
-                    requiresPlayback: animationRequiresPlayback,
-                    isPlaying: isPlaying,
-                    maximumPixelSize: animationMaximumPixelSize
-                ) {
-                    Image(platformImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                }
-            } else {
+            decodedArtwork(image)
+                .id(artworkGeneration)
+                .pmFadeTransition()
+        } else if showsPlaceholder {
+            placeholderView
+                .pmFadeTransition()
+        } else {
+            Color.clear
+        }
+    }
+
+    /// 解码好的封面。动态封面只是在同一张静态图外面包一层播放器，所以淡入过渡挂在
+    /// 上一层的「占位 ↔ 封面」之间，动静态互换不会因此闪一下。
+    @ViewBuilder
+    private func decodedArtwork(_ image: PlatformImage) -> some View {
+        if let animatedArtworkData, let animatedArtworkDescriptor {
+            AnimatedArtworkDataView(
+                data: animatedArtworkData,
+                descriptor: animatedArtworkDescriptor,
+                cacheKey: animatedArtworkContentKey ?? animationCacheKey,
+                presentationRole: presentationRole,
+                isVisible: isAnimationVisible,
+                requiresPlayback: animationRequiresPlayback,
+                isPlaying: isPlaying,
+                maximumPixelSize: animationMaximumPixelSize
+            ) {
                 Image(platformImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             }
-        } else if showsPlaceholder {
-            placeholderView
         } else {
-            Color.clear
+            Image(platformImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
         }
     }
 
@@ -926,7 +954,7 @@ struct CachedArtworkView: View {
             forKey: capturedCacheKey as NSString,
             cost: Self.imageCost(decoded)
         )
-        image = decoded
+        showArtwork(decoded, decodedAsynchronously: true)
         Self.failedLoadCache.removeObject(forKey: loadIdentity as NSString)
         onResolutionChange(true)
         if let songID {
@@ -1254,11 +1282,21 @@ struct CachedArtworkView: View {
         if displayedArtworkIdentity != contentIdentity {
             displayedArtworkIdentity = contentIdentity
             loadedIdentity = nil
-            if image != nil { image = nil }
+            if crossfadesArtwork {
+                // 常驻封面位换歌：先把上一首的图留在屏幕上，等新图到手或确认新歌没有
+                // 封面再换掉，中间不露占位。
+                if image != nil { holdsPreviousArtwork = true }
+            } else if image != nil {
+                image = nil
+            }
         }
 
         guard !key.isEmpty else {
-            if image != nil { image = nil }
+            if holdsPreviousArtwork {
+                dropHeldArtwork()
+            } else if image != nil {
+                image = nil
+            }
             loadedIdentity = identity
             onResolutionChange(hasResolvedArtwork)
             return
@@ -1272,7 +1310,7 @@ struct CachedArtworkView: View {
         // Tier 1: Memory cache — already decoded, hand it to the View directly.
         if let cached = Self.memoryCache.object(forKey: cacheNSKey) {
             loadedIdentity = identity
-            image = cached
+            showArtwork(cached, decodedAsynchronously: false)
             onResolutionChange(true)
             return
         }
@@ -1281,14 +1319,17 @@ struct CachedArtworkView: View {
         // the best smaller memory entry (normally the mini player's thumb)
         // and keep it displayed while the requested bucket loads afterward.
         guard loadsHighResolution else {
-            if image == nil, let cached = cachedLowerResolutionImage() {
-                image = cached
+            if image == nil || holdsPreviousArtwork,
+               let cached = cachedLowerResolutionImage() {
+                showArtwork(cached, decodedAsynchronously: false)
                 onResolutionChange(true)
             }
             return
         }
 
         if Self.hasRecentFailure(for: failureNSKey) {
+            // 命中失败缓存说明这一首这次就是取不到封面，留着上一首的图会张冠李戴。
+            dropHeldArtwork()
             loadedIdentity = identity
             onResolutionChange(hasResolvedArtwork)
             return
@@ -1337,13 +1378,53 @@ struct CachedArtworkView: View {
               loadTaskIdentity == taskIdentity else { return }
         loadedIdentity = identity
         if let decoded {
-            image = decoded
+            showArtwork(decoded, decodedAsynchronously: true)
+        } else {
+            // 解码结果为空同样要把上一首的图换掉。
+            dropHeldArtwork()
         }
         if sourceID != AppleMusicLibraryService.systemSourceID || appleMusicArtworkIdentity.isEmpty {
             onResolutionChange(hasResolvedArtwork)
         }
         if decoded == nil {
             Self.failedLoadCache.setObject(NSDate(), forKey: failureNSKey)
+        }
+    }
+
+    /// 封面落地的统一入口。
+    ///
+    /// 内存命中与低分辨率复用保持瞬间显示 —— 几万首歌的列表快速滚动时，缓存好的图
+    /// 每复用一次就重播一次淡入既错又掉帧。只有真正走完异步解码的那次才淡入；常驻位
+    /// 换歌后的第一次替换走换歌档，与上一首的封面交叉淡入。
+    private func showArtwork(_ decoded: PlatformImage, decodedAsynchronously: Bool) {
+        if holdsPreviousArtwork {
+            // 三件事必须同一个事务：离场的旧视图渲染的仍是上一首的图，入场的新视图
+            // 渲染新图，两者在同一个 ZStack 里对着淡。
+            withAnimation(PMMotion.trackChange.animation) {
+                holdsPreviousArtwork = false
+                image = decoded
+                artworkGeneration &+= 1
+            }
+        } else if decodedAsynchronously {
+            // 低分辨率升级到高分辨率也走这里，但不换身份，动态封面播放器不会重建。
+            withAnimation(PMMotion.contentAppear.animation) { image = decoded }
+        } else {
+            image = decoded
+        }
+    }
+
+    /// 新歌确实没有封面时，把留着的上一首封面淡出到占位。只有常驻位会留图，所以这里
+    /// 不会改到其它调用点的行为。
+    private func dropHeldArtwork() {
+        guard holdsPreviousArtwork else { return }
+        guard image != nil else {
+            holdsPreviousArtwork = false
+            return
+        }
+        withAnimation(PMMotion.trackChange.animation) {
+            holdsPreviousArtwork = false
+            image = nil
+            artworkGeneration &+= 1
         }
     }
 
@@ -1881,6 +1962,18 @@ struct CachedArtworkView: View {
                 )
             }
         }
+    }
+}
+
+extension CachedArtworkView {
+    /// 常驻的「当前歌曲封面」位（迷你条、底栏、播放页）用：歌曲换了之后保留旧封面，
+    /// 等新封面就绪再交叉淡入。
+    ///
+    /// 列表、网格里的封面不要开：那里一屏几十张图，缓存命中就该瞬间显示。
+    func artworkCrossfade(_ enabled: Bool = true) -> CachedArtworkView {
+        var copy = self
+        copy.crossfadesArtwork = enabled
+        return copy
     }
 }
 

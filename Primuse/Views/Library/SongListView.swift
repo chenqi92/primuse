@@ -1590,11 +1590,16 @@ struct SongListView: View {
                     || (showsFolderBrowser && !folderCache.hasIndex) {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .pmAppearFade(.contentAppear)
         } else {
+            // 成对分支各自淡入，不做交叉淡入：转圈与整张表要是在过渡期同时留在布局里，
+            // 会先把彼此顶开再弹回。切换点也不包动画事务。
             #if os(macOS)
             macSongList
+                .pmAppearFade(.contentAppear)
             #else
             iosSongList
+                .pmAppearFade(.contentAppear)
             #endif
         }
     }
@@ -1658,7 +1663,7 @@ struct SongListView: View {
                     .transition(.opacity)
             }
         }
-        .animation(.easeOut(duration: 0.16), value: isBrowseModeTransitioning)
+        .pmAnimation(.control, value: isBrowseModeTransitioning)
         .onScrollPhaseChange { _, newPhase in
             updateListInteraction(for: newPhase)
         }
@@ -1701,14 +1706,14 @@ struct SongListView: View {
         let path = resolvedMacFolderPath(to: nodeID)
         guard !path.isEmpty else { return }
         selection.deactivate()
-        withAnimation(.snappy(duration: 0.22)) {
+        pmWithAnimation(.list) {
             macFolderPath = path
         }
     }
 
     private func navigateMacFolder(to nodeID: LibraryFolderNodeID?) {
         selection.deactivate()
-        withAnimation(.snappy(duration: 0.22)) {
+        pmWithAnimation(.list) {
             guard let nodeID else {
                 macFolderPath.removeAll()
                 return
@@ -1792,9 +1797,13 @@ struct SongListView: View {
 
             Group {
                 if showsFolderBrowser {
+                    // 分支切换本身就重建，淡入只动透明度：既不把重建放进动画事务，
+                    // 也不会给下面的虚拟化滚动面留下声明式动画。
                     macFolderSongList
+                        .pmAppearFade()
                 } else {
                     macFlatSongList(rows: rows, request: request)
+                        .pmAppearFade()
                 }
             }
             .onScrollPhaseChange { _, newPhase in
@@ -1845,6 +1854,7 @@ struct SongListView: View {
                     range: range,
                     viewportWidth: viewportWidth
                 )
+                .pmAppearFade()
             case .grid:
                 songGrid(rows: rows)
                     .frame(
@@ -1852,6 +1862,7 @@ struct SongListView: View {
                         alignment: .leading
                     )
                     .padding(.horizontal, PMSpace.xxxl)
+                    .pmAppearFade()
             }
         }
         .frame(minWidth: viewportWidth, alignment: .leading)
@@ -2434,6 +2445,7 @@ struct SongListView: View {
                         Image(systemName: "play.fill")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(PMColor.brand)
+                            .pmFadeTransition()
                     } else {
                         Text(verbatim: String(index + 1))
                             .font(.system(size: 11, design: .monospaced))
@@ -2441,9 +2453,12 @@ struct SongListView: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
                             .allowsTightening(true)
+                            .pmFadeTransition()
                     }
                 }
                 .frame(width: 32, alignment: .leading)
+                // 只管这一格 32pt 宽的序号位，换歌时只有两行会动。
+                .pmAnimation(.hover, value: isCurrent)
 
                 // Cover
                 CachedArtworkView(
@@ -2614,6 +2629,7 @@ struct SongListView: View {
                         Image(systemName: "play.fill")
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(PMColor.brand)
+                            .pmFadeTransition()
                     } else {
                         Text(verbatim: String(index + 1))
                             .font(.system(size: 10.5, design: .monospaced))
@@ -2621,9 +2637,11 @@ struct SongListView: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
                             .allowsTightening(true)
+                            .pmFadeTransition()
                     }
                 }
                 .frame(width: 28, alignment: .leading)
+                .pmAnimation(.hover, value: isCurrent)
 
                 HStack(spacing: 5) {
                     Text(song.title)
@@ -2661,7 +2679,8 @@ struct SongListView: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 3)
-            .background(isEmphasized ? PMColor.brand.opacity(0.16) : .clear, in: .rect(cornerRadius: 4))
+            // 与列表视图的行用同一块底：紧凑模式过去没有悬停反馈。
+            .pmRowBackground(selected: isEmphasized, cornerRadius: 4)
             .overlay(alignment: .bottom) {
                 Rectangle().fill(PMColor.divider).frame(height: 0.5)
             }
@@ -2756,6 +2775,8 @@ struct SongListView: View {
                     .padding(-6)
             }
         }
+        // 网格 tile 过去没有任何悬停反馈；hover 状态记在修饰符里，不会让 tile 重算。
+        .pmHoverLift()
         .contextMenu { macSongContextMenu(for: song) }
     }
 
@@ -4039,7 +4060,7 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
         .onChange(of: rowOrderRevision) { _, _ in
             indexScrollRequest = nil
         }
-        .animation(.easeOut(duration: 0.18), value: showsSectionIndex)
+        .pmAnimation(.control, value: showsSectionIndex)
     }
 
     private var showsSectionIndex: Bool {
@@ -4206,7 +4227,13 @@ private struct IOSSongAlphabetIndex: View {
     private func focus(on index: Int) {
         guard entries.indices.contains(index) else { return }
         if focusedIndex != index {
-            focusedIndex = index
+            // 泡泡出现的这一次补上与 clearFocus 相同的曲线；拖动中换字母要跟手，
+            // 那些帧仍旧裸赋值。
+            if focusedIndex == nil {
+                withAnimation(focusAnimation) { focusedIndex = index }
+            } else {
+                focusedIndex = index
+            }
             hapticTrigger &+= 1
             onSelect(entries[index])
         }

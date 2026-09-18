@@ -23,7 +23,7 @@ struct PlaybackToggleHighlight: ViewModifier {
                     .fill(isActive ? tint.opacity(Self.activeFillOpacity) : inactiveFill)
                     .frame(width: diameter, height: diameter)
             }
-            .animation(.easeOut(duration: 0.15), value: isActive)
+            .pmAnimation(.hover, value: isActive)
     }
 
     /// 够亮到一眼可见，又不至于盖过图标本身。
