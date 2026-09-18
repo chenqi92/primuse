@@ -156,7 +156,7 @@
 		1BEDBE25CD693A9F19690397 /* AudioCachePrewarmSeedRetention.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF05E72BAE806E5D952FD853 /* AudioCachePrewarmSeedRetention.swift */; };
 		1C52B61C899FBD92A865DC66 /* ServerCertificateTrustPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9BAF2E6891229C3AED60360 /* ServerCertificateTrustPolicy.swift */; };
 		1C901837C560784D2C0CE15B /* SourceCatalogSnapshotPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B09E1FFC29629DC9E3BB3883 /* SourceCatalogSnapshotPolicy.swift */; };
-		1C9DBAB2DE5C6A853B2BDFB9 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = F1BFF15A0A036FCC4F2F2274 /* GRDB */; };
+		1C9DBAB2DE5C6A853B2BDFB9 /* GRDB-dynamic in Frameworks */ = {isa = PBXBuildFile; productRef = F1BFF15A0A036FCC4F2F2274 /* GRDB-dynamic */; };
 		1CCCA73DF5D44F6242DD8885 /* LyricsParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3853774B80EC7B89FE6982B /* LyricsParser.swift */; };
 		1CEDC65A7EFD169B18E22B80 /* SmartPlaylistEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3577006473AE56E9BA09B47 /* SmartPlaylistEngine.swift */; };
 		1D391925E72D76E6053F6803 /* CarPlaySettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68E2C0BA24E3916DD0DA409D /* CarPlaySettingsView.swift */; };
@@ -185,6 +185,7 @@
 		2223ECC785D827AC402D0333 /* RadioSubscriptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC7AA173E8F94D6FE23BDD4F /* RadioSubscriptionsView.swift */; };
 		223571A3D35282EEE8DC3CD8 /* AIRemoteProviderConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33F16C8FA296E2937F01489 /* AIRemoteProviderConfiguration.swift */; };
 		2258673CDC1F146D06F403A0 /* SynologySource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E60AA3C090087F657145292 /* SynologySource.swift */; };
+		A35796F3DA0C2C69625751AA /* GRDB-dynamic in Embed Frameworks */ = {isa = PBXBuildFile; productRef = C39C5A4CDC0E68A52651A1DB /* GRDB-dynamic */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		A98A49EBBEEC50F5FFAADCCB /* SynologyAudioStationSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55A4CB22C1E454C159F938E6 /* SynologyAudioStationSource.swift */; };
 		035BC12946B6A710316169DE /* SynologyAudioStationErrorText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FC2441169FECC4B13BCFE44 /* SynologyAudioStationErrorText.swift */; };
 		2265889CD329AF4A8AC93100 /* BrowserChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 768665CEDF081091A5DFAED7 /* BrowserChrome.swift */; };
@@ -221,7 +222,7 @@
 		298DA96D8AC0587B7941AC94 /* WiFiTransferLibraryPreparation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 619ED42D72C2CF96721550D0 /* WiFiTransferLibraryPreparation.swift */; };
 		2993EB2DD32DE34F3A6655E1 /* CloudKitRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C804B707FEBA12189DA49BB3 /* CloudKitRuntime.swift */; };
 		29A2ADD8EBE1F20B1C80FEE2 /* TVPlayMediaIntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C53D95B464F9DAE95E595DC2 /* TVPlayMediaIntentHandler.swift */; };
-		29A9409313AE55C1C09F955C /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 0F9C8BBA8A78A11F68EC9E00 /* GRDB */; };
+		29A9409313AE55C1C09F955C /* GRDB-dynamic in Frameworks */ = {isa = PBXBuildFile; productRef = 0F9C8BBA8A78A11F68EC9E00 /* GRDB-dynamic */; };
 		2B04CDAF1AD194DD23E2852E /* RadioStationsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 744DE8325645146B084C1FE7 /* RadioStationsStore.swift */; };
 		2B467B205CB9C8064AF73219 /* AudioPlayerService+SharedPlaybackState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBF19ABAAE069256CA5C35A7 /* AudioPlayerService+SharedPlaybackState.swift */; };
 		2C61D7F37B8D2158EDFC1B45 /* ImmersivePlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 694F8F3DCD98021DF67ED95D /* ImmersivePlayerView.swift */; };
@@ -294,6 +295,8 @@
 		604AAF47DAAFC541DA6AC7D4 /* RadioSubscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AE38CCE64AB21C8A279A586 /* RadioSubscriptionService.swift */; };
 		A27AC8ECA4D3FD9466AB52F8 /* RadioSubscriptionsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A256B67AAFDAA07699C2E6F /* RadioSubscriptionsStore.swift */; };
 		ACD9CF156B3DD90494393419 /* RadioSubscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7997DF5865683E1072390CF /* RadioSubscription.swift */; };
+		BA7D635B37B3F6C5381188EE /* GRDB-dynamic in Embed Frameworks */ = {isa = PBXBuildFile; productRef = 7AC1781A1BBF520E45B2D2D2 /* GRDB-dynamic */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		BE73B8EA537C29863B3BDA0B /* GRDB-dynamic in Embed Frameworks */ = {isa = PBXBuildFile; productRef = 0F9C8BBA8A78A11F68EC9E00 /* GRDB-dynamic */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		DD2A67E1029D1A8D48C4442D /* SourceAddressForm.swift in Sources */ = {isa = PBXBuildFile; fileRef = 775B198C9EA7BE68BEE8EEA3 /* SourceAddressForm.swift */; };
 		38F1CB896290BA69CF5682C3 /* TimeInterval+Format.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02C67038ECF67BC44982A1C8 /* TimeInterval+Format.swift */; };
 		392380F2B15058BABF04130F /* LocalImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03F527F89BB056AD3BB3E532 /* LocalImportService.swift */; };
@@ -686,14 +689,14 @@
 		81468FC4945D9158A4D4C740 /* GuangYaSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7604FDFCC31C876592711589 /* GuangYaSource.swift */; };
 		815721DBF9C6091FB3742B5E /* TVOptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17D2E1F749F6B5DA908F4E77 /* TVOptionsView.swift */; };
 		816C685DF2972C76C00A88D1 /* AppUpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45727C23F384EA4681DAF4F3 /* AppUpdateChecker.swift */; };
-		81964D06F64E5220CCCD7AC5 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 6A8B1952F2335141E936A2EF /* GRDB */; };
+		81964D06F64E5220CCCD7AC5 /* GRDB-dynamic in Frameworks */ = {isa = PBXBuildFile; productRef = 6A8B1952F2335141E936A2EF /* GRDB-dynamic */; };
 		8212296C00137741AFC8C091 /* NasHttpStreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 984D9BE82FF301BBD6F0FAD7 /* NasHttpStreamResolver.swift */; };
 		823EC4B663D0025DB7B4D5DE /* U115Source.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB4788BFEC669118576E7E2 /* U115Source.swift */; };
 		824DA5DD57D48E3476F703CE /* TVArtistArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F032004B023B2AE64349E763 /* TVArtistArtworkView.swift */; };
 		831C3FD7E853051CFE8BB259 /* PrimuseAIRelayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 424E5E7566A61716247785C1 /* PrimuseAIRelayClient.swift */; };
 		831D47F89D5CDFB8360C02BE /* ArtistIdentityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C6516DD4C1AFA42968BC19A /* ArtistIdentityPolicy.swift */; };
 		8397D1889EFA82D7EFAB5329 /* FnMusicServiceClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8321DC84502AE307E1C3B466 /* FnMusicServiceClient.swift */; };
-		83D5D5AEB6EA850B28E6B5D2 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = C39C5A4CDC0E68A52651A1DB /* GRDB */; };
+		83D5D5AEB6EA850B28E6B5D2 /* GRDB-dynamic in Frameworks */ = {isa = PBXBuildFile; productRef = C39C5A4CDC0E68A52651A1DB /* GRDB-dynamic */; };
 		83FBC7E697D9FB957F5CFFE7 /* FileMetadataReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8607E666A6AB28E00D1C257 /* FileMetadataReader.swift */; };
 		840AB166E67D6505C18D5988 /* WiFiTransferLibraryPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0AA7EC4D7A4EFC36DF55E56 /* WiFiTransferLibraryPicker.swift */; };
 		842D9D5F65C4F4C2B4094BE7 /* SendToTVSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91CED344D90A31CB6096E8CF /* SendToTVSheet.swift */; };
@@ -711,7 +714,7 @@
 		8555E09C98B0CBABEC2E578A /* AudioCacheEvictionPlanPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1484D3544FDD6966114DAE4 /* AudioCacheEvictionPlanPolicy.swift */; };
 		855F531A2B63BA3F028FA596 /* HomeListeningRankingSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D58A8EAF8B5EACE572269A93 /* HomeListeningRankingSection.swift */; };
 		856C70EA0F1E8E9D577A8A5F /* TVPlaybackPipelinePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1C899A774E84E601D74500D /* TVPlaybackPipelinePolicy.swift */; };
-		857DFB55DB78805ACDA080D1 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 71AAE9BC9821087232A21611 /* GRDB */; };
+		857DFB55DB78805ACDA080D1 /* GRDB-dynamic in Frameworks */ = {isa = PBXBuildFile; productRef = 71AAE9BC9821087232A21611 /* GRDB-dynamic */; };
 		85AE39A74E4461CFCD4B08E8 /* CarPlayArtworkCacheKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDECF488946A4107E730C51A /* CarPlayArtworkCacheKey.swift */; };
 		85F22D4B2D3C1F66ADBD108D /* LibraryDerivedRefreshPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A65DEADDA6A0296E8A521E82 /* LibraryDerivedRefreshPolicy.swift */; };
 		86178EAC0659374D1EE56817 /* DrimeSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BA942F96195D24A2C7893E4 /* DrimeSource.swift */; };
@@ -1327,7 +1330,7 @@
 		FE51FB7F16264EC2262AFB9F /* AudioCacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E0E5D6E03C437F8A3D75067 /* AudioCacheManager.swift */; };
 		FE58D4CAAB4142904F5E4D21 /* RadioStationsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 744DE8325645146B084C1FE7 /* RadioStationsStore.swift */; };
 		FE5BC409BF90F21EE564D974 /* LibrarySongAdmissionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23D06A49BA26CC677DEE933E /* LibrarySongAdmissionPolicy.swift */; };
-		FEB5F758E236185CCDAA50BC /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 7AC1781A1BBF520E45B2D2D2 /* GRDB */; };
+		FEB5F758E236185CCDAA50BC /* GRDB-dynamic in Frameworks */ = {isa = PBXBuildFile; productRef = 7AC1781A1BBF520E45B2D2D2 /* GRDB-dynamic */; };
 		FEFAF7EC8A88FE7D3CD6C134 /* AudioPlayerService+NowPlayingInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A7F070FF1E728CA63724E5 /* AudioPlayerService+NowPlayingInfo.swift */; };
 		FF0491E244913A3757FE4626 /* AMSMB2 in Frameworks */ = {isa = PBXBuildFile; productRef = D27B8A9F7EB545A6FD182BB9 /* AMSMB2 */; };
 		FF157109BC191E906A0A34D4 /* AliyunDriveSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3CFC2BB314F0A2BB166E280 /* AliyunDriveSource.swift */; };
@@ -1444,6 +1447,7 @@
 				C42A9468A3DA7E9C74416019 /* libavcodec.xcframework in Embed Frameworks */,
 				1E4F94619952D2EEABDF2D4C /* libavformat.xcframework in Embed Frameworks */,
 				511CE77407C10F2DD2A84F0A /* PrimuseKit.framework in Embed Frameworks */,
+				A35796F3DA0C2C69625751AA /* GRDB-dynamic in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1460,6 +1464,7 @@
 				BC061395EE28D23484F589D0 /* libavcodec.xcframework in Embed Frameworks */,
 				BEE40C6060266A6DB9A2AD26 /* libavformat.xcframework in Embed Frameworks */,
 				102BC68BDE6FF768C73E1108 /* PrimuseKit.framework in Embed Frameworks */,
+				BA7D635B37B3F6C5381188EE /* GRDB-dynamic in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1505,6 +1510,7 @@
 			files = (
 				B0AD422F6BA9EDA5B08D6FA0 /* PrimuseKit.framework in Embed Frameworks */,
 				61A2505A751DC6854E79FEC6 /* AMSMB2 in Embed Frameworks */,
+				BE73B8EA537C29863B3BDA0B /* GRDB-dynamic in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -2535,7 +2541,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B4A627384B3D168B7BF384F0 /* PrimuseKit.framework in Frameworks */,
-				81964D06F64E5220CCCD7AC5 /* GRDB in Frameworks */,
+				81964D06F64E5220CCCD7AC5 /* GRDB-dynamic in Frameworks */,
 				A8E7B493EDA246098FAF8EB2 /* WidgetKit.framework in Frameworks */,
 				11CB33E17845B102955BD7D4 /* SwiftUI.framework in Frameworks */,
 			);
@@ -2555,7 +2561,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E0E03B2F7D320A3094204E82 /* DeviceCheck.framework in Frameworks */,
-				83D5D5AEB6EA850B28E6B5D2 /* GRDB in Frameworks */,
+				83D5D5AEB6EA850B28E6B5D2 /* GRDB-dynamic in Frameworks */,
 				FF0491E244913A3757FE4626 /* AMSMB2 in Frameworks */,
 				3A6E9DCA68049541941DF61A /* FilesProvider in Frameworks */,
 				EE40C14EC379B339FE3A1C41 /* Citadel in Frameworks */,
@@ -2580,7 +2586,7 @@
 				5E821F60595D5717B952E98C /* DeviceCheck.framework in Frameworks */,
 				B6CD07FE56C371DD5F2BE645 /* MusicKit.framework in Frameworks */,
 				F101F74A9F076657AE7C6D3E /* PrimuseKit.framework in Frameworks */,
-				29A9409313AE55C1C09F955C /* GRDB in Frameworks */,
+				29A9409313AE55C1C09F955C /* GRDB-dynamic in Frameworks */,
 				923419C1DA62D2B6B7C97E54 /* AMSMB2 in Frameworks */,
 				1E9136D22E0BD1D5636B71A0 /* FilesProvider in Frameworks */,
 				3655A1C13669D27CC9F07AF2 /* NFSKit in Frameworks */,
@@ -2596,7 +2602,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				FD625E01ED743F80F23B4A65 /* PrimuseKit.framework in Frameworks */,
-				857DFB55DB78805ACDA080D1 /* GRDB in Frameworks */,
+				857DFB55DB78805ACDA080D1 /* GRDB-dynamic in Frameworks */,
 				527614CEBEF38CA291634191 /* TVServices.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -2606,7 +2612,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B89E0EA8C5EEDDD8E9358E47 /* DeviceCheck.framework in Frameworks */,
-				FEB5F758E236185CCDAA50BC /* GRDB in Frameworks */,
+				FEB5F758E236185CCDAA50BC /* GRDB-dynamic in Frameworks */,
 				6EDE5A5CD7699006B6EE5241 /* AMSMB2 in Frameworks */,
 				E0FB25D757DF8B8F69B9C8EB /* FilesProvider in Frameworks */,
 				D0F25B5297A2686428FBE2BD /* Citadel in Frameworks */,
@@ -2629,7 +2635,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				1C9DBAB2DE5C6A853B2BDFB9 /* GRDB in Frameworks */,
+				1C9DBAB2DE5C6A853B2BDFB9 /* GRDB-dynamic in Frameworks */,
 				D1962FB84AB755F5E13296DB /* AppIntents.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -4146,7 +4152,7 @@
 			);
 			name = PrimuseWidgetExtension;
 			packageProductDependencies = (
-				6A8B1952F2335141E936A2EF /* GRDB */,
+				6A8B1952F2335141E936A2EF /* GRDB-dynamic */,
 			);
 			productName = PrimuseWidgetExtension;
 			productReference = FC0B19BA1149E4C3F22F6BF9 /* PrimuseWidgetExtension.appex */;
@@ -4188,7 +4194,7 @@
 			);
 			name = PrimuseTV;
 			packageProductDependencies = (
-				0F9C8BBA8A78A11F68EC9E00 /* GRDB */,
+				0F9C8BBA8A78A11F68EC9E00 /* GRDB-dynamic */,
 				60CB1C69962970C37F46BE91 /* AMSMB2 */,
 				40611D493FD37CDE5D17ECCF /* FilesProvider */,
 				6B0EB701D9FE5D2A90E43FD9 /* NFSKit */,
@@ -4221,7 +4227,7 @@
 			);
 			name = Primuse;
 			packageProductDependencies = (
-				C39C5A4CDC0E68A52651A1DB /* GRDB */,
+				C39C5A4CDC0E68A52651A1DB /* GRDB-dynamic */,
 				D27B8A9F7EB545A6FD182BB9 /* AMSMB2 */,
 				3A537C7C5A22FAD8101B5ADA /* FilesProvider */,
 				0606057AA8A4360CCC6E7DCC /* Citadel */,
@@ -4249,7 +4255,7 @@
 			);
 			name = PrimuseTopShelf;
 			packageProductDependencies = (
-				71AAE9BC9821087232A21611 /* GRDB */,
+				71AAE9BC9821087232A21611 /* GRDB-dynamic */,
 			);
 			productName = PrimuseTopShelf;
 			productReference = 5777C4BD5F21B1F077D01378 /* PrimuseTopShelf.appex */;
@@ -4291,7 +4297,7 @@
 			);
 			name = PrimuseMac;
 			packageProductDependencies = (
-				7AC1781A1BBF520E45B2D2D2 /* GRDB */,
+				7AC1781A1BBF520E45B2D2D2 /* GRDB-dynamic */,
 				BF09E2210DA639E4F6EBD3E8 /* AMSMB2 */,
 				B2C3B6B4EB6D34863A2508CB /* FilesProvider */,
 				9A175C9BD099798C235AC4B9 /* Citadel */,
@@ -4376,7 +4382,7 @@
 			);
 			name = PrimuseKit;
 			packageProductDependencies = (
-				F1BFF15A0A036FCC4F2F2274 /* GRDB */,
+				F1BFF15A0A036FCC4F2F2274 /* GRDB-dynamic */,
 			);
 			productName = PrimuseKit;
 			productReference = B1E36F2FECF46E724081F983 /* PrimuseKit.framework */;
@@ -7018,10 +7024,10 @@
 			package = 466EF0BB12C1115075D5668A /* XCRemoteSwiftPackageReference "Citadel" */;
 			productName = Citadel;
 		};
-		0F9C8BBA8A78A11F68EC9E00 /* GRDB */ = {
+		0F9C8BBA8A78A11F68EC9E00 /* GRDB-dynamic */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 5D1F5170FF958C6D23501EA2 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
-			productName = GRDB;
+			productName = "GRDB-dynamic";
 		};
 		182EE268F2CA5FABDFC768A5 /* NFSKit */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -7063,20 +7069,20 @@
 			package = 13B9B3B464FC927F524EF9B6 /* XCRemoteSwiftPackageReference "AMSMB2" */;
 			productName = AMSMB2;
 		};
-		6A8B1952F2335141E936A2EF /* GRDB */ = {
+		6A8B1952F2335141E936A2EF /* GRDB-dynamic */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 5D1F5170FF958C6D23501EA2 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
-			productName = GRDB;
+			productName = "GRDB-dynamic";
 		};
 		6B0EB701D9FE5D2A90E43FD9 /* NFSKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 21EA0EB8036EED38290BD521 /* XCRemoteSwiftPackageReference "NFSKit" */;
 			productName = NFSKit;
 		};
-		71AAE9BC9821087232A21611 /* GRDB */ = {
+		71AAE9BC9821087232A21611 /* GRDB-dynamic */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 5D1F5170FF958C6D23501EA2 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
-			productName = GRDB;
+			productName = "GRDB-dynamic";
 		};
 		732C3E4918F41BB73857AAE7 /* Crypto */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -7088,10 +7094,10 @@
 			package = 47E64858A997CBFB17040255 /* XCRemoteSwiftPackageReference "swift-crypto" */;
 			productName = Crypto;
 		};
-		7AC1781A1BBF520E45B2D2D2 /* GRDB */ = {
+		7AC1781A1BBF520E45B2D2D2 /* GRDB-dynamic */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 5D1F5170FF958C6D23501EA2 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
-			productName = GRDB;
+			productName = "GRDB-dynamic";
 		};
 		9A175C9BD099798C235AC4B9 /* Citadel */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -7118,10 +7124,10 @@
 			package = 13B9B3B464FC927F524EF9B6 /* XCRemoteSwiftPackageReference "AMSMB2" */;
 			productName = AMSMB2;
 		};
-		C39C5A4CDC0E68A52651A1DB /* GRDB */ = {
+		C39C5A4CDC0E68A52651A1DB /* GRDB-dynamic */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 5D1F5170FF958C6D23501EA2 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
-			productName = GRDB;
+			productName = "GRDB-dynamic";
 		};
 		C4613DCB16547AB22EE7D4FD /* Citadel */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -7153,10 +7159,10 @@
 			package = BB7F62B1FCDD8924C0B18F5F /* XCRemoteSwiftPackageReference "SFBAudioEngine" */;
 			productName = SFBAudioEngine;
 		};
-		F1BFF15A0A036FCC4F2F2274 /* GRDB */ = {
+		F1BFF15A0A036FCC4F2F2274 /* GRDB-dynamic */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 5D1F5170FF958C6D23501EA2 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
-			productName = GRDB;
+			productName = "GRDB-dynamic";
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

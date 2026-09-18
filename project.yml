@@ -23,6 +23,8 @@ settings:
     CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION: YES
 
 packages:
+  # 各目标一律链接 GRDB-dynamic：主程序、PrimuseKit 和扩展都要用它，
+  # 静态的 GRDB 会在每个链接它的二进制里各复制一份。
   GRDB:
     url: https://github.com/groue/GRDB.swift.git
     from: "7.0.0"
@@ -151,6 +153,8 @@ targets:
     dependencies:
       - sdk: DeviceCheck.framework
       - package: GRDB
+        product: GRDB-dynamic
+        embed: true
       - package: AMSMB2
         embed: true
       - package: FilesProvider
@@ -305,6 +309,7 @@ targets:
       - path: PrimuseKit/Sources/PrimuseKit
     dependencies:
       - package: GRDB
+        product: GRDB-dynamic
       - sdk: AppIntents.framework
     settings:
       base:
@@ -358,6 +363,7 @@ targets:
     dependencies:
       - target: PrimuseKit
       - package: GRDB
+        product: GRDB-dynamic
       - sdk: WidgetKit.framework
       - sdk: SwiftUI.framework
     info:
@@ -482,6 +488,8 @@ targets:
     dependencies:
       - sdk: DeviceCheck.framework
       - package: GRDB
+        product: GRDB-dynamic
+        embed: true
       - package: AMSMB2
         embed: true
       - package: FilesProvider
@@ -692,6 +700,8 @@ targets:
       - target: PrimuseKit
       - target: PrimuseTopShelf
       - package: GRDB
+        product: GRDB-dynamic
+        embed: true
       # 协议直连(去 iPhone 中继):SMB / NFS / WebDAV·FTP 的 tvOS 原生客户端,
       # 经 connector.fetchRange + AVAssetResourceLoaderDelegate 喂 AVPlayer。
       - package: AMSMB2
@@ -826,6 +836,7 @@ targets:
     dependencies:
       - target: PrimuseKit
       - package: GRDB
+        product: GRDB-dynamic
       - sdk: TVServices.framework
     info:
       path: Config/PrimuseTopShelf-Info.plist
