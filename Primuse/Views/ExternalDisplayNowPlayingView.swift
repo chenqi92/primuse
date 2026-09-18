@@ -107,7 +107,7 @@ struct ExternalDisplayNowPlayingView: View {
             )
         }
         .ignoresSafeArea()
-        .animation(.easeInOut(duration: 0.5), value: theme.colorID)
+        .pmAnimation(.ambient, value: theme.colorID)
         .allowsHitTesting(false)
     }
 

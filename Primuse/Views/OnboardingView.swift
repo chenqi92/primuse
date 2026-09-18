@@ -111,6 +111,10 @@ struct OnboardingView: View {
     }
 
     #if os(macOS)
+    /// 这一次翻页是往前还是往回,决定新旧两页各从哪一边进出。
+    @State private var macStepAdvancing = true
+    @Environment(\.accessibilityReduceMotion) private var macStepReduceMotion
+
     private var macBody: some View {
         ZStack {
             AmbientBackdrop(
@@ -148,23 +152,39 @@ struct OnboardingView: View {
         .frame(height: 54)
     }
 
-    @ViewBuilder
+    /// 三页在 ZStack 里重叠 —— 外面是纵向 VStack, 不套这一层的话进出两页会在
+    /// 过渡期间上下叠排, 把页脚顶下去再弹回来。
     private var macStepContent: some View {
-        switch pageIndex {
-        case 0:
-            macWelcomePage
-        case 1:
-            macProtocolsPage
-        default:
-            macAddSourcePage
+        ZStack {
+            switch pageIndex {
+            case 0:
+                macWelcomePage.transition(macStepTransition)
+            case 1:
+                macProtocolsPage.transition(macStepTransition)
+            default:
+                macAddSourcePage.transition(macStepTransition)
+            }
         }
+    }
+
+    /// 前进时新页从右边推入、旧页往左退出，返回时反向 —— 方向感全靠这个不对称,
+    /// 所以没走 `pmSlideTransition`(它两端同边)。开启减少动态效果后只淡入淡出。
+    private var macStepTransition: AnyTransition {
+        guard !macStepReduceMotion else { return .opacity }
+        let entering: Edge = macStepAdvancing ? .trailing : .leading
+        let leaving: Edge = macStepAdvancing ? .leading : .trailing
+        return .asymmetric(
+            insertion: .move(edge: entering).combined(with: .opacity),
+            removal: .move(edge: leaving).combined(with: .opacity)
+        )
     }
 
     private var macFooter: some View {
         HStack(spacing: 12) {
             Button {
                 if pageIndex > 0 {
-                    withAnimation(.easeInOut(duration: 0.2)) { pageIndex -= 1 }
+                    macStepAdvancing = false
+                    pmWithAnimation(.pageSwitch) { pageIndex -= 1 }
                 } else {
                     finish()
                 }
@@ -194,7 +214,8 @@ struct OnboardingView: View {
 
             Button {
                 if pageIndex < pageCount - 1 {
-                    withAnimation(.easeInOut(duration: 0.2)) { pageIndex += 1 }
+                    macStepAdvancing = true
+                    pmWithAnimation(.pageSwitch) { pageIndex += 1 }
                 } else if isFeatureGuide {
                     finish()
                 } else {

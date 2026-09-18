@@ -26,6 +26,8 @@ struct RadioCandidateLogoView: View {
                 Image(platformImage: image)
                     .resizable()
                     .scaledToFill()
+                    // 台标由 .task 裸赋值,曲线只能附在过渡上。
+                    .pmFadeTransition(motion: .contentAppear)
             }
         }
         .frame(width: size, height: size)

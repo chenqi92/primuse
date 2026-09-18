@@ -205,9 +205,11 @@ struct RadioSubscriptionsView: View {
         NavigationStack(path: $path) {
             Group {
                 if store.subscriptions.isEmpty {
-                    emptyState
+                    // 空态与列表是整块替换,交叉淡入会让两块同时占着导航栈的内容位,
+                    // 所以走「旧的直接走、新的淡进来」。
+                    emptyState.pmAppearFade(.contentAppear)
                 } else {
-                    subscriptionList
+                    subscriptionList.pmAppearFade(.contentAppear)
                 }
             }
             .navigationTitle("radio_subscriptions_title")
@@ -335,7 +337,9 @@ private struct RadioSubscriptionRow: View {
             Spacer(minLength: 4)
 
             if isRefreshing {
-                ProgressView().controlSize(.small)
+                ProgressView()
+                    .controlSize(.small)
+                    .pmFadeTransition(motion: .control)
             }
         }
         .padding(.vertical, 2)
@@ -521,7 +525,9 @@ struct RadioSubscriptionDetailView: View {
                         )
                         Spacer()
                         if isRefreshing {
-                            ProgressView().controlSize(.small)
+                            ProgressView()
+                                .controlSize(.small)
+                                .pmFadeTransition(motion: .control)
                         }
                     }
                 }
@@ -595,6 +601,8 @@ struct RadioSubscriptionDetailView: View {
                 Image(systemName: isPlaying ? "stop.fill" : "play.fill")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(isPlaying ? Color.red : Color.accentColor)
+                    .contentTransition(.symbolEffect(.replace))
+                    .pmAnimation(.control, value: isPlaying)
             }
             .contentShape(Rectangle())
         }

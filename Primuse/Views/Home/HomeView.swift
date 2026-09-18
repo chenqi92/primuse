@@ -67,7 +67,7 @@ private struct RecentlyAddedAlbumsView: View {
                         } label: {
                             AlbumCardView(album: album, showsSongCount: true)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.pmPressable)
                     }
                 }
                 .padding(20)
@@ -205,7 +205,7 @@ private struct HomeModeFlipButtonStyle: ButtonStyle {
         configuration.label
             .opacity(configuration.isPressed ? 0.58 : 1)
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .animation(PMMotion.press.animation, value: configuration.isPressed)
     }
 }
 
@@ -326,7 +326,7 @@ struct HomeView: View {
                 }
             }
             .padding(.bottom, bottomChromeClearance)
-            .animation(.easeOut(duration: 0.24), value: model.isPrepared)
+            .pmAnimation(.contentAppear, value: model.isPrepared)
         }
         .task {
             await refreshHomeSnapshotAfterPresentationIfNeeded()
@@ -851,15 +851,15 @@ struct HomeView: View {
             }
             .dropDestination(for: String.self) { items, _ in
                 guard let raw = items.first, let moved = HomeSectionKind(rawValue: raw) else { return false }
-                withAnimation(.snappy) { moveSection(moved, onto: section) }
+                pmWithAnimation(.list) { moveSection(moved, onto: section) }
                 return true
             }
             .contextMenu {
                 Button {
-                    withAnimation(.snappy) { moveSection(section, by: -1) }
+                    pmWithAnimation(.list) { moveSection(section, by: -1) }
                 } label: { Label("home_edit_move_up", systemImage: "arrow.up") }
                 Button {
-                    withAnimation(.snappy) { moveSection(section, by: 1) }
+                    pmWithAnimation(.list) { moveSection(section, by: 1) }
                 } label: { Label("home_edit_move_down", systemImage: "arrow.down") }
             }
         } else {
@@ -899,7 +899,7 @@ struct HomeView: View {
                 }
 
                 Button {
-                    withAnimation(.snappy) { setSectionVisible(section, !visible) }
+                    pmWithAnimation(.list) { setSectionVisible(section, !visible) }
                 } label: {
                     Image(systemName: visible ? "eye" : "eye.slash")
                         .font(.footnote.weight(.semibold))
@@ -915,7 +915,7 @@ struct HomeView: View {
                 HStack(spacing: 10) {
                     if HomeSectionLayoutPolicy.isConfigurable(section) {
                         Button {
-                            withAnimation(.snappy) { advanceSectionLayout(section) }
+                            pmWithAnimation(.list) { advanceSectionLayout(section) }
                         } label: {
                             Label(LocalizedStringKey(style.titleKey), systemImage: style.icon)
                                 .font(.caption.weight(.semibold))
@@ -928,7 +928,7 @@ struct HomeView: View {
 
                     if HomeSectionLayoutPolicy.rowsRange(for: section, style: style) != nil {
                         Button {
-                            withAnimation(.snappy) { advanceSectionRows(section) }
+                            pmWithAnimation(.list) { advanceSectionRows(section) }
                         } label: {
                             Text(
                                 String(
@@ -952,7 +952,9 @@ struct HomeView: View {
                         Text(count.formatted())
                             .font(.caption.weight(.semibold))
                             .monospacedDigit()
-                        Button { adjustSectionCount(section, by: -1) } label: {
+                        Button {
+                            pmWithAnimation(.list) { adjustSectionCount(section, by: -1) }
+                        } label: {
                             Image(systemName: "minus").font(.caption2.weight(.bold))
                         }
                         .buttonStyle(.bordered)
@@ -960,7 +962,9 @@ struct HomeView: View {
                         .controlSize(.mini)
                         .disabled(count <= range.lowerBound)
                         .accessibilityIdentifier("home.edit.count.decrement." + section.rawValue)
-                        Button { adjustSectionCount(section, by: 1) } label: {
+                        Button {
+                            pmWithAnimation(.list) { adjustSectionCount(section, by: 1) }
+                        } label: {
                             Image(systemName: "plus").font(.caption2.weight(.bold))
                         }
                         .buttonStyle(.bordered)
@@ -1058,6 +1062,8 @@ struct HomeView: View {
                             Image(systemName: isPlaying ? "stop.fill" : "play.fill")
                                 .font(.system(size: 15, weight: .bold))
                                 .frame(width: 38, height: 38)
+                                .contentTransition(.symbolEffect(.replace))
+                                .pmAnimation(.control, value: isPlaying)
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(theme.uiDarkAccent)
@@ -1092,7 +1098,7 @@ struct HomeView: View {
                 selectHomeRadio(relativeTo: station, offset: value.translation.width < 0 ? 1 : -1)
             }
         )
-        .animation(.easeInOut(duration: 0.2), value: station.id)
+        .pmAnimation(.contentAppear, value: station.id)
     }
 
     private var radioSpotlightBackdrop: some View {
@@ -1309,7 +1315,7 @@ struct HomeView: View {
             }
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pmPressable)
     }
 
     private func radioWallCard(_ station: RadioStation) -> some View {
@@ -1339,6 +1345,7 @@ struct HomeView: View {
                         Text(isPlaying ? String(localized: "live_badge") : String(localized: "radio_title"))
                             .font(.system(size: 9.5, weight: .bold))
                             .tracking(0.8)
+                            .contentTransition(.opacity)
                             .foregroundStyle(isPlaying ? .white : .white.opacity(0.85))
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
@@ -1352,6 +1359,10 @@ struct HomeView: View {
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
                             .stroke(isCurrent ? Color.accentColor : .clear, lineWidth: 2)
                     }
+                    // 选中描边看 isCurrent, 徽标看 isPlaying —— 暂停当前台时只有
+                    // 后者会变, 两个值各挂一次才不会有一边硬切。
+                    .pmAnimation(.hover, value: isCurrent)
+                    .pmAnimation(.hover, value: isPlaying)
 
                 // 名字长短不一，固定文字区高度让同一行的卡底边齐平。
                 VStack(alignment: .leading, spacing: 3) {
@@ -1377,7 +1388,7 @@ struct HomeView: View {
             }
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pmPressable)
     }
 
     private var radioModeEmptyState: some View {
@@ -2070,7 +2081,7 @@ struct HomeView: View {
             }
             .padding(.horizontal, 16)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pmPressable)
     }
 
     /// Compact "Xh Ym" / "Ym" formatter for the stats glimpse line.
@@ -2415,7 +2426,7 @@ struct HomeView: View {
                     }
                 }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pmPressable)
             .mediaZoomSource(.playlist, id: playlist.id)
         case .album(let album):
             NavigationLink(value: album) {
@@ -2425,7 +2436,7 @@ struct HomeView: View {
                     }
                 }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pmPressable)
             .mediaZoomSource(.album, id: album.id)
         case .artist(let artist):
             NavigationLink(value: artist) {
@@ -2435,7 +2446,7 @@ struct HomeView: View {
                     }
                 }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pmPressable)
             .mediaZoomSource(.artist, id: artist.id)
         case .playlist(let tile):
             NavigationLink(value: tile.playlist) {
@@ -2445,7 +2456,7 @@ struct HomeView: View {
                     }
                 }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pmPressable)
             .mediaZoomSource(.playlist, id: tile.playlist.id)
         }
     }
@@ -2503,7 +2514,7 @@ struct HomeView: View {
                             NavigationLink(value: tile.playlist) {
                                 playlistCard(tile)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.pmPressable)
                             .mediaZoomSource(.playlist, id: tile.playlist.id)
                         }
                     }
@@ -2520,7 +2531,7 @@ struct HomeView: View {
                         NavigationLink(value: tile.playlist) {
                             playlistCard(tile)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.pmPressable)
                         .mediaZoomSource(.playlist, id: tile.playlist.id)
                     }
                 }
@@ -2633,7 +2644,7 @@ struct HomeView: View {
                         Button { playSong(result.song) } label: {
                             forYouListRow(result)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.pmPressable)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -2686,7 +2697,7 @@ struct HomeView: View {
                             )
                             .background(recommendationCardBackground(for: song))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.pmPressable)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -2782,7 +2793,7 @@ struct HomeView: View {
                             Button { playSong(song) } label: {
                                 continueListeningRow(song)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.pmPressable)
                         }
                     }
                     .padding(.horizontal, 20)
@@ -2793,7 +2804,7 @@ struct HomeView: View {
                         Button { playSong(song) } label: {
                             continueListeningRow(song, fillsWidth: true)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.pmPressable)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -2915,7 +2926,7 @@ struct HomeView: View {
                                 AlbumCardView(album: tile.album, showsSongCount: true)
                                     .frame(width: homeAlbumCardWidth)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.pmPressable)
                             .mediaZoomSource(.album, id: tile.album.id)
                         }
                     }
@@ -2950,7 +2961,7 @@ struct HomeView: View {
                         NavigationLink(value: tile.album) {
                             AlbumCardView(album: tile.album, showsSongCount: true)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.pmPressable)
                         .mediaZoomSource(.album, id: tile.album.id)
                     }
                 }
@@ -3014,7 +3025,7 @@ struct HomeView: View {
                 ) {
                     ForEach(displayed.prefix(sectionItemCount(.topArtists, sizeClass == .regular ? 16 : 8))) { artist in
                         NavigationLink(value: artist) { artistBubble(artist) }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.pmPressable)
                             .mediaZoomSource(.artist, id: artist.id)
                     }
                 }
@@ -3024,7 +3035,7 @@ struct HomeView: View {
                     LazyHGrid(rows: carouselRows(.topArtists, height: 104), spacing: 14) {
                         ForEach(displayed.prefix(sectionItemCount(.topArtists, sizeClass == .regular ? 16 : 8))) { artist in
                             NavigationLink(value: artist) { artistBubble(artist) }
-                                .buttonStyle(.plain)
+                                .buttonStyle(.pmPressable)
                                 .mediaZoomSource(.artist, id: artist.id)
                         }
                     }

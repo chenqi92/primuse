@@ -400,7 +400,7 @@ struct RadioStationsView: View {
         if isManaging {
             ToolbarItem(placement: .cancellationAction) {
                 Button("done") {
-                    withAnimation(.easeInOut(duration: 0.2)) {
+                    pmWithAnimation(.list) {
                         isManaging = false
                         selection = []
                     }
@@ -489,7 +489,7 @@ struct RadioStationsView: View {
             ToolbarItemGroup(placement: .primaryAction) {
                 if !store.stations.isEmpty {
                     Button {
-                        withAnimation(.easeInOut(duration: 0.2)) { isManaging = true }
+                        pmWithAnimation(.list) { isManaging = true }
                     } label: {
                         Label("radio_manage", systemImage: "checklist")
                     }
@@ -1004,10 +1004,12 @@ private struct RadioStationCard<Actions: View>: View {
                         .foregroundStyle(isPlaying ? Color.red : Color.accentColor)
                         .frame(width: 40, height: 40)
                         .background(.thinMaterial, in: Circle())
+                        .contentTransition(.symbolEffect(.replace))
+                        .pmAnimation(.control, value: isPlaying)
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pmPressable)
 
             Menu {
                 actions()
@@ -1029,6 +1031,8 @@ private struct RadioStationCard<Actions: View>: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(isCurrent ? Color.accentColor.opacity(0.35) : Color.secondary.opacity(0.1), lineWidth: 0.7)
         }
+        // 电台条数远小于曲库，底色/描边/LIVE 徽标可以在行内直接挂。
+        .pmAnimation(.hover, value: isCurrent)
         .contextMenu {
             actions()
         }
@@ -1067,6 +1071,8 @@ private struct RadioStationCoverTile<Actions: View>: View {
                             .foregroundStyle(isPlaying ? Color.red : Color.accentColor)
                             .frame(width: 28, height: 28)
                             .background(.thinMaterial, in: Circle())
+                            .contentTransition(.symbolEffect(.replace))
+                            .pmAnimation(.control, value: isPlaying)
                             .padding(7)
                     }
                     .overlay {
@@ -1108,7 +1114,8 @@ private struct RadioStationCoverTile<Actions: View>: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pmPressable)
+        .pmAnimation(.hover, value: isCurrent)
         .contextMenu {
             actions()
         }
@@ -1290,6 +1297,8 @@ struct RadioStationArtworkContent: View {
                 Image(platformRadioImage: image)
                     .resizable()
                     .aspectRatio(contentMode: contentMode)
+                    // 台标由 .task 裸赋值,调用点包不了事务,曲线附在过渡上。
+                    .pmFadeTransition(motion: .contentAppear)
             }
         }
         .task(id: currentLoadKey) {
@@ -1529,7 +1538,12 @@ struct RadioStationEditorView: View {
                         HStack {
                             Label("radio_test_playback", systemImage: "waveform")
                             Spacer()
-                            if isTesting { ProgressView().controlSize(.small) }
+                            if isTesting {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    // 试听状态由回调裸赋值,曲线附在过渡上;表单里只做淡入淡出。
+                                    .pmFadeTransition(motion: .control)
+                            }
                         }
                     }
                     .disabled(!canSave || isTesting)
@@ -1538,6 +1552,7 @@ struct RadioStationEditorView: View {
                         Text(resultMessage)
                             .font(.caption)
                             .foregroundStyle(resultMessage == String(localized: "radio_test_success") ? .green : .secondary)
+                            .pmFadeTransition(motion: .control)
                     }
                 } footer: {
                     Text("radio_test_description")

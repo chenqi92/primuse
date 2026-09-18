@@ -169,7 +169,7 @@ struct YearlyReportView: View {
                 .padding(.vertical, 28)
             }
             .onChange(of: currentIndex) { _, newValue in
-                withAnimation(.easeInOut(duration: 0.26)) {
+                pmWithAnimation(.trackChange) {
                     proxy.scrollTo(cards[newValue], anchor: .center)
                 }
             }
@@ -185,7 +185,7 @@ struct YearlyReportView: View {
         let meta = macMetadata(for: card)
 
         return Button {
-            withAnimation(.easeInOut(duration: 0.24)) {
+            pmWithAnimation(.trackChange) {
                 lastTransitionDirection = index >= currentIndex ? .forward : .backward
                 currentIndex = index
                 elapsed = 0
@@ -419,7 +419,7 @@ struct YearlyReportView: View {
 
     private func macAdvance() {
         lastTransitionDirection = .forward
-        withAnimation(.easeInOut(duration: 0.26)) {
+        pmWithAnimation(.trackChange) {
             currentIndex = min(cards.count - 1, currentIndex + 1)
             elapsed = 0
         }
@@ -427,7 +427,7 @@ struct YearlyReportView: View {
 
     private func macBack() {
         lastTransitionDirection = .backward
-        withAnimation(.easeInOut(duration: 0.26)) {
+        pmWithAnimation(.trackChange) {
             currentIndex = max(0, currentIndex - 1)
             elapsed = 0
         }
@@ -462,6 +462,9 @@ struct YearlyReportView: View {
                 .padding(.bottom, 60)
                 .transition(slideTransition)
                 .contentShape(Rectangle())
+                // 只有翻页器里这一份要做入场动效; 分享图那条路径走 ImageRenderer,
+                // 跑不到 onAppear, 拿的是默认关闭的静态形态。
+                .environment(\.yearlyCardRevealsContent, true)
 
             // 关闭 / 分享按钮 ── 放在 ZStack 最上层, 不会被翻页手势吞。
             // 之前左右 tap hit area 在最上层吞掉了 X / 分享按钮的 tap; 改成
@@ -609,7 +612,7 @@ struct YearlyReportView: View {
 
     private func advance() {
         lastTransitionDirection = .forward
-        withAnimation(.easeInOut(duration: 0.32)) {
+        pmWithAnimation(.trackChange) {
             if currentIndex < cards.count - 1 {
                 currentIndex += 1
                 elapsed = 0
@@ -621,7 +624,7 @@ struct YearlyReportView: View {
 
     private func back() {
         lastTransitionDirection = .backward
-        withAnimation(.easeInOut(duration: 0.32)) {
+        pmWithAnimation(.trackChange) {
             if elapsed > 1.5 {
                 elapsed = 0
             } else if currentIndex > 0 {
