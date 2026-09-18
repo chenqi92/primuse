@@ -8,6 +8,7 @@ struct MiniPlayerView: View {
     var showsNextButton = true
     var showsSubtitle = false
 
+    @Environment(\.pmHeightClass) private var heightClass
     /// 固定条高跟随 Dynamic Type，与 PadNowPlayingAccessory 一致。
     @ScaledMetric(relativeTo: .subheadline) private var contentHeight: CGFloat = 44
 
@@ -26,7 +27,9 @@ struct MiniPlayerView: View {
             MiniPlayerTransportControls(showsNextButton: showsNextButton)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 6)
+        // 手机横屏只收上下留白。条高由 ScaledMetric 决定、传输键仍是 44×44 命中区，
+        // 两者都不动，省下来的是纯粹的余白。
+        .padding(.vertical, heightClass.value(6, compact: 3))
     }
 }
 

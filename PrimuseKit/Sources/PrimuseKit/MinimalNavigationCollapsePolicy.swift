@@ -15,6 +15,15 @@ public enum MinimalNavigationChromeMetrics: Sendable {
     public static var collapsibleHeight: CGFloat {
         categoryRowHeight + categoryRowTopPadding
     }
+
+    /// 分类行在静止状态(刚进页面、滚回顶部)是否默认收起。
+    ///
+    /// 手机横屏纵向只剩三百多点,这一行连同上方间距就要占掉其中 46pt。收起之后搜索行里
+    /// 常驻的分类按钮仍然是展开入口,内容区却能多出整整一行。常规高度维持原样:展开才是
+    /// 静止状态,收起只由滚动判定给出。
+    public static func collapsesCategoriesAtRest(isCompactHeight: Bool) -> Bool {
+        isCompactHeight
+    }
 }
 
 /// 极简模式顶栏分类行的折叠判定。
@@ -39,6 +48,10 @@ public struct MinimalNavigationCollapseResolver: Sendable {
 
     /// 当前是否折叠。
     public private(set) var isCollapsed = false
+
+    /// 静止状态是否维持折叠。手机横屏为 true:滚回顶部不再自动展开,展开只由用户点
+    /// 分类按钮触发;展开之后向下滚动仍然照原来的滞回带宽收回去,判定本身不变。
+    public var collapsesAtRest = false
 
     /// 自动折叠的起算点。手动展开后从当时的位置重新起算,免得刚展开就被判回去。
     private var collapseBaseline: CGFloat = 0
@@ -70,7 +83,7 @@ public struct MinimalNavigationCollapseResolver: Sendable {
 
         let shouldCollapse: Bool
         if isCollapsed {
-            shouldCollapse = scrolledDistance > Self.expandDistance
+            shouldCollapse = collapsesAtRest || scrolledDistance > Self.expandDistance
         } else {
             let travelled = scrolledDistance - collapseBaseline
             shouldCollapse = travelled > Self.collapseDistance(

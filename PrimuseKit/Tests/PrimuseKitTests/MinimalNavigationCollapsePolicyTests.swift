@@ -125,6 +125,56 @@ struct MinimalNavigationCollapsePolicyTests {
         #expect(afterJump)
     }
 
+    @Test("只有紧凑高度把收起当成静止状态")
+    func collapsesAtRestOnlyInCompactHeight() {
+        let compact = MinimalNavigationChromeMetrics.collapsesCategoriesAtRest(
+            isCompactHeight: true
+        )
+        let regular = MinimalNavigationChromeMetrics.collapsesCategoriesAtRest(
+            isCompactHeight: false
+        )
+        #expect(compact)
+        #expect(!regular)
+    }
+
+    @Test("静止状态收起时滚回顶部不再自动展开")
+    func staysCollapsedAtRest() {
+        var resolver = MinimalNavigationCollapseResolver()
+        resolver.collapsesAtRest = true
+        resolver.reset(isCollapsed: true)
+        let atTop = feed(&resolver, distance: 0, now: 1, chromeHeight: chromeHeight)
+        let scrolledAway = feed(&resolver, distance: 400, now: 2, chromeHeight: chromeHeight)
+        let backAtTop = feed(&resolver, distance: 0, now: 3, chromeHeight: chromeHeight)
+        #expect(atTop)
+        #expect(scrolledAway)
+        #expect(backAtTop)
+    }
+
+    @Test("静止状态收起时手动展开照常生效,向下滚一段才收回")
+    func manualExpansionSurvivesCollapsedRestingState() {
+        var resolver = MinimalNavigationCollapseResolver()
+        resolver.collapsesAtRest = true
+        resolver.reset(isCollapsed: true)
+        resolver.markManuallyExpanded(at: 0, now: 0)
+        let staysExpanded = feed(&resolver, distance: 30, now: 1, chromeHeight: chromeHeight)
+        let collapsesAgain = feed(&resolver, distance: 120, now: 2, chromeHeight: chromeHeight)
+        let holdsAtTop = feed(&resolver, distance: 0, now: 3, chromeHeight: chromeHeight)
+        #expect(!staysExpanded)
+        #expect(collapsesAgain)
+        #expect(holdsAtTop)
+    }
+
+    @Test("默认不把收起当静止状态,竖屏的展开判定原样保留")
+    func regularHeightKeepsExpandingAtTop() {
+        var resolver = MinimalNavigationCollapseResolver()
+        let restingDefault = resolver.collapsesAtRest
+        let collapsed = feed(&resolver, distance: 300, now: 0, chromeHeight: chromeHeight)
+        let expanded = feed(&resolver, distance: 4, now: 1, chromeHeight: chromeHeight)
+        #expect(!restingDefault)
+        #expect(collapsed)
+        #expect(!expanded)
+    }
+
     @Test("复位回到展开并清掉结算窗口")
     func resetsCleanly() {
         var resolver = MinimalNavigationCollapseResolver()
