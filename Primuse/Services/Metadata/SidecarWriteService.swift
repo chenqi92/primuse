@@ -75,7 +75,7 @@ actor SidecarWriteService {
     ///   - song: The song with updated metadata
     ///   - connector: The source connector with write capability
     ///   - coverData: JPEG cover art data to write (optional)
-    ///   - lyricsLines: Parsed lyric lines to write as .lrc (optional)
+    ///   - lyricsLines: Parsed lyric lines, serialized in the target's format (optional)
     func writeSidecars(
         for song: Song,
         using connector: any MusicSourceConnector,
