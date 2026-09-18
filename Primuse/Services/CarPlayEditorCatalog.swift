@@ -193,7 +193,7 @@ final class CarPlayEditorCatalog {
             CarPlayHomeItem(id: $0.id, title: $0.title, subtitle: $0.displayArtistName(configuration: input.artistNames), artwork: .songReference(id: $0.id, coverRef: $0.coverArtFileName), target: .song($0.id, queue: queue))
         }
         result.albumSongs = Dictionary(grouping: input.songs, by: { $0.albumID ?? "" }).mapValues { songs in
-            songs.sorted { ($0.discNumber ?? 0, $0.trackNumber ?? 0) < ($1.discNumber ?? 0, $1.trackNumber ?? 0) }.map(\.id)
+            AlbumTrackOrder.sorted(songs).map(\.id)
         }
         guard !Task.isCancelled else { return result }
         result.entries[.album] = input.albums.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }.map {

@@ -1052,7 +1052,6 @@ extension CarPlaySceneDelegate {
             guard let self else { return }
             if self.layout.playsCollectionsDirectly {
                 let songs = AppServices.shared.musicLibrary.songs(forAlbum: album.id)
-                    .sorted { ($0.discNumber ?? 0, $0.trackNumber ?? 0) < ($1.discNumber ?? 0, $1.trackNumber ?? 0) }
                 self.playCollection(songs, title: album.title)
             } else {
                 self.pushAlbumDetail(album)
@@ -1514,7 +1513,6 @@ extension CarPlaySceneDelegate {
 
     private func albumDetailSection(albumID: String) -> CPListSection {
         let songs = AppServices.shared.musicLibrary.songs(forAlbum: albumID)
-            .sorted { ($0.discNumber ?? 0, $0.trackNumber ?? 0) < ($1.discNumber ?? 0, $1.trackNumber ?? 0) }
         let items = songs.prefix(max(0, CPListTemplate.maximumItemCount - 2)).enumerated().map { idx, song in
             songItem(song, queueProvider: { (songs, idx) }, loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: idx))
         }
