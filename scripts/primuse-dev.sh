@@ -36,6 +36,7 @@ DEVICE_MODEL=""
 DEVICE_OS=""
 DEVICE_KIND=""
 DEVICE_STATE=""
+SIMULATOR_WINDOW_SHOWN=""
 
 usage() {
     cat <<'EOF'
@@ -1343,7 +1344,36 @@ prepare_simulator() {
     fi
     xcrun simctl bootstatus "$DEVICE_UDID" -b
     DEVICE_STATE="Booted"
-    /usr/bin/open -a Simulator --args -CurrentDeviceUDID "$DEVICE_UDID"
+    show_simulator_window
+}
+
+show_simulator_window() {
+    if [[ -n "$SIMULATOR_WINDOW_SHOWN" ]]; then
+        return
+    fi
+    SIMULATOR_WINDOW_SHOWN="true"
+
+    # Xcode 26 及更早用 Developer/Applications/Simulator.app；Xcode 27 起换成
+    # Contents/Applications/DeviceHub.app，打开指定设备要走 devices:// 链接。
+    # 窗口只是方便查看，打不开也不影响 simctl 安装和启动。
+    local developer_dir
+    developer_dir="$(xcode-select -p 2>/dev/null || true)"
+    local simulator_app="$developer_dir/Applications/Simulator.app"
+    local device_hub_app="${developer_dir%/Developer}/Applications/DeviceHub.app"
+
+    if [[ -n "$developer_dir" && -d "$simulator_app" ]]; then
+        if /usr/bin/open -a "$simulator_app" --args -CurrentDeviceUDID "$DEVICE_UDID"; then
+            return
+        fi
+    elif [[ -n "$developer_dir" && -d "$device_hub_app" ]]; then
+        if /usr/bin/open "devices://device/open?id=$DEVICE_UDID" || /usr/bin/open -a "$device_hub_app"; then
+            return
+        fi
+    elif /usr/bin/open -a Simulator --args -CurrentDeviceUDID "$DEVICE_UDID" 2>/dev/null; then
+        return
+    fi
+
+    echo "没能打开 Simulator 或 Device Hub 窗口，继续在后台安装和启动 App。" >&2
 }
 
 install_tv() {
