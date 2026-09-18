@@ -2110,7 +2110,7 @@
 "onboarding_mac_privacy_title" = "Promesa de privacidad";
 "onboarding_mac_skip" = "Saltar introducción";
 "onboarding_mac_source_local_file" = "Archivos locales / Unidad iCloud";
-"onboarding_mac_sources_desc" = "Primuse admite 21 métodos de conexión · agregue tantas fuentes como desee: se fusionan en una biblioteca unificada.";
+"onboarding_mac_sources_desc" = "Conecte NAS, servidores multimedia, almacenamiento en la nube y protocolos de archivos comunes · agregue tantas fuentes como desee: se fusionan en una biblioteca unificada.";
 "onboarding_mac_sources_title" = "Desde cualquier lugar";
 "onboarding_mac_step_format" = "Paso %d / 3";
 "onboarding_mac_welcome_desc" = "Un reproductor macOS nativo creado para entusiastas del servidor multimedia/NAS. Dale a tus archivos FLAC, DSD y APE un hogar en una biblioteca unificada.";
@@ -2122,6 +2122,17 @@
 "onboarding_metadata_title" = "Completa tu biblioteca";
 "onboarding_next" = "Continuar";
 "onboarding_personalization_footer" = "Puedes cambiar todas estas opciones en cualquier momento.";
+"onboarding_guide_sources_title" = "Agregue un origen en tres pasos";
+"onboarding_guide_sources_step1 %@" = "Abra “%@”, toque + en la esquina superior derecha y elija un tipo de origen";
+"onboarding_guide_sources_step2" = "Solo escriba la dirección del servidor; el puerto y el cifrado se confirman automáticamente";
+"onboarding_guide_sources_step3 %@" = "Marque las carpetas con su música y toque “%@” para empezar a escanear";
+"onboarding_guide_sources_footer" = "En las nubes solo tiene que iniciar sesión cuando se le pida; los servidores multimedia como Navidrome y Jellyfin sincronizan toda la biblioteca al iniciar sesión, sin elegir carpetas.";
+"onboarding_guide_player_title" = "Cómo usar la pantalla de reproducción";
+"onboarding_guide_player_subtitle" = "Toque la barra de reproducción en la parte inferior de cualquier pantalla para abrirla.";
+"onboarding_guide_player_lyrics" = "Letras: avanzan con la canción, con resaltado palabra por palabra y traducción";
+"onboarding_guide_player_airplay" = "AirPlay: cambie a bocinas, audífonos o Apple TV";
+"onboarding_guide_player_queue" = "Cola: mantenga presionado y arrastre para reordenar lo que sigue";
+"onboarding_guide_player_more" = "Más: transmitir a dispositivos DLNA, temporizador de apagado o compartir un póster de letras";
 "onboarding_personalization_home" = "Mostrar, ocultar y reordenar las secciones en Inicio";
 "onboarding_personalization_icon" = "Elija el ícono de su aplicación en Configuración > Apariencia";
 "onboarding_personalization_quick" = "Fija álbumes, artistas y listas de reproducción para un acceso rápido";
@@ -2134,8 +2145,8 @@
 "onboarding_sources_cloud" = "123 Pan, Baidu Pan, Aliyun Drive y más";
 "onboarding_sources_dlna" = "Servidores de medios UPnP / DLNA en su red";
 "onboarding_sources_footer" = "Puedes agregar tantos como quieras, en cualquier momento.";
-"onboarding_sources_nas" = "Recursos compartidos Synology, QNAP y SMB/NFS · Las API genéricas de archivos Ugreen/fnOS siguen no disponibles; Feiniu Music es una fuente separada.";
-"onboarding_sources_network" = "WebDAV, SFTP, Jellyfin, UPnP / DLNA y más";
+"onboarding_sources_nas" = "NAS Synology y QNAP, recursos compartidos SMB / NFS, además de servicios de música para NAS como Audio Station y Feiniu Music";
+"onboarding_sources_network" = "Navidrome, Jellyfin, Emby, WebDAV, SFTP, UPnP / DLNA y más";
 "onboarding_sources_title" = "Reúne tu música";
 "onboarding_sources_webdav" = "WebDAV, FTP, SFTP — incluso protegidos con contraseña";
 "onboarding_welcome_subtitle" = "Primuse se reproduce desde su NAS, unidades en la nube y red doméstica, sin cargar un solo archivo a nadie.";

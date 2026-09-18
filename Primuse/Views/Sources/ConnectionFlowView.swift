@@ -19,6 +19,7 @@ struct ConnectionFlowView: View {
     /// 这个视图随后自行关闭。
     var onAudioStationReady: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.pmHeightClass) private var heightClass
 
     @State private var step: FlowStep = .connecting
     @State private var otpCode = ""
@@ -256,7 +257,8 @@ struct ConnectionFlowView: View {
     private var otpView: some View {
         ScrollView {
             VStack(spacing: 24) {
-                Spacer().frame(height: 40)
+                // 手机横屏这两段留白白吃 100pt，正好是验证码格子该在的位置。
+                Spacer().frame(height: heightClass.value(40, compact: 0))
 
                 Image(systemName: "lock.shield.fill")
                     .font(.system(size: 48))
@@ -313,7 +315,7 @@ struct ConnectionFlowView: View {
                 .padding(.horizontal, 24)
                 .padding(.top, 8)
 
-                Spacer().frame(height: 60)
+                Spacer().frame(height: heightClass.value(60, compact: 0))
             }
         }
         .scrollDismissesKeyboard(.interactively)
@@ -526,7 +528,7 @@ struct ConnectionFlowView: View {
     // MARK: - Failed
 
     private var failedView: some View {
-        VStack(spacing: 20) {
+        let content = VStack(spacing: 20) {
             Spacer()
             Image(systemName: "xmark.circle").font(.system(size: 52)).foregroundStyle(.red)
             Text("connection_failed").font(.headline)
@@ -546,6 +548,20 @@ struct ConnectionFlowView: View {
             }
             Spacer()
         }
+
+        #if os(macOS)
+        return content
+        #else
+        // 失败详情是多行的完整地址加一句针对性提示,手机横屏下会把重试按钮挤没。
+        // 撑到视口高度是为了装得下时首尾 Spacer 照样居中,竖屏观感不变。
+        return GeometryReader { proxy in
+            ScrollView {
+                content
+                    .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+        #endif
     }
 
     /// 失败页以前只有一句"连接失败"加原始错误 —— 连试的是哪台机器、哪个端口都

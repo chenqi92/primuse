@@ -21,6 +21,7 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
 
     @Environment(\.skin) private var skin
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.pmHeightClass) private var heightClass
     @State private var step = 0
 
     /// - Parameters:
@@ -110,9 +111,12 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
 
             titleBlock
                 .padding(.horizontal, 24)
-                .padding(.bottom, 14)
+                .padding(.bottom, heightClass.value(14, compact: 10))
         }
-        .frame(height: 320)
+        // 手机横屏下整幅内容区只有两百多点高,320 的墙会把曲目整个挤出首屏。
+        // 墙面几何本来就按传进来的尺寸算,收高不改结构:150 里标题块占 46,
+        // 剩下的一条墙面仍能铺满一行封面。
+        .frame(height: heightClass.value(320, compact: 150))
         .frame(maxWidth: .infinity)
         .task(id: isCycling) {
             guard isCycling else { return }
@@ -250,6 +254,7 @@ struct CollectionSingleCoverHeader<Artwork: View, Backdrop: View>: View {
 
     @Environment(\.skin) private var skin
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.pmHeightClass) private var heightClass
 
     /// - Parameters:
     ///   - artwork: 清晰的那张封面,建议 180 见方。
@@ -269,7 +274,8 @@ struct CollectionSingleCoverHeader<Artwork: View, Backdrop: View>: View {
     }
 
     var body: some View {
-        VStack(spacing: 16) {
+        // 封面尺寸由调用处按纵向尺寸等级给;这里只把块间距、上下留白与光晕高度跟着降一档。
+        VStack(spacing: heightClass.value(16, compact: 8)) {
             artwork
                 .shadow(color: Color.black.opacity(0.4), radius: 24, y: 14)
                 .accessibilityHidden(true)
@@ -297,8 +303,8 @@ struct CollectionSingleCoverHeader<Artwork: View, Backdrop: View>: View {
             .accessibilityAddTraits(.isHeader)
         }
         .padding(.horizontal, 24)
-        .padding(.top, 12)
-        .padding(.bottom, 4)
+        .padding(.top, heightClass.value(12, compact: 6))
+        .padding(.bottom, heightClass.value(4, compact: 2))
         .frame(maxWidth: .infinity)
         .background(alignment: .top) {
             if !reduceTransparency {
@@ -306,7 +312,7 @@ struct CollectionSingleCoverHeader<Artwork: View, Backdrop: View>: View {
                     .blur(radius: 46)
                     .saturation(1.4)
                     .opacity(0.5)
-                    .frame(height: 300)
+                    .frame(height: heightClass.value(300, compact: 180))
                     .frame(maxWidth: .infinity)
                     .clipped()
                     .mask {

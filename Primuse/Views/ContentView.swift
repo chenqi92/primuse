@@ -679,6 +679,9 @@ struct ContentView: View {
     /// 走 TabView。iPad 上按 horizontalSizeClass 适配 Stage Manager / 分屏;
     /// iPhone 为什么不切侧边栏见 `AppNavigationLayoutPolicy`。
     @Environment(\.horizontalSizeClass) private var sizeClass
+    /// 手机横屏是紧凑高度。用它把「regular 宽度 = iPad」的旧判断分开:大屏机型横屏
+    /// 也是 regular 宽,但纵向只剩三百多点,不该套 iPad 那一套版面。
+    @Environment(\.pmHeightClass) private var heightClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(AppNavigationMode.storageKey)
     private var navigationModeRawValue = AppNavigationMode.standard.rawValue
@@ -713,6 +716,10 @@ struct ContentView: View {
     @State private var minimalReturningDetailScopes:
         Set<MinimalNavigationDetailScope> = []
     @State private var minimalNavigationCategoriesCollapsed = false
+    /// 手机横屏下的分类行折叠状态,与竖屏那一份分开记。横屏的静止状态是收起,竖屏保留
+    /// 用户自己滚出来的状态;两边各记各的,来回旋转不会把横屏的收起带进竖屏。
+    @State private var minimalNavigationCategoriesCollapsedInCompactHeight =
+        MinimalNavigationChromeMetrics.collapsesCategoriesAtRest(isCompactHeight: true)
     @State private var scraperSettingsRoute = ScraperSettingsRouteState()
     /// 跨年自动弹年度报告的状态。1/1 之后用户首次进 app + 上一年听满 2 个月
     /// 时由 YearlyReportAutoTrigger 触发。
@@ -772,6 +779,20 @@ struct ContentView: View {
 
     private var minimalCollapsibleChromeHeight: CGFloat {
         skin.metric(.chromeChipRowHeight) + skin.metric(.chromeChipRowSpacing)
+    }
+
+    /// 分类行的静止状态是不是收起。
+    private var minimalCategoriesCollapseAtRest: Bool {
+        MinimalNavigationChromeMetrics.collapsesCategoriesAtRest(
+            isCompactHeight: heightClass.isCompact
+        )
+    }
+
+    /// 顶栏与滚动判定共用的折叠状态。按高度等级挑用哪一份,读写都落在同一个 State 上。
+    private var minimalCategoriesCollapsedBinding: Binding<Bool> {
+        heightClass.isCompact
+            ? $minimalNavigationCategoriesCollapsedInCompactHeight
+            : $minimalNavigationCategoriesCollapsed
     }
 
     private var minimalTopNavigationHidden: Bool {
@@ -864,11 +885,21 @@ struct ContentView: View {
             )
             .background {
                 MinimalNavigationScrollObserver(
-                    categoriesCollapsed: $minimalNavigationCategoriesCollapsed,
+                    categoriesCollapsed: minimalCategoriesCollapsedBinding,
                     isEnabled: !minimalTopNavigationHidden,
                     refreshID: selectedTab,
-                    collapsibleChromeHeight: minimalCollapsibleChromeHeight
+                    collapsibleChromeHeight: minimalCollapsibleChromeHeight,
+                    collapsesAtRest: minimalCategoriesCollapseAtRest
                 )
+            }
+            // 每次转进手机横屏都把分类行拨回静止状态。这里只写横屏那一份,竖屏的展开
+            // 与收起是用户自己滚出来的,转回去要原样还给他。
+            .onChange(of: heightClass.isCompact) { _, isCompact in
+                guard isCompact else { return }
+                minimalNavigationCategoriesCollapsedInCompactHeight =
+                    MinimalNavigationChromeMetrics.collapsesCategoriesAtRest(
+                        isCompactHeight: isCompact
+                    )
             }
             .onPreferenceChange(MinimalNavigationDetailScopesPreferenceKey.self) { scopes in
                 minimalDetailScopes = scopes
@@ -887,7 +918,9 @@ struct ContentView: View {
                         onOpenQueue: { showQueueFromBottomChrome = true }
                     )
                 case .classic:
-                    if sizeClass == .regular {
+                    // regular 宽度单独判不出 iPad:大屏机型横屏也是 regular 宽,套上
+                    // iPad 那块圆角板会在 440pt 高的视口里显得又厚又空。
+                    if sizeClass == .regular && !heightClass.isCompact {
                         PadNowPlayingAccessory(onTap: presentNowPlaying)
                     } else {
                         MinimalNowPlayingAccessory(onTap: presentNowPlaying)
@@ -909,7 +942,7 @@ struct ContentView: View {
                 settingsSearchPresented: $settingsSearch.isPresented,
                 searchScope: $searchScope,
                 searchContext: searchContext,
-                categoriesCollapsed: $minimalNavigationCategoriesCollapsed,
+                categoriesCollapsed: minimalCategoriesCollapsedBinding,
                 libraryPages: MinimalNavigationPolicy.chipPages(
                     visibleSections: visibleLibrarySections,
                     showsHome: minimalShowsHome
@@ -1604,6 +1637,8 @@ private struct MinimalNavigationScrollObserver: UIViewRepresentable {
     let refreshID: Int
     /// 折叠时顶栏让出的高度,决定折叠判定的滞回带宽。
     let collapsibleChromeHeight: CGFloat
+    /// 静止状态是不是收起。手机横屏为 true,滚回顶部不再自动展开。
+    let collapsesAtRest: Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -1622,6 +1657,8 @@ private struct MinimalNavigationScrollObserver: UIViewRepresentable {
             collapsedBinding.wrappedValue = collapsed
         }
         context.coordinator.collapsibleChromeHeight = collapsibleChromeHeight
+        // 静止状态要先定下来,随后的同步与换页复位都按它给出的基准走。
+        context.coordinator.collapsesAtRest = collapsesAtRest
         // 顶栏上的分类按钮自己也会改这个值,判定要认用户的手动展开。
         context.coordinator.syncExternalCollapsed(categoriesCollapsed)
         let observationStateChanged = uiView.observesScrolling != isEnabled
@@ -1703,6 +1740,11 @@ private struct MinimalNavigationScrollObserver: UIViewRepresentable {
         weak var scopeView: ScopeView?
         var onCollapsedChange: ((Bool) -> Void)?
         var collapsibleChromeHeight = MinimalNavigationChromeMetrics.collapsibleHeight
+        /// 静止状态是不是收起。判定归 resolver,这里只做转发。
+        var collapsesAtRest: Bool {
+            get { resolver.collapsesAtRest }
+            set { resolver.collapsesAtRest = newValue }
+        }
         private var observations: [ObjectIdentifier: Observation] = [:]
         private var resolver = MinimalNavigationCollapseResolver()
         private var reportedCollapsed = false
@@ -1745,10 +1787,10 @@ private struct MinimalNavigationScrollObserver: UIViewRepresentable {
             observations.removeAll()
         }
 
-        /// 换页后滚动位置完全换了一套,判定从展开重新起算;写回交给随后的刷新,
-        /// 免得在 SwiftUI 的更新过程里改状态。
+        /// 换页后滚动位置完全换了一套,判定回到这一档高度的静止状态重新起算;写回交给
+        /// 随后的刷新,免得在 SwiftUI 的更新过程里改状态。
         func resetForPageChange() {
-            resolver.reset()
+            resolver.reset(isCollapsed: resolver.collapsesAtRest)
         }
 
         /// 顶栏自己把状态改回展开时同步判定,免得下一次采样立刻又折回去。
@@ -1771,8 +1813,10 @@ private struct MinimalNavigationScrollObserver: UIViewRepresentable {
                   scopeView.observesScrolling,
                   scopeView.window != nil else { return }
             guard let scrollView = primaryScrollView() else {
-                resolver.reset()
-                report(false)
+                // 这一页没有能滚的内容,直接回到这一档高度的静止状态。
+                let resting = resolver.collapsesAtRest
+                resolver.reset(isCollapsed: resting)
+                report(resting)
                 return
             }
             let collapsed = resolver.update(
@@ -2488,10 +2532,15 @@ struct LegacyNowPlayingAccessory: View {
 
 struct MinimalNowPlayingAccessory: View {
     var onTap: () -> Void
+    @Environment(\.pmHeightClass) private var heightClass
 
     var body: some View {
-        MiniPlayerView(onTap: onTap)
-            .frame(maxWidth: 620)
+        // 手机横屏下胶囊收窄并靠向尾侧:横贯七百多点的一条厚板会把本来就只剩三百多点
+        // 的版面压得更死,让开之后左侧内容在播放条旁边仍然看得见。
+        let capsuleWidth = heightClass.value(620, compact: 380)
+        let capsuleAlignment = heightClass.pick(Alignment.center, compact: .trailing)
+        return MiniPlayerView(onTap: onTap)
+            .frame(maxWidth: capsuleWidth)
             .background(.ultraThinMaterial, in: Capsule())
             .overlay {
                 Capsule()
@@ -2499,10 +2548,10 @@ struct MinimalNowPlayingAccessory: View {
             }
             .contentShape(Capsule())
             .shadow(color: Color.black.opacity(0.16), radius: 12, y: 6)
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: capsuleAlignment)
             .padding(.horizontal, 16)
-            .padding(.top, 6)
-            .padding(.bottom, 10)
+            .padding(.top, heightClass.value(6, compact: 4))
+            .padding(.bottom, heightClass.value(10, compact: 6))
     }
 }
 

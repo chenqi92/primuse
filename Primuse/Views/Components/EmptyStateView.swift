@@ -59,6 +59,8 @@ struct EmptyStateView: View {
     let actionLabel: LocalizedStringKey?
     let action: (() -> Void)?
 
+    @Environment(\.pmHeightClass) private var heightClass
+
     init(
         titleKey: LocalizedStringKey,
         descriptionKey: LocalizedStringKey? = nil,
@@ -100,7 +102,8 @@ struct EmptyStateView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 32)
+        // 手机横屏纵向只剩三百多点，空态再占 32 的上下留白就会把 CTA 顶出可视区。
+        .padding(.vertical, heightClass.value(32, compact: 16))
         // 空态几乎都是「加载完发现没东西」才出现的，组件内部淡一下，全 App 的空态
         // 就都不再是硬切。只动透明度，不影响调用方的布局。
         .pmAppearFade(.contentAppear)
@@ -113,6 +116,8 @@ struct EmptyStateView: View {
 
 private struct EmptyStateGlyph: View {
     let systemImage: String
+
+    @Environment(\.pmHeightClass) private var heightClass
 
     private var accentSymbol: String {
         switch systemImage {
@@ -132,20 +137,32 @@ private struct EmptyStateGlyph: View {
     }
 
     var body: some View {
+        // 手机横屏收一档。字号、偏移、图标框按同一个系数等比缩 —— 只缩图标框的话，
+        // 右上角那枚副符号会被挤到框外。
+        let scale = heightClass.value(1, compact: 0.75)
+        let accentSize: CGFloat = 24 * scale
+        let accentOffsetX: CGFloat = 28 * scale
+        let accentOffsetY: CGFloat = -22 * scale
+        let mainSize: CGFloat = 54 * scale
+        let mainOffsetX: CGFloat = -3 * scale
+        let mainOffsetY: CGFloat = 4 * scale
+        let boxWidth: CGFloat = 112 * scale
+        let boxHeight: CGFloat = 88 * scale
+
         ZStack {
             Image(systemName: accentSymbol)
-                .font(.system(size: 24, weight: .semibold))
+                .font(.system(size: accentSize, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.secondary.opacity(0.28))
-                .offset(x: 28, y: -22)
+                .offset(x: accentOffsetX, y: accentOffsetY)
 
             Image(systemName: systemImage)
-                .font(.system(size: 54, weight: .semibold))
+                .font(.system(size: mainSize, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.tint)
-                .offset(x: -3, y: 4)
+                .offset(x: mainOffsetX, y: mainOffsetY)
         }
-        .frame(width: 112, height: 88)
+        .frame(width: boxWidth, height: boxHeight)
         .accessibilityHidden(true)
     }
 }

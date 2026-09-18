@@ -21,6 +21,7 @@ IOS_DERIVED_DATA="${IOS_DERIVED_DATA:-$ROOT_DIR/build/DeveloperWorkflow/iOS}"
 MAC_DERIVED_DATA="${MAC_DERIVED_DATA:-$ROOT_DIR/build/DeveloperWorkflow/macOS}"
 TV_DERIVED_DATA="${TV_DERIVED_DATA:-$ROOT_DIR/build/DeveloperWorkflow/tvOS}"
 IOS_APP_PATH="${IOS_APP_PATH:-$IOS_DERIVED_DATA/Build/Products/$IOS_CONFIGURATION-iphoneos/Primuse.app}"
+IOS_SIMULATOR_APP_PATH="${IOS_SIMULATOR_APP_PATH:-$IOS_DERIVED_DATA/Build/Products/$IOS_CONFIGURATION-iphonesimulator/Primuse.app}"
 MAC_APP_PATH="${MAC_APP_PATH:-$MAC_DERIVED_DATA/Build/Products/$MAC_CONFIGURATION/Primuse.app}"
 TV_SIMULATOR_APP_PATH="${TV_SIMULATOR_APP_PATH:-$TV_DERIVED_DATA/Build/Products/$TV_CONFIGURATION-appletvsimulator/PrimuseTV.app}"
 TV_DEVICE_APP_PATH="${TV_DEVICE_APP_PATH:-$TV_DERIVED_DATA/Build/Products/$TV_CONFIGURATION-appletvos/PrimuseTV.app}"
@@ -35,6 +36,7 @@ DEVICE_MODEL=""
 DEVICE_OS=""
 DEVICE_KIND=""
 DEVICE_STATE=""
+SIMULATOR_WINDOW_SHOWN=""
 
 usage() {
     cat <<'EOF'
@@ -46,6 +48,11 @@ usage() {
   scripts/primuse-dev.sh iphone-clean
   scripts/primuse-dev.sh iphone-overwrite
   scripts/primuse-dev.sh devices
+  scripts/primuse-dev.sh sim
+  scripts/primuse-dev.sh sim-install
+  scripts/primuse-dev.sh sim-clean
+  scripts/primuse-dev.sh sim-overwrite
+  scripts/primuse-dev.sh sim-devices
   scripts/primuse-dev.sh tv
   scripts/primuse-dev.sh tv-install
   scripts/primuse-dev.sh tv-clean
@@ -60,6 +67,11 @@ usage() {
   iphone-clean      ios-clean 的兼容别名
   iphone-overwrite  ios-overwrite 的兼容别名
   devices           检查当前可用于开发的 iPhone/iPad
+  sim               编译、覆盖安装并启动到 iOS 模拟器
+  sim-install       选择 iOS 模拟器，再交互选择安装方式
+  sim-clean         编译后完全重装到 iOS 模拟器，会清除 App 本地数据
+  sim-overwrite     sim 的明确别名，覆盖安装并保留 App 本地数据
+  sim-devices       列出 iOS 模拟器及能否运行 App
   tv                编译、覆盖安装并启动 tvOS App（模拟器或真机）
   tv-install        选择 tvOS 模拟器或真机，再交互选择安装方式
   tv-clean          编译后完全重装 tvOS App，会清除 App 本地数据
@@ -70,6 +82,7 @@ usage() {
 可选环境变量：
   DEVICE_ID               目标设备名称、CoreDevice ID 或 UDID；未设置时自动发现
   TV_DEVICE_ID            tvOS 目标设备名称、CoreDevice ID 或 UDID；优先于 DEVICE_ID
+  SIM_DEVICE_ID           iOS 模拟器名称或 UDID；未设置时交互选择
   IOS_CONFIGURATION       iOS 构建配置，默认 Debug
   MAC_CONFIGURATION       macOS 构建配置，默认 Debug
   TV_CONFIGURATION        tvOS 构建配置，默认 Debug
@@ -563,6 +576,383 @@ interactive_ios_install() {
     done
 }
 
+ios_deployment_target() {
+    # 与 project.yml 里的 deploymentTarget.iOS 保持一致，低于它的模拟器装不上 App。
+    sed -n 's/^    iOS: "\([0-9.]*\)"$/\1/p' "$ROOT_DIR/project.yml" 2>/dev/null | head -n 1 || true
+}
+
+version_at_least() {
+    local actual_parts
+    local required_parts
+    IFS=. read -r -a actual_parts <<< "$1"
+    IFS=. read -r -a required_parts <<< "$2"
+
+    local index
+    local actual
+    local required
+    for ((index = 0; index < ${#actual_parts[@]} || index < ${#required_parts[@]}; index++)); do
+        actual="${actual_parts[$index]:-0}"
+        required="${required_parts[$index]:-0}"
+        if [[ ! "$actual" =~ ^[0-9]+$ || ! "$required" =~ ^[0-9]+$ ]]; then
+            return 0
+        fi
+        if ((10#$actual > 10#$required)); then
+            return 0
+        fi
+        if ((10#$actual < 10#$required)); then
+            return 1
+        fi
+    done
+    return 0
+}
+
+load_ios_simulators() {
+    SIM_DEVICE_NAMES=()
+    SIM_DEVICE_OSES=()
+    SIM_DEVICE_UDIDS=()
+    SIM_DEVICE_STATES=()
+    SIM_DEVICE_READY=()
+    SIM_DEVICE_REASONS=()
+
+    echo "正在读取 iOS 模拟器列表……"
+
+    local simctl_output
+    if ! simctl_output="$(xcrun simctl list devices available 2>/dev/null)"; then
+        echo "无法读取 iOS 模拟器列表。请检查 Xcode 命令行工具。" >&2
+        exit 1
+    fi
+
+    local minimum_os
+    minimum_os="$(ios_deployment_target)"
+
+    local in_ios_section="false"
+    local simulator_os=""
+    local line
+    local runtime_pattern='^-- iOS ([^[:space:]]+) --$'
+    local simulator_pattern='^[[:space:]]*(.*[^[:space:]])[[:space:]]+[(]([0-9A-Fa-f-]{36})[)][[:space:]]+[(]([^()]*)[)][[:space:]]*$'
+    while IFS= read -r line; do
+        if [[ "$line" =~ $runtime_pattern ]]; then
+            in_ios_section="true"
+            simulator_os="${BASH_REMATCH[1]}"
+            continue
+        fi
+        if [[ "$line" == "-- "* ]]; then
+            in_ios_section="false"
+            continue
+        fi
+        if [[ "$in_ios_section" != "true" || ! "$line" =~ $simulator_pattern ]]; then
+            continue
+        fi
+
+        local simulator_name="${BASH_REMATCH[1]}"
+        local simulator_udid="${BASH_REMATCH[2]}"
+        local simulator_state="${BASH_REMATCH[3]}"
+        local simulator_ready="false"
+        local simulator_reason=""
+        if [[ -n "$minimum_os" ]] && ! version_at_least "$simulator_os" "$minimum_os"; then
+            simulator_reason="低于 App 最低要求 iOS ${minimum_os}"
+        elif [[ "$simulator_state" == "Booted" || "$simulator_state" == "Shutdown" ]]; then
+            simulator_ready="true"
+        else
+            simulator_reason="模拟器状态：${simulator_state}"
+        fi
+
+        SIM_DEVICE_NAMES+=("$simulator_name")
+        SIM_DEVICE_OSES+=("$simulator_os")
+        SIM_DEVICE_UDIDS+=("$simulator_udid")
+        SIM_DEVICE_STATES+=("$simulator_state")
+        SIM_DEVICE_READY+=("$simulator_ready")
+        SIM_DEVICE_REASONS+=("$simulator_reason")
+    done <<< "$simctl_output"
+}
+
+print_ios_simulator() {
+    local index="$1"
+    local state="${SIM_DEVICE_STATES[$index]}"
+    case "$state" in
+        Booted) state="已启动" ;;
+        Shutdown) state="已关机" ;;
+    esac
+    printf "%s — iOS %s 模拟器 — %s — %s" \
+        "${SIM_DEVICE_NAMES[$index]}" \
+        "${SIM_DEVICE_OSES[$index]}" \
+        "$state" \
+        "${SIM_DEVICE_UDIDS[$index]}"
+}
+
+select_ios_simulator_at_index() {
+    local index="$1"
+    DEVICE_NAME="${SIM_DEVICE_NAMES[$index]}"
+    DEVICE_OS="${SIM_DEVICE_OSES[$index]}"
+    DEVICE_UDID="${SIM_DEVICE_UDIDS[$index]}"
+    DEVICE_STATE="${SIM_DEVICE_STATES[$index]}"
+    DEVICE_KIND="simulator"
+    DEVICE_CORE_ID=""
+
+    echo "目标设备：${DEVICE_NAME} — iOS ${DEVICE_OS} 模拟器"
+    echo "Xcode 构建 UDID：${DEVICE_UDID}"
+}
+
+show_ios_simulators() {
+    load_ios_simulators
+
+    if [[ ${#SIM_DEVICE_NAMES[@]} -eq 0 ]]; then
+        echo "没有发现可用的 iOS 模拟器。请在 Xcode 中安装 iOS Runtime 后重试。" >&2
+        return 1
+    fi
+
+    echo
+    echo "已发现的 iOS 模拟器："
+    local index
+    for ((index = 0; index < ${#SIM_DEVICE_NAMES[@]}; index++)); do
+        printf "%s" "- "
+        print_ios_simulator "$index"
+        if [[ "${SIM_DEVICE_READY[$index]}" == "true" ]]; then
+            echo "（可用）"
+        else
+            printf "（不可用：%s）\n" "${SIM_DEVICE_REASONS[$index]}"
+        fi
+    done
+}
+
+select_ios_simulator() {
+    load_ios_simulators
+
+    if [[ ${#SIM_DEVICE_NAMES[@]} -eq 0 ]]; then
+        echo "没有发现可用的 iOS 模拟器。请在 Xcode 中安装 iOS Runtime 后重试。" >&2
+        exit 1
+    fi
+
+    local index
+    local match_index=-1
+    local match_count=0
+    if [[ -n "${SIM_DEVICE_ID:-}" ]]; then
+        for ((index = 0; index < ${#SIM_DEVICE_NAMES[@]}; index++)); do
+            if [[ "$SIM_DEVICE_ID" == "${SIM_DEVICE_NAMES[$index]}" || \
+                  "$SIM_DEVICE_ID" == "${SIM_DEVICE_UDIDS[$index]}" ]]; then
+                match_index="$index"
+                match_count=$((match_count + 1))
+            fi
+        done
+
+        if [[ $match_count -eq 0 ]]; then
+            echo "找不到 SIM_DEVICE_ID 指定的 iOS 模拟器：$SIM_DEVICE_ID" >&2
+            exit 1
+        fi
+        if [[ $match_count -gt 1 ]]; then
+            echo "模拟器名称匹配到多台（不同系统版本），请改用 UDID。" >&2
+            exit 1
+        fi
+        if [[ "${SIM_DEVICE_READY[$match_index]}" != "true" ]]; then
+            echo "目标模拟器当前不可用：${SIM_DEVICE_REASONS[$match_index]}。" >&2
+            exit 1
+        fi
+
+        select_ios_simulator_at_index "$match_index"
+        return
+    fi
+
+    local ready_indices=()
+    for ((index = 0; index < ${#SIM_DEVICE_NAMES[@]}; index++)); do
+        if [[ "${SIM_DEVICE_READY[$index]}" == "true" ]]; then
+            ready_indices+=("$index")
+        fi
+    done
+
+    if [[ ${#ready_indices[@]} -eq 0 ]]; then
+        echo "没有可以运行 App 的 iOS 模拟器。" >&2
+        for ((index = 0; index < ${#SIM_DEVICE_NAMES[@]}; index++)); do
+            printf "%s" "- " >&2
+            print_ios_simulator "$index" >&2
+            printf "（%s）\n" "${SIM_DEVICE_REASONS[$index]}" >&2
+        done
+        exit 1
+    fi
+
+    if [[ ${#ready_indices[@]} -eq 1 ]]; then
+        select_ios_simulator_at_index "${ready_indices[0]}"
+        return
+    fi
+
+    echo
+    echo "可用的 iOS 模拟器："
+    local selection_number
+    for ((index = 0; index < ${#ready_indices[@]}; index++)); do
+        selection_number=$((index + 1))
+        printf "%d) " "$selection_number"
+        print_ios_simulator "${ready_indices[$index]}"
+        echo
+    done
+
+    local selection
+    local selected_index=-1
+    local selection_match_count
+    while [[ $selected_index -lt 0 ]]; do
+        echo
+        printf "请选择目标模拟器（输入序号、名称或 UDID，q 退出）："
+        if ! IFS= read -r selection; then
+            echo
+            echo "未选择模拟器，操作已取消。" >&2
+            exit 1
+        fi
+
+        if [[ "$selection" == "q" || "$selection" == "Q" ]]; then
+            echo "操作已取消。"
+            exit 0
+        fi
+
+        if [[ "$selection" =~ ^[0-9]+$ ]]; then
+            if [[ "$selection" -ge 1 && "$selection" -le ${#ready_indices[@]} ]]; then
+                selected_index="${ready_indices[$((selection - 1))]}"
+                break
+            fi
+        else
+            selection_match_count=0
+            for ((index = 0; index < ${#ready_indices[@]}; index++)); do
+                local candidate_index="${ready_indices[$index]}"
+                if [[ "$selection" == "${SIM_DEVICE_NAMES[$candidate_index]}" || \
+                      "$selection" == "${SIM_DEVICE_UDIDS[$candidate_index]}" ]]; then
+                    selected_index="$candidate_index"
+                    selection_match_count=$((selection_match_count + 1))
+                fi
+            done
+
+            if [[ $selection_match_count -gt 1 ]]; then
+                selected_index=-1
+                echo "模拟器名称匹配到多台（不同系统版本），请改用序号或 UDID。" >&2
+                continue
+            fi
+        fi
+
+        if [[ $selected_index -lt 0 ]]; then
+            echo "无法识别模拟器：${selection}。请输入列表序号、名称或 UDID。" >&2
+        fi
+    done
+
+    select_ios_simulator_at_index "$selected_index"
+}
+
+build_ios_simulator() {
+    echo
+    echo "正在为 ${DEVICE_NAME} 模拟器编译 App（${IOS_CONFIGURATION}）……"
+    xcodebuild \
+        -project "$PROJECT_PATH" \
+        -scheme "$IOS_SCHEME" \
+        -configuration "$IOS_CONFIGURATION" \
+        -destination "id=$DEVICE_UDID" \
+        -derivedDataPath "$IOS_DERIVED_DATA" \
+        build
+
+    if [[ ! -d "$IOS_SIMULATOR_APP_PATH" ]]; then
+        echo "编译完成，但找不到 App：$IOS_SIMULATOR_APP_PATH" >&2
+        exit 1
+    fi
+}
+
+install_ios_simulator() {
+    echo
+    echo "正在安装到 ${DEVICE_NAME} 模拟器……"
+    prepare_simulator
+    xcrun simctl install "$DEVICE_UDID" "$IOS_SIMULATOR_APP_PATH"
+}
+
+launch_ios_simulator() {
+    echo
+    echo "正在启动 ${DEVICE_NAME} 模拟器上的 App……"
+    prepare_simulator
+    if xcrun simctl launch --terminate-running-process "$DEVICE_UDID" "$BUNDLE_ID"; then
+        echo "${DEVICE_NAME} 模拟器上的 App 已安装并启动。"
+        return
+    fi
+
+    echo "App 已安装，但自动启动失败。请在模拟器中手动启动，或重新运行此操作。" >&2
+    return 1
+}
+
+ensure_ios_simulator_selected() {
+    if [[ "$DEVICE_KIND" != "simulator" || -z "$DEVICE_UDID" ]]; then
+        select_ios_simulator
+    fi
+}
+
+sim_clean_install() {
+    ensure_ios_simulator_selected
+
+    echo
+    echo "警告：下一步会卸载 ${BUNDLE_ID}，并删除它在 ${DEVICE_NAME} 模拟器上的全部本地数据。"
+    printf "输入 DELETE 继续完全重装："
+    local confirmation
+    if ! IFS= read -r confirmation; then
+        echo
+        echo "未确认删除，操作已取消；现有 App 和数据未变更。"
+        return
+    fi
+    if [[ "$confirmation" != "DELETE" ]]; then
+        echo "未确认删除，操作已取消；现有 App 和数据未变更。"
+        return
+    fi
+
+    build_ios_simulator
+
+    echo
+    echo "正在卸载旧 App 和本地数据……"
+    prepare_simulator
+    if xcrun simctl get_app_container "$DEVICE_UDID" "$BUNDLE_ID" app >/dev/null 2>&1; then
+        xcrun simctl uninstall "$DEVICE_UDID" "$BUNDLE_ID"
+    else
+        echo "目标模拟器尚未安装此 App，将直接安装。"
+    fi
+
+    install_ios_simulator
+    launch_ios_simulator
+}
+
+sim_overwrite_install() {
+    ensure_ios_simulator_selected
+    build_ios_simulator
+    install_ios_simulator
+    launch_ios_simulator
+}
+
+interactive_sim_install() {
+    select_ios_simulator
+
+    while true; do
+        echo
+        echo "请选择安装方式："
+        echo "1) 覆盖安装（保留 App 本地数据）"
+        echo "2) 完全重装（清除 App 本地数据）"
+        echo "q) 取消"
+        echo
+        printf "请选择："
+
+        local install_selection
+        if ! IFS= read -r install_selection; then
+            echo
+            echo "未选择安装方式，操作已取消。"
+            return
+        fi
+
+        case "$install_selection" in
+            1)
+                sim_overwrite_install
+                return
+                ;;
+            2)
+                sim_clean_install
+                return
+                ;;
+            q|Q)
+                echo "操作已取消。"
+                return
+                ;;
+            *)
+                echo "无效选项：${install_selection}" >&2
+                ;;
+        esac
+    done
+}
+
 load_tv_devices() {
     TV_DEVICE_NAMES=()
     TV_DEVICE_MODELS=()
@@ -943,7 +1333,7 @@ build_tv() {
     fi
 }
 
-prepare_tv_simulator() {
+prepare_simulator() {
     if [[ "$DEVICE_KIND" != "simulator" ]]; then
         return
     fi
@@ -954,14 +1344,43 @@ prepare_tv_simulator() {
     fi
     xcrun simctl bootstatus "$DEVICE_UDID" -b
     DEVICE_STATE="Booted"
-    /usr/bin/open -a Simulator --args -CurrentDeviceUDID "$DEVICE_UDID"
+    show_simulator_window
+}
+
+show_simulator_window() {
+    if [[ -n "$SIMULATOR_WINDOW_SHOWN" ]]; then
+        return
+    fi
+    SIMULATOR_WINDOW_SHOWN="true"
+
+    # Xcode 26 及更早用 Developer/Applications/Simulator.app；Xcode 27 起换成
+    # Contents/Applications/DeviceHub.app，打开指定设备要走 devices:// 链接。
+    # 窗口只是方便查看，打不开也不影响 simctl 安装和启动。
+    local developer_dir
+    developer_dir="$(xcode-select -p 2>/dev/null || true)"
+    local simulator_app="$developer_dir/Applications/Simulator.app"
+    local device_hub_app="${developer_dir%/Developer}/Applications/DeviceHub.app"
+
+    if [[ -n "$developer_dir" && -d "$simulator_app" ]]; then
+        if /usr/bin/open -a "$simulator_app" --args -CurrentDeviceUDID "$DEVICE_UDID"; then
+            return
+        fi
+    elif [[ -n "$developer_dir" && -d "$device_hub_app" ]]; then
+        if /usr/bin/open "devices://device/open?id=$DEVICE_UDID" || /usr/bin/open -a "$device_hub_app"; then
+            return
+        fi
+    elif /usr/bin/open -a Simulator --args -CurrentDeviceUDID "$DEVICE_UDID" 2>/dev/null; then
+        return
+    fi
+
+    echo "没能打开 Simulator 或 Device Hub 窗口，继续在后台安装和启动 App。" >&2
 }
 
 install_tv() {
     echo
     echo "正在安装到 ${DEVICE_NAME}……"
     if [[ "$DEVICE_KIND" == "simulator" ]]; then
-        prepare_tv_simulator
+        prepare_simulator
         xcrun simctl install "$DEVICE_UDID" "$TV_APP_PATH"
     else
         xcrun devicectl device install app \
@@ -975,7 +1394,7 @@ launch_tv() {
     echo
     echo "正在启动 ${DEVICE_NAME} 上的 tvOS App……"
     if [[ "$DEVICE_KIND" == "simulator" ]]; then
-        prepare_tv_simulator
+        prepare_simulator
         if xcrun simctl launch --terminate-running-process "$DEVICE_UDID" "$TV_BUNDLE_ID"; then
             echo "${DEVICE_NAME} 模拟器上的 tvOS App 已安装并启动。"
             return
@@ -1021,7 +1440,7 @@ tv_clean_install() {
     echo
     echo "正在卸载旧 tvOS App 和本地数据……"
     if [[ "$DEVICE_KIND" == "simulator" ]]; then
-        prepare_tv_simulator
+        prepare_simulator
         if xcrun simctl get_app_container "$DEVICE_UDID" "$TV_BUNDLE_ID" app >/dev/null 2>&1; then
             xcrun simctl uninstall "$DEVICE_UDID" "$TV_BUNDLE_ID"
         else
@@ -1115,6 +1534,8 @@ interactive_action() {
     echo "3) 编译并启动 macOS"
     echo "4) 检查 iPhone/iPad 连接状态"
     echo "5) 检查 tvOS 模拟器和 Apple TV 真机"
+    echo "6) 选择 iOS 模拟器并安装"
+    echo "7) 检查 iOS 模拟器"
     echo "q) 退出"
     echo
     printf "请选择操作："
@@ -1132,6 +1553,8 @@ interactive_action() {
         3) SELECTED_ACTION="mac" ;;
         4) SELECTED_ACTION="devices" ;;
         5) SELECTED_ACTION="tv-devices" ;;
+        6) SELECTED_ACTION="sim-install" ;;
+        7) SELECTED_ACTION="sim-devices" ;;
         q|Q) SELECTED_ACTION="quit" ;;
         *)
             echo "无效选项：$selection" >&2
@@ -1187,6 +1610,22 @@ main() {
             require_command xcrun
             require_command plutil
             show_ios_devices
+            ;;
+        sim|sim-overwrite)
+            require_command xcrun
+            sim_overwrite_install
+            ;;
+        sim-install)
+            require_command xcrun
+            interactive_sim_install
+            ;;
+        sim-clean)
+            require_command xcrun
+            sim_clean_install
+            ;;
+        sim-devices)
+            require_command xcrun
+            show_ios_simulators
             ;;
         tv|tv-overwrite)
             require_command xcrun

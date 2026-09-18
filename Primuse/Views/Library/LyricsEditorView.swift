@@ -2641,7 +2641,7 @@ struct LyricsEditorView: View {
         let baseline = shiftBaseline ?? document
         let maxBackward = baseline.maximumBackwardShift
 
-        return VStack(spacing: 16) {
+        let panelContent = VStack(spacing: 16) {
             Text(String(localized: "lyrics_editor_shift_all"))
                 .font(.headline)
 
@@ -2698,10 +2698,22 @@ struct LyricsEditorView: View {
         }
         .padding(24)
         .frame(minWidth: 320)
+
         #if os(macOS)
-        .frame(width: 380)
+        return panelContent.frame(width: 380)
         #else
-        .presentationDetents([.medium])
+        // 内容自然高三百六十多点，手机横屏放不下；补上 .large 让面板能拉满，
+        // 再包一层滚动视图兜住「取消 / 完成」这两颗普通按钮 —— 它们不在工具栏里，
+        // 被挤出可视区就没有别的退路。
+        // 撑到视口高度是为了装得下时仍然居中，竖屏的观感和原来一样。
+        return GeometryReader { proxy in
+            ScrollView {
+                panelContent
+                    .frame(minHeight: proxy.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+        .presentationDetents([.medium, .large])
         #endif
     }
 

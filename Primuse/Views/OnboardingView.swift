@@ -9,8 +9,8 @@ private struct MacOnboardingProtocolGroup: Identifiable {
 }
 #endif
 
-/// 首启引导。iOS 只展示具体能力：
-/// 「音乐源 → 元数据增强 → 播放体验 → 个性化」。
+/// 首启引导。iOS 只展示具体能力，并带两页照真实界面画的操作示意：
+/// 「音乐源 → 怎么添加音乐源 → 播放页怎么用 → 元数据增强 → 播放体验 → 个性化」。
 /// 设置页也能以 feature-guide 模式重新打开。
 /// 任何路径关闭后都把 `primuse.hasSeenOnboarding` 写 true，后续启动不再弹。
 ///
@@ -25,12 +25,13 @@ struct OnboardingView: View {
     @State private var pageIndex = 0
     @State private var presentAddSource = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.pmHeightClass) private var heightClass
 
     private var pageCount: Int {
         #if os(macOS)
         3
         #else
-        4
+        6
         #endif
     }
 
@@ -85,14 +86,24 @@ struct OnboardingView: View {
             )
             .ignoresSafeArea()
 
-            VStack {
-                Spacer()
+            // 紧凑高度（手机横屏）下纵向只剩三百多点：这里的各项留白都收一档，
+            // 把省下来的高度全留给分页区。
+            VStack(spacing: heightClass.isCompact ? 0 : nil) {
+                // 竖屏靠它把内容压向下半屏；横屏下这一格会跟分页区平分高度，
+                // 白吃掉一半，页面上下各被裁掉一截。
+                if !heightClass.isCompact {
+                    Spacer()
+                }
 
                 TabView(selection: $pageIndex) {
                     sourcesPage.tag(0)
-                    metadataPage.tag(1)
-                    experiencePage.tag(2)
-                    personalizationPage.tag(3)
+                    #if os(iOS)
+                    OnboardingSourcesGuidePage(isActive: pageIndex == 1).tag(1)
+                    OnboardingPlayerGuidePage(isActive: pageIndex == 2).tag(2)
+                    #endif
+                    metadataPage.tag(3)
+                    experiencePage.tag(4)
+                    personalizationPage.tag(5)
                 }
                 #if os(iOS)
                 .tabViewStyle(.page(indexDisplayMode: .never))
@@ -103,8 +114,9 @@ struct OnboardingView: View {
                     .padding(.bottom, 8)
 
                 bottomButtons
+                    .frame(maxWidth: heightClass.value(.infinity, compact: 480))
                     .padding(.horizontal, 32)
-                    .padding(.bottom, 36)
+                    .padding(.bottom, heightClass.value(36, compact: 16))
             }
         }
         #endif
@@ -347,7 +359,7 @@ struct OnboardingView: View {
     private var macProtocolGroups: [MacOnboardingProtocolGroup] {
         [
             MacOnboardingProtocolGroup(title: String(localized: "onboarding_mac_group_local"), items: ["SMB / CIFS", "WebDAV", "SFTP", "FTP", "NFS", "S3", "UPnP / DLNA"]),
-            MacOnboardingProtocolGroup(title: String(localized: "onboarding_mac_group_media_server"), items: ["Jellyfin", "Emby", "Plex", "Synology Audio Station", "QNAP", "UGREEN UGOS · API pending", "fnOS · API pending"]),
+            MacOnboardingProtocolGroup(title: String(localized: "onboarding_mac_group_media_server"), items: ["Navidrome", "Jellyfin", "Emby", "Plex", "Synology Audio Station", "QNAP", MusicSourceType.fnMusic.displayName]),
             MacOnboardingProtocolGroup(title: String(localized: "onboarding_mac_group_cloud"), items: ["123 Pan", "Baidu Pan", "Aliyun Drive", "Google Drive", "OneDrive", "Dropbox"]),
             MacOnboardingProtocolGroup(title: String(localized: "onboarding_mac_group_other"), items: ["Apple Music", String(localized: "onboarding_mac_source_local_file")]),
         ]
@@ -410,11 +422,8 @@ struct OnboardingView: View {
     #endif
 
     private var sourcesPage: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "externaldrive.fill.badge.icloud")
-                .font(.system(size: 80, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.top, 12)
+        VStack(spacing: heightClass.value(24, compact: 16)) {
+            onboardingHeroIcon("externaldrive.fill.badge.icloud")
 
             Text(String(localized: "onboarding_sources_title"))
                 .font(.system(size: 28, weight: .bold))
@@ -435,14 +444,12 @@ struct OnboardingView: View {
                 .foregroundStyle(.white.opacity(0.65))
                 .padding(.horizontal, 24)
         }
+        .onboardingCompactScroll()
     }
 
     private var metadataPage: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "wand.and.stars")
-                .font(.system(size: 80, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.top, 12)
+        VStack(spacing: heightClass.value(24, compact: 16)) {
+            onboardingHeroIcon("wand.and.stars")
 
             Text(String(localized: "onboarding_metadata_title"))
                 .font(.system(size: 28, weight: .bold))
@@ -462,14 +469,12 @@ struct OnboardingView: View {
                 .foregroundStyle(.white.opacity(0.65))
                 .padding(.horizontal, 24)
         }
+        .onboardingCompactScroll()
     }
 
     private var experiencePage: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "play.rectangle.on.rectangle.fill")
-                .font(.system(size: 80, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.top, 12)
+        VStack(spacing: heightClass.value(24, compact: 16)) {
+            onboardingHeroIcon("play.rectangle.on.rectangle.fill")
 
             Text(String(localized: "onboarding_experience_title"))
                 .font(.system(size: 28, weight: .bold))
@@ -489,14 +494,12 @@ struct OnboardingView: View {
                 .foregroundStyle(.white.opacity(0.65))
                 .padding(.horizontal, 24)
         }
+        .onboardingCompactScroll()
     }
 
     private var personalizationPage: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "paintpalette.fill")
-                .font(.system(size: 80, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.top, 12)
+        VStack(spacing: heightClass.value(24, compact: 16)) {
+            onboardingHeroIcon("paintpalette.fill")
 
             Text(String(localized: "onboarding_personalization_title"))
                 .font(.system(size: 28, weight: .bold))
@@ -516,6 +519,15 @@ struct OnboardingView: View {
                 .foregroundStyle(.white.opacity(0.65))
                 .padding(.horizontal, 24)
         }
+        .onboardingCompactScroll()
+    }
+
+    /// 四页共用的插画。紧凑高度下分页区只剩两百多点，80pt 的符号会把标题和清单挤出首屏。
+    private func onboardingHeroIcon(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: heightClass.value(80, compact: 44), weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.top, heightClass.value(12, compact: 2))
     }
 
     private func onboardingRow(_ icon: String, _ key: String) -> some View {
@@ -566,7 +578,7 @@ struct OnboardingView: View {
             Button {
                 finish()
             } label: {
-                Text("close")
+                Text("skip")
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.78))
                     .frame(maxWidth: .infinity)
@@ -581,6 +593,35 @@ struct OnboardingView: View {
     private func finish() {
         hasSeenOnboarding = true
         dismiss()
+    }
+}
+
+/// 紧凑高度（手机横屏）下把整页放进竖向滚动里：分页区只剩两百多点，
+/// 原来的居中竖排会上下各被裁掉一截，而且滚不到。
+/// 横向留白同时收到与两页操作示意一致的 480pt，免得一行清单摊成七百多点宽。
+/// 竖屏与 iPad 走原来那一支，版式不变。
+private struct OnboardingCompactScroll: ViewModifier {
+    @Environment(\.pmHeightClass) private var heightClass
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if heightClass.isCompact {
+            ScrollView(.vertical, showsIndicators: false) {
+                content
+                    .frame(maxWidth: 480)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        } else {
+            content
+        }
+    }
+}
+
+private extension View {
+    func onboardingCompactScroll() -> some View {
+        modifier(OnboardingCompactScroll())
     }
 }
 

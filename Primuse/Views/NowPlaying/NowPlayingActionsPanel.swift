@@ -21,6 +21,10 @@ struct NowPlayingMoreActions {
     let toggleLyricsTranslation: () -> Void
     let showSleepTimer: () -> Void
     let delete: () -> Void
+    /// 只在传输键那一行放不下随机 / 循环时(手机窄横屏)用得上,由快照的
+    /// `showsPlaybackModeActions` 决定露不露。
+    let toggleShuffle: () -> Void
+    let cycleRepeatMode: () -> Void
 }
 
 /// 播放页「更多」的分组面板(`SkinSlotVariant.PlayerStage.sheetActions`)。
@@ -54,6 +58,8 @@ struct NowPlayingActionsPanel: View {
                     .padding(.bottom, 16)
 
                 quickTiles
+
+                playbackModeRow
 
                 sectionTitle("now_playing_panel_song_section")
                 LazyVGrid(columns: columns, spacing: 8) {
@@ -226,6 +232,43 @@ struct NowPlayingActionsPanel: View {
                 .disabled(!snapshot.hasSong)
                 .opacity(snapshot.hasSong ? 1 : 0.4)
             }
+        }
+    }
+
+    /// 手机窄横屏下传输键那一行放不下随机与循环,面板补上这两项;其余场合整行不出现。
+    /// 两者都是就地切换,不收起面板 —— 状态就在按钮上,连着点两下才看得出循环的三档。
+    @ViewBuilder
+    private var playbackModeRow: some View {
+        if snapshot.showsPlaybackModeActions {
+            LazyVGrid(columns: columns, spacing: 8) {
+                Button(action: actions.toggleShuffle) {
+                    cellLabel(
+                        "shuffle",
+                        snapshot.isShuffleEnabled ? "shuffle.circle.fill" : "shuffle",
+                        tint: snapshot.isShuffleEnabled ? skin.color(.accent) : nil
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Button(action: actions.cycleRepeatMode) {
+                    cellLabel(
+                        "repeat",
+                        Self.repeatSymbol(for: snapshot.repeatMode),
+                        tint: snapshot.repeatMode == .off ? nil : skin.color(.accent)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.top, 8)
+        }
+    }
+
+    /// 循环模式当前状态对应的图标,与系统菜单里那份保持一致。
+    private static func repeatSymbol(for mode: RepeatMode) -> String {
+        switch mode {
+        case .off: return "repeat"
+        case .all: return "repeat.circle.fill"
+        case .one: return "repeat.1.circle.fill"
         }
     }
 

@@ -75,10 +75,10 @@
 "onboarding_welcome_title" = "당신의 음악, 당신의 서버";
 "onboarding_welcome_subtitle" = "Primuse는 당신의 NAS, 클라우드 드라이브, 홈 네트워크에서 음악을 재생합니다. 파일을 어디에도 업로드하지 않습니다.";
 "onboarding_sources_title" = "음악을 한곳에";
-"onboarding_sources_nas" = "Synology, QNAP, SMB / NFS 공유 · 범용 Ugreen/fnOS 파일 API는 미공개이며 Feiniu Music은 별도 소스입니다";
+"onboarding_sources_nas" = "Synology·QNAP NAS, SMB / NFS 공유, 그리고 Audio Station, Feiniu Music 같은 NAS 음악 서비스";
 "onboarding_sources_cloud" = "123 Pan, Baidu Pan, Aliyun Drive 등";
 "onboarding_sources_apple_music" = "Apple Music을 선택적으로 연결해 라이브러리와 함께 탐색";
-"onboarding_sources_network" = "WebDAV, SFTP, Jellyfin, UPnP / DLNA 등";
+"onboarding_sources_network" = "Navidrome, Jellyfin, Emby, WebDAV, SFTP, UPnP / DLNA 등";
 "onboarding_sources_webdav" = "WebDAV, FTP, SFTP — 비밀번호 보호 지원";
 "onboarding_sources_dlna" = "네트워크의 UPnP / DLNA 미디어 서버";
 "onboarding_sources_footer" = "언제든지 원하는 만큼 추가할 수 있습니다.";
@@ -2061,7 +2061,7 @@
 "onboarding_mac_privacy_title" = "개인정보 약속";
 "onboarding_mac_privacy_desc" = "Primuse는 보관함을 어떤 클라우드 서비스에도 업로드하지 않습니다. 재생 기록, 통계, 설정은 모두 사용자의 iCloud를 통해서만 동기화됩니다. OAuth는 항상 시스템 브라우저를 통하며, 비밀번호를 수집하기 위해 WebView를 삽입하지 않습니다.";
 "onboarding_mac_sources_title" = "어디서든";
-"onboarding_mac_sources_desc" = "Primuse는 21가지 연결 방식을 지원합니다 · 원하는 만큼 소스를 추가하면 하나의 통합 보관함으로 병합됩니다.";
+"onboarding_mac_sources_desc" = "NAS, 미디어 서버, 클라우드 드라이브, 일반 파일 프로토콜에 연결할 수 있습니다 · 원하는 만큼 소스를 추가하면 하나의 통합 보관함으로 병합됩니다.";
 "onboarding_mac_group_local" = "로컬 프로토콜";
 "onboarding_mac_group_media_server" = "미디어 서버";
 "onboarding_mac_group_cloud" = "클라우드 드라이브";
@@ -2322,6 +2322,17 @@
 "onboarding_personalization_home" = "홈 섹션을 표시하거나 숨기고 순서를 변경";
 "onboarding_personalization_quick" = "앨범, 아티스트 및 재생목록을 빠른 항목으로 지정";
 "onboarding_personalization_footer" = "이 옵션은 언제든지 다시 변경할 수 있습니다.";
+"onboarding_guide_sources_title" = "3단계로 소스 추가하기";
+"onboarding_guide_sources_step1 %@" = "“%@”에서 오른쪽 위의 +를 탭하고 소스 유형을 선택하세요";
+"onboarding_guide_sources_step2" = "서버 주소만 입력하면 포트와 암호화 방식은 자동으로 확인됩니다";
+"onboarding_guide_sources_step3 %@" = "음악이 들어 있는 폴더를 선택한 뒤 “%@” 버튼을 탭하면 스캔이 시작됩니다";
+"onboarding_guide_sources_footer" = "클라우드 드라이브는 안내에 따라 로그인하기만 하면 됩니다. Navidrome, Jellyfin 같은 미디어 서버는 로그인 후 전체 보관함을 동기화하므로 폴더를 고를 필요가 없습니다.";
+"onboarding_guide_player_title" = "재생 화면 사용법";
+"onboarding_guide_player_subtitle" = "어느 화면에서든 하단의 재생 막대를 탭하면 재생 화면이 열립니다.";
+"onboarding_guide_player_lyrics" = "가사: 노래에 맞춰 스크롤되며 단어별 강조와 번역을 지원합니다";
+"onboarding_guide_player_airplay" = "AirPlay: 스피커, 헤드폰 또는 Apple TV로 전환";
+"onboarding_guide_player_queue" = "대기열: 길게 누른 채 드래그해 다음 재생 순서를 바꿀 수 있습니다";
+"onboarding_guide_player_more" = "더 보기: DLNA 기기로 캐스트, 잠자기 타이머, 가사 포스터 공유";
 
 // MARK: - macOS settings i18n audit
 "Auto Add to Smart Playlists" = "스마트 재생목록에 자동 추가";

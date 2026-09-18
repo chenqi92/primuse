@@ -2110,7 +2110,7 @@
 "onboarding_mac_privacy_title" = "สัญญาความเป็นส่วนตัว";
 "onboarding_mac_skip" = "ข้ามคำนำ";
 "onboarding_mac_source_local_file" = "ไฟล์ในเครื่อง / iCloud ไดรฟ์";
-"onboarding_mac_sources_desc" = "Primuse รองรับวิธีการเชื่อมต่อ 21 วิธี · เพิ่มแหล่งข้อมูลได้มากเท่าที่คุณต้องการ - รวมเป็นคลังเพลงเดียว";
+"onboarding_mac_sources_desc" = "เชื่อมต่อ NAS, มีเดียเซิร์ฟเวอร์, คลาวด์ไดรฟ์ และโปรโตคอลไฟล์ทั่วไป · เพิ่มแหล่งข้อมูลได้มากเท่าที่คุณต้องการ - รวมเป็นคลังเพลงเดียว";
 "onboarding_mac_sources_title" = "จากทุกที่";
 "onboarding_mac_step_format" = "ขั้นตอนที่ %d / 3";
 "onboarding_mac_welcome_desc" = "เครื่องเล่นเนทิฟ macOS ที่สร้างขึ้นสำหรับ NAS / ผู้ที่ชื่นชอบเซิร์ฟเวอร์มีเดีย ให้ไฟล์ FLAC, DSD และ APE ของคุณอยู่ในคลังเพลงที่รวมเป็นหนึ่งเดียว";
@@ -2122,6 +2122,17 @@
 "onboarding_metadata_title" = "ทำคลังเพลงของคุณให้สมบูรณ์";
 "onboarding_next" = "ดำเนินการต่อ";
 "onboarding_personalization_footer" = "คุณสามารถเปลี่ยนตัวเลือกเหล่านี้ทั้งหมดได้ตลอดเวลา";
+"onboarding_guide_sources_title" = "เพิ่มแหล่งที่มาใน 3 ขั้นตอน";
+"onboarding_guide_sources_step1 %@" = "เปิด “%@” แตะ + ที่มุมขวาบน แล้วเลือกประเภทแหล่งที่มา";
+"onboarding_guide_sources_step2" = "ใส่แค่ที่อยู่เซิร์ฟเวอร์ ระบบจะยืนยันพอร์ตและการเข้ารหัสให้อัตโนมัติ";
+"onboarding_guide_sources_step3 %@" = "เลือกโฟลเดอร์ที่เก็บเพลง แล้วแตะ “%@” เพื่อเริ่มสแกน";
+"onboarding_guide_sources_footer" = "คลาวด์ไดรฟ์แค่ลงชื่อเข้าใช้ตามที่ระบบแจ้ง ส่วนมีเดียเซิร์ฟเวอร์อย่าง Navidrome และ Jellyfin จะซิงค์คลังเพลงทั้งหมดหลังลงชื่อเข้าใช้ โดยไม่ต้องเลือกโฟลเดอร์";
+"onboarding_guide_player_title" = "วิธีใช้หน้าเล่นเพลง";
+"onboarding_guide_player_subtitle" = "แตะแถบเล่นเพลงที่ด้านล่างของหน้าใดก็ได้เพื่อเปิดหน้าเล่นเพลง";
+"onboarding_guide_player_lyrics" = "เนื้อเพลง: เลื่อนตามเพลง พร้อมไฮไลต์ทีละคำและคำแปล";
+"onboarding_guide_player_airplay" = "AirPlay: สลับไปยังลำโพง หูฟัง หรือ Apple TV";
+"onboarding_guide_player_queue" = "คิว: แตะค้างแล้วลากเพื่อจัดลำดับเพลงถัดไป";
+"onboarding_guide_player_more" = "เพิ่มเติม: แคสต์ไปยังอุปกรณ์ DLNA ตั้งเวลาปิด หรือแชร์โปสเตอร์เนื้อเพลง";
 "onboarding_personalization_home" = "แสดง ซ่อน และจัดลำดับส่วนต่างๆ ในหน้าแรกใหม่";
 "onboarding_personalization_icon" = "เลือกไอคอนแอปของคุณในการตั้งค่า > ลักษณะที่ปรากฏ";
 "onboarding_personalization_quick" = "ปักหมุดอัลบั้ม ศิลปิน และเพลย์ลิสต์เพื่อการเข้าถึงที่รวดเร็ว";
@@ -2134,8 +2145,8 @@
 "onboarding_sources_cloud" = "123 ผาน ไป่ตู้ปัน ไดรฟ์อาลีหยุน และอื่นๆ";
 "onboarding_sources_dlna" = "UPnP / DLNA เซิร์ฟเวอร์สื่อบนเครือข่ายของคุณ";
 "onboarding_sources_footer" = "คุณสามารถเพิ่มได้มากเท่าที่คุณต้องการเมื่อใดก็ได้";
-"onboarding_sources_nas" = "Synology, QNAP และ SMB / NFS การแชร์ · API ไฟล์ทั่วไป Ugreen/fnOS ยังคงไม่พร้อมใช้งาน Feiniu Music เป็นแหล่งที่มาแยกต่างหาก";
-"onboarding_sources_network" = "WebDAV, SFTP, Jellyfin, UPnP / DLNA และอื่นๆ";
+"onboarding_sources_nas" = "NAS ของ Synology และ QNAP, การแชร์ SMB / NFS รวมถึงบริการเพลงบน NAS อย่าง Audio Station และ Feiniu Music";
+"onboarding_sources_network" = "Navidrome, Jellyfin, Emby, WebDAV, SFTP, UPnP / DLNA และอื่นๆ";
 "onboarding_sources_title" = "รวมเพลงของคุณเข้าด้วยกัน";
 "onboarding_sources_webdav" = "WebDAV, FTP, SFTP — มีการป้องกันด้วยรหัสผ่านด้วย";
 "onboarding_welcome_subtitle" = "Primuse เล่นจาก NAS ของคุณ คลาวด์ไดรฟ์ และเครือข่ายในบ้าน — โดยไม่ต้องอัปโหลดไฟล์ให้ใครเลย";

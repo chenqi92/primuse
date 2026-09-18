@@ -15,6 +15,9 @@ struct PlaylistDetailView: View {
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(\.skin) private var skin
+    #if os(iOS)
+    @Environment(\.pmHeightClass) private var heightClass
+    #endif
     let playlist: Playlist
     private let onMacInlineBack: (() -> Void)?
 
@@ -168,6 +171,15 @@ struct PlaylistDetailView: View {
         playlist.id == MusicLibrary.likedSongsPlaylistID ? "heart.fill" : "music.note.list"
     }
 
+    /// 手机横屏 (纵向紧凑) 才把头部换成矮横带。Mac 没有纵向尺寸等级, 恒为 false。
+    private var usesCompactHeaderLayout: Bool {
+        #if os(iOS)
+        heightClass.isCompact
+        #else
+        false
+        #endif
+    }
+
     private var isCurrentPlaylistScraping: Bool {
         guard scraperService.isScraping,
               scraperService.activeOriginPlaylistID == playlist.id,
@@ -253,25 +265,32 @@ struct PlaylistDetailView: View {
     }
 
     /// 歌单头部。头图怎么画由界面皮肤决定;标题、歌曲数这些内容只有这一份。
+    /// 封面墙自己没有放按钮的位置,所以那条路径上刮削卡片与操作行排在墙下面;
+    /// 经典画法把它们排进头部本身(横屏时就是横带的右栏),两边都只有一份。
     @ViewBuilder
     private var playlistHeader: some View {
         #if os(iOS)
         switch skin.skin.detailHeader {
         case .coverWall:
-            CollectionCoverWallHeader(
-                title: currentPlaylist?.name ?? playlist.name,
-                subtitle: playlistSongCountText,
-                titleSymbol: playlist.id == MusicLibrary.likedSongsPlaylistID ? "heart.fill" : nil,
-                songs: songs,
-                nowPlaying: player.currentSong
-            ) {
-                classicPlaylistHeader
+            let wallSpacing = heightClass.value(20, compact: 10)
+            VStack(spacing: wallSpacing) {
+                CollectionCoverWallHeader(
+                    title: currentPlaylist?.name ?? playlist.name,
+                    subtitle: playlistSongCountText,
+                    titleSymbol: playlist.id == MusicLibrary.likedSongsPlaylistID ? "heart.fill" : nil,
+                    songs: songs,
+                    nowPlaying: player.currentSong
+                ) {
+                    classicPlaylistHeader(showsAccessories: false)
+                }
+                playlistHeaderAccessories(spacing: wallSpacing)
+                    .padding(.horizontal)
             }
         case .classic:
-            classicPlaylistHeader
+            classicPlaylistHeader(showsAccessories: true)
         }
         #else
-        classicPlaylistHeader
+        classicPlaylistHeader(showsAccessories: true)
         #endif
     }
 
@@ -279,77 +298,23 @@ struct PlaylistDetailView: View {
         "\(songs.count) \(String(localized: "songs_count"))"
     }
 
-    private var classicPlaylistHeader: some View {
-        VStack(spacing: 8) {
-            PlaylistArtworkView(
-                playlist: currentPlaylist ?? playlist,
-                size: 180,
-                cornerRadius: 14,
-                placeholderIcon: coverPlaceholderIcon
-            )
-
-            Text(currentPlaylist?.name ?? playlist.name)
-                .font(.title2)
-                .fontWeight(.bold)
-
-            Text(playlistSongCountText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+    /// 刮削进度卡片 + 操作行。封面墙画法把它们排在墙下面。
+    private func playlistHeaderAccessories(spacing: CGFloat) -> some View {
+        VStack(spacing: spacing) {
+            if isCurrentPlaylistScraping {
+                batchScrapeProgressCard
+                    // 只让卡片自己淡入淡出: 下面就是整份曲目表, 不能在
+                    // 它们共同的祖先上挂动画。
+                    .pmFadeTransition(motion: .list)
+            }
+            playlistActionButtons
         }
-        .padding(.top, 20)
     }
 
     private var legacyPlaylistDetail: some View {
         ScrollView {
             VStack(spacing: 20) {
                 playlistHeader
-
-                if isCurrentPlaylistScraping {
-                    batchScrapeProgressCard
-                        .padding(.horizontal)
-                        // 只让卡片自己淡入淡出: 下面就是整份曲目表, 不能在
-                        // 它们共同的祖先上挂动画。
-                        .pmFadeTransition(motion: .list)
-                }
-
-                // Action buttons ── 主按钮"播放全部"占大头, 旁边两个紧凑图标按钮。
-                // 三按钮等分时中文 label 在 iPhone 上挤换行 / 截断, 这套 Apple Music
-                // 风格的 1+2 布局更稳。
-                HStack(spacing: 10) {
-                    Button {
-                        playAll()
-                    } label: {
-                        Label("play_all", systemImage: "play.fill")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-
-                    Button {
-                        playAll(shuffled: true)
-                    } label: {
-                        Image(systemName: "shuffle")
-                            .font(.headline)
-                            .frame(width: 24, height: 24)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .accessibilityLabel(Text("shuffle"))
-
-                    Button {
-                        sourceManager.downloadForOffline(songs: songs)
-                    } label: {
-                        Image(systemName: "arrow.down.circle")
-                            .font(.headline)
-                            .frame(width: 24, height: 24)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .disabled(songs.filteredPlayable().isEmpty)
-                    .accessibilityLabel(Text("offline_download"))
-                }
-                .padding(.horizontal)
 
                 LibraryReviewSection(
                     subject: .playlist(playlist.id),
@@ -399,6 +364,9 @@ struct PlaylistDetailView: View {
                         Divider().padding(.leading, 50)
                     }
                 }
+                #if os(iOS)
+                .songRowColumnsContainer()
+                #endif
             }
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -515,6 +483,97 @@ struct PlaylistDetailView: View {
                isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
             Button("ok", role: .cancel) {}
         } message: { Text(exportError ?? "") }
+    }
+
+    /// 竖屏是「居中大封面 + 标题 + 计数 + 操作行」的竖排; 手机横屏纵向只剩三百多点,
+    /// 同一批视图换成「左封面 + 右信息与操作」的矮横带, 曲目表才进得了首屏。
+    ///
+    /// 两种排布共用同一棵子树 —— `AnyLayout` 只换布局不换视图身份, 旋转时行上的
+    /// 长按菜单不会被连根替换。竖屏的取值全部照抄原来的常量: 外层 8 的间距加上
+    /// 计数行之后那 12 的上边距, 还原成原来「计数 → 操作行」之间的 20。
+    private func classicPlaylistHeader(showsAccessories: Bool) -> some View {
+        let compact = usesCompactHeaderLayout
+        let coverSide: CGFloat = compact ? 116 : 180
+        let bandLayout = compact
+            ? AnyLayout(HStackLayout(alignment: .top, spacing: 14))
+            : AnyLayout(VStackLayout(spacing: 8))
+        let detailAlignment: HorizontalAlignment = compact ? .leading : .center
+        let detailLayout = AnyLayout(VStackLayout(alignment: detailAlignment, spacing: 8))
+        let stackedTopPadding: CGFloat = compact ? 0 : 12
+        let rowHorizontalPadding: CGFloat? = compact ? 0 : nil
+        let titleLineLimit: Int? = compact ? 2 : nil
+        let bandTopPadding: CGFloat = compact ? 10 : 20
+        let bandHorizontalPadding: CGFloat = compact ? 16 : 0
+
+        return bandLayout {
+            PlaylistArtworkView(
+                playlist: currentPlaylist ?? playlist,
+                size: coverSide,
+                cornerRadius: 14,
+                placeholderIcon: coverPlaceholderIcon
+            )
+
+            detailLayout {
+                VStack(alignment: detailAlignment, spacing: 8) {
+                    Text(currentPlaylist?.name ?? playlist.name)
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .lineLimit(titleLineLimit)
+
+                    Text(playlistSongCountText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if showsAccessories {
+                    playlistHeaderAccessories(spacing: compact ? 8 : 20)
+                        .padding(.horizontal, rowHorizontalPadding)
+                        .padding(.top, stackedTopPadding)
+                }
+            }
+        }
+        .padding(.top, bandTopPadding)
+        .padding(.horizontal, bandHorizontalPadding)
+    }
+
+    /// Action buttons ── 主按钮"播放全部"占大头, 旁边两个紧凑图标按钮。
+    /// 三按钮等分时中文 label 在 iPhone 上挤换行 / 截断, 这套 Apple Music
+    /// 风格的 1+2 布局更稳。
+    private var playlistActionButtons: some View {
+        HStack(spacing: 10) {
+            Button {
+                playAll()
+            } label: {
+                Label("play_all", systemImage: "play.fill")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+
+            Button {
+                playAll(shuffled: true)
+            } label: {
+                Image(systemName: "shuffle")
+                    .font(.headline)
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .accessibilityLabel(Text("shuffle"))
+
+            Button {
+                sourceManager.downloadForOffline(songs: songs)
+            } label: {
+                Image(systemName: "arrow.down.circle")
+                    .font(.headline)
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .disabled(songs.filteredPlayable().isEmpty)
+            .accessibilityLabel(Text("offline_download"))
+        }
     }
 
     private var alwaysDownloadControl: some View {

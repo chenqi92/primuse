@@ -2110,7 +2110,7 @@
 "onboarding_mac_privacy_title" = "وعد الخصوصية";
 "onboarding_mac_skip" = "تخطي المقدمة";
 "onboarding_mac_source_local_file" = "الملفات المحلية / iCloud Drive";
-"onboarding_mac_sources_desc" = "Primuse يدعم 21 طريقة اتصال · أضف أي عدد تريده من المصادر - يتم دمجها في مكتبة واحدة موحدة.";
+"onboarding_mac_sources_desc" = "اتصل بأجهزة NAS وخوادم الوسائط ومساحات التخزين السحابية وبروتوكولات الملفات الشائعة · أضف أي عدد تريده من المصادر - يتم دمجها في مكتبة واحدة موحدة.";
 "onboarding_mac_sources_title" = "من أي مكان";
 "onboarding_mac_step_format" = "الخطوة %d / 3";
 "onboarding_mac_welcome_desc" = "مشغل macOS أصلي مصمم لعشاق NAS / خادم الوسائط. امنح ملفات FLAC وDSD وAPE مكانًا في مكتبة واحدة موحدة.";
@@ -2122,6 +2122,17 @@
 "onboarding_metadata_title" = "أكمل مكتبتك";
 "onboarding_next" = "متابعة";
 "onboarding_personalization_footer" = "يمكنك تغيير كل هذه الخيارات في أي وقت.";
+"onboarding_guide_sources_title" = "أضف مصدرًا في ثلاث خطوات";
+"onboarding_guide_sources_step1 %@" = "افتح «%@»، واضغط على + في أعلى الشاشة، ثم اختر نوع المصدر";
+"onboarding_guide_sources_step2" = "أدخل عنوان الخادم فقط، وسيتم تأكيد المنفذ والتشفير تلقائيًا";
+"onboarding_guide_sources_step3 %@" = "حدد المجلدات التي تحتوي على موسيقاك، ثم اضغط على «%@» لبدء الفحص";
+"onboarding_guide_sources_footer" = "في التخزين السحابي يكفي تسجيل الدخول عند الطلب؛ أما خوادم الوسائط مثل Navidrome وJellyfin فتزامن المكتبة كاملة بعد تسجيل الدخول دون اختيار مجلدات.";
+"onboarding_guide_player_title" = "كيفية استخدام شاشة التشغيل";
+"onboarding_guide_player_subtitle" = "اضغط على شريط التشغيل أسفل أي شاشة لفتح شاشة التشغيل.";
+"onboarding_guide_player_lyrics" = "الكلمات: تتحرك مع الأغنية، مع تمييز كلمة بكلمة وترجمة";
+"onboarding_guide_player_airplay" = "AirPlay: انتقل إلى السماعات أو سماعات الرأس أو Apple TV";
+"onboarding_guide_player_queue" = "قائمة الانتظار: المس مع الاستمرار ثم اسحب لإعادة ترتيب ما سيُشغَّل تاليًا";
+"onboarding_guide_player_more" = "المزيد: البث إلى أجهزة DLNA، ومؤقت الإيقاف، ومشاركة ملصق الكلمات";
 "onboarding_personalization_home" = "إظهار وإخفاء وإعادة ترتيب الأقسام في الصفحة الرئيسية";
 "onboarding_personalization_icon" = "اختر أيقونة التطبيق الخاص بك في الإعدادات > المظهر";
 "onboarding_personalization_quick" = "قم بتثبيت الألبومات والفنانين وقوائم التشغيل للوصول السريع";
@@ -2134,8 +2145,8 @@
 "onboarding_sources_cloud" = "123 بان، بايدو بان، أليون درايف، والمزيد";
 "onboarding_sources_dlna" = "UPnP / DLNA خوادم الوسائط على شبكتك";
 "onboarding_sources_footer" = "يمكنك إضافة العدد الذي تريده في أي وقت.";
-"onboarding_sources_nas" = "Synology وQNAP وSMB / NFS مشاركات · تظل واجهات برمجة التطبيقات العامة لملفات Ugreen/fnOS غير متوفرة؛ موسيقى Feiniu هي مصدر منفصل";
-"onboarding_sources_network" = "WebDAV, SFTP, Jellyfin, UPnP / DLNA, والمزيد";
+"onboarding_sources_nas" = "أجهزة NAS من Synology وQNAP ومشاركات SMB / NFS، بالإضافة إلى خدمات الموسيقى على NAS مثل Audio Station وFeiniu Music";
+"onboarding_sources_network" = "Navidrome, Jellyfin, Emby, WebDAV, SFTP, UPnP / DLNA, والمزيد";
 "onboarding_sources_title" = "اجمع موسيقاك معًا";
 "onboarding_sources_webdav" = "WebDAV، FTP، SFTP — حتى محمية بكلمة مرور";
 "onboarding_welcome_subtitle" = "Primuse يتم تشغيله من NAS ومحركات الأقراص السحابية والشبكة المنزلية - دون تحميل ملف واحد لأي شخص.";

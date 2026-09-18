@@ -75,10 +75,10 @@
 "onboarding_welcome_title" = "Votre musique, vos serveurs";
 "onboarding_welcome_subtitle" = "Primuse lit la musique depuis votre NAS, vos services cloud et votre réseau domestique, sans envoyer aucun fichier à qui que ce soit.";
 "onboarding_sources_title" = "Réunissez toute votre musique";
-"onboarding_sources_nas" = "Synology, QNAP et partages SMB / NFS · Les API de fichiers Ugreen/fnOS génériques restent indisponibles ; Feiniu Music est une source distincte";
+"onboarding_sources_nas" = "NAS Synology et QNAP, partages SMB / NFS, ainsi que les services musicaux NAS comme Audio Station et Feiniu Music";
 "onboarding_sources_cloud" = "123 Pan, Baidu Pan, Aliyun Drive et plus";
 "onboarding_sources_apple_music" = "Connectez Apple Music en option et parcourez-le avec votre bibliothèque";
-"onboarding_sources_network" = "WebDAV, SFTP, Jellyfin, UPnP / DLNA et plus";
+"onboarding_sources_network" = "Navidrome, Jellyfin, Emby, WebDAV, SFTP, UPnP / DLNA et plus";
 "onboarding_sources_webdav" = "WebDAV, FTP, SFTP — même protégés par mot de passe";
 "onboarding_sources_dlna" = "Serveurs multimédias UPnP / DLNA de votre réseau";
 "onboarding_sources_footer" = "Vous pouvez en ajouter autant que vous voulez, à tout moment.";
@@ -2061,7 +2061,7 @@
 "onboarding_mac_privacy_title" = "Engagement de confidentialité";
 "onboarding_mac_privacy_desc" = "Primuse n'envoie jamais votre bibliothèque vers un service cloud. Tout l'historique de lecture, les statistiques et les réglages se synchronisent uniquement via votre iCloud. OAuth passe toujours par le navigateur système — nous n'intégrons jamais de WebView pour collecter votre mot de passe.";
 "onboarding_mac_sources_title" = "De n'importe où";
-"onboarding_mac_sources_desc" = "Primuse prend en charge 21 modes de connexion · ajoutez autant de sources que vous le souhaitez — elles fusionnent en une bibliothèque unifiée.";
+"onboarding_mac_sources_desc" = "Connectez NAS, serveurs multimédias, stockages cloud et protocoles de fichiers courants · ajoutez autant de sources que vous le souhaitez — elles fusionnent en une bibliothèque unifiée.";
 "onboarding_mac_group_local" = "Protocoles locaux";
 "onboarding_mac_group_media_server" = "Serveurs multimédias";
 "onboarding_mac_group_cloud" = "Stockage cloud";
@@ -2322,6 +2322,17 @@
 "onboarding_personalization_home" = "Affichez, masquez et réorganisez les sections de l’accueil";
 "onboarding_personalization_quick" = "Épinglez albums, artistes et playlists pour un accès rapide";
 "onboarding_personalization_footer" = "Vous pourrez modifier ces options à tout moment.";
+"onboarding_guide_sources_title" = "Ajouter une source en trois étapes";
+"onboarding_guide_sources_step1 %@" = "Ouvrez « %@ », touchez + en haut à droite et choisissez un type de source";
+"onboarding_guide_sources_step2" = "Saisissez seulement l’adresse du serveur : le port et le chiffrement sont confirmés automatiquement";
+"onboarding_guide_sources_step3 %@" = "Cochez les dossiers qui contiennent votre musique, puis touchez « %@ » pour lancer l’analyse";
+"onboarding_guide_sources_footer" = "Pour les stockages cloud, il suffit de vous connecter quand c’est demandé ; les serveurs multimédias comme Navidrome et Jellyfin synchronisent toute la bibliothèque après connexion, sans choisir de dossier.";
+"onboarding_guide_player_title" = "Utiliser l’écran de lecture";
+"onboarding_guide_player_subtitle" = "Touchez la barre de lecture en bas de n’importe quel écran pour ouvrir l’écran de lecture.";
+"onboarding_guide_player_lyrics" = "Paroles : défilent avec la chanson, avec surlignage mot à mot et traduction";
+"onboarding_guide_player_airplay" = "AirPlay : basculez vers des enceintes, un casque ou une Apple TV";
+"onboarding_guide_player_queue" = "File d’attente : maintenez le doigt puis faites glisser pour réordonner la suite";
+"onboarding_guide_player_more" = "Plus : diffusion vers un appareil DLNA, minuterie de mise en veille ou partage d’une affiche de paroles";
 
 // MARK: - macOS settings i18n audit
 "Auto Add to Smart Playlists" = "Ajouter automatiquement aux playlists intelligentes";

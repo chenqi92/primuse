@@ -11,7 +11,7 @@ import AppKit
 struct UpdateBannerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppUpdateChecker.self) private var checker
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.pmHeightClass) private var heightClass
     @State private var isNotesExpanded = false
 
     var body: some View {
@@ -24,6 +24,8 @@ struct UpdateBannerSheet: View {
                 cardContent(update: update)
                     .frame(maxWidth: 360)
                     .padding(.horizontal, 22)
+                    // 手机横屏下卡片会占满整个可用高度,不贴着上下边缘。
+                    .padding(.vertical, heightClass.value(0, compact: 12))
             } else {
                 Color.clear.onAppear { dismiss() }
             }
@@ -38,87 +40,19 @@ struct UpdateBannerSheet: View {
     @ViewBuilder
     private func cardContent(update: AppUpdateChecker.UpdateInfo) -> some View {
         ZStack(alignment: .topTrailing) {
-            VStack(spacing: 0) {
-                updateHero
+            // 折叠态的卡片本身就有四百多点高,手机横屏放不下,「立即更新 / 稍后 /
+            // 跳过」会被挤出屏幕又滚不到。放得下就照旧按内容定高,放不下才滚 ——
+            // 竖屏与 iPad 走的仍是第一支,布局分毫不变。
+            ViewThatFits(in: .vertical) {
+                cardBody(update: update)
 
-                Text(String(format: String(localized: "update_modal_title_format"), update.version))
-                    .font(.title2.weight(.bold))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
-
-                Text("update_modal_subtitle")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.top, 6)
-                    .padding(.horizontal, 28)
-
-                versionTransition(to: update.version)
-                    .padding(.top, 14)
-
-                if let notes = update.releaseNotes,
-                   !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    releaseNotesCard(notes)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 18)
+                ScrollView {
+                    cardBody(update: update)
                 }
-
-                Button {
-                    checker.openAppStore()
-                    // Returning from the App Store should not immediately show
-                    // the same prompt again if the user postponed installation.
-                    checker.snooze()
-                } label: {
-                    HStack(spacing: 8) {
-                        Text("update_banner_now")
-                            .font(.body.weight(.semibold))
-                        Spacer()
-                        Image(systemName: "arrow.up.forward.app.fill")
-                            .font(.body.weight(.semibold))
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 18)
-                    .frame(maxWidth: .infinity, minHeight: 50)
-                    .background(Color.accentColor, in: .rect(cornerRadius: 14))
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
-                .shadow(color: Color.accentColor.opacity(0.24), radius: 10, y: 4)
-
-                HStack(spacing: 14) {
-                    Button("update_banner_later") {
-                        checker.snooze()
-                    }
-
-                    Rectangle()
-                        .fill(Color.secondary.opacity(0.22))
-                        .frame(width: 1, height: 12)
-
-                    Button("update_banner_skip") {
-                        checker.skipCurrentVersion()
-                    }
-                }
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .buttonStyle(.plain)
-                .padding(.top, 15)
-                .padding(.bottom, 20)
+                .scrollBounceBehavior(.basedOnSize)
             }
 
-            Button {
-                checker.snooze()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 34, height: 34)
-                    .background(.thinMaterial, in: Circle())
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .padding(14)
-            .accessibilityLabel(Text("close"))
+            closeButton
         }
         #if os(iOS)
         .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 28))
@@ -131,6 +65,93 @@ struct UpdateBannerSheet: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .shadow(color: .black.opacity(0.28), radius: 34, y: 14)
+    }
+
+    private var closeButton: some View {
+        Button {
+            checker.snooze()
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 34, height: 34)
+                .background(.thinMaterial, in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .padding(14)
+        .accessibilityLabel(Text("close"))
+    }
+
+    @ViewBuilder
+    private func cardBody(update: AppUpdateChecker.UpdateInfo) -> some View {
+        VStack(spacing: 0) {
+            updateHero
+
+            Text(String(format: String(localized: "update_modal_title_format"), update.version))
+                .font(.title2.weight(.bold))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+
+            Text("update_modal_subtitle")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.top, 6)
+                .padding(.horizontal, 28)
+
+            versionTransition(to: update.version)
+                .padding(.top, versionTopSpacing)
+
+            if let notes = update.releaseNotes,
+               !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                releaseNotesCard(notes)
+                    .padding(.horizontal, 20)
+                    .padding(.top, notesTopSpacing)
+            }
+
+            Button {
+                checker.openAppStore()
+                // Returning from the App Store should not immediately show
+                // the same prompt again if the user postponed installation.
+                checker.snooze()
+            } label: {
+                HStack(spacing: 8) {
+                    Text("update_banner_now")
+                        .font(.body.weight(.semibold))
+                    Spacer()
+                    Image(systemName: "arrow.up.forward.app.fill")
+                        .font(.body.weight(.semibold))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 18)
+                .frame(maxWidth: .infinity, minHeight: 50)
+                .background(Color.accentColor, in: .rect(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 20)
+            .padding(.top, primaryActionTopSpacing)
+            .shadow(color: Color.accentColor.opacity(0.24), radius: 10, y: 4)
+
+            HStack(spacing: 14) {
+                Button("update_banner_later") {
+                    checker.snooze()
+                }
+
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.22))
+                    .frame(width: 1, height: 12)
+
+                Button("update_banner_skip") {
+                    checker.skipCurrentVersion()
+                }
+            }
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .buttonStyle(.plain)
+            .padding(.top, footerTopSpacing)
+            .padding(.bottom, footerBottomSpacing)
+        }
     }
 
     private var updateHero: some View {
@@ -147,20 +168,20 @@ struct UpdateBannerSheet: View {
 
             Circle()
                 .fill(Color.accentColor.opacity(0.18))
-                .frame(width: 128, height: 128)
+                .frame(width: heroGlowSide, height: heroGlowSide)
                 .blur(radius: 28)
-                .offset(x: -84, y: -36)
+                .offset(x: -84, y: heroGlowOffsetY)
 
             appIcon
-                .frame(width: 82, height: 82)
-                .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
+                .frame(width: heroIconSide, height: heroIconSide)
+                .clipShape(RoundedRectangle(cornerRadius: heroIconCornerRadius, style: .continuous))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 19, style: .continuous)
+                    RoundedRectangle(cornerRadius: heroIconCornerRadius, style: .continuous)
                         .strokeBorder(.white.opacity(0.35), lineWidth: 0.5)
                 }
                 .shadow(color: .black.opacity(0.20), radius: 14, y: 7)
         }
-        .frame(height: 132)
+        .frame(height: heroHeight)
         .padding(.bottom, 2)
     }
 
@@ -216,11 +237,11 @@ struct UpdateBannerSheet: View {
                         releaseNotesText(notes)
                             .padding(.trailing, 4)
                     }
-                    .frame(maxHeight: verticalSizeClass == .compact ? 110 : 220)
+                    .frame(maxHeight: heightClass.value(220, compact: 110))
                     .scrollIndicators(.visible)
                 } else {
                     releaseNotesText(notes)
-                        .lineLimit(4)
+                        .lineLimit(collapsedNotesLineLimit)
                 }
 
                 if releaseNotesNeedExpansion(notes) {
@@ -251,6 +272,20 @@ struct UpdateBannerSheet: View {
         .background(Color(NSColor.controlBackgroundColor), in: .rect(cornerRadius: 14))
         #endif
     }
+
+    /// 手机横屏下整张卡要收一档 —— 头图、内边距、折叠态摘要各让出一点,
+    /// 「立即更新 / 稍后 / 跳过」才留得在首屏里。竖屏与 iPad 取的都是原值。
+    private var heroHeight: CGFloat { heightClass.value(132, compact: 72) }
+    private var heroIconSide: CGFloat { heightClass.value(82, compact: 52) }
+    private var heroIconCornerRadius: CGFloat { heightClass.value(19, compact: 13) }
+    private var heroGlowSide: CGFloat { heightClass.value(128, compact: 88) }
+    private var heroGlowOffsetY: CGFloat { heightClass.value(-36, compact: -22) }
+    private var versionTopSpacing: CGFloat { heightClass.value(14, compact: 8) }
+    private var notesTopSpacing: CGFloat { heightClass.value(18, compact: 10) }
+    private var primaryActionTopSpacing: CGFloat { heightClass.value(20, compact: 12) }
+    private var footerTopSpacing: CGFloat { heightClass.value(15, compact: 10) }
+    private var footerBottomSpacing: CGFloat { heightClass.value(20, compact: 14) }
+    private var collapsedNotesLineLimit: Int { heightClass.pick(4, compact: 2) }
 
     private func releaseNotesText(_ notes: String) -> some View {
         Text(notes)

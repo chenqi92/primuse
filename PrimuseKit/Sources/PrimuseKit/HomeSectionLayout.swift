@@ -110,6 +110,20 @@ public enum HomeSectionLayoutPolicy {
         section == .continueListening ? 2 : 1
     }
 
+    /// 手机横屏下横排最多铺几行。
+    public static let compactHeightRowLimit = 1
+
+    /// 这次渲染真正用几行。
+    ///
+    /// 行数是用户显式设过并存盘的,横屏不能替他改存档 —— 只在渲染时夹:
+    /// 一行横排光行高就有一百五十点上下,三行叠起来超过手机横屏整个视口,
+    /// 后面的区块一个也露不出来。设置页读的仍是存下来的值。
+    public static func renderedRowCount(configured: Int, isCompactHeight: Bool) -> Int {
+        let bounded = max(configured, 1)
+        guard isCompactHeight else { return bounded }
+        return min(bounded, compactHeightRowLimit)
+    }
+
     /// 可以自定义条目数的区域及其范围。
     ///
     /// 上限受首页快照本身的取数上限约束 —— 调到比快照更多没有意义,只会让用户

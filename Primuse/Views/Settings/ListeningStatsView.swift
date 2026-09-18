@@ -20,6 +20,7 @@ struct ListeningStatsView: View {
     #else
     @State private var range: PlayHistoryStore.Range
     @State private var activityChart: MobileActivityChart = .duration
+    @Environment(\.pmHeightClass) private var heightClass
     #endif
     @State private var statsCalendar = ListeningCalendar.current
     @State private var prefersLocalSource: Bool
@@ -1253,7 +1254,8 @@ private extension ListeningStatsView {
                         mobileHourlyChart(timeline: timeline)
                     }
                 }
-                .frame(height: 160)
+                // 手机横屏整页只剩三百多点，160 的图表会让这一行独占一屏。
+                .frame(height: heightClass.value(160, compact: 108))
                 .overlay {
                     if timeline.hourlyCounts.reduce(0, +) == 0 {
                         Text("stats_chart_no_activity")
@@ -1323,6 +1325,7 @@ struct MobileListeningActivityView: View {
     let range: ServerListeningStatsRange
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.pmHeightClass) private var heightClass
     @State private var selectedYear: Int?
     @State private var selectedDay: Date?
     @State private var expandedMonth: Date?
@@ -1451,6 +1454,9 @@ struct MobileListeningActivityView: View {
     private func monthGrid(date: Date, model: ListeningActivityCalendar, maximum: Int) -> some View {
         let cells = model.monthCells(containing: date)
         let count = ((cells.lastIndex { $0 != nil } ?? 0) / 7 + 1) * 7
+        // 六行日格加表头，40 一格在手机横屏就是一整屏。横屏每格横向反而宽得多，
+        // 收高度不会让它变得难点。留白格要跟着一起收，否则整月会错位。
+        let dayCellHeight = heightClass.value(40, compact: 28)
         return eagerGrid(count: count + 7, columns: 7, horizontalSpacing: 5, verticalSpacing: 5) { index in
             if index < 7 {
                 Text(model.calendar.veryShortStandaloneWeekdaySymbols[(model.calendar.firstWeekday - 1 + index) % 7])
@@ -1466,7 +1472,7 @@ struct MobileListeningActivityView: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
                             .foregroundStyle(day.count == nil ? .secondary : .primary)
-                            .frame(maxWidth: .infinity, minHeight: 40)
+                            .frame(maxWidth: .infinity, minHeight: dayCellHeight)
                             .background(fill(day, maximum: maximum), in: .rect(cornerRadius: 7))
                             .overlay {
                                 if day.date == selectedDay || (selectedDay == nil && day.date == model.today) {
@@ -1479,7 +1485,7 @@ struct MobileListeningActivityView: View {
                     .accessibilityLabel(day.date.formatted(date: .long, time: .omitted))
                     .accessibilityValue(day.count.map(playCountLabel) ?? "—")
                 } else {
-                    Color.clear.frame(height: 40).accessibilityHidden(true)
+                    Color.clear.frame(height: dayCellHeight).accessibilityHidden(true)
                 }
             }
         }
@@ -1500,7 +1506,8 @@ struct MobileListeningActivityView: View {
             eagerGrid(count: cells.count, columns: 7, horizontalSpacing: 2, verticalSpacing: 2) { index in
                 RoundedRectangle(cornerRadius: 2)
                     .fill(cells[index].map { fill($0, maximum: maximum) } ?? .clear)
-                    .frame(height: 9)
+                    // 年视图一屏十二个小月历，横屏下每格再收一档才看得到一整行。
+                    .frame(height: heightClass.value(9, compact: 7))
             }
         }
         .contentShape(Rectangle())

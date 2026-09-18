@@ -500,6 +500,20 @@ struct YearlyReportView: View {
         .sheet(item: $shareImageItem) { item in
             ShareSheet(items: item.images)
         }
+        #if os(iOS)
+        // 卡片是按竖版画幅排的 (分享图也是 1080×1920), 上下滑又是切卡手势, 横屏下每张卡
+        // 都溢出且滚不到。进来请求竖屏, 关掉还原进来之前的朝向。
+        .onAppear {
+            InterfaceOrientationLock.enterPortrait()
+        }
+        .onDisappear {
+            // 还原排到下一轮主线程事务: 几何请求与 cover 撤场撞在一起时, 播放页那边
+            // 记录过会被系统吞掉。即使这次还原没生效, 用户转一下设备就会跟上。
+            Task { @MainActor in
+                InterfaceOrientationLock.restore()
+            }
+        }
+        #endif
     }
 
     /// 根据滑动方向构造 transition: forward (上滑) 时新卡从下进 / 旧卡从上出,

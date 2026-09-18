@@ -12,6 +12,7 @@ struct LyricPosterShareSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.layoutDirection) private var layoutDirection
+    @Environment(\.pmHeightClass) private var heightClass
     @Environment(SourceManager.self) private var sourceManager
 
     @AppStorage(LyricPosterPreferences.styleKey) private var storedStyle = ""
@@ -55,22 +56,24 @@ struct LyricPosterShareSheet: View {
             // 提议是 nil, 在里面用 GeometryReader + aspectRatio 反推高度会拿到
             // 10pt 的理想尺寸, 预览框直接塌掉。
             GeometryReader { outer in
+                let availableWidth: CGFloat = outer.size.width - Self.contentMargin * 2
+                let ceiling: CGFloat = previewCeiling(availableHeight: outer.size.height)
                 // 整个界面拆成三段：内容、外壳、状态联动。全串在一条表达式上
                 // 时，Swift 的类型检查会直接超时 —— 那在 Xcode 里就是一条
                 // "unable to type-check this expression in reasonable time"。
                 observing(
                     decorated(
-                        content(availableWidth: outer.size.width - Self.contentMargin * 2)
+                        content(availableWidth: availableWidth, previewCeiling: ceiling)
                     )
                 )
             }
         }
     }
 
-    private func content(availableWidth: CGFloat) -> some View {
+    private func content(availableWidth: CGFloat, previewCeiling: CGFloat) -> some View {
         ScrollView {
             VStack(spacing: 24) {
-                preview(availableWidth: availableWidth)
+                preview(availableWidth: availableWidth, previewCeiling: previewCeiling)
                 if let wizardStep {
                     wizardBody(step: wizardStep)
                 } else {
@@ -157,8 +160,8 @@ struct LyricPosterShareSheet: View {
 
     // MARK: - 预览
 
-    private func preview(availableWidth: CGFloat) -> some View {
-        let size = previewSize(availableWidth: availableWidth)
+    private func preview(availableWidth: CGFloat, previewCeiling: CGFloat) -> some View {
+        let size = previewSize(availableWidth: availableWidth, previewCeiling: previewCeiling)
 
         return VStack(spacing: 12) {
             Group {
@@ -193,13 +196,23 @@ struct LyricPosterShareSheet: View {
     }
 
     /// 预览框的实际尺寸: 先按可用宽度等比缩放, 再受最大高度约束。
-    private func previewSize(availableWidth: CGFloat) -> CGSize {
+    private func previewSize(availableWidth: CGFloat, previewCeiling: CGFloat) -> CGSize {
         let posterWidth = CGFloat(composer.canvas.pixelWidth)
         let posterHeight = CGFloat(composer.canvas.pixelHeight)
         // sheet 刚出现时宽度可能还是 0, 给一个下限免得算出 0 尺寸的预览框。
         let width = max(availableWidth, 120)
-        let scale: CGFloat = min(width / posterWidth, Self.previewMaximumHeight / posterHeight)
+        let scale: CGFloat = min(width / posterWidth, previewCeiling / posterHeight)
         return CGSize(width: posterWidth * scale, height: posterHeight * scale)
+    }
+
+    /// 手机横屏整页只有三百多点高, 420 的预览会把风格选择器整个挤出首屏 ——
+    /// 上面那句注释写的意图在横屏下一直没兑现。这里按可用高度收一档;
+    /// 竖屏与 Mac 仍是原来的 420, 导出尺寸不受影响, 变的只是屏幕上的缩放。
+    private func previewCeiling(availableHeight: CGFloat) -> CGFloat {
+        guard heightClass.isCompact else { return Self.previewMaximumHeight }
+        // sheet 刚出现时高度可能还是 0, 给一个下限免得预览框塌成一条线。
+        let allowance: CGFloat = max(availableHeight, 240) * 0.55
+        return min(Self.previewMaximumHeight, allowance)
     }
 
     /// 把 1080 宽的海报整体缩放进预览框。

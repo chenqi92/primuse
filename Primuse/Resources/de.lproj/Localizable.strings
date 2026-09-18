@@ -75,10 +75,10 @@
 "onboarding_welcome_title" = "Deine Musik, deine Server";
 "onboarding_welcome_subtitle" = "Primuse spielt von deinem eigenen NAS, deinen Cloud-Speichern und deinem Heimnetzwerk – ohne eine einzige Datei irgendwohin hochzuladen.";
 "onboarding_sources_title" = "Deine Musik an einem Ort";
-"onboarding_sources_nas" = "Synology, QNAP sowie SMB-/NFS-Freigaben · Allgemeine Ugreen/fnOS-Datei-APIs fehlen; Feiniu Music ist eine eigene Quelle";
+"onboarding_sources_nas" = "Synology- und QNAP-NAS, SMB-/NFS-Freigaben sowie NAS-Musikdienste wie Audio Station und Feiniu Music";
 "onboarding_sources_cloud" = "123 Pan, Baidu Pan, Aliyun Drive und mehr";
 "onboarding_sources_apple_music" = "Apple Music optional verbinden und zusammen mit der Mediathek durchsuchen";
-"onboarding_sources_network" = "WebDAV, SFTP, Jellyfin, UPnP / DLNA und mehr";
+"onboarding_sources_network" = "Navidrome, Jellyfin, Emby, WebDAV, SFTP, UPnP / DLNA und mehr";
 "onboarding_sources_webdav" = "WebDAV, FTP, SFTP – auch passwortgeschützt";
 "onboarding_sources_dlna" = "UPnP / DLNA-Medienserver in deinem Netzwerk";
 "onboarding_sources_footer" = "Du kannst jederzeit so viele hinzufügen, wie du möchtest.";
@@ -2061,7 +2061,7 @@
 "onboarding_mac_privacy_title" = "Datenschutzversprechen";
 "onboarding_mac_privacy_desc" = "Primuse lädt deine Mediathek niemals zu einem Cloud-Dienst hoch. Wiedergabeverlauf, Statistiken und Einstellungen werden nur über deine iCloud synchronisiert. OAuth läuft stets über den Systembrowser – wir betten niemals eine WebView ein, um dein Passwort abzugreifen.";
 "onboarding_mac_sources_title" = "Von überall";
-"onboarding_mac_sources_desc" = "Primuse unterstützt 21 Verbindungsarten · Füge beliebig viele Quellen hinzu – sie werden zu einer einheitlichen Mediathek zusammengeführt.";
+"onboarding_mac_sources_desc" = "Verbinde NAS, Medienserver, Cloud-Speicher und gängige Dateiprotokolle · Füge beliebig viele Quellen hinzu – sie werden zu einer einheitlichen Mediathek zusammengeführt.";
 "onboarding_mac_group_local" = "Lokale Protokolle";
 "onboarding_mac_group_media_server" = "Medienserver";
 "onboarding_mac_group_cloud" = "Cloud-Speicher";
@@ -2322,6 +2322,17 @@
 "onboarding_personalization_home" = "Bereiche der Startseite ein-/ausblenden und neu anordnen";
 "onboarding_personalization_quick" = "Alben, Künstler und Playlists für den Schnellzugriff anheften";
 "onboarding_personalization_footer" = "Diese Optionen kannst du jederzeit wieder ändern.";
+"onboarding_guide_sources_title" = "Quelle in drei Schritten hinzufügen";
+"onboarding_guide_sources_step1 %@" = "Öffne „%@“, tippe oben rechts auf + und wähle einen Quellentyp";
+"onboarding_guide_sources_step2" = "Gib nur die Serveradresse ein – Port und Verschlüsselung werden automatisch ermittelt";
+"onboarding_guide_sources_step3 %@" = "Wähle die Ordner mit deiner Musik aus und tippe auf „%@“, um den Scan zu starten";
+"onboarding_guide_sources_footer" = "Bei Cloud-Speichern meldest du dich einfach an, wenn du dazu aufgefordert wirst; Medienserver wie Navidrome und Jellyfin synchronisieren nach der Anmeldung die gesamte Mediathek – ganz ohne Ordnerauswahl.";
+"onboarding_guide_player_title" = "So funktioniert die Wiedergabeansicht";
+"onboarding_guide_player_subtitle" = "Tippe unten auf einer beliebigen Seite auf die Wiedergabeleiste, um die Wiedergabeansicht zu öffnen.";
+"onboarding_guide_player_lyrics" = "Songtexte: laufen mit dem Song mit, mit wortgenauer Hervorhebung und Übersetzung";
+"onboarding_guide_player_airplay" = "AirPlay: auf Lautsprecher, Kopfhörer oder Apple TV wechseln";
+"onboarding_guide_player_queue" = "Warteschlange: gedrückt halten und ziehen, um die Reihenfolge zu ändern";
+"onboarding_guide_player_more" = "Mehr: an DLNA-Geräte streamen, Sleep-Timer stellen oder ein Songtext-Poster teilen";
 
 // MARK: - macOS settings i18n audit
 "Auto Add to Smart Playlists" = "Automatisch zu intelligenten Playlists hinzufügen";

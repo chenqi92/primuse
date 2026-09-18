@@ -33,22 +33,32 @@ struct RadioStationsView: View {
     @State private var folderToDelete: String?
     @State private var tagToDelete: String?
     @State private var showingSubscriptions = false
+    /// 从「+」菜单进来时直接停在「添加订阅」；从顶部状态行进来时停在订阅列表。
+    @State private var subscriptionsStartAdding = false
     /// 删订阅电台前先确认一次 —— 删掉就等于告诉清单「这一条我不要了」。
     @State private var subscribedStationToDelete: RadioStation?
     @AppStorage(RadioStationLayoutMode.storageKey)
     private var layoutModeRaw = RadioStationLayoutMode.list.rawValue
+    @Environment(\.pmHeightClass) private var heightClass
 
     private var layoutMode: RadioStationLayoutMode {
         RadioStationLayoutMode(rawValue: layoutModeRaw) ?? .list
     }
 
     /// 列表版一行一个宽卡片；封面版是方格台标墙，一屏能放下三四倍的台。
+    /// 列表版在手机横屏下本来就会排成两列、不必再收；封面版的格子跟着高度收一档。
     private var columns: [GridItem] {
         switch layoutMode {
         case .list:
             return [GridItem(.adaptive(minimum: 320, maximum: 460), spacing: 16)]
         case .cover:
-            return [GridItem(.adaptive(minimum: 108, maximum: 170), spacing: 14)]
+            return [GridItem(
+                .adaptive(
+                    minimum: heightClass.value(108, compact: 92),
+                    maximum: heightClass.value(170, compact: 132)
+                ),
+                spacing: 14
+            )]
         }
     }
 
@@ -123,7 +133,7 @@ struct RadioStationsView: View {
             }
         }
         .sheet(isPresented: $showingSubscriptions) {
-            RadioSubscriptionsView()
+            RadioSubscriptionsView(startsAdding: subscriptionsStartAdding)
         }
         .fileExporter(
             isPresented: $showExporter,
@@ -276,7 +286,10 @@ struct RadioStationsView: View {
     private var subscriptionBar: some View {
         if !RadioSubscriptionsStore.shared.subscriptions.isEmpty {
             HStack(spacing: 0) {
-                RadioSubscriptionStatusRow { showingSubscriptions = true }
+                RadioSubscriptionStatusRow {
+                    subscriptionsStartAdding = false
+                    showingSubscriptions = true
+                }
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 16)
@@ -515,7 +528,8 @@ struct RadioStationsView: View {
                     Button("radio_add", systemImage: "plus") {
                         showingNewStation = true
                     }
-                    Button("radio_subscriptions_title", systemImage: "arrow.triangle.2.circlepath") {
+                    Button("radio_subscriptions_add", systemImage: "arrow.triangle.2.circlepath") {
+                        subscriptionsStartAdding = true
                         showingSubscriptions = true
                     }
                     Divider()

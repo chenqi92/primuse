@@ -15,13 +15,18 @@ struct FloatingCapsulePlayerBar: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.pmHeightClass) private var heightClass
     @ScaledMetric(relativeTo: .subheadline) private var contentHeight: CGFloat = 44
 
     /// 大号无障碍字体下只留播放键,把宽度让给歌名。
     private var showsSecondaryControls: Bool { !dynamicTypeSize.isAccessibilitySize }
 
     var body: some View {
-        HStack(spacing: 0) {
+        // 手机横屏下胶囊收窄并靠向尾侧,和极简皮肤的播放条一个口径:横贯七百多点的
+        // 一条板会把只剩三百多点的版面压得更死,让开之后左侧内容仍然看得见。
+        let capsuleWidth = heightClass.value(620, compact: 380)
+        let capsuleAlignment = heightClass.pick(Alignment.center, compact: .trailing)
+        return HStack(spacing: 0) {
             MiniPlayerSwipeContent(
                 onTap: onTap,
                 artworkSize: 40,
@@ -46,7 +51,7 @@ struct FloatingCapsulePlayerBar: View {
         .padding(.leading, 8)
         .padding(.trailing, 4)
         .padding(.vertical, 6)
-        .frame(maxWidth: 620)
+        .frame(maxWidth: capsuleWidth)
         .background { capsuleFill }
         .overlay {
             Capsule()
@@ -59,10 +64,10 @@ struct FloatingCapsulePlayerBar: View {
             radius: skin.rawMetric(.shadowRadius),
             y: 8
         )
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: capsuleAlignment)
         .padding(.horizontal, skin.metric(.chromeHorizontalInset))
-        .padding(.top, 6)
-        .padding(.bottom, 8)
+        .padding(.top, heightClass.value(6, compact: 4))
+        .padding(.bottom, heightClass.value(8, compact: 6))
     }
 
     @ViewBuilder

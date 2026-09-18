@@ -29,6 +29,8 @@ struct ArtistListView: View {
     let artists: [Artist]
     @State private var searchText: String = ""
 
+    @Environment(\.pmHeightClass) private var heightClass
+
     @AppStorage(ArtistLayoutMode.storageKey)
     private var layoutModeRaw = ArtistLayoutMode.grid.rawValue
 
@@ -113,14 +115,14 @@ struct ArtistListView: View {
     #endif
 
     /// 圆形头像网格。`.adaptive` 让 iPhone 落到两列、iPad 自然摊开更多列,
-    /// 和专辑网格用的是同一套断点。
+    /// 和专辑网格用的是同一套断点 —— 手机横屏下的下限也一起收到 100。
     private var gridColumns: [GridItem] {
-        [GridItem(.adaptive(minimum: 150), spacing: 16)]
+        [GridItem(.adaptive(minimum: heightClass.value(150, compact: 100)), spacing: 16)]
     }
 
     private var artistGrid: some View {
         ScrollView {
-            LazyVGrid(columns: gridColumns, spacing: 24) {
+            LazyVGrid(columns: gridColumns, spacing: heightClass.value(24, compact: 16)) {
                 ForEach(filteredArtists) { artist in
                     NavigationLink(value: artist) {
                         artistGridCell(artist)

@@ -27,6 +27,9 @@ struct SongRowView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     /// 封面圆角跟随界面皮肤。皮肤只在用户手动切换时变,不会给列表带来额外的刷新。
     @Environment(\.skin) private var skin
+    /// 容器量出来的对齐列。带默认值的纯值类型，独立宿主里读也不会崩；
+    /// 没挂 `songRowColumnsContainer` 的列表拿到的是「一列都不显示」。
+    @Environment(\.songRowColumns) private var songRowColumns
 
     let song: Song
     var actionRequest: SongRowActionRequest? = nil
@@ -360,6 +363,12 @@ struct SongRowView: View {
     @ViewBuilder
     private var rowContent: some View {
         let offline = offlineSnapshot
+        // 够宽时专辑与时长从副标题里挪到 Spacer 之后的对齐列；两者只能出现一次。
+        // 列在整份列表里要占同样的位置，所以读取中、时长还没回填的行也照样占位，
+        // 只是内容为空——否则徽标与 ⋯ 会一行一个位置。
+        let columns = songRowColumns
+        let showsAlbumColumn = columns.showsAlbum && showAlbum
+        let showsDurationColumn = columns.showsDuration
         HStack(spacing: 10) {
             // Cover art with playing overlay
             ZStack {
@@ -450,12 +459,12 @@ struct SongRowView: View {
                             if song.isStandaloneMusicVideo { Text("·") }
                             Text(artist)
                         }
-                        if showAlbum, let album = song.albumTitle {
+                        if showAlbum, !showsAlbumColumn, let album = song.albumTitle {
                             Text("·")
                             Text(album)
                         }
                         // 独立 MV 时长可能尚未回填, 不显示 0:00
-                        if song.duration > 0 {
+                        if !showsDurationColumn, song.duration > 0 {
                             Text("·")
                             Text(formatDuration(song.duration))
                                 .monospacedDigit()
@@ -475,6 +484,27 @@ struct SongRowView: View {
             }
 
             Spacer()
+
+            if showsAlbumColumn {
+                Text(verbatim: song.albumTitle ?? "")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(width: columns.albumWidth, alignment: .leading)
+                    .accessibilityHidden(true)
+            }
+
+            if showsDurationColumn {
+                // 动态字号放大时让它自己撑宽, 而不是把时间截掉。
+                Text(verbatim: song.duration > 0 ? formatDuration(song.duration) : "")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .frame(minWidth: columns.durationWidth, alignment: .trailing)
+                    .accessibilityHidden(true)
+            }
 
             OfflineAudioStatusBadge(snapshot: offline)
 
@@ -1674,6 +1704,61 @@ extension View {
                     .presentationDragIndicator(.visible)
             }
         }
+        #endif
+    }
+}
+
+// MARK: - 行内对齐列
+
+private struct SongRowColumnsEnvironmentKey: EnvironmentKey {
+    static let defaultValue = SongRowColumns.hidden
+}
+
+extension EnvironmentValues {
+    /// 承载歌曲行的容器量出来的对齐列。默认一列都不显示。
+    var songRowColumns: SongRowColumns {
+        get { self[SongRowColumnsEnvironmentKey.self] }
+        set { self[SongRowColumnsEnvironmentKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// 挂在承载歌曲行的容器上：量一次容器宽度，够宽就让行显示对齐列。
+    ///
+    /// 判定只在容器里做一次，行里既不量几何也不记状态 —— 歌曲行是几万行规模的
+    /// 热路径。量的必须是**行所在的那个容器**而不是整屏：带字母索引的列表行更窄，
+    /// 量对了门槛才会跟着收。
+    ///
+    /// - Parameter showsAlbum: 这个列表本来就不显示专辑时（专辑详情页）传 false。
+    func songRowColumnsContainer(showsAlbum: Bool = true) -> some View {
+        modifier(SongRowColumnsContainerModifier(allowsAlbum: showsAlbum))
+    }
+}
+
+private struct SongRowColumnsContainerModifier: ViewModifier {
+    let allowsAlbum: Bool
+
+    @State private var containerWidth: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.songRowColumns, columns)
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { width in
+                containerWidth = width
+            }
+    }
+
+    private var columns: SongRowColumns {
+        #if os(macOS)
+        // Mac 有自己的曲目表, 行不参与这一套对齐列。
+        return .hidden
+        #else
+        return SongRowColumnsPolicy.columns(
+            containerWidth: containerWidth,
+            allowsAlbum: allowsAlbum
+        )
         #endif
     }
 }

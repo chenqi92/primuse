@@ -261,7 +261,16 @@ struct MetadataBackfillPerformanceButton<Label: View>: View {
 
 private struct MetadataFastReadingConfirmation: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.pmHeightClass) private var heightClass
     let onConfirm: () -> Void
+
+    /// 两颗按钮竖排要 160pt，手机横屏的 .medium 下正文只剩三十来点。
+    /// 换排布方向用布局容器而不是换一棵子树，旋转时按钮的身份不变。
+    private var actionLayout: AnyLayout {
+        heightClass.isCompact
+            ? AnyLayout(HStackLayout(spacing: 12))
+            : AnyLayout(VStackLayout(spacing: 12))
+    }
 
     var body: some View {
         ScrollView {
@@ -283,7 +292,7 @@ private struct MetadataFastReadingConfirmation: View {
             .padding(24)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(spacing: 12) {
+            actionLayout {
                 Button {
                     dismiss()
                     onConfirm()
@@ -304,7 +313,7 @@ private struct MetadataFastReadingConfirmation: View {
                 .accessibilityIdentifier("sources.metadataBackfillFastCancel")
             }
             .controlSize(.large)
-            .padding(24)
+            .padding(heightClass.value(24, compact: 16))
             .background(.background)
         }
         #if os(iOS)

@@ -24,6 +24,7 @@ extension EnvironmentValues {
 struct HomeFoldersSection: View {
     @Environment(HomeDiscoveryModel.self) private var model
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.pmHeightClass) private var heightClass
     @AppStorage(HomeFolderPinStorage.key) private var pinsRawValue = ""
     @AppStorage(HomeFolderPinStorage.displayCountKey) private var displayCount = HomeFolderPinStorage.defaultDisplayCount
     @AppStorage(HomeSectionLayoutConfiguration.storageKey) private var layoutRawValue = ""
@@ -33,8 +34,16 @@ struct HomeFoldersSection: View {
     }
 
     /// 与专辑卡一致的尺寸,好让文件夹换成网格/横排时和上下的专辑区块对得齐。
-    private var cardWidth: CGFloat { sizeClass == .regular ? 160 : 132 }
+    /// 两处的取值口径也必须一致:常规宽度还得配常规高度才算 iPad,否则大屏手机
+    /// 横屏会在四百来点高的视口里用上 iPad 的大卡片。
+    private var cardWidth: CGFloat {
+        usesPadMetrics ? 160 : heightClass.value(132, compact: 108)
+    }
     private var cardHeight: CGFloat { cardWidth + 42 }
+
+    private var usesPadMetrics: Bool {
+        sizeClass == .regular && !heightClass.isCompact
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -103,7 +112,11 @@ struct HomeFoldersSection: View {
                 LazyHGrid(
                     rows: Array(
                         repeating: GridItem(.fixed(cardHeight), spacing: 14, alignment: .top),
-                        count: layout.rowCount(for: .folders)
+                        // 手机横屏只渲染一行,用户存下来的行数不动。
+                        count: HomeSectionLayoutPolicy.renderedRowCount(
+                            configured: layout.rowCount(for: .folders),
+                            isCompactHeight: heightClass.isCompact
+                        )
                     ),
                     spacing: 14
                 ) {

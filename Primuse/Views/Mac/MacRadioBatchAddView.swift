@@ -66,12 +66,6 @@ struct MacRadioBatchAddView: View {
     @State private var subscribesToList = false
     @State private var showingManagedSubscription = false
 
-    /// `startsWithPlaylistLink` 为真时直接停在「清单链接」—— 订阅管理页的
-    /// 「添加订阅」从这里进来。
-    init(startsWithPlaylistLink: Bool = false) {
-        _entry = State(initialValue: startsWithPlaylistLink ? .url : .paste)
-    }
-
     private var playableCount: Int { candidates.filter(\.isPlayable).count }
     private var duplicateCount: Int { candidates.filter { $0.status == .duplicate }.count }
     private var invalidCount: Int { candidates.filter { $0.status == .invalid }.count }
