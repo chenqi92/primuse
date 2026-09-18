@@ -285,6 +285,7 @@
 		38A135AAC750CAF0DE89773E /* CueSheetParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0039D9169F515627C5A4C159 /* CueSheetParser.swift */; };
 		38B71AA0941D7B974C337680 /* ScraperConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BF1A706ED97024BCCCCD9F8 /* ScraperConfigStore.swift */; };
 		38E0E189263F5CC02A9DD486 /* AddSourceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7BBFA50461FE980684501FA /* AddSourceView.swift */; };
+		391ACCAE3259D52088819685 /* SynologyAudioStationAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2F06C85E321D1D3926CA4E /* SynologyAudioStationAPI.swift */; };
 		DD2A67E1029D1A8D48C4442D /* SourceAddressForm.swift in Sources */ = {isa = PBXBuildFile; fileRef = 775B198C9EA7BE68BEE8EEA3 /* SourceAddressForm.swift */; };
 		38F1CB896290BA69CF5682C3 /* TimeInterval+Format.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02C67038ECF67BC44982A1C8 /* TimeInterval+Format.swift */; };
 		392380F2B15058BABF04130F /* LocalImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03F527F89BB056AD3BB3E532 /* LocalImportService.swift */; };
@@ -1178,6 +1179,7 @@
 		E1EA3F7A3D5C3F95F1FF92B0 /* SidecarWriteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0CD6571B6CA1E276A954F2F /* SidecarWriteService.swift */; };
 		E1F03B0F5F84CD3EC3339D8D /* KaraokeLineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AC7465EC4D7BFF7A5D825BF /* KaraokeLineView.swift */; };
 		E20CD86639EC304A4521720F /* AppIconSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F52CBE601DF2ED6B33A3FD92 /* AppIconSettingsView.swift */; };
+		E21DB80CE4B946445CF49138 /* SynologyAudioStationClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31C0CD83D48A0593F5912180 /* SynologyAudioStationClient.swift */; };
 		E2810AAD4DBE00E55CB6203B /* PlayHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCE1922E4E88CC38539151C4 /* PlayHistoryStore.swift */; };
 		E2915EA85132DB3DAB79C7D8 /* MusicScraperFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6255A91A1DE2B2C344A5491 /* MusicScraperFactory.swift */; };
 		E2AAEF7990A1A92CD2935EB2 /* UgreenAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = CACF669ECDE8745A546EE459 /* UgreenAPI.swift */; };
@@ -1543,6 +1545,8 @@
 		07AA00C9862F805BCB17DCDC /* AudioCachePathResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCachePathResolver.swift; sourceTree = "<group>"; };
 		07ED3C52285096B184672237 /* SmartPlaylistDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartPlaylistDetailView.swift; sourceTree = "<group>"; };
 		0849A8F36C03A6B9E0D99387 /* PrivateOverlayHostPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivateOverlayHostPolicy.swift; sourceTree = "<group>"; };
+		1A2F06C85E321D1D3926CA4E /* SynologyAudioStationAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyAudioStationAPI.swift; sourceTree = "<group>"; };
+		31C0CD83D48A0593F5912180 /* SynologyAudioStationClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyAudioStationClient.swift; sourceTree = "<group>"; };
 		99D0FD719B67752D96057615 /* ProxyPrefixedBasePathPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyPrefixedBasePathPolicy.swift; sourceTree = "<group>"; };
 		D985218C6C887E4DA40AF2D2 /* SourceAddressInputPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceAddressInputPolicy.swift; sourceTree = "<group>"; };
 		94CB377FB39449D0664E7EC7 /* SourceAddressFormPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceAddressFormPolicy.swift; sourceTree = "<group>"; };
@@ -4064,6 +4068,8 @@
 				A808E934F62A6E8AB8548E11 /* STRMDescriptor.swift */,
 				18580B6FCDDC9D293B7820BF /* SubsonicStreamResolver.swift */,
 				00315BE49B8ED4049B2713AB /* SyncedCredentialAvailability.swift */,
+				1A2F06C85E321D1D3926CA4E /* SynologyAudioStationAPI.swift */,
+				31C0CD83D48A0593F5912180 /* SynologyAudioStationClient.swift */,
 				09CE2F3FC6DBC83E5C139F8D /* SynologyQuickConnectResolver.swift */,
 				3C221E974A2E6E831F7EAF27 /* SynologyStreamResolver.swift */,
 				E1F7BC83F45C23C5FEECE7C3 /* TianyiCloudAPIProtocol.swift */,
@@ -4893,6 +4899,8 @@
 				B92C0208877DCAFFFE4ABC19 /* SubsonicStreamResolver.swift in Sources */,
 				A1C66D0E2DEB3024DEB9930A /* SubtitleLyricsParser.swift in Sources */,
 				B88D64F74EB70F4438DCCCBC /* SyncedCredentialAvailability.swift in Sources */,
+				391ACCAE3259D52088819685 /* SynologyAudioStationAPI.swift in Sources */,
+				E21DB80CE4B946445CF49138 /* SynologyAudioStationClient.swift in Sources */,
 				D4BA7D2927A0037D9895C527 /* SynologyQuickConnectResolver.swift in Sources */,
 				548B2F51A1FD55FC79DE5C9B /* SynologyStreamResolver.swift in Sources */,
 				856C70EA0F1E8E9D577A8A5F /* TVPlaybackPipelinePolicy.swift in Sources */,
