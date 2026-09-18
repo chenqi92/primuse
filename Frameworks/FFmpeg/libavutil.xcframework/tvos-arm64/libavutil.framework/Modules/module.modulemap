@@ -1,0 +1,5 @@
+framework module libavutil {
+  umbrella header "avutil.h"
+  export *
+  module * { export * }
+}
