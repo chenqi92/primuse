@@ -219,6 +219,9 @@
 "radio_batch_paste_hint" = "Hat başına bir akış URL. “Ad, URL” de işe yarar.";
 "current" = "Güncel";
 "playlist_import_create_matched_only_format" = "Yalnızca Eşleşenler Oluştur (%d)";
+"playlist_import_destination_header" = "Şuraya Aktar";
+"playlist_import_liked_footer_format" = "Eşleşen şarkılar “%@” listesine eklenir. Zaten listede olanlar yeniden eklenmez.";
+"playlist_import_add_matched_only_format" = "Yalnızca Eşleşenleri Ekle (%d)";
 "metadata_status_state_file_unavailable" = "Dosya Mevcut Değil";
 "intent_playing_album_format" = "%@ albümü çalınıyor.";
 "metadata_writeback_stage_inspect" = "kaynak revizyon kontrolü";

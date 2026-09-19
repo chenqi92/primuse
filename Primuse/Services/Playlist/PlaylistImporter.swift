@@ -328,4 +328,24 @@ enum PlaylistImporter {
         // 快照并向 SwiftUI / CloudKit 发布 N 次。
         return library.createPlaylist(name: playlistName, songIDs: songIDs)
     }
+
+    /// 把 preview 里匹配到的歌曲加入「我喜欢」。已经喜欢的不会重复, 未匹配的
+    /// 条目会被丢弃。
+    static func addToLikedSongs(from preview: ImportPreview, library: MusicLibrary) {
+        library.likeSongs(preview.entries.compactMap { $0.matchedSong?.id })
+    }
+
+    /// 「我喜欢」在应用各语言下的名字。标记字段出现之前导出的文件只能靠歌单名
+    /// 认出来, 而导出时的系统语言不一定是现在这一种。
+    static func likedPlaylistNamesInEveryLanguage() -> [String] {
+        let key = "playlist_liked_name"
+        var names = [String(localized: "playlist_liked_name")]
+        for localization in Bundle.main.localizations {
+            guard let path = Bundle.main.path(forResource: localization, ofType: "lproj"),
+                  let bundle = Bundle(path: path) else { continue }
+            let name = bundle.localizedString(forKey: key, value: nil, table: nil)
+            if name != key { names.append(name) }
+        }
+        return names
+    }
 }

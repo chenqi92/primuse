@@ -86,6 +86,12 @@ enum PlaylistExporter {
         var lines: [String] = []
         lines.append("#EXTM3U")
         lines.append("#PLAYLIST:\(sanitizeM3ULine(playlist.name))")
+        if playlist.id == MusicLibrary.likedSongsPlaylistID {
+            // A comment to every other player; tells Primuse where this belongs.
+            lines.append(PlaylistImportDestinationPolicy.m3uKindLine(
+                marker: PlaylistImportDestinationPolicy.likedKindMarker
+            ))
+        }
         for song in songs {
             // EXTINF: 时长 (秒, 整数), 艺术家 - 歌曲名
             let duration = max(0, song.duration.rounded().finiteInt())
@@ -118,6 +124,10 @@ enum PlaylistExporter {
             let name: String
             let createdAt: Date
             let updatedAt: Date
+            /// "liked" for the built-in liked list, absent otherwise and in
+            /// files written before the field existed. Lets the importing
+            /// device offer the liked list as the destination.
+            var kind: String? = nil
         }
 
         struct TrackEntry: Codable {
@@ -158,7 +168,10 @@ enum PlaylistExporter {
             playlist: PrimusePlaylistFile.PlaylistEntry(
                 name: playlist.name,
                 createdAt: playlist.createdAt,
-                updatedAt: playlist.updatedAt
+                updatedAt: playlist.updatedAt,
+                kind: playlist.id == MusicLibrary.likedSongsPlaylistID
+                    ? PlaylistImportDestinationPolicy.likedKindMarker
+                    : nil
             ),
             tracks: tracks
         )

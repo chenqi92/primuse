@@ -985,6 +985,9 @@
 "playlist_import_export_unmatched_csv" = "不一致を書き出す → CSV";
 "playlist_import_change_file" = "ファイルを変更";
 "playlist_import_create_matched_only_format" = "一致した曲のみ作成（%d）";
+"playlist_import_destination_header" = "読み込み先";
+"playlist_import_liked_footer_format" = "一致した曲は「%@」に追加されます。すでに入っている曲が重複して追加されることはありません。";
+"playlist_import_add_matched_only_format" = "一致した曲のみ追加（%d）";
 "playlist_import_manual_match" = "手動でマッチング…";
 "playlist_import_manual_match_title" = "手動でマッチング";
 "playlist_import_search_library" = "ライブラリの曲を検索";

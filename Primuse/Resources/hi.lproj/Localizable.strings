@@ -2233,6 +2233,9 @@
 "playlist_import_change_file" = "फ़ाइल बदलें";
 "playlist_import_create" = "बनाएं";
 "playlist_import_create_matched_only_format" = "केवल मिलान बनाएं (%d)";
+"playlist_import_destination_header" = "यहाँ इंपोर्ट करें";
+"playlist_import_liked_footer_format" = "मिलान हुए गाने “%@” में जोड़ दिए जाते हैं। जो गाने पहले से उसमें हैं, वे दोबारा नहीं जोड़े जाते।";
+"playlist_import_add_matched_only_format" = "केवल मिलान जोड़ें (%d)";
 "playlist_import_entries_count_format" = "%d प्रविष्टियाँ";
 "playlist_import_entries_header" = "प्रविष्टियाँ";
 "playlist_import_err_empty" = "प्लेलिस्ट में कोई ट्रैक नहीं है";

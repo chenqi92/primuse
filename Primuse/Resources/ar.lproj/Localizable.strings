@@ -2233,6 +2233,9 @@
 "playlist_import_change_file" = "تغيير الملف";
 "playlist_import_create" = "إنشاء";
 "playlist_import_create_matched_only_format" = "إنشاء المطابق فقط (%d)";
+"playlist_import_destination_header" = "الاستيراد إلى";
+"playlist_import_liked_footer_format" = "تُضاف الأغاني المطابقة إلى «%@». الأغاني الموجودة فيها مسبقًا لا تُضاف مرة أخرى.";
+"playlist_import_add_matched_only_format" = "إضافة المطابق فقط (%d)";
 "playlist_import_entries_count_format" = "%d إدخالات";
 "playlist_import_entries_header" = "مداخل";
 "playlist_import_err_empty" = "قائمة التشغيل لا تحتوي على مسارات";

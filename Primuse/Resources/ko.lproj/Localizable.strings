@@ -984,6 +984,9 @@
 "playlist_import_export_unmatched_csv" = "일치하지 않은 항목 내보내기 → CSV";
 "playlist_import_change_file" = "파일 변경";
 "playlist_import_create_matched_only_format" = "일치한 항목만 생성 (%d)";
+"playlist_import_destination_header" = "가져올 위치";
+"playlist_import_liked_footer_format" = "일치한 곡은 ‘%@’에 추가됩니다. 이미 들어 있는 곡은 중복으로 추가되지 않습니다.";
+"playlist_import_add_matched_only_format" = "일치한 항목만 추가 (%d)";
 "playlist_import_manual_match" = "수동 일치…";
 "playlist_import_manual_match_title" = "수동 일치";
 "playlist_import_search_library" = "라이브러리 곡 검색";

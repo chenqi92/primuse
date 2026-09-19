@@ -219,6 +219,9 @@
 "radio_batch_paste_hint" = "Один потік URL на рядок. «Назва, URL» також працює.";
 "current" = "Поточний";
 "playlist_import_create_matched_only_format" = "Створити тільки відповідні (%d)";
+"playlist_import_destination_header" = "Імпортувати до";
+"playlist_import_liked_footer_format" = "Відповідні треки додаються до «%@». Ті, що вже там є, повторно не додаються.";
+"playlist_import_add_matched_only_format" = "Додати тільки відповідні (%d)";
 "metadata_status_state_file_unavailable" = "Файл недоступний";
 "intent_playing_album_format" = "Відтворення альбому %@.";
 "metadata_writeback_stage_inspect" = "перевірка вихідної версії";

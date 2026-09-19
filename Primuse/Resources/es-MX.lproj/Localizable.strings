@@ -2233,6 +2233,9 @@
 "playlist_import_change_file" = "Cambiar archivo";
 "playlist_import_create" = "Crear";
 "playlist_import_create_matched_only_format" = "Crear solo coincidencias (%d)";
+"playlist_import_destination_header" = "Importar en";
+"playlist_import_liked_footer_format" = "Las canciones coincidentes se agregan a “%@”. Las que ya están ahí no se agregan dos veces.";
+"playlist_import_add_matched_only_format" = "Agregar solo coincidencias (%d)";
 "playlist_import_entries_count_format" = "Entradas %d";
 "playlist_import_entries_header" = "Entradas";
 "playlist_import_err_empty" = "La lista de reproducción no tiene pistas";

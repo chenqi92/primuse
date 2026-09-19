@@ -984,6 +984,9 @@
 "playlist_import_export_unmatched_csv" = "Exporter les non-associés → CSV";
 "playlist_import_change_file" = "Changer de fichier";
 "playlist_import_create_matched_only_format" = "Créer uniquement les associés (%d)";
+"playlist_import_destination_header" = "Importer dans";
+"playlist_import_liked_footer_format" = "Les morceaux associés sont ajoutés à « %@ ». Ceux qui s’y trouvent déjà ne sont pas ajoutés deux fois.";
+"playlist_import_add_matched_only_format" = "Ajouter uniquement les associés (%d)";
 "playlist_import_manual_match" = "Correspondance manuelle…";
 "playlist_import_manual_match_title" = "Correspondance manuelle";
 "playlist_import_search_library" = "Rechercher des morceaux de la bibliothèque";

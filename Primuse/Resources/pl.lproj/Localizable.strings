@@ -2233,6 +2233,9 @@
 "playlist_import_change_file" = "Zmień plik";
 "playlist_import_create" = "Utwórz";
 "playlist_import_create_matched_only_format" = "Utwórz tylko dopasowane (%d)";
+"playlist_import_destination_header" = "Importuj do";
+"playlist_import_liked_footer_format" = "Dopasowane utwory trafiają do „%@”. Te, które już tam są, nie zostaną dodane ponownie.";
+"playlist_import_add_matched_only_format" = "Dodaj tylko dopasowane (%d)";
 "playlist_import_entries_count_format" = "Wpisy %d";
 "playlist_import_entries_header" = "Wpisy";
 "playlist_import_err_empty" = "Lista odtwarzania nie zawiera utworów";

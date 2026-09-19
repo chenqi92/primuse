@@ -18,6 +18,8 @@ struct PlaylistImportView: View {
 
     @State private var preview: PlaylistImporter.ImportPreview?
     @State private var playlistName: String = ""
+    /// 预选值来自文件本身(导出标记或歌单名), 用户可以改。
+    @State private var destination: PlaylistImportDestination = .newPlaylist
     @State private var importError: String?
     @State private var showFileImporter = false
     @State private var importedFromName: String = ""
@@ -79,7 +81,7 @@ struct PlaylistImportView: View {
             } else if let preview {
                 summarySection(preview)
                     .pmAppearFade(.pageSwitch)
-                nameSection
+                destinationSection
                     .pmAppearFade(.pageSwitch)
                 entriesSection(preview)
                     .pmAppearFade(.pageSwitch)
@@ -106,13 +108,32 @@ struct PlaylistImportView: View {
                 }
             } else {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("playlist_import_create") { confirm() }
+                    Button { confirm() } label: { Text(confirmTitleKey) }
                         .fontWeight(.semibold)
-                        .disabled(playlistName.trimmingCharacters(in: .whitespaces).isEmpty
-                                  || (preview?.matchedCount ?? 0) == 0)
+                        .disabled(!canConfirmImport)
                 }
             }
         }
+    }
+
+    /// 加入「我喜欢」不需要名字; 新建歌单需要。两种都至少要匹配到一首。
+    private var canConfirmImport: Bool {
+        guard (preview?.matchedCount ?? 0) > 0 else { return false }
+        return destination == .likedSongs
+            || !playlistName.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// 显式标成 LocalizedStringKey: 直接把三元表达式塞给 Text / Button 会被推断成
+    /// String, 文案就不走本地化了。
+    private var confirmTitleKey: LocalizedStringKey {
+        destination == .likedSongs ? "add" : "playlist_import_create"
+    }
+
+    private var likedDestinationNote: String {
+        String(
+            format: String(localized: "playlist_import_liked_footer_format"),
+            String(localized: "playlist_liked_name")
+        )
     }
 
     #if os(macOS)
@@ -252,19 +273,34 @@ struct PlaylistImportView: View {
             macSegmentedProgress(p)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("playlist_import_name_header")
+                Text("playlist_import_destination_header")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(PMColor.textMuted)
-                TextField("playlist_name", text: $playlistName)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13.5, weight: .medium))
-                    .padding(.horizontal, 12)
-                    .frame(height: 36)
-                    .background(PMColor.card.opacity(0.78), in: .rect(cornerRadius: 8))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                    }
+                Picker("playlist_import_destination_header", selection: $destination) {
+                    Text("new_playlist")
+                        .tag(PlaylistImportDestination.newPlaylist)
+                    Text("playlist_liked_name")
+                        .tag(PlaylistImportDestination.likedSongs)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                if destination == .newPlaylist {
+                    TextField("playlist_name", text: $playlistName)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13.5, weight: .medium))
+                        .padding(.horizontal, 12)
+                        .frame(height: 36)
+                        .background(PMColor.card.opacity(0.78), in: .rect(cornerRadius: 8))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                        }
+                } else {
+                    Text(verbatim: likedDestinationNote)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(PMColor.textFaint)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             macGroupedEntries(p)
@@ -423,24 +459,26 @@ struct PlaylistImportView: View {
                 Button {
                     confirm()
                 } label: {
-                    Text(verbatim: String(format: String(localized: "playlist_import_create_matched_only_format"), preview.matchedCount))
+                    Text(verbatim: macConfirmTitle(matchedCount: preview.matchedCount))
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(height: 28)
                         .padding(.horizontal, 14)
-                        .background(canCreatePlaylist ? PMColor.brand : PMColor.textFaint.opacity(0.45), in: .rect(cornerRadius: 6))
+                        .background(canConfirmImport ? PMColor.brand : PMColor.textFaint.opacity(0.45), in: .rect(cornerRadius: 6))
                 }
                 .buttonStyle(.plain)
-                .disabled(!canCreatePlaylist)
+                .disabled(!canConfirmImport)
             }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
     }
 
-    private var canCreatePlaylist: Bool {
-        playlistName.trimmingCharacters(in: .whitespaces).isEmpty == false
-            && (preview?.matchedCount ?? 0) > 0
+    private func macConfirmTitle(matchedCount: Int) -> String {
+        let format = destination == .likedSongs
+            ? String(localized: "playlist_import_add_matched_only_format")
+            : String(localized: "playlist_import_create_matched_only_format")
+        return String(format: format, matchedCount)
     }
 
     private func macFormatPill(_ text: String) -> some View {
@@ -590,11 +628,24 @@ struct PlaylistImportView: View {
         }
     }
 
-    private var nameSection: some View {
+    private var destinationSection: some View {
         Section {
-            TextField("playlist_name", text: $playlistName)
+            Picker("playlist_import_destination_header", selection: $destination) {
+                Text("new_playlist")
+                    .tag(PlaylistImportDestination.newPlaylist)
+                Text("playlist_liked_name")
+                    .tag(PlaylistImportDestination.likedSongs)
+            }
+            .pickerStyle(.segmented)
+            if destination == .newPlaylist {
+                TextField("playlist_name", text: $playlistName)
+            }
         } header: {
-            Text("playlist_import_name_header")
+            Text("playlist_import_destination_header")
+        } footer: {
+            if destination == .likedSongs {
+                Text(verbatim: likedDestinationNote)
+            }
         }
     }
 
@@ -681,6 +732,11 @@ struct PlaylistImportView: View {
                 )
                 preview = p
                 playlistName = p.suggestedName
+                destination = PlaylistImportDestinationPolicy.suggestedDestination(
+                    kindMarker: raw.kindMarker,
+                    playlistName: raw.suggestedName,
+                    likedPlaylistNames: PlaylistImporter.likedPlaylistNamesInEveryLanguage()
+                )
                 importedFromName = fileName
             } catch {
                 importError = error.localizedDescription
@@ -713,6 +769,8 @@ struct PlaylistImportView: View {
 
     nonisolated private struct RawImportResult: Sendable {
         let suggestedName: String
+        /// 导出时写下的歌单类别(目前只有「我喜欢」), 旧文件和别的播放器的文件没有。
+        let kindMarker: String?
         let matches: [RawMatch]
     }
 
@@ -840,7 +898,11 @@ struct PlaylistImportView: View {
             }
             return RawMatch(displayTitle: track.title, displayArtist: track.artistName, matchedSong: nil, matchKindRaw: nil)
         }
-        return RawImportResult(suggestedName: file.playlist.name, matches: matches)
+        return RawImportResult(
+            suggestedName: file.playlist.name,
+            kindMarker: file.playlist.kind,
+            matches: matches
+        )
     }
 
     nonisolated private static func parseM3U8OffMain(
@@ -852,6 +914,7 @@ struct PlaylistImportView: View {
             throw OffMainImportError.malformed("encoding")
         }
         var playlistName = fileName
+        var kindMarker: String?
         var pendingExtInf: String?
         var rawEntries: [(path: String, extInf: String?)] = []
 
@@ -866,6 +929,10 @@ struct PlaylistImportView: View {
             }
             if line.hasPrefix("#EXTINF:") {
                 pendingExtInf = String(line.dropFirst("#EXTINF:".count))
+                continue
+            }
+            if let marker = PlaylistImportDestinationPolicy.kindMarker(fromM3ULine: line) {
+                kindMarker = marker
                 continue
             }
             if line.hasPrefix("#") { continue }
@@ -884,7 +951,7 @@ struct PlaylistImportView: View {
             }
             return RawMatch(displayTitle: displayTitle, displayArtist: displayArtist, matchedSong: nil, matchKindRaw: nil)
         }
-        return RawImportResult(suggestedName: playlistName, matches: matches)
+        return RawImportResult(suggestedName: playlistName, kindMarker: kindMarker, matches: matches)
     }
 
     /// 解析 `#EXTINF:duration,Artist - Title`。Artist 段可能没有, 这种整段当
@@ -908,10 +975,14 @@ struct PlaylistImportView: View {
     }
 
     private func confirm() {
-        guard let preview else { return }
-        let name = playlistName.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty else { return }
-        PlaylistImporter.createPlaylist(from: preview, named: name, library: library)
+        guard let preview, canConfirmImport else { return }
+        switch destination {
+        case .likedSongs:
+            PlaylistImporter.addToLikedSongs(from: preview, library: library)
+        case .newPlaylist:
+            let name = playlistName.trimmingCharacters(in: .whitespaces)
+            PlaylistImporter.createPlaylist(from: preview, named: name, library: library)
+        }
         dismiss()
     }
 
