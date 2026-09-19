@@ -1247,8 +1247,8 @@ extension AudioPlayerService {
 
                 // Use the same decoder that was used for initial playback.
                 // For streaming, require the cached local file — can't seek in remote streams.
-                var seekURL: URL
-                var seekDecoderKind = activeDecoderKind
+                let seekURL: URL
+                let seekDecoderKind = activeDecoderKind
                 if activeDecoderKind == .streaming {
                     var cached = completedFullDownloadURL(for: song)
                     if cached == nil, isRecovery, !isColdSessionRestore {
@@ -1275,28 +1275,6 @@ extension AudioPlayerService {
                     seekURL = url
                 }
 
-                // Range-backed cloud/HTTP InputSources can expose byte seeking
-                // while a format decoder still rejects PCM seeking. Never fall
-                // back to decoding millions of frames just to reach a large
-                // target. Complete the normal LRU cache once, then seek the
-                // local file with FFmpeg/native random access.
-                if (activeDecoderKind == .cloudStream || activeDecoderKind == .httpStream),
-                   RemoteSeekPreparationPolicy.decision(
-                       hasCachedFile: sourceManager?.cachedURL(for: song) != nil,
-                       cacheEnabled: playbackSettings.audioCacheEnabled,
-                       isColdSessionRestore: isColdSessionRestore
-                   ) == .materializeCompleteFile,
-                   let cached = await materializeCachedURLForPlaybackRecovery(
-                       song,
-                       trigger: "remote-seek"
-                   ) {
-                    guard !Task.isCancelled, playID == id else { return }
-                    seekURL = cached
-                    seekDecoderKind = await ffmpegCanDecodeOffMain(cached) ? .ffmpeg : .native
-                    guard !Task.isCancelled, playID == id else { return }
-                    activeDecoderKind = seekDecoderKind
-                    plog("📍 Seek materialized remote audio to local cache; decoder=\(seekDecoderKind)")
-                }
                 let rawStream: AudioBufferStream
                 let onResolveLength = makeResolveLengthCallback(for: song)
                 var decoderPerformedSeek = false
@@ -1460,18 +1438,73 @@ extension AudioPlayerService {
                 audioEngine.sampleTimeOffset = -progressSeekSamples
 
                 // Skip buffers until seek position, then schedule first playable buffer before play()
-                let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
+                var iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
                 var firstPlayableBuffer: AVAudioPCMBuffer?
+                var rangeSeekRejected = false
 
-                while let buffer = try await iteratorBox.next() {
-                    guard !Task.isCancelled, playID == id else { return }
-                    let bufferSamples = Int64(buffer.frameLength)
-                    if samplesSkipped + bufferSamples <= seekSamples {
-                        samplesSkipped += bufferSamples
-                        continue
+                firstBufferSearch: while true {
+                    do {
+                        while let buffer = try await iteratorBox.next() {
+                            guard !Task.isCancelled, playID == id else { return }
+                            let bufferSamples = Int64(buffer.frameLength)
+                            if samplesSkipped + bufferSamples <= seekSamples {
+                                samplesSkipped += bufferSamples
+                                continue
+                            }
+                            firstPlayableBuffer = buffer
+                            break
+                        }
+                        break firstBufferSearch
+                    } catch AudioDecoderError.seekUnavailable
+                        where !rangeSeekRejected
+                            && (seekDecoderKind == .cloudStream || seekDecoderKind == .httpStream) {
+                        // Range-backed cloud/HTTP InputSources can expose byte
+                        // seeking while a format decoder still rejects PCM
+                        // seeking; the decoder then refuses rather than decoding
+                        // millions of frames to reach the target. Only now
+                        // complete the normal LRU cache once and seek the local
+                        // file with FFmpeg/native random access.
+                        rangeSeekRejected = true
+                        guard RemoteSeekPreparationPolicy.afterRangeSeekRejected(
+                                  cacheEnabled: playbackSettings.audioCacheEnabled,
+                                  isColdSessionRestore: isColdSessionRestore
+                              ) == .materializeCompleteFile,
+                              let cached = await materializeCachedURLForPlaybackRecovery(
+                                  song,
+                                  trigger: "remote-seek"
+                              ) else {
+                            throw AudioDecoderError.seekUnavailable
+                        }
+                        guard !Task.isCancelled, playID == id else { return }
+                        let localDecoderKind: DecoderKind = await ffmpegCanDecodeOffMain(cached)
+                            ? .ffmpeg
+                            : .native
+                        guard !Task.isCancelled, playID == id else { return }
+                        activeDecoderKind = localDecoderKind
+                        plog("📍 Range seek rejected; materialized remote audio to local cache, decoder=\(localDecoderKind)")
+                        let localStream = localDecoderKind == .ffmpeg
+                            ? ffmpegDecoder.decode(
+                                from: cached,
+                                outputFormat: outputFormat,
+                                startingAt: physicalSeekTime,
+                                onResolveSourceLength: onResolveLength
+                            )
+                            : nativeDecoder.decode(
+                                from: cached,
+                                outputFormat: outputFormat,
+                                dsdMode: activeDSDPlaybackMode,
+                                startingAt: physicalSeekTime,
+                                onResolveSourceLength: onResolveLength
+                            )
+                        iteratorBox = BufferIteratorBox(
+                            segmented(
+                                localStream,
+                                for: song,
+                                sourceStartTime: physicalSeekTime
+                            ).makeAsyncIterator()
+                        )
+                        samplesSkipped = 0
                     }
-                    firstPlayableBuffer = buffer
-                    break
                 }
 
                 guard let firstBuffer = firstPlayableBuffer else {
