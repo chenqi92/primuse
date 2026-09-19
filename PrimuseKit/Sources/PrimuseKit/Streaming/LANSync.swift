@@ -171,6 +171,213 @@ public struct LANSyncPayload: Codable, Sendable {
     public static func decode(_ data: Data) -> LANSyncPayload? {
         try? JSONDecoder().decode(LANSyncPayload.self, from: data)
     }
+
+    /// 分段直传第一段:音乐源与凭据,不带曲库。
+    public var isCompleteSourcesStage: Bool {
+        sourcesGz?.isEmpty == false && credentials != nil
+    }
+
+    /// 分段直传第二段:曲库连同音乐源一起到,TV 走与整包相同的安装;凭据已在第一段落盘。
+    public var isCompleteLibraryStage: Bool {
+        libraryGz?.isEmpty == false && sourcesGz?.isEmpty == false
+    }
+}
+
+/// 分段直传的各段,按声明顺序发送。二维码带 `v=2` 的 Apple TV 才认这些路径;
+/// 旧版 TV 只有整包的 `/config`。
+public enum LANTransferStage: String, Sendable, CaseIterable, Comparable {
+    case sources
+    case library
+    case artwork
+    case finish
+
+    public var path: String { "/v2/\(rawValue)" }
+
+    public init?(path: String) {
+        guard let stage = Self.allCases.first(where: { $0.path == path }) else { return nil }
+        self = stage
+    }
+
+    private var order: Int { Self.allCases.firstIndex(of: self) ?? 0 }
+
+    public static func < (lhs: Self, rhs: Self) -> Bool { lhs.order < rhs.order }
+}
+
+/// 分段直传的进度,发送界面据此显示每一段的状态。
+public struct LANTransferProgress: Sendable, Equatable {
+    public enum Activity: Sendable, Equatable {
+        case preparing
+        case sending
+        /// 请求体已全部发出,在等 Apple TV 落盘后回应。
+        case waitingForTV
+    }
+
+    public var stage: LANTransferStage
+    public var activity: Activity
+    /// 本段已发出的比例,封面段是全部批次合计;准备阶段为 nil。
+    public var fraction: Double?
+    /// 封面分批时的批次(从 1 开始)与总批数。
+    public var batchIndex: Int?
+    public var batchCount: Int?
+
+    public init(stage: LANTransferStage, activity: Activity, fraction: Double? = nil,
+                batchIndex: Int? = nil, batchCount: Int? = nil) {
+        self.stage = stage
+        self.activity = activity
+        self.fraction = fraction
+        self.batchIndex = batchIndex
+        self.batchCount = batchCount
+    }
+}
+
+/// Apple TV 上扫码直传的进度,二维码卡片据此显示。整包(旧版 iPhone)当作曲库这一段。
+public struct LANReceiveStatus: Sendable, Equatable {
+    public enum Phase: Sendable, Equatable {
+        /// 正在收这一段的请求体。
+        case receiving
+        /// 请求体已收完,正在落盘。
+        case saving
+        /// 这一段已落盘,在等 iPhone 发下一段。
+        case saved
+        case finished
+        case failed
+    }
+
+    public var phase: Phase
+    public var stage: LANTransferStage
+    /// 当前这段已收到的比例,封面段是全部批次合计;未知时为 nil。
+    public var fraction: Double?
+    public var batchIndex: Int?
+    public var batchCount: Int?
+    /// 曲库落盘后 Apple TV 上的歌曲数。
+    public var songCount: Int?
+    /// 接收端给每个请求的递增编号,用来认出迟到的进度。
+    public var requestSerial: Int
+
+    public init(phase: Phase, stage: LANTransferStage, fraction: Double? = nil,
+                batchIndex: Int? = nil, batchCount: Int? = nil, songCount: Int? = nil,
+                requestSerial: Int) {
+        self.phase = phase
+        self.stage = stage
+        self.fraction = fraction
+        self.batchIndex = batchIndex
+        self.batchCount = batchCount
+        self.songCount = songCount
+        self.requestSerial = requestSerial
+    }
+
+    /// 接收进度从服务队列异步转到界面,可能晚于这个请求「开始落盘」甚至「已失败」才到。
+    /// 同一请求的迟到进度、以及更早请求的进度都不能改写当前状态;重发的请求编号更大,照常显示。
+    public func supersedes(progressSerial: Int) -> Bool {
+        progressSerial < requestSerial || (progressSerial == requestSerial && phase != .receiving)
+    }
+
+    /// 已收到的比例。封面按批合计:第 3 批(共 4 批)收到一半 = 62.5%。
+    public static func receivedFraction(receivedBytes: Int, totalBytes: Int,
+                                        batchIndex: Int?, batchCount: Int?) -> Double? {
+        guard totalBytes > 0 else { return nil }
+        let current = min(1, max(0, Double(receivedBytes) / Double(totalBytes)))
+        guard let batchIndex, let batchCount, batchCount > 0 else { return current }
+        return min(1, (Double(batchIndex - 1) + current) / Double(batchCount))
+    }
+}
+
+/// 分段直传停在哪一段。之前的段已经在 Apple TV 上落盘,可以从这一段接着发。
+public struct LANStagedTransferFailure: Error, Sendable, Equatable {
+    public let stage: LANTransferStage
+    public let failure: AppleTVTransferFailure
+
+    public init(stage: LANTransferStage, failure: AppleTVTransferFailure) {
+        self.stage = stage
+        self.failure = failure
+    }
+}
+
+/// 封面批次在请求头里的位置,形如 `3/6`。放在头里是为了 TV 在收请求体时就能按批显示进度。
+public struct LANArtworkBatchPosition: Sendable, Equatable {
+    public static let headerName = "X-Primuse-Batch"
+    private static let maximumCount = 10_000
+
+    public let index: Int
+    public let count: Int
+
+    public init?(index: Int, count: Int) {
+        guard count > 0, count <= Self.maximumCount, index >= 1, index <= count else { return nil }
+        self.index = index
+        self.count = count
+    }
+
+    public init?(header: String?) {
+        guard let parts = header?.split(separator: "/", omittingEmptySubsequences: false),
+              parts.count == 2,
+              let index = Int(parts[0].trimmingCharacters(in: .whitespaces)),
+              let count = Int(parts[1].trimmingCharacters(in: .whitespaces)) else { return nil }
+        self.init(index: index, count: count)
+    }
+
+    public var headerValue: String { "\(index)/\(count)" }
+}
+
+/// 第三段的一批封面。批次大小受控,既不碰请求体上限,也让两端能按批显示进度。
+public struct LANArtworkBatch: Codable, Sendable, Equatable {
+    /// 用户上传的自定义封面,键是内容 ID。
+    public var customAssets: [String: Data]
+    /// 缓存封面,键是内容 ID。
+    public var cachedAssets: [String: Data]
+    /// 缓存文件名 → 内容 ID,只含本批 `cachedAssets` 里有的内容。
+    public var references: [String: String]
+
+    public init(customAssets: [String: Data] = [:], cachedAssets: [String: Data] = [:],
+                references: [String: String] = [:]) {
+        self.customAssets = customAssets
+        self.cachedAssets = cachedAssets
+        self.references = references
+    }
+
+    public var rawByteCount: Int {
+        customAssets.values.reduce(0) { $0 + $1.count } + cachedAssets.values.reduce(0) { $0 + $1.count }
+    }
+
+    public func jsonData() throws -> Data { try JSONEncoder().encode(self) }
+
+    public static func decode(_ data: Data) -> LANArtworkBatch? {
+        try? JSONDecoder().decode(LANArtworkBatch.self, from: data)
+    }
+
+    /// 按原始字节切批,顺序固定(自定义封面在前,再按内容 ID)。单个超过上限的封面自成一批;
+    /// 没有对应内容的引用会被丢掉,因为 TV 装不了它。
+    public static func batches(
+        customAssets: [String: Data],
+        cachedAssets: [String: Data],
+        references: [String: String],
+        maximumRawBytes: Int
+    ) -> [LANArtworkBatch] {
+        let namesByContent = Dictionary(grouping: references, by: \.value).mapValues { $0.map(\.key) }
+        var result: [LANArtworkBatch] = []
+        var current = LANArtworkBatch()
+        var currentBytes = 0
+        func append(_ bytes: Int, _ add: (inout LANArtworkBatch) -> Void) {
+            if currentBytes > 0, currentBytes + bytes > maximumRawBytes {
+                result.append(current)
+                current = LANArtworkBatch()
+                currentBytes = 0
+            }
+            add(&current)
+            currentBytes += bytes
+        }
+        for (contentID, data) in customAssets.sorted(by: { $0.key < $1.key }) {
+            append(data.count) { $0.customAssets[contentID] = data }
+        }
+        for (contentID, data) in cachedAssets.sorted(by: { $0.key < $1.key }) {
+            guard let names = namesByContent[contentID], !names.isEmpty else { continue }
+            append(data.count) { batch in
+                batch.cachedAssets[contentID] = data
+                for name in names { batch.references[name] = contentID }
+            }
+        }
+        if currentBytes > 0 { result.append(current) }
+        return result
+    }
 }
 
 /// 局域网直传的体积约束。Apple TV 接收端只收 `maximumSealedBytes` 以内的请求体,
@@ -204,13 +411,21 @@ public struct LANPairLink: Sendable, Equatable {
     public var port: Int
     public var key: Data        // 32 bytes
     public var pairCode: String // 6 digits shown on both devices
+    /// 1 = 只收整包 `/config`;2 = 还收分段的 `LANTransferStage` 路径。旧二维码不带 `v`,按 1 处理。
+    public var protocolVersion: Int
 
-    public init(host: String, port: Int, key: Data, pairCode: String = LANPairLink.randomPairCode()) {
+    public static let stagedProtocolVersion = 2
+
+    public init(host: String, port: Int, key: Data, pairCode: String = LANPairLink.randomPairCode(),
+                protocolVersion: Int = 1) {
         self.host = host
         self.port = port
         self.key = key
         self.pairCode = LANPairLink.normalizedPairCode(pairCode) ?? LANPairLink.randomPairCode()
+        self.protocolVersion = max(1, protocolVersion)
     }
+
+    public var supportsStagedTransfer: Bool { protocolVersion >= Self.stagedProtocolVersion }
 
     /// 从扫码得到的 `primuse://pair?...` 解析。
     public init?(url: URL) {
@@ -224,6 +439,7 @@ public struct LANPairLink: Sendable, Equatable {
         self.port = port
         self.key = key
         self.pairCode = LANPairLink.normalizedPairCode(q("code")) ?? LANPairLink.shortCode(from: key)
+        self.protocolVersion = max(1, q("v").flatMap(Int.init) ?? 1)
     }
 
     /// 编码进二维码的字符串。
@@ -237,11 +453,18 @@ public struct LANPairLink: Sendable, Equatable {
             URLQueryItem(name: "k", value: key.base64URLEncodedString()),
             URLQueryItem(name: "code", value: pairCode),
         ]
+        if protocolVersion > 1 {
+            c.queryItems?.append(URLQueryItem(name: "v", value: String(protocolVersion)))
+        }
         return c.url?.absoluteString ?? "primuse://pair"
     }
 
     /// iPhone POST 配置的目标 URL(局域网明文 HTTP,载荷已 AES-GCM 加密)。
     public var configURL: URL? { URL(string: "http://\(host):\(port)/config") }
+
+    public func url(for stage: LANTransferStage) -> URL? {
+        URL(string: "http://\(host):\(port)\(stage.path)")
+    }
 
     public var displayPairCode: String {
         pairCode.count == 6

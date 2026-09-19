@@ -23,6 +23,10 @@ struct SendToTVSheet: View {
     @State private var result: Bool?
     @State private var failure: AppleTVTransferFailure?
     @State private var showAddSource = false
+    /// 局域网直传当前这一步的进度;没在发送时为 nil。
+    @State private var transferProgress: LANTransferProgress?
+    /// 局域网直传停下的那一步。分段直传时之前的步骤已在 Apple TV 上落盘,从这里接着发。
+    @State private var failedStage: LANTransferStage?
 
     /// 局域网直传不依赖 iCloud;仅旧的 iCloud 上传模式才需要开关开启。
     private var blocked: Bool { lanTarget == nil && !iCloudSyncEnabled }
@@ -48,7 +52,57 @@ struct SendToTVSheet: View {
         #endif
     }
 
+    /// 分段直传的 Apple TV 能从中断处接着收;旧版 TV 只能整包重发。配对已失效(403、链接无效)
+    /// 时接着发也只会再被拒,要重新扫码。
+    private var canResume: Bool {
+        guard lanTarget?.supportsStagedTransfer == true, let failedStage, failedStage > .sources else {
+            return false
+        }
+        switch failure {
+        case .tvRejected(statusCode: 403), .invalidPairingLink:
+            return false
+        default:
+            return true
+        }
+    }
+
+    private var showsTransferSteps: Bool {
+        lanTarget != nil && (sending || result != nil)
+    }
+
+    private var transferSteps: [SendToTVStep] {
+        guard lanTarget?.supportsStagedTransfer == true else {
+            return [SendToTVStep(stage: .library, title: PMString("send_to_tv_step_everything"))]
+        }
+        return [
+            SendToTVStep(stage: .sources, title: PMString("send_to_tv_step_sources")),
+            SendToTVStep(stage: .library, title: PMString("send_to_tv_step_library")),
+            SendToTVStep(stage: .artwork, title: PMString("send_to_tv_step_artwork")),
+        ]
+    }
+
+    private func stepState(for stage: LANTransferStage) -> SendToTVStepState {
+        if result == true { return .done }
+        if let failedStage {
+            if stage < failedStage { return .done }
+            return stage == failedStage ? .failed : .pending
+        }
+        guard let transferProgress else { return .pending }
+        if stage < transferProgress.stage { return .done }
+        return stage == transferProgress.stage ? .active(transferProgress) : .pending
+    }
+
     private var panel: some View {
+        GeometryReader { proxy in
+            ScrollView {
+                panelContent
+                    .frame(minHeight: proxy.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+    }
+
+    private var panelContent: some View {
         VStack(spacing: 20) {
                 Spacer(minLength: 8)
 
@@ -90,6 +144,18 @@ struct SendToTVSheet: View {
                     }
                 }
 
+                if showsTransferSteps {
+                    VStack(alignment: .leading, spacing: 14) {
+                        ForEach(transferSteps) { step in
+                            SendToTVStepRow(title: step.title, state: stepState(for: step.stage))
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .pmFadeTransition(motion: .contentAppear)
+                }
+
                 if blocked {
                     Label("send_to_tv_need_icloud", systemImage: "exclamationmark.icloud")
                         .font(.footnote)
@@ -111,9 +177,13 @@ struct SendToTVSheet: View {
                                         // 不让整块按钮内容跟着进动画。
                                         .pmAnimation(.control, value: result)
                                 }
-                                Text(result == true
-                                     ? "send_to_tv_sent"
-                                     : (lanTarget == nil ? "send_to_tv_action" : "send_to_tv_confirm_and_send"))
+                                if result != true, canResume {
+                                    Text(PMString("send_to_tv_resume"))
+                                } else {
+                                    Text(result == true
+                                         ? "send_to_tv_sent"
+                                         : (lanTarget == nil ? "send_to_tv_action" : "send_to_tv_confirm_and_send"))
+                                }
                             }
                             .pmAppearFade(.control)
                         }
@@ -129,6 +199,11 @@ struct SendToTVSheet: View {
                         Text(failure.userFacingMessage)
                             .font(.footnote)
                             .multilineTextAlignment(.center)
+                        if canResume {
+                            Text(PMString("send_to_tv_partial_saved"))
+                                .font(.footnote)
+                                .multilineTextAlignment(.center)
+                        }
                         Text(verbatim: failure.diagnosticCode)
                             .font(.caption2.monospaced())
                             .textSelection(.enabled)
@@ -188,6 +263,10 @@ struct SendToTVSheet: View {
         sending = true
         result = nil
         failure = nil
+        let previousFailedStage = failedStage
+        let resumeStage: LANTransferStage = canResume ? (previousFailedStage ?? .sources) : .sources
+        failedStage = nil
+        transferProgress = nil
         Task {
             // 等待原子落盘完成，避免首次安装/重装后的发送读取不到快照。
             switch await musicLibrary.persistNowAndWait() {
@@ -197,23 +276,144 @@ struct SendToTVSheet: View {
                 sending = false
                 result = false
                 failure = persistenceFailure
+                failedStage = previousFailedStage
                 return
             }
-            let transfer: Result<Void, AppleTVTransferFailure>
-            if let target = lanTarget {
-                transfer = await LibrarySnapshotSync.shared.sendToTVOverLANResult(target)
-            } else {
-                transfer = await LibrarySnapshotSync.shared.uploadNowResult()
+            guard let target = lanTarget else {
+                finish(await LibrarySnapshotSync.shared.uploadNowResult(), failedAt: nil)
+                return
             }
-            sending = false
-            switch transfer {
-            case .success:
-                result = true
+            let (updates, continuation) = AsyncStream.makeStream(
+                of: LANTransferProgress.self,
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            let observer = Task {
+                for await update in updates { transferProgress = update }
+            }
+            if target.supportsStagedTransfer {
+                let outcome = await LibrarySnapshotSync.shared.sendToTVOverLANStaged(
+                    target,
+                    startingAt: resumeStage
+                ) { continuation.yield($0) }
+                continuation.finish()
+                await observer.value
+                switch outcome {
+                case .success:
+                    finish(.success(()), failedAt: nil)
+                case .failure(let staged):
+                    finish(.failure(staged.failure), failedAt: staged.stage)
+                }
+            } else {
+                let outcome = await LibrarySnapshotSync.shared.sendToTVOverLANResult(target) {
+                    continuation.yield($0)
+                }
+                continuation.finish()
+                await observer.value
+                finish(outcome, failedAt: .library)
+            }
+        }
+    }
+
+    private func finish(_ transfer: Result<Void, AppleTVTransferFailure>, failedAt stage: LANTransferStage?) {
+        sending = false
+        transferProgress = nil
+        switch transfer {
+        case .success:
+            result = true
+            Task {
                 try? await Task.sleep(for: .seconds(1.2))
                 dismiss()
-            case .failure(let transferFailure):
-                result = false
-                failure = transferFailure
+            }
+        case .failure(let transferFailure):
+            result = false
+            failure = transferFailure
+            failedStage = stage
+        }
+    }
+}
+
+private struct SendToTVStep: Identifiable {
+    let stage: LANTransferStage
+    let title: String
+    var id: LANTransferStage { stage }
+}
+
+private enum SendToTVStepState: Equatable {
+    case pending
+    case active(LANTransferProgress)
+    case done
+    case failed
+}
+
+/// 局域网直传的一步:图标表示状态,正在进行的那步带说明和进度条。
+private struct SendToTVStepRow: View {
+    let title: String
+    let state: SendToTVStepState
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            icon
+                .frame(width: 22, height: 22)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(verbatim: title)
+                    .font(.subheadline.weight(.medium))
+                Text(verbatim: detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                if case .active(let progress) = state,
+                   progress.activity == .sending,
+                   let fraction = progress.fraction {
+                    ProgressView(value: fraction)
+                        .progressViewStyle(.linear)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private var icon: some View {
+        switch state {
+        case .pending:
+            Image(systemName: "circle")
+                .foregroundStyle(.tertiary)
+        case .active:
+            ProgressView()
+                .controlSize(.small)
+        case .done:
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        case .failed:
+            Image(systemName: "exclamationmark.circle.fill")
+                .foregroundStyle(.orange)
+        }
+    }
+
+    private var detail: String {
+        switch state {
+        case .pending:
+            return PMString("send_to_tv_progress_waiting")
+        case .done:
+            return PMString("send_to_tv_progress_done")
+        case .failed:
+            return PMString("send_to_tv_progress_failed")
+        case .active(let progress):
+            switch progress.activity {
+            case .preparing:
+                return PMString("send_to_tv_progress_preparing")
+            case .waitingForTV:
+                return PMString("send_to_tv_progress_tv_saving")
+            case .sending:
+                if let index = progress.batchIndex, let count = progress.batchCount {
+                    return PMString("send_to_tv_progress_batch", index.formatted(), count.formatted())
+                }
+                guard let fraction = progress.fraction else {
+                    return PMString("send_to_tv_progress_preparing")
+                }
+                return PMString("send_to_tv_progress_sending",
+                                fraction.formatted(.percent.precision(.fractionLength(0))))
             }
         }
     }

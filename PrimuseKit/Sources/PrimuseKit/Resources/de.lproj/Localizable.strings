@@ -873,3 +873,26 @@
 
 /* Synology Audio Station */
 "src.subtitle.synologyAudioStation" = "DSM-Musikpaket · Mediathek, Playlists, Bewertungen";
+
+/* Apple TV 分段直传 */
+"send_to_tv_step_sources" = "Quellen und Anmeldedaten";
+"send_to_tv_step_library" = "Mediathek";
+"send_to_tv_step_artwork" = "Cover";
+"send_to_tv_step_everything" = "Mediathek, Quellen und Anmeldedaten";
+"send_to_tv_progress_waiting" = "Wartet";
+"send_to_tv_progress_done" = "Fertig";
+"send_to_tv_progress_failed" = "Nicht abgeschlossen";
+"send_to_tv_progress_preparing" = "Wird vorbereitet …";
+"send_to_tv_progress_tv_saving" = "Apple TV speichert …";
+"send_to_tv_progress_batch" = "Paket %1$@ von %2$@ wird gesendet";
+"send_to_tv_progress_sending" = "Wird gesendet: %@";
+"send_to_tv_resume" = "Senden fortsetzen";
+"send_to_tv_partial_saved" = "Die abgeschlossenen Schritte sind bereits auf dem Apple TV gespeichert. Beim Fortsetzen geht es dort weiter, wo die Übertragung angehalten hat.";
+"ext.tv.transfer.sources" = "Quellen und Anmeldedaten werden empfangen …";
+"ext.tv.transfer.sourcesSaved" = "Quellen gespeichert. Warten auf die Mediathek …";
+"ext.tv.transfer.library" = "Mediathek wird empfangen …";
+"ext.tv.transfer.libraryImporting" = "Mediathek wird importiert …";
+"ext.tv.transfer.librarySaved" = "Mediathek importiert. Warten auf Cover …";
+"ext.tv.transfer.artwork" = "Cover werden empfangen (Paket %1$@ von %2$@) …";
+"ext.tv.transfer.finished" = "%@ Titel vom iPhone übertragen";
+"ext.tv.transfer.failed" = "Die Übertragung wurde nicht abgeschlossen. Versuche es auf dem iPhone erneut.";

@@ -820,3 +820,26 @@
 
 /* Synology Audio Station */
 "src.subtitle.synologyAudioStation" = "Pakiet muzyczny DSM · Biblioteka, playlisty, oceny";
+
+/* Apple TV 分段直传 */
+"send_to_tv_step_sources" = "Źródła i dane logowania";
+"send_to_tv_step_library" = "Biblioteka";
+"send_to_tv_step_artwork" = "Okładki";
+"send_to_tv_step_everything" = "Biblioteka, źródła i dane logowania";
+"send_to_tv_progress_waiting" = "Oczekuje";
+"send_to_tv_progress_done" = "Gotowe";
+"send_to_tv_progress_failed" = "Nie ukończono";
+"send_to_tv_progress_preparing" = "Przygotowywanie…";
+"send_to_tv_progress_tv_saving" = "Apple TV zapisuje…";
+"send_to_tv_progress_batch" = "Wysyłanie partii %1$@ z %2$@";
+"send_to_tv_progress_sending" = "Wysyłanie: %@";
+"send_to_tv_resume" = "Kontynuuj wysyłanie";
+"send_to_tv_partial_saved" = "Ukończone kroki są już zapisane na Apple TV. Kontynuuj wysyłanie, aby wznowić od miejsca przerwania.";
+"ext.tv.transfer.sources" = "Odbieranie źródeł i danych logowania…";
+"ext.tv.transfer.sourcesSaved" = "Źródła zapisane. Oczekiwanie na bibliotekę…";
+"ext.tv.transfer.library" = "Odbieranie biblioteki…";
+"ext.tv.transfer.libraryImporting" = "Importowanie biblioteki…";
+"ext.tv.transfer.librarySaved" = "Biblioteka zaimportowana. Oczekiwanie na okładki…";
+"ext.tv.transfer.artwork" = "Odbieranie okładek (partia %1$@ z %2$@)…";
+"ext.tv.transfer.finished" = "Przeniesiono utwory z iPhone: %@";
+"ext.tv.transfer.failed" = "Przesyłanie nie zostało ukończone. Spróbuj ponownie na iPhone.";

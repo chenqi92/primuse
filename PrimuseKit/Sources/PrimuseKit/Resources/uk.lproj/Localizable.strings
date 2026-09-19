@@ -820,3 +820,26 @@
 
 /* Synology Audio Station */
 "src.subtitle.synologyAudioStation" = "Музичний пакет DSM · медіатека, плейлисти, оцінки";
+
+/* Apple TV 分段直传 */
+"send_to_tv_step_sources" = "Джерела та дані для входу";
+"send_to_tv_step_library" = "Медіатека";
+"send_to_tv_step_artwork" = "Обкладинки";
+"send_to_tv_step_everything" = "Медіатека, джерела та дані для входу";
+"send_to_tv_progress_waiting" = "Очікування";
+"send_to_tv_progress_done" = "Готово";
+"send_to_tv_progress_failed" = "Не завершено";
+"send_to_tv_progress_preparing" = "Підготовка…";
+"send_to_tv_progress_tv_saving" = "Apple TV зберігає…";
+"send_to_tv_progress_batch" = "Надсилання пакета %1$@ з %2$@";
+"send_to_tv_progress_sending" = "Надсилання: %@";
+"send_to_tv_resume" = "Продовжити надсилання";
+"send_to_tv_partial_saved" = "Завершені кроки вже збережено на Apple TV. Продовжте надсилання, щоб відновити його з місця зупинки.";
+"ext.tv.transfer.sources" = "Отримання джерел і даних для входу…";
+"ext.tv.transfer.sourcesSaved" = "Джерела збережено. Очікування медіатеки…";
+"ext.tv.transfer.library" = "Отримання медіатеки…";
+"ext.tv.transfer.libraryImporting" = "Імпорт медіатеки…";
+"ext.tv.transfer.librarySaved" = "Медіатеку імпортовано. Очікування обкладинок…";
+"ext.tv.transfer.artwork" = "Отримання обкладинок (пакет %1$@ з %2$@)…";
+"ext.tv.transfer.finished" = "Перенесено пісень з iPhone: %@";
+"ext.tv.transfer.failed" = "Передавання не завершено. Повторіть спробу на iPhone.";

@@ -870,3 +870,26 @@
 
 /* Synology Audio Station */
 "src.subtitle.synologyAudioStation" = "DSM 音樂套件 · 曲庫、播放清單、評分";
+
+/* Apple TV 分段直传 */
+"send_to_tv_step_sources" = "音樂來源和登入資訊";
+"send_to_tv_step_library" = "資料庫";
+"send_to_tv_step_artwork" = "封面";
+"send_to_tv_step_everything" = "資料庫、音樂來源和登入資訊";
+"send_to_tv_progress_waiting" = "等待中";
+"send_to_tv_progress_done" = "已完成";
+"send_to_tv_progress_failed" = "未完成";
+"send_to_tv_progress_preparing" = "正在準備…";
+"send_to_tv_progress_tv_saving" = "Apple TV 正在儲存…";
+"send_to_tv_progress_batch" = "正在傳送第 %1$@ 批，共 %2$@ 批";
+"send_to_tv_progress_sending" = "正在傳送 %@";
+"send_to_tv_resume" = "繼續傳送";
+"send_to_tv_partial_saved" = "已完成的部分已儲存在 Apple TV 上，繼續傳送會從中斷處接著傳。";
+"ext.tv.transfer.sources" = "正在接收音樂來源和登入資訊…";
+"ext.tv.transfer.sourcesSaved" = "音樂來源已儲存，正在等待資料庫…";
+"ext.tv.transfer.library" = "正在接收資料庫…";
+"ext.tv.transfer.libraryImporting" = "正在匯入資料庫…";
+"ext.tv.transfer.librarySaved" = "資料庫已匯入，正在等待封面…";
+"ext.tv.transfer.artwork" = "正在接收封面（第 %1$@ 批，共 %2$@ 批）";
+"ext.tv.transfer.finished" = "已從 iPhone 傳入 %@ 首歌曲";
+"ext.tv.transfer.failed" = "傳輸沒有完成，請在 iPhone 上重試。";

@@ -873,3 +873,26 @@
 
 /* Synology Audio Station */
 "src.subtitle.synologyAudioStation" = "Paquet musical DSM · Bibliothèque, playlists, notes";
+
+/* Apple TV 分段直传 */
+"send_to_tv_step_sources" = "Sources et identifiants";
+"send_to_tv_step_library" = "Bibliothèque";
+"send_to_tv_step_artwork" = "Illustrations";
+"send_to_tv_step_everything" = "Bibliothèque, sources et identifiants";
+"send_to_tv_progress_waiting" = "En attente";
+"send_to_tv_progress_done" = "Terminé";
+"send_to_tv_progress_failed" = "Non terminé";
+"send_to_tv_progress_preparing" = "Préparation…";
+"send_to_tv_progress_tv_saving" = "L’Apple TV enregistre…";
+"send_to_tv_progress_batch" = "Envoi du lot %1$@ sur %2$@";
+"send_to_tv_progress_sending" = "Envoi : %@";
+"send_to_tv_resume" = "Reprendre l’envoi";
+"send_to_tv_partial_saved" = "Les étapes terminées sont déjà enregistrées sur l’Apple TV. Reprenez l’envoi pour continuer là où il s’est arrêté.";
+"ext.tv.transfer.sources" = "Réception des sources et des identifiants…";
+"ext.tv.transfer.sourcesSaved" = "Sources enregistrées. En attente de la bibliothèque…";
+"ext.tv.transfer.library" = "Réception de la bibliothèque…";
+"ext.tv.transfer.libraryImporting" = "Importation de la bibliothèque…";
+"ext.tv.transfer.librarySaved" = "Bibliothèque importée. En attente des illustrations…";
+"ext.tv.transfer.artwork" = "Réception des illustrations (lot %1$@ sur %2$@)…";
+"ext.tv.transfer.finished" = "%@ morceaux transférés depuis l’iPhone";
+"ext.tv.transfer.failed" = "Le transfert n’est pas terminé. Réessayez depuis l’iPhone.";

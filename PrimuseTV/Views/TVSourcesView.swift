@@ -429,7 +429,10 @@ private struct TVSourcesInfoCard: View {
                         .tvFont(.caption).foregroundStyle(TVColor.textMuted).lineSpacing(5)
                     Text(PMString("ext.tv.sources.scanBody2"))
                         .tvFont(.meta).foregroundStyle(TVColor.textGhost).lineSpacing(4)
-                    if !store.pairingCode.isEmpty {
+                    if let transfer = store.pairingTransfer {
+                        TVPairingTransferStatusView(status: transfer)
+                            .padding(.top, 8)
+                    } else if !store.pairingCode.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(PMString("ext.tv.sources.confirmCode"))
                                 .tvFont(.meta, weight: .semibold)
@@ -450,6 +453,84 @@ private struct TVSourcesInfoCard: View {
         .background(TVColor.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .onAppear { store.startPairingServer() }
         .onDisappear { store.stopPairingServer() }
+    }
+}
+
+/// 扫码直传在 TV 上的进度:收请求体时有百分比,导入曲库时转圈,完成后显示歌曲数。
+private struct TVPairingTransferStatusView: View {
+    let status: LANReceiveStatus
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                if showsSpinner {
+                    ProgressView().tint(TVColor.brand)
+                } else {
+                    Image(systemName: iconName)
+                        .foregroundStyle(iconColor)
+                }
+                Text(title)
+                    .tvFont(.caption, weight: .semibold)
+                    .foregroundStyle(TVColor.text)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let fraction = barFraction {
+                ProgressView(value: fraction).tint(TVColor.brand)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var title: String {
+        switch (status.phase, status.stage) {
+        case (.finished, _):
+            return PMString("ext.tv.transfer.finished", (status.songCount ?? 0).formatted())
+        case (.failed, _):
+            return PMString("ext.tv.transfer.failed")
+        case (.saved, .sources):
+            return PMString("ext.tv.transfer.sourcesSaved")
+        case (_, .sources):
+            return PMString("ext.tv.transfer.sources")
+        case (.saving, .library):
+            return PMString("ext.tv.transfer.libraryImporting")
+        case (.saved, .library), (_, .finish):
+            return PMString("ext.tv.transfer.librarySaved")
+        case (_, .library):
+            return PMString("ext.tv.transfer.library")
+        case (_, .artwork):
+            return PMString("ext.tv.transfer.artwork",
+                            (status.batchIndex ?? 1).formatted(), (status.batchCount ?? 1).formatted())
+        }
+    }
+
+    /// 导入曲库没有自然的百分比,转圈而不是做一个忽快忽慢的进度条。
+    private var showsSpinner: Bool {
+        status.phase == .saving && status.stage != .artwork
+    }
+
+    private var barFraction: Double? {
+        switch status.phase {
+        case .receiving, .saving, .saved:
+            return status.stage == .library && status.phase != .receiving ? nil : status.fraction
+        case .finished, .failed:
+            return nil
+        }
+    }
+
+    private var iconName: String {
+        switch status.phase {
+        case .finished, .saved: return "checkmark.circle.fill"
+        case .failed: return "exclamationmark.triangle.fill"
+        case .receiving, .saving: return "arrow.down.circle"
+        }
+    }
+
+    private var iconColor: Color {
+        switch status.phase {
+        case .finished, .saved: return .green
+        case .failed: return .orange
+        case .receiving, .saving: return TVColor.brand
+        }
     }
 }
 

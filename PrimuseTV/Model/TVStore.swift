@@ -527,8 +527,16 @@ final class TVStore {
     // 局域网「扫码直传」接收端(绕开 iCloud)。二维码内容随端点就绪更新。
     @ObservationIgnored let configServer = TVConfigServer()
     @ObservationIgnored private var pairingStarted = false
+    /// 源页是否在屏幕上。传到一半离开源页时,接收服务要撑到这次传输结束。
+    @ObservationIgnored private var pairingPageVisible = false
+    @ObservationIgnored private var pairingGeneration = 0
     var pairingQRContent: String = "primuse://add-source"   // 服务未起时退回旧的 iCloud 扫码引导串
     var pairingCode: String = ""
+    /// 扫码直传的进度;nil 表示没有进行中的传输。
+    private(set) var pairingTransfer: LANReceiveStatus?
+    @ObservationIgnored private var pairingTransferClearTask: Task<Void, Never>?
+    /// 本次分段会话里可安装封面的缓存名;曲库一变就作废。
+    @ObservationIgnored private var lanArtworkEligibleNames: Set<String>?
 
     // TV 本机扫描(SMB 路径快扫 / 飞牛音乐整库)。视图观察 scanner.phase/indexed/currentFile。
     @ObservationIgnored let scanner = TVSourceScanner()
@@ -1577,11 +1585,23 @@ final class TVStore {
     /// 启动局域网「扫码直传」接收端(幂等)。源页出现时调用;收到载荷即落盘 + reload,
     /// 端点就绪后刷新二维码内容。
     func startPairingServer() {
+        pairingPageVisible = true
         guard !pairingStarted else { return }
         pairingStarted = true
-        configServer.onReceive = { [weak self] payload in
+        pairingGeneration &+= 1
+        configServer.onReceive = { [weak self] payload, serial in
             guard let self else { return false }
-            return await self.applyLANPayload(payload)
+            return await self.applyLANPayload(payload, requestSerial: serial)
+        }
+        configServer.onStage = { [weak self] request, serial in
+            guard let self else { return false }
+            return await self.applyLANStage(request, requestSerial: serial)
+        }
+        configServer.onReceiveProgress = { [weak self] progress in
+            Task { @MainActor in self?.noteLANReceiveProgress(progress) }
+        }
+        configServer.onSessionEnded = { [weak self] completed in
+            Task { @MainActor in self?.endLANSession(completed: completed) }
         }
         configServer.onEndpointReady = { [weak self] link in
             Task { @MainActor in
@@ -1592,22 +1612,231 @@ final class TVStore {
         configServer.start()
     }
 
+    /// 源页消失时调用。分段传到一半时先不停:服务一停密钥就作废,手机后面的段全会失败;
+    /// 等这次传输完成、失败提示收起或会话过期再停。
     func stopPairingServer() {
+        pairingPageVisible = false
         guard pairingStarted else { return }
+        if let phase = pairingTransfer?.phase, phase == .receiving || phase == .saving || phase == .saved {
+            return
+        }
         pairingStarted = false
+        pairingGeneration &+= 1
         configServer.stop()
         pairingQRContent = "primuse://add-source"
         pairingCode = ""
+        pairingTransferClearTask?.cancel()
+        pairingTransfer = nil
+        lanArtworkEligibleNames = nil
     }
 
     /// 收到 iPhone 经局域网直传来的整库 + 源 + 凭据:落盘、持久化凭据、合并重载曲库。
     @discardableResult
-    func applyLANPayload(_ payload: LANSyncPayload) async -> Bool {
+    func applyLANPayload(_ payload: LANSyncPayload, requestSerial: Int) async -> Bool {
         guard payload.isCompleteForTransfer else {
             plog("TVStore: rejected incomplete LAN payload")
             return false
         }
-        return await installSnapshot(payload, fromCloud: false)
+        let generation = pairingGeneration
+        setPairingTransfer(LANReceiveStatus(phase: .saving, stage: .library, requestSerial: requestSerial),
+                           generation: generation)
+        let installed = await installSnapshot(payload, fromCloud: false)
+        if installed {
+            finishPairingTransfer(requestSerial: requestSerial, generation: generation)
+        } else {
+            setPairingTransfer(LANReceiveStatus(phase: .failed, stage: .library, requestSerial: requestSerial),
+                               generation: generation)
+        }
+        return installed
+    }
+
+    /// 分段直传的一段:先音乐源与凭据(马上可用),再曲库,再分批封面,最后收尾。
+    func applyLANStage(_ request: TVConfigServer.StageRequest, requestSerial: Int) async -> Bool {
+        let generation = pairingGeneration
+        func show(_ phase: LANReceiveStatus.Phase, _ stage: LANTransferStage, fraction: Double? = nil,
+                  batchIndex: Int? = nil, batchCount: Int? = nil, songCount: Int? = nil) {
+            setPairingTransfer(LANReceiveStatus(phase: phase, stage: stage, fraction: fraction,
+                                                batchIndex: batchIndex, batchCount: batchCount,
+                                                songCount: songCount, requestSerial: requestSerial),
+                               generation: generation)
+        }
+        switch request {
+        case .sources(let payload):
+            show(.saving, .sources)
+            let installed = await installSourcesStage(payload)
+            show(installed ? .saved : .failed, .sources)
+            return installed
+        case .library(let payload):
+            show(.saving, .library)
+            let installed = await installSnapshot(payload, fromCloud: false)
+            lanArtworkEligibleNames = nil
+            show(installed ? .saved : .failed, .library, songCount: installed ? library.songs.count : nil)
+            return installed
+        case .artwork(let batch, let index, let count):
+            let songCount = pairingTransfer?.songCount
+            let fraction = Double(index) / Double(count)
+            show(.saving, .artwork, fraction: fraction, batchIndex: index, batchCount: count, songCount: songCount)
+            await installLANArtworkBatch(batch)
+            show(.saved, .artwork, fraction: fraction, batchIndex: index, batchCount: count, songCount: songCount)
+            return true
+        case .finish:
+            finishPairingTransfer(requestSerial: requestSerial, generation: generation)
+            return true
+        }
+    }
+
+    private func noteLANReceiveProgress(_ progress: TVConfigServer.ReceiveProgress) {
+        guard pairingStarted else { return }
+        if let current = pairingTransfer, current.supersedes(progressSerial: progress.requestSerial) { return }
+        setPairingTransfer(LANReceiveStatus(
+            phase: .receiving,
+            stage: progress.stage,
+            fraction: LANReceiveStatus.receivedFraction(
+                receivedBytes: progress.receivedBytes, totalBytes: progress.totalBytes,
+                batchIndex: progress.batchIndex, batchCount: progress.batchCount
+            ),
+            batchIndex: progress.batchIndex,
+            batchCount: progress.batchCount,
+            songCount: pairingTransfer?.songCount,
+            requestSerial: progress.requestSerial
+        ), generation: pairingGeneration)
+    }
+
+    /// 闲置过期时还停在半路的进度收起来;二维码已经换新,手机需重新扫码。
+    private func endLANSession(completed: Bool) {
+        lanArtworkEligibleNames = nil
+        guard !completed, pairingTransfer?.phase != .finished else { return }
+        clearPairingTransfer()
+    }
+
+    /// `generation` 是这次状态所属的源页会话;停过再开之后,上一轮迟到的结果不再显示。
+    /// 正在接收却不再有数据(连接断了)、以及失败提示,过一会儿自动收起,露出确认码。
+    private func setPairingTransfer(_ status: LANReceiveStatus, generation: Int) {
+        guard pairingStarted, generation == pairingGeneration else { return }
+        pairingTransferClearTask?.cancel()
+        pairingTransferClearTask = nil
+        pairingTransfer = status
+        let expiry: Duration?
+        switch status.phase {
+        case .receiving: expiry = .seconds(45)
+        case .failed: expiry = .seconds(20)
+        case .finished: expiry = .seconds(10)
+        case .saving, .saved: expiry = nil
+        }
+        guard let expiry else { return }
+        let serial = status.requestSerial
+        let phase = status.phase
+        pairingTransferClearTask = Task { [weak self] in
+            try? await Task.sleep(for: expiry)
+            guard !Task.isCancelled, let self,
+                  self.pairingTransfer?.requestSerial == serial,
+                  self.pairingTransfer?.phase == phase else { return }
+            self.clearPairingTransfer()
+        }
+    }
+
+    /// 收起进度;源页已经离开的话,这时才真正停掉接收服务。
+    private func clearPairingTransfer() {
+        pairingTransferClearTask?.cancel()
+        pairingTransferClearTask = nil
+        pairingTransfer = nil
+        if !pairingPageVisible { stopPairingServer() }
+    }
+
+    /// 完成提示停留一会儿再收起,露出换新的二维码。
+    private func finishPairingTransfer(requestSerial: Int, generation: Int) {
+        setPairingTransfer(LANReceiveStatus(phase: .finished, stage: .finish, songCount: library.songs.count,
+                                            requestSerial: requestSerial),
+                           generation: generation)
+        if !pairingPageVisible { clearPairingTransfer() }
+    }
+
+    /// 分段直传第一段:音乐源、凭据与电台先落盘,源马上能用;曲库在下一段到。
+    private func installSourcesStage(_ payload: LANSyncPayload) async -> Bool {
+        guard payload.isCompleteSourcesStage, let incoming = payload.credentials else { return false }
+        guard await retryPendingSnapshotImport() else { return false }
+        guard !isApplyingSnapshot else { return false }
+        guard sourcesStore.hasCompleteSnapshot else { return false }
+        isApplyingSnapshot = true
+        defer { isApplyingSnapshot = false }
+        _ = await scanTask?.value
+        // 从这里到重载音乐源之间不能再让出主 actor,否则 SourcesStore 的一次持久化
+        // 可能落在读基线与事务写盘之间被覆盖。
+        guard let localSources = try? sourcesStore.validatedSourcesForSnapshot() else { return false }
+        let previousCredentialReference = try? Data(contentsOf: TVCredentialStore.pairedBundleReferenceURL)
+        guard let staged = stageIncomingCredentials(incoming, fromCloud: false) else { return false }
+        guard let files = LibrarySnapshotSync.shared.prepareTVSourcesInstall(
+                  payload, credentialReference: staged.reference, localSources: localSources
+              ),
+              LibrarySnapshotSync.shared.applyTVPayloadInstall(files) else {
+            TVCredentialStore.discardInactiveStagedBundle(reference: staged.reference)
+            return false
+        }
+        commitStagedCredentials(staged, incoming: incoming, previousReference: previousCredentialReference,
+                                fromCloud: false)
+        scanner.invalidateFnMusicClients()
+        sourcesStore.reloadFromDisk()
+        reloadRadioStations()
+        pruneCredentialBundlesToActiveSources()
+        refreshVisibility()
+        sourcesRevision += 1
+        return true
+    }
+
+    /// 一批封面在主 actor 之外写盘。装不上的(引用不属于本机曲库)直接略过,不算失败。
+    /// 自定义封面存盘时已逐张通知,这里只为缓存封面补一次整体刷新。
+    private func installLANArtworkBatch(_ batch: LANArtworkBatch) async {
+        let assetStore = MetadataAssetStore.shared
+        let eligibleNames: Set<String>
+        if let cached = lanArtworkEligibleNames {
+            eligibleNames = cached
+        } else {
+            let songs = library.songs
+            eligibleNames = await Task.detached(priority: .userInitiated) {
+                MusicLibrary.portableArtworkEligibleNames(songs: songs, assetStore: assetStore)
+            }.value
+            lanArtworkEligibleNames = eligibleNames
+        }
+        let restored = await Task.detached(priority: .userInitiated) {
+            MusicLibrary.restorePortableArtwork(
+                customAssets: batch.customAssets,
+                cachedAssets: batch.cachedAssets,
+                references: batch.references,
+                eligibleNames: eligibleNames,
+                assetStore: assetStore
+            )
+        }.value
+        if restored.cached > 0 {
+            NotificationCenter.default.post(name: .primuseArtworkDidCache, object: nil, userInfo: ["all": true])
+        }
+    }
+
+    private struct StagedCredentials {
+        let reference: Data
+        let bundle: CredentialBundle
+    }
+
+    /// 把收到的凭据并进现有凭据包,先写进一条独立的钥匙串项;只有事务落盘了它的引用才生效。
+    private func stageIncomingCredentials(_ incoming: CredentialBundle, fromCloud: Bool) -> StagedCredentials? {
+        let key = fromCloud ? "tv.credentialSources.cloud" : "tv.credentialSources.paired"
+        let oldScope = Set(defaults.stringArray(forKey: key) ?? [])
+        var baseline = credentialBundle ?? TVCredentialStore.loadPairedBundle() ?? CredentialBundle()
+        for id in oldScope where incoming.entries[id] == nil { baseline.entries.removeValue(forKey: id) }
+        baseline.relay = incoming.relay
+        for (id, entry) in incoming.entries { baseline.entries[id] = entry }
+        guard let reference = TVCredentialStore.stagePairedBundle(baseline) else { return nil }
+        return StagedCredentials(reference: reference, bundle: baseline)
+    }
+
+    private func commitStagedCredentials(_ staged: StagedCredentials, incoming: CredentialBundle,
+                                         previousReference: Data?, fromCloud: Bool) {
+        if let previousReference {
+            TVCredentialStore.discardInactiveStagedBundle(reference: previousReference)
+        }
+        credentialBundle = staged.bundle
+        defaults.set(Array(incoming.entries.keys),
+                     forKey: fromCloud ? "tv.credentialSources.cloud" : "tv.credentialSources.paired")
+        if fromCloud { cloudCredentialSourceIDs = Set(incoming.entries.keys) }
     }
 
     private func installSnapshot(_ payload: LANSyncPayload, fromCloud: Bool) async -> Bool {
@@ -1632,19 +1861,12 @@ final class TVStore {
         guard let localSources = try? sourcesStore.validatedSourcesForSnapshot() else { return false }
         let before = library.songs
         let previousCredentialReference = try? Data(contentsOf: TVCredentialStore.pairedBundleReferenceURL)
-        var reference: Data?
-        var nextBundle: CredentialBundle?
+        var staged: StagedCredentials?
         if let incoming = payload.credentials {
-            let key = fromCloud ? "tv.credentialSources.cloud" : "tv.credentialSources.paired"
-            let oldScope = Set(defaults.stringArray(forKey: key) ?? [])
-            var baseline = credentialBundle ?? TVCredentialStore.loadPairedBundle() ?? CredentialBundle()
-            for id in oldScope where incoming.entries[id] == nil { baseline.entries.removeValue(forKey: id) }
-            baseline.relay = incoming.relay
-            for (id, entry) in incoming.entries { baseline.entries[id] = entry }
-            nextBundle = baseline
-            guard let staged = TVCredentialStore.stagePairedBundle(baseline) else { return false }
-            reference = staged
+            guard let value = stageIncomingCredentials(incoming, fromCloud: fromCloud) else { return false }
+            staged = value
         }
+        let reference = staged?.reference
         // 安装拆成两段:gunzip + 多次 JSON 解析/编码 放到主 actor 之外算,事务写盘
         // 仍留在主 actor 上,不与 MusicLibrary 的持久化交叉。区间名对 Instruments
         // 稳定不要改。
@@ -1661,14 +1883,9 @@ final class TVStore {
             return false
         }
         hasPendingSnapshotImport = true
-        if let previousCredentialReference, reference != nil {
-            TVCredentialStore.discardInactiveStagedBundle(reference: previousCredentialReference)
-        }
-        if let nextBundle { credentialBundle = nextBundle }
-        if let incoming = payload.credentials {
-            defaults.set(Array(incoming.entries.keys),
-                         forKey: fromCloud ? "tv.credentialSources.cloud" : "tv.credentialSources.paired")
-            if fromCloud { cloudCredentialSourceIDs = Set(incoming.entries.keys) }
+        if let staged, let incoming = payload.credentials {
+            commitStagedCredentials(staged, incoming: incoming, previousReference: previousCredentialReference,
+                                    fromCloud: fromCloud)
         }
         // 与安装步骤对照:reloadFromDisk 是设计上就同步的整库重载,先量清楚
         // 两者各占多少,再决定要不要动安装步骤。
