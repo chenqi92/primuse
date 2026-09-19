@@ -98,9 +98,13 @@ struct SongRowView: View {
     /// empty on a network that reaches everything, so ordinary rows pay one
     /// lookup.
     private var isUnreachableNow: Bool {
-        sourceManager.unreachablePlaybackSourceIDs.contains(song.sourceID)
-            && song.isPlayable
-            && !offlineSnapshot.isDownloaded
+        guard sourceManager.unreachablePlaybackSourceIDs.contains(song.sourceID),
+              song.isPlayable,
+              !offlineSnapshot.isDownloaded else { return false }
+        // The offline badge only mirrors downloads it was told about. A song
+        // that finished caching while it streamed is known to the disk alone,
+        // and playback asks the disk, so the row has to ask it as well.
+        return !sourceManager.hasUsableCachedAudioForPlayback(song)
     }
 
     var body: some View {
@@ -564,8 +568,13 @@ struct SongRowView: View {
                 for: song, retryKnownUnavailable: true
             )
             isRetryingUnreachableSource = false
-            // Reachable again: the row lights up and the next tap plays it.
-            guard stillUnreachable else { return }
+            // Reachable again, or a local copy turned up: the row lights up
+            // and the next tap plays it. Bring the badge in line either way so
+            // a stale one can never keep swallowing taps.
+            guard stillUnreachable else {
+                await sourceManager.refreshOfflineAudioSnapshot(for: song)
+                return
+            }
             let name = sourcesStore.sources
                 .first { $0.id == song.sourceID }?
                 .name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
