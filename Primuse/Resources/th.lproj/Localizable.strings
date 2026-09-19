@@ -4110,3 +4110,5 @@
 "audio_station_error_two_factor_required" = "บัญชีนี้ใช้การยืนยันแบบสองขั้นตอน โปรดลงชื่อเข้าใช้แหล่ง Audio Station นี้อีกครั้งแล้วป้อนรหัสยืนยัน";
 "audio_station_radio_folder_favorite" = "รายการโปรด";
 "audio_station_radio_folder_user_defined" = "วิทยุที่ผู้ใช้กำหนด";
+
+"lyric_poster_live_fallback" = "แอปรูปภาพไม่รับ Live Photo จึงบันทึกเป็นภาพนิ่งแทน";

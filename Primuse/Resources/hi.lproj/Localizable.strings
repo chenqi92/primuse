@@ -4110,3 +4110,5 @@
 "audio_station_error_two_factor_required" = "यह खाता दो-चरणीय सत्यापन का उपयोग करता है। इस Audio Station स्रोत में फिर से साइन इन करें और सत्यापन कोड दर्ज करें।";
 "audio_station_radio_folder_favorite" = "मेरे पसंदीदा";
 "audio_station_radio_folder_user_defined" = "उपयोगकर्ता-परिभाषित रेडियो";
+
+"lyric_poster_live_fallback" = "फ़ोटो ऐप ने लाइव फ़ोटो स्वीकार नहीं की — स्थिर छवि सहेजी गई";

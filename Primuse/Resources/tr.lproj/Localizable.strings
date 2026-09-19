@@ -4110,3 +4110,5 @@
 "audio_station_error_two_factor_required" = "Bu hesap iki adımlı doğrulama kullanıyor. Bu Audio Station kaynağında yeniden oturum açın ve bir doğrulama kodu girin.";
 "audio_station_radio_folder_favorite" = "Favorilerim";
 "audio_station_radio_folder_user_defined" = "Kullanıcı tanımlı radyolar";
+
+"lyric_poster_live_fallback" = "Fotoğraflar Live Photo'yu kabul etmedi; bunun yerine sabit görsel kaydedildi";

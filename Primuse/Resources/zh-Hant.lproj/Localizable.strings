@@ -4181,3 +4181,5 @@
 "audio_station_error_two_factor_required" = "此帳號已啟用兩步驟驗證，請重新登入這個 Audio Station 音樂來源並輸入驗證碼。";
 "audio_station_radio_folder_favorite" = "我收藏的廣播";
 "audio_station_radio_folder_user_defined" = "使用者定義的廣播";
+
+"lyric_poster_live_fallback" = "相簿沒有接受這張實況照片，已改存靜態圖";

@@ -18,6 +18,14 @@ enum LyricPosterRenderer {
     ) -> AnyView {
         AnyView(
             style.makeBody(context: context)
+                // 粒子与声波叠在这里而不是每个风格里各写一遍 —— 动效是
+                // 选给整张海报的, 不该只有新做的那几种风格认得。
+                .overlay {
+                    LyricPosterMotionDecorations(
+                        context: context,
+                        tint: context.motionDecorationTint
+                    )
+                }
                 .frame(width: context.size.width, height: context.size.height)
                 // 风格内部用了 plusLighter / overlay 混合(光晕、颗粒)。不圈一层
                 // 合成组, 这些混合会算到海报外面的底色上 —— 预览里混进 sheet

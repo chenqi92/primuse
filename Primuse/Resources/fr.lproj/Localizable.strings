@@ -4204,3 +4204,5 @@
 "audio_station_error_two_factor_required" = "Ce compte utilise l’authentification à deux facteurs. Reconnectez-vous à cette source Audio Station et saisissez un code de vérification.";
 "audio_station_radio_folder_favorite" = "Mes favoris";
 "audio_station_radio_folder_user_defined" = "Radios personnalisées";
+
+"lyric_poster_live_fallback" = "Photos a refusé la photo Live — l'image fixe a été enregistrée à la place";

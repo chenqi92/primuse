@@ -3982,3 +3982,5 @@
 "audio_station_error_two_factor_required" = "This account uses two-factor authentication. Sign in to this Audio Station source again and enter a verification code.";
 "audio_station_radio_folder_favorite" = "My Favorites";
 "audio_station_radio_folder_user_defined" = "User-defined Radio";
+
+"lyric_poster_live_fallback" = "Photos wouldn't take the Live Photo — saved the still image instead";

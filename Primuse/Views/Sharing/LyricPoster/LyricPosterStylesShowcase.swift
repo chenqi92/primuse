@@ -26,7 +26,7 @@ struct FilmStillPosterStyle: LyricPosterStyleRendering {
     func makeBody(context: LyricPosterRenderContext) -> AnyView {
         let metrics = metrics(for: context)
         let frameHeight = frameHeight(context)
-        let push = CGFloat(1.06 + 0.10 * context.entrance)
+        let push = CGFloat(1.06 + 0.10 * context.entrance) * context.artworkMotionScale
 
         return AnyView(
             ZStack {
@@ -267,6 +267,7 @@ struct PolaroidPosterStyle: LyricPosterStyleRendering {
                             .resizable()
                             .aspectRatio(contentMode: .fill)
                             .frame(width: photoSide, height: photoSide)
+                            .scaleEffect(context.artworkMotionScale)
                             .clipped()
                             .saturation(development)
                             .brightness((1 - development) * 0.18)

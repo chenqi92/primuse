@@ -4205,3 +4205,5 @@
 "audio_station_error_two_factor_required" = "このアカウントは 2 段階認証を使用しています。この Audio Station ソースに再ログインして確認コードを入力してください。";
 "audio_station_radio_folder_favorite" = "お気に入り";
 "audio_station_radio_folder_user_defined" = "ユーザー定義のラジオ";
+
+"lyric_poster_live_fallback" = "写真アプリが Live Photos を受け付けませんでした。静止画として保存しました";

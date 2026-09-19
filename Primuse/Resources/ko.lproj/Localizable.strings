@@ -4204,3 +4204,5 @@
 "audio_station_error_two_factor_required" = "이 계정은 2단계 인증을 사용합니다. 이 Audio Station 소스에 다시 로그인하고 인증 코드를 입력하세요.";
 "audio_station_radio_folder_favorite" = "즐겨찾기";
 "audio_station_radio_folder_user_defined" = "사용자 정의 라디오";
+
+"lyric_poster_live_fallback" = "사진 앱이 라이브 포토를 받지 않아 정지 사진으로 저장했습니다";

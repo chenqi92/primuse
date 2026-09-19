@@ -4110,3 +4110,5 @@
 "audio_station_error_two_factor_required" = "Для цього облікового запису ввімкнено двоетапну перевірку. Увійдіть у це джерело Audio Station знову й введіть код підтвердження.";
 "audio_station_radio_folder_favorite" = "Обране";
 "audio_station_radio_folder_user_defined" = "Власні радіостанції";
+
+"lyric_poster_live_fallback" = "«Фото» не прийняли Live Photo — збережено звичайне зображення";

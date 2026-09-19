@@ -4297,3 +4297,5 @@
 "audio_station_error_two_factor_required" = "这个账号开启了两步验证，请重新登录这个 Audio Station 音乐源并输入验证码。";
 "audio_station_radio_folder_favorite" = "我收藏的广播";
 "audio_station_radio_folder_user_defined" = "用户定义的广播";
+
+"lyric_poster_live_fallback" = "相册没有接受这张实况照片，已改存静态图";

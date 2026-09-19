@@ -4110,3 +4110,5 @@
 "audio_station_error_two_factor_required" = "Esta cuenta usa la verificación en dos pasos. Vuelva a iniciar sesión en esta fuente de Audio Station e ingrese un código de verificación.";
 "audio_station_radio_folder_favorite" = "Mis favoritos";
 "audio_station_radio_folder_user_defined" = "Radios personalizadas";
+
+"lyric_poster_live_fallback" = "Fotos no aceptó la foto Live; se guardó la imagen fija";
