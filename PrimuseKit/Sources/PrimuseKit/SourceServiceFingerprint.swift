@@ -57,7 +57,7 @@ public enum SourceServiceFingerprint {
         case cleartextOnTLSPort
         case connectionFailed
         case cancelled
-        /// 前面已经有更高优先级的候选确认了,这条没再试。
+        /// 优先级更高的候选已经给出结论,排在后面的这条不必再等。
         case notAttempted
     }
 
@@ -138,6 +138,19 @@ public enum SourceServiceFingerprint {
         default:
             // 其余 HTTP 类型没有公开的免登录握手,只能判"有没有人应答"。
             return ProbeRequest(path: "/")
+        }
+    }
+
+    /// 这个类型有没有能认出对方身份的指纹 —— 也就是 `evaluate` 能不能给出
+    /// `.confirmed`。两处的类型清单必须一致,测试钉住了。
+    public static func canConfirmIdentity(of sourceType: MusicSourceType) -> Bool {
+        guard probeRequest(for: sourceType) != nil else { return false }
+        switch sourceType {
+        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic,
+             .synology, .synologyAudioStation, .webdav:
+            return true
+        default:
+            return false
         }
     }
 

@@ -49,12 +49,29 @@ private let plainOK = SourceServiceFingerprint.ProbeResponse(
     bodyPrefix: "<html>hello</html>"
 )
 
-private let fastTimeouts = SourceEndpointResolver.Timeouts(
-    privateHost: 0.4,
-    overlayHost: 0.4,
-    publicHost: 0.4,
-    overall: 3
+private let synologyAuthInfo = SourceServiceFingerprint.ProbeResponse(
+    statusCode: 200,
+    headerFields: ["Content-Type": "application/json"],
+    bodyPrefix: "{\"data\":{\"SYNO.API.Auth\":{\"maxVersion\":7,\"minVersion\":1,\"path\":\"entry.cgi\"}},\"success\":true}"
 )
+
+private let synologyQuery = "/webapi/query.cgi?api=SYNO.API.Info&version=1&method=query&query=SYNO.API.Auth"
+
+private func uniformTimeouts(
+    patience: TimeInterval,
+    preference: TimeInterval,
+    overall: TimeInterval
+) -> SourceEndpointResolver.Timeouts {
+    let budget = SourceEndpointResolver.Timeouts.Budget(patience: patience, preference: preference)
+    return SourceEndpointResolver.Timeouts(
+        privateHost: budget,
+        overlayHost: budget,
+        publicHost: budget,
+        overall: overall
+    )
+}
+
+private let fastTimeouts = uniformTimeouts(patience: 0.4, preference: 0.4, overall: 3)
 
 private func parsed(_ address: String, _ sourceType: MusicSourceType) -> SourceAddressInputPolicy.ParsedEndpointInput {
     guard case let .endpoint(input) = SourceAddressInputPolicy.interpret(address, sourceType: sourceType) else {
@@ -152,14 +169,43 @@ private func parsed(_ address: String, _ sourceType: MusicSourceType) -> SourceA
 @Test func earlyFinishWaitsOnlyForHigherPriorityCandidates() {
     let confirmedSecond: [Int: SourceServiceFingerprint.Verdict] = [1: .confirmed]
     // 0 号还没回来,它优先级更高,必须等。
-    #expect(SourceEndpointResolver.canFinish(verdicts: confirmedSecond, pending: [0, 2]) == false)
+    #expect(SourceEndpointResolver.canFinish(verdicts: confirmedSecond, pending: [0, 2], sourceType: .emby) == false)
     // 只剩优先级更低的 2 号,不必等。
-    #expect(SourceEndpointResolver.canFinish(verdicts: confirmedSecond, pending: [2]))
+    #expect(SourceEndpointResolver.canFinish(verdicts: confirmedSecond, pending: [2], sourceType: .emby))
+    // 偏好窗口过了,排在前面的也不再等。
+    #expect(SourceEndpointResolver.canFinish(
+        verdicts: confirmedSecond,
+        pending: [0, 2],
+        sourceType: .emby,
+        preferenceWindowClosed: true
+    ))
 
-    // 一个 confirmed 都没有时,必须等完。
+    // 认得出身份的类型一个 confirmed 都没有时,必须等完 —— 窗口关没关都一样。
     let onlyResponded: [Int: SourceServiceFingerprint.Verdict] = [0: .responded(statusCode: 200)]
-    #expect(SourceEndpointResolver.canFinish(verdicts: onlyResponded, pending: [1]) == false)
-    #expect(SourceEndpointResolver.canFinish(verdicts: onlyResponded, pending: []))
+    #expect(SourceEndpointResolver.canFinish(verdicts: onlyResponded, pending: [1], sourceType: .emby) == false)
+    #expect(SourceEndpointResolver.canFinish(
+        verdicts: onlyResponded,
+        pending: [1],
+        sourceType: .emby,
+        preferenceWindowClosed: true
+    ) == false)
+    #expect(SourceEndpointResolver.canFinish(verdicts: onlyResponded, pending: [], sourceType: .emby))
+}
+
+@Test func aResponderIsDecisiveOnlyForTypesThatCannotBeConfirmed() {
+    let onlyResponded: [Int: SourceServiceFingerprint.Verdict] = [0: .responded(statusCode: 200)]
+    // 威联通没有免登录指纹,有人应答就是能拿到的最好结论,不必再等排在后面的。
+    #expect(SourceEndpointResolver.canFinish(verdicts: onlyResponded, pending: [1, 2], sourceType: .qnap))
+    #expect(SourceEndpointResolver.isDecisive(.responded(statusCode: 401), sourceType: .qnap))
+    // 群晖 80 口只会 301 到 https 时也是「有人应答」,不能因此停下 —— 真正的服务在后面。
+    #expect(SourceEndpointResolver.isDecisive(.responded(statusCode: 301), sourceType: .synology) == false)
+    #expect(SourceEndpointResolver.isDecisive(.unreachable(.timedOut), sourceType: .qnap) == false)
+}
+
+@Test func abandonedCandidatesAreTimedOutUnlessTheyRankBelowTheSelection() {
+    #expect(SourceEndpointResolver.abandonedVerdict(index: 0, selected: 2) == .unreachable(.timedOut))
+    #expect(SourceEndpointResolver.abandonedVerdict(index: 3, selected: 2) == .unreachable(.notAttempted))
+    #expect(SourceEndpointResolver.abandonedVerdict(index: 1, selected: nil) == .unreachable(.timedOut))
 }
 
 // MARK: - 端到端
@@ -265,12 +311,7 @@ private func parsed(_ address: String, _ sourceType: MusicSourceType) -> SourceA
 @Test func resolverStopsAtTheOverallDeadline() async throws {
     let input = parsed("emby.example.com", .emby)
     let candidates = SourceConnectionCandidatePlanner.candidates(for: input, sourceType: .emby)
-    let slow = SourceEndpointResolver.Timeouts(
-        privateHost: 30,
-        overlayHost: 30,
-        publicHost: 30,
-        overall: 0.3
-    )
+    let slow = uniformTimeouts(patience: 30, preference: 30, overall: 0.3)
     let hanging = ScriptedProbes(steps: [:], fallback: .hang)
     let resolver = SourceEndpointResolver(load: hanging.loader(), timeouts: slow)
     let started = Date()
@@ -279,7 +320,112 @@ private func parsed(_ address: String, _ sourceType: MusicSourceType) -> SourceA
 
     #expect(resolution.isResolved == false)
     #expect(elapsed < 2)
-    #expect(resolution.attempts.allSatisfy { $0.verdict == .unreachable(.notAttempted) })
+    // 它们都发出去了,只是没等到回音 —— 失败清单该说「超时」而不是「没有再试」。
+    #expect(resolution.attempts.allSatisfy { $0.verdict == .unreachable(.timedOut) })
+}
+
+@Test func resolverWaitsForASlowServerWhenNothingHasAnsweredYet() async throws {
+    // 硬盘休眠刚醒的群晖:两个 DSM 口都要将近一秒才回话,80/443 没开。
+    // 旧的单段预算(这里对应偏好窗口 0.2 秒)会把它判成「这些地址都没有回应」。
+    let input = parsed("192.168.1.10", .synology)
+    let candidates = SourceConnectionCandidatePlanner.candidates(for: input, sourceType: .synology)
+    let script = ScriptedProbes(steps: [
+        "http://192.168.1.10:5000\(synologyQuery)": .respond(synologyAuthInfo, after: 0.6),
+        "https://192.168.1.10:5001\(synologyQuery)": .respond(synologyAuthInfo, after: 0.6)
+    ])
+    let resolver = SourceEndpointResolver(
+        load: script.loader(),
+        timeouts: uniformTimeouts(patience: 2, preference: 0.2, overall: 3)
+    )
+    let resolution = try await resolver.resolve(for: input, sourceType: .synology, candidates: candidates)
+
+    #expect(candidates.first?.id == "plain:5000")
+    #expect(resolution.selected?.id == "plain:5000")
+    #expect(resolution.isServiceConfirmed)
+}
+
+@Test func resolverKeepsTheHigherPriorityPortWhenItAnswersSoonAfterTheFirst() async throws {
+    // 服务端慢的时候各个端口是一起慢的。https 口先回来一点点,不能因此把
+    // 排在前面的 http 口判输 —— 偏好窗口从第一个结论到手时才开始计。
+    let input = parsed("192.168.1.10", .synology)
+    let candidates = SourceConnectionCandidatePlanner.candidates(for: input, sourceType: .synology)
+    let script = ScriptedProbes(steps: [
+        "http://192.168.1.10:5000\(synologyQuery)": .respond(synologyAuthInfo, after: 0.8),
+        "https://192.168.1.10:5001\(synologyQuery)": .respond(synologyAuthInfo, after: 0.6)
+    ])
+    let resolver = SourceEndpointResolver(
+        load: script.loader(),
+        timeouts: uniformTimeouts(patience: 3, preference: 0.5, overall: 4)
+    )
+    let resolution = try await resolver.resolve(for: input, sourceType: .synology, candidates: candidates)
+
+    #expect(resolution.selected?.id == "plain:5000")
+}
+
+@Test func resolverGivesHigherPriorityCandidatesOnlyThePreferenceWindowOnceConfirmed() async throws {
+    // 只转发了 8096 的公网 Emby:443、8920 被防火墙静默丢包。确认之后只再等
+    // 一小段,不为它们耗完整段耐心。
+    let input = parsed("emby.example.com", .emby)
+    let candidates = SourceConnectionCandidatePlanner.candidates(for: input, sourceType: .emby)
+    let script = ScriptedProbes(steps: [
+        "https://emby.example.com/System/Info/Public": .hang,
+        "https://emby.example.com:8920/System/Info/Public": .hang,
+        "http://emby.example.com:8096/System/Info/Public": .respond(embyInfo, after: 0),
+        "http://emby.example.com/System/Info/Public": .hang
+    ])
+    let resolver = SourceEndpointResolver(
+        load: script.loader(),
+        timeouts: uniformTimeouts(patience: 10, preference: 0.3, overall: 12)
+    )
+    let started = Date()
+    let resolution = try await resolver.resolve(for: input, sourceType: .emby, candidates: candidates)
+    let elapsed = Date().timeIntervalSince(started)
+
+    #expect(resolution.selected?.id == "plain:8096")
+    #expect(elapsed < 2)
+    #expect(resolution.attempts.first?.verdict == .unreachable(.timedOut))
+    #expect(resolution.attempts.last?.verdict == .unreachable(.notAttempted))
+}
+
+@Test func resolverSettlesOnTheFirstResponderForTypesWithoutAFingerprint() async throws {
+    let input = parsed("192.168.1.10", .qnap)
+    let candidates = SourceConnectionCandidatePlanner.candidates(for: input, sourceType: .qnap)
+    guard let first = candidates.first,
+          let request = SourceServiceFingerprint.probeRequest(for: .qnap),
+          let firstURL = SourceEndpointResolver.probeURL(for: first, input: input, request: request) else {
+        Issue.record("could not build the first probe URL")
+        return
+    }
+    let script = ScriptedProbes(
+        steps: [firstURL.absoluteString: .respond(plainOK, after: 0)],
+        fallback: .hang
+    )
+    let resolver = SourceEndpointResolver(
+        load: script.loader(),
+        timeouts: uniformTimeouts(patience: 10, preference: 0.3, overall: 12)
+    )
+    let started = Date()
+    let resolution = try await resolver.resolve(for: input, sourceType: .qnap, candidates: candidates)
+    let elapsed = Date().timeIntervalSince(started)
+
+    // 有人应答已经是威联通能拿到的最好结论,排在后面挂着的那几条不用等。
+    #expect(resolution.selected?.id == first.id)
+    #expect(elapsed < 1)
+}
+
+@Test func defaultPatienceMatchesTheHandshakeBudgetOfTheSlotTheAddressLandsIn() {
+    let timeouts = SourceEndpointResolver.Timeouts.default
+    // 内网地址进 local 槽,真正连接时握手等 8 秒;覆盖网与公网进公网槽,20 秒。
+    #expect(timeouts.budget(for: .lan).patience == 8)
+    #expect(timeouts.budget(for: .loopback).patience == 8)
+    #expect(timeouts.budget(for: .overlay).patience == 20)
+    #expect(timeouts.budget(for: .public).patience == 20)
+    // 地址对了时的等待与以前一样。
+    #expect(timeouts.budget(for: .lan).preference == 2)
+    #expect(timeouts.budget(for: .overlay).preference == 3)
+    #expect(timeouts.budget(for: .public).preference == 4)
+    // 整轮上限只是兜底,不能比单个候选的耐心还短。
+    #expect(timeouts.overall > timeouts.budget(for: .public).patience)
 }
 
 @Test func resolverPropagatesCancellation() async throws {
@@ -288,12 +434,7 @@ private func parsed(_ address: String, _ sourceType: MusicSourceType) -> SourceA
     let hanging = ScriptedProbes(steps: [:], fallback: .hang)
     let resolver = SourceEndpointResolver(
         load: hanging.loader(),
-        timeouts: SourceEndpointResolver.Timeouts(
-            privateHost: 30,
-            overlayHost: 30,
-            publicHost: 30,
-            overall: 30
-        )
+        timeouts: uniformTimeouts(patience: 30, preference: 30, overall: 30)
     )
 
     let task = Task { () -> SourceEndpointResolver.Resolution in

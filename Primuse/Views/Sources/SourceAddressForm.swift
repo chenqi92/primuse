@@ -130,8 +130,8 @@ final class SourceAddressProbeController {
         let resolver = SourceEndpointResolver(load: session.loader())
         var resolutions: [UUID: SourceEndpointResolver.Resolution] = [:]
         await withTaskGroup(of: (UUID, SourceEndpointResolver.Resolution?).self) { group in
-            // 两行地址并发探,而不是一行等完再探下一行:每一轮本身就有十几秒的
-            // 上限,串起来用户要等一倍。捕获的都是单个 Sendable 值,不带整个计划
+            // 两行地址并发探,而不是一行等完再探下一行:每一轮最长要二十几秒,
+            // 串起来用户要等一倍。捕获的都是单个 Sendable 值,不带整个计划
             // 结构进任务里。
             for plan in plans {
                 let id = plan.id
