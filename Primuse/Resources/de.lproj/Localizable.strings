@@ -4208,7 +4208,15 @@
 "lyric_poster_live_fallback" = "Fotos hat das Live Photo abgelehnt – stattdessen wurde das Standbild gesichert";
 
 "lyrics_embed_copy_header" = "Eingebettete Liedtexte";
-"lyrics_embed_copy_title" = "Liedtexte auch in Audiodateien einbetten";
+"lyrics_embed_copy_title" = "Liedtexte speichern in";
 "lyrics_embed_copy_hint" = "MP3, FLAC und M4A · Lädt bei jedem Speichern von Liedtexten den ganzen Titel neu hoch";
-"lyrics_embed_copy_footer" = "Liedtexte, die du speicherst oder aus der Suche für einen einzelnen Titel übernimmst, werden zusätzlich in der Audiodatei gespeichert und wandern so mit ihr in andere Player. Die Liedtextdatei neben dem Titel bleibt die Hauptkopie; eingebettet wird nur zeilenweise getakteter Text. Bei jedem Speichern wird der ganze Titel heruntergeladen, neu geschrieben und wieder hochgeladen. Das funktioniert daher nur für MP3, FLAC und M4A auf Quellen, deren Dateien Primuse ersetzen kann, und das Scraping der gesamten Mediathek bettet nie ein.";
+"lyrics_embed_copy_footer" = "Eingebettete Liedtexte wandern mit der Audiodatei, sodass sie auch in anderen Playern und auf anderen Geräten erscheinen. Das funktioniert nur für MP3, FLAC und M4A auf Quellen, deren Dateien Primuse ersetzen kann; andere Titel verwenden weiterhin Liedtextdateien. Jedes Speichern lädt den ganzen Titel neu hoch. Mit „Nur Audiodatei“ wird keine neue Liedtextdatei angelegt, und eine bereits neben dem Titel liegende Liedtextdatei wird weiterhin aktualisiert. Das Scraping der gesamten Mediathek bettet nie ein.";
 "lyrics_embed_copy_failed_format" = "Die Liedtexte wurden gespeichert, konnten aber nicht in die Audiodatei eingebettet werden: %@";
+"lyrics_embed_mode_off" = "Nur Liedtextdatei";
+"lyrics_embed_mode_alongside" = "Liedtextdatei und Audiodatei";
+"lyrics_embed_mode_embed_only" = "Nur Audiodatei";
+"lyrics_embed_confirm_title" = "Liedtexte in Audiodateien schreiben?";
+"lyrics_embed_confirm_message" = "· Bei jedem Speichern eines Liedtextes wird der ganze Titel heruntergeladen, neu geschrieben und wieder hochgeladen. Bei großen Dateien und Cloud-Speichern dauert das spürbar länger und verbraucht mehr Daten.\n· Änderungsdatum und Inhalt der Audiodatei ändern sich, daher behandeln Sync-Ordner, Backup-Programme und Medienserver sie als neue Datei.\n· Primuse prüft vor dem Schreiben, dass die Datei nicht anderswo geändert wurde, und liest sie danach zurück. Das Umschreiben von Audiodateien bleibt dennoch riskant – sichere deine Mediathek vorher.\n· Eingebettet wird zeilenweise getakteter Text. Mehrsprachige Liedtexte, die bereits in einer MP3 eingebettet sind, werden dadurch ersetzt.";
+"lyrics_embed_confirm_message_embed_only" = "· Mit „Nur Audiodatei“ wird neben dem Titel keine Liedtextdatei angelegt, und die wortgenaue Taktung bleibt nur in Primuse. Eine bereits neben dem Titel liegende Liedtextdatei wird weiterhin aktualisiert.\n· Das Scraping der gesamten Mediathek bettet weder ein noch legt es Liedtextdateien an; gefundene Liedtexte bleiben nur in Primuse.";
+"tag_editor_lyrics_writeback_embedded" = "Ziel geprüft. Der Liedtext wird in die Audiodatei eingebettet; es wird keine Liedtextdatei angelegt.";
+"tag_editor_lyrics_writeback_also_embedded" = "Er wird zusätzlich in die Audiodatei eingebettet.";

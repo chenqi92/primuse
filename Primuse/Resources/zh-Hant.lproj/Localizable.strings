@@ -4185,7 +4185,15 @@
 "lyric_poster_live_fallback" = "相簿沒有接受這張實況照片，已改存靜態圖";
 
 "lyrics_embed_copy_header" = "歌詞嵌入";
-"lyrics_embed_copy_title" = "歌詞同時嵌入音訊檔案";
+"lyrics_embed_copy_title" = "歌詞儲存到";
 "lyrics_embed_copy_hint" = "MP3、FLAC、M4A · 每次儲存歌詞都會整首重新上傳";
-"lyrics_embed_copy_footer" = "你儲存的歌詞，以及單曲刮削後套用的歌詞，會同時存進音訊檔案，換播放器或拷走檔案時歌詞跟著走。歌曲旁的歌詞檔仍是主要副本，嵌入的只是帶行時間軸的文字。每次儲存都要把整首歌下載、改寫再上傳，所以只對可替換檔案的音樂來源裡的 MP3、FLAC、M4A 生效，整庫刮削不會嵌入。";
+"lyrics_embed_copy_footer" = "嵌入的歌詞跟著音訊檔案走，換播放器或拷走檔案都還在。只對可替換檔案的音樂來源裡的 MP3、FLAC、M4A 生效，其他歌曲照常寫歌詞檔；每次儲存都會整首重新上傳。選「只嵌入音訊檔案」時不新建歌詞檔，歌曲旁已有的歌詞檔仍會同步更新。整庫刮削不會嵌入。";
 "lyrics_embed_copy_failed_format" = "歌詞已儲存，但無法嵌入音訊檔案：%@";
+"lyrics_embed_mode_off" = "只寫歌詞檔";
+"lyrics_embed_mode_alongside" = "歌詞檔並嵌入音訊";
+"lyrics_embed_mode_embed_only" = "只嵌入音訊檔案";
+"lyrics_embed_confirm_title" = "要把歌詞寫進音訊檔案嗎？";
+"lyrics_embed_confirm_message" = "· 每次儲存歌詞都要把整首歌下載、改寫後重新上傳，大檔案和雲端硬碟會明顯變慢，也更耗流量。\n· 音訊檔案的修改時間和內容會改變，同步資料夾、備份工具和媒體伺服器會把它當成新檔案。\n· 寫入前會確認檔案沒被別處改過，寫完會讀回核對，但改寫音訊檔案本身仍有風險，建議先備份音樂庫。\n· 嵌入的是帶行時間軸的歌詞；MP3 裡原有的多語言內嵌歌詞會被這份歌詞取代。";
+"lyrics_embed_confirm_message_embed_only" = "· 只嵌入時不在歌曲旁新建歌詞檔，逐字時間軸只儲存在 Primuse 裡；歌曲旁已有的歌詞檔仍會同步更新。\n· 整庫刮削不嵌入，也不新建歌詞檔，刮到的歌詞只儲存在 Primuse 裡。";
+"tag_editor_lyrics_writeback_embedded" = "已檢查目標，歌詞將嵌入音訊檔案，不新建歌詞檔。";
+"tag_editor_lyrics_writeback_also_embedded" = "同時嵌入音訊檔案。";

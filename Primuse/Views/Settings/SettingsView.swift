@@ -1102,7 +1102,8 @@ struct MetadataScrapingView: View {
     @State private var editingConfigSource: ScraperSourceConfig?
     @State private var editingConfigJSON = ""
     @State private var isReordering = false
-    @AppStorage(EmbeddedLyricsCopyPolicy.enabledDefaultsKey) private var embedsLyricsCopy = false
+    @AppStorage(EmbeddedLyricsCopyPolicy.modeDefaultsKey) private var lyricsEmbeddingModeRaw = ""
+    @State private var pendingLyricsEmbeddingMode: LyricsEmbeddingMode?
 
 
     var body: some View {
@@ -1230,8 +1231,12 @@ struct MetadataScrapingView: View {
             }
 
             Section {
-                Toggle("lyrics_embed_copy_title", isOn: $embedsLyricsCopy)
-                    .settingsAnchor("scraping.embedLyrics")
+                Picker("lyrics_embed_copy_title", selection: lyricsEmbeddingSelection) {
+                    ForEach(LyricsEmbeddingMode.allCases, id: \.self) { mode in
+                        Text(mode.settingsTitle).tag(mode)
+                    }
+                }
+                .settingsAnchor("scraping.embedLyrics")
             } header: {
                 Text("lyrics_embed_copy_header")
             } footer: {
@@ -1315,6 +1320,47 @@ struct MetadataScrapingView: View {
         .sheet(item: $shareTarget) { target in
             ShareSheet(items: [target.url])
         }
+        // 挂在页面上而不是那一节上：Form 的节是懒加载的，滚出屏幕时挂在上面的弹框会失效。
+        .alert(
+            "lyrics_embed_confirm_title",
+            isPresented: Binding(
+                get: { pendingLyricsEmbeddingMode != nil },
+                set: { if !$0 { pendingLyricsEmbeddingMode = nil } }
+            ),
+            presenting: pendingLyricsEmbeddingMode
+        ) { mode in
+            Button("cancel", role: .cancel) {}
+            Button("enable") { applyLyricsEmbeddingMode(mode) }
+        } message: { mode in
+            Text(verbatim: mode.confirmationMessage)
+        }
+    }
+
+    /// 空字符串表示还没选过：交给策略读，它认得第一版留下的开关。
+    private var currentLyricsEmbeddingMode: LyricsEmbeddingMode {
+        LyricsEmbeddingMode(rawValue: lyricsEmbeddingModeRaw) ?? EmbeddedLyricsCopyPolicy.mode()
+    }
+
+    /// 嵌入要改写用户的音频文件。往更深处走（开启、或改成只嵌入）之前先把代价摆出来，
+    /// 确认过再切；往回退不用问。
+    private var lyricsEmbeddingSelection: Binding<LyricsEmbeddingMode> {
+        Binding(
+            get: { currentLyricsEmbeddingMode },
+            set: { newValue in
+                let current = currentLyricsEmbeddingMode
+                guard newValue != current else { return }
+                if EmbeddedLyricsCopyPolicy.requiresConfirmation(from: current, to: newValue) {
+                    pendingLyricsEmbeddingMode = newValue
+                } else {
+                    applyLyricsEmbeddingMode(newValue)
+                }
+            }
+        )
+    }
+
+    private func applyLyricsEmbeddingMode(_ mode: LyricsEmbeddingMode) {
+        EmbeddedLyricsCopyPolicy.setMode(mode)
+        lyricsEmbeddingModeRaw = mode.rawValue
     }
 
     /// 把指定源的 ScraperConfig（含 secrets）写入临时文件返回 URL，供 ShareSheet 使用。

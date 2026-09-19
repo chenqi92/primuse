@@ -4301,7 +4301,15 @@
 "lyric_poster_live_fallback" = "相册没有接受这张实况照片，已改存静态图";
 
 "lyrics_embed_copy_header" = "歌词嵌入";
-"lyrics_embed_copy_title" = "歌词同时嵌入音频文件";
+"lyrics_embed_copy_title" = "歌词保存到";
 "lyrics_embed_copy_hint" = "MP3、FLAC、M4A · 每次保存歌词都会整首重传";
-"lyrics_embed_copy_footer" = "你保存的歌词、以及单曲刮削后应用的歌词，会同时存进音频文件，换播放器或拷走文件时歌词跟着走。歌曲旁的歌词文件仍是主副本，嵌入的只是带行时间轴的文本。每次保存都要把整首歌下载、改写再上传，所以只对可替换文件的音乐源里的 MP3、FLAC、M4A 生效，整库刮削不会嵌入。";
+"lyrics_embed_copy_footer" = "嵌入的歌词随音频文件走，换播放器或拷走文件都还在。只对可替换文件的音乐源里的 MP3、FLAC、M4A 生效，其他歌曲照常写歌词文件；每次保存都会整首重传。选「只嵌入音频文件」时不新建歌词文件，歌曲旁已有的歌词文件仍会同步更新。整库刮削不嵌入。";
 "lyrics_embed_copy_failed_format" = "歌词已保存，但没能嵌入音频文件：%@";
+"lyrics_embed_mode_off" = "只写歌词文件";
+"lyrics_embed_mode_alongside" = "歌词文件并嵌入音频";
+"lyrics_embed_mode_embed_only" = "只嵌入音频文件";
+"lyrics_embed_confirm_title" = "要把歌词写进音频文件吗？";
+"lyrics_embed_confirm_message" = "· 每次保存歌词都要把整首歌下载、改写后重新上传，大文件和网盘会明显变慢，也更费流量。\n· 音频文件的修改时间和内容会变，同步盘、备份工具和媒体服务器会把它当成新文件。\n· 写入前会确认文件没被别处改过，写完会回读核对，但改写音频文件本身仍有风险，建议先备份曲库。\n· 嵌入的是带行时间轴的歌词；MP3 里原有的多语言内嵌歌词会被这份歌词取代。";
+"lyrics_embed_confirm_message_embed_only" = "· 只嵌入时不在歌曲旁新建歌词文件，逐字时间轴只保存在 Primuse 里；歌曲旁已有的歌词文件仍会同步更新。\n· 整库刮削不嵌入，也不新建歌词文件，刮到的歌词只保存在 Primuse 里。";
+"tag_editor_lyrics_writeback_embedded" = "已检查目标，歌词将嵌入音频文件，不新建歌词文件。";
+"tag_editor_lyrics_writeback_also_embedded" = "同时嵌入音频文件。";

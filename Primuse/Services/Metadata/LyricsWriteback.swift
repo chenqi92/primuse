@@ -34,6 +34,23 @@ private actor LyricsWritebackMutationGate {
     }
 }
 
+extension LyricsEmbeddingMode {
+    var settingsTitle: String {
+        switch self {
+        case .off: return String(localized: "lyrics_embed_mode_off")
+        case .alongside: return String(localized: "lyrics_embed_mode_alongside")
+        case .embedOnly: return String(localized: "lyrics_embed_mode_embed_only")
+        }
+    }
+
+    /// 选到这一档之前要让用户看到的代价。
+    var confirmationMessage: String {
+        let common = String(localized: "lyrics_embed_confirm_message")
+        guard self == .embedOnly else { return common }
+        return common + "\n" + String(localized: "lyrics_embed_confirm_message_embed_only")
+    }
+}
+
 /// 歌词的加载与写回。原本整套逻辑锁在 `TagEditorView` 的私有作用域里，
 /// 独立的歌词编辑入口没法复用；抽出来之后标签编辑器和歌词编辑器共用同一条链路，
 /// 写回目标(sidecar / 媒体服务器 / 仅本地)的判定也只有一份实现。
@@ -358,6 +375,8 @@ enum LyricsWriteback {
     struct SaveOutcome {
         enum Persistence: Equatable {
             case sidecar
+            /// 「只嵌入」：歌词只进了音频文件，没有歌词文件。
+            case embedded
             case mediaServer
             case localOnly
         }
@@ -366,8 +385,9 @@ enum LyricsWriteback {
         var errorMessage: String?
         var persistence: Persistence
         var cacheSnapshot: LyricsDocumentFingerprint?
-        /// 开了「歌词同时嵌入音频文件」时，随身副本没写成的原因。歌词文件才是主副本，
-        /// 这里失败不回滚保存，只交给调用方提示。
+        /// 「歌词文件并嵌入音频」时，嵌入的那份没写成的原因。歌词文件已经存好，
+        /// 这里失败不回滚保存，只交给调用方提示。「只嵌入」时嵌入就是这次保存本身，
+        /// 失败走 `errorMessage`。
         var embeddedCopyError: String?
 
         var succeeded: Bool { errorMessage == nil }
@@ -455,6 +475,16 @@ enum LyricsWriteback {
         var savedPersistence = requestedPersistence
         var savedCacheSnapshot = cacheSnapshot
         var embeddedCopy = EmbeddedCopyResult.notAttempted
+        // 嵌入只跟着「写歌词文件」这条路走：媒体服务器和只读源本来就碰不到音频文件。
+        let embeddingMode: LyricsEmbeddingMode
+        let lyricsDocumentExists: Bool
+        if case .sidecar(let target) = mode {
+            embeddingMode = await sourceManager.lyricsEmbeddingMode(for: song)
+            lyricsDocumentExists = target.hasLyricsDocument
+        } else {
+            embeddingMode = .off
+            lyricsDocumentExists = false
+        }
 
         if content.isEmpty {
             guard allowRemoval else {
@@ -475,8 +505,11 @@ enum LyricsWriteback {
                     persistence: requestedPersistence
                 )
             }
+            // 旁边没有任何歌词文档、又开了嵌入时，歌词就在音频文件里：删的是嵌入的那份。
+            let removesEmbeddedLyrics = embeddingMode != .off && !lyricsDocumentExists
             if case .sidecar(let target) = mode,
-               !target.replacesExistingFile {
+               !target.replacesExistingFile,
+               !removesEmbeddedLyrics {
                 // Removing a sidecar that never existed cannot delete an
                 // embedded, scanned, or cache-only authority, and there is no
                 // durable tombstone today.
@@ -525,7 +558,20 @@ enum LyricsWriteback {
                 }
                 return cancelledSave(for: song, mode: mode)
             }
-            if let error = await remove(for: updated, mode: mode, sourceManager: sourceManager) {
+            let removalError: String?
+            if removesEmbeddedLyrics {
+                embeddedCopy = await writeEmbeddedCopy(
+                    .remove,
+                    for: updated,
+                    sourceManager: sourceManager,
+                    library: library
+                )
+                removalError = embeddedCopy.failureReason
+                savedPersistence = .embedded
+            } else {
+                removalError = await remove(for: updated, mode: mode, sourceManager: sourceManager)
+            }
+            if let error = removalError {
                 if let externalMutationToken {
                     await MetadataAssetStore.shared.cancelLyricsMutation(
                         forSongID: song.id,
@@ -554,6 +600,7 @@ enum LyricsWriteback {
                 )
             }
             guard cacheRemoved else {
+                recordReplacedAudioFile(embeddedCopy, songID: song.id, library: library)
                 return SaveOutcome(
                     updatedSong: song,
                     errorMessage: String(localized: "tag_editor_lyrics_verify_failed"),
@@ -563,8 +610,8 @@ enum LyricsWriteback {
             savedCacheSnapshot = nil
             updated.lyricsFileName = nil
             updated.lyricsText = nil
-            if case .sidecar = mode {
-                // 留着嵌入的那份，下次扫描就会把刚删掉的歌词读回来。
+            if !removesEmbeddedLyrics, embeddingMode != .off {
+                // 歌词文件删掉了，嵌入的那份也要删，否则下次扫描会把它读回来。
                 embeddedCopy = await writeEmbeddedCopy(
                     .remove,
                     for: updated,
@@ -633,6 +680,12 @@ enum LyricsWriteback {
                 )
             }
             if staysLocal { savedPersistence = .localOnly }
+            // 「只嵌入」且旁边还没有歌词文档：不新建歌词文件，音频文件就是这次保存的去处。
+            let skipsLyricsFile = !staysLocal && EmbeddedLyricsCopyPolicy.skipsLyricsFile(
+                embeddingMode,
+                lyricsDocumentExists: lyricsDocumentExists
+            )
+            if skipsLyricsFile { savedPersistence = .embedded }
             let savesLocally = savedPersistence == .localOnly
             if savesLocally {
                 writebackLines = writebackLines.map(promotingLocalTranslationProvenance)
@@ -664,17 +717,29 @@ enum LyricsWriteback {
                 }
                 // Once the source write starts, finish its cache transaction
                 // even if the presenting view has since been dismissed.
-                if let error = await write(
-                    writebackLines,
-                    content: persistenceContent(
-                        validation.normalizedContent,
-                        lines: writebackLines,
-                        mode: mode
-                    ),
-                    for: updated,
-                    mode: mode,
-                    sourceManager: sourceManager
-                ) {
+                let writeError: String?
+                if skipsLyricsFile {
+                    embeddedCopy = await writeEmbeddedCopy(
+                        .set(embeddedCopyContent(writebackLines)),
+                        for: updated,
+                        sourceManager: sourceManager,
+                        library: library
+                    )
+                    writeError = embeddedCopy.failureReason
+                } else {
+                    writeError = await write(
+                        writebackLines,
+                        content: persistenceContent(
+                            validation.normalizedContent,
+                            lines: writebackLines,
+                            mode: mode
+                        ),
+                        for: updated,
+                        mode: mode,
+                        sourceManager: sourceManager
+                    )
+                }
+                if let error = writeError {
                     if let externalMutationToken {
                         await MetadataAssetStore.shared.cancelLyricsMutation(
                             forSongID: song.id,
@@ -712,6 +777,7 @@ enum LyricsWriteback {
                 // external write, the source may already contain the update,
                 // but source/cache divergence is still a partial failure and
                 // must not be reported as an atomic success.
+                recordReplacedAudioFile(embeddedCopy, songID: song.id, library: library)
                 return SaveOutcome(
                     updatedSong: song,
                     errorMessage: String(localized: "tag_editor_lyrics_verify_failed"),
@@ -721,12 +787,16 @@ enum LyricsWriteback {
             // LRC mirrors may intentionally yield to the richer local cache,
             // but an existing TTML document is itself word-level and must stay
             // addressable for later edits, deletion, and stale-cache refresh.
+            // 没写歌词文件时，记下的 .ttml 位置指向的是一个并不存在的文件，不能沿用。
+            let retainedReference = skipsLyricsFile
+                ? nil
+                : retainedTTMLReference(for: song, mode: mode)
             updated.lyricsFileName = cacheStored
-                ? (retainedTTMLReference(for: song, mode: mode)
+                ? (retainedReference
                     ?? MetadataAssetStore.shared.expectedLyricsFileName(for: song.id))
                 : song.lyricsFileName
             updated.lyricsText = writebackLines.map(\.text).joined(separator: "\n")
-            if !staysLocal, case .sidecar = mode {
+            if !staysLocal, !skipsLyricsFile, embeddingMode != .off {
                 embeddedCopy = await writeEmbeddedCopy(
                     .set(embeddedCopyContent(writebackLines)),
                     for: updated,
@@ -787,14 +857,33 @@ enum LyricsWriteback {
     }
 
     private enum EmbeddedCopyResult: Sendable {
-        /// 没开开关，或者这首歌的来源 / 格式不参与嵌入。
+        /// 没开嵌入，或者这首歌的来源 / 格式不参与嵌入。
         case notAttempted
         case written(EmbeddedFileIdentity)
         case failed(String)
+
+        var failureReason: String? {
+            if case .failed(let reason) = self { return reason }
+            return nil
+        }
     }
 
-    /// 歌词文件已经写好之后，再把同一份歌词存进音频文件。要整首下载、改写、替换、
-    /// 回读，所以只在用户打开了开关时才做；失败不影响已经完成的保存。
+    /// 音频文件已经换成了新版本，之后的步骤却失败了：库里记的文件身份仍要跟上，
+    /// 否则下一次写入会把刚写过的文件当成被别处改过而拒绝。
+    private static func recordReplacedAudioFile(
+        _ result: EmbeddedCopyResult,
+        songID: String,
+        library: MusicLibrary
+    ) {
+        guard case .written(let identity) = result else { return }
+        library.flushPendingAssetReferencePatches()
+        guard var latest = library.song(id: songID) else { return }
+        identity.apply(to: &latest)
+        library.replaceSong(latest)
+    }
+
+    /// 把歌词写进(或移出)音频文件。要整首下载、改写、替换、回读，所以只在用户选了
+    /// 嵌入、且这首歌的来源和格式支持时由调用方发起。
     private static func writeEmbeddedCopy(
         _ edit: EmbeddedLyricsEdit,
         for song: Song,
@@ -808,7 +897,6 @@ enum LyricsWriteback {
             target.lastModified = latest.lastModified
             target.revision = latest.revision
         }
-        guard await sourceManager.embedsLyricsCopy(for: target) else { return .notAttempted }
         do {
             let written = try await sourceManager.writeEmbeddedLyrics(edit, for: target)
             return .written(EmbeddedFileIdentity(

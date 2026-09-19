@@ -534,6 +534,11 @@ final class MusicScraperService {
             if sidecarCoverData != nil || sidecarLyricsLines != nil {
                 let canWriteSidecar = await sourceManager.supportsSidecarWriting(for: updatedSong)
                 if canWriteSidecar {
+                    // 只嵌入模式下刮削不新建歌词文件；刮削本身不嵌入(要整首重传)，
+                    // 刮到的歌词留在上面已经写好的本地缓存里。
+                    let createsLyricsFile = await sourceManager.lyricsEmbeddingMode(
+                        for: updatedSong
+                    ) != .embedOnly
                     let songForWrite = updatedSong
                     let sourceManager = self.sourceManager
                     let songID = updatedSong.id
@@ -547,7 +552,8 @@ final class MusicScraperService {
                                 seconds: sidecarSettings.timeout,
                                 sourceManager: sourceManager,
                                 for: songForWrite,
-                                coverData: sidecarCoverData, lyricsLines: sidecarLyricsLines
+                                coverData: sidecarCoverData, lyricsLines: sidecarLyricsLines,
+                                createsLyricsFile: createsLyricsFile
                             )
                             let didOpenCircuit = await sidecarCircuitBreaker.release(
                                 sourceID: songForWrite.sourceID,
@@ -1203,6 +1209,10 @@ final class MusicScraperService {
                             if !canWriteSidecar {
                                 plog("📝 Batch sidecar: source does not support writing for '\(songForWrite.title)'")
                             } else {
+                                // 同单曲刮削：只嵌入模式下不新建歌词文件，整库刮削也不嵌入。
+                                let createsLyricsFile = await sourceManager.lyricsEmbeddingMode(
+                                    for: songForWrite
+                                ) != .embedOnly
                                 // Start sidecar work only after the matching
                                 // library batch is visible. Otherwise a fast
                                 // local sidecar write could publish its path and
@@ -1216,7 +1226,8 @@ final class MusicScraperService {
                                             seconds: sidecarSettings.timeout,
                                             sourceManager: sourceManager,
                                             for: songForWrite,
-                                            coverData: sidecarCoverData, lyricsLines: sidecarLyricsLines
+                                            coverData: sidecarCoverData, lyricsLines: sidecarLyricsLines,
+                                            createsLyricsFile: createsLyricsFile
                                         )
                                         let didOpenCircuit = await sidecarCircuitBreaker.release(
                                             sourceID: songForWrite.sourceID,
@@ -2203,7 +2214,8 @@ final class MusicScraperService {
         coverData: Data?,
         lyricsLines: [LyricLine]?,
         lyricsContent: String? = nil,
-        expectedLyricsTarget: SidecarWriteService.LyricsPreflightResult? = nil
+        expectedLyricsTarget: SidecarWriteService.LyricsPreflightResult? = nil,
+        createsLyricsFile: Bool = true
     ) async throws -> SidecarWriteService.WriteResult {
         try await withThrowingTaskGroup(of: SidecarWriteService.WriteResult.self) { group in
             defer { group.cancelAll() }
@@ -2216,7 +2228,8 @@ final class MusicScraperService {
                     coverData: coverData,
                     lyricsLines: lyricsLines,
                     lyricsContent: lyricsContent,
-                    expectedLyricsTarget: expectedLyricsTarget
+                    expectedLyricsTarget: expectedLyricsTarget,
+                    createsLyricsFile: createsLyricsFile
                 )
                 if writeResult.coverWritten || writeResult.lyricsWritten {
                     await sourceManager.invalidateDownloadCacheAfterSidecarWrite(for: song)

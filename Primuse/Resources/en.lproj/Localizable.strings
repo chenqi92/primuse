@@ -3986,7 +3986,15 @@
 "lyric_poster_live_fallback" = "Photos wouldn't take the Live Photo — saved the still image instead";
 
 "lyrics_embed_copy_header" = "Embedded Lyrics";
-"lyrics_embed_copy_title" = "Also Embed Lyrics in Audio Files";
+"lyrics_embed_copy_title" = "Save Lyrics To";
 "lyrics_embed_copy_hint" = "MP3, FLAC and M4A · Re-uploads the whole song each time lyrics are saved";
-"lyrics_embed_copy_footer" = "Lyrics you save, or apply from a single-song search, are also stored inside the audio file, so they travel with it to other players. The lyrics file next to the song remains the main copy; the embedded copy is line-timed text only. Each save downloads, rewrites and re-uploads the whole song, so this works only for MP3, FLAC and M4A on sources whose files Primuse can replace, and library-wide scraping never embeds.";
+"lyrics_embed_copy_footer" = "Embedded lyrics travel with the audio file, so other players and devices see them too. This works only for MP3, FLAC and M4A on sources whose files Primuse can replace; other songs keep using lyrics files. Every save re-uploads the whole song. With “Audio File Only”, no new lyrics file is created, and a lyrics file already next to a song is still kept up to date. Library-wide scraping never embeds.";
 "lyrics_embed_copy_failed_format" = "Lyrics were saved, but could not be embedded in the audio file: %@";
+"lyrics_embed_mode_off" = "Lyrics File Only";
+"lyrics_embed_mode_alongside" = "Lyrics File and Audio File";
+"lyrics_embed_mode_embed_only" = "Audio File Only";
+"lyrics_embed_confirm_title" = "Write Lyrics into Audio Files?";
+"lyrics_embed_confirm_message" = "· Every lyrics save downloads the whole song, rewrites it and uploads it again. Large files and cloud drives get noticeably slower, and it uses more data.\n· The audio file’s modification date and contents change, so sync folders, backup tools and media servers treat it as a new file.\n· Primuse checks that the file has not been changed elsewhere before writing and reads it back afterwards, but rewriting audio files still carries risk. Back up your library first.\n· The embedded copy is line-timed text. Multi-language lyrics already embedded in an MP3 are replaced by it.";
+"lyrics_embed_confirm_message_embed_only" = "· With “Audio File Only”, no lyrics file is created next to the song, and word-by-word timing is kept only in Primuse. A lyrics file already next to the song is still kept up to date.\n· Library-wide scraping neither embeds nor creates lyrics files; scraped lyrics are kept only in Primuse.";
+"tag_editor_lyrics_writeback_embedded" = "Target checked. The lyrics will be embedded in the audio file; no lyrics file will be created.";
+"tag_editor_lyrics_writeback_also_embedded" = "They will also be embedded in the audio file.";

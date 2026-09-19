@@ -2570,7 +2570,8 @@ private struct MacSTScrapingView: View {
     @AppStorage(MusicScraperService.sidecarCoverWriteEnabledKey) private var sidecarCoverWriteEnabled = true
     @AppStorage(MusicScraperService.sidecarLyricsWriteEnabledKey) private var sidecarLyricsWriteEnabled = true
     @AppStorage(MusicScraperService.sidecarWriteTimeoutKey) private var sidecarWriteTimeout = 30.0
-    @AppStorage(EmbeddedLyricsCopyPolicy.enabledDefaultsKey) private var embedsLyricsCopy = false
+    @AppStorage(EmbeddedLyricsCopyPolicy.modeDefaultsKey) private var lyricsEmbeddingModeRaw = ""
+    @State private var pendingLyricsEmbeddingMode: LyricsEmbeddingMode?
 
     var body: some View {
         MacSTSection(Lz("Scraping Sources"), hint: Lz("META-01 · Drag to Reorder · Higher Items Take Priority")) {
@@ -2630,7 +2631,11 @@ private struct MacSTScrapingView: View {
                 }
                 .settingsAnchor("scraping.writeLyrics")
                 MacSTRow(Lz("lyrics_embed_copy_title"), hint: Lz("lyrics_embed_copy_hint")) {
-                    MacSTToggle(isOn: $embedsLyricsCopy)
+                    MacSTPicker(
+                        selection: lyricsEmbeddingSelection,
+                        options: LyricsEmbeddingMode.allCases.map { ($0, $0.settingsTitle) },
+                        width: 200
+                    )
                 }
                 .settingsAnchor("scraping.embedLyrics")
                 MacSTRow(Lz("Write Timeout"), hint: Lz("Network sidecar write timeout")) {
@@ -2642,6 +2647,19 @@ private struct MacSTScrapingView: View {
                 }
                 .settingsAnchor("scraping.writeTimeout")
             }
+        }
+        .alert(
+            "lyrics_embed_confirm_title",
+            isPresented: Binding(
+                get: { pendingLyricsEmbeddingMode != nil },
+                set: { if !$0 { pendingLyricsEmbeddingMode = nil } }
+            ),
+            presenting: pendingLyricsEmbeddingMode
+        ) { mode in
+            Button("cancel", role: .cancel) {}
+            Button("enable") { applyLyricsEmbeddingMode(mode) }
+        } message: { mode in
+            Text(verbatim: mode.confirmationMessage)
         }
 
         MacSTSection(Lz("Batch Scraping")) {
@@ -2674,6 +2692,33 @@ private struct MacSTScrapingView: View {
         .sheet(isPresented: $showImportSheet) {
             importScraperSheet
         }
+    }
+
+    /// 空字符串表示还没选过：交给策略读，它认得第一版留下的开关。
+    private var currentLyricsEmbeddingMode: LyricsEmbeddingMode {
+        LyricsEmbeddingMode(rawValue: lyricsEmbeddingModeRaw) ?? EmbeddedLyricsCopyPolicy.mode()
+    }
+
+    /// 嵌入要改写用户的音频文件。往更深处走（开启、或改成只嵌入）之前先把代价摆出来，
+    /// 确认过再切；往回退不用问。
+    private var lyricsEmbeddingSelection: Binding<LyricsEmbeddingMode> {
+        Binding(
+            get: { currentLyricsEmbeddingMode },
+            set: { newValue in
+                let current = currentLyricsEmbeddingMode
+                guard newValue != current else { return }
+                if EmbeddedLyricsCopyPolicy.requiresConfirmation(from: current, to: newValue) {
+                    pendingLyricsEmbeddingMode = newValue
+                } else {
+                    applyLyricsEmbeddingMode(newValue)
+                }
+            }
+        )
+    }
+
+    private func applyLyricsEmbeddingMode(_ mode: LyricsEmbeddingMode) {
+        EmbeddedLyricsCopyPolicy.setMode(mode)
+        lyricsEmbeddingModeRaw = mode.rawValue
     }
 
     private func sourceEnabledBinding(_ source: ScraperSourceConfig) -> Binding<Bool> {

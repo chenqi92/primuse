@@ -309,9 +309,61 @@ import Testing
     let suiteName = "EmbeddedLyricsCopyPolicyTests-\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suiteName))
     defer { defaults.removePersistentDomain(forName: suiteName) }
-    #expect(!EmbeddedLyricsCopyPolicy.isEnabled(defaults: defaults))
-    defaults.set(true, forKey: EmbeddedLyricsCopyPolicy.enabledDefaultsKey)
-    #expect(EmbeddedLyricsCopyPolicy.isEnabled(defaults: defaults))
+    #expect(EmbeddedLyricsCopyPolicy.mode(defaults: defaults) == .off)
+    // The first build stored an on/off switch meaning "file and audio file".
+    defaults.set(true, forKey: "primuse.lyrics.embedCopyEnabled")
+    #expect(EmbeddedLyricsCopyPolicy.mode(defaults: defaults) == .alongside)
+    EmbeddedLyricsCopyPolicy.setMode(.embedOnly, defaults: defaults)
+    #expect(EmbeddedLyricsCopyPolicy.mode(defaults: defaults) == .embedOnly)
+    #expect(defaults.object(forKey: "primuse.lyrics.embedCopyEnabled") == nil)
+    EmbeddedLyricsCopyPolicy.setMode(.off, defaults: defaults)
+    #expect(EmbeddedLyricsCopyPolicy.mode(defaults: defaults) == .off)
+}
+
+@Test func lyricsEmbeddingModeAppliesOnlyWhereTheFileCanBeEmbedded() {
+    func effective(
+        _ mode: LyricsEmbeddingMode,
+        _ sourceType: MusicSourceType,
+        _ format: AudioFormat
+    ) -> LyricsEmbeddingMode {
+        EmbeddedLyricsCopyPolicy.effectiveMode(
+            mode,
+            sourceType: sourceType,
+            format: format,
+            isCueTrack: false,
+            isStreamDescriptor: false
+        )
+    }
+
+    #expect(effective(.embedOnly, .smb, .flac) == .embedOnly)
+    #expect(effective(.alongside, .webdav, .mp3) == .alongside)
+    // Songs that cannot take an embedded copy keep their lyrics files.
+    #expect(effective(.embedOnly, .smb, .wav) == .off)
+    #expect(effective(.embedOnly, .pan123, .mp3) == .off)
+    #expect(
+        EmbeddedLyricsCopyPolicy.effectiveMode(
+            .embedOnly,
+            sourceType: .smb,
+            format: .flac,
+            isCueTrack: true,
+            isStreamDescriptor: false
+        ) == .off
+    )
+
+    #expect(EmbeddedLyricsCopyPolicy.skipsLyricsFile(.embedOnly, lyricsDocumentExists: false))
+    // An existing document is kept current, or its stale text would win.
+    #expect(!EmbeddedLyricsCopyPolicy.skipsLyricsFile(.embedOnly, lyricsDocumentExists: true))
+    #expect(!EmbeddedLyricsCopyPolicy.skipsLyricsFile(.alongside, lyricsDocumentExists: false))
+    #expect(!EmbeddedLyricsCopyPolicy.skipsLyricsFile(.off, lyricsDocumentExists: false))
+}
+
+@Test func reachingFurtherIntoFilesNeedsConfirmation() {
+    #expect(EmbeddedLyricsCopyPolicy.requiresConfirmation(from: .off, to: .alongside))
+    #expect(EmbeddedLyricsCopyPolicy.requiresConfirmation(from: .off, to: .embedOnly))
+    #expect(EmbeddedLyricsCopyPolicy.requiresConfirmation(from: .alongside, to: .embedOnly))
+    #expect(!EmbeddedLyricsCopyPolicy.requiresConfirmation(from: .embedOnly, to: .alongside))
+    #expect(!EmbeddedLyricsCopyPolicy.requiresConfirmation(from: .alongside, to: .off))
+    #expect(!EmbeddedLyricsCopyPolicy.requiresConfirmation(from: .off, to: .off))
 }
 
 @Test func webDAVWritebackPolicyRequiresStrongRevisionAndTagsDestination() {

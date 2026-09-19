@@ -4114,7 +4114,15 @@
 "lyric_poster_live_fallback" = "O app Fotos não aceitou a foto Live; a imagem fixa foi salva";
 
 "lyrics_embed_copy_header" = "Letras incorporadas";
-"lyrics_embed_copy_title" = "Incorporar também as letras aos arquivos de áudio";
+"lyrics_embed_copy_title" = "Salvar letras em";
 "lyrics_embed_copy_hint" = "MP3, FLAC e M4A · Reenvia a música inteira a cada vez que a letra é salva";
-"lyrics_embed_copy_footer" = "As letras que você salva, ou aplica a partir da busca de uma única música, também são armazenadas dentro do arquivo de áudio e o acompanham em outros players. O arquivo de letra ao lado da música continua sendo a cópia principal; a cópia incorporada contém apenas texto sincronizado por linha. Cada salvamento baixa, regrava e reenvia a música inteira, por isso só funciona com MP3, FLAC e M4A em fontes cujos arquivos o Primuse consegue substituir, e a busca de metadados da biblioteca inteira nunca incorpora letras.";
+"lyrics_embed_copy_footer" = "As letras incorporadas acompanham o arquivo de áudio, então outros players e aparelhos também as veem. Só funciona com MP3, FLAC e M4A em fontes cujos arquivos o Primuse consegue substituir; as demais músicas continuam usando arquivos de letra. Cada salvamento reenvia a música inteira. Com “Só no arquivo de áudio”, nenhum arquivo de letra novo é criado, e um arquivo de letra que já esteja ao lado de uma música continua sendo atualizado. A busca de metadados da biblioteca inteira nunca incorpora letras.";
 "lyrics_embed_copy_failed_format" = "A letra foi salva, mas não pôde ser incorporada ao arquivo de áudio: %@";
+"lyrics_embed_mode_off" = "Só no arquivo de letra";
+"lyrics_embed_mode_alongside" = "Arquivo de letra e arquivo de áudio";
+"lyrics_embed_mode_embed_only" = "Só no arquivo de áudio";
+"lyrics_embed_confirm_title" = "Gravar as letras nos arquivos de áudio?";
+"lyrics_embed_confirm_message" = "· Cada vez que uma letra é salva, a música inteira é baixada, regravada e reenviada. Com arquivos grandes e armazenamento em nuvem fica bem mais lento e usa mais dados.\n· A data de modificação e o conteúdo do arquivo de áudio mudam, então pastas sincronizadas, ferramentas de backup e servidores de mídia o tratam como um arquivo novo.\n· O Primuse confere antes de gravar que o arquivo não foi alterado em outro lugar e o lê de volta depois, mas regravar arquivos de áudio ainda tem riscos. Faça backup da sua biblioteca antes.\n· A cópia incorporada é texto sincronizado por linha. Letras em vários idiomas já incorporadas a um MP3 são substituídas por ela.";
+"lyrics_embed_confirm_message_embed_only" = "· Com “Só no arquivo de áudio”, nenhum arquivo de letra é criado ao lado da música, e a sincronização palavra por palavra fica só no Primuse. Um arquivo de letra que já esteja ao lado da música continua sendo atualizado.\n· A busca de metadados da biblioteca inteira não incorpora letras nem cria arquivos de letra; as letras encontradas ficam só no Primuse.";
+"tag_editor_lyrics_writeback_embedded" = "Destino verificado. A letra será incorporada ao arquivo de áudio; nenhum arquivo de letra será criado.";
+"tag_editor_lyrics_writeback_also_embedded" = "Ela também será incorporada ao arquivo de áudio.";

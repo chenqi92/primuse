@@ -235,22 +235,63 @@ public enum AudioMetadataWritebackPolicy {
     }
 }
 
-/// Whether saved lyrics are also stored inside the audio file.
+/// Where saved lyrics go for songs whose audio file can take them.
 ///
-/// The sidecar stays the primary copy: it is a few kilobytes, carries word
-/// timing and translation tracks, and never touches the media object. The
+/// The sidecar is the lossless copy: a few kilobytes, word timing and
+/// translation tracks intact, and the media object is never touched. The
 /// embedded copy travels with the file to players that only read tags, at the
-/// price of downloading, rewriting and re-uploading the whole song — so it is
-/// opt-in, and library-wide scraping never takes part in it.
-public enum EmbeddedLyricsCopyPolicy {
-    public static let enabledDefaultsKey = "primuse.lyrics.embedCopyEnabled"
+/// price of downloading, rewriting and re-uploading the whole song on every
+/// save — so it is opt-in, and library-wide scraping never embeds.
+public enum LyricsEmbeddingMode: String, CaseIterable, Sendable {
+    /// Lyrics file only. The default, and the only behaviour before embedding.
+    case off
+    /// Lyrics file, plus a line-timed copy inside the audio file.
+    case alongside
+    /// Inside the audio file only: no new lyrics file is created. A lyrics
+    /// document that already sits beside the song is still kept up to date,
+    /// otherwise its stale text would win on the paths that read files first.
+    case embedOnly
 
-    public static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        defaults.bool(forKey: enabledDefaultsKey)
+    /// Order of how far a mode reaches into the user's files. Moving up needs
+    /// the user to confirm what that costs; moving down never does.
+    var invasiveness: Int {
+        switch self {
+        case .off: return 0
+        case .alongside: return 1
+        case .embedOnly: return 2
+        }
+    }
+}
+
+public enum EmbeddedLyricsCopyPolicy {
+    public static let modeDefaultsKey = "primuse.lyrics.embedMode"
+    /// The first build of this feature stored an on/off switch, which meant
+    /// "lyrics file and audio file".
+    static let legacyEnabledDefaultsKey = "primuse.lyrics.embedCopyEnabled"
+
+    public static func mode(defaults: UserDefaults = .standard) -> LyricsEmbeddingMode {
+        if let raw = defaults.string(forKey: modeDefaultsKey),
+           let mode = LyricsEmbeddingMode(rawValue: raw) {
+            return mode
+        }
+        return defaults.bool(forKey: legacyEnabledDefaultsKey) ? .alongside : .off
+    }
+
+    public static func setMode(_ mode: LyricsEmbeddingMode, defaults: UserDefaults = .standard) {
+        defaults.set(mode.rawValue, forKey: modeDefaultsKey)
+        defaults.removeObject(forKey: legacyEnabledDefaultsKey)
+    }
+
+    public static func requiresConfirmation(
+        from current: LyricsEmbeddingMode,
+        to requested: LyricsEmbeddingMode
+    ) -> Bool {
+        requested.invasiveness > current.invasiveness
     }
 
     /// Same sources and formats as embedded tag editing: the copy goes through
-    /// the identical guarded replacement of the media object.
+    /// the identical guarded replacement of the media object. Songs outside
+    /// this set keep writing lyrics files whatever the mode says.
     public static func canEmbed(
         sourceType: MusicSourceType,
         format: AudioFormat,
@@ -262,6 +303,36 @@ public enum EmbeddedLyricsCopyPolicy {
             sourceType: sourceType,
             format: format
         ) == .embedded
+    }
+
+    /// The mode that applies to one song: `.off` whenever its file cannot be
+    /// embedded into.
+    public static func effectiveMode(
+        _ mode: LyricsEmbeddingMode,
+        sourceType: MusicSourceType,
+        format: AudioFormat,
+        isCueTrack: Bool,
+        isStreamDescriptor: Bool
+    ) -> LyricsEmbeddingMode {
+        guard mode != .off,
+              canEmbed(
+                  sourceType: sourceType,
+                  format: format,
+                  isCueTrack: isCueTrack,
+                  isStreamDescriptor: isStreamDescriptor
+              ) else {
+            return .off
+        }
+        return mode
+    }
+
+    /// Whether a save may leave the lyrics file out. Only embed-only mode does,
+    /// and only while no lyrics document of any kind sits beside the song.
+    public static func skipsLyricsFile(
+        _ effectiveMode: LyricsEmbeddingMode,
+        lyricsDocumentExists: Bool
+    ) -> Bool {
+        effectiveMode == .embedOnly && !lyricsDocumentExists
     }
 }
 

@@ -11680,16 +11680,18 @@ final class SourceManager {
         return report
     }
 
-    /// Whether this song's lyrics may also be stored inside its audio file:
-    /// the user opted in, and the source and format take part in the guarded
+    /// Where saved lyrics go for this song: the user's choice, narrowed to
+    /// `.off` unless the source and format take part in the guarded
     /// whole-file replacement.
-    func embedsLyricsCopy(for song: Song) async -> Bool {
-        guard EmbeddedLyricsCopyPolicy.isEnabled(),
+    func lyricsEmbeddingMode(for song: Song) async -> LyricsEmbeddingMode {
+        let mode = EmbeddedLyricsCopyPolicy.mode()
+        guard mode != .off,
               let sources = try? await sourcesProvider(),
               let source = sources.first(where: { $0.id == song.sourceID }) else {
-            return false
+            return .off
         }
-        return EmbeddedLyricsCopyPolicy.canEmbed(
+        return EmbeddedLyricsCopyPolicy.effectiveMode(
+            mode,
             sourceType: source.type,
             format: song.fileFormat,
             isCueTrack: song.isCueTrack,

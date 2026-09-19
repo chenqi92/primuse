@@ -46,6 +46,20 @@ actor SidecarWriteService {
         let replacesExistingFile: Bool
         let existingPath: String?
         let existingSize: Int64?
+        /// A lyrics document of any kind sits beside the song, including a
+        /// read-only one (`.vtt`, `.srt`, `.lys`) that a save writes a new file
+        /// next to instead of replacing. `replacesExistingFile` is false then.
+        let hasLyricsDocument: Bool
+
+        init(document: LyricsSidecarTarget, write: LyricsSidecarTarget) {
+            targetPath = write.targetPath
+            fileName = write.fileName
+            containerPath = write.containerPath
+            replacesExistingFile = write.exists
+            existingPath = write.existingPath
+            existingSize = write.existingSize
+            hasLyricsDocument = document.exists
+        }
     }
 
     /// Non-mutating source/file preflight used by the editor before enabling
@@ -59,15 +73,8 @@ actor SidecarWriteService {
         guard connector.supportsSidecarWriting else {
             throw SourceError.connectionFailed("Source does not support sidecar writing")
         }
-        let target = try await lyricsTarget(for: song, using: connector)
-        return LyricsPreflightResult(
-            targetPath: target.targetPath,
-            fileName: target.fileName,
-            containerPath: target.containerPath,
-            replacesExistingFile: target.exists,
-            existingPath: target.existingPath,
-            existingSize: target.existingSize
-        )
+        let targets = try await lyricsTargets(for: song, using: connector)
+        return LyricsPreflightResult(document: targets.document, write: targets.write)
     }
 
     /// Write sidecar files for a song after scraping.
@@ -76,13 +83,16 @@ actor SidecarWriteService {
     ///   - connector: The source connector with write capability
     ///   - coverData: JPEG cover art data to write (optional)
     ///   - lyricsLines: Parsed lyric lines, serialized in the target's format (optional)
+    ///   - createsLyricsFile: false in embed-only mode. A lyrics document that
+    ///     already sits beside the song is still updated; none is created.
     func writeSidecars(
         for song: Song,
         using connector: any MusicSourceConnector,
         coverData: Data?,
         lyricsLines: [LyricLine]?,
         lyricsContent: String? = nil,
-        expectedLyricsTarget: LyricsPreflightResult? = nil
+        expectedLyricsTarget: LyricsPreflightResult? = nil,
+        createsLyricsFile: Bool = true
     ) async -> WriteResult {
         var result = WriteResult()
         guard connector.supportsSidecarWriting else {
@@ -123,7 +133,12 @@ actor SidecarWriteService {
         // default to LRC; an existing writable sidecar keeps its extension.
         if !result.sourceUnavailable, let lyricsLines, !lyricsLines.isEmpty {
             do {
-                let target = try await lyricsTarget(for: song, using: connector)
+                let targets = try await lyricsTargets(for: song, using: connector)
+                let target = targets.write
+                guard createsLyricsFile || targets.document.exists else {
+                    plog("📝 Sidecar: embed-only mode, no lyrics file created beside \(songBaseName)")
+                    return result
+                }
                 // The file's format follows the target, not the caller: the
                 // scraper hands over lines, and serializing them as LRC into
                 // an existing or replacement `.ttml` would leave TTML readers
@@ -142,12 +157,8 @@ actor SidecarWriteService {
                     return result
                 }
                 let currentPreflight = LyricsPreflightResult(
-                    targetPath: target.targetPath,
-                    fileName: target.fileName,
-                    containerPath: target.containerPath,
-                    replacesExistingFile: target.exists,
-                    existingPath: target.existingPath,
-                    existingSize: target.existingSize
+                    document: targets.document,
+                    write: target
                 )
                 guard expectedLyricsTarget == nil
                         || expectedLyricsTarget == currentPreflight else {
@@ -194,14 +205,11 @@ actor SidecarWriteService {
         }
 
         do {
-            let target = try await lyricsTarget(for: song, using: connector)
+            let targets = try await lyricsTargets(for: song, using: connector)
+            let target = targets.write
             let currentPreflight = LyricsPreflightResult(
-                targetPath: target.targetPath,
-                fileName: target.fileName,
-                containerPath: target.containerPath,
-                replacesExistingFile: target.exists,
-                existingPath: target.existingPath,
-                existingSize: target.existingSize
+                document: targets.document,
+                write: target
             )
             guard expectedLyricsTarget == nil
                     || expectedLyricsTarget == currentPreflight else {
@@ -255,17 +263,19 @@ actor SidecarWriteService {
     /// The single funnel for every lyric mutation. Preflight, write and remove
     /// all go through it, so they agree on the target — writeback compares the
     /// preflight result for equality before it acts.
-    private func lyricsTarget(
+    /// `document` is what sits beside the song now; `write` is where a save
+    /// goes, which differs for a read-only document.
+    private func lyricsTargets(
         for song: Song,
         using connector: any MusicSourceConnector
-    ) async throws -> LyricsSidecarTarget {
-        let target: LyricsSidecarTarget
+    ) async throws -> (document: LyricsSidecarTarget, write: LyricsSidecarTarget) {
+        let document: LyricsSidecarTarget
         if let resolver = connector as? any LyricsSidecarTargetResolving {
-            target = try await resolver.lyricsSidecarTarget(for: song)
+            document = try await resolver.lyricsSidecarTarget(for: song)
         } else {
-            target = try await LyricsSidecarTargetPolicy.resolve(for: song, using: connector)
+            document = try await LyricsSidecarTargetPolicy.resolve(for: song, using: connector)
         }
-        return try LyricsSidecarTargetPolicy.writeTarget(for: target)
+        return (document, try LyricsSidecarTargetPolicy.writeTarget(for: document))
     }
 
     private func verifyLyricsSidecarWrite(

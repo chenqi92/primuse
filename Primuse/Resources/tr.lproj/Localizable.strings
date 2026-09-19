@@ -4114,7 +4114,15 @@
 "lyric_poster_live_fallback" = "Fotoğraflar Live Photo'yu kabul etmedi; bunun yerine sabit görsel kaydedildi";
 
 "lyrics_embed_copy_header" = "Gömülü Şarkı Sözleri";
-"lyrics_embed_copy_title" = "Şarkı Sözlerini Ses Dosyalarına da Göm";
+"lyrics_embed_copy_title" = "Şarkı Sözlerini Kaydetme Yeri";
 "lyrics_embed_copy_hint" = "MP3, FLAC ve M4A · Şarkı sözleri her kaydedildiğinde şarkının tamamı yeniden yüklenir";
-"lyrics_embed_copy_footer" = "Kaydettiğiniz veya tek şarkı aramasından uyguladığınız şarkı sözleri ses dosyasının içine de kaydedilir; böylece dosyayla birlikte başka oynatıcılara taşınır. Şarkının yanındaki söz dosyası ana kopya olmaya devam eder; gömülü kopya yalnızca satır satır zamanlanmış metindir. Her kayıtta şarkının tamamı indirilir, yeniden yazılır ve tekrar yüklenir; bu nedenle yalnızca Primuse’un dosyalarını değiştirebildiği kaynaklardaki MP3, FLAC ve M4A dosyalarında çalışır ve tüm kitaplık için yapılan veri çekme işlemi hiçbir zaman söz gömmez.";
+"lyrics_embed_copy_footer" = "Gömülü şarkı sözleri ses dosyasıyla birlikte taşınır; böylece diğer oynatıcılar ve cihazlar da onları görür. Yalnızca Primuse’un dosyalarını değiştirebildiği kaynaklardaki MP3, FLAC ve M4A dosyalarında çalışır; diğer şarkılar söz dosyalarını kullanmaya devam eder. Her kayıtta şarkının tamamı yeniden yüklenir. “Yalnızca ses dosyası” seçiliyken yeni söz dosyası oluşturulmaz ve bir şarkının yanında zaten bulunan söz dosyası güncellenmeye devam eder. Tüm kitaplık için yapılan veri çekme işlemi hiçbir zaman söz gömmez.";
 "lyrics_embed_copy_failed_format" = "Şarkı sözleri kaydedildi, ancak ses dosyasına gömülemedi: %@";
+"lyrics_embed_mode_off" = "Yalnızca söz dosyası";
+"lyrics_embed_mode_alongside" = "Söz dosyası ve ses dosyası";
+"lyrics_embed_mode_embed_only" = "Yalnızca ses dosyası";
+"lyrics_embed_confirm_title" = "Şarkı sözleri ses dosyalarına yazılsın mı?";
+"lyrics_embed_confirm_message" = "· Şarkı sözleri her kaydedildiğinde şarkının tamamı indirilir, yeniden yazılır ve tekrar yüklenir. Büyük dosyalarda ve bulut depolamada belirgin şekilde yavaştır ve daha fazla veri kullanır.\n· Ses dosyasının değiştirilme tarihi ve içeriği değişir; bu yüzden eşitleme klasörleri, yedekleme araçları ve medya sunucuları onu yeni bir dosya olarak görür.\n· Primuse yazmadan önce dosyanın başka bir yerde değiştirilmediğini denetler ve yazdıktan sonra geri okur, ancak ses dosyalarını yeniden yazmanın yine de riski vardır. Önce kitaplığınızı yedekleyin.\n· Gömülen kopya satır satır zamanlanmış metindir. Bir MP3’e önceden gömülmüş çok dilli sözlerin yerini alır.";
+"lyrics_embed_confirm_message_embed_only" = "· “Yalnızca ses dosyası” seçiliyken şarkının yanında söz dosyası oluşturulmaz ve kelime kelime zamanlama yalnızca Primuse’ta kalır. Şarkının yanında zaten bulunan söz dosyası güncellenmeye devam eder.\n· Tüm kitaplık için veri çekme işlemi söz gömmez ve söz dosyası oluşturmaz; bulunan sözler yalnızca Primuse’ta kalır.";
+"tag_editor_lyrics_writeback_embedded" = "Hedef kontrol edildi. Şarkı sözleri ses dosyasına gömülecek; söz dosyası oluşturulmayacak.";
+"tag_editor_lyrics_writeback_also_embedded" = "Ses dosyasına da gömülecek.";

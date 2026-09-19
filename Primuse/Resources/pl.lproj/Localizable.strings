@@ -4114,7 +4114,15 @@
 "lyric_poster_live_fallback" = "Zdjęcia nie przyjęły Live Photo — zapisano nieruchomy obraz";
 
 "lyrics_embed_copy_header" = "Osadzone teksty utworów";
-"lyrics_embed_copy_title" = "Osadzaj teksty także w plikach audio";
+"lyrics_embed_copy_title" = "Zapisuj teksty w";
 "lyrics_embed_copy_hint" = "MP3, FLAC i M4A · Przy każdym zapisie tekstu cały utwór jest przesyłany ponownie";
-"lyrics_embed_copy_footer" = "Teksty, które zapisujesz lub stosujesz z wyszukiwania dla pojedynczego utworu, są zapisywane także wewnątrz pliku audio, więc przechodzą razem z nim do innych odtwarzaczy. Plik z tekstem obok utworu pozostaje kopią główną; osadzona kopia to wyłącznie tekst zsynchronizowany wiersz po wierszu. Przy każdym zapisie cały utwór jest pobierany, przepisywany i przesyłany ponownie, dlatego działa to tylko dla plików MP3, FLAC i M4A w źródłach, których pliki Primuse może zastępować, a pobieranie metadanych dla całej biblioteki nigdy nie osadza tekstów.";
+"lyrics_embed_copy_footer" = "Osadzone teksty przechodzą razem z plikiem audio, więc widzą je też inne odtwarzacze i urządzenia. Działa tylko dla plików MP3, FLAC i M4A w źródłach, których pliki Primuse może zastępować; pozostałe utwory nadal korzystają z plików z tekstem. Każdy zapis przesyła cały utwór ponownie. W trybie „Tylko plik audio” nie powstaje nowy plik z tekstem, a plik z tekstem, który już leży obok utworu, nadal jest aktualizowany. Pobieranie metadanych dla całej biblioteki nigdy nie osadza tekstów.";
 "lyrics_embed_copy_failed_format" = "Tekst został zapisany, ale nie udało się osadzić go w pliku audio: %@";
+"lyrics_embed_mode_off" = "Tylko plik z tekstem";
+"lyrics_embed_mode_alongside" = "Plik z tekstem i plik audio";
+"lyrics_embed_mode_embed_only" = "Tylko plik audio";
+"lyrics_embed_confirm_title" = "Zapisywać teksty w plikach audio?";
+"lyrics_embed_confirm_message" = "· Przy każdym zapisie tekstu cały utwór jest pobierany, przepisywany i przesyłany ponownie. Przy dużych plikach i dyskach w chmurze trwa to wyraźnie dłużej i zużywa więcej danych.\n· Data modyfikacji i zawartość pliku audio się zmieniają, więc foldery synchronizacji, narzędzia do kopii zapasowych i serwery multimediów traktują go jak nowy plik.\n· Przed zapisem Primuse sprawdza, czy plik nie został zmieniony gdzie indziej, a po zapisie odczytuje go ponownie, ale przepisywanie plików audio nadal wiąże się z ryzykiem. Najpierw zrób kopię zapasową biblioteki.\n· Osadzana kopia to tekst zsynchronizowany wiersz po wierszu. Zastępuje wielojęzyczne teksty już osadzone w pliku MP3.";
+"lyrics_embed_confirm_message_embed_only" = "· W trybie „Tylko plik audio” obok utworu nie powstaje plik z tekstem, a synchronizacja słowo po słowie zostaje tylko w Primuse. Plik z tekstem, który już leży obok utworu, nadal jest aktualizowany.\n· Pobieranie metadanych dla całej biblioteki nie osadza tekstów i nie tworzy plików z tekstem; pobrane teksty zostają tylko w Primuse.";
+"tag_editor_lyrics_writeback_embedded" = "Cel sprawdzony. Tekst zostanie osadzony w pliku audio; plik z tekstem nie zostanie utworzony.";
+"tag_editor_lyrics_writeback_also_embedded" = "Zostanie też osadzony w pliku audio.";

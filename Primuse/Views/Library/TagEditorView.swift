@@ -45,6 +45,7 @@ struct TagEditorView: View {
     @State private var lyricsCacheSnapshot: LyricsDocumentFingerprint?
     @State private var lyricsLoading = true
     @State private var lyricsWritebackMode: LyricsWriteback.Mode = .checking
+    @State private var lyricsEmbeddingMode: LyricsEmbeddingMode = .off
     @State private var tagMetadataPersistenceMode: TagMetadataPersistenceMode?
     @State private var lyricsErrorMessage: String?
     @State private var writebackErrorMessage: String?
@@ -1177,14 +1178,28 @@ struct TagEditorView: View {
             Label(String(localized: "tag_editor_lyrics_writeback_checking"), systemImage: "hourglass")
                 .foregroundStyle(.secondary)
         case .sidecar(let target):
-            let template = target.replacesExistingFile
-                ? String(localized: "tag_editor_lyrics_writeback_sidecar_replace")
-                : String(localized: "tag_editor_lyrics_writeback_sidecar_new")
-            Label(
-                String(format: template, target.fileName),
-                systemImage: "externaldrive.badge.checkmark"
-            )
-                .foregroundStyle(.secondary)
+            if EmbeddedLyricsCopyPolicy.skipsLyricsFile(
+                lyricsEmbeddingMode,
+                lyricsDocumentExists: target.hasLyricsDocument
+            ) {
+                Label(
+                    String(localized: "tag_editor_lyrics_writeback_embedded"),
+                    systemImage: "externaldrive.badge.checkmark"
+                )
+                    .foregroundStyle(.secondary)
+            } else {
+                let template = target.replacesExistingFile
+                    ? String(localized: "tag_editor_lyrics_writeback_sidecar_replace")
+                    : String(localized: "tag_editor_lyrics_writeback_sidecar_new")
+                let fileLine = String(format: template, target.fileName)
+                Label(
+                    lyricsEmbeddingMode == .off
+                        ? fileLine
+                        : fileLine + "\n" + String(localized: "tag_editor_lyrics_writeback_also_embedded"),
+                    systemImage: "externaldrive.badge.checkmark"
+                )
+                    .foregroundStyle(.secondary)
+            }
         case .mediaServer:
             Label(String(localized: "tag_editor_lyrics_writeback_server"), systemImage: "server.rack")
                 .foregroundStyle(.secondary)
@@ -1594,7 +1609,9 @@ struct TagEditorView: View {
             sourceManager: sourceManager,
             sourcesStore: sourcesStore
         ).protectingSourceConflict(payload.hasSourceConflict)
+        let embeddingMode = await sourceManager.lyricsEmbeddingMode(for: requestedSong)
         guard !Task.isCancelled, song.id == requestedSongID else { return }
+        lyricsEmbeddingMode = embeddingMode
         lyricsHaveSourceConflict = payload.hasSourceConflict
         lyricsSourceSnapshot = payload.sourceSnapshot
         lyricsCacheSnapshot = payload.cacheSnapshot
@@ -1613,6 +1630,7 @@ struct TagEditorView: View {
             sourceManager: sourceManager,
             sourcesStore: sourcesStore
         ).protectingSourceConflict(lyricsHaveSourceConflict)
+        lyricsEmbeddingMode = await sourceManager.lyricsEmbeddingMode(for: song)
         lyricsWritebackMode = mode
         return mode
     }
