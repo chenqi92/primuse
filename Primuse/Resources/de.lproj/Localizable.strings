@@ -600,6 +600,7 @@
 "crossfade_mode_fixed" = "Fest";
 "crossfade_mode_smart" = "Intelligent";
 "crossfade_max_duration" = "Maximale Übergangsdauer";
+"crossfade_footer" = "Überblendet wird nur, wenn ein Titel bis zum Ende läuft; beim manuellen Springen wird direkt gewechselt. Ist der nächste Titel noch nicht auf diesem Gerät oder im Cache, startet er ebenfalls ohne Überblendung. Nicht zusammen mit lückenloser Wiedergabe nutzbar.";
 "skip_leading_silence" = "Stille am Anfang überspringen";
 "skip_trailing_silence" = "Stille am Ende überspringen";
 "silence_skipping_desc" = "Intelligente Übergänge analysieren hörbare Grenzen automatisch. Diese Schalter überspringen Stille auch bei normaler Wiedergabe. Im High-Fidelity-Modus bleiben Audiogrenzen unverändert.";
@@ -2387,6 +2388,7 @@
 "output_mode_effects" = "Effekte & Verarbeitung";
 "output_mode_high_fidelity_desc" = "Kürzester Signalweg: umgeht EQ, Dynamik, Hall, räumliches Audio, ReplayGain, Geschwindigkeitsänderung und Crossfade und passt die Abtastrate automatisch an. Die Lautstärke lässt sich weiterhin regeln – außer bei DSD-Direktausgabe.";
 "output_mode_high_fidelity_confirm_title" = "Hi-Fi-Direktausgabe aktivieren?";
+"output_mode_high_fidelity_hardware_note" = "Dieser Modus lohnt sich vor allem mit einem externen DAC oder Kopfhörerverstärker. Über Bluetooth oder die eingebauten Lautsprecher wird der Ton ohnehin erneut verarbeitet, sodass der Unterschied kaum hörbar ist.";
 "output_mode_effects_desc" = "Verwendet die vollständige Verarbeitungskette für EQ, Dynamik, Hall, Spatial Audio, ReplayGain, Tempo, Crossfade und Visualisierung.";
 "volume_high_fidelity_system_hint" = "Die Hi-Fi-Direktausgabe verwendet unveränderte Verstärkung. Regeln Sie die Lautstärke über das System.";
 "volume_output_device_hint" = "Regelt die Lautstärke des Ausgabegeräts; der Direktpfad bleibt bit-perfekt.";

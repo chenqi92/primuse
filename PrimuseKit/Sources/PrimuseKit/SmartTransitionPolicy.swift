@@ -244,6 +244,8 @@ public struct SmartMixTransitionPlan: Equatable, Sendable {
 public enum SmartMixTransitionPlanner {
     /// Builds a transition that remains safe when analysis is absent, then
     /// improves it by snapping to exact framework bars or whole four-beat bars.
+    /// `requestedOverlap` is a ceiling: the setting is labelled as the longest
+    /// transition, so snapping may only shorten the overlap, never extend it.
     /// `analysisTimelineOffset` normalizes full-file SDK timestamps after
     /// Primuse trims leading silence from the playback timeline.
     public static func plan(
@@ -282,7 +284,7 @@ public enum SmartMixTransitionPlanner {
                 : 0
             let idealStart = max(0, endpoint - overlap)
             let acceptableMinimum = max(0.5, overlap * 0.6)
-            let acceptableMaximum = min(endpoint, overlap * 1.45)
+            let acceptableMaximum = overlap
             let sectionCandidates = analysis.sectionStartTimes.compactMap {
                 rawTime -> TimeInterval? in
                 guard rawTime.isFinite else { return nil }
@@ -320,12 +322,13 @@ public enum SmartMixTransitionPlanner {
                       tempo.confidence.isFinite,
                       tempo.confidence >= 0.5 {
                 let barDuration = 240 / tempo.beatsPerMinute
-                let barCount = max(1, Int((overlap / barDuration).rounded()))
+                // Whole bars that fit under the ceiling. A tiny tolerance keeps
+                // an exact multiple from losing a bar to floating-point error.
+                let barCount = max(1, Int((overlap / barDuration + 1e-9).rounded(.down)))
                 let tempoOverlap = Double(barCount) * barDuration
                 if tempoOverlap >= acceptableMinimum,
-                   tempoOverlap <= acceptableMaximum,
-                   tempoOverlap <= endpoint {
-                    overlap = tempoOverlap
+                   tempoOverlap <= acceptableMaximum + 1e-6 {
+                    overlap = min(tempoOverlap, acceptableMaximum)
                     basis = .tempoGrid
                 }
             }

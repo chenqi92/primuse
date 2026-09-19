@@ -380,6 +380,7 @@
 "crossfade_mode_fixed" = "固定";
 "crossfade_mode_smart" = "智能";
 "crossfade_max_duration" = "最长转场时长";
+"crossfade_footer" = "只在歌曲自然播完时过渡，手动切歌不会触发。下一首还没缓存到本机时会直接切换。不能与无缝播放同时开启。";
 "skip_leading_silence" = "跳过开头静音";
 "skip_trailing_silence" = "跳过结尾静音";
 "silence_skipping_desc" = "智能转场会自动分析可听边界；这些开关也会在普通播放时跳过首尾静音。高保真模式不会修改音频边界。";
@@ -2488,6 +2489,7 @@
 "output_mode_effects" = "音效处理";
 "output_mode_high_fidelity_desc" = "使用最短信号路径，绕过均衡器、动态处理、混响、空间音频、回放增益、变速与淡入淡出，并自动匹配采样率。音量仍可调节，DSD 直通时除外。";
 "output_mode_high_fidelity_confirm_title" = "开启高保真直通？";
+"output_mode_high_fidelity_hardware_note" = "这个模式主要对外置 DAC、解码耳放有意义。用蓝牙耳机或内置扬声器时，音频还会被再次处理，基本听不出差别。";
 "output_mode_effects_desc" = "使用完整处理链，支持均衡器、动态处理、混响、空间音频、回放增益、变速、淡入淡出、应用音量与可视化。";
 "volume_high_fidelity_system_hint" = "高保真直通使用单位增益，请使用系统音量调节。";
 "volume_output_device_hint" = "调节输出设备音量，直通信号保持逐位精确。";

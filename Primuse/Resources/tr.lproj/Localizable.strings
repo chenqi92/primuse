@@ -942,6 +942,7 @@
 "Unknown halls of heaven" = "Cennetin bilinmeyen salonları";
 "output_mode_high_fidelity_desc" = "En kısa sinyal yolu: EQ, dinamikler, yankı, uzamsal ses, ReplayGain, hız değişikliği ve çapraz geçiş atlanır; örnekleme hızı otomatik eşleşir. Ses düzeyi yine ayarlanabilir, DSD doğrudan çıkışı hariç.";
 "output_mode_high_fidelity_confirm_title" = "Yüksek doğruluklu doğrudan oynatma açılsın mı?";
+"output_mode_high_fidelity_hardware_note" = "Bu mod esas olarak harici bir DAC veya kulaklık amplifikatörüyle anlam kazanır. Bluetooth'ta veya dahili hoparlörlerde ses zaten yeniden işlendiği için fark neredeyse duyulmaz.";
 "metadata_status_state_source_unavailable" = "Kaynak Mevcut Değil";
 "ai_primuse_relay_diagnostic_credential_detail" = "Yerel cihaz kimlik bilgisi okunamadı veya kaydedilemedi. Primuse bir sonraki testte onu yeniden oluşturacak; Bu devam ederse Anahtarlık erişiminin mevcut olduğunu onaylayın.";
 "lyrics_editor_empty_live" = "Dinlerken yaz";
@@ -1777,6 +1778,7 @@
 "cloud_err_token_save_failed" = "Yetkilendirme jetonu kaydedilemedi";
 "tag_editor_lyrics_empty_error" = "Mevcut şarkı sözlerinin kaldırılıp kaldırılmayacağını onaylayın.";
 "crossfade_max_duration" = "Maksimum Geçiş Süresi";
+"crossfade_footer" = "Çapraz solma yalnızca bir parça sonuna kadar çaldığında uygulanır; parçayı elle değiştirdiğinizde doğrudan geçilir. Sonraki parça henüz bu aygıtta veya önbellekte değilse o da solma olmadan başlar. Boşluksuz oynatmayla birlikte kullanılamaz.";
 "ST-09 · Includes Connection Credentials" = "ST-09 · Bağlantı Kimlik Bilgilerini İçerir";
 "offline_download" = "İndir";
 "theme_color_indigo" = "İndigo";

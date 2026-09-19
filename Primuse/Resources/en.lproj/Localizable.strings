@@ -380,6 +380,7 @@
 "crossfade_mode_fixed" = "Fixed";
 "crossfade_mode_smart" = "Smart";
 "crossfade_max_duration" = "Maximum Transition Duration";
+"crossfade_footer" = "Songs blend only when one plays through to its end; skipping manually switches straight over. A next song that isn't on this device or cached yet also starts without a fade. Can't be used together with gapless playback.";
 "skip_leading_silence" = "Skip leading silence";
 "skip_trailing_silence" = "Skip trailing silence";
 "silence_skipping_desc" = "Smart transitions analyze audible boundaries automatically. These switches also skip boundary silence during ordinary playback. High Fidelity mode leaves audio boundaries unchanged.";
@@ -2213,6 +2214,7 @@
 "output_mode_effects" = "Effects & Processing";
 "output_mode_high_fidelity_desc" = "Shortest signal path: bypasses EQ, dynamics, reverb, spatial audio, ReplayGain, speed changes and crossfade, and matches the sample rate automatically. Volume still works, except during DSD direct output.";
 "output_mode_high_fidelity_confirm_title" = "Turn on High Fidelity Direct?";
+"output_mode_high_fidelity_hardware_note" = "This mode mainly matters with an external DAC or headphone amplifier. Over Bluetooth or the built-in speakers the audio is processed again anyway, so the difference is rarely audible.";
 "output_mode_effects_desc" = "Uses the full processing graph for EQ, dynamics, reverb, spatial audio, ReplayGain, playback speed, crossfade, app volume, and visualization.";
 "volume_high_fidelity_system_hint" = "High Fidelity Direct uses unity gain. Adjust volume with the system controls.";
 "volume_output_device_hint" = "Adjusts the output device volume, keeping the direct signal path bit-perfect.";

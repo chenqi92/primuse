@@ -600,6 +600,7 @@
 "crossfade_mode_fixed" = "Fixe";
 "crossfade_mode_smart" = "Intelligent";
 "crossfade_max_duration" = "Durée maximale de transition";
+"crossfade_footer" = "Le fondu ne s'applique que lorsqu'un morceau est lu jusqu'à la fin ; un changement manuel passe directement au suivant. Si le morceau suivant n'est pas encore sur cet appareil ou en cache, il démarre aussi sans fondu. Incompatible avec la lecture sans interruption.";
 "skip_leading_silence" = "Ignorer le silence au début";
 "skip_trailing_silence" = "Ignorer le silence à la fin";
 "silence_skipping_desc" = "Les transitions intelligentes analysent automatiquement les limites audibles. Ces options ignorent aussi les silences en lecture normale. Le mode haute fidélité ne modifie pas les limites audio.";
@@ -2387,6 +2388,7 @@
 "output_mode_effects" = "Effets et traitement";
 "output_mode_high_fidelity_desc" = "Chemin du signal le plus court : contourne l’égaliseur, la dynamique, la réverbération, l’audio spatial, ReplayGain, la vitesse de lecture et le fondu enchaîné, avec adaptation automatique de la fréquence d’échantillonnage. Le volume reste réglable, sauf en sortie directe DSD.";
 "output_mode_high_fidelity_confirm_title" = "Activer la haute fidélité directe ?";
+"output_mode_high_fidelity_hardware_note" = "Ce mode est surtout utile avec un DAC externe ou un ampli casque. En Bluetooth ou avec les haut-parleurs intégrés, l'audio est de toute façon retraité et la différence est rarement audible.";
 "output_mode_effects_desc" = "Utilise toute la chaîne de traitement : égaliseur, dynamique, réverbération, audio spatial, ReplayGain, vitesse, fondu et visualisation.";
 "volume_high_fidelity_system_hint" = "Le mode Haute fidélité directe utilise un gain unitaire. Réglez le volume avec les commandes système.";
 "volume_output_device_hint" = "Règle le volume du périphérique de sortie ; le trajet direct reste bit-perfect.";

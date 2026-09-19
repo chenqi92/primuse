@@ -1640,9 +1640,11 @@ struct PlaybackSettingsView: View {
             } header: {
                 Text("audio_output_section")
             } footer: {
-                Text(settings.outputMode == .highFidelity
-                     ? "output_mode_high_fidelity_desc"
-                     : "output_mode_effects_desc")
+                if settings.outputMode == .highFidelity {
+                    Text(verbatim: AudioOutputMode.highFidelityExplanation)
+                } else {
+                    Text("output_mode_effects_desc")
+                }
             }
 
             Section {
@@ -1722,6 +1724,8 @@ struct PlaybackSettingsView: View {
                     }
                     .pmFadeTransition()
                 }
+            } footer: {
+                Text("crossfade_footer")
             }
             .disabled(settings.outputMode == .highFidelity)
 
@@ -1816,7 +1820,7 @@ struct PlaybackSettingsView: View {
             Button("cancel", role: .cancel) {}
             Button("enable") { playbackSettings.outputMode = .highFidelity }
         } message: {
-            Text("output_mode_high_fidelity_desc")
+            Text(verbatim: AudioOutputMode.highFidelityExplanation)
         }
     }
 }

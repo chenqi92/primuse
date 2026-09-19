@@ -1053,6 +1053,7 @@
 "crossfade_desc" = "Combine suavemente o final de uma faixa com o início da próxima.";
 "crossfade_duration" = "Duração do crossfade";
 "crossfade_max_duration" = "Duração Máxima da Transição";
+"crossfade_footer" = "O crossfade só acontece quando uma música toca até o fim; ao pular manualmente, a troca é direta. Se a próxima música ainda não estiver neste dispositivo ou em cache, ela também começa sem transição. Não pode ser usado junto com a reprodução sem intervalos.";
 "crossfade_mode" = "Modo de Transição";
 "crossfade_mode_fixed" = "Fixo";
 "crossfade_mode_smart" = "Inteligente";
@@ -2148,6 +2149,7 @@
 "output_mode_high_fidelity" = "Alta fidelidade direta";
 "output_mode_high_fidelity_desc" = "Caminho de sinal mais curto: ignora equalizador, dinâmica, reverberação, áudio espacial, ReplayGain, mudanças de velocidade e crossfade, com correspondência automática da taxa de amostragem. O volume continua funcionando, exceto na saída direta DSD.";
 "output_mode_high_fidelity_confirm_title" = "Ativar Alta fidelidade direta?";
+"output_mode_high_fidelity_hardware_note" = "Este modo faz diferença principalmente com um DAC externo ou amplificador de fones. Por Bluetooth ou nos alto-falantes integrados o áudio é processado de novo de qualquer forma, então a diferença quase não é percebida.";
 "output_sr_matching" = "Ajustar a taxa de amostragem de saída";
 "output_sr_matching_desc" = "Peça ao sistema para alterar a taxa de amostragem do hardware para corresponder à faixa atual e reduzir a reamostragem. Apenas dispositivo iOS; algum hardware pode ignorar a dica.";
 "output_sr_matching_fidelity_desc" = "Sempre habilitado no modo High Fidelity Direct. O sistema operacional e o dispositivo de saída ainda podem rejeitar uma taxa de amostragem solicitada.";

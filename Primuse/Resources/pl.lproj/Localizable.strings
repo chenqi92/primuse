@@ -1053,6 +1053,7 @@
 "crossfade_desc" = "Płynnie łączy koniec jednego utworu z początkiem następnego.";
 "crossfade_duration" = "Czas trwania przejścia";
 "crossfade_max_duration" = "Maksymalny czas trwania przejścia";
+"crossfade_footer" = "Przenikanie działa tylko wtedy, gdy utwór zostanie odtworzony do końca; przy ręcznej zmianie utworu przejście jest natychmiastowe. Jeśli następnego utworu nie ma jeszcze na tym urządzeniu ani w pamięci podręcznej, również zacznie się bez przenikania. Nie można łączyć z odtwarzaniem bez przerw.";
 "crossfade_mode" = "Tryb przejścia";
 "crossfade_mode_fixed" = "Stały";
 "crossfade_mode_smart" = "Inteligentne";
@@ -2148,6 +2149,7 @@
 "output_mode_high_fidelity" = "Bezpośrednie odtwarzanie Hi-Fi";
 "output_mode_high_fidelity_desc" = "Najkrótsza ścieżka sygnału: pomija korektor, dynamikę, pogłos, dźwięk przestrzenny, ReplayGain, zmianę prędkości i przenikanie; częstotliwość próbkowania dopasowuje się automatycznie. Głośność nadal działa, z wyjątkiem bezpośredniego wyjścia DSD.";
 "output_mode_high_fidelity_confirm_title" = "Włączyć bezpośrednie odtwarzanie Hi-Fi?";
+"output_mode_high_fidelity_hardware_note" = "Ten tryb ma sens głównie z zewnętrznym przetwornikiem DAC lub wzmacniaczem słuchawkowym. Przez Bluetooth lub wbudowane głośniki dźwięk i tak jest ponownie przetwarzany, więc różnica jest prawie niesłyszalna.";
 "output_sr_matching" = "Dopasuj częstotliwość próbkowania wyjścia";
 "output_sr_matching_desc" = "Poproś system o przełączenie sprzętowej częstotliwości próbkowania, aby dopasować ją do bieżącej ścieżki i zmniejszyć ponowne próbkowanie. Tylko urządzenie iOS; niektóre urządzenia mogą zignorować podpowiedź.";
 "output_sr_matching_fidelity_desc" = "Zawsze włączone w trybie High Fidelity Direct. System operacyjny i urządzenie wyjściowe mogą w dalszym ciągu odrzucić żądaną częstotliwość próbkowania.";

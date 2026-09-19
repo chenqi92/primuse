@@ -600,6 +600,7 @@
 "crossfade_mode_fixed" = "고정";
 "crossfade_mode_smart" = "스마트";
 "crossfade_max_duration" = "최대 전환 시간";
+"crossfade_footer" = "곡이 끝까지 재생될 때만 크로스페이드됩니다. 직접 곡을 넘기면 적용되지 않습니다. 다음 곡이 이 기기에 없거나 아직 캐시되지 않았다면 페이드 없이 바로 전환됩니다. 갭리스 재생과 함께 사용할 수 없습니다.";
 "skip_leading_silence" = "시작 부분 무음 건너뛰기";
 "skip_trailing_silence" = "끝부분 무음 건너뛰기";
 "silence_skipping_desc" = "스마트 전환은 들리는 경계를 자동으로 분석합니다. 이 옵션은 일반 재생에서도 앞뒤 무음을 건너뜁니다. 하이파이 모드에서는 오디오 경계를 변경하지 않습니다.";
@@ -2387,6 +2388,7 @@
 "output_mode_effects" = "효과 및 처리";
 "output_mode_high_fidelity_desc" = "최단 신호 경로로 재생하며 EQ, 다이내믹스, 리버브, 공간 음향, ReplayGain, 속도 변경, 크로스페이드를 우회하고 샘플레이트를 자동으로 맞춥니다. 음량은 계속 조절할 수 있습니다(DSD 다이렉트 출력 제외).";
 "output_mode_high_fidelity_confirm_title" = "고음질 다이렉트를 켤까요?";
+"output_mode_high_fidelity_hardware_note" = "이 모드는 주로 외장 DAC나 헤드폰 앰프를 사용할 때 의미가 있습니다. Bluetooth나 내장 스피커에서는 오디오가 다시 처리되므로 차이를 거의 느낄 수 없습니다.";
 "output_mode_effects_desc" = "EQ, 다이내믹, 리버브, 공간 음향, ReplayGain, 속도, 크로스페이드 및 시각화를 사용합니다.";
 "volume_high_fidelity_system_hint" = "고음질 다이렉트는 유니티 게인을 사용합니다. 시스템 음량으로 조절하세요.";
 "volume_output_device_hint" = "출력 장치 음량을 조절하며 다이렉트 신호는 비트 퍼펙트로 유지됩니다.";

@@ -196,6 +196,85 @@ struct SmartTransitionPolicyTests {
         #expect(plan.overlapDuration == 7)
     }
 
+    @Test("Boundaries that would exceed the requested overlap are ignored")
+    func plannerNeverExtendsPastRequestedOverlap() throws {
+        let analysis = SmartMixTrackAnalysis(
+            backend: .musicUnderstanding,
+            analyzedDuration: 240,
+            barStartTimes: [226, 227.5],
+            sectionStartTimes: [225]
+        )
+
+        let plan = try #require(SmartMixTransitionPlanner.plan(
+            nominalDuration: 240,
+            analyzedPlayableDuration: 236,
+            requestedOverlap: 8,
+            analysis: analysis
+        ))
+
+        #expect(plan.basis == .audibleBoundary)
+        #expect(plan.triggerTime == 228)
+        #expect(plan.overlapDuration == 8)
+    }
+
+    @Test("Tempo grid keeps only the whole bars that fit the requested overlap")
+    func tempoGridRoundsDownToRequestedOverlap() throws {
+        let slowAnalysis = SmartMixTrackAnalysis(
+            backend: .streamingPCM,
+            analyzedDuration: 32,
+            tempo: SmartMixTempoEstimate(
+                beatsPerMinute: 100,
+                confidence: 0.9,
+                firstBeatTime: 0
+            )
+        )
+        let slowPlan = try #require(SmartMixTransitionPlanner.plan(
+            nominalDuration: 240,
+            analyzedPlayableDuration: 236,
+            requestedOverlap: 6,
+            analysis: slowAnalysis
+        ))
+        #expect(slowPlan.basis == .tempoGrid)
+        #expect(abs(slowPlan.overlapDuration - 4.8) < 0.001)
+
+        let exactAnalysis = SmartMixTrackAnalysis(
+            backend: .streamingPCM,
+            analyzedDuration: 32,
+            tempo: SmartMixTempoEstimate(
+                beatsPerMinute: 120,
+                confidence: 0.9,
+                firstBeatTime: 0
+            )
+        )
+        let exactPlan = try #require(SmartMixTransitionPlanner.plan(
+            nominalDuration: 240,
+            analyzedPlayableDuration: 236,
+            requestedOverlap: 6,
+            analysis: exactAnalysis
+        ))
+        #expect(exactPlan.basis == .tempoGrid)
+        #expect(abs(exactPlan.overlapDuration - 6) < 0.001)
+
+        // One bar is already longer than the ceiling: stay on the fixed overlap.
+        let wideBarAnalysis = SmartMixTrackAnalysis(
+            backend: .streamingPCM,
+            analyzedDuration: 32,
+            tempo: SmartMixTempoEstimate(
+                beatsPerMinute: 60,
+                confidence: 0.9,
+                firstBeatTime: 0
+            )
+        )
+        let wideBarPlan = try #require(SmartMixTransitionPlanner.plan(
+            nominalDuration: 240,
+            analyzedPlayableDuration: 236,
+            requestedOverlap: 3,
+            analysis: wideBarAnalysis
+        ))
+        #expect(wideBarPlan.basis == .audibleBoundary)
+        #expect(wideBarPlan.overlapDuration == 3)
+    }
+
     @Test("Missing rhythm retains silence-aware fixed overlap")
     func plannerFallsBackWithoutRhythm() throws {
         let plan = try #require(SmartMixTransitionPlanner.plan(

@@ -368,6 +368,7 @@
 "crossfade_mode_fixed" = "固定";
 "crossfade_mode_smart" = "智慧";
 "crossfade_max_duration" = "最長轉場時長";
+"crossfade_footer" = "只在歌曲自然播完時過渡，手動切歌不會觸發。下一首尚未快取到本機時會直接切換。無法與無縫播放同時開啟。";
 "skip_leading_silence" = "略過開頭靜音";
 "skip_trailing_silence" = "略過結尾靜音";
 "silence_skipping_desc" = "智慧轉場會自動分析可聽邊界；這些開關也會在一般播放時略過首尾靜音。高傳真模式不會修改音訊邊界。";
@@ -2372,6 +2373,7 @@
 "output_mode_effects" = "音效處理";
 "output_mode_high_fidelity_desc" = "使用最短訊號路徑，略過等化器、動態處理、殘響、空間音訊、ReplayGain、變速與淡入淡出，並自動匹配取樣率。音量仍可調整，DSD 直通時除外。";
 "output_mode_high_fidelity_confirm_title" = "開啟高傳真直通？";
+"output_mode_high_fidelity_hardware_note" = "這個模式主要對外接 DAC、耳機擴大機有意義。使用藍牙耳機或內建揚聲器時，音訊還會再經過處理，基本上聽不出差別。";
 "output_mode_effects_desc" = "使用完整處理鏈，支援等化器、動態處理、殘響、空間音訊、ReplayGain、變速、淡入淡出、App 音量與視覺化。";
 "volume_high_fidelity_system_hint" = "高傳真直通使用單位增益，請使用系統音量調整。";
 "volume_output_device_hint" = "調整輸出裝置音量，直通訊號維持逐位元精確。";

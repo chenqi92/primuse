@@ -564,17 +564,20 @@ private struct MacSTGroup<Content: View>: View {
 private struct MacSTRow<Content: View>: View {
     let label: String
     let hint: String?
+    let hintLineLimit: Int
     let divider: Bool
     let block: Bool
     private let content: Content
 
     init(_ label: String,
          hint: String? = nil,
+         hintLineLimit: Int = 2,
          divider: Bool = true,
          block: Bool = false,
          @ViewBuilder content: () -> Content) {
         self.label = label
         self.hint = hint
+        self.hintLineLimit = hintLineLimit
         self.divider = divider
         self.block = block
         self.content = content()
@@ -622,7 +625,7 @@ private struct MacSTRow<Content: View>: View {
                     Text(verbatim: visibleHint)
                         .font(.system(size: 11))
                         .foregroundStyle(PMColor.textFaint)
-                        .lineLimit(2)
+                        .lineLimit(hintLineLimit)
                 }
             }
         }
@@ -1546,7 +1549,7 @@ private struct MacSTPlaybackView: View {
             Button("cancel", role: .cancel) {}
             Button("enable") { store.outputMode = .highFidelity }
         } message: {
-            Text("output_mode_high_fidelity_desc")
+            Text(verbatim: AudioOutputMode.highFidelityExplanation)
         }
 
         MacSTSection(Lz("Playback Rate & Quality")) {
@@ -1615,7 +1618,12 @@ private struct MacSTPlaybackView: View {
                         .accessibilityHint(Text(verbatim: Lz("P-16 · On by Default")))
                 }
                 .settingsAnchor("playback.gapless")
-                MacSTRow(String(localized: "crossfade")) {
+                // 三句话的说明在英文等语言下要占三四行, 默认的两行会把后半截截掉。
+                MacSTRow(
+                    String(localized: "crossfade"),
+                    hint: String(localized: "crossfade_footer"),
+                    hintLineLimit: 4
+                ) {
                     MacSTToggle(isOn: $s.crossfadeEnabled.pmAnimated())
                         .accessibilityHint(Text(verbatim: Lz("Mutually exclusive with Gapless")))
                 }

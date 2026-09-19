@@ -1053,6 +1053,7 @@
 "crossfade_desc" = "Combina suavemente el final de una pista con el comienzo de la siguiente.";
 "crossfade_duration" = "Duración del fundido cruzado";
 "crossfade_max_duration" = "Duración máxima de la transición";
+"crossfade_footer" = "El fundido solo se aplica cuando una canción se reproduce hasta el final; al cambiar manualmente se pasa directo a la siguiente. Si la siguiente canción aún no está en este dispositivo o en caché, también empieza sin fundido. No se puede usar junto con la reproducción sin pausas.";
 "crossfade_mode" = "Modo de transición";
 "crossfade_mode_fixed" = "Fijo";
 "crossfade_mode_smart" = "Inteligente";
@@ -2148,6 +2149,7 @@
 "output_mode_high_fidelity" = "Alta fidelidad directa";
 "output_mode_high_fidelity_desc" = "Ruta de señal más corta: omite ecualizador, dinámica, reverberación, audio espacial, ReplayGain, cambios de velocidad y fundido cruzado, con coincidencia automática de la frecuencia de muestreo. El volumen sigue funcionando, excepto en la salida directa DSD.";
 "output_mode_high_fidelity_confirm_title" = "¿Activar Alta fidelidad directa?";
+"output_mode_high_fidelity_hardware_note" = "Este modo tiene sentido sobre todo con un DAC externo o un amplificador de audífonos. Por Bluetooth o con las bocinas integradas el audio se vuelve a procesar de todos modos, así que la diferencia casi no se percibe.";
 "output_sr_matching" = "Ajustar la frecuencia de muestreo de salida";
 "output_sr_matching_desc" = "Solicite al sistema que cambie la frecuencia de muestreo del hardware para que coincida con la pista actual y reduzca el remuestreo. Dispositivo iOS únicamente; Es posible que algún hardware ignore la pista.";
 "output_sr_matching_fidelity_desc" = "Siempre habilitado en modo High Fidelity Direct. Es posible que el sistema operativo y el dispositivo de salida aún rechacen una frecuencia de muestreo solicitada.";
