@@ -1838,6 +1838,17 @@ struct ServerPlaylistSnapshot: Sendable {
         self.playlists = playlists
         self.failedPlaylistIDs = failedPlaylistIDs
     }
+
+    /// 群晖 Audio Station 的镜像已经去掉了未入库的条目,自报数量按剩下的曲目计,
+    /// 不会让镜像被当成「被截断」而一直不更新。
+    init(_ audioStation: SynologyAudioStationPlaylistMirrorSnapshot) {
+        self.init(
+            playlists: audioStation.playlists.map {
+                ServerPlaylist(id: $0.id, name: $0.name, trackIDs: $0.trackIDs, reportedTrackCount: $0.trackIDs.count)
+            },
+            failedPlaylistIDs: audioStation.failedPlaylistIDs
+        )
+    }
 }
 
 /// 服务端曲库源暴露用户歌单的能力 (Subsonic getPlaylists/getPlaylist,

@@ -2121,14 +2121,21 @@ final class TVSourceScanner {
         }
     }
 
-    /// 媒体服务器 / Subsonic 系的服务端歌单。连接器与 iPhone、Mac 是同一份,
-    /// 电视端此前只给飞牛音乐做了镜像,Navidrome、Jellyfin 这些自建歌单同步不过来。
+    /// 媒体服务器 / Subsonic 系 / Songloft / 群晖 Audio Station 的服务端歌单。
+    /// 连接器与 iPhone、Mac 是同一份;Audio Station 电视端直接用 Kit 客户端,
+    /// 镜像规则同样是三端共用的那一份。
     /// 返回 nil 表示该类型没有歌单能力,调用方不要动本地任何歌单。
     func fetchServerPlaylists(
         source: MusicSource,
         credential: SourceCredential?
     ) async throws -> ServerPlaylistSnapshot? {
         guard Self.serverPlaylistTypes.contains(source.type) else { return nil }
+        if source.type == .synologyAudioStation {
+            let mirrors = try await withRoutedSource(source) { routedSource in
+                try await Self.audioStationPlaylistMirrors(source: routedSource, credential: credential)
+            }
+            return ServerPlaylistSnapshot(mirrors)
+        }
         return try await withRoutedSource(source) { routedSource in
             guard let connector = TVServerCatalogConnectorFactory.make(
                 source: routedSource,
@@ -2140,6 +2147,18 @@ final class TVSourceScanner {
         }
     }
 
+    private static func audioStationPlaylistMirrors(
+        source: MusicSource,
+        credential: SourceCredential?
+    ) async throws -> SynologyAudioStationPlaylistMirrorSnapshot {
+        do {
+            return try await SynologyAudioStationClient(source: source, credential: credential)
+                .playlistMirrorSnapshot()
+        } catch {
+            throw SynologyAudioStationStreamResolver.streamError(from: error)
+        }
+    }
+
     /// 电视端能取到服务端歌单的类型。飞牛走自己那条更早接通的路径,不在此列。
     ///
     /// 刀里鱼不在此列不是电视端的限制:`DaoLiYuServiceClient` 与 `DaoLiYuSource`
@@ -2147,7 +2166,7 @@ final class TVSourceScanner {
     static let serverPlaylistTypes: Set<MusicSourceType> = [
         .jellyfin, .emby, .plex,
         .subsonic, .navidrome, .airsonic, .gonic,
-        .songloft,
+        .songloft, .synologyAudioStation,
     ]
 
     /// 服务端的「喜欢」标记。能取的类型由 `ServerFavoriteWritebackPolicy` 决定 ——

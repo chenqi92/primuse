@@ -595,6 +595,54 @@ struct SynologyAudioStationTests {
         }
     }
 
+    /// 镜像 id 已经落在用户设备上,换算方式一变,现有镜像就会被当成服务端已删除。
+    @Test func playlistMirrorIDsStayPinned() {
+        #expect(SynologyAudioStationPlaylistMirrorSnapshot.mirrorID(for: "playlist_personal_normal/开车")
+            == "as-d4b060dbc3d0aa6ecdd0f9194ff41a3d")
+        #expect(SynologyAudioStationPlaylistMirrorSnapshot.mirrorID(for: "playlist_shared_normal/1")
+            == "as-fdc9211b4b5575782687f7ca644bcb1a")
+    }
+
+    @Test func playlistMirrorSnapshotDropsUnindexedEntries() async throws {
+        let snapshot = try await AudioStationFixture().client().playlistMirrorSnapshot()
+        #expect(snapshot.failedPlaylistIDs.isEmpty)
+        #expect(snapshot.playlists.map(\.name) == ["开车", "放松", "欢快周杰伦", "粤语", "热门", "ぐされ"])
+        let drive = try #require(snapshot.playlists.first)
+        #expect(drive.id == "as-d4b060dbc3d0aa6ecdd0f9194ff41a3d")
+        #expect(drive.trackIDs == ["music_6906", "music_6906"])
+    }
+
+    @Test func playlistMirrorSnapshotKeepsFailedPlaylistsApart() async throws {
+        let listed = try JSONDecoder().decode([SynologyAudioStationPlaylist].self, from: Data("""
+            [{"id":"playlist_personal_normal/好","name":"好"},{"id":"playlist_personal_normal/坏","name":"坏"}]
+            """.utf8))
+        let snapshot = try await SynologyAudioStationPlaylistMirrorSnapshot.collect(
+            playlists: { listed },
+            trackIDs: { id in
+                guard id.hasSuffix("好") else { throw SynologyAudioStationError.invalidResponse }
+                return ["music_1", "music_/volume1/a.flac", "music_v_2"]
+            }
+        )
+        #expect(snapshot.playlists.map(\.name) == ["好"])
+        #expect(snapshot.playlists.first?.trackIDs == ["music_1", "music_v_2"])
+        #expect(snapshot.failedPlaylistIDs == [
+            SynologyAudioStationPlaylistMirrorSnapshot.mirrorID(for: "playlist_personal_normal/坏")
+        ])
+
+        await #expect(throws: CancellationError.self) {
+            try await SynologyAudioStationPlaylistMirrorSnapshot.collect(
+                playlists: { listed },
+                trackIDs: { _ in throw CancellationError() }
+            )
+        }
+        await #expect(throws: SynologyAudioStationError.invalidResponse) {
+            try await SynologyAudioStationPlaylistMirrorSnapshot.collect(
+                playlists: { throw SynologyAudioStationError.invalidResponse },
+                trackIDs: { _ in [] }
+            )
+        }
+    }
+
     @Test func playlistWritesUsePOSTAndRefuseSmartPlaylists() async throws {
         let fixture = AudioStationFixture()
         let client = fixture.client()

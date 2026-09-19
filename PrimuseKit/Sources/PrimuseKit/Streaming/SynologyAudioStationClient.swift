@@ -650,3 +650,62 @@ extension SynologyAudioStationSong {
         SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 }
+
+// MARK: - 歌单镜像
+
+/// 一份服务端歌单在本地只读镜像里的样子。iPhone、Mac 的连接器与电视端共用这一份
+/// 规则,同一份服务端歌单在三端得出同样的镜像 id 与曲目。
+public struct SynologyAudioStationPlaylistMirror: Equatable, Sendable {
+    public let id: String
+    public let name: String
+    /// 服务端顺序;尚未入库的条目(id 是 NAS 路径)匹配不到任何一首歌,已经去掉。
+    public let trackIDs: [String]
+}
+
+public struct SynologyAudioStationPlaylistMirrorSnapshot: Equatable, Sendable {
+    public let playlists: [SynologyAudioStationPlaylistMirror]
+    /// 出现在歌单列表里、但这次没能取全曲目的歌单(镜像 id)。调用方要保留它们
+    /// 已有的镜像,不能当成服务端已删除。
+    public let failedPlaylistIDs: Set<String>
+
+    /// Audio Station 的歌单 id 里带着名字与斜杠(`playlist_personal_normal/开车`)。
+    /// 镜像身份只用它的摘要,本地歌单 id 里不出现任意文字。
+    public static func mirrorID(for serverPlaylistID: String) -> String {
+        let digest = SHA256.hash(data: Data(serverPlaylistID.utf8))
+        return "as-" + digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// 歌单列表取不到就整体失败;某一份歌单的曲目取不到只记进 `failedPlaylistIDs`,
+    /// 不影响其他歌单。取数由调用方传入:iPhone 端的每次请求要经过自己的
+    /// QuickConnect 路线失效处理。
+    public static func collect(
+        playlists: @Sendable () async throws -> [SynologyAudioStationPlaylist],
+        trackIDs: @Sendable (String) async throws -> [String]
+    ) async throws -> SynologyAudioStationPlaylistMirrorSnapshot {
+        var mirrors: [SynologyAudioStationPlaylistMirror] = []
+        var failed: Set<String> = []
+        for playlist in try await playlists() {
+            try Task.checkCancellation()
+            let mirrorID = mirrorID(for: playlist.id)
+            do {
+                let ids = try await trackIDs(playlist.id).filter(SynologyAudioStationAPI.isCatalogSongID)
+                mirrors.append(SynologyAudioStationPlaylistMirror(id: mirrorID, name: playlist.name, trackIDs: ids))
+            } catch let error where OperationCancellationPolicy.isCancellation(error) {
+                throw CancellationError()
+            } catch {
+                failed.insert(mirrorID)
+            }
+        }
+        return SynologyAudioStationPlaylistMirrorSnapshot(playlists: mirrors, failedPlaylistIDs: failed)
+    }
+}
+
+extension SynologyAudioStationClient {
+    /// 直接用这个客户端取数的镜像快照(电视端)。
+    public func playlistMirrorSnapshot() async throws -> SynologyAudioStationPlaylistMirrorSnapshot {
+        try await SynologyAudioStationPlaylistMirrorSnapshot.collect(
+            playlists: { try await self.playlists() },
+            trackIDs: { try await self.playlistTrackIDs(id: $0) }
+        )
+    }
+}

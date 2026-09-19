@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 import PrimuseKit
 
@@ -449,39 +448,14 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
     // MARK: - 歌单
 
     /// 只读镜像:个人与共享歌单(客户端已滤掉系统内部歌单),智能歌单也照样镜像。
-    /// 尚未入库的条目(id 是 NAS 路径)匹配不到任何一首歌,在这里就去掉,
-    /// 自报数量随之按目录曲目计,不会让镜像被当成「被截断」而一直不更新。
+    /// 镜像 id 与曲目筛选是和电视端共用的 `SynologyAudioStationPlaylistMirrorSnapshot`。
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
         try await connect()
-        let listed = try await perform { try await $0.playlists() }
-        var playlists: [ServerPlaylist] = []
-        var failed: Set<String> = []
-        for playlist in listed {
-            try Task.checkCancellation()
-            let mirrorID = Self.mirrorPlaylistID(for: playlist.id)
-            do {
-                let trackIDs = try await perform { try await $0.playlistTrackIDs(id: playlist.id) }
-                    .filter(SynologyAudioStationAPI.isCatalogSongID)
-                playlists.append(ServerPlaylist(
-                    id: mirrorID,
-                    name: playlist.name,
-                    trackIDs: trackIDs,
-                    reportedTrackCount: trackIDs.count
-                ))
-            } catch let error where OperationCancellationPolicy.isCancellation(error) {
-                throw CancellationError()
-            } catch {
-                failed.insert(mirrorID)
-            }
-        }
-        return ServerPlaylistSnapshot(playlists: playlists, failedPlaylistIDs: failed)
-    }
-
-    /// Audio Station 的歌单 id 里带着名字与斜杠(`playlist_personal_normal/开车`)。
-    /// 镜像身份只用它的摘要,本地歌单 id 里不出现任意文字。
-    static func mirrorPlaylistID(for serverPlaylistID: String) -> String {
-        let digest = SHA256.hash(data: Data(serverPlaylistID.utf8))
-        return "as-" + digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+        let snapshot = try await SynologyAudioStationPlaylistMirrorSnapshot.collect(
+            playlists: { try await self.perform { try await $0.playlists() } },
+            trackIDs: { id in try await self.perform { try await $0.playlistTrackIDs(id: id) } }
+        )
+        return ServerPlaylistSnapshot(snapshot)
     }
 
     // MARK: - 评分
