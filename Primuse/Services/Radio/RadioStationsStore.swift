@@ -634,11 +634,18 @@ final class RadioStationsStore {
         )
         let syncManagedFolderNames = (snapshot.serverFolderNames + snapshot.stations.compactMap(\.serverFolderName))
             .compactMap { ServerRadioFolderPolicy.folderName(sourceName: source.name, serverFolderName: $0) }
+        // 一个源可能镜像几千个台(Audio Station 的 SHOUTcast 目录):在副本上按 id 索引改完
+        // 再整体写回,不逐台线性查找,也不逐台触发观察通知。
+        var stations = allStations
+        var indexByID: [String: Int] = [:]
+        for (index, station) in stations.enumerated() where indexByID[station.id] == nil {
+            indexByID[station.id] = index
+        }
         var changedIDs: [String] = []
         var seenServerIDs = Set<String>()
-        var nextSortOrder: Int? = allStations.contains(where: {
+        var nextSortOrder: Int? = stations.contains(where: {
             !$0.isDeleted && $0.sortOrder != nil
-        }) ? (allStations.compactMap(\.sortOrder).max() ?? -1) + 1 : nil
+        }) ? (stations.compactMap(\.sortOrder).max() ?? -1) + 1 : nil
 
         for serverStation in snapshot.stations {
             let serverID = serverStation.id.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -663,12 +670,12 @@ final class RadioStationsStore {
                 sourceID: source.id,
                 serverStationID: serverID
             )
-            let index = allStations.firstIndex(where: { $0.id == localID })
-            if let index, !allStations[index].isServerMirror {
+            let index = indexByID[localID]
+            if let index, !stations[index].isServerMirror {
                 continue
             }
 
-            let existing = index.map { allStations[$0] }
+            let existing = index.map { stations[$0] }
             var updated = RadioStation(
                 id: localID,
                 name: name,
@@ -709,29 +716,39 @@ final class RadioStationsStore {
             }
             updated.modifiedAt = now
             if let index {
-                allStations[index] = updated
+                stations[index] = updated
             } else {
-                allStations.append(updated)
+                indexByID[localID] = stations.count
+                stations.append(updated)
             }
             changedIDs.append(localID)
             result.synchronizedCount += 1
         }
 
         let prefix = ServerRadioStationIdentity.stationIDPrefix(sourceID: source.id)
-        for index in allStations.indices where
-            allStations[index].id.hasPrefix(prefix)
-                && !allStations[index].isDeleted
-                && !keepIDs.contains(allStations[index].id) {
-            allStations[index].isDeleted = true
-            allStations[index].deletedAt = now
-            allStations[index].modifiedAt = now
-            changedIDs.append(allStations[index].id)
+        for index in stations.indices where
+            stations[index].id.hasPrefix(prefix)
+                && !stations[index].isDeleted
+                && !keepIDs.contains(stations[index].id) {
+            stations[index].isDeleted = true
+            stations[index].deletedAt = now
+            stations[index].modifiedAt = now
+            changedIDs.append(stations[index].id)
             result.removedCount += 1
         }
 
-        guard !changedIDs.isEmpty else { return result }
+        // 过了保留期的镜像墓碑直接丢掉。CloudKit 记录在变成墓碑时已经删了,这里只动本地。
+        let countBeforePurge = stations.count
+        stations.removeAll {
+            $0.id.hasPrefix(prefix) && $0.isDeleted
+                && ServerRadioReconciliationPolicy.shouldPurgeMirrorTombstone(deletedAt: $0.deletedAt, now: now)
+        }
+        let purgedTombstones = stations.count != countBeforePurge
+
+        guard !changedIDs.isEmpty || purgedTombstones else { return result }
+        allStations = stations
         persist()
-        notifyChanged(ids: changedIDs)
+        if !changedIDs.isEmpty { notifyChanged(ids: changedIDs) }
         return result
     }
 

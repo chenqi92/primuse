@@ -651,7 +651,7 @@ struct SynologyAudioStationTests {
         let fixture = AudioStationFixture()
         let client = fixture.client()
         let favorites = try await client.radios(in: .favorite, pageSize: 2)
-        #expect(favorites.map(\.title) == ["SmoothJazz.com Global", "Groove Salad", "Jazz"])
+        #expect(favorites.map(\.title) == ["SmoothJazz.com Global", "Groove Salad", "Folder"])
         #expect(favorites.map(\.isContainer) == [false, false, true])
         let pages = await fixture.requests.filter { $0.url?.path.hasSuffix("/radio.cgi") == true }
             .map { formDecode($0.url?.query ?? "") }
@@ -665,20 +665,38 @@ struct SynologyAudioStationTests {
         }
     }
 
-    @Test func radioMirrorsSkipFoldersAndDuplicatesAcrossContainers() async throws {
-        let mirrors = try await AudioStationFixture().client().radioMirrors()
-        #expect(mirrors.map(\.name) == ["SmoothJazz.com Global", "Groove Salad", "Stream", "新闻台"])
-        #expect(mirrors.map(\.container) == [.favorite, .favorite, .userDefined, .userDefined])
+    @Test func radioMirrorsFollowServerFoldersAndSkipDuplicates() async throws {
+        let fixture = AudioStationFixture()
+        let mirrors = try await fixture.client().radioMirrors()
+        #expect(mirrors.map(\.name) == [
+            "SmoothJazz.com Global", "Groove Salad", "Stream", "新闻台", "Radio Paradise", "Dark Edge Radio",
+        ])
+        #expect(mirrors.map(\.folder) == [
+            .favorite, .favorite, .userDefined, .userDefined, .genre("Easy Listening"), .genre("Rock"),
+        ])
         #expect(mirrors.map(\.url) == [
             "http://yp.shoutcast.com/sbin/tunein-station.pls?id=1477271",
             "https://ice5.somafm.com/groovesalad-128",
             "http://46.105.100.126:8000/stream",
             "https://e.test/news/index.m3u8",
+            "http://yp.shoutcast.com/sbin/tunein-station.pls?id=1234",
+            "http://yp.shoutcast.com/sbin/tunein-station.pls?id=99180336",
         ])
         #expect(mirrors.map(\.id) == mirrors.map { SynologyAudioStationRadioMirror.mirrorID(forStationURL: $0.url) })
+        // 流派按服务端给的 id 读,名字里的空格原样带上。
+        let containers = await fixture.requests.filter { $0.url?.path.hasSuffix("/radio.cgi") == true }
+            .compactMap { formDecode($0.url?.query ?? "")["container"] }
+        #expect(Set(containers) == [
+            "Favorite", "UserDefined", "SHOUTcast", "SHOUTcast_genre_Easy Listening", "SHOUTcast_genre_Rock",
+            "SHOUTcast_genre_Holiday",
+        ])
 
         await #expect(throws: SynologyAudioStationError.apiNotFound(code: 102)) {
             try await AudioStationFixture(mode: .noRadioAPI).client().radioMirrors()
+        }
+        // 一个流派取不到,整份快照作废。
+        await #expect(throws: SynologyAudioStationError.server(code: 400)) {
+            try await AudioStationFixture(mode: .radioGenreFails).client().radioMirrors()
         }
     }
 
@@ -693,10 +711,27 @@ struct SynologyAudioStationTests {
     @Test func radioMirrorsFailAsAWhole() async {
         await #expect(throws: SynologyAudioStationError.invalidResponse) {
             try await SynologyAudioStationRadioMirror.collect(radios: { container in
-                guard container == .favorite else { throw SynologyAudioStationError.invalidResponse }
+                guard container == "Favorite" else { throw SynologyAudioStationError.invalidResponse }
                 return []
             })
         }
+    }
+
+    /// 流派并发读取,结果仍按服务端给的流派顺序排。
+    @Test func radioGenresKeepServerOrderWhenReadConcurrently() async throws {
+        let genres = (0..<9).map { #"{"id":"SHOUTcast_genre_G\#($0)","title":"G\#($0)","type":"container"}"# }
+        let listed = try JSONDecoder().decode([SynologyAudioStationRadio].self, from: Data("[\(genres.joined(separator: ","))]".utf8))
+        let mirrors = try await SynologyAudioStationRadioMirror.collect(radios: { container in
+            if container == "SHOUTcast" { return listed }
+            guard let index = Int(container.dropFirst("SHOUTcast_genre_G".count)) else { return [] }
+            // 越靠前的流派越慢返回。
+            try await Task.sleep(for: .milliseconds(5 * (9 - index)))
+            return try JSONDecoder().decode([SynologyAudioStationRadio].self, from: Data(
+                #"[{"id":"r","title":"S\#(index)","type":"station","url":"https://e.test/\#(index)"}]"#.utf8
+            ))
+        })
+        #expect(mirrors.map(\.name) == (0..<9).map { "S\($0)" })
+        #expect(mirrors.map(\.folder) == (0..<9).map { SynologyAudioStationRadioFolder.genre("G\($0)") })
     }
 
     @Test func playlistWritesUsePOSTAndRefuseSmartPlaylists() async throws {
@@ -855,7 +890,7 @@ private actor AudioStationFixture {
     enum Mode: Sendable {
         case normal, twoFactor, expiredFirstSession, alwaysExpired, noPermission, catalogGrows, stringified
         case rangeIgnored, wrongRange, htmlAudio, coverMissing, coverNotImage, coverHTTP404, ratingIgnored
-        case radioTotalChanges, noRadioAPI
+        case radioTotalChanges, noRadioAPI, radioGenreFails
     }
 
     static let password = "p@ss&w=rd+ 中"
@@ -1008,6 +1043,8 @@ private actor AudioStationFixture {
 
     /// 响应形状按 open-audio-server 与 streamish/music-server 两份独立的接口复刻:
     /// `radios` 数组 + `total`,条目的 `id` 由名字和地址拼成。
+    /// 响应形状按 open-audio-server 与 streamish/music-server 两份独立的接口复刻:
+    /// `radios` 数组 + `total`,台的 `id` 由名字和地址拼成,SHOUTcast 下面是 `SHOUTcast_genre_<流派>` 目录。
     private func radioReply(_ url: URL, _ params: [String: String]) -> (Data, URLResponse) {
         guard params["method"] == "list" else { return json(url, #"{"success":false,"error":{"code":103}}"#) }
         let entries: [String]
@@ -1016,16 +1053,35 @@ private actor AudioStationFixture {
             entries = [
                 #"{"desc":"MP3 (128 kbps)","id":"radio_SmoothJazz.com Global http://yp.shoutcast.com/sbin/tunein-station.pls?id=1477271","title":"SmoothJazz.com Global","type":"station","url":"http://yp.shoutcast.com/sbin/tunein-station.pls?id=1477271"}"#,
                 #"{"desc":"","id":"radio_Groove Salad https://ice5.somafm.com/groovesalad-128","title":"Groove Salad","type":"station","url":"https://ice5.somafm.com/groovesalad-128"}"#,
-                #"{"desc":"","id":"SHOUTcast_genre_Jazz","title":"Jazz","type":"container","url":""}"#,
+                #"{"desc":"","id":"Favorite_folder","title":"Folder","type":"container","url":""}"#,
             ]
         case "UserDefined":
             entries = [
-                // 与「我的最爱」里那台是同一个流,只差协议和末尾斜杠。
+                // 与「我收藏的广播」里那台是同一个流,只差协议和末尾斜杠。
                 #"{"desc":"","id":"radio_GS http://ice5.somafm.com/groovesalad-128/","title":"GS","type":"station","url":"http://ice5.somafm.com/groovesalad-128/"}"#,
                 #"{"desc":"","id":"radio_ http://46.105.100.126:8000/stream","title":"  ","type":"station","url":"http://46.105.100.126:8000/stream"}"#,
                 #"{"desc":"","id":"radio_坏 rtsp://e.test/live","title":"坏","type":"station","url":"rtsp://e.test/live"}"#,
                 #"{"desc":"","id":"radio_新闻台 https://e.test/news/index.m3u8","title":"新闻台","type":"station","url":"https://e.test/news/index.m3u8"}"#,
             ]
+        case "SHOUTcast":
+            entries = [
+                #"{"desc":"","id":"SHOUTcast_genre_Easy Listening","title":"Easy Listening","type":"container","url":""}"#,
+                #"{"desc":"","id":"SHOUTcast_genre_Rock","title":"Rock","type":"container","url":""}"#,
+                #"{"desc":"","id":"SHOUTcast_genre_Holiday","title":"Holiday","type":"container","url":""}"#,
+            ]
+        case "SHOUTcast_genre_Easy Listening":
+            entries = [
+                #"{"desc":"MP3 (192 kbps)","id":"radio_Radio Paradise http://yp.shoutcast.com/sbin/tunein-station.pls?id=1234","title":"Radio Paradise","type":"station","url":"http://yp.shoutcast.com/sbin/tunein-station.pls?id=1234"}"#,
+                // 收藏里已经有的台,不再出现第二次。
+                #"{"desc":"MP3 (128 kbps)","id":"radio_SmoothJazz.com Global http://yp.shoutcast.com/sbin/tunein-station.pls?id=1477271","title":"SmoothJazz.com Global","type":"station","url":"http://yp.shoutcast.com/sbin/tunein-station.pls?id=1477271"}"#,
+            ]
+        case "SHOUTcast_genre_Rock":
+            if mode == .radioGenreFails { return json(url, #"{"success":false,"error":{"code":400}}"#) }
+            entries = [
+                #"{"desc":"MP3 (128 kbps)","id":"radio_Dark Edge Radio http://yp.shoutcast.com/sbin/tunein-station.pls?id=99180336","title":"Dark Edge Radio","type":"station","url":"http://yp.shoutcast.com/sbin/tunein-station.pls?id=99180336"}"#,
+            ]
+        case "SHOUTcast_genre_Holiday":
+            entries = []
         default:
             return json(url, #"{"success":false,"error":{"code":101}}"#)
         }

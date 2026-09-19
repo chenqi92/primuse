@@ -265,6 +265,27 @@ public enum RadioImportParser {
         parse(text).first { $0.status == .playable && !isPlaylistWrapper($0.urlString) }?.urlString
     }
 
+    /// 按 `wrapperFetchURLs` 的顺序取清单并拆开,一个地址取不到或拆不开就试下一个;
+    /// 都不行时返回 nil。取数由调用方给:各端的明文主机信任方式不同。
+    public static func unwrappedStreamURL(
+        _ urlString: String,
+        fetch: @Sendable (String) async throws -> String
+    ) async throws -> String? {
+        for candidate in wrapperFetchURLs(urlString) {
+            try Task.checkCancellation()
+            let text: String
+            do {
+                text = try await fetch(candidate)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                continue
+            }
+            if let stream = firstStreamURL(inWrapper: text) { return stream }
+        }
+        return nil
+    }
+
     // MARK: - 各格式解析
 
     private static func parsePlainText(_ text: String) -> [Entry] {

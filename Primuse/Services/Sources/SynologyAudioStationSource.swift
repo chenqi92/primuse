@@ -460,12 +460,9 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
 
     // MARK: - 电台
 
-    /// 电台页里「我的最爱」与自己添加的台,按这两个文件夹归类。播放直连电台自己的
-    /// 地址,不经 NAS 转发:镜像里不带 `_sid`,NAS 不在线也能听。
-    ///
-    /// 「我的最爱」多是从 SHOUTcast 收藏的 `.pls` 包装,播放器不认,同步时拆成真实流地址;
-    /// 拆不开的这次不动(已有镜像保留,下次扫描再试)。身份仍按 NAS 上存的地址算,
-    /// 包装每次拆出的地址不同也不会让镜像重建。
+    /// 「INTERNET 广播」里收藏的、自己添加的,以及 SHOUTcast 各流派的台,按服务端的文件夹
+    /// 归类。播放直连电台自己的地址,不经 NAS 转发:镜像里不带 `_sid`,NAS 不在线也能听。
+    /// SHOUTcast 的地址是 `.pls` 包装,几千个台不在同步时逐个去拆,播放时再拆。
     func fetchServerRadioStations() async throws -> ServerRadioStationSnapshot? {
         try await connect()
         let mirrors: [SynologyAudioStationRadioMirror]
@@ -478,98 +475,26 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
             default: throw error
             }
         }
-        let streamURLs = await Self.playableStreamURLs(for: mirrors)
-        var stations: [ServerRadioStation] = []
-        var failed: Set<String> = []
-        for mirror in mirrors {
-            guard let streamURL = streamURLs[mirror.id] else {
-                failed.insert(mirror.id)
-                continue
-            }
-            stations.append(ServerRadioStation(
-                id: mirror.id,
-                name: mirror.name,
-                streamURL: streamURL,
-                streamFormat: URL(string: streamURL).map { RadioStreamFormat.inferred(from: $0) } ?? .automatic,
-                serverFolderName: Self.radioFolderName(mirror.container)
-            ))
-        }
-        if !failed.isEmpty {
-            plog("⚠️ Audio Station radio: \(failed.count) playlist link(s) could not be unwrapped source=\(sourceID.prefix(8))")
-        }
         return ServerRadioStationSnapshot(
-            stations: stations,
-            failedStationIDs: failed,
-            serverFolderNames: SynologyAudioStationRadioContainer.allCases.map(Self.radioFolderName)
+            stations: mirrors.map { mirror in
+                ServerRadioStation(
+                    id: mirror.id,
+                    name: mirror.name,
+                    streamURL: mirror.url,
+                    streamFormat: URL(string: mirror.url).map { RadioStreamFormat.inferred(from: $0) } ?? .automatic,
+                    serverFolderName: Self.radioFolderName(mirror.folder)
+                )
+            },
+            serverFolderNames: [Self.radioFolderName(.favorite), Self.radioFolderName(.userDefined)]
         )
     }
 
-    private static func radioFolderName(_ container: SynologyAudioStationRadioContainer) -> String {
-        switch container {
+    private static func radioFolderName(_ folder: SynologyAudioStationRadioFolder) -> String {
+        switch folder {
         case .favorite: String(localized: "audio_station_radio_folder_favorite")
         case .userDefined: String(localized: "audio_station_radio_folder_user_defined")
+        case .genre(let name): name
         }
-    }
-
-    /// 电台同步跑在扫描收尾里,拆包装整体限时,不能让一批连不上的清单拖住它。
-    private static let wrapperUnwrapBudget: Duration = .seconds(20)
-
-    /// 镜像 id → 能直接播的地址。包装清单四个一组并发去取,限时内没拆开的不在结果里。
-    private static func playableStreamURLs(for mirrors: [SynologyAudioStationRadioMirror]) async -> [String: String] {
-        var results: [String: String] = [:]
-        var wrapped: [SynologyAudioStationRadioMirror] = []
-        for mirror in mirrors {
-            if RadioImportParser.isPlaylistWrapper(mirror.url) {
-                wrapped.append(mirror)
-            } else {
-                results[mirror.id] = mirror.url
-            }
-        }
-        guard !wrapped.isEmpty else { return results }
-        let unwrapped = await withTaskGroup(of: (id: String, url: String?)?.self) { group -> [String: String] in
-            // 到时返回 nil 的计时任务。
-            group.addTask {
-                try? await Task.sleep(for: Self.wrapperUnwrapBudget)
-                return nil
-            }
-            var pending = wrapped.makeIterator()
-            var outstanding = 0
-            for _ in 0..<4 {
-                guard let mirror = pending.next() else { break }
-                outstanding += 1
-                group.addTask { (id: mirror.id, url: await Self.unwrappedStreamURL(for: mirror.url)) }
-            }
-            var found: [String: String] = [:]
-            for await result in group {
-                guard let result else { break }
-                outstanding -= 1
-                if let url = result.url { found[result.id] = url }
-                if let mirror = pending.next() {
-                    outstanding += 1
-                    group.addTask { (id: mirror.id, url: await Self.unwrappedStreamURL(for: mirror.url)) }
-                } else if outstanding == 0 {
-                    break
-                }
-            }
-            group.cancelAll()
-            return found
-        }
-        return results.merging(unwrapped) { _, unwrappedURL in unwrappedURL }
-    }
-
-    private static func unwrappedStreamURL(for url: String) async -> String? {
-        for candidate in RadioImportParser.wrapperFetchURLs(url) {
-            guard !Task.isCancelled else { return nil }
-            // 用户没信任过的明文主机不去碰:取它会弹出信任询问,后台同步不该打扰人。
-            if let candidateURL = URL(string: candidate), TrustedHTTPTransport.requiresPlainSocket(for: candidateURL) {
-                guard let target = TrustedHTTPTransport.trustTarget(for: candidateURL),
-                      SSLTrustStore.allowsInsecureHTTPHostSync(domain: target) else { continue }
-            }
-            guard let text = try? await RadioPlaylistDownloader.fetch(candidate),
-                  let stream = RadioImportParser.firstStreamURL(inWrapper: text) else { continue }
-            return stream
-        }
-        return nil
     }
 
     // MARK: - 评分

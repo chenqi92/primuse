@@ -421,4 +421,41 @@ struct RadioImportParserTests {
         #expect(RadioImportParser.firstStreamURL(inWrapper: "<html>Not found</html>") == nil)
     }
 
+    @Test("Unwrapping falls back from https to the stored cleartext link and reports nothing when both fail")
+    func unwrapsWithFallback() async throws {
+        let pls = "[playlist]\nFile1=http://46.105.100.126:8000/stream\n"
+        let tried = TriedURLs()
+        let stream = try await RadioImportParser.unwrappedStreamURL(
+            "http://yp.shoutcast.com/sbin/tunein-station.pls?id=1",
+            fetch: { url in
+                await tried.append(url)
+                guard url.hasPrefix("http://") else { throw URLError(.secureConnectionFailed) }
+                return pls
+            }
+        )
+        #expect(stream == "http://46.105.100.126:8000/stream")
+        #expect(await tried.urls == [
+            "https://yp.shoutcast.com/sbin/tunein-station.pls?id=1",
+            "http://yp.shoutcast.com/sbin/tunein-station.pls?id=1",
+        ])
+
+        let none = try await RadioImportParser.unwrappedStreamURL(
+            "https://e.test/a.pls",
+            fetch: { _ in "<html>gone</html>" }
+        )
+        #expect(none == nil)
+
+        await #expect(throws: CancellationError.self) {
+            try await RadioImportParser.unwrappedStreamURL(
+                "http://e.test/a.pls",
+                fetch: { _ in throw CancellationError() }
+            )
+        }
+    }
+
+}
+
+private actor TriedURLs {
+    var urls: [String] = []
+    func append(_ url: String) { urls.append(url) }
 }

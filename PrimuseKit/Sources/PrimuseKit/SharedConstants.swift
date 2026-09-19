@@ -1732,6 +1732,16 @@ public enum ServerRadioReconciliationPolicy {
                 ))
             }
     }
+
+    /// 服务端下架的镜像留墓碑挡住快照复活,但不必永远留:镜像每次对账都从服务端
+    /// 重新推出来,真被旧快照带回来也会在下一次对账时再被删掉。SHOUTcast 这种按收听
+    /// 人数排的目录天天有台进出,墓碑不清就一直涨。
+    public static let mirrorTombstoneRetention: TimeInterval = 30 * 24 * 60 * 60
+
+    public static func shouldPurgeMirrorTombstone(deletedAt: Date?, now: Date) -> Bool {
+        guard let deletedAt else { return false }
+        return now.timeIntervalSince(deletedAt) > mirrorTombstoneRetention
+    }
 }
 
 /// Stable identifiers shared by the app targets and the Apple Music adapter.

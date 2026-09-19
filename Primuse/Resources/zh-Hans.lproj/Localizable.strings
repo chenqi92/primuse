@@ -4293,5 +4293,5 @@
 "audio_station_error_api_not_found_format" = "Audio Station 缺少所需的接口（错误码 %d）。";
 "audio_station_error_server_format" = "Audio Station 返回错误（错误码 %d）。";
 "audio_station_error_two_factor_required" = "这个账号开启了两步验证，请重新登录这个 Audio Station 音乐源并输入验证码。";
-"audio_station_radio_folder_favorite" = "我的最爱";
-"audio_station_radio_folder_user_defined" = "自定义电台";
+"audio_station_radio_folder_favorite" = "我收藏的广播";
+"audio_station_radio_folder_user_defined" = "用户定义的广播";

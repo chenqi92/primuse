@@ -1097,8 +1097,13 @@ final class CloudKitSyncService {
     private func enqueueRadioStationRecords(ids: [String]) {
         var active: [String] = []
         var deleted: [String] = []
+        // 服务端目录一次对账就能改动几千个台,逐个 id 线性查找是平方级的。
+        let stationsByID = Dictionary(
+            radioStationsStore.allStations.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         for id in Set(ids) {
-            guard let station = radioStationsStore.allStations.first(where: { $0.id == id }) else { continue }
+            guard let station = stationsByID[id] else { continue }
             // 订阅的排除标记虽然是墓碑，却要作为一条普通记录保存出去 —— 它得在
             // 每台设备上一直挡着清单里那一条，删掉记录就等于撤销了用户的删除。
             if station.isDeleted && !station.isSubscriptionExclusionMarker {

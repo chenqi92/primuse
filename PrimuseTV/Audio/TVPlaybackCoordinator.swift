@@ -24,6 +24,39 @@ struct TVResolvedRadioStream: Equatable, Sendable {
     let headers: [String: String]
 }
 
+/// 取电台的 `.pls` / `.m3u` 包装清单。电视上没有明文主机的信任询问,没被信任过的
+/// 明文地址直接跳过(`RadioImportParser.wrapperFetchURLs` 会先给出 https 的写法)。
+private enum TVRadioPlaylistFetcher {
+    private static let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        configuration.urlCache = nil
+        configuration.timeoutIntervalForRequest = 15
+        configuration.timeoutIntervalForResource = 40
+        return URLSession(configuration: configuration)
+    }()
+
+    static func text(at urlString: String) async throws -> String {
+        guard let url = URL(string: urlString) else { throw StreamResolveError.cannotBuildURL }
+        if TrustedHTTPTransport.requiresPlainSocket(for: url) {
+            guard let target = TrustedHTTPTransport.trustTarget(for: url),
+                  SSLTrustStore.allowsInsecureHTTPHostSync(domain: target) else {
+                throw StreamResolveError.cannotBuildURL
+            }
+        }
+        let (data, response) = try await TrustedHTTPTransport.data(
+            for: URLRequest(url: url),
+            session: session,
+            maxBytes: RadioPlaylistText.maximumBytes
+        )
+        guard (response as? HTTPURLResponse).map({ (200...299).contains($0.statusCode) }) ?? true,
+              let text = RadioPlaylistText.decode(data) else {
+            throw StreamResolveError.cannotBuildURL
+        }
+        return text
+    }
+}
+
 private enum TVDecodedDownloadError: Error, LocalizedError, Sendable {
     case invalidContentLength(Int64)
     case incomplete(expected: Int64, actual: Int64)
@@ -150,7 +183,18 @@ final class TVPlaybackCoordinator {
 
         if !station.requiresSourceStreamResolution {
             guard let url = station.url else { throw StreamResolveError.cannotBuildURL }
-            return TVResolvedRadioStream(url: url, headers: [:])
+            guard RadioImportParser.isPlaylistWrapper(station.streamURL) else {
+                return TVResolvedRadioStream(url: url, headers: [:])
+            }
+            // SHOUTcast 这类 `.pls` / `.m3u` 包装播放器不认,取回清单拆出真实流地址。
+            guard let stream = try await RadioImportParser.unwrappedStreamURL(
+                station.streamURL,
+                fetch: { try await TVRadioPlaylistFetcher.text(at: $0) }
+            ), let streamURL = URL(string: stream) else {
+                throw StreamResolveError.cannotBuildURL
+            }
+            try ensureCurrent(requestID, store: store)
+            return TVResolvedRadioStream(url: streamURL, headers: [:])
         }
 
         guard let sourceID = station.sourceID,

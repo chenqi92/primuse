@@ -464,9 +464,17 @@ public actor SynologyAudioStationClient {
 
     // MARK: - 电台
 
-    /// 一个电台容器里的全部条目,按服务端顺序。总数对不上就整体失败,调用方不能据此删镜像。
     public func radios(
         in container: SynologyAudioStationRadioContainer,
+        pageSize: Int = SynologyAudioStationAPI.pageSize
+    ) async throws -> [SynologyAudioStationRadio] {
+        try await radios(inContainer: container.rawValue, pageSize: pageSize)
+    }
+
+    /// 一个电台容器(或 SHOUTcast 流派)里的全部条目,按服务端顺序。总数对不上就整体失败,
+    /// 调用方不能据此删镜像。
+    public func radios(
+        inContainer container: String,
         pageSize: Int = SynologyAudioStationAPI.pageSize
     ) async throws -> [SynologyAudioStationRadio] {
         guard pageSize > 0 else { throw SynologyAudioStationError.invalidResponse }
@@ -737,20 +745,23 @@ extension SynologyAudioStationClient {
     }
 
     public func radioMirrors() async throws -> [SynologyAudioStationRadioMirror] {
-        try await SynologyAudioStationRadioMirror.collect(radios: { try await self.radios(in: $0) })
+        try await SynologyAudioStationRadioMirror.collect(radios: { try await self.radios(inContainer: $0) })
     }
 }
 
 // MARK: - 电台镜像
 
-/// 用户在 Audio Station 电台页收藏或自己添加的一个台。
+/// Audio Station「INTERNET 广播」里的一个台:收藏的、自己添加的,或 SHOUTcast 某个流派里的。
 public struct SynologyAudioStationRadioMirror: Equatable, Sendable {
     /// 由 NAS 上存的地址派生:服务端 id 里带着名字,改名就会变。
     public let id: String
     public let name: String
-    /// NAS 上存的地址,可能是 `.pls` 包装,由调用方决定怎么拆。
+    /// NAS 上存的地址,SHOUTcast 的台是 `.pls` 包装,播放时再拆。
     public let url: String
-    public let container: SynologyAudioStationRadioContainer
+    public let folder: SynologyAudioStationRadioFolder
+
+    /// 流派并发读取的上限:DSM 每读一个流派都要现去问 SHOUTcast,逐个读要几十秒。
+    static let genreConcurrency = 4
 
     public static func mirrorID(forStationURL url: String) -> String? {
         guard let key = RadioImportParser.streamIdentityKey(url) else { return nil }
@@ -758,16 +769,50 @@ public struct SynologyAudioStationRadioMirror: Equatable, Sendable {
         return "as-" + digest.prefix(16).map { String(format: "%02x", $0) }.joined()
     }
 
-    /// 按「我的最爱」「自己添加的」顺序收集;同一个地址在两边都有时只留第一次出现的。
-    /// 子目录、没有可用地址的条目跳过。任何一个容器取不到就整体失败 —— 残缺的
-    /// 列表会让另一个容器的台被当成服务端已删。
+    /// 依次收集「我收藏的广播」「用户定义的广播」与 SHOUTcast 各流派(服务端顺序);
+    /// 同一个地址出现多次时只留第一次。没有可用地址的条目、流派里再套的目录跳过。
+    /// 任何一个容器或流派取不到就整体失败 —— 残缺的列表会让缺掉的那部分被当成服务端已删。
     public static func collect(
-        radios: @Sendable (SynologyAudioStationRadioContainer) async throws -> [SynologyAudioStationRadio]
+        radios: @escaping @Sendable (String) async throws -> [SynologyAudioStationRadio]
     ) async throws -> [SynologyAudioStationRadioMirror] {
+        var groups: [(folder: SynologyAudioStationRadioFolder, radios: [SynologyAudioStationRadio])] = [
+            (.favorite, try await radios(SynologyAudioStationRadioContainer.favorite.rawValue)),
+            (.userDefined, try await radios(SynologyAudioStationRadioContainer.userDefined.rawValue)),
+        ]
+        let genres = try await radios(SynologyAudioStationRadioContainer.shoutcast.rawValue).compactMap { entry
+            -> (id: String, name: String)? in
+            guard entry.isContainer, let id = entry.id, !id.isEmpty else { return nil }
+            let name = RadioStationValidation.normalizedName(entry.title ?? "")
+            return (id, name.isEmpty ? id : name)
+        }
+        let genreRadios = try await withThrowingTaskGroup(
+            of: (index: Int, radios: [SynologyAudioStationRadio]).self
+        ) { group -> [[SynologyAudioStationRadio]] in
+            var results = Array(repeating: [SynologyAudioStationRadio](), count: genres.count)
+            var next = 0
+            while next < min(genreConcurrency, genres.count) {
+                let index = next
+                group.addTask { (index, try await radios(genres[index].id)) }
+                next += 1
+            }
+            while let finished = try await group.next() {
+                results[finished.index] = finished.radios
+                if next < genres.count {
+                    let index = next
+                    group.addTask { (index, try await radios(genres[index].id)) }
+                    next += 1
+                }
+            }
+            return results
+        }
+        for (genre, entries) in zip(genres, genreRadios) {
+            groups.append((.genre(genre.name), entries))
+        }
+
         var mirrors: [SynologyAudioStationRadioMirror] = []
         var seen: Set<String> = []
-        for container in SynologyAudioStationRadioContainer.allCases {
-            for radio in try await radios(container) {
+        for group in groups {
+            for radio in group.radios {
                 try Task.checkCancellation()
                 guard !radio.isContainer,
                       let url = radio.url.flatMap(RadioStationValidation.normalizedURLString),
@@ -778,7 +823,7 @@ public struct SynologyAudioStationRadioMirror: Equatable, Sendable {
                     id: id,
                     name: title.isEmpty ? RadioImportParser.suggestedName(for: url) : title,
                     url: url,
-                    container: container
+                    folder: group.folder
                 ))
             }
         }

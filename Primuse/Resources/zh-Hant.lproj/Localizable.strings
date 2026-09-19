@@ -4177,5 +4177,5 @@
 "audio_station_error_api_not_found_format" = "Audio Station 缺少所需的介面（錯誤碼 %d）。";
 "audio_station_error_server_format" = "Audio Station 傳回錯誤（錯誤碼 %d）。";
 "audio_station_error_two_factor_required" = "此帳號已啟用兩步驟驗證，請重新登入這個 Audio Station 音樂來源並輸入驗證碼。";
-"audio_station_radio_folder_favorite" = "我的最愛";
-"audio_station_radio_folder_user_defined" = "自訂電台";
+"audio_station_radio_folder_favorite" = "我收藏的廣播";
+"audio_station_radio_folder_user_defined" = "使用者定義的廣播";

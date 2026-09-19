@@ -363,14 +363,15 @@ public enum SynologyAudioStationAPI {
         return SynologyAudioStationCall(interface: .playlist, method: "updatesongs", parameters: parameters, usesPOST: true)
     }
 
-    /// 列出一个电台容器里的条目。
+    /// 列出一个电台容器里的条目。`container` 是固定容器名,或 SHOUTcast 流派条目的
+    /// `id`(`SHOUTcast_genre_Jazz`)。
     public static func radioListCall(
-        container: SynologyAudioStationRadioContainer,
+        container: String,
         offset: Int,
         limit: Int
     ) -> SynologyAudioStationCall {
         SynologyAudioStationCall(interface: .radio, method: "list", parameters: [
-            SynologyAudioStationParameter("container", container.rawValue),
+            SynologyAudioStationParameter("container", container),
             SynologyAudioStationParameter("offset", String(offset)),
             SynologyAudioStationParameter("limit", String(limit)),
         ])
@@ -1251,13 +1252,22 @@ public struct SynologyAudioStationPlaylistPagination: Sendable {
     }
 }
 
-/// 电台页里用户自己的两个容器。第三个容器 `SHOUTcast` 是公共目录(几十个流派、
-/// 每个流派上百台),不是用户收藏的台,不镜像。
+/// 「INTERNET 广播」下的三个固定容器。
 public enum SynologyAudioStationRadioContainer: String, CaseIterable, Sendable {
-    /// 「我的最爱」:多半是从 SHOUTcast 目录收藏的台,地址是 `tunein-station.pls` 包装。
+    /// 「我收藏的广播」:多半是从 SHOUTcast 收藏的台,地址是 `tunein-station.pls` 包装。
     case favorite = "Favorite"
-    /// 用户按地址自己加的台。
+    /// 「用户定义的广播」:按地址自己加的台。
     case userDefined = "UserDefined"
+    /// SHOUTcast 目录:下面一层是流派子目录(每个流派最多约 200 台),台在流派里。
+    case shoutcast = "SHOUTcast"
+}
+
+/// 镜像电台在服务端所在的文件夹。
+public enum SynologyAudioStationRadioFolder: Hashable, Sendable {
+    case favorite
+    case userDefined
+    /// SHOUTcast 的一个流派,值是服务端给的流派名。
+    case genre(String)
 }
 
 /// 容器里的一条。`type` 为 `station` 或 `container`(子目录,例如 SHOUTcast 的流派)。
