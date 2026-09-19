@@ -1321,11 +1321,11 @@
 "settings_dlna_keepalive_footer" = "Wenn aktiviert, nimmt Primuse weiterhin Streams von anderen Geräten an, selbst wenn es im Hintergrund läuft und keine Musik spielt. Nachteil: Sperrbildschirm / Kontrollzentrum zeigen Primuse als spielend an, und der Akkuverbrauch steigt leicht.";
 "settings_relay_section" = "Apple TV-Relay";
 "settings_relay_enable" = "Apple TV über dieses Gerät abspielen lassen";
-"settings_relay_footer" = "Wenn aktiviert, kann dein Apple TV Musik abspielen, die auf diesem Telefon liegt – weitergeleitet über dieses Gerät (auch NFS-Quellen, die auf NFSv4 eingestellt sind, laufen hierüber). Lass Primuse im Vordergrund geöffnet und halte beide Geräte im selben Wi-Fi.";
+"settings_relay_footer" = "Lass Primuse im Vordergrund geöffnet und beide Geräte im selben Wi-Fi. Musik auf diesem Telefon musst du außerdem mit „Mediathek vom iPhone übertragen“ auf dem Apple TV hinüberschicken.";
 "settings_relay_waiting" = "LAN-Adresse wird ermittelt … (stelle sicher, dass Wi-Fi verbunden ist)";
 "settings_appletv_section" = "Apple TV";
 "settings_push_to_tv" = "Jetzt an Apple TV senden";
-"settings_push_to_tv_footer" = "Installiere Primuse auf deinem Apple TV und melde dich mit demselben iCloud-Account an, um deine Mediathek und Quellen hier zu sehen – Anmeldedaten (Passwörter / Tokens) inklusive, nichts erneut einzugeben. Primuse lädt automatisch im Hintergrund hoch; tippe auf „Jetzt an Apple TV senden“, um sofort zu aktualisieren. NAS, WebDAV, Medienserver und Cloud-Speicher erreicht das Apple TV selbst. Nur Musik, die auf diesem Telefon liegt, braucht das Relay unten, das sie von hier über dasselbe Wi-Fi streamt; sie wird nicht über iCloud synchronisiert, schick sie also mit „Mediathek vom iPhone übertragen“ auf dem Apple TV hinüber.";
+"settings_push_to_tv_footer" = "Melde dich auf dem Apple TV mit demselben iCloud-Account an, um diese Mediathek und ihre Quellen zu sehen – Passwörter inklusive. NAS, Medienserver und Cloud-Speicher erreicht das Apple TV selbst; nur Musik auf diesem Telefon und NFSv4-Quellen brauchen das Relay.";
 "settings_push_to_tv_done" = "Gesendet";
 "settings_push_to_tv_failed" = "Senden fehlgeschlagen";
 "send_to_tv_title" = "An Apple TV senden";

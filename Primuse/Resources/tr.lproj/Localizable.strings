@@ -2428,7 +2428,7 @@
 "share_choose_primuse_relay" = "Primuse Paylaşım Hizmetini Seçin";
 "fullscreen_effect_flowing_lines_subtitle" = "Gelişen konturlar, üç şarkı sözü çizgisiyle sanat eserinin yörüngesinde dönüyor";
 "lyrics_converter_error_title" = "Şarkı Sözü Dönüştürme Başarısız";
-"settings_push_to_tv_footer" = "Apple TV cihazınıza Primuse'yi yükleyin ve arşivinizi ve kaynaklarınızı burada görmek için aynı iCloud hesabıyla oturum açın - kimlik bilgileri (şifreler / belirteçler) dahildir, yeniden girilecek bir şey yoktur. Primuse arka planda otomatik olarak yüklenir; hemen güncellemek için “Şimdi Apple TV'ye gönder”e dokunun. NAS, WebDAV, medya sunucuları ve bulut sürücülerine Apple TV kendi başına bağlanır. Aşağıdaki Röle yalnızca bu telefonda saklanan müzik için gerekir; onu buradan aynı Wi-Fi üzerinden aktarır. Bu müzik iCloud ile eşitlenmediğinden, Apple TV'deki “iPhone'den Arşivi Aktarın” ile gönderin.";
+"settings_push_to_tv_footer" = "Bu arşivi ve kaynaklarını şifreleriyle birlikte görmek için Apple TV'de aynı iCloud hesabıyla oturum açın. NAS, medya sunucuları ve bulut sürücülerine Apple TV kendi başına bağlanır; röle yalnızca bu telefonda saklanan müzik ve NFSv4 kaynakları için gerekir.";
 "library_stats_plays_suffix" = "çalış";
 "Fill Missing Fields Only" = "Yalnızca Eksik Alanları Doldurun";
 "playlist_import_match_results" = "Maç Sonuçları";
@@ -3430,7 +3430,7 @@
 "immersive_demo_lyric_07" = "En sessiz yankı hâlâ odanın içinden geçebilir";
 "lyrics_editor_live_hint" = "Satır sonu tuşu satırı geçerli zamandan başlatır";
 "scrobble_overall_footer" = "Dinleme geçmişini Last.fm / ListenBrainz'ye gönderin. 50% or 4 dakika oynandıktan sonra sayılır.";
-"settings_relay_footer" = "Açık olduğunda, Apple TV'niz bu telefonda saklanan müziği bu cihaz üzerinden aktarılarak çalabilir (NFSv4 olarak ayarlanmış NFS kaynakları da buradan geçer). Primuse'yi ön planda açık tutun ve her iki cihazı da aynı Wi-Fi üzerinde tutun.";
+"settings_relay_footer" = "Primuse'yi ön planda açık tutun ve her iki cihazı da aynı Wi-Fi üzerinde tutun. Bu telefonda saklanan müziğin ayrıca Apple TV'deki “iPhone'den Arşivi Aktarın” ile gönderilmesi gerekir.";
 "search_section_path" = "Yol eşleşmeleri";
 "reread_song_tags_completed" = "Dosya etiketleri tekrar okundu.";
 "scrobble_mac_session_saved" = "Oturum kaydedildi";

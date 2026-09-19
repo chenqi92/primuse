@@ -1264,11 +1264,11 @@
 "settings_dlna_keepalive_footer" = "開啟後即使 Primuse 退到背景、沒有正在播放音樂,也能持續接收 LAN 內其他裝置推過來的音訊。代價: 鎖定畫面 / 控制中心會顯示 Primuse 正在播放,耗電略增。";
 "settings_relay_section" = "Apple TV 中繼";
 "settings_relay_enable" = "允許 Apple TV 經本機播放";
-"settings_relay_footer" = "開啟後,Apple TV 可以經這台裝置播放存在這台手機裡的音樂(NFS 版本設為 NFSv4 的音樂來源也走這裡)。需保持 Primuse 在前景執行,且兩台裝置處於同一 Wi-Fi。";
+"settings_relay_footer" = "需保持 Primuse 在前景,且兩台裝置在同一 Wi-Fi。手機裡的音樂還要在 Apple TV 的「從 iPhone 傳入資料庫」裡掃碼傳過去。";
 "settings_relay_waiting" = "正在取得區域網路位址…(請確認已連接 Wi-Fi)";
 "settings_appletv_section" = "Apple TV";
 "settings_push_to_tv" = "立即推送到 Apple TV";
-"settings_push_to_tv_footer" = "在 Apple TV 上安裝 Primuse 並登入同一 iCloud 帳號,即可看到這裡的曲庫與音樂來源——含密碼 / token,無需重新輸入。平時退到背景會自動上傳,點「立即推送」可馬上更新。NAS、WebDAV、媒體伺服器和雲端硬碟這些,Apple TV 自己就能連。只有存在這台手機裡的音樂需要開啟下方的「中繼」,由這台手機在同一 Wi-Fi 下轉發播放;這些音樂不隨 iCloud 同步,要在 Apple TV 的「從 iPhone 傳入資料庫」裡掃碼傳過去。";
+"settings_push_to_tv_footer" = "Apple TV 登入同一 iCloud 帳號,就能看到這裡的曲庫和音樂來源,密碼無需重輸。NAS、媒體伺服器和雲端硬碟它自己能連;只有存在這台手機裡的音樂和 NFSv4 音樂來源要開中繼。";
 "settings_push_to_tv_done" = "已推送";
 "settings_push_to_tv_failed" = "推送失敗";
 "send_to_tv_title" = "傳送到 Apple TV";

@@ -1321,11 +1321,11 @@
 "settings_dlna_keepalive_footer" = "Lorsque cette option est activée, Primuse continue d'accepter les envois d'autres appareils même en arrière-plan et sans lecture en cours. Compromis : l'écran verrouillé / le centre de contrôle indiquera que Primuse est en lecture, et la consommation de batterie augmentera légèrement.";
 "settings_relay_section" = "Relais Apple TV";
 "settings_relay_enable" = "Autoriser l'Apple TV à lire via cet appareil";
-"settings_relay_footer" = "Lorsque cette option est activée, votre Apple TV peut lire la musique stockée sur ce téléphone, relayée par cet appareil (les sources NFS réglées sur NFSv4 passent aussi par là). Gardez Primuse ouvert au premier plan et les deux appareils sur le même Wi-Fi.";
+"settings_relay_footer" = "Gardez Primuse ouvert au premier plan et les deux appareils sur le même Wi-Fi. La musique stockée sur ce téléphone doit aussi être envoyée avec « Transférer la bibliothèque depuis l’iPhone » sur l'Apple TV.";
 "settings_relay_waiting" = "Obtention de l'adresse réseau local… (vérifiez que le Wi-Fi est connecté)";
 "settings_appletv_section" = "Apple TV";
 "settings_push_to_tv" = "Envoyer à l'Apple TV maintenant";
-"settings_push_to_tv_footer" = "Installez Primuse sur votre Apple TV et connectez-vous avec le même compte iCloud pour retrouver votre bibliothèque et vos sources ici — identifiants (mots de passe / jetons) inclus, rien à ressaisir. Primuse les envoie automatiquement en arrière-plan ; touchez « Envoyer à l'Apple TV maintenant » pour mettre à jour immédiatement. Les NAS, WebDAV, serveurs multimédias et espaces de stockage en ligne, l'Apple TV les atteint tout seul. Seule la musique stockée sur ce téléphone a besoin du relais ci-dessous, qui la diffuse d'ici sur le même Wi-Fi ; elle ne passe jamais par iCloud, envoyez-la donc avec « Transférer la bibliothèque depuis l’iPhone » sur l'Apple TV.";
+"settings_push_to_tv_footer" = "Connectez-vous au même compte iCloud sur votre Apple TV pour y retrouver cette bibliothèque et ses sources, mots de passe inclus. L'Apple TV atteint tout seul les NAS, serveurs multimédias et espaces de stockage en ligne ; seules la musique stockée sur ce téléphone et les sources NFSv4 ont besoin du relais.";
 "settings_push_to_tv_done" = "Envoyé";
 "settings_push_to_tv_failed" = "Échec de l'envoi";
 "send_to_tv_title" = "Envoyer à l'Apple TV";
