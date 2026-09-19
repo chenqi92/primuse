@@ -4206,3 +4206,9 @@
 "audio_station_radio_folder_user_defined" = "사용자 정의 라디오";
 
 "lyric_poster_live_fallback" = "사진 앱이 라이브 포토를 받지 않아 정지 사진으로 저장했습니다";
+
+"lyrics_embed_copy_header" = "가사 임베드";
+"lyrics_embed_copy_title" = "가사를 오디오 파일에도 넣기";
+"lyrics_embed_copy_hint" = "MP3, FLAC, M4A · 가사를 저장할 때마다 곡 전체를 다시 업로드합니다";
+"lyrics_embed_copy_footer" = "저장한 가사와 단일 곡 검색에서 적용한 가사를 오디오 파일 안에도 저장합니다. 파일을 다른 플레이어로 옮겨도 가사가 함께 따라갑니다. 곡 옆의 가사 파일이 계속 기본 사본이며, 파일에 넣는 것은 줄 단위 타임스탬프가 있는 텍스트뿐입니다. 저장할 때마다 곡 전체를 내려받아 고쳐 쓰고 다시 업로드하므로 Primuse가 파일을 교체할 수 있는 음악 소스의 MP3, FLAC, M4A에서만 동작하며, 라이브러리 전체 스크래핑에서는 넣지 않습니다.";
+"lyrics_embed_copy_failed_format" = "가사는 저장했지만 오디오 파일에 넣지 못했습니다: %@";

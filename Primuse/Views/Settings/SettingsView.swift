@@ -1102,6 +1102,7 @@ struct MetadataScrapingView: View {
     @State private var editingConfigSource: ScraperSourceConfig?
     @State private var editingConfigJSON = ""
     @State private var isReordering = false
+    @AppStorage(EmbeddedLyricsCopyPolicy.enabledDefaultsKey) private var embedsLyricsCopy = false
 
 
     var body: some View {
@@ -1226,6 +1227,15 @@ struct MetadataScrapingView: View {
                 }
                 .settingsAnchor("scraping.reset")
                 .foregroundStyle(.red)
+            }
+
+            Section {
+                Toggle("lyrics_embed_copy_title", isOn: $embedsLyricsCopy)
+                    .settingsAnchor("scraping.embedLyrics")
+            } header: {
+                Text("lyrics_embed_copy_header")
+            } footer: {
+                Text("lyrics_embed_copy_footer")
             }
 
             Section {

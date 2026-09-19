@@ -4112,3 +4112,9 @@
 "audio_station_radio_folder_user_defined" = "Radios personalizadas";
 
 "lyric_poster_live_fallback" = "Fotos no aceptó la foto Live; se guardó la imagen fija";
+
+"lyrics_embed_copy_header" = "Letras integradas";
+"lyrics_embed_copy_title" = "Integrar también las letras en los archivos de audio";
+"lyrics_embed_copy_hint" = "MP3, FLAC y M4A · Vuelve a subir la canción completa cada vez que se guardan las letras";
+"lyrics_embed_copy_footer" = "Las letras que guardas, o que aplicas desde la búsqueda de una sola canción, también se almacenan dentro del archivo de audio, así que lo acompañan a otros reproductores. El archivo de letras junto a la canción sigue siendo la copia principal; la copia integrada solo contiene texto sincronizado por línea. Cada guardado descarga, reescribe y vuelve a subir la canción completa, por lo que solo funciona con MP3, FLAC y M4A en fuentes cuyos archivos Primuse puede reemplazar, y la búsqueda de metadatos para toda la biblioteca nunca integra letras.";
+"lyrics_embed_copy_failed_format" = "Las letras se guardaron, pero no se pudieron integrar en el archivo de audio: %@";

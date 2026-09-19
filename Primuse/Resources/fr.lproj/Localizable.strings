@@ -4206,3 +4206,9 @@
 "audio_station_radio_folder_user_defined" = "Radios personnalisées";
 
 "lyric_poster_live_fallback" = "Photos a refusé la photo Live — l'image fixe a été enregistrée à la place";
+
+"lyrics_embed_copy_header" = "Paroles intégrées";
+"lyrics_embed_copy_title" = "Intégrer aussi les paroles aux fichiers audio";
+"lyrics_embed_copy_hint" = "MP3, FLAC et M4A · Renvoie le morceau entier à chaque enregistrement des paroles";
+"lyrics_embed_copy_footer" = "Les paroles que vous enregistrez, ou que vous appliquez depuis la recherche d’un seul morceau, sont aussi stockées dans le fichier audio et le suivent dans d’autres lecteurs. Le fichier de paroles placé à côté du morceau reste la copie principale ; la copie intégrée ne contient que du texte synchronisé ligne par ligne. Chaque enregistrement télécharge, réécrit et renvoie le morceau entier : cela ne fonctionne donc que pour les MP3, FLAC et M4A des sources dont Primuse peut remplacer les fichiers, et la récupération pour toute la bibliothèque n’intègre jamais rien.";
+"lyrics_embed_copy_failed_format" = "Les paroles ont été enregistrées, mais n’ont pas pu être intégrées au fichier audio : %@";

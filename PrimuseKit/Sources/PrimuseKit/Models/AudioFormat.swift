@@ -235,6 +235,36 @@ public enum AudioMetadataWritebackPolicy {
     }
 }
 
+/// Whether saved lyrics are also stored inside the audio file.
+///
+/// The sidecar stays the primary copy: it is a few kilobytes, carries word
+/// timing and translation tracks, and never touches the media object. The
+/// embedded copy travels with the file to players that only read tags, at the
+/// price of downloading, rewriting and re-uploading the whole song — so it is
+/// opt-in, and library-wide scraping never takes part in it.
+public enum EmbeddedLyricsCopyPolicy {
+    public static let enabledDefaultsKey = "primuse.lyrics.embedCopyEnabled"
+
+    public static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: enabledDefaultsKey)
+    }
+
+    /// Same sources and formats as embedded tag editing: the copy goes through
+    /// the identical guarded replacement of the media object.
+    public static func canEmbed(
+        sourceType: MusicSourceType,
+        format: AudioFormat,
+        isCueTrack: Bool,
+        isStreamDescriptor: Bool
+    ) -> Bool {
+        guard !isCueTrack, !isStreamDescriptor else { return false }
+        return AudioMetadataWritebackPolicy.capability(
+            sourceType: sourceType,
+            format: format
+        ) == .embedded
+    }
+}
+
 /// Request preconditions shared by WebDAV media and sidecar replacements.
 /// Primuse only treats a quoted, non-weak ETag as a concurrency token.
 public enum WebDAVWritebackPolicy {

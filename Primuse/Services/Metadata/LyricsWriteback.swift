@@ -366,6 +366,9 @@ enum LyricsWriteback {
         var errorMessage: String?
         var persistence: Persistence
         var cacheSnapshot: LyricsDocumentFingerprint?
+        /// 开了「歌词同时嵌入音频文件」时，随身副本没写成的原因。歌词文件才是主副本，
+        /// 这里失败不回滚保存，只交给调用方提示。
+        var embeddedCopyError: String?
 
         var succeeded: Bool { errorMessage == nil }
 
@@ -451,6 +454,7 @@ enum LyricsWriteback {
         let requestedPersistence = persistence(for: mode)
         var savedPersistence = requestedPersistence
         var savedCacheSnapshot = cacheSnapshot
+        var embeddedCopy = EmbeddedCopyResult.notAttempted
 
         if content.isEmpty {
             guard allowRemoval else {
@@ -559,6 +563,15 @@ enum LyricsWriteback {
             savedCacheSnapshot = nil
             updated.lyricsFileName = nil
             updated.lyricsText = nil
+            if case .sidecar = mode {
+                // 留着嵌入的那份，下次扫描就会把刚删掉的歌词读回来。
+                embeddedCopy = await writeEmbeddedCopy(
+                    .remove,
+                    for: updated,
+                    sourceManager: sourceManager,
+                    library: library
+                )
+            }
         } else {
             let validation = LyricsContentParser.validateEditableText(content)
             guard validation.isValid else {
@@ -713,6 +726,14 @@ enum LyricsWriteback {
                     ?? MetadataAssetStore.shared.expectedLyricsFileName(for: song.id))
                 : song.lyricsFileName
             updated.lyricsText = writebackLines.map(\.text).joined(separator: "\n")
+            if !staysLocal, case .sidecar = mode {
+                embeddedCopy = await writeEmbeddedCopy(
+                    .set(embeddedCopyContent(writebackLines)),
+                    for: updated,
+                    sourceManager: sourceManager,
+                    library: library
+                )
+            }
         }
 
         // Source/cache verification may await the network for many seconds.
@@ -724,19 +745,92 @@ enum LyricsWriteback {
         // 读到的旧封面会被原样写回去, 调用方拿到的 committedSong 也是旧值。
         library.flushPendingAssetReferencePatches()
         var committedSong = updated
+        if case .written(let identity) = embeddedCopy {
+            identity.apply(to: &committedSong)
+        }
         if var latestSong = library.song(id: updated.id) {
             latestSong.lyricsFileName = updated.lyricsFileName
             latestSong.lyricsText = updated.lyricsText
+            if case .written(let identity) = embeddedCopy {
+                // 音频文件被整体替换过，库里记的大小、修改时间和版本要跟上，
+                // 否则下次扫描会把它当成被别人改过的文件。
+                identity.apply(to: &latestSong)
+            }
             library.replaceSong(latestSong)
             committedSong = latestSong
         }
         NotificationCenter.default.post(name: .primuseLyricsDidChange, object: committedSong.id)
-        return SaveOutcome(
+        var outcome = SaveOutcome(
             updatedSong: committedSong,
             errorMessage: nil,
             persistence: savedPersistence,
             cacheSnapshot: savedCacheSnapshot
         )
+        if case .failed(let reason) = embeddedCopy {
+            outcome.embeddedCopyError = reason
+        }
+        return outcome
+    }
+
+    // MARK: - 嵌入音频文件的随身副本
+
+    private struct EmbeddedFileIdentity: Sendable {
+        let fileSize: Int64
+        let lastModified: Date?
+        let revision: String?
+
+        func apply(to song: inout Song) {
+            song.fileSize = fileSize
+            song.lastModified = lastModified
+            song.revision = revision
+        }
+    }
+
+    private enum EmbeddedCopyResult: Sendable {
+        /// 没开开关，或者这首歌的来源 / 格式不参与嵌入。
+        case notAttempted
+        case written(EmbeddedFileIdentity)
+        case failed(String)
+    }
+
+    /// 歌词文件已经写好之后，再把同一份歌词存进音频文件。要整首下载、改写、替换、
+    /// 回读，所以只在用户打开了开关时才做；失败不影响已经完成的保存。
+    private static func writeEmbeddedCopy(
+        _ edit: EmbeddedLyricsEdit,
+        for song: Song,
+        sourceManager: SourceManager,
+        library: MusicLibrary
+    ) async -> EmbeddedCopyResult {
+        // 事务按库里记的文件身份做冲突判断，编辑器手里的快照可能已经旧了。
+        var target = song
+        if let latest = library.song(id: song.id) {
+            target.fileSize = latest.fileSize
+            target.lastModified = latest.lastModified
+            target.revision = latest.revision
+        }
+        guard await sourceManager.embedsLyricsCopy(for: target) else { return .notAttempted }
+        do {
+            let written = try await sourceManager.writeEmbeddedLyrics(edit, for: target)
+            return .written(EmbeddedFileIdentity(
+                fileSize: written.fileSize,
+                lastModified: written.lastModified,
+                revision: written.revision
+            ))
+        } catch {
+            plog("⚠️ Embedded lyrics copy failed for songID=\(song.id): \(error.localizedDescription)")
+            return .failed(error.localizedDescription)
+        }
+    }
+
+    /// 嵌入字段里各家播放器都认的只有行级 LRC 文本，逐字标记会被原样显示成乱码。
+    /// 所以这份副本去掉逐字时间轴，保留每行时间戳、同时间戳的译文行和文件头；
+    /// 逐字数据仍然只在歌词文件和本地缓存里。
+    static func embeddedCopyContent(_ lines: [LyricLine]) -> String {
+        LyricsContentParser.serialize(lines.map { line in
+            var lineLevel = line
+            lineLevel.syllables = nil
+            return lineLevel
+        })
     }
 
     // MARK: - 写 / 删

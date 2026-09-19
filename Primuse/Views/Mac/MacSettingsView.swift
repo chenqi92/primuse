@@ -2570,6 +2570,7 @@ private struct MacSTScrapingView: View {
     @AppStorage(MusicScraperService.sidecarCoverWriteEnabledKey) private var sidecarCoverWriteEnabled = true
     @AppStorage(MusicScraperService.sidecarLyricsWriteEnabledKey) private var sidecarLyricsWriteEnabled = true
     @AppStorage(MusicScraperService.sidecarWriteTimeoutKey) private var sidecarWriteTimeout = 30.0
+    @AppStorage(EmbeddedLyricsCopyPolicy.enabledDefaultsKey) private var embedsLyricsCopy = false
 
     var body: some View {
         MacSTSection(Lz("Scraping Sources"), hint: Lz("META-01 · Drag to Reorder · Higher Items Take Priority")) {
@@ -2628,6 +2629,10 @@ private struct MacSTScrapingView: View {
                     MacSTToggle(isOn: $sidecarLyricsWriteEnabled)
                 }
                 .settingsAnchor("scraping.writeLyrics")
+                MacSTRow(Lz("lyrics_embed_copy_title"), hint: Lz("lyrics_embed_copy_hint")) {
+                    MacSTToggle(isOn: $embedsLyricsCopy)
+                }
+                .settingsAnchor("scraping.embedLyrics")
                 MacSTRow(Lz("Write Timeout"), hint: Lz("Network sidecar write timeout")) {
                     MacSTSlider(
                         value: $sidecarWriteTimeout,

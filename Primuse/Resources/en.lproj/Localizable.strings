@@ -3984,3 +3984,9 @@
 "audio_station_radio_folder_user_defined" = "User-defined Radio";
 
 "lyric_poster_live_fallback" = "Photos wouldn't take the Live Photo — saved the still image instead";
+
+"lyrics_embed_copy_header" = "Embedded Lyrics";
+"lyrics_embed_copy_title" = "Also Embed Lyrics in Audio Files";
+"lyrics_embed_copy_hint" = "MP3, FLAC and M4A · Re-uploads the whole song each time lyrics are saved";
+"lyrics_embed_copy_footer" = "Lyrics you save, or apply from a single-song search, are also stored inside the audio file, so they travel with it to other players. The lyrics file next to the song remains the main copy; the embedded copy is line-timed text only. Each save downloads, rewrites and re-uploads the whole song, so this works only for MP3, FLAC and M4A on sources whose files Primuse can replace, and library-wide scraping never embeds.";
+"lyrics_embed_copy_failed_format" = "Lyrics were saved, but could not be embedded in the audio file: %@";

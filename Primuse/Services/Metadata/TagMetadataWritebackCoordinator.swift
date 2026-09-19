@@ -93,7 +93,9 @@ enum TagMetadataWritebackCoordinator {
                 let result = try await connector.writeEmbeddedMetadata(
                     original: original,
                     updated: updated,
-                    coverData: coverData
+                    coverData: coverData,
+                    lyrics: .keep,
+                    writesTextTags: true
                 )
                 report.updatedSong.fileSize = result.fileSize
                 report.updatedSong.lastModified = result.modifiedDate

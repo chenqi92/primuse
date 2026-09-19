@@ -4207,3 +4207,9 @@
 "audio_station_radio_folder_user_defined" = "ユーザー定義のラジオ";
 
 "lyric_poster_live_fallback" = "写真アプリが Live Photos を受け付けませんでした。静止画として保存しました";
+
+"lyrics_embed_copy_header" = "歌詞の埋め込み";
+"lyrics_embed_copy_title" = "歌詞をオーディオファイルにも埋め込む";
+"lyrics_embed_copy_hint" = "MP3・FLAC・M4A · 歌詞を保存するたびに曲全体を再アップロードします";
+"lyrics_embed_copy_footer" = "保存した歌詞や、1曲ずつの検索から適用した歌詞を、オーディオファイルの中にも保存します。ファイルをほかのプレーヤーに移しても歌詞が一緒に付いていきます。曲の隣に置かれる歌詞ファイルが引き続きメインで、埋め込まれるのは行単位のタイムスタンプ付きテキストだけです。保存のたびに曲全体をダウンロードして書き換え、再アップロードするため、Primuse がファイルを置き換えられる音楽ソース上の MP3・FLAC・M4A でのみ機能し、ライブラリ全体のスクレイピングでは埋め込みません。";
+"lyrics_embed_copy_failed_format" = "歌詞は保存されましたが、オーディオファイルには埋め込めませんでした：%@";

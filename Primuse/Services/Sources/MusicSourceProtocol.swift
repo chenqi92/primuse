@@ -780,10 +780,14 @@ protocol MusicSourceConnector: Sendable {
 
     /// Rewrites selected embedded metadata in the media object and replaces it
     /// on the source with optimistic concurrency and a post-write byte check.
+    /// `writesTextTags` is false for saves that only touch the embedded lyrics,
+    /// so the file's own title, artist and the rest stay as they are.
     func writeEmbeddedMetadata(
         original: Song,
         updated: Song,
-        coverData: Data?
+        coverData: Data?,
+        lyrics: EmbeddedLyricsEdit,
+        writesTextTags: Bool
     ) async throws -> EmbeddedMetadataWritebackResult
 
     /// Delete a remote file. Used by song deletion to remove the source audio
@@ -1360,7 +1364,9 @@ extension MusicSourceConnector {
     func writeEmbeddedMetadata(
         original: Song,
         updated: Song,
-        coverData: Data?
+        coverData: Data?,
+        lyrics: EmbeddedLyricsEdit,
+        writesTextTags: Bool
     ) async throws -> EmbeddedMetadataWritebackResult {
         throw EmbeddedMetadataWritebackSourceError.unsupported
     }

@@ -145,13 +145,17 @@ extension EmbeddedMetadataWritebackAdapter {
     func writeEmbeddedMetadata(
         original: Song,
         updated: Song,
-        coverData: Data?
+        coverData: Data?,
+        lyrics: EmbeddedLyricsEdit,
+        writesTextTags: Bool
     ) async throws -> EmbeddedMetadataWritebackResult {
         try await EmbeddedMetadataWritebackCoordinator.write(
             adapter: self,
             original: original,
             updated: updated,
-            coverData: coverData
+            coverData: coverData,
+            lyrics: lyrics,
+            writesTextTags: writesTextTags
         )
     }
 
@@ -182,7 +186,9 @@ enum EmbeddedMetadataWritebackCoordinator {
         adapter: Adapter,
         original: Song,
         updated: Song,
-        coverData: Data?
+        coverData: Data?,
+        lyrics: EmbeddedLyricsEdit = .keep,
+        writesTextTags: Bool = true
     ) async throws -> EmbeddedMetadataWritebackResult {
         guard AudioMetadataWritebackPolicy.embeddedFormats.contains(updated.fileFormat),
               !updated.isCueTrack,
@@ -218,14 +224,19 @@ enum EmbeddedMetadataWritebackCoordinator {
         }
 
         let edits = EmbeddedMetadataEdits(
-            title: updated.title,
-            artist: updated.artistName,
-            albumTitle: updated.albumTitle,
-            genre: updated.genre,
-            year: updated.year,
-            trackNumber: updated.trackNumber,
-            discNumber: updated.discNumber,
-            coverData: coverData
+            tags: writesTextTags
+                ? EmbeddedMetadataEdits.Tags(
+                    title: updated.title,
+                    artist: updated.artistName,
+                    albumTitle: updated.albumTitle,
+                    genre: updated.genre,
+                    year: updated.year,
+                    trackNumber: updated.trackNumber,
+                    discNumber: updated.discNumber
+                )
+                : nil,
+            coverData: coverData,
+            lyrics: lyrics
         )
         let verification = try await run(source: sourceName, stage: .edit) {
             try await Task.detached(priority: .userInitiated) {

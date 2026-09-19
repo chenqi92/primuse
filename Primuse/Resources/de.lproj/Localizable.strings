@@ -4206,3 +4206,9 @@
 "audio_station_radio_folder_user_defined" = "Eigene Radiosender";
 
 "lyric_poster_live_fallback" = "Fotos hat das Live Photo abgelehnt – stattdessen wurde das Standbild gesichert";
+
+"lyrics_embed_copy_header" = "Eingebettete Liedtexte";
+"lyrics_embed_copy_title" = "Liedtexte auch in Audiodateien einbetten";
+"lyrics_embed_copy_hint" = "MP3, FLAC und M4A · Lädt bei jedem Speichern von Liedtexten den ganzen Titel neu hoch";
+"lyrics_embed_copy_footer" = "Liedtexte, die du speicherst oder aus der Suche für einen einzelnen Titel übernimmst, werden zusätzlich in der Audiodatei gespeichert und wandern so mit ihr in andere Player. Die Liedtextdatei neben dem Titel bleibt die Hauptkopie; eingebettet wird nur zeilenweise getakteter Text. Bei jedem Speichern wird der ganze Titel heruntergeladen, neu geschrieben und wieder hochgeladen. Das funktioniert daher nur für MP3, FLAC und M4A auf Quellen, deren Dateien Primuse ersetzen kann, und das Scraping der gesamten Mediathek bettet nie ein.";
+"lyrics_embed_copy_failed_format" = "Die Liedtexte wurden gespeichert, konnten aber nicht in die Audiodatei eingebettet werden: %@";

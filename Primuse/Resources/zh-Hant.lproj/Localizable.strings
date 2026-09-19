@@ -4183,3 +4183,9 @@
 "audio_station_radio_folder_user_defined" = "使用者定義的廣播";
 
 "lyric_poster_live_fallback" = "相簿沒有接受這張實況照片，已改存靜態圖";
+
+"lyrics_embed_copy_header" = "歌詞嵌入";
+"lyrics_embed_copy_title" = "歌詞同時嵌入音訊檔案";
+"lyrics_embed_copy_hint" = "MP3、FLAC、M4A · 每次儲存歌詞都會整首重新上傳";
+"lyrics_embed_copy_footer" = "你儲存的歌詞，以及單曲刮削後套用的歌詞，會同時存進音訊檔案，換播放器或拷走檔案時歌詞跟著走。歌曲旁的歌詞檔仍是主要副本，嵌入的只是帶行時間軸的文字。每次儲存都要把整首歌下載、改寫再上傳，所以只對可替換檔案的音樂來源裡的 MP3、FLAC、M4A 生效，整庫刮削不會嵌入。";
+"lyrics_embed_copy_failed_format" = "歌詞已儲存，但無法嵌入音訊檔案：%@";

@@ -1774,6 +1774,10 @@ struct ScrapeOptionsView: View {
                 guard !Task.isCancelled else { return }
                 if outcome.succeeded {
                     appliedFinal = outcome.updatedSong
+                    if let embeddedCopyError = outcome.embeddedCopyError {
+                        // 歌词文件与缓存都已落地，随身副本失败不拦这次应用。
+                        plog("⚠️ ScrapeOptionsView.apply embedded lyrics copy failed: \(embeddedCopyError)")
+                    }
                 } else {
                     let message = outcome.errorMessage ?? String(localized: "scrape_song_failed")
                     plog("⚠️ ScrapeOptionsView.apply lyrics writeback failed: \(message)")

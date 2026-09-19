@@ -1543,6 +1543,15 @@ struct TagEditorView: View {
                     .compactMap { $0 }
                     .joined(separator: "\n")
             }
+            if let embeddedCopyError = outcome.embeddedCopyError {
+                let embedNotice = String(
+                    format: String(localized: "lyrics_embed_copy_failed_format"),
+                    embeddedCopyError
+                )
+                metadataWritebackNotice = [metadataWritebackNotice, embedNotice]
+                    .compactMap { $0 }
+                    .joined(separator: "\n")
+            }
             // LyricsWriteback 已经把标签与歌词一起写回 MusicLibrary；只有后面
             // 封面又发生变化时，才需要再 replace 一次。
             needsLibraryReplace = false

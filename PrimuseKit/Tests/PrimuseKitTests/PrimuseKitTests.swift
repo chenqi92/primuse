@@ -281,6 +281,39 @@ import Testing
     #expect(AudioMetadataWritebackPolicy.capability(sourceType: .upnp, format: .mp3) == .localOnly)
 }
 
+@Test func embeddedLyricsCopyIsOptInAndFollowsEmbeddedTagWriteback() throws {
+    func canEmbed(
+        _ sourceType: MusicSourceType,
+        _ format: AudioFormat,
+        cue: Bool = false,
+        stream: Bool = false
+    ) -> Bool {
+        EmbeddedLyricsCopyPolicy.canEmbed(
+            sourceType: sourceType,
+            format: format,
+            isCueTrack: cue,
+            isStreamDescriptor: stream
+        )
+    }
+
+    #expect(canEmbed(.smb, .flac))
+    #expect(canEmbed(.local, .mp3))
+    #expect(canEmbed(.oneDrive, .m4a))
+    #expect(!canEmbed(.smb, .wav))
+    #expect(!canEmbed(.pan123, .mp3))
+    #expect(!canEmbed(.jellyfin, .mp3))
+    #expect(!canEmbed(.navidrome, .flac))
+    #expect(!canEmbed(.smb, .flac, cue: true))
+    #expect(!canEmbed(.smb, .flac, stream: true))
+
+    let suiteName = "EmbeddedLyricsCopyPolicyTests-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    #expect(!EmbeddedLyricsCopyPolicy.isEnabled(defaults: defaults))
+    defaults.set(true, forKey: EmbeddedLyricsCopyPolicy.enabledDefaultsKey)
+    #expect(EmbeddedLyricsCopyPolicy.isEnabled(defaults: defaults))
+}
+
 @Test func webDAVWritebackPolicyRequiresStrongRevisionAndTagsDestination() {
     #expect(WebDAVWritebackPolicy.strongETag("  \"rev-2\"  ") == "\"rev-2\"")
     #expect(WebDAVWritebackPolicy.strongETag("W/\"rev-2\"") == nil)

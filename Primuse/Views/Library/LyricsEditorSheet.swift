@@ -192,6 +192,14 @@ struct LyricsEditorSheet: View {
             }
             return
         }
+        if let embeddedCopyError = outcome.embeddedCopyError {
+            // 歌词文件已经存好了，只是音频文件里的那份没写成；说清楚再让用户关。
+            completionMessage = String(
+                format: String(localized: "lyrics_embed_copy_failed_format"),
+                embeddedCopyError
+            )
+            return
+        }
         dismiss()
     }
 }

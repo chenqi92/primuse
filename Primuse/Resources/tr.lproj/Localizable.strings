@@ -4112,3 +4112,9 @@
 "audio_station_radio_folder_user_defined" = "Kullanıcı tanımlı radyolar";
 
 "lyric_poster_live_fallback" = "Fotoğraflar Live Photo'yu kabul etmedi; bunun yerine sabit görsel kaydedildi";
+
+"lyrics_embed_copy_header" = "Gömülü Şarkı Sözleri";
+"lyrics_embed_copy_title" = "Şarkı Sözlerini Ses Dosyalarına da Göm";
+"lyrics_embed_copy_hint" = "MP3, FLAC ve M4A · Şarkı sözleri her kaydedildiğinde şarkının tamamı yeniden yüklenir";
+"lyrics_embed_copy_footer" = "Kaydettiğiniz veya tek şarkı aramasından uyguladığınız şarkı sözleri ses dosyasının içine de kaydedilir; böylece dosyayla birlikte başka oynatıcılara taşınır. Şarkının yanındaki söz dosyası ana kopya olmaya devam eder; gömülü kopya yalnızca satır satır zamanlanmış metindir. Her kayıtta şarkının tamamı indirilir, yeniden yazılır ve tekrar yüklenir; bu nedenle yalnızca Primuse’un dosyalarını değiştirebildiği kaynaklardaki MP3, FLAC ve M4A dosyalarında çalışır ve tüm kitaplık için yapılan veri çekme işlemi hiçbir zaman söz gömmez.";
+"lyrics_embed_copy_failed_format" = "Şarkı sözleri kaydedildi, ancak ses dosyasına gömülemedi: %@";

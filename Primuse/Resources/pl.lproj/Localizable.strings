@@ -4112,3 +4112,9 @@
 "audio_station_radio_folder_user_defined" = "Własne stacje radiowe";
 
 "lyric_poster_live_fallback" = "Zdjęcia nie przyjęły Live Photo — zapisano nieruchomy obraz";
+
+"lyrics_embed_copy_header" = "Osadzone teksty utworów";
+"lyrics_embed_copy_title" = "Osadzaj teksty także w plikach audio";
+"lyrics_embed_copy_hint" = "MP3, FLAC i M4A · Przy każdym zapisie tekstu cały utwór jest przesyłany ponownie";
+"lyrics_embed_copy_footer" = "Teksty, które zapisujesz lub stosujesz z wyszukiwania dla pojedynczego utworu, są zapisywane także wewnątrz pliku audio, więc przechodzą razem z nim do innych odtwarzaczy. Plik z tekstem obok utworu pozostaje kopią główną; osadzona kopia to wyłącznie tekst zsynchronizowany wiersz po wierszu. Przy każdym zapisie cały utwór jest pobierany, przepisywany i przesyłany ponownie, dlatego działa to tylko dla plików MP3, FLAC i M4A w źródłach, których pliki Primuse może zastępować, a pobieranie metadanych dla całej biblioteki nigdy nie osadza tekstów.";
+"lyrics_embed_copy_failed_format" = "Tekst został zapisany, ale nie udało się osadzić go w pliku audio: %@";

@@ -4112,3 +4112,9 @@
 "audio_station_radio_folder_user_defined" = "Rádios personalizadas";
 
 "lyric_poster_live_fallback" = "O app Fotos não aceitou a foto Live; a imagem fixa foi salva";
+
+"lyrics_embed_copy_header" = "Letras incorporadas";
+"lyrics_embed_copy_title" = "Incorporar também as letras aos arquivos de áudio";
+"lyrics_embed_copy_hint" = "MP3, FLAC e M4A · Reenvia a música inteira a cada vez que a letra é salva";
+"lyrics_embed_copy_footer" = "As letras que você salva, ou aplica a partir da busca de uma única música, também são armazenadas dentro do arquivo de áudio e o acompanham em outros players. O arquivo de letra ao lado da música continua sendo a cópia principal; a cópia incorporada contém apenas texto sincronizado por linha. Cada salvamento baixa, regrava e reenvia a música inteira, por isso só funciona com MP3, FLAC e M4A em fontes cujos arquivos o Primuse consegue substituir, e a busca de metadados da biblioteca inteira nunca incorpora letras.";
+"lyrics_embed_copy_failed_format" = "A letra foi salva, mas não pôde ser incorporada ao arquivo de áudio: %@";
