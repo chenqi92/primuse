@@ -4131,3 +4131,6 @@
 "search_layout_restore_default" = "डिफ़ॉल्ट पर लौटाएँ";
 "search_layout_move_up" = "ऊपर ले जाएँ";
 "search_layout_move_down" = "नीचे ले जाएँ";
+"search_top_match_kind_artist" = "कलाकार";
+"search_top_match_kind_album" = "एल्बम";
+"search_top_match_kind_song" = "गाना";

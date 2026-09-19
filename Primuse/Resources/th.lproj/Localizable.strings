@@ -4131,3 +4131,6 @@
 "search_layout_restore_default" = "คืนค่าเริ่มต้น";
 "search_layout_move_up" = "เลื่อนขึ้น";
 "search_layout_move_down" = "เลื่อนลง";
+"search_top_match_kind_artist" = "ศิลปิน";
+"search_top_match_kind_album" = "อัลบั้ม";
+"search_top_match_kind_song" = "เพลง";

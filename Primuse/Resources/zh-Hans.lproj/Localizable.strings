@@ -2713,7 +2713,7 @@
 "search_scope_includes_subfolders" = "包含子目录";
 "playlist_export_choose_format" = "选择导出格式";
 "search_lyrics_hits_format" = "歌词命中 · %d";
-"search_top_match" = "顶部匹配";
+"search_top_match" = "最佳匹配";
 "search_jump_to_lyrics_context" = "跳到歌词上下文";
 "search_match_time_format" = "命中 %@";
 "search_apple_music_catalog_disabled" = "Apple Music · 目录搜索已关闭";
@@ -4318,3 +4318,6 @@
 "search_layout_restore_default" = "恢复默认";
 "search_layout_move_up" = "上移";
 "search_layout_move_down" = "下移";
+"search_top_match_kind_artist" = "艺术家";
+"search_top_match_kind_album" = "专辑";
+"search_top_match_kind_song" = "歌曲";

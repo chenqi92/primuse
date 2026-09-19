@@ -4225,3 +4225,6 @@
 "search_layout_restore_default" = "Rétablir les réglages par défaut";
 "search_layout_move_up" = "Monter";
 "search_layout_move_down" = "Descendre";
+"search_top_match_kind_artist" = "Artiste";
+"search_top_match_kind_album" = "Album";
+"search_top_match_kind_song" = "Morceau";

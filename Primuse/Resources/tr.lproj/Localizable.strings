@@ -4131,3 +4131,6 @@
 "search_layout_restore_default" = "Varsayılanlara dön";
 "search_layout_move_up" = "Yukarı taşı";
 "search_layout_move_down" = "Aşağı taşı";
+"search_top_match_kind_artist" = "Sanatçı";
+"search_top_match_kind_album" = "Albüm";
+"search_top_match_kind_song" = "Şarkı";

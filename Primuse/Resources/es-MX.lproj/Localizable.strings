@@ -4131,3 +4131,6 @@
 "search_layout_restore_default" = "Restaurar valores predeterminados";
 "search_layout_move_up" = "Subir";
 "search_layout_move_down" = "Bajar";
+"search_top_match_kind_artist" = "Artista";
+"search_top_match_kind_album" = "Álbum";
+"search_top_match_kind_song" = "Canción";

@@ -4226,3 +4226,6 @@
 "search_layout_restore_default" = "デフォルトに戻す";
 "search_layout_move_up" = "上へ移動";
 "search_layout_move_down" = "下へ移動";
+"search_top_match_kind_artist" = "アーティスト";
+"search_top_match_kind_album" = "アルバム";
+"search_top_match_kind_song" = "曲";

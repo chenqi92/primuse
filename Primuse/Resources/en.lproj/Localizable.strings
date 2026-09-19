@@ -4003,3 +4003,6 @@
 "search_layout_restore_default" = "Restore Defaults";
 "search_layout_move_up" = "Move Up";
 "search_layout_move_down" = "Move Down";
+"search_top_match_kind_artist" = "Artist";
+"search_top_match_kind_album" = "Album";
+"search_top_match_kind_song" = "Song";

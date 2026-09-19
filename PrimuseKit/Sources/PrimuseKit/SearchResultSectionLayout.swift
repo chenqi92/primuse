@@ -46,6 +46,152 @@ public enum SearchResultSection: String, CaseIterable, Codable, Identifiable, Se
 
     /// 这一块是不是本机曲库里的结果。Apple Music 是在线目录,不算。
     public var isLocal: Bool { self != .appleMusic }
+
+    /// 宽屏「全部」页里这一块的形态。
+    public var blockForm: SearchResultBlockForm {
+        switch self {
+        case .albums, .artists, .appleMusic: .shelf
+        case .lyrics: .cards
+        case .metadata, .path, .fuzzy, .intelligent: .list
+        }
+    }
+}
+
+/// 一块结果在宽屏上怎么摆。
+public enum SearchResultBlockForm: Sendable {
+    /// 一整排封面(专辑、艺术家、Apple Music),独占一行,按宽度铺满一排。
+    case shelf
+    /// 紧凑的歌曲行。相邻的几块可以并排成栏,单独一块时把行分成几栏。
+    case list
+    /// 带歌词摘句的卡片,和列表一样可以并排。
+    case cards
+}
+
+/// Mac「全部」页的排版:哪些块并排、每块露几条。
+///
+/// 页面宽度是连续变化的,规则集中在这里,渲染和「全选」圈的歌才对得上。
+public enum SearchResultPageLayout {
+    /// 「最佳匹配」大卡的宽度。
+    public static let heroCardWidth = 280.0
+    public static let columnSpacing = 24.0
+    /// 一栏歌曲行放得下封面、两行文字和时长的最小宽度。
+    public static let minimumColumnWidth = 340.0
+    public static let maximumColumns = 3
+    /// 窄于这个宽度时最佳匹配旁边放不下别的块,整页退回单栏竖排。
+    public static let heroMinimumWidth = 720.0
+
+    public struct Row: Equatable, Identifiable, Sendable {
+        public let sections: [SearchResultSection]
+        public var id: String { sections.map(\.rawValue).joined(separator: "+") }
+
+        public init(_ sections: [SearchResultSection]) {
+            self.sections = sections
+        }
+    }
+
+    public struct Plan: Equatable, Sendable {
+        /// 和最佳匹配并排的那一块;没有最佳匹配或页面太窄时为 nil。
+        public let heroNeighbor: SearchResultSection?
+        public let rows: [Row]
+    }
+
+    /// 这个宽度能并排几栏。
+    public static func columnCount(for width: Double) -> Int {
+        guard width.isFinite, width > 0 else { return 1 }
+        let fitting = Int(((width + columnSpacing) / (minimumColumnWidth + columnSpacing)).rounded(.down))
+        return min(max(fitting, 1), maximumColumns)
+    }
+
+    /// 排出整页。
+    ///
+    /// - Parameters:
+    ///   - order: 用户排的顺序(已去掉关掉的块)。
+    ///   - present: 这次有东西可显示的块。Apple Music 没结果时也有一张状态卡,所以算在内。
+    ///   - withItems: 真有结果条目的块。最佳匹配旁边只放这种,放一张状态卡会显得空。
+    ///   - hasTopMatch: 有没有最佳匹配。
+    ///   - width: 结果区的可用宽度。
+    public static func plan(
+        order: [SearchResultSection],
+        present: Set<SearchResultSection>,
+        withItems: Set<SearchResultSection>,
+        hasTopMatch: Bool,
+        width: Double
+    ) -> Plan {
+        var seen = Set<SearchResultSection>()
+        let visible = order.filter { present.contains($0) && seen.insert($0).inserted }
+        let heroNeighbor = hasTopMatch && width >= heroMinimumWidth
+            ? visible.first(where: withItems.contains)
+            : nil
+        let perRow = width >= heroMinimumWidth ? columnCount(for: width) : 1
+
+        var rows: [Row] = []
+        var pending: [SearchResultSection] = []
+        func flush() {
+            guard !pending.isEmpty else { return }
+            rows.append(Row(pending))
+            pending = []
+        }
+        for section in visible where section != heroNeighbor {
+            if section.blockForm == .shelf {
+                flush()
+                rows.append(Row([section]))
+            } else {
+                pending.append(section)
+                if pending.count == perRow { flush() }
+            }
+        }
+        flush()
+        return Plan(heroNeighbor: heroNeighbor, rows: rows)
+    }
+
+    /// 最佳匹配旁边那一块能用的宽度。
+    public static func heroNeighborWidth(totalWidth: Double) -> Double {
+        max(totalWidth - heroCardWidth - columnSpacing, 0)
+    }
+
+    /// 一行里并排 `blocksInRow` 块时每块的宽度。
+    public static func blockWidth(totalWidth: Double, blocksInRow: Int) -> Double {
+        let count = max(blocksInRow, 1)
+        return max((totalWidth - columnSpacing * Double(count - 1)) / Double(count), 0)
+    }
+
+    /// 一块列表或卡片在「全部」页露几条。
+    ///
+    /// 分成几栏时按栏数取整,最后一栏不会只剩半截。最佳匹配旁边的那块按大卡的高度取,
+    /// 大约五行歌或两张歌词卡。
+    public static func previewCount(
+        for section: SearchResultSection,
+        innerColumns: Int,
+        besideTopMatch: Bool
+    ) -> Int {
+        let columns = max(innerColumns, 1)
+        switch section.blockForm {
+        case .shelf:
+            return 0
+        case .list:
+            if besideTopMatch { return columns * 5 }
+            return columns == 1 ? 6 : columns * 3
+        case .cards:
+            if besideTopMatch { return columns * 2 }
+            return columns == 1 ? 3 : columns * 2
+        }
+    }
+
+    /// 一整排封面放得下几个。
+    public static func shelfItemCount(width: Double, minimumItemWidth: Double, spacing: Double) -> Int {
+        guard width.isFinite, width > 0, minimumItemWidth > 0 else { return 1 }
+        return max(Int(((width + spacing) / (minimumItemWidth + spacing)).rounded(.down)), 1)
+    }
+
+    /// 把条目按栏竖着分:先排满第一栏再排第二栏,读排名时视线往下走。
+    public static func columnMajorChunks<Element>(_ items: [Element], columns: Int) -> [[Element]] {
+        guard !items.isEmpty else { return [] }
+        let columnCount = min(max(columns, 1), items.count)
+        let perColumn = Int((Double(items.count) / Double(columnCount)).rounded(.up))
+        return stride(from: 0, to: items.count, by: perColumn).map {
+            Array(items[$0..<min($0 + perColumn, items.count)])
+        }
+    }
 }
 
 /// 搜索结果各块的先后与显隐。

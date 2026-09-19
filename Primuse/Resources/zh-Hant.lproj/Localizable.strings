@@ -2597,7 +2597,7 @@
 "search_scope_includes_subfolders" = "包含子目錄";
 "playlist_export_choose_format" = "選擇匯出格式";
 "search_lyrics_hits_format" = "歌詞命中 · %d";
-"search_top_match" = "頂部配對";
+"search_top_match" = "最佳配對";
 "search_jump_to_lyrics_context" = "跳到歌詞上下文";
 "search_match_time_format" = "命中 %@";
 "search_apple_music_catalog_disabled" = "Apple Music · 目錄搜尋已關閉";
@@ -4202,3 +4202,6 @@
 "search_layout_restore_default" = "恢復預設";
 "search_layout_move_up" = "上移";
 "search_layout_move_down" = "下移";
+"search_top_match_kind_artist" = "演出者";
+"search_top_match_kind_album" = "專輯";
+"search_top_match_kind_song" = "歌曲";

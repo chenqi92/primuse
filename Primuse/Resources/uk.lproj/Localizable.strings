@@ -4131,3 +4131,6 @@
 "search_layout_restore_default" = "Відновити типові";
 "search_layout_move_up" = "Вгору";
 "search_layout_move_down" = "Вниз";
+"search_top_match_kind_artist" = "Виконавець";
+"search_top_match_kind_album" = "Альбом";
+"search_top_match_kind_song" = "Пісня";

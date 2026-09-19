@@ -4225,3 +4225,6 @@
 "search_layout_restore_default" = "기본값으로 복원";
 "search_layout_move_up" = "위로 이동";
 "search_layout_move_down" = "아래로 이동";
+"search_top_match_kind_artist" = "아티스트";
+"search_top_match_kind_album" = "앨범";
+"search_top_match_kind_song" = "노래";

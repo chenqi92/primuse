@@ -4131,3 +4131,6 @@
 "search_layout_restore_default" = "استعادة الإعدادات الافتراضية";
 "search_layout_move_up" = "نقل لأعلى";
 "search_layout_move_down" = "نقل لأسفل";
+"search_top_match_kind_artist" = "الفنان";
+"search_top_match_kind_album" = "الألبوم";
+"search_top_match_kind_song" = "أغنية";
