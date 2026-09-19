@@ -2,8 +2,8 @@
 
 The production catalog contains one primary icon and six alternates:
 
-- `00-splash.png` — primary icon: a milky-white dimensional splash with an engraved ring and a note in its opening, on solid blue.
-- `14-letter-p.png` — the letter P in the same milky material on solid purple, with a note in its bowl.
+- `00-splash.png` — primary icon: a milky-white dimensional splash with an engraved ring and a note in its opening, on solid berry pink.
+- `14-letter-p.png` — the letter P in the same material in pure white on solid cobalt blue, with a note in its bowl.
 - `15-folded-note.png` — the previous primary folded-note icon, retained as an alternate.
 - `12-pikaqiu.png` — user-submitted gradient music-note icon on an adaptive light, dark, or tinted background.
 - `09-classic-record.png` — historical record-and-note artwork restored as the classic icon.
@@ -24,7 +24,7 @@ All iOS masters are 1024×1024 full-bleed RGB PNGs with no baked platform corner
 
 ## tvOS
 
-tvOS uses the primary Splash design in independently composed landscape/parallax assets: the glyph and its cast shadow form the transparent `Front` layer, the solid blue field is the `Back` layer. The square-icon generator leaves these layers unchanged.
+tvOS uses the primary Splash design in independently composed landscape/parallax assets: the glyph and its cast shadow form the transparent `Front` layer, the solid berry-pink field is the `Back` layer. The square-icon generator leaves these layers unchanged.
 
 The asset structure remains:
 

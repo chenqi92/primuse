@@ -643,11 +643,18 @@ public enum CloudSourceTypeCompatibilityPolicy {
         Array(Set(rawValues)).sorted().joined(separator: "\u{1F}")
     }
 
+    /// 只有「现在认识、上次不认识」的类型才可能被旧版本跳过，才需要丢游标重拉；
+    /// 只是少了类型（上次的集合包含现在的）时游标照旧可用。没有记录过指纹的
+    /// 旧版本无从判断，仍然重拉一次。
     public static func action(
         storedFingerprint: String?,
         currentFingerprint: String = currentFingerprint
     ) -> PersistedStateAction {
-        storedFingerprint == currentFingerprint ? .preserve : .resetAndRefetch
+        guard let storedFingerprint else { return .resetAndRefetch }
+        guard storedFingerprint != currentFingerprint else { return .preserve }
+        let stored = Set(storedFingerprint.split(separator: "\u{1F}").map(String.init))
+        let current = Set(currentFingerprint.split(separator: "\u{1F}").map(String.init))
+        return current.isSubset(of: stored) ? .preserve : .resetAndRefetch
     }
 }
 

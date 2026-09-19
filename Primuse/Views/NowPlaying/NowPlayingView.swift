@@ -503,6 +503,26 @@ private struct NowPlayingAlbumTransitionSourceModifier: ViewModifier {
 }
 #endif
 
+/// 把一段视图的构造推迟到这一层自己的 `body` 里，由 SwiftUI 单独求值。
+///
+/// Debug（-Onone）构建不复用栈槽：一个构造视图的闭包里，每个分支、每个中间值都各占一块栈，
+/// 没走到的分支也照样预留。播放页 `body` 的 GeometryReader 闭包原先在两层 ZStack 闭包里
+/// 现场构造全部布局，这几帧都要为「所有布局拼成的条件类型」留好几份，再叠上
+/// 竖屏布局 → 歌名栏 → 「更多」菜单这一串，iPhone 主线程 1MB 的栈会被吃满，
+/// 打开播放页就撞上栈保护页崩溃。包进这一层后，外层闭包只持有一个闭包大小的值，
+/// 布局本身等到这一层更新时才构造，那时外层那几帧已经返回。
+private struct NowPlayingDeferredContent<Content: View>: View {
+    private let content: () -> Content
+
+    init(@ViewBuilder content: @escaping () -> Content) {
+        self.content = content
+    }
+
+    var body: some View {
+        content()
+    }
+}
+
 struct NowPlayingView: View {
     private enum AmbientBackdropTuning {
         static let transitionDuration = 0.5
@@ -1273,32 +1293,50 @@ struct NowPlayingView: View {
                         // Dynamic background from cover colors — fully opaque
                         backgroundGradient.ignoresSafeArea()
 
+                        // 每套布局都经 NowPlayingDeferredContent 推迟构造，别直接内联回来：
+                        // Debug 构建下这里会把主线程的栈吃满（见那个类型的说明）。
                         if player.isLiveRadio {
-                            liveRadioLayout(geo: geo, safeInsets: safeInsets)
+                            NowPlayingDeferredContent {
+                                liveRadioLayout(geo: geo, safeInsets: safeInsets)
+                            }
                         } else {
                             switch landscapeMode {
                             case .musicVideo:
                                 if let videoPlayer = player.musicVideoPlayer {
-                                    landscapeMusicVideoLayout(videoPlayer: videoPlayer, safeInsets: safeInsets)
+                                    NowPlayingDeferredContent {
+                                        landscapeMusicVideoLayout(videoPlayer: videoPlayer, safeInsets: safeInsets)
+                                    }
                                 } else {
-                                    portraitLayout(geo: geo, artSize: artSize, safeInsets: safeInsets)
+                                    NowPlayingDeferredContent {
+                                        portraitLayout(geo: geo, artSize: artSize, safeInsets: safeInsets)
+                                    }
                                 }
                             case .immersiveLyrics:
-                                immersiveLandscapeLyricsLayout(geo: geo)
+                                NowPlayingDeferredContent {
+                                    immersiveLandscapeLyricsLayout(geo: geo)
+                                }
                             case .standardLyrics:
-                                standardLandscapeLyricsLayout(geo: geo)
-                                    .transition(lyricsPanelTransition)
+                                NowPlayingDeferredContent {
+                                    standardLandscapeLyricsLayout(geo: geo)
+                                }
+                                .transition(lyricsPanelTransition)
                             case .none:
                                 switch playerLayoutMode {
                                 case .portrait:
-                                    portraitLayout(geo: geo, artSize: artSize, safeInsets: safeInsets)
+                                    NowPlayingDeferredContent {
+                                        portraitLayout(geo: geo, artSize: artSize, safeInsets: safeInsets)
+                                    }
                                 case .compactLandscape:
-                                    compactLandscapePlayerLayout(
-                                        geo: geo,
-                                        safeInsets: safeInsets
-                                    )
+                                    NowPlayingDeferredContent {
+                                        compactLandscapePlayerLayout(
+                                            geo: geo,
+                                            safeInsets: safeInsets
+                                        )
+                                    }
                                 case .wideLandscape:
-                                    wideLandscapeLayout(geo: geo, safeInsets: safeInsets)
+                                    NowPlayingDeferredContent {
+                                        wideLandscapeLayout(geo: geo, safeInsets: safeInsets)
+                                    }
                                 }
                             }
                         }

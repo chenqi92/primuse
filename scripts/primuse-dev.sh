@@ -16,6 +16,9 @@ BUNDLE_ID="${BUNDLE_ID:-com.welape.yuanyin}"
 TV_BUNDLE_ID="${TV_BUNDLE_ID:-$BUNDLE_ID}"
 DEVICE_TIMEOUT="${DEVICE_TIMEOUT:-120}"
 DEVICE_DISCOVERY_TIMEOUT="${DEVICE_DISCOVERY_TIMEOUT:-15}"
+APP_GROUP_ID="${APP_GROUP_ID:-group.com.welape.yuanyin}"
+LOG_OUTPUT_DIR="${LOG_OUTPUT_DIR:-$ROOT_DIR/logs}"
+SYNC_TEST_WAIT="${SYNC_TEST_WAIT:-180}"
 
 IOS_DERIVED_DATA="${IOS_DERIVED_DATA:-$ROOT_DIR/build/DeveloperWorkflow/iOS}"
 MAC_DERIVED_DATA="${MAC_DERIVED_DATA:-$ROOT_DIR/build/DeveloperWorkflow/macOS}"
@@ -59,6 +62,8 @@ usage() {
   scripts/primuse-dev.sh tv-overwrite
   scripts/primuse-dev.sh tv-devices
   scripts/primuse-dev.sh mac
+  scripts/primuse-dev.sh sync-test
+  scripts/primuse-dev.sh pull-logs
 
 操作：
   install           先选择 iPhone/iPad，再交互选择安装方式
@@ -78,6 +83,9 @@ usage() {
   tv-overwrite      tv 的明确别名，覆盖安装并保留 App 本地数据
   tv-devices        扫描可用的 tvOS 模拟器和已配对 Apple TV 真机
   mac               编译并启动 macOS App
+  sync-test         iCloud 同步测试场景：模拟升级/恢复后首次同步、全新安装、正常冷启动，
+                    跑完自动把调试日志和诊断报告拉到 logs/ 并打印同步摘要（需 Debug 构建）
+  pull-logs         选择 iPhone/iPad，只拉取调试日志和 MetricKit 诊断报告到 logs/
 
 可选环境变量：
   DEVICE_ID               目标设备名称、CoreDevice ID 或 UDID；未设置时自动发现
@@ -91,6 +99,9 @@ usage() {
   TV_DERIVED_DATA         tvOS DerivedData 路径
   DEVICE_TIMEOUT          devicectl 超时秒数，默认 120
   DEVICE_DISCOVERY_TIMEOUT 设备发现单次超时秒数，默认 15
+  SYNC_TEST_WAIT          同步测试场景启动后等待多少秒再拉日志，默认 180
+  LOG_OUTPUT_DIR          拉取日志的存放目录，默认仓库下的 logs/
+  APP_GROUP_ID            诊断报告所在的 App Group，默认 group.com.welape.yuanyin
 EOF
 }
 
@@ -449,6 +460,8 @@ select_ios_device() {
 build_ios() {
     echo
     echo "正在为 ${DEVICE_NAME} 编译 App（${IOS_CONFIGURATION}）……"
+    # 新设备第一次装机时要先登记到开发者账号，描述文件才会包含它；
+    # 只给 -allowProvisioningUpdates 时 xcodebuild 不会替你登记设备。
     xcodebuild \
         -project "$PROJECT_PATH" \
         -scheme "$IOS_SCHEME" \
@@ -456,6 +469,7 @@ build_ios() {
         -destination "id=$DEVICE_UDID" \
         -derivedDataPath "$IOS_DERIVED_DATA" \
         -allowProvisioningUpdates \
+        -allowProvisioningDeviceRegistration \
         build
 
     if [[ ! -d "$IOS_APP_PATH" ]]; then
@@ -512,6 +526,11 @@ ios_clean_install() {
         return
     fi
 
+    ios_clean_install_confirmed
+}
+
+# 已经确认过删除之后的完全重装：编译、卸载、安装、启动。
+ios_clean_install_confirmed() {
     build_ios
 
     echo
@@ -572,6 +591,313 @@ interactive_ios_install() {
             *)
                 echo "无效选项：${install_selection}" >&2
                 ;;
+        esac
+    done
+}
+
+# ---------------------------------------------------------------------------
+# iCloud 同步测试场景
+#
+# App 只在 Debug 构建里读取 PRIMUSE_SYNC_TEST_SCENARIO（见 CloudKitSyncService 的
+# SyncTestScenario）。devicectl 会把 App 的 `-xxx` 启动参数当成自己的选项吞掉，
+# 所以场景走环境变量：同时用 --environment-variables 和 DEVICECTL_CHILD_ 前缀两条路，
+# 以拉回的日志里有没有 🧪 行为准。
+# ---------------------------------------------------------------------------
+
+launch_ios_with_scenario() {
+    local scenario="$1"
+
+    echo
+    if [[ -z "$scenario" ]]; then
+        echo "正在正常启动 ${DEVICE_NAME} 上的 App……"
+        if xcrun devicectl device process launch \
+            --device "$DEVICE_CORE_ID" \
+            --timeout "$DEVICE_TIMEOUT" \
+            --terminate-existing \
+            "$BUNDLE_ID"; then
+            return 0
+        fi
+        echo "App 启动失败。请解锁 ${DEVICE_NAME} 后重试。" >&2
+        return 1
+    fi
+
+    echo "正在以测试场景「${scenario}」启动 ${DEVICE_NAME} 上的 App……"
+    if DEVICECTL_CHILD_PRIMUSE_SYNC_TEST_SCENARIO="$scenario" xcrun devicectl device process launch \
+        --device "$DEVICE_CORE_ID" \
+        --timeout "$DEVICE_TIMEOUT" \
+        --terminate-existing \
+        --environment-variables "{\"PRIMUSE_SYNC_TEST_SCENARIO\":\"${scenario}\"}" \
+        "$BUNDLE_ID"; then
+        return 0
+    fi
+
+    echo "带 --environment-variables 启动失败，改为只用 DEVICECTL_CHILD_ 前缀再试一次……" >&2
+    if DEVICECTL_CHILD_PRIMUSE_SYNC_TEST_SCENARIO="$scenario" xcrun devicectl device process launch \
+        --device "$DEVICE_CORE_ID" \
+        --timeout "$DEVICE_TIMEOUT" \
+        --terminate-existing \
+        "$BUNDLE_ID"; then
+        return 0
+    fi
+
+    echo "App 启动失败。请解锁 ${DEVICE_NAME} 后重试。" >&2
+    return 1
+}
+
+wait_for_sync_test() {
+    local remaining="$1"
+
+    echo
+    echo "请保持 ${DEVICE_NAME} 解锁、Primuse 在前台，等 iCloud 同步跑完。"
+    if [[ ! -t 0 ]]; then
+        echo "${remaining} 秒后自动拉取日志……"
+        sleep "$remaining"
+        return
+    fi
+
+    echo "${remaining} 秒后自动拉取日志；确认同步已完成可按回车提前拉取。"
+    local ignored
+    while [[ "$remaining" -gt 0 ]]; do
+        printf "\r还剩 %3d 秒…… " "$remaining"
+        if IFS= read -r -t 5 ignored; then
+            break
+        fi
+        remaining=$((remaining - 5))
+    done
+    printf "\n"
+}
+
+count_log_matches() {
+    grep -c -- "$1" "$2" 2>/dev/null || true
+}
+
+sum_log_field() {
+    # $1: sed -E 表达式，捕获一个整数；输出 "次数 总和"
+    sed -nE "$1" "$2" 2>/dev/null | awk '{ sum += $1; count += 1 } END { printf "%d %d", count, sum }'
+}
+
+summarize_sync_log() {
+    local log="$1"
+    local session="$2"
+
+    local start_line
+    start_line="$(grep -n 'SESSION START' "$log" 2>/dev/null | tail -n 1 | cut -d: -f1 || true)"
+    if [[ -n "$start_line" ]]; then
+        tail -n +"$start_line" "$log" > "$session"
+    else
+        cp "$log" "$session"
+    fi
+
+    local scenario_confirmed refetch_count reseed_line
+    scenario_confirmed="$(count_log_matches '🧪 Sync test scenario upgrade-reset' "$session")"
+    refetch_count="$(count_log_matches 'scheduling full refetch' "$session")"
+    reseed_line="$(grep -- 'initial upload re-seeding' "$session" 2>/dev/null | tail -n 1 | sed -E 's/^.*re-seeding //' || true)"
+
+    local fetched sent snapshot startup_cache system_fields
+    fetched="$(sum_log_field 's/.*CloudKitSync: fetched ([0-9]+).*/\1/p' "$session")"
+    sent="$(sum_log_field 's/.*CloudKitSync: sent saved=([0-9]+).*/\1/p' "$session")"
+    snapshot="$(sum_log_field 's/.*Library snapshot written bytes=([0-9]+).*/\1/p' "$session")"
+    startup_cache="$(sum_log_field 's/.*Library startup cache written bytes=([0-9]+).*/\1/p' "$session")"
+    system_fields="$(sum_log_field 's/.*system fields cache written entries=[0-9]+ bytes=([0-9]+).*/\1/p' "$session")"
+
+    local fetched_batches fetched_records sent_batches sent_records
+    local snapshot_writes snapshot_bytes cache_writes cache_bytes fields_writes fields_bytes
+    read -r fetched_batches fetched_records <<< "$fetched"
+    read -r sent_batches sent_records <<< "$sent"
+    read -r snapshot_writes snapshot_bytes <<< "$snapshot"
+    read -r cache_writes cache_bytes <<< "$startup_cache"
+    read -r fields_writes fields_bytes <<< "$system_fields"
+
+    echo
+    echo "—— 本次启动的同步摘要（${session#$ROOT_DIR/}）——"
+    echo "测试场景已生效：$([[ "${scenario_confirmed:-0}" -gt 0 ]] && echo 是 || echo 否)"
+    echo "全量重拉触发：${refetch_count:-0} 次"
+    echo "首次上传重排：${reseed_line:-无}"
+    echo "CloudKit 拉取：${fetched_batches} 批，共 ${fetched_records} 条"
+    echo "CloudKit 推送：${sent_batches} 批，共 ${sent_records} 条"
+    awk -v n="$snapshot_writes" -v b="$snapshot_bytes" 'BEGIN { printf "整库快照写入：%d 次，共 %.1f MB\n", n, b / 1048576 }'
+    awk -v n="$cache_writes" -v b="$cache_bytes" 'BEGIN { printf "启动缓存写入：%d 次，共 %.1f MB\n", n, b / 1048576 }'
+    awk -v n="$fields_writes" -v b="$fields_bytes" 'BEGIN { printf "同步字段缓存写入：%d 次，共 %.1f MB\n", n, b / 1048576 }'
+
+    local triggers
+    triggers="$(sed -nE 's/.*snapshot write armed in [0-9.]+s by ([^(]+).*/\1/p' "$session" 2>/dev/null \
+        | sort | uniq -c | sort -rn | head -n 5 | awk '{ printf "  %s 次  %s\n", $1, $2 }' || true)"
+    if [[ -n "$triggers" ]]; then
+        echo "整库快照由谁触发（前 5）："
+        printf '%s\n' "$triggers"
+    fi
+}
+
+pull_ios_logs() {
+    local label="$1"
+    local stamp safe_device dest errors
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    safe_device="$(printf '%s' "$DEVICE_NAME" | LC_ALL=C tr -c 'A-Za-z0-9._-' '_')"
+    dest="$LOG_OUTPUT_DIR/${stamp}-${label}-${safe_device}"
+    errors="$dest/devicectl-errors.txt"
+    mkdir -p "$dest"
+
+    echo
+    echo "正在从 ${DEVICE_NAME} 拉取调试日志到 ${dest#$ROOT_DIR/} ……"
+    local name copied_logs=0
+    for name in primuse_debug.log primuse_debug.log.1; do
+        if xcrun devicectl device copy from \
+            --device "$DEVICE_CORE_ID" \
+            --timeout "$DEVICE_TIMEOUT" \
+            --domain-type appDataContainer \
+            --domain-identifier "$BUNDLE_ID" \
+            --source "Library/Caches/$name" \
+            --destination "$dest/$name" >>"$errors" 2>&1; then
+            copied_logs=$((copied_logs + 1))
+        fi
+    done
+    if [[ ! -f "$dest/primuse_debug.log" ]]; then
+        echo "没拉到 primuse_debug.log（详情见 ${errors#$ROOT_DIR/}）。可在 App 的设置里手动导出日志。" >&2
+    fi
+
+    echo "正在拉取 MetricKit 诊断报告……"
+    local listing="$dest/.diagnostic-listing.json" report copied_reports=0
+    if xcrun devicectl device info files \
+            --device "$DEVICE_CORE_ID" \
+            --timeout "$DEVICE_TIMEOUT" \
+            --domain-type appGroupDataContainer \
+            --domain-identifier "$APP_GROUP_ID" \
+            --subdirectory DiagnosticReports \
+            --quiet \
+            --json-output "$listing" >>"$errors" 2>&1 \
+        || xcrun devicectl device info files \
+            --device "$DEVICE_CORE_ID" \
+            --timeout "$DEVICE_TIMEOUT" \
+            --domain-type appGroupDataContainer \
+            --domain-identifier "$APP_GROUP_ID" \
+            --quiet \
+            --json-output "$listing" >>"$errors" 2>&1; then
+        # 不依赖 JSON 的键名，只认 CrashDiagnosticsService 的文件名格式。
+        for report in $(grep -oE 'crash-[0-9]+-[0-9A-Za-z]+\.json' "$listing" 2>/dev/null | sort -u || true); do
+            mkdir -p "$dest/DiagnosticReports"
+            if xcrun devicectl device copy from \
+                --device "$DEVICE_CORE_ID" \
+                --timeout "$DEVICE_TIMEOUT" \
+                --domain-type appGroupDataContainer \
+                --domain-identifier "$APP_GROUP_ID" \
+                --source "DiagnosticReports/$report" \
+                --destination "$dest/DiagnosticReports/$report" >>"$errors" 2>&1; then
+                copied_reports=$((copied_reports + 1))
+            fi
+        done
+    fi
+    rm -f "$listing"
+    if [[ ! -s "$errors" ]]; then
+        rm -f "$errors"
+    fi
+
+    echo "已拉取：调试日志 ${copied_logs} 个，诊断报告 ${copied_reports} 份。"
+    echo "（MetricKit 报告由系统延后投递，常见在下次启动或 24 小时内出现，没有不代表没问题。）"
+    if [[ -f "$dest/primuse_debug.log" ]]; then
+        summarize_sync_log "$dest/primuse_debug.log" "$dest/last-session.log"
+    fi
+    echo
+    echo "日志目录：${dest#$ROOT_DIR/}"
+}
+
+sync_test_offer_build() {
+    echo
+    printf "先编译并覆盖安装当前代码吗？（保留 App 数据）[Y/n]："
+    local answer=""
+    if ! IFS= read -r answer; then
+        answer=""
+    fi
+    case "$answer" in
+        n|N)
+            echo "跳过编译，使用设备上已安装的版本（需是包含同步测试开关的 Debug 构建）。"
+            ;;
+        *)
+            build_ios
+            install_ios
+            ;;
+    esac
+}
+
+sync_test_upgrade_reset() {
+    ensure_ios_device_selected
+
+    echo
+    echo "场景：模拟升级到新增了音乐源类型的版本、或从备份恢复后的首次启动。"
+    echo "  · 保留本机全部数据，只丢弃这台设备的 iCloud 同步进度；"
+    echo "  · App 会重新拉取云端全部记录，并按正常规则只把与云端不同的内容推上去；"
+    echo "  · 只在 Debug 构建里生效，且每次启动只模拟一次。"
+    echo "建议同时打开另一台设备上的 Primuse，之后用「换一台设备」拉取它的日志，看有没有被来回推送。"
+    sync_test_offer_build
+    launch_ios_with_scenario "upgrade-reset"
+    wait_for_sync_test "$SYNC_TEST_WAIT"
+    pull_ios_logs "upgrade-reset"
+}
+
+sync_test_fresh_install() {
+    ensure_ios_device_selected
+
+    echo
+    echo "场景：模拟全新安装的新设备（真实的卸载重装）。"
+    echo "警告：会卸载 ${BUNDLE_ID}，并删除它在 ${DEVICE_NAME} 上的全部本地数据"
+    echo "（本机曲库索引、下载和缓存、未同步的设置）。iCloud 上的数据不受影响。"
+    printf "输入 DELETE 继续："
+    local confirmation=""
+    if ! IFS= read -r confirmation || [[ "$confirmation" != "DELETE" ]]; then
+        echo "未确认删除，场景已取消；现有 App 和数据未变更。"
+        return
+    fi
+
+    ios_clean_install_confirmed
+    wait_for_sync_test "$SYNC_TEST_WAIT"
+    pull_ios_logs "fresh-install"
+}
+
+sync_test_baseline() {
+    ensure_ios_device_selected
+
+    echo
+    echo "场景：正常冷启动（对照组），不做任何模拟。"
+    sync_test_offer_build
+    launch_ios_with_scenario ""
+    wait_for_sync_test "$SYNC_TEST_WAIT"
+    pull_ios_logs "baseline"
+}
+
+pull_logs_action() {
+    select_ios_device
+    pull_ios_logs "manual"
+}
+
+interactive_sync_test() {
+    select_ios_device
+
+    while true; do
+        echo
+        echo "iCloud 同步测试场景 —— 当前设备：${DEVICE_NAME}"
+        echo "每个场景跑完都会把调试日志和诊断报告拉到 logs/，并打印本次启动的同步摘要。"
+        echo "1) 模拟升级或从备份恢复后的首次同步（保留本机数据）"
+        echo "2) 模拟全新安装的新设备（卸载重装，清除本机数据）"
+        echo "3) 正常冷启动（对照组）"
+        echo "4) 只拉取这台设备的调试日志和诊断报告"
+        echo "d) 换一台设备"
+        echo "q) 退出"
+        echo
+        printf "请选择："
+
+        local selection
+        if ! IFS= read -r selection; then
+            echo
+            return
+        fi
+
+        case "$selection" in
+            1) sync_test_upgrade_reset ;;
+            2) sync_test_fresh_install ;;
+            3) sync_test_baseline ;;
+            4) pull_ios_logs "manual" ;;
+            d|D) select_ios_device ;;
+            q|Q) return ;;
+            *) echo "无效选项：${selection}" >&2 ;;
         esac
     done
 }
@@ -1319,7 +1645,7 @@ build_tv() {
         -derivedDataPath "$TV_DERIVED_DATA"
     )
     if [[ "$DEVICE_KIND" == "physical" ]]; then
-        build_command+=(-allowProvisioningUpdates)
+        build_command+=(-allowProvisioningUpdates -allowProvisioningDeviceRegistration)
         TV_APP_PATH="$TV_DEVICE_APP_PATH"
     else
         TV_APP_PATH="$TV_SIMULATOR_APP_PATH"
@@ -1536,6 +1862,8 @@ interactive_action() {
     echo "5) 检查 tvOS 模拟器和 Apple TV 真机"
     echo "6) 选择 iOS 模拟器并安装"
     echo "7) 检查 iOS 模拟器"
+    echo "8) iCloud 同步测试场景（跑完自动拉取日志）"
+    echo "9) 拉取 iPhone/iPad 的调试日志和诊断报告"
     echo "q) 退出"
     echo
     printf "请选择操作："
@@ -1555,6 +1883,8 @@ interactive_action() {
         5) SELECTED_ACTION="tv-devices" ;;
         6) SELECTED_ACTION="sim-install" ;;
         7) SELECTED_ACTION="sim-devices" ;;
+        8) SELECTED_ACTION="sync-test" ;;
+        9) SELECTED_ACTION="pull-logs" ;;
         q|Q) SELECTED_ACTION="quit" ;;
         *)
             echo "无效选项：$selection" >&2
@@ -1649,6 +1979,16 @@ main() {
             ;;
         mac)
             build_and_launch_mac
+            ;;
+        sync-test)
+            require_command xcrun
+            require_command plutil
+            interactive_sync_test
+            ;;
+        pull-logs)
+            require_command xcrun
+            require_command plutil
+            pull_logs_action
             ;;
         *)
             echo "未知操作：$action" >&2

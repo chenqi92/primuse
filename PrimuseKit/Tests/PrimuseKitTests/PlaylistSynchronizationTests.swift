@@ -96,6 +96,29 @@ struct PlaylistSynchronizationTests {
         #expect(PlaylistReconciliationPolicy.winner(local: right, remote: left) == .local)
     }
 
+    @Test("Only the same logical write counts as equivalent, so a tie is never re-pushed")
+    func equivalenceIsNarrowerThanLocalWin() {
+        let base = makePlaylist(deleted: false, revision: 4, writer: "a", operation: "op-4")
+        let duplicate = base
+        let newerLocal = makePlaylist(deleted: false, revision: 5, writer: "a", operation: "op-5")
+        let otherWriter = makePlaylist(deleted: false, revision: 4, writer: "b", operation: "op-4")
+        let deletedCopy = makePlaylist(
+            deleted: true,
+            revision: 4,
+            writer: "a",
+            operation: "op-4",
+            deleteOperation: "delete-4"
+        )
+
+        // 同一次写入：本地「赢」，但不该回推。
+        #expect(PlaylistReconciliationPolicy.winner(local: base, remote: duplicate) == .local)
+        #expect(PlaylistReconciliationPolicy.isEquivalent(local: base, remote: duplicate))
+        // 本地确实更新 / 另一写入者 / 删除状态不同：都不是等价，照原来的规则处理。
+        #expect(!PlaylistReconciliationPolicy.isEquivalent(local: newerLocal, remote: base))
+        #expect(!PlaylistReconciliationPolicy.isEquivalent(local: base, remote: otherWriter))
+        #expect(!PlaylistReconciliationPolicy.isEquivalent(local: base, remote: deletedCopy))
+    }
+
     @Test("Old JSON remains active while a CloudKit envelope preserves the tombstone")
     func jsonAndCloudEnvelopeMigration() throws {
         let legacy = """

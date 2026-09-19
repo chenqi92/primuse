@@ -333,6 +333,22 @@ public enum PlaylistConflictWinner: Sendable, Equatable {
 
 /// Pure state-machine policy shared by CloudKit and persistence tests.
 public enum PlaylistReconciliationPolicy {
+    /// 两份是不是同一次逻辑写入：删除 / 恢复 / 清除状态一致，版本完全相同。
+    ///
+    /// `winner` 对这种情况判给本地，以保证重复事件幂等；但本地「赢」不等于本地更新。
+    /// 等价时不能再把本地推一遍 —— 两台设备都会这么判，同一条歌单就被互相保存不停
+    /// （封面覆盖踩过同一个坑，见 `LibraryArtworkOverrideReconciliationPolicy.outcome`）。
+    public static func isEquivalent(local: Playlist, remote: Playlist) -> Bool {
+        guard local.id == remote.id,
+              local.isDeleted == remote.isDeleted,
+              local.isPurged == remote.isPurged else { return false }
+        if !local.isDeleted,
+           (local.restoredDeleteOperationID == nil) != (remote.restoredDeleteOperationID == nil) {
+            return false
+        }
+        return compareVersion(local, remote) == .orderedSame
+    }
+
     public static func winner(local: Playlist, remote: Playlist) -> PlaylistConflictWinner {
         precondition(local.id == remote.id)
 

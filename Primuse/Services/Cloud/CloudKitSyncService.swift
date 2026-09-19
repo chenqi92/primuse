@@ -42,6 +42,28 @@ private struct CloudSchemaNotDeployedSyncError: LocalizedError, Sendable {
     }
 }
 
+#if DEBUG
+/// 开发脚本的 iCloud 同步测试场景(`scripts/primuse-dev.sh sync-test`), 只在 Debug 构建生效。
+/// 由环境变量 `PRIMUSE_SYNC_TEST_SCENARIO` 或启动参数 `-PrimuseSyncTestScenario` 指定;
+/// 两种都读, 是因为 devicectl 会把 App 的 `-xxx` 启动参数当成自己的选项吞掉。
+enum SyncTestScenario: String {
+    /// 模拟带着旧同步进度升级上来、或从备份恢复的设备。
+    case upgradeReset = "upgrade-reset"
+
+    static let current: SyncTestScenario? = {
+        let raw = ProcessInfo.processInfo.environment["PRIMUSE_SYNC_TEST_SCENARIO"]
+            ?? UserDefaults.standard.string(forKey: "PrimuseSyncTestScenario")
+        guard let raw, !raw.isEmpty else { return nil }
+        guard let scenario = SyncTestScenario(rawValue: raw) else {
+            plog("🧪 Unknown sync test scenario '\(raw)' ignored")
+            return nil
+        }
+        plog("🧪 Sync test scenario requested: \(raw)")
+        return scenario
+    }()
+}
+#endif
+
 /// Entity payloads flowing through CKSyncEngine. Each conforms to `Codable` so we can
 /// stash them inside a single CKRecord blob field. This reduces schema churn, but each
 /// record type and blob field still has to be deployed to CloudKit Production.
@@ -149,6 +171,12 @@ final class CloudKitSyncService {
     /// 死循环。
     private var systemFieldsCache: [String: Data] = [:]
     private var systemFieldsCacheLoaded = false
+    /// 缓存是整份字典一次编码写盘的。逐条记录都写一遍, 首次同步拉下 N 条记录
+    /// 就要写 N 份越来越大的字典, 写入量随记录数平方增长 —— 新设备装好几分钟
+    /// 就撞上系统的 1GB 写盘上限。所以改动只记账, 一批事件处理完再写一次。
+    private var systemFieldsCacheNeedsPersist = false
+    private var systemFieldsPersistTask: Task<Void, Never>?
+    private static let systemFieldsPersistDelay: Duration = .seconds(2)
     /// 每次整份清空 system-fields 缓存都会 +1(退出登录/切换账号、云端 zone 被
     /// 删除后的重新播种)。缓存存的是「服务器已经接受的那份 etag」,清空之后
     /// 再被一台早已摘掉的 engine 用旧账号的 etag 填回去,下次登录就会拿别人的
@@ -211,6 +239,10 @@ final class CloudKitSyncService {
     /// first run, so re-uploading on every cold launch is wasteful.
     private static let initialUploadDoneKey = "primuse.cloudSync.initialUploadComplete"
     private static let sourceTypeFingerprintKey = "primuse.cloudSync.sourceTypeFingerprint"
+    #if DEBUG
+    /// 同一进程里 `start()` 可能被调多次(开关同步、换账号), 测试场景只模拟一次。
+    private static var didApplySyncTestScenario = false
+    #endif
     private var didCompleteInitialUpload: Bool {
         get { UserDefaults.standard.bool(forKey: Self.initialUploadDoneKey) }
         set { UserDefaults.standard.set(newValue, forKey: Self.initialUploadDoneKey) }
@@ -606,6 +638,8 @@ final class CloudKitSyncService {
             NotificationCenter.default.removeObserver(accountChangeObserver)
             self.accountChangeObserver = nil
         }
+        // 引擎摘掉之后不会再有批末落盘, 攒着的现在写掉。
+        flushCoalescedRemoteWrites()
         engine = nil
         sharedEngine = nil
         isStarted = false
@@ -1457,6 +1491,14 @@ final class CloudKitSyncService {
     /// saved as durable payloads; CloudAccount keeps its legacy deleteRecord
     /// behavior because account IDs are deterministic and not user-facing.
     private func scheduleInitialUpload() {
+        // 整份重传会让其它设备把这些记录再逐条收一遍, 记下规模供写盘量诊断。
+        plog(
+            "☁️ CloudKitSync: initial upload re-seeding playlists=\(library.allPlaylists.count) "
+                + "artworkOverrides=\(library.allArtworkOverrides.count) "
+                + "smartPlaylists=\(library.allSmartPlaylists.count) "
+                + "radioStations=\(radioStationsStore.allStations.count) "
+                + "scraperConfigs=\(scraperConfigStore.allConfigsIncludingDeleted.count)"
+        )
         playlistsChanged(ids: library.allPlaylists.map(\.id))
         artworkOverridesChanged(ids: library.allArtworkOverrides.map(\.cloudRecordID))
         smartPlaylistsChanged(ids: library.allSmartPlaylists.map(\.id))
@@ -1489,15 +1531,40 @@ final class CloudKitSyncService {
     private func preparePersistedStateForSupportedSourceTypes() {
         let defaults = UserDefaults.standard
         let currentFingerprint = CloudSourceTypeCompatibilityPolicy.currentFingerprint
+        var storedFingerprint = defaults.string(forKey: Self.sourceTypeFingerprintKey)
+        #if DEBUG
+        if !Self.didApplySyncTestScenario, SyncTestScenario.current == .upgradeReset {
+            Self.didApplySyncTestScenario = true
+            // 当成从不认识现有源类型的旧版本升级上来: 走真实的重置 → 全量重拉 → 首次上传。
+            storedFingerprint = "legacy"
+            plog("🧪 Sync test scenario upgrade-reset: treating stored source-type fingerprint as legacy")
+        }
+        #endif
         let action = CloudSourceTypeCompatibilityPolicy.action(
-            storedFingerprint: defaults.string(forKey: Self.sourceTypeFingerprintKey),
+            storedFingerprint: storedFingerprint,
             currentFingerprint: currentFingerprint
         )
-        guard action == .resetAndRefetch else { return }
+        guard action == .resetAndRefetch else {
+            // 只少了类型时游标照旧可用, 但要记下现在的集合: 以后把少掉的类型加回来,
+            // 这台设备在这期间确实可能跳过过它们, 那时仍要重拉。
+            if storedFingerprint != currentFingerprint {
+                defaults.set(currentFingerprint, forKey: Self.sourceTypeFingerprintKey)
+            }
+            return
+        }
+
+        // 全新安装没有旧游标可丢, 本来就会从头拉取并做首次上传, 只记下指纹。
+        // 真正要重置的是带着旧游标升级上来的设备(包括从备份恢复的)。
+        let existingStateURLs = [stateURL, sharedStateURL].filter {
+            FileManager.default.fileExists(atPath: $0.path)
+        }
+        guard !existingStateURLs.isEmpty else {
+            defaults.set(currentFingerprint, forKey: Self.sourceTypeFingerprintKey)
+            return
+        }
 
         do {
-            for url in [stateURL, sharedStateURL]
-                where FileManager.default.fileExists(atPath: url.path) {
+            for url in existingStateURLs {
                 try FileManager.default.removeItem(at: url)
             }
         } catch {
@@ -1557,6 +1624,48 @@ final class CloudKitSyncService {
     private func persistSystemFieldsCache() {
         guard let data = try? PropertyListEncoder().encode(systemFieldsCache) else { return }
         try? data.write(to: systemFieldsURL, options: .atomic)
+        plog("💾 CloudKit system fields cache written entries=\(systemFieldsCache.count) bytes=\(data.count)")
+    }
+
+    /// 记下缓存有改动, 并安排一次合并写。CKSyncEngine 送来的整批记录由
+    /// `handleEvent` 在批末显式 `flushSystemFieldsCache()`; 冲突处理这类零散
+    /// 调用靠这里的短延迟合并。
+    private func scheduleSystemFieldsCachePersist() {
+        systemFieldsCacheNeedsPersist = true
+        guard systemFieldsPersistTask == nil else { return }
+        systemFieldsPersistTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.systemFieldsPersistDelay)
+            guard !Task.isCancelled else { return }
+            self?.flushSystemFieldsCache()
+        }
+    }
+
+    /// 有未写盘的改动就立刻写。保存引擎游标之前必须先调它: 游标一旦越过某条
+    /// 记录就不会再拉它, 那条记录的 changeTag 只能靠这份缓存留住。
+    fileprivate func flushSystemFieldsCache() {
+        systemFieldsPersistTask?.cancel()
+        systemFieldsPersistTask = nil
+        guard systemFieldsCacheNeedsPersist else { return }
+        systemFieldsCacheNeedsPersist = false
+        persistSystemFieldsCache()
+    }
+
+    /// 「总数 (类型=条数 …)」的紧凑摘要, 条数多的在前; 按批记日志, 不按记录。
+    nonisolated static func recordTypeSummary(_ recordTypes: [String]) -> String {
+        guard !recordTypes.isEmpty else { return "0" }
+        let counts = Dictionary(recordTypes.map { ($0, 1) }, uniquingKeysWith: +)
+        let parts = counts
+            .sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+        return "\(recordTypes.count) (\(parts.joined(separator: " ")))"
+    }
+
+    /// 一批远端事件处理完、或者引擎游标落盘之前, 把攒着的整份写一次:
+    /// system fields 缓存、逐条并进来的电台清单和歌单耐久账本。
+    fileprivate func flushCoalescedRemoteWrites() {
+        flushSystemFieldsCache()
+        radioStationsStore.flushRemotePersist()
+        library.flushRemotePlaylistDurabilityLedger()
     }
 
     /// systemFieldsCache 的 key。必须带上 ownerName + zoneName: 同一条 record 在
@@ -1589,7 +1698,7 @@ final class CloudKitSyncService {
         }
         if systemFieldsCache[key] != data || removedLegacy {
             systemFieldsCache[key] = data
-            persistSystemFieldsCache()
+            scheduleSystemFieldsCachePersist()
         }
     }
 
@@ -1600,11 +1709,15 @@ final class CloudKitSyncService {
             removed = (systemFieldsCache.removeValue(forKey: legacyKey) != nil) || removed
         }
         if removed {
-            persistSystemFieldsCache()
+            scheduleSystemFieldsCachePersist()
         }
     }
 
     private func clearSystemFieldsCache() {
+        // 待写的旧内容作废: 清空的语义是文件也一起消失, 不能被延迟写回来。
+        systemFieldsPersistTask?.cancel()
+        systemFieldsPersistTask = nil
+        systemFieldsCacheNeedsPersist = false
         systemFieldsCache.removeAll()
         systemFieldsCacheLoaded = true
         systemFieldsCacheGeneration &+= 1
@@ -1785,6 +1898,42 @@ final class CloudKitSyncService {
                 syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(record.recordID)])
             }
         }
+
+        // 合并之后本地要推的内容若已与服务器相同(典型是源类型指纹重置后整份重排的
+        // 那些), 推上去只会让其它设备把它再逐条收一遍, 撤掉。
+        dropPendingSaveIfServerMatches(record, syncEngine: syncEngine)
+    }
+
+    /// 本地这条待传记录与服务器上的已逐字段相同就撤掉待传。
+    private func dropPendingSaveIfServerMatches(_ server: CKRecord, syncEngine: CKSyncEngine) {
+        guard let rebuilt = makeRecord(for: server.recordID),
+              Self.recordFieldsMatch(rebuilt, server) else { return }
+        syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(server.recordID)])
+    }
+
+    /// 只比本地会写入或清空的字段, 忽略每次构造都会刷新的 `updatedAt`;
+    /// 带附件或任何一处不同都算不相同, 保留待传, 行为与原来一致。
+    nonisolated static func recordFieldsMatch(_ local: CKRecord, _ server: CKRecord) -> Bool {
+        let keys = Set(local.allKeys())
+            .union(local.changedKeys())
+            .subtracting(["updatedAt"])
+        guard !keys.isEmpty else { return false }
+        for key in keys {
+            let localValue = local[key]
+            let serverValue = server[key]
+            if localValue is CKAsset || serverValue is CKAsset { return false }
+            switch (localValue, serverValue) {
+            case (nil, nil):
+                continue
+            case let (lhs?, rhs?):
+                guard let lhsObject = lhs as? NSObject,
+                      let rhsObject = rhs as? NSObject,
+                      lhsObject.isEqual(rhsObject) else { return false }
+            default:
+                return false
+            }
+        }
+        return true
     }
 
     fileprivate func applyRemoteDeletion(
@@ -2410,6 +2559,8 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         case .stateUpdate(let event):
             guard isCurrentEngine else { return }
             await MainActor.run {
+                // 游标落盘前先把已拉到的记录落盘: 游标一旦越过就不会再拉。
+                self.flushCoalescedRemoteWrites()
                 // private engine 跟 sharedEngine state 分开存, 否则下次启动
                 // 一个 engine 用错 state cursor 会重 fetch 全量。
                 if syncEngine === self.sharedEngine {
@@ -2446,6 +2597,14 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
                     )
                 }
             }
+            // 整批一次写盘, 不按记录逐条整份写。
+            await MainActor.run { self.flushCoalescedRemoteWrites() }
+            if !event.modifications.isEmpty || !event.deletions.isEmpty {
+                plog(
+                    "☁️ CloudKitSync: fetched \(Self.recordTypeSummary(event.modifications.map(\.record.recordType))) "
+                        + "deletions=\(event.deletions.count)"
+                )
+            }
         case .fetchedDatabaseChanges(let event):
             // Zone-level changes from another device. Most often: zone deletion
             // (user wiped CloudKit data on another device, or container reset).
@@ -2468,6 +2627,7 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
                 for deletedID in event.deletedRecordIDs {
                     await MainActor.run { self.removeSystemFields(for: deletedID) }
                 }
+                await MainActor.run { self.flushSystemFieldsCache() }
             }
             // 重新入队、墓碑回执这些会改本地状态 / 再次上传的动作,仍然只允许
             // 当前 engine 触发。
@@ -2479,6 +2639,14 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
                 await MainActor.run {
                     self.handleFailedSave(failed, syncEngine: syncEngine)
                 }
+            }
+            // 冲突处理会把服务器那份并回本地。
+            await MainActor.run { self.flushCoalescedRemoteWrites() }
+            if !event.savedRecords.isEmpty || !event.failedRecordSaves.isEmpty || !event.deletedRecordIDs.isEmpty {
+                plog(
+                    "☁️ CloudKitSync: sent saved=\(Self.recordTypeSummary(event.savedRecords.map(\.recordType))) "
+                        + "deleted=\(event.deletedRecordIDs.count) failed=\(event.failedRecordSaves.count)"
+                )
             }
         case .sentDatabaseChanges(let event):
             for failed in event.failedZoneSaves {

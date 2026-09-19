@@ -7499,7 +7499,11 @@ final class MusicLibrary {
                 local: allPlaylists[index],
                 remote: playlist
             ) == .local {
-                return true
+                // 同一次写入不回推(见 `isEquivalent`); 只有本地确实更新才让调用方重申。
+                return !PlaylistReconciliationPolicy.isEquivalent(
+                    local: allPlaylists[index],
+                    remote: playlist
+                )
             }
             allPlaylists[index] = playlist
         } else {
@@ -7519,7 +7523,7 @@ final class MusicLibrary {
         }
 
         sortPlaylists()
-        persistPlaylistDurabilityLedger()
+        scheduleRemotePlaylistDurabilityLedgerWrite()
         persistSnapshot()
         playlistCollectionRevision &+= 1
         return false
@@ -7544,6 +7548,9 @@ final class MusicLibrary {
                 additionalIdentities: additionalIdentities
             )
         }) { return false }
+        let previousPlaylist = allPlaylists.first { $0.id == playlist.id }
+        let previousSongIDs = playlistSongIDs[playlist.id]
+        let previousPending = pendingPlaylistIdentities[playlist.id]
         var localWon = false
         var reconciled = playlist
         if let index = allPlaylists.firstIndex(where: { $0.id == playlist.id }) {
@@ -7570,8 +7577,16 @@ final class MusicLibrary {
             pendingPlaylistIdentities[reconciled.id] = nil
         }
 
+        // 合并前后完全一样(典型是源类型指纹重置后本机重排、又原样拉回来的那些)
+        // 就不再落盘: 每次都是整库快照, 一次全量拉取会被拖成几十次整库重写。
+        if allPlaylists.first(where: { $0.id == reconciled.id }) == previousPlaylist,
+           playlistSongIDs[reconciled.id] == previousSongIDs,
+           pendingPlaylistIdentities[reconciled.id] == previousPending {
+            return localWon
+        }
+
         sortPlaylists()
-        persistPlaylistDurabilityLedger()
+        scheduleRemotePlaylistDurabilityLedgerWrite()
         persistSnapshot()
         playlistCollectionRevision &+= 1
         return localWon
@@ -7589,6 +7604,8 @@ final class MusicLibrary {
         if deferringUntilReady({ [weak self] in
             self?.applyRemotePlaybackHistory(songIDs: songIDs, identities: identities)
         }) { return }
+        let previousSongIDs = recentPlaybackSongIDs
+        let previousPending = pendingHistoryIdentities
         if let identities, !identities.isEmpty {
             let (resolved, unresolved) = resolveIdentitiesPartitioned(identities)
             recentPlaybackSongIDs = Array(resolved.prefix(100))
@@ -7596,6 +7613,9 @@ final class MusicLibrary {
         } else {
             recentPlaybackSongIDs = Array(songIDs.prefix(100))
         }
+        // 拉回来的就是本机已有的那份时不必再整库落盘。
+        guard recentPlaybackSongIDs != previousSongIDs
+            || pendingHistoryIdentities != previousPending else { return }
         persistSnapshot()
     }
 
@@ -9993,6 +10013,9 @@ final class MusicLibrary {
     @ObservationIgnored private var portableSnapshotNeedsInitialWrite = false
     private var derivedIndexCacheWriteTask: Task<Void, Never>?
     private var startupCacheWriteTask: Task<Void, Never>?
+    /// 远端歌单并进来之后还没写进耐久账本(见 `scheduleRemotePlaylistDurabilityLedgerWrite`)。
+    @ObservationIgnored private var remotePlaylistLedgerWritePending = false
+    @ObservationIgnored private var remotePlaylistLedgerWriteTask: Task<Void, Never>?
 
     private nonisolated static func snapshotFingerprint(at url: URL) -> SnapshotFileFingerprint? {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
@@ -10038,10 +10061,13 @@ final class MusicLibrary {
 
     private nonisolated static func writeStartupCache(_ cache: StartupCache, to url: URL) {
         do {
+            let startedAt = ProcessInfo.processInfo.systemUptime
             let encoder = PropertyListEncoder()
             encoder.outputFormat = .binary
             let data = try encoder.encode(cache)
             try data.write(to: url, options: .atomic)
+            let elapsedMS = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)
+            plog("💾 Library startup cache written bytes=\(data.count) total=\(elapsedMS)ms")
         } catch {
             // The cache is an accelerator only. Keep the durable SQLite/JSON
             // state untouched and simply rebuild on the next launch.
@@ -10143,7 +10169,8 @@ final class MusicLibrary {
 
     private func persistSnapshot(
         after delay: TimeInterval = 2,
-        marksMutation: Bool = true
+        marksMutation: Bool = true,
+        trigger: StaticString = #function
     ) {
         if marksMutation { markPortableSnapshotDirty() }
         if isDeferringSceneTransitionPublications || externalSnapshotWriteOwners > 0 {
@@ -10156,6 +10183,9 @@ final class MusicLibrary {
         if persistTask != nil, let armed = persistDeadline, armed <= deadline { return }
         persistTask?.cancel()
         persistDeadline = deadline
+        // 每次整库快照写都是 O(整库) 的字节量; 记下由谁在多久之后触发,
+        // 写盘超限时才分得清是哪类改动在推节奏。合并掉的调用不记。
+        plog("💾 Library snapshot write armed in \(delay)s by \(trigger)")
         persistTask = Task {
             try? await Task.sleep(until: deadline, clock: .continuous)
             guard !Task.isCancelled else { return }
@@ -10433,6 +10463,7 @@ final class MusicLibrary {
         backupURL: URL,
         existingFileIsKnownValid: Bool
     ) -> Bool {
+        let startedAt = ProcessInfo.processInfo.systemUptime
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
@@ -10443,6 +10474,7 @@ final class MusicLibrary {
             plog("⚠️ Library snapshot encoding failed: \(error.localizedDescription)")
             return false
         }
+        let encodedAt = ProcessInfo.processInfo.systemUptime
         let existingFileIsValid: Bool?
         if LibrarySnapshotBackupPolicy.shouldValidateExistingFile(
             existingFileIsKnownValid: existingFileIsKnownValid
@@ -10463,6 +10495,12 @@ final class MusicLibrary {
                 to: url,
                 backupURL: backupURL,
                 preserveExistingAsBackup: shouldPreserveCurrentAsBackup
+            )
+            let finishedAt = ProcessInfo.processInfo.systemUptime
+            plog(
+                "💾 Library snapshot written bytes=\(data.count) songs=\(snapshot.songs.count) "
+                    + "encode=\(Int((encodedAt - startedAt) * 1000))ms "
+                    + "write=\(Int((finishedAt - encodedAt) * 1000))ms"
             )
             return true
         } catch {
@@ -10880,6 +10918,26 @@ final class MusicLibrary {
         recentPlaybackSongIDs = recentPlaybackSongIDs.filter { songForSynchronization(id: $0) != nil }
     }
 
+    /// CloudKit 逐条并进来的远端歌单只记账: 账本整份重写, 逐条写会让一批同步的
+    /// 写入量随歌单数平方增长。`CloudKitSyncService` 在一批处理完、引擎游标落盘
+    /// 之前调 `flushRemotePlaylistDurabilityLedger()`, 零散调用由短延迟兜底。
+    /// 封面覆盖的远端写入要靠写盘结果决定回滚, 仍然当场写。
+    private func scheduleRemotePlaylistDurabilityLedgerWrite() {
+        remotePlaylistLedgerWritePending = true
+        guard remotePlaylistLedgerWriteTask == nil else { return }
+        remotePlaylistLedgerWriteTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            self?.flushRemotePlaylistDurabilityLedger()
+        }
+    }
+
+    /// 远端歌单还有没写进耐久账本的就立刻写。
+    func flushRemotePlaylistDurabilityLedger() {
+        guard remotePlaylistLedgerWritePending else { return }
+        _ = persistPlaylistDurabilityLedger()
+    }
+
     @discardableResult
     private func persistPlaylistDurabilityLedger() -> Bool {
         // S1: 发布前不写歌单耐久账本。返回 true 让调用方的回滚分支
@@ -10888,6 +10946,9 @@ final class MusicLibrary {
             deferredPlaylistDurabilityWriteRequested = true
             return true
         }
+        // 整份写, 远端攒着的也一并写进去; 写失败就留着待写, 下一次批末再试。
+        remotePlaylistLedgerWriteTask?.cancel()
+        remotePlaylistLedgerWriteTask = nil
         let ledger = PlaylistDurabilityLedger(
             playlists: allPlaylists.filter { !MirrorPlaylistIdentity.isMirrorPlaylist($0.id) },
             mirrorPlaylistSuppressions: hiddenMirrorPlaylists,
@@ -10896,6 +10957,7 @@ final class MusicLibrary {
         do {
             let data = try encoder.encode(ledger)
             try data.write(to: playlistDurabilityURL, options: .atomic)
+            remotePlaylistLedgerWritePending = false
             return true
         } catch {
             plog("⛔ Playlist durability write failed: \(error.localizedDescription)")
