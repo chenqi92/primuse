@@ -449,6 +449,8 @@ select_ios_device() {
 build_ios() {
     echo
     echo "正在为 ${DEVICE_NAME} 编译 App（${IOS_CONFIGURATION}）……"
+    # 新设备第一次装机时要先登记到开发者账号，描述文件才会包含它；
+    # 只给 -allowProvisioningUpdates 时 xcodebuild 不会替你登记设备。
     xcodebuild \
         -project "$PROJECT_PATH" \
         -scheme "$IOS_SCHEME" \
@@ -456,6 +458,7 @@ build_ios() {
         -destination "id=$DEVICE_UDID" \
         -derivedDataPath "$IOS_DERIVED_DATA" \
         -allowProvisioningUpdates \
+        -allowProvisioningDeviceRegistration \
         build
 
     if [[ ! -d "$IOS_APP_PATH" ]]; then
@@ -1319,7 +1322,7 @@ build_tv() {
         -derivedDataPath "$TV_DERIVED_DATA"
     )
     if [[ "$DEVICE_KIND" == "physical" ]]; then
-        build_command+=(-allowProvisioningUpdates)
+        build_command+=(-allowProvisioningUpdates -allowProvisioningDeviceRegistration)
         TV_APP_PATH="$TV_DEVICE_APP_PATH"
     else
         TV_APP_PATH="$TV_SIMULATOR_APP_PATH"
