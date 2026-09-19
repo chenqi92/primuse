@@ -188,35 +188,36 @@ struct ImmersiveStageView<Artwork: View>: View {
         .clipped()
     }
 
+    /// 每个场景都经 `ImmersiveStageDeferredScene` 推迟构造，别直接内联回来（见那个类型的说明）。
     @ViewBuilder
     private var scene: some View {
         switch style.scene {
         case .coverFlow:
-            coverFlowScene
+            ImmersiveStageDeferredScene { coverFlowScene }
         case .coverGallery:
-            coverGalleryScene
+            ImmersiveStageDeferredScene { coverGalleryScene }
         case .starryNight:
-            starryNightScene
+            ImmersiveStageDeferredScene { starryNightScene }
         case .flowingLines:
-            flowingLinesScene
+            ImmersiveStageDeferredScene { flowingLinesScene }
         case .lightRhythm:
-            lightRhythmScene
+            ImmersiveStageDeferredScene { lightRhythmScene }
         case .kineticTitle:
-            kineticTitleWallScene
+            ImmersiveStageDeferredScene { kineticTitleWallScene }
         case .radialPulse:
-            radialPulseScene
+            ImmersiveStageDeferredScene { radialPulseScene }
         case .liveWaveform:
-            liveWaveformScene
+            ImmersiveStageDeferredScene { liveWaveformScene }
         case .vinylDeck:
-            vinylDeckScene
+            ImmersiveStageDeferredScene { vinylDeckScene }
         case .mirrorStage:
-            mirrorStageScene
+            ImmersiveStageDeferredScene { mirrorStageScene }
         case .auroraVeil:
-            auroraVeilScene
+            ImmersiveStageDeferredScene { auroraVeilScene }
         case .spectrumHorizon:
-            spectrumHorizonScene
+            ImmersiveStageDeferredScene { spectrumHorizonScene }
         case .particleBloom:
-            particleBloomScene
+            ImmersiveStageDeferredScene { particleBloomScene }
         }
     }
 
@@ -1681,6 +1682,24 @@ struct ImmersiveStageView<Artwork: View>: View {
         .allowsHitTesting(false)
     }
 
+}
+
+/// 把一个场景的构造推迟到这一层自己的 `body` 里，由 SwiftUI 单独求值。
+///
+/// Debug（-Onone）构建不复用栈槽：`scene` 这个 13 路 switch 会给每个场景、每层
+/// 条件包装都预留一份栈，没走到的分支也照样留。播放页同样形状的 switch 已经在 iPhone
+/// 主线程 1MB 的栈上撞过保护页（见 `NowPlayingDeferredContent`）。包进这一层后
+/// `scene` 只持有一个闭包大小的值，场景本身等这一层更新时才构造。
+private struct ImmersiveStageDeferredScene<Content: View>: View {
+    private let content: () -> Content
+
+    init(@ViewBuilder content: @escaping () -> Content) {
+        self.content = content
+    }
+
+    var body: some View {
+        content()
+    }
 }
 
 /// Keeps the high-frequency playback clock inside the tiny progress layer.

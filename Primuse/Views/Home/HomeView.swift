@@ -171,6 +171,23 @@ private struct HomeLibraryRevisionObserver: View {
     }
 }
 
+/// 把一个首页分区的构造推迟到这一层自己的 `body` 里，由 SwiftUI 单独求值。
+///
+/// Debug（-Onone）构建不复用栈槽：`homeSectionContent` 的 10 路 switch 会给每个分区、
+/// 每层条件包装都预留一份栈，没走到的分支也照样留。播放页同样形状的 switch 已经在
+/// iPhone 主线程 1MB 的栈上撞过保护页（见 `NowPlayingDeferredContent`）。
+private struct HomeDeferredSection<Content: View>: View {
+    private let content: () -> Content
+
+    init(@ViewBuilder content: @escaping () -> Content) {
+        self.content = content
+    }
+
+    var body: some View {
+        content()
+    }
+}
+
 /// 首页排版拖动时显示的提示胶囊。
 ///
 /// 预览在自己的视图图里渲染,这里只用文字和字形,不读任何环境对象。
@@ -672,28 +689,30 @@ struct HomeView: View {
         }
     }
 
+    /// 分区本身经 `HomeDeferredSection` 推迟构造，别直接内联回来（见那个类型的说明）；
+    /// 显示条件留在这里判断，失效范围与原来一致。
     @ViewBuilder
     private func homeSectionContent(_ section: HomeSectionKind) -> some View {
         let style = homeLayout.style(for: section)
         switch section {
         case .continueListening:
             if showContinueListening, !model.snapshot.recentSongs.isEmpty {
-                continueListeningSection(style)
+                HomeDeferredSection { continueListeningSection(style) }
             }
         case .radio:
             // 电台有自己的模式(右上角切换)，音乐态里不再重复一块。
             EmptyView()
         case .quickAccess:
             if showQuickAccess, !model.snapshot.quickItems.isEmpty {
-                quickAccessSection(style)
+                HomeDeferredSection { quickAccessSection(style) }
             }
         case .forYou:
             if showForYou, !model.snapshot.forYouResults.isEmpty {
-                forYouSection(style)
+                HomeDeferredSection { forYouSection(style) }
             }
         case .playlists:
             if showPlaylists, !model.snapshot.playlists.isEmpty {
-                playlistsSection(style)
+                HomeDeferredSection { playlistsSection(style) }
             }
         case .folders:
             if showFolders { HomeFoldersSection() }
@@ -701,15 +720,15 @@ struct HomeView: View {
             if showListeningRanking { HomeListeningRankingSection() }
         case .topArtists:
             if showTopArtists, !model.snapshot.topArtists.isEmpty {
-                artistsSection(style)
+                HomeDeferredSection { artistsSection(style) }
             }
         case .recentlyAdded:
             if showRecentlyAdded, !model.snapshot.recentlyAddedAlbums.isEmpty {
-                recentlyAddedAlbumsSection(style)
+                HomeDeferredSection { recentlyAddedAlbumsSection(style) }
             }
         case .stats:
             if showStatsGlimpse, let summary = model.snapshot.statsGlimpse {
-                statsGlimpseSection(summary)
+                HomeDeferredSection { statsGlimpseSection(summary) }
             }
         }
     }
