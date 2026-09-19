@@ -208,15 +208,17 @@ private struct HomeSectionDragPreview: View {
     }
 }
 
+/// 首页翻面的转场。挂在滚动内容上，不能挂到 ScrollView 本身：它背后是 UIScrollView，
+/// 导航栏与滚动边缘效果要换算它的几何，挂过一版整页透视变换，切到电台时在布局提交里
+/// 抛异常闪退。也不做缩放：电台上千个时内容有十几万点高，以内容中心缩放会把可见区
+/// 推出内容几千点，翻进来的前半段是一片空白；只绕竖轴转不会上下挪动可见区。
 private struct HomeFaceFlipModifier: ViewModifier {
     let angle: Double
     let opacity: Double
-    let scale: CGFloat
 
     func body(content: Content) -> some View {
         content
             .opacity(opacity)
-            .scaleEffect(scale)
             .rotation3DEffect(
                 .degrees(angle),
                 axis: (x: 0, y: 1, z: 0),
@@ -535,9 +537,6 @@ struct HomeView: View {
     @State private var selectedHomeRadioID: String?
     @State private var pendingInsecureHomeStation: RadioStation?
     @State private var homeModeSwitchTurn = 0
-    /// 整页翻面的当前角度，0 是正面，±`homeFaceEdgeAngle` 是侧立（看不见）。
-    @State private var homeFaceAngle: Double = 0
-    @State private var homeFaceFlipGeneration = 0
     /// 首页当前处在音乐态还是电台态。持久化 —— 常听电台的人不该每次回首页
     /// 都手动切一次。
     @AppStorage("primuse.home.mode") private var homeModeRawValue = HomeMode.music.rawValue
@@ -582,15 +581,6 @@ struct HomeView: View {
             .padding(.bottom, bottomChromeClearance)
             .pmAnimation(.contentAppear, value: model.isPrepared)
         }
-        // 翻面转的是整块可见页面，不是滚动内容。电台上千个时内容有十几万点高，
-        // 以内容为锚点缩放、旋转，可见区会被推到内容之外，前半段动画是一片空白。
-        // 侧立时不完全透明：极简导航靠 UIKit 找「看得见」的滚动视图来折叠顶栏，
-        // 透明度低于 0.01 的会被移出观察，翻完之后顶栏就不再跟着滚动了。
-        .modifier(HomeFaceFlipModifier(
-            angle: homeFaceAngle,
-            opacity: 1 - 0.95 * homeFaceFlipProgress,
-            scale: CGFloat(1 - 0.04 * homeFaceFlipProgress)
-        ))
         .task {
             await refreshHomeSnapshotAfterPresentationIfNeeded()
         }
@@ -1414,65 +1404,32 @@ struct HomeView: View {
         guard !reduceMotion else { return .opacity }
         return .asymmetric(
             insertion: .modifier(
-                active: HomeFaceFlipModifier(angle: -78, opacity: 0, scale: 0.96),
-                identity: HomeFaceFlipModifier(angle: 0, opacity: 1, scale: 1)
+                active: HomeFaceFlipModifier(angle: -78, opacity: 0),
+                identity: HomeFaceFlipModifier(angle: 0, opacity: 1)
             ),
             removal: .modifier(
-                active: HomeFaceFlipModifier(angle: 78, opacity: 0, scale: 0.96),
-                identity: HomeFaceFlipModifier(angle: 0, opacity: 1, scale: 1)
+                active: HomeFaceFlipModifier(angle: 78, opacity: 0),
+                identity: HomeFaceFlipModifier(angle: 0, opacity: 1)
             )
         )
-    }
-
-    /// 翻面时侧立的角度。到这里整页只剩一条几乎透明的窄边，换内容看不出来。
-    private static let homeFaceEdgeAngle: Double = 78
-    private static let homeFaceFlipOutDuration: Double = 0.16
-
-    /// 0 是正面，1 是侧立。
-    private var homeFaceFlipProgress: Double {
-        min(abs(homeFaceAngle) / Self.homeFaceEdgeAngle, 1)
     }
 
     private func switchHomeMode(to destination: HomeMode? = nil) {
         let nextMode = destination ?? homeMode.opposite
         guard nextMode != homeMode else { return }
 
+        if reduceMotion {
+            homeModeRawValue = nextMode.rawValue
+        } else {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.82)) {
+                homeModeSwitchTurn += 1
+                homeModeRawValue = nextMode.rawValue
+            }
+        }
+
         #if os(iOS)
         UIImpactFeedbackGenerator(style: .soft).impactOccurred()
         #endif
-
-        guard !reduceMotion else {
-            homeModeRawValue = nextMode.rawValue
-            return
-        }
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.82)) {
-            homeModeSwitchTurn += 1
-        }
-
-        // 先把这一面翻到侧立，再不带动画地换内容、从另一侧翻回正面。两面不会同时
-        // 留在视图树里，新的一面也只建可见区里的内容。连点时以最后一次为准。
-        homeFaceFlipGeneration &+= 1
-        let generation = homeFaceFlipGeneration
-        withAnimation(.easeIn(duration: Self.homeFaceFlipOutDuration)) {
-            homeFaceAngle = Self.homeFaceEdgeAngle
-        }
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(Self.homeFaceFlipOutDuration))
-            guard generation == homeFaceFlipGeneration else { return }
-            var transaction = Transaction(animation: nil)
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                homeModeRawValue = nextMode.rawValue
-                homeFaceAngle = -Self.homeFaceEdgeAngle
-            }
-            // 侧立的新一面先落一帧再转回来。同一帧里连改两次，动画会从旧值起步，
-            // 看起来像原路退回而不是翻过去。
-            try? await Task.sleep(for: .milliseconds(16))
-            guard generation == homeFaceFlipGeneration else { return }
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
-                homeFaceAngle = 0
-            }
-        }
     }
 
     @ViewBuilder
