@@ -6457,7 +6457,9 @@ final class MusicLibrary {
             recentPlaybackSongIDs.removeLast(recentPlaybackSongIDs.count - 100)
         }
 
-        persistSnapshot()
+        // 每首歌都整库落盘会把几十 MB 的快照一天重写上百次; 最近播放不值这个价,
+        // 走低优先级间隔, 由其它写入、进后台或导出顺带落盘。
+        persistSnapshot(after: Self.lowPriorityPortableSnapshotDelay)
         NotificationCenter.default.post(name: .primusePlaybackHistoryDidChange, object: nil)
     }
 
@@ -6878,8 +6880,9 @@ final class MusicLibrary {
         if deferringUntilReady({ [weak self] in
             self?.permanentlyDeletePlaylists(ids: ids)
         }) { return }
+        // 已经清除过的墓碑不再重清: 重清会推进版本、整库落盘并同步给所有设备。
         let targetIDs = Set(allPlaylists.lazy.filter {
-            ids.contains($0.id) && $0.isDeleted
+            ids.contains($0.id) && $0.isDeleted && !$0.isPurged
         }.map(\.id))
         guard !targetIDs.isEmpty else { return }
 
@@ -6908,7 +6911,11 @@ final class MusicLibrary {
         if deferringUntilReady({ [weak self] in
             self?.prunePlaylists(deletedBefore: threshold)
         }) { return }
-        let toPrune = allPlaylists.filter { $0.isDeleted && ($0.deletedAt ?? .distantFuture) < threshold }
+        // 清除后墓碑会留下(`isPurged`), 它的 deletedAt 永远早于阈值; 不排除它们,
+        // 每次启动都会把同一批墓碑重清一遍、整库落盘再推给所有设备。
+        let toPrune = allPlaylists.filter {
+            $0.isDeleted && !$0.isPurged && ($0.deletedAt ?? .distantFuture) < threshold
+        }
         guard !toPrune.isEmpty else { return }
         for playlist in toPrune {
             permanentlyDeletePlaylist(id: playlist.id)
@@ -7632,11 +7639,16 @@ final class MusicLibrary {
                 additionalIdentities: additionalIdentities
             )
         }) { return }
+        let previousSongIDs = recentPlaybackSongIDs
+        let previousPending = pendingHistoryIdentities
         let (resolved, unresolved) = resolveIdentitiesPartitioned(additionalIdentities)
         var seen = Set<String>()
         let merged = (baseSongIDs + resolved).filter { seen.insert($0).inserted }
         recentPlaybackSongIDs = Array(merged.prefix(100))
         updatePendingHistoryIdentities(with: unresolved)
+        // 合并结果与本机相同(全量重拉时的常态)就不必整库落盘。
+        guard recentPlaybackSongIDs != previousSongIDs
+            || pendingHistoryIdentities != previousPending else { return }
         persistSnapshot()
     }
 
@@ -10162,10 +10174,17 @@ final class MusicLibrary {
         if needsPromptCompatibilitySnapshot || songStore == nil {
             delay = 2
         } else {
-            delay = 30
+            delay = Self.lowPriorityPortableSnapshotDelay
         }
         persistSnapshot(after: delay)
     }
+
+    /// 只影响可移植快照新鲜度的改动(歌曲已进 SQLite 的元数据批次、最近播放)
+    /// 最多隔这么久整库落一次盘。整库快照是 O(整库) 字节 —— 4 万首约 35MB JSON
+    /// 加 16MB 启动缓存 —— 原先 30 秒一次(回填时)或每首歌一次(播放时),
+    /// 一天就能写出好几 GB。进后台、导出到 iCloud / Apple TV 之前都会先强制落盘,
+    /// 启动时 SQLite 也比 JSON 权威, 所以这里放宽只影响崩溃时丢几分钟的「最近播放」。
+    static let lowPriorityPortableSnapshotDelay: TimeInterval = 600
 
     private func persistSnapshot(
         after delay: TimeInterval = 2,
