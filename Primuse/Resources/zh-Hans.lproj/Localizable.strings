@@ -418,6 +418,7 @@
 "apple_music_needs_subscription" = "需要 Apple Music 订阅才能在 Primuse 里播放，可以去 Apple Music App 开通后再试。";
 "apple_music_unavailable" = "当前账号或地区不支持 Apple Music 订阅播放。";
 "apple_music_notice_notDetermined" = "Apple Music 尚未授权，去 设置 → Apple Music 启用后可同步显示曲库搜索结果。";
+"apple_music_notice_notDetermined_in_sources" = "Apple Music 尚未授权，在「音乐源管理」的 Apple Music 上连接后，这里会显示曲库搜索结果。";
 "apple_music_notice_denied" = "Apple Music 权限被拒绝，去系统 设置 → 隐私 → 媒体与 Apple Music 重新开启。";
 "apple_music_notice_no_results" = "Apple Music 没有匹配的结果（可能是地区曲库没有这首歌）。";
 "apple_music_open_in_app" = "在 Apple Music 中打开";
@@ -2756,6 +2757,7 @@
 "weekday_friday_short" = "五";
 "weekday_saturday_short" = "六";
 "apple_music_library_not_authorized" = "Apple Music 未授权，请前往设置 → Apple Music 启用。";
+"apple_music_library_not_authorized_in_sources" = "Apple Music 未授权，请在「音乐源管理」的 Apple Music 上点「连接 Apple Music」。";
 "apple_music_library_sync_timeout" = "Apple Music 同步超时，请检查音乐权限或稍后重试。";
 "apple_music_library_access_failed_format" = "无法访问 Apple Music 资料库：%@";
 "yearly_unknown_source" = "未知音乐源";

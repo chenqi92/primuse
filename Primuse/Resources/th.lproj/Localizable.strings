@@ -747,6 +747,7 @@
 "apple_music_library_hint" = "เพลงในคลังเพลง Apple Music ของคุณจะปรากฏพร้อมกับเพลงที่เหลือของคุณใน Primuse";
 "apple_music_library_idle" = "ยังไม่ได้ซิงค์";
 "apple_music_library_not_authorized" = "Apple Music ไม่ได้รับอนุญาต เปิดใช้งานได้ในการตั้งค่า → Apple Music";
+"apple_music_library_not_authorized_in_sources" = "Apple Music ไม่ได้รับอนุญาต เชื่อมต่อได้ที่แหล่งที่มา Apple Music ใน “จัดการแหล่งที่มา”";
 "apple_music_library_playlist_name" = "Apple Music คลังเพลง";
 "apple_music_library_resync" = "ซิงค์อีกครั้ง";
 "apple_music_library_section" = "Apple Music คลังเพลง";
@@ -759,6 +760,7 @@
 "apple_music_notice_denied" = "Apple Music การเข้าถึงถูกปฏิเสธ เปิดใช้งานอีกครั้งในการตั้งค่าระบบ → ความเป็นส่วนตัว → สื่อ & Apple Music";
 "apple_music_notice_no_results" = "ไม่มีผลลัพธ์ Apple Music (หน้าร้านนี้อาจไม่มีชื่อนี้)";
 "apple_music_notice_notDetermined" = "Apple Music ยังไม่ได้เชื่อมต่อ ไปที่การตั้งค่า → Apple Music เพื่อเปิดใช้งานการค้นหาแคตตาล็อก";
+"apple_music_notice_notDetermined_in_sources" = "Apple Music ยังไม่ได้เชื่อมต่อ เชื่อมต่อได้ที่แหล่งที่มา Apple Music ใน “จัดการแหล่งที่มา” เพื่อเปิดใช้งานการค้นหาแคตตาล็อก";
 "apple_music_now_playing_hint" = "Apple Music เล่นผ่านเครื่องเล่นระบบ Primuse ฟีเจอร์ต่างๆ เช่น การดึงเมทาดาทา การแก้ไขแท็ก และ EQ ใช้ไม่ได้";
 "apple_music_open_in_app" = "เปิดใน Apple Music";
 "apple_music_scrape_lyrics_only" = "Apple Music เมทาดาทาและอาร์ตเวิร์คอย่างเป็นทางการยังคงไม่เปลี่ยนแปลง การดึงเมทาดาทาจะบันทึกเฉพาะเนื้อเพลงภายนอกที่คุณยืนยันเท่านั้น";

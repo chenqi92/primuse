@@ -26,6 +26,29 @@ enum AppleMusicFeatureSettings {
     }
 }
 
+/// 「还没授权」时告诉用户去哪里授权。两个平台的入口不在一处: iOS 的授权在
+/// 音乐源管理里 Apple Music 那一行上完成 (已经没有 设置 → Apple Music 这一页),
+/// macOS 的 设置 → Apple Music 还在。文案因此按平台分开, 调用方不要直接写 key。
+enum AppleMusicAuthorizationGuidance {
+    /// 同步、播放因未授权而失败时的说明。
+    static var notAuthorizedMessage: String {
+        #if os(macOS)
+        String(localized: "apple_music_library_not_authorized")
+        #else
+        String(localized: "apple_music_library_not_authorized_in_sources")
+        #endif
+    }
+
+    /// 搜索页 Apple Music 分区里「尚未授权」的提示。
+    static var searchNotDeterminedNotice: String {
+        #if os(macOS)
+        String(localized: "apple_music_notice_notDetermined")
+        #else
+        String(localized: "apple_music_notice_notDetermined_in_sources")
+        #endif
+    }
+}
+
 /// Apple Music 桥 ── 仅做"在搜索里多挂一组结果 + 调系统播放器开播"这件事,
 /// 不试图把 Apple Music 歌混进 MusicLibrary。原因:
 /// - Apple Music 是 DRM 流, 必须经 `ApplicationMusicPlayer` 才能播,我们自己
@@ -36,7 +59,8 @@ enum AppleMusicFeatureSettings {
 ///   metadata backfill 都得理解一种新 song type, 改动面巨大。
 ///
 /// 当前能力:
-/// 1. 申请 Apple Music 授权 (用户可在 Settings → Apple Music 入口里点)
+/// 1. 申请 Apple Music 授权 (iOS 在音乐源管理里 Apple Music 那一行上点,
+///    macOS 在 设置 → Apple Music; 见 `AppleMusicAuthorizationGuidance`)
 /// 2. 用户搜索时同步查询 Apple Music catalog,搜歌结果回填给 UI
 /// 3. 点 Apple Music 那条结果 → `ApplicationMusicPlayer.shared` 开播
 ///
@@ -82,7 +106,7 @@ final class AppleMusicService {
         authState = Self.mapStatus(MusicAuthorization.currentStatus)
         guard authState == .authorized else {
             libraryAccess = nil
-            throw LibraryAccessFailure(message: String(localized: "apple_music_library_not_authorized"))
+            throw LibraryAccessFailure(message: AppleMusicAuthorizationGuidance.notAuthorizedMessage)
         }
         do {
             let subscription = try await MusicSubscription.current
@@ -301,7 +325,7 @@ final class AppleMusicService {
         guard isPlaybackRequestPending(requestID), !Task.isCancelled else { return false }
         authState = Self.mapStatus(MusicAuthorization.currentStatus)
         guard authState == .authorized else {
-            failPlaybackRequest(requestID, message: String(localized: "apple_music_library_not_authorized"))
+            failPlaybackRequest(requestID, message: AppleMusicAuthorizationGuidance.notAuthorizedMessage)
             return false
         }
         guard AppleMusicSubscriptionGatePolicy.requiresCatalogCapability(for: source) else {

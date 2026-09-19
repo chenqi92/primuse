@@ -418,6 +418,7 @@
 "apple_music_needs_subscription" = "An active Apple Music subscription is required to play this track in Primuse. Subscribe in the Apple Music app and try again.";
 "apple_music_unavailable" = "Apple Music streaming isn't available for this account or region.";
 "apple_music_notice_notDetermined" = "Apple Music isn't connected yet. Go to Settings → Apple Music to enable catalog search.";
+"apple_music_notice_notDetermined_in_sources" = "Apple Music isn't connected yet. Connect it on the Apple Music source in Manage Sources to enable catalog search.";
 "apple_music_notice_denied" = "Apple Music access was denied. Re-enable it in System Settings → Privacy → Media & Apple Music.";
 "apple_music_notice_no_results" = "No Apple Music results (this storefront may not carry this title).";
 "apple_music_open_in_app" = "Open in Apple Music";
@@ -2481,6 +2482,7 @@
 "weekday_friday_short" = "F";
 "weekday_saturday_short" = "S";
 "apple_music_library_not_authorized" = "Apple Music is not authorized. Enable it in Settings → Apple Music.";
+"apple_music_library_not_authorized_in_sources" = "Apple Music is not authorized. Connect it on the Apple Music source in Manage Sources.";
 "apple_music_library_sync_timeout" = "Apple Music sync timed out. Check Music permissions or try again later.";
 "apple_music_library_access_failed_format" = "Unable to access the Apple Music library: %@";
 "yearly_unknown_source" = "Unknown music source";

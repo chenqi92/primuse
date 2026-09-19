@@ -635,6 +635,7 @@
 "apple_music_needs_subscription" = "이 곡을 Primuse에서 재생하려면 활성화된 Apple Music 구독이 필요합니다. Apple Music 앱에서 구독한 후 다시 시도하세요.";
 "apple_music_unavailable" = "이 계정 또는 지역에서는 Apple Music 스트리밍을 사용할 수 없습니다.";
 "apple_music_notice_notDetermined" = "Apple Music이 아직 연결되지 않았습니다. 카탈로그 검색을 사용하려면 설정 → Apple Music으로 이동하세요.";
+"apple_music_notice_notDetermined_in_sources" = "Apple Music이 아직 연결되지 않았습니다. 카탈로그 검색을 사용하려면 “소스 관리”의 Apple Music 소스에서 연결하세요.";
 "apple_music_notice_denied" = "Apple Music 접근이 거부되었습니다. 시스템 설정 → 개인정보 보호 → 미디어 및 Apple Music에서 다시 허용하세요.";
 "apple_music_notice_no_results" = "Apple Music 결과가 없습니다(이 스토어에는 해당 곡이 없을 수 있습니다).";
 "apple_music_open_in_app" = "Apple Music에서 열기";
@@ -2655,6 +2656,7 @@
 "weekday_friday_short" = "금";
 "weekday_saturday_short" = "토";
 "apple_music_library_not_authorized" = "Apple Music이 허용되지 않았습니다. 설정 → Apple Music에서 활성화하세요.";
+"apple_music_library_not_authorized_in_sources" = "Apple Music이 허용되지 않았습니다. “소스 관리”의 Apple Music 소스에서 연결하세요.";
 "apple_music_library_sync_timeout" = "Apple Music 동기화 시간이 초과되었습니다. 음악 권한을 확인하거나 나중에 다시 시도하세요.";
 "apple_music_library_access_failed_format" = "Apple Music 보관함에 접근할 수 없습니다: %@";
 "yearly_unknown_source" = "알 수 없는 음악 소스";

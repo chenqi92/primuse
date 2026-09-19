@@ -635,6 +635,7 @@
 "apple_music_needs_subscription" = "Zum Abspielen dieses Titels in Primuse ist ein aktives Apple-Music-Abo erforderlich. Schließe in der App „Apple Music“ ein Abo ab und versuche es erneut.";
 "apple_music_unavailable" = "Apple-Music-Streaming ist für dieses Konto oder diese Region nicht verfügbar.";
 "apple_music_notice_notDetermined" = "Apple Music ist noch nicht verbunden. Öffne „Einstellungen“ → „Apple Music“, um die Katalogsuche zu aktivieren.";
+"apple_music_notice_notDetermined_in_sources" = "Apple Music ist noch nicht verbunden. Verbinde es unter „Quellen verwalten“ bei der Quelle „Apple Music“, um die Katalogsuche zu aktivieren.";
 "apple_music_notice_denied" = "Der Zugriff auf Apple Music wurde verweigert. Aktiviere ihn erneut unter „Systemeinstellungen“ → „Datenschutz“ → „Medien & Apple Music“.";
 "apple_music_notice_no_results" = "Keine Apple-Music-Ergebnisse (dieser Titel ist in diesem Store möglicherweise nicht verfügbar).";
 "apple_music_open_in_app" = "In Apple Music öffnen";
@@ -2655,6 +2656,7 @@
 "weekday_friday_short" = "F";
 "weekday_saturday_short" = "S";
 "apple_music_library_not_authorized" = "Apple Music ist nicht autorisiert. Aktiviere es unter Einstellungen → Apple Music.";
+"apple_music_library_not_authorized_in_sources" = "Apple Music ist nicht autorisiert. Verbinde es unter „Quellen verwalten“ bei der Quelle „Apple Music“.";
 "apple_music_library_sync_timeout" = "Zeitüberschreitung bei der Apple Music-Synchronisierung. Prüfe die Musik-Berechtigungen oder versuche es später erneut.";
 "apple_music_library_access_failed_format" = "Zugriff auf die Apple Music-Mediathek nicht möglich: %@";
 "yearly_unknown_source" = "Unbekannte Musikquelle";

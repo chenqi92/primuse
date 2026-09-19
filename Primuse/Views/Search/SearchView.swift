@@ -1580,7 +1580,7 @@ struct SearchView: View {
     private var appleMusicStatusText: String {
         switch appleMusic.authState {
         case .notDetermined:
-            return String(localized: "apple_music_notice_notDetermined")
+            return AppleMusicAuthorizationGuidance.searchNotDeterminedNotice
         case .denied, .restricted:
             return String(localized: "apple_music_notice_denied")
         case .authorized:
@@ -1810,7 +1810,7 @@ struct SearchView: View {
         Section {
             switch appleMusic.authState {
             case .notDetermined:
-                Label("apple_music_notice_notDetermined", systemImage: "person.crop.circle.badge.exclamationmark")
+                Label(AppleMusicAuthorizationGuidance.searchNotDeterminedNotice, systemImage: "person.crop.circle.badge.exclamationmark")
                     .font(.caption).foregroundStyle(.secondary)
             case .denied, .restricted:
                 Label("apple_music_notice_denied", systemImage: "lock.circle")

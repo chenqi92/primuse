@@ -747,6 +747,7 @@
 "apple_music_library_hint" = "आपकी Apple Music लाइब्रेरी के गाने Primuse में आपके बाकी संगीत के साथ दिखाई देते हैं।";
 "apple_music_library_idle" = "अभी तक समन्वयित नहीं हुआ";
 "apple_music_library_not_authorized" = "Apple Music अधिकृत नहीं है। इसे सेटिंग्स → Apple Music में सक्षम करें।";
+"apple_music_library_not_authorized_in_sources" = "Apple Music अधिकृत नहीं है। इसे \"स्रोत प्रबंधित करें\" में Apple Music स्रोत से कनेक्ट करें।";
 "apple_music_library_playlist_name" = "Apple Music लाइब्रेरी";
 "apple_music_library_resync" = "फिर से सिंक करें";
 "apple_music_library_section" = "Apple Music लाइब्रेरी";
@@ -759,6 +760,7 @@
 "apple_music_notice_denied" = "Apple Music पहुंच से इनकार कर दिया गया था। इसे सिस्टम सेटिंग्स → गोपनीयता → मीडिया और Apple Music में पुनः सक्षम करें।";
 "apple_music_notice_no_results" = "कोई Apple Music परिणाम नहीं (इस स्टोरफ्रंट पर यह शीर्षक नहीं हो सकता है)।";
 "apple_music_notice_notDetermined" = "Apple Music अभी तक कनेक्ट नहीं हुआ है। कैटलॉग खोज सक्षम करने के लिए सेटिंग्स → Apple Music पर जाएं।";
+"apple_music_notice_notDetermined_in_sources" = "Apple Music अभी तक कनेक्ट नहीं हुआ है। कैटलॉग खोज सक्षम करने के लिए इसे \"स्रोत प्रबंधित करें\" में Apple Music स्रोत से कनेक्ट करें।";
 "apple_music_now_playing_hint" = "Apple Music सिस्टम प्लेयर के माध्यम से चलता है। Primuse मेटाडेटा पुनर्प्राप्त करना, टैग संपादन और EQ जैसी सुविधाएं लागू नहीं होती हैं।";
 "apple_music_open_in_app" = "Apple Music में खोलें";
 "apple_music_scrape_lyrics_only" = "Apple Music मेटाडेटा और आधिकारिक कलाकृति अपरिवर्तित रहती है; मेटाडेटा पुनर्प्राप्त करने से केवल आपके द्वारा पुष्टि किए गए बाहरी गीत के बोल सहेजे जाते हैं।";

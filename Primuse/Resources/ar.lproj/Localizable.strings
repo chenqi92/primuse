@@ -747,6 +747,7 @@
 "apple_music_library_hint" = "تظهر الأغاني الموجودة في مكتبتك Apple Music بجانب بقية الموسيقى الخاصة بك في Primuse.";
 "apple_music_library_idle" = "لم تتم المزامنة بعد";
 "apple_music_library_not_authorized" = "Apple Music غير مصرح به. قم بتفعيله في الإعدادات → Apple Music.";
+"apple_music_library_not_authorized_in_sources" = "Apple Music غير مصرح به. قم بتوصيله من مصدر Apple Music في \"إدارة المصادر\".";
 "apple_music_library_playlist_name" = "Apple Music مكتبة";
 "apple_music_library_resync" = "المزامنة مرة أخرى";
 "apple_music_library_section" = "Apple Music مكتبة";
@@ -759,6 +760,7 @@
 "apple_music_notice_denied" = "Apple Music تم رفض الدخول. أعد تمكينه في إعدادات النظام → الخصوصية → الوسائط وApple Music.";
 "apple_music_notice_no_results" = "لا يوجد Apple Music نتيجة (واجهة المتجر هذه قد لا تحمل هذا العنوان).";
 "apple_music_notice_notDetermined" = "Apple Music غير متصل بعد. انتقل إلى الإعدادات → Apple Music لتمكين البحث في الكتالوج.";
+"apple_music_notice_notDetermined_in_sources" = "Apple Music غير متصل بعد. قم بتوصيله من مصدر Apple Music في \"إدارة المصادر\" لتمكين البحث في الكتالوج.";
 "apple_music_now_playing_hint" = "Apple Music يتم تشغيله من خلال مشغل النظام. لا تنطبق ميزات Primuse مثل جلب البيانات وتحرير العلامات وEQ.";
 "apple_music_open_in_app" = "مفتوح في Apple Music";
 "apple_music_scrape_lyrics_only" = "Apple Music البيانات الوصفية والأعمال الفنية الرسمية تبقى دون تغيير؛ يؤدي جلب البيانات إلى حفظ الكلمات الخارجية التي تؤكدها فقط.";

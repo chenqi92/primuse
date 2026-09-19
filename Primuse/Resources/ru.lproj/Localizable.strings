@@ -1309,6 +1309,7 @@
 "apple_music_library_done_format" = "Песни %d · %@";
 "error_file_not_found %@" = "Файл не найден: %@";
 "apple_music_library_not_authorized" = "Apple Music не авторизован. Включите его в Настройках → Apple Music.";
+"apple_music_library_not_authorized_in_sources" = "Apple Music не авторизован. Подключите его в источнике Apple Music в разделе «Управление источниками».";
 "offline_remove_download" = "Удалить загрузку";
 "a11y_repeat" = "Повторить";
 "lyrics_editor_timing_redo" = "Повторить строку";
@@ -1319,6 +1320,7 @@
 "This Month's Listening" = "Слушания этого месяца";
 "synology_error_invalid_url" = "Неверный адрес.";
 "apple_music_notice_notDetermined" = "Apple Music еще не подключен. Перейдите в Настройки → Apple Music, чтобы включить поиск по каталогу.";
+"apple_music_notice_notDetermined_in_sources" = "Apple Music еще не подключен. Подключите его в источнике Apple Music в разделе «Управление источниками», чтобы включить поиск по каталогу.";
 "relay_share_qr_accessibility" = "Поделиться QR-кодом ссылки";
 "yearly_card_exploration_subtitle" = "Ваше исследование";
 "spotlight_playlist_subtitle_format" = "Плейлист Primuse · Треки %d";

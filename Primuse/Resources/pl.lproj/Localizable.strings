@@ -747,6 +747,7 @@
 "apple_music_library_hint" = "Utwory z Twojej biblioteki Apple Music pojawiają się wraz z resztą Twojej muzyki w Primuse.";
 "apple_music_library_idle" = "Jeszcze nie zsynchronizowane";
 "apple_music_library_not_authorized" = "Apple Music nie jest autoryzowany. Włącz tę opcję w Ustawieniach → Apple Music.";
+"apple_music_library_not_authorized_in_sources" = "Apple Music nie jest autoryzowany. Połącz go w źródle Apple Music w sekcji „Zarządzaj źródłami”.";
 "apple_music_library_playlist_name" = "Biblioteka Apple Music";
 "apple_music_library_resync" = "Synchronizuj ponownie";
 "apple_music_library_section" = "Biblioteka Apple Music";
@@ -759,6 +760,7 @@
 "apple_music_notice_denied" = "Odmowa dostępu do Apple Music. Włącz ją ponownie w Ustawieniach systemu → Prywatność → Media i Apple Music.";
 "apple_music_notice_no_results" = "Brak wyników Apple Music (ta witryna sklepowa może nie nosić tego tytułu).";
 "apple_music_notice_notDetermined" = "Apple Music nie jest jeszcze podłączony. Przejdź do Ustawienia → Apple Music, aby włączyć wyszukiwanie w katalogu.";
+"apple_music_notice_notDetermined_in_sources" = "Apple Music nie jest jeszcze podłączony. Połącz go w źródle Apple Music w sekcji „Zarządzaj źródłami”, aby włączyć wyszukiwanie w katalogu.";
 "apple_music_now_playing_hint" = "Apple Music korzysta z odtwarzacza systemowego. Funkcje Primuse, takie jak pobieranie metadanych, edycja tagów i korektor, nie mają zastosowania.";
 "apple_music_open_in_app" = "Otwarte w Apple Music";
 "apple_music_scrape_lyrics_only" = "Metadane i oficjalne okładki Apple Music pozostają bez zmian; pobieranie metadanych zapisuje tylko zewnętrzny tekst, który zatwierdzisz.";

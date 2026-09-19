@@ -636,6 +636,7 @@
 "apple_music_needs_subscription" = "この曲を Primuse で再生するには、有効な Apple Music のサブスクリプションが必要です。Apple Music アプリで登録してからもう一度お試しください。";
 "apple_music_unavailable" = "このアカウントまたは地域では Apple Music のストリーミングを利用できません。";
 "apple_music_notice_notDetermined" = "Apple Music はまだ接続されていません。カタログ検索を有効にするには「設定」→「Apple Music」に移動してください。";
+"apple_music_notice_notDetermined_in_sources" = "Apple Music はまだ接続されていません。カタログ検索を有効にするには「ソースを管理」の Apple Music ソースで接続してください。";
 "apple_music_notice_denied" = "Apple Music へのアクセスが拒否されました。「システム設定」→「プライバシー」→「メディアと Apple Music」で再度有効にしてください。";
 "apple_music_notice_no_results" = "Apple Music の検索結果がありません（このストアではこのタイトルを取り扱っていない可能性があります）。";
 "apple_music_open_in_app" = "Apple Music で開く";
@@ -2656,6 +2657,7 @@
 "weekday_friday_short" = "金";
 "weekday_saturday_short" = "土";
 "apple_music_library_not_authorized" = "Apple Music が許可されていません。設定 → Apple Music で有効にしてください。";
+"apple_music_library_not_authorized_in_sources" = "Apple Music が許可されていません。「ソースを管理」の Apple Music ソースで接続してください。";
 "apple_music_library_sync_timeout" = "Apple Music の同期がタイムアウトしました。ミュージックの権限を確認するか、後でもう一度お試しください。";
 "apple_music_library_access_failed_format" = "Apple Music ライブラリにアクセスできません：%@";
 "yearly_unknown_source" = "不明な音楽ソース";

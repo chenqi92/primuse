@@ -229,7 +229,7 @@ final class AppleMusicLibraryService {
         }
         guard syncTask == nil else { return }
         guard appleMusic.authState == .authorized else {
-            state = .failed(String(localized: "apple_music_library_not_authorized"))
+            state = .failed(AppleMusicAuthorizationGuidance.notAuthorizedMessage)
             return
         }
         startObservingSubscription()
@@ -263,7 +263,7 @@ final class AppleMusicLibraryService {
             requestID,
             message: appleMusic.authState == .authorized
                 ? String(localized: "playback_error_apple_music_generic")
-                : String(localized: "apple_music_library_not_authorized")
+                : AppleMusicAuthorizationGuidance.notAuthorizedMessage
         )
     }
 

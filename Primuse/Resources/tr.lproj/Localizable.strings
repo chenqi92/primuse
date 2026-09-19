@@ -1309,6 +1309,7 @@
 "apple_music_library_done_format" = "%d şarkılar · %@";
 "error_file_not_found %@" = "Dosya bulunamadı: %@";
 "apple_music_library_not_authorized" = "Apple Music yetkili değil. Ayarlar → Apple Music bölümünden etkinleştirin.";
+"apple_music_library_not_authorized_in_sources" = "Apple Music yetkili değil. “Kaynakları Yönet” bölümündeki Apple Music kaynağından bağlayın.";
 "offline_remove_download" = "İndirilen dosyayı kaldır";
 "a11y_repeat" = "Tekrarla";
 "lyrics_editor_timing_redo" = "Satırı yeniden yap";
@@ -1319,6 +1320,7 @@
 "This Month's Listening" = "Bu Ayın Dinlemeleri";
 "synology_error_invalid_url" = "Geçersiz adres";
 "apple_music_notice_notDetermined" = "Apple Music henüz bağlanmadı. Katalog aramayı etkinleştirmek için Ayarlar → Apple Music seçeneğine gidin.";
+"apple_music_notice_notDetermined_in_sources" = "Apple Music henüz bağlanmadı. Katalog aramayı etkinleştirmek için “Kaynakları Yönet” bölümündeki Apple Music kaynağından bağlayın.";
 "relay_share_qr_accessibility" = "Bağlantıyı paylaş QR kodu";
 "yearly_card_exploration_subtitle" = "Keşfiniz";
 "spotlight_playlist_subtitle_format" = "Primuse çalma listesi · %d parçalar";
