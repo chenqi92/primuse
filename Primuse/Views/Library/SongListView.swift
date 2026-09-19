@@ -5483,6 +5483,9 @@ extension LibrarySongSortCriterion {
     ]
 }
 
+/// 只剩 macOS 列表头的排序按钮在用: 那里的菜单跟着一排工具条控件, 六个维度平铺
+/// 一层反而比子菜单快。iOS 的「更多」菜单改用 `SongSortSubmenu`。
+#if os(macOS)
 private struct SongSortMenuOptions: View {
     @Binding var sortOrder: SongListView.SongSortOrder
 
@@ -5505,6 +5508,65 @@ private struct SongSortMenuOptions: View {
                     : Text(verbatim: "")
             )
         }
+    }
+}
+#endif
+
+/// 排序原本要占「更多」菜单的六行, 收进子菜单后只剩一行, 菜单主层留给真正的动作。
+/// 里面把「按什么排」和「升降序」拆成两段单选 —— 原本这两件事挤在同一组按钮里,
+/// 靠「再点一次当前项」翻转, 看不出来也点不准。
+/// 工具栏条目跑在自己的视图图里, 所以只收 Binding, 不读环境。
+private struct SongSortSubmenu: View {
+    @Binding var sortOrder: SongListView.SongSortOrder
+
+    var body: some View {
+        Menu {
+            Section {
+                Picker("sort_by", selection: criterionBinding) {
+                    ForEach(LibrarySongSortCriterion.menuCases, id: \.self) { criterion in
+                        Text(verbatim: criterion.label)
+                            .tag(criterion)
+                    }
+                }
+                .pickerStyle(.inline)
+            }
+
+            Section {
+                Picker("smart_sort_direction", selection: ascendingBinding) {
+                    Label("smart_sort_ascending", systemImage: "arrow.up")
+                        .tag(true)
+                    Label("smart_sort_descending", systemImage: "arrow.down")
+                        .tag(false)
+                }
+                .pickerStyle(.inline)
+            }
+        } label: {
+            Label("sort_by", systemImage: "arrow.up.arrow.down")
+        }
+    }
+
+    /// `selecting` 对同一个维度是「调头」语义, 所以维度没变时一次都不能调用它,
+    /// 否则点回当前选中项就会莫名其妙地翻转升降序。
+    private var criterionBinding: Binding<LibrarySongSortCriterion> {
+        Binding(
+            get: { sortOrder.criterion },
+            set: { newCriterion in
+                guard newCriterion != sortOrder.criterion else { return }
+                sortOrder = sortOrder.selecting(newCriterion)
+            }
+        )
+    }
+
+    /// 升降序借的就是同一条调头语义: 对当前维度再选一次即可翻转, 不必新增接口,
+    /// 持久化的值域也还是那个枚举。
+    private var ascendingBinding: Binding<Bool> {
+        Binding(
+            get: { sortOrder.isAscending },
+            set: { newValue in
+                guard newValue != sortOrder.isAscending else { return }
+                sortOrder = sortOrder.selecting(sortOrder.criterion)
+            }
+        )
     }
 }
 
@@ -5559,22 +5621,13 @@ private struct SongListNormalToolbarMenu: View {
     var body: some View {
         if !selection.isActive {
             Menu {
-                if let manageHomeFolders {
-                    Button(HomeDiscoveryText.string("add_folder"), systemImage: "pin", action: manageHomeFolders)
-                        .accessibilityIdentifier("library.manageHomeFolders")
-                }
                 Section {
-                    SongSortMenuOptions(sortOrder: sortOrder)
-                }
+                    SongSortSubmenu(sortOrder: sortOrder)
 
-                Section {
-                    Picker("filter_by", selection: $filter) {
-                        ForEach(SongListView.SongFilter.allCases, id: \.self) { filter in
-                            Label(filter.label, systemImage: filter.icon)
-                                .tag(filter)
-                        }
+                    // 筛选只有「全部 / 已下载」两种, 两行单选不如一个开关直观。
+                    Toggle(isOn: downloadedBinding) {
+                        Label("filter_downloaded", systemImage: "arrow.down.circle")
                     }
-                    .pickerStyle(.inline)
                 }
 
                 Section {
@@ -5583,12 +5636,23 @@ private struct SongListNormalToolbarMenu: View {
                     } label: {
                         Label("batch_select", systemImage: "checkmark.circle")
                     }
+                    if let manageHomeFolders {
+                        Button(HomeDiscoveryText.string("add_folder"), systemImage: "pin", action: manageHomeFolders)
+                            .accessibilityIdentifier("library.manageHomeFolders")
+                    }
                 }
             } label: {
                 Image(systemName: "ellipsis")
             }
             .accessibilityLabel(Text("a11y_more_actions"))
         }
+    }
+
+    private var downloadedBinding: Binding<Bool> {
+        Binding(
+            get: { filter == .downloaded },
+            set: { filter = $0 ? .downloaded : .all }
+        )
     }
 }
 
@@ -5678,34 +5742,36 @@ private struct LibraryFolderNormalToolbarMenu: View {
     var body: some View {
         if !selection.isActive {
             Menu {
-                let pinned = pins.contains(nodeID)
-                Button(HomeDiscoveryText.string(pinned ? "unpin_folder" : "pin_folder"), systemImage: pinned ? "pin.slash" : "pin") {
-                    var updated = pins
-                    if pinned { updated.removeAll { $0 == nodeID } } else { updated.insert(nodeID, at: 0) }
-                    pinsRawValue = HomeFolderPinStorage.replacingVisiblePins(
-                        in: pinsRawValue, with: updated, index: index, defaultCount: displayCount
-                    )
-                }
-                .disabled(index?.node(withID: nodeID) == nil)
-                .accessibilityIdentifier("libraryFolder.pinToHome")
-                if let node = index?.node(withID: nodeID) {
-                    FolderPlaylistMenuButton(
-                        node: node,
-                        index: index,
-                        library: library,
-                        source: source
-                    )
-                }
-                Section {
-                    SongSortMenuOptions(sortOrder: $sortOrder)
-                }
-                Section {
+                // 三个常用动作交给系统排成顶部一行, 剩下的一行是排序。
+                PMMenuQuickActions {
+                    let pinned = pins.contains(nodeID)
+                    Button(HomeDiscoveryText.string(pinned ? "unpin_folder" : "pin_folder"), systemImage: pinned ? "pin.slash" : "pin") {
+                        var updated = pins
+                        if pinned { updated.removeAll { $0 == nodeID } } else { updated.insert(nodeID, at: 0) }
+                        pinsRawValue = HomeFolderPinStorage.replacingVisiblePins(
+                            in: pinsRawValue, with: updated, index: index, defaultCount: displayCount
+                        )
+                    }
+                    .disabled(index?.node(withID: nodeID) == nil)
+                    .accessibilityIdentifier("libraryFolder.pinToHome")
+
+                    if let node = index?.node(withID: nodeID) {
+                        FolderPlaylistMenuButton(
+                            node: node,
+                            index: index,
+                            library: library,
+                            source: source
+                        )
+                    }
+
                     Button {
                         selection.activate()
                     } label: {
                         Label("batch_select", systemImage: "checkmark.circle")
                     }
                 }
+
+                SongSortSubmenu(sortOrder: $sortOrder)
             } label: {
                 Image(systemName: "ellipsis")
             }

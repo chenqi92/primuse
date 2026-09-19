@@ -1882,6 +1882,7 @@
 "Every Minute" = "Кожну хвилину";
 "Play Playlist" = "Відтворити список відтворення";
 "batch_delete_source_files" = "Видалити вихідні файли";
+"batch_remove_group" = "Прибрати й видалити";
 "ai_audio_transcription_editor_detail" = "Завантажте пісню, щоб розпізнати текст і час. Результати спочатку відкриваються тут для перегляду.";
 "intent_set_liked_title" = "Набір сподобався";
 "Repeat One" = "Повтор однієї пісні";
@@ -1929,6 +1930,8 @@
 "reread_song_tags_failed" = "Неможливо прочитати теги файлів. Перевірте джерело пісні або формат файлу.";
 "relay_share_access_mode" = "Доступ";
 "radio_priority_move_down" = "Нижчий пріоритет";
+"radio_priority_move_up_short" = "Вгору";
+"radio_priority_move_down_short" = "Вниз";
 "error_oauth_missing_callback" = "Зворотний дзвінок авторизації не отримано.";
 "library_cleanup_dup_count_format" = "%d групи для перегляду";
 "Resuming playback." = "Відновлення відтворення.";

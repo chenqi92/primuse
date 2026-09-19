@@ -2453,6 +2453,8 @@
 "radio_priority_sort_by_name" = "Trier par nom";
 "radio_priority_move_up" = "Augmenter la priorité";
 "radio_priority_move_down" = "Réduire la priorité";
+"radio_priority_move_up_short" = "Monter";
+"radio_priority_move_down_short" = "Descendre";
 "radio_previous_station" = "Station précédente";
 "radio_next_station" = "Station suivante";
 "radio_home_visibility" = "Afficher la radio sur l’accueil";
@@ -2959,6 +2961,7 @@
 "batch_remove_from_library" = "Retirer de la bibliothèque";
 "batch_remove_from_library_message_format" = "%d titres seront retirés de la bibliothèque. Leurs fichiers source sont conservés, mais ils ne seront pas réajoutés lors de la prochaine analyse.";
 "batch_delete_source_files" = "Supprimer les fichiers source";
+"batch_remove_group" = "Retirer et supprimer";
 "batch_delete_source_files_message_format" = "Les fichiers source de %d titres seront définitivement supprimés et les titres retirés de la bibliothèque. Cette action est irréversible.";
 "batch_delete_skipped_format" = "%d ignorés — leur source musicale ne prend pas en charge la suppression";
 "batch_delete_progress_format" = "Suppression %1$d / %2$d";

@@ -868,6 +868,7 @@
 "batch_delete_result_format" = "%d eliminado";
 "batch_delete_skipped_format" = "%d omitido: su fuente de música no admite la eliminación";
 "batch_delete_source_files" = "Eliminar archivos originales";
+"batch_remove_group" = "Quitar y eliminar";
 "batch_delete_source_files_message_format" = "Se eliminarán permanentemente los archivos originales de %d canciones y estas se quitarán de la biblioteca. Esta acción no se puede deshacer.";
 "batch_deselect_all" = "Deseleccionar todo";
 "batch_playlists_delete_confirm_format" = "Se eliminarán %d listas de reproducción. Sus canciones se conservarán.";
@@ -2342,6 +2343,8 @@
 "radio_previous_station" = "Estación anterior";
 "radio_priority_footer" = "Esta orden se utiliza en Inicio, para controles de estación anterior y siguiente, en CarPlay y en TV.";
 "radio_priority_move_down" = "Prioridad más baja";
+"radio_priority_move_up_short" = "Subir";
+"radio_priority_move_down_short" = "Bajar";
 "radio_priority_move_up" = "Aumentar prioridad";
 "radio_priority_sort_by_name" = "Ordenar por nombre";
 "radio_priority_title" = "Prioridad de estación";

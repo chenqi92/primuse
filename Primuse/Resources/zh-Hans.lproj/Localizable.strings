@@ -2554,6 +2554,8 @@
 "radio_priority_sort_by_name" = "按名称排序";
 "radio_priority_move_up" = "提高优先级";
 "radio_priority_move_down" = "降低优先级";
+"radio_priority_move_up_short" = "上移";
+"radio_priority_move_down_short" = "下移";
 "radio_previous_station" = "上一个电台";
 "radio_next_station" = "下一个电台";
 "radio_home_visibility" = "在首页显示电台";
@@ -3060,6 +3062,7 @@
 "batch_remove_from_library" = "从资料库移除";
 "batch_remove_from_library_message_format" = "将从资料库移除 %d 首歌曲。源文件不会被删除，但重新扫描时它们不会再被加回。";
 "batch_delete_source_files" = "删除源文件";
+"batch_remove_group" = "移除与删除";
 "batch_delete_source_files_message_format" = "将永久删除 %d 首歌曲的源文件，并从资料库移除。此操作不可撤销。";
 "batch_delete_skipped_format" = "%d 首所在音乐源不支持删除，已跳过";
 "batch_delete_progress_format" = "正在删除 %1$d / %2$d";

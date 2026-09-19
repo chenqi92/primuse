@@ -44,6 +44,11 @@ struct RadioStationsView: View {
         RadioStationLayoutMode(rawValue: layoutModeRaw) ?? .list
     }
 
+    /// 工具栏那个切版式的按钮要显示「点了会变成哪种」，这里就是那一种。
+    private var alternateLayoutMode: RadioStationLayoutMode {
+        layoutMode == .cover ? .list : .cover
+    }
+
     /// 列表版一行一个宽卡片；封面版是方格台标墙，一屏能放下三四倍的台。
     /// 列表版在手机横屏下本来就会排成两列、不必再收；封面版的格子跟着高度收一档。
     private var columns: [GridItem] {
@@ -425,7 +430,9 @@ struct RadioStationsView: View {
             // 都会被盖住(mini player 是 zIndex overlay，不贡献安全区)。
             ToolbarItem(placement: .primaryAction) {
                 Menu {
-                    Section {
+                    // 批量操作里用得最多的三件事排成一行。这三个键在任何选中
+                    // 状态下都在，只是会变灰，所以这一行不会塌成一个键。
+                    PMMenuQuickActions {
                         Button {
                             if selection == visibleStationIDs {
                                 selection = []
@@ -443,6 +450,20 @@ struct RadioStationsView: View {
                             )
                         }
                         .disabled(visibleStationIDs.isEmpty)
+
+                        Button {
+                            moveToTop(selection)
+                        } label: {
+                            Label("radio_manage_pin_top", systemImage: "arrow.up.to.line")
+                        }
+                        .disabled(selectedStations.isEmpty)
+
+                        Button {
+                            exportSelected()
+                        } label: {
+                            Label("radio_manage_export", systemImage: "square.and.arrow.up")
+                        }
+                        .disabled(selectedStations.isEmpty)
                     }
 
                     Section {
@@ -459,15 +480,6 @@ struct RadioStationsView: View {
                             Label("radio_tags", systemImage: "tag")
                         }
                         .disabled(selectedIDs.isEmpty)
-                    }
-
-                    Section {
-                        Button {
-                            moveToTop(selection)
-                        } label: {
-                            Label("radio_manage_pin_top", systemImage: "arrow.up.to.line")
-                        }
-                        .disabled(selectedStations.isEmpty)
 
                         Button {
                             guard let station = selectedStations.first else { return }
@@ -477,13 +489,6 @@ struct RadioStationsView: View {
                         }
                         // 编辑是单条操作，多选时没有明确目标。
                         .disabled(selectedStations.count != 1)
-
-                        Button {
-                            exportSelected()
-                        } label: {
-                            Label("radio_manage_export", systemImage: "square.and.arrow.up")
-                        }
-                        .disabled(selectedStations.isEmpty)
                     }
 
                     Section {
@@ -508,17 +513,16 @@ struct RadioStationsView: View {
                     }
                 }
 
-                Menu {
-                    Picker("radio_layout", selection: $layoutModeRaw) {
-                        ForEach(RadioStationLayoutMode.allCases) { mode in
-                            Label(String(localized: mode.titleKey), systemImage: mode.icon)
-                                .tag(mode.rawValue)
-                        }
-                    }
-                    .pickerStyle(.inline)
+                // 版式一共就两种，展开一个菜单去点其中一个不如按一下直接换。
+                // 图标画的是「点下去会变成的那种」，当前是哪种交给旁白报。
+                Button {
+                    layoutModeRaw = alternateLayoutMode.rawValue
                 } label: {
-                    Label("radio_layout", systemImage: layoutMode.icon)
+                    Image(systemName: alternateLayoutMode.icon)
                 }
+                .accessibilityLabel(Text(String(localized: alternateLayoutMode.titleKey)))
+                .accessibilityValue(Text(String(localized: layoutMode.titleKey)))
+                .accessibilityIdentifier("radioLayoutMode.toggle")
 
                 Menu {
                     Button("radio_batch_add_title", systemImage: "square.and.arrow.down") {
@@ -704,44 +708,59 @@ struct RadioStationsView: View {
         priority: Int,
         total: Int
     ) -> some View {
-        if station.isServerMirror {
-            Label(station.displayEndpoint, systemImage: "server.rack")
-                .foregroundStyle(.secondary)
-        } else {
-            Button("edit", systemImage: "pencil") { editingStation = station }
+        // 最常用的三件事排成一行。服务器镜像改不了名字和地址，那一行就只剩
+        // 调序两个键 —— 仍然是两个，不会出现一个键占满整行的样子。
+        PMMenuQuickActions {
+            if !station.isServerMirror {
+                Button("edit", systemImage: "pencil") { editingStation = station }
+            }
+
+            // 横排每格只有菜单宽的三分之一，「Raise Priority」这类全称会被截断，
+            // 画出来用短的，全称留给旁白。
+            Button("radio_priority_move_up_short", systemImage: "arrow.up") {
+                store.moveStation(id: station.id, by: -1)
+            }
+            .disabled(priority <= 1)
+            .accessibilityLabel(Text("radio_priority_move_up"))
+
+            Button("radio_priority_move_down_short", systemImage: "arrow.down") {
+                store.moveStation(id: station.id, by: 1)
+            }
+            .disabled(priority >= total)
+            .accessibilityLabel(Text("radio_priority_move_down"))
         }
 
-        organizeMenu(for: station)
+        Section {
+            // 镜像电台没有可编辑的地址，把它摆在这里至少能认出这条是哪台服务器给的。
+            if station.isServerMirror {
+                Label(station.displayEndpoint, systemImage: "server.rack")
+                    .foregroundStyle(.secondary)
+            }
 
-        Button("radio_priority_move_up", systemImage: "arrow.up") {
-            store.moveStation(id: station.id, by: -1)
-        }
-        .disabled(priority <= 1)
+            organizeMenu(for: station)
 
-        Button("radio_priority_move_down", systemImage: "arrow.down") {
-            store.moveStation(id: station.id, by: 1)
-        }
-        .disabled(priority >= total)
-
-        // 自动发现失败过的台在退避期里不会再自己去找，这里给用户一个
-        // 「现在就再试一次」的出口。用户自己选过图或填过链接的不提供 ——
-        // 那会覆盖他的选择。
-        if !station.isServerMirror,
-           station.logoData == nil,
-           station.logoFileName == nil,
-           station.remoteLogoSource?.isUserProvided != true {
-            Button("radio_logo_fetch", systemImage: "photo.badge.arrow.down") {
-                RadioLogoDiscoveryService.shared.discoverNow(for: station)
+            // 自动发现失败过的台在退避期里不会再自己去找，这里给用户一个
+            // 「现在就再试一次」的出口。用户自己选过图或填过链接的不提供 ——
+            // 那会覆盖他的选择。
+            if !station.isServerMirror,
+               station.logoData == nil,
+               station.logoFileName == nil,
+               station.remoteLogoSource?.isUserProvided != true {
+                Button("radio_logo_fetch", systemImage: "photo.badge.arrow.down") {
+                    RadioLogoDiscoveryService.shared.discoverNow(for: station)
+                }
             }
         }
 
         if !station.isServerMirror {
-            Divider()
-            Button("delete", systemImage: "trash", role: .destructive) {
-                if station.isSubscribed {
-                    subscribedStationToDelete = station
-                } else {
-                    store.remove(id: station.id)
+            // 破坏性动作单独成段落在最后，跟上面隔开。
+            Section {
+                Button("delete", systemImage: "trash", role: .destructive) {
+                    if station.isSubscribed {
+                        subscribedStationToDelete = station
+                    } else {
+                        store.remove(id: station.id)
+                    }
                 }
             }
         }

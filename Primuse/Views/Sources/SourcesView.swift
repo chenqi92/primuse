@@ -1028,40 +1028,53 @@ struct SourcesContentView: View {
         .id(source.id)
         .opacity(source.isEnabled ? 1.0 : 0.55)
         .contextMenu {
-            if !sourceSongs.isEmpty {
-                Button { browsingFoldersSource = source } label: {
-                    Label("library_browse_folder", systemImage: "folder")
-                }
-            }
-            Button {
-                toggleSourceEnabled(source)
-            } label: {
-                Label(
-                    source.isEnabled ? String(localized: "disable") : String(localized: "enable"),
-                    systemImage: source.isEnabled ? "eye.slash" : "eye"
-                )
-            }
             // Apple Music 没有 edit / diagnose 概念 ── 两者都依赖 connector。
             // 但它跟其它音乐源一样可以移除:移除即取消授权同步并清掉同步产物。
-            if source.id != AppleMusicLibraryService.systemSourceID {
-                Button { editingSource = source } label: { Label("edit", systemImage: "pencil") }
-                if source.type == .synologyAudioStation {
-                    Button { connectingSource = source } label: {
-                        Label("audio_station_sign_in", systemImage: "person.badge.key")
+            let isSystemSource = source.id == AppleMusicLibraryService.systemSourceID
+            let canBrowseFolders = !sourceSongs.isEmpty
+            // 「禁用/启用」永远在, 另外两个各有条件; 只剩它一个时横排会变成
+            // 一个键占满整行, 那还不如老老实实排一行。
+            let usesQuickRow = canBrowseFolders || !isSystemSource
+
+            if usesQuickRow {
+                PMMenuQuickActions {
+                    if canBrowseFolders {
+                        Button { browsingFoldersSource = source } label: {
+                            Label("library_browse_folder", systemImage: "folder")
+                        }
                     }
+                    if !isSystemSource {
+                        Button { editingSource = source } label: { Label("edit", systemImage: "pencil") }
+                    }
+                    sourceEnableToggleButton(source)
                 }
-                Button { diagnosingSource = source } label: { Label("source_diagnostics", systemImage: "stethoscope") }
-                if source.type.scansEntireLibrary || !dirs.isEmpty {
-                    Button {
-                        startSourceScan(source, mode: .deep)
-                    } label: {
-                        Label("source_deep_scan", systemImage: "arrow.triangle.2.circlepath.circle")
+            } else {
+                sourceEnableToggleButton(source)
+            }
+
+            if !isSystemSource {
+                Section {
+                    if source.type == .synologyAudioStation {
+                        Button { connectingSource = source } label: {
+                            Label("audio_station_sign_in", systemImage: "person.badge.key")
+                        }
                     }
-                    .disabled(scanning?.isScanning == true)
+                    Button { diagnosingSource = source } label: { Label("source_diagnostics", systemImage: "stethoscope") }
+                    if source.type.scansEntireLibrary || !dirs.isEmpty {
+                        Button {
+                            startSourceScan(source, mode: .deep)
+                        } label: {
+                            Label("source_deep_scan", systemImage: "arrow.triangle.2.circlepath.circle")
+                        }
+                        .disabled(scanning?.isScanning == true)
+                    }
                 }
             }
-            Divider()
-            Button(role: .destructive) { requestDelete(source) } label: { Label("delete", systemImage: "trash") }
+
+            // 破坏性动作单独成段落在最后。
+            Section {
+                Button(role: .destructive) { requestDelete(source) } label: { Label("delete", systemImage: "trash") }
+            }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) { requestDelete(source) } label: { Label("delete", systemImage: "trash") }
@@ -1078,6 +1091,19 @@ struct SourcesContentView: View {
                 )
             }
             .tint(source.isEnabled ? .gray : .green)
+        }
+    }
+
+    /// 长按菜单里的「禁用/启用」。横排和退回来的普通行都要它，所以抽出来一份。
+    @ViewBuilder
+    private func sourceEnableToggleButton(_ source: MusicSource) -> some View {
+        Button {
+            toggleSourceEnabled(source)
+        } label: {
+            Label(
+                source.isEnabled ? String(localized: "disable") : String(localized: "enable"),
+                systemImage: source.isEnabled ? "eye.slash" : "eye"
+            )
         }
     }
 

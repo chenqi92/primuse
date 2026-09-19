@@ -2279,6 +2279,8 @@
 "radio_priority_sort_by_name" = "Sort by Name";
 "radio_priority_move_up" = "Raise Priority";
 "radio_priority_move_down" = "Lower Priority";
+"radio_priority_move_up_short" = "Up";
+"radio_priority_move_down_short" = "Down";
 "radio_previous_station" = "Previous Station";
 "radio_next_station" = "Next Station";
 "radio_home_visibility" = "Show Radio on Home";
@@ -2744,6 +2746,7 @@
 "batch_remove_from_library" = "Remove from Library";
 "batch_remove_from_library_message_format" = "%d songs will be removed from the library. Their source files are kept, but they won't be added back on the next scan.";
 "batch_delete_source_files" = "Delete Source Files";
+"batch_remove_group" = "Remove & Delete";
 "batch_delete_source_files_message_format" = "The source files of %d songs will be permanently deleted and the songs removed from the library. This cannot be undone.";
 "batch_delete_skipped_format" = "%d skipped — their music source doesn't support deletion";
 "batch_delete_progress_format" = "Deleting %1$d / %2$d";

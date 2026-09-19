@@ -868,6 +868,7 @@
 "batch_delete_result_format" = "%d हटा दिया गया";
 "batch_delete_skipped_format" = "%d छोड़ दिया गया - उनका संगीत स्रोत विलोपन का समर्थन नहीं करता है";
 "batch_delete_source_files" = "स्रोत फ़ाइलें हटाएं";
+"batch_remove_group" = "हटाएँ और मिटाएँ";
 "batch_delete_source_files_message_format" = "%d गानों की मूल फ़ाइलें हमेशा के लिए मिटेंगी और गाने लाइब्रेरी से हटेंगे। इसे पूर्ववत नहीं किया जा सकता।";
 "batch_deselect_all" = "सभी को अचयनित करें";
 "batch_playlists_delete_confirm_format" = "%d प्लेलिस्ट मिटेंगी। उनमें मौजूद गाने बने रहेंगे।";
@@ -2342,6 +2343,8 @@
 "radio_previous_station" = "पिछला स्टेशन";
 "radio_priority_footer" = "इस ऑर्डर का उपयोग होम पर, पिछले और अगले स्टेशन नियंत्रण के लिए, CarPlay में और टीवी पर किया जाता है।";
 "radio_priority_move_down" = "कम प्राथमिकता";
+"radio_priority_move_up_short" = "ऊपर";
+"radio_priority_move_down_short" = "नीचे";
 "radio_priority_move_up" = "प्राथमिकता बढ़ाएँ";
 "radio_priority_sort_by_name" = "नाम के अनुसार क्रमबद्ध करें";
 "radio_priority_title" = "स्टेशन प्राथमिकता";

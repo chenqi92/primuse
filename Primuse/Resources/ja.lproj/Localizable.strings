@@ -2454,6 +2454,8 @@
 "radio_priority_sort_by_name" = "名前順に並べ替え";
 "radio_priority_move_up" = "優先順位を上げる";
 "radio_priority_move_down" = "優先順位を下げる";
+"radio_priority_move_up_short" = "上へ";
+"radio_priority_move_down_short" = "下へ";
 "radio_previous_station" = "前のラジオ局";
 "radio_next_station" = "次のラジオ局";
 "radio_home_visibility" = "ホームにラジオを表示";
@@ -2960,6 +2962,7 @@
 "batch_remove_from_library" = "ライブラリから削除";
 "batch_remove_from_library_message_format" = "%d 曲をライブラリから削除します。元のファイルは残りますが、次回のスキャンでは追加されません。";
 "batch_delete_source_files" = "元のファイルを削除";
+"batch_remove_group" = "取り除く・削除";
 "batch_delete_source_files_message_format" = "%d 曲の元のファイルを完全に削除し、ライブラリからも削除します。この操作は取り消せません。";
 "batch_delete_skipped_format" = "%d 曲は音楽ソースが削除に対応していないためスキップしました";
 "batch_delete_progress_format" = "削除中 %1$d / %2$d";

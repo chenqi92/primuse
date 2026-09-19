@@ -1882,6 +1882,7 @@
 "Every Minute" = "Her Dakika";
 "Play Playlist" = "Çalma Listesini Oynat";
 "batch_delete_source_files" = "Kaynak Dosyaları Sil";
+"batch_remove_group" = "Kaldır ve Sil";
 "ai_audio_transcription_editor_detail" = "Şarkı sözlerini ve zamanlamasını tanımak için şarkıyı yükleyin. Sonuçlar ilk önce incelenmek üzere burada açılır.";
 "intent_set_liked_title" = "Beğenilenleri Ayarla";
 "Repeat One" = "Birini tekrarla";
@@ -1929,6 +1930,8 @@
 "reread_song_tags_failed" = "Dosya etiketleri okunamıyor. Şarkı kaynağını veya dosya formatını kontrol edin.";
 "relay_share_access_mode" = "Erişim";
 "radio_priority_move_down" = "Düşük Öncelik";
+"radio_priority_move_up_short" = "Yukarı";
+"radio_priority_move_down_short" = "Aşağı";
 "error_oauth_missing_callback" = "Hiçbir yetkilendirme geri araması alınmadı.";
 "library_cleanup_dup_count_format" = "İncelenecek %d grupları";
 "Resuming playback." = "Oynatmaya devam ediliyor.";

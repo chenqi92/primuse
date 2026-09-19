@@ -2438,6 +2438,8 @@
 "radio_priority_sort_by_name" = "依名稱排序";
 "radio_priority_move_up" = "提高優先順序";
 "radio_priority_move_down" = "降低優先順序";
+"radio_priority_move_up_short" = "上移";
+"radio_priority_move_down_short" = "下移";
 "radio_previous_station" = "上一個電台";
 "radio_next_station" = "下一個電台";
 "radio_home_visibility" = "在首頁顯示電台";
@@ -2944,6 +2946,7 @@
 "batch_remove_from_library" = "從資料庫移除";
 "batch_remove_from_library_message_format" = "將從資料庫移除 %d 首歌曲。原始檔案不會被刪除，但重新掃描時不會再被加回。";
 "batch_delete_source_files" = "刪除原始檔案";
+"batch_remove_group" = "移除與刪除";
 "batch_delete_source_files_message_format" = "將永久刪除 %d 首歌曲的原始檔案，並從資料庫移除。此操作無法復原。";
 "batch_delete_skipped_format" = "%d 首所在的音樂來源不支援刪除，已略過";
 "batch_delete_progress_format" = "正在刪除 %1$d / %2$d";

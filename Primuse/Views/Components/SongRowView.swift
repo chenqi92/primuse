@@ -109,72 +109,10 @@ struct SongRowView: View {
                 }
             }
 
-            // Group 1: Actions
-            Section {
-                Button {
-                    requestScrape(from: .songRowContextMenu)
-                } label: {
-                    Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
-                }
-
-                Button {
-                    showTagEditor = true
-                } label: {
-                    Label(String(localized: "tag_editor_menu"), systemImage: "tag")
-                }
-
-                Button {
-                    showLyricsEditor = true
-                } label: {
-                    Label(String(localized: "lyrics_editor_menu"), systemImage: "quote.bubble")
-                }
-
-                Button {
-                    showAddToPlaylist = true
-                } label: {
-                    Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
-                }
-
-                Button {
-                    showSimilarSongs = true
-                } label: {
-                    Label(String(localized: "similar_songs"), systemImage: "sparkles")
-                }
-
-                if supportsOfflineAudioCache {
-                    offlineActionButtons(snapshot: offlineSnapshot)
-                }
-
-                metadataRecoveryButtons()
-
-                Button {
-                    showSongInfo = true
-                } label: {
-                    Label(String(localized: "song_info"), systemImage: "info.circle")
-                }
-            }
-
-            // Group 2: Share
-            Section {
-                Button {
-                    presentedShareSong = song
-                } label: {
-                    Label(String(localized: "share"), systemImage: "square.and.arrow.up")
-                }
-            }
-
-            // Group 3: Destructive
-            Section {
-                removeFromPlaylistMenuButton
-                if canDeleteSourceFile {
-                    Button(role: .destructive) {
-                        showDeleteConfirm = true
-                    } label: {
-                        Label(String(localized: "delete_song"), systemImage: "trash")
-                    }
-                }
-                localRemovalMenuButton
-            }
+            songActionMenuContent(
+                entryPoint: .songRowContextMenu,
+                offline: offlineSnapshot
+            )
         }
         #if os(macOS)
         .similarSongsPanel(isPresented: $showSimilarSongs, seed: song)
@@ -509,72 +447,10 @@ struct SongRowView: View {
             #if !os(macOS)
             if showsActions {
                 Menu {
-                    // Group 1: Actions
-                    Section {
-                        Button {
-                            requestScrape(from: .songRowActionMenu)
-                        } label: {
-                            Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
-                        }
-
-                        Button {
-                            showTagEditor = true
-                        } label: {
-                            Label(String(localized: "tag_editor_menu"), systemImage: "tag")
-                        }
-
-                        Button {
-                            showLyricsEditor = true
-                        } label: {
-                            Label(String(localized: "lyrics_editor_menu"), systemImage: "quote.bubble")
-                        }
-
-                        Button {
-                            showAddToPlaylist = true
-                        } label: {
-                            Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
-                        }
-
-                        Button {
-                            showSimilarSongs = true
-                        } label: {
-                            Label(String(localized: "similar_songs"), systemImage: "sparkles")
-                        }
-
-                        if supportsOfflineAudioCache {
-                            offlineActionButtons(snapshot: offline)
-                        }
-
-                        metadataRecoveryButtons()
-
-                        Button {
-                            showSongInfo = true
-                        } label: {
-                            Label(String(localized: "song_info"), systemImage: "info.circle")
-                        }
-                    }
-
-                    // Group 2: Share
-                    Section {
-                        Button {
-                            presentedShareSong = song
-                        } label: {
-                            Label(String(localized: "share"), systemImage: "square.and.arrow.up")
-                        }
-                    }
-
-                    // Group 3: Destructive
-                    Section {
-                        removeFromPlaylistMenuButton
-                        if canDeleteSourceFile {
-                            Button(role: .destructive) {
-                                showDeleteConfirm = true
-                            } label: {
-                                Label(String(localized: "delete_song"), systemImage: "trash")
-                            }
-                        }
-                        localRemovalMenuButton
-                    }
+                    songActionMenuContent(
+                        entryPoint: .songRowActionMenu,
+                        offline: offline
+                    )
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.callout)
@@ -591,10 +467,8 @@ struct SongRowView: View {
         .pmAnimation(.control, value: isPlaying)
         .songRowSwipeActions(
             songID: song.id,
-            isEnabled: queueSwipeActionsEnabled
-                && song.isPlayable
-                && selection?.isActive != true,
-            onInsertNext: { player.insertNextInQueue([song]) },
+            isEnabled: allowsQueueActions,
+            onInsertNext: { insertNextInQueue() },
             onAppendToQueue: { player.appendToQueue([song]) }
         )
         .contentShape(Rectangle())
@@ -634,6 +508,116 @@ struct SongRowView: View {
         #else
         true
         #endif
+    }
+
+    /// 这首歌现在能不能入队：歌根本播不了、或者正在多选，都不给。
+    private var canQueueSong: Bool {
+        song.isPlayable && selection?.isActive != true
+    }
+
+    /// 左右滑手势另外还受列表开关管。搜索结果行关掉的只是滑动手势，
+    /// 不是「下一首播放」这件事，所以菜单里那一项不跟着消失。
+    private var allowsQueueActions: Bool {
+        queueSwipeActionsEnabled && canQueueSong
+    }
+
+    /// 入队走播放器的同一个调用，菜单和滑动手势不各留一份。
+    private func insertNextInQueue() {
+        player.insertNextInQueue([song])
+    }
+
+    /// 长按菜单和尾部 ⋯ 菜单共用这一份 —— 两个入口给的是同一组能力，
+    /// 不该有哪个少一项。`entryPoint` 只区分刮削的来路统计，内容两边一样。
+    ///
+    /// 离线状态由调用方传进来：尾部菜单用的是行渲染时量到的那一份快照，
+    /// 跟行上的徽标是同一个值。
+    @ViewBuilder
+    private func songActionMenuContent(
+        entryPoint: SingleSongScrapeEntryPoint,
+        offline: OfflineAudioCacheSnapshot
+    ) -> some View {
+        // 最常用的三个排成顶部一行，图标在上、短文字在下。再多一个系统就只画
+        // 图标不画文字了，所以这一行的上限就是三个。
+        PMMenuQuickActions {
+            if canQueueSong {
+                Button {
+                    insertNextInQueue()
+                } label: {
+                    Label(
+                        String(localized: "insert_next"),
+                        systemImage: "text.line.first.and.arrowtriangle.forward"
+                    )
+                }
+            }
+
+            Button {
+                showAddToPlaylist = true
+            } label: {
+                Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
+            }
+
+            Button {
+                presentedShareSong = song
+            } label: {
+                Label(String(localized: "share"), systemImage: "square.and.arrow.up")
+            }
+        }
+
+        Section {
+            // 改这首歌自身信息的几项收进一层子菜单：菜单平时短一半，
+            // 真要整理标签的人多点一下也还在原地。
+            Menu {
+                Button {
+                    requestScrape(from: entryPoint)
+                } label: {
+                    Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
+                }
+
+                Button {
+                    showTagEditor = true
+                } label: {
+                    Label(String(localized: "tag_editor_menu"), systemImage: "tag")
+                }
+
+                Button {
+                    showLyricsEditor = true
+                } label: {
+                    Label(String(localized: "lyrics_editor_menu"), systemImage: "quote.bubble")
+                }
+
+                metadataRecoveryButtons()
+            } label: {
+                Label(String(localized: "edit"), systemImage: "pencil")
+            }
+
+            Button {
+                showSimilarSongs = true
+            } label: {
+                Label(String(localized: "similar_songs"), systemImage: "sparkles")
+            }
+
+            if supportsOfflineAudioCache {
+                offlineActionButtons(snapshot: offline)
+            }
+
+            Button {
+                showSongInfo = true
+            } label: {
+                Label(String(localized: "song_info"), systemImage: "info.circle")
+            }
+        }
+
+        Section {
+            removeFromPlaylistMenuButton
+            if canDeleteSourceFile {
+                Button(role: .destructive) {
+                    showDeleteConfirm = true
+                } label: {
+                    Label(String(localized: "delete_song"), systemImage: "trash")
+                }
+            }
+            localRemovalMenuButton
+        }
     }
 
     private func requestScrape(from entryPoint: SingleSongScrapeEntryPoint) {
@@ -849,9 +833,6 @@ struct SongRowView: View {
         }
     }
 
-    /// 长按菜单和尾部 ⋯ 菜单共用这一份 —— 两个入口给的是同一组能力，
-    /// 不该有哪个少一项。
-    ///
     /// 点下去这一行就从列表里消失，也就是承载菜单的子树在菜单收起过程中被拆掉。
     /// 这里跟电台长按菜单里的「删除」(`RadioStationsView.stationActions`)、
     /// 首页置顶文件夹的「取消置顶」(`HomeFoldersSection`) 一样直接改数据，不延后：

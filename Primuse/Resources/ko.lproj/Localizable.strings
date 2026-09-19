@@ -2453,6 +2453,8 @@
 "radio_priority_sort_by_name" = "이름순 정렬";
 "radio_priority_move_up" = "우선순위 올리기";
 "radio_priority_move_down" = "우선순위 내리기";
+"radio_priority_move_up_short" = "위로";
+"radio_priority_move_down_short" = "아래로";
 "radio_previous_station" = "이전 방송국";
 "radio_next_station" = "다음 방송국";
 "radio_home_visibility" = "홈에 라디오 표시";
@@ -2959,6 +2961,7 @@
 "batch_remove_from_library" = "보관함에서 제거";
 "batch_remove_from_library_message_format" = "%d곡을 보관함에서 제거합니다. 원본 파일은 남지만 다음 스캔에서 다시 추가되지 않습니다.";
 "batch_delete_source_files" = "원본 파일 삭제";
+"batch_remove_group" = "제거 및 삭제";
 "batch_delete_source_files_message_format" = "%d곡의 원본 파일을 영구히 삭제하고 보관함에서도 제거합니다. 이 작업은 되돌릴 수 없습니다.";
 "batch_delete_skipped_format" = "%d곡은 음악 소스가 삭제를 지원하지 않아 건너뛰었습니다";
 "batch_delete_progress_format" = "삭제 중 %1$d / %2$d";

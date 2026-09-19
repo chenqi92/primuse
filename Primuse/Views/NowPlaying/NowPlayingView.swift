@@ -5790,9 +5790,9 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
 
     var body: some View {
         Menu {
-            // 最常用的几个操作排成一行：系统菜单会把 ControlGroup 画成一排「图标在上、
-            // 文字在下」的键，不用往下翻就够得着。文字取短的那一版，长了会被截断。
-            ControlGroup {
+            // 最常用的几个操作排成一行，不用往下翻就够得着。文字取短的那一版，
+            // 长了会被截断；键数与平台差异见 `PMMenuQuickActions`。
+            PMMenuQuickActions {
                 if snapshot.showsFullScreenAction {
                     Button(action: onEnterFullScreen) {
                         Label(String(localized: "full_screen_player"), systemImage: "viewfinder.rectangular")

@@ -417,6 +417,16 @@ private struct SongBatchActionsModifier: ViewModifier {
 
     @ViewBuilder
     private func moreActions(includesAddToQueue: Bool) -> some View {
+        // 三个判断各要遍历一遍选中项，先算好再往下传，别让菜单里的每一项
+        // 重新数一次。
+        let removesFromPlaylist = context.playlistID != nil && context.allowsRemoveFromPlaylist
+        let removesFromLibrary = context.allowsLibraryRemoval && !selectionContainsAppleMusic
+        let deletesSourceFiles = context.allowsSourceFileDeletion && hasDeletableSourceSelection
+        // 「从资料库移除」和「从本机移除」是两项。
+        let removalCount = (removesFromPlaylist ? 1 : 0)
+            + (removesFromLibrary ? 2 : 0)
+            + (deletesSourceFiles ? 1 : 0)
+
         Section {
             if includesAddToQueue {
                 Button {
@@ -431,9 +441,7 @@ private struct SongBatchActionsModifier: ViewModifier {
             } label: {
                 Label("insert_next", systemImage: "text.line.first.and.arrowtriangle.forward")
             }
-        }
 
-        Section {
             Button {
                 sourceManager.downloadForOffline(songs: playableSelection())
             } label: {
@@ -464,51 +472,71 @@ private struct SongBatchActionsModifier: ViewModifier {
             #endif
         }
 
-        if let playlistID = context.playlistID, context.allowsRemoveFromPlaylist {
+        if removalCount > 0 {
             Section {
-                Button(role: .destructive) {
-                    library.remove(songIDs: Array(selection.selectedIDs), fromPlaylist: playlistID)
-                    selection.deactivate()
-                } label: {
-                    Label("remove_from_playlist", systemImage: "minus.circle")
-                }
-            }
-        }
-
-        if context.allowsLibraryRemoval && !selectionContainsAppleMusic {
-            Section {
-                Button(role: .destructive) {
-                    prepareDeletion(mode: .libraryOnly)
-                } label: {
-                    Label("batch_remove_from_library", systemImage: "trash")
-                }
-                .disabled(removal.isBusy)
-            }
-        }
-
-        if context.allowsLibraryRemoval && !selectionContainsAppleMusic {
-            Section {
-                Button(role: .destructive) {
-                    prepareDeletion(mode: .deviceLocal)
-                } label: {
-                    Label(
-                        "batch_remove_from_device",
-                        systemImage: "rectangle.portrait.and.arrow.forward"
+                if removalCount > 1 {
+                    Menu {
+                        removalActions(
+                            removesFromPlaylist: removesFromPlaylist,
+                            removesFromLibrary: removesFromLibrary,
+                            deletesSourceFiles: deletesSourceFiles
+                        )
+                    } label: {
+                        Label("batch_remove_group", systemImage: "trash")
+                    }
+                } else {
+                    // 只剩一项时不套子菜单 —— 那只是给同一个动作多加一次点击。
+                    removalActions(
+                        removesFromPlaylist: removesFromPlaylist,
+                        removesFromLibrary: removesFromLibrary,
+                        deletesSourceFiles: deletesSourceFiles
                     )
                 }
-                .disabled(removal.isBusy)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func removalActions(
+        removesFromPlaylist: Bool,
+        removesFromLibrary: Bool,
+        deletesSourceFiles: Bool
+    ) -> some View {
+        if removesFromPlaylist, let playlistID = context.playlistID {
+            Button(role: .destructive) {
+                library.remove(songIDs: Array(selection.selectedIDs), fromPlaylist: playlistID)
+                selection.deactivate()
+            } label: {
+                Label("remove_from_playlist", systemImage: "minus.circle")
             }
         }
 
-        if context.allowsSourceFileDeletion && hasDeletableSourceSelection {
-            Section {
-                Button(role: .destructive) {
-                    prepareDeletion(mode: .sourceFiles)
-                } label: {
-                    Label("batch_delete_source_files", systemImage: "trash.slash")
-                }
-                .disabled(removal.isBusy)
+        if removesFromLibrary {
+            Button(role: .destructive) {
+                prepareDeletion(mode: .libraryOnly)
+            } label: {
+                Label("batch_remove_from_library", systemImage: "trash")
             }
+            .disabled(removal.isBusy)
+
+            Button(role: .destructive) {
+                prepareDeletion(mode: .deviceLocal)
+            } label: {
+                Label(
+                    "batch_remove_from_device",
+                    systemImage: "rectangle.portrait.and.arrow.forward"
+                )
+            }
+            .disabled(removal.isBusy)
+        }
+
+        if deletesSourceFiles {
+            Button(role: .destructive) {
+                prepareDeletion(mode: .sourceFiles)
+            } label: {
+                Label("batch_delete_source_files", systemImage: "trash.slash")
+            }
+            .disabled(removal.isBusy)
         }
     }
 

@@ -91,28 +91,12 @@ struct ArtistListView: View {
             )
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    layoutMenu
+                    ArtistLayoutToolbarButton()
                 }
             }
             #endif
         }
     }
-
-    #if os(iOS)
-    private var layoutMenu: some View {
-        Menu {
-            Picker("artist_layout", selection: $layoutModeRaw) {
-                ForEach(ArtistLayoutMode.allCases) { mode in
-                    Label(String(localized: mode.titleKey), systemImage: mode.icon)
-                        .tag(mode.rawValue)
-                }
-            }
-            .pickerStyle(.inline)
-        } label: {
-            Label("artist_layout", systemImage: layoutMode.icon)
-        }
-    }
-    #endif
 
     /// 圆形头像网格。`.adaptive` 让 iPhone 落到两列、iPad 自然摊开更多列,
     /// 和专辑网格用的是同一套断点 —— 手机横屏下的下限也一起收到 100。
@@ -311,3 +295,32 @@ struct ArtistListView: View {
     }
     #endif
 }
+
+#if os(iOS)
+/// 只有网格/列表两种版式, 与其点开菜单再选, 不如按一下就换 —— 图标画的是「按下去
+/// 会变成的那种」, 当前版式留给旁白读。
+/// 工具栏条目跑在自己的视图图里, 所以这里只读 `@AppStorage`, 不读环境。
+private struct ArtistLayoutToolbarButton: View {
+    @AppStorage(ArtistLayoutMode.storageKey)
+    private var layoutModeRaw = ArtistLayoutMode.grid.rawValue
+
+    private var layoutMode: ArtistLayoutMode {
+        ArtistLayoutMode(rawValue: layoutModeRaw) ?? .grid
+    }
+
+    private var nextMode: ArtistLayoutMode {
+        layoutMode == .grid ? .list : .grid
+    }
+
+    var body: some View {
+        Button {
+            layoutModeRaw = nextMode.rawValue
+        } label: {
+            Image(systemName: nextMode.icon)
+        }
+        .accessibilityLabel(Text(String(localized: nextMode.titleKey)))
+        .accessibilityValue(Text(String(localized: layoutMode.titleKey)))
+        .accessibilityIdentifier("artistLayout.toggle")
+    }
+}
+#endif
