@@ -624,14 +624,10 @@ struct RadioStationsView: View {
         }
     }
 
-    /// 卡片上的 `#N` 是电台在**全局**优先级里的位次，不随筛选变化 ——
-    /// 上一台/下一台、CarPlay、电视端用的都是这份全局顺序。
-    private var priorityByID: [String: Int] {
-        Dictionary(uniqueKeysWithValues: store.stations.enumerated().map { ($1.id, $0 + 1) })
-    }
-
     private var stationGrid: some View {
-        let priorities = priorityByID
+        // 卡片上的 `#N` 是电台在**全局**优先级里的位次，不随筛选变化 ——
+        // 上一台/下一台、CarPlay、电视端用的都是这份全局顺序。
+        let priorities = store.priorityByID
         let total = store.stations.count
         return ScrollView {
             LazyVGrid(
@@ -641,7 +637,8 @@ struct RadioStationsView: View {
                 pinnedViews: [.sectionHeaders]
             ) {
                 if showsFolderSections {
-                    ForEach(RadioStationOrganization.grouped(visibleStations)) { group in
+                    // 分段只在没筛选时出现，这时可见的就是全部电台，直接用存储里分好的。
+                    ForEach(store.folderGroups) { group in
                         Section {
                             ForEach(group.stations) { station in
                                 stationItem(
@@ -664,34 +661,18 @@ struct RadioStationsView: View {
         }
     }
 
-    @ViewBuilder
     private func stationItem(
         _ station: RadioStation,
         priority: Int,
         total: Int
     ) -> some View {
-        let isCurrent = player.currentRadioStation?.id == station.id
-        let isPlaying = isCurrent && (player.isPlaying || player.isLoading)
-        switch layoutMode {
-        case .list:
-            RadioStationCard(
-                station: station,
-                priority: priority,
-                isCurrent: isCurrent,
-                isPlaying: isPlaying,
-                metadataTitle: isCurrent ? player.radioMetadataTitle : nil,
-                onPlay: { toggle(station) },
-                actions: { stationActions(for: station, priority: priority, total: total) }
-            )
-        case .cover:
-            RadioStationCoverTile(
-                station: station,
-                isCurrent: isCurrent,
-                isPlaying: isPlaying,
-                onPlay: { toggle(station) },
-                actions: { stationActions(for: station, priority: priority, total: total) }
-            )
-        }
+        RadioStationGridItem(
+            station: station,
+            layoutMode: layoutMode,
+            priority: priority,
+            onPlay: { toggle(station) },
+            actions: { stationActions(for: station, priority: priority, total: total) }
+        )
     }
 
     /// 一条电台的全部单条操作。列表卡片的 ⋯ 菜单和封面格的长按菜单共用这一份 ——
@@ -964,6 +945,43 @@ extension UTType {
     }
 }
 
+
+/// 电台页的一格。播放状态在这里读，而不是在整页的 body 里读：节目标题每更新一次、
+/// 换一次台，只重画相关的一两张卡，整页的筛选、分组不跟着重算。
+private struct RadioStationGridItem<Actions: View>: View {
+    let station: RadioStation
+    let layoutMode: RadioStationLayoutMode
+    let priority: Int
+    let onPlay: () -> Void
+    @ViewBuilder let actions: () -> Actions
+
+    @Environment(AudioPlayerService.self) private var player
+
+    var body: some View {
+        let isCurrent = player.currentRadioStation?.id == station.id
+        let isPlaying = isCurrent && (player.isPlaying || player.isLoading)
+        switch layoutMode {
+        case .list:
+            RadioStationCard(
+                station: station,
+                priority: priority,
+                isCurrent: isCurrent,
+                isPlaying: isPlaying,
+                metadataTitle: isCurrent ? player.radioMetadataTitle : nil,
+                onPlay: onPlay,
+                actions: actions
+            )
+        case .cover:
+            RadioStationCoverTile(
+                station: station,
+                isCurrent: isCurrent,
+                isPlaying: isPlaying,
+                onPlay: onPlay,
+                actions: actions
+            )
+        }
+    }
+}
 
 private struct RadioStationCard<Actions: View>: View {
     let station: RadioStation

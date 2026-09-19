@@ -17,33 +17,40 @@ struct ServerRadioSyncResult: Sendable {
 @Observable
 final class RadioStationsStore {
     private(set) var allStations: [RadioStation] {
-        didSet {
-            sortedVisibleStations = nil
-            cachedArtworkRevision = nil
-        }
+        didSet { derived = DerivedCache() }
     }
 
-    /// 排序按台名做本地化比较，音乐源镜像进来的台一多（群晖 SHOUTcast 目录上千个）
-    /// 每读一次就是几十毫秒；而首页、资料库、CarPlay 在一次刷新里会读好几遍。
-    /// 排好的结果留到清单下一次变化。
-    @ObservationIgnored private var sortedVisibleStations: [RadioStation]?
-    @ObservationIgnored private var cachedArtworkRevision: String?
+    /// 由电台清单推出来的几样东西，清单一变整份作废。
+    ///
+    /// 音乐源镜像进来的台一多（群晖 SHOUTcast 目录上千个），每一样都是逐台排序、
+    /// 清洗文件夹名、折叠比较，一次几十毫秒；首页、资料库、CarPlay 一次刷新要读好几遍，
+    /// 电台页每张卡片的菜单还各要读一遍文件夹和标签 —— 不缓存就是卡片数乘以电台数。
+    private struct DerivedCache {
+        var stations: [RadioStation]?
+        var artworkRevision: String?
+        var folders: [RadioStationFolderSummary]?
+        var tags: [RadioStationTagSummary]?
+        var ungroupedCount: Int?
+        var folderGroups: [RadioStationFolderGroup]?
+        var priorityByID: [String: Int]?
+    }
+
+    @ObservationIgnored private var derived = DerivedCache()
 
     var stations: [RadioStation] {
         // 先读 allStations，观察者照旧挂在它上面，清单一变就会重新取值。
         let all = allStations
-        if let sortedVisibleStations { return sortedVisibleStations }
+        if let cached = derived.stations { return cached }
         let sorted = RadioStationOrdering.sorted(all.filter { !$0.isDeleted })
-        sortedVisibleStations = sorted
+        derived.stations = sorted
         return sorted
     }
 
     /// 台标预览的变化标记：顺序、id、台标与修改时间任何一项变了它就变。
-    /// 资料库页每次刷新要读好几遍，上千个台逐个拼串的开销只在清单变化后付一次。
     /// 只在本次运行内可比，不能写盘。
     var artworkRevision: String {
         let visible = stations
-        if let cachedArtworkRevision { return cachedArtworkRevision }
+        if let cached = derived.artworkRevision { return cached }
         var hasher = Hasher()
         for station in visible {
             hasher.combine(station.id)
@@ -52,8 +59,29 @@ final class RadioStationsStore {
             hasher.combine(station.modifiedAt)
         }
         let revision = "\(visible.count)-\(hasher.finalize())"
-        cachedArtworkRevision = revision
+        derived.artworkRevision = revision
         return revision
+    }
+
+    /// 全部电台按文件夹分好的段，未分组的在最后。电台页不筛选时按它分段。
+    var folderGroups: [RadioStationFolderGroup] {
+        let visible = stations
+        if let cached = derived.folderGroups { return cached }
+        let groups = RadioStationOrganization.grouped(visible)
+        derived.folderGroups = groups
+        return groups
+    }
+
+    /// 每个电台在全局优先级里的位次，从 1 起。
+    var priorityByID: [String: Int] {
+        let visible = stations
+        if let cached = derived.priorityByID { return cached }
+        let positions = Dictionary(
+            visible.enumerated().map { ($1.id, $0 + 1) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        derived.priorityByID = positions
+        return positions
     }
 
     private let storeURL: URL
@@ -62,7 +90,9 @@ final class RadioStationsStore {
     /// 需要一个地方记住这个名字。它只属于本机，不进 CloudKit 也不进快照 ——
     /// 文件夹一旦装进第一个电台，别的设备自然就看见它了。
     private let folderPlaceholdersURL: URL
-    private var folderPlaceholders: [String] = []
+    private var folderPlaceholders: [String] = [] {
+        didSet { derived.folders = nil }
+    }
     /// 远端写入攒着还没写盘（见 `upsertFromRemote`）。
     @ObservationIgnored private var remotePersistPending = false
     @ObservationIgnored private var remotePersistTask: Task<Void, Never>?
@@ -218,17 +248,30 @@ final class RadioStationsStore {
 
     /// 现有文件夹，含本机记下的空文件夹。
     var folders: [RadioStationFolderSummary] {
-        RadioStationOrganization.folders(in: stations, additionalNames: folderPlaceholders)
+        let visible = stations
+        let placeholders = folderPlaceholders
+        if let cached = derived.folders { return cached }
+        let summaries = RadioStationOrganization.folders(in: visible, additionalNames: placeholders)
+        derived.folders = summaries
+        return summaries
     }
 
     /// 没有归入任何文件夹的电台数量。
     var ungroupedStationCount: Int {
-        RadioStationOrganization.ungroupedCount(in: stations)
+        let visible = stations
+        if let cached = derived.ungroupedCount { return cached }
+        let count = RadioStationOrganization.ungroupedCount(in: visible)
+        derived.ungroupedCount = count
+        return count
     }
 
     /// 现有标签，按名称排序。
     var tags: [RadioStationTagSummary] {
-        RadioStationOrganization.tags(in: stations)
+        let visible = stations
+        if let cached = derived.tags { return cached }
+        let summaries = RadioStationOrganization.tags(in: visible)
+        derived.tags = summaries
+        return summaries
     }
 
     /// 建一个还没有电台的文件夹。它先只活在本机，装进第一个电台后才跟着同步走。
