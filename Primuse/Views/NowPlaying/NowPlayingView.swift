@@ -1265,6 +1265,11 @@ struct NowPlayingView: View {
                 viewportHeight: Double(geo.size.height),
                 prefersWideColumns: shouldUseWideLayout(geo: geo)
             )
+            // 手机横屏的封面模式与歌词模式共用一副骨架：放在同一个分支里，切歌词时
+            // 顶部圆钮排、进度条、传输键都保持同一个视图身份、留在原位，只有左栏换内容。
+            // 分到 switch 的两个 case 里，整页会被当成两棵树换掉。
+            let usesCompactLandscapeSkeleton = playerLayoutMode == .compactLandscape
+                && (landscapeMode == .none || landscapeMode == .standardLyrics)
 
             ZStack {
                 #if os(iOS)
@@ -1288,6 +1293,13 @@ struct NowPlayingView: View {
                         if player.isLiveRadio {
                             NowPlayingDeferredContent {
                                 liveRadioLayout(geo: geo, safeInsets: safeInsets)
+                            }
+                        } else if usesCompactLandscapeSkeleton {
+                            NowPlayingDeferredContent {
+                                compactLandscapePlayerLayout(
+                                    geo: geo,
+                                    safeInsets: safeInsets
+                                )
                             }
                         } else {
                             switch landscapeMode {
@@ -1881,11 +1893,20 @@ struct NowPlayingView: View {
     /// 竖屏那套控件直接压进右栏会把封面挤到只剩两百来点、字号全压到 `.headline`，
     /// 所以这里换成独立构图。所有几何都由 `NowPlayingCompactLandscapeLayoutPolicy`
     /// 给出，视图层不再自己散着算。
+    ///
+    /// 歌词模式是同一副骨架：左栏的大封面换成歌词、缩成右栏顶上的小封面，圆钮排、
+    /// 进度条和传输键原地不动。原先歌词模式另起一套顶栏，再用一块悬浮面板放进度条
+    /// 和传输键 —— 面板压在歌词上，圆钮排里的锁定 / 队列 / 投放 / 全屏也都没了。
     private func compactLandscapePlayerLayout(
         geo: GeometryProxy,
         safeInsets: EdgeInsets
     ) -> some View {
         let metrics = compactLandscapeMetrics(geo: geo, safeInsets: safeInsets)
+        let lyricsMetrics = compactLandscapeLyricsMetrics(geo: geo, safeInsets: safeInsets)
+        // 两端的随机 / 循环摆不摆得下，两种模式的右栏宽度不同，各算各的。
+        let showsEdgeToggles = showLyrics
+            ? lyricsMetrics.showsEdgeToggles
+            : metrics.showsEdgeToggles
 
         return ZStack(alignment: .topLeading) {
             VStack(spacing: 0) {
@@ -1894,7 +1915,7 @@ struct NowPlayingView: View {
                 Color.clear
                     .frame(height: CGFloat(metrics.chromeRowHeight + metrics.chromeBottomSpacing))
 
-                compactLandscapeColumns(metrics: metrics)
+                compactLandscapeColumns(metrics: metrics, lyricsMetrics: lyricsMetrics)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .allowsHitTesting(!isCompactLandscapeLocked)
@@ -1905,11 +1926,11 @@ struct NowPlayingView: View {
         .padding(.trailing, CGFloat(metrics.trailingInset))
         .padding(.top, CGFloat(metrics.topInset))
         .padding(.bottom, CGFloat(metrics.bottomInset))
-        .onChange(of: metrics.showsEdgeToggles, initial: true) { _, showsToggles in
+        .onChange(of: showsEdgeToggles, initial: true) { _, showsToggles in
             compactLandscapeHidesModeToggles = !showsToggles
         }
         .onDisappear {
-            // 转回竖屏、进歌词、进全屏效果、播放页收起都会走到这里。
+            // 转回竖屏、进沉浸歌词、进全屏效果、播放页收起都会走到这里。
             isCompactLandscapeLocked = false
             compactLandscapeHidesModeToggles = false
         }
@@ -1920,6 +1941,22 @@ struct NowPlayingView: View {
         safeInsets: EdgeInsets
     ) -> NowPlayingCompactLandscapeLayoutPolicy.Metrics {
         NowPlayingCompactLandscapeLayoutPolicy.metrics(
+            viewportWidth: Double(geo.size.width),
+            viewportHeight: Double(geo.size.height),
+            safeAreaTop: Double(safeInsets.top),
+            safeAreaBottom: Double(safeInsets.bottom),
+            safeAreaLeading: Double(safeInsets.leading),
+            safeAreaTrailing: Double(safeInsets.trailing),
+            prefersVolumeBar: showsPlayerVolumeBar,
+            textScale: compactLandscapeTextScale
+        )
+    }
+
+    private func compactLandscapeLyricsMetrics(
+        geo: GeometryProxy,
+        safeInsets: EdgeInsets
+    ) -> NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics {
+        NowPlayingCompactLandscapeLayoutPolicy.lyricsMetrics(
             viewportWidth: Double(geo.size.width),
             viewportHeight: Double(geo.size.height),
             safeAreaTop: Double(safeInsets.top),
@@ -1946,11 +1983,28 @@ struct NowPlayingView: View {
     }
 
     private func compactLandscapeColumns(
-        metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics
+        metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics,
+        lyricsMetrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics
     ) -> some View {
-        HStack(alignment: .center, spacing: CGFloat(metrics.columnSpacing)) {
-            compactLandscapeArtwork(metrics: metrics)
-            compactLandscapeDetailColumn(metrics: metrics)
+        let leftColumnWidth = CGFloat(
+            showLyrics ? lyricsMetrics.lyricsPaneWidth : metrics.artworkColumnWidth
+        )
+        return HStack(alignment: .center, spacing: CGFloat(metrics.columnSpacing)) {
+            // 封面和歌词叠在同一个定宽槽位里换场。直接并排放进 HStack 的话，过渡期间
+            // 两个都在，右栏会被挤到只剩几个点再弹回来。
+            ZStack {
+                if showLyrics {
+                    compactLandscapeLyricsPane(metrics: lyricsMetrics)
+                        .transition(lyricsPanelTransition)
+                } else {
+                    compactLandscapeArtwork(metrics: metrics)
+                        .transition(playerArtworkTransition)
+                }
+            }
+            .frame(width: leftColumnWidth)
+            .frame(maxHeight: .infinity)
+
+            compactLandscapeDetailColumn(metrics: metrics, lyricsMetrics: lyricsMetrics)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -1970,8 +2024,67 @@ struct NowPlayingView: View {
             .frame(width: CGFloat(metrics.artworkColumnWidth))
     }
 
+    /// 歌词栏。滚动、淡出遮罩、点空白处回封面都是 `LyricsScrollView` 自己的，
+    /// 这里只给它一块不会被任何控件压住的地方。
+    private func compactLandscapeLyricsPane(
+        metrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics
+    ) -> some View {
+        wakeManagedLyricsFullView(isVisible: showLyrics && isLyricsWakeSurfaceExposed)
+            .frame(width: CGFloat(metrics.lyricsPaneWidth))
+            .frame(maxHeight: .infinity)
+    }
+
     @ViewBuilder
     private func compactLandscapeDetailColumn(
+        metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics,
+        lyricsMetrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics
+    ) -> some View {
+        let showsEdgeToggles = showLyrics
+            ? lyricsMetrics.showsEdgeToggles
+            : metrics.showsEdgeToggles
+        let showsVolumeBar = showLyrics
+            ? lyricsMetrics.showsVolumeBar
+            : metrics.showsVolumeBar
+
+        VStack(alignment: .leading, spacing: 0) {
+            // 两种模式只有这一块不同。叠在 ZStack 里换场，下面的进度条和传输键
+            // 不会因为过渡期间多出一块而被顶下去。
+            ZStack(alignment: .topLeading) {
+                if showLyrics {
+                    compactLandscapeLyricsHeader(metrics: lyricsMetrics)
+                        .transition(lyricsHeaderTransition)
+                } else {
+                    compactLandscapeCoverHeading(metrics: metrics)
+                        .transition(.opacity)
+                }
+            }
+
+            PlaybackProgressBar(fillTint: themedControlAccent)
+                .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.progressTopSpacing))
+
+            compactLandscapeTransportRow(showsEdgeToggles: showsEdgeToggles)
+                .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.transportTopSpacing))
+                // 锁上时控件留在原位只是不再显示，右栏不会因为少一行而整体上移。
+                .opacity(isCompactLandscapeLocked ? 0 : 1)
+                .accessibilityHidden(isCompactLandscapeLocked)
+                .pmAnimation(.control, value: isCompactLandscapeLocked)
+
+            if showsVolumeBar {
+                playerVolumeRow
+                    .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.volumeTopSpacing))
+                    .opacity(isCompactLandscapeLocked ? 0 : 1)
+                    .accessibilityHidden(isCompactLandscapeLocked)
+                    .pmAnimation(.control, value: isCompactLandscapeLocked)
+            }
+        }
+        // 左栏是定宽的，右栏吃掉剩下的空间：策略算出来的 detailColumnWidth
+        // 正好是这个余量，这样写不会因为浮点余数差那么零点几点而被挤压。
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// 封面模式右栏的上半截：大歌名、艺人 / 专辑、当前歌词行。
+    @ViewBuilder
+    private func compactLandscapeCoverHeading(
         metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1984,28 +2097,61 @@ struct NowPlayingView: View {
                 compactLandscapeLyricLine(metrics: metrics)
                     .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.lyricLineTopSpacing))
             }
-
-            PlaybackProgressBar(fillTint: themedControlAccent)
-                .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.progressTopSpacing))
-
-            compactLandscapeTransportRow(metrics: metrics)
-                .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.transportTopSpacing))
-                // 锁上时控件留在原位只是不再显示，右栏不会因为少一行而整体上移。
-                .opacity(isCompactLandscapeLocked ? 0 : 1)
-                .accessibilityHidden(isCompactLandscapeLocked)
-                .pmAnimation(.control, value: isCompactLandscapeLocked)
-
-            if metrics.showsVolumeBar {
-                playerVolumeRow
-                    .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.volumeTopSpacing))
-                    .opacity(isCompactLandscapeLocked ? 0 : 1)
-                    .accessibilityHidden(isCompactLandscapeLocked)
-                    .pmAnimation(.control, value: isCompactLandscapeLocked)
-            }
         }
-        // 封面列是定宽的，右栏吃掉剩下的空间：策略算出来的 detailColumnWidth
-        // 正好是这个余量，这样写不会因为浮点余数差那么零点几点而被挤压。
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// 歌词模式右栏的上半截：小封面 + 歌名 / 艺人，整块点一下回封面模式。
+    /// 大封面经 matchedGeometryEffect 缩到这张小封面的位置，和竖屏歌词头部是同一套。
+    private func compactLandscapeLyricsHeader(
+        metrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics
+    ) -> some View {
+        let thumbnail = CGFloat(metrics.thumbnailSize)
+        return Button { setStandardLyricsVisible(false) } label: {
+            HStack(
+                alignment: .center,
+                spacing: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.lyricsHeaderSpacing)
+            ) {
+                CachedArtworkView(
+                    coverRef: player.currentSong?.coverArtFileName,
+                    songID: player.currentSong?.id ?? "",
+                    size: thumbnail,
+                    cornerRadius: 12,
+                    sourceID: player.currentSong?.sourceID,
+                    filePath: player.currentSong?.filePath,
+                    fileFormat: player.currentSong?.fileFormat,
+                    fillsProposedSize: true,
+                    revisionToken: player.coverRevision
+                )
+                .artworkCrossfade()
+                .matchedGeometryEffect(
+                    id: lyricsArtworkTransitionID,
+                    in: lyricsArtworkNamespace,
+                    isSource: isLyricsCompactArtworkVisible
+                )
+                .frame(width: thumbnail, height: thumbnail)
+                .shadow(color: .black.opacity(0.22), radius: 10, y: 5)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(player.currentSong?.title ?? "")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(appearance.primary)
+                        .lineLimit(metrics.titleLineLimit)
+                        .minimumScaleFactor(0.8)
+                        .multilineTextAlignment(.leading)
+                        .contentTransition(.opacity)
+                        .pmAnimation(.trackChange, value: player.currentSong?.id)
+
+                    Text(currentArtistDisplayName)
+                        .font(.subheadline)
+                        .foregroundStyle(appearance.secondary)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("a11y_close_lyrics"))
     }
 
     private func compactLandscapeTitle(lineLimit: Int) -> some View {
@@ -2050,11 +2196,9 @@ struct NowPlayingView: View {
     }
 
     @ViewBuilder
-    private func compactLandscapeTransportRow(
-        metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics
-    ) -> some View {
+    private func compactLandscapeTransportRow(showsEdgeToggles: Bool) -> some View {
         HStack(spacing: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.transportSpacing)) {
-            if metrics.showsEdgeToggles {
+            if showsEdgeToggles {
                 ctrlBtn("shuffle", active: player.shuffleEnabled) {
                     player.shuffleEnabled.toggle()
                 }
@@ -2080,7 +2224,7 @@ struct NowPlayingView: View {
 
             Spacer(minLength: 0)
 
-            if metrics.showsEdgeToggles {
+            if showsEdgeToggles {
                 ctrlBtn(
                     player.repeatMode == .one ? "repeat.1" : "repeat",
                     active: player.repeatMode != .off
