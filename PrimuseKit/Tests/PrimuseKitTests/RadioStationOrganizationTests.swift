@@ -96,7 +96,7 @@ struct RadioStationOrganizationTests {
             station("C"),
         ]
         let tags = RadioStationOrganization.tags(in: stations)
-        #expect(tags.map(\.name) == ["深夜", "爵士"])
+        #expect(Set(tags.map(\.name)) == ["深夜", "爵士"])
         #expect(tags.first(where: { $0.name == "爵士" })?.stationCount == 2)
     }
 

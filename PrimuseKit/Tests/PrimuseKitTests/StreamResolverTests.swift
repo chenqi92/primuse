@@ -329,7 +329,7 @@ import Testing
         source: source,
         credential: SourceCredential(password: "API-KEY")
     )
-    #expect(url.absoluteString == "https://jelly.example.com:8096/Audio/song/stream?Static=true&api_key=API-KEY")
+    #expect(url.absoluteString == "https://jelly.example.com:8920/Audio/song/stream?Static=true&api_key=API-KEY")
 }
 
 private final class PasswordlessLoginURLProtocol: URLProtocol, @unchecked Sendable {

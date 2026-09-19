@@ -114,8 +114,8 @@ struct RadioLogoURLPolicyTests {
         #expect(RadioLogoURLPolicy.looksLikeBitmap("https://a.com/l.JPG"))
         #expect(RadioLogoURLPolicy.looksLikeBitmap("https://a.com/i?format=png"))
         #expect(!RadioLogoURLPolicy.looksLikeBitmap("https://somafm.com"))
-        // SVG 解码不出来，当封面只会是个空白格子
-        #expect(!RadioLogoURLPolicy.looksLikeBitmap("https://a.com/l.svg"))
+        // SVG 会由平台矢量栅格化器转换后显示。
+        #expect(RadioLogoURLPolicy.looksLikeBitmap("https://a.com/l.svg"))
     }
 
     @Test("用户自己选的图永远不被自动来源覆盖")
