@@ -2596,6 +2596,11 @@ final class SourceManager {
     /// 已经处理过 (采纳或拒绝) 的旧版缓存文件名, 按源分组。拒绝同样要记住,
     /// 否则每次解析缓存路径都会重新走一遍全库比对。
     @ObservationIgnored private var resolvedLegacyAudioCacheNames: [String: Set<String>] = [:]
+    /// Whether a source's cache directory still holds files from before the
+    /// digest naming, and which songs own one. Queue traversal consults these
+    /// so it never has to list a directory or scan the library twice.
+    @ObservationIgnored private var legacyAudioCachePresenceBySourceID: [String: Bool] = [:]
+    @ObservationIgnored private var adoptableLegacyAudioCacheBySourceID: [String: [String: Bool]] = [:]
     /// 路径迁移的串行链: 相继两次位置变更通知必须按顺序落盘。
     @ObservationIgnored private var pathKeyedReconcileTask: Task<Void, Never>?
     /// 当前迁移批次占用的目标相对路径。迁移会连带删掉目标旁边的
@@ -5572,6 +5577,7 @@ final class SourceManager {
             connectorConstructionSignatures[sourceID] = nil
             sidecarConnectorConstructionSignatures[sourceID] = nil
             resolvedLegacyAudioCacheNames[sourceID] = nil
+            forgetLegacyAudioCacheLookups(sourceID: sourceID)
 
             if let connector = connectors.removeValue(forKey: sourceID) {
                 retireConnectorAsynchronously(connector)
@@ -6001,6 +6007,59 @@ final class SourceManager {
         }
     }
 
+    private func forgetLegacyAudioCacheLookups(sourceID: String) {
+        legacyAudioCachePresenceBySourceID[sourceID] = nil
+        adoptableLegacyAudioCacheBySourceID[sourceID] = nil
+    }
+
+    /// Listed once per source: nothing writes the old names any more, so a
+    /// directory without one stays that way, and almost every library has
+    /// none.
+    private func mayHoldLegacyAudioCache(sourceID: String) -> Bool {
+        if let known = legacyAudioCachePresenceBySourceID[sourceID] { return known }
+        let names = (try? FileManager.default.contentsOfDirectory(
+            atPath: audioCacheDirectory(for: sourceID).path
+        )) ?? []
+        let present = names.contains { LegacyAudioCacheMigrationPolicy.mayBeLegacyFileName($0) }
+        legacyAudioCachePresenceBySourceID[sourceID] = present
+        return present
+    }
+
+    /// Read-only twin of `migrateLegacyAudioCacheIfUnambiguous`: would
+    /// `cachedURL` adopt an old-name file for this song? Traversal must not
+    /// move files, but it must not call a song unplayable that playback would
+    /// find on disk either.
+    private func hasAdoptableLegacyAudioCache(for song: Song) -> Bool {
+        guard mayHoldLegacyAudioCache(sourceID: song.sourceID) else { return false }
+        let legacyName = legacyAudioCacheFileName(for: song)
+        guard resolvedLegacyAudioCacheNames[song.sourceID]?.contains(legacyName) != true else {
+            return false
+        }
+        if let known = adoptableLegacyAudioCacheBySourceID[song.sourceID]?[song.id] {
+            return known
+        }
+        let legacyURL = audioCacheDirectory(for: song.sourceID).appendingPathComponent(legacyName)
+        var adoptable = false
+        if FileManager.default.fileExists(atPath: legacyURL.path) {
+            let attributes = try? FileManager.default.attributesOfItem(atPath: legacyURL.path)
+            let byteCount = (attributes?[.size] as? NSNumber)?.int64Value
+            adoptable = LegacyAudioCacheMigrationPolicy.decision(
+                destinationExists: false,
+                legacyExists: true,
+                matchCount: legacyAudioCacheMatchCount(
+                    legacyName: legacyName,
+                    sourceID: song.sourceID,
+                    stoppingAfter: 2
+                ),
+                legacyByteCount: byteCount,
+                expectedSize: song.fileSize,
+                alreadyResolved: false
+            ) == .move
+        }
+        adoptableLegacyAudioCacheBySourceID[song.sourceID, default: [:]][song.id] = adoptable
+        return adoptable
+    }
+
     func cachedURL(for song: Song) -> URL? {
         let sanitized = cacheFileName(for: song)
         let relativePath = "\(song.sourceID)/\(sanitized)"
@@ -6046,10 +6105,13 @@ final class SourceManager {
         let preservesExistingArtifact = preservingAutomaticRefreshPaths.contains(relativePath)
             || contentChangeProtectionPendingPaths.contains(relativePath)
             || (activePlaybackAudioCachePaths[relativePath] ?? 0) > 0
-        return Self.isUsableCacheFile(
+        if Self.isUsableCacheFile(
             at: cacheURL(for: song),
             expectedSize: preservesExistingArtifact ? 0 : song.fileSize
-        )
+        ) { return true }
+        // Playback adopts a file cached under the old naming the moment it
+        // resolves the song. Answer the same way here, without moving it.
+        return hasAdoptableLegacyAudioCache(for: song)
     }
 
     /// A sparse range cache is excellent for linear playback, but some
@@ -8578,6 +8640,7 @@ final class SourceManager {
 
             // 改了位置的源, 旧文件名比对结果不再可信。
             resolvedLegacyAudioCacheNames[previous.sourceID] = nil
+            forgetLegacyAudioCacheLookups(sourceID: previous.sourceID)
 
             let previousTaskKey = audioCacheRelativePath(for: previous)
             offlineDownloadTasks[previousTaskKey]?.task.cancel()
@@ -9114,6 +9177,7 @@ final class SourceManager {
         guard !sourceIDs.isEmpty else { return }
         for sourceID in sourceIDs {
             resolvedLegacyAudioCacheNames[sourceID] = nil
+            forgetLegacyAudioCacheLookups(sourceID: sourceID)
         }
         preservingAutomaticRefreshPaths = preservingAutomaticRefreshPaths.filter { path in
             !sourceIDs.contains(Self.sourceID(in: path, separator: "/"))
@@ -10564,6 +10628,12 @@ final class SourceManager {
             sourceGeneration: sourceGeneration,
             now: ProcessInfo.processInfo.systemUptime
         ) { return cached }
+
+        // An outage makes every uncached song of this source ineligible at
+        // once, and right after launch "is it cached" has no answer until the
+        // source's cache trust is established. Settle that before an outage
+        // can be recorded, so a downloaded song is never stepped over.
+        _ = await ensureAudioCacheScopeValidated(for: source.id)
 
         let preferredKind = activeConnectionRoutes[source.id]
             ?? (NetworkMonitor.shared.prefersLocalConnections ? .localAddress : .publicAddress)
