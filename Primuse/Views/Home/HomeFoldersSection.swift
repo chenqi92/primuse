@@ -406,7 +406,6 @@ struct HomeFolderBrowser: View {
                     searchText: $macSearchText,
                     scope: $macSearchScope,
                     contextualScope: context,
-                    showsMacQuerySummary: false,
                     onShowInLibrary: { song in macShowInLibrary?(song) }
                 )
             } else if let currentNodeID {

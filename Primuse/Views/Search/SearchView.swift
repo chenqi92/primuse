@@ -456,7 +456,6 @@ struct SearchView: View {
     /// 极简导航的自绘顶栏上点了「调整搜索结果」。同样消费掉就置回 false。
     @Binding private var requestsResultLayoutEditor: Bool
     private let contextualScope: LibrarySearchScope?
-    private let showsMacQuerySummary: Bool
     let onShowInLibrary: (PrimuseKit.Song) -> Void
     @State private var searchResults: [LibrarySearchResult] = []
     @State private var matchingAlbums: [PrimuseKit.Album] = []
@@ -487,7 +486,6 @@ struct SearchView: View {
         activatesSearchField: Binding<Bool> = .constant(false),
         requestsResultLayoutEditor: Binding<Bool> = .constant(false),
         contextualScope: LibrarySearchScope? = nil,
-        showsMacQuerySummary: Bool = true,
         onShowInLibrary: @escaping (PrimuseKit.Song) -> Void = { _ in }
     ) {
         self._searchText = searchText
@@ -495,7 +493,6 @@ struct SearchView: View {
         self._activatesSearchField = activatesSearchField
         self._requestsResultLayoutEditor = requestsResultLayoutEditor
         self.contextualScope = contextualScope
-        self.showsMacQuerySummary = showsMacQuerySummary
         self.onShowInLibrary = onShowInLibrary
     }
 
@@ -644,6 +641,11 @@ struct SearchView: View {
         }
         .onAppear {
             loadRecentSearches()
+            if searchText.isEmpty {
+                // 搜索词可能是在别的页面清掉的, 这时本页收不到变化;
+                // Apple Music 的结果存在共享服务里, 不清就会带着上一轮的计数。
+                appleMusic.clearCatalogSearchResults()
+            }
             resumeSearchIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: CloudKVSSync.externalChangeNotification)) { note in
@@ -852,102 +854,62 @@ struct SearchView: View {
         // NavigationStack 统一注册, 这里不再重复声明 (否则会重复 destination)。
     }
 
-    /// 顶部 48pt 圆角搜索框 + 过滤芯片。搜索框其实绑在主窗口 PMTitleBar 上, 这里
-    /// 仅展示当前查询并提供快速清除入口, 视觉上跟设计稿 S-01 对齐。
+    /// 过滤芯片 + 右端的「调整搜索结果」。输入框只有标题栏上那一个, 页面里不再
+    /// 摆一个只能看、不能打字的仿制品。没有搜索词时芯片上的计数没有意义, 只留按钮。
     private var macSearchHeader: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            if showsMacQuerySummary {
-                HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(PMColor.brand)
-
-                    if searchText.isEmpty {
-                        Text(appleMusicSearchEnabled
-                             ? String(localized: "search_placeholder_universal")
-                             : String(localized: "search_prompt"))
-                            .font(.system(size: 14))
-                            .foregroundStyle(PMColor.textFaint)
-                    } else {
-                        Text(verbatim: searchText)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(PMColor.text)
-                            .lineLimit(1)
-                    }
-
-                    Spacer()
-
-                    Text(appleMusicSearchEnabled
-                         ? String(localized: "search_scope_local_apple_music")
-                         : String(localized: "search_chip_local"))
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(PMColor.textMuted)
-                        .padding(.horizontal, 9)
-                        .frame(height: 24)
-                        .background(PMColor.glassBtn, in: Capsule())
-                        .overlay { Capsule().strokeBorder(PMColor.cardBorder, lineWidth: 0.5) }
-
-                    if !searchText.isEmpty {
-                        Button { searchText = "" } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 14))
-                                .foregroundStyle(PMColor.textFaint)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 14)
-                .frame(height: 48)
-                .pmCard(cornerRadius: 12)
+        HStack(spacing: 8) {
+            if searchText.isEmpty {
+                Spacer(minLength: 0)
+            } else {
+                macFilterChips
             }
-
-            HStack(spacing: 8) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        macFilterChip(
-                            .all,
-                            title: "\(String(localized: "search_chip_all")) · \(macTotalResultCount)"
-                        )
-                        if macFilterIsAvailable(.songs) {
-                            macFilterChip(
-                                .songs,
-                                title: "\(String(localized: "tab_songs")) · \(macSongResultCount)"
-                            )
-                        }
-                        if macFilterIsAvailable(.albums) {
-                            macFilterChip(
-                                .albums,
-                                title: "\(String(localized: "tab_albums")) · \(matchingAlbums.count)"
-                            )
-                        }
-                        if macFilterIsAvailable(.artists) {
-                            macFilterChip(
-                                .artists,
-                                title: "\(String(localized: "tab_artists")) · \(matchingArtists.count)"
-                            )
-                        }
-                        if macFilterIsAvailable(.lyrics) {
-                            macFilterChip(.lyrics, title: String(
-                                format: String(localized: "search_lyrics_hits_format"),
-                                searchResults.filter { $0.matchKind == .lyrics }.count
-                            ))
-                        }
-                        if macFilterIsAvailable(.appleMusic) {
-                            macFilterChip(
-                                .appleMusic,
-                                title: "Apple Music · \(visibleAppleMusicSearchResults.count)"
-                            )
-                        }
-                    }
-                    .padding(.vertical, 1)
-                }
-
-                macResultLayoutButton
-            }
+            macResultLayoutButton
         }
         .padding(.horizontal, PMSpace.xxxl)
         .padding(.top, PMSpace.l)
         .padding(.bottom, PMSpace.m)
+    }
+
+    private var macFilterChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                macFilterChip(
+                    .all,
+                    title: "\(String(localized: "search_chip_all")) · \(macTotalResultCount)"
+                )
+                if macFilterIsAvailable(.songs) {
+                    macFilterChip(
+                        .songs,
+                        title: "\(String(localized: "tab_songs")) · \(macSongResultCount)"
+                    )
+                }
+                if macFilterIsAvailable(.albums) {
+                    macFilterChip(
+                        .albums,
+                        title: "\(String(localized: "tab_albums")) · \(matchingAlbums.count)"
+                    )
+                }
+                if macFilterIsAvailable(.artists) {
+                    macFilterChip(
+                        .artists,
+                        title: "\(String(localized: "tab_artists")) · \(matchingArtists.count)"
+                    )
+                }
+                if macFilterIsAvailable(.lyrics) {
+                    macFilterChip(.lyrics, title: String(
+                        format: String(localized: "search_lyrics_hits_format"),
+                        searchResults.filter { $0.matchKind == .lyrics }.count
+                    ))
+                }
+                if macFilterIsAvailable(.appleMusic) {
+                    macFilterChip(
+                        .appleMusic,
+                        title: "Apple Music · \(visibleAppleMusicSearchResults.count)"
+                    )
+                }
+            }
+            .padding(.vertical, 1)
+        }
     }
 
     @ViewBuilder
