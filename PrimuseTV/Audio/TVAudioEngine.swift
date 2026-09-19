@@ -742,9 +742,10 @@ final class TVAudioEngine {
         updateNowPlayingInfo()
     }
 
-    /// 非原生格式:用 SFBAudioEngine 解码播放已下载到本地的文件(AVPlayer 解不了的格式)。
+    /// 非原生格式:用 SFBAudioEngine 或 FFmpeg 解码播放已下载到本地的文件(AVPlayer 解不了的格式)。
     func loadDecoded(
         fileURL: URL,
+        decoder: TVLocalDecoder,
         title: String,
         artist: String,
         album: String,
@@ -775,11 +776,11 @@ final class TVAudioEngine {
         usingSFB = true
         startSFBPolling()
         do {
-            activeSFBGeneration = try sfb.play(url: fileURL)
+            activeSFBGeneration = try sfb.play(url: fileURL, decoder: decoder)
             if spectrumAnalysisEnabled { installSFBSpectrumTap() }
             isPlaying = true
             status = .playing
-            plog("📺 TV engine.loadDecoded(SFB) \(fileURL.lastPathComponent) dur=\(duration)")
+            plog("📺 TV engine.loadDecoded(\(decoder)) \(fileURL.lastPathComponent) dur=\(duration)")
         } catch {
             activeSFBGeneration = nil
             sfb.stop()

@@ -55,6 +55,21 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
         }
     }
 
+    /// Formats that go straight to FFmpeg instead of SFBAudioEngine. SFB has
+    /// no decoder for most of them (WMA, DTS, TrueHD, ATRAC, TAK, QOA); raw
+    /// ADTS AAC reports a short frame count through it, and its packed 24-bit
+    /// True Audio path crashes while releasing PCM buffers.
+    /// iOS, macOS and tvOS all route by this one list.
+    public var prefersFFmpegDecoder: Bool {
+        switch self {
+        case .aac, .dts, .ac3, .eac3, .mlp, .truehd, .amr, .atrac, .tak, .wma, .qoa, .tta:
+            return true
+        case .mp3, .m4a, .mp4, .m4v, .mov, .alac, .flac, .wav, .aiff, .aif, .au, .caf,
+             .ape, .dsf, .dff, .ogg, .opus, .wv, .mpc, .shn, .speex:
+            return false
+        }
+    }
+
     public var displayName: String {
         switch self {
         case .mp3: return "MP3"
