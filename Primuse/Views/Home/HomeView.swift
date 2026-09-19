@@ -208,23 +208,22 @@ private struct HomeSectionDragPreview: View {
     }
 }
 
-/// 首页翻面的转场。挂在滚动内容上，不能挂到 ScrollView 本身：它背后是 UIScrollView，
-/// 导航栏与滚动边缘效果要换算它的几何，挂过一版整页透视变换，切到电台时在布局提交里
-/// 抛异常闪退。也不做缩放：电台上千个时内容有十几万点高，以内容中心缩放会把可见区
-/// 推出内容几千点，翻进来的前半段是一片空白；只绕竖轴转不会上下挪动可见区。
+/// 首页翻面的转场：横向压成一条再展开，看起来像绕竖轴翻过去。
+///
+/// 挂在滚动内容上，不能挂到 ScrollView 本身：它背后是 UIScrollView，导航栏与滚动边缘
+/// 效果要换算它的几何，挂过一版整页透视变换，切到电台时在布局提交里抛异常闪退。
+/// 也不用 rotation3DEffect：透视按被变换内容的尺寸算，电台上千个时内容有十几万点高，
+/// 早已压成平面，看起来与横向压扁无异，却要系统对整块内容做 3D 合成、再反推可见区。
+/// 纵向不缩放，可见区才不会被推出内容。
 private struct HomeFaceFlipModifier: ViewModifier {
-    let angle: Double
+    /// 横向宽度比例，1 是正面。
+    let widthScale: CGFloat
     let opacity: Double
 
     func body(content: Content) -> some View {
         content
             .opacity(opacity)
-            .rotation3DEffect(
-                .degrees(angle),
-                axis: (x: 0, y: 1, z: 0),
-                anchor: .center,
-                perspective: 0.68
-            )
+            .scaleEffect(x: widthScale, y: 1, anchor: .center)
     }
 }
 
@@ -1402,15 +1401,9 @@ struct HomeView: View {
 
     private var homeFaceTransition: AnyTransition {
         guard !reduceMotion else { return .opacity }
-        return .asymmetric(
-            insertion: .modifier(
-                active: HomeFaceFlipModifier(angle: -78, opacity: 0),
-                identity: HomeFaceFlipModifier(angle: 0, opacity: 1)
-            ),
-            removal: .modifier(
-                active: HomeFaceFlipModifier(angle: 78, opacity: 0),
-                identity: HomeFaceFlipModifier(angle: 0, opacity: 1)
-            )
+        return .modifier(
+            active: HomeFaceFlipModifier(widthScale: 0.2, opacity: 0),
+            identity: HomeFaceFlipModifier(widthScale: 1, opacity: 1)
         )
     }
 
