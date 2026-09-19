@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import PrimuseKit
 import SFBAudioEngine
 
 struct EmbeddedMetadataEdits: Sendable, Equatable {
@@ -69,6 +70,25 @@ enum EmbeddedMetadataWriter {
         metadata.trackNumber = edits.trackNumber
         metadata.discNumber = edits.discNumber
 
+        // SFBAudioEngine 0.12.1 loads the MP4 grouping item (`©grp`) into
+        // `lyrics` and never into `grouping`. Saving that model replaces the
+        // file's embedded lyrics with the grouping text and deletes the
+        // grouping, so both are restored from the file's own atoms first.
+        var preservedITunesItems: ISOBaseMediaLyricsParser.StoredITunesTextItems?
+        if fileExtension == "m4a" {
+            let stored = ISOBaseMediaLyricsParser.storedITunesTextItems(
+                in: try Data(contentsOf: fileURL, options: .mappedIfSafe)
+            )
+            if let grouping = stored.grouping {
+                // Lyrics that cannot be read back cannot be restored either;
+                // leave the file untouched rather than overwrite them.
+                try require(!stored.hasUndecodableLyrics, field: "lyrics")
+                metadata.lyrics = stored.lyrics
+                metadata.grouping = grouping
+                preservedITunesItems = stored
+            }
+        }
+
         if let coverData = edits.coverData {
             if fileExtension == "m4a" {
                 // MP4 `covr` entries do not retain ID3/FLAC picture roles.
@@ -107,6 +127,12 @@ enum EmbeddedMetadataWriter {
         try require(verified.discNumber == edits.discNumber, field: "disc number")
         if let coverData = edits.coverData {
             try require(verified.coverData == coverData, field: "cover artwork")
+        }
+        if let preservedITunesItems {
+            let written = ISOBaseMediaLyricsParser.storedITunesTextItems(
+                in: try Data(contentsOf: fileURL, options: .mappedIfSafe)
+            )
+            try require(written.lyrics == preservedITunesItems.lyrics, field: "lyrics")
         }
         return verified
     }

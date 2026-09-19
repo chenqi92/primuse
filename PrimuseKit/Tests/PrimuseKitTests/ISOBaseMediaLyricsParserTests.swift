@@ -113,6 +113,79 @@ struct ISOBaseMediaLyricsParserTests {
         #expect(payload?.languageTaggedTranslations == ["zh-Hans": "中文译文"])
     }
 
+    @Test("Reads the grouping item separately from the lyrics item")
+    func storedGroupingAndLyrics() {
+        let lyrics = "[00:00.00]First line"
+        let items = atom(
+            type: Data([0xA9, 0x67, 0x72, 0x70]),
+            payload: dataAtom(Data("Symphony No. 5".utf8))
+        ) + atom(
+            type: Data([0xA9, 0x6C, 0x79, 0x72]),
+            payload: dataAtom(Data(lyrics.utf8))
+        )
+
+        let stored = ISOBaseMediaLyricsParser.storedITunesTextItems(in: mediaFile(items: items))
+        #expect(stored.lyrics == lyrics)
+        #expect(stored.grouping == "Symphony No. 5")
+        #expect(!stored.hasUndecodableLyrics)
+    }
+
+    @Test("A grouping item alone is never reported as lyrics")
+    func storedGroupingWithoutLyrics() {
+        let item = atom(
+            type: Data([0xA9, 0x67, 0x72, 0x70]),
+            payload: dataAtom(Data("Live".utf8))
+        )
+        let file = mediaFile(items: item)
+
+        let stored = ISOBaseMediaLyricsParser.storedITunesTextItems(in: file)
+        #expect(stored.lyrics == nil)
+        #expect(stored.grouping == "Live")
+        #expect(!stored.hasUndecodableLyrics)
+        #expect(ISOBaseMediaLyricsParser.lyrics(in: file) == nil)
+    }
+
+    @Test("Freeform lyrics do not stand in for the iTunes lyrics item")
+    func storedItemsIgnoreFreeformLyrics() {
+        let items = atom(
+            "----",
+            payload: fullBoxTextAtom("mean", value: "com.apple.iTunes")
+                + fullBoxTextAtom("name", value: "LYRICS")
+                + dataAtom(Data("Freeform lyrics".utf8))
+        )
+
+        let stored = ISOBaseMediaLyricsParser.storedITunesTextItems(in: mediaFile(items: items))
+        #expect(stored == ISOBaseMediaLyricsParser.StoredITunesTextItems())
+    }
+
+    @Test("Flags a lyrics item whose data cannot be decoded")
+    func storedItemsFlagUndecodableLyrics() {
+        let items = atom(
+            type: Data([0xA9, 0x67, 0x72, 0x70]),
+            payload: dataAtom(Data("Live".utf8))
+        ) + atom(
+            type: Data([0xA9, 0x6C, 0x79, 0x72]),
+            payload: dataAtom(Data([0x01, 0x02, 0x03]), declaredType: 21)
+        )
+
+        let stored = ISOBaseMediaLyricsParser.storedITunesTextItems(in: mediaFile(items: items))
+        #expect(stored.lyrics == nil)
+        #expect(stored.grouping == "Live")
+        #expect(stored.hasUndecodableLyrics)
+    }
+
+    @Test("Files without iTunes metadata report nothing stored")
+    func storedItemsInEmptyFile() {
+        #expect(
+            ISOBaseMediaLyricsParser.storedITunesTextItems(in: Data())
+                == ISOBaseMediaLyricsParser.StoredITunesTextItems()
+        )
+        #expect(
+            ISOBaseMediaLyricsParser.storedITunesTextItems(in: Data([0, 0, 0, 1, 0x6D]))
+                == ISOBaseMediaLyricsParser.StoredITunesTextItems()
+        )
+    }
+
     @Test("Ignores unrelated and malformed metadata items")
     func rejectsInvalidMetadata() {
         let unrelated = metadataAtom(
