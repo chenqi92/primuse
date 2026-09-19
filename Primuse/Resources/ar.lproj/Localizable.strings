@@ -4095,3 +4095,5 @@
 "audio_station_error_api_not_found_format" = "لا يوفّر Audio Station واجهة مطلوبة (الخطأ %d).";
 "audio_station_error_server_format" = "أعاد Audio Station خطأً (الرمز %d).";
 "audio_station_error_two_factor_required" = "يستخدم هذا الحساب التحقق بخطوتين. سجّل الدخول إلى مصدر Audio Station هذا مرة أخرى وأدخل رمز التحقق.";
+"audio_station_radio_folder_favorite" = "المفضلة";
+"audio_station_radio_folder_user_defined" = "محطات راديو مخصصة";

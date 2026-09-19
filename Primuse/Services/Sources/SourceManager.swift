@@ -2224,7 +2224,7 @@ private struct RoutedSongloftConnector: RoutedConnectorProxy, RefreshingMetadata
 /// 那项功能就会在「内网 + QuickConnect」这种配置下静默失效 —— 与
 /// `SynologyAudioStationSource` 遵循的协议逐一对应。
 private struct RoutedSynologyAudioStationConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
-    ServerLyricsConnector, ServerPlaylistConnector, ServerRatingConnector {
+    ServerLyricsConnector, ServerPlaylistConnector, ServerRatingConnector, ServerRadioConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -2262,6 +2262,13 @@ private struct RoutedSynologyAudioStationConnector: RoutedConnectorProxy, Refres
                 throw SourceError.connectionFailed("Server playlist connector unavailable")
             }
             return try await provider.fetchServerPlaylists()
+        }
+    }
+
+    func fetchServerRadioStations() async throws -> ServerRadioStationSnapshot? {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerRadioConnector else { return nil }
+            return try await provider.fetchServerRadioStations()
         }
     }
 

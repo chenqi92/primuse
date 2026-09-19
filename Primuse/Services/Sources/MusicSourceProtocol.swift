@@ -1907,6 +1907,8 @@ struct ServerRadioStation: Sendable {
     let sourcePlaybackPath: String?
     let streamFormat: RadioStreamFormat
     let bitRate: Int?
+    /// 服务端自己给这个台分的文件夹(如 Audio Station 的「我的最爱」),见 `ServerRadioFolderPolicy`。
+    let serverFolderName: String?
 
     init(
         id: String,
@@ -1916,7 +1918,8 @@ struct ServerRadioStation: Sendable {
         coverArtReference: String? = nil,
         sourcePlaybackPath: String? = nil,
         streamFormat: RadioStreamFormat = .automatic,
-        bitRate: Int? = nil
+        bitRate: Int? = nil,
+        serverFolderName: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -1926,6 +1929,7 @@ struct ServerRadioStation: Sendable {
         self.sourcePlaybackPath = sourcePlaybackPath
         self.streamFormat = streamFormat
         self.bitRate = bitRate
+        self.serverFolderName = serverFolderName
     }
 }
 
@@ -1935,10 +1939,18 @@ struct ServerRadioStation: Sendable {
 struct ServerRadioStationSnapshot: Sendable {
     let stations: [ServerRadioStation]
     let failedStationIDs: Set<String>
+    /// 服务端全部的文件夹,包括这次没有台的:台在服务端换了文件夹时,据此认出
+    /// 镜像原来那个文件夹是同步给的、可以跟着换。
+    let serverFolderNames: [String]
 
-    init(stations: [ServerRadioStation], failedStationIDs: Set<String> = []) {
+    init(
+        stations: [ServerRadioStation],
+        failedStationIDs: Set<String> = [],
+        serverFolderNames: [String] = []
+    ) {
         self.stations = stations
         self.failedStationIDs = failedStationIDs
+        self.serverFolderNames = serverFolderNames
     }
 }
 

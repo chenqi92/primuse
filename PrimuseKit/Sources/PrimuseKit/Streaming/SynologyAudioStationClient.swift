@@ -462,6 +462,33 @@ public actor SynologyAudioStationClient {
         guard !SynologyAudioStationAPI.isSmartPlaylistID(id) else { throw SynologyAudioStationError.operationNotPermitted }
     }
 
+    // MARK: - 电台
+
+    /// 一个电台容器里的全部条目,按服务端顺序。总数对不上就整体失败,调用方不能据此删镜像。
+    public func radios(
+        in container: SynologyAudioStationRadioContainer,
+        pageSize: Int = SynologyAudioStationAPI.pageSize
+    ) async throws -> [SynologyAudioStationRadio] {
+        guard pageSize > 0 else { throw SynologyAudioStationError.invalidResponse }
+        var values: [SynologyAudioStationRadio] = []
+        var expectedTotal: Int?
+        while true {
+            try Task.checkCancellation()
+            let page: SynologyAudioStationRadioPage = try await perform(
+                SynologyAudioStationAPI.radioListCall(container: container, offset: values.count, limit: pageSize)
+            )
+            guard page.total >= 0, page.offset == nil || page.offset == values.count,
+                  expectedTotal == nil || expectedTotal == page.total,
+                  page.radios.count <= page.total - values.count else {
+                throw SynologyAudioStationError.invalidResponse
+            }
+            expectedTotal = page.total
+            values.append(contentsOf: page.radios)
+            if values.count == page.total { return values }
+            guard page.radios.count == pageSize else { throw SynologyAudioStationError.invalidResponse }
+        }
+    }
+
     // MARK: - 评分与歌词
 
     /// nil 表示没评分(服务端的 0)。
@@ -707,5 +734,54 @@ extension SynologyAudioStationClient {
             playlists: { try await self.playlists() },
             trackIDs: { try await self.playlistTrackIDs(id: $0) }
         )
+    }
+
+    public func radioMirrors() async throws -> [SynologyAudioStationRadioMirror] {
+        try await SynologyAudioStationRadioMirror.collect(radios: { try await self.radios(in: $0) })
+    }
+}
+
+// MARK: - 电台镜像
+
+/// 用户在 Audio Station 电台页收藏或自己添加的一个台。
+public struct SynologyAudioStationRadioMirror: Equatable, Sendable {
+    /// 由 NAS 上存的地址派生:服务端 id 里带着名字,改名就会变。
+    public let id: String
+    public let name: String
+    /// NAS 上存的地址,可能是 `.pls` 包装,由调用方决定怎么拆。
+    public let url: String
+    public let container: SynologyAudioStationRadioContainer
+
+    public static func mirrorID(forStationURL url: String) -> String? {
+        guard let key = RadioImportParser.streamIdentityKey(url) else { return nil }
+        let digest = SHA256.hash(data: Data(key.utf8))
+        return "as-" + digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// 按「我的最爱」「自己添加的」顺序收集;同一个地址在两边都有时只留第一次出现的。
+    /// 子目录、没有可用地址的条目跳过。任何一个容器取不到就整体失败 —— 残缺的
+    /// 列表会让另一个容器的台被当成服务端已删。
+    public static func collect(
+        radios: @Sendable (SynologyAudioStationRadioContainer) async throws -> [SynologyAudioStationRadio]
+    ) async throws -> [SynologyAudioStationRadioMirror] {
+        var mirrors: [SynologyAudioStationRadioMirror] = []
+        var seen: Set<String> = []
+        for container in SynologyAudioStationRadioContainer.allCases {
+            for radio in try await radios(container) {
+                try Task.checkCancellation()
+                guard !radio.isContainer,
+                      let url = radio.url.flatMap(RadioStationValidation.normalizedURLString),
+                      let id = mirrorID(forStationURL: url),
+                      seen.insert(id).inserted else { continue }
+                let title = RadioStationValidation.normalizedName(radio.title ?? "")
+                mirrors.append(SynologyAudioStationRadioMirror(
+                    id: id,
+                    name: title.isEmpty ? RadioImportParser.suggestedName(for: url) : title,
+                    url: url,
+                    container: container
+                ))
+            }
+        }
+        return mirrors
     }
 }

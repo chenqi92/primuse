@@ -237,6 +237,34 @@ public enum RadioImportParser {
         return host + port + path + query
     }
 
+    // MARK: - 播放列表包装
+
+    /// `.pls` / `.m3u` 地址指向的是一份写着真实流地址的小清单(SHOUTcast 目录的
+    /// `tunein-station.pls?id=` 就是这种),播放器不认,要先取回来拆开。`.m3u8` 是 HLS,
+    /// 本身就能播,不算包装。
+    public static func isPlaylistWrapper(_ urlString: String) -> Bool {
+        guard let url = URL(string: urlString) else { return false }
+        return ["pls", "m3u"].contains(url.pathExtension.lowercased())
+    }
+
+    /// 取包装清单时依次尝试的地址:明文地址先试一次 https。清单是公开内容,升级不泄露
+    /// 什么;而明文主机要用户单独信任过才能访问,后台同步时没法去问。
+    public static func wrapperFetchURLs(_ urlString: String) -> [String] {
+        guard let normalized = RadioStationValidation.normalizedURLString(urlString),
+              var components = URLComponents(string: normalized) else { return [] }
+        guard components.scheme?.lowercased() == "http" else { return [normalized] }
+        components.scheme = "https"
+        // 显式写了 80 端口的,换到 https 就不能还连 80。
+        if components.port == 80 { components.port = nil }
+        guard let upgraded = components.string else { return [normalized] }
+        return [upgraded, normalized]
+    }
+
+    /// 拆开后的第一条可播地址;清单里嵌套的包装不算。
+    public static func firstStreamURL(inWrapper text: String) -> String? {
+        parse(text).first { $0.status == .playable && !isPlaylistWrapper($0.urlString) }?.urlString
+    }
+
     // MARK: - 各格式解析
 
     private static func parsePlainText(_ text: String) -> [Entry] {

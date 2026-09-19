@@ -4189,3 +4189,5 @@
 "audio_station_error_api_not_found_format" = "Audio Station stellt eine benötigte Schnittstelle nicht bereit (Fehler %d).";
 "audio_station_error_server_format" = "Audio Station hat einen Fehler gemeldet (Code %d).";
 "audio_station_error_two_factor_required" = "Dieses Konto verwendet die Zwei-Faktor-Authentifizierung. Melde dich bei dieser Audio-Station-Quelle erneut an und gib einen Bestätigungscode ein.";
+"audio_station_radio_folder_favorite" = "Meine Favoriten";
+"audio_station_radio_folder_user_defined" = "Eigene Radiosender";

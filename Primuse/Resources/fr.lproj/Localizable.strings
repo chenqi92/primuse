@@ -4189,3 +4189,5 @@
 "audio_station_error_api_not_found_format" = "Audio Station ne fournit pas une interface nécessaire (erreur %d).";
 "audio_station_error_server_format" = "Audio Station a renvoyé une erreur (code %d).";
 "audio_station_error_two_factor_required" = "Ce compte utilise l’authentification à deux facteurs. Reconnectez-vous à cette source Audio Station et saisissez un code de vérification.";
+"audio_station_radio_folder_favorite" = "Mes favoris";
+"audio_station_radio_folder_user_defined" = "Radios personnalisées";

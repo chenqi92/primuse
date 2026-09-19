@@ -3967,3 +3967,5 @@
 "audio_station_error_api_not_found_format" = "Audio Station doesn't provide a required interface (error %d).";
 "audio_station_error_server_format" = "Audio Station returned an error (code %d).";
 "audio_station_error_two_factor_required" = "This account uses two-factor authentication. Sign in to this Audio Station source again and enter a verification code.";
+"audio_station_radio_folder_favorite" = "My Favorites";
+"audio_station_radio_folder_user_defined" = "User-defined Radio";

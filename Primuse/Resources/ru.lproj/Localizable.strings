@@ -4095,3 +4095,5 @@
 "audio_station_error_api_not_found_format" = "В Audio Station нет нужного интерфейса (ошибка %d).";
 "audio_station_error_server_format" = "Audio Station вернул ошибку (код %d).";
 "audio_station_error_two_factor_required" = "Для этой учётной записи включена двухэтапная проверка. Войдите в этот источник Audio Station снова и введите код подтверждения.";
+"audio_station_radio_folder_favorite" = "Избранное";
+"audio_station_radio_folder_user_defined" = "Свои радиостанции";

@@ -377,4 +377,48 @@ struct RadioImportParserTests {
         #expect(candidates[0].name == "Artist - Title, Live")
     }
 
+    // MARK: - 播放列表包装
+
+    @Test("Only .pls and .m3u links are wrappers; HLS and direct streams are playable as is")
+    func playlistWrapperDetection() {
+        #expect(RadioImportParser.isPlaylistWrapper("http://yp.shoutcast.com/sbin/tunein-station.pls?id=1477271"))
+        #expect(RadioImportParser.isPlaylistWrapper("https://example.com/listen.M3U"))
+        #expect(!RadioImportParser.isPlaylistWrapper("https://example.com/live/index.m3u8"))
+        #expect(!RadioImportParser.isPlaylistWrapper("http://216.235.84.3:80/2585_128.mp3"))
+        #expect(!RadioImportParser.isPlaylistWrapper("http://46.105.100.126:8000/stream"))
+    }
+
+    @Test("Cleartext wrappers are tried over https first")
+    func wrapperFetchOrder() {
+        #expect(RadioImportParser.wrapperFetchURLs("http://yp.shoutcast.com/sbin/tunein-station.pls?id=1") == [
+            "https://yp.shoutcast.com/sbin/tunein-station.pls?id=1",
+            "http://yp.shoutcast.com/sbin/tunein-station.pls?id=1",
+        ])
+        #expect(RadioImportParser.wrapperFetchURLs("http://e.test:80/a.pls") == [
+            "https://e.test/a.pls",
+            "http://e.test:80/a.pls",
+        ])
+        #expect(RadioImportParser.wrapperFetchURLs("https://e.test/a.pls") == ["https://e.test/a.pls"])
+        #expect(RadioImportParser.wrapperFetchURLs("ftp://e.test/a.pls").isEmpty)
+    }
+
+    @Test("A SHOUTcast tune-in playlist unwraps to its first stream")
+    func unwrapsShoutcastPLS() {
+        // yp.shoutcast.com 的真实响应。
+        let text = """
+        [playlist]
+        numberofentries=2
+        File1=http://216.235.84.3:80/2585_128.mp3
+        Title1=(#1 - 145/10000) SmoothJazz.com Global
+        Length1=-1
+        File2=http://66.85.89.30:80/2585_128.mp3
+        Title2=(#2 - 155/10000) SmoothJazz.com Global
+        Length2=-1
+        Version=2
+        """
+        #expect(RadioImportParser.firstStreamURL(inWrapper: text) == "http://216.235.84.3:80/2585_128.mp3")
+        #expect(RadioImportParser.firstStreamURL(inWrapper: "#EXTM3U\nhttps://e.test/inner.pls\nhttps://e.test/live") == "https://e.test/live")
+        #expect(RadioImportParser.firstStreamURL(inWrapper: "<html>Not found</html>") == nil)
+    }
+
 }

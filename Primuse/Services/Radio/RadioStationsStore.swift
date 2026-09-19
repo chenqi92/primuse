@@ -632,6 +632,8 @@ final class RadioStationsStore {
             },
             failedServerStationIDs: snapshot.failedStationIDs
         )
+        let syncManagedFolderNames = (snapshot.serverFolderNames + snapshot.stations.compactMap(\.serverFolderName))
+            .compactMap { ServerRadioFolderPolicy.folderName(sourceName: source.name, serverFolderName: $0) }
         var changedIDs: [String] = []
         var seenServerIDs = Set<String>()
         var nextSortOrder: Int? = allStations.contains(where: {
@@ -684,9 +686,18 @@ final class RadioStationsStore {
                 sourceName: source.name,
                 sourcePlaybackPath: normalizedPlaybackPath,
                 homepageURL: normalizedHTTPURLString(serverStation.homepageURL),
-                // 文件夹和标签是用户在本地整理出来的，服务器不知道也管不着 ——
-                // 每次对账都得原样带回去，否则一刷新就被清空。
-                folderName: existing?.folderName,
+                // 文件夹和标签是用户在本地整理出来的，每次对账都得原样带回去，
+                // 否则一刷新就被清空。服务端自己分了文件夹的，新镜像放进对应文件夹，
+                // 用户没挪过的跟着服务端换。
+                folderName: ServerRadioFolderPolicy.reconciledFolderName(
+                    current: existing?.folderName,
+                    isNewMirror: existing == nil,
+                    assigned: ServerRadioFolderPolicy.folderName(
+                        sourceName: source.name,
+                        serverFolderName: serverStation.serverFolderName
+                    ),
+                    syncManagedFolderNames: syncManagedFolderNames
+                ),
                 tagNames: existing?.tagNames
             )
             if existing == nil, nextSortOrder != nil {

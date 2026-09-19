@@ -4095,3 +4095,5 @@
 "audio_station_error_api_not_found_format" = "Audio Station gerekli bir arayüzü sağlamıyor (hata %d).";
 "audio_station_error_server_format" = "Audio Station bir hata döndürdü (kod %d).";
 "audio_station_error_two_factor_required" = "Bu hesap iki adımlı doğrulama kullanıyor. Bu Audio Station kaynağında yeniden oturum açın ve bir doğrulama kodu girin.";
+"audio_station_radio_folder_favorite" = "Favorilerim";
+"audio_station_radio_folder_user_defined" = "Kullanıcı tanımlı radyolar";

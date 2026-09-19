@@ -4190,3 +4190,5 @@
 "audio_station_error_api_not_found_format" = "Audio Station に必要なインターフェイスがありません（エラー %d）。";
 "audio_station_error_server_format" = "Audio Station がエラーを返しました（コード %d）。";
 "audio_station_error_two_factor_required" = "このアカウントは 2 段階認証を使用しています。この Audio Station ソースに再ログインして確認コードを入力してください。";
+"audio_station_radio_folder_favorite" = "お気に入り";
+"audio_station_radio_folder_user_defined" = "ユーザー定義のラジオ";
