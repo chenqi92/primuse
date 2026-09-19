@@ -487,6 +487,8 @@ final class RadioStationsStore {
             guard allStations[index].modifiedAt <= normalized.modifiedAt else { return nil }
             var merged = normalized
             merged.lastPlayedAt = allStations[index].lastPlayedAt
+            // 拉回来的与本机完全相同(全量重拉时的常态)就不算改动, 不写盘。
+            guard merged != allStations[index] else { return nil }
             allStations[index] = merged
         } else {
             // 本地没有这条时，普通墓碑照旧不收；订阅的排除标记要收下 —— 它得一直

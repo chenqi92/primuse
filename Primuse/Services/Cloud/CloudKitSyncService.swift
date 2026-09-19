@@ -1505,15 +1505,32 @@ final class CloudKitSyncService {
     private func preparePersistedStateForSupportedSourceTypes() {
         let defaults = UserDefaults.standard
         let currentFingerprint = CloudSourceTypeCompatibilityPolicy.currentFingerprint
+        let storedFingerprint = defaults.string(forKey: Self.sourceTypeFingerprintKey)
         let action = CloudSourceTypeCompatibilityPolicy.action(
-            storedFingerprint: defaults.string(forKey: Self.sourceTypeFingerprintKey),
+            storedFingerprint: storedFingerprint,
             currentFingerprint: currentFingerprint
         )
-        guard action == .resetAndRefetch else { return }
+        guard action == .resetAndRefetch else {
+            // 只少了类型时游标照旧可用, 但要记下现在的集合: 以后把少掉的类型加回来,
+            // 这台设备在这期间确实可能跳过过它们, 那时仍要重拉。
+            if storedFingerprint != currentFingerprint {
+                defaults.set(currentFingerprint, forKey: Self.sourceTypeFingerprintKey)
+            }
+            return
+        }
+
+        // 全新安装没有旧游标可丢, 本来就会从头拉取并做首次上传, 只记下指纹。
+        // 真正要重置的是带着旧游标升级上来的设备(包括从备份恢复的)。
+        let existingStateURLs = [stateURL, sharedStateURL].filter {
+            FileManager.default.fileExists(atPath: $0.path)
+        }
+        guard !existingStateURLs.isEmpty else {
+            defaults.set(currentFingerprint, forKey: Self.sourceTypeFingerprintKey)
+            return
+        }
 
         do {
-            for url in [stateURL, sharedStateURL]
-                where FileManager.default.fileExists(atPath: url.path) {
+            for url in existingStateURLs {
                 try FileManager.default.removeItem(at: url)
             }
         } catch {
@@ -1847,6 +1864,42 @@ final class CloudKitSyncService {
                 syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(record.recordID)])
             }
         }
+
+        // 合并之后本地要推的内容若已与服务器相同(典型是源类型指纹重置后整份重排的
+        // 那些), 推上去只会让其它设备把它再逐条收一遍, 撤掉。
+        dropPendingSaveIfServerMatches(record, syncEngine: syncEngine)
+    }
+
+    /// 本地这条待传记录与服务器上的已逐字段相同就撤掉待传。
+    private func dropPendingSaveIfServerMatches(_ server: CKRecord, syncEngine: CKSyncEngine) {
+        guard let rebuilt = makeRecord(for: server.recordID),
+              Self.recordFieldsMatch(rebuilt, server) else { return }
+        syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(server.recordID)])
+    }
+
+    /// 只比本地会写入或清空的字段, 忽略每次构造都会刷新的 `updatedAt`;
+    /// 带附件或任何一处不同都算不相同, 保留待传, 行为与原来一致。
+    nonisolated static func recordFieldsMatch(_ local: CKRecord, _ server: CKRecord) -> Bool {
+        let keys = Set(local.allKeys())
+            .union(local.changedKeys())
+            .subtracting(["updatedAt"])
+        guard !keys.isEmpty else { return false }
+        for key in keys {
+            let localValue = local[key]
+            let serverValue = server[key]
+            if localValue is CKAsset || serverValue is CKAsset { return false }
+            switch (localValue, serverValue) {
+            case (nil, nil):
+                continue
+            case let (lhs?, rhs?):
+                guard let lhsObject = lhs as? NSObject,
+                      let rhsObject = rhs as? NSObject,
+                      lhsObject.isEqual(rhsObject) else { return false }
+            default:
+                return false
+            }
+        }
+        return true
     }
 
     fileprivate func applyRemoteDeletion(

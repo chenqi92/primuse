@@ -7499,7 +7499,11 @@ final class MusicLibrary {
                 local: allPlaylists[index],
                 remote: playlist
             ) == .local {
-                return true
+                // 同一次写入不回推(见 `isEquivalent`); 只有本地确实更新才让调用方重申。
+                return !PlaylistReconciliationPolicy.isEquivalent(
+                    local: allPlaylists[index],
+                    remote: playlist
+                )
             }
             allPlaylists[index] = playlist
         } else {
@@ -7544,6 +7548,9 @@ final class MusicLibrary {
                 additionalIdentities: additionalIdentities
             )
         }) { return false }
+        let previousPlaylist = allPlaylists.first { $0.id == playlist.id }
+        let previousSongIDs = playlistSongIDs[playlist.id]
+        let previousPending = pendingPlaylistIdentities[playlist.id]
         var localWon = false
         var reconciled = playlist
         if let index = allPlaylists.firstIndex(where: { $0.id == playlist.id }) {
@@ -7570,6 +7577,14 @@ final class MusicLibrary {
             pendingPlaylistIdentities[reconciled.id] = nil
         }
 
+        // 合并前后完全一样(典型是源类型指纹重置后本机重排、又原样拉回来的那些)
+        // 就不再落盘: 每次都是整库快照, 一次全量拉取会被拖成几十次整库重写。
+        if allPlaylists.first(where: { $0.id == reconciled.id }) == previousPlaylist,
+           playlistSongIDs[reconciled.id] == previousSongIDs,
+           pendingPlaylistIdentities[reconciled.id] == previousPending {
+            return localWon
+        }
+
         sortPlaylists()
         scheduleRemotePlaylistDurabilityLedgerWrite()
         persistSnapshot()
@@ -7589,6 +7604,8 @@ final class MusicLibrary {
         if deferringUntilReady({ [weak self] in
             self?.applyRemotePlaybackHistory(songIDs: songIDs, identities: identities)
         }) { return }
+        let previousSongIDs = recentPlaybackSongIDs
+        let previousPending = pendingHistoryIdentities
         if let identities, !identities.isEmpty {
             let (resolved, unresolved) = resolveIdentitiesPartitioned(identities)
             recentPlaybackSongIDs = Array(resolved.prefix(100))
@@ -7596,6 +7613,9 @@ final class MusicLibrary {
         } else {
             recentPlaybackSongIDs = Array(songIDs.prefix(100))
         }
+        // 拉回来的就是本机已有的那份时不必再整库落盘。
+        guard recentPlaybackSongIDs != previousSongIDs
+            || pendingHistoryIdentities != previousPending else { return }
         persistSnapshot()
     }
 
