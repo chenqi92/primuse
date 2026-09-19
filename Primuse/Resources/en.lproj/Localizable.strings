@@ -380,7 +380,7 @@
 "crossfade_mode_fixed" = "Fixed";
 "crossfade_mode_smart" = "Smart";
 "crossfade_max_duration" = "Maximum Transition Duration";
-"crossfade_footer" = "Songs blend only when one plays through to its end; skipping manually switches straight over. A next song that isn't on this device or cached yet also starts without a fade. Can't be used together with gapless playback.";
+"crossfade_footer" = "Songs blend over the duration above when one plays through to its end; skipping to the next or previous song uses a short fade of about a second. A song that isn't on this device or cached yet starts without a fade. Can't be used together with gapless playback.";
 "skip_leading_silence" = "Skip leading silence";
 "skip_trailing_silence" = "Skip trailing silence";
 "silence_skipping_desc" = "Smart transitions analyze audible boundaries automatically. These switches also skip boundary silence during ordinary playback. High Fidelity mode leaves audio boundaries unchanged.";

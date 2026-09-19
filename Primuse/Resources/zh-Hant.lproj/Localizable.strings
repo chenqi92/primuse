@@ -368,7 +368,7 @@
 "crossfade_mode_fixed" = "固定";
 "crossfade_mode_smart" = "智慧";
 "crossfade_max_duration" = "最長轉場時長";
-"crossfade_footer" = "只在歌曲自然播完時過渡，手動切歌不會觸發。下一首尚未快取到本機時會直接切換。無法與無縫播放同時開啟。";
+"crossfade_footer" = "歌曲自然播完時依上方的時長過渡；手動切到上一首、下一首時使用約 1 秒的短過渡。要播放的歌曲尚未快取到本機時會直接切換。無法與無縫播放同時開啟。";
 "skip_leading_silence" = "略過開頭靜音";
 "skip_trailing_silence" = "略過結尾靜音";
 "silence_skipping_desc" = "智慧轉場會自動分析可聽邊界；這些開關也會在一般播放時略過首尾靜音。高傳真模式不會修改音訊邊界。";

@@ -1778,7 +1778,7 @@
 "cloud_err_token_save_failed" = "Yetkilendirme jetonu kaydedilemedi";
 "tag_editor_lyrics_empty_error" = "Mevcut şarkı sözlerinin kaldırılıp kaldırılmayacağını onaylayın.";
 "crossfade_max_duration" = "Maksimum Geçiş Süresi";
-"crossfade_footer" = "Çapraz solma yalnızca bir parça sonuna kadar çaldığında uygulanır; parçayı elle değiştirdiğinizde doğrudan geçilir. Sonraki parça henüz bu aygıtta veya önbellekte değilse o da solma olmadan başlar. Boşluksuz oynatmayla birlikte kullanılamaz.";
+"crossfade_footer" = "Bir parça sonuna kadar çaldığında çapraz solma yukarıda ayarlanan süre kadar sürer; sonraki veya önceki parçaya elle geçtiğinizde yaklaşık bir saniyelik kısa bir solma uygulanır. Parça henüz bu aygıtta veya önbellekte değilse solma olmadan başlar. Boşluksuz oynatmayla birlikte kullanılamaz.";
 "ST-09 · Includes Connection Credentials" = "ST-09 · Bağlantı Kimlik Bilgilerini İçerir";
 "offline_download" = "İndir";
 "theme_color_indigo" = "İndigo";

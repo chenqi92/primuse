@@ -1053,7 +1053,7 @@
 "crossfade_desc" = "Combina suavemente el final de una pista con el comienzo de la siguiente.";
 "crossfade_duration" = "Duración del fundido cruzado";
 "crossfade_max_duration" = "Duración máxima de la transición";
-"crossfade_footer" = "El fundido solo se aplica cuando una canción se reproduce hasta el final; al cambiar manualmente se pasa directo a la siguiente. Si la siguiente canción aún no está en este dispositivo o en caché, también empieza sin fundido. No se puede usar junto con la reproducción sin pausas.";
+"crossfade_footer" = "Cuando una canción se reproduce hasta el final, el fundido dura el tiempo configurado arriba; al pasar manualmente a la canción siguiente o anterior se aplica un fundido corto de aproximadamente un segundo. Si la canción aún no está en este dispositivo o en caché, empieza sin fundido. No se puede usar junto con la reproducción sin pausas.";
 "crossfade_mode" = "Modo de transición";
 "crossfade_mode_fixed" = "Fijo";
 "crossfade_mode_smart" = "Inteligente";

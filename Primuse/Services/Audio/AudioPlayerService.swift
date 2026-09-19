@@ -929,6 +929,23 @@ final class AudioPlayerService {
         case activePlayback
         case preserveCachedProgress
     }
+    /// Which queue neighbour a crossfade attempt is heading for. The automatic
+    /// boundary follows repeat and shuffle exactly like track end; a manual
+    /// skip uses the traversal of the hard-cut `next()` / `previous()`, so the
+    /// blended skip and the cut always land on the same song.
+    enum CrossfadeSuccessorRule: Equatable {
+        case automatic
+        case manualNext
+        case manualPrevious
+    }
+    /// A manual skip whose neighbour is still being prepared. Until it commits
+    /// the queue position has not moved, so a second skip has to account for
+    /// this one before it looks for its own neighbour.
+    struct PendingManualSkipCrossfade {
+        let attemptID: UUID
+        let target: QueueTraversalTarget
+        let queueGeneration: Int
+    }
     var activeDecoderKind: DecoderKind = .native
     var activeDSDPlaybackMode: DSDPlaybackMode = .pcm
     /// 当前这首歌的取流计划。一次播放内固定不变, 换歌时由 `playFromURL`
@@ -1007,6 +1024,11 @@ final class AudioPlayerService {
     var crossfadeStartupTask: Task<Void, Never>?
     var crossfadeDecodingTask: Task<Void, Never>?
     var crossfadeAttemptID: UUID?
+    @ObservationIgnored var pendingManualSkipCrossfade: PendingManualSkipCrossfade?
+    /// Marks left by the two funnels every `startCrossfade` exit passes
+    /// through; `ManualSkipCrossfadePolicy.outcome` reads them back.
+    @ObservationIgnored var lastCommittedCrossfadeAttemptID: UUID?
+    @ObservationIgnored var lastFailedCrossfadeAttemptID: UUID?
     var committedCrossfade: CommittedCrossfade? {
         didSet { syncPumpLease() }
     }

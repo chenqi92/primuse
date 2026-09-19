@@ -446,3 +446,90 @@ public enum SmartTransitionPolicy {
         return min(requestedOverlap, max(safeMinimum, playableEndpoint - currentTime))
     }
 }
+
+/// A user skip while crossfade is on. Cutting the audible song off mid-phrase
+/// is the one moment a listener is guaranteed to notice the feature is absent,
+/// so the neighbouring song is brought in on the second player node and a
+/// short ramp runs through the same commit and swap as the automatic boundary.
+public enum ManualSkipCrossfadePolicy {
+    /// Long enough to read as a blend, short enough that the skip still feels
+    /// immediate. Deliberately independent of the automatic overlap setting: a
+    /// twelve-second fade after pressing Next would feel like a stuck button.
+    public static let overlapDuration: TimeInterval = 1.0
+
+    /// The outgoing song keeps playing while the neighbour is prepared, so the
+    /// preparation has to be near-instant. Anything slower falls back to the
+    /// ordinary cut, which at least switches the visible song right away.
+    public static let preparationTimeout: TimeInterval = 2
+
+    public struct Conditions: Equatable, Sendable {
+        /// Effects output with crossfade switched on.
+        public var crossfadeIsEnabled: Bool
+        /// The local engine is rendering the current song right now: not
+        /// paused, not loading, and not Apple Music, radio, casting or video.
+        public var localEngineIsRendering: Bool
+        /// An automatic or earlier manual attempt already owns the second node.
+        public var hasActiveCrossfadeAttempt: Bool
+        /// A seek, recovery or bounded download is still reshaping the
+        /// current transport; a second moving part would race it.
+        public var hasPendingTransportWork: Bool
+        public var neighbourIsCurrentSong: Bool
+        /// Music-video playback owns that song's presentation.
+        public var neighbourBypassesContinuousAudio: Bool
+        /// A complete file is on this device, so no network sits between the
+        /// tap and the first decoded buffer.
+        public var neighbourHasLocalAudio: Bool
+
+        public init(
+            crossfadeIsEnabled: Bool,
+            localEngineIsRendering: Bool,
+            hasActiveCrossfadeAttempt: Bool,
+            hasPendingTransportWork: Bool,
+            neighbourIsCurrentSong: Bool,
+            neighbourBypassesContinuousAudio: Bool,
+            neighbourHasLocalAudio: Bool
+        ) {
+            self.crossfadeIsEnabled = crossfadeIsEnabled
+            self.localEngineIsRendering = localEngineIsRendering
+            self.hasActiveCrossfadeAttempt = hasActiveCrossfadeAttempt
+            self.hasPendingTransportWork = hasPendingTransportWork
+            self.neighbourIsCurrentSong = neighbourIsCurrentSong
+            self.neighbourBypassesContinuousAudio = neighbourBypassesContinuousAudio
+            self.neighbourHasLocalAudio = neighbourHasLocalAudio
+        }
+    }
+
+    public static func isEligible(_ conditions: Conditions) -> Bool {
+        conditions.crossfadeIsEnabled
+            && conditions.localEngineIsRendering
+            && !conditions.hasActiveCrossfadeAttempt
+            && !conditions.hasPendingTransportWork
+            && !conditions.neighbourIsCurrentSong
+            && !conditions.neighbourBypassesContinuousAudio
+            && conditions.neighbourHasLocalAudio
+    }
+
+    public enum Outcome: Equatable, Sendable {
+        /// The neighbour is audible and owns playback; nothing more to do.
+        case committed
+        /// Preparation failed while this attempt still owned the transition.
+        /// The caller performs the ordinary cut so the skip is not lost.
+        case failed
+        /// Another command (pause, a second skip, a queue edit, track end)
+        /// took the transition over. That command decides what plays.
+        case superseded
+    }
+
+    /// `startCrossfade` has a dozen exits. Rather than thread a result through
+    /// each of them, the two funnels every exit passes through record the
+    /// attempt they handled, and the outcome is read back from those marks.
+    public static func outcome<ID: Equatable>(
+        attemptID: ID,
+        lastCommittedAttemptID: ID?,
+        lastFailedAttemptID: ID?
+    ) -> Outcome {
+        if lastCommittedAttemptID == attemptID { return .committed }
+        if lastFailedAttemptID == attemptID { return .failed }
+        return .superseded
+    }
+}

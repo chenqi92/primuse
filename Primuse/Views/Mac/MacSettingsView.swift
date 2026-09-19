@@ -1618,11 +1618,11 @@ private struct MacSTPlaybackView: View {
                         .accessibilityHint(Text(verbatim: Lz("P-16 · On by Default")))
                 }
                 .settingsAnchor("playback.gapless")
-                // 三句话的说明在英文等语言下要占三四行, 默认的两行会把后半截截掉。
+                // 三句话的说明在英文等语言下要占四五行, 默认的两行会把后半截截掉。
                 MacSTRow(
                     String(localized: "crossfade"),
                     hint: String(localized: "crossfade_footer"),
-                    hintLineLimit: 4
+                    hintLineLimit: 5
                 ) {
                     MacSTToggle(isOn: $s.crossfadeEnabled.pmAnimated())
                         .accessibilityHint(Text(verbatim: Lz("Mutually exclusive with Gapless")))

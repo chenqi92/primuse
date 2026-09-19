@@ -814,6 +814,7 @@ extension AudioPlayerService {
     @discardableResult
     func next(
         context: QueueAdvanceContext = .userInitiated,
+        isAutomaticAdvance: Bool = false,
         caller: String = #fileID,
         callerLine: Int = #line
     ) async -> Bool {
@@ -835,23 +836,53 @@ extension AudioPlayerService {
         guard !queue.isEmpty else { return false }
         let callerFile = (caller as NSString).lastPathComponent
         plog("⏭️ next() called FROM=\(callerFile):\(callerLine) currentIndex=\(currentIndex) queueCount=\(queue.count)")
+        // Track end and failure recovery arrive here with the default context
+        // too, so a real press is told apart by `isAutomaticAdvance`: by then
+        // the outgoing node has nothing left to blend out of.
+        let isManualSkip = !isAutomaticAdvance && context == .userInitiated
+        // An earlier skip is still preparing its short crossfade and has not
+        // moved the queue yet. A second press counts that one first and then
+        // cuts, so two presses still travel two songs; track end arriving in
+        // that window simply replaces it.
+        var countedPendingSkip = false
+        if let pendingTarget = takePendingManualSkipCrossfade(), isManualSkip {
+            applyQueueTraversalTarget(pendingTarget)
+            countedPendingSkip = true
+        }
         if queue.count == 1, shuffleEnabled, repeatMode == .off {
             _ = extendExhaustedShuffleFromLibrary()
         }
         // A manual next skips past repeat-one when there is another queue
         // entry, matching the existing transport controls. A true one-song
         // repeat-one queue may still intentionally restart itself.
-        let respectsRepeatOne = queue.count == 1
-        let successor = nextQueueTraversalTarget(
-            respectsRepeatOne: respectsRepeatOne,
-            wrapsAtEnd: queue.count > 1 || repeatMode == .all
-        )
+        var successor = manualNextTraversalTarget()
+        if isManualSkip, !countedPendingSkip, let candidate = successor,
+           queueEntries.indices.contains(candidate.queueIndex),
+           !skipsAdjacentDuplicate(queueEntries[candidate.queueIndex].song, context: context) {
+            let sourcePlayID = playID
+            switch await crossfadeToManualNeighbour(candidate, rule: .manualNext) {
+            case .committed?, .superseded?:
+                return true
+            case .failed?:
+                // Whoever changed the transport while the neighbour was being
+                // prepared owns playback now; otherwise cut as usual.
+                guard playID == sourcePlayID else { return true }
+                successor = manualNextTraversalTarget()
+            case nil:
+                break
+            }
+        }
         guard ManualQueueAdvancePolicy.shouldAdvance(
             queueCount: queue.count,
             repeatMode: repeatMode,
             shuffleEnabled: shuffleEnabled,
             hasSuccessor: successor != nil
         ), let successor else {
+            if countedPendingSkip, queue.indices.contains(currentIndex) {
+                // The counted skip already moved the queue position.
+                await play(song: queue[currentIndex])
+                return true
+            }
             plog("⏭️ next: no enabled successor; keeping current playback")
             return false
         }
@@ -860,27 +891,27 @@ extension AudioPlayerService {
         // (mp3 + flac, 不同目录) scan 后是不同 song.id, 但用户看就是同一首,
         // 自动 next 跳到 "下一首是自己" 体验很怪。最多跳 1 次, 防止整个
         // queue 全是同一首时死循环。
-        if let cur = currentSong {
-            let candidate = queue[currentIndex]
-            if QueueAdjacentDuplicatePolicy.shouldSkipCandidate(
-                queueCount: queue.count,
-                currentTitle: cur.title,
-                currentArtist: cur.artistName,
-                candidateTitle: candidate.title,
-                candidateArtist: candidate.artistName,
-                context: context
-            ) {
-                plog("⏭️ next: skipping duplicate '\(candidate.title)' (same title+artist as current)")
-                if let following = nextQueueTraversalTarget(
-                    respectsRepeatOne: respectsRepeatOne,
-                    wrapsAtEnd: queue.count > 1 || repeatMode == .all
-                ) {
-                    applyQueueTraversalTarget(following)
-                }
+        let candidate = queue[currentIndex]
+        if skipsAdjacentDuplicate(candidate, context: context) {
+            plog("⏭️ next: skipping duplicate '\(candidate.title)' (same title+artist as current)")
+            if let following = manualNextTraversalTarget() {
+                applyQueueTraversalTarget(following)
             }
         }
         await play(song: queue[currentIndex])
         return true
+    }
+
+    private func skipsAdjacentDuplicate(_ candidate: Song, context: QueueAdvanceContext) -> Bool {
+        guard let cur = currentSong else { return false }
+        return QueueAdjacentDuplicatePolicy.shouldSkipCandidate(
+            queueCount: queue.count,
+            currentTitle: cur.title,
+            currentArtist: cur.artistName,
+            candidateTitle: candidate.title,
+            candidateArtist: candidate.artistName,
+            context: context
+        )
     }
 
     @discardableResult
@@ -908,7 +939,18 @@ extension AudioPlayerService {
             seek(to: 0)
             return true
         }
-        guard let predecessor = previousQueueTraversalTarget() else { return false }
+        guard var predecessor = previousQueueTraversalTarget() else { return false }
+        let sourcePlayID = playID
+        switch await crossfadeToManualNeighbour(predecessor, rule: .manualPrevious) {
+        case .committed?, .superseded?:
+            return true
+        case .failed?:
+            guard playID == sourcePlayID,
+                  let current = previousQueueTraversalTarget() else { return true }
+            predecessor = current
+        case nil:
+            break
+        }
         applyQueueTraversalTarget(predecessor)
         await play(song: queue[currentIndex])
         return true

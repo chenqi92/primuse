@@ -288,4 +288,57 @@ struct SmartTransitionPolicyTests {
         #expect(plan.triggerTime == 228)
         #expect(plan.overlapDuration == 6)
     }
+
+    private func manualSkipConditions(
+        _ mutate: (inout ManualSkipCrossfadePolicy.Conditions) -> Void = { _ in }
+    ) -> ManualSkipCrossfadePolicy.Conditions {
+        var conditions = ManualSkipCrossfadePolicy.Conditions(
+            crossfadeIsEnabled: true,
+            localEngineIsRendering: true,
+            hasActiveCrossfadeAttempt: false,
+            hasPendingTransportWork: false,
+            neighbourIsCurrentSong: false,
+            neighbourBypassesContinuousAudio: false,
+            neighbourHasLocalAudio: true
+        )
+        mutate(&conditions)
+        return conditions
+    }
+
+    @Test("A manual skip blends only when nothing else owns the transition")
+    func manualSkipEligibility() {
+        #expect(ManualSkipCrossfadePolicy.isEligible(manualSkipConditions()))
+        #expect(!ManualSkipCrossfadePolicy.isEligible(manualSkipConditions { $0.crossfadeIsEnabled = false }))
+        #expect(!ManualSkipCrossfadePolicy.isEligible(manualSkipConditions { $0.localEngineIsRendering = false }))
+        #expect(!ManualSkipCrossfadePolicy.isEligible(manualSkipConditions { $0.hasActiveCrossfadeAttempt = true }))
+        #expect(!ManualSkipCrossfadePolicy.isEligible(manualSkipConditions { $0.hasPendingTransportWork = true }))
+        #expect(!ManualSkipCrossfadePolicy.isEligible(manualSkipConditions { $0.neighbourIsCurrentSong = true }))
+        #expect(!ManualSkipCrossfadePolicy.isEligible(manualSkipConditions { $0.neighbourBypassesContinuousAudio = true }))
+        #expect(!ManualSkipCrossfadePolicy.isEligible(manualSkipConditions { $0.neighbourHasLocalAudio = false }))
+    }
+
+    @Test("A manual skip stays short and never waits on the network")
+    func manualSkipTiming() {
+        #expect(ManualSkipCrossfadePolicy.overlapDuration >= 0.5)
+        #expect(ManualSkipCrossfadePolicy.overlapDuration <= 1.5)
+        #expect(ManualSkipCrossfadePolicy.preparationTimeout <= 2)
+    }
+
+    @Test("Only a failure this attempt still owned falls back to the cut")
+    func manualSkipOutcome() {
+        let attempt = 7
+        #expect(ManualSkipCrossfadePolicy.outcome(
+            attemptID: attempt, lastCommittedAttemptID: 7, lastFailedAttemptID: nil
+        ) == .committed)
+        #expect(ManualSkipCrossfadePolicy.outcome(
+            attemptID: attempt, lastCommittedAttemptID: 6, lastFailedAttemptID: 7
+        ) == .failed)
+        // Marks left by an earlier attempt say nothing about this one.
+        #expect(ManualSkipCrossfadePolicy.outcome(
+            attemptID: attempt, lastCommittedAttemptID: 6, lastFailedAttemptID: 5
+        ) == .superseded)
+        #expect(ManualSkipCrossfadePolicy.outcome(
+            attemptID: attempt, lastCommittedAttemptID: Int?.none, lastFailedAttemptID: nil
+        ) == .superseded)
+    }
 }

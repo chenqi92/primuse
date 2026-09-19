@@ -137,6 +137,7 @@ extension AudioPlayerService {
             }
             await next(
                 context: failedSourceID == nil ? .userInitiated : .sourceFailureRecovery,
+                isAutomaticAdvance: true,
                 caller: "auto-failure:\(trigger)",
                 callerLine: 0
             )

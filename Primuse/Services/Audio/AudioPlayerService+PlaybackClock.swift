@@ -166,7 +166,7 @@ extension AudioPlayerService {
                 stopAtTrackEnd()
             }
         case .all:
-            await next(caller: "auto:\(trigger)", callerLine: 0)
+            await next(isAutomaticAdvance: true, caller: "auto:\(trigger)", callerLine: 0)
         case .off:
             // Under shuffle, currentIndex is the queue index of the
             // currently-playing song, not the shufflePosition — so
@@ -175,7 +175,7 @@ extension AudioPlayerService {
             // order) and auto-advance kept generating fresh shuffle
             // rounds even though the user picked repeat-off.
             if nextSongInQueue() != nil {
-                await next(caller: "auto:\(trigger)", callerLine: 0)
+                await next(isAutomaticAdvance: true, caller: "auto:\(trigger)", callerLine: 0)
             } else {
                 // 没下一首 —— 进 "已播完" 状态而不是 stop() 全清。
                 // 否则 currentSong 一旦为 nil, 上层各种 sheet (刮削 /

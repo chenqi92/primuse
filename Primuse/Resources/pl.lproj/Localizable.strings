@@ -1053,7 +1053,7 @@
 "crossfade_desc" = "Płynnie łączy koniec jednego utworu z początkiem następnego.";
 "crossfade_duration" = "Czas trwania przejścia";
 "crossfade_max_duration" = "Maksymalny czas trwania przejścia";
-"crossfade_footer" = "Przenikanie działa tylko wtedy, gdy utwór zostanie odtworzony do końca; przy ręcznej zmianie utworu przejście jest natychmiastowe. Jeśli następnego utworu nie ma jeszcze na tym urządzeniu ani w pamięci podręcznej, również zacznie się bez przenikania. Nie można łączyć z odtwarzaniem bez przerw.";
+"crossfade_footer" = "Gdy utwór zostanie odtworzony do końca, przenikanie trwa tyle, ile ustawiono powyżej; przy ręcznym przejściu do następnego lub poprzedniego utworu stosowane jest krótkie przenikanie trwające około sekundy. Jeśli utworu nie ma jeszcze na tym urządzeniu ani w pamięci podręcznej, zacznie się bez przenikania. Nie można łączyć z odtwarzaniem bez przerw.";
 "crossfade_mode" = "Tryb przejścia";
 "crossfade_mode_fixed" = "Stały";
 "crossfade_mode_smart" = "Inteligentne";

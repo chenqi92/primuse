@@ -600,7 +600,7 @@
 "crossfade_mode_fixed" = "Fest";
 "crossfade_mode_smart" = "Intelligent";
 "crossfade_max_duration" = "Maximale Übergangsdauer";
-"crossfade_footer" = "Überblendet wird nur, wenn ein Titel bis zum Ende läuft; beim manuellen Springen wird direkt gewechselt. Ist der nächste Titel noch nicht auf diesem Gerät oder im Cache, startet er ebenfalls ohne Überblendung. Nicht zusammen mit lückenloser Wiedergabe nutzbar.";
+"crossfade_footer" = "Läuft ein Titel bis zum Ende, wird über die oben eingestellte Dauer überblendet; beim manuellen Wechsel zum nächsten oder vorherigen Titel gibt es eine kurze Überblendung von etwa einer Sekunde. Ist der Titel noch nicht auf diesem Gerät oder im Cache, startet er ohne Überblendung. Nicht zusammen mit lückenloser Wiedergabe nutzbar.";
 "skip_leading_silence" = "Stille am Anfang überspringen";
 "skip_trailing_silence" = "Stille am Ende überspringen";
 "silence_skipping_desc" = "Intelligente Übergänge analysieren hörbare Grenzen automatisch. Diese Schalter überspringen Stille auch bei normaler Wiedergabe. Im High-Fidelity-Modus bleiben Audiogrenzen unverändert.";
