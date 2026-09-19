@@ -402,14 +402,9 @@ struct LibraryView: View {
         )
     }
     private var artworkPreviewRevision: String {
-        let radioSignature = radioStationsStore.stations.map { station in
-            [
-                station.id,
-                station.logoFileName ?? "",
-                String(station.logoData?.count ?? 0),
-                String(station.modifiedAt.timeIntervalSinceReferenceDate),
-            ].joined(separator: "\u{1F}")
-        }.joined(separator: "\u{0}")
+        // 电台部分用存储里缓存的摘要：这个属性一次刷新要被求值好几遍，
+        // 原来每遍都把上千个台逐个拼成一长串，再拿长串去比较。
+        let radioSignature = radioStationsStore.artworkRevision
         return [
             String(library.visibleSongCollectionRevision),
             String(library.albumArtworkLookupRevision),

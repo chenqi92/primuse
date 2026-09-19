@@ -17,13 +17,17 @@ struct ServerRadioSyncResult: Sendable {
 @Observable
 final class RadioStationsStore {
     private(set) var allStations: [RadioStation] {
-        didSet { sortedVisibleStations = nil }
+        didSet {
+            sortedVisibleStations = nil
+            cachedArtworkRevision = nil
+        }
     }
 
     /// 排序按台名做本地化比较，音乐源镜像进来的台一多（群晖 SHOUTcast 目录上千个）
     /// 每读一次就是几十毫秒；而首页、资料库、CarPlay 在一次刷新里会读好几遍。
     /// 排好的结果留到清单下一次变化。
     @ObservationIgnored private var sortedVisibleStations: [RadioStation]?
+    @ObservationIgnored private var cachedArtworkRevision: String?
 
     var stations: [RadioStation] {
         // 先读 allStations，观察者照旧挂在它上面，清单一变就会重新取值。
@@ -32,6 +36,24 @@ final class RadioStationsStore {
         let sorted = RadioStationOrdering.sorted(all.filter { !$0.isDeleted })
         sortedVisibleStations = sorted
         return sorted
+    }
+
+    /// 台标预览的变化标记：顺序、id、台标与修改时间任何一项变了它就变。
+    /// 资料库页每次刷新要读好几遍，上千个台逐个拼串的开销只在清单变化后付一次。
+    /// 只在本次运行内可比，不能写盘。
+    var artworkRevision: String {
+        let visible = stations
+        if let cachedArtworkRevision { return cachedArtworkRevision }
+        var hasher = Hasher()
+        for station in visible {
+            hasher.combine(station.id)
+            hasher.combine(station.logoFileName)
+            hasher.combine(station.logoData?.count)
+            hasher.combine(station.modifiedAt)
+        }
+        let revision = "\(visible.count)-\(hasher.finalize())"
+        cachedArtworkRevision = revision
+        return revision
     }
 
     private let storeURL: URL
