@@ -6502,7 +6502,11 @@ final class AudioPlayerService {
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.isSuccessorReplanScheduled = false
-            guard self.currentSong != nil,
+            // A paused player has nothing prepared worth replacing, and
+            // prefetching for it would start transfers nobody asked for. The
+            // boundary check still rejects a stale successor after resuming.
+            guard self.isPlaybackActuallyActive,
+                  self.currentSong != nil,
                   !self.queueEntries.isEmpty,
                   !self.isLiveRadio,
                   !(self.isAppleMusicMode && !self.isPrimuseManagingAppleMusicQueue),
