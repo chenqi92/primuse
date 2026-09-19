@@ -3784,7 +3784,9 @@ final class AudioPlayerService {
             guard playID == id else { return }
             if sourceUnavailable {
                 plog("⏭️ Source-wide playback failure; skipping unavailable entries from source \(song.sourceID.prefix(8))")
+                let outageIsKnown = sourceManager?.isSourceKnownUnavailableForPlayback(song.sourceID) == true
                 await autoAdvanceAfterFailure(skippingSourceID: song.sourceID)
+                if outageIsKnown { await announceSkippedUnreachableSource(song.sourceID) }
                 return
             }
             await autoAdvanceAfterFailure()

@@ -634,6 +634,10 @@
 "security" = "安全性";
 "playback_error_connection" = "無法連線到來源";
 "playback_error_source_disabled" = "該音樂來源已停用";
+"playback_error_source_unreachable_format" = "目前的網路無法連線「%@」";
+"playback_error_source_unreachable_skipped_format" = "目前的網路無法連線「%@」，已略過它的歌曲";
+"song_row_source_unreachable" = "目前的網路無法連線";
+"song_source_unreachable_alert_message" = "這個音樂來源在目前的網路下無法連線，連線恢復後歌曲會自動變為可播放。已下載到本機的歌曲不受影響。";
 "playback_error_decode" = "無法播放此曲目";
 "playback_error_format" = "不支援的音訊格式";
 "playback_error_apple_music_generic" = "Apple Music 暫時無法播放，請稍後再試。若問題持續，請在「音樂」App 中確認該歌曲可以播放。";

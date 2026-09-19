@@ -73,6 +73,9 @@ struct SongRowView: View {
     @State private var showLocalRemovalConfirm = false
     @State private var localRemovalErrorMessage: String?
     @State private var sourceCheckMessage: String?
+    /// Title of the "this source cannot be reached" alert; nil while hidden.
+    @State private var unreachableSourceNoticeTitle: String?
+    @State private var isRetryingUnreachableSource = false
     @State private var tagReadMessage: String?
     @State private var presentedShareSong: Song?
     @State private var hasMountedPresentations = false
@@ -88,6 +91,16 @@ struct SongRowView: View {
     private var offlineSnapshot: OfflineAudioCacheSnapshot {
         guard supportsOfflineAudioCache else { return .notCached }
         return sourceManager.offlineAudioSnapshotEntry(for: song).snapshot
+    }
+
+    /// Nothing can start this song right now: no address of its source
+    /// answers on this network and there is no complete local copy. The set is
+    /// empty on a network that reaches everything, so ordinary rows pay one
+    /// lookup.
+    private var isUnreachableNow: Bool {
+        sourceManager.unreachablePlaybackSourceIDs.contains(song.sourceID)
+            && song.isPlayable
+            && !offlineSnapshot.isDownloaded
     }
 
     var body: some View {
@@ -131,6 +144,7 @@ struct SongRowView: View {
             || showLyricsEditor || showSimilarSongs || deleteErrorMessage != nil
             || showLocalRemovalConfirm || localRemovalErrorMessage != nil
             || sourceCheckMessage != nil || tagReadMessage != nil || presentedShareSong != nil
+            || unreachableSourceNoticeTitle != nil
     }
 
     // Untouched rows avoid building every presentation host during scrolling.
@@ -265,6 +279,17 @@ struct SongRowView: View {
             Text(sourceCheckMessage ?? "")
         }
         .alert(
+            unreachableSourceNoticeTitle ?? "",
+            isPresented: Binding(
+                get: { unreachableSourceNoticeTitle != nil },
+                set: { if !$0 { unreachableSourceNoticeTitle = nil } }
+            )
+        ) {
+            Button(String(localized: "done"), role: .cancel) {}
+        } message: {
+            Text("song_source_unreachable_alert_message")
+        }
+        .alert(
             String(localized: "reread_song_tags"),
             isPresented: Binding(
                 get: { tagReadMessage != nil },
@@ -299,6 +324,8 @@ struct SongRowView: View {
     @ViewBuilder
     private var rowContent: some View {
         let offline = offlineSnapshot
+        let unreachable = isUnreachableNow
+        let unreachableDimming: Double = unreachable ? 0.45 : 1
         // 够宽时专辑与时长从副标题里挪到 Spacer 之后的对齐列；两者只能出现一次。
         // 列在整份列表里要占同样的位置，所以读取中、时长还没回填的行也照样占位，
         // 只是内容为空——否则徽标与 ⋯ 会一行一个位置。
@@ -341,7 +368,7 @@ struct SongRowView: View {
                 }
             }
             .frame(width: 44, height: 44)
-            .opacity(isReadingDetails ? 0.65 : 1)
+            .opacity(isReadingDetails ? 0.65 : unreachableDimming)
 
             // Song info — title and subtitle only, no format/duration clutter
             VStack(alignment: .leading, spacing: 2) {
@@ -349,7 +376,7 @@ struct SongRowView: View {
                     .font(.subheadline)
                     .lineLimit(1)
                     .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)
-                    .opacity(isReadingDetails ? 0.75 : 1)
+                    .opacity(isReadingDetails ? 0.75 : unreachableDimming)
 
                 HStack(spacing: 4) {
                     if showsDetailsStatus {
@@ -386,13 +413,24 @@ struct SongRowView: View {
                             Text(sourceName)
                         }
                     } else {
+                        if unreachable {
+                            if isRetryingUnreachableSource {
+                                ProgressView()
+                                    .scaleEffect(0.55)
+                                    .frame(width: 12, height: 12)
+                            } else {
+                                Image(systemName: "wifi.slash")
+                                    .font(.caption2)
+                            }
+                            Text("song_row_source_unreachable")
+                        }
                         if song.isStandaloneMusicVideo {
                             Image(systemName: "play.rectangle.fill")
                                 .font(.caption2)
                                 .accessibilityLabel(Text("music_video_badge"))
                         }
                         if let artist = library.artistDisplayName(for: song) {
-                            if song.isStandaloneMusicVideo { Text("·") }
+                            if song.isStandaloneMusicVideo || unreachable { Text("·") }
                             Text(artist)
                         }
                         if showAlbum, !showsAlbumColumn, let album = song.albumTitle {
@@ -481,7 +519,11 @@ struct SongRowView: View {
         // 仍可通过 contextMenu 使用单曲操作。
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(
-            [song.title, library.artistDisplayName(for: song)]
+            [
+                song.title,
+                library.artistDisplayName(for: song),
+                unreachable ? String(localized: "song_row_source_unreachable") : nil
+            ]
                 .compactMap { $0 }
                 .joined(separator: " — ")
         ))
@@ -493,7 +535,43 @@ struct SongRowView: View {
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture { showBareAlert = true }
+            } else if unreachable, selection?.isActive != true {
+                // Starting this song would stop the music only to fail. The
+                // tap asks the source again instead; the trailing menu stays
+                // outside the intercepted area.
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { retryUnreachableSource() }
+                    .padding(.trailing, unreachableTapTrailingInset)
             }
+        }
+    }
+
+    /// Width of the trailing ⋯ button, which has to stay tappable.
+    private var unreachableTapTrailingInset: CGFloat {
+        #if os(macOS)
+        0
+        #else
+        showsActions ? 44 : 0
+        #endif
+    }
+
+    private func retryUnreachableSource() {
+        guard !isRetryingUnreachableSource else { return }
+        isRetryingUnreachableSource = true
+        Task {
+            let stillUnreachable = await sourceManager.playbackSourceIsUnavailable(
+                for: song, retryKnownUnavailable: true
+            )
+            isRetryingUnreachableSource = false
+            // Reachable again: the row lights up and the next tap plays it.
+            guard stillUnreachable else { return }
+            let name = sourcesStore.sources
+                .first { $0.id == song.sourceID }?
+                .name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            unreachableSourceNoticeTitle = name.isEmpty
+                ? String(localized: "song_row_source_unreachable")
+                : String(format: String(localized: "playback_error_source_unreachable_format"), name)
         }
     }
 

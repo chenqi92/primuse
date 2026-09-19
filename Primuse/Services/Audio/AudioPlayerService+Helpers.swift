@@ -247,6 +247,45 @@ extension AudioPlayerService {
         )
     }
 
+    /// Nothing can start this song right now: its source has no address that
+    /// answers on this network, and no complete local copy exists.
+    func isSongBlockedByUnreachableSource(_ song: Song) -> Bool {
+        guard isSourceEnabledForPlayback(song.sourceID),
+              sourceManager?.isSourceKnownUnavailableForPlayback(song.sourceID) == true else {
+            return false
+        }
+        return sourceManager?.hasUsableCachedAudioForPlayback(song) != true
+    }
+
+    /// The listener picked a song whose source is known to be unreachable.
+    /// That tap is their retry: ask the source once more without touching what
+    /// is playing, and name the source if it still does not answer.
+    func confirmSourceReachableForSelection(of song: Song) async -> Bool {
+        guard isSongBlockedByUnreachableSource(song), let sourceManager else { return true }
+        let stillUnavailable = await sourceManager.playbackSourceIsUnavailable(
+            for: song, retryKnownUnavailable: true
+        )
+        guard stillUnavailable else { return true }
+        showPlaybackError(await sourceManager.playbackSourceUnreachableMessage(
+            sourceID: song.sourceID, skippedSongs: false
+        ))
+        return false
+    }
+
+    /// Says which source was stepped over. Starting a song opens a fresh error
+    /// scope, so callers run this after the replacement song has started; a
+    /// newer error from that song is left alone.
+    func announceSkippedUnreachableSource(_ sourceID: String) async {
+        guard let sourceManager else { return }
+        let message = await sourceManager.playbackSourceUnreachableMessage(
+            sourceID: sourceID, skippedSongs: true
+        )
+        // The generic "cannot connect" is the same event, said less precisely.
+        guard lastPlaybackError == nil
+                || lastPlaybackError == String(localized: "playback_error_connection") else { return }
+        showPlaybackError(message)
+    }
+
     /// The position the playing slot actually occupies in the managed shuffle
     /// round. Presentation, traversal, reorder and removal all read this, so a
     /// `shufflePosition` left behind by an earlier state cannot make Up Next

@@ -859,6 +859,10 @@
 "security" = "Sicherheit";
 "playback_error_connection" = "Keine Verbindung zur Quelle möglich";
 "playback_error_source_disabled" = "Diese Musikquelle ist deaktiviert";
+"playback_error_source_unreachable_format" = "„%@“ ist in diesem Netzwerk nicht erreichbar";
+"playback_error_source_unreachable_skipped_format" = "„%@“ ist in diesem Netzwerk nicht erreichbar. Die Titel dieser Quelle wurden übersprungen.";
+"song_row_source_unreachable" = "In diesem Netzwerk nicht erreichbar";
+"song_source_unreachable_alert_message" = "Diese Musikquelle ist im aktuellen Netzwerk nicht erreichbar. Ihre Titel lassen sich wieder abspielen, sobald die Verbindung zurück ist. Bereits auf dieses Gerät geladene Titel sind nicht betroffen.";
 "playback_error_decode" = "Dieser Titel kann nicht wiedergegeben werden";
 "playback_error_format" = "Nicht unterstütztes Audioformat";
 "playback_error_apple_music_generic" = "Apple Music kann die Wiedergabe gerade nicht starten. Versuche es in Kürze erneut. Falls das Problem weiterhin besteht, prüfe, ob der Titel in der Musik-App abgespielt werden kann.";

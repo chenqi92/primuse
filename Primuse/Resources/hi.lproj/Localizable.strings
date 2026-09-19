@@ -2174,6 +2174,10 @@
 "playback_error_decode" = "यह ट्रैक नहीं चलाया जा सकता";
 "playback_error_format" = "असमर्थित ऑडियो प्रारूप";
 "playback_error_source_disabled" = "यह संगीत स्रोत अक्षम है";
+"playback_error_source_unreachable_format" = "इस नेटवर्क पर “%@” से कनेक्ट नहीं हो पा रहा";
+"playback_error_source_unreachable_skipped_format" = "इस नेटवर्क पर “%@” से कनेक्ट नहीं हो पा रहा। इसके गाने छोड़ दिए गए।";
+"song_row_source_unreachable" = "इस नेटवर्क पर उपलब्ध नहीं";
+"song_source_unreachable_alert_message" = "मौजूदा नेटवर्क पर इस संगीत स्रोत से कनेक्ट नहीं हो पा रहा। कनेक्शन लौटते ही इसके गाने फिर से चलाए जा सकेंगे। इस डिवाइस पर पहले से डाउनलोड किए गए गानों पर कोई असर नहीं पड़ता।";
 "playback_history_note" = "उन नाटकों की गणना करता है जिनकी प्लेबैक प्रगति नवीनतम %2$d बनाए गए रिकॉर्ड से %1$d सेकंड तक पहुंच गई।";
 "playback_info" = "प्लेबैक";
 "playback_menu" = "प्लेबैक";

@@ -83,7 +83,8 @@ struct QueueView: View {
                                         roundOffset: presentation.id.roundOffset
                                     ),
                                     allowsRemoval: player.canRemoveUpcomingQueueEntries
-                                        && presentation.id.queueEntryID != currentEntry.id
+                                        && presentation.id.queueEntryID != currentEntry.id,
+                                    unreachable: isUnreachable(presentation.entry.song)
                                 )
                             }
                         }
@@ -131,7 +132,8 @@ struct QueueView: View {
         isPlaying: Bool = false,
         dimmed: Bool = false,
         reorderID: QueueReorderOccurrenceID? = nil,
-        allowsRemoval: Bool = false
+        allowsRemoval: Bool = false,
+        unreachable: Bool = false
     ) -> some View {
         let song = displayedSong ?? entry.song
         let isDropTarget = dropTarget == reorderID && reorderID != nil
@@ -171,10 +173,18 @@ struct QueueView: View {
                     .font(.subheadline.weight(isPlaying ? .semibold : .regular))
                     .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)
                     .lineLimit(1)
-                Text(library.artistDisplayName(for: song) ?? song.albumTitle ?? "")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                if unreachable {
+                    // Playback steps over this entry until its source answers.
+                    Label("song_row_source_unreachable", systemImage: "wifi.slash")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                } else {
+                    Text(library.artistDisplayName(for: song) ?? song.albumTitle ?? "")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
 
             Spacer(minLength: 8)
@@ -226,7 +236,7 @@ struct QueueView: View {
             y: isDropTarget ? 3 : 0
         )
         .pmAnimation(.list, value: isDropTarget)
-        .opacity(dimmed ? 0.58 : 1)
+        .opacity(dimmed || unreachable ? 0.58 : 1)
         .contentShape(Rectangle())
         .onTapGesture { playEntry(entry) }
         // 拖起这一行时, SwiftUI 会把它渲染进一个独立的预览宿主。那个宿主不继承
@@ -285,6 +295,13 @@ struct QueueView: View {
                 .accessibilityAddTraits(.isButton)
                 .accessibilityAction { playEntry(entry) }
         }
+    }
+
+    /// Read here, in the list body, and handed to the row as a value: a row
+    /// lifted into a drag preview has no environment to read it from.
+    private func isUnreachable(_ song: Song) -> Bool {
+        sourceManager.unreachablePlaybackSourceIDs.contains(song.sourceID)
+            && player.isSongBlockedByUnreachableSource(song)
     }
 
     private func playEntry(_ entry: QueueEntry) {

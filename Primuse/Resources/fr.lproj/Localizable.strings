@@ -859,6 +859,10 @@
 "security" = "Sécurité";
 "playback_error_connection" = "Connexion à la source impossible";
 "playback_error_source_disabled" = "Cette source musicale est désactivée";
+"playback_error_source_unreachable_format" = "Impossible de joindre « %@ » sur ce réseau";
+"playback_error_source_unreachable_skipped_format" = "Impossible de joindre « %@ » sur ce réseau. Ses morceaux ont été ignorés.";
+"song_row_source_unreachable" = "Injoignable sur ce réseau";
+"song_source_unreachable_alert_message" = "Cette source musicale est injoignable sur le réseau actuel. Ses morceaux redeviendront lisibles dès le retour de la connexion. Les morceaux déjà téléchargés sur cet appareil ne sont pas concernés.";
 "playback_error_decode" = "Lecture de ce morceau impossible";
 "playback_error_format" = "Format audio non pris en charge";
 "playback_error_apple_music_generic" = "Apple Music ne peut pas lancer la lecture pour le moment. Réessayez dans un instant. Si le problème persiste, vérifiez que le morceau peut être lu dans l’app Musique.";

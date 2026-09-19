@@ -2174,6 +2174,10 @@
 "playback_error_decode" = "No se puede reproducir esta pista";
 "playback_error_format" = "Formato de audio no compatible";
 "playback_error_source_disabled" = "Esta fuente de música está deshabilitada";
+"playback_error_source_unreachable_format" = "No se puede conectar con “%@” en esta red";
+"playback_error_source_unreachable_skipped_format" = "No se puede conectar con “%@” en esta red. Se omitieron sus canciones.";
+"song_row_source_unreachable" = "No disponible en esta red";
+"song_source_unreachable_alert_message" = "No se puede conectar con esta fuente de música en la red actual. Sus canciones volverán a estar disponibles en cuanto regrese la conexión. Las canciones ya descargadas en este dispositivo no se ven afectadas.";
 "playback_history_note" = "Cuenta las reproducciones cuyo progreso de reproducción alcanzó %1$d segundos, a partir de los últimos registros retenidos %2$d.";
 "playback_info" = "Reproducción";
 "playback_menu" = "Reproducción";

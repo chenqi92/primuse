@@ -485,6 +485,10 @@
 "source_diag_running" = "Проверяем соединение и готовность к сканированию...";
 "similar_empty_hint" = "Ни одна из рекомендаций Last.fm не соответствует вашей медиатеке.";
 "playback_error_source_disabled" = "Этот источник музыки отключен.";
+"playback_error_source_unreachable_format" = "«%@» недоступен в этой сети";
+"playback_error_source_unreachable_skipped_format" = "«%@» недоступен в этой сети. Его треки пропущены.";
+"song_row_source_unreachable" = "Недоступно в этой сети";
+"song_source_unreachable_alert_message" = "Этот источник музыки недоступен в текущей сети. Его треки снова можно будет воспроизвести, как только соединение восстановится. На треки, уже загруженные на это устройство, это не влияет.";
 "error_download_failed %@" = "Не удалось загрузить: %@.";
 "search_match_fuzzy" = "Нечеткое совпадение";
 "compressor_limiter" = "Компрессор/лимитер";

@@ -2174,6 +2174,10 @@
 "playback_error_decode" = "Nie można odtworzyć tego utworu";
 "playback_error_format" = "Nieobsługiwany format audio";
 "playback_error_source_disabled" = "To źródło muzyki jest wyłączone";
+"playback_error_source_unreachable_format" = "Nie można połączyć się z „%@” w tej sieci";
+"playback_error_source_unreachable_skipped_format" = "Nie można połączyć się z „%@” w tej sieci. Utwory z tego źródła zostały pominięte.";
+"song_row_source_unreachable" = "Niedostępne w tej sieci";
+"song_source_unreachable_alert_message" = "To źródło muzyki jest niedostępne w bieżącej sieci. Jego utwory znów będzie można odtwarzać, gdy tylko połączenie wróci. Nie dotyczy to utworów pobranych już na to urządzenie.";
 "playback_history_note" = "Zlicza odtworzenia, których postęp odtwarzania osiągnął %1$d sekund, z najnowszych zachowanych rekordów %2$d.";
 "playback_info" = "Odtwarzanie";
 "playback_menu" = "Odtwarzanie";

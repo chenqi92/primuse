@@ -10627,6 +10627,29 @@ final class SourceManager {
         }
     }
 
+    /// The listener just ran into this outage. Ask now instead of waiting for
+    /// the schedule, so songs that came back light up again promptly.
+    func recheckPlaybackSourceNow(_ sourceID: String) {
+        guard isMonitoringPlaybackSourceAvailability,
+              !playbackAvailabilityProbesInFlight.contains(sourceID) else { return }
+        Task { @MainActor [weak self] in
+            _ = await self?.playbackSourceEndpointsAreUnavailable(sourceID: sourceID, refresh: true)
+        }
+    }
+
+    /// "Cannot connect to source" does not say which of several sources, or
+    /// that the network is the reason. Name it.
+    func playbackSourceUnreachableMessage(sourceID: String, skippedSongs: Bool) async -> String {
+        let name = (try? await sourcesProvider())?
+            .first { $0.id == sourceID && !$0.isDeleted }?
+            .name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !name.isEmpty else { return String(localized: "playback_error_connection") }
+        let format = skippedSongs
+            ? String(localized: "playback_error_source_unreachable_skipped_format")
+            : String(localized: "playback_error_source_unreachable_format")
+        return String(format: format, name)
+    }
+
     private func observePlaybackNetworkPath() {
         withObservationTracking {
             _ = NetworkMonitor.shared.pathGeneration

@@ -2174,6 +2174,10 @@
 "playback_error_decode" = "لا يمكن تشغيل هذا المسار";
 "playback_error_format" = "تنسيق الصوت غير مدعوم";
 "playback_error_source_disabled" = "تم تعطيل مصدر الموسيقى هذا";
+"playback_error_source_unreachable_format" = "يتعذر الوصول إلى «%@» على هذه الشبكة";
+"playback_error_source_unreachable_skipped_format" = "يتعذر الوصول إلى «%@» على هذه الشبكة. تم تخطي أغانيه.";
+"song_row_source_unreachable" = "غير متاح على هذه الشبكة";
+"song_source_unreachable_alert_message" = "يتعذر الوصول إلى مصدر الموسيقى هذا على الشبكة الحالية. ستصبح أغانيه قابلة للتشغيل تلقائيًا عند عودة الاتصال. لا تتأثر الأغاني التي تم تنزيلها على هذا الجهاز.";
 "playback_history_note" = "يحسب عدد مرات التشغيل التي وصل تقدم تشغيلها إلى %1$d ثانية، من أحدث %2$d السجلات المحتفظ بها.";
 "playback_info" = "التشغيل";
 "playback_menu" = "التشغيل";

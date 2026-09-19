@@ -859,6 +859,10 @@
 "security" = "보안";
 "playback_error_connection" = "소스에 연결할 수 없습니다";
 "playback_error_source_disabled" = "이 음악 소스는 비활성화되어 있습니다";
+"playback_error_source_unreachable_format" = "현재 네트워크에서 ‘%@’에 연결할 수 없습니다";
+"playback_error_source_unreachable_skipped_format" = "현재 네트워크에서 ‘%@’에 연결할 수 없어 해당 소스의 곡을 건너뛰었습니다";
+"song_row_source_unreachable" = "현재 네트워크에서 연결할 수 없음";
+"song_source_unreachable_alert_message" = "이 음악 소스는 현재 네트워크에서 연결할 수 없습니다. 연결이 복구되면 자동으로 다시 재생할 수 있습니다. 이 기기에 이미 다운로드한 곡은 영향을 받지 않습니다.";
 "playback_error_decode" = "이 곡을 재생할 수 없습니다";
 "playback_error_format" = "지원되지 않는 오디오 포맷";
 "playback_error_apple_music_generic" = "지금은 Apple Music에서 재생을 시작할 수 없습니다. 잠시 후 다시 시도하세요. 문제가 계속되면 음악 앱에서 해당 곡이 재생되는지 확인하세요.";

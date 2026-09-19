@@ -74,7 +74,15 @@ struct MiniPlayerSwipeContent: View {
                         .foregroundStyle(.primary)
                         .contentTransition(.opacity)
 
-                    if showsSubtitle,
+                    if showsSubtitle, let error = player.lastPlaybackError {
+                        // A song picked from a list can fail with the player
+                        // closed; this line is the only place left to say why.
+                        Text(verbatim: error)
+                            .font(.caption2)
+                            .lineLimit(1)
+                            .foregroundStyle(.orange)
+                            .contentTransition(.opacity)
+                    } else if showsSubtitle,
                        let song = player.currentSong,
                        let artist = library.artistDisplayName(for: song),
                        !artist.isEmpty {
@@ -127,6 +135,9 @@ struct MiniPlayerSwipeContent: View {
             String(localized: "now_playing"),
             player.currentSong?.title ?? ""
         ]
+        if showsSubtitle, let error = player.lastPlaybackError {
+            return (parts + [error]).filter { !$0.isEmpty }.joined(separator: ": ")
+        }
         if showsSubtitle,
            let song = player.currentSong,
            let artist = library.artistDisplayName(for: song),

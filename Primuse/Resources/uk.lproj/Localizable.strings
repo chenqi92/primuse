@@ -485,6 +485,10 @@
 "source_diag_running" = "Перевірка підключення та готовності до сканування...";
 "similar_empty_hint" = "Жодна з рекомендацій Last.fm не відповідає вашій бібліотеці.";
 "playback_error_source_disabled" = "Це джерело музики вимкнено";
+"playback_error_source_unreachable_format" = "«%@» недоступне в цій мережі";
+"playback_error_source_unreachable_skipped_format" = "«%@» недоступне в цій мережі. Його треки пропущено.";
+"song_row_source_unreachable" = "Недоступно в цій мережі";
+"song_source_unreachable_alert_message" = "Це джерело музики недоступне в поточній мережі. Його треки знову можна буде відтворити, щойно з’єднання відновиться. Треків, уже завантажених на цей пристрій, це не стосується.";
 "error_download_failed %@" = "Помилка завантаження: %@";
 "search_match_fuzzy" = "Нечіткий збіг";
 "compressor_limiter" = "Компресор / Лімітер";

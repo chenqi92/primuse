@@ -1709,7 +1709,24 @@ extension AudioPlayerService {
             clearQueue()
             return
         }
-        let selectedIndex = max(0, min(index, songs.count - 1))
+        var selectedIndex = max(0, min(index, songs.count - 1))
+        var skippedSourceID: String?
+        // The requested start cannot play on this network. Begin at the first
+        // song that can instead of stopping the music to fail on this one; the
+        // queue keeps every song in place for when its source returns.
+        if isSongBlockedByUnreachableSource(songs[selectedIndex]),
+           let playableIndex = QueueTraversalPolicy.nextAvailableIndex(
+               queueCount: songs.count,
+               after: selectedIndex,
+               wraps: true,
+               isAvailable: { isSongAvailableForNewPlayback(songs[$0]) }
+           ) {
+            plog("⏭️ Queue start moved past unreachable source \(songs[selectedIndex].sourceID.prefix(8)) index=\(selectedIndex)→\(playableIndex)")
+            skippedSourceID = songs[selectedIndex].sourceID
+            // Picking the song was also a request to try again.
+            sourceManager?.recheckPlaybackSourceNow(songs[selectedIndex].sourceID)
+            selectedIndex = playableIndex
+        }
         let selectedSong = songs[selectedIndex]
         let transportCanBePreserved = !isAppleMusicMode || isPrimuseManagingAppleMusicQueue
         let decision = QueueSelectionPlaybackPolicy.decision(
@@ -1728,9 +1745,11 @@ extension AudioPlayerService {
         )
         guard decision == .startSelectedItem else {
             plog("🎶 queue selection reused active transport for '\(selectedSong.title)'")
+            if let skippedSourceID { await announceSkippedUnreachableSource(skippedSourceID) }
             return
         }
         await play(song: selectedSong, caller: caller, callerLine: callerLine)
+        if let skippedSourceID { await announceSkippedUnreachableSource(skippedSourceID) }
     }
 
     func setQueue(_ songs: [Song], startAt index: Int = 0) {
@@ -2158,12 +2177,21 @@ extension AudioPlayerService {
     /// `shuffleEnabled` (which reshuffles the whole round), this only swaps the
     /// tapped index into the current shuffle position, leaving the *rest* of the
     /// round's order untouched so Up Next stays stable.
-    func playFromQueue(at index: Int) async {
-        guard queueEntries.indices.contains(index) else { return }
+    func playFromQueue(at requestedIndex: Int) async {
+        guard queueEntries.indices.contains(requestedIndex) else { return }
+        var index = requestedIndex
         let song = queueEntries[index].song
         guard isSourceEnabledForPlayback(song.sourceID) else {
             showPlaybackError(String(localized: "playback_error_source_disabled"))
             return
+        }
+        if isSongBlockedByUnreachableSource(song) {
+            // The queue can change while the source is asked again; find the
+            // tapped slot by identity afterwards.
+            let entryID = queueEntries[index].id
+            guard await confirmSourceReachableForSelection(of: song),
+                  let relocatedIndex = queueEntries.firstIndex(where: { $0.id == entryID }) else { return }
+            index = relocatedIndex
         }
 
         if usesManagedShuffleOrder, !isMirroringFromAppleMusic {

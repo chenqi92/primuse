@@ -670,6 +670,10 @@
 // MARK: - Playback Errors
 "playback_error_connection" = "无法连接到来源";
 "playback_error_source_disabled" = "该音乐源已停用";
+"playback_error_source_unreachable_format" = "当前网络无法连接「%@」";
+"playback_error_source_unreachable_skipped_format" = "当前网络无法连接「%@」，已跳过它的歌曲";
+"song_row_source_unreachable" = "当前网络无法连接";
+"song_source_unreachable_alert_message" = "这个音乐源在当前网络下连接不上，连接恢复后歌曲会自动变为可播放。已下载到本机的歌曲不受影响。";
 "playback_error_decode" = "无法播放此曲目";
 "playback_error_format" = "不支持的音频格式";
 "playback_error_apple_music_generic" = "Apple Music 暂时无法播放，请稍后重试。若问题持续，请在“音乐”App 中确认该歌曲可以播放。";

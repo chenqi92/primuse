@@ -485,6 +485,10 @@
 "source_diag_running" = "Bağlantı ve tarama hazırlığı kontrol ediliyor...";
 "similar_empty_hint" = "Last.fm'nin önerilerinin hiçbiri arşivinizla eşleşmedi.";
 "playback_error_source_disabled" = "Bu müzik kaynağı devre dışı bırakıldı";
+"playback_error_source_unreachable_format" = "Bu ağda “%@” kaynağına ulaşılamıyor";
+"playback_error_source_unreachable_skipped_format" = "Bu ağda “%@” kaynağına ulaşılamıyor. Bu kaynaktaki şarkılar atlandı.";
+"song_row_source_unreachable" = "Bu ağda ulaşılamıyor";
+"song_source_unreachable_alert_message" = "Bu müzik kaynağına mevcut ağda ulaşılamıyor. Bağlantı geri geldiğinde şarkıları yeniden çalınabilir olur. Bu cihaza indirilmiş şarkılar etkilenmez.";
 "error_download_failed %@" = "İndirme başarısız oldu: %@";
 "search_match_fuzzy" = "Bulanık eşleşme";
 "compressor_limiter" = "Kompresör / Sınırlayıcı";
