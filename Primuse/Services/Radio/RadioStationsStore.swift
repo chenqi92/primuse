@@ -16,10 +16,22 @@ struct ServerRadioSyncResult: Sendable {
 @MainActor
 @Observable
 final class RadioStationsStore {
-    private(set) var allStations: [RadioStation]
+    private(set) var allStations: [RadioStation] {
+        didSet { sortedVisibleStations = nil }
+    }
+
+    /// 排序按台名做本地化比较，音乐源镜像进来的台一多（群晖 SHOUTcast 目录上千个）
+    /// 每读一次就是几十毫秒；而首页、资料库、CarPlay 在一次刷新里会读好几遍。
+    /// 排好的结果留到清单下一次变化。
+    @ObservationIgnored private var sortedVisibleStations: [RadioStation]?
 
     var stations: [RadioStation] {
-        RadioStationOrdering.sorted(allStations.filter { !$0.isDeleted })
+        // 先读 allStations，观察者照旧挂在它上面，清单一变就会重新取值。
+        let all = allStations
+        if let sortedVisibleStations { return sortedVisibleStations }
+        let sorted = RadioStationOrdering.sorted(all.filter { !$0.isDeleted })
+        sortedVisibleStations = sorted
+        return sorted
     }
 
     private let storeURL: URL

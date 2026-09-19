@@ -1274,16 +1274,14 @@ struct HomeView: View {
 
     private func radioWallSection(_ stations: [RadioStation]) -> some View {
         let layout = heightClass.pick(Self.radioWallLayout, compact: Self.radioWallCompactHeightLayout)
+        let hiddenCount = max(stations.count - Self.radioWallLimit, 0)
         return VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("home_radio_wall_title")
                     .font(.title3.weight(.bold))
                 Spacer()
                 NavigationLink {
-                    RadioStationsView()
-                        #if os(iOS)
-                        .minimalNavigationDetail()
-                        #endif
+                    radioStationsPage
                 } label: {
                     Text(String(
                         format: String(localized: "home_radio_wall_manage %lld"),
@@ -1308,13 +1306,63 @@ struct HomeView: View {
                 alignment: .leading,
                 spacing: 16
             ) {
-                ForEach(stations) { station in
+                ForEach(stations.prefix(Self.radioWallLimit)) { station in
                     radioWallCard(station)
+                }
+                if hiddenCount > 0 {
+                    radioWallSeeAllCard(hiddenCount: hiddenCount)
                 }
                 radioWallAddCard
             }
             .padding(.horizontal, CGFloat(layout.horizontalPadding))
         }
+    }
+
+    /// 首页电台墙最多摆这么多个台，其余的走「查看全部」进管理页。
+    ///
+    /// 音乐源会把整份电台目录镜像进来（群晖 Audio Station 的 SHOUTcast 目录上千个），
+    /// 全摆出来的话，翻面动画那一下的 3D 变换会让网格把大批卡片连同台标加载一起
+    /// 建出来，切换就卡住甚至切不过去。取 2、3、4、6 列都能排满的数。
+    private static let radioWallLimit = 48
+
+    private var radioStationsPage: some View {
+        RadioStationsView()
+            #if os(iOS)
+            .minimalNavigationDetail()
+            #endif
+    }
+
+    private func radioWallSeeAllCard(hiddenCount: Int) -> some View {
+        NavigationLink {
+            radioStationsPage
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(homeCardSurface)
+
+                    VStack(spacing: 8) {
+                        Image(systemName: "square.grid.2x2")
+                            .font(.system(size: 24, weight: .medium))
+                        Text("see_all")
+                            .font(.caption.weight(.medium))
+                            .lineLimit(1)
+                        Text(verbatim: "+\(hiddenCount.formatted())")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    .foregroundStyle(.primary)
+                }
+                .frame(maxWidth: .infinity)
+                .aspectRatio(1, contentMode: .fit)
+
+                Color.clear
+                    .frame(height: radioWallCaptionHeight)
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.pmPressable)
+        .accessibilityIdentifier("home.radio.seeAll")
     }
 
     private static let radioWallLayout = RadioStationArtworkGridLayout()
@@ -1469,10 +1517,7 @@ struct HomeView: View {
                 .padding(.horizontal, 40)
 
             NavigationLink {
-                RadioStationsView()
-                    #if os(iOS)
-                    .minimalNavigationDetail()
-                    #endif
+                radioStationsPage
             } label: {
                 Text("radio_manage")
                     .fontWeight(.medium)
