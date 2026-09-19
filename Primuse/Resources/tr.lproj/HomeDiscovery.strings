@@ -17,6 +17,8 @@
 "longest" = "En uzun dinlenen";
 "play_count" = "%d kez çalındı";
 "positions_gained" = "%d sıra yükseldi";
+"positions_lost" = "%d sıra düştü";
+"new_entry" = "YENİ";
 "recent_albums" = "Son eklenen albümler";
 "folder_display_count" = "Ana sayfada gösterilen sayı";
 "manage_folders" = "Dizinleri yönet ve sırala";

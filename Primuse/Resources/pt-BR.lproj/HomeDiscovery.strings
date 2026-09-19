@@ -17,6 +17,8 @@
 "longest" = "Maior tempo de escuta";
 "play_count" = "%d reproduções";
 "positions_gained" = "Subiu %d posições";
+"positions_lost" = "Caiu %d posições";
+"new_entry" = "NOVO";
 "recent_albums" = "Álbuns adicionados recentemente";
 "folder_display_count" = "Quantidade no Início";
 "manage_folders" = "Gerenciar e ordenar diretórios";

@@ -17,6 +17,8 @@
 "longest" = "أطول مدة استماع";
 "play_count" = "%d مرات تشغيل";
 "positions_gained" = "صعود %d مراكز";
+"positions_lost" = "هبوط %d مراكز";
+"new_entry" = "جديد";
 "recent_albums" = "الألبومات المضافة مؤخرًا";
 "folder_display_count" = "العدد المعروض في الرئيسية";
 "manage_folders" = "إدارة الأدلة وترتيبها";

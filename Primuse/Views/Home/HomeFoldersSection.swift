@@ -49,7 +49,7 @@ struct HomeFoldersSection: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text(HomeDiscoveryText.string("folders"))
-                    .font(.title2.bold())
+                    .font(.title3.bold())
                     .accessibilityAddTraits(.isHeader)
                 Spacer()
                 NavigationLink {

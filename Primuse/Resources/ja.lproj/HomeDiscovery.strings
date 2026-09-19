@@ -17,6 +17,8 @@
 "longest" = "最長再生時間";
 "play_count" = "%d回再生";
 "positions_gained" = "%d位上昇";
+"positions_lost" = "%d位下降";
+"new_entry" = "初登場";
 "recent_albums" = "最近追加したアルバム";
 "folder_display_count" = "ホームの表示数";
 "manage_folders" = "ディレクトリの管理と並べ替え";

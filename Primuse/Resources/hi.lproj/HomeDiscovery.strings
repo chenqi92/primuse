@@ -17,6 +17,8 @@
 "longest" = "सबसे अधिक समय सुना";
 "play_count" = "%d बार चलाया";
 "positions_gained" = "%d स्थान ऊपर";
+"positions_lost" = "%d स्थान नीचे";
+"new_entry" = "नया";
 "recent_albums" = "हाल ही में जोड़े गए एल्बम";
 "folder_display_count" = "होम पर दिखने वाली संख्या";
 "manage_folders" = "डायरेक्टरी प्रबंधित और क्रमबद्ध करें";

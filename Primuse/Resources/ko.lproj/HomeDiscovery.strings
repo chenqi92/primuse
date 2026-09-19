@@ -17,6 +17,8 @@
 "longest" = "최장 감상";
 "play_count" = "%d회 재생";
 "positions_gained" = "%d위 상승";
+"positions_lost" = "%d위 하락";
+"new_entry" = "신규";
 "recent_albums" = "최근 추가한 앨범";
 "folder_display_count" = "홈에 표시할 개수";
 "manage_folders" = "디렉터리 관리 및 순서 변경";

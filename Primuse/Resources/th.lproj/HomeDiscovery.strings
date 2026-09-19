@@ -17,6 +17,8 @@
 "longest" = "ฟังนานที่สุด";
 "play_count" = "เล่น %d ครั้ง";
 "positions_gained" = "เพิ่มขึ้น %d อันดับ";
+"positions_lost" = "ลดลง %d อันดับ";
+"new_entry" = "ใหม่";
 "recent_albums" = "อัลบั้มที่เพิ่มล่าสุด";
 "folder_display_count" = "จำนวนที่แสดงบนหน้าแรก";
 "manage_folders" = "จัดการและเรียงลำดับไดเรกทอรี";

@@ -17,6 +17,8 @@
 "longest" = "Найдовше слухали";
 "play_count" = "Прослуховувань: %d";
 "positions_gained" = "Підйом на %d позицій";
+"positions_lost" = "Падіння на %d позицій";
+"new_entry" = "НОВЕ";
 "recent_albums" = "Нещодавно додані альбоми";
 "folder_display_count" = "Кількість на головній";
 "manage_folders" = "Керування й порядок каталогів";

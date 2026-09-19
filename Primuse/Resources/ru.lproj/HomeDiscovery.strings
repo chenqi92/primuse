@@ -17,6 +17,8 @@
 "longest" = "Больше всего времени";
 "play_count" = "Прослушиваний: %d";
 "positions_gained" = "Рост на %d позиций";
+"positions_lost" = "Падение на %d позиций";
+"new_entry" = "НОВОЕ";
 "recent_albums" = "Недавно добавленные альбомы";
 "folder_display_count" = "Количество на главной";
 "manage_folders" = "Управление и порядок каталогов";

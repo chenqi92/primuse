@@ -17,6 +17,8 @@
 "longest" = "聆听最久";
 "play_count" = "%d 次";
 "positions_gained" = "上升 %d 位";
+"positions_lost" = "下降 %d 位";
+"new_entry" = "新上榜";
 "recent_albums" = "最近添加专辑";
 "folder_display_count" = "首页显示数量";
 "manage_folders" = "管理与排序目录";

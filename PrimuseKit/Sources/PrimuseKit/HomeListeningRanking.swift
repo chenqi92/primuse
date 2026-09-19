@@ -81,10 +81,83 @@ public struct HomeListeningRank: Identifiable, Sendable {
     public let title: String
     public let subtitle: String
     public let songIDs: [String]
+    /// 这一组里听得最多的那首，封面取它的。`songIDs` 按 ID 排序，第一首只是
+    /// 字典序靠前，拿来当艺人或专辑的门面没有道理。
+    public let artworkSongID: String?
     public let folderID: LibraryFolderNodeID?
     public let playCount: Int
     public let listenedSeconds: TimeInterval
     public var positionsGained: Int?
+    /// 上一个周期有榜单，而这一项不在其中。上一个周期整段空白时不算 ——
+    /// 否则刚开始用的人会看到满屏「新上榜」。
+    public var isNewEntry = false
+
+    public var trend: HomeListeningRankTrend? {
+        if let positionsGained {
+            if positionsGained > 0 { return .up(positionsGained) }
+            if positionsGained < 0 { return .down(-positionsGained) }
+            return .steady
+        }
+        return isNewEntry ? .newEntry : nil
+    }
+}
+
+/// 与上一个周期相比的名次变化。「全部」没有上一个周期，整榜都没有变化可言。
+public enum HomeListeningRankTrend: Equatable, Sendable {
+    case up(Int)
+    case down(Int)
+    case steady
+    case newEntry
+}
+
+/// 榜单怎么摆：前三名站领奖台，其余列成名次榜；横排则是一条封面货架。
+public enum HomeListeningRankBoardPolicy {
+    public static let podiumSize = 3
+    /// 收起时一共露出几名（含领奖台）。
+    public static let collapsedCount = 5
+
+    /// 领奖台从左到右依次站谁（下标即名次 - 1）：亚军、冠军、季军。
+    /// 不足三名时按人数收拢，不给缺席的名次留空台阶。
+    public static func podiumOrder(count: Int) -> [Int] {
+        switch max(0, min(count, podiumSize)) {
+        case 0: return []
+        case 1: return [0]
+        case 2: return [1, 0]
+        default: return [1, 0, 2]
+        }
+    }
+
+    /// 台阶相对冠军台阶的高度。固定三级而不是按播放次数算 —— 前三名次数
+    /// 接近时按比例画出来是一排齐平的柱子，看不出是领奖台。
+    public static func stepHeightFraction(place: Int) -> Double {
+        switch place {
+        case 0: return 1
+        case 1: return 0.68
+        default: return 0.46
+        }
+    }
+
+    public static func offersExpansion(total: Int, expandedLimit: Int) -> Bool {
+        total > collapsedCount && expandedLimit > collapsedCount
+    }
+
+    public static func visibleCount(total: Int, expandedLimit: Int, isExpanded: Bool) -> Int {
+        let limit = isExpanded && offersExpansion(total: total, expandedLimit: expandedLimit)
+            ? expandedLimit
+            : collapsedCount
+        return max(0, min(total, limit))
+    }
+
+    /// 横排没有展开这一说，直接铺到设置里的名次；设置调到 5 以下也至少铺 5 名。
+    public static func shelfCount(total: Int, expandedLimit: Int) -> Int {
+        max(0, min(total, max(expandedLimit, collapsedCount)))
+    }
+
+    /// 相对榜首的播放占比，给名次行的底色条用。
+    public static func share(playCount: Int, leaderPlayCount: Int) -> Double {
+        guard leaderPlayCount > 0, playCount > 0 else { return 0 }
+        return min(1, Double(playCount) / Double(leaderPlayCount))
+    }
 }
 
 public enum HomeListeningRanking {
@@ -102,9 +175,23 @@ public enum HomeListeningRanking {
         var title: String
         var subtitle: String
         var folderID: LibraryFolderNodeID?
-        var songIDs = Set<String>()
+        var songPlays: [String: SongPlays] = [:]
         var count = 0
         var seconds: TimeInterval = 0
+        var latestDate = Date.distantPast
+
+        /// 次数最多的那首；并列时取最近听过的，再并列按 ID，保证与输入顺序无关。
+        var artworkSongID: String? {
+            songPlays.max { lhs, rhs in
+                if lhs.value.count != rhs.value.count { return lhs.value.count < rhs.value.count }
+                if lhs.value.latestDate != rhs.value.latestDate { return lhs.value.latestDate < rhs.value.latestDate }
+                return lhs.key > rhs.key
+            }?.key
+        }
+    }
+
+    private struct SongPlays {
+        var count = 0
         var latestDate = Date.distantPast
     }
 
@@ -135,6 +222,8 @@ public enum HomeListeningRanking {
             var value = value
             if let oldPosition = positions[value.id] {
                 value.positionsGained = oldPosition - position
+            } else {
+                value.isNewEntry = !previous.isEmpty
             }
             return value
         }
@@ -188,7 +277,10 @@ public enum HomeListeningRanking {
                 group.subtitle = subtitle
                 group.latestDate = event.playedAt
             }
-            group.songIDs.insert(event.songID)
+            var plays = group.songPlays[event.songID] ?? SongPlays()
+            plays.count += 1
+            plays.latestDate = max(plays.latestDate, event.playedAt)
+            group.songPlays[event.songID] = plays
             group.count += 1
             if event.listenedSeconds.isFinite { group.seconds += max(0, event.listenedSeconds) }
             groups[key] = group
@@ -196,7 +288,8 @@ public enum HomeListeningRanking {
         return groups.map { key, value in
             HomeListeningRank(
                 id: key.id, title: value.title, subtitle: value.subtitle,
-                songIDs: value.songIDs.sorted(), folderID: value.folderID,
+                songIDs: value.songPlays.keys.sorted(), artworkSongID: value.artworkSongID,
+                folderID: value.folderID,
                 playCount: value.count, listenedSeconds: value.seconds, positionsGained: nil
             )
         }.sorted {

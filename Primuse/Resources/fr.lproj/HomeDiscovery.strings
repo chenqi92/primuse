@@ -17,6 +17,8 @@
 "longest" = "Plus longue écoute";
 "play_count" = "%d écoutes";
 "positions_gained" = "Gain de %d places";
+"positions_lost" = "Perte de %d places";
+"new_entry" = "NOUVEAU";
 "recent_albums" = "Albums ajoutés récemment";
 "folder_display_count" = "Nombre sur l’accueil";
 "manage_folders" = "Gérer et réorganiser les dossiers";

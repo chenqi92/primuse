@@ -17,6 +17,8 @@
 "longest" = "Most time listened";
 "play_count" = "%d plays";
 "positions_gained" = "Up %d places";
+"positions_lost" = "Down %d places";
+"new_entry" = "NEW";
 "recent_albums" = "Recently added albums";
 "folder_display_count" = "Number shown on Home";
 "manage_folders" = "Manage and reorder directories";

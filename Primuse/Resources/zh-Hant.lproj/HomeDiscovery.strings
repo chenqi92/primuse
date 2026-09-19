@@ -17,6 +17,8 @@
 "longest" = "聆聽最久";
 "play_count" = "%d 次";
 "positions_gained" = "上升 %d 名";
+"positions_lost" = "下降 %d 名";
+"new_entry" = "新上榜";
 "recent_albums" = "最近加入的專輯";
 "folder_display_count" = "首頁顯示數量";
 "manage_folders" = "管理與排序目錄";
