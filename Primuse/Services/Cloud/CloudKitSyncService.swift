@@ -1465,6 +1465,14 @@ final class CloudKitSyncService {
     /// saved as durable payloads; CloudAccount keeps its legacy deleteRecord
     /// behavior because account IDs are deterministic and not user-facing.
     private func scheduleInitialUpload() {
+        // 整份重传会让其它设备把这些记录再逐条收一遍, 记下规模供写盘量诊断。
+        plog(
+            "☁️ CloudKitSync: initial upload re-seeding playlists=\(library.allPlaylists.count) "
+                + "artworkOverrides=\(library.allArtworkOverrides.count) "
+                + "smartPlaylists=\(library.allSmartPlaylists.count) "
+                + "radioStations=\(radioStationsStore.allStations.count) "
+                + "scraperConfigs=\(scraperConfigStore.allConfigsIncludingDeleted.count)"
+        )
         playlistsChanged(ids: library.allPlaylists.map(\.id))
         artworkOverridesChanged(ids: library.allArtworkOverrides.map(\.cloudRecordID))
         smartPlaylistsChanged(ids: library.allSmartPlaylists.map(\.id))
@@ -1565,6 +1573,7 @@ final class CloudKitSyncService {
     private func persistSystemFieldsCache() {
         guard let data = try? PropertyListEncoder().encode(systemFieldsCache) else { return }
         try? data.write(to: systemFieldsURL, options: .atomic)
+        plog("💾 CloudKit system fields cache written entries=\(systemFieldsCache.count) bytes=\(data.count)")
     }
 
     /// 记下缓存有改动, 并安排一次合并写。CKSyncEngine 送来的整批记录由
@@ -1588,6 +1597,16 @@ final class CloudKitSyncService {
         guard systemFieldsCacheNeedsPersist else { return }
         systemFieldsCacheNeedsPersist = false
         persistSystemFieldsCache()
+    }
+
+    /// 「总数 (类型=条数 …)」的紧凑摘要, 条数多的在前; 按批记日志, 不按记录。
+    nonisolated static func recordTypeSummary(_ recordTypes: [String]) -> String {
+        guard !recordTypes.isEmpty else { return "0" }
+        let counts = Dictionary(recordTypes.map { ($0, 1) }, uniquingKeysWith: +)
+        let parts = counts
+            .sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+        return "\(recordTypes.count) (\(parts.joined(separator: " ")))"
     }
 
     /// 一批远端事件处理完、或者引擎游标落盘之前, 把攒着的整份写一次:
@@ -2493,6 +2512,12 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             }
             // 整批一次写盘, 不按记录逐条整份写。
             await MainActor.run { self.flushCoalescedRemoteWrites() }
+            if !event.modifications.isEmpty || !event.deletions.isEmpty {
+                plog(
+                    "☁️ CloudKitSync: fetched \(Self.recordTypeSummary(event.modifications.map(\.record.recordType))) "
+                        + "deletions=\(event.deletions.count)"
+                )
+            }
         case .fetchedDatabaseChanges(let event):
             // Zone-level changes from another device. Most often: zone deletion
             // (user wiped CloudKit data on another device, or container reset).
@@ -2530,6 +2555,12 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             }
             // 冲突处理会把服务器那份并回本地。
             await MainActor.run { self.flushCoalescedRemoteWrites() }
+            if !event.savedRecords.isEmpty || !event.failedRecordSaves.isEmpty || !event.deletedRecordIDs.isEmpty {
+                plog(
+                    "☁️ CloudKitSync: sent saved=\(Self.recordTypeSummary(event.savedRecords.map(\.recordType))) "
+                        + "deleted=\(event.deletedRecordIDs.count) failed=\(event.failedRecordSaves.count)"
+                )
+            }
         case .sentDatabaseChanges(let event):
             for failed in event.failedZoneSaves {
                 plog("CloudKitSync: failed to save zone \(failed.zone.zoneID): \(failed.error.localizedDescription)")

@@ -10041,10 +10041,13 @@ final class MusicLibrary {
 
     private nonisolated static func writeStartupCache(_ cache: StartupCache, to url: URL) {
         do {
+            let startedAt = ProcessInfo.processInfo.systemUptime
             let encoder = PropertyListEncoder()
             encoder.outputFormat = .binary
             let data = try encoder.encode(cache)
             try data.write(to: url, options: .atomic)
+            let elapsedMS = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)
+            plog("💾 Library startup cache written bytes=\(data.count) total=\(elapsedMS)ms")
         } catch {
             // The cache is an accelerator only. Keep the durable SQLite/JSON
             // state untouched and simply rebuild on the next launch.
@@ -10146,7 +10149,8 @@ final class MusicLibrary {
 
     private func persistSnapshot(
         after delay: TimeInterval = 2,
-        marksMutation: Bool = true
+        marksMutation: Bool = true,
+        trigger: StaticString = #function
     ) {
         if marksMutation { markPortableSnapshotDirty() }
         if isDeferringSceneTransitionPublications || externalSnapshotWriteOwners > 0 {
@@ -10159,6 +10163,9 @@ final class MusicLibrary {
         if persistTask != nil, let armed = persistDeadline, armed <= deadline { return }
         persistTask?.cancel()
         persistDeadline = deadline
+        // 每次整库快照写都是 O(整库) 的字节量; 记下由谁在多久之后触发,
+        // 写盘超限时才分得清是哪类改动在推节奏。合并掉的调用不记。
+        plog("💾 Library snapshot write armed in \(delay)s by \(trigger)")
         persistTask = Task {
             try? await Task.sleep(until: deadline, clock: .continuous)
             guard !Task.isCancelled else { return }
@@ -10436,6 +10443,7 @@ final class MusicLibrary {
         backupURL: URL,
         existingFileIsKnownValid: Bool
     ) -> Bool {
+        let startedAt = ProcessInfo.processInfo.systemUptime
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
@@ -10446,6 +10454,7 @@ final class MusicLibrary {
             plog("⚠️ Library snapshot encoding failed: \(error.localizedDescription)")
             return false
         }
+        let encodedAt = ProcessInfo.processInfo.systemUptime
         let existingFileIsValid: Bool?
         if LibrarySnapshotBackupPolicy.shouldValidateExistingFile(
             existingFileIsKnownValid: existingFileIsKnownValid
@@ -10466,6 +10475,12 @@ final class MusicLibrary {
                 to: url,
                 backupURL: backupURL,
                 preserveExistingAsBackup: shouldPreserveCurrentAsBackup
+            )
+            let finishedAt = ProcessInfo.processInfo.systemUptime
+            plog(
+                "💾 Library snapshot written bytes=\(data.count) songs=\(snapshot.songs.count) "
+                    + "encode=\(Int((encodedAt - startedAt) * 1000))ms "
+                    + "write=\(Int((finishedAt - encodedAt) * 1000))ms"
             )
             return true
         } catch {
