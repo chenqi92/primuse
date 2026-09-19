@@ -474,6 +474,10 @@
 "add_insecure_http_domain_message" = "केवल होस्ट दर्ज करें, जैसे nas.example.com या सार्वजनिक IP पता। कोई स्कीम, पोर्ट या पथ शामिल न करें. HTTP इस होस्ट पर ट्रैफ़िक एन्क्रिप्ट नहीं किया जाएगा।";
 "add_source" = "स्रोत जोड़ें";
 "add_to_playlist" = "प्लेलिस्ट में जोड़ें";
+"add_to_playlist_short" = "प्लेलिस्ट";
+"insert_next_short" = "अगला चलाएँ";
+"add_to_queue_short" = "कतार में";
+"full_screen_short" = "पूर्ण स्क्रीन";
 "add_to_playlist_ellipsis" = "प्लेलिस्ट में जोड़ें…";
 "add_to_queue" = "कतार में जोड़ें";
 "add_trusted_domain" = "विश्वसनीय डोमेन जोड़ें";
@@ -2337,6 +2341,9 @@
 "radio_manage_export" = "निर्यात";
 "radio_manage_footer" = "पुन: व्यवस्थित करने के लिए खींचें। किसी पंक्ति का नाम बदलने, पिन करने या हटाने के लिए उसे स्वाइप करें।";
 "radio_manage_pin_top" = "शीर्ष पर पिन करें";
+"radio_manage_pin_top_short" = "शीर्ष पर";
+"select_all_short" = "सभी";
+"deselect_all_short" = "कोई नहीं";
 "radio_manage_selected %lld" = "%lld चयनित";
 "radio_name" = "स्टेशन का नाम";
 "radio_next_station" = "अगला स्टेशन";

@@ -433,28 +433,22 @@ struct RadioStationsView: View {
                     // 批量操作里用得最多的三件事排成一行。这三个键在任何选中
                     // 状态下都在，只是会变灰，所以这一行不会塌成一个键。
                     PMMenuQuickActions {
-                        Button {
-                            if selection == visibleStationIDs {
-                                selection = []
-                            } else {
-                                selection = visibleStationIDs
-                            }
-                        } label: {
-                            Label(
-                                selection == visibleStationIDs
-                                    ? String(localized: "radio_manage_deselect_all")
-                                    : String(localized: "select_all"),
-                                systemImage: selection == visibleStationIDs
-                                    ? "circle"
-                                    : "checkmark.circle"
-                            )
+                        let allSelected = selection == visibleStationIDs
+                        PMMenuQuickActionButton(
+                            shortKey: allSelected ? "deselect_all_short" : "select_all_short",
+                            fullKey: allSelected ? "radio_manage_deselect_all" : "select_all",
+                            systemImage: allSelected ? "circle" : "checkmark.circle"
+                        ) {
+                            selection = allSelected ? [] : visibleStationIDs
                         }
                         .disabled(visibleStationIDs.isEmpty)
 
-                        Button {
+                        PMMenuQuickActionButton(
+                            shortKey: "radio_manage_pin_top_short",
+                            fullKey: "radio_manage_pin_top",
+                            systemImage: "arrow.up.to.line"
+                        ) {
                             moveToTop(selection)
-                        } label: {
-                            Label("radio_manage_pin_top", systemImage: "arrow.up.to.line")
                         }
                         .disabled(selectedStations.isEmpty)
 
@@ -715,19 +709,23 @@ struct RadioStationsView: View {
                 Button("edit", systemImage: "pencil") { editingStation = station }
             }
 
-            // 横排每格只有菜单宽的三分之一，「Raise Priority」这类全称会被截断，
-            // 画出来用短的，全称留给旁白。
-            Button("radio_priority_move_up_short", systemImage: "arrow.up") {
+            PMMenuQuickActionButton(
+                shortKey: "radio_priority_move_up_short",
+                fullKey: "radio_priority_move_up",
+                systemImage: "arrow.up"
+            ) {
                 store.moveStation(id: station.id, by: -1)
             }
             .disabled(priority <= 1)
-            .accessibilityLabel(Text("radio_priority_move_up"))
 
-            Button("radio_priority_move_down_short", systemImage: "arrow.down") {
+            PMMenuQuickActionButton(
+                shortKey: "radio_priority_move_down_short",
+                fullKey: "radio_priority_move_down",
+                systemImage: "arrow.down"
+            ) {
                 store.moveStation(id: station.id, by: 1)
             }
             .disabled(priority >= total)
-            .accessibilityLabel(Text("radio_priority_move_down"))
         }
 
         Section {

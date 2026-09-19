@@ -572,6 +572,10 @@
 "cloud_oauth_config" = "雲端硬碟授權";
 "cloud_oauth_hint" = "請在對應雲端硬碟開放平台註冊應用程式取得 Client ID。儲存後進入 OAuth 登入授權。";
 "add_to_playlist" = "加入播放清單";
+"add_to_playlist_short" = "播放清單";
+"insert_next_short" = "下一首播放";
+"add_to_queue_short" = "加入佇列";
+"full_screen_short" = "全螢幕播放";
 "add_to_queue" = "加入播放佇列";
 "playlists_title" = "播放清單";
 "sleep_timer" = "睡眠定時器";
@@ -2801,6 +2805,9 @@
 /* MARK: - 電台管理 */
 "radio_manage_footer" = "拖動可調整順序，左右滑動單列可重新命名、置頂或刪除。";
 "radio_manage_pin_top" = "置頂";
+"radio_manage_pin_top_short" = "置頂";
+"select_all_short" = "全選";
+"deselect_all_short" = "取消全選";
 "radio_manage_export" = "匯出";
 "radio_manage_deselect_all" = "取消全選";
 "radio_manage_delete_confirm_title" = "刪除選取的電台？";

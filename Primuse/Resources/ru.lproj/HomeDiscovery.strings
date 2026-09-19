@@ -25,6 +25,9 @@
 "no_pinned_folders" = "Выберите каталоги в разделе «Показать все».";
 "folder_ranking_scope" = "Рейтинг каталогов включает треки с доступным каталогом.";
 "folder_as_playlist" = "Использовать как плейлист";
+"pin_folder_short" = "Закрепить";
+"unpin_folder_short" = "Открепить";
+"folder_as_playlist_short" = "Как плейлист";
 "expand_top_20" = "Show Top 20";
 "expand_top_n" = "Показать топ-%d";
 "collapse_ranking" = "Show Less";

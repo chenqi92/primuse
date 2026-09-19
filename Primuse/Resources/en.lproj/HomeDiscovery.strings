@@ -25,6 +25,9 @@
 "no_pinned_folders" = "Choose your favorite directories in See All.";
 "folder_ranking_scope" = "Directory rankings include songs with a current directory.";
 "folder_as_playlist" = "Use as Playlist";
+"pin_folder_short" = "Pin";
+"unpin_folder_short" = "Unpin";
+"folder_as_playlist_short" = "As Playlist";
 "expand_top_20" = "Show Top 20";
 "expand_top_n" = "Show Top %d";
 "collapse_ranking" = "Show Less";

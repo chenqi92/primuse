@@ -5745,7 +5745,11 @@ private struct LibraryFolderNormalToolbarMenu: View {
                 // 三个常用动作交给系统排成顶部一行, 剩下的一行是排序。
                 PMMenuQuickActions {
                     let pinned = pins.contains(nodeID)
-                    Button(HomeDiscoveryText.string(pinned ? "unpin_folder" : "pin_folder"), systemImage: pinned ? "pin.slash" : "pin") {
+                    PMMenuQuickActionButton(
+                        short: HomeDiscoveryText.string(pinned ? "unpin_folder_short" : "pin_folder_short"),
+                        full: HomeDiscoveryText.string(pinned ? "unpin_folder" : "pin_folder"),
+                        systemImage: pinned ? "pin.slash" : "pin"
+                    ) {
                         var updated = pins
                         if pinned { updated.removeAll { $0 == nodeID } } else { updated.insert(nodeID, at: 0) }
                         pinsRawValue = HomeFolderPinStorage.replacingVisiblePins(
@@ -5760,7 +5764,8 @@ private struct LibraryFolderNormalToolbarMenu: View {
                             node: node,
                             index: index,
                             library: library,
-                            source: source
+                            source: source,
+                            isInQuickRow: true
                         )
                     }
 

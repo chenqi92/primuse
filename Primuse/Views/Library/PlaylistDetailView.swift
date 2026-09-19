@@ -338,17 +338,21 @@ struct PlaylistDetailView: View {
                     // 最常用的三个排成顶部一行。队列两项用同一份可播放曲目,
                     // 文案跟歌曲行保持一致(`insert_next`,不是更长的 `up_next`)。
                     PMMenuQuickActions {
-                        Button {
+                        PMMenuQuickActionButton(
+                            shortKey: "insert_next_short",
+                            fullKey: "insert_next",
+                            systemImage: "text.line.first.and.arrowtriangle.forward"
+                        ) {
                             player.insertNextInQueue(songs.filteredPlayable())
-                        } label: {
-                            Label("insert_next", systemImage: "text.line.first.and.arrowtriangle.forward")
                         }
                         .disabled(songs.filteredPlayable().isEmpty)
 
-                        Button {
+                        PMMenuQuickActionButton(
+                            shortKey: "add_to_queue_short",
+                            fullKey: "add_to_queue",
+                            systemImage: "text.line.last.and.arrowtriangle.forward"
+                        ) {
                             player.appendToQueue(songs.filteredPlayable())
-                        } label: {
-                            Label("add_to_queue", systemImage: "text.line.last.and.arrowtriangle.forward")
                         }
                         .disabled(songs.filteredPlayable().isEmpty)
 

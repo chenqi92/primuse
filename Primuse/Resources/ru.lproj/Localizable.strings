@@ -447,6 +447,9 @@
 "yearly_sub_genres" = "Жанровый профиль";
 "metadata_status_no_retryable_work" = "Теперь песни нельзя снова поставить в очередь. Вы все равно можете перечитать отдельную строку.";
 "radio_manage_pin_top" = "Закрепить вверху";
+"radio_manage_pin_top_short" = "Наверх";
+"select_all_short" = "Выбрать все";
+"deselect_all_short" = "Снять выбор";
 "SSL Trusted Domains" = "SSL Доверенные домены";
 "no_songs_desc" = "Чтобы начать, добавьте источник музыки.";
 "Update Available" = "Доступно обновление";
@@ -735,6 +738,10 @@
 "Last 30 Days + Top" = "Последние 30 дней + Топ";
 "Scraping Sources" = "Источники поиска метаданных";
 "add_to_playlist" = "Добавить в плейлист";
+"add_to_playlist_short" = "Плейлист";
+"insert_next_short" = "Играть дальше";
+"add_to_queue_short" = "В очередь";
+"full_screen_short" = "Полный экран";
 "keyboard_shortcuts_recorder_idle_hint" = "Выберите поле ярлыка, чтобы начать запись.";
 "source_name" = "Имя";
 "ai_model_manual_placeholder" = "Выберите или введите модель.";

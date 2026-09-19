@@ -25,6 +25,52 @@ struct PMMenuQuickActions<Content: View>: View {
     }
 }
 
+/// 快捷行里的一个键。横排每格只有菜单宽的三分之一，「Zur Wiedergabeliste hinzufügen」
+/// 这种整句一定被截断。通行的做法不是缩写（带点的缩写旁白读不出来，各语言也没有统一
+/// 缩法），而是给窄位置单独写一条短文案：图标担动词、文字只留宾语 —— 系统自己的
+/// 「扫描 / 锁定 / 置顶」「回复 / 转发」都是一个词。完整说法留给旁白；macOS 上快捷行
+/// 平铺成普通菜单项，那边地方够，仍用完整说法。
+///
+/// 文案按已经本地化好的字符串传进来，这样不同的文案表（Localizable、HomeDiscovery）
+/// 都能用。
+struct PMMenuQuickActionButton: View {
+    let short: String
+    let full: String
+    let systemImage: String
+    var role: ButtonRole? = nil
+    let action: () -> Void
+
+    var body: some View {
+        Button(role: role, action: action) {
+            #if os(iOS)
+            Label(short, systemImage: systemImage)
+            #else
+            Label(full, systemImage: systemImage)
+            #endif
+        }
+        .accessibilityLabel(Text(verbatim: full))
+    }
+}
+
+extension PMMenuQuickActionButton {
+    /// 两条文案都在 Localizable 表里时的简写。
+    init(
+        shortKey: String.LocalizationValue,
+        fullKey: String.LocalizationValue,
+        systemImage: String,
+        role: ButtonRole? = nil,
+        action: @escaping () -> Void
+    ) {
+        self.init(
+            short: String(localized: shortKey),
+            full: String(localized: fullKey),
+            systemImage: systemImage,
+            role: role,
+            action: action
+        )
+    }
+}
+
 struct PMMenuPalettePicker<Value: Hashable, Content: View>: View {
     let title: LocalizedStringKey
     @Binding var selection: Value

@@ -447,6 +447,9 @@
 "yearly_sub_genres" = "Tür profili";
 "metadata_status_no_retryable_work" = "Artık hiçbir şarkı tekrar sıraya alınamaz. Yine de tek bir satırı yeniden okuyabilirsiniz.";
 "radio_manage_pin_top" = "Başa Sabitle";
+"radio_manage_pin_top_short" = "Başa Sabitle";
+"select_all_short" = "Tümünü Seç";
+"deselect_all_short" = "Hiçbiri";
 "SSL Trusted Domains" = "SSL Güvenilir Etki Alanları";
 "no_songs_desc" = "Başlamak için bir müzik kaynağı ekleyin";
 "Update Available" = "Güncelleme Mevcut";
@@ -735,6 +738,10 @@
 "Last 30 Days + Top" = "Son 30 Gün + En İyi";
 "Scraping Sources" = "üst veri alma Kaynakları";
 "add_to_playlist" = "Çalma Listesine Ekle";
+"add_to_playlist_short" = "Listeye Ekle";
+"insert_next_short" = "Sıradaki";
+"add_to_queue_short" = "Sıraya Ekle";
+"full_screen_short" = "Tam ekran";
 "keyboard_shortcuts_recorder_idle_hint" = "Kaydı başlatmak için bir kısayol alanı seçin.";
 "source_name" = "İsim";
 "ai_model_manual_placeholder" = "Bir model seçin veya girin";

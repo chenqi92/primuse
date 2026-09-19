@@ -603,6 +603,10 @@
 
 // MARK: - Player More Features
 "add_to_playlist" = "Add to Playlist";
+"add_to_playlist_short" = "Playlist";
+"insert_next_short" = "Play Next";
+"add_to_queue_short" = "Add to Queue";
+"full_screen_short" = "Full Screen";
 "add_to_queue" = "Add to Queue";
 "playlists_title" = "Playlists";
 "sleep_timer" = "Sleep Timer";
@@ -2642,6 +2646,9 @@
 /* MARK: - Radio manage */
 "radio_manage_footer" = "Drag to reorder. Swipe a row to rename, pin, or delete it.";
 "radio_manage_pin_top" = "Pin to Top";
+"radio_manage_pin_top_short" = "Pin to Top";
+"select_all_short" = "Select All";
+"deselect_all_short" = "Deselect";
 "radio_manage_export" = "Export";
 "radio_manage_deselect_all" = "Deselect All";
 "radio_manage_delete_confirm_title" = "Delete Selected Stations?";

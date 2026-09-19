@@ -540,20 +540,21 @@ struct SongRowView: View {
         // 图标不画文字了，所以这一行的上限就是三个。
         PMMenuQuickActions {
             if canQueueSong {
-                Button {
+                PMMenuQuickActionButton(
+                    shortKey: "insert_next_short",
+                    fullKey: "insert_next",
+                    systemImage: "text.line.first.and.arrowtriangle.forward"
+                ) {
                     insertNextInQueue()
-                } label: {
-                    Label(
-                        String(localized: "insert_next"),
-                        systemImage: "text.line.first.and.arrowtriangle.forward"
-                    )
                 }
             }
 
-            Button {
+            PMMenuQuickActionButton(
+                shortKey: "add_to_playlist_short",
+                fullKey: "add_to_playlist",
+                systemImage: "text.badge.plus"
+            ) {
                 showAddToPlaylist = true
-            } label: {
-                Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
             }
 
             Button {

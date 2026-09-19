@@ -447,6 +447,9 @@
 "yearly_sub_genres" = "Профіль жанру";
 "metadata_status_no_retryable_work" = "Зараз жодну пісню не можна знову поставити в чергу. Ви все ще можете перечитати окремий рядок.";
 "radio_manage_pin_top" = "Закріпити вгорі";
+"radio_manage_pin_top_short" = "Нагору";
+"select_all_short" = "Вибрати все";
+"deselect_all_short" = "Зняти вибір";
 "SSL Trusted Domains" = "SSL Довірені домени";
 "no_songs_desc" = "Щоб почати, додайте джерело музики";
 "Update Available" = "Доступне оновлення";
@@ -735,6 +738,10 @@
 "Last 30 Days + Top" = "Останні 30 днів + Топ";
 "Scraping Sources" = "джерела отримання метаданих";
 "add_to_playlist" = "Додати до списку відтворення";
+"add_to_playlist_short" = "Плейліст";
+"insert_next_short" = "Грати далі";
+"add_to_queue_short" = "До черги";
+"full_screen_short" = "Весь екран";
 "keyboard_shortcuts_recorder_idle_hint" = "Виберіть поле швидкого доступу, щоб почати запис.";
 "source_name" = "Ім'я";
 "ai_model_manual_placeholder" = "Виберіть або введіть модель";

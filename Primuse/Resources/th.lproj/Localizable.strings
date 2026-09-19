@@ -474,6 +474,10 @@
 "add_insecure_http_domain_message" = "ป้อนเฉพาะโฮสต์ เช่น nas.example.com หรือที่อยู่สาธารณะ IP อย่ารวมโครงร่าง พอร์ต หรือเส้นทาง HTTP การรับส่งข้อมูลไปยังโฮสต์นี้จะไม่ถูกเข้ารหัส";
 "add_source" = "เพิ่มแหล่งที่มา";
 "add_to_playlist" = "เพิ่มลงในเพลย์ลิสต์";
+"add_to_playlist_short" = "เพลย์ลิสต์";
+"insert_next_short" = "เล่นถัดไป";
+"add_to_queue_short" = "เพิ่มในคิว";
+"full_screen_short" = "เต็มหน้าจอ";
 "add_to_playlist_ellipsis" = "เพิ่มลงในเพลย์ลิสต์...";
 "add_to_queue" = "เพิ่มในคิว";
 "add_trusted_domain" = "เพิ่มโดเมนที่เชื่อถือได้";
@@ -2337,6 +2341,9 @@
 "radio_manage_export" = "ส่งออก";
 "radio_manage_footer" = "ลากเพื่อเรียงลำดับใหม่ ปัดแถวเพื่อเปลี่ยนชื่อ ปักหมุด หรือลบ";
 "radio_manage_pin_top" = "ปักหมุดไว้ด้านบน";
+"radio_manage_pin_top_short" = "ไว้บนสุด";
+"select_all_short" = "เลือกทั้งหมด";
+"deselect_all_short" = "ไม่เลือก";
 "radio_manage_selected %lld" = "%lld เลือกแล้ว";
 "radio_name" = "ชื่อสถานี";
 "radio_next_station" = "สถานีต่อไป";

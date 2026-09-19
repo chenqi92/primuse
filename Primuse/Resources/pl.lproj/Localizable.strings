@@ -474,6 +474,10 @@
 "add_insecure_http_domain_message" = "Wprowadź tylko hosta, na przykład nas.example.com lub publiczny adres IP. Nie dołączaj schematu, portu ani ścieżki. Ruch HTTP do tego hosta nie będzie szyfrowany.";
 "add_source" = "Dodaj źródło";
 "add_to_playlist" = "Dodaj do listy odtwarzania";
+"add_to_playlist_short" = "Playlista";
+"insert_next_short" = "Następny";
+"add_to_queue_short" = "Do kolejki";
+"full_screen_short" = "Pełny ekran";
 "add_to_playlist_ellipsis" = "Dodaj do listy odtwarzania…";
 "add_to_queue" = "Dodaj do kolejki";
 "add_trusted_domain" = "Dodaj zaufaną domenę";
@@ -2337,6 +2341,9 @@
 "radio_manage_export" = "Eksport";
 "radio_manage_footer" = "Przeciągnij, aby zmienić kolejność. Przesuń wiersz, aby zmienić jego nazwę, przypiąć lub usunąć.";
 "radio_manage_pin_top" = "Przypnij do góry";
+"radio_manage_pin_top_short" = "Na górę";
+"select_all_short" = "Wszystko";
+"deselect_all_short" = "Odznacz";
 "radio_manage_selected %lld" = "Wybrano %lld";
 "radio_name" = "Nazwa stacji";
 "radio_next_station" = "Następna stacja";

@@ -25,6 +25,9 @@
 "no_pinned_folders" = "Choisissez vos dossiers dans Tout voir.";
 "folder_ranking_scope" = "Le classement des dossiers inclut les titres dont le dossier est disponible.";
 "folder_as_playlist" = "Utiliser comme playlist";
+"pin_folder_short" = "Épingler";
+"unpin_folder_short" = "Détacher";
+"folder_as_playlist_short" = "En playlist";
 "expand_top_20" = "Show Top 20";
 "expand_top_n" = "Afficher le top %d";
 "collapse_ranking" = "Show Less";

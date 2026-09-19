@@ -5781,11 +5781,23 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
 
     private var promotesAddToPlaylist: Bool { quickActionCount < 3 }
 
-    private var addToPlaylistButton: some View {
-        Button(action: onAddToPlaylist) {
-            Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
+    /// 留在列表里时用完整说法，提到横排里时用短的那条。
+    @ViewBuilder
+    private func addToPlaylistButton(inQuickRow: Bool) -> some View {
+        if inQuickRow {
+            PMMenuQuickActionButton(
+                shortKey: "add_to_playlist_short",
+                fullKey: "add_to_playlist",
+                systemImage: "text.badge.plus",
+                action: onAddToPlaylist
+            )
+            .disabled(!snapshot.hasSong)
+        } else {
+            Button(action: onAddToPlaylist) {
+                Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
+            }
+            .disabled(!snapshot.hasSong)
         }
-        .disabled(!snapshot.hasSong)
     }
 
     var body: some View {
@@ -5794,9 +5806,12 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
             // 长了会被截断；键数与平台差异见 `PMMenuQuickActions`。
             PMMenuQuickActions {
                 if snapshot.showsFullScreenAction {
-                    Button(action: onEnterFullScreen) {
-                        Label(String(localized: "full_screen_player"), systemImage: "viewfinder.rectangular")
-                    }
+                    PMMenuQuickActionButton(
+                        shortKey: "full_screen_short",
+                        fullKey: "full_screen_player",
+                        systemImage: "viewfinder.rectangular",
+                        action: onEnterFullScreen
+                    )
                     .disabled(!snapshot.hasSong)
                 }
 
@@ -5808,7 +5823,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                 }
 
                 if promotesAddToPlaylist {
-                    addToPlaylistButton
+                    addToPlaylistButton(inQuickRow: true)
                 }
 
                 if snapshot.canDeleteSourceFile {
@@ -5839,7 +5854,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
 
             Section {
                 if !promotesAddToPlaylist {
-                    addToPlaylistButton
+                    addToPlaylistButton(inQuickRow: false)
                 }
 
                 Button(action: onScrape) {

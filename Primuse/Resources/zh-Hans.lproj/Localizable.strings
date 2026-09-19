@@ -603,6 +603,10 @@
 
 // MARK: - 播放器更多功能
 "add_to_playlist" = "添加到歌单";
+"add_to_playlist_short" = "歌单";
+"insert_next_short" = "下一首播放";
+"add_to_queue_short" = "加入队列";
+"full_screen_short" = "全屏播放";
 "add_to_queue" = "加入播放队列";
 "playlists_title" = "歌单";
 "sleep_timer" = "睡眠定时器";
@@ -2917,6 +2921,9 @@
 /* MARK: - 电台管理 */
 "radio_manage_footer" = "拖动可调序，左右滑动单行可重命名、置顶或删除。";
 "radio_manage_pin_top" = "置顶";
+"radio_manage_pin_top_short" = "置顶";
+"select_all_short" = "全选";
+"deselect_all_short" = "取消全选";
 "radio_manage_export" = "导出";
 "radio_manage_deselect_all" = "取消全选";
 "radio_manage_delete_confirm_title" = "删除选中的电台？";

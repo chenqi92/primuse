@@ -474,6 +474,10 @@
 "add_insecure_http_domain_message" = "أدخل المضيف فقط، مثل nas.example.com أو عنوان IP عام. لا تقم بتضمين مخطط أو منفذ أو مسار. HTTP لن يتم تشفير حركة المرور إلى هذا المضيف.";
 "add_source" = "أضف المصدر";
 "add_to_playlist" = "أضف إلى قائمة التشغيل";
+"add_to_playlist_short" = "قائمة تشغيل";
+"insert_next_short" = "تشغيل تاليًا";
+"add_to_queue_short" = "قائمة الانتظار";
+"full_screen_short" = "شاشة كاملة";
 "add_to_playlist_ellipsis" = "أضف إلى قائمة التشغيل...";
 "add_to_queue" = "أضف إلى قائمة الانتظار";
 "add_trusted_domain" = "إضافة مجال موثوق";
@@ -2337,6 +2341,9 @@
 "radio_manage_export" = "تصدير";
 "radio_manage_footer" = "اسحب لإعادة الترتيب. اسحب صفًا لإعادة تسميته أو تثبيته أو حذفه.";
 "radio_manage_pin_top" = "دبوس إلى الأعلى";
+"radio_manage_pin_top_short" = "للأعلى";
+"select_all_short" = "الكل";
+"deselect_all_short" = "إلغاء الكل";
 "radio_manage_selected %lld" = "%lld مختارة";
 "radio_name" = "اسم المحطة";
 "radio_next_station" = "المحطة التالية";

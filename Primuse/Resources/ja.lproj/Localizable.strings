@@ -67,6 +67,10 @@
 
 // NowPlaying / Player
 "add_to_playlist" = "プレイリストに追加";
+"add_to_playlist_short" = "プレイリスト";
+"insert_next_short" = "次に再生";
+"add_to_queue_short" = "キューに追加";
+"full_screen_short" = "全画面";
 "scrape_song" = "メタデータを取得";
 "song_info" = "曲の情報";
 "delete_song" = "曲を削除";
@@ -2817,6 +2821,9 @@
 /* MARK: - Radio manage */
 "radio_manage_footer" = "ドラッグで並べ替え。行をスワイプで名称変更・先頭固定・削除。";
 "radio_manage_pin_top" = "先頭に固定";
+"radio_manage_pin_top_short" = "先頭に固定";
+"select_all_short" = "すべて選択";
+"deselect_all_short" = "選択を解除";
 "radio_manage_export" = "書き出す";
 "radio_manage_deselect_all" = "選択を解除";
 "radio_manage_delete_confirm_title" = "選択した局を削除しますか？";

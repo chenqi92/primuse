@@ -66,6 +66,10 @@
 
 // NowPlaying / Player
 "add_to_playlist" = "Zur Wiedergabeliste hinzufügen";
+"add_to_playlist_short" = "Playlist";
+"insert_next_short" = "Als Nächstes";
+"add_to_queue_short" = "Warteschlange";
+"full_screen_short" = "Vollbild";
 "scrape_song" = "Metadaten abrufen";
 "song_info" = "Titelinformationen";
 "delete_song" = "Titel löschen";
@@ -2816,6 +2820,9 @@
 /* MARK: - Radio: Verwaltung */
 "radio_manage_footer" = "Zum Sortieren ziehen. Zeile streichen zum Umbenennen, Anheften oder Löschen.";
 "radio_manage_pin_top" = "Nach oben";
+"radio_manage_pin_top_short" = "Nach oben";
+"select_all_short" = "Alle";
+"deselect_all_short" = "Keine";
 "radio_manage_export" = "Exportieren";
 "radio_manage_deselect_all" = "Auswahl aufheben";
 "radio_manage_delete_confirm_title" = "Ausgewählte Sender löschen?";

@@ -66,6 +66,10 @@
 
 // NowPlaying / Player
 "add_to_playlist" = "재생 목록에 추가";
+"add_to_playlist_short" = "재생 목록";
+"insert_next_short" = "다음에 재생";
+"add_to_queue_short" = "대기열에 추가";
+"full_screen_short" = "전체 화면";
 "scrape_song" = "메타데이터 가져오기";
 "song_info" = "곡 정보";
 "delete_song" = "곡 삭제";
@@ -2816,6 +2820,9 @@
 /* MARK: - Radio manage */
 "radio_manage_footer" = "끌어서 순서 변경. 행을 쓸어넘겨 이름 변경, 맨 위 고정, 삭제.";
 "radio_manage_pin_top" = "맨 위로";
+"radio_manage_pin_top_short" = "맨 위로";
+"select_all_short" = "전체 선택";
+"deselect_all_short" = "선택 해제";
 "radio_manage_export" = "내보내기";
 "radio_manage_deselect_all" = "선택 해제";
 "radio_manage_delete_confirm_title" = "선택한 방송국을 삭제할까요?";
