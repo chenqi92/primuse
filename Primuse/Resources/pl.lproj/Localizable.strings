@@ -2178,6 +2178,10 @@
 "playback_error_source_unreachable_skipped_format" = "Nie można połączyć się z „%@” w tej sieci. Utwory z tego źródła zostały pominięte.";
 "song_row_source_unreachable" = "Niedostępne w tej sieci";
 "song_source_unreachable_alert_message" = "To źródło muzyki jest niedostępne w bieżącej sieci. Jego utwory znów będzie można odtwarzać, gdy tylko połączenie wróci. Nie dotyczy to utworów pobranych już na to urządzenie.";
+"source_card_unreachable" = "To źródło jest niedostępne w bieżącej sieci. Utworów, które nie zostały pobrane na to urządzenie, na razie nie można odtworzyć.";
+"source_card_unreachable_add_route_hint" = "To źródło ma ustawiony tylko adres w sieci lokalnej. Edytuj je i dodaj adres publiczny, aby słuchać także poza tą siecią.";
+"playlist_unreachable_notice" = "Część utworów pochodzi ze źródła niedostępnego w bieżącej sieci. Tych, które nie zostały pobrane na to urządzenie, na razie nie można odtworzyć.";
+"playlist_unreachable_offline_hint_format" = "Włącz „%@”, a utwory pobiorą się automatycznie, gdy źródło będzie dostępne, i będzie można ich słuchać w każdej sieci.";
 "playback_history_note" = "Zlicza odtworzenia, których postęp odtwarzania osiągnął %1$d sekund, z najnowszych zachowanych rekordów %2$d.";
 "playback_info" = "Odtwarzanie";
 "playback_menu" = "Odtwarzanie";

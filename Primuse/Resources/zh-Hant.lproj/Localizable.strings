@@ -638,6 +638,10 @@
 "playback_error_source_unreachable_skipped_format" = "目前的網路無法連線「%@」，已略過它的歌曲";
 "song_row_source_unreachable" = "目前的網路無法連線";
 "song_source_unreachable_alert_message" = "這個音樂來源在目前的網路下無法連線，連線恢復後歌曲會自動變為可播放。已下載到本機的歌曲不受影響。";
+"source_card_unreachable" = "目前的網路無法連線這個音樂來源，沒有下載到本機的歌曲暫時無法播放。";
+"source_card_unreachable_add_route_hint" = "這個音樂來源只填了內網位址。編輯它並加入公網位址後，離開內網也能播放。";
+"playlist_unreachable_notice" = "部分歌曲來自目前網路無法連線的音樂來源，沒有下載到本機的暫時無法播放。";
+"playlist_unreachable_offline_hint_format" = "開啟「%@」，連上之後會自動下載，以後在任何網路都能播放。";
 "playback_error_decode" = "無法播放此曲目";
 "playback_error_format" = "不支援的音訊格式";
 "playback_error_apple_music_generic" = "Apple Music 暫時無法播放，請稍後再試。若問題持續，請在「音樂」App 中確認該歌曲可以播放。";

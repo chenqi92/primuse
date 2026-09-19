@@ -182,3 +182,27 @@ public struct PlaybackSourceAvailabilityPolicy: Sendable {
         return entry
     }
 }
+
+/// What a source card can tell the listener while the source is unreachable.
+public enum PlaybackSourceOutageGuidance: Sendable, Equatable {
+    /// Every configured address only exists on the listener's own network.
+    /// Away from it nothing will answer, so the useful advice is another route.
+    case addRemoteRoute
+    /// A route that is meant to work from anywhere failed as well. There is
+    /// nothing to configure; the source or the connection has to come back.
+    case waitForConnection
+
+    /// One entry per configured route; nil stands for a vendor relay such as
+    /// QuickConnect, which has no address of its own. An overlay address
+    /// (Tailscale and the like) follows the device, so it counts as a route
+    /// for anywhere even though it is private.
+    public static func resolve(routeHosts: [String?]) -> PlaybackSourceOutageGuidance {
+        guard !routeHosts.isEmpty else { return .waitForConnection }
+        let everyRouteIsOnTheLocalNetwork = routeHosts.allSatisfy { host in
+            guard let host else { return false }
+            return InsecureHTTPHostPolicy.isLocalNetworkHost(host)
+                && !PrivateOverlayHostPolicy.isOverlayHost(host)
+        }
+        return everyRouteIsOnTheLocalNetwork ? .addRemoteRoute : .waitForConnection
+    }
+}

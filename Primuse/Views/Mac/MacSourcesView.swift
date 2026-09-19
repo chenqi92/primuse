@@ -356,6 +356,10 @@ struct MacSourcesView: View {
                 )
             }
 
+            if sourceManager.unreachablePlaybackSourceIDs.contains(source.id) {
+                SourceUnreachableNotice(source: source)
+            }
+
             cardBody(source, scanning: scanning, displayedSongCount: displayedSongCount)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
 

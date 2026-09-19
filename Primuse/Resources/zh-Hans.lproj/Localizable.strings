@@ -674,6 +674,10 @@
 "playback_error_source_unreachable_skipped_format" = "当前网络无法连接「%@」，已跳过它的歌曲";
 "song_row_source_unreachable" = "当前网络无法连接";
 "song_source_unreachable_alert_message" = "这个音乐源在当前网络下连接不上，连接恢复后歌曲会自动变为可播放。已下载到本机的歌曲不受影响。";
+"source_card_unreachable" = "当前网络连不上这个音乐源，没有下载到本机的歌曲暂时无法播放。";
+"source_card_unreachable_add_route_hint" = "这个音乐源只填了内网地址。编辑它并添加公网地址后，离开内网也能播放。";
+"playlist_unreachable_notice" = "部分歌曲来自当前网络连不上的音乐源，没有下载到本机的暂时无法播放。";
+"playlist_unreachable_offline_hint_format" = "打开「%@」，连上之后会自动下载，以后在任何网络都能播放。";
 "playback_error_decode" = "无法播放此曲目";
 "playback_error_format" = "不支持的音频格式";
 "playback_error_apple_music_generic" = "Apple Music 暂时无法播放，请稍后重试。若问题持续，请在“音乐”App 中确认该歌曲可以播放。";

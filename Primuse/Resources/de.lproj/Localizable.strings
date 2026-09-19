@@ -863,6 +863,10 @@
 "playback_error_source_unreachable_skipped_format" = "„%@“ ist in diesem Netzwerk nicht erreichbar. Die Titel dieser Quelle wurden übersprungen.";
 "song_row_source_unreachable" = "In diesem Netzwerk nicht erreichbar";
 "song_source_unreachable_alert_message" = "Diese Musikquelle ist im aktuellen Netzwerk nicht erreichbar. Ihre Titel lassen sich wieder abspielen, sobald die Verbindung zurück ist. Bereits auf dieses Gerät geladene Titel sind nicht betroffen.";
+"source_card_unreachable" = "Diese Quelle ist im aktuellen Netzwerk nicht erreichbar. Titel, die nicht auf dieses Gerät geladen wurden, lassen sich vorerst nicht abspielen.";
+"source_card_unreachable_add_route_hint" = "Für diese Quelle ist nur eine LAN-Adresse hinterlegt. Bearbeite sie und füge eine öffentliche Adresse hinzu, um auch außerhalb dieses Netzwerks zu hören.";
+"playlist_unreachable_notice" = "Einige Titel stammen aus einer Quelle, die im aktuellen Netzwerk nicht erreichbar ist. Nicht auf dieses Gerät geladene Titel lassen sich vorerst nicht abspielen.";
+"playlist_unreachable_offline_hint_format" = "Aktiviere „%@“, dann werden die Titel automatisch geladen, sobald die Quelle erreichbar ist, und lassen sich in jedem Netzwerk abspielen.";
 "playback_error_decode" = "Dieser Titel kann nicht wiedergegeben werden";
 "playback_error_format" = "Nicht unterstütztes Audioformat";
 "playback_error_apple_music_generic" = "Apple Music kann die Wiedergabe gerade nicht starten. Versuche es in Kürze erneut. Falls das Problem weiterhin besteht, prüfe, ob der Titel in der Musik-App abgespielt werden kann.";

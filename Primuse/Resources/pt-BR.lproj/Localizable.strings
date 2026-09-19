@@ -2178,6 +2178,10 @@
 "playback_error_source_unreachable_skipped_format" = "Não é possível acessar “%@” nesta rede. As músicas dessa fonte foram puladas.";
 "song_row_source_unreachable" = "Indisponível nesta rede";
 "song_source_unreachable_alert_message" = "Não é possível acessar esta fonte de música na rede atual. As músicas voltam a tocar assim que a conexão for restabelecida. As músicas já baixadas neste dispositivo não são afetadas.";
+"source_card_unreachable" = "Não é possível acessar esta fonte na rede atual. As músicas que não foram baixadas neste dispositivo não podem tocar por enquanto.";
+"source_card_unreachable_add_route_hint" = "Esta fonte só tem um endereço de rede local. Edite-a e adicione um endereço público para continuar ouvindo fora dessa rede.";
+"playlist_unreachable_notice" = "Algumas músicas vêm de uma fonte que não pode ser acessada na rede atual. As que não foram baixadas neste dispositivo não podem tocar por enquanto.";
+"playlist_unreachable_offline_hint_format" = "Ative “%@” e as músicas serão baixadas automaticamente quando a fonte estiver acessível, para tocar em qualquer rede.";
 "playback_history_note" = "Conta reproduções cujo progresso de reprodução atingiu %1$d segundos, a partir dos últimos registros retidos %2$d.";
 "playback_info" = "Reprodução";
 "playback_menu" = "Reprodução";

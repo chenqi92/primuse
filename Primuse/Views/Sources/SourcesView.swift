@@ -66,6 +66,42 @@ private struct SourceCacheEstimate {
     let remainingSongIDs: Set<String>
 }
 
+/// Shown on a source card while none of its addresses answers on the current
+/// network. A source that only has a local address also gets the one piece of
+/// advice that would have prevented the outage.
+struct SourceUnreachableNotice: View {
+    let source: MusicSource
+
+    var body: some View {
+        let guidance = PlaybackSourceOutageGuidance.resolve(
+            routeHosts: source.connectionCandidates.map { $0.endpoint?.host }
+        )
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "wifi.slash")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.orange)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("source_card_unreachable")
+                if guidance == .addRemoteRoute {
+                    Text("source_card_unreachable_add_route_hint")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .font(.caption)
+            .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            Color.orange.opacity(0.08),
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+        )
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// Presents adaptive routes as distinct, comparable endpoints instead of one
 /// long subtitle. The highlighted segment is device-local runtime state and is
 /// never persisted or synced with the source configuration.
@@ -774,6 +810,10 @@ struct SourcesContentView: View {
                     activeKind: sourceManager.activeConnectionRoutes[source.id],
                     lastSuccessfulKind: sourceManager.lastSuccessfulConnectionRoutes[source.id]
                 )
+            }
+
+            if sourceManager.unreachablePlaybackSourceIDs.contains(source.id) {
+                SourceUnreachableNotice(source: source)
             }
 
             if AppServices.shared.serverCatalogAutoRefresh.supportsAutomaticRefresh(source) {

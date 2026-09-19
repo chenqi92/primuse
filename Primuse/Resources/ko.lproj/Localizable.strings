@@ -863,6 +863,10 @@
 "playback_error_source_unreachable_skipped_format" = "현재 네트워크에서 ‘%@’에 연결할 수 없어 해당 소스의 곡을 건너뛰었습니다";
 "song_row_source_unreachable" = "현재 네트워크에서 연결할 수 없음";
 "song_source_unreachable_alert_message" = "이 음악 소스는 현재 네트워크에서 연결할 수 없습니다. 연결이 복구되면 자동으로 다시 재생할 수 있습니다. 이 기기에 이미 다운로드한 곡은 영향을 받지 않습니다.";
+"source_card_unreachable" = "현재 네트워크에서 이 소스에 연결할 수 없습니다. 이 기기에 다운로드하지 않은 곡은 당분간 재생할 수 없습니다.";
+"source_card_unreachable_add_route_hint" = "이 소스에는 내부망 주소만 설정되어 있습니다. 편집에서 공인 주소를 추가하면 해당 네트워크 밖에서도 재생할 수 있습니다.";
+"playlist_unreachable_notice" = "일부 곡은 현재 네트워크에서 연결할 수 없는 소스의 곡입니다. 이 기기에 다운로드하지 않은 곡은 당분간 재생할 수 없습니다.";
+"playlist_unreachable_offline_hint_format" = "‘%@’ 옵션을 켜면 소스에 연결되는 즉시 자동으로 다운로드되어 어떤 네트워크에서도 재생할 수 있습니다.";
 "playback_error_decode" = "이 곡을 재생할 수 없습니다";
 "playback_error_format" = "지원되지 않는 오디오 포맷";
 "playback_error_apple_music_generic" = "지금은 Apple Music에서 재생을 시작할 수 없습니다. 잠시 후 다시 시도하세요. 문제가 계속되면 음악 앱에서 해당 곡이 재생되는지 확인하세요.";

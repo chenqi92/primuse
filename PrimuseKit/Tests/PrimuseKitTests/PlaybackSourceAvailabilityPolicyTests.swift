@@ -191,4 +191,20 @@ import Testing
         #expect(policy.standing(sourceID: "nas", networkGeneration: 1,
                                 sourceGeneration: 0, now: 500) == .reachable)
     }
+
+    @Test func onlyASourceConfinedToTheLocalNetworkIsAdvisedToAddARoute() {
+        typealias Guidance = PlaybackSourceOutageGuidance
+        #expect(Guidance.resolve(routeHosts: ["192.168.1.10"]) == .addRemoteRoute)
+        #expect(Guidance.resolve(routeHosts: ["nas.local", "10.0.0.8"]) == .addRemoteRoute)
+        #expect(Guidance.resolve(routeHosts: ["fd12:3456:789a::5"]) == .addRemoteRoute)
+
+        // A public address, a vendor relay or a tailnet address is already a
+        // route for anywhere; when it fails too there is nothing to add.
+        #expect(Guidance.resolve(routeHosts: ["192.168.1.10", "music.example.com"]) == .waitForConnection)
+        #expect(Guidance.resolve(routeHosts: ["192.168.1.10", nil]) == .waitForConnection)
+        #expect(Guidance.resolve(routeHosts: ["100.101.102.103"]) == .waitForConnection)
+        #expect(Guidance.resolve(routeHosts: ["nas.tailnet-name.ts.net"]) == .waitForConnection)
+        #expect(Guidance.resolve(routeHosts: ["music.example.com"]) == .waitForConnection)
+        #expect(Guidance.resolve(routeHosts: []) == .waitForConnection)
+    }
 }

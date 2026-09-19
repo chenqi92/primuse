@@ -274,6 +274,11 @@ struct PlaylistDetailView: View {
                 )
                 .padding(.horizontal)
 
+                if hasSongsFromUnreachableSources {
+                    unreachableSongsNotice
+                        .padding(.horizontal)
+                }
+
                 if supportsAlwaysDownload {
                     alwaysDownloadControl
                         .padding(.horizontal)
@@ -549,6 +554,44 @@ struct PlaylistDetailView: View {
         }
     }
 
+    /// The set is empty on a network that reaches everything, so the scan only
+    /// runs during an outage.
+    private var hasSongsFromUnreachableSources: Bool {
+        let unreachable = sourceManager.unreachablePlaybackSourceIDs
+        guard !unreachable.isEmpty else { return false }
+        return storedSongs.contains { unreachable.contains($0.sourceID) }
+    }
+
+    private var unreachableSongsNotice: some View {
+        let offersOfflineHint = supportsAlwaysDownload
+            && !AppServices.shared.alwaysDownload.isEnabled(for: playlist.id)
+        return HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "wifi.slash")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.orange)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("playlist_unreachable_notice")
+                if offersOfflineHint {
+                    Text(verbatim: String(
+                        format: String(localized: "playlist_unreachable_offline_hint_format"),
+                        String(localized: "playlist_always_download")
+                    ))
+                    .foregroundStyle(.secondary)
+                }
+            }
+            .font(.caption)
+            .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .background(
+            Color.orange.opacity(0.08),
+            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
+        .accessibilityElement(children: .combine)
+    }
+
     private var alwaysDownloadControl: some View {
         HStack(alignment: .center, spacing: 12) {
             Image(systemName: "arrow.down.circle.fill")
@@ -721,6 +764,10 @@ struct PlaylistDetailView: View {
 
                 VStack(alignment: .leading, spacing: PMSpace.l) {
                     LibraryReviewSection(subject: .playlist(playlist.id))
+
+                    if hasSongsFromUnreachableSources {
+                        unreachableSongsNotice
+                    }
 
                     if supportsAlwaysDownload {
                         alwaysDownloadControl

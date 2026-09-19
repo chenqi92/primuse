@@ -489,6 +489,10 @@
 "playback_error_source_unreachable_skipped_format" = "Bu ağda “%@” kaynağına ulaşılamıyor. Bu kaynaktaki şarkılar atlandı.";
 "song_row_source_unreachable" = "Bu ağda ulaşılamıyor";
 "song_source_unreachable_alert_message" = "Bu müzik kaynağına mevcut ağda ulaşılamıyor. Bağlantı geri geldiğinde şarkıları yeniden çalınabilir olur. Bu cihaza indirilmiş şarkılar etkilenmez.";
+"source_card_unreachable" = "Bu kaynağa mevcut ağda ulaşılamıyor. Bu cihaza indirilmemiş şarkılar şimdilik çalınamıyor.";
+"source_card_unreachable_add_route_hint" = "Bu kaynak için yalnızca yerel ağ adresi ayarlanmış. Düzenleyip genel bir adres eklerseniz o ağın dışındayken de dinleyebilirsiniz.";
+"playlist_unreachable_notice" = "Bazı şarkılar mevcut ağda ulaşılamayan bir kaynaktan geliyor. Bu cihaza indirilmemiş olanlar şimdilik çalınamıyor.";
+"playlist_unreachable_offline_hint_format" = "“%@” seçeneğini açın; kaynak erişilebilir olduğunda şarkılar otomatik olarak indirilir ve her ağda çalınabilir.";
 "error_download_failed %@" = "İndirme başarısız oldu: %@";
 "search_match_fuzzy" = "Bulanık eşleşme";
 "compressor_limiter" = "Kompresör / Sınırlayıcı";

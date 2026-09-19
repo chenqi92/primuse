@@ -864,6 +864,10 @@
 "playback_error_source_unreachable_skipped_format" = "このネットワークでは「%@」に接続できないため、その曲をスキップしました";
 "song_row_source_unreachable" = "このネットワークでは接続できません";
 "song_source_unreachable_alert_message" = "この音楽ソースは現在のネットワークでは接続できません。接続が回復すると自動的に再生できるようになります。このデバイスにダウンロード済みの曲には影響しません。";
+"source_card_unreachable" = "現在のネットワークではこのソースに接続できません。このデバイスにダウンロードしていない曲は一時的に再生できません。";
+"source_card_unreachable_add_route_hint" = "このソースには LAN のアドレスしか設定されていません。編集して公開アドレスを追加すると、そのネットワークの外でも再生できます。";
+"playlist_unreachable_notice" = "一部の曲は、現在のネットワークでは接続できないソースのものです。このデバイスにダウンロードしていない曲は一時的に再生できません。";
+"playlist_unreachable_offline_hint_format" = "「%@」をオンにすると、ソースに接続できたときに自動でダウンロードされ、どのネットワークでも再生できるようになります。";
 "playback_error_decode" = "この曲を再生できません";
 "playback_error_format" = "サポートされていないオーディオフォーマット";
 "playback_error_apple_music_generic" = "Apple Music で現在再生を開始できません。しばらくしてからもう一度お試しください。問題が続く場合は、ミュージックアプリで曲を再生できるか確認してください。";

@@ -674,6 +674,10 @@
 "playback_error_source_unreachable_skipped_format" = "Can’t reach “%@” on this network. Its songs were skipped.";
 "song_row_source_unreachable" = "Unreachable on this network";
 "song_source_unreachable_alert_message" = "This music source can’t be reached on the current network. Its songs become playable again as soon as the connection returns. Songs already downloaded to this device are not affected.";
+"source_card_unreachable" = "This source can’t be reached on the current network. Songs that aren’t downloaded to this device can’t play for now.";
+"source_card_unreachable_add_route_hint" = "Only a LAN address is set for this source. Edit it and add a public address to keep playing when you’re away from that network.";
+"playlist_unreachable_notice" = "Some songs come from a source that can’t be reached on the current network. Those not downloaded to this device can’t play for now.";
+"playlist_unreachable_offline_hint_format" = "Turn on “%@” and the songs download automatically once the source is reachable, so they play on any network.";
 "playback_error_decode" = "Cannot play this track";
 "playback_error_format" = "Unsupported audio format";
 "playback_error_apple_music_generic" = "Apple Music couldn't start playback right now. Try again shortly. If the problem persists, check that the song plays in the Music app.";
