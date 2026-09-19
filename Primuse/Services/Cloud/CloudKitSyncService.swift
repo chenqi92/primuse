@@ -1591,10 +1591,11 @@ final class CloudKitSyncService {
     }
 
     /// 一批远端事件处理完、或者引擎游标落盘之前, 把攒着的整份写一次:
-    /// system fields 缓存和逐条并进来的电台清单。
+    /// system fields 缓存、逐条并进来的电台清单和歌单耐久账本。
     fileprivate func flushCoalescedRemoteWrites() {
         flushSystemFieldsCache()
         radioStationsStore.flushRemotePersist()
+        library.flushRemotePlaylistDurabilityLedger()
     }
 
     /// systemFieldsCache 的 key。必须带上 ownerName + zoneName: 同一条 record 在
