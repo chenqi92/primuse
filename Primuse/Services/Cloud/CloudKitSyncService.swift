@@ -149,6 +149,12 @@ final class CloudKitSyncService {
     /// 死循环。
     private var systemFieldsCache: [String: Data] = [:]
     private var systemFieldsCacheLoaded = false
+    /// 缓存是整份字典一次编码写盘的。逐条记录都写一遍, 首次同步拉下 N 条记录
+    /// 就要写 N 份越来越大的字典, 写入量随记录数平方增长 —— 新设备装好几分钟
+    /// 就撞上系统的 1GB 写盘上限。所以改动只记账, 一批事件处理完再写一次。
+    private var systemFieldsCacheNeedsPersist = false
+    private var systemFieldsPersistTask: Task<Void, Never>?
+    private static let systemFieldsPersistDelay: Duration = .seconds(2)
     /// 每次整份清空 system-fields 缓存都会 +1(退出登录/切换账号、云端 zone 被
     /// 删除后的重新播种)。缓存存的是「服务器已经接受的那份 etag」,清空之后
     /// 再被一台早已摘掉的 engine 用旧账号的 etag 填回去,下次登录就会拿别人的
@@ -606,6 +612,8 @@ final class CloudKitSyncService {
             NotificationCenter.default.removeObserver(accountChangeObserver)
             self.accountChangeObserver = nil
         }
+        // 引擎摘掉之后不会再有批末落盘, 攒着的现在写掉。
+        flushCoalescedRemoteWrites()
         engine = nil
         sharedEngine = nil
         isStarted = false
@@ -1559,6 +1567,36 @@ final class CloudKitSyncService {
         try? data.write(to: systemFieldsURL, options: .atomic)
     }
 
+    /// 记下缓存有改动, 并安排一次合并写。CKSyncEngine 送来的整批记录由
+    /// `handleEvent` 在批末显式 `flushSystemFieldsCache()`; 冲突处理这类零散
+    /// 调用靠这里的短延迟合并。
+    private func scheduleSystemFieldsCachePersist() {
+        systemFieldsCacheNeedsPersist = true
+        guard systemFieldsPersistTask == nil else { return }
+        systemFieldsPersistTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.systemFieldsPersistDelay)
+            guard !Task.isCancelled else { return }
+            self?.flushSystemFieldsCache()
+        }
+    }
+
+    /// 有未写盘的改动就立刻写。保存引擎游标之前必须先调它: 游标一旦越过某条
+    /// 记录就不会再拉它, 那条记录的 changeTag 只能靠这份缓存留住。
+    fileprivate func flushSystemFieldsCache() {
+        systemFieldsPersistTask?.cancel()
+        systemFieldsPersistTask = nil
+        guard systemFieldsCacheNeedsPersist else { return }
+        systemFieldsCacheNeedsPersist = false
+        persistSystemFieldsCache()
+    }
+
+    /// 一批远端事件处理完、或者引擎游标落盘之前, 把攒着的整份写一次:
+    /// system fields 缓存和逐条并进来的电台清单。
+    fileprivate func flushCoalescedRemoteWrites() {
+        flushSystemFieldsCache()
+        radioStationsStore.flushRemotePersist()
+    }
+
     /// systemFieldsCache 的 key。必须带上 ownerName + zoneName: 同一条 record 在
     /// 启用/关闭家庭共享时会在 PrimuseSync ↔ PrimuseFamily 之间迁移, 只用
     /// recordName 做 key 会让两个 zone 的同 id 记录共用一个 etag 槽。
@@ -1589,7 +1627,7 @@ final class CloudKitSyncService {
         }
         if systemFieldsCache[key] != data || removedLegacy {
             systemFieldsCache[key] = data
-            persistSystemFieldsCache()
+            scheduleSystemFieldsCachePersist()
         }
     }
 
@@ -1600,11 +1638,15 @@ final class CloudKitSyncService {
             removed = (systemFieldsCache.removeValue(forKey: legacyKey) != nil) || removed
         }
         if removed {
-            persistSystemFieldsCache()
+            scheduleSystemFieldsCachePersist()
         }
     }
 
     private func clearSystemFieldsCache() {
+        // 待写的旧内容作废: 清空的语义是文件也一起消失, 不能被延迟写回来。
+        systemFieldsPersistTask?.cancel()
+        systemFieldsPersistTask = nil
+        systemFieldsCacheNeedsPersist = false
         systemFieldsCache.removeAll()
         systemFieldsCacheLoaded = true
         systemFieldsCacheGeneration &+= 1
@@ -2410,6 +2452,8 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         case .stateUpdate(let event):
             guard isCurrentEngine else { return }
             await MainActor.run {
+                // 游标落盘前先把已拉到的记录落盘: 游标一旦越过就不会再拉。
+                self.flushCoalescedRemoteWrites()
                 // private engine 跟 sharedEngine state 分开存, 否则下次启动
                 // 一个 engine 用错 state cursor 会重 fetch 全量。
                 if syncEngine === self.sharedEngine {
@@ -2446,6 +2490,8 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
                     )
                 }
             }
+            // 整批一次写盘, 不按记录逐条整份写。
+            await MainActor.run { self.flushCoalescedRemoteWrites() }
         case .fetchedDatabaseChanges(let event):
             // Zone-level changes from another device. Most often: zone deletion
             // (user wiped CloudKit data on another device, or container reset).
@@ -2468,6 +2514,7 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
                 for deletedID in event.deletedRecordIDs {
                     await MainActor.run { self.removeSystemFields(for: deletedID) }
                 }
+                await MainActor.run { self.flushSystemFieldsCache() }
             }
             // 重新入队、墓碑回执这些会改本地状态 / 再次上传的动作,仍然只允许
             // 当前 engine 触发。
@@ -2480,6 +2527,8 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
                     self.handleFailedSave(failed, syncEngine: syncEngine)
                 }
             }
+            // 冲突处理会把服务器那份并回本地。
+            await MainActor.run { self.flushCoalescedRemoteWrites() }
         case .sentDatabaseChanges(let event):
             for failed in event.failedZoneSaves {
                 plog("CloudKitSync: failed to save zone \(failed.zone.zoneID): \(failed.error.localizedDescription)")

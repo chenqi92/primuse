@@ -29,6 +29,9 @@ final class RadioStationsStore {
     /// 文件夹一旦装进第一个电台，别的设备自然就看见它了。
     private let folderPlaceholdersURL: URL
     private var folderPlaceholders: [String] = []
+    /// 远端写入攒着还没写盘（见 `upsertFromRemote`）。
+    @ObservationIgnored private var remotePersistPending = false
+    @ObservationIgnored private var remotePersistTask: Task<Void, Never>?
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
@@ -428,12 +431,44 @@ final class RadioStationsStore {
         )
     }
 
+    /// CloudKit 送来的一条电台。整份清单是一次编码写盘的，远端一批几百上千条
+    /// （订阅清单）逐条整份写，写入量就随条数平方增长，所以这里只记下待写：
+    /// `CloudKitSyncService` 在一批处理完、保存引擎游标之前调 `flushRemotePersist()`，
+    /// 零散调用由短延迟兜底合并。
     func upsertFromRemote(_ remote: RadioStation) {
+        guard let applied = applyRemote(remote) else { return }
+        scheduleRemotePersist()
+        materializeLogos(for: [applied])
+    }
+
+    func removeFromRemote(id: String) {
+        allStations.removeAll { $0.id == id }
+        scheduleRemotePersist()
+    }
+
+    /// 远端改动还有没写盘的就立刻写。
+    func flushRemotePersist() {
+        guard remotePersistPending else { return }
+        persist()
+    }
+
+    private func scheduleRemotePersist() {
+        remotePersistPending = true
+        guard remotePersistTask == nil else { return }
+        remotePersistTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            self?.flushRemotePersist()
+        }
+    }
+
+    /// 把一条远端电台并进内存，不写盘。不合法或不比本地新时返回 nil。
+    private func applyRemote(_ remote: RadioStation) -> RadioStation? {
         guard remote.logoData.map({ $0.count <= RadioStationValidation.maximumLogoBytes }) ?? true,
               RadioStationValidation.hasConsistentServerIdentity(remote),
               remote.isDeleted
                 || RadioStationValidation.hasValidPlaybackReference(remote) else {
-            return
+            return nil
         }
         var normalized = remote
         if !normalized.isDeleted {
@@ -443,29 +478,23 @@ final class RadioStationsStore {
                 normalized.streamURL = ""
             } else {
                 guard let normalizedURL = RadioStationValidation.normalizedURLString(normalized.streamURL) else {
-                    return
+                    return nil
                 }
                 normalized.streamURL = normalizedURL
             }
         }
         if let index = allStations.firstIndex(where: { $0.id == normalized.id }) {
-            guard allStations[index].modifiedAt <= normalized.modifiedAt else { return }
+            guard allStations[index].modifiedAt <= normalized.modifiedAt else { return nil }
             var merged = normalized
             merged.lastPlayedAt = allStations[index].lastPlayedAt
             allStations[index] = merged
         } else {
             // 本地没有这条时，普通墓碑照旧不收；订阅的排除标记要收下 —— 它得一直
             // 挡着清单里那一条，否则本机下次刷新会把用户删掉的台加回来。
-            guard !normalized.isDeleted || normalized.isSubscriptionExclusionMarker else { return }
+            guard !normalized.isDeleted || normalized.isSubscriptionExclusionMarker else { return nil }
             allStations.append(normalized)
         }
-        persist()
-        materializeLogos(for: [normalized])
-    }
-
-    func removeFromRemote(id: String) {
-        allStations.removeAll { $0.id == id }
-        persist()
+        return normalized
     }
 
     func encodedSnapshot() throws -> Data {
@@ -474,9 +503,11 @@ final class RadioStationsStore {
 
     func applySnapshot(_ data: Data) throws {
         let incoming = try decoder.decode([RadioStation].self, from: data)
-        for station in incoming {
-            upsertFromRemote(station)
-        }
+        // 整份快照并完只写一次盘。
+        let applied = incoming.compactMap { applyRemote($0) }
+        guard !applied.isEmpty else { return }
+        persist()
+        materializeLogos(for: applied)
     }
 
     // MARK: - 清单订阅
@@ -732,6 +763,10 @@ final class RadioStationsStore {
     }
 
     private func persist() {
+        // 整份写盘，远端攒着的改动也一并写进去了。
+        remotePersistTask?.cancel()
+        remotePersistTask = nil
+        remotePersistPending = false
         guard let data = try? encoder.encode(allStations) else { return }
         try? data.write(to: storeURL, options: .atomic)
     }
