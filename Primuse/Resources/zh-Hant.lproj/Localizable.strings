@@ -759,6 +759,9 @@
 "playlist_import_export_unmatched_csv" = "匯出未比對 → CSV";
 "playlist_import_change_file" = "更換檔案";
 "playlist_import_create_matched_only_format" = "僅建立已比對 (%d)";
+"playlist_import_destination_header" = "匯入到";
+"playlist_import_liked_footer_format" = "比對到的歌曲會加入「%@」，已經在裡面的不會重複加入。";
+"playlist_import_add_matched_only_format" = "僅加入已比對 (%d)";
 "playlist_import_manual_match" = "手動比對…";
 "playlist_import_manual_match_title" = "手動比對";
 "playlist_import_search_library" = "搜尋資料庫歌曲";

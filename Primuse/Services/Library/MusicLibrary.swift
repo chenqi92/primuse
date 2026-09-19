@@ -7212,6 +7212,18 @@ final class MusicLibrary {
         )
     }
 
+    /// Likes many songs with a single publication of the liked list, for a
+    /// liked list brought over from another device. Every newly liked song
+    /// still reaches its server the way a tap on the heart does; without that
+    /// the next server sync would take the imported likes away again.
+    func likeSongs(_ songIDs: [String]) {
+        // S2: 「我喜欢」歌单与歌曲行都要等发布之后才在库里。
+        if deferringUntilReady({ [weak self] in self?.likeSongs(songIDs) }) { return }
+        guard !songIDs.isEmpty else { return }
+        ensureLikedPlaylist()
+        add(songIDs: songIDs, toPlaylist: Self.likedSongsPlaylistID)
+    }
+
     func toggleLiked(songID: String) {
         // S2: 空库里 `isLiked` 恒为 false, 不排队的话取反结果会是错的 ——
         // 当前状态必须在发布之后再读一次。

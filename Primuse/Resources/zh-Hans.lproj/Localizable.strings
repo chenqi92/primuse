@@ -810,6 +810,9 @@
 "playlist_import_export_unmatched_csv" = "导出未匹配 → CSV";
 "playlist_import_change_file" = "更换文件";
 "playlist_import_create_matched_only_format" = "仅创建已匹配 (%d)";
+"playlist_import_destination_header" = "导入到";
+"playlist_import_liked_footer_format" = "匹配到的歌曲会加入「%@」，已经在里面的不会重复添加。";
+"playlist_import_add_matched_only_format" = "仅加入已匹配 (%d)";
 "playlist_import_manual_match" = "手动匹配…";
 "playlist_import_manual_match_title" = "手动匹配";
 "playlist_import_search_library" = "搜索资料库歌曲";

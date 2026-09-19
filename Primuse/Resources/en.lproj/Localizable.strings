@@ -810,6 +810,9 @@
 "playlist_import_export_unmatched_csv" = "Export Unmatched → CSV";
 "playlist_import_change_file" = "Change File";
 "playlist_import_create_matched_only_format" = "Create Matched Only (%d)";
+"playlist_import_destination_header" = "Import To";
+"playlist_import_liked_footer_format" = "Matched songs are added to “%@”. Songs that are already in it are not added twice.";
+"playlist_import_add_matched_only_format" = "Add Matched Only (%d)";
 "playlist_import_manual_match" = "Manual Match…";
 "playlist_import_manual_match_title" = "Manual Match";
 "playlist_import_search_library" = "Search library songs";

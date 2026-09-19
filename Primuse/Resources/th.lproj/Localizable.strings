@@ -2233,6 +2233,9 @@
 "playlist_import_change_file" = "เปลี่ยนไฟล์";
 "playlist_import_create" = "สร้าง";
 "playlist_import_create_matched_only_format" = "สร้างรายการที่ตรงกันเท่านั้น (%d)";
+"playlist_import_destination_header" = "นำเข้าไปยัง";
+"playlist_import_liked_footer_format" = "เพลงที่ตรงกันจะถูกเพิ่มลงใน “%@” เพลงที่มีอยู่แล้วจะไม่ถูกเพิ่มซ้ำ";
+"playlist_import_add_matched_only_format" = "เพิ่มรายการที่ตรงกันเท่านั้น (%d)";
 "playlist_import_entries_count_format" = "%d รายการ";
 "playlist_import_entries_header" = "รายการ";
 "playlist_import_err_empty" = "เพลย์ลิสต์ไม่มีแทร็ก";
