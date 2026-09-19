@@ -42,6 +42,28 @@ private struct CloudSchemaNotDeployedSyncError: LocalizedError, Sendable {
     }
 }
 
+#if DEBUG
+/// 开发脚本的 iCloud 同步测试场景(`scripts/primuse-dev.sh sync-test`), 只在 Debug 构建生效。
+/// 由环境变量 `PRIMUSE_SYNC_TEST_SCENARIO` 或启动参数 `-PrimuseSyncTestScenario` 指定;
+/// 两种都读, 是因为 devicectl 会把 App 的 `-xxx` 启动参数当成自己的选项吞掉。
+enum SyncTestScenario: String {
+    /// 模拟带着旧同步进度升级上来、或从备份恢复的设备。
+    case upgradeReset = "upgrade-reset"
+
+    static let current: SyncTestScenario? = {
+        let raw = ProcessInfo.processInfo.environment["PRIMUSE_SYNC_TEST_SCENARIO"]
+            ?? UserDefaults.standard.string(forKey: "PrimuseSyncTestScenario")
+        guard let raw, !raw.isEmpty else { return nil }
+        guard let scenario = SyncTestScenario(rawValue: raw) else {
+            plog("🧪 Unknown sync test scenario '\(raw)' ignored")
+            return nil
+        }
+        plog("🧪 Sync test scenario requested: \(raw)")
+        return scenario
+    }()
+}
+#endif
+
 /// Entity payloads flowing through CKSyncEngine. Each conforms to `Codable` so we can
 /// stash them inside a single CKRecord blob field. This reduces schema churn, but each
 /// record type and blob field still has to be deployed to CloudKit Production.
@@ -217,6 +239,10 @@ final class CloudKitSyncService {
     /// first run, so re-uploading on every cold launch is wasteful.
     private static let initialUploadDoneKey = "primuse.cloudSync.initialUploadComplete"
     private static let sourceTypeFingerprintKey = "primuse.cloudSync.sourceTypeFingerprint"
+    #if DEBUG
+    /// 同一进程里 `start()` 可能被调多次(开关同步、换账号), 测试场景只模拟一次。
+    private static var didApplySyncTestScenario = false
+    #endif
     private var didCompleteInitialUpload: Bool {
         get { UserDefaults.standard.bool(forKey: Self.initialUploadDoneKey) }
         set { UserDefaults.standard.set(newValue, forKey: Self.initialUploadDoneKey) }
@@ -1505,7 +1531,15 @@ final class CloudKitSyncService {
     private func preparePersistedStateForSupportedSourceTypes() {
         let defaults = UserDefaults.standard
         let currentFingerprint = CloudSourceTypeCompatibilityPolicy.currentFingerprint
-        let storedFingerprint = defaults.string(forKey: Self.sourceTypeFingerprintKey)
+        var storedFingerprint = defaults.string(forKey: Self.sourceTypeFingerprintKey)
+        #if DEBUG
+        if !Self.didApplySyncTestScenario, SyncTestScenario.current == .upgradeReset {
+            Self.didApplySyncTestScenario = true
+            // 当成从不认识现有源类型的旧版本升级上来: 走真实的重置 → 全量重拉 → 首次上传。
+            storedFingerprint = "legacy"
+            plog("🧪 Sync test scenario upgrade-reset: treating stored source-type fingerprint as legacy")
+        }
+        #endif
         let action = CloudSourceTypeCompatibilityPolicy.action(
             storedFingerprint: storedFingerprint,
             currentFingerprint: currentFingerprint
