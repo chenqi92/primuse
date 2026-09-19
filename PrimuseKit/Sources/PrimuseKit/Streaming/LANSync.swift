@@ -173,6 +173,28 @@ public struct LANSyncPayload: Codable, Sendable {
     }
 }
 
+/// 局域网直传的体积约束。Apple TV 接收端只收 `maximumSealedBytes` 以内的请求体,
+/// 已发布的 TV 版本都是这个值,所以由 iPhone 在发送前把载荷压进来,而不是等 TV 回 400。
+public enum LANTransferSizePolicy {
+    public static let maximumSealedBytes = 32 * 1024 * 1024
+
+    /// 封面是已压缩的 JPEG:曲库 JSON 里的 base64 经 deflate 后约等于原始字节,
+    /// 载荷 JSON 再把 `libraryGz` 编成 base64,所以每字节封面约占 4/3 字节请求体。
+    /// 超出上限时按超出量折算出更小的封面预算;已经不带封面仍超出则返回 nil。
+    public static func reducedArtworkBudget(
+        artworkBytes: Int,
+        sealedBytes: Int,
+        limit: Int = maximumSealedBytes
+    ) -> Int? {
+        guard sealedBytes > limit, artworkBytes > 0 else { return nil }
+        let excess = sealedBytes - limit
+        // 余量覆盖封面引用表和 deflate 的波动,保证一次重建通常就能装下。
+        let reduction = excess * 3 / 4 + max(excess / 8, 512 * 1024)
+        let reduced = artworkBytes - reduction
+        return reduced < 1024 * 1024 ? 0 : reduced
+    }
+}
+
 /// 扫码配对的端点 + 一次性密钥。二维码内容形如
 /// `primuse://pair?host=192.168.1.50&port=54321&k=<base64url 32B>&code=123456`。
 /// `key` 是 TV 每次展示二维码时新生成的 256-bit 随机密钥,既作 AES-GCM 对称密钥,

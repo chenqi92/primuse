@@ -10665,6 +10665,9 @@ final class MusicLibrary {
         /// overwrite a shared cloud snapshot use this to refuse an automatic
         /// upload that would replace a real library with an empty one.
         let eligibleSongCount: Int
+        /// Raw cover bytes embedded in `data`. A transport that must fit a
+        /// size limit shrinks the next attempt's budget from this figure.
+        let artworkBytes: Int
         /// True when the payload's source list still carries at least one
         /// cloud-sync-eligible source. A library assembled only from device-local
         /// imports and the Apple Music Library always filters down to zero
@@ -10673,13 +10676,15 @@ final class MusicLibrary {
         let hasCloudEligibleSources: Bool
     }
 
+    nonisolated static let portableArtworkBudgetBytes = 24 * 1024 * 1024
+
     /// The local snapshot stays metadata-only. Transport copies include bounded,
     /// content-deduplicated covers so tvOS can display artwork without the sender's cache.
     nonisolated static func preparePortableSnapshotDataIncludingArtworkAssets(
         _ data: Data,
         cloudSources: [MusicSource]? = nil,
         assetStore: MetadataAssetStore = .shared,
-        maximumArtworkBytes: Int = 24 * 1024 * 1024
+        maximumArtworkBytes: Int = portableArtworkBudgetBytes
     ) async -> PortableSnapshotTransferData? {
         guard !Task.isCancelled else { return nil }
         let decoder = JSONDecoder()
@@ -10842,6 +10847,7 @@ final class MusicLibrary {
                 data: encoded,
                 eligibleLyricsFileNames: eligibleLyricsFileNames,
                 eligibleSongCount: snapshot.songs.count,
+                artworkBytes: usedBytes,
                 hasCloudEligibleSources: hasCloudEligibleSources
             )
         }
@@ -10857,6 +10863,7 @@ final class MusicLibrary {
             data: encoded,
             eligibleLyricsFileNames: eligibleLyricsFileNames,
             eligibleSongCount: snapshot.songs.count,
+            artworkBytes: 0,
             hasCloudEligibleSources: hasCloudEligibleSources
         )
     }
@@ -10874,16 +10881,6 @@ final class MusicLibrary {
             }
         }
         return names
-    }
-
-    nonisolated static func portableSnapshotDataIncludingArtworkAssets(
-        _ data: Data,
-        cloudSources: [MusicSource]? = nil
-    ) async -> Data? {
-        await preparePortableSnapshotDataIncludingArtworkAssets(
-            data,
-            cloudSources: cloudSources
-        )?.data
     }
 
     nonisolated static func restorePortableArtworkAssets(

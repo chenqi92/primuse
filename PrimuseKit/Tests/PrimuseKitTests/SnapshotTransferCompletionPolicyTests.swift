@@ -63,6 +63,45 @@ struct SnapshotTransferCompletionPolicyTests {
         ).isCompleteForTransfer)
     }
 
+    @Test("LAN artwork budget stays unchanged when the sealed body fits")
+    func lanArtworkBudgetKeepsFittingPayload() {
+        let limit = LANTransferSizePolicy.maximumSealedBytes
+        #expect(LANTransferSizePolicy.reducedArtworkBudget(
+            artworkBytes: 24 << 20,
+            sealedBytes: limit
+        ) == nil)
+        #expect(LANTransferSizePolicy.reducedArtworkBudget(
+            artworkBytes: 0,
+            sealedBytes: limit + 1
+        ) == nil)
+    }
+
+    @Test("LAN artwork budget shrinks enough for covers that cost 4/3 body bytes")
+    func lanArtworkBudgetCoversExcess() {
+        let limit = LANTransferSizePolicy.maximumSealedBytes
+        for excess in [1, 64 << 10, 3 << 20, 5 << 20] {
+            let artwork = 24 << 20
+            let reduced = LANTransferSizePolicy.reducedArtworkBudget(
+                artworkBytes: artwork,
+                sealedBytes: limit + excess
+            )
+            #expect(reduced != nil)
+            guard let reduced else { continue }
+            #expect(reduced < artwork)
+            #expect((artwork - reduced) * 4 / 3 > excess)
+        }
+    }
+
+    @Test("LAN artwork budget drops covers when little would remain")
+    func lanArtworkBudgetFallsBackToNoArtwork() {
+        let limit = LANTransferSizePolicy.maximumSealedBytes
+        let reduced = LANTransferSizePolicy.reducedArtworkBudget(
+            artworkBytes: 2 << 20,
+            sealedBytes: limit + (2 << 20)
+        )
+        #expect(reduced == 0)
+    }
+
     @Test("Apple TV transfer failures expose stable diagnostic codes")
     func transferFailureDiagnosticCodes() {
         #expect(AppleTVTransferFailure.snapshotMissing.diagnosticCode == "TV-SNAPSHOT-MISSING")

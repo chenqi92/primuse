@@ -22,8 +22,8 @@ final class TVConfigServer: @unchecked Sendable {
     private var pairCode = LANPairLink.randomPairCode()
     private var boundPort: UInt16?
 
-    /// body 上限 32MB(整库快照通常几百 KB~数 MB,留足余量),超出直接拒。
-    private static let maxBodyBytes = 32 * 1024 * 1024
+    /// body 上限与 iPhone 端共用;带封面的大曲库由发送端缩减封面装进来,超出直接拒。
+    private static let maxBodyBytes = LANTransferSizePolicy.maximumSealedBytes
     private static let headerTimeout: TimeInterval = 15
     private static let bodyTimeout: TimeInterval = 30
     private static let maxConnections = 8

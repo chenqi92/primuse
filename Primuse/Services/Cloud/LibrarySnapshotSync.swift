@@ -1861,11 +1861,13 @@ final class LibrarySnapshotSync: Sendable {
 
     /// 构建与 CloudKit 快照同构的整库 + 源 + 歌词 + 凭据载荷(各 `*Gz` 是同一份压缩字节)。
     func buildLANPayload() async -> LANSyncPayload? {
-        guard case .success(let payload) = await buildLANPayloadResult() else { return nil }
-        return payload
+        guard case .success(let prepared) = await buildLANPayloadResult() else { return nil }
+        return prepared.payload
     }
 
-    private func buildLANPayloadResult() async -> Result<LANSyncPayload, AppleTVTransferFailure> {
+    private func buildLANPayloadResult(
+        maximumArtworkBytes: Int = MusicLibrary.portableArtworkBudgetBytes
+    ) async -> Result<(payload: LANSyncPayload, artworkBytes: Int), AppleTVTransferFailure> {
         let rawLibraryData: Data
         switch validatedLibrarySnapshotData() {
         case .success(let data):
@@ -1873,9 +1875,11 @@ final class LibrarySnapshotSync: Sendable {
         case .failure(let failure):
             return .failure(failure)
         }
-        let libraryData = await MusicLibrary.portableSnapshotDataIncludingArtworkAssets(
-            rawLibraryData
-        ) ?? rawLibraryData
+        let portable = await MusicLibrary.preparePortableSnapshotDataIncludingArtworkAssets(
+            rawLibraryData,
+            maximumArtworkBytes: maximumArtworkBytes
+        )
+        let libraryData = portable?.data ?? rawLibraryData
         guard !Task.isCancelled else { return .failure(.cancelled) }
         guard let libraryGz = Self.gzip(libraryData), !libraryGz.isEmpty else {
             plog("LibrarySnapshotSync: LAN library snapshot compression failed")
@@ -1909,7 +1913,7 @@ final class LibrarySnapshotSync: Sendable {
             plog("LibrarySnapshotSync: LAN payload is incomplete after preparation")
             return .failure(.snapshotPreparationFailed)
         }
-        return .success(payload)
+        return .success((payload: payload, artworkBytes: portable?.artworkBytes ?? 0))
     }
 
     /// 把整库 + 源 + 凭据 AES-GCM 加密后直接 POST 给 Apple TV(`primuse://pair` 扫码端点)。
@@ -1919,28 +1923,58 @@ final class LibrarySnapshotSync: Sendable {
         return false
     }
 
+    /// Apple TV 拒收超过上限的请求体;封面是载荷里唯一可省的部分,超了就按超出量
+    /// 缩减封面预算重建,直到装得下或已经不带封面。
+    private func sealedLANPayloadResult(key: Data) async -> Result<Data, AppleTVTransferFailure> {
+        var artworkBudget = MusicLibrary.portableArtworkBudgetBytes
+        while true {
+            let prepared = await buildLANPayloadResult(maximumArtworkBytes: artworkBudget)
+            let payload: LANSyncPayload
+            let artworkBytes: Int
+            switch prepared {
+            case .success(let value):
+                payload = value.payload
+                artworkBytes = value.artworkBytes
+            case .failure(let failure):
+                return .failure(failure)
+            }
+
+            let json: Data
+            do {
+                json = try payload.jsonData()
+            } catch {
+                return .failure(.payloadEncodingFailed(detail: Self.diagnosticDetail(error)))
+            }
+            guard let sealed = LANSyncCrypto.seal(json, key: key) else {
+                return .failure(.payloadEncryptionFailed)
+            }
+            guard sealed.count > LANTransferSizePolicy.maximumSealedBytes else {
+                return .success(sealed)
+            }
+            guard let reduced = LANTransferSizePolicy.reducedArtworkBudget(
+                artworkBytes: artworkBytes,
+                sealedBytes: sealed.count
+            ) else {
+                plog("LibrarySnapshotSync: LAN payload \(sealed.count)B exceeds the Apple TV limit without artwork")
+                return .failure(.snapshotPreparationFailed)
+            }
+            plog("LibrarySnapshotSync: LAN payload \(sealed.count)B exceeds the Apple TV limit; artwork \(artworkBytes)B → budget \(reduced)B")
+            guard !Task.isCancelled else { return .failure(.cancelled) }
+            artworkBudget = reduced
+        }
+    }
+
     func sendToTVOverLANResult(
         _ link: LANPairLink
     ) async -> Result<Void, AppleTVTransferFailure> {
-        let prepared = await buildLANPayloadResult()
-        let payload: LANSyncPayload
-        switch prepared {
-        case .success(let value):
-            payload = value
+        guard let url = link.configURL else { return .failure(.invalidPairingLink) }
+        let box: Data
+        switch await sealedLANPayloadResult(key: link.key) {
+        case .success(let sealed):
+            box = sealed
         case .failure(let failure):
             return .failure(failure)
         }
-
-        let json: Data
-        do {
-            json = try payload.jsonData()
-        } catch {
-            return .failure(.payloadEncodingFailed(detail: Self.diagnosticDetail(error)))
-        }
-        guard let box = LANSyncCrypto.seal(json, key: link.key) else {
-            return .failure(.payloadEncryptionFailed)
-        }
-        guard let url = link.configURL else { return .failure(.invalidPairingLink) }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
