@@ -181,7 +181,11 @@ private struct MinimalNavigationBarsEnvironmentKey: EnvironmentKey {
 
 private struct MinimalNavigationDetailTransitionHandlerEnvironmentKey: EnvironmentKey {
     static let defaultValue:
-        (@MainActor (UUID, MinimalNavigationDetailScope, Bool) -> Void)? = nil
+        (@MainActor (
+            UUID,
+            MinimalNavigationDetailScope,
+            MinimalNavigationDetailTransitionEvent
+        ) -> Void)? = nil
 }
 
 private struct MinimalNavigationDetailScopesPreferenceKey: PreferenceKey {
@@ -217,7 +221,11 @@ extension EnvironmentValues {
     }
 
     var minimalNavigationDetailTransitionHandler:
-        (@MainActor (UUID, MinimalNavigationDetailScope, Bool) -> Void)? {
+        (@MainActor (
+            UUID,
+            MinimalNavigationDetailScope,
+            MinimalNavigationDetailTransitionEvent
+        ) -> Void)? {
         get { self[MinimalNavigationDetailTransitionHandlerEnvironmentKey.self] }
         set { self[MinimalNavigationDetailTransitionHandlerEnvironmentKey.self] = newValue }
     }
@@ -390,8 +398,8 @@ private struct MinimalNavigationDetailModifier: ViewModifier {
                     value: Set([detailScope])
                 )
                 .background {
-                    MinimalNavigationDetailTransitionReporter { isVisible in
-                        transitionHandler?(transitionID, detailScope, isVisible)
+                    MinimalNavigationDetailTransitionReporter { event in
+                        transitionHandler?(transitionID, detailScope, event)
                     }
                     .frame(width: 0, height: 0)
                 }
@@ -405,26 +413,37 @@ private struct MinimalNavigationDetailModifier: ViewModifier {
 }
 
 private struct MinimalNavigationDetailTransitionReporter: UIViewControllerRepresentable {
-    let onVisibilityChange: @MainActor (Bool) -> Void
+    let onTransition: @MainActor (MinimalNavigationDetailTransitionEvent) -> Void
 
     func makeUIViewController(context: Context) -> ReporterViewController {
-        ReporterViewController(onVisibilityChange: onVisibilityChange)
+        ReporterViewController(onTransition: onTransition)
     }
 
     func updateUIViewController(
         _ uiViewController: ReporterViewController,
         context: Context
     ) {
-        uiViewController.onVisibilityChange = onVisibilityChange
+        uiViewController.onTransition = onTransition
+    }
+
+    static func dismantleUIViewController(
+        _ uiViewController: ReporterViewController,
+        coordinator: ()
+    ) {
+        uiViewController.retire()
     }
 
     @MainActor
     final class ReporterViewController: UIViewController {
-        var onVisibilityChange: @MainActor (Bool) -> Void
+        var onTransition: @MainActor (MinimalNavigationDetailTransitionEvent) -> Void
         private var reportsVisible = false
+        private var popGeneration: UInt64 = 0
+        private var isRetired = false
 
-        init(onVisibilityChange: @escaping @MainActor (Bool) -> Void) {
-            self.onVisibilityChange = onVisibilityChange
+        init(
+            onTransition: @escaping @MainActor (MinimalNavigationDetailTransitionEvent) -> Void
+        ) {
+            self.onTransition = onTransition
             super.init(nibName: nil, bundle: nil)
         }
 
@@ -447,20 +466,63 @@ private struct MinimalNavigationDetailTransitionReporter: UIViewControllerRepres
 
         override func viewWillDisappear(_ animated: Bool) {
             super.viewWillDisappear(animated)
-            guard let coordinator = navigationPopCoordinator() else { return }
+            guard !isRetired, let coordinator = navigationPopCoordinator() else { return }
 
+            popGeneration &+= 1
+            let generation = popGeneration
             reportsVisible = false
-            onVisibilityChange(false)
+            onTransition(.popping)
             coordinator.animate(alongsideTransition: nil) { [weak self] context in
                 guard context.isCancelled else { return }
-                self?.reportVisible()
+                self?.restoreAfterCancelledPop(generation: generation)
             }
         }
 
+        override func viewDidDisappear(_ animated: Bool) {
+            super.viewDidDisappear(animated)
+            // 被上层详情页、页签切换或全屏封面盖住时这一页还在导航栈里,登记要留着。
+            // 已经不在栈里才是真的走了 —— 包括系统没走一次认得出的返回转场的情况。
+            guard !isRetired, !isInNavigationStack else { return }
+            reportsVisible = false
+            onTransition(.removed)
+        }
+
+        /// SwiftUI 拆掉这张详情页时的最后一次汇报,此后迟到的转场回调一律不再理会。
+        func retire() {
+            guard !isRetired else { return }
+            isRetired = true
+            reportsVisible = false
+            let onTransition = onTransition
+            // dismantle 发生在 SwiftUI 的视图更新当中,状态改动放到这次更新之后。
+            Task { @MainActor in
+                onTransition(.removed)
+            }
+        }
+
+        /// 卡片放大转场的拖拽返回可以中途换一只手势接管(先向右、再向下):先开始的那次
+        /// 返回以「已取消」收尾,而页面正被后一次返回带走。只有最近一次返回被取消,才算
+        /// 回到了详情页。
+        private func restoreAfterCancelledPop(generation: UInt64) {
+            guard generation == popGeneration else { return }
+            reportVisible()
+        }
+
         private func reportVisible() {
-            guard !reportsVisible else { return }
+            guard !isRetired, !reportsVisible else { return }
             reportsVisible = true
-            onVisibilityChange(true)
+            onTransition(.appearing)
+        }
+
+        private var isInNavigationStack: Bool {
+            var ancestor = parent
+            while let viewController = ancestor {
+                if let navigationController = viewController.navigationController,
+                   navigationController.viewControllers.contains(where: { $0 === viewController }) {
+                    return true
+                }
+                ancestor = viewController.parent
+            }
+            return false
         }
 
         private func navigationPopCoordinator() -> UIViewControllerTransitionCoordinator? {
@@ -670,11 +732,8 @@ struct ContentView: View {
     @State private var isReconcilingPlaybackRemovals = false
     @State private var libraryDeepLink: LibraryDeepLink?
     @State private var minimalLibrarySection: LibrarySection?
-    @State private var minimalDetailScopes: Set<MinimalNavigationDetailScope> = []
-    @State private var minimalPresentedDetailScopes:
-        [UUID: MinimalNavigationDetailScope] = [:]
-    @State private var minimalReturningDetailScopes:
-        Set<MinimalNavigationDetailScope> = []
+    @State private var minimalDetailLedger =
+        MinimalNavigationDetailLedger<MinimalNavigationDetailScope>()
     @State private var minimalNavigationCategoriesCollapsed = false
     /// 手机横屏下的分类行折叠状态,与竖屏那一份分开记。横屏的静止状态是收起,竖屏保留
     /// 用户自己滚出来的状态;两边各记各的,来回旋转不会把横屏的收起带进竖屏。
@@ -755,13 +814,11 @@ struct ContentView: View {
     }
 
     private var minimalTopNavigationHidden: Bool {
-        var effectiveDetailScopes = minimalDetailScopes
-        effectiveDetailScopes.formUnion(minimalPresentedDetailScopes.values)
-        return MinimalNavigationChromePolicy.hidesTopNavigation(
+        MinimalNavigationChromePolicy.hidesTopNavigation(
             mode: navigationMode,
             selectedTab: selectedTab,
-            detailScopes: effectiveDetailScopes,
-            returningScopes: minimalReturningDetailScopes
+            detailScopes: minimalDetailLedger.detailScopes,
+            returningScopes: minimalDetailLedger.returning
         )
     }
 
@@ -823,11 +880,11 @@ struct ContentView: View {
         }
         .softNavigationScrollEdges()
         .environment(\.minimalNavigationDetailTransitionHandler) {
-            transitionID, detailScope, isVisible in
+            transitionID, detailScope, event in
             updateMinimalNavigationDetailTransition(
                 id: transitionID,
                 scope: detailScope,
-                isVisible: isVisible
+                event: event
             )
         }
     }
@@ -861,8 +918,7 @@ struct ContentView: View {
                     )
             }
             .onPreferenceChange(MinimalNavigationDetailScopesPreferenceKey.self) { scopes in
-                minimalDetailScopes = scopes
-                minimalReturningDetailScopes.formIntersection(scopes)
+                minimalDetailLedger.updateMounted(scopes)
             }
     }
 
@@ -1497,18 +1553,14 @@ struct ContentView: View {
     private func updateMinimalNavigationDetailTransition(
         id: UUID,
         scope: MinimalNavigationDetailScope,
-        isVisible: Bool
+        event: MinimalNavigationDetailTransitionEvent
     ) {
-        if isVisible {
-            minimalPresentedDetailScopes[id] = scope
-            minimalReturningDetailScopes.remove(scope)
-            return
-        }
-
-        minimalPresentedDetailScopes[id] = nil
-        if !minimalPresentedDetailScopes.values.contains(scope) {
-            minimalReturningDetailScopes.insert(scope)
-        }
+        var ledger = minimalDetailLedger
+        ledger.record(event, id: id, scope: scope)
+        // 一张详情页离开时 removed 会到两次(离开导航栈、被拆掉),没变化就不写回,
+        // 免得根视图白白重算一遍。
+        guard ledger != minimalDetailLedger else { return }
+        minimalDetailLedger = ledger
     }
 }
 
