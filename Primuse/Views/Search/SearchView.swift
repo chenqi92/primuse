@@ -444,6 +444,10 @@ struct SearchView: View {
     @Environment(\.pmHeightClass) private var heightClass
     @Binding var searchText: String
     @Binding private var scope: LibrarySearchScope?
+    /// 用户刚点了搜索入口(底部标签 / iPad 侧栏)。消费掉就置回 false,
+    /// 视图重建时不会再弹一次键盘。
+    @Binding private var activatesSearchField: Bool
+    @State private var isSearchFieldPresented = false
     private let contextualScope: LibrarySearchScope?
     private let showsMacQuerySummary: Bool
     let onShowInLibrary: (PrimuseKit.Song) -> Void
@@ -473,12 +477,14 @@ struct SearchView: View {
     init(
         searchText: Binding<String>,
         scope: Binding<LibrarySearchScope?> = .constant(nil),
+        activatesSearchField: Binding<Bool> = .constant(false),
         contextualScope: LibrarySearchScope? = nil,
         showsMacQuerySummary: Bool = true,
         onShowInLibrary: @escaping (PrimuseKit.Song) -> Void = { _ in }
     ) {
         self._searchText = searchText
         self._scope = scope
+        self._activatesSearchField = activatesSearchField
         self.contextualScope = contextualScope
         self.showsMacQuerySummary = showsMacQuerySummary
         self.onShowInLibrary = onShowInLibrary
@@ -645,9 +651,20 @@ struct SearchView: View {
                 .floatingInputPanelClearance()
         } else {
             iosSearchContent
-                .searchable(text: $searchText, prompt: Text(searchPrompt))
+                .searchable(
+                    text: $searchText,
+                    isPresented: $isSearchFieldPresented,
+                    prompt: Text(searchPrompt)
+                )
                 .onSubmit(of: .search) { addRecentSearch(searchText) }
                 .floatingInputPanelClearance()
+                .onChange(of: activatesSearchField, initial: true) { _, requested in
+                    guard requested else { return }
+                    activatesSearchField = false
+                    // 点进搜索就直接弹出键盘。刚切过来的这一帧搜索框还没挂上,
+                    // 当场设 true 会被忽略, 所以放到下一轮主线程再激活。
+                    Task { @MainActor in isSearchFieldPresented = true }
+                }
         }
     }
 

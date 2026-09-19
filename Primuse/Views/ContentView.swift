@@ -723,6 +723,8 @@ struct ContentView: View {
     @State private var searchNavigation = LibrarySearchNavigation()
     @State private var searchScope: LibrarySearchScope?
     @State private var searchContext: LibrarySearchScope?
+    /// 用户刚点了搜索入口, 搜索页据此直接弹出键盘。
+    @State private var searchFieldActivationRequested = false
     @State private var settingsSearch = SettingsSearchState()
     @State private var showNowPlaying = false
     @State private var nowPlayingPresentationID = UUID()
@@ -866,6 +868,7 @@ struct ContentView: View {
             Tab(String(localized: "search_title"), systemImage: "magnifyingglass",
                 value: 2, role: searchTabRole) {
                 SearchView(searchText: $searchText, scope: $searchScope,
+                           activatesSearchField: $searchFieldActivationRequested,
                            contextualScope: searchContext, onShowInLibrary: showSongInLibrary)
                     .id("primuse.tab.search")
                     .environment(\.minimalNavigationDetailScope, .search)
@@ -1015,6 +1018,10 @@ struct ContentView: View {
             let selection = Binding<SidebarItem?>(
                 get: { sidebarSelection },
                 set: { if let v = $0 {
+                    // 从侧栏点「搜索」进来就直接弹出键盘。
+                    if v == .search, sidebarSelection != .search {
+                        searchFieldActivationRequested = true
+                    }
                     selectTab(v.rawValueTab)
                     sidebarSelection = v
                 } }
@@ -1092,6 +1099,7 @@ struct ContentView: View {
             librarySubpane(title: "radio_title") { RadioStationsView() }
         case .search:
             SearchView(searchText: $searchText, scope: $searchScope,
+                           activatesSearchField: $searchFieldActivationRequested,
                            contextualScope: searchContext, onShowInLibrary: showSongInLibrary)
         case .settings:
             SettingsView(scraperSettingsRoute: $scraperSettingsRoute)
@@ -1336,7 +1344,17 @@ struct ContentView: View {
 
     private var searchAwareTabSelection: Binding<Int> {
         // TabView validates its first selection before the restoration task runs.
-        Binding(get: { AppTabSelectionPolicy.resolve(selectedTab) }, set: { selectTab($0) })
+        Binding(
+            get: { AppTabSelectionPolicy.resolve(selectedTab) },
+            set: { tab in
+                // 点底部「搜索」进来就直接弹出键盘, 不必再点一次搜索框。
+                // 只认真的切换: 启动时恢复到搜索页不该自己弹键盘。
+                if AppTabSelectionPolicy.resolve(tab) == 2, selectedTab != 2 {
+                    searchFieldActivationRequested = true
+                }
+                selectTab(tab)
+            }
+        )
     }
 
     private func selectTab(_ tab: Int) {
