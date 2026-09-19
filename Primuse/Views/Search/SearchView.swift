@@ -203,17 +203,52 @@ struct SearchScopeSwitchButton: View {
 #if os(iOS)
 struct SearchScopeCard: View {
     let scope: LibrarySearchScope
+    /// 卡片右侧的关闭键: 直接撤掉这个范围回到全局搜索, 不必再去菜单里切。
+    var onClear: (() -> Void)? = nil
 
     /// 这张卡排在结果区外面、不参与滚动。手机横屏时结果区本来就只剩两百多点,
     /// 再顶掉一百多点就只看得到一行半歌, 所以紧凑高度下压成一条: 图标 + 范围名。
     @Environment(\.pmHeightClass) private var heightClass
 
     var body: some View {
-        let iconSide = heightClass.value(44, compact: 28)
-        let iconCorner = heightClass.value(12, compact: 8)
         let cardCorner = heightClass.value(18, compact: 12)
         let rowAlignment: VerticalAlignment = heightClass.pick(.top, compact: .center)
-        HStack(alignment: rowAlignment, spacing: 12) {
+        HStack(alignment: rowAlignment, spacing: 8) {
+            scopeSummary(rowAlignment: rowAlignment)
+            if let onClear {
+                clearButton(onClear)
+            }
+        }
+        .padding(heightClass.value(14, compact: 8))
+        .background(scope.kind.color.opacity(0.08), in: RoundedRectangle(cornerRadius: cardCorner))
+        .overlay {
+            RoundedRectangle(cornerRadius: cardCorner)
+                .strokeBorder(scope.kind.color.opacity(0.24), lineWidth: 1)
+        }
+    }
+
+    /// 关闭键不能并进卡片的合并无障碍元素里, 否则读屏时按不到它。
+    private func clearButton(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: heightClass.value(22, compact: 18)))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.secondary)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // 紧凑高度下卡片只有 28 点高的一条, 点按区域照旧 44 点, 但不把卡片撑高。
+        .padding(.vertical, heightClass.value(0, compact: -8))
+        .padding(.trailing, -6)
+        .accessibilityLabel(Text("search_global"))
+        .accessibilityIdentifier("search.scope.clear")
+    }
+
+    private func scopeSummary(rowAlignment: VerticalAlignment) -> some View {
+        let iconSide = heightClass.value(44, compact: 28)
+        let iconCorner = heightClass.value(12, compact: 8)
+        return HStack(alignment: rowAlignment, spacing: 12) {
             Image(systemName: scope.kind.systemImage)
                 .font(.system(size: heightClass.value(20, compact: 13), weight: .semibold))
                 .foregroundStyle(scope.kind.color)
@@ -247,12 +282,6 @@ struct SearchScopeCard: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(heightClass.value(14, compact: 8))
-        .background(scope.kind.color.opacity(0.08), in: RoundedRectangle(cornerRadius: cardCorner))
-        .overlay {
-            RoundedRectangle(cornerRadius: cardCorner)
-                .strokeBorder(scope.kind.color.opacity(0.24), lineWidth: 1)
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("search.scope.card")
@@ -626,7 +655,8 @@ struct SearchView: View {
         VStack(spacing: 0) {
             #if os(iOS)
             if let scope {
-                SearchScopeCard(scope: scope)
+                // 与范围菜单里选「全局搜索」走同一条路: 不带动画, 结果表整批换掉。
+                SearchScopeCard(scope: scope) { self.scope = nil }
                     .padding(.horizontal, 16)
                     .padding(.vertical, heightClass.value(10, compact: 4))
             }
