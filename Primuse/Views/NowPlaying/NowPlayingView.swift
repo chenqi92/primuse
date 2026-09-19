@@ -613,6 +613,9 @@ struct NowPlayingView: View {
     @State private var scrapeTargetSong: Song?
     @State private var showAddToPlaylist = false
     @State private var shareSong: Song?
+    /// 分享页里点了「分享歌词」。海报是播放页自己的一层 sheet，要等分享页收完再弹，
+    /// 两层同时在场后一层会被系统直接丢掉。
+    @State private var presentsLyricPosterAfterShare = false
     @State private var showCastPicker = false
     @State private var showSongInfo = false
     @State private var showSleepTimer = false
@@ -975,7 +978,18 @@ struct NowPlayingView: View {
         onMinimize?()
     }
 
-    /// 打开歌词海报。`anchorLineID` 来自长按的那一句; 从"更多"菜单进入时
+    /// 分享页打开期间可能已经换歌：海报取的是当前这首的歌词，只在分享的还是它时才给入口。
+    private func canShareLyricPoster(for song: Song) -> Bool {
+        player.currentSong?.id == song.id && !lyrics.isEmpty
+    }
+
+    private func presentLyricPosterRequestedFromShare() {
+        guard presentsLyricPosterAfterShare else { return }
+        presentsLyricPosterAfterShare = false
+        presentLyricPoster(anchorLineID: nil)
+    }
+
+    /// 打开歌词海报。`anchorLineID` 来自长按的那一句; 从分享页进入时
     /// 为 nil, 由策略按当前播放位置定位。
     private func presentLyricPoster(anchorLineID: String?) {
         guard let song = player.currentSong else { return }
@@ -1449,8 +1463,13 @@ struct NowPlayingView: View {
                     .presentationDragIndicator(.visible)
             }
         }
-        .sheet(item: $shareSong) { song in
-            SongShareSheet(song: song)
+        .sheet(item: $shareSong, onDismiss: { presentLyricPosterRequestedFromShare() }) { song in
+            SongShareSheet(
+                song: song,
+                onShareLyricPoster: canShareLyricPoster(for: song)
+                    ? { presentsLyricPosterAfterShare = true }
+                    : nil
+            )
         }
         .sheet(isPresented: $showSongInfo) {
             if let song = player.currentSong {
@@ -3277,7 +3296,6 @@ struct NowPlayingView: View {
             canOpenAlbum: canOpenCurrentAlbum,
             canOpenArtist: currentArtist != nil && onOpenArtist != nil,
             canShare: player.currentSong != nil,
-            canShareLyrics: player.currentSong != nil && !lyrics.isEmpty,
             castingRendererName: player.castingRenderer?.friendlyName,
             isSleepTimerActive: player.isSleepTimerActive,
             lyricsFontScale: lyricsFontScale,
@@ -3330,7 +3348,6 @@ struct NowPlayingView: View {
                 openURL(url)
             },
             onShare: { shareSong = player.currentSong },
-            onShareLyrics: { presentLyricPoster(anchorLineID: nil) },
             onShowCastPicker: { showCastPicker = true },
             onToggleLyricsTranslation: {
                 LyricsTranslationSettingsStore.shared.isEnabled.toggle()
@@ -5540,7 +5557,6 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let canOpenAlbum: Bool
     let canOpenArtist: Bool
     let canShare: Bool
-    let canShareLyrics: Bool
     let castingRendererName: String?
     let isSleepTimerActive: Bool
     let lyricsFontScale: Double
@@ -5581,7 +5597,6 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onOpenArtist: () -> Void
     let onOpenInAppleMusic: () -> Void
     let onShare: () -> Void
-    let onShareLyrics: () -> Void
     let onShowCastPicker: () -> Void
     let onToggleLyricsTranslation: () -> Void
     let onShowSleepTimer: () -> Void
@@ -5612,12 +5627,49 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
         }
     }
 
+    /// 横排里除「添加到歌单」之外能凑出几个键。不足三个时把「添加到歌单」也提上来，
+    /// 免得一行只剩孤零零一个键；够三个时它留在下面的列表里，横排不挤成四个小字。
+    private var quickActionCount: Int {
+        [snapshot.showsFullScreenAction, snapshot.canShare, snapshot.canDeleteSourceFile]
+            .filter { $0 }
+            .count
+    }
+
+    private var promotesAddToPlaylist: Bool { quickActionCount < 3 }
+
+    private var addToPlaylistButton: some View {
+        Button(action: onAddToPlaylist) {
+            Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
+        }
+        .disabled(!snapshot.hasSong)
+    }
+
     var body: some View {
         Menu {
-            if snapshot.showsFullScreenAction {
-                Section {
+            // 最常用的几个操作排成一行：系统菜单会把 ControlGroup 画成一排「图标在上、
+            // 文字在下」的键，不用往下翻就够得着。文字取短的那一版，长了会被截断。
+            ControlGroup {
+                if snapshot.showsFullScreenAction {
                     Button(action: onEnterFullScreen) {
                         Label(String(localized: "full_screen_player"), systemImage: "viewfinder.rectangular")
+                    }
+                    .disabled(!snapshot.hasSong)
+                }
+
+                if snapshot.canShare {
+                    // 歌词海报也从这里进：分享页里有一项「分享歌词」。
+                    Button(action: onShare) {
+                        Label(String(localized: "share"), systemImage: "square.and.arrow.up")
+                    }
+                }
+
+                if promotesAddToPlaylist {
+                    addToPlaylistButton
+                }
+
+                if snapshot.canDeleteSourceFile {
+                    Button(role: .destructive, action: onDelete) {
+                        Label(String(localized: "delete"), systemImage: "trash")
                     }
                     .disabled(!snapshot.hasSong)
                 }
@@ -5642,10 +5694,9 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
             }
 
             Section {
-                Button(action: onAddToPlaylist) {
-                    Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
+                if !promotesAddToPlaylist {
+                    addToPlaylistButton
                 }
-                .disabled(!snapshot.hasSong)
 
                 Button(action: onScrape) {
                     Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
@@ -5707,16 +5758,6 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     }
                 }
 
-                if snapshot.canShare {
-                    Button(action: onShare) {
-                        Label(String(localized: "share"), systemImage: "square.and.arrow.up")
-                    }
-                }
-
-                Button(action: onShareLyrics) {
-                    Label(String(localized: "lyric_poster_menu"), systemImage: "text.below.photo")
-                }
-                .disabled(!snapshot.canShareLyrics)
             }
 
             Section {
@@ -5801,15 +5842,6 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     }
                     .pickerStyle(.menu)
                     .disabled(!snapshot.canChangePlaybackRate)
-                }
-            }
-
-            if snapshot.canDeleteSourceFile {
-                Section {
-                    Button(role: .destructive, action: onDelete) {
-                        Label(String(localized: "delete_song"), systemImage: "trash")
-                    }
-                    .disabled(!snapshot.hasSong)
                 }
             }
         } label: {

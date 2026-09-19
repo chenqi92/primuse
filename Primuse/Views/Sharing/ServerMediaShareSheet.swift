@@ -49,6 +49,9 @@ struct SongShareSheet: View {
     @Environment(MusicLibrary.self) private var library
 
     let song: Song
+    /// 播放页传进来：这首歌有歌词可以做成海报时，分享页里多一项「分享歌词」。
+    /// 列表、歌曲行那些入口手上没有歌词，不传。
+    var onShareLyricPoster: (() -> Void)? = nil
 
     @State private var selectedMethod = SongShareLinkMethod.automatic
     @State private var nativeStatus = SongShareNativeCapabilityStatus.checking
@@ -150,8 +153,25 @@ struct SongShareSheet: View {
     private var shareForm: some View {
         Form {
             songSection
+            lyricPosterSection
             informationSection
             playableLinkSection
+        }
+    }
+
+    @ViewBuilder
+    private var lyricPosterSection: some View {
+        if let onShareLyricPoster {
+            Section {
+                Button {
+                    // 先收起分享页，海报由播放页在分享页收完之后接着弹。
+                    onShareLyricPoster()
+                    dismiss()
+                } label: {
+                    Label("lyric_poster_menu", systemImage: "text.below.photo")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
         }
     }
 
