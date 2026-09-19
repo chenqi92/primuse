@@ -4313,3 +4313,8 @@
 "lyrics_embed_confirm_message_embed_only" = "· 只嵌入时不在歌曲旁新建歌词文件，逐字时间轴只保存在 Primuse 里；歌曲旁已有的歌词文件仍会同步更新。\n· 整库刮削不嵌入，也不新建歌词文件，刮到的歌词只保存在 Primuse 里。";
 "tag_editor_lyrics_writeback_embedded" = "已检查目标，歌词将嵌入音频文件，不新建歌词文件。";
 "tag_editor_lyrics_writeback_also_embedded" = "同时嵌入音频文件。";
+"search_layout_title" = "调整搜索结果";
+"search_layout_footer" = "关掉的部分不再显示，搜索时也会跳过。";
+"search_layout_restore_default" = "恢复默认";
+"search_layout_move_up" = "上移";
+"search_layout_move_down" = "下移";

@@ -4220,3 +4220,8 @@
 "lyrics_embed_confirm_message_embed_only" = "· Mit „Nur Audiodatei“ wird neben dem Titel keine Liedtextdatei angelegt, und die wortgenaue Taktung bleibt nur in Primuse. Eine bereits neben dem Titel liegende Liedtextdatei wird weiterhin aktualisiert.\n· Das Scraping der gesamten Mediathek bettet weder ein noch legt es Liedtextdateien an; gefundene Liedtexte bleiben nur in Primuse.";
 "tag_editor_lyrics_writeback_embedded" = "Ziel geprüft. Der Liedtext wird in die Audiodatei eingebettet; es wird keine Liedtextdatei angelegt.";
 "tag_editor_lyrics_writeback_also_embedded" = "Er wird zusätzlich in die Audiodatei eingebettet.";
+"search_layout_title" = "Suchergebnisse anordnen";
+"search_layout_footer" = "Ausgeschaltete Bereiche werden ausgeblendet und bei der Suche übersprungen.";
+"search_layout_restore_default" = "Standard wiederherstellen";
+"search_layout_move_up" = "Nach oben";
+"search_layout_move_down" = "Nach unten";

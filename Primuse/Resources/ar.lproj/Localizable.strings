@@ -4126,3 +4126,8 @@
 "lyrics_embed_confirm_message_embed_only" = "· مع «ملف الصوت فقط» لا يُنشأ ملف كلمات بجانب الأغنية، ويبقى التزامن كلمة بكلمة في Primuse وحده. يستمر تحديث ملف الكلمات الموجود بجانب الأغنية.\n· لا يضمّن جلب البيانات الوصفية للمكتبة كلها الكلمات ولا ينشئ ملفات كلمات، وتبقى الكلمات المجلوبة في Primuse وحده.";
 "tag_editor_lyrics_writeback_embedded" = "تم التحقق من الهدف. ستُضمَّن الكلمات في ملف الصوت ولن يُنشأ ملف كلمات.";
 "tag_editor_lyrics_writeback_also_embedded" = "ستُضمَّن أيضًا في ملف الصوت.";
+"search_layout_title" = "ترتيب نتائج البحث";
+"search_layout_footer" = "الأقسام التي توقفها تُخفى ولا يُبحث فيها.";
+"search_layout_restore_default" = "استعادة الإعدادات الافتراضية";
+"search_layout_move_up" = "نقل لأعلى";
+"search_layout_move_down" = "نقل لأسفل";

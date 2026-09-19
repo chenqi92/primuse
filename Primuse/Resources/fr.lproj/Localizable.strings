@@ -4220,3 +4220,8 @@
 "lyrics_embed_confirm_message_embed_only" = "· Avec « Fichier audio uniquement », aucun fichier de paroles n’est créé à côté du morceau, et la synchronisation mot à mot n’est conservée que dans Primuse. Un fichier de paroles déjà présent à côté du morceau reste tenu à jour.\n· La récupération pour toute la bibliothèque n’intègre rien et ne crée aucun fichier de paroles ; les paroles récupérées ne sont conservées que dans Primuse.";
 "tag_editor_lyrics_writeback_embedded" = "Cible vérifiée. Les paroles seront intégrées au fichier audio ; aucun fichier de paroles ne sera créé.";
 "tag_editor_lyrics_writeback_also_embedded" = "Elles seront aussi intégrées au fichier audio.";
+"search_layout_title" = "Organiser les résultats";
+"search_layout_footer" = "Les sections désactivées sont masquées et ignorées lors de la recherche.";
+"search_layout_restore_default" = "Rétablir les réglages par défaut";
+"search_layout_move_up" = "Monter";
+"search_layout_move_down" = "Descendre";

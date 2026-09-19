@@ -3998,3 +3998,8 @@
 "lyrics_embed_confirm_message_embed_only" = "· With “Audio File Only”, no lyrics file is created next to the song, and word-by-word timing is kept only in Primuse. A lyrics file already next to the song is still kept up to date.\n· Library-wide scraping neither embeds nor creates lyrics files; scraped lyrics are kept only in Primuse.";
 "tag_editor_lyrics_writeback_embedded" = "Target checked. The lyrics will be embedded in the audio file; no lyrics file will be created.";
 "tag_editor_lyrics_writeback_also_embedded" = "They will also be embedded in the audio file.";
+"search_layout_title" = "Arrange Search Results";
+"search_layout_footer" = "Sections you turn off are hidden and skipped when searching.";
+"search_layout_restore_default" = "Restore Defaults";
+"search_layout_move_up" = "Move Up";
+"search_layout_move_down" = "Move Down";

@@ -4220,3 +4220,8 @@
 "lyrics_embed_confirm_message_embed_only" = "· ‘오디오 파일에만’에서는 곡 옆에 가사 파일을 만들지 않으며, 단어별 타이밍은 Primuse에만 저장됩니다. 곡 옆에 이미 있는 가사 파일은 계속 갱신합니다.\n· 라이브러리 전체 스크래핑은 가사를 넣지도, 가사 파일을 만들지도 않으며 가져온 가사는 Primuse에만 저장됩니다.";
 "tag_editor_lyrics_writeback_embedded" = "대상을 확인했습니다. 가사를 오디오 파일에 넣고 가사 파일은 만들지 않습니다.";
 "tag_editor_lyrics_writeback_also_embedded" = "오디오 파일에도 넣습니다.";
+"search_layout_title" = "검색 결과 정리";
+"search_layout_footer" = "끈 섹션은 표시되지 않으며 검색에서도 제외됩니다.";
+"search_layout_restore_default" = "기본값으로 복원";
+"search_layout_move_up" = "위로 이동";
+"search_layout_move_down" = "아래로 이동";

@@ -4221,3 +4221,8 @@
 "lyrics_embed_confirm_message_embed_only" = "· 「オーディオファイルのみ」では曲の隣に歌詞ファイルを作成せず、単語ごとのタイミングは Primuse にだけ保存されます。曲の隣にすでにある歌詞ファイルは引き続き更新します。\n· ライブラリ全体のスクレイピングでは埋め込みも歌詞ファイルの作成も行わず、取得した歌詞は Primuse にだけ保存されます。";
 "tag_editor_lyrics_writeback_embedded" = "保存先を確認しました。歌詞はオーディオファイルに埋め込み、歌詞ファイルは作成しません。";
 "tag_editor_lyrics_writeback_also_embedded" = "オーディオファイルにも埋め込みます。";
+"search_layout_title" = "検索結果の表示を調整";
+"search_layout_footer" = "オフにしたセクションは表示されず、検索も行われません。";
+"search_layout_restore_default" = "デフォルトに戻す";
+"search_layout_move_up" = "上へ移動";
+"search_layout_move_down" = "下へ移動";

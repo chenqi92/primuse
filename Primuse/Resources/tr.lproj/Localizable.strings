@@ -4126,3 +4126,8 @@
 "lyrics_embed_confirm_message_embed_only" = "· “Yalnızca ses dosyası” seçiliyken şarkının yanında söz dosyası oluşturulmaz ve kelime kelime zamanlama yalnızca Primuse’ta kalır. Şarkının yanında zaten bulunan söz dosyası güncellenmeye devam eder.\n· Tüm kitaplık için veri çekme işlemi söz gömmez ve söz dosyası oluşturmaz; bulunan sözler yalnızca Primuse’ta kalır.";
 "tag_editor_lyrics_writeback_embedded" = "Hedef kontrol edildi. Şarkı sözleri ses dosyasına gömülecek; söz dosyası oluşturulmayacak.";
 "tag_editor_lyrics_writeback_also_embedded" = "Ses dosyasına da gömülecek.";
+"search_layout_title" = "Arama sonuçlarını düzenle";
+"search_layout_footer" = "Kapattığınız bölümler gizlenir ve aramada atlanır.";
+"search_layout_restore_default" = "Varsayılanlara dön";
+"search_layout_move_up" = "Yukarı taşı";
+"search_layout_move_down" = "Aşağı taşı";

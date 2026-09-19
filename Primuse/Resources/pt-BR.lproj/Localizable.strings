@@ -4126,3 +4126,8 @@
 "lyrics_embed_confirm_message_embed_only" = "· Com “Só no arquivo de áudio”, nenhum arquivo de letra é criado ao lado da música, e a sincronização palavra por palavra fica só no Primuse. Um arquivo de letra que já esteja ao lado da música continua sendo atualizado.\n· A busca de metadados da biblioteca inteira não incorpora letras nem cria arquivos de letra; as letras encontradas ficam só no Primuse.";
 "tag_editor_lyrics_writeback_embedded" = "Destino verificado. A letra será incorporada ao arquivo de áudio; nenhum arquivo de letra será criado.";
 "tag_editor_lyrics_writeback_also_embedded" = "Ela também será incorporada ao arquivo de áudio.";
+"search_layout_title" = "Organizar resultados da busca";
+"search_layout_footer" = "As seções desativadas ficam ocultas e são ignoradas na busca.";
+"search_layout_restore_default" = "Restaurar padrão";
+"search_layout_move_up" = "Mover para cima";
+"search_layout_move_down" = "Mover para baixo";

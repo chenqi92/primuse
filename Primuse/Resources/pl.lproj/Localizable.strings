@@ -4126,3 +4126,8 @@
 "lyrics_embed_confirm_message_embed_only" = "· W trybie „Tylko plik audio” obok utworu nie powstaje plik z tekstem, a synchronizacja słowo po słowie zostaje tylko w Primuse. Plik z tekstem, który już leży obok utworu, nadal jest aktualizowany.\n· Pobieranie metadanych dla całej biblioteki nie osadza tekstów i nie tworzy plików z tekstem; pobrane teksty zostają tylko w Primuse.";
 "tag_editor_lyrics_writeback_embedded" = "Cel sprawdzony. Tekst zostanie osadzony w pliku audio; plik z tekstem nie zostanie utworzony.";
 "tag_editor_lyrics_writeback_also_embedded" = "Zostanie też osadzony w pliku audio.";
+"search_layout_title" = "Układ wyników wyszukiwania";
+"search_layout_footer" = "Wyłączone sekcje są ukryte i pomijane podczas wyszukiwania.";
+"search_layout_restore_default" = "Przywróć domyślne";
+"search_layout_move_up" = "Przenieś w górę";
+"search_layout_move_down" = "Przenieś w dół";

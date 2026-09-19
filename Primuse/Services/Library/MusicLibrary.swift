@@ -174,11 +174,13 @@ private final class DisplacedLibraryLookups: Sendable {
     }
 }
 
-enum LibrarySearchMatchKind: Sendable {
+enum LibrarySearchMatchKind: CaseIterable, Sendable {
     case metadata
     case path
     case lyrics
     case fuzzy
+
+    static let all = Set(allCases)
 }
 
 struct LibrarySearchResult: Identifiable, Sendable {
@@ -384,6 +386,7 @@ enum LibrarySearchWorker {
         cache: LibrarySearchCache,
         includeMetadata: Bool = true,
         includeLyrics: Bool = true,
+        matchKinds: Set<LibrarySearchMatchKind> = LibrarySearchMatchKind.all,
         songLimit: Int = 120,
         albumLimit: Int = 10
     ) -> LibrarySearchOutput {
@@ -393,7 +396,9 @@ enum LibrarySearchWorker {
         }
 
         var cache = cache
-        let shouldSearchLyrics = includeLyrics && matcher.normalizedLength >= minimumLyricsQueryLength
+        let shouldSearchLyrics = includeLyrics
+            && matchKinds.contains(.lyrics)
+            && matcher.normalizedLength >= minimumLyricsQueryLength
 
         var rankedSongs: [LibrarySearchResult] = []
         rankedSongs.reserveCapacity(min(songs.count, songLimit * 2))
@@ -411,10 +416,13 @@ enum LibrarySearchWorker {
             ) {
                 guard let candidate,
                       let match = matcher.score(candidate: candidate) else { return }
+                // 用户关掉的那类命中不占这首歌, 让它还能落进开着的那类。
+                let kind = matchKindOverride ?? match.kind
+                guard matchKinds.contains(kind) else { return }
                 let score = match.score + boost
                 if score > bestScore {
                     bestScore = score
-                    bestKind = matchKindOverride ?? match.kind
+                    bestKind = kind
                 }
             }
 
@@ -1042,6 +1050,7 @@ actor LibrarySearchIndex {
         songs: [Song],
         albums: [Album],
         metadataRevisionKey: String,
+        matchKinds: Set<LibrarySearchMatchKind> = LibrarySearchMatchKind.all,
         songLimit: Int = 120,
         albumLimit: Int = 10
     ) async -> LibraryIndexedSearchOutput? {
@@ -1118,7 +1127,8 @@ actor LibrarySearchIndex {
                 }
             }
 
-            if trimmed.count >= 3 {
+            let searchesPaths = matchKinds.contains(.path)
+            if searchesPaths, trimmed.count >= 3 {
                 let ids = try Self.matchingSongIDs(
                     pool: pool,
                     ftsTable: "metadataPathFts",
@@ -1127,7 +1137,7 @@ actor LibrarySearchIndex {
                     limit: songLimit * 2
                 )
                 Self.appendUnique(ids, to: &pathIDs, seen: &seenPaths)
-            } else {
+            } else if searchesPaths {
                 let ids = songs.lazy
                     .filter { Self.pathContainsLiteral($0, query: trimmed) }
                     .prefix(songLimit * 2)
@@ -1137,7 +1147,7 @@ actor LibrarySearchIndex {
 
             var lyricHits: [LyricsHit] = []
             var seenLyrics = Set<String>()
-            if trimmed.count >= Self.lyricQueryMinimumLength {
+            if matchKinds.contains(.lyrics), trimmed.count >= Self.lyricQueryMinimumLength {
                 let originalIDs = try Self.matchingLyricsIDs(
                     pool: pool,
                     ftsTable: "lyricsOriginalFts",
@@ -1199,9 +1209,12 @@ actor LibrarySearchIndex {
             for (offset, id) in metadataIDs.enumerated() {
                 guard let song = songByID[id] else { continue }
                 let literal = Self.metadataContainsLiteral(song, query: trimmed)
+                let kind: LibrarySearchMatchKind = literal ? .metadata : .fuzzy
+                // 用户关掉的那类命中不占这首歌, 让它还能落进路径或歌词命中。
+                guard matchKinds.contains(kind) else { continue }
                 ranked.append(LibrarySearchResult(
                     song: song,
-                    matchKind: literal ? .metadata : .fuzzy,
+                    matchKind: kind,
                     score: max(100, 220 - offset),
                     lyricSnippet: nil,
                     lyricTimestamp: nil

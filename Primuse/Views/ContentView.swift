@@ -725,6 +725,8 @@ struct ContentView: View {
     @State private var searchContext: LibrarySearchScope?
     /// 用户刚点了搜索入口, 搜索页据此直接弹出键盘。
     @State private var searchFieldActivationRequested = false
+    /// 极简导航没有系统导航栏, 「调整搜索结果」的入口在自绘顶栏里, 由搜索页负责弹出。
+    @State private var searchLayoutEditorRequested = false
     @State private var settingsSearch = SettingsSearchState()
     @State private var showNowPlaying = false
     @State private var nowPlayingPresentationID = UUID()
@@ -869,6 +871,7 @@ struct ContentView: View {
                 value: 2, role: searchTabRole) {
                 SearchView(searchText: $searchText, scope: $searchScope,
                            activatesSearchField: $searchFieldActivationRequested,
+                           requestsResultLayoutEditor: $searchLayoutEditorRequested,
                            contextualScope: searchContext, onShowInLibrary: showSongInLibrary)
                     .id("primuse.tab.search")
                     .environment(\.minimalNavigationDetailScope, .search)
@@ -962,7 +965,8 @@ struct ContentView: View {
                     visibleSections: visibleLibrarySections
                 ),
                 onSelect: selectMinimalPage,
-                onSubmitSearch: submitMinimalSearch
+                onSubmitSearch: submitMinimalSearch,
+                onEditSearchLayout: { searchLayoutEditorRequested = true }
             )
             .opacity(
                 minimalTopNavigationHidden
@@ -1908,6 +1912,7 @@ private struct MinimalTopNavigationBar: View {
     let selection: MinimalNavigationPage
     let onSelect: (MinimalNavigationPage) -> Void
     let onSubmitSearch: () -> Void
+    let onEditSearchLayout: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var searchFieldFocused: Bool
@@ -1944,6 +1949,10 @@ private struct MinimalTopNavigationBar: View {
                         .foregroundStyle(Color.accentColor)
                         .fixedSize(horizontal: true, vertical: false)
                         .background(Color.accentColor.opacity(0.14), in: Circle())
+                }
+
+                if selection == .search {
+                    searchLayoutButton
                 }
 
                 actionButton(
@@ -2106,25 +2115,39 @@ private struct MinimalTopNavigationBar: View {
         return Button {
             select(page)
         } label: {
-            Image(systemName: systemImage)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
-                .background {
-                    Circle()
-                        .fill(Color.accentColor.opacity(isSelected ? 0.2 : 0.14))
-                }
-                .background(.thinMaterial, in: Circle())
-                .overlay {
-                    Circle()
-                        .strokeBorder(Color.accentColor.opacity(0.32), lineWidth: 0.5)
-                }
-                .shadow(color: Color.black.opacity(0.07), radius: 5, y: 2)
+            actionButtonLabel(systemImage: systemImage, isSelected: isSelected)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(title))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    /// 搜索页的「调整搜索结果」。极简导航没有系统导航栏, 入口放在设置按钮左边。
+    private var searchLayoutButton: some View {
+        Button(action: onEditSearchLayout) {
+            actionButtonLabel(systemImage: "slider.horizontal.3", isSelected: false)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("search_layout_title"))
+        .accessibilityIdentifier("search.layout.button")
+    }
+
+    private func actionButtonLabel(systemImage: String, isSelected: Bool) -> some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(Color.accentColor)
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+            .background {
+                Circle()
+                    .fill(Color.accentColor.opacity(isSelected ? 0.2 : 0.14))
+            }
+            .background(.thinMaterial, in: Circle())
+            .overlay {
+                Circle()
+                    .strokeBorder(Color.accentColor.opacity(0.32), lineWidth: 0.5)
+            }
+            .shadow(color: Color.black.opacity(0.07), radius: 5, y: 2)
     }
 
     private func libraryButton(_ page: MinimalNavigationPage) -> some View {
