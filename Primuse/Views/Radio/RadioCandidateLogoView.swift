@@ -1,3 +1,4 @@
+import CoreGraphics
 import SwiftUI
 import PrimuseKit
 
@@ -16,17 +17,23 @@ struct RadioCandidateLogoView: View {
 
     @Environment(SourceManager.self) private var sourceManager
     @State private var image: PlatformImage?
+    @State private var backdrop: RadioLogoBackdrop?
 
     var body: some View {
         ZStack {
-            // 清单没给台标、或者那张图读不出来时，显示和电台列表一样的默认台标 ——
-            // 同一个电台在勾选前后不该长得不一样。
-            RadioStationPlaceholderArtwork()
-            if let image {
+            if let image, let backdrop {
+                // 透明底的台标不能直接压在占位图上，那圈同心环会从台标后面透出来。
+                // 台标由 .task 裸赋值,曲线只能附在过渡上。
+                backdrop.color
+                    .pmFadeTransition(motion: .contentAppear)
                 Image(platformImage: image)
                     .resizable()
                     .scaledToFill()
-                    // 台标由 .task 裸赋值,曲线只能附在过渡上。
+                    .pmFadeTransition(motion: .contentAppear)
+            } else {
+                // 清单没给台标、或者那张图读不出来时，显示和电台列表一样的默认台标 ——
+                // 同一个电台在勾选前后不该长得不一样。
+                RadioStationPlaceholderArtwork()
                     .pmFadeTransition(motion: .contentAppear)
             }
         }
@@ -34,6 +41,7 @@ struct RadioCandidateLogoView: View {
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .task(id: urlString) {
             image = nil
+            backdrop = nil
             guard let urlString, !urlString.isEmpty else { return }
             let resolved = await CachedArtworkView.resolveImage(
                 coverRef: urlString,
@@ -44,8 +52,16 @@ struct RadioCandidateLogoView: View {
                 fileFormat: nil,
                 sourceManager: sourceManager
             )
+            guard !Task.isCancelled, let resolved else { return }
+            let sampled = SendableRadioArtworkCGImage(value: resolved.platformCGImage)
+            let sampling = Task.detached(priority: .utility) {
+                RadioLogoBackdropSampler.backdrop(for: sampled.value)
+            }
+            let logoBackdrop = await sampling.value
             guard !Task.isCancelled else { return }
+            // 台标和衬底同一次赋值，别先露一帧没垫底的台标。
             image = resolved
+            backdrop = logoBackdrop
         }
     }
 }

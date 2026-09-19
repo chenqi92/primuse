@@ -1136,8 +1136,46 @@ private struct RadioStationCoverTile<Actions: View>: View {
     }
 }
 
-private struct SendableRadioArtworkCGImage: @unchecked Sendable {
+struct SendableRadioArtworkCGImage: @unchecked Sendable {
     let value: CGImage?
+}
+
+/// 把台标缩成一张小位图读像素，交给 `RadioLogoBackdropPolicy` 定衬底颜色。
+///
+/// 电台列表、批量添加候选、两端编辑页都要垫同一块底，取样只写这一份。
+enum RadioLogoBackdropSampler {
+    static func backdrop(for image: CGImage?) -> RadioLogoBackdrop {
+        guard let image else { return RadioLogoBackdropPolicy.light }
+        let side = RadioLogoBackdropPolicy.sampleSide
+        guard side > 0,
+              let context = CGContext(
+                  data: nil,
+                  width: side,
+                  height: side,
+                  bitsPerComponent: 8,
+                  bytesPerRow: side * 4,
+                  space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else {
+            return RadioLogoBackdropPolicy.light
+        }
+        // 非正方形台标在这里会被拉成正方形，但最外一圈仍旧是原图的边缘，判色不受影响。
+        context.interpolationQuality = .low
+        context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+        guard let buffer = context.data else { return RadioLogoBackdropPolicy.light }
+        let pixels = Array(UnsafeBufferPointer(
+            start: buffer.assumingMemoryBound(to: UInt8.self),
+            count: side * side * 4
+        ))
+        return RadioLogoBackdropPolicy.backdrop(pixels: pixels, width: side, height: side)
+    }
+}
+
+extension RadioLogoBackdrop {
+    /// 衬底故意不带平台颜色类型，画之前在这里转一次。
+    var color: Color {
+        Color(.sRGB, red: red, green: green, blue: blue)
+    }
 }
 
 @MainActor
@@ -1274,6 +1312,7 @@ struct RadioStationArtworkContent: View {
 
     @Environment(SourceManager.self) private var sourceManager
     @State private var image: PlatformRadioImage?
+    @State private var backdrop: RadioLogoBackdrop?
     @State private var resolvedIdentity: RadioStationArtworkResolutionIdentity?
     @State private var cacheRevision: UInt64 = 0
 
@@ -1306,12 +1345,18 @@ struct RadioStationArtworkContent: View {
         let currentLoadKey = loadKey
 
         ZStack {
-            RadioStationPlaceholderArtwork()
-            if resolvedIdentity == currentPlan.identity, let image {
+            // 占位图是渐变加同心环,台标一旦带透明通道、或者按 .fit 摆放留出两侧
+            // 空白,那个图案就会透出来。有台标时改垫一块由台标自己定色的纯底。
+            if resolvedIdentity == currentPlan.identity, let image, let backdrop {
+                // 台标由 .task 裸赋值,调用点包不了事务,曲线附在过渡上。
+                backdrop.color
+                    .pmFadeTransition(motion: .contentAppear)
                 Image(platformRadioImage: image)
                     .resizable()
                     .aspectRatio(contentMode: contentMode)
-                    // 台标由 .task 裸赋值,调用点包不了事务,曲线附在过渡上。
+                    .pmFadeTransition(motion: .contentAppear)
+            } else {
+                RadioStationPlaceholderArtwork()
                     .pmFadeTransition(motion: .contentAppear)
             }
         }
@@ -1319,6 +1364,7 @@ struct RadioStationArtworkContent: View {
             let capturedIdentity = currentPlan.identity
             if resolvedIdentity != capturedIdentity {
                 image = nil
+                backdrop = nil
                 resolvedIdentity = nil
             }
             let resolved = await RadioStationArtworkResourceResolver.resolve(
@@ -1333,7 +1379,26 @@ struct RadioStationArtworkContent: View {
                 displayedIdentity: plan.identity,
                 isCancelled: Task.isCancelled
             ) else { return }
-            image = resolved?.value
+            guard let logo = resolved?.value else {
+                image = nil
+                backdrop = nil
+                resolvedIdentity = capturedIdentity
+                return
+            }
+            let sampled = SendableRadioArtworkCGImage(value: logo.platformCGImage)
+            let sampling = Task.detached(priority: .utility) {
+                RadioLogoBackdropSampler.backdrop(for: sampled.value)
+            }
+            let logoBackdrop = await sampling.value
+            // 取样这段时间里电台可能已经换了,回到主线程要再判一次身份。
+            guard RadioStationArtworkResultPolicy.shouldApply(
+                completedIdentity: capturedIdentity,
+                displayedIdentity: plan.identity,
+                isCancelled: Task.isCancelled
+            ) else { return }
+            // 台标和衬底必须同一次赋值,否则会先露一帧没垫底的台标。
+            image = logo
+            backdrop = logoBackdrop
             resolvedIdentity = capturedIdentity
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidInvalidate)) { note in
@@ -1723,11 +1788,17 @@ private struct RadioEditorArtwork: View {
     var body: some View {
         Group {
             if let data, let image = PlatformRadioImage(data: data) {
-                Image(platformRadioImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 84, height: 84)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                // 别的设备同步过来的 logoData 不保证是不透明的 JPEG,垫一块由台标
+                // 自己定色的底,免得透明台标直接压在弹框背景上。
+                let backdrop = RadioLogoBackdropSampler.backdrop(for: image.platformCGImage)
+                ZStack {
+                    backdrop.color
+                    Image(platformRadioImage: image)
+                        .resizable()
+                        .scaledToFill()
+                }
+                .frame(width: 84, height: 84)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             } else if let remoteURLString {
                 // 走和列表同一套加载器，矢量台标在这里也能预览；
                 // 加载不出来时它自己会显示默认台标。

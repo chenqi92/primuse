@@ -330,6 +330,7 @@
 		3DB35BA7BA5DF8173F45CA98 /* ImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92713492CA49F4357602CCA3 /* ImageCache.swift */; };
 		3DC5D67D820BD075C15A39C2 /* DLNARendererSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41195313270BFC6D837603AE /* DLNARendererSettingsView.swift */; };
 		3E0A1D350F504FD209DBC2F0 /* HomeListeningRanking.swift in Sources */ = {isa = PBXBuildFile; fileRef = 977FCB5862B5FE25B61FA74E /* HomeListeningRanking.swift */; };
+		98213BC950097AEA10CAC2F7 /* RadioLogoBackdropPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25F3A8A42EDFAF01C21EC9B5 /* RadioLogoBackdropPolicy.swift */; };
 		3E4FAF1208A5629650F15473 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 60849A3BA068DBB563EFA62E /* InfoPlist.strings */; };
 		3E6615C76D4636FBFFDBA789 /* TVStreamResourceLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CC2DE503F1A852AEF610314 /* TVStreamResourceLoader.swift */; };
 		3F00AFB0A4245384B5E09A51 /* PlaylistImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B203F3A47D1C2D90996E818D /* PlaylistImportView.swift */; };
@@ -2189,6 +2190,7 @@
 		96E5C185BF5E5D87D704F884 /* es-MX */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "es-MX"; path = "es-MX.lproj/SettingsSearch.strings"; sourceTree = "<group>"; };
 		973D5A18BC4228928E42C0C1 /* MiniPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniPlayerView.swift; sourceTree = "<group>"; };
 		977FCB5862B5FE25B61FA74E /* HomeListeningRanking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeListeningRanking.swift; sourceTree = "<group>"; };
+		25F3A8A42EDFAF01C21EC9B5 /* RadioLogoBackdropPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioLogoBackdropPolicy.swift; sourceTree = "<group>"; };
 		9798FA94624586F57070D369 /* RadioHomepageIconParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioHomepageIconParser.swift; sourceTree = "<group>"; };
 		97F67F7EA254BBF6D2BA74A0 /* libavutil.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = libavutil.xcframework; path = Frameworks/FFmpeg/libavutil.xcframework; sourceTree = "<group>"; };
 		97FB13B152F50AF650611FA5 /* RadioLiveStreamSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioLiveStreamSource.swift; sourceTree = "<group>"; };
@@ -2999,6 +3001,7 @@
 				4B800605B17FB72D56E093AB /* GaplessSuccessorDiscardPolicy.swift */,
 				2E7A339E8326E243DBC22C78 /* HardwareSampleRateNegotiator.swift */,
 				977FCB5862B5FE25B61FA74E /* HomeListeningRanking.swift */,
+				25F3A8A42EDFAF01C21EC9B5 /* RadioLogoBackdropPolicy.swift */,
 				4120734148F240FC2DB5162A /* HomeSectionLayout.swift */,
 				8ACAB6625A73ABEC6FBF2A3D /* ImmersiveLyricRowFillPolicy.swift */,
 				40B5788CDC6F1B7679A28630 /* ImmersiveTypographyFieldPolicy.swift */,
@@ -4819,6 +4822,7 @@
 				EF86BBA5CE621E9D18654AA6 /* GuangYaAPIProtocol.swift in Sources */,
 				D768ACAB75828F3A175088A6 /* HardwareSampleRateNegotiator.swift in Sources */,
 				3E0A1D350F504FD209DBC2F0 /* HomeListeningRanking.swift in Sources */,
+				98213BC950097AEA10CAC2F7 /* RadioLogoBackdropPolicy.swift in Sources */,
 				7B9CB640FA3DF01544B8FB11 /* HomeSectionLayout.swift in Sources */,
 				7CC510CFB7AE45C4AF720D0E /* ID3SynchronizedLyricsParser.swift in Sources */,
 				4D8C3FF9D79817779D622D03 /* ID3TextMetadataParser.swift in Sources */,
