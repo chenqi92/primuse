@@ -164,6 +164,37 @@ final class PlaybackSourceAvailabilityTests: XCTestCase {
     }
 
     @MainActor
+    func testOutageIsPublishedForViewsAndWithdrawnOnRecovery() async {
+        let source = MusicSource(
+            id: "playback-published-\(UUID().uuidString)",
+            name: "Playback Test",
+            type: .navidrome,
+            host: "nas.invalid",
+            port: 4533
+        )
+        let manager = SourceManager(sourcesProvider: { [source] })
+        var changes = 0
+        manager.onPlaybackSourceAvailabilityChange = { changes += 1 }
+
+        _ = await manager.playbackSourceEndpointsAreUnavailable(
+            sourceID: source.id,
+            probe: { _ in throw URLError(.cannotConnectToHost) }
+        )
+        XCTAssertEqual(manager.unreachablePlaybackSourceIDs, [source.id])
+        XCTAssertEqual(manager.playbackSourceStanding(source.id), .unreachable)
+        XCTAssertEqual(changes, 1)
+
+        _ = await manager.playbackSourceEndpointsAreUnavailable(
+            sourceID: source.id,
+            refresh: true,
+            probe: { _ in }
+        )
+        XCTAssertTrue(manager.unreachablePlaybackSourceIDs.isEmpty)
+        XCTAssertEqual(manager.playbackSourceStanding(source.id), .reachable)
+        XCTAssertEqual(changes, 2)
+    }
+
+    @MainActor
     func testWorkingPublicRouteKeepsSongsEligibleWhenLANIsUnreachable() async {
         var source = MusicSource(
             id: "playback-routes-\(UUID().uuidString)",

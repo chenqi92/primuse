@@ -901,6 +901,10 @@ final class AudioPlayerService {
     @ObservationIgnored var pendingNextShuffleIndices: [Int]?
     /// Invalidates prepared gapless transitions when queue order changes.
     var queueGeneration = 0
+    /// The successor the last prefetch planned for. A reachability verdict
+    /// only matters to the transport when it changes this slot.
+    @ObservationIgnored var plannedSuccessorEntryID: UUID?
+    @ObservationIgnored private var isSuccessorReplanScheduled = false
 
     // MARK: - Decoder Tracking (for seek)
     /// Tracks which decoder pipeline produced the currently-playing audio
@@ -6014,6 +6018,12 @@ final class AudioPlayerService {
     func prefetchNextSong() {
         synchronizeAppleMusicQueue()
         prefetchTask?.cancel()
+        plannedSuccessorEntryID = nextQueueEntryInQueue()?.id
+        // Learn now whether the sources further down the queue can be reached,
+        // so traversal steps over them instead of failing on each one.
+        sourceManager?.discoverPlaybackSourceAvailability(
+            for: Set(queueEntries.map(\.song.sourceID))
+        )
         // Prefetch 接下来几首,而不是只 1 首 —— 用户连续 next 切歌时
         // (4-5s/次), 单首 prefetch chain 来不及, 第 2、3 首切到时 partial
         // 还是空, SFB 现拉 1MB chunk 卡 2-3s。数量由 ST-01 设置页控制。
@@ -6478,6 +6488,26 @@ final class AudioPlayerService {
             isFullyScheduled: transition.isFullyScheduled
         ) {
             transition.shouldCancelPreparation = true
+        }
+    }
+
+    /// A source became reachable or unreachable. Verdicts are published while
+    /// playback code is mid-flight (URL resolution produces one), so the
+    /// successor is re-planned on the next turn and only when it really moved.
+    func playbackSourceAvailabilityDidChange() {
+        guard !isSuccessorReplanScheduled else { return }
+        isSuccessorReplanScheduled = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.isSuccessorReplanScheduled = false
+            guard self.currentSong != nil,
+                  !self.queueEntries.isEmpty,
+                  !self.isLiveRadio,
+                  !(self.isAppleMusicMode && !self.isPrimuseManagingAppleMusicQueue),
+                  self.nextQueueEntryInQueue()?.id != self.plannedSuccessorEntryID else { return }
+            plog("🔀 Source availability moved the queue successor; re-planning")
+            self.cancelPreparedQueueSuccessor()
+            self.prefetchNextSong()
         }
     }
 

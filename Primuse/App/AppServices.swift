@@ -737,6 +737,10 @@ final class AppServices {
             manager?.setAutomaticAudioCachingEnabled(enabled)
         }
         let player = AudioPlayerService(sourceManager: manager, library: library, playbackSettings: playbackSettings)
+        manager.onPlaybackSourceAvailabilityChange = { [weak player] in
+            player?.playbackSourceAvailabilityDidChange()
+        }
+        manager.startMonitoringPlaybackSourceAvailability()
         let favoriteSync = ServerFavoriteSyncService(
             sourceManager: manager,
             sourcesStore: store,

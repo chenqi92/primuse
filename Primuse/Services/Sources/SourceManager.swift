@@ -2514,6 +2514,19 @@ final class SourceManager {
     @ObservationIgnored private var connectorScopeValidationPendingSourceIDs: Set<String> = []
     @ObservationIgnored private var connectorScopeValidationGenerationBySourceID: [String: Int] = [:]
     @ObservationIgnored private var playbackSourceAvailability = PlaybackSourceAvailabilityPolicy()
+    /// Sources whose every configured address failed an independent probe on
+    /// the current network path. Views read this to mark songs that cannot
+    /// start right now. Traversal asks the policy instead, which already knows
+    /// about a path change before this projection is republished.
+    private(set) var unreachablePlaybackSourceIDs: Set<String> = []
+    /// The player re-plans its successor when the projection above changes.
+    @ObservationIgnored var onPlaybackSourceAvailabilityChange: (@MainActor () -> Void)?
+    @ObservationIgnored private var isMonitoringPlaybackSourceAvailability = false
+    @ObservationIgnored private var playbackAvailabilityProbesInFlight: Set<String> = []
+    @ObservationIgnored private var playbackAvailabilityDiscoveryRequests: Set<String> = []
+    @ObservationIgnored private var playbackAvailabilityPassCount = 0
+    @ObservationIgnored private var playbackAvailabilityPathTask: Task<Void, Never>?
+    @ObservationIgnored private var playbackAvailabilityRecheckTask: Task<Void, Never>?
     private struct UnavailableConnectorCacheEntry {
         let connector: any MusicSourceConnector
         let capturedAt: Date
@@ -5539,6 +5552,7 @@ final class SourceManager {
         _ sourceIDs: Set<String>,
         scheduleValidation: Bool = true
     ) {
+        playbackSourceConfigurationChanged(sourceIDs)
         for sourceID in sourceIDs {
             playbackSourceAvailability.invalidate(sourceID: sourceID)
             CloudPlaybackSource.cancelSessions(sourceID: sourceID)
@@ -10492,12 +10506,18 @@ final class SourceManager {
     }
 
     func isSourceKnownUnavailableForPlayback(_ sourceID: String) -> Bool {
-        playbackSourceAvailability.cachedUnavailability(
+        playbackSourceStanding(sourceID).skipsUncachedSongs
+    }
+
+    func playbackSourceStanding(
+        _ sourceID: String
+    ) -> PlaybackSourceAvailabilityPolicy.Standing {
+        playbackSourceAvailability.standing(
             sourceID: sourceID,
             networkGeneration: NetworkMonitor.shared.pathGeneration,
             sourceGeneration: connectorScopeValidationGenerationBySourceID[sourceID] ?? 0,
             now: ProcessInfo.processInfo.systemUptime
-        ) == true
+        )
     }
 
     func playbackSourceIsUnavailable(for song: Song, retryKnownUnavailable: Bool = false) async -> Bool {
@@ -10561,7 +10581,189 @@ final class SourceManager {
         if unavailable {
             plog("Playback source unavailable source=\(source.id.prefix(8)) type=\(source.type.rawValue) networkGeneration=\(networkGeneration) endpointProbe=all-unreachable")
         }
+        publishPlaybackSourceAvailability()
+        schedulePlaybackAvailabilityRecheck()
         return unavailable
+    }
+
+    // MARK: Playback source availability monitoring
+
+    /// Learns which sources this network can reach before playback runs into
+    /// them, and keeps asking about the ones that cannot be reached. Opt-in so
+    /// a manager built for a test never opens connections on its own.
+    func startMonitoringPlaybackSourceAvailability() {
+        guard !isMonitoringPlaybackSourceAvailability else { return }
+        isMonitoringPlaybackSourceAvailability = true
+        observePlaybackNetworkPath()
+        // Before the first path arrives there is nothing to key a verdict to;
+        // that first callback starts the pass instead.
+        if NetworkMonitor.shared.hasDeterminedPath {
+            schedulePlaybackAvailabilityPathPass()
+        }
+    }
+
+    /// Asks about sources that have no verdict on this path yet. The queue
+    /// calls this with the sources it is about to need.
+    func discoverPlaybackSourceAvailability(for sourceIDs: Set<String>) {
+        guard isMonitoringPlaybackSourceAvailability else { return }
+        let pending = sourceIDs.filter {
+            !playbackAvailabilityProbesInFlight.contains($0)
+                && !playbackAvailabilityDiscoveryRequests.contains($0)
+                && playbackSourceStanding($0).wantsProbe
+        }
+        guard !pending.isEmpty else { return }
+        // Queue edits call this in bursts; remember what is already asked for.
+        playbackAvailabilityDiscoveryRequests.formUnion(pending)
+        Task { @MainActor [weak self] in
+            await self?.runPlaybackAvailabilityPass(sourceIDs: pending)
+            self?.playbackAvailabilityDiscoveryRequests.subtract(pending)
+        }
+    }
+
+    private func observePlaybackNetworkPath() {
+        withObservationTracking {
+            _ = NetworkMonitor.shared.pathGeneration
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.isMonitoringPlaybackSourceAvailability else { return }
+                self.schedulePlaybackAvailabilityPathPass()
+                self.observePlaybackNetworkPath()
+            }
+        }
+    }
+
+    /// Path callbacks arrive in bursts and can precede a usable route. A probe
+    /// sent into that gap reports an outage that does not exist, so wait for
+    /// the burst to end and then ask every source once.
+    private func schedulePlaybackAvailabilityPathPass() {
+        playbackAvailabilityPathTask?.cancel()
+        playbackAvailabilityPathTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            await self?.runPlaybackAvailabilityPass(sourceIDs: nil)
+        }
+    }
+
+    private func runPlaybackAvailabilityPass(sourceIDs requested: Set<String>?) async {
+        guard let sources = try? await sourcesProvider(), !Task.isCancelled else {
+            postponeUnansweredPlaybackRechecks(requested)
+            return
+        }
+        var targets: [MusicSource] = []
+        var liveSourceIDs = Set<String>()
+        for source in sources where !source.isDeleted {
+            guard requested?.contains(source.id) ?? true else { continue }
+            liveSourceIDs.insert(source.id)
+            guard !playbackAvailabilityProbesInFlight.contains(source.id),
+                  playbackSourceStanding(source.id).wantsProbe else { continue }
+            targets.append(source)
+        }
+        // Apple Music, a cast target or a removed source has no address to
+        // probe. There is no evidence of an outage, and saying so stops the
+        // queue from asking again on every track.
+        let networkGeneration = NetworkMonitor.shared.pathGeneration
+        for sourceID in (requested ?? []).subtracting(liveSourceIDs) {
+            playbackSourceAvailability.record(
+                isUnreachable: false,
+                sourceID: sourceID,
+                networkGeneration: networkGeneration,
+                sourceGeneration: connectorScopeValidationGenerationBySourceID[sourceID] ?? 0,
+                now: ProcessInfo.processInfo.systemUptime
+            )
+        }
+
+        // Publish once per pass. Publishing per probe would show every song of
+        // a slow source as playable until its own answer arrived.
+        if !targets.isEmpty {
+            plog("Playback source availability pass probing=\(targets.count) networkGeneration=\(networkGeneration)")
+        }
+        playbackAvailabilityPassCount += 1
+        playbackAvailabilityProbesInFlight.formUnion(targets.map(\.id))
+        await withTaskGroup(of: Void.self) { group in
+            for source in targets {
+                group.addTask {
+                    _ = await self.playbackSourceEndpointsAreUnavailable(for: source)
+                }
+            }
+        }
+        playbackAvailabilityProbesInFlight.subtract(targets.map(\.id))
+        playbackAvailabilityPassCount -= 1
+        // A superseded pass leaves publishing to the pass that replaced it.
+        guard !Task.isCancelled else { return }
+        postponeUnansweredPlaybackRechecks(Set(targets.map(\.id)))
+        publishPlaybackSourceAvailability()
+        schedulePlaybackAvailabilityRecheck()
+    }
+
+    private func postponeUnansweredPlaybackRechecks(_ sourceIDs: Set<String>?) {
+        let now = ProcessInfo.processInfo.systemUptime
+        let awaiting = playbackSourceAvailability.sourceIDsAwaitingRecheck(
+            networkGeneration: NetworkMonitor.shared.pathGeneration,
+            sourceGeneration: { [self] in connectorScopeValidationGenerationBySourceID[$0] ?? 0 },
+            now: now
+        )
+        for sourceID in awaiting where sourceIDs?.contains(sourceID) ?? true {
+            playbackSourceAvailability.postponeRecheck(sourceID: sourceID, now: now)
+        }
+    }
+
+    private func publishPlaybackSourceAvailability() {
+        guard playbackAvailabilityPassCount == 0 else { return }
+        let unreachable = playbackSourceAvailability.unreachableSourceIDs(
+            networkGeneration: NetworkMonitor.shared.pathGeneration,
+            sourceGeneration: { [self] in connectorScopeValidationGenerationBySourceID[$0] ?? 0 }
+        )
+        guard unreachable != unreachablePlaybackSourceIDs else { return }
+        unreachablePlaybackSourceIDs = unreachable
+        plog("Playback source availability changed unreachable=\(unreachable.count)")
+        onPlaybackSourceAvailabilityChange?()
+    }
+
+    /// A source edit runs inside a store notification, and views that read the
+    /// projection may be evaluating. Publish and ask again on the next turn,
+    /// when the edit's new generation is in place.
+    private func playbackSourceConfigurationChanged(_ sourceIDs: Set<String>) {
+        guard !sourceIDs.isEmpty else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.publishPlaybackSourceAvailability()
+            self.discoverPlaybackSourceAvailability(for: sourceIDs)
+        }
+    }
+
+    /// One loop serves every outage: sleep until the earliest recheck is due,
+    /// ask, repeat, and end once nothing on this path is unreachable. A
+    /// suspended app stops it and resuming continues it, so a device that
+    /// comes back to the foreground asks again without its own trigger.
+    private func schedulePlaybackAvailabilityRecheck() {
+        guard isMonitoringPlaybackSourceAvailability,
+              playbackAvailabilityRecheckTask == nil,
+              nextPlaybackAvailabilityRecheckDelay() != nil else { return }
+        playbackAvailabilityRecheckTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled,
+                  let delay = self?.nextPlaybackAvailabilityRecheckDelay() {
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled, let due = self?.playbackSourceIDsDueForRecheck() else { break }
+                guard !due.isEmpty else { continue }
+                await self?.runPlaybackAvailabilityPass(sourceIDs: due)
+            }
+            self?.playbackAvailabilityRecheckTask = nil
+        }
+    }
+
+    private func nextPlaybackAvailabilityRecheckDelay() -> Double? {
+        playbackSourceAvailability.nextRecheckTime(
+            networkGeneration: NetworkMonitor.shared.pathGeneration,
+            sourceGeneration: { [self] in connectorScopeValidationGenerationBySourceID[$0] ?? 0 }
+        ).map { max(1, $0 - ProcessInfo.processInfo.systemUptime) }
+    }
+
+    private func playbackSourceIDsDueForRecheck() -> Set<String> {
+        playbackSourceAvailability.sourceIDsAwaitingRecheck(
+            networkGeneration: NetworkMonitor.shared.pathGeneration,
+            sourceGeneration: { [self] in connectorScopeValidationGenerationBySourceID[$0] ?? 0 },
+            now: ProcessInfo.processInfo.systemUptime
+        )
     }
 
     func metadataSourceEndpointsAreUnavailable(sourceID: String) async -> Bool {
@@ -11624,6 +11826,7 @@ final class SourceManager {
         lastSuccessfulConnectionRoutes.removeAll()
         connectionRouteOwners.removeAll()
         playbackSourceAvailability = PlaybackSourceAvailabilityPolicy()
+        playbackSourceConfigurationChanged(Set(unreachablePlaybackSourceIDs))
     }
 
     private func setActiveConnectionRoute(
