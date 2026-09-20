@@ -1029,6 +1029,7 @@ private struct CheckForUpdateRow: View {
                 Spacer()
                 accessory
             }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(status == .checking)

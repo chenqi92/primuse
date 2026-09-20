@@ -5636,6 +5636,7 @@ struct AddToPlaylistSheet: View {
                     .font(.title3)
                     .foregroundStyle(isAdded ? Color.accentColor : .secondary)
             }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -8461,6 +8462,7 @@ struct CastDevicePickerSheet: View {
                                     .foregroundStyle(.tint)
                             }
                         }
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
@@ -8511,6 +8513,7 @@ struct CastDevicePickerSheet: View {
                                             .foregroundStyle(.tint)
                                     }
                                 }
+                                .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                         }

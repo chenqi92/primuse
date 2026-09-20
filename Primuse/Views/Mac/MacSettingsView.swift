@@ -6756,6 +6756,7 @@ private struct MacLicensesPanel: View {
                                         Rectangle().fill(PMColor.divider).frame(height: 0.5)
                                     }
                                 }
+                                .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                         }

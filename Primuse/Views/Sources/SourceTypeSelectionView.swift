@@ -1333,6 +1333,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
                             .font(.title3)
                             .foregroundStyle(device.sourceType.isAwaitingPublicAPI ? Color.orange : Color.green)
                     }
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(device.sourceType.isAwaitingPublicAPI)

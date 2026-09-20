@@ -2814,6 +2814,7 @@ struct SearchView: View {
                 Spacer()
                 Image(systemName: "applelogo").font(.caption2).foregroundStyle(.tertiary)
             }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
