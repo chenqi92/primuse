@@ -207,7 +207,8 @@ struct MacContentView: View {
                             .accessibilityHidden(true)
                             .zIndex(2)
 
-                        MacImmersiveEffectDrawer(
+                        // 面板从底栏那个入口上方展开,跟着按钮走。
+                        MacImmersiveEffectPicker(
                             selected: fullscreenPlayerEffect,
                             effects: FullscreenPlayerEffect.allCases,
                             palette: ImmersiveArtworkPalette(
@@ -221,7 +222,12 @@ struct MacContentView: View {
                             },
                             onClose: { closeFullscreenEffectPicker() }
                         )
-                        .pmSlideTransition(edge: .trailing, motion: .panel)
+                        .padding(.trailing, 92)
+                        .padding(.bottom, 12)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                        .transition(
+                            .scale(scale: 0.96, anchor: .bottomTrailing).combined(with: .opacity)
+                        )
                         .zIndex(3)
                     }
                 }

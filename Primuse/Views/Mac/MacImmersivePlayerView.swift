@@ -7,8 +7,6 @@ import PrimuseKit
 struct MacImmersivePlayerView: View {
     /// 已经由常规播放页加载好的带时间戳歌词，沉浸态继续沿用同一份数据。
     let lyrics: [LyricLine]
-    /// 顶栏要让开的系统菜单栏高度，见 `PMFullScreenChrome`。
-    var topChromeInset: CGFloat = 0
     /// 退出 macOS 全屏
     var onExitFullScreen: () -> Void
     var onToggleQueue: () -> Void
@@ -93,7 +91,7 @@ struct MacImmersivePlayerView: View {
                         .transition(.opacity)
                 }
 
-                // 遮罩压在顶栏之上：抽屉一开就接管整块界面，点抽屉之外的任何地方
+                // 遮罩压在顶栏之上：面板一开就接管整块界面，点面板之外的任何地方
                 // （包括顶栏那排按钮）都只是把它收起来。
                 if showsEffectPicker {
                     Color.clear
@@ -101,18 +99,23 @@ struct MacImmersivePlayerView: View {
                         .onTapGesture { closeEffectPicker() }
                         .accessibilityHidden(true)
 
-                    MacImmersiveEffectDrawer(
+                    // 面板贴着顶栏左边那个效果按钮展开。
+                    MacImmersiveEffectPicker(
                         selected: effect,
                         effects: FullscreenPlayerEffect.allCases,
                         palette: artworkPalette,
-                        topInset: topChromeInset,
                         onSelect: { candidate in
                             closeEffectPicker()
                             selectEffect(candidate)
                         },
                         onClose: { closeEffectPicker() }
                     )
-                    .pmSlideTransition(edge: .trailing, motion: .panel)
+                    .padding(.top, 64)
+                    .padding(.leading, 26)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .transition(
+                        .scale(scale: 0.96, anchor: .topLeading).combined(with: .opacity)
+                    )
                 }
             }
             .animation(.easeInOut(duration: 0.3), value: showsChrome)
@@ -341,7 +344,7 @@ struct MacImmersivePlayerView: View {
                 .help(Text("exit_full_screen"))
             }
             .padding(.horizontal, 26)
-            .padding(.top, topChromeInset + 22)
+            .padding(.top, 22)
 
             if let error = player.lastPlaybackError {
                 playbackErrorBanner(error)

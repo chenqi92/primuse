@@ -1098,31 +1098,6 @@ enum PMWindowChromeDiagnostics {
 }
 #endif
 
-/// macOS 全屏下顶部控件的让位高度。
-///
-/// 全屏时窗口内容铺满整块屏幕，系统菜单栏浮在它上面：鼠标一碰屏幕顶端菜单栏就
-/// 落下来，压住最上面那条内容，点击也随之被菜单栏吃掉 —— 表现就是「按钮看得见、
-/// 按不动」。顶部那排浮动控件必须整体让开这条高度。
-@MainActor
-enum PMFullScreenChrome {
-    /// 标准菜单栏高度。`menuBarHeight` 在菜单栏隐藏时会返回 0，刘海机的额外高度也
-    /// 只有 `safeAreaInsets` 知道，两者都可能取不到值，所以留一个下限兜底。
-    static let standardMenuBarHeight: CGFloat = 28
-
-    /// 窗口处于全屏时顶部控件要下移的距离；窗口态返回 0。
-    static func topClearance(for window: NSWindow?) -> CGFloat {
-        guard window?.styleMask.contains(.fullScreen) == true else { return 0 }
-        return menuBarClearance(on: window?.screen)
-    }
-
-    /// 不判断窗口状态的版本，给本来就只在全屏里出现的界面用。
-    static func menuBarClearance(on screen: NSScreen?) -> CGFloat {
-        let menuBar = NSApp.mainMenu?.menuBarHeight ?? 0
-        let notch = (screen ?? NSScreen.main)?.safeAreaInsets.top ?? 0
-        return max(max(menuBar, notch), standardMenuBarHeight)
-    }
-}
-
 struct PMWindowResolver: NSViewRepresentable {
     var onResolve: (NSWindow?) -> Void
 

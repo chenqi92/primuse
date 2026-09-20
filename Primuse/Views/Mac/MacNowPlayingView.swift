@@ -134,7 +134,6 @@ struct MacNowPlayingView: View {
             if isImmersiveStageActive {
                 MacImmersivePlayerView(
                     lyrics: lyrics,
-                    topChromeInset: fullScreenTopClearance,
                     onExitFullScreen: { exitFullScreen() },
                     onToggleQueue: onToggleQueue
                 )
@@ -174,7 +173,6 @@ struct MacNowPlayingView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                     .padding(isWindowFullScreen ? 24 : 16)
-                    .padding(.top, fullScreenTopClearance)
                 }
             }
         }
@@ -182,7 +180,7 @@ struct MacNowPlayingView: View {
             if isWindowFullScreen, !isImmersiveStageActive, showsNativeFullscreenEffectPicker {
                 Color.clear
                     .contentShape(Rectangle())
-                    .onTapGesture { closeFullscreenEffectDrawer() }
+                    .onTapGesture { closeFullscreenEffectPicker() }
                     .accessibilityHidden(true)
             }
         }
@@ -192,27 +190,31 @@ struct MacNowPlayingView: View {
                     exitFullScreenPill
                     nativeFullscreenEffectButton
                 }
-                    .padding(.top, fullScreenTopClearance + 18)
+                    .padding(.top, 18)
                     .padding(.leading, 22)
             }
         }
-        .overlay {
+        // 面板贴着左上角那个按钮展开,而不是从窗口边上推一条抽屉过来。
+        .overlay(alignment: .topLeading) {
             if isWindowFullScreen, !isImmersiveStageActive, showsNativeFullscreenEffectPicker {
-                MacImmersiveEffectDrawer(
+                MacImmersiveEffectPicker(
                     selected: fullscreenPlayerEffect,
                     effects: FullscreenPlayerEffect.allCases,
                     palette: ImmersiveArtworkPalette(
                         primary: theme.accentColor,
                         secondary: theme.secondaryDarkAccent
                     ),
-                    topInset: fullScreenTopClearance,
                     onSelect: { candidate in
-                        closeFullscreenEffectDrawer()
+                        closeFullscreenEffectPicker()
                         selectFullscreenEffect(candidate)
                     },
-                    onClose: { closeFullscreenEffectDrawer() }
+                    onClose: { closeFullscreenEffectPicker() }
                 )
-                .pmSlideTransition(edge: .trailing, motion: .panel)
+                .padding(.top, 58)
+                .padding(.leading, 22)
+                .transition(
+                    .scale(scale: 0.96, anchor: .topLeading).combined(with: .opacity)
+                )
             }
         }
         .animation(.easeInOut(duration: 0.28), value: isImmersiveStageActive)
@@ -1211,24 +1213,26 @@ struct MacNowPlayingView: View {
         FullscreenPlayerEffectSync.shared.select(value)
     }
 
-    private func closeFullscreenEffectDrawer() {
+    private func closeFullscreenEffectPicker() {
         pmWithAnimation(.panel) {
             showsNativeFullscreenEffectPicker = false
         }
     }
 
-    /// 全屏时顶部控件要让开的菜单栏高度 —— 不让开的话鼠标一到屏幕顶端菜单栏就
-    /// 落下来压住这一排，退出全屏、效果切换全都按不动。窗口态是 0。
-    private var fullScreenTopClearance: CGFloat {
-        guard isWindowFullScreen else { return 0 }
-        return PMFullScreenChrome.menuBarClearance(on: hostWindow?.screen)
-    }
-
     private func exitFullScreen() {
-        let window = fullScreenWindow()
-        guard isWindowFullScreen || window?.styleMask.contains(.fullScreen) == true else { return }
+        guard let window = fullScreenWindow() else { return }
+        guard isWindowFullScreen || window.styleMask.contains(.fullScreen) else { return }
         showsNativeFullscreenEffectPicker = false
-        window?.toggleFullScreen(nil)
+        // 进入全屏时补过一次 `.fullScreenPrimary`:SwiftUI 的 WindowGroup 不带它,
+        // 而少了它 `toggleFullScreen` 会静默什么都不做 —— 退出这一侧同样要补,
+        // 否则窗口重新配置之后按钮和 Esc 走到这里都像是「没反应」。
+        if !window.collectionBehavior.contains(.fullScreenPrimary) {
+            window.collectionBehavior.insert(.fullScreenPrimary)
+        }
+        window.toggleFullScreen(nil)
+        #if DEBUG
+        plog("🖥 退出全屏: mask=\(window.styleMask.rawValue) cb=\(window.collectionBehavior.rawValue)")
+        #endif
     }
 
     private func fullScreenWindow() -> NSWindow? {
