@@ -301,6 +301,7 @@ struct MacContentView: View {
         // content=1512×949 而屏幕 982),再往上扩展内容就比窗口高,顶部那排浮动按钮
         // 会被顶出上边界只剩半截 —— 被裁掉的正好是这 33 点。
         .ignoresSafeArea(.container, edges: isWindowFullScreen ? [] : .top)
+        .pmLogFrame("root")
         .sheet(isPresented: $showInitialOnboarding) {
             OnboardingView()
                 .frame(minWidth: 720, minHeight: 560)

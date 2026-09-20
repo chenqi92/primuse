@@ -1109,6 +1109,52 @@ enum PMWindowChromeDiagnostics {
 }
 #endif
 
+extension View {
+    /// Debug 构建里把这层在窗口坐标系里的位置记进日志；正式构建原样返回。
+    ///
+    /// NSWindow 那侧的 `🖼` 诊断只看得到窗口和 contentView，看不到 SwiftUI 树自己
+    /// 有没有被某一层撑出容器 —— 顶部控件只剩半截时要看的就是这个。
+    func pmLogFrame(_ label: String) -> some View {
+        #if DEBUG
+        return background(PMFrameProbe(label: label))
+        #else
+        return self
+        #endif
+    }
+}
+
+#if DEBUG
+/// 限流到每秒一行，动画期间不至于刷屏。
+@MainActor
+enum PMFrameProbeThrottle {
+    private static var lastLogged: [String: Date] = [:]
+
+    static func shouldLog(_ label: String) -> Bool {
+        let now = Date()
+        if let last = lastLogged[label], now.timeIntervalSince(last) < 1 { return false }
+        lastLogged[label] = now
+        return true
+    }
+}
+
+struct PMFrameProbe: View {
+    let label: String
+
+    var body: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear { record(proxy) }
+                .onChange(of: proxy.frame(in: .global)) { _, _ in record(proxy) }
+        }
+    }
+
+    private func record(_ proxy: GeometryProxy) {
+        guard PMFrameProbeThrottle.shouldLog(label) else { return }
+        plog("📐 \(label): frame=\(proxy.frame(in: .global)) safeArea=\(proxy.safeAreaInsets)")
+    }
+}
+#endif
+
 /// 窗口尺寸的兜底。
 ///
 /// SwiftUI 会把内容树的最小高度报成窗口的 `contentMinSize`。一旦某层把这棵树撑得比

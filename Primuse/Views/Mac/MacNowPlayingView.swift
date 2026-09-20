@@ -130,6 +130,20 @@ struct MacNowPlayingView: View {
     }
 
     var body: some View {
+        // 尺寸钉死在容器上。常规播放页和沉浸层共用同一个 ZStack,任何一层把它撑得
+        // 比窗口高,顶部那两排 overlay 贴的就是被撑出去的边缘 —— 全屏里按钮只剩
+        // 半截就是这么来的,而窗口那侧的几何完全正常,所以从 NSWindow 看不出来。
+        // GeometryReader 给的是容器的真实尺寸,固定成它之后,子层再怎么扩张也只
+        // 影响自己的绘制,不会把这棵树顶出去。
+        GeometryReader { proxy in
+            playerSurface
+                .frame(width: proxy.size.width, height: proxy.size.height)
+                .pmLogFrame("nowPlaying")
+        }
+    }
+
+    /// 播放页本体。尺寸由 `body` 钉死,这里不再自己伸展。
+    private var playerSurface: some View {
         ZStack {
             if isImmersiveStageActive {
                 MacImmersivePlayerView(
@@ -182,6 +196,7 @@ struct MacNowPlayingView: View {
                     }
                 }
                 .padding(isWindowFullScreen ? 24 : 16)
+                .pmLogFrame("topRight")
             }
         }
         .overlay {
