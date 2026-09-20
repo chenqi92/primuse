@@ -296,7 +296,11 @@ struct MacContentView: View {
         .environment(\.pmAppearance, preferences.appearance)
         .background(PMColor.bg.ignoresSafeArea())
         .background(PMWindowChromeConfigurator())
-        .ignoresSafeArea(.container, edges: .top)
+        // 窗口态要把自绘的标题栏顶到窗口最上沿,所以忽略顶部安全区;全屏时不能再忽略。
+        // 全屏窗口的内容区比屏幕矮一条菜单栏(诊断日志 🖼 enter-fullscreen:
+        // content=1512×949 而屏幕 982),再往上扩展内容就比窗口高,顶部那排浮动按钮
+        // 会被顶出上边界只剩半截 —— 被裁掉的正好是这 33 点。
+        .ignoresSafeArea(.container, edges: isWindowFullScreen ? [] : .top)
         .sheet(isPresented: $showInitialOnboarding) {
             OnboardingView()
                 .frame(minWidth: 720, minHeight: 560)
