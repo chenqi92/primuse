@@ -611,6 +611,9 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
             // scrolls, which drags the standard window buttons with it.
             // `PMTitleBar` draws its own hairline, so no system separator.
             window.titlebarSeparatorStyle = .none
+            #if DEBUG
+            PMWindowChromeDiagnostics.note("separator")
+            #endif
         }
         suppressInjectedToolbar(in: window)
         if window.backgroundColor.alphaComponent > 0.001 {
@@ -641,6 +644,9 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
     private static func suppressInjectedToolbar(in window: NSWindow) {
         guard let toolbar = window.toolbar, toolbar.isVisible else { return }
         toolbar.isVisible = false
+        #if DEBUG
+        PMWindowChromeDiagnostics.note("toolbar")
+        #endif
     }
 
     private static func standardWindowButtonContainerNeedsRepair(in window: NSWindow) -> Bool {
@@ -680,6 +686,9 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
                 return
             }
             button.isHidden = false
+            #if DEBUG
+            PMWindowChromeDiagnostics.note("buttonHidden")
+            #endif
         }
 
         var ancestor = closeButton.superview
@@ -694,6 +703,9 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
             // the whole repair again and redrew the buttons.
             if view.alphaValue <= 0.001 {
                 view.alphaValue = 1
+                #if DEBUG
+                PMWindowChromeDiagnostics.note("containerAlpha")
+                #endif
             }
             ancestor = view.superview
         }
@@ -905,6 +917,9 @@ private enum PMStandardWindowButtonAlignment {
             else { return }
 
             button.setFrameOrigin(NSPoint(x: button.frame.origin.x, y: originY))
+            #if DEBUG
+            PMWindowChromeDiagnostics.note("buttonOrigin")
+            #endif
         }
     }
 
@@ -1058,6 +1073,30 @@ private enum PMWindowZoomController {
         )
     }
 }
+
+#if DEBUG
+/// 自定义标题栏与 AppKit 抢同一批窗口属性时，红绿灯会抖甚至整排消失。这里按秒汇总
+/// 每一项被我们改回去的次数：界面静止时应该一行都不出现，某一项每秒几十次就说明是
+/// 它在跟系统拉锯 —— 拿着这行日志才好判断该让谁。只在 Debug 构建里存在。
+@MainActor
+enum PMWindowChromeDiagnostics {
+    private static var counts: [String: Int] = [:]
+    private static var lastLogged = Date.distantPast
+
+    static func note(_ item: String) {
+        counts[item, default: 0] += 1
+        let now = Date()
+        guard now.timeIntervalSince(lastLogged) >= 1 else { return }
+        lastLogged = now
+        let summary = counts
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: " ")
+        counts.removeAll(keepingCapacity: true)
+        plog("🚦 窗口标题栏被改回: \(summary)")
+    }
+}
+#endif
 
 /// macOS 全屏下顶部控件的让位高度。
 ///

@@ -72,7 +72,10 @@ struct MacImmersiveEffectDrawer: View {
 
     private var wheel: some View {
         ScrollView(.vertical, showsIndicators: false) {
-            LazyVStack(alignment: .leading, spacing: 20) {
+            // 十四张卡片一次建好,不用 Lazy 容器:惰性容器会在滚动途中一行一行装载,
+            // 每装一行就是一轮 SwiftUI 更新,主窗口的自定义标题栏跟着逐帧重算,
+            // 左上角的红绿灯就会抖。卡片都停在静态帧,一次建好并不贵。
+            VStack(alignment: .leading, spacing: 20) {
                 ForEach(groups, id: \.collection.id) { group in
                     VStack(alignment: .leading, spacing: 10) {
                         Text(verbatim: group.collection.title)
@@ -99,9 +102,10 @@ struct MacImmersiveEffectDrawer: View {
             onSelect(effect)
         } label: {
             VStack(alignment: .leading, spacing: 9) {
-                // 同时只有指针底下那一张在跑动画：缩略图里是完整的舞台（Canvas、实时
-                // 模糊），十几张一起动会让机器白白发热。
-                ImmersiveEffectPreview(effect: effect, isActive: isHovered, palette: palette)
+                // 卡片一律停在静态帧,指针划过只换描边和底色:缩略图里是完整的舞台
+                // （Canvas、实时模糊），让其中一张动起来就等于指针停在抽屉上的整段时间
+                // 窗口都在逐帧重绘。真正在动的预览是选中效果之后的全屏本身。
+                ImmersiveEffectPreview(effect: effect, isActive: false, palette: palette)
                     .aspectRatio(16 / 9, contentMode: .fit)
                     .frame(maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: Self.cardCornerRadius, style: .continuous))
