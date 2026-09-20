@@ -1599,16 +1599,25 @@ struct TagEditorView: View {
         let requestedSong = song
         let requestedSongID = requestedSong.id
         lyricsLoading = true
+        lyricsWritebackMode = .checking
+        // 读歌词和探测写回目标互不依赖，各自还都要列一次歌曲所在目录；
+        // 排成一条线走等于让用户多等一整轮网络往返。
+        let probe = Task { @MainActor in
+            await LyricsWriteback.resolveMode(
+                for: requestedSong,
+                sourceManager: sourceManager,
+                sourcesStore: sourcesStore
+            )
+        }
         let payload = await LyricsWriteback.loadEditablePayload(
             for: requestedSong,
             sourceManager: sourceManager
         )
-        guard !Task.isCancelled, song.id == requestedSongID else { return }
-        let mode = await LyricsWriteback.resolveMode(
-            for: requestedSong,
-            sourceManager: sourceManager,
-            sourcesStore: sourcesStore
-        ).protectingSourceConflict(payload.hasSourceConflict)
+        guard !Task.isCancelled, song.id == requestedSongID else {
+            probe.cancel()
+            return
+        }
+        let mode = await probe.value.protectingSourceConflict(payload.hasSourceConflict)
         let embeddingMode = await sourceManager.lyricsEmbeddingMode(for: requestedSong)
         guard !Task.isCancelled, song.id == requestedSongID else { return }
         lyricsEmbeddingMode = embeddingMode

@@ -23,6 +23,10 @@ struct LyricsEditorSheet: View {
     @State private var sourceSnapshot: LyricsWriteback.EditableSourceSnapshot = .unknown
     @State private var cacheSnapshot: LyricsDocumentFingerprint?
     @State private var mode: LyricsWriteback.Mode = .checking
+    @State private var hasSourceConflict = false
+    /// 写回目标的探测。它跟读歌词是两件独立的网络活，一起发出去，
+    /// 只有保存时才需要它的结果。
+    @State private var writebackProbe: Task<LyricsWriteback.Mode, Never>?
     @State private var isLoading = true
     @State private var isSaving = false
     @State private var errorMessage: String?
@@ -51,6 +55,7 @@ struct LyricsEditorSheet: View {
             }
         }
         .task(id: song.id) { await load() }
+        .onDisappear { cancelWritebackProbe() }
         .alert(
             String(localized: "tag_editor_lyrics_error_title"),
             isPresented: Binding(
@@ -87,18 +92,50 @@ struct LyricsEditorSheet: View {
         }
     }
 
+    /// 加载态必须自带退出口。iOS 上这个编辑器是 fullScreenCover，没有下滑关闭，
+    /// 歌词还在从音乐源读的时候，一个没有按钮的转圈就是把用户关在里面。
     private var loadingView: some View {
+        #if os(macOS)
+        VStack(spacing: 0) {
+            loadingIndicator
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+            HStack {
+                Spacer()
+                Button(String(localized: "cancel")) { cancelLoading() }
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+        .frame(width: 820, height: 680)
+        .background(PMColor.bg)
+        #else
+        VStack(spacing: 0) {
+            // 位置和编辑器自己的「取消」对齐，读完切过去时按钮不跳。
+            HStack {
+                Button(String(localized: "cancel")) { cancelLoading() }
+                    .font(.subheadline)
+                    .contentShape(Rectangle())
+                Spacer(minLength: 0)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 11)
+            Divider()
+            loadingIndicator
+        }
+        #endif
+    }
+
+    private var loadingIndicator: some View {
         VStack(spacing: 12) {
             ProgressView()
-            Text("tag_editor_lyrics_writeback_checking")
+            Text("lyrics_loading")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        #if os(macOS)
-        .frame(width: 820, height: 680)
-        .background(PMColor.bg)
-        #endif
     }
 
     /// 写回可能要走网盘/NAS，慢的时候盖一层，避免用户以为卡住又点一次。
@@ -114,22 +151,70 @@ struct LyricsEditorSheet: View {
 
     private func load() async {
         isLoading = true
+        mode = .checking
+        // 读权威歌词和探测写回目标互不依赖，之前却排成一条线走。两段各自要
+        // 列一次歌曲所在目录，写回探测还要另开一条连接重新登录 —— NAS / 网盘上
+        // 这两段加起来就是用户干等的那几十秒。一起发出去，只等慢的那个。
+        let probe = startWritebackProbe()
         let loaded = await LyricsWriteback.loadEditablePayload(
             for: song,
             sourceManager: sourceManager
         )
-        mode = await LyricsWriteback.resolveMode(
-            for: song,
-            sourceManager: sourceManager,
-            sourcesStore: sourcesStore
-        ).protectingSourceConflict(loaded.hasSourceConflict)
+        guard !Task.isCancelled else { return }
         text = loaded.text
         originalText = loaded.text
         initialLines = loaded.structuredLines
         pendingStructuredLines = nil
         sourceSnapshot = loaded.sourceSnapshot
         cacheSnapshot = loaded.cacheSnapshot
+        hasSourceConflict = loaded.hasSourceConflict
+        // 歌词到手就能开始编辑。写回目标只有按「完成」时才用得上，让它在后台
+        // 探完，不必把整个编辑器挡在后面。
         isLoading = false
+        let resolved = await probe.value
+        guard !Task.isCancelled else { return }
+        mode = resolved.protectingSourceConflict(loaded.hasSourceConflict)
+    }
+
+    private func startWritebackProbe() -> Task<LyricsWriteback.Mode, Never> {
+        writebackProbe?.cancel()
+        let probe = Task { @MainActor in
+            await LyricsWriteback.resolveMode(
+                for: song,
+                sourceManager: sourceManager,
+                sourcesStore: sourcesStore
+            )
+        }
+        writebackProbe = probe
+        return probe
+    }
+
+    private func cancelWritebackProbe() {
+        writebackProbe?.cancel()
+        writebackProbe = nil
+    }
+
+    private func cancelLoading() {
+        cancelWritebackProbe()
+        dismiss()
+    }
+
+    /// 保存时写回目标可能还没探完。拿 `.checking` 去存会被当成失败，
+    /// 把「正在检查音乐源写入权限」当错误弹出来 —— 这里先等探测出结果，
+    /// 等待期间保存遮罩已经盖住界面。
+    private func resolvedWritebackMode() async -> LyricsWriteback.Mode {
+        if case .checking = mode {
+            let probe = writebackProbe ?? startWritebackProbe()
+            mode = await probe.value.protectingSourceConflict(hasSourceConflict)
+        }
+        // 探测是跟读歌词一起发出去的，源正忙时它可能先撞上自己的超时。保存是
+        // 用户主动发起的，这会儿连接已经空出来了，值得为它再探一次，而不是拿
+        // 一次「暂时连不上」把改好的歌词挡回去。
+        if case .temporarilyUnavailable = mode {
+            mode = await startWritebackProbe().value
+                .protectingSourceConflict(hasSourceConflict)
+        }
+        return mode
     }
 
     /// 编辑器点了「完成」。没改动直接关；清空了先确认；否则落盘。
@@ -161,10 +246,11 @@ struct LyricsEditorSheet: View {
     private func save(allowRemoval: Bool) async {
         guard !isSaving else { return }
         isSaving = true
+        let writebackMode = await resolvedWritebackMode()
         let outcome = await LyricsWriteback.save(
             text: text,
             for: song,
-            mode: mode,
+            mode: writebackMode,
             allowRemoval: allowRemoval,
             structuredLines: pendingStructuredLines,
             sourceSnapshot: sourceSnapshot,
@@ -185,7 +271,7 @@ struct LyricsEditorSheet: View {
         onSave?(outcome.updatedSong)
         if outcome.persistence == .localOnly {
             let base = String(localized: "tag_editor_lyrics_writeback_read_only")
-            if case .localOnly(let reason) = mode, let reason {
+            if case .localOnly(let reason) = writebackMode, let reason {
                 completionMessage = [base, reason].joined(separator: "\n")
             } else {
                 completionMessage = base
