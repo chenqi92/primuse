@@ -136,6 +136,82 @@ struct AlbumArtistInferencePolicyTests {
         #expect(result == ["4": "ABC", "5": "ABC"])
     }
 
+    /// 两首歌、两位作曲者、都只回退成自己的曲目艺术家 —— 谁也凑不出多数,
+    /// 推断只能放弃, 于是那张 OST 在专辑页上永远是两张同名卡片。它们存着的
+    /// 专辑艺术家什么也没说明, 必须回到文件里再读一次。
+    @Test func fallbackOnlyFolderWithDisagreeingValuesNeedsAReread() {
+        let tracks = [
+            track(
+                "fertilizer",
+                albumTitle: "游戏《Rewrite》原声带",
+                albumArtistName: "折戸伸治",
+                trackArtistName: "折戸伸治"
+            ),
+            track(
+                "tabi",
+                albumTitle: "游戏《Rewrite》原声带",
+                albumArtistName: "麻枝准",
+                trackArtistName: "麻枝准"
+            ),
+        ]
+
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks).isEmpty)
+        #expect(
+            AlbumArtistInferencePolicy.unconfirmedAlbumArtistTrackIDs(for: tracks)
+                == ["fertilizer", "tabi"]
+        )
+    }
+
+    @Test func aConfirmedOrSettledFolderIsNotReread() {
+        // 文件里真的写了专辑艺术家 —— 已经定案。
+        let tagged = [
+            track("1", albumArtistName: "Key Sounds Label", trackArtistName: "折戸伸治"),
+            track("2", albumArtistName: "Key Sounds Label", trackArtistName: "麻枝准"),
+        ]
+        #expect(AlbumArtistInferencePolicy.unconfirmedAlbumArtistTrackIDs(for: tagged).isEmpty)
+
+        // 回退值一致: 再读一遍也不会改变分组, 不值得整库一首一读。
+        let agreeing = [
+            track("1", albumArtistName: "某位歌手", trackArtistName: "某位歌手"),
+            track("2", albumArtistName: "某位歌手", trackArtistName: "某位歌手"),
+        ]
+        #expect(AlbumArtistInferencePolicy.unconfirmedAlbumArtistTrackIDs(for: agreeing).isEmpty)
+
+        // 占多数的曲目艺术家已经能代表整张专辑, 推断自己定得了案。
+        let majority = [
+            track("1", trackArtistName: "主唱"),
+            track("2", trackArtistName: "主唱"),
+            track("3", trackArtistName: "嘉宾"),
+            neighbourFolderTrack,
+        ]
+        #expect(!AlbumArtistInferencePolicy.inferredAlbumArtists(for: majority).isEmpty)
+        #expect(AlbumArtistInferencePolicy.unconfirmedAlbumArtistTrackIDs(for: majority).isEmpty)
+
+        // 专辑名不同就是两张专辑, 各自成 scope。
+        let separateAlbums = [
+            track("1", albumTitle: "专辑甲", trackArtistName: "甲"),
+            track("2", albumTitle: "专辑乙", trackArtistName: "乙"),
+        ]
+        #expect(
+            AlbumArtistInferencePolicy.unconfirmedAlbumArtistTrackIDs(for: separateAlbums).isEmpty
+        )
+    }
+
+    /// 分组本身不看文件夹 —— 同名专辑的两首歌不在一个目录, 在专辑页上照样
+    /// 该是一张。判定也就不能要求同目录, 否则出问题的那类库正好落在外面。
+    @Test func aSplitFolderStillCountsAsOneAlbumForTheReread() {
+        let tracks = [
+            track("1", directory: "/music/disc1", trackArtistName: "甲"),
+            track("2", directory: "/music/disc2", trackArtistName: "乙"),
+        ]
+
+        #expect(
+            AlbumArtistInferencePolicy.unconfirmedAlbumArtistTrackIDs(for: tracks) == ["1", "2"]
+        )
+        // 推断仍然按目录走, 它会改写分组, 必须保守。
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks).isEmpty)
+    }
+
     @Test func directoryOfPathMatchesFoundationPathSemantics() {
         #expect(AlbumArtistInferencePolicy.directory(ofPath: "/a/b/c.flac") == "/a/b")
         #expect(AlbumArtistInferencePolicy.directory(ofPath: "c.flac") == "")

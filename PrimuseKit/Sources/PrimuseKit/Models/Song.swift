@@ -284,6 +284,20 @@ public enum AlbumGroupingPolicy {
         return existing
     }
 
+    /// Whether a stored album artist is only the per-track fallback this type
+    /// writes when the source supplied no album artist at all. Such a value
+    /// stands for no tag, so a later pass that can read one must be allowed to
+    /// replace it; treating it as an answer is what keeps one album split into
+    /// one entry per track artist.
+    public static func isTrackArtistFallback(
+        albumArtistName: String?,
+        trackArtistName: String?
+    ) -> Bool {
+        guard let albumArtist = normalized(albumArtistName),
+              let trackArtist = normalized(trackArtistName) else { return false }
+        return albumArtist.caseInsensitiveCompare(trackArtist) == .orderedSame
+    }
+
     public static func identity(
         albumTitle: String?,
         albumArtistName: String?,

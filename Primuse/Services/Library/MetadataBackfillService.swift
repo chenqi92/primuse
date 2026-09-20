@@ -252,6 +252,22 @@ final class MetadataBackfillService {
     /// eligible forever whenever they have an album title.
     @ObservationIgnored private var albumArtistCheckedIDs: Set<String> = []
 
+    /// Songs already reread because the library-wide verdict said their stored
+    /// album artist settled nothing (see
+    /// `AlbumArtistInferencePolicy.unconfirmedAlbumArtistTrackIDs`). That
+    /// verdict survives a reread whenever the file genuinely carries no
+    /// ALBUMARTIST, so without an independent marker the same folder would be
+    /// reread on every pass. Persisted, it stays a one-time repair.
+    @ObservationIgnored private var albumArtistRecheckedIDs: Set<String> = []
+
+    /// Current verdict: songs still holding an album artist that no neighbour
+    /// can confirm and that no earlier reread has settled. Folding the whole
+    /// library by folder costs one pass, so it is refreshed on its own slow
+    /// schedule off the main actor rather than with every reconciliation.
+    @ObservationIgnored private var albumArtistUnconfirmedIDs: Set<String> = []
+    @ObservationIgnored private var albumArtistVerdictSongGeneration: UInt64?
+    @ObservationIgnored private var albumArtistVerdictComputedAt = Date.distantPast
+
     /// Songs whose track-artist field has been inspected. Track artist is
     /// independent from duration and album artist: a valid FLAC STREAMINFO
     /// block can complete duration while a later Vorbis-comment block has not
@@ -378,6 +394,7 @@ final class MetadataBackfillService {
     private let artworkGivenUpURL: URL
     private let titleCheckedURL: URL
     private let albumArtistCheckedURL: URL
+    private let albumArtistRecheckedURL: URL
     private let artistCheckedURL: URL
     private let deferredRetryURL: URL
     private let diagnosticsURL: URL
@@ -874,6 +891,9 @@ final class MetadataBackfillService {
         self.artworkGivenUpURL = directory.appendingPathComponent("backfill-artwork-givenup.json")
         self.titleCheckedURL = directory.appendingPathComponent("backfill-title-checked.json")
         self.albumArtistCheckedURL = directory.appendingPathComponent("backfill-album-artist-checked.json")
+        self.albumArtistRecheckedURL = directory.appendingPathComponent(
+            "backfill-album-artist-rechecked.json"
+        )
         self.artistCheckedURL = directory.appendingPathComponent("backfill-artist-checked.json")
         self.deferredRetryURL = directory.appendingPathComponent("backfill-deferred-retry.json")
         self.diagnosticsURL = directory.appendingPathComponent("backfill-diagnostics.json")
@@ -905,6 +925,7 @@ final class MetadataBackfillService {
         loadArtworkGivenUp()
         loadTitleChecked()
         loadAlbumArtistChecked()
+        loadAlbumArtistRechecked()
         loadArtistChecked()
         loadDeferredRetries()
         loadDiagnostics()
@@ -955,6 +976,7 @@ final class MetadataBackfillService {
                 for id in ids { self.diagnosticRecords[id] = nil }
                 self.titleCheckedIDs.subtract(ids)
                 self.albumArtistCheckedIDs.subtract(ids)
+                self.albumArtistRecheckedIDs.subtract(ids)
                 self.artistCheckedIDs.subtract(ids)
                 for id in ids { self.transientFailureCounts[id] = nil }
                 for sourceID in Set(songs.map(\.sourceID)) {
@@ -1488,6 +1510,7 @@ final class MetadataBackfillService {
                 mutateDeferredRetries { $0.subtract(retryIDs) }
                 titleCheckedIDs.subtract(retryIDs)
                 albumArtistCheckedIDs.subtract(retryIDs)
+                albumArtistRecheckedIDs.subtract(retryIDs)
                 artistCheckedIDs.subtract(retryIDs)
                 for id in retryIDs { transientFailureCounts[id] = nil }
                 saveFailed()
@@ -2144,6 +2167,7 @@ final class MetadataBackfillService {
         for songID in songIDs { diagnosticRecords[songID] = nil }
         titleCheckedIDs.subtract(songIDs)
         albumArtistCheckedIDs.subtract(songIDs)
+        albumArtistRecheckedIDs.subtract(songIDs)
         artistCheckedIDs.subtract(songIDs)
         for id in songIDs { transientFailureCounts[id] = nil }
         for sourceID in sourceIDs {
@@ -2551,6 +2575,7 @@ final class MetadataBackfillService {
         let artworkGivenUpIDs: Set<String>
         let titleCheckedIDs: Set<String>
         let albumArtistCheckedIDs: Set<String>
+        let albumArtistUnconfirmedIDs: Set<String>
         let artistCheckedIDs: Set<String>
         let deferredRetrySongIDs: Set<String>
         let diagnosticRecords: [String: MetadataBackfillDiagnosticRecord]
@@ -2589,6 +2614,7 @@ final class MetadataBackfillService {
             artworkGivenUpIDs: artworkGivenUpIDs,
             titleCheckedIDs: titleCheckedIDs,
             albumArtistCheckedIDs: albumArtistCheckedIDs,
+            albumArtistUnconfirmedIDs: albumArtistUnconfirmedIDs,
             artistCheckedIDs: artistCheckedIDs,
             deferredRetrySongIDs: deferredRetrySongIDs,
             diagnosticRecords: diagnosticRecords,
@@ -2611,9 +2637,36 @@ final class MetadataBackfillService {
         applyRemainingCounts(Self.computeRemainingCounts(makeRemainingCountsInput()))
     }
 
+    /// 修复一批历史行是一次性的活, 不需要实时性: 库内容没动就不重算, 动过
+    /// 也最多这个间隔算一次。扫描期间每 1.5 s 发布一次库, 跟着代次走会让整
+    /// 场扫描每轮都白折一遍全库。
+    private static let albumArtistVerdictInterval: TimeInterval = 300
+
+    /// 整库才看得见同一目录里的兄弟文件, 所以「存着的专辑艺术家其实定不了
+    /// 案」只能折一遍全库得出。放在后台执行器上算, 主 actor 只收结果。
+    private func refreshAlbumArtistVerdictOffMain() async {
+        let generation = library.songMutationGenerationForMaintenance
+        let now = Date()
+        guard albumArtistVerdictSongGeneration != generation else { return }
+        guard albumArtistVerdictSongGeneration == nil
+                || now.timeIntervalSince(albumArtistVerdictComputedAt)
+                    >= Self.albumArtistVerdictInterval else { return }
+        let songs = library.songs
+        let rechecked = albumArtistRecheckedIDs
+        let verdict = await Task.detached(priority: .utility) {
+            AlbumArtistInferencePolicy.unconfirmedAlbumArtistTrackIDs(
+                for: songs.map { MusicLibrary.albumArtistInferenceTrack($0) }
+            ).subtracting(rechecked)
+        }.value
+        albumArtistUnconfirmedIDs = verdict
+        albumArtistVerdictSongGeneration = generation
+        albumArtistVerdictComputedAt = now
+    }
+
     private func refreshRemainingCountsOffMain(force: Bool = false) async {
         // 同 `refreshRemainingCounts`: 准备中的库不参与对账, 也不落盘。
         guard library.isReady else { return }
+        await refreshAlbumArtistVerdictOffMain()
         let now = Date()
         guard force
                 || now.timeIntervalSince(lastRemainingCountRefreshAt)
@@ -2712,6 +2765,7 @@ final class MetadataBackfillService {
                 hasAlbumTitle: Self.hasVisibleContent(song.albumTitle),
                 hasAlbumArtist: Self.hasVisibleContent(song.albumArtistName),
                 albumArtistChecked: input.albumArtistCheckedIDs.contains(song.id),
+                albumArtistUnconfirmed: input.albumArtistUnconfirmedIDs.contains(song.id),
                 hasArtist: Self.hasVisibleContent(song.artistName),
                 artistChecked: input.artistCheckedIDs.contains(song.id)
             )
@@ -3000,6 +3054,7 @@ final class MetadataBackfillService {
         artworkGivenUpIDs.subtract(retryIDs)
         titleCheckedIDs.subtract(retryIDs)
         albumArtistCheckedIDs.subtract(retryIDs)
+        albumArtistRecheckedIDs.subtract(retryIDs)
         artistCheckedIDs.subtract(retryIDs)
         for id in retryIDs { diagnosticRecords[id] = nil }
         for id in retryIDs { transientFailureCounts[id] = nil }
@@ -3285,6 +3340,7 @@ final class MetadataBackfillService {
         artworkGivenUpIDs.remove(songID)
         titleCheckedIDs.remove(songID)
         albumArtistCheckedIDs.remove(songID)
+        albumArtistRecheckedIDs.remove(songID)
         artistCheckedIDs.remove(songID)
         transientFailureCounts[songID] = nil
         clearDiagnostic(songID: songID)
@@ -5134,6 +5190,7 @@ final class MetadataBackfillService {
         let artworkGivenUpIDs: Set<String>
         let titleCheckedIDs: Set<String>
         let albumArtistCheckedIDs: Set<String>
+        let albumArtistUnconfirmedIDs: Set<String>
         let artistCheckedIDs: Set<String>
         let incompleteSongIDs: Set<String>
     }
@@ -5171,6 +5228,7 @@ final class MetadataBackfillService {
             artworkGivenUpIDs: artworkGivenUpIDs,
             titleCheckedIDs: titleCheckedIDs,
             albumArtistCheckedIDs: albumArtistCheckedIDs,
+            albumArtistUnconfirmedIDs: albumArtistUnconfirmedIDs,
             artistCheckedIDs: artistCheckedIDs,
             incompleteSongIDs: incompleteSongIDs
         )
@@ -5214,6 +5272,7 @@ final class MetadataBackfillService {
                 titleCheckedIDs: input.titleCheckedIDs,
                 incompleteSongIDs: input.incompleteSongIDs,
                 albumArtistCheckedIDs: input.albumArtistCheckedIDs,
+                albumArtistUnconfirmedIDs: input.albumArtistUnconfirmedIDs,
                 artistCheckedIDs: input.artistCheckedIDs
             ) else { continue }
             selection.append(song)
@@ -5323,6 +5382,7 @@ final class MetadataBackfillService {
             titleCheckedIDs: titleCheckedIDs,
             incompleteSongIDs: incompleteSongIDs,
             albumArtistCheckedIDs: albumArtistCheckedIDs,
+            albumArtistUnconfirmedIDs: albumArtistUnconfirmedIDs,
             artistCheckedIDs: artistCheckedIDs
         )
     }
@@ -5339,6 +5399,7 @@ final class MetadataBackfillService {
             hasAlbumTitle: !(song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
             hasAlbumArtist: !(song.albumArtistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
             albumArtistChecked: albumArtistCheckedIDs.contains(song.id),
+            albumArtistUnconfirmed: albumArtistUnconfirmedIDs.contains(song.id),
             hasArtist: !(song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
             artistChecked: artistCheckedIDs.contains(song.id)
         )
@@ -5351,6 +5412,7 @@ final class MetadataBackfillService {
         titleCheckedIDs: Set<String>,
         incompleteSongIDs: Set<String>,
         albumArtistCheckedIDs: Set<String>,
+        albumArtistUnconfirmedIDs: Set<String>,
         artistCheckedIDs: Set<String>
     ) -> Bool {
         !workReasons(
@@ -5364,6 +5426,7 @@ final class MetadataBackfillService {
             hasAlbumTitle: !(song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
             hasAlbumArtist: !(song.albumArtistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
             albumArtistChecked: albumArtistCheckedIDs.contains(song.id),
+            albumArtistUnconfirmed: albumArtistUnconfirmedIDs.contains(song.id),
             hasArtist: !(song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
             artistChecked: artistCheckedIDs.contains(song.id)
         ).isEmpty
@@ -5380,6 +5443,7 @@ final class MetadataBackfillService {
         hasAlbumTitle: Bool,
         hasAlbumArtist: Bool,
         albumArtistChecked: Bool,
+        albumArtistUnconfirmed: Bool,
         hasArtist: Bool,
         artistChecked: Bool
     ) -> MetadataBackfillWorkReasons {
@@ -5394,6 +5458,7 @@ final class MetadataBackfillService {
             hasAlbumTitle: hasAlbumTitle,
             hasAlbumArtist: hasAlbumArtist,
             albumArtistChecked: albumArtistChecked,
+            albumArtistUnconfirmed: albumArtistUnconfirmed,
             hasArtist: hasArtist,
             artistChecked: artistChecked
         )
@@ -5450,6 +5515,12 @@ final class MetadataBackfillService {
         guard let data = try? Data(contentsOf: albumArtistCheckedURL),
               let decoded = try? JSONDecoder().decode([String].self, from: data) else { return }
         albumArtistCheckedIDs = Set(decoded)
+    }
+
+    private func loadAlbumArtistRechecked() {
+        guard let data = try? Data(contentsOf: albumArtistRecheckedURL),
+              let decoded = try? JSONDecoder().decode([String].self, from: data) else { return }
+        albumArtistRecheckedIDs = Set(decoded)
     }
 
     private func loadArtistChecked() {
@@ -5534,10 +5605,16 @@ final class MetadataBackfillService {
         guard !songIDs.isEmpty else { return }
         let previousTitleCount = titleCheckedIDs.count
         let previousAlbumArtistCount = albumArtistCheckedIDs.count
+        let previousRecheckedCount = albumArtistRecheckedIDs.count
         titleCheckedIDs.formUnion(songIDs)
         albumArtistCheckedIDs.formUnion(songIDs)
+        // 文件真的没有 ALBUMARTIST 时, 读完判定依旧成立。没有这一笔登记,
+        // 同一个目录每轮对账都会被重新排队。
+        albumArtistRecheckedIDs.formUnion(songIDs)
+        albumArtistUnconfirmedIDs.subtract(songIDs)
         if titleCheckedIDs.count != previousTitleCount
-            || albumArtistCheckedIDs.count != previousAlbumArtistCount {
+            || albumArtistCheckedIDs.count != previousAlbumArtistCount
+            || albumArtistRecheckedIDs.count != previousRecheckedCount {
             saveInspectionState()
         }
     }
@@ -5618,6 +5695,7 @@ final class MetadataBackfillService {
                 let artworkGivenUp = self.artworkGivenUpIDs
                 let titleChecked = self.titleCheckedIDs
                 let albumArtistChecked = self.albumArtistCheckedIDs
+                let albumArtistRechecked = self.albumArtistRecheckedIDs
                 let artistChecked = self.artistCheckedIDs
                 let deferredRetries = self.deferredRetrySongIDs
                 let diagnostics = self.diagnosticRecords
@@ -5629,6 +5707,7 @@ final class MetadataBackfillService {
                 let artworkURL = self.artworkGivenUpURL
                 let titleURL = self.titleCheckedURL
                 let albumArtistURL = self.albumArtistCheckedURL
+                let albumArtistRecheckURL = self.albumArtistRecheckedURL
                 let artistURL = self.artistCheckedURL
                 let deferredRetryURL = self.deferredRetryURL
                 let diagnosticsURL = self.diagnosticsURL
@@ -5642,6 +5721,7 @@ final class MetadataBackfillService {
                     Self.writeIDSet(artworkGivenUp, to: artworkURL)
                     Self.writeIDSet(titleChecked, to: titleURL)
                     Self.writeIDSet(albumArtistChecked, to: albumArtistURL)
+                    Self.writeIDSet(albumArtistRechecked, to: albumArtistRecheckURL)
                     Self.writeIDSet(artistChecked, to: artistURL)
                     Self.writeIDSet(deferredRetries, to: deferredRetryURL)
                     Self.writeDiagnostics(diagnostics, to: diagnosticsURL)

@@ -3137,11 +3137,14 @@ public enum MetadataBackfillEligibilityPolicy {
         hasAlbumTitle: Bool = false,
         hasAlbumArtist: Bool = true,
         albumArtistChecked: Bool = true,
+        albumArtistUnconfirmed: Bool = false,
         hasArtist: Bool = true,
         artistChecked: Bool = true
     ) -> MetadataBackfillWorkReasons {
         if restrictToBareRows, duration > 0 || durationInspectionComplete {
-            return []
+            // 裸行源读完一遍就收手 —— 唯独整库判定说这一行的专辑艺术家定不了
+            // 案时例外。那一笔带自己的一次性登记, 不会把裸行源拖回每轮重读。
+            return hasAlbumTitle && albumArtistUnconfirmed ? [.albumArtist] : []
         }
         var reasons: MetadataBackfillWorkReasons = []
         if duration <= 0 && !durationInspectionComplete {
@@ -3153,7 +3156,13 @@ public enum MetadataBackfillEligibilityPolicy {
         if !titleChecked {
             reasons.insert(.title)
         }
-        if hasAlbumTitle && !hasAlbumArtist && !albumArtistChecked {
+        // A stored album artist can be the per-track fallback rather than a tag
+        // the source ever supplied, and `albumArtistChecked` is set by any pass
+        // that read the file for some other reason. Together they make one pass
+        // that missed ALBUMARTIST permanent. `albumArtistUnconfirmed` is the
+        // caller's library-wide verdict that this row's value settles nothing;
+        // it carries its own one-shot marker, so it cannot loop.
+        if hasAlbumTitle && ((!hasAlbumArtist && !albumArtistChecked) || albumArtistUnconfirmed) {
             reasons.insert(.albumArtist)
         }
         if !hasArtist && !artistChecked {
@@ -3173,6 +3182,7 @@ public enum MetadataBackfillEligibilityPolicy {
         hasAlbumTitle: Bool = false,
         hasAlbumArtist: Bool = true,
         albumArtistChecked: Bool = true,
+        albumArtistUnconfirmed: Bool = false,
         hasArtist: Bool = true,
         artistChecked: Bool = true
     ) -> Bool {
@@ -3187,6 +3197,7 @@ public enum MetadataBackfillEligibilityPolicy {
             hasAlbumTitle: hasAlbumTitle,
             hasAlbumArtist: hasAlbumArtist,
             albumArtistChecked: albumArtistChecked,
+            albumArtistUnconfirmed: albumArtistUnconfirmed,
             hasArtist: hasArtist,
             artistChecked: artistChecked
         ).isEmpty

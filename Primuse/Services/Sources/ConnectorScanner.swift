@@ -1467,8 +1467,15 @@ actor ConnectorScanner {
             refreshed.albumTitle = incoming.albumTitle
             refreshed.albumID = incoming.albumID
         }
+        // 一个只是回退成曲目艺术家的旧值不是服务端给过的答案, 必须让这次
+        // 列表里真正的专辑艺术家覆盖它 —— 否则同一张专辑会一直按各自的曲目
+        // 艺术家散成多张同名专辑。
         if (existing.albumArtistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
-            || MediaMetadataTextRepair.isSuspicious(existing.albumArtistName)),
+            || MediaMetadataTextRepair.isSuspicious(existing.albumArtistName)
+            || AlbumGroupingPolicy.isTrackArtistFallback(
+                albumArtistName: existing.albumArtistName,
+                trackArtistName: existing.artistName
+            )),
            existing.albumArtistName != incoming.albumArtistName {
             refreshed.albumArtistName = incoming.albumArtistName
             refreshed.albumID = incoming.albumID
