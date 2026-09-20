@@ -707,7 +707,7 @@ final class AppleMusicLibraryService {
             // 换区之后老的目录 ID 在新店面查不到，整首歌就变成灰的。`.findEquivalents`
             // 让 Apple 把当前店面里的等价曲目还回来。单曲查询才用得了这个选项 ——
             // 批量查回来的等价曲对不回是哪个请求 ID，配不了对。
-            if #available(iOS 26.0, macOS 26.0, *) {
+            if #available(iOS 26.4, macOS 26.4, tvOS 26.4, watchOS 26.4, *) {
                 request.options = [.findEquivalents]
             }
             song = try await request.response().items.first

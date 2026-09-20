@@ -1,9 +1,13 @@
-#if os(iOS) || os(macOS)
+#if os(iOS)
 import MusicKit
 import SwiftUI
 import PrimuseKit
 
-/// 系统自带的 Apple Music 选歌器（`.musicPicker`，iOS 27 / macOS 27 起）。
+/// 系统自带的 Apple Music 选歌器（`.musicPicker`，iOS 27 起）。
+///
+/// **只有 iOS。** `musicPicker(isPresented:title:selection:)` 在 macOS 上被显式标成
+/// unavailable（不是版本门槛，是整个平台没有），`MusicLibrary.shared` 在 macOS 上
+/// 同样不存在。所以整份文件用 `#if os(iOS)` 圈起来，Mac 端不提供这个入口。
 ///
 /// 选中的歌**先加进用户自己的 Apple Music 资料库**，再触发一次同步，让它按正常
 /// 链路进 Primuse。不直接把目录曲塞进本地库：音乐源的启动对账会把「源里已经没有
@@ -25,7 +29,7 @@ struct AppleMusicCatalogPickerButton: View {
     }
 
     var body: some View {
-        if #available(iOS 27.0, macOS 27.0, *) {
+        if #available(iOS 27.0, *) {
             VStack(alignment: .leading, spacing: 6) {
                 Button {
                     isPresented = true
@@ -64,7 +68,7 @@ struct AppleMusicCatalogPickerButton: View {
         }
     }
 
-    @available(iOS 27.0, macOS 27.0, *)
+    @available(iOS 27.0, *)
     private func addToLibrary(_ songs: [MusicKit.Song]) async {
         status = .adding
         var added = 0
