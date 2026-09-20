@@ -4902,10 +4902,19 @@ private struct MacSTThemeView: View {
     @State private var appIconCopied = false
     @State private var appIconCopyResetTask: Task<Void, Never>?
 
-    /// 把当前选中的图标放进剪贴板。macOS 只让运行中的 app 换 Dock 图标
-    /// (`NSApp.applicationIconImage`),退出后 Dock 显示的是 App 包自带的图标,
-    /// 沙盒又不允许改自己的包;唯一能让选择长期生效的路径是用户自己在访达的
-    /// 简介窗口粘贴图标,所以这里备好那张图。
+    /// 把当前选中的图标放进剪贴板。
+    ///
+    /// macOS 给「换 Dock 图标」一共三条官方路,对 App Store 版的 Primuse 全都
+    /// 走不通,所以才落到剪贴板 + 访达粘贴上:
+    ///   1. `NSApp.applicationIconImage` —— 只在运行期生效,退出后 Dock 显示
+    ///      的是 App 包自带的图标。这是现在换图标走的路。
+    ///   2. `NSWorkspace.setIcon(_:forFile:options:)` —— 把图标写进 app 包,
+    ///      Finder / Spotlight / Dock 都跟着变;但沙盒不让写自己的包,
+    ///      App Store 装的 app 在 /Applications 下还是 root 所有。
+    ///   3. `NSDockTilePlugIn` —— Apple 专为「app 没运行时定制 Dock tile」做的
+    ///      API,但它往 Dock 进程里塞插件,上不了 Mac App Store。出非商店的
+    ///      直接下载版时可以考虑。
+    /// 访达的简介窗口自己会处理权限提升,所以这里只要把那张图备好。
     private func copySelectedAppIcon() {
         let asset = MacAppIcon.option(for: preferences.appIconID).previewAsset
         guard let image = MacAppIcon.dockIconImage(previewAsset: asset) else { return }
