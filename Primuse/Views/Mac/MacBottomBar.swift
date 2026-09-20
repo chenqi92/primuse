@@ -12,12 +12,12 @@ struct MacBottomBar: View {
     var onToggleQueue: () -> Void = {}
     var onMiniPlayer: () -> Void = {}
     var onFullScreen: () -> Void = {}
+    var onPickFullscreenEffect: () -> Void = {}
+    var isFullscreenEffectPickerShown: Bool = false
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(\.pmAppearance) private var mode
-    @AppStorage(FullscreenPlayerEffect.storageKey)
-    private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
 
@@ -299,7 +299,7 @@ struct MacBottomBar: View {
                 hasCurrentSong: player.currentSong != nil,
                 isLiveRadio: player.isLiveRadio
             ) {
-                fullscreenEffectMenu
+                fullscreenEffectButton
             }
             PMRoundBtn(icon: "arrow.up.left.and.arrow.down.right", iconSize: 12, style: .plain,
                        help: "full_screen_player", action: onFullScreen)
@@ -313,40 +313,13 @@ struct MacBottomBar: View {
         }
     }
 
-    private var fullscreenPlayerEffect: FullscreenPlayerEffect {
-        FullscreenPlayerEffect(rawValue: fullscreenPlayerEffectRawValue) ?? .defaultValue
-    }
-
-    private var fullscreenEffectMenu: some View {
-        Menu {
-            ForEach(FullscreenEffectCollection.allCases) { collection in
-                Section {
-                    ForEach(collection.effects) { candidate in
-                        Button {
-                            fullscreenPlayerEffectRawValue = candidate.rawValue
-                            FullscreenPlayerEffectSync.shared.select(candidate)
-                        } label: {
-                            Label(
-                                candidate.localizedTitle,
-                                systemImage: candidate == fullscreenPlayerEffect
-                                    ? "checkmark"
-                                    : candidate.symbolName
-                            )
-                            // 勾选靠图标表达；macOS 27 起菜单默认隐藏图标，这里要求保留。
-                            .labelStyle(.titleAndIcon)
-                        }
-                    }
-                } header: {
-                    Text(verbatim: collection.title)
-                }
-            }
-        } label: {
-            PMRoundBtnIcon(icon: "sparkles.tv", help: "fullscreen_effect_settings_title")
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .accessibilityLabel(Text("fullscreen_effect_settings_title"))
+    /// 效果切换交给右侧滑入的抽屉 —— 系统菜单只有一列文字，选之前看不到效果的样子，
+    /// 而抽屉里每一项都是真实舞台缩略图，与 iPhone、Apple TV 上看到的是同一套。
+    private var fullscreenEffectButton: some View {
+        PMRoundBtn(icon: "sparkles.tv", iconSize: 12, style: .plain,
+                   isActive: isFullscreenEffectPickerShown,
+                   help: "fullscreen_effect_settings_title",
+                   action: onPickFullscreenEffect)
     }
 
     private var volumeControl: some View {

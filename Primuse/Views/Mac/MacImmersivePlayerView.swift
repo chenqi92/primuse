@@ -7,6 +7,8 @@ import PrimuseKit
 struct MacImmersivePlayerView: View {
     /// 已经由常规播放页加载好的带时间戳歌词，沉浸态继续沿用同一份数据。
     let lyrics: [LyricLine]
+    /// 顶栏要让开的系统菜单栏高度，见 `PMFullScreenChrome`。
+    var topChromeInset: CGFloat = 0
     /// 退出 macOS 全屏
     var onExitFullScreen: () -> Void
     var onToggleQueue: () -> Void
@@ -86,20 +88,31 @@ struct MacImmersivePlayerView: View {
                     entrySurface(metrics: metrics)
                 }
 
-                if showsEffectPicker {
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            withAnimation(.easeOut(duration: 0.16)) {
-                                showsEffectPicker = false
-                            }
-                        }
-                        .accessibilityHidden(true)
-                }
-
                 if showsChrome {
                     chrome(metrics: metrics)
                         .transition(.opacity)
+                }
+
+                // 遮罩压在顶栏之上：抽屉一开就接管整块界面，点抽屉之外的任何地方
+                // （包括顶栏那排按钮）都只是把它收起来。
+                if showsEffectPicker {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { closeEffectPicker() }
+                        .accessibilityHidden(true)
+
+                    MacImmersiveEffectDrawer(
+                        selected: effect,
+                        effects: FullscreenPlayerEffect.allCases,
+                        palette: artworkPalette,
+                        topInset: topChromeInset,
+                        onSelect: { candidate in
+                            closeEffectPicker()
+                            selectEffect(candidate)
+                        },
+                        onClose: { closeEffectPicker() }
+                    )
+                    .pmSlideTransition(edge: .trailing, motion: .panel)
                 }
             }
             .animation(.easeInOut(duration: 0.3), value: showsChrome)
@@ -120,9 +133,7 @@ struct MacImmersivePlayerView: View {
         }
         .onExitCommand {
             if showsEffectPicker {
-                withAnimation(.easeOut(duration: 0.16)) {
-                    showsEffectPicker = false
-                }
+                closeEffectPicker()
             } else {
                 beginExitFullScreen()
             }
@@ -330,7 +341,7 @@ struct MacImmersivePlayerView: View {
                 .help(Text("exit_full_screen"))
             }
             .padding(.horizontal, 26)
-            .padding(.top, 22)
+            .padding(.top, topChromeInset + 22)
 
             if let error = player.lastPlaybackError {
                 playbackErrorBanner(error)
@@ -559,7 +570,7 @@ struct MacImmersivePlayerView: View {
     private var effectMenu: some View {
         Button {
             chromeTask?.cancel()
-            withAnimation(.easeOut(duration: 0.18)) {
+            pmWithAnimation(.panel) {
                 showsEffectPicker.toggle()
             }
         } label: {
@@ -577,18 +588,13 @@ struct MacImmersivePlayerView: View {
         .buttonStyle(.plain)
         .pmPointingHand()
         .fixedSize()
-        .overlay(alignment: .topLeading) {
-            if showsEffectPicker {
-                ImmersiveEffectPickerSurface(selected: effect, palette: artworkPalette) { candidate in
-                    showsEffectPicker = false
-                    selectEffect(candidate)
-                }
-                .offset(y: 42)
-                .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .topLeading)))
-            }
-        }
-        .zIndex(showsEffectPicker ? 20 : 0)
         .help(Text("fullscreen_effect_settings_title"))
+    }
+
+    private func closeEffectPicker() {
+        pmWithAnimation(.panel) {
+            showsEffectPicker = false
+        }
     }
 
     private var seekBar: some View {

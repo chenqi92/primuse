@@ -384,6 +384,7 @@
 		45D03F8EAB0160FC97F2221A /* CarPlayHomeContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98285F1005EE5897CA9D6C9D /* CarPlayHomeContent.swift */; };
 		45D47CD3A35703F9DC0FF8CD /* MacRadioBatchAddView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D506F3799C64A1F8FA9FE080 /* MacRadioBatchAddView.swift */; };
 		46177DCBA68557D87AB0DC0C /* MacImmersivePlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D95026A4255446C98BA2456 /* MacImmersivePlayerView.swift */; };
+		D93717A85EB2656AB59535C3 /* MacImmersiveEffectDrawer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60F3C94565E95CE09F4B6D7 /* MacImmersiveEffectDrawer.swift */; };
 		462E50063C5075D907ABD7B6 /* SFTPSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D64868ED9B01B2808EEFF51 /* SFTPSource.swift */; };
 		4654C1707DDE9C0213BBF316 /* CacheSync.strings in Resources */ = {isa = PBXBuildFile; fileRef = 39A4D0ED31C0B72DF438476C /* CacheSync.strings */; };
 		469B765AB0F7DD2B9A045EC2 /* PMMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = C24789082CEFB3C4913FB3F1 /* PMMotion.swift */; };
@@ -909,6 +910,7 @@
 		A8C936DD4415F77C2B388058 /* AudioOutputDeviceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AFA31A7C68FAC9828C34416 /* AudioOutputDeviceManager.swift */; };
 		A8E7B493EDA246098FAF8EB2 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 769C39487B88BFC43377D781 /* WidgetKit.framework */; };
 		A912A656CCA5065CE8682014 /* MacImmersivePlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D95026A4255446C98BA2456 /* MacImmersivePlayerView.swift */; };
+		63B83A3106F4657A8E21518C /* MacImmersiveEffectDrawer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60F3C94565E95CE09F4B6D7 /* MacImmersiveEffectDrawer.swift */; };
 		A9160AC574F31FCE96377AE8 /* MotionArtworkEndpointClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32D73848A8BD3AD508B3BD21 /* MotionArtworkEndpointClient.swift */; };
 		A94A632B74898D56429171B4 /* NFSClientBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEEF77E944AB8BFB9DCC7A72 /* NFSClientBackend.swift */; };
 		A98C9585036ABD0F418D26F9 /* MusicSourceSecurityScopeFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 567220C185786318966C5C79 /* MusicSourceSecurityScopeFingerprint.swift */; };
@@ -1713,6 +1715,7 @@
 		1D6CD16F36EEEA61C94435DA /* PrimuseWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PrimuseWidgetExtension.entitlements; sourceTree = "<group>"; };
 		1D93A8CFB64630F7615B9485 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		1D95026A4255446C98BA2456 /* MacImmersivePlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacImmersivePlayerView.swift; sourceTree = "<group>"; };
+		E60F3C94565E95CE09F4B6D7 /* MacImmersiveEffectDrawer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacImmersiveEffectDrawer.swift; sourceTree = "<group>"; };
 		1DEC31D2D98572E972C45773 /* AlbumGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumGridView.swift; sourceTree = "<group>"; };
 		1DF2B6809C0482D58CDE61E7 /* VisualizerBarsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualizerBarsView.swift; sourceTree = "<group>"; };
 		1EA5291A0332EE798C4EB2C5 /* PrimuseIntentBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimuseIntentBridge.swift; sourceTree = "<group>"; };
@@ -3431,6 +3434,7 @@
 				29D19414C60A995E2BAE6B3F /* MacContentView.swift */,
 				D09F74F18E7CED7C6CDC0960 /* MacDetailContainer.swift */,
 				BB092854D451A9F1235A2B2A /* MacHomeView.swift */,
+				E60F3C94565E95CE09F4B6D7 /* MacImmersiveEffectDrawer.swift */,
 				1D95026A4255446C98BA2456 /* MacImmersivePlayerView.swift */,
 				050D42F39CEE8830909BFA20 /* MacLibraryHeader.swift */,
 				5916FE20BD4F062349303341 /* MacMetadataScrapingView.swift */,
@@ -5290,6 +5294,7 @@
 				50365BFC8958108CADBFC46E /* MacContentView.swift in Sources */,
 				4BD73D0896517A5789F2EE45 /* MacDetailContainer.swift in Sources */,
 				75B17A9CFC163869AD0DEA84 /* MacHomeView.swift in Sources */,
+				D93717A85EB2656AB59535C3 /* MacImmersiveEffectDrawer.swift in Sources */,
 				46177DCBA68557D87AB0DC0C /* MacImmersivePlayerView.swift in Sources */,
 				27F7E620B133E0F14CD925F9 /* MacLibraryHeader.swift in Sources */,
 				F7A611EA2879EB502F0E6ADD /* MacMenuBarController.swift in Sources */,
@@ -5824,6 +5829,7 @@
 				23C96C5A10C0CD95B69FFDF9 /* MacContentView.swift in Sources */,
 				0B877004E9BC6105414BD7A5 /* MacDetailContainer.swift in Sources */,
 				9622285B5CA76B4E44DE234D /* MacHomeView.swift in Sources */,
+				63B83A3106F4657A8E21518C /* MacImmersiveEffectDrawer.swift in Sources */,
 				A912A656CCA5065CE8682014 /* MacImmersivePlayerView.swift in Sources */,
 				ABCA4FEB3478B9AE3AD0E278 /* MacLibraryHeader.swift in Sources */,
 				AFD084D1F26725C1FEABFD5B /* MacMenuBarController.swift in Sources */,
