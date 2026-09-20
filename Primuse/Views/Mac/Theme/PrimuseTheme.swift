@@ -1810,11 +1810,19 @@ final class MacUIPreferences {
         }
     }
 
-    /// 换运行时 Dock 图标。默认与备选图标都从带 luminosity 变体的预览资源
-    /// 渲染，因此切换系统明暗时不会退回静态 bundle 图标。
+    /// 换运行时 Dock 图标。备选图标从带 luminosity 变体的预览资源渲染，
+    /// 因此切换系统明暗时不会退回静态 bundle 图标。
+    ///
+    /// 选的是默认图标、而且当前是浅色外观时不覆盖（`applicationIconImage = nil`）：
+    /// 这种情况下渲染出来的图和 App 包里那张本来就是同一套素材、同一套圆角留白，
+    /// 覆盖一遍只会让 Dock 在启动瞬间"闪一下"换成一张由预览图放大来的、
+    /// 反而更糊的位图。深色外观仍要覆盖，因为包里那张是静态的浅色版。
     func applyAppIcon() {
-        let asset = MacAppIcon.option(for: appIconID).previewAsset
-        if let shaped = MacAppIcon.dockIconImage(previewAsset: asset) {
+        let option = MacAppIcon.option(for: appIconID)
+        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        if option.id.isEmpty && !isDark {
+            NSApp.applicationIconImage = nil
+        } else if let shaped = MacAppIcon.dockIconImage(previewAsset: option.previewAsset) {
             NSApp.applicationIconImage = shaped
         } else {
             NSApp.applicationIconImage = nil

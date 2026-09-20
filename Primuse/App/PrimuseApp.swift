@@ -497,15 +497,17 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         MacTaskExceptionGuard.install()
+        // 明暗模式和 Dock 图标越早重放越好，而且必须同步做。放在
+        // didFinishLaunching 的 Task 里要等一次调度，Dock 会先把 App 包自带的
+        // 图标显示出来再被换掉，看起来就是启动时图标"跳"了一下。
+        // willFinishLaunching 是 AppKit 给的最早时机，这时 NSApp 已经在了。
+        MacUIPreferences.shared.applyOnLaunch()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.registerForRemoteNotifications()
         Task { @MainActor in
             Self.shared = self
-
-            // 重放持久化的明暗模式 + Dock 图标 (didSet 在 init 期不触发)。
-            MacUIPreferences.shared.applyOnLaunch()
 
             let bar = MacMenuBarController()
             bar.install()
