@@ -27,6 +27,11 @@ final class DesktopLyricsInteraction {
     /// 面板之后才重新变回穿透。只由 controller 写。
     var engaged = false
 
+    /// 整窗穿透 —— 关掉背板或锁定时置位,面板一个像素都不再接收鼠标事件。
+    /// 这条路不看 `contentRect`:用户说"背板都关了还挡"的就是这种情况,
+    /// 不能再押在测量上,测不准就等于没修。由 view 写。
+    var fullyTransparent = false
+
     /// popover 撑开期间强制保持。popover 是另一个窗口,指针移过去时面板
     /// 这边一个事件都收不到,不兜住会被判成"离开"把 chrome 连同 popover
     /// 一起收掉。由 view 写。
@@ -81,28 +86,41 @@ final class DesktopLyricsWindowController {
         UserDefaults.standard.bool(forKey: "desktopLyricsLocked")
     }
 
-    /// 横向布局 (single/dual) 默认尺寸 —— 参考主流桌面歌词软件的宽度
-    /// 习惯 (网易云 / QQ 音乐 / LyricsX 都是屏幕宽度 60-75%):跟随主屏
-    /// visibleFrame 宽度的 70%,clamp 到 [900, 1400]。短边 (height) 固定
-    /// 260pt,这是因为顶部工具栏整合了 10 个按钮 (上一首/播放/下一首/排
-    /// 版/背景/颜色/字号-/字号+/锁定/关闭),最少需要 ~250pt 宽度,260pt
-    /// 给纵向模式 (width = 260) 留出余量。
+    /// 主屏可见区域 —— 拿不到就按 1440×900 这块最常见的笔记本屏算。
+    private static var referenceScreen: NSRect {
+        NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+    }
+
+    /// 横向布局 (single/dual) 默认尺寸 —— 参考主流桌面歌词软件的宽度习惯
+    /// (网易云 / QQ 音乐 / LyricsX 都是屏幕宽度 60-75%)。
+    ///
+    /// 长短边都跟着屏幕算,不写死 pt:同一组数字在 1280×800 的笔记本上会占掉
+    /// 大半个屏,在 6K 显示器上又小得像贴纸。高度尤其不能固定 —— 歌词字号本身
+    /// 是按长边算的 (长边 6%,上限 64pt),所以面板高度按"字号能排下双行 + 顶部
+    /// 工具栏"推出来,超宽屏上就不会剩一大片空白。
     private static var horizontalSize: NSSize {
-        let screenWidth = NSScreen.main?.visibleFrame.width ?? 1440
-        let longSide = max(900, min(1400, screenWidth * 0.7))
-        return NSSize(width: longSide, height: 260)
+        let visible = referenceScreen
+        // 宽度下限 720pt:顶部工具栏五颗按钮加内边距约 160pt,720 给长歌词留够余量。
+        let width = min(max(visible.width * 0.62, 720), 1600)
+        let fontSize = min(64, max(20, width * 0.06))
+        // 双行 (当前行 + 提示行 ≈ 1.55 倍字号) + 行距 + 上下留白 ≈ 2.4 倍字号,
+        // 再加顶部工具栏那条。最后夹到可见高度的 30% 以内。
+        let height = min(max(fontSize * 2.4 + Self.toolbarAllowance, 150), visible.height * 0.3)
+        return NSSize(width: width, height: height)
     }
 
     /// 纵向布局默认尺寸 —— 跟横向尺寸"长宽对调",但 height 还要再
     /// clamp 到屏可见区域的 85% 以内,免得长条延伸到屏幕外把底部按钮
     /// 顶到 dock 下面点不到。屏幕短的笔记本 (13/14 寸 1080p) 上长边可
-    /// 能从 1400pt 缩到 ~700pt,这是预期的。
+    /// 能缩到 ~700pt,这是预期的。
     private static var verticalSize: NSSize {
         let h = horizontalSize
-        let screenHeight = NSScreen.main?.visibleFrame.height ?? 900
-        let maxAllowed = screenHeight * 0.85
-        return NSSize(width: h.height, height: min(h.width, maxAllowed))
+        let maxAllowed = referenceScreen.height * 0.85
+        return NSSize(width: max(h.height, 240), height: min(h.width, maxAllowed))
     }
+
+    /// 顶部悬浮工具栏占掉的高度,跟 DesktopLyricsView.topToolbarHeight 对齐。
+    private static let toolbarAllowance: CGFloat = 38
 
     init() {
         if visible { show() }
@@ -255,6 +273,17 @@ final class DesktopLyricsWindowController {
         guard let panel, panel.isVisible else { return }
         let interaction = DesktopLyricsInteraction.shared
         let mouse = NSEvent.mouseLocation
+        // 关掉背板 / 锁定 = 面板上没有一块"看得见的板",除了右上角那个把手
+        // 以外整窗放行。这一支不看 contentRect,所以即使测量出问题也一定生效
+        // —— 用户抱怨的就是"背板都关了还挡",这条不能再押在测量上。
+        if interaction.fullyTransparent, !interaction.keepsEngaged {
+            let onHandle = cornerHandleOnScreen(panel).contains(mouse)
+            let stillInside = interaction.engaged && panel.frame.contains(mouse)
+            let inside = onHandle || stillInside
+            if interaction.engaged != inside { interaction.engaged = inside }
+            if panel.ignoresMouseEvents == inside { panel.ignoresMouseEvents = !inside }
+            return
+        }
         let inside: Bool
         if interaction.keepsEngaged {
             inside = true
@@ -264,6 +293,7 @@ final class DesktopLyricsWindowController {
             inside = panel.frame.contains(mouse)
         } else {
             inside = interactiveRectOnScreen(panel).contains(mouse)
+                || cornerHandleOnScreen(panel).contains(mouse)
         }
         if interaction.engaged != inside { interaction.engaged = inside }
         if panel.ignoresMouseEvents == inside { panel.ignoresMouseEvents = !inside }
@@ -282,6 +312,21 @@ final class DesktopLyricsWindowController {
             height: rect.height
         )
         return panel.convertToScreen(flipped).intersection(panel.frame)
+    }
+
+    /// 面板右上角常驻的一小块把手 —— 悬浮工具栏和锁定提示本来就锚在这儿。
+    /// 不论背板开没开、锁没锁,它都接收鼠标:没有它,关掉背板之后整块面板
+    /// 全透,用户就再也够不到"重新显示背板"和"解锁"那两个开关了。
+    /// 纯几何算出来,不经过 SwiftUI 测量。
+    private func cornerHandleOnScreen(_ panel: NSPanel) -> NSRect {
+        let frame = panel.frame
+        let size = NSSize(width: min(150, frame.width), height: min(40, frame.height))
+        return NSRect(
+            x: frame.maxX - size.width,
+            y: frame.maxY - size.height,
+            width: size.width,
+            height: size.height
+        )
     }
 
     // MARK: - 窗口拖动

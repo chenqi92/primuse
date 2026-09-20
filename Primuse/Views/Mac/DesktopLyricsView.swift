@@ -121,22 +121,35 @@ struct DesktopLyricsView: View {
     private static let topToolbarHeight: CGFloat = 38
     private static let cornerRadius: CGFloat = 18
 
-    /// 面板局部坐标空间。量歌词矩形、再换算成屏幕坐标都靠它。
-    private static let panelSpace = "primuse.desktopLyrics.panel"
-
-    /// 歌词往外扩多少算进背板 / 鼠标热区。
-    private static let backdropPadding: CGFloat = 16
-
     /// 背板矩形,同时也是"这块要吃鼠标事件"的判定区 —— 看得见的地方才拦
     /// 点击,其余部分穿透到后面的窗口。
+    ///
+    /// 留白按文字自身高度取,不写死 pt:字号本来就跟着面板、面板跟着屏幕走,
+    /// 所以这样算出来的边距在 1280×800 的笔记本和 6K 显示器上观感一致,
+    /// 不会在高分屏上细得像条线、在小屏上又肿一圈。
     private var backdropRect: CGRect? {
         guard !measuredContentRect.isNull, !measuredContentRect.isEmpty else { return nil }
-        return measuredContentRect.insetBy(dx: -Self.backdropPadding, dy: -Self.backdropPadding)
+        let h = measuredContentRect.height
+        let vertical = min(max(h * 0.18, 10), 28)
+        let horizontal = min(max(h * 0.30, 16), 44)
+        return measuredContentRect.insetBy(dx: -horizontal, dy: -vertical)
     }
 
-    /// 顶部 chrome 显不显示。指针进没进面板由 controller 按 backdropRect 判定,
-    /// 穿透时 SwiftUI 压根收不到 hover,所以这里读 controller 的结论而不是
-    /// 自己的 .onHover。
+    /// 背板圆角也跟着卡片高度走,矮卡片用 18pt 会圆得发胖。
+    private var backdropCornerRadius: CGFloat {
+        guard let card = backdropRect else { return Self.cornerRadius }
+        return min(Self.cornerRadius, max(10, card.height * 0.26))
+    }
+
+    /// 整块面板完全穿透 —— 背板关掉或锁定时,面板上没有一块"看得见的板",
+    /// 就不该再挡住后面的窗口。右上角那个把手由 controller 单独保住,
+    /// 否则关掉背板之后用户再也够不到开关。
+    private var fullyTransparent: Bool {
+        !showBackground || locked
+    }
+
+    /// 顶部 chrome 显不显示。指针进没进面板由 controller 判定,穿透时 SwiftUI
+    /// 压根收不到 hover,所以这里读 controller 的结论而不是自己的 .onHover。
     private var chromeVisible: Bool {
         interaction.engaged || settingsShown || colorPaletteShown
     }
@@ -145,14 +158,18 @@ struct DesktopLyricsView: View {
         // GeometryReader 拿当前 panel 实际尺寸,把字号绑到尺寸上 ——
         // 用户拖大 panel 字也跟着变大,fontScale 在此基础上再叠加。
         GeometryReader { geo in
+            // 面板自己在全局坐标里的原点。量歌词时同样取全局坐标再减掉它,
+            // 得到的就是面板局部坐标 —— 不去依赖命名坐标空间能否解析,
+            // 这一步错了背板和热区会一起错,不值得赌。
+            let panelOrigin = geo.frame(in: .global).origin
             content(in: geo.size)
                 // 量的是歌词正文自己的外框:content(in:) 里各排版都不再把自己
                 // 撑满,撑满的活交给下面那个 .frame,所以这里拿到的就是"字占了
                 // 多大"。背板和鼠标热区都按它算。
                 .onGeometryChange(for: CGRect.self) { proxy in
-                    proxy.frame(in: .named(Self.panelSpace))
+                    proxy.frame(in: .global)
                 } action: { rect in
-                    measuredContentRect = rect
+                    measuredContentRect = rect.offsetBy(dx: -panelOrigin.x, dy: -panelOrigin.y)
                 }
                 // 顶部留出 toolbar 高度,左右/底部用普通 padding。横向、
                 // 纵向都用同一组 padding,工具栏永远在顶部一致位置。
@@ -174,14 +191,13 @@ struct DesktopLyricsView: View {
                 .gesture(windowDragGesture(in: geo.size), including: locked ? .subviews : .all)
         }
         .frame(minWidth: minPanelSize.width, minHeight: minPanelSize.height)
-        .coordinateSpace(.named(Self.panelSpace))
-        // 背板只包住歌词本身,不再铺满整块面板 —— 面板宽度是按屏幕算出来的
-        // (横向 900–1400pt),铺满会让一行字拖着一大片玻璃,那一大片还会连带
-        // 吃掉后面窗口的点击。关掉 showBackground 就只剩浮动文字。
+        // 背板只包住歌词本身,不再铺满整块面板 —— 面板宽度是按屏幕算出来的,
+        // 铺满会让一行字拖着一大片玻璃,那一大片还会连带吃掉后面窗口的点击。
+        // 关掉 showBackground 就只剩浮动文字。
         .background(alignment: .topLeading) {
             if showBackground && !locked, let card = backdropRect {
                 Color.clear
-                    .pmGlassControl(RoundedRectangle(cornerRadius: Self.cornerRadius), interactive: false)
+                    .pmGlassControl(RoundedRectangle(cornerRadius: backdropCornerRadius), interactive: false)
                     .frame(width: card.width, height: card.height)
                     .offset(x: card.minX, y: card.minY)
                     .pmAnimation(.control, value: card)
@@ -217,7 +233,16 @@ struct DesktopLyricsView: View {
         .onChange(of: settingsShown || colorPaletteShown, initial: true) { _, holding in
             interaction.keepsEngaged = holding
         }
-        .onDisappear { interaction.keepsEngaged = false }
+        .onChange(of: fullyTransparent, initial: true) { _, transparent in
+            interaction.fullyTransparent = transparent
+            // 走同一个回调是为了让 controller 立刻重算一次穿透状态:指针不动
+            // 时鼠标监视器不会响,不然要等保险丝定时器那一下才生效。
+            onContentRectChange?(backdropRect ?? .null)
+        }
+        .onDisappear {
+            interaction.keepsEngaged = false
+            interaction.fullyTransparent = false
+        }
         .task(id: lyricsLoadTaskIdentity) { await refreshLyrics() }
         .background {
             DesktopLyricsTimeObserver { updateIndex(time: $0) }
