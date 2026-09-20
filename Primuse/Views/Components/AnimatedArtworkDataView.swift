@@ -72,7 +72,7 @@ struct AnimatedArtworkDataView<Fallback: View>: View {
             reduceMotion: reduceMotion,
             playAnimatedImages: playAnimatedImages,
             isLowPowerModeEnabled: ProcessInfo.processInfo.isLowPowerModeEnabled,
-            thermalCondition: Self.thermalCondition(ProcessInfo.processInfo.thermalState)
+            thermalCondition: AnimatedArtworkFrameDecoder.thermalCondition(ProcessInfo.processInfo.thermalState)
         )
     }
 
@@ -123,7 +123,7 @@ struct AnimatedArtworkDataView<Fallback: View>: View {
                 // stale frames. Skip overdue work and keep the timeline tied
                 // to the monotonic clock.
                 guard clock.now < deadline else { continue }
-                let decoded = await Self.decodedFrame(
+                let decoded = await AnimatedArtworkFrameDecoder.decodedFrame(
                     data: data,
                     index: index,
                     cacheKey: cacheKey,
@@ -148,8 +148,15 @@ struct AnimatedArtworkDataView<Fallback: View>: View {
         }
         frame = nil
     }
+}
 
-    private nonisolated static func decodedFrame(
+/// 解帧与热状态换算放在非泛型的类型里。
+///
+/// 之前它们是 `AnimatedArtworkDataView<Fallback>` 的 static 方法，`await Self.decodedFrame(...)`
+/// 会把泛型元数据（含 `Fallback` 对 `View` 的遵循）带进并发上下文；SwiftUI 的 `View` 遵循可能
+/// 是 MainActor 隔离的，于是编译器报 #IsolatedConformances 警告。搬到这里就没有泛型可带了。
+private enum AnimatedArtworkFrameDecoder {
+    nonisolated static func decodedFrame(
         data: Data,
         index: Int,
         cacheKey: String,
@@ -185,7 +192,7 @@ struct AnimatedArtworkDataView<Fallback: View>: View {
         return decoded
     }
 
-    private nonisolated static func thermalCondition(
+    nonisolated static func thermalCondition(
         _ state: ProcessInfo.ThermalState
     ) -> ArtworkThermalCondition {
         switch state {

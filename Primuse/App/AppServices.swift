@@ -1836,13 +1836,15 @@ final class AppServices {
         withObservationTracking {
             _ = library.spotlightIndexRevision
             _ = library.playlistCollectionRevision
-        } onChange: { [weak library, weak index] in
+        // self 必须写进外层捕获列表:内层 Task 单独写 [weak self] 只管住了 Task,
+        // 外层这个 onChange 闭包仍然隐式强引用 self,等于观察链把 AppServices 钉住。
+        } onChange: { [weak self, weak library, weak index] in
             SpotlightIndexService.persistLibraryChangePending()
-            Task { @MainActor [weak self] in
-                guard let library, let index else { return }
+            Task { @MainActor in
+                guard let self, let library, let index else { return }
                 index.scheduleSynchronization(library: library)
-                self?.scheduleSourceSongCountReconciliation()
-                self?.observeSpotlightLibraryToken(library: library, index: index)
+                self.scheduleSourceSongCountReconciliation()
+                self.observeSpotlightLibraryToken(library: library, index: index)
             }
         }
     }
