@@ -829,6 +829,9 @@ final class AudioPlayerService {
     /// still resume once after `stopAppleMusic()` mutates the observed state.
     private var appleMusicMirrorGeneration: UInt64 = 0
     private var rescuedAppleMusicLyricsAliases: Set<String> = []
+    /// 托管队列下 MusicKit 当前 entry 查不到对应队列行时记一次。镜像因此
+    /// 两条分支都不收养, currentSong 会停在上一首 —— 每次跃迁只打一行。
+    @ObservationIgnored private var didLogUnmappedAppleMusicEntry = false
     private var musicVideoTimeObserver: Any?
     private var musicVideoEndObserver: NSObjectProtocol?
     private var musicVideoStatusObservation: NSKeyValueObservation?
@@ -4090,13 +4093,21 @@ final class AudioPlayerService {
              isLoading = false
              isPlaying = am.isAppleMusicPlaying
          }
-         if previousPlayingState != isPlaying || previousLoadingState != isLoading {
-             updateNowPlayingInfo()
-             updatePlaybackState()
+         // 这一拍可能同时换了歌: 先记下运输状态变化, 等 currentSong /
+         // currentTime / duration 都落定之后再发布一次完整快照。在这里就发
+         // 会把上一首的标题、封面和时长写进系统「正在播放」。
+         let transportStateChanged = previousPlayingState != isPlaying
+             || previousLoadingState != isLoading
+         guard let nps = am.nowPlayingSong else {
+             if transportStateChanged {
+                 updateNowPlayingInfo()
+                 updatePlaybackState()
+             }
+             return
          }
-         guard let nps = am.nowPlayingSong else { return }
          isMirroringFromAppleMusic = true
          defer { isMirroringFromAppleMusic = false }
+         var didPublishNowPlayingSnapshot = false
 
          // Adopt only a known occurrence in this queue. A native segment must
          // never replace the canonical mixed queue or collapse duplicate songs.
@@ -4121,8 +4132,28 @@ final class AudioPlayerService {
              updateNowPlayingInfo()
              updateNowPlayingArtworkIfNeeded()
              updatePlaybackState()
+             didPublishNowPlayingSnapshot = true
              synchronizeAppleMusicQueue()
              plog("Apple Music native transition adopted index=\(index) queueCount=\(queueEntries.count)")
+         }
+         // 托管标记为真, 但 MusicKit 当前 entry 查不到队列行。段落投影为空时
+         // 起播会退回不带 entry 映射的队列(见 playAppleMusicSong), 此后系统
+         // 自己换的歌上面那段收养不了, 下面的原生分支又被托管标记挡住 ——
+         // currentSong 就停在上一首, 而声音已经换了。这种时候按歌曲身份收养。
+         let managedEntryIsMapped = am.nowPlayingQueueEntryID
+             .map { entryID in queueEntries.contains { $0.id == entryID } } ?? false
+         let managedQueueLostEntryMapping = isPrimuseManagingAppleMusicQueue && !managedEntryIsMapped
+         if managedQueueLostEntryMapping {
+             if !didLogUnmappedAppleMusicEntry {
+                 didLogUnmappedAppleMusicEntry = true
+                 plog(
+                     "⚠️ Apple Music managed entry unmapped "
+                         + "entry=\(am.nowPlayingQueueEntryID?.uuidString.prefix(8) ?? "nil") "
+                         + "queueCount=\(queueEntries.count) index=\(currentIndex)"
+                 )
+             }
+         } else {
+             didLogUnmappedAppleMusicEntry = false
          }
          let pSong = AppServices.shared.appleMusicLibrary.canonicalPrimuseSong(for: nps)
          if let rawSongID = am.nowPlayingRawSongID, rawSongID != pSong.id {
@@ -4136,8 +4167,31 @@ final class AudioPlayerService {
                  }
              }
          }
-         if !isPrimuseManagingAppleMusicQueue, pSong.id != currentSong?.id {
+         var didAdoptNativeSong = false
+         if !isPrimuseManagingAppleMusicQueue || managedQueueLostEntryMapping,
+            pSong.id != currentSong?.id {
              currentSong = pSong
+             isAtTrackEnd = false
+             didAdoptNativeSong = true
+             // 失去映射的托管队列仍是 Primuse 自己的队列: 这首歌在队列里只
+             // 出现一次时把索引对齐, 「下一首」和播放队列才不会停在旧位置。
+             // 有重复出现就只换显示, 不猜是哪一次 —— 猜错会改掉遍历顺序。
+             if managedQueueLostEntryMapping,
+                queueEntries.indices.contains(currentIndex),
+                queueEntries[currentIndex].song.id != pSong.id {
+                 let occurrences = queueEntries.indices.filter {
+                     queueEntries[$0].song.id == pSong.id
+                 }
+                 // 这里只对齐显示与索引, 不记播放次数: 规范化 id 在前几拍可能
+                 // 从 catalog 版跳到资料库版, 那不是换歌, 记了会让统计虚高。
+                 if occurrences.count == 1 {
+                     currentIndex = occurrences[0]
+                     if usesManagedShuffleOrder,
+                        let position = shuffledIndices.firstIndex(of: occurrences[0]) {
+                         shufflePosition = position
+                     }
+                 }
+             }
          }
          isPlaying = am.isAppleMusicPlaying
          if isPlaying, needsPlaybackRecovery {
@@ -4153,6 +4207,17 @@ final class AudioPlayerService {
              currentTime = restored.time
              pendingAppleMusicRestoredPosition = nil
              clearPendingPlaybackRecovery()
+         }
+         // MusicKit 自己换的歌只经过上面的镜像写入。不在这里补发的话, 锁屏 /
+         // 灵动岛 / CarPlay 会一直停在上一首, 直到别的事件(暂停、歌词载入完)
+         // 顺手发布一次 —— 表现就是系统侧显示与真正在放的那首对不上。
+         if didAdoptNativeSong {
+             updateNowPlayingInfo()
+             updateNowPlayingArtworkIfNeeded()
+             updatePlaybackState()
+         } else if transportStateChanged, !didPublishNowPlayingSnapshot {
+             updateNowPlayingInfo()
+             updatePlaybackState()
          }
          // A MusicKit queue can only describe Apple Music entries. Mirroring
          // it over a mixed queue used to discard thousands of local songs as
