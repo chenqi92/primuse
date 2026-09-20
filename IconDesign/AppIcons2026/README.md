@@ -1,20 +1,19 @@
 # Primuse app icon system
 
-The production catalog contains one primary icon and six alternates:
+The production catalog contains one primary icon and five alternates:
 
 - `00-splash.png` — primary icon: a milky-white dimensional splash with an engraved ring and a note in its opening, on solid berry pink.
 - `14-letter-p.png` — the letter P in the same material in pure white on solid cobalt blue, with a note in its bowl.
 - `15-folded-note.png` — the previous primary folded-note icon, retained as an alternate.
 - `12-pikaqiu.png` — user-submitted gradient music-note icon on an adaptive light, dark, or tinted background.
-- `09-classic-record.png` — historical record-and-note artwork restored as the classic icon.
 - `06-soft-note.png` — restored original soft-gradient music note.
 - `13-chris-muse.png` — Chris’s Muse, designed by Chris, with a white dimensional note on red in Light and a pink-red note on charcoal in Dark.
 
-Private Library, Lossless Audio, Record Collection, Speaker Play, Muse Spark, and Color Brush are intentionally no longer part of the catalog.
+Private Library, Lossless Audio, Record Collection, Speaker Play, Muse Spark, Color Brush, and Classic Record are intentionally no longer part of the catalog.
 
 ## Appearance system
 
-The folded note, Pikaqiu, classic record, and soft note preserve their Light, Dark, and Tinted PNGs without palette normalization.
+The folded note, Pikaqiu, and soft note preserve their Light, Dark, and Tinted PNGs without palette normalization.
 
 Splash and Letter P share one material: a white glyph with its own shading and a soft cast shadow over a single solid colour. Their Dark variants keep the identical composition with a colour-tinted glyph on charcoal, and their Tinted variants use a silver glyph on near-black.
 
@@ -37,4 +36,4 @@ The asset structure remains:
 
 Run `python3 scripts/generate_app_icon_assets.py` from the repository root. The script regenerates the retained iOS iconsets and previews, the macOS and watchOS primary icons, the contact sheet, and the Light/Dark comparison sheet.
 
-The source inputs live in `raw/`. `15-folded-note*.png`, `06-soft-note*.png`, and `09-classic-record*.png` preserve their exact artwork. In-app preview imagesets are written at 512×512.
+The source inputs live in `raw/`. `15-folded-note*.png` and `06-soft-note*.png` preserve their exact artwork. In-app preview imagesets are written at 512×512.

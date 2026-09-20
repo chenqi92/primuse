@@ -399,7 +399,6 @@
 "icon_theme_14" = "文字 P";
 "icon_theme_15" = "折り返し音符";
 "icon_theme_6" = "ソフトノート";
-"icon_theme_9" = "クラシックアイコン";
 "queue_title" = "再生キュー";
 "queue_empty" = "キューが空です";
 "queue_empty_desc" = "キューに曲を追加してください";

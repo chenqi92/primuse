@@ -3551,7 +3551,6 @@
 "ai_primuse_relay_test_running" = "Проверка встроенной службы…";
 "scraper_warn_includes_cookie" = "Эта конфигурация содержит данные Cookie. Импортируйте конфигурации только от тех, кому доверяете.";
 "fullscreen_effect_typography_subtitle" = "Композиция, построенная на основе метаданных трека.";
-"icon_theme_9" = "Классический значок";
 "yearly_sub_closing" = "Спасибо и до свидания";
 "Not checked yet" = "Еще не проверено";
 "playlist_reorder" = "Изменить порядок";
