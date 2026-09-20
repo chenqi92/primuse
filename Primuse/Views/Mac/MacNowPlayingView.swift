@@ -226,6 +226,18 @@ struct MacNowPlayingView: View {
             }
         }
         .animation(.easeInOut(duration: 0.28), value: isImmersiveStageActive)
+        .onChange(of: isImmersiveStageActive) { _, active in
+            #if DEBUG
+            // 沉浸层进出时记一次窗口几何:顶部被裁 + 底栏下沉是同一个病,
+            // 要看的是 contentMinSize 有没有被内容撑过屏幕高度。
+            if let hostWindow {
+                PMWindowFrameGuard.logGeometry(
+                    hostWindow,
+                    label: active ? "immersive-on" : "immersive-off"
+                )
+            }
+            #endif
+        }
         .background {
             NowPlayingWindowResolver { window in
                 // 解析回调每轮视图更新都会来一次。无条件写回这几个 @State 等于把

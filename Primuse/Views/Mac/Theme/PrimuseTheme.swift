@@ -823,11 +823,22 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
                 isFullScreenTransitioning = false
                 PMStandardWindowButtonAlignment.setSuspended(false, in: window)
                 requestRepair(force: true)
+                #if DEBUG
+                PMWindowFrameGuard.logGeometry(window, label: "enter-fullscreen")
+                #endif
 
             case NSWindow.didExitFullScreenNotification:
                 isFullScreenTransitioning = false
                 PMStandardWindowButtonAlignment.setSuspended(false, in: window)
                 requestRepair(force: true)
+                #if DEBUG
+                PMWindowFrameGuard.logGeometry(window, label: "exit-fullscreen")
+                #endif
+                // 恢复 frame 由 AppKit 在这一轮里完成,收回动作排到它之后。
+                DispatchQueue.main.async { [weak window] in
+                    guard let window else { return }
+                    PMWindowFrameGuard.clampToVisibleFrame(window)
+                }
 
             case NSWindow.didUpdateNotification:
                 guard !isApplyingRepair else { return }
@@ -1097,6 +1108,55 @@ enum PMWindowChromeDiagnostics {
     }
 }
 #endif
+
+/// 窗口尺寸的兜底。
+///
+/// SwiftUI 会把内容树的最小高度报成窗口的 `contentMinSize`。一旦某层把这棵树撑得比
+/// 屏幕还高（沉浸播放页干过这事），窗口就会被撑到那个高度并且退出全屏后保持不变 ——
+/// 顶部内容被顶出上边界，底部的播放条落到 Dock 底下。这里在窗口态把下限和 frame
+/// 一起收回屏幕可见区域；全屏时不插手，那是 AppKit 的地盘。
+@MainActor
+enum PMWindowFrameGuard {
+    static func clampToVisibleFrame(_ window: NSWindow) {
+        guard !window.styleMask.contains(.fullScreen),
+              let visible = (window.screen ?? NSScreen.main)?.visibleFrame,
+              visible.width > 0, visible.height > 0
+        else { return }
+
+        // 先松开被内容撑大的下限,否则 setFrame 会被它顶回去。
+        let clampedMin = NSSize(
+            width: min(window.contentMinSize.width, visible.width),
+            height: min(window.contentMinSize.height, visible.height)
+        )
+        if clampedMin != window.contentMinSize {
+            window.contentMinSize = clampedMin
+        }
+
+        var frame = window.frame
+        let needsResize = frame.height > visible.height || frame.width > visible.width
+        let needsMove = frame.maxY > visible.maxY || frame.minY < visible.minY
+            || frame.maxX > visible.maxX || frame.minX < visible.minX
+        guard needsResize || needsMove else { return }
+
+        frame.size.height = min(frame.height, visible.height)
+        frame.size.width = min(frame.width, visible.width)
+        frame.origin.y = max(visible.minY, min(frame.origin.y, visible.maxY - frame.height))
+        frame.origin.x = max(visible.minX, min(frame.origin.x, visible.maxX - frame.width))
+        window.setFrame(frame, display: true)
+        #if DEBUG
+        plog("🖼 窗口收回可见区: frame=\(frame) visible=\(visible) minSize=\(window.contentMinSize)")
+        #endif
+    }
+
+    #if DEBUG
+    /// 全屏进出时记一次几何,用来判断窗口是什么时候、被撑到多大的。
+    static func logGeometry(_ window: NSWindow, label: String) {
+        let visible = (window.screen ?? NSScreen.main)?.visibleFrame ?? .zero
+        let content = window.contentView?.frame.size ?? .zero
+        plog("🖼 \(label): frame=\(window.frame) content=\(content) minSize=\(window.contentMinSize) maxSize=\(window.contentMaxSize) visible=\(visible)")
+    }
+    #endif
+}
 
 struct PMWindowResolver: NSViewRepresentable {
     var onResolve: (NSWindow?) -> Void
