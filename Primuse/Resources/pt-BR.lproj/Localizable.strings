@@ -4142,3 +4142,7 @@
 "audio_variant_hi_res_lossless" = "Hi-Res Lossless";
 "audio_variant_dolby_atmos" = "Dolby Atmos";
 "audio_variant_dolby_audio" = "Dolby Audio";
+"apple_music_pick_from_catalog" = "Escolher do Apple Music…";
+"apple_music_pick_adding" = "Adicionando à biblioteca…";
+"apple_music_pick_added" = "%d adicionadas, sincronizando";
+"apple_music_pick_failed" = "Não foi possível adicionar à biblioteca";

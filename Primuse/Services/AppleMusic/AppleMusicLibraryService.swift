@@ -669,6 +669,11 @@ final class AppleMusicLibraryService {
             guard generation == songArtworkGeneration(amID: amID) else {
                 return songCache[amID]
             }
+            if resolved.song.id.rawValue != amID {
+                // `.findEquivalents` 在当前店面找到了等价曲目。仍按**请求的** ID 入缓存,
+                // 曲库里那条记录才对得上,下次不用再查一遍。
+                plog("Apple Music 换区等价匹配: \(amID) → \(resolved.song.id.rawValue)")
+            }
             songCache[amID] = resolved.song
             songArtworkCache[amID] = resolved.artwork
             if let identity = resolved.identity {
@@ -699,6 +704,12 @@ final class AppleMusicLibraryService {
         } else {
             var request = MusicCatalogResourceRequest<MusicKit.Song>(matching: \.id, equalTo: id)
             request.properties = [.audioVariants]
+            // 换区之后老的目录 ID 在新店面查不到，整首歌就变成灰的。`.findEquivalents`
+            // 让 Apple 把当前店面里的等价曲目还回来。单曲查询才用得了这个选项 ——
+            // 批量查回来的等价曲对不回是哪个请求 ID，配不了对。
+            if #available(iOS 26.0, macOS 26.0, *) {
+                request.options = [.findEquivalents]
+            }
             song = try await request.response().items.first
         }
         try Task.checkCancellation()

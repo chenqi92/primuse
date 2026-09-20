@@ -4237,3 +4237,7 @@
 "audio_variant_hi_res_lossless" = "ハイレゾロスレス";
 "audio_variant_dolby_atmos" = "ドルビーアトモス";
 "audio_variant_dolby_audio" = "ドルビーオーディオ";
+"apple_music_pick_from_catalog" = "Apple Music から選択…";
+"apple_music_pick_adding" = "ライブラリに追加中…";
+"apple_music_pick_added" = "%d 曲を追加、同期中";
+"apple_music_pick_failed" = "ライブラリに追加できませんでした";

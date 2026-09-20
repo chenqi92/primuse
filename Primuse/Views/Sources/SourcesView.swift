@@ -965,6 +965,13 @@ struct SourcesContentView: View {
                 // 设置搜索里搜 "Apple Music" 落到这儿 —— 授权与同步都在这一行上,
                 // iOS 不再有单独的 Apple Music 设置页可跳。
                 appleMusicSyncStatus.settingsAnchor("sources.appleMusic")
+                if appleMusic.authState == .authorized, source.isEnabled {
+                    // 系统选歌器能浏览整个 Apple Music 目录,比 Primuse 自己的搜索
+                    // 覆盖面大。选中的歌先进用户的 Apple Music 资料库,再走正常同步。
+                    AppleMusicCatalogPickerButton {
+                        appleMusicLibrary.sync()
+                    }
+                }
             }
 
             HStack(spacing: 10) {

@@ -97,6 +97,18 @@ final class AppleMusicService {
                       ? "apple_music_needs_subscription" : "apple_music_unavailable")
     }
 
+    /// 置位后由挂在根视图上的 `appleMusicSubscriptionOffer()` 接住，弹出系统的
+    /// Apple Music 订阅页。只有 `canBecomeSubscriber` 为真时才置位 —— 地区不支持
+    /// 的用户弹了也订不了，那种情况仍然只给一句说明。
+    var subscriptionOfferRequested = false
+    /// 触发订阅页的那首歌的目录 ID，交给系统让订阅页显示对应的曲目信息。
+    private(set) var subscriptionOfferItemID: String?
+
+    func requestSubscriptionOffer(forItemID itemID: String?) {
+        subscriptionOfferItemID = itemID
+        subscriptionOfferRequested = true
+    }
+
     private struct LibraryAccessFailure: LocalizedError {
         let message: String
         var errorDescription: String? { message }
@@ -340,6 +352,11 @@ final class AppleMusicService {
                     ? String(localized: "apple_music_needs_subscription")
                     : String(localized: "apple_music_unavailable")
                 failPlaybackRequest(requestID, message: message)
+                // 还能订阅的话顺手把系统的订阅页请出来 —— 只弹一句"需要订阅"
+                // 是条死胡同,用户还得自己去 Apple Music App 里找入口。
+                if subscription.canBecomeSubscriber {
+                    requestSubscriptionOffer(forItemID: nowPlayingSong?.id.rawValue)
+                }
                 return false
             }
             return true

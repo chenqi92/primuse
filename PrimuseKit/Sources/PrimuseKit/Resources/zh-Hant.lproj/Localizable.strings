@@ -898,3 +898,7 @@
 "audio_variant_hi_res_lossless" = "高解析度無損";
 "audio_variant_dolby_atmos" = "杜比全景聲";
 "audio_variant_dolby_audio" = "杜比音訊";
+"apple_music_pick_from_catalog" = "從 Apple Music 選取…";
+"apple_music_pick_adding" = "正在加入資料庫…";
+"apple_music_pick_added" = "已加入 %d 首，正在同步";
+"apple_music_pick_failed" = "加入資料庫失敗";

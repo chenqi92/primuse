@@ -250,6 +250,7 @@ struct MacContentView: View {
         }
         .songBatchRemovalFeedback()
         .macPlaybackErrorFeedback()
+        .appleMusicSubscriptionOffer()
         .environment(\.pmAppearance, preferences.appearance)
         .background(PMColor.bg.ignoresSafeArea())
         .background(PMWindowChromeConfigurator())

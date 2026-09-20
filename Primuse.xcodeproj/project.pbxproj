@@ -1003,6 +1003,10 @@
 		B786B6AEA6CACEA58889EAA6 /* AISettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 767016AFD74B46B9E0E7AE80 /* AISettingsView.swift */; };
 		B7C95AD987F7406BA8D62C7D /* CoverTintProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30B7398D5BCEB0CAED2FB0E0 /* CoverTintProvider.swift */; };
 		B83A5937CA1E870785FB4EDC /* URL+AudioFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81BF3B3BCA7A1454E6731DDC /* URL+AudioFormat.swift */; };
+		BB01000000000000000001 /* AppleMusicSubscriptionOffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA01000000000000000001 /* AppleMusicSubscriptionOffer.swift */; };
+		BB01000000000000000002 /* AppleMusicSubscriptionOffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA01000000000000000001 /* AppleMusicSubscriptionOffer.swift */; };
+		BB01000000000000000003 /* AppleMusicCatalogPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA01000000000000000002 /* AppleMusicCatalogPicker.swift */; };
+		BB01000000000000000004 /* AppleMusicCatalogPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA01000000000000000002 /* AppleMusicCatalogPicker.swift */; };
 		B8450463C38E1DD352D751F7 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A04A9461976D9D58E02D5BA /* ContentView.swift */; };
 		B861A10458A66BAE39CCE232 /* AliyunDriveSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3CFC2BB314F0A2BB166E280 /* AliyunDriveSource.swift */; };
 		B88D64F74EB70F4438DCCCBC /* SyncedCredentialAvailability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00315BE49B8ED4049B2713AB /* SyncedCredentialAvailability.swift */; };
@@ -1822,6 +1826,8 @@
 		38FB8C7B3EA4A58B80265EDC /* Playlist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Playlist.swift; sourceTree = "<group>"; };
 		392ED1C12D986BAB8D2A1EBD /* LyricsWriteback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricsWriteback.swift; sourceTree = "<group>"; };
 		39F6AE35FC2EC095FBF1EA0E /* AudioEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEngine.swift; sourceTree = "<group>"; };
+		AA01000000000000000001 /* AppleMusicSubscriptionOffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicSubscriptionOffer.swift; sourceTree = "<group>"; };
+		AA01000000000000000002 /* AppleMusicCatalogPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicCatalogPicker.swift; sourceTree = "<group>"; };
 		3A04A9461976D9D58E02D5BA /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		3A0BB7D64F2BBD76A56CD9C5 /* PlaybackState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackState.swift; sourceTree = "<group>"; };
 		3A2283C5F87BB4C24B484473 /* NowPlayingInteractionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingInteractionPolicy.swift; sourceTree = "<group>"; };
@@ -3672,6 +3678,15 @@
 			path = Metadata;
 			sourceTree = "<group>";
 		};
+		CC01000000000000000001 /* AppleMusic */ = {
+			isa = PBXGroup;
+			children = (
+				AA01000000000000000001 /* AppleMusicSubscriptionOffer.swift */,
+				AA01000000000000000002 /* AppleMusicCatalogPicker.swift */,
+			);
+			path = AppleMusic;
+			sourceTree = "<group>";
+		};
 		B328E2A73345B855028189CB /* Views */ = {
 			isa = PBXGroup;
 			children = (
@@ -3686,6 +3701,7 @@
 				4DBB0AA1CA4D48D1272A322D /* Sharing */,
 				0F81293C12739B638C578939 /* Sources */,
 				D48435669B3FD569916FF182 /* YearlyReport */,
+				CC01000000000000000001 /* AppleMusic */,
 				3A04A9461976D9D58E02D5BA /* ContentView.swift */,
 				DD09951914FB65D3573E5824 /* ExternalDisplayNowPlayingView.swift */,
 				43B6CF7C99E84C479BDF4E07 /* OnboardingGuidePages.swift */,
@@ -5086,6 +5102,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BB01000000000000000004 /* AppleMusicCatalogPicker.swift in Sources */,
+				BB01000000000000000002 /* AppleMusicSubscriptionOffer.swift in Sources */,
 				5E5CD445E8005257DD9A9D76 /* AICredentialStore.swift in Sources */,
 				FD44254364FA0DB15420FBA1 /* AIPlaylistEditorView.swift in Sources */,
 				B418E40C20D78B4D573CFB4D /* AIRecommendationLibraryView.swift in Sources */,
@@ -5618,6 +5636,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BB01000000000000000003 /* AppleMusicCatalogPicker.swift in Sources */,
+				BB01000000000000000001 /* AppleMusicSubscriptionOffer.swift in Sources */,
 				370A83F06945E4CAAD111042 /* AICredentialStore.swift in Sources */,
 				BEDC249FC1AF38BC9516765B /* AIPlaylistEditorView.swift in Sources */,
 				FB0911208AD3966703462CC2 /* AIRecommendationLibraryView.swift in Sources */,

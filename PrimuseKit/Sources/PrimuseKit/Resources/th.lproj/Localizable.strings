@@ -848,3 +848,7 @@
 "audio_variant_hi_res_lossless" = "Hi-Res Lossless";
 "audio_variant_dolby_atmos" = "Dolby Atmos";
 "audio_variant_dolby_audio" = "Dolby Audio";
+"apple_music_pick_from_catalog" = "เลือกจาก Apple Music…";
+"apple_music_pick_adding" = "กำลังเพิ่มลงคลัง…";
+"apple_music_pick_added" = "เพิ่มแล้ว %d เพลง กำลังซิงค์";
+"apple_music_pick_failed" = "เพิ่มลงคลังไม่สำเร็จ";
