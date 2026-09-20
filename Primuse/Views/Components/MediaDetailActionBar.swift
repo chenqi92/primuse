@@ -1,4 +1,8 @@
 import SwiftUI
+import PrimuseKit
+#if os(iOS)
+import UIKit
+#endif
 
 /// 沉浸式详情页头部要消费的安全区尺寸。
 ///
@@ -12,9 +16,155 @@ struct ImmersiveLibraryDetailInsets: Equatable {
 }
 
 #if os(iOS)
+/// 详情页那层随封面变化的整页底色。
+///
+/// 封面主色不能直接铺满一页：饱和度高的封面会刺眼，亮封面上白字会糊。怎么压深由
+/// `LibraryDetailTintPolicy` 定(规则在 PrimuseKit 里，有测试)，这里只把算好的两段
+/// 颜色接成渐变。头图、列表、页尾共用同一条渐变，页面才是一整块，而不是彩色头顶
+/// 着一块灰底。
+struct LibraryDetailTintStyle: Equatable {
+    var top: Color
+    var bottom: Color
+
+    /// 上半屏保持头图收尾的那个颜色, 过了头图才慢慢变深 —— 否则头图末端与页面底色
+    /// 在接缝处差着一截, 反而多出一条边。
+    var gradient: LinearGradient {
+        LinearGradient(
+            stops: [
+                .init(color: top, location: 0),
+                .init(color: top, location: 0.42),
+                .init(color: bottom, location: 1),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    /// 取不到封面色时的中性底。取色是异步的，颜色到位之前也先用它。
+    static func neutral(colorScheme: ColorScheme) -> LibraryDetailTintStyle {
+        style(LibraryDetailTintPolicy.neutralTint(appearance: appearance(for: colorScheme)))
+    }
+
+    /// - Parameter artworkColor: `CoverTintProvider` 取到的封面主色。
+    static func artwork(_ artworkColor: Color?, colorScheme: ColorScheme) -> LibraryDetailTintStyle {
+        guard let artworkColor, let components = artworkColor.hsbComponents else {
+            return neutral(colorScheme: colorScheme)
+        }
+        return style(LibraryDetailTintPolicy.tint(
+            hue: components.hue,
+            saturation: components.saturation,
+            brightness: components.brightness,
+            appearance: appearance(for: colorScheme)
+        ))
+    }
+
+    private static func appearance(
+        for colorScheme: ColorScheme
+    ) -> LibraryDetailTintPolicy.Appearance {
+        colorScheme == .dark ? .dark : .light
+    }
+
+    private static func style(_ tint: LibraryDetailTint) -> LibraryDetailTintStyle {
+        LibraryDetailTintStyle(top: color(tint.top), bottom: color(tint.bottom))
+    }
+
+    private static func color(_ stop: LibraryDetailTintStop) -> Color {
+        Color(hue: stop.hue, saturation: stop.saturation, brightness: stop.brightness)
+    }
+}
+
+extension Color {
+    /// 取色服务给出的是 `Color`，而压深规则要的是 HSB 三个分量。
+    fileprivate var hsbComponents: (hue: Double, saturation: Double, brightness: Double)? {
+        var hue: CGFloat = 0
+        var saturation: CGFloat = 0
+        var brightness: CGFloat = 0
+        var alpha: CGFloat = 0
+        guard UIColor(self).getHue(
+            &hue,
+            saturation: &saturation,
+            brightness: &brightness,
+            alpha: &alpha
+        ) else { return nil }
+        return (Double(hue), Double(saturation), Double(brightness))
+    }
+}
+
+private struct LibraryDetailTintEnvironmentKey: EnvironmentKey {
+    static let defaultValue: LibraryDetailTintStyle? = nil
+}
+
+extension EnvironmentValues {
+    /// 当前详情页的底色。头图、内容块、行分隔线都按它决定自己画多透。
+    var libraryDetailTint: LibraryDetailTintStyle? {
+        get { self[LibraryDetailTintEnvironmentKey.self] }
+        set { self[LibraryDetailTintEnvironmentKey.self] = newValue }
+    }
+}
+
+/// 把某首歌的封面主色接成整页底色。
+///
+/// 代表封面这首歌由页面自己挑(专辑用专辑封面那首、艺术家用头像那首、风格用第一首
+/// 代表曲)。取色是后台异步做的，所以先给中性底，色到了再淡入 —— 页面结构不跳动。
+private struct LibraryDetailTintModifier: ViewModifier {
+    let song: Song?
+
+    @Environment(CoverTintProvider.self) private var coverTints
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var style: LibraryDetailTintStyle {
+        .artwork(song.flatMap { coverTints.tint(forSongID: $0.id) }, colorScheme: colorScheme)
+    }
+
+    func body(content: Content) -> some View {
+        let resolved = style
+        content
+            .environment(\.libraryDetailTint, resolved)
+            .pmAnimation(.ambient, value: resolved)
+            .task(id: song?.id) {
+                guard let song else { return }
+                coverTints.prepare([song])
+            }
+            // 这两页都能就地换封面，换完要立刻改底色，不能等下次进页面。
+            .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidCache)) { note in
+                coverTints.invalidateArtwork(from: note)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidInvalidate)) { note in
+                coverTints.invalidateArtwork(from: note)
+            }
+    }
+}
+
+extension View {
+    /// 详情页整页底色，取自这首歌的封面。
+    func libraryDetailTint(from song: Song?) -> some View {
+        modifier(LibraryDetailTintModifier(song: song))
+    }
+
+    /// 详情页里内容块的衬底。染了色的页面上用半透明白，让底色透上来；这样列表看着
+    /// 是浮在页面上的一层，而不是另一块拼上去的白卡片。
+    @ViewBuilder
+    func libraryDetailSection(
+        tint: LibraryDetailTintStyle?,
+        cornerRadius: CGFloat = 16
+    ) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        if tint == nil {
+            background(Color(uiColor: .secondarySystemBackground), in: shape)
+                .overlay { shape.stroke(.primary.opacity(0.06), lineWidth: 0.5) }
+        } else {
+            background(.white.opacity(0.09), in: shape)
+                .overlay { shape.stroke(.white.opacity(0.12), lineWidth: 0.5) }
+        }
+    }
+}
+
 struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
     private let header: (ImmersiveLibraryDetailInsets) -> Header
     private let content: Content
+
+    @Environment(\.libraryDetailTint) private var tint
+    @Environment(\.colorScheme) private var colorScheme
 
     init(
         @ViewBuilder header: @escaping (ImmersiveLibraryDetailInsets) -> Header,
@@ -45,10 +195,22 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
                 }
                 // Horizontal artwork shelves must not determine the page width.
                 .frame(width: pageWidth)
+                // 底色是深的, 页面里的语义色(主/次文字、分隔线、行高亮)就得按深色外观
+                // 取值 —— 否则浅色模式下会是黑字压在深底上。
+                .environment(\.colorScheme, tint == nil ? colorScheme : .dark)
+                // 链接和图标按钮改用白色: 主题色来自正在播放的那首歌, 跟本页底色撞色
+                // 的概率不低。
+                .tint(tint == nil ? nil : Color.white)
             }
             .ignoresSafeArea(.container, edges: [.top, .horizontal])
         }
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .background {
+            if let tint {
+                tint.gradient.ignoresSafeArea()
+            } else {
+                Color(.systemGroupedBackground).ignoresSafeArea()
+            }
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
     }
@@ -64,18 +226,34 @@ struct LibraryDetailActionButton: View {
     let disabled: Bool
     let action: () -> Void
 
+    #if os(iOS)
+    @Environment(\.libraryDetailTint) private var tint
+    #endif
+
+    /// 染了色的详情页上主按钮是白底、字用本页底色；次按钮是一层半透明白。
+    /// 主题色在这里不能用 —— 它跟着正在播放的歌走，跟本页底色撞色的概率不低。
+    private var labelColor: Color {
+        #if os(iOS)
+        if let tint { return emphasized ? tint.bottom : .white }
+        #endif
+        return emphasized || onArtwork ? .white : .accentColor
+    }
+
+    private var fillColor: Color {
+        #if os(iOS)
+        if let tint { return emphasized ? .white : .white.opacity(0.16) }
+        #endif
+        return emphasized ? .accentColor : (onArtwork ? .white.opacity(0.18) : .accentColor.opacity(0.12))
+    }
+
     var body: some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
                 .font(.headline)
-                .foregroundStyle(emphasized || onArtwork ? Color.white : Color.accentColor)
+                .foregroundStyle(labelColor)
                 .padding(.horizontal, 20)
                 .frame(maxWidth: fillsWidth ? .infinity : nil, minHeight: 48)
-                .background(
-                    emphasized ? Color.accentColor
-                        : (onArtwork ? Color.white.opacity(0.18) : Color.accentColor.opacity(0.12)),
-                    in: Capsule()
-                )
+                .background(fillColor, in: Capsule())
         }
         .buttonStyle(.plain)
         .disabled(disabled)

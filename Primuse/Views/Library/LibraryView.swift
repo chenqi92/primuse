@@ -2302,6 +2302,8 @@ private struct GenreDetailView: View {
     @Environment(\.legacyBottomChromeOverlayActive)
     private var legacyBottomChromeOverlayActive
     @Environment(\.pmHeightClass) private var heightClass
+    @Environment(CoverTintProvider.self) private var coverTints
+    @Environment(\.colorScheme) private var colorScheme
     #endif
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
@@ -2322,6 +2324,24 @@ private struct GenreDetailView: View {
 
     private var songs: [Song] { library.songs(forGenre: genre.id) }
     private var playableSongs: [Song] { songs.filteredPlayable() }
+
+    #if os(iOS)
+    /// 风格没有自己的封面, 用它的第一首代表曲 —— 也就是马赛克里最上面那张。
+    private var artworkTintSong: Song? {
+        genre.representativeSongIDs.lazy.compactMap { library.visibleSong(id: $0) }.first
+            ?? songs.first
+    }
+
+    /// 取不到封面色时退回这个风格原来的固定配色, 风格之间仍然分得开。
+    private var tint: LibraryDetailTintStyle {
+        let artworkColor = artworkTintSong.flatMap { coverTints.tint(forSongID: $0.id) }
+        return .artwork(
+            artworkColor ?? GenreVisualStyle.palette(for: genre.id).leading,
+            colorScheme: colorScheme
+        )
+    }
+    #endif
+
     private var albums: [Album] {
         library.albums(forGenre: genre.id).sorted { lhs, rhs in
             let lhsYear = lhs.year ?? Int.min
@@ -2365,6 +2385,7 @@ private struct GenreDetailView: View {
         }
         .toolbarTitleDisplayMode(.inline)
         #if os(iOS)
+        .libraryDetailTint(from: artworkTintSong)
         .minimalNavigationDetail()
         .librarySearchContext {
             LibrarySearchScope(title: genre.name, songIDs: Set(songs.map(\.id)), kind: .genre)
@@ -2381,7 +2402,6 @@ private struct GenreDetailView: View {
     /// 那 100 就白占了整块首屏。紧凑高度下顶部留白、标题字号、马赛克都降一档,
     /// hero 压到 170pt 以内, 专辑架和第一首歌才露得出来。结构不变。
     private func hero(insets: ImmersiveLibraryDetailInsets) -> some View {
-        let palette = GenreVisualStyle.palette(for: genre.id)
         let compact = usesCompactHero
         let heroTopPadding: CGFloat = compact ? 28 : 100
         let heroBottomPadding: CGFloat = compact ? 14 : 28
@@ -2441,28 +2461,61 @@ private struct GenreDetailView: View {
         .padding(.bottom, heroBottomPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
-            LinearGradient(
-                colors: [palette.leading, palette.trailing],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+            heroBackdrop(
+                insets: insets,
+                mosaicWidth: mosaicWidth,
+                mosaicHeight: mosaicHeight,
+                mosaicArtworkSize: mosaicArtworkSize
             )
-            .overlay(alignment: .topTrailing) {
-                GenreArtworkMosaic(genre: genre, artworkSize: mosaicArtworkSize)
-                    .frame(width: mosaicWidth, height: mosaicHeight)
-                    .padding(.top, insets.top + 12)
-                    .padding(.trailing, insets.trailing + 16)
-                    .opacity(0.8)
-                    .accessibilityHidden(true)
-            }
-            .overlay {
-                LinearGradient(
-                    colors: [.black.opacity(0.05), .black.opacity(0.76)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            }
         }
         .clipped()
+    }
+
+    /// 头图底: 整页底色打底, 右上角压那叠代表封面, 再往下化进页面底色 ——
+    /// 接下去的专辑架和歌曲列表用的就是这个颜色, 所以看不出头图在哪儿结束。
+    private func heroBackdrop(
+        insets: ImmersiveLibraryDetailInsets,
+        mosaicWidth: CGFloat,
+        mosaicHeight: CGFloat,
+        mosaicArtworkSize: CGFloat
+    ) -> some View {
+        #if os(iOS)
+        let leading = tint.top
+        let trailing = tint.bottom
+        let fade = LinearGradient(
+            stops: [
+                .init(color: .black.opacity(0.05), location: 0),
+                .init(color: tint.top.opacity(0.42), location: 0.55),
+                .init(color: tint.top, location: 1),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        #else
+        let palette = GenreVisualStyle.palette(for: genre.id)
+        let leading = palette.leading
+        let trailing = palette.trailing
+        let fade = LinearGradient(
+            colors: [.black.opacity(0.05), .black.opacity(0.76)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        #endif
+
+        return LinearGradient(
+            colors: [leading, trailing],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        .overlay(alignment: .topTrailing) {
+            GenreArtworkMosaic(genre: genre, artworkSize: mosaicArtworkSize)
+                .frame(width: mosaicWidth, height: mosaicHeight)
+                .padding(.top, insets.top + 12)
+                .padding(.trailing, insets.trailing + 16)
+                .opacity(0.8)
+                .accessibilityHidden(true)
+        }
+        .overlay { fade }
     }
 
     private var albumShelf: some View {
@@ -2517,12 +2570,14 @@ private struct GenreDetailView: View {
             }
             #if os(iOS)
             .songRowColumnsContainer()
-            #endif
+            .libraryDetailSection(tint: tint)
+            #else
             .background(.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(.primary.opacity(0.06), lineWidth: 0.5)
             }
+            #endif
             .padding(.horizontal, 20)
         }
     }
