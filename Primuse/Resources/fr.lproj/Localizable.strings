@@ -387,9 +387,7 @@
 "theme_color_brightness" = "Luminosité";
 "theme_color_hex" = "Valeur";
 "app_icon" = "Icône de l'app";
-"app_icon_dock_hint" = "macOS ne peut remplacer l'icône du Dock que pendant l'exécution de Primuse ; une fois l'app quittée, le Dock réaffiche l'icône incluse dans le paquet. Pour conserver cette icône après la fermeture, copiez-la puis collez-la dans le Finder.";
-"app_icon_copy_image" = "Copier l'icône";
-"app_icon_copied" = "Copiée. Dans le Finder, sélectionnez Primuse, appuyez sur ⌘I, cliquez sur l'icône en haut à gauche puis appuyez sur ⌘V.";
+"app_icon_dock_hint" = "macOS ne peut remplacer l’icône du Dock que pendant l’exécution de Primuse ; une fois l’app quittée, le Dock réaffiche l’icône incluse dans le paquet.";
 "icon_default" = "Splash";
 "icon_appearance_gray" = "Gris";
 "icon_appearance_hint" = "L’icône suit l’apparence de l’écran d’accueil. Maintenez l’écran d’accueil, puis choisissez Modifier → Personnaliser → Automatique.";

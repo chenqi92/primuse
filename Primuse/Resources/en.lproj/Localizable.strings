@@ -156,9 +156,7 @@
 "theme_color_brightness" = "Brightness";
 "theme_color_hex" = "Value";
 "app_icon" = "App Icon";
-"app_icon_dock_hint" = "macOS can only swap the Dock icon while Primuse is running — once it quits, the Dock falls back to the icon inside the app bundle. To keep this icon after quitting, copy it and paste it in Finder.";
-"app_icon_copy_image" = "Copy Icon";
-"app_icon_copied" = "Copied. In Finder select Primuse, press ⌘I, click the icon at the top left, then press ⌘V.";
+"app_icon_dock_hint" = "macOS can only swap the Dock icon while Primuse is running — once it quits, the Dock falls back to the icon inside the app bundle.";
 "icon_default" = "Splash";
 "icon_appearance_gray" = "Gray";
 "icon_appearance_hint" = "The icon follows the Home Screen appearance. Touch and hold the Home Screen, then choose Edit → Customize → Automatic.";

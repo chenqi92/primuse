@@ -4898,37 +4898,6 @@ private struct MacSTThemeView: View {
     private var motionArtworkServiceEnabled = PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault
     @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEndpointKey)
     private var motionArtworkServiceEndpoint = PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
-    /// 刚点过"拷贝图标"——显示一行粘贴指引,几秒后自动收起。
-    @State private var appIconCopied = false
-    @State private var appIconCopyResetTask: Task<Void, Never>?
-
-    /// 把当前选中的图标放进剪贴板。
-    ///
-    /// macOS 给「换 Dock 图标」一共三条官方路,对 App Store 版的 Primuse 全都
-    /// 走不通,所以才落到剪贴板 + 访达粘贴上:
-    ///   1. `NSApp.applicationIconImage` —— 只在运行期生效,退出后 Dock 显示
-    ///      的是 App 包自带的图标。这是现在换图标走的路。
-    ///   2. `NSWorkspace.setIcon(_:forFile:options:)` —— 把图标写进 app 包,
-    ///      Finder / Spotlight / Dock 都跟着变;但沙盒不让写自己的包,
-    ///      App Store 装的 app 在 /Applications 下还是 root 所有。
-    ///   3. `NSDockTilePlugIn` —— Apple 专为「app 没运行时定制 Dock tile」做的
-    ///      API,但它往 Dock 进程里塞插件,上不了 Mac App Store。出非商店的
-    ///      直接下载版时可以考虑。
-    /// 访达的简介窗口自己会处理权限提升,所以这里只要把那张图备好。
-    private func copySelectedAppIcon() {
-        let asset = MacAppIcon.option(for: preferences.appIconID).previewAsset
-        guard let image = MacAppIcon.dockIconImage(previewAsset: asset) else { return }
-        NSPasteboard.general.clearContents()
-        _ = NSPasteboard.general.writeObjects([image])
-        appIconCopied = true
-        appIconCopyResetTask?.cancel()
-        appIconCopyResetTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(8))
-            guard !Task.isCancelled else { return }
-            appIconCopied = false
-        }
-    }
-
     private var swatches: [(hex: String, name: String, sub: String, color: Color)] {
         AppThemePreferences.swatches.map { swatch in
             (
@@ -5215,24 +5184,6 @@ private struct MacSTThemeView: View {
                     }
                 }
             }
-
-            HStack(spacing: 8) {
-                MacSTButton(
-                    title: String(localized: "app_icon_copy_image"),
-                    systemImage: "doc.on.doc"
-                ) {
-                    copySelectedAppIcon()
-                }
-                if appIconCopied {
-                    Text("app_icon_copied")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(PMColor.textFaint)
-                        .transition(.opacity)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 14)
-            .pmAnimation(.hover, value: appIconCopied)
         }
         .settingsAnchor("appearance.appIcon")
 

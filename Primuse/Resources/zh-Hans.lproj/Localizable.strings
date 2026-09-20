@@ -157,9 +157,7 @@
 "theme_color_brightness" = "明度";
 "theme_color_hex" = "色值";
 "app_icon" = "应用图标";
-"app_icon_dock_hint" = "macOS 只能在 Primuse 运行时替换 Dock 图标，退出后 Dock 会显示应用包自带的图标。想让退出后也保持这套图标，拷贝它再到访达里粘贴。";
-"app_icon_copy_image" = "拷贝图标";
-"app_icon_copied" = "已拷贝：在访达选中 Primuse，按 ⌘I，点左上角图标后按 ⌘V。";
+"app_icon_dock_hint" = "macOS 只能在 Primuse 运行时替换 Dock 图标，退出后 Dock 会显示应用包自带的图标。";
 "icon_default" = "音浪";
 "icon_appearance_gray" = "灰色";
 "icon_appearance_hint" = "图标会跟随主屏幕外观切换。请长按主屏幕空白处，然后选择“编辑”→“自定义”→“自动”。";
