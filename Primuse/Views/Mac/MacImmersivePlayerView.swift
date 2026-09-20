@@ -411,17 +411,88 @@ struct MacImmersivePlayerView: View {
         }
     }
 
+    /// 展示型效果 (标题墙 / 封面流 / 星空…) 右下角那块浮动控件。
+    ///
+    /// 排成一行而不是"进度条上、按钮下"两行:`ImmersiveGlassPill` 的底是
+    /// `Capsule`,圆角等于高度的一半,套在两行内容上两端就会鼓成两个大半圆,
+    /// 看着像一块突兀的厚板。一行之后胶囊的形状才成立,按钮也跟着 metrics
+    /// 缩放,不会在 4K 屏上显得又小又散。
     @ViewBuilder
     private func macShowcaseControlSurface(metrics: ImmersiveStageMetrics) -> some View {
         ImmersiveGlassPill(
-            horizontalPadding: metrics.s(18),
-            verticalPadding: metrics.s(8)
+            horizontalPadding: metrics.s(22),
+            verticalPadding: metrics.s(10)
         ) {
-            VStack(spacing: 0) {
-                seekBar
-                transportStrip
+            HStack(spacing: metrics.s(16)) {
+                showcaseTransport(metrics: metrics)
+
+                Text((scrubPreview ?? player.currentTime).formattedDuration)
+                    .font(.system(size: metrics.s(11), weight: .medium, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(chromeInk.opacity(0.52))
+
+                MacImmersiveScrubber(accent: seekTint) { fraction in
+                    revealChrome()
+                    player.seek(to: fraction * player.duration)
+                }
+                .frame(minWidth: metrics.s(120))
+
+                Text(player.duration.formattedDuration)
+                    .font(.system(size: metrics.s(11), weight: .medium, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(chromeInk.opacity(0.52))
             }
-            .frame(width: min(metrics.s(360), metrics.size.width * 0.36))
+            .frame(width: min(metrics.s(520), metrics.size.width * 0.44))
+        }
+    }
+
+    /// 展示型效果专用的传输键 —— 比 `transportStrip` 小一号,且尺寸跟着
+    /// metrics 走,好让它在一行胶囊里不至于把高度撑起来。
+    private func showcaseTransport(metrics: ImmersiveStageMetrics) -> some View {
+        HStack(spacing: metrics.s(10)) {
+            transportButton(
+                "backward.fill",
+                size: metrics.s(14),
+                diameter: metrics.s(34),
+                label: "a11y_previous_track"
+            ) {
+                Task { await player.previous() }
+            }
+
+            Button {
+                revealChrome()
+                player.togglePlayPause()
+            } label: {
+                ZStack {
+                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: metrics.s(17), weight: .medium))
+                        .contentTransition(.symbolEffect(.replace))
+                        .opacity(player.isLoading ? 0 : 1)
+                    if player.isLoading {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(chromeInk)
+                    }
+                }
+                .foregroundStyle(chromeInk)
+                .frame(width: metrics.s(42), height: metrics.s(42))
+                .overlay {
+                    Circle().strokeBorder(chromeInk.opacity(0.64), lineWidth: metrics.f(1.2))
+                }
+            }
+            .buttonStyle(.plain)
+            .pmPointingHand()
+            .disabled(player.isLoading)
+            .help(Text(player.isPlaying ? "a11y_pause" : "a11y_play"))
+
+            transportButton(
+                "forward.fill",
+                size: metrics.s(14),
+                diameter: metrics.s(34),
+                label: "a11y_next_track"
+            ) {
+                Task { await player.next() }
+            }
         }
     }
 
