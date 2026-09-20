@@ -134,6 +134,8 @@ struct MacNowPlayingView: View {
             if isImmersiveStageActive {
                 MacImmersivePlayerView(
                     lyrics: lyrics,
+                    // 安全区由这棵树的宿主决定,沉浸层不能自己再忽略一次。
+                    ignoresWindowSafeArea: false,
                     onExitFullScreen: { exitFullScreen() },
                     onToggleQueue: onToggleQueue
                 )

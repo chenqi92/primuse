@@ -7,6 +7,13 @@ import PrimuseKit
 struct MacImmersivePlayerView: View {
     /// 已经由常规播放页加载好的带时间戳歌词，沉浸态继续沿用同一份数据。
     let lyrics: [LyricLine]
+    /// 是否由这层自己忽略窗口安全区。
+    ///
+    /// 作为播放页里的一层时必须交给宿主（传 false）：在这里再忽略一次，扩出来的
+    /// 尺寸会被共用的 ZStack 吸收，整棵内容树跟着比窗口还高 —— 顶部那排按钮被顶出
+    /// 上边界只剩半截，底栏被推到 Dock 底下，而且回到常规全屏也不会自己复原。
+    /// 只有把这份视图当成窗口根内容用时（截图取证那条路径）才需要自己忽略。
+    var ignoresWindowSafeArea = true
     /// 退出 macOS 全屏
     var onExitFullScreen: () -> Void
     var onToggleQueue: () -> Void
@@ -125,7 +132,7 @@ struct MacImmersivePlayerView: View {
                 if case .active = phase { revealChrome() }
             }
         }
-        .ignoresSafeArea()
+        .ignoresSafeArea(edges: ignoresWindowSafeArea ? .all : [])
         .macPlaybackErrorFeedback()
         .environment(\.colorScheme, presentationEffect.prefersLightContent ? .light : .dark)
         .animation(.easeInOut(duration: 0.5), value: theme.colorID)
