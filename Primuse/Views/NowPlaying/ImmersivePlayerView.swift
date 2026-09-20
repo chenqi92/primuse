@@ -106,6 +106,14 @@ struct ImmersivePlayerView: View {
                 // 抽屉是这一层 ZStack 里的覆盖物而不是系统 popover: 宿主才能准确知道它
                 // 开着,继续暂停控件自动隐藏与滑动切效果。舞台不被它包住,开抽屉不会重建舞台。
                 if showsEffectPicker {
+                    // 抽屉之外点一下就收起。舞台那层的点击要避开顶部与底部的控件带
+                    // (`isControlZone`),屏幕最上面那条 72pt 于是成了点不掉抽屉的死角;
+                    // 抽屉开着时整块界面只做「收起」这一件事,所以单独铺一层。
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { showsEffectPicker = false }
+                        .accessibilityHidden(true)
+
                     ImmersiveEffectDrawer(
                         selection: $effect,
                         effects: ImmersiveEffectDrawer.fullscreenCases,
