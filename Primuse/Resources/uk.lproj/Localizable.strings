@@ -1397,6 +1397,9 @@
 "onboarding_guide_player_queue" = "Черга: утримуйте й перетягніть, щоб змінити порядок наступних пісень";
 "onboarding_guide_player_more" = "Більше: трансляція на DLNA-пристрої, таймер сну або постер із текстом пісні";
 "app_icon" = "Значок програми";
+"app_icon_dock_hint" = "macOS змінює значок у Dock лише поки Primuse запущено — після виходу Dock знову показує значок із пакета програми. Щоб значок лишався й після виходу, скопіюйте його та вставте у Finder.";
+"app_icon_copy_image" = "Скопіювати значок";
+"app_icon_copied" = "Скопійовано. У Finder виберіть Primuse, натисніть ⌘I, клацніть значок угорі ліворуч і натисніть ⌘V.";
 "audio_output_error_set_device %d" = "Не вдалося вибрати вихідний аудіопристрій (статус=%d).";
 "ai_recommendation_scene_automatic" = "Прямо зараз";
 "lyrics_transcription_model" = "Модель транскрипції";

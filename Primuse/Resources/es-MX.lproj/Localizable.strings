@@ -736,6 +736,9 @@
 "anonymous_login_hint" = "No se usa cuenta ni contraseña; las credenciales guardadas se eliminan al guardar";
 "api_key" = "Tecla API";
 "app_icon" = "Icono de aplicación";
+"app_icon_dock_hint" = "macOS solo puede cambiar el ícono del Dock mientras Primuse está abierto; al salir, el Dock vuelve al ícono incluido en el paquete de la app. Para conservar este ícono después de cerrar, cópialo y pégalo en el Finder.";
+"app_icon_copy_image" = "Copiar ícono";
+"app_icon_copied" = "Copiado. En el Finder selecciona Primuse, presiona ⌘I, haz clic en el ícono de arriba a la izquierda y presiona ⌘V.";
 "app_name" = "Primuse";
 "appearance" = "Apariencia";
 "appearance_system_blue" = "Sistema azul";

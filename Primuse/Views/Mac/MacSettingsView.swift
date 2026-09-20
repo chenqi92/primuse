@@ -4898,6 +4898,27 @@ private struct MacSTThemeView: View {
     private var motionArtworkServiceEnabled = PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault
     @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEndpointKey)
     private var motionArtworkServiceEndpoint = PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
+    /// 刚点过"拷贝图标"——显示一行粘贴指引,几秒后自动收起。
+    @State private var appIconCopied = false
+    @State private var appIconCopyResetTask: Task<Void, Never>?
+
+    /// 把当前选中的图标放进剪贴板。macOS 只让运行中的 app 换 Dock 图标
+    /// (`NSApp.applicationIconImage`),退出后 Dock 显示的是 App 包自带的图标,
+    /// 沙盒又不允许改自己的包;唯一能让选择长期生效的路径是用户自己在访达的
+    /// 简介窗口粘贴图标,所以这里备好那张图。
+    private func copySelectedAppIcon() {
+        let asset = MacAppIcon.option(for: preferences.appIconID).previewAsset
+        guard let image = MacAppIcon.dockIconImage(previewAsset: asset) else { return }
+        NSPasteboard.general.clearContents()
+        _ = NSPasteboard.general.writeObjects([image])
+        appIconCopied = true
+        appIconCopyResetTask?.cancel()
+        appIconCopyResetTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled else { return }
+            appIconCopied = false
+        }
+    }
 
     private var swatches: [(hex: String, name: String, sub: String, color: Color)] {
         AppThemePreferences.swatches.map { swatch in
@@ -5173,7 +5194,8 @@ private struct MacSTThemeView: View {
             }
         }
 
-        MacSTSection(String(localized: "app_icon")) {
+        MacSTSection(String(localized: "app_icon"),
+                     hint: String(localized: "app_icon_dock_hint")) {
             LazyVGrid(
                 columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4),
                 spacing: 16
@@ -5184,6 +5206,24 @@ private struct MacSTThemeView: View {
                     }
                 }
             }
+
+            HStack(spacing: 8) {
+                MacSTButton(
+                    title: String(localized: "app_icon_copy_image"),
+                    systemImage: "doc.on.doc"
+                ) {
+                    copySelectedAppIcon()
+                }
+                if appIconCopied {
+                    Text("app_icon_copied")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(PMColor.textFaint)
+                        .transition(.opacity)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14)
+            .pmAnimation(.hover, value: appIconCopied)
         }
         .settingsAnchor("appearance.appIcon")
 

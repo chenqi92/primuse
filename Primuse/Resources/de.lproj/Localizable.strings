@@ -387,6 +387,9 @@
 "theme_color_brightness" = "Helligkeit";
 "theme_color_hex" = "Farbwert";
 "app_icon" = "App-Symbol";
+"app_icon_dock_hint" = "macOS kann das Dock-Symbol nur ändern, solange Primuse läuft – nach dem Beenden zeigt das Dock wieder das Symbol aus dem App-Paket. Damit dieses Symbol auch nach dem Beenden bleibt, kopiere es und füge es im Finder ein.";
+"app_icon_copy_image" = "Symbol kopieren";
+"app_icon_copied" = "Kopiert. Im Finder Primuse auswählen, ⌘I drücken, oben links auf das Symbol klicken und ⌘V drücken.";
 "icon_default" = "Splash";
 "icon_appearance_gray" = "Grau";
 "icon_appearance_hint" = "Das Symbol folgt der Darstellung des Home-Bildschirms. Halte den Home-Bildschirm gedrückt und wähle „Bearbeiten“ → „Anpassen“ → „Automatisch“.";

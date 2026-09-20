@@ -1397,6 +1397,9 @@
 "onboarding_guide_player_queue" = "Sıra: basılı tutup sürükleyerek sıradaki şarkıların sırasını değiştirin";
 "onboarding_guide_player_more" = "Diğer: DLNA cihazlarına yayınlayın, uyku zamanlayıcısı kurun veya şarkı sözü posteri paylaşın";
 "app_icon" = "Uygulama Simgesi";
+"app_icon_dock_hint" = "macOS, Dock simgesini yalnızca Primuse çalışırken değiştirebilir; uygulamadan çıkınca Dock, uygulama paketindeki simgeye döner. Bu simgenin çıkıştan sonra da kalması için kopyalayıp Finder'da yapıştırın.";
+"app_icon_copy_image" = "Simgeyi kopyala";
+"app_icon_copied" = "Kopyalandı. Finder'da Primuse'u seçin, ⌘I tuşlarına basın, sol üstteki simgeye tıklayıp ⌘V yapın.";
 "audio_output_error_set_device %d" = "Ses çıkış cihazı seçilemedi (durum=%d).";
 "ai_recommendation_scene_automatic" = "Şu Anda";
 "lyrics_transcription_model" = "Transkripsiyon Modeli";
