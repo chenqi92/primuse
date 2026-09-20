@@ -3,7 +3,7 @@
 The production catalog contains one primary icon and five alternates:
 
 - `00-splash.png` — primary icon: a milky-white dimensional splash with an engraved ring and a note in its opening, on solid berry pink.
-- `14-letter-p.png` — the letter P in the same material in pure white on solid cobalt blue, with a note in its bowl.
+- `14-letter-p.png` — the letter P in the same material in pure white on solid cobalt blue. Its bowl is an open counter; the note sits at the lower right on the P's own baseline, where its stem and flag double as a lowercase r — together they read Pr.
 - `15-folded-note.png` — the previous primary folded-note icon, retained as an alternate.
 - `12-pikaqiu.png` — user-submitted gradient music-note icon on an adaptive light, dark, or tinted background.
 - `06-soft-note.png` — restored original soft-gradient music note.
