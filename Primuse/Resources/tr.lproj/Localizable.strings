@@ -4137,3 +4137,8 @@
 "search_top_match_kind_artist" = "Sanatçı";
 "search_top_match_kind_album" = "Albüm";
 "search_top_match_kind_song" = "Şarkı";
+"audio_variant_lossy_stereo" = "Stereo";
+"audio_variant_lossless" = "Lossless";
+"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_dolby_atmos" = "Dolby Atmos";
+"audio_variant_dolby_audio" = "Dolby Audio";

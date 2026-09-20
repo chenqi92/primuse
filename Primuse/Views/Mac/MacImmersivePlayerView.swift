@@ -1012,7 +1012,8 @@ struct MacImmersivePlayerView: View {
         return ImmersiveAudioSpec.line(
             format: song.fileFormat.displayName,
             sampleRate: song.sampleRate,
-            bitDepth: song.bitDepth
+            bitDepth: song.bitDepth,
+            audioVariants: song.audioVariants
         )
     }
 

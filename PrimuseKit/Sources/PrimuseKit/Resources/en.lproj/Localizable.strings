@@ -894,3 +894,8 @@
 "ext.tv.transfer.artwork" = "Receiving artwork (batch %1$@ of %2$@)…";
 "ext.tv.transfer.finished" = "Transferred %@ songs from iPhone";
 "ext.tv.transfer.failed" = "The transfer didn’t finish. Try again on iPhone.";
+"audio_variant_lossy_stereo" = "Stereo";
+"audio_variant_lossless" = "Lossless";
+"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_dolby_atmos" = "Dolby Atmos";
+"audio_variant_dolby_audio" = "Dolby Audio";

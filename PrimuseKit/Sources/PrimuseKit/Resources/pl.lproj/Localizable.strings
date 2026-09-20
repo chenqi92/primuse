@@ -843,3 +843,8 @@
 "ext.tv.transfer.artwork" = "Odbieranie okładek (partia %1$@ z %2$@)…";
 "ext.tv.transfer.finished" = "Przeniesiono utwory z iPhone: %@";
 "ext.tv.transfer.failed" = "Przesyłanie nie zostało ukończone. Spróbuj ponownie na iPhone.";
+"audio_variant_lossy_stereo" = "Stereo";
+"audio_variant_lossless" = "Lossless";
+"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_dolby_atmos" = "Dolby Atmos";
+"audio_variant_dolby_audio" = "Dolby Audio";

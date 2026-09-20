@@ -896,3 +896,8 @@
 "ext.tv.transfer.artwork" = "아트워크 받는 중(%2$@개 중 %1$@번째 묶음)…";
 "ext.tv.transfer.finished" = "iPhone에서 %@곡을 전송했습니다";
 "ext.tv.transfer.failed" = "전송이 완료되지 않았습니다. iPhone에서 다시 시도하십시오.";
+"audio_variant_lossy_stereo" = "스테레오";
+"audio_variant_lossless" = "무손실";
+"audio_variant_hi_res_lossless" = "고해상도 무손실";
+"audio_variant_dolby_atmos" = "돌비 애트모스";
+"audio_variant_dolby_audio" = "돌비 오디오";

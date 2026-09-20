@@ -893,3 +893,8 @@
 "ext.tv.transfer.artwork" = "正在接收封面（第 %1$@ 批，共 %2$@ 批）";
 "ext.tv.transfer.finished" = "已从 iPhone 传入 %@ 首歌曲";
 "ext.tv.transfer.failed" = "传输没有完成，请在 iPhone 上重试。";
+"audio_variant_lossy_stereo" = "立体声";
+"audio_variant_lossless" = "无损";
+"audio_variant_hi_res_lossless" = "高解析度无损";
+"audio_variant_dolby_atmos" = "杜比全景声";
+"audio_variant_dolby_audio" = "杜比音频";

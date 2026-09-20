@@ -80,6 +80,10 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     /// scans and metadata backfill may still refresh technical fields, but must
     /// preserve the user-controlled identity fields while this marker exists.
     public var userMetadataEditedAt: Date?
+    /// Apple Music 目录曲目提供的音质版本（无损 / 高解析度无损 / 杜比全景声…）。
+    /// nil = 不是 Apple Music 曲目，或者还没查到。标的是「提供哪些版本」而不是
+    /// 「正在播什么」，详见 [AudioVariant]。
+    public var audioVariants: [AudioVariant]?
 
     public init(
         id: String,
@@ -121,7 +125,8 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         artistPinyin: String? = nil,
         albumPinyin: String? = nil,
         lyricsText: String? = nil,
-        userMetadataEditedAt: Date? = nil
+        userMetadataEditedAt: Date? = nil,
+        audioVariants: [AudioVariant]? = nil
     ) {
         self.id = id
         self.title = title
@@ -163,6 +168,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.albumPinyin = albumPinyin
         self.lyricsText = lyricsText
         self.userMetadataEditedAt = userMetadataEditedAt
+        self.audioVariants = audioVariants
     }
 }
 

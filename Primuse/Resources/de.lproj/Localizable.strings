@@ -4231,3 +4231,8 @@
 "search_top_match_kind_artist" = "Künstler";
 "search_top_match_kind_album" = "Album";
 "search_top_match_kind_song" = "Titel";
+"audio_variant_lossy_stereo" = "Stereo";
+"audio_variant_lossless" = "Lossless";
+"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_dolby_atmos" = "Dolby Atmos";
+"audio_variant_dolby_audio" = "Dolby Audio";

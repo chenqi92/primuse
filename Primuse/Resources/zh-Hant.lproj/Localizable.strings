@@ -4208,3 +4208,8 @@
 "search_top_match_kind_artist" = "演出者";
 "search_top_match_kind_album" = "專輯";
 "search_top_match_kind_song" = "歌曲";
+"audio_variant_lossy_stereo" = "立體聲";
+"audio_variant_lossless" = "無損";
+"audio_variant_hi_res_lossless" = "高解析度無損";
+"audio_variant_dolby_atmos" = "杜比全景聲";
+"audio_variant_dolby_audio" = "杜比音訊";

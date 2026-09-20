@@ -843,3 +843,8 @@
 "ext.tv.transfer.artwork" = "กำลังรับภาพปก (ชุดที่ %1$@ จาก %2$@)…";
 "ext.tv.transfer.finished" = "ถ่ายโอน %@ เพลงจาก iPhone แล้ว";
 "ext.tv.transfer.failed" = "การถ่ายโอนไม่เสร็จสมบูรณ์ ลองอีกครั้งบน iPhone";
+"audio_variant_lossy_stereo" = "สเตอริโอ";
+"audio_variant_lossless" = "Lossless";
+"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_dolby_atmos" = "Dolby Atmos";
+"audio_variant_dolby_audio" = "Dolby Audio";

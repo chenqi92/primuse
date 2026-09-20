@@ -4137,3 +4137,8 @@
 "search_top_match_kind_artist" = "कलाकार";
 "search_top_match_kind_album" = "एल्बम";
 "search_top_match_kind_song" = "गाना";
+"audio_variant_lossy_stereo" = "स्टीरियो";
+"audio_variant_lossless" = "Lossless";
+"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_dolby_atmos" = "Dolby Atmos";
+"audio_variant_dolby_audio" = "Dolby Audio";

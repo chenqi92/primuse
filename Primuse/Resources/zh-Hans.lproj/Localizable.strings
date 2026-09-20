@@ -4324,3 +4324,8 @@
 "search_top_match_kind_artist" = "艺术家";
 "search_top_match_kind_album" = "专辑";
 "search_top_match_kind_song" = "歌曲";
+"audio_variant_lossy_stereo" = "立体声";
+"audio_variant_lossless" = "无损";
+"audio_variant_hi_res_lossless" = "高解析度无损";
+"audio_variant_dolby_atmos" = "杜比全景声";
+"audio_variant_dolby_audio" = "杜比音频";

@@ -506,7 +506,10 @@ final class AppleMusicLibraryService {
                         request.limit = batch.count
                         songs = Array(try await request.response().items)
                     } else {
-                        let request = MusicCatalogResourceRequest<MusicKit.Song>(matching: \.id, memberOf: batch)
+                        var request = MusicCatalogResourceRequest<MusicKit.Song>(matching: \.id, memberOf: batch)
+                        // 音质版本是扩展属性，不带这一句 `song.audioVariants` 永远是 nil。
+                        // 跟着这一批一起要，不额外多一次往返。
+                        request.properties = [.audioVariants]
                         songs = Array(try await request.response().items)
                     }
                     for song in songs {
@@ -694,7 +697,8 @@ final class AppleMusicLibraryService {
             request.limit = 1
             song = try await request.response().items.first
         } else {
-            let request = MusicCatalogResourceRequest<MusicKit.Song>(matching: \.id, equalTo: id)
+            var request = MusicCatalogResourceRequest<MusicKit.Song>(matching: \.id, equalTo: id)
+            request.properties = [.audioVariants]
             song = try await request.response().items.first
         }
         try Task.checkCancellation()
@@ -1582,11 +1586,32 @@ final class AppleMusicLibraryService {
         return items.filter { seen.insert($0.id).inserted }
     }
 
+    /// MusicKit 的 `AudioVariant` → PrimuseKit 的同名枚举。MusicKit 那个类型不是
+    /// `CaseIterable` 也没有稳定 rawValue 可直接转，只能逐个对。将来 Apple 加了
+    /// 新档位会落到 nil 被丢掉，不会把未知值当成有损。
+    nonisolated static func mapAudioVariants(_ variants: [MusicKit.AudioVariant]?) -> [PrimuseKit.AudioVariant]? {
+        guard let variants, !variants.isEmpty else { return nil }
+        let mapped: [PrimuseKit.AudioVariant] = variants.compactMap { variant in
+            switch variant {
+            case .dolbyAtmos: .dolbyAtmos
+            case .dolbyAudio: .dolbyAudio
+            case .highResolutionLossless: .highResolutionLossless
+            case .lossless: .lossless
+            case .lossyStereo: .lossyStereo
+            default: nil
+            }
+        }
+        return mapped.isEmpty ? nil : mapped
+    }
+
     /// MusicKit.Song → PrimuseKit.Song 映射。
     /// - songID 用 sha256(sourceID + AppleMusicID) — 跟 NAS 歌的 id 算法一致,
     ///   保证全局唯一且稳定 (同一首 Apple Music 歌每次 sync 都得到同一个 id)。
-    /// - fileFormat: Apple Music 走系统 player, 实际格式由 ApplicationMusicPlayer
-    ///   决定, 我们填 `.aac` 占位 (大部分 Apple Music 是 AAC)。
+    /// - fileFormat: 由 `audioVariants` 推出来 —— 有无损档就是 ALAC, 否则是 AAC,
+    ///   这一层归类是确定的。查不到 variants 时 (资料库曲目不带这个扩展属性,
+    ///   或者请求没带 `.properties = [.audioVariants]`) 仍回落到 `.aac`。
+    ///   采样率 / 位深一律留空:Apple 只公布档位的「最高」值,逐曲的真实数值拿不到,
+    ///   硬填会让规格行和排序变成另一种假话。
     nonisolated static func toPrimuseSong(_ s: MusicKit.Song) -> PrimuseKit.Song {
         let sourceID = Self.systemSourceID
         let amID = s.id.rawValue
@@ -1604,6 +1629,7 @@ final class AppleMusicLibraryService {
                   }) else { return }
             result.append(name)
         } ?? []
+        let variants = Self.mapAudioVariants(s.audioVariants)
         return PrimuseKit.Song(
             id: songID,
             title: s.title,
@@ -1614,7 +1640,7 @@ final class AppleMusicLibraryService {
             trackNumber: s.trackNumber,
             discNumber: s.discNumber,
             duration: s.duration ?? 0,
-            fileFormat: .aac,
+            fileFormat: variants?.impliedFileFormat ?? .aac,
             filePath: amID,
             sourceID: sourceID,
             fileSize: 0,
@@ -1632,7 +1658,8 @@ final class AppleMusicLibraryService {
             // (见 CachedArtworkView.swift Case 1)。600×600 在大屏 / mini /
             // accessory 都够清晰。
             coverArtFileName: s.artwork?.url(width: 600, height: 600)?.absoluteString,
-            lyricsFileName: nil
+            lyricsFileName: nil,
+            audioVariants: variants
         )
     }
 

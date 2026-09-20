@@ -843,3 +843,8 @@
 "ext.tv.transfer.artwork" = "Recibiendo portadas (lote %1$@ de %2$@)…";
 "ext.tv.transfer.finished" = "Se transfirieron %@ canciones desde el iPhone";
 "ext.tv.transfer.failed" = "La transferencia no terminó. Vuelva a intentarlo desde el iPhone.";
+"audio_variant_lossy_stereo" = "Estéreo";
+"audio_variant_lossless" = "Lossless";
+"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_dolby_atmos" = "Dolby Atmos";
+"audio_variant_dolby_audio" = "Dolby Audio";

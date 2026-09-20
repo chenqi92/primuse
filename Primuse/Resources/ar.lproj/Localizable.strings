@@ -4137,3 +4137,8 @@
 "search_top_match_kind_artist" = "الفنان";
 "search_top_match_kind_album" = "الألبوم";
 "search_top_match_kind_song" = "أغنية";
+"audio_variant_lossy_stereo" = "ستيريو";
+"audio_variant_lossless" = "Lossless";
+"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_dolby_atmos" = "Dolby Atmos";
+"audio_variant_dolby_audio" = "Dolby Audio";
