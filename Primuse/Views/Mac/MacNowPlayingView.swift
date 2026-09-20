@@ -138,6 +138,13 @@ struct MacNowPlayingView: View {
         GeometryReader { proxy in
             playerSurface
                 .frame(width: proxy.size.width, height: proxy.size.height)
+                // 顶部这几层必须挂在尺寸钉死之后。挂在 `playerSurface` 上时它们贴的是
+                // 内容撑出来的自然尺寸（实测 1048 高，而容器只有 861），`.frame` 居中
+                // 裁剪之后就跑到窗口上方去了 —— 全屏里按钮只剩半截正是这么来的。
+                .overlay(alignment: .topTrailing) { topRightControls }
+                .overlay { fullscreenEffectScrim }
+                .overlay(alignment: .topLeading) { topLeftControls }
+                .overlay(alignment: .topLeading) { fullscreenEffectPanel }
                 .pmLogFrame("nowPlaying")
         }
     }
@@ -177,67 +184,6 @@ struct MacNowPlayingView: View {
                         .padding(.bottom, isWindowFullScreen ? 80 : 60)
                     }
                 }
-            }
-        }
-        // 这一排挂在最外层而不是内容 ZStack 里:放在里面时,内容(大封面加上下留白)
-        // 一旦比容器高就会把整个 ZStack 撑出可视区,顶部的按钮跟着被顶到窗口外面 ——
-        // 从沉浸模式切回常规全屏时就是这样被裁掉半截的。overlay 不参与父视图的尺寸
-        // 计算,永远贴着容器边缘。
-        .overlay(alignment: .topTrailing) {
-            if !isImmersiveStageActive {
-                VStack(alignment: .trailing, spacing: 10) {
-                    if player.isLiveRadio {
-                        radioFloatingControls
-                    } else {
-                        floatingControls
-                    }
-                    if isWindowFullScreen, showsPlayerVolumeBar {
-                        fullscreenVolumeControl
-                    }
-                }
-                .padding(isWindowFullScreen ? 24 : 16)
-                .pmLogFrame("topRight")
-            }
-        }
-        .overlay {
-            if isWindowFullScreen, !isImmersiveStageActive, showsNativeFullscreenEffectPicker {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture { closeFullscreenEffectPicker() }
-                    .accessibilityHidden(true)
-            }
-        }
-        .overlay(alignment: .topLeading) {
-            if isWindowFullScreen, !isImmersiveStageActive {
-                HStack(spacing: 10) {
-                    exitFullScreenPill
-                    nativeFullscreenEffectButton
-                }
-                    .padding(.top, 18)
-                    .padding(.leading, 22)
-            }
-        }
-        // 面板贴着左上角那个按钮展开,而不是从窗口边上推一条抽屉过来。
-        .overlay(alignment: .topLeading) {
-            if isWindowFullScreen, !isImmersiveStageActive, showsNativeFullscreenEffectPicker {
-                MacImmersiveEffectPicker(
-                    selected: fullscreenPlayerEffect,
-                    effects: FullscreenPlayerEffect.allCases,
-                    palette: ImmersiveArtworkPalette(
-                        primary: theme.accentColor,
-                        secondary: theme.secondaryDarkAccent
-                    ),
-                    onSelect: { candidate in
-                        closeFullscreenEffectPicker()
-                        selectFullscreenEffect(candidate)
-                    },
-                    onClose: { closeFullscreenEffectPicker() }
-                )
-                .padding(.top, 58)
-                .padding(.leading, 22)
-                .transition(
-                    .scale(scale: 0.96, anchor: .topLeading).combined(with: .opacity)
-                )
             }
         }
         .animation(.easeInOut(duration: 0.28), value: isImmersiveStageActive)
@@ -322,6 +268,74 @@ struct MacNowPlayingView: View {
             guard isWindowFullScreen else { return }
             let selected = FullscreenPlayerEffect(rawValue: rawValue) ?? .defaultValue
             showsImmersiveStage = selected != .native
+        }
+    }
+
+    /// 右上角那排浮动控件。
+    @ViewBuilder
+    private var topRightControls: some View {
+        if !isImmersiveStageActive {
+            VStack(alignment: .trailing, spacing: 10) {
+                if player.isLiveRadio {
+                    radioFloatingControls
+                } else {
+                    floatingControls
+                }
+                if isWindowFullScreen, showsPlayerVolumeBar {
+                    fullscreenVolumeControl
+                }
+            }
+            .padding(isWindowFullScreen ? 24 : 16)
+            .pmLogFrame("topRight")
+        }
+    }
+
+    /// 全屏时左上角的退出与效果入口。
+    @ViewBuilder
+    private var topLeftControls: some View {
+        if isWindowFullScreen, !isImmersiveStageActive {
+            HStack(spacing: 10) {
+                exitFullScreenPill
+                nativeFullscreenEffectButton
+            }
+            .padding(.top, 18)
+            .padding(.leading, 22)
+        }
+    }
+
+    /// 效果面板开着时铺在下面的遮罩，点它就收起。
+    @ViewBuilder
+    private var fullscreenEffectScrim: some View {
+        if isWindowFullScreen, !isImmersiveStageActive, showsNativeFullscreenEffectPicker {
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { closeFullscreenEffectPicker() }
+                .accessibilityHidden(true)
+        }
+    }
+
+    /// 面板贴着左上角那个按钮展开，而不是从窗口边上推一条抽屉过来。
+    @ViewBuilder
+    private var fullscreenEffectPanel: some View {
+        if isWindowFullScreen, !isImmersiveStageActive, showsNativeFullscreenEffectPicker {
+            MacImmersiveEffectPicker(
+                selected: fullscreenPlayerEffect,
+                effects: FullscreenPlayerEffect.allCases,
+                palette: ImmersiveArtworkPalette(
+                    primary: theme.accentColor,
+                    secondary: theme.secondaryDarkAccent
+                ),
+                onSelect: { candidate in
+                    closeFullscreenEffectPicker()
+                    selectFullscreenEffect(candidate)
+                },
+                onClose: { closeFullscreenEffectPicker() }
+            )
+            .padding(.top, 58)
+            .padding(.leading, 22)
+            .transition(
+                .scale(scale: 0.96, anchor: .topLeading).combined(with: .opacity)
+            )
         }
     }
 
