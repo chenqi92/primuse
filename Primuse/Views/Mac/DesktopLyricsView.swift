@@ -25,6 +25,9 @@ struct DesktopLyricsView: View {
     /// mouseDown 吃掉,AppKit 那条路径收不到事件,面板就怎么都拖不动。
     var onWindowDragChanged: (() -> Void)? = nil
     var onWindowDragEnded: (() -> Void)? = nil
+    /// 上报"歌词连同背板占了面板里的哪一块"(面板局部坐标)。controller 拿它
+    /// 决定鼠标什么时候穿透过去 —— 见 DesktopLyricsInteraction。
+    var onContentRectChange: ((CGRect) -> Void)? = nil
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(SourceManager.self) private var sourceManager
@@ -35,10 +38,12 @@ struct DesktopLyricsView: View {
     @State private var currentIndex: Int = -1
     @State private var lyricsLoadRevision: UInt = 0
     @State private var pendingLyricsOverride: PendingLyricsOverride?
-    @State private var isHovering = false
     @State private var colorPaletteShown = false
     @State private var settingsShown = false
     @State private var preferences = MacUIPreferences.shared
+    @State private var interaction = DesktopLyricsInteraction.shared
+    /// 歌词正文在面板局部坐标里的矩形 (不含外扩的留白)。`.null` = 还没量到。
+    @State private var measuredContentRect: CGRect = .null
 
     @AppStorage("desktopLyricsFontScale") private var fontScale: Double = 1.0
     /// 排版模式:single / dual / vertical。旧版本只有 showNext bool,
@@ -116,17 +121,50 @@ struct DesktopLyricsView: View {
     private static let topToolbarHeight: CGFloat = 38
     private static let cornerRadius: CGFloat = 18
 
+    /// 面板局部坐标空间。量歌词矩形、再换算成屏幕坐标都靠它。
+    private static let panelSpace = "primuse.desktopLyrics.panel"
+
+    /// 歌词往外扩多少算进背板 / 鼠标热区。
+    private static let backdropPadding: CGFloat = 16
+
+    /// 背板矩形,同时也是"这块要吃鼠标事件"的判定区 —— 看得见的地方才拦
+    /// 点击,其余部分穿透到后面的窗口。
+    private var backdropRect: CGRect? {
+        guard !measuredContentRect.isNull, !measuredContentRect.isEmpty else { return nil }
+        return measuredContentRect.insetBy(dx: -Self.backdropPadding, dy: -Self.backdropPadding)
+    }
+
+    /// 顶部 chrome 显不显示。指针进没进面板由 controller 按 backdropRect 判定,
+    /// 穿透时 SwiftUI 压根收不到 hover,所以这里读 controller 的结论而不是
+    /// 自己的 .onHover。
+    private var chromeVisible: Bool {
+        interaction.engaged || settingsShown || colorPaletteShown
+    }
+
     var body: some View {
         // GeometryReader 拿当前 panel 实际尺寸,把字号绑到尺寸上 ——
         // 用户拖大 panel 字也跟着变大,fontScale 在此基础上再叠加。
         GeometryReader { geo in
             content(in: geo.size)
+                // 量的是歌词正文自己的外框:content(in:) 里各排版都不再把自己
+                // 撑满,撑满的活交给下面那个 .frame,所以这里拿到的就是"字占了
+                // 多大"。背板和鼠标热区都按它算。
+                .onGeometryChange(for: CGRect.self) { proxy in
+                    proxy.frame(in: .named(Self.panelSpace))
+                } action: { rect in
+                    measuredContentRect = rect
+                }
                 // 顶部留出 toolbar 高度,左右/底部用普通 padding。横向、
                 // 纵向都用同一组 padding,工具栏永远在顶部一致位置。
                 .padding(.top, Self.topToolbarHeight)
                 .padding(.horizontal, 18)
                 .padding(.bottom, 16)
-                .frame(width: geo.size.width, height: geo.size.height)
+                // 纵向排版是"从上往下写",原本靠 maxHeight: .infinity + 顶部
+                // 对齐让字从顶边开始排;内容改成只占自己那么大之后,这份对齐
+                // 得由这里补回来,否则短句会飘到面板正中间。
+                .frame(width: geo.size.width,
+                       height: geo.size.height,
+                       alignment: layout == .vertical ? .top : .center)
                 // 关掉玻璃背景后面板整片透明,没有 contentShape 空白处按不到,
                 // 拖动就只能从有字的地方起手。
                 .contentShape(Rectangle())
@@ -136,23 +174,30 @@ struct DesktopLyricsView: View {
                 .gesture(windowDragGesture(in: geo.size), including: locked ? .subviews : .all)
         }
         .frame(minWidth: minPanelSize.width, minHeight: minPanelSize.height)
-        // 关掉 showBackground 就只剩浮动文字,跟锁定态一样无 chrome。
-        .background {
-            if showBackground && !locked {
-                Color.clear.pmGlassControl(RoundedRectangle(cornerRadius: Self.cornerRadius), interactive: false)
+        .coordinateSpace(.named(Self.panelSpace))
+        // 背板只包住歌词本身,不再铺满整块面板 —— 面板宽度是按屏幕算出来的
+        // (横向 900–1400pt),铺满会让一行字拖着一大片玻璃,那一大片还会连带
+        // 吃掉后面窗口的点击。关掉 showBackground 就只剩浮动文字。
+        .background(alignment: .topLeading) {
+            if showBackground && !locked, let card = backdropRect {
+                Color.clear
+                    .pmGlassControl(RoundedRectangle(cornerRadius: Self.cornerRadius), interactive: false)
+                    .frame(width: card.width, height: card.height)
+                    .offset(x: card.minX, y: card.minY)
+                    .pmAnimation(.control, value: card)
             }
         }
         // 工具栏走 .overlay 不进 ZStack —— ZStack 里跟内容竞争 frame
         // 时,长歌词会把按钮挤出可视区。overlay 锚定 panel 自身 frame
         // 顶边,跟内容完全独立,不会被挤压也不会被裁。
         .overlay(alignment: .top) {
-            // chrome 只在以下任一情况下显示: 鼠标在 panel 上 / 有 popover 撑着
+            // chrome 只在以下任一情况下显示: 指针进了 panel / 有 popover 撑着
             // (settingsShown / colorPaletteShown / colorSelectorOpen ...).
             // 之前少了 settingsShown, 用户从 chrome 上的 gear 按钮点开 settings
-            // popover 后, 鼠标移到 popover 上 → isHovering = false → chrome
+            // popover 后, 鼠标移到 popover 上 → 判成离开 → chrome
             // 隐藏 → 锚在 chrome 上的 popover 跟着一起消失, 永远点不到 popover
             // 里的二级菜单。
-            if isHovering || settingsShown || colorPaletteShown {
+            if chromeVisible {
                 if locked {
                     lockedHoverOverlay
                 } else {
@@ -162,9 +207,17 @@ struct DesktopLyricsView: View {
         }
         // 内容铺出 panel 时直接裁掉,别越过 panel 边界。
         .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) { isHovering = hovering }
+        .pmAnimation(.hover, value: chromeVisible)
+        // 热区跟着背板走。歌词以外的地方交给 controller 放行,鼠标直接穿到
+        // 后面的窗口上 —— 所以 .onHover 在这里已经不可靠了 (穿透时 SwiftUI
+        // 根本收不到事件),chrome 的显隐改由 controller 的指针判定驱动。
+        .onChange(of: backdropRect ?? .null, initial: true) { _, rect in
+            onContentRectChange?(rect)
         }
+        .onChange(of: settingsShown || colorPaletteShown, initial: true) { _, holding in
+            interaction.keepsEngaged = holding
+        }
+        .onDisappear { interaction.keepsEngaged = false }
         .task(id: lyricsLoadTaskIdentity) { await refreshLyrics() }
         .background {
             DesktopLyricsTimeObserver { updateIndex(time: $0) }
@@ -245,12 +298,14 @@ struct DesktopLyricsView: View {
         let placeholder = player.currentSong?.title
             ?? String(localized: "desktop_lyrics_no_song")
 
+        // 各排版都只占自己那么大,不再 .frame(maxWidth/maxHeight: .infinity)
+        // 撑满面板 —— 撑满的话量出来的矩形永远等于整块面板,背板和鼠标热区
+        // 就没法收到歌词这么大。居中由外层那个 .frame(width:height:) 负责。
         switch layout {
         case .single:
             if let active {
                 desktopLyricLine(active, size: activeFontSize(in: size), color: lyricsColor)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 Text(placeholder)
                     .font(.system(size: activeFontSize(in: size), weight: .semibold))
@@ -258,7 +313,6 @@ struct DesktopLyricsView: View {
                     .shadow(color: .black.opacity(0.6), radius: 6, y: 2)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
         case .dual:
@@ -266,7 +320,6 @@ struct DesktopLyricsView: View {
                 if let active {
                     desktopLyricLine(active, size: activeFontSize(in: size), color: lyricsColor)
                         .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
                 } else {
                     Text(placeholder)
                         .font(.system(size: activeFontSize(in: size), weight: .semibold))
@@ -274,7 +327,6 @@ struct DesktopLyricsView: View {
                         .shadow(color: .black.opacity(0.6), radius: 6, y: 2)
                         .lineLimit(2)
                         .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
                 }
 
                 if let next {
@@ -289,7 +341,6 @@ struct DesktopLyricsView: View {
                         .environment(\.layoutDirection, lyricLayoutDirection)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
         case .vertical:
             // 纵向排版 —— 右为当前行 (用户色),左为下一行 (白色提示)。
@@ -337,7 +388,6 @@ struct DesktopLyricsView: View {
                                    color: lyricsColor)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
