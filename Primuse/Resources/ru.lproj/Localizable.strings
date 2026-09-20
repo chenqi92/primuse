@@ -572,6 +572,9 @@
 "tag_editor_field_location" = "Расположение файла";
 "ai_fetch_models" = "Выбор моделей";
 "lyrics_translation_on" = "Показывать перевод текста";
+"mac_launch_aborted_title" = "В прошлый раз запуск не завершился";
+"mac_launch_aborted_hint" = "Отправьте сведения ниже разработчику, чтобы помочь найти причину.";
+"mac_launch_copy_diagnostics" = "Скопировать сведения";
 "mac_sidebar_tools" = "Инструменты";
 "smart_sort_field" = "Сортировать по";
 "Music Sources · Small" = "Музыкальные источники · Маленькие";

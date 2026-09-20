@@ -1887,6 +1887,9 @@
 "lyrics_word" = "गीत के बोल";
 "lyrics_word_level_badge" = "शब्द";
 "lyrics_word_level_hint" = "शब्द-दर-शब्द बोल का समर्थन";
+"mac_launch_aborted_title" = "पिछली बार Primuse पूरी तरह शुरू नहीं हो पाया";
+"mac_launch_aborted_hint" = "कारण पता लगाने में मदद के लिए नीचे दी गई जानकारी डेवलपर को भेजें।";
+"mac_launch_copy_diagnostics" = "जानकारी कॉपी करें";
 "mac_sidebar_tools" = "उपकरण";
 "manage_dirs" = "निर्देशिकाएँ प्रबंधित करें";
 "manage_playlists" = "प्लेलिस्ट प्रबंधित करें";

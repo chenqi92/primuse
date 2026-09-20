@@ -1887,6 +1887,9 @@
 "lyrics_word" = "เนื้อเพลง";
 "lyrics_word_level_badge" = "รายคำ";
 "lyrics_word_level_hint" = "รองรับเนื้อเพลงแบบซิงค์รายคำ";
+"mac_launch_aborted_title" = "การเปิดครั้งที่แล้วไม่สำเร็จ";
+"mac_launch_aborted_hint" = "ส่งรายละเอียดด้านล่างให้ผู้พัฒนาเพื่อช่วยหาสาเหตุ";
+"mac_launch_copy_diagnostics" = "คัดลอกรายละเอียด";
 "mac_sidebar_tools" = "เครื่องมือ";
 "manage_dirs" = "จัดการไดเรกทอรี";
 "manage_playlists" = "จัดการเพลย์ลิสต์";

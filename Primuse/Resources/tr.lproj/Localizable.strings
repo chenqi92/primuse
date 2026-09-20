@@ -572,6 +572,9 @@
 "tag_editor_field_location" = "Dosya Konumu";
 "ai_fetch_models" = "Modelleri Getir";
 "lyrics_translation_on" = "Şarkı sözü çevirisini göster";
+"mac_launch_aborted_title" = "Primuse geçen sefer açılışını tamamlayamadı";
+"mac_launch_aborted_hint" = "Nedeni bulmaya yardımcı olmak için aşağıdaki bilgileri geliştiriciye gönderin.";
+"mac_launch_copy_diagnostics" = "Bilgileri Kopyala";
 "mac_sidebar_tools" = "Araçlar";
 "smart_sort_field" = "Sıralama ölçütü";
 "Music Sources · Small" = "Müzik Kaynakları · Küçük";

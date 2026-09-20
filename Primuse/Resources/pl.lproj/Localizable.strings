@@ -1887,6 +1887,9 @@
 "lyrics_word" = "Tekst utworu";
 "lyrics_word_level_badge" = "Słowo";
 "lyrics_word_level_hint" = "Obsługuje teksty na poziomie słów";
+"mac_launch_aborted_title" = "Poprzednie uruchomienie nie zostało ukończone";
+"mac_launch_aborted_hint" = "Wyślij poniższe informacje do dewelopera, aby pomóc ustalić przyczynę.";
+"mac_launch_copy_diagnostics" = "Kopiuj informacje";
 "mac_sidebar_tools" = "Narzędzia";
 "manage_dirs" = "Zarządzaj katalogami";
 "manage_playlists" = "Zarządzaj listami odtwarzania";

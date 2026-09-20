@@ -1525,6 +1525,9 @@
 "home_empty_mac_hint" = "Add a NAS or cloud drive from Sources on the left, or authorize Apple Music to start.";
 "player_empty_title" = "Pick a song to play";
 "player_empty_message" = "Choose one from the library or search on the left.";
+"mac_launch_aborted_title" = "Primuse didn't finish launching last time";
+"mac_launch_aborted_hint" = "Send the details below to the developer to help pin down the cause.";
+"mac_launch_copy_diagnostics" = "Copy Details";
 "mac_sidebar_tools" = "Tools";
 "desktop_widgets" = "Desktop widgets";
 "keychain_sync_hint_title" = "Keychain sync";

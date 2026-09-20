@@ -1498,6 +1498,9 @@
 "home_empty_mac_hint" = "Ajoutez un NAS ou un service cloud depuis Sources à gauche, ou autorisez Apple Music pour commencer.";
 "player_empty_title" = "Choisissez un morceau à lire";
 "player_empty_message" = "Choisissez-en un dans la bibliothèque ou la recherche à gauche.";
+"mac_launch_aborted_title" = "Primuse n'a pas terminé son démarrage la dernière fois";
+"mac_launch_aborted_hint" = "Envoyez les informations ci-dessous au développeur pour aider à identifier la cause.";
+"mac_launch_copy_diagnostics" = "Copier les informations";
 "mac_sidebar_tools" = "Outils";
 "desktop_widgets" = "Widgets de bureau";
 "keychain_sync_hint_title" = "Synchronisation du trousseau";

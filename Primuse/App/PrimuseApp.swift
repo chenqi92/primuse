@@ -497,6 +497,9 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         MacTaskExceptionGuard.install()
+        // 紧跟在防护后面：上次启动要是没活下来，先把原因摆出来再继续，
+        // 免得这次也崩在同一个地方、用户永远看不到。
+        MacLaunchDiagnostics.begin()
         // 明暗模式和 Dock 图标越早重放越好，而且必须同步做。放在
         // didFinishLaunching 的 Task 里要等一次调度，Dock 会先把 App 包自带的
         // 图标显示出来再被换掉，看起来就是启动时图标"跳"了一下。

@@ -46,6 +46,8 @@ enum MacTaskExceptionGuard {
             original(application, selector, exception)
             guard let report else { return }
             taskExceptionLog.fault("\(report, privacy: .public)")
+            // 崩溃报告拿不到的机器上，这份说明得自己走一条能被看见的路。
+            MacLaunchDiagnostics.recordFatalReport(report)
             fatalError(report)
         }
         method_setImplementation(method, imp_implementationWithBlock(hook))
@@ -105,6 +107,172 @@ enum MacTaskExceptionGuard {
         let image = (String(cString: path) as NSString).lastPathComponent
         let offset = address - UInt(bitPattern: base)
         return "\(image) 0x\(String(address, radix: 16)) +0x\(String(offset, radix: 16))"
+    }
+}
+
+/// 启动期崩在测试者手里时，系统崩溃报告躺在 `~/Library/Logs/DiagnosticReports`，
+/// 对方不一定会导出，我们这边就只能靠猜。这里给每次启动立一个哨兵：正常活过
+/// `healthyAfter` 秒或正常退出都会把它销掉，只有启动期崩溃会把它留在盘上。下次
+/// 启动一进 AppKit 就把上次的情况摆到屏幕上，截图或拷贝即可回传。
+///
+/// `MacTaskExceptionGuard` 攒的那份异常说明本来只写进拿不到的崩溃报告，现在也
+/// 顺着哨兵落盘，跟着同一个弹窗出来。
+enum MacLaunchDiagnostics {
+    /// 活过这么久就算启动成功 —— 主窗口在这之前早就上屏了。
+    private static let healthyAfter: TimeInterval = 8
+    private static let tick: TimeInterval = 2
+
+    private struct Sentinel: Codable {
+        var version: String
+        var build: String
+        var system: String
+        var architecture: String
+        var startedAt: Date
+        var lastSeenAt: Date
+        var exceptionReport: String?
+    }
+
+    @MainActor private static var heartbeat: Task<Void, Never>?
+
+    /// AppKit 最早的时机调一次：先把上次的中止摆出来，再给这次启动立哨兵。
+    @MainActor static func begin() {
+        heartbeat?.cancel()
+        let previous = loadSentinel()
+        clearSentinel()
+        if let previous {
+            present(previous)
+        }
+
+        let now = Date()
+        writeSentinel(Sentinel(
+            version: bundleValue("CFBundleShortVersionString"),
+            build: bundleValue("CFBundleVersion"),
+            system: ProcessInfo.processInfo.operatingSystemVersionString,
+            architecture: currentArchitecture,
+            startedAt: now,
+            lastSeenAt: now,
+            exceptionReport: nil
+        ))
+
+        // 正常退出也要销哨兵，否则启动后立刻手动退出会被记成一次中止。
+        _ = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            clearSentinel()
+        }
+
+        heartbeat = Task { @MainActor in
+            var elapsed: TimeInterval = 0
+            while elapsed < healthyAfter {
+                try? await Task.sleep(for: .seconds(tick))
+                if Task.isCancelled { return }
+                elapsed += tick
+                touchSentinel()
+            }
+            clearSentinel()
+        }
+    }
+
+    /// 异常防护要终止进程前调：把说明并进哨兵，下次启动才有东西可报。
+    nonisolated static func recordFatalReport(_ report: String) {
+        guard var sentinel = loadSentinel() else { return }
+        sentinel.exceptionReport = report
+        sentinel.lastSeenAt = Date()
+        writeSentinel(sentinel)
+    }
+
+    // MARK: 展示
+
+    @MainActor private static func present(_ sentinel: Sentinel) {
+        let details = summary(for: sentinel)
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(localized: "mac_launch_aborted_title")
+        alert.informativeText = String(localized: "mac_launch_aborted_hint") + "\n\n" + excerpt(of: details)
+        alert.addButton(withTitle: String(localized: "mac_launch_copy_diagnostics"))
+        alert.addButton(withTitle: String(localized: "close"))
+        // 这时 app 还没走完启动，窗口不抢到前台就可能压在别的窗口下面。
+        NSApplication.shared.activate()
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(details, forType: .string)
+    }
+
+    /// 抛出栈有四十行，整段塞进弹窗会顶到屏幕外。窗里给梗概，完整的走剪贴板。
+    private static func excerpt(of details: String) -> String {
+        let lines = details.split(separator: "\n", omittingEmptySubsequences: false)
+        guard lines.count > 14 else { return details }
+        return lines.prefix(14).joined(separator: "\n") + "\n…"
+    }
+
+    /// 正文一律英文：它要贴进 issue 或转给开发者，跟崩溃报告拼在一起看。
+    private static func summary(for sentinel: Sentinel) -> String {
+        let alive = max(0, sentinel.lastSeenAt.timeIntervalSince(sentinel.startedAt))
+        var lines = [
+            "Primuse \(sentinel.version) (\(sentinel.build))  \(sentinel.architecture)  \(sentinel.system)",
+            "Launch aborted about \(String(format: "%.0f", alive))s after start.",
+        ]
+        if let report = sentinel.exceptionReport {
+            lines.append("")
+            lines.append(report)
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    // MARK: 哨兵读写 —— 全程静默，诊断本身绝不能成为新的崩溃源
+
+    private static var currentArchitecture: String {
+        #if arch(x86_64)
+        return "x86_64"
+        #elseif arch(arm64)
+        return "arm64"
+        #else
+        return "unknown"
+        #endif
+    }
+
+    private static func bundleValue(_ key: String) -> String {
+        (Bundle.main.object(forInfoDictionaryKey: key) as? String) ?? "?"
+    }
+
+    private static var sentinelURL: URL? {
+        guard let base = try? FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        ) else { return nil }
+        let directory = base.appendingPathComponent("Primuse/Diagnostics", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent("mac-launch.json", isDirectory: false)
+    }
+
+    private static func loadSentinel() -> Sentinel? {
+        guard let url = sentinelURL, let data = try? Data(contentsOf: url) else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try? decoder.decode(Sentinel.self, from: data)
+    }
+
+    private static func writeSentinel(_ sentinel: Sentinel) {
+        guard let url = sentinelURL else { return }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(sentinel) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+
+    @MainActor private static func touchSentinel() {
+        guard var sentinel = loadSentinel() else { return }
+        sentinel.lastSeenAt = Date()
+        writeSentinel(sentinel)
+    }
+
+    private static func clearSentinel() {
+        guard let url = sentinelURL else { return }
+        try? FileManager.default.removeItem(at: url)
     }
 }
 #endif

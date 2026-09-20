@@ -1526,6 +1526,9 @@
 "home_empty_mac_hint" = "从左侧「音乐源」添加 NAS 或云盘，或在「Apple Music」里授权后开始使用。";
 "player_empty_title" = "选一首歌开始播放";
 "player_empty_message" = "在左侧资料库或搜索里选一首歌。";
+"mac_launch_aborted_title" = "上次启动没能完成";
+"mac_launch_aborted_hint" = "把下面的信息发给开发者，可以帮助定位原因。";
+"mac_launch_copy_diagnostics" = "拷贝信息";
 "mac_sidebar_tools" = "工具";
 "desktop_widgets" = "桌面小组件";
 "keychain_sync_hint_title" = "钥匙串同步";

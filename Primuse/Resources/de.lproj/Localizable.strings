@@ -1498,6 +1498,9 @@
 "home_empty_mac_hint" = "Füge links unter „Quellen“ ein NAS oder einen Cloud-Speicher hinzu oder autorisiere Apple Music, um zu starten.";
 "player_empty_title" = "Wähle einen Titel zum Abspielen";
 "player_empty_message" = "Wähle links einen Titel aus der Mediathek oder Suche.";
+"mac_launch_aborted_title" = "Primuse wurde beim letzten Mal nicht vollständig gestartet";
+"mac_launch_aborted_hint" = "Sende die folgenden Angaben an den Entwickler, um die Ursache einzugrenzen.";
+"mac_launch_copy_diagnostics" = "Angaben kopieren";
 "mac_sidebar_tools" = "Werkzeuge";
 "desktop_widgets" = "Desktop-Widgets";
 "keychain_sync_hint_title" = "Schlüsselbund-Synchronisierung";

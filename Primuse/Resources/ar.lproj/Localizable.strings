@@ -1887,6 +1887,9 @@
 "lyrics_word" = "كلمات الأغاني";
 "lyrics_word_level_badge" = "كلمة";
 "lyrics_word_level_hint" = "يدعم كلمات الأغاني المتزامنة كلمة بكلمة";
+"mac_launch_aborted_title" = "لم يكتمل تشغيل Primuse في المرة الماضية";
+"mac_launch_aborted_hint" = "أرسل التفاصيل أدناه إلى المطوّر للمساعدة في تحديد السبب.";
+"mac_launch_copy_diagnostics" = "نسخ التفاصيل";
 "mac_sidebar_tools" = "الأدوات";
 "manage_dirs" = "إدارة الدلائل";
 "manage_playlists" = "إدارة قوائم التشغيل";

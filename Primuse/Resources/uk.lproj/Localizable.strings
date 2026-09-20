@@ -572,6 +572,9 @@
 "tag_editor_field_location" = "Розташування файлу";
 "ai_fetch_models" = "Отримати моделі";
 "lyrics_translation_on" = "Показувати переклад тексту";
+"mac_launch_aborted_title" = "Минулого разу запуск не завершився";
+"mac_launch_aborted_hint" = "Надішліть наведені нижче відомості розробнику, щоб допомогти знайти причину.";
+"mac_launch_copy_diagnostics" = "Скопіювати відомості";
 "mac_sidebar_tools" = "Інструменти";
 "smart_sort_field" = "Сортувати за";
 "Music Sources · Small" = "Джерела музики · Мал";

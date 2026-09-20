@@ -1498,6 +1498,9 @@
 "home_empty_mac_hint" = "왼쪽 소스에서 NAS 또는 클라우드 드라이브를 추가하거나, Apple Music을 인증하여 시작하세요.";
 "player_empty_title" = "재생할 곡을 선택하세요";
 "player_empty_message" = "왼쪽 라이브러리나 검색에서 하나를 선택하세요.";
+"mac_launch_aborted_title" = "지난번 실행이 완료되지 않았습니다";
+"mac_launch_aborted_hint" = "아래 정보를 개발자에게 보내면 원인을 찾는 데 도움이 됩니다.";
+"mac_launch_copy_diagnostics" = "정보 복사";
 "mac_sidebar_tools" = "도구";
 "desktop_widgets" = "데스크탑 위젯";
 "keychain_sync_hint_title" = "키체인 동기화";

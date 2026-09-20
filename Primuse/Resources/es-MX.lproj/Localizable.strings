@@ -1887,6 +1887,9 @@
 "lyrics_word" = "Letras";
 "lyrics_word_level_badge" = "Palabra";
 "lyrics_word_level_hint" = "Admite letras a nivel de palabra";
+"mac_launch_aborted_title" = "Primuse no terminó de abrirse la última vez";
+"mac_launch_aborted_hint" = "Envía los datos de abajo al desarrollador para ayudar a encontrar la causa.";
+"mac_launch_copy_diagnostics" = "Copiar datos";
 "mac_sidebar_tools" = "Herramientas";
 "manage_dirs" = "Administrar directorios";
 "manage_playlists" = "Administrar listas de reproducción";
