@@ -6,7 +6,7 @@ import PrimuseKit
 /// 系统自带的 Apple Music 选歌器（`.musicPicker`，iOS 27 起）。
 ///
 /// **只有 iOS。** `musicPicker(isPresented:title:selection:)` 在 macOS 上被显式标成
-/// unavailable（不是版本门槛，是整个平台没有），`MusicLibrary.shared` 在 macOS 上
+/// unavailable（不是版本门槛，是整个平台没有），`MusicKit.MusicLibrary.shared` 在 macOS 上
 /// 同样不存在。所以整份文件用 `#if os(iOS)` 圈起来，Mac 端不提供这个入口。
 ///
 /// 选中的歌**先加进用户自己的 Apple Music 资料库**，再触发一次同步，让它按正常
@@ -75,8 +75,10 @@ struct AppleMusicCatalogPickerButton: View {
         var firstFailure: String?
         for song in songs {
             do {
-                // 一次只能加一首 —— MusicLibrary 没有批量接口。
-                try await MusicLibrary.shared.add(song)
+                // 一次只能加一首 —— MusicKit 的资料库没有批量接口。模块名不能省:
+                // 本工程自己也有一个 `MusicLibrary`(本地曲库), 同模块的类型优先于
+                // `import MusicKit` 带进来的同名类型, 不限定就会解析到本地那个。
+                try await MusicKit.MusicLibrary.shared.add(song)
                 added += 1
             } catch {
                 if firstFailure == nil { firstFailure = error.localizedDescription }

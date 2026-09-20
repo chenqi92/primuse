@@ -160,20 +160,26 @@ struct MacNowPlayingView: View {
                         .padding(.top, isWindowFullScreen ? 70 : 50)
                         .padding(.bottom, isWindowFullScreen ? 80 : 60)
                     }
-
-                    VStack(alignment: .trailing, spacing: 10) {
-                        if player.isLiveRadio {
-                            radioFloatingControls
-                        } else {
-                            floatingControls
-                        }
-                        if isWindowFullScreen, showsPlayerVolumeBar {
-                            fullscreenVolumeControl
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .padding(isWindowFullScreen ? 24 : 16)
                 }
+            }
+        }
+        // 这一排挂在最外层而不是内容 ZStack 里:放在里面时,内容(大封面加上下留白)
+        // 一旦比容器高就会把整个 ZStack 撑出可视区,顶部的按钮跟着被顶到窗口外面 ——
+        // 从沉浸模式切回常规全屏时就是这样被裁掉半截的。overlay 不参与父视图的尺寸
+        // 计算,永远贴着容器边缘。
+        .overlay(alignment: .topTrailing) {
+            if !isImmersiveStageActive {
+                VStack(alignment: .trailing, spacing: 10) {
+                    if player.isLiveRadio {
+                        radioFloatingControls
+                    } else {
+                        floatingControls
+                    }
+                    if isWindowFullScreen, showsPlayerVolumeBar {
+                        fullscreenVolumeControl
+                    }
+                }
+                .padding(isWindowFullScreen ? 24 : 16)
             }
         }
         .overlay {
