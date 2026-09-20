@@ -1809,19 +1809,18 @@ final class MacUIPreferences {
         }
     }
 
-    /// 换运行时 Dock 图标。备选图标从带 luminosity 变体的预览资源渲染，
-    /// 因此切换系统明暗时不会退回静态 bundle 图标。
+    /// 换运行时 Dock 图标。**包括默认图标在内，一律用预览资源渲染后覆盖。**
     ///
-    /// 选的是默认图标、而且当前是浅色外观时不覆盖（`applicationIconImage = nil`）：
-    /// 这种情况下渲染出来的图和 App 包里那张本来就是同一套素材、同一套圆角留白，
-    /// 覆盖一遍只会让 Dock 在启动瞬间"闪一下"换成一张由预览图放大来的、
-    /// 反而更糊的位图。深色外观仍要覆盖，因为包里那张是静态的浅色版。
+    /// 试过「选默认图标时就不覆盖、让 Dock 用 App 包自带的那张」，实测 Dock 会显示一张
+    /// 过期的图标：包里那张要经系统的图标缓存和 macOS 26 起的图标遮罩再走一道，
+    /// 结果跟运行时渲染的不是一回事，而且开发构建上缓存经常不刷新。覆盖这条路没有这个问题，
+    /// 图标是什么就画什么。启动瞬间的那一下由 `applicationWillFinishLaunching` 里提早调用来压缩。
+    ///
+    /// 渲染而不是直接取 bundle 图标还有一个原因:预览资源带 luminosity 变体，
+    /// 切换系统明暗时不会退回静态的浅色版。
     func applyAppIcon() {
-        let option = MacAppIcon.option(for: appIconID)
-        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        if option.id.isEmpty && !isDark {
-            NSApp.applicationIconImage = nil
-        } else if let shaped = MacAppIcon.dockIconImage(previewAsset: option.previewAsset) {
+        let asset = MacAppIcon.option(for: appIconID).previewAsset
+        if let shaped = MacAppIcon.dockIconImage(previewAsset: asset) {
             NSApp.applicationIconImage = shaped
         } else {
             NSApp.applicationIconImage = nil

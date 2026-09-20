@@ -509,6 +509,11 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             Self.shared = self
 
+            // 再放一次 Dock 图标。willFinishLaunching 那次是为了把启动瞬间的
+            // 图标跳变压到最短，但那个时机 Dock tile 还没建好，系统未必认账；
+            // 这里补一次兜底。重复设同一张图没有副作用。
+            MacUIPreferences.shared.applyAppIcon()
+
             let bar = MacMenuBarController()
             bar.install()
             self.menuBar = bar
