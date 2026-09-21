@@ -1280,6 +1280,89 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         )
     }
 
+    /// 只差专辑艺术家复查的行必须让位给刚扫进来的裸行。资料库按发现顺序
+    /// 追加, 新行永远在数组末尾, 所以没有这一层分级, 一整轮全库复查就会把
+    /// 用户刚加的那几首歌饿死在队尾。
+    func testBackfillBatchSelectionDefersAlbumArtistRecheckBehindRealWork() {
+        var songs: [Song] = []
+        for index in 0..<30 {
+            songs.append(
+                Song(
+                    id: "recheck-\(index)",
+                    title: "Recheck \(index)",
+                    albumTitle: "Compilation",
+                    artistName: "Artist \(index)",
+                    albumArtistName: "Artist \(index)",
+                    duration: 200,
+                    fileFormat: .flac,
+                    filePath: "/recheck-\(index).flac",
+                    sourceID: "remote"
+                )
+            )
+        }
+        // 扫描刚提交的新行: 没时长, 排在资料库数组的最后。
+        songs.append(
+            Song(
+                id: "fresh-0",
+                title: "Fresh",
+                duration: 0,
+                fileFormat: .flac,
+                filePath: "/fresh-0.flac",
+                sourceID: "remote"
+            )
+        )
+        let input = makeSelectionInput(
+            songs: songs,
+            limit: 4,
+            bareOnlySourceIDs: ["remote"],
+            failedSongIDs: [],
+            titleCheckedIDs: Set((0..<30).map { "recheck-\($0)" }),
+            albumArtistCheckedIDs: Set((0..<30).map { "recheck-\($0)" }),
+            albumArtistUnconfirmedIDs: Set((0..<30).map { "recheck-\($0)" })
+        )
+
+        let selection = MetadataBackfillService.selectBatch(input)
+        XCTAssertEqual(selection.first?.id, "fresh-0")
+        XCTAssertEqual(
+            selection.map(\.id),
+            ["fresh-0", "recheck-0", "recheck-1", "recheck-2"]
+        )
+    }
+
+    /// 队列里只剩复查行时仍然按资料库顺序取满一批 —— runWorker 的停摆保护
+    /// 依赖这个顺序。
+    func testBackfillBatchSelectionStillDrainsAlbumArtistRechecksWhenAlone() {
+        var songs: [Song] = []
+        for index in 0..<10 {
+            songs.append(
+                Song(
+                    id: "recheck-\(index)",
+                    title: "Recheck \(index)",
+                    albumTitle: "Compilation",
+                    artistName: "Artist \(index)",
+                    albumArtistName: "Artist \(index)",
+                    duration: 200,
+                    fileFormat: .flac,
+                    filePath: "/recheck-\(index).flac",
+                    sourceID: "remote"
+                )
+            )
+        }
+        let input = makeSelectionInput(
+            songs: songs,
+            limit: 3,
+            bareOnlySourceIDs: ["remote"],
+            failedSongIDs: [],
+            titleCheckedIDs: Set((0..<10).map { "recheck-\($0)" }),
+            albumArtistCheckedIDs: Set((0..<10).map { "recheck-\($0)" }),
+            albumArtistUnconfirmedIDs: Set((0..<10).map { "recheck-\($0)" })
+        )
+        XCTAssertEqual(
+            MetadataBackfillService.selectBatch(input).map(\.id),
+            ["recheck-0", "recheck-1", "recheck-2"]
+        )
+    }
+
     /// 前 40 行被 failedSongIDs 排除, 后 10 行是可处理的空元数据行。
     private static func makeSelectionFixtureSongs() -> [Song] {
         var songs: [Song] = []
@@ -1314,7 +1397,12 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         songs: [Song],
         limit: Int,
         allowedSourceIDs: Set<String>? = nil,
-        disabledSourceIDs: Set<String> = []
+        disabledSourceIDs: Set<String> = [],
+        bareOnlySourceIDs: Set<String> = [],
+        failedSongIDs: Set<String> = Set((0..<40).map { "skip-\($0)" }),
+        titleCheckedIDs: Set<String> = [],
+        albumArtistCheckedIDs: Set<String> = [],
+        albumArtistUnconfirmedIDs: Set<String> = []
     ) -> MetadataBackfillService.BatchSelectionInput {
         MetadataBackfillService.BatchSelectionInput(
             songs: songs,
@@ -1322,18 +1410,19 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
             scopedSourceID: nil,
             allowedSourceIDs: allowedSourceIDs,
             sourceIDs: ["remote"],
-            bareOnlySourceIDs: [],
+            bareOnlySourceIDs: bareOnlySourceIDs,
             disabledSourceIDs: disabledSourceIDs,
             manuallyReadingSongIDs: [],
             pendingFlushSongIDs: [],
-            failedSongIDs: Set((0..<40).map { "skip-\($0)" }),
+            failedSongIDs: failedSongIDs,
             sourceIssueSongIDs: [],
             sessionGivenUpIDs: [],
             transientFailureCounts: [:],
             sourceTransientFailureCounts: [:],
             artworkGivenUpIDs: [],
-            titleCheckedIDs: [],
-            albumArtistCheckedIDs: [],
+            titleCheckedIDs: titleCheckedIDs,
+            albumArtistCheckedIDs: albumArtistCheckedIDs,
+            albumArtistUnconfirmedIDs: albumArtistUnconfirmedIDs,
             artistCheckedIDs: [],
             incompleteSongIDs: []
         )

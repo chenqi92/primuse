@@ -5234,13 +5234,19 @@ final class MetadataBackfillService {
         )
     }
 
-    /// 与旧实现同序、同结果, 但显式循环只会对每行求值一次谓词 ——
-    /// `lazy.filter{}.prefix(n)` 先走一遍找结束下标, `Array(...)` 再走一遍。
-    /// 仍然从 index 0 开始扫, 所以 runWorker 里「同一批 ID 反复出现就停摆」
-    /// 的保护 (MetadataBackfillStallPolicy) 行为不变。
+    /// 显式循环只会对每行求值一次谓词 —— `lazy.filter{}.prefix(n)` 先走一遍
+    /// 找结束下标, `Array(...)` 再走一遍。仍然从 index 0 开始扫, 所以 runWorker
+    /// 里「同一批 ID 反复出现就停摆」的保护 (MetadataBackfillStallPolicy) 行为
+    /// 不变。
+    ///
+    /// 只差专辑艺术家复查的行排在最后。那是一次性的历史分组修复, 不影响歌能
+    /// 不能用; 而刚扫进来的新行既没时长也没标题, 用户就等着它。资料库按发现
+    /// 顺序追加, 新行天然在数组末尾, 所以没有这个分层的话, 一个上万首的源做
+    /// 一轮复查就会把刚加的几首歌饿死在队尾。
     nonisolated static func selectBatch(_ input: BatchSelectionInput) -> [Song] {
         let limit = max(1, input.limit)
         var selection: [Song] = []
+        var recheckOnly: [Song] = []
         selection.reserveCapacity(min(limit, input.songs.count))
         for song in input.songs {
             if let scopedSourceID = input.scopedSourceID, song.sourceID != scopedSourceID { continue }
@@ -5262,7 +5268,7 @@ final class MetadataBackfillService {
             ) else { continue }
             guard !input.disabledSourceIDs.contains(song.sourceID) else { continue }
             guard input.sourceIDs.contains(song.sourceID) else { continue }
-            guard Self.needsBackfill(
+            let reasons = Self.workReasons(
                 song,
                 restrictToBareRows: MetadataBackfillEligibilityPolicy.restrictsToBareRows(
                     sourceUsesBareInventory: input.bareOnlySourceIDs.contains(song.sourceID),
@@ -5274,9 +5280,18 @@ final class MetadataBackfillService {
                 albumArtistCheckedIDs: input.albumArtistCheckedIDs,
                 albumArtistUnconfirmedIDs: input.albumArtistUnconfirmedIDs,
                 artistCheckedIDs: input.artistCheckedIDs
-            ) else { continue }
+            )
+            guard !reasons.isEmpty else { continue }
+            guard reasons != [.albumArtist] else {
+                // 攒够一整批就不用再记了: 上层一次最多取 `limit` 行。
+                if recheckOnly.count < limit { recheckOnly.append(song) }
+                continue
+            }
             selection.append(song)
-            if selection.count == limit { break }
+            if selection.count == limit { return selection }
+        }
+        if selection.count < limit {
+            selection.append(contentsOf: recheckOnly.prefix(limit - selection.count))
         }
         return selection
     }
@@ -5416,6 +5431,28 @@ final class MetadataBackfillService {
         artistCheckedIDs: Set<String>
     ) -> Bool {
         !workReasons(
+            song,
+            restrictToBareRows: restrictToBareRows,
+            artworkGivenUpIDs: artworkGivenUpIDs,
+            titleCheckedIDs: titleCheckedIDs,
+            incompleteSongIDs: incompleteSongIDs,
+            albumArtistCheckedIDs: albumArtistCheckedIDs,
+            albumArtistUnconfirmedIDs: albumArtistUnconfirmedIDs,
+            artistCheckedIDs: artistCheckedIDs
+        ).isEmpty
+    }
+
+    private nonisolated static func workReasons(
+        _ song: Song,
+        restrictToBareRows: Bool,
+        artworkGivenUpIDs: Set<String>,
+        titleCheckedIDs: Set<String>,
+        incompleteSongIDs: Set<String>,
+        albumArtistCheckedIDs: Set<String>,
+        albumArtistUnconfirmedIDs: Set<String>,
+        artistCheckedIDs: Set<String>
+    ) -> MetadataBackfillWorkReasons {
+        workReasons(
             restrictToBareRows: restrictToBareRows,
             duration: song.duration,
             format: song.fileFormat,
@@ -5429,7 +5466,7 @@ final class MetadataBackfillService {
             albumArtistUnconfirmed: albumArtistUnconfirmedIDs.contains(song.id),
             hasArtist: !(song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
             artistChecked: artistCheckedIDs.contains(song.id)
-        ).isEmpty
+        )
     }
 
     private nonisolated static func workReasons(
