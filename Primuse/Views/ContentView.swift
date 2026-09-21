@@ -584,6 +584,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
     case libraryFolders
     case libraryStatistics
     case librarySongs
+    case librarySpokenWord
     case libraryAlbums
     case libraryArtists
     case libraryGenres
@@ -599,7 +600,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
     var rawValueTab: Int {
         switch self {
         case .home: return 0
-        case .library, .libraryRecommendations, .librarySongs, .libraryAlbums,
+        case .library, .libraryRecommendations, .librarySongs, .librarySpokenWord, .libraryAlbums,
                 .libraryArtists, .libraryGenres, .libraryPlaylists, .libraryRadio,
                 .libraryFavorites, .libraryFolders, .libraryStatistics:
             return 1
@@ -617,6 +618,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
         case .folders: return .libraryFolders
         case .statistics: return .libraryStatistics
         case .songs: return .librarySongs
+        case .spokenWord: return .librarySpokenWord
         case .albums: return .libraryAlbums
         case .artists: return .libraryArtists
         case .genres: return .libraryGenres
@@ -634,6 +636,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
         case .libraryFolders: return "library_browse_folder"
         case .libraryStatistics: return "stats_title"
         case .librarySongs: return "tab_songs"
+        case .librarySpokenWord: return "tab_spoken_word"
         case .libraryAlbums: return "tab_albums"
         case .libraryArtists: return "tab_artists"
         case .libraryGenres: return "tab_genres"
@@ -653,6 +656,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
         case .libraryFolders: return "folder.fill"
         case .libraryStatistics: return "chart.bar.fill"
         case .librarySongs: return "music.note"
+        case .librarySpokenWord: return "books.vertical.fill"
         case .libraryAlbums: return "square.stack.fill"
         case .libraryArtists: return "music.mic"
         case .libraryGenres: return "tag.fill"
@@ -1093,6 +1097,8 @@ struct ContentView: View {
             librarySubpane(title: "stats_title") { ListeningStatsView() }
         case .librarySongs:
             librarySubpane(title: "tab_songs") { SongListView() }
+        case .librarySpokenWord:
+            librarySubpane(title: "tab_spoken_word") { SpokenWordLibraryView() }
         case .libraryAlbums:
             librarySubpane(title: "tab_albums") { AlbumGridView() }
         case .libraryArtists:

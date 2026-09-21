@@ -927,7 +927,8 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
             sourceManager: manager,
             backfillableSourceIDs: { [sourceID] },
             offlineReadableSourceIDs: { [sourceID] },
-            localFileSourceIDs: { [sourceID] }
+            localFileSourceIDs: { [sourceID] },
+            directFileSourceIDs: { [sourceID] }
         )
         defer { backfill.stop() }
         backfill.refreshStatusSnapshot()
@@ -1311,7 +1312,7 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
                 sourceID: "remote"
             )
         )
-        let input = makeSelectionInput(
+        let input = Self.makeSelectionInput(
             songs: songs,
             limit: 4,
             bareOnlySourceIDs: ["remote"],
@@ -1348,7 +1349,7 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
                 )
             )
         }
-        let input = makeSelectionInput(
+        let input = Self.makeSelectionInput(
             songs: songs,
             limit: 3,
             bareOnlySourceIDs: ["remote"],

@@ -974,14 +974,14 @@ final class AudioPlayerService {
     /// Chapter marks for the current item, empty for everything without them.
     /// Populated off the main actor after playback starts; see
     /// `AudioPlayerService+SpokenWord`.
-    private(set) var spokenWordChapters: [MediaChapter] = []
+    var spokenWordChapters: [MediaChapter] = []
     /// Which of `spokenWordChapters` covers the play head, or nil before the
     /// first mark. Refreshed on the playback clock.
-    private(set) var currentChapterIndex: Int?
+    var currentChapterIndex: Int?
     /// True while the current item is spoken word, so the transport, the Now
     /// Playing screen and the remote commands can offer skip intervals
     /// instead of track changes without reclassifying on every access.
-    private(set) var currentItemIsSpokenWord = false
+    var currentItemIsSpokenWord = false
     @ObservationIgnored var lastSpokenWordPositionSave: TimeInterval = 0
     @ObservationIgnored var chapterLoadTask: Task<Void, Never>?
     @ObservationIgnored var chapterLoadedSongID: String?

@@ -146,9 +146,15 @@ struct MetadataReadSchedulerTests {
     }
 
     @Test func preferencesMigrateWithoutOverridingExplicitSelection() {
-        #expect(MetadataReadingMode.resolve(storedValue: nil, legacyFastEnabled: false) == .automatic)
-        #expect(MetadataReadingMode.resolve(storedValue: nil, legacyFastEnabled: true) == .fast)
-        #expect(MetadataReadingMode.resolve(storedValue: "energySaving", legacyFastEnabled: true) == .energySaving)
+        #expect(MetadataReadingMode.resolve(
+            storedValue: nil, legacyFastEnabled: false, offersUserSelection: true
+        ) == .automatic)
+        #expect(MetadataReadingMode.resolve(
+            storedValue: nil, legacyFastEnabled: true, offersUserSelection: true
+        ) == .fast)
+        #expect(MetadataReadingMode.resolve(
+            storedValue: "energySaving", legacyFastEnabled: true, offersUserSelection: true
+        ) == .energySaving)
     }
 
     /// 桌面端不显示档位选择, 所以早先版本在这台 Mac 上存下的任何档位
@@ -400,7 +406,9 @@ struct MetadataReadSchedulerTests {
             #expect(preference.readsAutomatically)
             #expect(preference.resolvedForExplicitWork == preference)
         }
-        #expect(MetadataReadingMode.resolve(storedValue: "paused", legacyFastEnabled: true) == .paused)
+        #expect(MetadataReadingMode.resolve(
+            storedValue: "paused", legacyFastEnabled: true, offersUserSelection: true
+        ) == .paused)
 
         let modes: [MetadataBackfillExecutionMode] = [
             .standard, .userInitiated, .foregroundDeviceLocal, .foregroundAfterSourceScan,

@@ -618,7 +618,6 @@ struct SongRowView: View {
     ///
     /// 离线状态由调用方传进来：尾部菜单用的是行渲染时量到的那一份快照，
     /// 跟行上的徽标是同一个值。
-    @ViewBuilder
     /// 把一首歌在「音乐」和「有声内容」之间搬家。判定平时是推断出来的
     /// (.m4b 容器、点名了类别的流派), 这里只记下与推断不同的那一次决定 ——
     /// 改完标签或换了文件之后, 没被手动改过的歌仍然跟着文件走。
@@ -645,6 +644,7 @@ struct SongRowView: View {
         }
     }
 
+    @ViewBuilder
     private func songActionMenuContent(
         entryPoint: SingleSongScrapeEntryPoint,
         offline: OfflineAudioCacheSnapshot
