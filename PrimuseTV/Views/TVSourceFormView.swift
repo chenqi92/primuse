@@ -298,15 +298,6 @@ struct TVSourceFormView: View {
             : remoteUsesVendor
     }
 
-    /// 单地址框认得 QuickConnect ID / FN ID,可「连接方式」那个分段选择器已经
-    /// 不在了 —— 不在地址下面把这件事说出来,用户只会以为厂商远程接入被删了。
-    private var vendorAddressHintKey: String? {
-        guard supportsAdaptiveConnections, type.supportsVendorRemoteAccess else { return nil }
-        return type.usesSynologyConnectionMode
-            ? "synology_quickconnect_hint"
-            : "fnmusic_fnconnect_hint"
-    }
-
     private var canSave: Bool {
         let hasName = !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         guard hasName else { return false }
@@ -669,9 +660,6 @@ struct TVSourceFormView: View {
                 canRemove: addressRows.count > 1,
                 onRemove: { removeAddressRow(row.id) }
             )
-        }
-        if let vendorAddressHintKey {
-            connectionHint(vendorAddressHintKey)
         }
         addressActionRow
         if let note = unconfirmedServiceNote {
@@ -1581,6 +1569,20 @@ final class TVSourceAddressProbeController {
 /// 在两端不该叫两个名字,只是这里要从 PrimuseKit 自己那 16 张表里取。
 enum TVSourceAddressReadingText {
 
+    /// 空地址时那一行提示。群晖 / 飞牛的地址框还认厂商远程接入标识,而「连接方式」
+    /// 分段选择器已经不在了 —— 这里是唯一能把「也能填 ID」说出来又不多占一行的地方。
+    static func addressPlaceholder(for sourceType: MusicSourceType) -> String {
+        guard sourceType.supportsVendorRemoteAccess else {
+            return PMString("source_address_placeholder")
+        }
+        return PMString(
+            "source_address_placeholder_vendor %@",
+            PMString(sourceType.usesSynologyConnectionMode
+                ? "synology_quickconnect_id"
+                : "fnmusic_fnid")
+        )
+    }
+
     /// 地址框下面那一行。nil 表示这一行还没什么可说的(空输入)。
     static func line(
         for reading: SourceAddressFormPolicy.Reading,
@@ -1767,7 +1769,7 @@ struct TVSourceAddressRowView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 720, alignment: .leading)
         } else {
-            Text(PMString("source_address_placeholder"))
+            Text(TVSourceAddressReadingText.addressPlaceholder(for: sourceType))
                 .tvFont(.meta)
                 .foregroundStyle(TVColor.textGhost)
                 .frame(maxWidth: 720, alignment: .leading)

@@ -4026,6 +4026,7 @@
 "source_address_alternate_section" = "عنوان بديل";
 "source_address_section_footer" = "اترك المنفذ فارغًا وسيحدده Primuse عند الحفظ.";
 "source_address_placeholder" = "نطاق أو IP أو رابط كامل";
+"source_address_placeholder_vendor %@" = "نطاق أو IP أو %@";
 "source_address_add_alternate" = "إضافة عنوان بديل";
 "source_address_remove" = "إزالة هذا العنوان";
 "source_address_advanced" = "ضبط المنفذ والتشفير يدويًا";

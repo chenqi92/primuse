@@ -4026,6 +4026,7 @@
 "source_address_alternate_section" = "Endereço alternativo";
 "source_address_section_footer" = "Deixe a porta em branco e o Primuse descobre ao salvar.";
 "source_address_placeholder" = "Domínio, IP ou URL completa";
+"source_address_placeholder_vendor %@" = "Domínio, IP ou %@";
 "source_address_add_alternate" = "Adicionar endereço alternativo";
 "source_address_remove" = "Remover este endereço";
 "source_address_advanced" = "Definir porta e criptografia manualmente";

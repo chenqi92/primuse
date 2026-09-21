@@ -784,6 +784,7 @@
 "source_address_alternate_section" = "Adres zapasowy";
 "source_address_section_footer" = "Zostaw port pusty — Primuse ustali go przy zapisie.";
 "source_address_placeholder" = "Domena, IP lub pełny adres URL";
+"source_address_placeholder_vendor %@" = "Domena, IP lub %@";
 "source_address_add_alternate" = "Dodaj adres zapasowy";
 "source_address_remove" = "Usuń ten adres";
 "source_address_advanced" = "Ustaw port i szyfrowanie ręcznie";

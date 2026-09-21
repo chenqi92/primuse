@@ -3898,6 +3898,7 @@
 "source_address_alternate_section" = "Alternate Address";
 "source_address_section_footer" = "Leave the port blank and Primuse works it out when you save.";
 "source_address_placeholder" = "Domain, IP, or full URL";
+"source_address_placeholder_vendor %@" = "Domain, IP, or %@";
 "source_address_add_alternate" = "Add an alternate address";
 "source_address_remove" = "Remove this address";
 "source_address_advanced" = "Set the port and encryption manually";

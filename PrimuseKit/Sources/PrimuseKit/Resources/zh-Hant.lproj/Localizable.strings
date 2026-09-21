@@ -834,6 +834,7 @@
 "source_address_alternate_section" = "備用位址";
 "source_address_section_footer" = "連接埠留空，儲存時 Primuse 會自己試出來。";
 "source_address_placeholder" = "網域、IP 或完整網址";
+"source_address_placeholder_vendor %@" = "網域、IP 或 %@";
 "source_address_add_alternate" = "加入備用位址";
 "source_address_remove" = "移除這個位址";
 "source_address_advanced" = "手動設定連接埠與加密";

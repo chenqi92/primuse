@@ -4026,6 +4026,7 @@
 "source_address_alternate_section" = "Запасна адреса";
 "source_address_section_footer" = "Залиште порт порожнім — Primuse визначить його під час збереження.";
 "source_address_placeholder" = "Домен, IP або повна адреса";
+"source_address_placeholder_vendor %@" = "Домен, IP або %@";
 "source_address_add_alternate" = "Додати запасну адресу";
 "source_address_remove" = "Видалити цю адресу";
 "source_address_advanced" = "Указати порт і шифрування вручну";

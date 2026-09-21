@@ -4026,6 +4026,7 @@
 "source_address_alternate_section" = "Yedek adres";
 "source_address_section_footer" = "Bağlantı noktasını boş bırakın, Primuse kaydederken kendisi bulur.";
 "source_address_placeholder" = "Alan adı, IP veya tam URL";
+"source_address_placeholder_vendor %@" = "Alan adı, IP veya %@";
 "source_address_add_alternate" = "Yedek adres ekle";
 "source_address_remove" = "Bu adresi kaldır";
 "source_address_advanced" = "Bağlantı noktasını ve şifrelemeyi elle ayarla";

@@ -837,6 +837,7 @@
 "source_address_alternate_section" = "Adresse de secours";
 "source_address_section_footer" = "Laissez le port vide : Primuse le détermine à l’enregistrement.";
 "source_address_placeholder" = "Domaine, IP ou URL complète";
+"source_address_placeholder_vendor %@" = "Domaine, IP ou %@";
 "source_address_add_alternate" = "Ajouter une adresse de secours";
 "source_address_remove" = "Supprimer cette adresse";
 "source_address_advanced" = "Définir le port et le chiffrement manuellement";

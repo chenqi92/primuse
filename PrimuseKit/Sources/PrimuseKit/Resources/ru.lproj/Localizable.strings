@@ -784,6 +784,7 @@
 "source_address_alternate_section" = "Запасной адрес";
 "source_address_section_footer" = "Оставьте порт пустым — Primuse определит его при сохранении.";
 "source_address_placeholder" = "Домен, IP или полный адрес";
+"source_address_placeholder_vendor %@" = "Домен, IP или %@";
 "source_address_add_alternate" = "Добавить запасной адрес";
 "source_address_remove" = "Удалить этот адрес";
 "source_address_advanced" = "Указать порт и шифрование вручную";

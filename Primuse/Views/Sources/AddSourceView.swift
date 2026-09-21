@@ -128,15 +128,6 @@ struct AddSourceView: View {
             : remoteUsesVendor
     }
 
-    /// 单地址框认得 QuickConnect ID / FN ID,可「连接方式」那个分段选择器已经
-    /// 不在了 —— 不在地址下面把这件事说出来,用户只会以为厂商远程接入被删了。
-    private var vendorAddressHintKey: LocalizedStringKey? {
-        guard supportsAdaptiveConnections, sourceType.supportsVendorRemoteAccess else { return nil }
-        return sourceType.usesSynologyConnectionMode
-            ? "synology_quickconnect_hint"
-            : "fnmusic_fnconnect_hint"
-    }
-
     private var canSave: Bool {
         if sourceType.requiresHost {
             if supportsAdaptiveConnections {
@@ -707,9 +698,6 @@ struct AddSourceView: View {
                     onRemove: { removeAddressRow(row.id) }
                 )
             }
-            if let vendorAddressHintKey {
-                macInfoRow(vendorAddressHintKey)
-            }
             macAddressActionRow
             if let note = unconfirmedServiceNote {
                 macInfoText(note)
@@ -1043,11 +1031,6 @@ struct AddSourceView: View {
                     Text("source_address_section")
                 } else {
                     Text("source_address_alternate_section")
-                }
-            } footer: {
-                // 只挂在第一行:备用地址那几行不是填厂商标识的地方。
-                if addressRows.first?.id == row.id, let vendorAddressHintKey {
-                    Text(vendorAddressHintKey)
                 }
             }
         }

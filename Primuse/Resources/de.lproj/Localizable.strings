@@ -4120,6 +4120,7 @@
 "source_address_alternate_section" = "Alternative Adresse";
 "source_address_section_footer" = "Lassen Sie den Port leer – Primuse ermittelt ihn beim Speichern.";
 "source_address_placeholder" = "Domain, IP oder vollständige URL";
+"source_address_placeholder_vendor %@" = "Domain, IP oder %@";
 "source_address_add_alternate" = "Alternative Adresse hinzufügen";
 "source_address_remove" = "Diese Adresse entfernen";
 "source_address_advanced" = "Port und Verschlüsselung manuell festlegen";

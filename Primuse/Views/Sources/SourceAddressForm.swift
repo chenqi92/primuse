@@ -234,6 +234,24 @@ final class SourceAddressProbeController {
 /// 两种话。返回的都是已经本地化好的字符串,调用方直接 `Text(...)`。
 enum SourceAddressReadingText {
 
+    /// 地址框里的占位串。群晖 / 飞牛的地址框还认厂商远程接入标识,而「连接方式」
+    /// 分段选择器已经不在了 —— 占位串是唯一能把「这里也能填 ID」说出来又不多占
+    /// 一行提示的地方。
+    static func addressPlaceholder(for sourceType: MusicSourceType) -> String {
+        guard sourceType.supportsVendorRemoteAccess else {
+            return String(localized: "source_address_placeholder")
+        }
+        let identifier = String(
+            localized: sourceType.usesSynologyConnectionMode
+                ? "synology_quickconnect_id"
+                : "fnmusic_fnid"
+        )
+        return String(
+            format: String(localized: "source_address_placeholder_vendor %@"),
+            identifier
+        )
+    }
+
     /// 地址框下面那一行。nil 表示这一行还没什么可说的(空输入)。
     static func line(
         for reading: SourceAddressFormPolicy.Reading,
@@ -636,7 +654,10 @@ struct SourceAddressRowView: View {
 
     private var addressField: some View {
         HStack(spacing: 10) {
-            TextField("source_address_placeholder", text: $row.address)
+            TextField(
+                SourceAddressReadingText.addressPlaceholder(for: sourceType),
+                text: $row.address
+            )
                 .keyboardType(.URL)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
@@ -793,9 +814,17 @@ struct MacSourceAddressRowView: View {
 
     private var addressField: some View {
         HStack(spacing: 10) {
-            TextField("source_address_placeholder", text: $row.address)
+            // 这一行没有左侧标题,不给个框的话占位串看起来就是一句说明文字,
+            // 用户根本不知道这里可以打字。
+            TextField(
+                SourceAddressReadingText.addressPlaceholder(for: sourceType),
+                text: $row.address
+            )
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(PMColor.rowHover, in: .rect(cornerRadius: 6))
             if canRemove {
                 Button(action: onRemove) {
                     Image(systemName: "minus.circle")
@@ -875,16 +904,24 @@ struct MacSourceAddressRowView: View {
         String(sourceType.defaultPort(useSsl: row.transport.manualUseSsl ?? sourceType.defaultSSL))
     }
 
+    /// 与「端口」同一个行式:标题在左、控件靠右。分段控件自己左贴一列的话,
+    /// 在这套标题—值的表单里看起来像是脱了行。
     private var transportPicker: some View {
-        Picker("", selection: $row.transport) {
-            Text("source_address_transport_automatic")
-                .tag(SourceAddressTransportChoice.automatic)
-            Text(verbatim: "HTTP").tag(SourceAddressTransportChoice.cleartext)
-            Text(verbatim: "HTTPS").tag(SourceAddressTransportChoice.secure)
+        HStack(spacing: 12) {
+            Text("source_address_transport")
+                .font(.system(size: 12))
+                .foregroundStyle(PMColor.text)
+            Spacer(minLength: 12)
+            Picker("", selection: $row.transport) {
+                Text("source_address_transport_automatic")
+                    .tag(SourceAddressTransportChoice.automatic)
+                Text(verbatim: "HTTP").tag(SourceAddressTransportChoice.cleartext)
+                Text(verbatim: "HTTPS").tag(SourceAddressTransportChoice.secure)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 220)
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(maxWidth: 260)
     }
 
     @ViewBuilder

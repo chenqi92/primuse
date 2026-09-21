@@ -4120,6 +4120,7 @@
 "source_address_alternate_section" = "예비 주소";
 "source_address_section_footer" = "포트를 비워 두면 저장할 때 Primuse가 알아서 찾습니다.";
 "source_address_placeholder" = "도메인, IP 또는 전체 URL";
+"source_address_placeholder_vendor %@" = "도메인, IP 또는 %@";
 "source_address_add_alternate" = "예비 주소 추가";
 "source_address_remove" = "이 주소 삭제";
 "source_address_advanced" = "포트와 암호화 직접 설정";

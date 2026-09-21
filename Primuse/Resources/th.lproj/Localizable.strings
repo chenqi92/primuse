@@ -4026,6 +4026,7 @@
 "source_address_alternate_section" = "ที่อยู่สำรอง";
 "source_address_section_footer" = "เว้นพอร์ตไว้ว่าง แล้ว Primuse จะหาให้เองตอนบันทึก";
 "source_address_placeholder" = "โดเมน IP หรือ URL เต็ม";
+"source_address_placeholder_vendor %@" = "โดเมน IP หรือ %@";
 "source_address_add_alternate" = "เพิ่มที่อยู่สำรอง";
 "source_address_remove" = "ลบที่อยู่นี้";
 "source_address_advanced" = "ตั้งค่าพอร์ตและการเข้ารหัสเอง";
