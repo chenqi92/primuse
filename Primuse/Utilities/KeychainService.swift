@@ -65,9 +65,9 @@ enum KeychainService {
             finalStatus = localStatus
             if localStatus == errSecSuccess {
                 persistedSynchronizable = false
-                plog("🔐 Keychain sync write failed (\(primaryStatus)) for account=\(account.prefix(8))…; saved local-only fallback")
+                plog("🔐 Keychain sync write failed (\(primaryStatus)) for item=\(account.prefix(8))…; saved local-only fallback")
             } else {
-                plog("⚠️ Keychain write failed for account=\(account.prefix(8))… syncStatus=\(primaryStatus) localStatus=\(localStatus)")
+                plog("⚠️ Keychain write failed for item=\(account.prefix(8))… syncStatus=\(primaryStatus) localStatus=\(localStatus)")
             }
         }
 
@@ -103,12 +103,12 @@ enum KeychainService {
                 password: password,
                 for: account
             ) else {
-                plog("⚠️ Simulator credential fallback write failed for account=\(account.prefix(8))…")
+                plog("⚠️ Simulator credential fallback write failed for item=\(account.prefix(8))…")
                 return false
             }
             if finalStatus == errSecMissingEntitlement {
                 cacheWrite(password, for: account)
-                plog("🔐 Keychain unavailable (-34018); saved explicitly enabled fake QA credential for account=\(account.prefix(8))…")
+                plog("🔐 Keychain unavailable (-34018); saved explicitly enabled fake QA credential for item=\(account.prefix(8))…")
                 return true
             }
         }
@@ -116,7 +116,7 @@ enum KeychainService {
 
         guard finalStatus == errSecSuccess else {
             if !synchronizable {
-                plog("⚠️ Keychain local write failed for account=\(account.prefix(8))… status=\(finalStatus)")
+                plog("⚠️ Keychain local write failed for item=\(account.prefix(8))… status=\(finalStatus)")
             }
             return false
         }
@@ -128,7 +128,7 @@ enum KeychainService {
                 synchronizable: !persistedSynchronizable
             )
             if cleanupStatus != errSecSuccess && cleanupStatus != errSecItemNotFound {
-                plog("⚠️ Keychain obsolete-variant cleanup failed for account=\(account.prefix(8))… status=\(cleanupStatus)")
+                plog("⚠️ Keychain obsolete-variant cleanup failed for item=\(account.prefix(8))… status=\(cleanupStatus)")
                 // Reads prefer the local copy. If the new durable target is the
                 // synchronizable item, make the undeletable local copy match it
                 // before claiming success; otherwise a relaunch could surface
@@ -140,7 +140,7 @@ enum KeychainService {
                         synchronizable: false
                     )
                     guard mirrorStatus == errSecSuccess else {
-                        plog("⚠️ Keychain local mirror update failed for account=\(account.prefix(8))… status=\(mirrorStatus)")
+                        plog("⚠️ Keychain local mirror update failed for item=\(account.prefix(8))… status=\(mirrorStatus)")
                         return false
                     }
                 }
@@ -165,14 +165,14 @@ enum KeychainService {
             accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         )
         guard status == errSecSuccess else {
-            plog("⚠️ Local-only Keychain write failed account=\(account.prefix(12))… status=\(status)")
+            plog("⚠️ Local-only Keychain write failed item=\(account.prefix(12))… status=\(status)")
             return false
         }
 
         if Self.supportsSynchronizableKeychainAttributes {
             let cleanupStatus = deletePasswordVariant(for: account, synchronizable: true)
             guard cleanupStatus == errSecSuccess || cleanupStatus == errSecItemNotFound else {
-                plog("⚠️ Local-only Keychain cleanup failed account=\(account.prefix(12))… status=\(cleanupStatus)")
+                plog("⚠️ Local-only Keychain cleanup failed item=\(account.prefix(12))… status=\(cleanupStatus)")
                 return false
             }
         }
@@ -232,7 +232,7 @@ enum KeychainService {
     static func passwordLookup(for account: String) -> PasswordLookupResult {
         // 1) Memory cache — populated by setPassword in this session.
         if let cached = cacheRead(account) {
-            plog("🔑 Keychain getPassword HIT (memory) account=\(account.prefix(8))…")
+            plog("🔑 Keychain getPassword HIT (memory) item=\(account.prefix(8))…")
             return .found(cached)
         }
 
@@ -272,17 +272,17 @@ enum KeychainService {
         ) == .fallback,
            let password = fallbackPassword {
             cacheWrite(password, for: account)
-            plog("🔑 Keychain getPassword HIT (simulator fallback) primaryStatus=\(status) account=\(account.prefix(8))…")
+            plog("🔑 Keychain getPassword HIT (simulator fallback) primaryStatus=\(status) item=\(account.prefix(8))…")
             return .found(password)
         }
         if status == errSecMissingEntitlement {
-            plog("🔑 Keychain getPassword MISS (simulator fallback) account=\(account.prefix(8))…")
+            plog("🔑 Keychain getPassword MISS (simulator fallback) item=\(account.prefix(8))…")
             return .temporarilyUnavailable(status)
         }
         #endif
 
         guard status == errSecSuccess else {
-            plog("🔑 Keychain getPassword MISS status=\(status) account=\(account.prefix(8))…")
+            plog("🔑 Keychain getPassword MISS status=\(status) item=\(account.prefix(8))…")
             switch status {
             case errSecItemNotFound:
                 return .notFound
@@ -294,17 +294,17 @@ enum KeychainService {
         }
 
         guard let data = result as? Data else {
-            plog("🔑 Keychain getPassword unreadable result account=\(account.prefix(8))…")
+            plog("🔑 Keychain getPassword unreadable result item=\(account.prefix(8))…")
             return .failed(errSecDecode)
         }
 
         guard let pw = String(data: data, encoding: .utf8) else {
-            plog("🔑 Keychain getPassword decode failed account=\(account.prefix(8))…")
+            plog("🔑 Keychain getPassword decode failed item=\(account.prefix(8))…")
             return .failed(errSecDecode)
         }
         // Promote to memory cache so subsequent reads skip the keychain.
         cacheWrite(pw, for: account)
-        plog("🔑 Keychain getPassword HIT (keychain) account=\(account.prefix(8))…")
+        plog("🔑 Keychain getPassword HIT (keychain) item=\(account.prefix(8))…")
         return .found(pw)
     }
 
@@ -363,7 +363,7 @@ enum KeychainService {
         #endif
 
         guard status == errSecSuccess || status == errSecItemNotFound else {
-            plog("⚠️ Keychain delete failed for account=\(account.prefix(8))… status=\(status)")
+            plog("⚠️ Keychain delete failed for item=\(account.prefix(8))… status=\(status)")
             return false
         }
         #if DEBUG && targetEnvironment(simulator)
