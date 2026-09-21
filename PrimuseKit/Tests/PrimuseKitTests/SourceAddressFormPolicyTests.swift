@@ -249,6 +249,63 @@ struct SourceAddressFormPolicyTests {
         #expect(SourceAddressFormPolicy.requiresProbe(drafts: edited, baseline: baseline))
     }
 
+    // MARK: - 哪几行需要重新探测
+
+    /// 在外网给源补一条备用地址:动过的那一行要探,没动过的内网地址不跟着探。
+    /// 它在外网必然探不通,而那一轮既让用户白等,又会让整次保存失败。
+    @Test func onlyTheEditedRowIsProbed() {
+        let baseline = [draft("https://192.168.1.9:5001"), draft("https://old.example.com:5001")]
+        let edited = [draft("https://192.168.1.9:5001"), draft("https://nas.example.com")]
+        #expect(
+            SourceAddressFormPolicy.rowsRequiringProbe(drafts: edited, baseline: baseline)
+                == [false, true]
+        )
+    }
+
+    @Test func aNewSourceProbesEveryRow() {
+        let drafts = [draft("192.168.1.9"), draft("nas.example.com")]
+        #expect(
+            SourceAddressFormPolicy.rowsRequiringProbe(drafts: drafts, baseline: nil)
+                == [true, true]
+        )
+    }
+
+    /// 按签名配对而不是按下标:加一行、删一行、换顺序都不该让别的行变成「动过」。
+    @Test func rowIdentityFollowsTheAddressNotThePosition() {
+        let baseline = [draft("https://192.168.1.9:5001"), draft("https://nas.example.com:443")]
+        let appended = [
+            draft("https://192.168.1.9:5001"),
+            draft("https://nas.example.com:443"),
+            draft("mynas.example.com")
+        ]
+        #expect(
+            SourceAddressFormPolicy.rowsRequiringProbe(drafts: appended, baseline: baseline)
+                == [false, false, true]
+        )
+
+        let removed = [draft("https://nas.example.com:443")]
+        #expect(
+            SourceAddressFormPolicy.rowsRequiringProbe(drafts: removed, baseline: baseline)
+                == [false]
+        )
+
+        let reordered = [draft("https://nas.example.com:443"), draft("https://192.168.1.9:5001")]
+        #expect(
+            SourceAddressFormPolicy.rowsRequiringProbe(drafts: reordered, baseline: baseline)
+                == [false, false]
+        )
+    }
+
+    /// 两行写成同一个地址时只有一行算「没动过」—— 另一行确实是新填的。
+    @Test func aDuplicateRowStillCountsAsEdited() {
+        let baseline = [draft("https://nas.example.com:443")]
+        let duplicated = [draft("https://nas.example.com:443"), draft("https://nas.example.com:443")]
+        #expect(
+            SourceAddressFormPolicy.rowsRequiringProbe(drafts: duplicated, baseline: baseline)
+                == [false, true]
+        )
+    }
+
     // MARK: - 回显
 
     @Test func storedEndpointsRenderBackIntoAddressRowsWithoutLoss() {

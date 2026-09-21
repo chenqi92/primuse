@@ -1387,10 +1387,18 @@ struct AddSourceView: View {
         let reading = addressReading
         guard reading.isSubmittable else { return }
 
-        guard SourceAddressFormPolicy.requiresProbe(
-            drafts: addressRows.map(\.draft),
-            baseline: addressBaseline
-        ) else {
+        // 逐行判断要不要探:编辑已有源时没动过的那几行原样留着 —— 否则在外网
+        // 给源补一条备用地址,会连带去探那条此刻动不了的内网地址。
+        let probing = Set(
+            zip(
+                addressRows,
+                SourceAddressFormPolicy.rowsRequiringProbe(
+                    drafts: addressRows.map(\.draft),
+                    baseline: addressBaseline
+                )
+            ).compactMap { row, needsProbe in needsProbe ? row.id : nil }
+        )
+        guard probing.isEmpty == false else {
             // 编辑已有源且地址没动过:已存的端口与协议本来就是明确的,原样留着。
             applyAddressPlan(reading, selected: [:])
             saveSource()
@@ -1402,23 +1410,30 @@ struct AddSourceView: View {
             let outcome = await addressProbe.probe(
                 rows: addressRows,
                 reading: reading,
-                sourceType: sourceType
+                sourceType: sourceType,
+                probing: probing
             )
             guard outcome.isCancelled == false, Task.isCancelled == false else { return }
-            // 一个候选都没应答:尝试清单已经内联列在地址下面了。让用户接着改,
-            // 或者按「仍然保存」坚持用第一个候选 —— 不弹模态框打断。
-            guard outcome.unresolvedRowIDs.isEmpty else { return }
+            // 内网地址在外网探不通是实话而不是错。只要还有一行给出了结论,这次
+            // 保存就照常进行:探不通的那一行按它自己的解读存回去(没动过的行读
+            // 回来只有一个候选,就是它原来那个端点)。
+            //
+            // 一行都没应答才停下来 —— 尝试清单已经内联列在地址下面了,让用户
+            // 接着改,或者按「仍然保存」坚持用第一个候选,不弹模态框打断。
+            guard outcome.selected.isEmpty == false || outcome.unresolvedRowIDs.isEmpty else { return }
             applyAddressPlan(reading, selected: outcome.selected)
             saveSource()
         }
     }
 
-    /// 探测不通也要存:取每一行的第一个候选。
+    /// 探测不通也要存:已经探到的行用它探到的候选,没应答的行用第一个候选。
     private func saveWithoutProbing() {
         let reading = addressReading
         guard reading.isSubmittable else { return }
+        // `cancelAddressProbe` 会清掉控制器上的结论,先取出来再取消。
+        let selected = addressProbe.selectedCandidates
         cancelAddressProbe()
-        applyAddressPlan(reading, selected: [:])
+        applyAddressPlan(reading, selected: selected)
         saveSource()
     }
 

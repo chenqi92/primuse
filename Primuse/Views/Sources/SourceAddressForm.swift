@@ -100,6 +100,9 @@ final class SourceAddressProbeController {
     private(set) var phase: Phase = .idle
     private(set) var attempts: [UUID: [SourceEndpointResolver.Attempt]] = [:]
     private(set) var verdicts: [UUID: SourceServiceFingerprint.Verdict] = [:]
+    /// 这一轮里定下来的候选,按行 id 存。「仍然保存」要用它 —— 已经探到的行
+    /// 没有理由退回去猜第一个候选。
+    private(set) var selectedCandidates: [UUID: SourceConnectionCandidatePlanner.Candidate] = [:]
 
     /// 会话活到控制器被释放为止:一次提交可能要发四五个请求,每次都新建会话
     /// 等于每次都重建连接池。
@@ -109,23 +112,28 @@ final class SourceAddressProbeController {
 
     /// 地址一改就把上一轮的结论清掉 —— 留着会让用户以为新地址也试过了。
     func invalidate() {
-        guard phase != .idle || attempts.isEmpty == false else { return }
+        guard phase != .idle || attempts.isEmpty == false || selectedCandidates.isEmpty == false else {
+            return
+        }
         phase = .idle
         attempts = [:]
         verdicts = [:]
+        selectedCandidates = [:]
     }
 
     func probe(
         rows: [SourceAddressRow],
         reading: SourceAddressFormPolicy.FormReading,
-        sourceType: MusicSourceType
+        sourceType: MusicSourceType,
+        probing: Set<UUID>
     ) async -> Outcome {
-        let plans = Self.plans(rows: rows, reading: reading)
+        let plans = Self.plans(rows: rows, reading: reading, probing: probing)
         guard plans.isEmpty == false else { return Outcome() }
 
         phase = .probing
         attempts = [:]
         verdicts = [:]
+        selectedCandidates = [:]
 
         let resolver = SourceEndpointResolver(load: session.loader())
         var resolutions: [UUID: SourceEndpointResolver.Resolution] = [:]
@@ -174,6 +182,7 @@ final class SourceAddressProbeController {
 
         attempts = collectedAttempts
         verdicts = collectedVerdicts
+        selectedCandidates = outcome.selected
         phase = outcome.unresolvedRowIDs.isEmpty ? .idle : .unresolved
         return outcome
     }
@@ -185,14 +194,17 @@ final class SourceAddressProbeController {
     }
 
     /// 只探要真正存下来的端点行。厂商标识不用探(它不是一个地址),没抢到槽位的
-    /// 那一行也不用探(存不进去)。
+    /// 那一行也不用探(存不进去),编辑时没动过的那一行也不用探(协议与端口
+    /// 已经写死在里面,`SourceAddressFormPolicy.rowsRequiringProbe`)。
     private static func plans(
         rows: [SourceAddressRow],
-        reading: SourceAddressFormPolicy.FormReading
+        reading: SourceAddressFormPolicy.FormReading,
+        probing: Set<UUID>
     ) -> [Plan] {
         var plans: [Plan] = []
         for (index, row) in rows.enumerated() where index < reading.rows.count {
-            guard case let .endpoint(endpoint) = reading.rows[index],
+            guard probing.contains(row.id),
+                  case let .endpoint(endpoint) = reading.rows[index],
                   endpoint.slot != nil else {
                 continue
             }

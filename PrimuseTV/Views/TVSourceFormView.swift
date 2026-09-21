@@ -957,10 +957,18 @@ struct TVSourceFormView: View {
         let reading = addressReading
         guard reading.isSubmittable else { return }
 
-        guard SourceAddressFormPolicy.requiresProbe(
-            drafts: addressRows.map(\.draft),
-            baseline: addressBaseline
-        ) else {
+        // 逐行判断要不要探:编辑已有源时没动过的那几行原样留着 —— 否则在外网
+        // 给源补一条备用地址,会连带去探那条此刻动不了的内网地址。
+        let probing = Set(
+            zip(
+                addressRows,
+                SourceAddressFormPolicy.rowsRequiringProbe(
+                    drafts: addressRows.map(\.draft),
+                    baseline: addressBaseline
+                )
+            ).compactMap { row, needsProbe in needsProbe ? row.id : nil }
+        )
+        guard probing.isEmpty == false else {
             // 编辑已有源且地址没动过:已存的端口与协议本来就是明确的,原样留着。
             applyAddressPlan(reading, selected: [:])
             perform(intent)
@@ -979,12 +987,17 @@ struct TVSourceFormView: View {
             let outcome = await addressProbe.probe(
                 rows: addressRows,
                 reading: reading,
-                sourceType: type
+                sourceType: type,
+                probing: probing
             )
             guard outcome.isCancelled == false, Task.isCancelled == false else { return }
-            // 一个候选都没应答:尝试清单已经内联列在地址下面了。让用户接着改,
-            // 或者按「仍然保存」坚持用第一个候选 —— 不弹全屏面板打断。
-            guard outcome.unresolvedRowIDs.isEmpty else { return }
+            // 内网地址在外网探不通是实话而不是错。只要还有一行给出了结论,这次
+            // 保存就照常进行:探不通的那一行按它自己的解读存回去(没动过的行读
+            // 回来只有一个候选,就是它原来那个端点)。
+            //
+            // 一行都没应答才停下来 —— 尝试清单已经内联列在地址下面了,让用户
+            // 接着改,或者按「仍然保存」坚持用第一个候选,不弹全屏面板打断。
+            guard outcome.selected.isEmpty == false || outcome.unresolvedRowIDs.isEmpty else { return }
             resolvedSelection = ResolvedAddressSelection(
                 signature: addressProbeSignature,
                 selected: outcome.selected
@@ -1001,12 +1014,14 @@ struct TVSourceFormView: View {
         }
     }
 
-    /// 探测不通也要存:取每一行的第一个候选。
+    /// 探测不通也要存:已经探到的行用它探到的候选,没应答的行用第一个候选。
     private func saveWithoutProbing() {
         let reading = addressReading
         guard reading.isSubmittable else { return }
+        // `cancelAddressProbe` 会清掉控制器上的结论,先取出来再取消。
+        let selected = addressProbe.selectedCandidates
         cancelAddressProbe()
-        applyAddressPlan(reading, selected: [:])
+        applyAddressPlan(reading, selected: selected)
         commitSave()
     }
 
@@ -1407,6 +1422,9 @@ final class TVSourceAddressProbeController {
     private(set) var phase: Phase = .idle
     private(set) var attempts: [UUID: [SourceEndpointResolver.Attempt]] = [:]
     private(set) var verdicts: [UUID: SourceServiceFingerprint.Verdict] = [:]
+    /// 这一轮里定下来的候选,按行 id 存。「仍然保存」要用它 —— 已经探到的行
+    /// 没有理由退回去猜第一个候选。
+    private(set) var selectedCandidates: [UUID: SourceConnectionCandidatePlanner.Candidate] = [:]
 
     /// 会话活到控制器被释放为止:一次提交可能要发四五个请求,每次都新建会话
     /// 等于每次都重建连接池。
@@ -1416,23 +1434,28 @@ final class TVSourceAddressProbeController {
 
     /// 地址一改就把上一轮的结论清掉 —— 留着会让用户以为新地址也试过了。
     func invalidate() {
-        guard phase != .idle || attempts.isEmpty == false else { return }
+        guard phase != .idle || attempts.isEmpty == false || selectedCandidates.isEmpty == false else {
+            return
+        }
         phase = .idle
         attempts = [:]
         verdicts = [:]
+        selectedCandidates = [:]
     }
 
     func probe(
         rows: [TVSourceAddressRow],
         reading: SourceAddressFormPolicy.FormReading,
-        sourceType: MusicSourceType
+        sourceType: MusicSourceType,
+        probing: Set<UUID>
     ) async -> Outcome {
-        let plans = Self.plans(rows: rows, reading: reading)
+        let plans = Self.plans(rows: rows, reading: reading, probing: probing)
         guard plans.isEmpty == false else { return Outcome() }
 
         phase = .probing
         attempts = [:]
         verdicts = [:]
+        selectedCandidates = [:]
 
         let resolver = SourceEndpointResolver(load: session.loader())
         var resolutions: [UUID: SourceEndpointResolver.Resolution] = [:]
@@ -1481,6 +1504,7 @@ final class TVSourceAddressProbeController {
 
         attempts = collectedAttempts
         verdicts = collectedVerdicts
+        selectedCandidates = outcome.selected
         phase = outcome.unresolvedRowIDs.isEmpty ? .idle : .unresolved
         return outcome
     }
@@ -1492,14 +1516,17 @@ final class TVSourceAddressProbeController {
     }
 
     /// 只探要真正存下来的端点行。厂商标识不用探(它不是一个地址),没抢到槽位的
-    /// 那一行也不用探(存不进去)。
+    /// 那一行也不用探(存不进去),编辑时没动过的那一行也不用探(协议与端口
+    /// 已经写死在里面,`SourceAddressFormPolicy.rowsRequiringProbe`)。
     private static func plans(
         rows: [TVSourceAddressRow],
-        reading: SourceAddressFormPolicy.FormReading
+        reading: SourceAddressFormPolicy.FormReading,
+        probing: Set<UUID>
     ) -> [Plan] {
         var plans: [Plan] = []
         for (index, row) in rows.enumerated() where index < reading.rows.count {
-            guard case let .endpoint(endpoint) = reading.rows[index],
+            guard probing.contains(row.id),
+                  case let .endpoint(endpoint) = reading.rows[index],
                   endpoint.slot != nil else {
                 continue
             }

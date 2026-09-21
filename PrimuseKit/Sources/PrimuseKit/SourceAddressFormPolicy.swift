@@ -420,13 +420,30 @@ public enum SourceAddressFormPolicy {
         drafts: [AddressDraft],
         baseline: [AddressDraft]?
     ) -> Bool {
-        guard let baseline else { return true }
-        guard baseline.count == drafts.count else { return true }
-        for (draft, original) in zip(drafts, baseline)
-        where draft.probeSignature != original.probeSignature {
-            return true
+        rowsRequiringProbe(drafts: drafts, baseline: baseline).contains(true)
+    }
+
+    /// 上面那条道理对**每一行分别**成立。在外网给源补一条备用地址时,没动过的
+    /// 内网地址不该跟着被探一遍:它在外网必然探不通,那个结论既让用户白等一轮
+    /// 耐心,又会把整次保存拖下水(见 `AddSourceView.submit`)。
+    ///
+    /// 按签名配对而不是按下标:加一行、删一行、换顺序都不该让别的行变成「动过」。
+    /// 已存的行渲染回地址框时协议与端口都写在里面,读回来只剩一个候选,所以
+    /// 不探它并不会丢掉任何选择 —— 存进去的就是它原来那个端点。
+    public static func rowsRequiringProbe(
+        drafts: [AddressDraft],
+        baseline: [AddressDraft]?
+    ) -> [Bool] {
+        guard let baseline else { return Array(repeating: true, count: drafts.count) }
+        var unmatched: [String: Int] = [:]
+        for original in baseline {
+            unmatched[original.probeSignature, default: 0] += 1
         }
-        return false
+        return drafts.map { draft in
+            guard let remaining = unmatched[draft.probeSignature], remaining > 0 else { return true }
+            unmatched[draft.probeSignature] = remaining - 1
+            return false
+        }
     }
 
     // MARK: - 回显
