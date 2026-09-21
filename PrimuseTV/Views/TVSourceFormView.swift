@@ -298,6 +298,15 @@ struct TVSourceFormView: View {
             : remoteUsesVendor
     }
 
+    /// 单地址框认得 QuickConnect ID / FN ID,可「连接方式」那个分段选择器已经
+    /// 不在了 —— 不在地址下面把这件事说出来,用户只会以为厂商远程接入被删了。
+    private var vendorAddressHintKey: String? {
+        guard supportsAdaptiveConnections, type.supportsVendorRemoteAccess else { return nil }
+        return type.usesSynologyConnectionMode
+            ? "synology_quickconnect_hint"
+            : "fnmusic_fnconnect_hint"
+    }
+
     private var canSave: Bool {
         let hasName = !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         guard hasName else { return false }
@@ -660,6 +669,9 @@ struct TVSourceFormView: View {
                 canRemove: addressRows.count > 1,
                 onRemove: { removeAddressRow(row.id) }
             )
+        }
+        if let vendorAddressHintKey {
+            connectionHint(vendorAddressHintKey)
         }
         addressActionRow
         if let note = unconfirmedServiceNote {
