@@ -3211,6 +3211,11 @@ final class MusicLibrary {
     /// Keep the source grouping beside the other visible caches so those
     /// renders don't filter a 10K+ song array once per card per frame.
     @ObservationIgnored private var visiblePlayableSongsBySourceID: [String: [Song]] = [:]
+    /// 哪些源此刻至少有一首能播的歌。来源页只要这个判定, 可上面那份缓存不被
+    /// 观察, 卡片原本只能顺手读一下整库引用才收得到更新 —— 于是扫描每 flush
+    /// 一次, 整张来源列表连同长按菜单、滑动操作全部重建。这份集合只在结果真的
+    /// 变了才写, 一轮扫描里通常只翻一次。
+    private(set) var sourceIDsWithPlayableSongs: Set<String> = []
     /// Sidebar counters need all visible songs, not just playable ones. Keeping
     /// counts here avoids one full-library filter per source on every sidebar
     /// body evaluation.
@@ -3643,6 +3648,7 @@ final class MusicLibrary {
             state.publish(prepared.songsBySourceID[sourceID] ?? [], replacedIDs: nil)
         }
         visiblePlayableSongsBySourceID = prepared.playableBySourceID
+        refreshSourceIDsWithPlayableSongs()
         visibleSongCountBySourceID = prepared.countBySourceID
         songCountBySourceID = prepared.allCountBySourceID
         preferredArtworkSongIDByAlbumID = prepared.preferredArtworkSongIDByAlbumID
@@ -5057,6 +5063,7 @@ final class MusicLibrary {
             } else {
                 visiblePlayableSongsBySourceID[sourceID] = retainedPlayable
             }
+            refreshSourceIDsWithPlayableSongs()
             // `replacedIDs: nil` = 成员发生变化, 与整组重建的发布形状一致。
             sourceSongListStates[sourceID]?.publish(retained, replacedIDs: nil)
         }
@@ -5707,6 +5714,14 @@ final class MusicLibrary {
         return visiblePlayableSongsBySourceID[sourceID] ?? []
     }
 
+    /// 空的源在那份缓存里是"没有这个键", 所以键集合就是答案。写之前先比,
+    /// 内容一样就不惊动观察者。
+    private func refreshSourceIDsWithPlayableSongs() {
+        let next = Set(visiblePlayableSongsBySourceID.keys)
+        guard next != sourceIDsWithPlayableSongs else { return }
+        sourceIDsWithPlayableSongs = next
+    }
+
     /// Cached source slice for song-list routes. Avoids re-filtering the full
     /// visible library every time a macOS source detail view is invalidated.
     func visibleSongs(forSourceID sourceID: String) -> [Song] {
@@ -5729,6 +5744,7 @@ final class MusicLibrary {
     ) {
         visibleSongsBySourceID[sourceID] = songs
         visiblePlayableSongsBySourceID[sourceID] = playableSongs
+        refreshSourceIDsWithPlayableSongs()
         sourceSongListStates[sourceID]?.publish(songs, replacedIDs: replacedIDs, invalidatesSort: invalidatesSort)
     }
 

@@ -400,7 +400,35 @@ final class ScanService {
         }
     }
 
-    private(set) var scanStates: [String: ScanState] = [:]
+    /// 真正被观察的那一份。写入一律经过下面的 `scanStates`。
+    private var scanStateStorage: [String: ScanState] = [:]
+
+    /// 扫描期间目录对账、变更清点这些回调一秒能来几十次, 而 Observation 从不
+    /// 比较新旧值 —— 哪怕写进去的和上一次一模一样, 来源页整张列表也会跟着重算
+    /// 一遍, 在主线程上跟滑动抢帧。内容没变的写入在这里就挡掉。
+    private(set) var scanStates: [String: ScanState] {
+        get { scanStateStorage }
+        set {
+            guard newValue != scanStateStorage else { return }
+            scanStateStorage = newValue
+            refreshScanningSourceIDs()
+        }
+    }
+
+    /// 哪些源此刻在扫。进度一秒变好几次, 但"在不在扫"一轮通常只翻两次 ——
+    /// 只需要这个判定的地方(按钮禁用态、长按菜单项)读它, 就不必跟着每一帧
+    /// 进度重算。长按菜单在 SwiftUI 里是独立宿主, 那里也不适合再挂一层读
+    /// `@Environment` 的子视图。
+    private(set) var scanningSourceIDs: Set<String> = []
+
+    private func refreshScanningSourceIDs() {
+        var next: Set<String> = []
+        for (sourceID, state) in scanStateStorage where state.isScanning {
+            next.insert(sourceID)
+        }
+        guard next != scanningSourceIDs else { return }
+        scanningSourceIDs = next
+    }
     var synologyAPIs: [String: SynologyAPI] = [:]
     private var activeTasks: [String: Task<Void, Never>] = [:]
     /// Monotonic token bumped on every `scanSource` launch and every
@@ -880,6 +908,7 @@ final class ScanService {
             sourceStore.updateLocalCoalesced(source.id) { $0.songCount = acceptedCount }
         }
 
+        lastProgressFrameBySourceID[source.id] = nil
         scanStates[source.id] = ScanState(
             isScanning: true,
             currentFile: String(localized: "source_diag_preparing_scan"),
@@ -1263,6 +1292,22 @@ final class ScanService {
 
     private var currentProgressPublishInterval: TimeInterval {
         ScanExecutionProfilePolicy.progressPublishInterval(for: currentExecutionProfile)
+    }
+
+    /// 进度帧的发布闸门。`publishScanProgress` 自己带节流, 而按页/按目录驱动的
+    /// 那两路回调原本一次不漏地写进 `scanStates` —— 连接器快起来一秒几十次,
+    /// 每一次都让来源页整张列表重算。收尾帧不受限, 否则进度条会停在中途。
+    private var lastProgressFrameBySourceID: [String: Date] = [:]
+
+    private func allowsProgressFrame(for sourceID: String, isFinal: Bool = false) -> Bool {
+        let now = Date()
+        if !isFinal,
+           let last = lastProgressFrameBySourceID[sourceID],
+           now.timeIntervalSince(last) < currentProgressPublishInterval {
+            return false
+        }
+        lastProgressFrameBySourceID[sourceID] = now
+        return true
     }
 
     /// Re-launch any source whose scan was interrupted (has a checkpoint with
@@ -2991,6 +3036,8 @@ final class ScanService {
         totalCount: Int? = nil
     ) {
         guard var state = scanStates[sourceID], state.isScanning else { return }
+        let isFinalFrame = checkedCount != nil && checkedCount == totalCount
+        guard allowsProgressFrame(for: sourceID, isFinal: isFinalFrame) else { return }
         state.currentFile = String(localized: "source_diag_checking_changes")
         // Counts arrive only once the id listing starts. Until then the card
         // keeps whatever a resumed scan already put there rather than dropping
@@ -4344,6 +4391,8 @@ final class ScanService {
         totalDirectoryCount: Int,
         currentDirectory: String
     ) {
+        let isFinalFrame = completedDirectoryCount >= totalDirectoryCount
+        guard allowsProgressFrame(for: sourceID, isFinal: isFinalFrame) else { return }
         var state = scanStates[sourceID] ?? ScanState(isScanning: true)
         state.isScanning = true
         state.scannedCount = snapshotWorkCount + completedDirectoryCount

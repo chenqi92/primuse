@@ -11987,9 +11987,15 @@ final class SourceManager {
             currentOwner: connectionRouteOwners[sourceID]
         ) else { return }
         if let kind {
+            // 路由没换就别写。Observation 不比较新旧值, 而音乐源卡片读着这两张
+            // 表 —— 一轮扫描里连接器反复报同一条路由, 照写就会让整张来源列表
+            // 一次次重建。
+            guard activeConnectionRoutes[sourceID] != kind
+                || lastSuccessfulConnectionRoutes[sourceID] != kind else { return }
             activeConnectionRoutes[sourceID] = kind
             lastSuccessfulConnectionRoutes[sourceID] = kind
         } else {
+            guard activeConnectionRoutes[sourceID] != nil else { return }
             activeConnectionRoutes.removeValue(forKey: sourceID)
         }
     }
