@@ -115,6 +115,8 @@ struct MacDetailContainer: View {
             case .songs:
                 SongListView(locationRequest: $songLocationRequest)
                     .navigationTitle(section.title)
+            case .spokenWord:
+                SpokenWordLibraryView()
             case .albums:
                 AlbumGridView()
                     .navigationTitle(section.title)

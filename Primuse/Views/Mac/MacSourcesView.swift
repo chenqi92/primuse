@@ -471,7 +471,6 @@ struct MacSourcesView: View {
 
     // MARK: - Card body
 
-    @ViewBuilder
     private func displayedSongCount(_ source: MusicSource, scanning: ScanService.ScanState?) -> Int {
         if let scanning, scanning.isScanning || scanning.canResume {
             return scanning.scannedCount
@@ -479,6 +478,7 @@ struct MacSourcesView: View {
         return source.songCount
     }
 
+    @ViewBuilder
     private func cardBody(_ source: MusicSource, scanning: ScanService.ScanState?, displayedSongCount: Int) -> some View {
         if let failureMessage = scanning?.failureMessage, !failureMessage.isEmpty {
             VStack(alignment: .leading, spacing: 5) {
