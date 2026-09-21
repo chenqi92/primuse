@@ -28,6 +28,25 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
     }
 
     private static let pageSize = 50
+    /// 飞牛的曲目接口不返回专辑艺术家, 只有 `album/detail` 的 `artists` 有。
+    /// 少了它同一张专辑会按每首歌各自的艺术家散成多张同名专辑, 所以扫描时
+    /// 按专辑补一次。一张专辑只问一次, 整次扫描共用这两张表。
+    private var albumArtistByGUID: [String: String] = [:]
+    private var albumsWithoutArtist: Set<String> = []
+    private static let albumDetailConcurrency = 6
+    /// 老版本飞牛没有专辑详情这个接口。一次成功都没有就别再撞了, 否则每页都要
+    /// 白发一轮请求。取消不算失败, 每次扫描开始时重新给它一次机会。
+    private static let albumDetailFailureLimit = 8
+    private var albumDetailFailures = 0
+    private var albumDetailSucceeded = false
+    private var albumDetailUnavailable = false
+
+    /// `.resolved` 的 name 为 nil 表示这张专辑问过了、服务端就是没有专辑艺术家。
+    private enum AlbumArtistLookup: Sendable {
+        case resolved(guid: String, name: String?)
+        case failed
+        case cancelled
+    }
 
     init(
         sourceID: String,
@@ -169,6 +188,8 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
 
     func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
         try await connect()
+        albumDetailFailures = 0
+        albumDetailUnavailable = false
         return AsyncThrowingStream { continuation in
             let producer = Task {
                 do {
@@ -202,12 +223,16 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
                         }
 
                         received += result.rawCount
+                        let albumArtists = await self.albumArtistNames(for: result.tracks)
                         for track in result.tracks {
                             try Task.checkCancellation()
                             guard seenTrackGUIDs.insert(track.guid).inserted else {
                                 throw SourceError.connectionFailed(PMString("error.catalog.duplicateItem"))
                             }
-                            let scanned = try self.scannedSong(from: track)
+                            let scanned = try self.scannedSong(
+                                from: track,
+                                albumArtistName: track.albumGUID.flatMap { albumArtists[$0] }
+                            )
                             continuation.yield(scanned)
                         }
 
@@ -261,23 +286,92 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
         }
     }
 
-    private func scannedSong(from track: FnMusicTrack) throws -> ConnectorScannedSong {
+    private func scannedSong(
+        from track: FnMusicTrack,
+        albumArtistName: String?
+    ) throws -> ConnectorScannedSong {
         let suffix = track.fileExtension ?? ""
-        guard let song = track.makeSong(sourceID: sourceID) else {
+        guard let song = track.makeSong(
+            sourceID: sourceID,
+            albumArtistName: albumArtistName
+        ) else {
             throw SourceError.connectionFailed(PMString("error.catalog.trackMissingFormat", track.title))
         }
         return ConnectorScannedSong(
             song: song,
             displayName: "\(track.title).\(suffix)",
             titleMetadataInspected: track.hasUsableCatalogTitle,
-            folderLocation: libraryFolderLocation(for: track)
+            folderLocation: libraryFolderLocation(for: track, albumArtistName: albumArtistName)
         )
     }
 
+    /// 专辑 GUID → 专辑艺术家, 只含这一页真的查到的。曲目自己带了专辑艺术家
+    /// (飞牛哪天开始给了)就不问, 问过没有的也不再问。一个专辑详情取不到不该
+    /// 让整次扫描失败, 那一张这轮就按曲目艺术家走。
+    private func albumArtistNames(for tracks: [FnMusicTrack]) async -> [String: String] {
+        var pending: [String] = []
+        if !albumDetailUnavailable {
+            for track in tracks {
+                guard track.albumArtistName == nil, let guid = track.albumGUID,
+                      albumArtistByGUID[guid] == nil, !albumsWithoutArtist.contains(guid),
+                      !pending.contains(guid) else { continue }
+                pending.append(guid)
+            }
+        }
+        var offset = 0
+        while offset < pending.count, !Task.isCancelled, !albumDetailUnavailable {
+            let slice = Array(pending[offset..<min(offset + Self.albumDetailConcurrency, pending.count)])
+            offset += slice.count
+            await withTaskGroup(of: AlbumArtistLookup.self) { group in
+                for guid in slice {
+                    group.addTask { [api] in
+                        do {
+                            return .resolved(
+                                guid: guid,
+                                name: try await api.albumArtistName(albumGUID: guid)
+                            )
+                        } catch {
+                            return OperationCancellationPolicy.isCancellation(error)
+                                ? .cancelled
+                                : .failed
+                        }
+                    }
+                }
+                for await lookup in group {
+                    switch lookup {
+                    case .resolved(let guid, let name):
+                        albumDetailSucceeded = true
+                        albumDetailFailures = 0
+                        if let name {
+                            albumArtistByGUID[guid] = name
+                        } else {
+                            albumsWithoutArtist.insert(guid)
+                        }
+                    case .failed:
+                        albumDetailFailures += 1
+                    case .cancelled:
+                        break
+                    }
+                }
+            }
+            if !albumDetailSucceeded, albumDetailFailures >= Self.albumDetailFailureLimit {
+                albumDetailUnavailable = true
+                plog("FN Music album detail unavailable source=\(sourceID.prefix(8)) failures=\(albumDetailFailures)")
+            }
+        }
+        var names: [String: String] = [:]
+        for track in tracks {
+            guard let guid = track.albumGUID, let name = albumArtistByGUID[guid] else { continue }
+            names[guid] = name
+        }
+        return names
+    }
+
     private func libraryFolderLocation(
-        for track: FnMusicTrack
+        for track: FnMusicTrack,
+        albumArtistName: String?
     ) -> ConnectorLibraryFolderLocation {
-        let albumArtistName = track.albumArtistName
+        let albumArtistName = albumArtistName ?? track.albumArtistName
         let trackArtistName = track.artistNames.isEmpty
             ? nil
             : track.artistNames.joined(separator: ", ")

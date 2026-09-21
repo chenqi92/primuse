@@ -161,6 +161,22 @@ actor FnMusicAPI {
         return FnMusicTrackPage(tracks: tracks, total: total, rawCount: rawList.count)
     }
 
+    /// `/track/list` 的 album 对象只有 guid/name/coverId —— 专辑艺术家只在专辑
+    /// 详情的 `artists` 里。少了它, 一张专辑会按每首歌各自的艺术家散成多张同名
+    /// 专辑。一张专辑问一次就够, 缓存由调用方持有。
+    func albumArtistName(albumGUID: String) async throws -> String? {
+        let payload = try await requestJSON(
+            method: "GET",
+            path: "/album/detail",
+            queryItems: [URLQueryItem(name: "guid", value: albumGUID)]
+        )
+        guard let dictionary = payload as? [String: Any] else { return nil }
+        let names = (dictionary["artists"] as? [[String: Any]] ?? [])
+            .compactMap { stringValue($0["name"])?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return names.isEmpty ? nil : names.joined(separator: ", ")
+    }
+
     func preferredLyrics(trackGUID: String) async throws -> String? {
         let payload = try await requestJSON(
             method: "GET",
