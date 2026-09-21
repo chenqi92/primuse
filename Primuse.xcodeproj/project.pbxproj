@@ -2628,7 +2628,7 @@
 		CC5849BB4BD9823052F21FB6 /* ISOBaseMediaChapterParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISOBaseMediaChapterParser.swift; sourceTree = "<group>"; };
 		FD9B5CE473079B93AB7083AC /* SpokenWordContentPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenWordContentPolicy.swift; sourceTree = "<group>"; };
 		7A79FB7470B28E3544843FA1 /* SpokenWordStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenWordStore.swift; sourceTree = "<group>"; };
-		F7F25BD6BE2236BDBDE78BAF /* AudioPlayerService+SpokenWord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayerService+SpokenWord.swift; sourceTree = "<group>"; };
+		F7F25BD6BE2236BDBDE78BAF /* AudioPlayerService+SpokenWord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AudioPlayerService+SpokenWord.swift"; sourceTree = "<group>"; };
 		AA87DA9628C864C0A92558B2 /* ChapterListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterListView.swift; sourceTree = "<group>"; };
 		ADD8A8402BED655379DB30C3 /* SpokenWordLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenWordLibraryView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
