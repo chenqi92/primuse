@@ -211,9 +211,15 @@ enum EmbeddedMetadataWritebackCoordinator {
         let sourceURL = try await run(source: sourceName, stage: .download) {
             try await adapter.localURL(for: original.filePath)
         }
-        let fileExtension = sourceURL.pathExtension.isEmpty
+        // SFBAudioEngine picks its file class by extension, and the working
+        // copy is ours to name: an audiobook `.m4b` is written like the `.m4a`
+        // it already is. Only this temporary copy is renamed — the edited bytes
+        // still go back to the original path under its own name.
+        let declaredExtension = sourceURL.pathExtension.isEmpty
             ? updated.fileFormat.rawValue
             : sourceURL.pathExtension
+        let fileExtension = AudioFormat.from(fileExtension: declaredExtension)?.rawValue
+            ?? declaredExtension
         let workingURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse-metadata-writeback-\(UUID().uuidString)")
             .appendingPathExtension(fileExtension)

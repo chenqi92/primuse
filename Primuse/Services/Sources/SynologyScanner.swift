@@ -1132,7 +1132,7 @@ actor SynologyScanner {
         fileExtension: String
     ) -> Bool {
         let durationMissing = !(metadata.duration?.isFinite == true && (metadata.duration ?? 0) > 0)
-        let containerMayNeedMoreHeader = ["m4a", "alac", "mp4", "m4v", "mov"]
+        let containerMayNeedMoreHeader = ["m4a", "m4b", "alac", "mp4", "m4v", "mov"]
             .contains(fileExtension.lowercased())
             && durationMissing
         let hasAnyMetadata = !durationMissing

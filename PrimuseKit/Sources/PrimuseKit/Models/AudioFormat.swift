@@ -121,6 +121,10 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
     public static func from(fileExtension ext: String) -> AudioFormat? {
         switch ext.lowercased() {
         case "asf": return .wma
+        // Audiobook/spoken-word MP4. Same container as `.m4a`, and mapping it
+        // here keeps scan and backfill on one value: the ISO base-media
+        // signature also resolves to `m4a`, so the two can never disagree.
+        case "m4b": return .m4a
         case "oga": return .ogg
         case "wave": return .wav
         case "awb": return .amr

@@ -1532,8 +1532,14 @@ public enum PrimuseConstants {
     /// extracted-from-video files with non-standard atom layout). Audio
     /// MP4 files should use `.m4a`. Including `.mp4` here led to mid-stream
     /// PCM decode errors that auto-skipped 25%+ of cloud-drive scans.
+    ///
+    /// `.m4b` is the same ISO base-media container as `.m4a` — audiobooks and
+    /// spoken-word recordings are simply tagged with it — so it is carried as
+    /// an `AudioFormat.m4a` alias rather than as a format of its own. Every
+    /// decoder, cache-name and metadata-parser decision then keeps using the
+    /// extension that is already proven on all three platforms.
     public static let supportedAudioExtensions: Set<String> = [
-        "mp3", "aac", "m4a", "flac", "wav", "wave", "aiff", "aif", "au", "snd", "caf", "alac",
+        "mp3", "aac", "m4a", "m4b", "flac", "wav", "wave", "aiff", "aif", "au", "snd", "caf", "alac",
         "ape", "dsf", "dff", "ogg", "oga", "opus", "wma", "asf", "wv", "dts", "dtshd", "dts-hd",
         "ac3", "eac3", "ec3", "mlp", "truehd", "thd", "amr", "awb",
         "atrac", "oma", "aa3", "at3", "tak", "tta", "mpc", "mpp", "shn", "speex", "spx", "qoa"
